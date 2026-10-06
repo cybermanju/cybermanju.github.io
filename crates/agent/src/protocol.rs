@@ -637,12 +637,13 @@ mod tests {
         assert_eq!(first["function"]["name"], "read");
         // The prompt-advertised `question` tool must be in the schema —
         // schema-driven providers cannot call a tool they were never shown.
-        assert!(tools.iter().any(|t| t["function"]["name"] == "question"));
+        let arr = tools.as_array().expect("openai_tools is an array");
+        assert!(arr.iter().any(|t| t["function"]["name"] == "question"));
         // Same for the semantic-memory tools (recall/remember).
-        assert!(tools
+        assert!(arr
             .iter()
             .any(|t| t["function"]["name"] == "memory_recall"));
-        assert!(tools
+        assert!(arr
             .iter()
             .any(|t| t["function"]["name"] == "memory_remember"));
         let anthropic = anthropic_tools();

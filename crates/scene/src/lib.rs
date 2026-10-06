@@ -134,7 +134,7 @@ fn keyword_signal(keyword: &str, tokens: &[String], hay: &str) -> f32 {
         return if hay.contains(keyword) { S_EXACT } else { 0.0 };
     }
     let kw_chars = keyword.chars().count();
-    let mut best = 0.0;
+    let mut best: f32 = 0.0;
     for t in tokens {
         if t == keyword {
             return S_EXACT;

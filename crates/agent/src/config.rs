@@ -537,7 +537,7 @@ mod strip_tests {
             PermissionRule::Simple(PermissionAction::Allow),
         );
         let mut body = openai_body(&["read", "bash", "edit"]);
-        let removed = strip_denied_tools(&body, &rules, AgentKind::Build);
+        let removed = strip_denied_tools(&mut body, &rules, AgentKind::Build);
         assert_eq!(removed, 2);
         let tools = body["tools"].as_array().expect("tools remain");
         assert_eq!(tools.len(), 1);
@@ -552,7 +552,7 @@ mod strip_tests {
             rules: BTreeMap::new(),
         };
         let mut body = openai_body(&["bash"]);
-        let removed = strip_denied_tools(&body, &rules, AgentKind::Build);
+        let removed = strip_denied_tools(&mut body, &rules, AgentKind::Build);
         assert_eq!(removed, 1);
         assert!(body.get("tools").is_none());
         assert!(body.get("tool_choice").is_none());
@@ -574,7 +574,7 @@ mod strip_tests {
         };
         assert!(!is_tool_denied_everywhere(&rules, AgentKind::Build, "bash"));
         let mut body = openai_body(&["bash", "read"]);
-        assert_eq!(strip_denied_tools(&body, &rules, AgentKind::Build), 0);
+        assert_eq!(strip_denied_tools(&mut body, &rules, AgentKind::Build), 0);
         assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(2));
     }
 
@@ -590,7 +590,7 @@ mod strip_tests {
             .collect(),
         };
         let mut body = openai_body(&["bash", "read"]);
-        assert_eq!(strip_denied_tools(&body, &rules, AgentKind::Build), 1);
+        assert_eq!(strip_denied_tools(&mut body, &rules, AgentKind::Build), 1);
         assert_eq!(body["tools"][0]["function"]["name"], "read");
     }
 
@@ -605,7 +605,7 @@ mod strip_tests {
             PermissionRule::Simple(PermissionAction::Allow),
         );
         let mut body = openai_body(&["read", "edit", "bash", "write"]);
-        let removed = strip_denied_tools(&body, &rules, AgentKind::Plan);
+        let removed = strip_denied_tools(&mut body, &rules, AgentKind::Plan);
         assert_eq!(removed, 3);
         let tools = body["tools"].as_array().expect("read remains");
         assert_eq!(tools.len(), 1);
@@ -622,7 +622,7 @@ mod strip_tests {
                 { "name": "mcp__fs__read" },
             ],
         });
-        assert_eq!(strip_denied_tools(&body, &rules, AgentKind::Build), 1);
+        assert_eq!(strip_denied_tools(&mut body, &rules, AgentKind::Build), 1);
         assert_eq!(body["tools"][0]["name"], "read");
     }
 
@@ -630,12 +630,12 @@ mod strip_tests {
     fn missing_or_unnameable_tools_are_left_alone() {
         let rules = deny_ruleset(&["bash"]);
         let mut body = serde_json::json!({ "model": "m" });
-        assert_eq!(strip_denied_tools(&body, &rules, AgentKind::Build), 0);
+        assert_eq!(strip_denied_tools(&mut body, &rules, AgentKind::Build), 0);
         let mut odd = serde_json::json!({
             "model": "m",
             "tools": [{ "type": "function" }],
         });
-        assert_eq!(strip_denied_tools(&odd, &rules, AgentKind::Build), 0);
+        assert_eq!(strip_denied_tools(&mut odd, &rules, AgentKind::Build), 0);
         assert_eq!(odd["tools"].as_array().map(|a| a.len()), Some(1));
     }
 }
