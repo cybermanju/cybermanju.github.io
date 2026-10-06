@@ -23,7 +23,7 @@ pub fn apply_edit(
         // Prefix-accept: both tools print the full hex, but a model echoing a
         // short prefix must still get a real race check (64+ bits) instead of
         // a permanent `integrity:` blocker.
-        if !actual.starts_with(&anchor) {
+        if !actual.starts_with(anchor.as_str()) {
             return Err(format!(
                 "integrity: file changed since anchor (expected {anchor}, got {actual}) — re-read and retry"
             ));
