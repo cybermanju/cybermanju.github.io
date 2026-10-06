@@ -70,6 +70,46 @@ open_code=Ctrl+Shift+K
 open_settings=Ctrl+,
 open_storage=Ctrl+Shift+S
 open_favorites=Ctrl+Shift+F
+open_terminal=Ctrl+`
+open_editor=Ctrl+E
+open_agent=Ctrl+G
+
+# ── Window management ──────────────────────────────────────────
+# Primary bindings are Tauri-first. In a browser (WASM/Pages) Ctrl+T,
+# Ctrl+W and Ctrl+Tab are owned by the browser chrome and can NEVER be
+# intercepted (preventDefault is ignored) — the shell auto-registers the
+# Alt+ fallback next to each of them, so Alt+T / Alt+W / Alt+[ always work.
+[Windows]
+close_window=Alt+W
+close_window_alt=Ctrl+W
+minimize_window=Alt+M
+maximize_toggle=Alt+F
+focus_window=Alt+Tab
+focus_next=Alt+]
+focus_prev=Alt+[
+focus_next_alt=Ctrl+Tab
+focus_prev_alt=Ctrl+Shift+Tab
+tile_left=Alt+Left
+tile_right=Alt+Right
+tile_top=Alt+Up
+tile_bottom=Alt+Down
+cascade_windows=Alt+C
+autotile_toggle=Alt+T
+autotile_toggle_alt=Ctrl+T
+
+[Workspace]
+strip_left=Ctrl+Alt+Left
+strip_right=Ctrl+Alt+Right
+strip_up=Ctrl+Alt+Up
+strip_down=Ctrl+Alt+Down
+overview_toggle=Alt+O
+layout_floating=Alt+1
+layout_tiled=Alt+2
+layout_strip=Alt+3
+layout_overview=Alt+4
+strip_direction=Alt+D
+close_all_windows=Alt+Shift+W
+minimize_all=Alt+Shift+M
 
 [Touch]
 swipe_threshold=50

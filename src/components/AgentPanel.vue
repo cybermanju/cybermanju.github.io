@@ -515,6 +515,7 @@
         />
       </div>
       <div class="w-actions">
+        <UiButton v-if="voice.isSupported.value" size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : 'Dictate prompt (say “new line”, “comma”, “question mark”)'" @click="toggleVoice">{{ voice.listening.value ? 'STOP' : 'MIC' }}</UiButton>
         <UiButton size="sm" variant="primary" :disabled="!canSend" @click="sendPrompt">{{ jobActive ? 'QUEUE' : 'SEND' }}</UiButton>
         <UiButton v-if="jobActive" size="sm" variant="danger" @click="abortJob">ABORT</UiButton>
       </div>
@@ -563,6 +564,7 @@ import {
   toolPermissions,
 } from '@/utils/agentUi'
 import { renderMarkdown } from '@/utils/markdown'
+import { useVoiceInput } from '@/composables/useVoiceInput'
 import { diffBlocks, editBlocksOf } from '@/utils/agentDiff'
 import type { AgentConfig, AgentJob, AgentSession, ProviderPreset } from '@/types'
 
@@ -621,6 +623,18 @@ const form = reactive({
 
 const chatConfigId = ref('')
 const promptInput = ref('')
+
+/* ── voice dictation (prose mode: punctuation words → marks) ── */
+const voice = useVoiceInput('prose')
+let stopVoice: (() => void) | null = null
+function toggleVoice() {
+  if (voice.listening.value) {
+    stopVoice?.()
+    stopVoice = null
+    return
+  }
+  stopVoice = voice.dictateInto(promptInput)
+}
 const answerInput = ref('')
 const denyReason = ref('')
 const importEl = ref<HTMLInputElement | null>(null)
@@ -1634,6 +1648,7 @@ watch(jobActive, active => {
 })
 
 onBeforeUnmount(() => {
+  stopVoice?.()
   if (tickTimer) window.clearInterval(tickTimer)
   if (liveTimer) window.clearInterval(liveTimer)
 })

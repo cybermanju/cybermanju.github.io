@@ -9,7 +9,7 @@
 
 import { computed, ref, watch, type Ref } from 'vue'
 import { useSpeechRecognition } from '@vueuse/core'
-import { correctShellLine, normalizeSpoken, type VoiceMode } from './speechCorrect'
+import { correctShellLine, normalizeSpoken, type VoiceMode } from '../utils/speechCorrect'
 
 export type { VoiceMode }
 

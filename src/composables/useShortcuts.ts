@@ -1,11 +1,22 @@
-import { onMounted, onUnmounted, watch, type Ref } from 'vue'
+import { onMounted, watch, computed, type Ref } from 'vue'
+import { useEventListener } from '@vueuse/core'
 import { isEditableTarget } from '@/utils/dom'
 
-export type ShortcutGroup = 'Global Shortcuts' | 'Navigation' | 'File Operations' | 'View' | 'Panels' | 'Touchpad'
+export type ShortcutGroup =
+  | 'Global Shortcuts'
+  | 'Navigation'
+  | 'File Operations'
+  | 'View'
+  | 'Panels'
+  | 'Windows'
+  | 'Workspace'
+  | 'Touchpad'
+  | 'Touch'
 
 export interface KplData {
   global: { name: string; version: string; description: string }
   shortcuts: Record<string, string>
+  groups: Record<string, string>
 }
 
 export interface KpdData {
@@ -18,6 +29,12 @@ export interface KpdData {
 export interface ShortcutEntry {
   action: string
   keys: string
+  /** Primary (.kpl) binding. */
+  primary: string
+  /** Browser-safe fallback (Alt+…) — empty when not needed. */
+  fallback: string
+  /** True when the primary can never fire in a browser tab. */
+  blockedInBrowser: boolean
   group: ShortcutGroup
   description: string
 }
@@ -76,29 +93,106 @@ function sequencesMatch(pressed: string, binding: string): boolean {
   return normalize(pressed) === normalize(binding)
 }
 
+/** True when running inside a real browser tab (WASM/Pages/web), not Tauri. */
+export function isBrowserShell(): boolean {
+  if (typeof window === 'undefined') return false
+  return !('__TAURI__' in window)
+}
+
+/**
+ * Bindings the browser owns: the tab handles them before page JS runs, so
+ * `preventDefault()` is silently ignored. These can NEVER work in WASM —
+ * the shell must offer an Alt+ fallback instead.
+ */
+export const BROWSER_RESERVED = new Set(
+  ['ctrl+t', 'ctrl+w', 'ctrl+n', 'ctrl+tab', 'ctrl+shift+tab'].map((s) =>
+    s.replace(/\s+/g, '').toLowerCase(),
+  ),
+)
+
+export function isReservedInBrowser(binding: string): boolean {
+  const norm = binding.replace(/\s+/g, '').toLowerCase()
+  if (BROWSER_RESERVED.has(norm)) return true
+  // Ctrl+Tab chords contain a reserved step.
+  return norm.split(',').some((step) => BROWSER_RESERVED.has(step.trim()))
+}
+
+/**
+ * Browser-safe fallbacks for reserved primaries. Anything not listed here
+ * falls back automatically: leading `Ctrl` → `Alt` (and `Ctrl+Shift` →
+ * `Alt+Shift`), which the browser always delivers to the page.
+ */
+export const BROWSER_FALLBACKS: Record<string, string> = {
+  open_trash: 'Alt+T',
+  autotile_toggle: 'Alt+T',
+  close_window: 'Alt+W',
+  close_window_alt: 'Alt+W',
+  focus_next: 'Alt+]',
+  focus_prev: 'Alt+[',
+  focus_next_alt: 'Alt+]',
+  focus_prev_alt: 'Alt+[',
+}
+
+function autoFallback(binding: string): string {
+  return binding
+    .replace(/\bCtrl\+Shift\b/gi, 'Alt+Shift')
+    .replace(/\bCtrl\b/gi, 'Alt')
+}
+
+export function fallbackFor(action: string, primary: string): string {
+  if (!isReservedInBrowser(primary)) return ''
+  return BROWSER_FALLBACKS[action] || autoFallback(primary)
+}
+
+function prettyAction(action: string): string {
+  return action.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 export function useShortcuts(
   kplSource: string | (() => Promise<string>),
   kpdSource: string | (() => Promise<string>),
   scopeRef?: Ref<HTMLElement | null>,
-  overrides?: Ref<Record<string, string>>
+  overrides?: Ref<Record<string, string>>,
 ) {
   const handlers = new Map<string, ShortcutHandler[]>()
   const chord: ChordState = { buffer: [], timeout: null }
-  let kpl: KplData = { global: { name: '', version: '', description: '' }, shortcuts: {} }
+  let kpl: KplData = {
+    global: { name: '', version: '', description: '' },
+    shortcuts: {},
+    groups: {},
+  }
   let kpd: KpdData = { modifiers: {}, components: {}, contextActions: {}, touchpadGestures: {} }
-  let activeBindings = new Map<string, string>()
+  /** action → primary binding */
+  const activeBindings = new Map<string, string>()
+  /** action → fallback binding (browser-safe alternative) */
+  const fallbackBindings = new Map<string, string>()
   let paused = false
+  let loaded = false
+
+  const inBrowser = computed(() => isBrowserShell())
 
   async function load() {
     const kplText = typeof kplSource === 'string' ? kplSource : await kplSource()
     const kpdText = typeof kpdSource === 'string' ? kpdSource : await kpdSource()
     const kplRaw = parseIni(kplText)
     const kpdRaw = parseIni(kpdText)
+    const shortcuts: Record<string, string> = {}
+    const groups: Record<string, string> = {}
+    for (const [group, vals] of Object.entries(kplRaw)) {
+      if (group === 'Global' || group === '__root__') continue
+      for (const [action, keys] of Object.entries(vals)) {
+        shortcuts[action] = keys
+        groups[action] = group
+      }
+    }
     kpl = {
-      global: { name: kplRaw.Global?.name || '', version: kplRaw.Global?.version || '', description: kplRaw.Global?.description || '' },
-      shortcuts: Object.fromEntries(
-        Object.entries(kplRaw).filter(([g]) => g !== 'Global').flatMap(([, vals]) => Object.entries(vals))
-      ),
+      global: {
+        name: kplRaw.Global?.name || '',
+        version: kplRaw.Global?.version || '',
+        description: kplRaw.Global?.description || '',
+      },
+      shortcuts,
+      groups,
     }
     kpd = {
       modifiers: kpdRaw.Modifiers || {},
@@ -107,10 +201,12 @@ export function useShortcuts(
       touchpadGestures: kpdRaw.TouchpadGestures || {},
     }
     buildBindings()
+    loaded = true
   }
 
   function buildBindings() {
     activeBindings.clear()
+    fallbackBindings.clear()
     const merged = { ...kpl.shortcuts }
     if (overrides?.value) {
       for (const [action, keys] of Object.entries(overrides.value)) {
@@ -118,12 +214,21 @@ export function useShortcuts(
       }
     }
     for (const [action, keys] of Object.entries(merged)) {
-      activeBindings.set(action, normalizeKeys(keys, kpd.modifiers))
+      const primary = normalizeKeys(keys, kpd.modifiers)
+      activeBindings.set(action, primary)
+      const fb = fallbackFor(action, primary)
+      if (fb && sequencesMatch(fb, primary) === false) fallbackBindings.set(action, fb)
     }
   }
 
   if (overrides) {
-    watch(overrides, () => { buildBindings() }, { deep: true })
+    watch(
+      overrides,
+      () => {
+        buildBindings()
+      },
+      { deep: true },
+    )
   }
 
   function on(action: string, handler: ShortcutHandler) {
@@ -148,6 +253,8 @@ export function useShortcuts(
 
   function handleKey(e: KeyboardEvent) {
     if (paused) return
+    // Ctrl/Cmd combos must still work inside inputs (they are app commands,
+    // not text); plain typing must never trigger single-key shortcuts.
     if (!e.ctrlKey && !e.metaKey && isEditableTarget(e.target)) return
     const seq = keyEventToSequence(e)
     if (chord.timeout) {
@@ -155,11 +262,16 @@ export function useShortcuts(
       chord.timeout = null
     }
     const fullChord = [...chord.buffer, seq].join(', ')
-    for (const [action, binding] of activeBindings) {
+    const candidates: Array<[string, string]> = []
+    for (const [action, binding] of activeBindings) candidates.push([action, binding])
+    for (const [action, fb] of fallbackBindings) candidates.push([action, fb])
+    for (const [action, binding] of candidates) {
       if (sequencesMatch(seq, binding)) {
         if (binding.includes(',')) {
           chord.buffer.push(seq)
-          chord.timeout = window.setTimeout(() => { chord.buffer = [] }, 1000)
+          chord.timeout = window.setTimeout(() => {
+            chord.buffer = []
+          }, 1000)
           return
         }
         fire(action, e)
@@ -176,54 +288,88 @@ export function useShortcuts(
 
   function fire(action: string, e: KeyboardEvent) {
     const arr = handlers.get(action)
-    if (arr) {
+    if (arr && arr.length > 0) {
+      // For reserved browser combos this is a no-op (the browser already
+      // stole the key) — the Alt+ fallback registered beside it is what
+      // actually fires in WASM. Still call it: harmless in Tauri.
       e.preventDefault()
       e.stopPropagation()
-      for (const h of arr) h()
+      for (const h of [...arr]) h()
     }
   }
 
+  // VueUse-managed listener: auto-cleaned on unmount, capture phase so app
+  // shortcuts win over nested panel handlers (code editor, file grid).
+  useEventListener(document, 'keydown', handleKey as EventListener, { capture: true })
+
   onMounted(() => {
-    load()
-    const el = scopeRef?.value || document
-    el.addEventListener('keydown', handleKey as EventListener)
+    void load()
   })
 
-  onUnmounted(() => {
-    const el = scopeRef?.value || document
-    el.removeEventListener('keydown', handleKey as EventListener)
-    if (chord.timeout) clearTimeout(chord.timeout)
-  })
+  function pause() {
+    paused = true
+  }
+  function resume() {
+    paused = false
+  }
 
-  function pause() { paused = true }
-  function resume() { paused = false }
-
+  /** Transport-aware display binding: fallback in browsers when blocked. */
   function getShortcut(action: string): string {
+    const primary = activeBindings.get(action) || ''
+    const fb = fallbackBindings.get(action) || ''
+    if (inBrowser.value && fb && isReservedInBrowser(primary)) return fb
+    return primary
+  }
+
+  function getPrimary(action: string): string {
     return activeBindings.get(action) || ''
+  }
+
+  function getFallback(action: string): string {
+    return fallbackBindings.get(action) || ''
+  }
+
+  function isBlocked(action: string): boolean {
+    const primary = activeBindings.get(action) || ''
+    return inBrowser.value && !!fallbackBindings.get(action) && isReservedInBrowser(primary)
   }
 
   function getAllShortcuts(): ShortcutEntry[] {
     const entries: ShortcutEntry[] = []
-    for (const [action, keys] of activeBindings) {
-      let group: ShortcutGroup = 'Global Shortcuts'
-      for (const [g, content] of Object.entries(parseIni(''))) {
-        if (Object.keys(content).includes(action)) group = g as ShortcutGroup
-      }
-      entries.push({ action, keys: keys.replace(/,/g, ', '), group, description: action.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) })
+    for (const [action, primary] of activeBindings) {
+      const rawGroup = kpl.groups[action] || 'Global Shortcuts'
+      const group = (
+        ['Global Shortcuts', 'Navigation', 'File Operations', 'View', 'Panels', 'Windows', 'Workspace', 'Touchpad', 'Touch'].includes(
+          rawGroup,
+        )
+          ? rawGroup
+          : 'Global Shortcuts'
+      ) as ShortcutGroup
+      const fb = fallbackBindings.get(action) || ''
+      const blocked = isReservedInBrowser(primary) && !!fb
+      entries.push({
+        action,
+        keys: inBrowser.value && blocked && fb ? fb : primary.replace(/,/g, ', '),
+        primary: primary.replace(/,/g, ', '),
+        fallback: fb,
+        blockedInBrowser: blocked,
+        group,
+        description: prettyAction(action),
+      })
     }
-    return entries
+    return entries.sort((a, b) => a.description.localeCompare(b.description))
   }
 
   function getComponentActions(componentId: string): string[] {
     const raw = kpd.components[componentId]
     if (!raw) return []
-    return raw.split(',').map(s => s.trim())
+    return raw.split(',').map((s) => s.trim())
   }
 
   function getContextActions(fileType: string): string[] {
     const raw = kpd.contextActions[fileType]
-    if (!raw) return kpd.contextActions.file?.split(',').map(s => s.trim()) || []
-    return raw.split(',').map(s => s.trim())
+    if (!raw) return kpd.contextActions.file?.split(',').map((s) => s.trim()) || []
+    return raw.split(',').map((s) => s.trim())
   }
 
   function getTouchpadGesture(gesture: string): string {
@@ -241,12 +387,19 @@ export function useShortcuts(
     pause,
     resume,
     getShortcut,
+    getPrimary,
+    getFallback,
+    isBlocked,
+    isReservedInBrowser,
     getAllShortcuts,
     getComponentActions,
     getContextActions,
     getTouchpadGesture,
     getModifier,
     activeBindings,
+    fallbackBindings,
+    inBrowser,
+    isLoaded: () => loaded,
     kpl,
     kpd,
   }

@@ -1,4 +1,5 @@
 import { ref, computed, markRaw, defineAsyncComponent, type Component } from 'vue'
+import { useLocalStorage } from '@vueuse/core'
 import type { PanelType } from '@/types'
 import { MODULE_METADATA } from '@/types'
 import FileManager from '@/components/FileManager.vue'
@@ -53,7 +54,21 @@ export interface WindowState {
   zIndex: number
   component: Component | null
   props?: Record<string, unknown>
+  /** Niri-style strip column index (order on the infinite strip). */
+  column?: number
+  /** Niri-style line/row index (vertical workspace line on the strip). */
+  line?: number
 }
+
+export type ShellLayoutMode = 'floating' | 'tiled' | 'strip' | 'overview'
+/**
+ * Niri/Noctalia-inspired strip axis:
+ * - `horizontal`: one infinite screen scrolling left ↔ right, lines stack
+ *   top ↔ bottom (separate vertical workspace lines).
+ * - `vertical`: one infinite screen scrolling top ↔ bottom, lines run
+ *   left ↔ right.
+ */
+export type StripDirection = 'horizontal' | 'vertical'
 
 type SizeMap = { [K in PanelType]?: { width: number; height: number } } & {
   permissions?: { width: number; height: number }
@@ -132,9 +147,37 @@ const windows = ref<WindowState[]>([])
 const nextZIndex = ref(10)
 const windowFocusHistory = ref<string[]>([])
 
+// ── Shell layout (VueUse-persisted) ────────────────────────────
+// `floating`: classic free windows. `tiled`: auto-grid. `strip`: niri-like
+// infinite strip (new windows append right, never resize existing ones —
+// the viewport scrolls). `overview`: zoomed-out grid to pick a window.
+export const shellLayoutMode = useLocalStorage<ShellLayoutMode>(
+  'cybermanju_shell_layout',
+  'floating',
+)
+export const shellStripDirection = useLocalStorage<StripDirection>(
+  'cybermanju_shell_strip_dir',
+  'horizontal',
+)
+export const shellAutoTile = useLocalStorage<boolean>(
+  'cybermanju_shell_autotile',
+  false,
+)
+/** Niri-style viewport: first visible column (horizontal) or line (vertical). */
+export const stripOffset = ref(0)
+/** Niri-style vertical line selector (which "row" of the strip is live). */
+export const stripLine = ref(0)
+
 function cascadePosition(index: number): { x: number; y: number } {
   const offset = 30 + (index % 10) * 28
   return { x: offset, y: offset }
+}
+
+function workspaceSize(): { w: number; h: number } {
+  if (typeof window === 'undefined') return { w: 1280, h: 800 }
+  const el = document.querySelector('.desktop-workspace') as HTMLElement | null
+  if (el && el.clientWidth > 0) return { w: el.clientWidth, h: el.clientHeight }
+  return { w: window.innerWidth, h: Math.max(400, window.innerHeight - 120) }
 }
 
 export function useWindowManager() {
@@ -143,6 +186,18 @@ export function useWindowManager() {
     const id = windowFocusHistory.value[windowFocusHistory.value.length - 1]
     return windows.value.find(w => w.id === id) || null
   })
+
+  /** Windows on the live strip line, in column order (niri strip). */
+  const stripWindows = computed(() =>
+    windows.value
+      .filter(w => !w.minimized && (w.line ?? 0) === stripLine.value)
+      .sort((a, b) => (a.column ?? 0) - (b.column ?? 0)),
+  )
+
+  function nextColumn(): number {
+    const cols = windows.value.map(w => w.column ?? 0)
+    return cols.length === 0 ? 0 : Math.max(...cols) + 1
+  }
 
   function open(panelType: PanelType, props?: Record<string, unknown>) {
     const existing = windows.value.find(
@@ -177,16 +232,27 @@ export function useWindowManager() {
       zIndex: nextZIndex.value++,
       component: comp,
       props: resolvedProps,
+      column: nextColumn(),
+      line: stripLine.value,
     }
     windows.value.push(win)
     windowFocusHistory.value = windowFocusHistory.value.filter(w => w !== id)
     windowFocusHistory.value.push(id)
+    if (shellAutoTile.value && shellLayoutMode.value === 'floating') {
+      tileWindows()
+    }
+    // Niri rule: a new window never resizes existing ones — the strip
+    // viewport follows it instead.
+    if (shellLayoutMode.value === 'strip') {
+      stripOffset.value = Math.max(0, stripWindows.value.length - 1)
+    }
     return id
   }
 
   function close(id: string) {
     windows.value = windows.value.filter(w => w.id !== id)
     windowFocusHistory.value = windowFocusHistory.value.filter(w => w !== id)
+    resequenceColumns()
   }
 
   function minimize(id: string) {
@@ -211,6 +277,10 @@ export function useWindowManager() {
       win.zIndex = nextZIndex.value++
       windowFocusHistory.value = windowFocusHistory.value.filter(w => w !== id)
       windowFocusHistory.value.push(id)
+      if (shellLayoutMode.value === 'strip') {
+        const idx = stripWindows.value.findIndex(w => w.id === id)
+        if (idx >= 0) stripOffset.value = idx
+      }
     }
   }
 
@@ -236,6 +306,7 @@ export function useWindowManager() {
   function closeAll() {
     windows.value = []
     windowFocusHistory.value = []
+    stripOffset.value = 0
   }
 
   function minimizeAll() {
@@ -259,6 +330,139 @@ export function useWindowManager() {
     }
   }
 
+  // ── Focus movement ──────────────────────────────────────────
+  function focusByOffset(delta: number) {
+    const list = shellLayoutMode.value === 'strip'
+      ? stripWindows.value
+      : windows.value.filter(w => !w.minimized)
+    if (list.length === 0) return
+    const activeId = activeWindow.value?.id
+    const idx = list.findIndex(w => w.id === activeId)
+    const next = list[(idx < 0 ? (delta > 0 ? -1 : 0) : idx + delta + list.length) % list.length]
+    if (next) focus(next.id)
+  }
+  function focusNext() { focusByOffset(1) }
+  function focusPrev() { focusByOffset(-1) }
+
+  function closeFocused() {
+    const a = activeWindow.value
+    if (a) close(a.id)
+  }
+  function minimizeFocused() {
+    const a = activeWindow.value
+    if (a) minimize(a.id)
+  }
+
+  // ── Auto-organization ───────────────────────────────────────
+  /** Grid-tile every visible window into the workspace (classic autotile). */
+  function tileWindows() {
+    const list = windows.value.filter(w => !w.minimized)
+    if (list.length === 0) return
+    const { w, h } = workspaceSize()
+    const cols = Math.ceil(Math.sqrt(list.length))
+    const rows = Math.ceil(list.length / cols)
+    const gap = 10
+    const cw = Math.floor((w - gap * (cols + 1)) / cols)
+    const ch = Math.floor((h - gap * (rows + 1)) / rows)
+    list.forEach((win, i) => {
+      const c = i % cols
+      const r = Math.floor(i / cols)
+      win.x = gap + c * (cw + gap)
+      win.y = gap + r * (ch + gap)
+      win.width = Math.max(320, cw)
+      win.height = Math.max(240, ch)
+      win.zIndex = 10 + i
+    })
+    nextZIndex.value = 10 + list.length
+  }
+
+  /** Cascade from top-left (classic floating cleanup). */
+  function cascadeWindows() {
+    const list = windows.value.filter(w => !w.minimized)
+    list.forEach((win, i) => {
+      const p = cascadePosition(i)
+      win.x = p.x
+      win.y = p.y
+      win.zIndex = 10 + i
+    })
+    nextZIndex.value = 10 + list.length
+  }
+
+  function resequenceColumns() {
+    const lines = new Map<number, WindowState[]>()
+    for (const w of windows.value) {
+      const line = w.line ?? 0
+      if (!lines.has(line)) lines.set(line, [])
+      lines.get(line)!.push(w)
+    }
+    for (const group of lines.values()) {
+      group.sort((a, b) => (a.column ?? 0) - (b.column ?? 0))
+      group.forEach((w, i) => { w.column = i })
+    }
+  }
+
+  // ── Niri-style strip viewport ───────────────────────────────
+  /** Scroll the infinite strip by `delta` columns/lines. */
+  function scrollStrip(delta: number) {
+    const n = stripWindows.value.length
+    if (n === 0) return
+    const max = Math.max(0, n - 1)
+    stripOffset.value = Math.min(max, Math.max(0, stripOffset.value + delta))
+    const target = stripWindows.value[stripOffset.value]
+    if (target) focus(target.id)
+  }
+  function stripLeft() { scrollStrip(-1) }
+  function stripRight() { scrollStrip(1) }
+  /** Move between vertical lines (workspaces) on the strip. */
+  function stripLineMove(delta: number) {
+    const lines = [...new Set(windows.value.map(w => w.line ?? 0))].sort((a, b) => a - b)
+    if (lines.length === 0) {
+      stripLine.value = Math.max(0, stripLine.value + delta)
+      stripOffset.value = 0
+      return
+    }
+    let idx = lines.indexOf(stripLine.value)
+    if (idx === -1) idx = 0
+    const nextIdx = Math.min(lines.length - 1, Math.max(0, idx + delta))
+    stripLine.value = lines[nextIdx] ?? 0
+    stripOffset.value = 0
+  }
+  function moveFocusedOnStrip(delta: number) {
+    const a = activeWindow.value
+    if (!a) return
+    a.column = (a.column ?? 0) + delta
+    resequenceColumns()
+  }
+  function moveFocusedToLine(delta: number) {
+    const a = activeWindow.value
+    if (!a) return
+    a.line = Math.max(0, (a.line ?? 0) + delta)
+    resequenceColumns()
+  }
+
+  // ── Layout mode ─────────────────────────────────────────────
+  function setLayoutMode(mode: ShellLayoutMode) {
+    shellLayoutMode.value = mode
+    if (mode === 'tiled') tileWindows()
+    if (mode === 'floating') cascadeWindows()
+    if (mode === 'strip') {
+      resequenceColumns()
+      stripOffset.value = Math.max(0, stripWindows.value.length - 1)
+    }
+  }
+  function cycleLayout() {
+    const order: ShellLayoutMode[] = ['floating', 'tiled', 'strip', 'overview']
+    const next = order[(order.indexOf(shellLayoutMode.value) + 1) % order.length]
+    setLayoutMode(next)
+  }
+  function toggleAutoTile() {
+    shellAutoTile.value = !shellAutoTile.value
+    if (shellAutoTile.value) tileWindows()
+  }
+  function toggleStripDirection() {
+    shellStripDirection.value = shellStripDirection.value === 'horizontal' ? 'vertical' : 'horizontal'
+  }
+
   const openWindowCount = computed(() =>
     windows.value.filter(w => !w.minimized).length
   )
@@ -270,6 +474,12 @@ export function useWindowManager() {
     windows,
     activeWindow,
     nextZIndex,
+    stripWindows,
+    shellLayoutMode,
+    shellStripDirection,
+    shellAutoTile,
+    stripOffset,
+    stripLine,
     open,
     close,
     minimize,
@@ -284,6 +494,25 @@ export function useWindowManager() {
     openWindowCount,
     isOpen,
     inlinePanels,
+    // organization
+    tileWindows,
+    cascadeWindows,
+    focusNext,
+    focusPrev,
+    focusByOffset,
+    closeFocused,
+    minimizeFocused,
+    // niri strip
+    scrollStrip,
+    stripLeft,
+    stripRight,
+    stripLineMove,
+    moveFocusedOnStrip,
+    moveFocusedToLine,
+    setLayoutMode,
+    cycleLayout,
+    toggleAutoTile,
+    toggleStripDirection,
   }
 }
 

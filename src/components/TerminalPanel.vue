@@ -4,8 +4,10 @@ import AppIcon from '@/components/AppIcon.vue'
 //
 // Transport-agnostic: everything goes through the store, which calls
 // `invoke()` — so the same panel runs in tauri, rest and wasm builds.
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useVoiceInput } from '@/composables/useVoiceInput'
+import { correctShellLine } from '@/utils/speechCorrect'
 
 interface Line {
   id: number
@@ -134,6 +136,16 @@ async function complete() {
   }
 }
 
+async function execAndRender(cmd: string) {
+  push('in', `${PROMPT}${cmd}`)
+  const result = await store.execShellLine(cmd)
+  for (const chunk of result.output.split('\n')) {
+    push(result.ok ? 'out' : 'err', chunk)
+  }
+  if (!result.ok && result.output === '') push('err', 'command failed')
+  return result
+}
+
 async function submit() {
   const line = input.value
   input.value = ''
@@ -145,12 +157,23 @@ async function submit() {
   }
   if (history.value[history.value.length - 1] !== line) history.value.push(line)
   if (history.value.length > 500) history.value.splice(0, history.value.length - 500)
-  push('in', `${PROMPT}${line}`)
-  const result = await store.execShellLine(line)
-  for (const chunk of result.output.split('\n')) {
-    push(result.ok ? 'out' : 'err', chunk)
+  // Client-side dictionary fallback: repair the verb/subcommand before the
+  // server ever sees it (`lss→ls`, `disk lis→list`, spoken `see dee→cd`).
+  const fix = correctShellLine(line)
+  if (fix.fixed) push('sys', `auto-fix: ${fix.fixes.join(', ')}`)
+  const effective = fix.line || line
+  const result = await execAndRender(effective)
+  // Server still confused but names a neighbour? Apply its did-you-mean once
+  // instead of making the user retype.
+  if (!result.ok && !fix.fixed) {
+    const m = /did you mean '([^']+)'/.exec(result.output)
+    if (m) {
+      const parts = effective.split(' ')
+      parts[0] = m[1]
+      push('sys', `retrying as '${parts.join(' ')}'`)
+      await execAndRender(parts.join(' '))
+    }
   }
-  if (!result.ok && result.output === '') push('err', 'command failed')
   input.value = ''
   void scrollToBottom()
 }
@@ -213,6 +236,23 @@ function focusInput() {
   inputEl.value?.focus()
 }
 
+/* ── voice input (shell mode: verbs + symbols, corrected on insert) ── */
+const voice = useVoiceInput('shell')
+let stopVoice: (() => void) | null = null
+function toggleVoice() {
+  if (voice.listening.value) {
+    stopVoice?.()
+    stopVoice = null
+    focusInput()
+    return
+  }
+  stopVoice = voice.dictateInto(input)
+}
+
+onBeforeUnmount(() => {
+  stopVoice?.()
+})
+
 onMounted(async () => {
   push('sys', `cybsh — type \`help\` for the command table · TAB completes · ↑/↓ walks history`)
   if (store.osWorkers === null) await store.fetchOsWorkers()
@@ -262,6 +302,13 @@ onMounted(async () => {
         @keydown.enter.prevent="submit"
         @paste="onPaste"
       />
+      <button
+        v-if="voice.isSupported.value"
+        class="ghost-btn"
+        type="button"
+        :title="voice.listening.value ? `Listening… ${voice.interim.value}` : 'Voice command (typos auto-fixed)'"
+        @click="toggleVoice"
+      >{{ voice.listening.value ? 'STOP' : 'MIC' }}</button>
     </div>
   </div>
 </template>

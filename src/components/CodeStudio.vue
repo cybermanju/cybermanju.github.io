@@ -272,6 +272,7 @@
         </div>
         <form class="cs-prompt" @submit.prevent="sendPrompt">
           <textarea ref="promptEl" v-model="promptInput" rows="2" :placeholder="ai.jobActive.value ? 'Running — Ctrl+Enter queues next…' : 'Ask the AI… (Ctrl+Enter sends)'" @keydown.ctrl.enter.exact.prevent="sendPrompt" @keydown.meta.enter.exact.prevent="sendPrompt" />
+          <button v-if="voice.isSupported.value" class="cs-btn xs" :class="{ on: voice.listening.value }" type="button" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : 'Dictate (code mode: say “open paren”, “dot”, “camel case …”)'" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Mic' }}</button>
           <button class="cs-btn xs primary" type="submit" :disabled="!canSend">{{ ai.jobActive.value ? 'Queue' : 'Send' }}</button>
           <button v-if="ai.jobActive.value" class="cs-btn xs danger" type="button" @click="ai.abort()">Stop</button>
         </form>
@@ -291,6 +292,9 @@ import { useWindowManager } from '@/composables/useWindowManager'
 import { useStudioAgent, type FileCtx } from '@/composables/useStudioAgent'
 import { invoke, isTauri, isStaticHost } from '@/composables/useTauri'
 import { escapeHtml, renderMarkdown } from '@/utils/markdown'
+import { checkBrackets, detectLanguage, highlightSyntax } from '@/utils/codeDetect'
+import { correctShellLine } from '@/utils/speechCorrect'
+import { useVoiceInput } from '@/composables/useVoiceInput'
 import { trackShellCwd } from '@/utils/shellCwd'
 import { toolMeta } from '@/utils/agentUi'
 import type { CodeSymbol, FileNode, ParseResult } from '@/types'
@@ -339,10 +343,6 @@ function isEditableNode(n: FileNode): boolean {
   const m = n.mimeType ?? ''
   if (m.startsWith('text/') || m === 'application/json') return true
   return CODE_EXTS.has(extOf(n.name))
-}
-function langOf(name: string): string {
-  const map: Record<string, string> = { rs: 'rust', py: 'python', js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript', go: 'go', sh: 'bash', bash: 'bash', vue: 'vue', json: 'json', md: 'markdown', html: 'html', css: 'css', sql: 'sql', toml: 'toml', yaml: 'yaml' }
-  return map[extOf(name)] ?? (extOf(name) || 'text')
 }
 
 /* ═══════════════ explorer tree (managed) ═══════════════ */
@@ -425,7 +425,7 @@ async function openNode(n: FileNode) {
   if (existing) { activate(key, activeGroup.value); return }
   const res = await store.readManagedContent(n.id)
   if (!res) return
-  tabs.value.push({ key, label: n.name, kind: 'managed', fileId: n.id, path: n.id, language: langOf(n.name), content: res.content, savedContent: res.content, dirty: false, parse: null })
+  tabs.value.push({ key, label: n.name, kind: 'managed', fileId: n.id, path: n.id, language: detectLanguage(n.name, res.content).language, content: res.content, savedContent: res.content, dirty: false, parse: null })
   activate(key, activeGroup.value)
   void reparse(tabs.value[tabs.value.length - 1])
 }
@@ -496,7 +496,7 @@ async function openWasmPath(path: string, label: string) {
   if (existing) { activate(key, activeGroup.value); return }
   const content = await store.readWasmFile(path)
   if (content === null) return
-  tabs.value.push({ key, label, kind: 'wasm', fileId: '', path, language: langOf(label), content, savedContent: content, dirty: false, parse: null })
+  tabs.value.push({ key, label, kind: 'wasm', fileId: '', path, language: detectLanguage(label, content).language, content, savedContent: content, dirty: false, parse: null })
   activate(key, activeGroup.value)
   void reparse(tabs.value[tabs.value.length - 1])
 }
@@ -681,6 +681,11 @@ const problems = computed(() => {
   for (const t of tabs.value) {
     if (t.dirty) out.push({ key: t.key + ':dirty', sev: 'info', text: `Unsaved changes`, where: t.label, tab: t.key, line: 0 })
     if (t.parse && !t.parse.symbols.length && t.content.length > 0) out.push({ key: t.key + ':nosym', sev: 'warn', text: 'No symbols parsed', where: `${t.label} · ${t.parse.engine}`, tab: t.key, line: 0 })
+    if (t.content.length > 0 && t.content.length <= 256 * 1024) {
+      for (const b of checkBrackets(t.content, t.language)) {
+        out.push({ key: `${t.key}:br:${b.line}:${b.message}`, sev: 'warn', text: b.message, where: t.label, tab: t.key, line: b.line })
+      }
+    }
   }
   return out
 })
@@ -705,9 +710,12 @@ function termPush(kind: string, text: string) {
 async function runTerm(line: string) {
   const full = line.trim()
   if (!full) return
-  termPush('in', '❯ ' + full)
-  termCwd.value = trackShellCwd(termCwd.value, full)
-  const res = await store.execShellLine(full)
+  const fix = correctShellLine(full)
+  if (fix.fixed) termPush('out', `auto-fix: ${fix.fixes.join(', ')}`)
+  const effective = fix.line || full
+  termPush('in', '❯ ' + effective)
+  termCwd.value = trackShellCwd(termCwd.value, effective)
+  const res = await store.execShellLine(effective)
   termPush(res.ok ? 'out' : 'err', res.output || (res.ok ? 'ok' : 'failed'))
 }
 function submitTerm() { const v = termInput.value; termInput.value = ''; void runTerm(v) }
@@ -730,6 +738,18 @@ watch(() => ai.configs.value.length, n => {
 })
 
 const canSend = computed(() => promptInput.value.trim() !== '' && ai.chatConfigId.value !== '')
+
+/* ── voice dictation (code mode: symbols + camel/snake phrases) ── */
+const voice = useVoiceInput('code')
+let stopVoice: (() => void) | null = null
+function toggleVoice() {
+  if (voice.listening.value) {
+    stopVoice?.()
+    stopVoice = null
+    return
+  }
+  stopVoice = voice.dictateInto(promptInput)
+}
 function activeFileCtx(): FileCtx[] {
   const tab = focusTab.value
   if (!tab) return []
@@ -896,28 +916,13 @@ const EditorPane = defineComponent({
   },
 })
 
-function highlightSyntax(code: string, _lang: string): string {
-  const esc = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const keywords = new Set(['if','else','for','while','do','switch','case','break','continue','return','function','class','struct','enum','interface','type','var','let','const','import','export','from','def','async','await','try','catch','throw','new','this','super','extends','implements','pub','fn','mut','use','mod','impl','trait','where','package','void','int','float','double','char','bool','string','null','undefined','true','false','static','private','public','protected','readonly','abstract','virtual','override','match','loop','in','of','self','Self'])
-  let out = esc
-    .replace(/(\/\/.*$|\/\*[\s\S]*?\*\/|#.*$|&lt;!--[\s\S]*?--&gt;)/gm, '\x01$1\x02')
-    .replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/g, '\x03$1\x04')
-    .replace(/\b(\d+(?:\.\d+)?)\b/g, '\x05$1\x06')
-    .replace(/\b([a-zA-Z_]\w*)\b/g, m => (keywords.has(m) ? `\x07${m}\x08` : m))
-  return out
-    .replace(/\x01([\s\S]*?)\x02/g, '<span class="sx-c">$1</span>')
-    .replace(/\x03([\s\S]*?)\x04/g, '<span class="sx-s">$1</span>')
-    .replace(/\x05([\s\S]*?)\x06/g, '<span class="sx-n">$1</span>')
-    .replace(/\x07([\s\S]*?)\x08/g, '<span class="sx-k">$1</span>')
-}
-
 const rootRef = ref<HTMLElement | null>(null)
 
 onMounted(() => {
   void refreshExplorer()
   void ai.ensureCatalog()
 })
-onBeforeUnmount(() => { window.clearTimeout(reparseTimer) })
+onBeforeUnmount(() => { window.clearTimeout(reparseTimer); stopVoice?.() })
 </script>
 
 <style scoped>
