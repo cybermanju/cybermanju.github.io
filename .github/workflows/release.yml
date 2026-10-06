@@ -641,30 +641,12 @@ jobs:
             git log --pretty=format:"- %s (%h)" >> release_notes.md
           fi
           
+          # Feature atlas + status live in docs/RELEASE_NOTES.md (single source
+          # shared with the GitLab mirror) — the What's Changed log above stays
+          # generated from git history.
           echo "" >> release_notes.md
           echo "" >> release_notes.md
-          echo "## Features in this release (first publish)" >> release_notes.md
-          echo "" >> release_notes.md
-          echo "**One vault everywhere.** Tauri v2 desktop (1400x900) · Docker/ZimaOS dashboard (:3456) · WASM static build on GitHub Pages. The UI auto-detects its transport (tauri IPC / REST / local WASM) and Settings always shows which one is live." >> release_notes.md
-          echo "" >> release_notes.md
-          echo "- **Post-quantum vault** — ML-KEM-1024 (FIPS 203) · ML-DSA-65 (FIPS 204) · SLH-DSA-128f (FIPS 205) · hybrid ML-KEM+X25519 · ChaCha20Poly1305 AEAD · BLAKE3 integrity · Argon2id hashing." >> release_notes.md
-          echo "- **Triple-layer compression** — LZ4 → Zstandard-15 → Brotli-11 cascade with per-layer stats in every \`.cyb3\` payload." >> release_notes.md
-          echo "- **Search that finds things** — Tantivy BM25 over filename + content + tags (phrases, booleans, wildcards, fuzzy, faceted filters, autocomplete) + scene heuristic (17 categories x 10 languages, receipts on every badge)." >> release_notes.md
-          echo "- **Faces · Map · Code** — 128-dim embedding clustering into person groups (empty, never fabricated, without the ONNX model) · EXIF GPS → MapLibre markers + clustering · tree-sitter for Rust/Python/JS/TS/Go/Bash with heuristic fallback, every parse reports its engine, plus a tabbed editor with version-snapshotted saves." >> release_notes.md
-          echo "- **People & sharing** — RBAC (admin/user/viewer), per-file grants, JWT sessions, collections, loose groups, style tags." >> release_notes.md
-          echo "- **Sync backends** — Local · GitHub · Google Drive · GitLab. Async by design (\`POST /api/sync/start → 202 {jobId}\`, poll for progress), live ETA + cancel, machine-prefix error contract (\`auth:\` … \`conflict:\`)." >> release_notes.md
-          echo "- **OAuth broker** — Supabase (GitHub/Google/GitLab) so static builds sign in and sync without your own server; Settings shows live broker state, Accounts deep-links straight to the broker card." >> release_notes.md
-          echo "- **Native AI agent, zero new runtimes** — pure-Rust core on desktop/server/WASM · 10 provider presets + custom · opencode-style allow/ask/deny permissions (deny wins, 10-min parked asks) · MCP servers · SSE streaming · doom-loop guard · secret redaction · BLAKE3 hash-anchored edits · two-layer memory (transcripts + semantic, Hermes-compatible)." >> release_notes.md
-          echo "- **Decentralized OS layer** — \`cybsh\` shell (same on desktop/web/Pages, JSON mode, pipes, history, completion) · sized \`.cybermanju\` disks merged into one spanned volume · Reed-Solomon durability with scrub → repair, rebuild-from-remote, refcount GC and single-writer leases." >> release_notes.md
-          echo "- **Remade Settings** — section jump chips with scroll spy, keyboard-bindings filter (98 bindings) with live count, gesture matrix that actually saves, inline broker validation." >> release_notes.md
-          echo "" >> release_notes.md
-          echo "## Status & known limits" >> release_notes.md
-          echo "" >> release_notes.md
-          echo "- Android build is **arm64-v8a only**; the APK is release-signed (keystore secrets required in CI)." >> release_notes.md
-          echo "- WASM \`sync\` needs the dashboard; the content API caps at 1 MiB with versioned saves and \`encrypted:\` / \`binary:\` / \`too_large:\` refusals." >> release_notes.md
-          echo "- Faces returns empty without the ONNX model — on purpose, never fabricated." >> release_notes.md
-          echo "- Auth is fail-closed (404-before-401, RBAC, bootstrap-only register, 0600 secrets)." >> release_notes.md
-          echo "- Every artifact below passed the full CI gates: \`cargo fmt --check\` → \`clippy -D warnings\` → \`cargo test --workspace\` · \`vue-tsc\` · \`vitest\` · checksums in \`SHA256SUMS.txt\`." >> release_notes.md
+          cat docs/RELEASE_NOTES.md >> release_notes.md
           echo "" >> release_notes.md
           echo "## Downloads" >> release_notes.md
           echo "" >> release_notes.md

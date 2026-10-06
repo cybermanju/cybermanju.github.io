@@ -359,6 +359,9 @@ npm run build:wasm:frontend   # → dist-wasm/ (Pages deploys on every main push
 ├── scripts/ (check-version · android-signing · os-* ops · generate-icon-set)
 ├── docs/ OPERATIONS · SECURITY · MEMORY · HERMES-INSIGHTS · AGENT-REVIEW · OPENCODE-PORT …
 ├── .github/workflows/ ci.yml (13 jobs) · release.yml (v* → 8 families + GHCR)
+├── .gitlab-ci.yml (GitLab mirror: SaaS-Linux jobs run; windows/macos are
+│   manual + allow_failure until tagged runners exist; release ships produced
+│   families + SHA256SUMS as Generic Packages with a GitLab Release)
 ├── ARCHITECTURE.md · AI.md (agent tracker) · AGENTS.md (agent rules) · worklog.md
 └── aur/PKGBUILD · index.html · vite.config(.wasm).ts · vitest.config.ts
 ```

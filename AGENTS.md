@@ -75,8 +75,9 @@
 - Default branch is `main`. Push with `git push origin main`
   (no `-f` unless explicitly requested).
 - When asked to push: `git add -A` + commit (descriptive message, not bare
-  `update`) + push, then watch CI. `push.sh` (`git add .` + `update` + `-f`)
-  is legacy — do not emulate it.
+  `update`) + push, then watch CI. `push.sh ["message"]` does exactly this for
+  both remotes (`origin` GitHub + `gitlab` mirror): stage all, commit, push
+  main + tags, no force-push.
 - CI skips **pushes that touch only prose** (`**.md`, `docs/**`, `LICENSE`).
   Code pushes run the full ~15 min pipeline; `pull_request` always runs all.
 
@@ -95,7 +96,14 @@ CI jobs (`ci.yml`, concurrency `CI-<ref>`, cancel-in-progress):
 
 Release (`release.yml`, on `v*` tags): same gates + Docker→GHCR +
 `create-release` with all 8 artifact families present (windows/linux/rpm/
-flatpak/arch/macos/android/wasm + SHA256SUMS).
+flatpak/arch/macos/android/wasm + SHA256SUMS). Release notes = generated
+changelog + `docs/RELEASE_NOTES.md` (feature atlas + status, shared with GitLab).
+
+GitLab mirror (`.gitlab-ci.yml`): same stages on SaaS Linux runners; Windows /
+macOS jobs are `manual + allow_failure` (no SaaS runners — needs self-hosted
+runners tagged `cybermanju-windows` / `cybermanju-macos`); tag releases ship
+produced families + SHA256SUMS as Generic Packages with a GitLab Release.
+Secrets mirror GitHub (`TAURI_SIGNING_PRIVATE_KEY`, `ANDROID_KEYSTORE_*`).
 
 - Watch until all jobs green; fix and re-push on failure.
 - Do not cancel or re-run unrelated queued dependabot runs.
