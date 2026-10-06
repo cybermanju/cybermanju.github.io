@@ -122,6 +122,10 @@ pub const CORS_OK_BACKENDS: [&str; 3] = ["github", "gitlab", "googleDrive"];
 pub const MAX_LISTING_PAGES: usize = 50;
 
 pub const DRIVE_FOLDER_MIME: &str = "application/vnd.google-apps.folder";
+/// Drive API base — only used by the wasm32 browser backend below, so it is
+/// cfg-gated like its callers (otherwise host `clippy --all-targets` fails
+/// on dead code under `-D warnings`).
+#[cfg(target_arch = "wasm32")]
 const DRIVE_FILES_URL: &str = "https://www.googleapis.com/drive/v3/files";
 
 /// Fold any spelling of a backend name onto the canonical one the
