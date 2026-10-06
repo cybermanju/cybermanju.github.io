@@ -86,14 +86,14 @@ const DATA_LINE_BUDGET: usize = SSE_MAX_LINE_BYTES - 6 - 1; // "data: " + '\n'
 /// Emit one `data:` line, wrapping payloads the parser would otherwise
 /// drop outright (a truncated event must arrive marked, not vanish).
 fn emit_data_line(out: &mut String, line: &str) {
-    if line.len() + 6 + 1 <= SSE_MAX_LINE_BYTES {
+    if line.len() + 6 < SSE_MAX_LINE_BYTES {
         out.push_str("data: ");
         out.push_str(line);
         out.push('\n');
         return;
     }
     let mut rest = line;
-    while rest.len() + 6 + 1 > SSE_MAX_LINE_BYTES {
+    while rest.len() + 6 >= SSE_MAX_LINE_BYTES {
         let mut end = DATA_LINE_BUDGET.min(rest.len());
         while !rest.is_char_boundary(end) {
             end -= 1;
