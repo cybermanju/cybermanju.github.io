@@ -640,9 +640,7 @@ mod tests {
         let arr = tools.as_array().expect("openai_tools is an array");
         assert!(arr.iter().any(|t| t["function"]["name"] == "question"));
         // Same for the semantic-memory tools (recall/remember).
-        assert!(arr
-            .iter()
-            .any(|t| t["function"]["name"] == "memory_recall"));
+        assert!(arr.iter().any(|t| t["function"]["name"] == "memory_recall"));
         assert!(arr
             .iter()
             .any(|t| t["function"]["name"] == "memory_remember"));
