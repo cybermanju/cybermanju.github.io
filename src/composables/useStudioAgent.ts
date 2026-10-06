@@ -19,6 +19,7 @@ import {
   saveLocalSession,
   deleteLocalSession,
   abortLocalRun,
+  recallBlockLocal,
 } from '@/composables/useAgent'
 import { buildThread, estimateTranscriptTokens, contextWindowFor, estimateCost } from '@/utils/agentUi'
 import { agentErrorHint } from '@/types'
@@ -62,6 +63,10 @@ function localSystemPrompt(config: AgentConfig): string {
     `ambiguous → conflict:, then re-read and send a larger block. expected_hash pins the file ` +
     `you read so a concurrent writer cannot slip through.\n` +
     `- write {path, content}: full-file create/overwrite; prefer edit for small changes.\n` +
+    `- memory_recall {query, top_k?}: search long-term memory (past sessions, stored facts). ` +
+    `Bounded and possibly stale — verify before acting.\n` +
+    `- memory_remember {text}: store ONE durable fact for future sessions; one fact per call, ` +
+    `never secrets or whole files.\n` +
     `WORKFLOW: orient (list/glob) → read → act → verify. Small verified steps; ` +
     `never invent file contents. Denials are information — work around them, never ` +
     `retry identically. Report errors with their machine prefix. Answer concisely; ` +
@@ -315,8 +320,10 @@ function createDriver() {
     const outcome = await runLocalAgent(
       {
         baseUrl: base, dialect, model: cfg.model, headers,
-        system: localSystemPrompt(cfg), maxTurns: cfg.maxTurns,
+        system: localSystemPrompt(cfg) + recallBlockLocal(cfg.id, prompt),
+        maxTurns: cfg.maxTurns,
         permission: cfg.permission, autoApprove: cfg.autoApprove, agentKind: cfg.agentKind,
+        configId: cfg.id,
         onRemember: (tool: string) => {
           const updated: AgentConfig = {
             ...cfg, permission: { default: cfg.permission.default, rules: { ...cfg.permission.rules, [tool]: 'allow' } },

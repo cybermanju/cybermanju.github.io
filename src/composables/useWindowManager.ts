@@ -17,6 +17,7 @@ import FilePermissionsPanel from '@/components/FilePermissionsPanel.vue'
 import FilePreview from '@/components/FilePreview.vue'
 import ProcessPanel from '@/components/ProcessPanel.vue'
 import DiskManagerPage from '@/components/DiskManagerPage.vue'
+import DevicesPanel from '@/components/DevicesPanel.vue'
 import AccountManagerPanel from '@/components/AccountManagerPanel.vue'
 import WindowContent from '@/components/WindowContent.vue'
 
@@ -61,7 +62,7 @@ const defaultSizes: SizeMap = {
   files: { width: 1240, height: 720 },
   search: { width: 600, height: 480 },
   collections: { width: 500, height: 420 },
-  faces: { width: 600, height: 460 },
+  faces: { width: 620, height: 640 },
   map: { width: 720, height: 520 },
   code: { width: 650, height: 500 },
   editor: { width: 1280, height: 740 },
@@ -80,6 +81,7 @@ const defaultSizes: SizeMap = {
   terminal: { width: 760, height: 520 },
   processes: { width: 660, height: 460 },
   disks: { width: 700, height: 540 },
+  devices: { width: 680, height: 560 },
   dashboard: { width: 600, height: 460 },
   webdash: { width: 640, height: 500 },
   encryption: { width: 480, height: 420 },
@@ -109,6 +111,7 @@ const panelComponentMap: Record<string, Component> = {
   terminal: TerminalPanel,
   processes: ProcessPanel,
   disks: DiskManagerPage,
+  devices: DevicesPanel,
   accounts: AccountManagerPanel,
   encryption: EncryptionPanel,
   compression: CompressionPanel,

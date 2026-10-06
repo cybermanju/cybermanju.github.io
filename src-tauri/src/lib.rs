@@ -121,6 +121,7 @@ pub fn run() {
             files::create_folder,
             files::delete_file,
             files::rename_file,
+            files::set_file_tags,
             files::duplicate_file_context,
             files::move_file,
             files::get_preview,
@@ -224,6 +225,10 @@ pub fn run() {
             commands::agent::mcp_add_server,
             commands::agent::mcp_remove_server,
             commands::agent::mcp_list_tools,
+            commands::agent::list_agent_memories,
+            commands::agent::store_agent_memory,
+            commands::agent::recall_agent_memories,
+            commands::agent::delete_agent_memory,
             // File import / upload
             import_cmd::import_file,
             import_cmd::import_from_url,

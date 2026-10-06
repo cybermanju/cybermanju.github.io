@@ -348,6 +348,12 @@ mod tests {
             "git status"
         );
         assert_eq!(salient_arg(&serde_json::json!({})), "");
+        // `memory_remember` carries its fact in `text`, so content patterns
+        // (`*password*`) match what would actually be stored.
+        assert_eq!(
+            salient_arg(&serde_json::json!({ "text": "remember the deploy quirk" })),
+            "remember the deploy quirk"
+        );
     }
 
     #[test]

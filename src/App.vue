@@ -9,6 +9,7 @@ import { useDrag } from '@/composables/useDrag'
 import { useSwipe } from '@/composables/useSwipe'
 import { useTouchConfig, type TouchAction } from '@/composables/useTouchConfig'
 import { useWindowManager } from '@/composables/useWindowManager'
+import { useFullscreen } from '@vueuse/core'
 import { finishSupabaseReturn, hydrateSupabaseConfig, refreshIdentity } from '@/composables/useSupabase'
 import { migrateVaultFromLocalStorage } from '@/composables/useVault'
 import { bootCyberManjuDisk, disk } from '@/composables/useCyberManjuFile'
@@ -44,6 +45,7 @@ provide(ShortcutsKey, shortcuts)
 
 const ctx = useContextMenu()
 const drag = useDrag()
+const { toggle: toggleFullscreen } = useFullscreen()
 
 const touchConfig = useTouchConfig({ autoDetect: true })
 touchConfig.onAction((action: TouchAction) => {
@@ -72,8 +74,7 @@ touchConfig.onAction((action: TouchAction) => {
     new_folder: () => { store.createFolderPromptOpen = true },
     refresh: () => { store.fetchFiles() },
     toggle_fullscreen: () => {
-      if (!document.fullscreenElement) document.documentElement.requestFullscreen()
-      else document.exitFullscreen()
+      toggleFullscreen().catch(() => {})
     },
     context_menu: () => {},
     select_item: () => {},

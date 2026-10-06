@@ -11,7 +11,7 @@
 //
 // Subagent depth is capped here so `task` cannot recurse forever.
 
-use cybermanju_types::agent::{ChatMessage, LlmDialect, TokenUsage, ToolCall};
+use cybermanju_types::agent::{ChatMessage, LlmDialect, ShellMode, TokenUsage, ToolCall};
 
 /// Nobody nests deeper than one subagent level.
 pub const MAX_TASK_DEPTH: u32 = 1;
@@ -158,23 +158,60 @@ pub enum Sandbox {
 
 /// Compact system prompt. The caller fills `repo_overview` (a top-level
 /// listing or tree-sitter outline, capped) so every turn starts grounded.
+/// `shell_mode` selects the `bash` paragraph so the model is never told it
+/// can run a shell the config forbids.
 pub fn system_prompt(
     working_dir: &str,
     agent_kind: &str,
     repo_overview: &str,
     sandbox: Sandbox,
+    shell_mode: ShellMode,
 ) -> String {
     let sandbox_rules = match sandbox {
         Sandbox::Native => {
-            "SANDBOX: full tools — bash, one level of task subagents, and any \
-             attached MCP servers (mcp__* tools). Destructive tools pause for \
-             human approval;"
+            "SANDBOX: full tools — bash (cybsh volume commands + shell \
+             fallback for curl/wget/git), one level of task subagents, and \
+             attached MCP servers (mcp__* tools, incl. keyless Exa web \
+             search). Destructive tools pause for human approval;"
         }
         Sandbox::Browser => {
             "SANDBOX: browser file volume — read/list/grep/glob/write/edit \
              only. There is NO bash, NO subagents, NO MCP servers here; those \
              tools answer unsupported:, so never call them and never promise \
              their results;"
+        }
+    };
+    let shell_para: &str = match (sandbox, shell_mode) {
+        (Sandbox::Browser, _) => {
+            "- bash: NOT AVAILABLE in this browser sandbox — the tool answers \
+             unsupported:, so never call it and never promise its results.\n"
+        }
+        (_, ShellMode::Cybsh) => {
+            "- bash {{command, timeout_secs?}}: cybsh ONLY — the same shell as \
+             the Terminal panel: ls/cd/pwd/cat/cp/mv/rm/mkdir/touch/stat/du/df/\
+             disk/mount/search/sync/scrub/repair/gc/lease/ps/compute/keygen/\
+             encrypt/decrypt/ai (pass explicit paths, cwd is shared). Anything \
+             else fails with unsupported: — never use curl/wget/git/python \
+             here. For web search use mcp__exa__web_search_exa, for pages \
+             mcp__exa__web_fetch_exa. Never run interactive commands.\n"
+        }
+        (_, ShellMode::Device) => {
+            "- bash {{command, timeout_secs?}}: device shell ONLY (`sh -c` on \
+             this machine, default 120s, 5–600). cybsh volume commands do NOT \
+             exist here — use POSIX tools (ls/cat/grep/find) on the working \
+             root instead. curl/wget for raw fetch, git/python/node as needed. \
+             For web search prefer mcp__exa__web_search_exa, for pages \
+             mcp__exa__web_fetch_exa. Never run interactive commands.\n"
+        }
+        (_, ShellMode::Auto) => {
+            "- bash {{command, timeout_secs?}}: cybsh FIRST for volume work — \
+             ls/cd/pwd/cat/cp/mv/rm/mkdir/touch/stat/du/df/disk/mount/search/\
+             sync/scrub/repair/gc/lease/ps/compute/keygen/encrypt/decrypt/ai \
+             (same shell as the Terminal panel; pass explicit paths, cwd is \
+             shared). Shell fallback for network and VCS: curl/wget for raw \
+             fetch, git/python/node as needed. For web search prefer \
+             mcp__exa__web_search_exa, for pages mcp__exa__web_fetch_exa. \
+             Never run interactive commands.\n"
         }
     };
     format!(
@@ -200,8 +237,7 @@ pub fn system_prompt(
          may race you.\n\
          - write {{path, content}}: full-file create/overwrite (versioned where supported). \
          Prefer edit for small changes.\n\
-         - bash {{command, timeout_secs?}}: shell with timeout (default 120s, 5–600). \
-         Prefer read/list/grep over cat/ls/find; never run interactive commands.\n\
+         {shell_para}\
          - task {{goal, context?}}: one bounded read-only subagent for delegated exploration.\n\
          - question {{question}}: ask the human when genuinely blocked — sparingly.\n\
          - memory_recall {{query, top_k?}}: search long-term memory (past sessions, \
@@ -323,14 +359,14 @@ mod tests {
 
     #[test]
     fn system_prompt_names_tools_and_sandbox_honestly() {
-        let native = system_prompt("/vol", "build", "a.rs", Sandbox::Native);
+        let native = system_prompt("/vol", "build", "a.rs", Sandbox::Native, ShellMode::Auto);
         assert!(native.contains("Working root: /vol"));
         assert!(native.contains("glob"));
         assert!(native.contains("expected_hash"));
         assert!(native.contains("bash"));
         assert!(native.contains("context:"));
         assert!(!native.contains("NO bash"));
-        let browser = system_prompt("/vol", "plan", "a.rs", Sandbox::Browser);
+        let browser = system_prompt("/vol", "plan", "a.rs", Sandbox::Browser, ShellMode::Auto);
         assert!(browser.contains("NO bash"));
         assert!(browser.contains("read-only"));
     }
@@ -354,8 +390,22 @@ mod tests {
         let entries: Vec<String> = (0..300).map(|i| format!("f{i}.rs")).collect();
         let snippet = repo_overview_snippet(&entries, 200);
         assert!(snippet.contains("100 more entries"));
-        let prompt = system_prompt("/vol", "build", &snippet, Sandbox::Native);
+        let prompt = system_prompt("/vol", "build", &snippet, Sandbox::Native, ShellMode::Auto);
         assert!(prompt.contains("/vol"));
         assert!(repo_overview_snippet(&[], 10).contains("empty"));
+    }
+
+    #[test]
+    fn shell_mode_paragraphs_match_the_runtime() {
+        let cybsh = system_prompt("/v", "build", "r", Sandbox::Native, ShellMode::Cybsh);
+        assert!(cybsh.contains("cybsh ONLY"));
+        assert!(cybsh.contains("unsupported:"));
+        let device = system_prompt("/v", "build", "r", Sandbox::Native, ShellMode::Device);
+        assert!(device.contains("device shell ONLY"));
+        assert!(device.contains("do NOT"));
+        assert!(device.contains("exist here"));
+        let auto = system_prompt("/v", "build", "r", Sandbox::Native, ShellMode::Auto);
+        assert!(auto.contains("cybsh FIRST"));
+        assert!(auto.contains("Shell fallback"));
     }
 }

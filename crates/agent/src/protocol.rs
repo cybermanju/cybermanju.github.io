@@ -93,10 +93,10 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         ),
         tool_def(
             "bash",
-            "Run a shell command with a timeout (native transports only). Prefer read/list/grep over cat/ls/find; never run interactive commands; destructive commands pause for approval.",
+            "Run a command with a timeout (native transports only). cybsh FIRST for volume work: ls/cd/pwd/cat/cp/mv/rm/mkdir/touch/stat/du/df/disk/mount/search/sync/scrub/repair/gc/lease/ps/compute/keygen/encrypt/decrypt/ai (same shell as the Terminal; pass explicit paths). curl/wget for raw network fetch. Prefer mcp__exa__web_search_exa for web search and mcp__exa__web_fetch_exa for pages. The system prompt states the config's shell_mode (auto/cybsh-only/device-only) — obey it. Never run interactive commands; destructive commands pause for approval.",
             serde_json::json!({
                 "command": { "type": "string" },
-                "timeout_secs": { "type": "integer", "description": "Default 120, clamped 5-600" },
+                "timeout_secs": { "type": "integer", "description": "Default 120, clamped 5-600 (shell fallback only)" },
             }),
             &["command"],
         ),

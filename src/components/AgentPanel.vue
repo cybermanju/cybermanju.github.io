@@ -21,7 +21,19 @@
           <AppIcon name="solar:widget-bold" :size="11" /> {{ capKind }}
         </span>
         <span class="cap-chip" title="Volume-relative working directory"><AppIcon name="solar:folder-bold" :size="11" /> {{ capWorkingDir }}</span>
+        <span v-if="!wasmMode" class="cap-chip" title="Which shell the bash tool runs: cybsh volume shell, device shell, or auto (cybsh with shell fallback)"><AppIcon name="solar:file-terminal-bold" :size="11" /> {{ capShell }}</span>
         <span class="cap-chip" :title="`Ruleset: ${permissionLabel(chatConfig?.permission)}`"><AppIcon name="solar:shield-check-bold" :size="11" /> {{ permissionLabel(chatConfig?.permission) }}</span>
+        <UiButton
+          size="sm"
+          icon="solar:fire-bold"
+          :variant="yoloOn ? 'danger' : 'secondary'"
+          :active="yoloOn"
+          :loading="yoloBusy"
+          :disabled="!chatConfig || yoloBusy"
+          :title="yoloTitle"
+          aria-label="Toggle YOLO mode"
+          @click="toggleYolo"
+        >{{ yoloOn ? 'YOLO ON' : 'YOLO' }}</UiButton>
         <span class="cap-chip" :title="capHasKey ? 'A provider key is available for this config' : 'No provider key — saves but cannot call'">
           <AppIcon :name="capHasKey ? 'solar:key-bold' : 'solar:lock-bold'" :size="11" /> {{ capHasKey ? 'KEY OK' : 'NO KEY' }}
         </span>
@@ -145,6 +157,18 @@
             @update:model-value="form.maxTurns = Number($event)"
           />
         </div>
+        <div v-if="!wasmMode" class="w-field">
+          <span class="w-label text-muted">SHELL</span>
+          <UiSelect
+            :model-value="form.shellMode"
+            :options="[
+              { label: 'AUTO (CYBSH, SHELL FALLBACK)', value: 'auto' },
+              { label: 'CYBSH ONLY (VOLUME SHELL)', value: 'cybsh' },
+              { label: 'DEVICE ONLY (sh -c)', value: 'device' },
+            ]"
+            @update:model-value="form.shellMode = $event as 'auto' | 'cybsh' | 'device'"
+          />
+        </div>
       </div>
       <div class="w-row">
         <div class="w-field">
@@ -154,7 +178,7 @@
             :options="[
               { label: 'STRICT (ASK EVERYTHING)', value: 'strict' },
               { label: 'BALANCED (READS AUTO, MUTATIONS ASK)', value: 'balanced' },
-              { label: 'YOLO (AUTO, DENY NEVER BYPASSED)', value: 'yolo' },
+              { label: 'YOLO (ALLOW EVERYTHING)', value: 'yolo' },
             ]"
             @update:model-value="permPreset = $event as 'strict' | 'balanced' | 'yolo'"
           />
@@ -266,6 +290,31 @@
       </div>
       <div v-if="mcpMsg" class="w-msg">{{ mcpMsg }}</div>
       <p class="text-muted hint">ATTACH/DETACH NEEDS ADMIN (STDIO SPAWNS PROCESSES). TOOLS APPEAR AS <span class="mono">mcp__server__tool</span> AND FOLLOW THE SAME ASK/DENY RULES.</p>
+    </div>
+
+    <div v-if="chatConfig" class="section">
+      <h3 class="section-title"><AppIcon name="solar:shield-check-bold" :size="13" /> PER-TOOL PERMISSIONS FOR {{ chatConfig.name.toUpperCase() }}</h3>
+      <div class="perm-grid">
+        <div v-for="t in permEditorTools" :key="t.tool" class="perm-row">
+          <AppIcon :name="toolMeta(t.tool).icon" :size="12" />
+          <span class="ct-name">{{ t.tool }}</span>
+          <UiSelect
+            :model-value="t.action"
+            :options="[
+              { label: 'ALLOW', value: 'allow' },
+              { label: 'ASK', value: 'ask' },
+              { label: 'DENY', value: 'deny' },
+            ]"
+            @update:model-value="setPermTool(t.tool, $event as 'allow' | 'ask' | 'deny')"
+          />
+        </div>
+      </div>
+      <div class="w-actions">
+        <UiButton size="sm" variant="primary" :disabled="permBusy" :loading="permBusy" @click="savePermRules">SAVE RULES</UiButton>
+        <UiButton size="sm" :disabled="permBusy" @click="resetPermRules">RESET TO BALANCED</UiButton>
+      </div>
+      <div v-if="permMsg" class="w-msg">{{ permMsg }}</div>
+      <p class="text-muted hint">WRITES THE SAME RULESET THE LOOP ENFORCES — DENIED TOOLS ARE ALSO STRIPPED FROM THE NATIVE SCHEMA, SO THE MODEL STOPS TRYING THEM.</p>
     </div>
 
     <div class="section">
@@ -389,7 +438,7 @@
         <div v-if="!viewing.messages.length" class="empty text-muted">No messages yet — ask below.</div>
       </div>
 
-      <div v-if="pendingApproval" class="approval">
+      <div v-if="pendingApproval" class="approval attention">
         <div class="approval-title">
           <AppIcon :name="pendingApproval.question ? 'solar:question-circle-bold' : 'solar:shield-check-bold'" :size="13" />
           {{ pendingApproval.question ? 'NEEDS YOUR ANSWER' : 'AGENT WAITS FOR APPROVAL' }}
@@ -403,7 +452,12 @@
             <span class="mono">rules["{{ pendingApproval.tool }}"] = "allow"</span>
           </span>
         </div>
-        <pre v-if="approvalInput" class="tool-input approval-input">{{ approvalInput }}</pre>
+        <div v-if="approvalDiff" class="approval-diff">
+          <div class="diff-head text-muted">PROPOSED EDIT — {{ approvalDiff.oldLines }} → {{ approvalDiff.newLines }} LINES<span v-if="approvalDiff.truncated"> (TRUNCATED)</span></div>
+          <pre class="diff-body"><span v-for="(l, i) in approvalDiff.lines" :key="i" class="diff-line" :class="`diff-${l.kind}`">{{ (l.kind === 'del' ? '− ' : l.kind === 'add' ? '+ ' : '  ') + l.text }}
+</span></pre>
+        </div>
+        <pre v-else-if="approvalInput" class="tool-input approval-input">{{ approvalInput }}</pre>
         <div v-if="pendingApproval.question" class="w-row">
           <div class="w-field grow">
             <UiInput
@@ -411,6 +465,15 @@
               placeholder="TYPE ANSWER…"
               aria-label="Approval answer"
               @enter="answerApproval(true)"
+            />
+          </div>
+        </div>
+        <div v-else class="w-row">
+          <div class="w-field grow">
+            <UiInput
+              v-model="denyReason"
+              placeholder="DENY WITH FEEDBACK (OPTIONAL — THE MODEL MUST OBEY IT)…"
+              aria-label="Deny feedback"
             />
           </div>
         </div>
@@ -423,7 +486,7 @@
           >ALLOW ALWAYS</UiButton>
           <UiButton size="sm" variant="danger" @click="answerApproval(false)">DENY</UiButton>
         </div>
-        <p class="text-muted hint" v-if="!pendingApproval.question">DENY RETURNS <span class="mono">denied: …</span> TO THE MODEL — IT MUST WORK AROUND IT, NOT RETRY.</p>
+        <p class="text-muted hint" v-if="!pendingApproval.question">DENY RETURNS <span class="mono">denied: …</span> TO THE MODEL — IT MUST WORK AROUND IT, NOT RETRY. ADD FEEDBACK ABOVE TO STEER THE NEXT ATTEMPT.</p>
       </div>
 
       <div v-if="queue.length" class="queue">
@@ -485,18 +548,22 @@ import {
   deleteLocalSession,
   abortLocalRun,
 } from '@/composables/useAgent'
-import { agentPermissionPreset, agentErrorHint } from '@/types'
+import { agentPermissionPreset, agentErrorHint, defaultMcpServers } from '@/types'
 import {
+  applyBalancedToConfig,
+  applyYoloToConfig,
   buildThread,
   contextWindowFor,
   estimateCost,
   estimateTranscriptTokens,
+  isYoloConfig,
   permissionLabel,
   salientArg,
   toolMeta,
   toolPermissions,
 } from '@/utils/agentUi'
 import { renderMarkdown } from '@/utils/markdown'
+import { diffBlocks, editBlocksOf } from '@/utils/agentDiff'
 import type { AgentConfig, AgentJob, AgentSession, ProviderPreset } from '@/types'
 
 const store = useAppStore()
@@ -547,6 +614,7 @@ const form = reactive({
   authNameOverride: '',
   workingDir: '',
   agentKind: 'build' as 'build' | 'plan',
+  shellMode: 'auto' as 'auto' | 'cybsh' | 'device',
   autoApprove: false,
   maxTurns: 25,
 })
@@ -554,6 +622,7 @@ const form = reactive({
 const chatConfigId = ref('')
 const promptInput = ref('')
 const answerInput = ref('')
+const denyReason = ref('')
 const importEl = ref<HTMLInputElement | null>(null)
 
 const chatConfig = computed(() => configs.value.find(c => c.id === chatConfigId.value) ?? null)
@@ -565,6 +634,10 @@ const capKind = computed(() =>
   (chatConfig.value?.agentKind ?? viewing.value?.agentKind ?? 'build') === 'plan' ? 'PLAN (READ-ONLY)' : 'BUILD (FULL ACCESS)',
 )
 const capWorkingDir = computed(() => chatConfig.value?.workingDir || viewing.value?.workingDir || '/')
+const capShell = computed(() => {
+  const mode = chatConfig.value?.shellMode ?? 'auto'
+  return mode === 'cybsh' ? 'SHELL: CYBSH' : mode === 'device' ? 'SHELL: DEVICE' : 'SHELL: AUTO'
+})
 const capHasKey = computed(() => {
   const cfg = chatConfig.value
   if (!cfg) return false
@@ -590,6 +663,45 @@ function toolHelp(t: { tool: string; action: string; unsupported?: boolean }): s
   if (t.action === 'deny') return `${t.tool} is denied by the ruleset`
   if (t.action === 'allow') return `${t.tool} runs without asking`
   return `${t.tool} opens the approval card before it runs`
+}
+
+// ─── YOLO toggle: one tap to allow everything on the current config ───
+const yoloBusy = ref(false)
+const yoloOn = computed(() => isYoloConfig(chatConfig.value))
+const yoloTitle = computed(() =>
+  yoloOn.value
+    ? 'YOLO is ON — every tool runs without asking. Click to go back to balanced ask-by-default.'
+    : 'YOLO — allow all tools, auto-approve asks, enable all MCP servers (plan becomes build). Protected standing-order writes still ask.',
+)
+
+async function toggleYolo() {
+  const cfg = chatConfig.value
+  if (!cfg || yoloBusy.value) return
+  const enabling = !yoloOn.value
+  const updated = enabling ? applyYoloToConfig(cfg) : applyBalancedToConfig(cfg)
+  yoloBusy.value = true
+  try {
+    if (wasmMode.value) {
+      saveLocalConfig(updated)
+      refreshLocal()
+    } else {
+      const saved = await store.saveAgentConfig({ ...updated })
+      if (!saved) return
+    }
+    // Keep the SETUP wizard in sync so a later SAVE there keeps YOLO.
+    permPreset.value = enabling ? 'yolo' : 'balanced'
+    form.autoApprove = updated.autoApprove
+    form.agentKind = updated.agentKind
+    const mcpCount = Object.keys(updated.mcpServers ?? {}).length
+    const planNote = enabling && cfg.agentKind === 'plan' ? ' (plan → build)' : ''
+    store.notifySuccess(
+      enabling
+        ? `YOLO ON — all tools allowed, auto-approve, ${mcpCount} MCP server(s) enabled${planNote}`
+        : 'YOLO OFF — back to balanced ask-by-default',
+    )
+  } finally {
+    yoloBusy.value = false
+  }
 }
 
 const sessionConfigOptions = computed(() => [
@@ -667,6 +779,73 @@ async function compactThread() {
   const compacted = await store.compactAgentSession(viewing.value.configId, viewing.value.id)
   if (compacted) setViewing(compacted)
 }
+
+// ─── granular permission editor (P2.3): per-tool selects writing the
+// same ruleset the loop enforces ───
+const permBusy = ref(false)
+const permMsg = ref('')
+const permDraft = ref<Record<string, 'allow' | 'ask' | 'deny'>>({})
+
+const permEditorTools = computed(() => {
+  const tools = wasmMode.value ? BROWSER_TOOLS : NATIVE_TOOLS
+  const cfg = chatConfig.value
+  return tools.map(tool => {
+    const draft = permDraft.value[tool]
+    if (draft) return { tool, action: draft }
+    const rule = cfg?.permission.rules[tool]
+    const action = typeof rule === 'string' ? rule : (cfg?.permission.default ?? 'ask')
+    return { tool, action: (action === 'allow' || action === 'deny' ? action : 'ask') as 'allow' | 'ask' | 'deny' }
+  })
+})
+
+function setPermTool(tool: string, action: 'allow' | 'ask' | 'deny') {
+  permDraft.value = { ...permDraft.value, [tool]: action }
+}
+
+function resetPermRules() {
+  permDraft.value = {}
+  permMsg.value = 'Draft cleared — SAVE RULES writes the balanced preset.'
+}
+
+async function savePermRules() {
+  const cfg = chatConfig.value
+  if (!cfg || permBusy.value) return
+  const rules: Record<string, 'allow' | 'ask' | 'deny'> = {}
+  for (const t of permEditorTools.value) rules[t.tool] = permDraft.value[t.tool] ?? t.action
+  const updated: AgentConfig = {
+    ...cfg,
+    permission: { default: cfg.permission.default, rules },
+    updatedAt: new Date().toISOString(),
+  }
+  permBusy.value = true
+  try {
+    if (wasmMode.value) {
+      saveLocalConfig(updated)
+      refreshLocal()
+    } else {
+      const saved = await store.saveAgentConfig(updated)
+      if (!saved) return
+    }
+    permDraft.value = {}
+    permMsg.value = `Saved — ${Object.values(rules).filter(a => a === 'deny').length} denied (stripped from the native schema).`
+  } finally {
+    permBusy.value = false
+  }
+}
+
+// ─── auto-compaction (P3): meter ≥85 % with an idle thread compacts once
+// per session instead of failing the next turn with `context:` ───
+const autoCompactedFor = ref('')
+watch(
+  () => [contextPct.value, jobActive.value, viewing.value?.id] as const,
+  ([pct, active, sessionId]) => {
+    if (pct < 85 || active || !sessionId || !viewing.value?.messages.length) return
+    if (autoCompactedFor.value === sessionId) return
+    autoCompactedFor.value = sessionId
+    store.notifySuccess('Context ≥85% — auto-compacting (old transcript kept)')
+    void compactThread()
+  },
+)
 
 /** Mode-aware viewer setter (server viewing lives in a ref, local in state). */
 function setViewing(s: AgentSession | null) {
@@ -798,12 +977,14 @@ function localConfigFromForm(): AgentConfig {
     authNameOverride: isCustom.value && form.authNameOverride.trim() ? form.authNameOverride.trim() : undefined,
     workingDir: form.workingDir.trim(),
     agentKind: form.agentKind,
+    shellMode: form.shellMode,
     permission: agentPermissionPreset(permPreset.value),
     autoApprove: form.autoApprove,
     maxTurns: Math.min(50, Math.max(1, form.maxTurns || 25)),
     hasKey: false,
     createdAt: now,
     updatedAt: now,
+    mcpServers: defaultMcpServers(),
   }
 }
 
@@ -831,9 +1012,11 @@ async function saveConfig() {
       authNameOverride: isCustom.value && form.authNameOverride.trim() ? form.authNameOverride.trim() : undefined,
       workingDir: form.workingDir.trim(),
       agentKind: form.agentKind,
+      shellMode: form.shellMode,
       permission: agentPermissionPreset(permPreset.value),
       autoApprove: form.autoApprove,
       maxTurns: Math.min(50, Math.max(1, form.maxTurns || 25)),
+      mcpServers: defaultMcpServers(),
     })
     if (saved) {
       savedConfigId.value = saved.id
@@ -1142,6 +1325,14 @@ function toggleRow(key: string) {
 }
 
 const approvalArg = computed(() => (pendingApproval.value ? salientArg(pendingApproval.value.input) : ''))
+/** Pre/post diff for edit approvals (P2.1) — raw JSON stays for everything else. */
+const approvalDiff = computed(() => {
+  const p = pendingApproval.value
+  if (!p || p.tool !== 'edit') return null
+  const blocks = editBlocksOf(p.input)
+  if (!blocks) return null
+  return diffBlocks(blocks.oldBlock, blocks.newBlock)
+})
 const approvalInput = computed(() => {
   const p = pendingApproval.value
   if (!p) return ''
@@ -1338,21 +1529,26 @@ async function abortJob() {
 }
 
 async function answerApproval(approved: boolean, remember = false) {
+  // DENY carries the feedback typed above — the loop hands it to the model
+  // as `denied: … — user feedback: …`, which it must obey, not retry.
+  const feedback = !approved ? denyReason.value.trim() || undefined : answerInput.value || undefined
   if (wasmMode.value) {
     const pending = agent.pendingApproval.value
     agent.pendingApproval.value = null
     pending?.resolve(
       approved,
-      approved ? answerInput.value || undefined : undefined,
+      feedback,
       approved && remember,
     )
     answerInput.value = ''
+    denyReason.value = ''
     return
   }
   const job = activeJob.value
   if (!job) return
-  await store.approveAgentJob(job.jobId, approved, approved ? answerInput.value || undefined : undefined, remember)
+  await store.approveAgentJob(job.jobId, approved, feedback, remember)
   answerInput.value = ''
+  denyReason.value = ''
   if (remember && approved) void store.fetchAgentConfigs()
 }
 
@@ -1806,4 +2002,43 @@ onMounted(async () => {
 .approval-meta { display: flex; flex-direction: column; gap: 3px; font-size: 10px; margin-bottom: 6px; }
 .approval-meta > span { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
 .approval-input { max-height: 96px; overflow: auto; margin-bottom: 8px; }
+
+/* ── approval diff view (P2.1) ── */
+.approval-diff { margin-bottom: 8px; }
+.diff-head { font-size: 9px; font-weight: 700; margin-bottom: 4px; }
+.diff-body {
+  font-size: 9px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--ui-hairline);
+  border-radius: var(--ui-radius-sm);
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--ui-surface) 80%, transparent);
+}
+.diff-line { display: block; }
+.diff-del { color: var(--ui-danger); background: color-mix(in srgb, var(--ui-danger) 8%, transparent); }
+.diff-add { color: var(--ui-success); background: color-mix(in srgb, var(--ui-success) 8%, transparent); }
+.diff-ctx { opacity: 0.75; }
+
+/* ── attention surface (P3): pulse while the agent waits on the human ── */
+.approval.attention {
+  animation: approval-pulse 1.6s ease-in-out infinite;
+}
+@keyframes approval-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-warning) 35%, transparent); }
+}
+
+/* ── granular permission editor (P2.3) ── */
+.perm-grid { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.perm-row { display: flex; align-items: center; gap: 8px; font-size: 10px; }
+.perm-row .ct-name { flex: 1; font-weight: 600; }
+.perm-row :deep(.ui-select) { min-width: 110px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .approval.attention { animation: none; }
+}
 </style>

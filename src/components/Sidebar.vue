@@ -49,6 +49,54 @@
           />
           <div v-if="rootFolders.length === 0" class="empty-section text-muted">NO FOLDERS</div>
         </div>
+        <div class="section-header" title="Read-only provider mounts under providers/<id>/…">PROVIDERS (READ-ONLY)</div>
+        <div class="provider-block">
+          <div v-if="vfsError" class="vfs-error">{{ vfsError }}</div>
+          <div
+            v-for="m in vfsMounts"
+            :key="m.id"
+            class="vfs-mount"
+          >
+            <div class="sidebar-item" @click="toggleVfsMount(m.id)">
+              <span class="tree-arrow">{{ vfsOpen[m.id] ? '▾' : '▸' }}</span>
+              <div class="bw-dot bw-dot-on" />
+              <div class="item-info">
+                <span class="item-name truncate">{{ m.name }}</span>
+                <span class="item-meta text-muted">{{ m.backendType }}</span>
+              </div>
+              <button class="vfs-del" title="Remove mount" @click.stop="removeVfsMount(m.id)">✕</button>
+            </div>
+            <div v-if="vfsOpen[m.id]" class="vfs-children">
+              <div v-if="vfsLoading[m.id]" class="empty-section text-muted">LOADING…</div>
+              <div
+                v-for="e in vfsEntries[m.id] ?? []"
+                :key="e.locator || e.path"
+                class="tree-node-row vfs-entry"
+                @click="openVfsEntry(m.id, e)"
+              >
+                <span class="tree-arrow">{{ e.isDir ? '▸' : '·' }}</span>
+                <span class="tree-name truncate">{{ e.name }}</span>
+              </div>
+              <div v-if="!(vfsEntries[m.id] ?? []).length && !vfsLoading[m.id]" class="empty-section text-muted">EMPTY</div>
+            </div>
+          </div>
+          <div v-if="!vfsMounts.length" class="empty-section text-muted">NO MOUNTS</div>
+          <div v-if="vfsPreview" class="vfs-preview">
+            <div class="vfs-preview-head">
+              <span class="truncate">{{ vfsPreviewTitle }}</span>
+              <button class="vfs-del" title="Close preview" @click="vfsPreview = null; vfsPreviewTitle = ''">✕</button>
+            </div>
+            <pre class="vfs-preview-body">{{ vfsPreview }}</pre>
+          </div>
+          <div class="vfs-add">
+            <select v-model="vfsNewConfig" class="vfs-select" aria-label="Sync config to mount">
+              <option value="">SELECT SYNC CONFIG…</option>
+              <option v-for="c in store.syncConfigs" :key="c.id" :value="c.id">{{ c.backendType }} · {{ (c.repoName || c.basePath || c.id).slice(0, 24) }}</option>
+            </select>
+            <button class="bw-btn" style="font-size:10px;" :disabled="!vfsNewConfig" @click="addVfsMount">+ MOUNT</button>
+          </div>
+          <p class="text-muted" style="font-size:9px;padding:4px 8px;">CORS-OK ONLY: GITHUB · GITLAB · DRIVE. TELEGRAM / PHOTOS NEED THE DESKTOP APP.</p>
+        </div>
       </div>
 
       <div v-if="store.sidebarSection === 'locations'" class="sidebar-section">
@@ -214,6 +262,86 @@ import { useContextMenu } from '@/composables/useContextMenu'
 import { isWebMode } from '@/composables/useTauri'
 import type { SidebarSection } from '@/types'
 import TreeNode from './TreeNode.vue'
+import type { ProviderMount, VfsEntry } from '@/composables/useProviderCanal'
+
+const vfsMounts = ref<ProviderMount[]>([])
+const vfsOpen = ref<Record<string, boolean>>({})
+const vfsEntries = ref<Record<string, VfsEntry[]>>({})
+const vfsLoading = ref<Record<string, boolean>>({})
+const vfsError = ref('')
+const vfsNewConfig = ref('')
+const vfsPreview = ref<string | null>(null)
+const vfsPreviewTitle = ref('')
+
+async function refreshVfsMounts() {
+  try {
+    const { listVfsMounts } = await import('@/composables/useProviderCanal')
+    vfsMounts.value = await listVfsMounts()
+    vfsError.value = ''
+  } catch (e) {
+    vfsError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function toggleVfsMount(id: string) {
+  vfsOpen.value[id] = !vfsOpen.value[id]
+  if (!vfsOpen.value[id] || vfsEntries.value[id]) return
+  vfsLoading.value[id] = true
+  try {
+    const { listVfsDir } = await import('@/composables/useProviderCanal')
+    vfsEntries.value[id] = await listVfsDir(id, '')
+    vfsError.value = ''
+  } catch (e) {
+    vfsError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    vfsLoading.value[id] = false
+  }
+}
+
+async function openVfsEntry(mountId: string, entry: VfsEntry) {
+  if (entry.isDir) return
+  try {
+    const { readVfsFile } = await import('@/composables/useProviderCanal')
+    const file = await readVfsFile(mountId, entry.path, { locator: entry.locator })
+    vfsPreviewTitle.value = entry.path
+    vfsPreview.value = file.text ?? `[${file.magic} — binary, ${file.bytes.byteLength} bytes]`
+    vfsError.value = ''
+  } catch (e) {
+    vfsError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function addVfsMount() {
+  if (!vfsNewConfig.value) return
+  try {
+    const cfg = store.syncConfigs.find(c => c.id === vfsNewConfig.value)
+    const { saveVfsMount } = await import('@/composables/useProviderCanal')
+    await saveVfsMount({
+      configId: vfsNewConfig.value,
+      name: cfg ? `${cfg.backendType}` : vfsNewConfig.value,
+      backendType: cfg?.backendType ?? 'github',
+      basePath: (cfg?.basePath as string | undefined) ?? '',
+    })
+    vfsNewConfig.value = ''
+    await refreshVfsMounts()
+  } catch (e) {
+    vfsError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function removeVfsMount(id: string) {
+  try {
+    const { deleteVfsMount } = await import('@/composables/useProviderCanal')
+    await deleteVfsMount(id)
+    delete vfsEntries.value[id]
+    delete vfsOpen.value[id]
+    await refreshVfsMounts()
+  } catch (e) {
+    vfsError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+void refreshVfsMounts()
 
 const ctx = useContextMenu()
 
@@ -550,6 +678,88 @@ function showTreeContextMenu(e: MouseEvent) {
 .collapse-btn:hover {
   background: var(--ui-glass-2);
   color: var(--ui-text);
+}
+
+.provider-block {
+  border-top: 1px solid var(--ui-border);
+  margin-top: 4px;
+  padding-top: 2px;
+}
+
+.vfs-mount {
+  margin-bottom: 2px;
+}
+
+.vfs-del {
+  background: transparent;
+  border: none;
+  color: color-mix(in srgb, var(--ui-text) 50%, transparent);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 2px 4px;
+}
+
+.vfs-del:hover {
+  color: var(--ui-text);
+}
+
+.vfs-children {
+  padding-left: 14px;
+}
+
+.vfs-entry {
+  cursor: pointer;
+}
+
+.vfs-error {
+  font-size: 9px;
+  color: #b00020;
+  padding: 4px 8px;
+  word-break: break-word;
+}
+
+.vfs-preview {
+  margin: 4px;
+  border: 1px solid var(--ui-border);
+  max-height: 180px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.vfs-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 9px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.vfs-preview-body {
+  font-size: 9px;
+  padding: 4px 6px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
+.vfs-add {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  align-items: center;
+}
+
+.vfs-select {
+  flex: 1;
+  min-width: 0;
+  font-size: 9px;
+  padding: 3px 4px;
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  border: 1px solid var(--ui-border);
 }
 
 .text-muted { opacity: 0.6; color: var(--ui-text) !important; }

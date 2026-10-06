@@ -9,6 +9,7 @@ import type {
   CompressionStats, ParseResult, GeoMarker,
   FileContent, SavedContent,
   ProviderPreset, AgentConfig, AgentSession, AgentJob, McpServerConfig,
+  AgentMemory, MemoryHit,
   ViewMode, PanelType, SidebarSection,
   SyncConfig, SyncProgress, SyncResult, RemoteFile,
   SyncJob, SyncRunRecord, RestoreOutcome, QuotaUsage,
@@ -389,6 +390,23 @@ export const useAppStore = defineStore('cybermanju', () => {
       notifySuccess('File context duplicated')
     } catch (e) {
       notifyError('Failed to duplicate file', e)
+    }
+  }
+
+  /**
+   * Replace a file's user tags (any image/doc/folder/file). Tags feed the
+   * Tantivy index (filename+content+tags BM25) and the scene matcher on
+   * every transport — this is how users teach search what things are.
+   */
+  async function setFileTags(fileId: string, tags: string[]) {
+    try {
+      await invoke('set_file_tags', { fileId, tags })
+      await fetchFiles()
+      notifySuccess('Tags saved')
+      return true
+    } catch (e) {
+      notifyError('Failed to save tags', e)
+      return false
     }
   }
 
@@ -1536,11 +1554,72 @@ export const useAppStore = defineStore('cybermanju', () => {
     try {
       const job = await invoke<AgentJob>('start_agent_run', { configId, sessionId, prompt })
       activeAgentJob.value = job
-      await pollAgentJob(job.jobId)
+      await subscribeAgentJob(job.jobId)
       return job
     } catch (e) {
       notifyError('Failed to start agent run', e)
       return null
+    }
+  }
+
+  /**
+   * SSE-first job tail (P2.4): `GET /api/agent/jobs/:id/events` streams
+   * `job` snapshots over a fetch reader — EventSource cannot send the
+   * `Authorization` header, so the poller stays as the fallback. Any
+   * transport failure degrades to the 1.5 s `pollAgentJob` loop.
+   */
+  async function subscribeAgentJob(jobId: string) {
+    const applySnapshot = (job: AgentJob) => {
+      activeAgentJob.value = job
+      const i = agentJobs.value.findIndex(j => j.jobId === jobId)
+      if (i >= 0) agentJobs.value[i] = job
+      else agentJobs.value.unshift(job)
+      announceAgentJob(jobId, job)
+      return job.status === 'done' || job.status === 'error' || job.status === 'cancelled'
+    }
+    try {
+      const { getServerUrl, getAuthToken } = await import('@/composables/useTauri')
+      const { parseAgentStreamChunk, isStreamDone } = await import('@/utils/agentStream')
+      const base = getServerUrl() || 'http://localhost:3456'
+      const headers: Record<string, string> = { Accept: 'text/event-stream' }
+      const token = getAuthToken()
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      const res = await fetch(`${base}/api/agent/jobs/${encodeURIComponent(jobId)}/events`, { headers })
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const frames = buf.split('\n\n')
+        buf = frames.pop() ?? ''
+        for (const frame of frames) {
+          for (const ev of parseAgentStreamChunk(`${frame}\n\n`)) {
+            if (isStreamDone(ev.data)) {
+              await pollAgentJob(jobId)
+              return
+            }
+            if (ev.event !== 'job') continue
+            try {
+              if (applySnapshot(JSON.parse(ev.data) as AgentJob)) {
+                try { reader.cancel() } catch { /* already closed */ }
+                return
+              }
+            } catch {
+              // Malformed frame — the next poll heals the view.
+            }
+          }
+        }
+      }
+      // Stream ended (cap, idle close) with the job still live.
+      const cur = activeAgentJob.value
+      if (cur && cur.jobId === jobId && (cur.status === 'running' || cur.status === 'waiting_approval')) {
+        await pollAgentJob(jobId)
+      }
+    } catch {
+      await pollAgentJob(jobId)
     }
   }
 
@@ -1605,7 +1684,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     try {
       const job = await invoke<AgentJob>('init_agent_run', { configId })
       activeAgentJob.value = job
-      await pollAgentJob(job.jobId)
+      await subscribeAgentJob(job.jobId)
       notifySuccess('Repo-init started — the agent will write AGENTS.md')
       return job
     } catch (e) {
@@ -1623,6 +1702,48 @@ export const useAppStore = defineStore('cybermanju', () => {
     } catch (e) {
       notifyError('Compaction failed', e)
       return null
+    }
+  }
+
+  // ── Semantic memory (redb `agent_memories`: text + vectors) ──
+  const agentMemories = ref<AgentMemory[]>([])
+
+  async function fetchAgentMemories(configId?: string) {
+    try {
+      agentMemories.value = await invoke<AgentMemory[]>('list_agent_memories', { configId })
+    } catch (e) {
+      notifyError('Failed to fetch memories', e)
+    }
+  }
+
+  async function storeAgentMemory(configId: string, text: string, sessionId?: string) {
+    try {
+      const saved = await invoke<AgentMemory>('store_agent_memory', { configId, sessionId, text })
+      await fetchAgentMemories(configId)
+      notifySuccess('Remembered for future sessions')
+      return saved
+    } catch (e) {
+      notifyError('Failed to store memory', e)
+      return null
+    }
+  }
+
+  async function recallAgentMemories(query: string, configId?: string, topK = 3) {
+    try {
+      return await invoke<MemoryHit[]>('recall_agent_memories', { configId, query, topK })
+    } catch (e) {
+      notifyError('Memory recall failed', e)
+      return null
+    }
+  }
+
+  async function deleteAgentMemory(memoryId: string, configId?: string) {
+    try {
+      await invoke('delete_agent_memory', { memoryId })
+      await fetchAgentMemories(configId)
+      notifySuccess('Memory deleted')
+    } catch (e) {
+      notifyError('Failed to delete memory', e)
     }
   }
 
@@ -1742,7 +1863,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     starredFiles, folders, currentFolderFiles,
     // Actions
     initialize, selectFile, toggleStar, clearError,
-    fetchFiles, getFile, createFolder, deleteFile, renameFile, duplicateFileContext,
+    fetchFiles, getFile, createFolder, deleteFile, renameFile, duplicateFileContext, setFileTags,
     searchFiles, loadMoreSearchResults, fetchEncryptionStatus, generateKeypair, listKeys, encryptFile, decryptFile,
     compressFile, decompressFile, fetchCollections, createCollection, addToCollection, removeFromCollection,
     fetchFaceGroups, detectFaces, detectFacesBatch, reclusterFaces,
@@ -1764,8 +1885,9 @@ export const useAppStore = defineStore('cybermanju', () => {
     agentProviders, agentConfigs, agentSessions, agentJobs, activeAgentJob,
     fetchAgentProviders, fetchAgentConfigs, saveAgentConfig, deleteAgentConfig,
     saveAgentKey, refreshAgentModels, fetchAgentSessions, loadAgentSession, deleteAgentSession,
-    startAgentRun, pollAgentJob, abortAgentJob, approveAgentJob, initAgentRun,
+    startAgentRun, pollAgentJob, subscribeAgentJob, abortAgentJob, approveAgentJob, initAgentRun,
     compactAgentSession, mcpAddServer, mcpRemoveServer, mcpListTools,
+    agentMemories, fetchAgentMemories, storeAgentMemory, recallAgentMemories, deleteAgentMemory,
     fetchDisks, createDisk, attachDisk, detachDisk, resizeDisk, checkDisk,
     // User Management
     fetchUsers, createUser, deleteUser, updateUserRole,

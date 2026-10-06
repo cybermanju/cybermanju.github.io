@@ -46,10 +46,13 @@
           v-model="store.searchQuery"
           class="search-input"
           type="text"
-          placeholder="Search (BM25)…"
+          placeholder="Search files…"
+          aria-label="Search files"
+          title="Search files (Ctrl+F) — Enter to search, Esc to clear"
           @focus="searchFocused = true"
           @blur="searchFocused = false"
           @keyup.enter="handleSearch"
+          @keyup.esc="clearSearch"
         />
         <span v-if="store.isSearching" class="search-cursor" aria-hidden="true" />
         <span v-else-if="searchQueryShort" class="search-hint">ENTER</span>
@@ -229,6 +232,7 @@ const menuStructure = computed<MenuGroup[]>(() => [
       { id: 'search', label: 'Search', icon: 'solar:magnifer-bold', shortcut: 'Ctrl+F', action: () => { store.searchQuery = ''; wm.open('search') } },
       { id: 'storage', label: 'Storage Dashboard', icon: 'solar:database-bold', action: () => { wm.open('storage') } },
       { id: 'sync-panel', label: 'Sync Panel', icon: 'solar:refresh-bold', action: () => { wm.open('sync') } },
+      { id: 'devices', label: 'Devices & Sensors', icon: 'solar:plug-circle-bold', action: () => { wm.open('devices') } },
       { id: 'loose-groups', label: 'Loose Groups', icon: 'solar:users-group-two-rounded-bold', action: () => { wm.open('loose-groups') } },
       { id: 'style', label: 'Style Tags', icon: 'solar:tag-bold', action: () => { wm.open('style') } },
       { id: 'overlay', label: 'Overlay Dashboard', icon: 'solar:kanban-square-bold', action: () => { wm.open('webdash') } },
@@ -255,7 +259,7 @@ const menuStructure = computed<MenuGroup[]>(() => [
       { id: 'users', label: 'User Management', icon: 'solar:users-group-rounded-bold', action: () => { wm.open('users'); store.fetchUsers() } },
       { id: 'div2', divider: true },
       { id: 'command-palette', label: 'Command Palette', icon: 'solar:command-bold', shortcut: 'Ctrl+K', action: () => { store.commandPaletteOpen = true } },
-      { id: 'keyboard-shortcuts', label: 'Keyboard Shortcuts', icon: 'solar:keyboard-bold', action: () => { store.showShortcutsHelp = true } },
+      { id: 'keyboard-shortcuts', label: 'Keyboard Shortcuts', icon: 'solar:keyboard-bold', shortcut: '?', action: () => { store.showShortcutsHelp = true } },
     ],
   },
   {
@@ -290,6 +294,10 @@ function handleSearch() {
     store.searchFiles(store.searchQuery)
     wm.open('search')
   }
+}
+
+function clearSearch() {
+  store.searchQuery = ''
 }
 
 function openDateInfo() {

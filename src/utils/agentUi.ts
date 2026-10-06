@@ -5,7 +5,8 @@
 // stays a renderer. Mirrors where it matters: tool titles follow the same
 // salient-argument order as Rust `config::salient_arg`.
 
-import type { ChatMessage, PermissionRuleset, TokenUsage } from '@/types'
+import type { AgentConfig, ChatMessage, PermissionRuleset, TokenUsage } from '@/types'
+import { agentPermissionPreset } from '@/types'
 import { decideLocalTool } from '@/composables/useAgent'
 
 /** How each tool is announced while it runs (opencode-style verb + target). */
@@ -30,6 +31,8 @@ export const AGENT_TOOL_META: Record<string, ToolMeta> = {
   bash: { name: 'bash', verb: 'Running', done: 'Ran', icon: 'solar:command-bold' },
   task: { name: 'task', verb: 'Delegating', done: 'Delegated', icon: 'solar:user-circle-bold' },
   question: { name: 'question', verb: 'Asking', done: 'Asked', icon: 'solar:question-circle-bold' },
+  memory_recall: { name: 'memory_recall', verb: 'Recalling', done: 'Recalled', icon: 'solar:history-bold' },
+  memory_remember: { name: 'memory_remember', verb: 'Remembering', done: 'Remembered', icon: 'solar:bookmark-bold' },
 }
 
 export function toolMeta(name: string): ToolMeta {
@@ -56,6 +59,7 @@ export function salientArg(input: unknown): string {
     pick('url') ||
     pick('goal') ||
     pick('question') ||
+    pick('text') ||
     ''
   )
 }
@@ -488,4 +492,54 @@ export function explainDecision(
   if (d.kind === 'allow') return `ALLOW ${what} — allowed by the permission ruleset`
   if (d.kind === 'ask') return `ASK ${what} — ${d.summary}`
   return `DENY ${what} — ${d.reason}`
+}
+
+// ─── YOLO mode: one tap to allow everything ───────────────────────────────
+
+/**
+ * True when the ruleset allows every tool without asking: `allow` default
+ * with no `ask`/`deny` anywhere (granular pairs included). Mirrors the Rust
+ * `is_tool_denied_everywhere` probe shape — an empty-allow ruleset is YOLO,
+ * anything with a single ask or deny is not.
+ */
+export function isYoloRuleset(rules: PermissionRuleset | undefined): boolean {
+  if (!rules || rules.default !== 'allow') return false
+  return Object.values(rules.rules).every(r =>
+    r === 'allow' || (Array.isArray(r) && r.length > 0 && r.every(([, a]) => a === 'allow')),
+  )
+}
+
+/** True when the config runs fully unattended: YOLO ruleset + build kind + auto-approve. */
+export function isYoloConfig(cfg: Pick<AgentConfig, 'permission' | 'agentKind' | 'autoApprove'> | null | undefined): boolean {
+  if (!cfg) return false
+  return cfg.agentKind === 'build' && cfg.autoApprove && isYoloRuleset(cfg.permission)
+}
+
+/**
+ * Pure YOLO enable: allow-all ruleset, build persona (plan denies mutations
+ * no matter the rules), auto-approve on, every attached MCP server enabled.
+ * Rails that survive by design: plan is left behind only via the kind flip
+ * (announced in the toast), protected standing-order writes still ask, and
+ * the runtime `decide` gate stays in place.
+ */
+export function applyYoloToConfig(cfg: AgentConfig): AgentConfig {
+  const mcpServers = Object.fromEntries(
+    Object.entries(cfg.mcpServers ?? {}).map(([name, server]) => [name, { ...server, enabled: true }]),
+  )
+  return {
+    ...cfg,
+    agentKind: 'build',
+    permission: agentPermissionPreset('yolo'),
+    autoApprove: true,
+    mcpServers,
+  }
+}
+
+/** Pure YOLO disable: back to the balanced ask-by-default posture (MCP enable flags untouched). */
+export function applyBalancedToConfig(cfg: AgentConfig): AgentConfig {
+  return {
+    ...cfg,
+    permission: agentPermissionPreset('balanced'),
+    autoApprove: false,
+  }
 }

@@ -14,11 +14,14 @@ import { ref } from 'vue'
 import { wasmAgentCatalog, wasmAgentPrompt } from './useWasmBackend'
 import { wasmModuleExports, wasmOsDispatch } from './useWasmBackend'
 import { prepareWireMessages } from '@/utils/agentUi'
+import { LocalMemoryStore, MEMORY_TEXT_CAP_CHARS, renderRecallBlock, type MemoryStorage } from '@/utils/memory'
 import type {
   AgentConfig,
   AgentJob,
+  AgentMemory,
   AgentSession,
   ChatMessage,
+  MemoryHit,
   PermissionRuleset,
   ProviderPreset,
   TokenUsage,
@@ -27,6 +30,7 @@ import type {
 
 const SESSIONS_KEY = 'cybermanju.agent.sessions.v1'
 const CONFIGS_KEY = 'cybermanju.agent.configs.v1'
+const MEMORIES_KEY = 'cybermanju.agent.memories.v1'
 
 /** Shell-style wildcard: `*` spans any run, `?` exactly one char. */
 export function matchWildcard(pattern: string, input: string): boolean {
@@ -105,6 +109,7 @@ function salientArg(input: Record<string, unknown>): string {
     (input.glob as string) ??
     (input.query as string) ??
     (input.url as string) ??
+    (input.text as string) ??
     ''
   )
 }
@@ -314,6 +319,7 @@ async function applyEditLocal(
 async function execLocalTool(
   call: { name: string; input: Record<string, unknown> },
   cwd: string,
+  configId = '',
 ): Promise<string> {
   const join = (p: string) => {
     const raw = String(p || '')
@@ -425,6 +431,21 @@ async function execLocalTool(
       throw new Error('unsupported: subagents are not available in the browser loop yet — break the goal into steps')
     case 'question':
       throw new Error('unsupported: routed through approvals, never executed directly')
+    case 'memory_recall': {
+      const query = String(call.input.query ?? '').trim()
+      if (!query) throw new Error('invalid: query is required')
+      const topK = Math.min(10, Math.max(1, Number(call.input.top_k ?? 3) || 3))
+      const hits = localMemories.recall(configId || undefined, query, topK)
+      if (!hits.length) return 'no memories match — proceed with the transcript alone'
+      return hits.map(h => `- ${h.text}`).join('\n')
+    }
+    case 'memory_remember': {
+      const text = String(call.input.text ?? '').trim().slice(0, MEMORY_TEXT_CAP_CHARS)
+      if (!text) throw new Error('invalid: nothing memorable after cleaning')
+      const row = localMemories.remember(configId || 'browser', text)
+      if (!row) throw new Error('invalid: nothing memorable after cleaning')
+      return `remembered ${row.id} (${row.text.length} chars, keyword-only: no embeddings on this transport)`
+    }
     default:
       throw new Error(`unsupported: unknown tool '${call.name}'`)
   }
@@ -442,6 +463,8 @@ export interface LocalRunOpts {
   permission: PermissionRuleset
   autoApprove: boolean
   agentKind: 'build' | 'plan'
+  /** Config scope for local memories (namespaces recall + remember). */
+  configId?: string
   /** Persist an "allow always" rule the user just granted (config write). */
   onRemember?: (tool: string) => void
 }
@@ -613,9 +636,12 @@ export async function runLocalAgent(
           const ans = await waitApproval({ tool: call.name, input, summary: decision.summary, question: null })
           if (!ans.approved) {
             breaker.record(call.name, true)
+            const feedback = (ans.answer ?? '').trim()
             messages.push({
               role: 'tool',
-              content: `denied: user rejected \`${call.name}\` — work around it or explain`,
+              content: feedback
+                ? `denied: user rejected \`${call.name}\` — user feedback: ${feedback} — work around it or explain`
+                : `denied: user rejected \`${call.name}\` — work around it or explain`,
               toolCallId: call.id,
               toolName: call.name,
             })
@@ -630,7 +656,7 @@ export async function runLocalAgent(
         }
         if (decision.kind === 'allow') breaker.record(call.name, false)
         try {
-          const output = await execLocalTool(call, '/')
+          const output = await execLocalTool(call, '/', opts.configId ?? '')
           messages.push({ role: 'tool', content: output, toolCallId: call.id, toolName: call.name })
         } catch (e) {
           const detail = e instanceof Error ? e.message : String(e)
@@ -716,6 +742,32 @@ export function deleteLocalSession(id: string): void {
   )
 }
 
+// ─── local semantic memory (keyword-only recall; the browser mints no
+// vectors without an embeddings endpoint — rows stay comparable via the
+// same rank/score contract as the native store) ──────────────────────
+
+const localStorageMemory: MemoryStorage = {
+  load: () => readJson<AgentMemory[]>(MEMORIES_KEY, []),
+  save: all => writeJson(MEMORIES_KEY, all.slice(-500)),
+}
+
+export const localMemories = new LocalMemoryStore(localStorageMemory)
+
+export function listLocalMemories(configId?: string): AgentMemory[] {
+  return localMemories.list(configId)
+}
+
+export function deleteLocalMemory(id: string): void {
+  localMemories.remove(id)
+}
+
+/** Bounded recall block for the browser system prompt ("" when empty). */
+export function recallBlockLocal(configId: string, query: string, topK = 3): string {
+  const hits: MemoryHit[] = localMemories.recall(configId, query, topK)
+  if (!hits.length) return ''
+  return renderRecallBlock(hits) + '\n(degraded: keyword-only recall — no embeddings on this transport)\n'
+}
+
 export function useAgent() {
   return {
     running,
@@ -729,6 +781,9 @@ export function useAgent() {
     listLocalSessions,
     saveLocalSession,
     deleteLocalSession,
+    listLocalMemories,
+    deleteLocalMemory,
+    recallBlockLocal,
     matchWildcard,
     decideLocalTool,
   }

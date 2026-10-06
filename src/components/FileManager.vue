@@ -383,6 +383,27 @@
               <div class="fm-kv hash"><span>BLAKE3</span><b class="mono" :title="active.hashBlake3">{{ active.hashBlake3 || '—' }}</b></div>
               <div class="fm-kv"><span>Starred</span><button class="fm-pill xs" @click="store.toggleStar(active!.id)">{{ active.isStarred ? '★ yes' : '☆ star it' }}</button></div>
               <div v-if="active.tags?.length" class="fm-kv"><span>Tags</span><b>{{ active.tags.join(', ') }}</b></div>
+              <div class="fm-tagedit">
+                <span class="fm-tagedit__label">TAGS — TEACH SEARCH</span>
+                <div class="fm-tagedit__chips">
+                  <span v-for="t in (active.tags || [])" :key="t" class="fm-tagedit__chip">
+                    {{ t }}
+                    <button type="button" class="fm-tagedit__x" :aria-label="`Remove tag ${t}`" title="Remove" @click="removeTag(t)">×</button>
+                  </span>
+                  <span v-if="!(active.tags || []).length" class="fm-sempty">No tags — add one to improve search.</span>
+                </div>
+                <form class="fm-tagedit__form" @submit.prevent="addTag()">
+                  <input
+                    v-model="tagDraft"
+                    class="fm-tagedit__input"
+                    type="text"
+                    placeholder="Add tag… (Enter)"
+                    aria-label="Add tag"
+                    maxlength="48"
+                  />
+                  <button type="submit" class="fm-pill xs" :disabled="!tagDraft.trim() || tagSaving">Add</button>
+                </form>
+              </div>
               <div v-if="active.gpsLat != null" class="fm-kv"><span>GPS</span><b class="mono">{{ active.gpsLat.toFixed(4) }}, {{ active.gpsLon?.toFixed(4) }}</b></div>
               <div class="fm-btnrow">
                 <button class="fm-pill xs" @click="openFile(active)">Open</button>
@@ -856,6 +877,35 @@ async function doRename() {
   dlgRename.value = null
 }
 function askDelete(f: FileNode) { dlgDeleteMany.value = 0; dlgDelete.value = f }
+// ── user tags (teach search/parse + scene matching on any file) ──
+const tagDraft = ref('')
+const tagSaving = ref(false)
+async function addTag() {
+  const file = active.value
+  const tag = tagDraft.value.trim()
+  if (!file || !tag || tagSaving.value) return
+  if ((file.tags || []).some(t => t.toLowerCase() === tag.toLowerCase())) {
+    tagDraft.value = ''
+    return
+  }
+  tagSaving.value = true
+  try {
+    await store.setFileTags(file.id, [...(file.tags || []), tag])
+    tagDraft.value = ''
+  } finally {
+    tagSaving.value = false
+  }
+}
+async function removeTag(tag: string) {
+  const file = active.value
+  if (!file || tagSaving.value) return
+  tagSaving.value = true
+  try {
+    await store.setFileTags(file.id, (file.tags || []).filter(t => t !== tag))
+  } finally {
+    tagSaving.value = false
+  }
+}
 async function doDelete() {
   if (dlgDeleteMany.value > 0) await store.batchDeleteFiles([...store.selectedFileIds])
   else if (dlgDelete.value) await store.deleteFile(dlgDelete.value.id)
@@ -1251,6 +1301,15 @@ onMounted(() => {
 .fm-kv span { color: var(--ui-text-3); flex-shrink: 0; } .fm-kv b { font-weight: 650; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .fm-kv.small { font-size: 10.5px; } .fm-kv.hash b { font-size: 9px; word-break: break-all; }
 .fm-btnrow { display: flex; flex-wrap: wrap; gap: 5px; }
+.fm-tagedit { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--ui-hairline); }
+.fm-tagedit__label { font-size: 9px; font-weight: 700; letter-spacing: 0.8px; color: var(--ui-text-3); }
+.fm-tagedit__chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.fm-tagedit__chip { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600; padding: 2px 4px 2px 8px; border-radius: var(--ui-radius-full); border: 1px solid color-mix(in srgb, var(--ui-accent) 35%, transparent); background: var(--ui-accent-softer); color: var(--ui-text); }
+.fm-tagedit__x { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; border: none; background: transparent; color: var(--ui-text-3); cursor: pointer; font-size: 12px; line-height: 1; }
+.fm-tagedit__x:hover { color: var(--ui-danger); }
+.fm-tagedit__form { display: flex; gap: 6px; }
+.fm-tagedit__input { flex: 1; min-width: 0; background: color-mix(in srgb, var(--ui-surface) 80%, transparent); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); color: var(--ui-text); font-family: var(--ui-font); font-size: 11px; padding: 4px 8px; outline: none; }
+.fm-tagedit__input:focus { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
 .fm-cryptocard { padding: 9px 10px; border-radius: 12px; border: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-text) 3%, transparent); display: flex; flex-direction: column; gap: 5px; }
 .fm-cryptocard.on { border-color: color-mix(in srgb, var(--ui-warning) 45%, transparent); box-shadow: 0 0 18px color-mix(in srgb, var(--ui-warning) 12%, transparent); }
 .fm-algos { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }

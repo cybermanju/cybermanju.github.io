@@ -67,6 +67,7 @@ const dockApps = computed<DockApp[]>(() => [
   { panelType: 'sync', label: 'Sync', icon: 'solar:refresh-bold', category: 'tools' },
   { panelType: 'storage', label: 'Storage', icon: 'solar:database-bold', category: 'tools' },
   { panelType: 'disks', label: 'Disks', icon: 'solar:ssd-square-bold', category: 'tools' },
+  { panelType: 'devices', label: 'Devices', icon: 'solar:plug-circle-bold', category: 'tools' },
   { panelType: 'terminal', label: 'Terminal', icon: 'solar:file-terminal-bold', category: 'system' },
   { panelType: 'processes', label: 'Tasks', icon: 'solar:cpu-bold', category: 'system' },
   { panelType: 'settings', label: 'Settings', icon: 'solar:settings-bold', category: 'system' },

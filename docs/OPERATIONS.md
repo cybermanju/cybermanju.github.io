@@ -84,6 +84,16 @@ once mid-run; project rules load from `AGENTS.md`, `SKILL.md`,
 "allow always" as an explicit config row; `ai init` runs repo analysis that
 writes `AGENTS.md` with the agent's own tools.
 
+Semantic memory (`docs/MEMORY.md`): curated facts + embedding vectors in the
+`agent_memories` redb table (same DB file). `memory_recall` / `memory_remember`
+tools (permission-gated, subagents denied on remember); pre-prompt auto-recall
+injects a bounded 2200-char block; compaction handoffs auto-store; long
+memory-less runs set a `memoryHint` nudge. Embeddings via `{base}/embeddings`
+(OpenAI dialect; per-config `embeddingModel`, Ollama works offline);
+Anthropic degrades to keyword recall, never fails. HTTP:
+`GET|POST|DELETE /api/agent/memories`, `POST …/recall`, `GET …/export`
+(Hermes-compatible `MEMORY.md` + vectors for sync restore).
+
 ## 5. Durability: scrub / repair / gc / leases
 
 | Task | Route | Notes |

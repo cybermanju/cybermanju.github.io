@@ -4,6 +4,7 @@ members = [
     "crates/crypto",
     "crates/compression",
     "crates/search",
+    "crates/scene",
     "crates/db",
     "crates/web",
     "crates/sync",

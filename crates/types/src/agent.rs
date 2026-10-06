@@ -116,6 +116,19 @@ pub enum AgentKind {
     Plan,
 }
 
+/// Which shell the agent's `bash` tool runs on native transports.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ShellMode {
+    /// cybsh volume commands, device-shell fallback for the rest.
+    #[default]
+    Auto,
+    /// Always cybsh: unknown commands answer `unsupported:`, never shell out.
+    Cybsh,
+    /// Always the device shell (`sh -c`): cybsh commands are NOT translated.
+    Device,
+}
+
 /// A saved agent configuration. No key material — see module docs.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -141,6 +154,9 @@ pub struct AgentConfig {
     pub working_dir: String,
     #[serde(default)]
     pub agent_kind: AgentKind,
+    /// Which shell `bash` runs (native transports only). Missing = auto.
+    #[serde(default)]
+    pub shell_mode: ShellMode,
     #[serde(default)]
     pub permission: PermissionRuleset,
     /// Auto-approve `ask` (never overrides `deny`).
@@ -340,5 +356,76 @@ impl McpServerConfig {
             }
             other => Err(format!("invalid: unknown MCP transport '{other}'")),
         }
+    }
+}
+
+/// Default web-search MCP server name (Exa, keyless Streamable HTTP).
+pub const DEFAULT_EXA_MCP_NAME: &str = "exa";
+
+/// Default web-search MCP endpoint (Exa, no API key required for the
+/// `web_search_exa` / `web_fetch_exa` tools; rate-limited free tier).
+pub const DEFAULT_EXA_MCP_URL: &str = "https://mcp.exa.ai/mcp";
+
+/// The default Exa MCP server config attached to every agent config.
+pub fn default_exa_mcp_server() -> McpServerConfig {
+    McpServerConfig {
+        transport: "http".to_string(),
+        command: None,
+        args: Vec::new(),
+        env: std::collections::BTreeMap::new(),
+        url: Some(DEFAULT_EXA_MCP_URL.to_string()),
+        headers: Vec::new(),
+        enabled: true,
+    }
+}
+
+/// Insert the default Exa MCP server when the map has no `exa` entry.
+/// Existing user entries (including a disabled `exa`) are never touched.
+pub fn ensure_default_mcp_servers(
+    servers: &mut std::collections::BTreeMap<String, McpServerConfig>,
+) {
+    if !servers.contains_key(DEFAULT_EXA_MCP_NAME) {
+        servers.insert(
+            DEFAULT_EXA_MCP_NAME.to_string(),
+            default_exa_mcp_server(),
+        );
+    }
+}
+
+/// Default-allow the safe network-fetch commands and the default Exa
+/// search tools so a fresh config can search the web without an approval
+/// round-trip. Only fills gaps: explicit user rules are never overwritten.
+pub fn ensure_default_agent_permissions(rules: &mut PermissionRuleset) {
+    for tool in [
+        "mcp__exa__web_search_exa",
+        "mcp__exa__web_fetch_exa",
+    ] {
+        if !rules.rules.contains_key(tool) {
+            rules.rules.insert(
+                tool.to_string(),
+                PermissionRule::Simple(PermissionAction::Allow),
+            );
+        }
+    }
+    match rules.rules.get_mut("bash") {
+        Some(PermissionRule::Granular(pairs)) => {
+            for pat in ["curl *", "wget *"] {
+                if !pairs.iter().any(|(p, _)| p == pat) {
+                    pairs.push((pat.to_string(), PermissionAction::Allow));
+                }
+            }
+        }
+        None => {
+            rules.rules.insert(
+                "bash".to_string(),
+                PermissionRule::Granular(vec![
+                    ("*".to_string(), PermissionAction::Ask),
+                    ("curl *".to_string(), PermissionAction::Allow),
+                    ("wget *".to_string(), PermissionAction::Allow),
+                ]),
+            );
+        }
+        // An explicit simple `bash` rule is the user's voice: keep it.
+        Some(PermissionRule::Simple(_)) => {}
     }
 }

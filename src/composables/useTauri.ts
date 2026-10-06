@@ -422,6 +422,12 @@ const REST_ROUTES: Record<string, RestMapping> = {
     transformRequest: (args) => ({ newName: args.newName }),
   },
 
+  set_file_tags: {
+    method: 'PUT',
+    buildPath: (args) => `/api/files/${args.fileId}/tags`,
+    transformRequest: (args) => ({ tags: args.tags ?? [] }),
+  },
+
   move_file: {
     method: 'POST',
     buildPath: (args) => `/api/files/${args.fileId}/move`,
@@ -907,6 +913,35 @@ const REST_ROUTES: Record<string, RestMapping> = {
     transformResponse: (raw) => transformResponseKeys(raw),
   },
 
+  // ── Semantic memory (redb `agent_memories`) ──
+  list_agent_memories: {
+    method: 'GET',
+    buildPath: (args) => {
+      const q = args.configId ? `?configId=${encodeURIComponent(String(args.configId))}` : ''
+      return `/api/agent/memories${q}`
+    },
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  store_agent_memory: {
+    method: 'POST',
+    buildPath: () => '/api/agent/memories',
+    transformRequest: (args) => ({ configId: args.configId, sessionId: args.sessionId, text: args.text }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  delete_agent_memory: {
+    method: 'DELETE',
+    buildPath: (args) => `/api/agent/memories/${args.memoryId}`,
+  },
+
+  recall_agent_memories: {
+    method: 'POST',
+    buildPath: () => '/api/agent/memories/recall',
+    transformRequest: (args) => ({ configId: args.configId, query: args.query, topK: args.topK }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
   // ── Managed file text content (code editor) ──
   read_file_content: {
     method: 'GET',
@@ -1135,6 +1170,10 @@ const DB_WASM_ROUTES: Record<string, DbWasmRoute> = {
   create_folder: { op: 'files.create_folder', args: (a) => ({ name: a.name, parentId: a.parentId }) },
   rename_file: { op: 'files.rename', args: (a) => ({ fileId: a.fileId, newName: a.newName }) },
   delete_file: { op: 'files.delete', args: (a) => ({ fileId: a.fileId }) },
+  set_file_tags: {
+    op: 'files.patch',
+    args: (a) => ({ fileId: a.fileId, patch: { tags: a.tags ?? [] } }),
+  },
   // ── Managed text content — body in kv (`content:<fileId>`), node in files.
   // Uploads land base64 with `encoding:<fileId>` = "base64"; the read route
   // decodes so the editor always sees text.
@@ -1432,6 +1471,43 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
 
 /** The core invoke — works in both Tauri and Web modes. */
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  // ── Provider VFS (CONTROL Phase 5.6): served by the TS canal
+  // orchestration on EVERY transport — mounts + cache live in kv (inside
+  // the `.cybermanju` container on static hosts), network bytes go through
+  // the Rust canal, so reads never hit the "needs the dashboard" refusal.
+  if (cmd === 'vfs_list_mounts' || cmd === 'vfs_save_mount' || cmd === 'vfs_delete_mount' ||
+    cmd === 'vfs_list_dir' || cmd === 'vfs_read_file') {
+    const canal = await import('./useProviderCanal')
+    switch (cmd) {
+      case 'vfs_list_mounts':
+        return (await canal.listVfsMounts()) as T
+      case 'vfs_save_mount':
+        return (await canal.saveVfsMount({
+          id: args?.id as string | undefined,
+          configId: String(args?.configId ?? ''),
+          name: String(args?.name ?? args?.configId ?? ''),
+          backendType: String(args?.backendType ?? 'github'),
+          basePath: String(args?.basePath ?? ''),
+        })) as T
+      case 'vfs_delete_mount':
+        await canal.deleteVfsMount(String(args?.id ?? args?.mountId ?? ''))
+        return { ok: true } as T
+      case 'vfs_list_dir':
+        return (await canal.listVfsDir(
+          String(args?.mountId ?? args?.id ?? ''),
+          String(args?.remotePath ?? args?.path ?? ''),
+        )) as T
+      case 'vfs_read_file':
+        return (await canal.readVfsFile(
+          String(args?.mountId ?? args?.id ?? ''),
+          String(args?.remotePath ?? args?.path ?? ''),
+          {
+            locator: args?.locator as string | undefined,
+            passphrase: args?.passphrase as string | undefined,
+          },
+        )) as T
+    }
+  }
   const mapping = REST_ROUTES[cmd]
   if (isTauri() && !REST_FIRST.has(cmd)) {
     // ── Tauri IPC path ────────────────────────────────────

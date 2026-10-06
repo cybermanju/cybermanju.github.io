@@ -171,6 +171,11 @@ pub fn save_config(db: &Database, mut config: AgentConfig) -> Result<AgentConfig
         config.id = uuid::Uuid::new_v4().to_string();
     }
     crate::security::validate_id(&config.id)?;
+    // Defaults first: every config ships the keyless Exa search MCP plus
+    // allow-rules for `curl`/`wget` and the Exa tools. Explicit user
+    // entries always win (`ensure_*` only fills gaps).
+    cybermanju_types::agent::ensure_default_mcp_servers(&mut config.mcp_servers);
+    cybermanju_types::agent::ensure_default_agent_permissions(&mut config.permission);
     validate_config(&config)?;
     config.max_turns = config.max_turns.clamp(1, agent_loop::MAX_TURNS_HARD_CAP);
     let now = chrono::Utc::now().to_rfc3339();
@@ -617,6 +622,7 @@ fn bump_memory_uses(db: &Database, ids: &[String]) -> Result<(), String> {
 /// Vector-first recall with keyword fallback, over one config's memories.
 /// Embedding failure degrades to keywords — recall answers from what the
 /// store has, never from a failed provider call.
+#[allow(clippy::too_many_arguments)]
 pub fn recall_text(
     db: &Database,
     cancel: &AtomicBool,
@@ -638,6 +644,43 @@ pub fn recall_text(
         let _ = bump_memory_uses(db, &ids);
     }
     hits
+}
+
+/// Route-level recall: config-scoped vector recall when `config_id` is set,
+/// keyword-only global search otherwise. Brief reads only — the one
+/// embeddings call holds no lock.
+pub fn recall_memory_entries(
+    db: &Arc<RwLock<Database>>,
+    config_id: Option<&str>,
+    query: &str,
+    top_k: usize,
+) -> Result<Vec<MemoryHit>, String> {
+    if query.trim().is_empty() {
+        return Err("invalid: query is required".to_string());
+    }
+    let Some(config_id) = config_id else {
+        let guard = db.read().map_err(|e| e.to_string())?;
+        let memories = list_memories(&guard, None, true)?;
+        return Ok(agent_memory::recall_rank(None, query, &memories, top_k));
+    };
+    let (config, key) = {
+        let guard = db.read().map_err(|e| e.to_string())?;
+        (get_config(&guard, config_id)?, load_key(&guard, config_id)?)
+    };
+    let endpoint = providers::resolve(&config)?;
+    let cancel = AtomicBool::new(false);
+    let model = embedding_model(&config);
+    let guard = db.read().map_err(|e| e.to_string())?;
+    Ok(recall_text(
+        &guard,
+        &cancel,
+        &endpoint,
+        &key,
+        &config.id,
+        query,
+        top_k,
+        &model,
+    ))
 }
 
 /// Pre-prompt auto-recall: the user prompt seeds a bounded
@@ -1113,11 +1156,50 @@ fn tool_write(
     ))
 }
 
-fn tool_bash(root: &Path, command: &str, timeout_secs: u64) -> Result<String, String> {
+fn tool_bash(
+    db: &Database,
+    root: &Path,
+    command: &str,
+    timeout_secs: u64,
+    mode: cybermanju_types::agent::ShellMode,
+) -> Result<String, String> {
+    use cybermanju_types::agent::ShellMode;
     use std::process::{Command, Stdio};
     let command = command.trim();
     if command.is_empty() {
         return Err("invalid: empty command".to_string());
+    }
+    // Shell choice comes from the config (`shell_mode`): cybsh-first in
+    // auto, cybsh-only when forced, device-shell-only when forced.
+    // cybsh runs against the Kernel/volume via the same shell as the
+    // Terminal panel (`ls`, `cat`, `search`, `disk`, `sync`, `ai`, …).
+    // Pass explicit paths: the shell's working directory is
+    // process-global and shared with the terminal.
+    let cybsh_first = match mode {
+        ShellMode::Device => false,
+        ShellMode::Auto | ShellMode::Cybsh => true,
+    };
+    if cybsh_first {
+        if let Some(first) = command.split_whitespace().next() {
+            if cybermanju_os::shell::command_table().contains(&first) {
+                let out = cybermanju_os::shell::execute(command, Some(db))?;
+                if out.len() > TOOL_OUTPUT_CAP {
+                    let mut cut = out;
+                    cut.truncate(TOOL_OUTPUT_CAP);
+                    cut.push_str("\n… truncated at 64 KiB");
+                    return Ok(cut);
+                }
+                return Ok(out);
+            }
+        }
+        if mode == ShellMode::Cybsh {
+            return Err(format!(
+                "unsupported: `{}` is not a cybsh command (shell_mode is \
+                 cybsh-only) — use a cybsh volume command or switch the \
+                 config to auto/device for the device shell",
+                command.split_whitespace().next().unwrap_or("")
+            ));
+        }
     }
     let timeout = timeout_secs.clamp(5, 600);
     let mut child = Command::new("sh")
@@ -1205,6 +1287,7 @@ fn exec_tool(
     vol: &Path,
     call: &ToolCall,
     mem: &MemoryCtx,
+    shell_mode: cybermanju_types::agent::ShellMode,
 ) -> Result<String, String> {
     let get = |key: &str| {
         call.input
@@ -1278,7 +1361,7 @@ fn exec_tool(
                 .get("timeout_secs")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(120);
-            tool_bash(root, &get("command"), timeout)
+            tool_bash(db, root, &get("command"), timeout, shell_mode)
         }
         "memory_recall" => {
             let top_k = call
@@ -2193,7 +2276,8 @@ fn run_agent_job(
             &root.to_string_lossy(),
             kind,
             &repo_overview(&root),
-            agent_loop::Sandbox::Native
+            agent_loop::Sandbox::Native,
+            config.shell_mode
         ),
         load_project_rules(&root)
     );
@@ -2214,9 +2298,13 @@ fn run_agent_job(
     // Connect MCP servers up front: a run with a dead tool server fails
     // loudly here instead of hallucinating around missing tools mid-run.
     // `McpSet` drops (kills children) on every exit path below.
+    // Effective map = stored servers + keyless Exa default (old configs
+    // predate it; a stored `exa` entry, even disabled, always wins).
     let mut mcp_defs: Vec<serde_json::Value> = Vec::new();
     let mut mcp_conns: Vec<McpConnection> = Vec::new();
-    for (name, server_cfg) in &config.mcp_servers {
+    let mut effective_servers = config.mcp_servers.clone();
+    cybermanju_types::agent::ensure_default_mcp_servers(&mut effective_servers);
+    for (name, server_cfg) in &effective_servers {
         if !server_cfg.enabled {
             continue;
         }
@@ -2352,6 +2440,13 @@ fn run_agent_job(
                 set_state(job, |s| {
                     s.status = "done".to_string();
                     s.result = Some(result);
+                    // Hermes-style nudge, once: a long run that stored
+                    // nothing earns a "teach me" hint for the UI.
+                    if agent_memory::should_nudge_memory(turn.turns_used, remembered_in_run(&turn)) {
+                        s.memory_hint = Some(
+                            "This run learned things worth keeping — store one fact with memory_remember.".to_string(),
+                        );
+                    }
                 });
                 break;
             }
@@ -2359,9 +2454,14 @@ fn run_agent_job(
                 set_state(job, |s| {
                     s.status = "done".to_string();
                     s.result = Some(format!(
-                        "turn budget exhausted after {} turns — last state saved",
+                        "turn budget exhausted after {} turns — raise MAX TURNS or COMPACT the session, then continue; last state saved",
                         turn.turns_used
                     ));
+                    if agent_memory::should_nudge_memory(turn.turns_used, remembered_in_run(&turn)) {
+                        s.memory_hint = Some(
+                            "This run learned things worth keeping — store one fact with memory_remember.".to_string(),
+                        );
+                    }
                 });
                 break;
             }
@@ -2509,13 +2609,18 @@ fn run_one_tool(
                             return ToolOutcome::Continue(format!("user answered: {text}"));
                         }
                     }
-                    Some(_) => {
+                    Some(answer) => {
                         set_state(job, |s| {
                             s.status = "running".to_string();
                             s.pending = None;
                         });
+                        let feedback = answer
+                            .answer
+                            .filter(|a| !a.trim().is_empty())
+                            .map(|a| format!(" — user feedback: {a}"))
+                            .unwrap_or_default();
                         return ToolOutcome::Continue(format!(
-                            "denied: user rejected `{}` — work around it or explain",
+                            "denied: user rejected `{}`{feedback} — work around it or explain",
                             call.name
                         ));
                     }
@@ -2577,7 +2682,7 @@ fn run_one_tool(
         Ok(guard) => guard,
         Err(e) => return ToolOutcome::Continue(format!("error: database unavailable: {e}")),
     };
-    match exec_tool(&guard, root, vol, call, mem) {
+    match exec_tool(&guard, root, vol, call, mem, config.shell_mode) {
         Ok(output) => {
             let mut output = output;
             if output.len() > TOOL_OUTPUT_CAP {
@@ -2695,7 +2800,8 @@ fn run_subagent(
             &root.to_string_lossy(),
             "build",
             &repo_overview(root),
-            agent_loop::Sandbox::Native
+            agent_loop::Sandbox::Native,
+            config.shell_mode
         ),
         load_project_rules(root)
     );
@@ -2797,7 +2903,7 @@ fn run_subagent(
                                 embedding_model: embedding_model(config),
                                 allow_remember: false,
                             };
-                            match exec_tool(&guard, root, vol, call, &mem_ctx) {
+                            match exec_tool(&guard, root, vol, call, &mem_ctx, config.shell_mode) {
                                 Ok(output) => clean_output(output),
                                 Err(e) => format!("error: {e}"),
                             }
@@ -3169,6 +3275,26 @@ pub fn compact_session(
         let guard = db.read().map_err(|e| e.to_string())?;
         save_session_row(&guard, &compacted)?;
     }
+    // The handoff doubles as long-term memory: future recalls find what the
+    // compacted session learned even though its transcript is gone. Best
+    // effort — memory must never break compaction.
+    {
+        let model = embedding_model(&config);
+        let cancel = AtomicBool::new(false);
+        if let Ok(guard) = db.read() {
+            let _ = prepare_memory(
+                &cancel,
+                &endpoint,
+                &key,
+                &session.config_id,
+                Some(compacted.id.clone()),
+                &summary,
+                MemoryOrigin::CompactHandoff,
+                &model,
+            )
+            .and_then(|m| save_memory_row(&guard, &m));
+        }
+    }
     Ok(compacted)
 }
 
@@ -3212,7 +3338,10 @@ pub fn mcp_tools(db: &Database, config_id: &str) -> Result<Vec<McpToolView>, Str
 /// routes use this so process spawns never hold the request lock.
 pub fn mcp_tools_for(config: &AgentConfig) -> Result<Vec<McpToolView>, String> {
     let mut out = Vec::new();
-    for (name, server) in &config.mcp_servers {
+    // Same effective map as a run: stored servers + keyless Exa default.
+    let mut effective = config.mcp_servers.clone();
+    cybermanju_types::agent::ensure_default_mcp_servers(&mut effective);
+    for (name, server) in &effective {
         if !server.enabled {
             continue;
         }

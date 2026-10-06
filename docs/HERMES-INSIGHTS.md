@@ -115,6 +115,25 @@ New pure module `src/utils/sessionMemory.ts`:
 - `sessionTitleFor(prompt)` — first-8-words title fallback (mirrors the
   existing `sendLocal` behaviour, now unit-pinned).
 
+### Semantic memory v2 (implemented — see `docs/MEMORY.md`)
+
+Session transcripts were verbatim-only recall. The semantic layer adds what
+Hermes has in Python (`MEMORY.md`/`USER.md`, 2200-char budget, write
+approval, FTS5 + LLM summarization, periodic nudges):
+
+- redb `agent_memories` table (same DB file): curated text + embedding
+  vectors, namespaced per config and per dims (model swaps partition, never
+  corrupt); vectorless rows stay keyword-recallable.
+- Hybrid recall (vector cosine ≥ 0.30 else keyword `0.25 + 0.05×overlap` capped
+  0.69; `uses`/recency tiebreak) in `crates/agent/src/memory.rs`, mirrored
+  exactly in `src/utils/memory.ts` (shared test contract).
+- `memory_recall` / `memory_remember` tools (schema + prompt + `decide` gate;
+  subagents denied on remember); pre-prompt auto-recall block (2200 chars);
+  compact-handoff auto-store; terminal-state `memoryHint` nudge.
+- Embeddings via provider `{base}/embeddings` (Ollama works offline);
+  Anthropic degrades to keywords honestly. REST + Tauri + store actions;
+  browser loop recalls keyword-only (`degraded:`) over a localStorage store.
+
 Deliberately **not** implemented: LLM summarization itself (server-side,
 CI-only by scope lock).
 

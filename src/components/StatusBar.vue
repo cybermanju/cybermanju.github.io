@@ -62,7 +62,18 @@
         aria-label="TOGGLE MATRIX RAIN BACKGROUND"
       >{{ store.matrixRainEnabled ? 'GFX:ON' : 'GFX:OFF' }}</span>
       <span class="sb-div">|</span>
-      <span class="sb-clickable" @click="store.commandPaletteOpen = true" title="COMMAND PALETTE (CTRL+K)" aria-label="OPEN COMMAND PALETTE">CMD+K</span>
+      <span class="sb-clickable" @click="store.commandPaletteOpen = true" title="Command palette (Ctrl+K)" aria-label="Open command palette">Ctrl+K</span>
+      <span class="sb-div">|</span>
+      <span class="sb-clickable" @click="store.showShortcutsHelp = true" title="Keyboard shortcuts (?) — all shortcuts" aria-label="Open keyboard shortcuts help">?</span>
+      <span class="sb-div">|</span>
+      <span
+        class="sb-clickable"
+        title="DEVICES (OPENS DEVICES)"
+        aria-label="DEVICE STATUS"
+        @click="wm.open('devices')"
+      >{{ deviceLabel }}</span>
+      <span class="sb-div">|</span>
+      <span class="sb-tech" :title="netTitle">{{ netLabel }}</span>
       <span class="sb-div">|</span>
       <span class="sb-tech">{{ isWebMode() ? 'WEB MODE' : 'TAURI MODE' }}</span>
     </div>
@@ -74,9 +85,23 @@ import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { isWebMode } from '@/composables/useTauri'
 import { useWindowManager } from '@/composables/useWindowManager'
+import { useSystemHardware } from '@/composables/useSystemHardware'
 
 const store = useAppStore()
 const wm = useWindowManager()
+const hw = useSystemHardware()
+
+// Live device / power / network readout (VueUse-backed, shared subscription).
+const deviceLabel = computed(() => {
+  const n = hw.pluggedDevices.value.length
+  const batt = hw.battery.isSupported.value ? ` ${Math.round((hw.battery.level.value ?? 0) * 100)}%${hw.battery.charging.value ? '+' : ''}` : ''
+  return `DEV:${n}${batt}`
+})
+const netLabel = computed(() => {
+  if (!hw.online.value) return 'OFFLINE'
+  return hw.network.effectiveType.value ? hw.network.effectiveType.value.toUpperCase() : 'ONLINE'
+})
+const netTitle = computed(() => `type ${hw.network.type.value}, rtt ${hw.network.rtt.value ?? '—'}ms, downlink ${hw.network.downlink.value ?? '—'}Mbps`)
 
 // AGENT-8 item 11: the bar shows background work — a `cybsh` line in flight
 // or any task running in the table — and jumps to the task list on click.

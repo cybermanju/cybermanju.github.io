@@ -12,8 +12,8 @@
             ref="inputRef"
             v-model="query"
             class="cp-input"
-            placeholder="TYPE COMMAND..."
-            aria-label="SEARCH COMMANDS"
+            placeholder="Type a command… (try “search” or “people”)"
+            aria-label="Search commands"
             @keydown="handleKeydown"
             @input="filterCommands"
           />
@@ -38,10 +38,13 @@
               <span v-if="cmd.shortcut" class="cp-item-shortcut">{{ cmd.shortcut }}</span>
             </div>
           </div>
-          <div v-if="allCommandsFiltered.length === 0" class="cp-empty text-muted">
-            NO MATCHING COMMANDS
+          <div v-if="allCommandsFiltered.length === 0" class="cp-empty">
+            <div class="cp-empty__title">No matches for “{{ query }}”</div>
+            <div class="cp-empty__hint text-muted">Try a different word, or press Esc to clear.</div>
+            <button type="button" class="cp-empty__clear" @click="query = ''">Clear search</button>
           </div>
         </div>
+        <div class="cp-foot text-muted">↑↓ navigate · ⏎ run · Esc close · Ctrl+K toggles</div>
       </div>
     </div>
   </Teleport>
@@ -356,6 +359,34 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
   padding: 24px;
   text-align: center;
   font-size: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+
+.cp-empty__title { font-size: 12px; font-weight: 700; color: var(--ui-text); }
+.cp-empty__hint { font-size: 10px; }
+.cp-empty__clear {
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: var(--ui-radius-full);
+  border: 1px solid var(--ui-border-strong);
+  background: transparent;
+  color: var(--ui-text-2);
+  cursor: pointer;
+}
+.cp-empty__clear:hover { border-color: var(--ui-border-hover); color: var(--ui-text); }
+
+.cp-foot {
+  padding: 6px 12px;
+  border-top: 1px solid var(--ui-border);
+  font-family: var(--ui-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-align: center;
 }
 
 .text-muted { opacity: 0.5; }

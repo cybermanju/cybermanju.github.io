@@ -1,5 +1,5 @@
 export type ViewMode = 'grid' | 'list' | 'masonry' | 'columns' | 'details'
-export type PanelType = 'landing' | 'files' | 'preview' | 'encryption' | 'compression' | 'collections' | 'faces' | 'map' | 'code' | 'editor' | 'agent' | 'search' | 'style' | 'accounts' | 'loose-groups' | 'sync' | 'webdash' | 'users' | 'dashboard' | 'settings' | 'trash' | 'activity' | 'favorites' | 'recent' | 'storage' | 'terminal' | 'processes' | 'disks' | 'permissions'
+export type PanelType = 'landing' | 'files' | 'preview' | 'encryption' | 'compression' | 'collections' | 'faces' | 'map' | 'code' | 'editor' | 'agent' | 'search' | 'style' | 'accounts' | 'loose-groups' | 'sync' | 'webdash' | 'users' | 'dashboard' | 'settings' | 'trash' | 'activity' | 'favorites' | 'recent' | 'storage' | 'terminal' | 'processes' | 'disks' | 'devices' | 'permissions'
 export type SidebarSection = 'tree' | 'locations' | 'collections' | 'people' | 'styles' | 'loose' | 'users' | 'sync' | 'dashboard' | 'landing' | 'tools'
 
 export interface ModuleInfo {
@@ -627,6 +627,7 @@ export const MODULE_METADATA: Record<PanelType, ModuleInfo> = {
   agent: { id: 'agent', label: 'AGENT', icon: 'solar:bot-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'Native AI coding agent', requiresAuth: true },
   processes: { id: 'processes', label: 'TASKS', icon: 'solar:cpu-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d0d 50%, #000000 100%)', description: 'Process table, top and task control', requiresAuth: true },
   disks: { id: 'disks', label: 'DISKS', icon: 'solar:ssd-square-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000a00 50%, #000000 100%)', description: 'Per-provider disks and the merged volume', requiresAuth: true },
+  devices: { id: 'devices', label: 'DEVICES', icon: 'solar:plug-circle-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000a0d 50%, #000000 100%)', description: 'Plugged hardware, sensors and browser capabilities', requiresAuth: true },
   permissions: { id: 'permissions', label: 'PERMS', icon: 'solar:key-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0000 50%, #000000 100%)', description: 'Per-file access control', requiresAuth: true },
 }
 
@@ -820,6 +821,8 @@ export type LlmDialect = 'openAi' | 'anthropic'
 export type AuthScheme = 'bearer' | 'header' | 'query' | 'none'
 export type PermissionAction = 'allow' | 'ask' | 'deny'
 export type AgentKind = 'build' | 'plan'
+/** Which shell the agent's `bash` tool runs (native transports only). */
+export type ShellMode = 'auto' | 'cybsh' | 'device'
 
 export interface ProviderPreset {
   id: string
@@ -853,10 +856,14 @@ export interface AgentConfig {
   authNameOverride?: string | null
   workingDir: string
   agentKind: AgentKind
+  /** Which shell `bash` runs (native only). Missing = auto. */
+  shellMode?: ShellMode | null
   permission: PermissionRuleset
   autoApprove: boolean
   maxTurns: number
   hasKey: boolean
+  /** Embedding model for semantic memory (`{base}/embeddings`); unset = provider default. */
+  embeddingModel?: string | null
   mcpServers?: Record<string, McpServerConfig>
   createdAt: string
   updatedAt: string
@@ -925,21 +932,66 @@ export interface AgentJob {
   pending?: PendingApproval | null
   /** Live worker status (`thinking · gpt-5`, `read src/lib.rs`). */
   activity?: string | null
+  /** Terminal-state nudge: long run, nothing stored — UI offers REMEMBER. */
+  memoryHint?: string | null
 }
 
-/** Built-in permission presets offered by the Agent panel wizard. */
+/* ── Semantic memory (redb `agent_memories`: curated text + vectors) ─── */
+
+export type MemoryOrigin = 'remember' | 'compactHandoff' | 'import'
+
+/** One long-term memory. `embedding` is empty for keyword-only rows. */
+export interface AgentMemory {
+  id: string
+  configId: string
+  text: string
+  embedding: number[]
+  dims: number
+  origin: MemoryOrigin
+  sessionId?: string | null
+  uses: number
+  createdAt: string
+  updatedAt: string
+}
+
+/** One ranked recall hit (text + score, never vectors). */
+export interface MemoryHit {
+  id: string
+  text: string
+  score: number
+  origin: MemoryOrigin
+  sessionId?: string | null
+  updatedAt: string
+}
+
+/** Built-in permission presets offered by the Agent panel wizard.
+ * `yolo` is a true allow-all: every tool (edits, shell, subagents, MCP)
+ * runs without asking and `stripDeniedTools` keeps the whole schema.
+ * Rails that survive YOLO by design: plan-kind persona denies, protected
+ * standing-order writes downgrade to ask, and explicit `deny` rules
+ * (none here) always beat auto-approve. */
+export const DEFAULT_EXA_MCP_NAME = 'exa'
+export const DEFAULT_EXA_MCP_URL = 'https://mcp.exa.ai/mcp'
+
+/** Keyless Exa web-search MCP attached to every new config. */
+export function defaultMcpServers(): Record<string, McpServerConfig> {
+  return {
+    [DEFAULT_EXA_MCP_NAME]: {
+      transport: 'http',
+      args: [],
+      env: {},
+      url: DEFAULT_EXA_MCP_URL,
+      headers: [],
+      enabled: true,
+    },
+  }
+}
 export function agentPermissionPreset(name: 'strict' | 'balanced' | 'yolo'): PermissionRuleset {
   if (name === 'strict') {
     return { default: 'ask', rules: {} }
   }
   if (name === 'yolo') {
-    return {
-      default: 'allow',
-      rules: {
-        bash: [['*', 'ask'], ['rm *', 'deny'], ['git push *', 'ask']],
-        edit: [['*', 'allow']],
-      },
-    }
+    return { default: 'allow', rules: {} }
   }
   return {
     default: 'ask',
@@ -947,7 +999,9 @@ export function agentPermissionPreset(name: 'strict' | 'balanced' | 'yolo'): Per
       read: 'allow',
       list: 'allow',
       grep: 'allow',
-      bash: [['*', 'ask'], ['git *', 'allow'], ['rm *', 'deny']],
+      bash: [['*', 'ask'], ['git *', 'allow'], ['curl *', 'allow'], ['wget *', 'allow'], ['rm *', 'deny']],
+      mcp__exa__web_search_exa: 'allow',
+      mcp__exa__web_fetch_exa: 'allow',
     },
   }
 }

@@ -212,3 +212,57 @@ pub fn mcp_list_tools(
     let db = state.db.read().map_err(|e| e.to_string())?;
     cybermanju_web::api::agent_api::mcp_tools(&db, &config_id)
 }
+
+// ─── semantic memory (thin wrappers; vectors stay server-side) ──────────
+
+/// List long-term memories, newest first (vectors stripped — see export).
+#[tauri::command]
+pub fn list_agent_memories(
+    config_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<cybermanju_types::agent::AgentMemory>, String> {
+    let db = state.db.read().map_err(|e| e.to_string())?;
+    cybermanju_web::api::agent_api::list_memories(
+        &db,
+        config_id.as_deref().filter(|s| !s.is_empty()),
+        false,
+    )
+}
+
+/// Store one durable fact (sanitized, embedded when possible).
+#[tauri::command]
+pub fn store_agent_memory(
+    config_id: String,
+    session_id: Option<String>,
+    text: String,
+    state: State<'_, AppState>,
+) -> Result<cybermanju_types::agent::AgentMemory, String> {
+    cybermanju_web::api::agent_api::store_memory_entry(&state.db, &config_id, session_id, &text)
+}
+
+/// Hybrid recall over one config (`config_id`) or every config (keyword-only
+/// when unset).
+#[tauri::command]
+pub fn recall_agent_memories(
+    config_id: Option<String>,
+    query: String,
+    top_k: Option<u64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<cybermanju_types::agent::MemoryHit>, String> {
+    cybermanju_web::api::agent_api::recall_memory_entries(
+        &state.db,
+        config_id.as_deref().filter(|s| !s.is_empty()),
+        &query,
+        top_k.unwrap_or(3) as usize,
+    )
+}
+
+/// Delete one memory by id.
+#[tauri::command]
+pub fn delete_agent_memory(
+    memory_id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let db = state.db.read().map_err(|e| e.to_string())?;
+    cybermanju_web::api::agent_api::delete_memory(&db, &memory_id)
+}

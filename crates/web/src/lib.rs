@@ -969,6 +969,106 @@ fn route_request(
                 origin,
             );
         }
+        // ─── semantic memory (redb `agent_memories`: text + vectors) ──
+        ["api", "agent", "memories"] if method == "GET" => {
+            // Newest-first, vectors stripped unless `?vectors=true`
+            // (export/sync restores need them; list views never do).
+            let config_id = parse_query_param(query, "configId");
+            let vectors = parse_query_param(query, "vectors").as_deref() == Some("true");
+            return match db.read() {
+                Ok(guard) => api_response(
+                    api::agent_api::list_memories(
+                        &guard,
+                        config_id.as_deref().filter(|s| !s.is_empty()),
+                        vectors,
+                    ),
+                    origin,
+                ),
+                Err(e) => api_response::<
+                    Vec<cybermanju_types::agent::AgentMemory>,
+                >(Err(e.to_string()), origin),
+            };
+        }
+        ["api", "agent", "memories"] if method == "POST" => {
+            // Lockless: storing embeds via a provider round trip — it must
+            // never hold the request lock. Reads/writes inside are brief.
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct MemoryStoreBody {
+                #[serde(default)]
+                config_id: String,
+                #[serde(default)]
+                session_id: Option<String>,
+                #[serde(default)]
+                text: String,
+            }
+            let req: MemoryStoreBody = json_body!(body, origin);
+            return api_response(
+                api::agent_api::store_memory_entry(
+                    db,
+                    &req.config_id,
+                    req.session_id,
+                    &req.text,
+                ),
+                origin,
+            );
+        }
+        ["api", "agent", "memories", memory_id] if method == "DELETE" => {
+            return match db.read() {
+                Ok(guard) => api_response(api::agent_api::delete_memory(&guard, memory_id), origin),
+                Err(e) => api_response::<bool>(Err(e.to_string()), origin),
+            };
+        }
+        ["api", "agent", "memories", "recall"] if method == "POST" => {
+            // Lockless: recall may spend one embeddings call, then ranks
+            // off brief reads. `configId` optional — without it the recall
+            // is keyword-only across every config (global memory search).
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct MemoryRecallBody {
+                #[serde(default)]
+                config_id: Option<String>,
+                #[serde(default)]
+                query: String,
+                #[serde(default)]
+                top_k: Option<u64>,
+            }
+            let req: MemoryRecallBody = json_body!(body, origin);
+            return api_response(
+                api::agent_api::recall_memory_entries(
+                    db,
+                    req.config_id.as_deref().filter(|s| !s.is_empty()),
+                    &req.query,
+                    req.top_k.unwrap_or(3) as usize,
+                ),
+                origin,
+            );
+        }
+        ["api", "agent", "memories", "export"] if method == "GET" => {
+            // Portable envelope for sync restore: Hermes-compatible markdown
+            // plus the full rows (vectors included).
+            let config_id = parse_query_param(query, "configId");
+            return match db.read() {
+                Ok(guard) => {
+                    let scope = config_id.as_deref().filter(|s| !s.is_empty());
+                    match api::agent_api::list_memories(&guard, scope, true) {
+                        Ok(memories) => {
+                            let markdown =
+                                cybermanju_agent::memory::render_export_markdown(&memories);
+                            api_response(
+                                Ok::<_, String>(serde_json::json!({
+                                    "markdown": markdown,
+                                    "memories": memories,
+                                })),
+                                origin,
+                            )
+                        }
+                        Err(e) => api_response::<serde_json::Value>(Err(e), origin),
+                    }
+                }
+                Err(e) => api_response::<serde_json::Value>(Err(e.to_string()), origin),
+            };
+        }
         ["api", "agent", "configs", config_id, "mcp", "tools"] if method == "GET" => {
             // Lockless: discovery spawns processes with 15s budgets each.
             // Config load is one brief read; the rest holds no lock.
@@ -1130,6 +1230,16 @@ fn route_request(
         ["api", "files", id, "duplicate"] if method == "POST" => {
             api_response(api::files::duplicate(db, id), origin)
         }
+        ["api", "files", id, "tags"] if method == "PUT" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct TagsBody {
+                #[serde(default)]
+                tags: Vec<String>,
+            }
+            let req: TagsBody = json_body!(body, origin);
+            api_response(api::files::set_tags(db, id, req.tags), origin)
+        }
         ["api", "files", id, "preview"] if method == "GET" => {
             api_response(api::files::preview(db, id), origin)
         }
@@ -1140,8 +1250,7 @@ fn route_request(
         ["api", "files", id, "content"] if method == "GET" => {
             api_response(api::files::read_content(db, id), origin)
         }
-        ["api", "files", id, "content"] if method == "PUT" => {
-            #[derive(Deserialize)]
+        ["api", "files", id, "content"] if method == "PUT" => {            #[derive(Deserialize)]
             struct ContentBody {
                 #[serde(default)]
                 content: String,

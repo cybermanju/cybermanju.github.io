@@ -103,6 +103,17 @@ pub fn rename_file(
     api::files::rename(&db, &file_id, new_name)
 }
 
+/// Replace a file's user tags (search/parse refinement + scene matching).
+#[tauri::command]
+pub fn set_file_tags(
+    file_id: String,
+    tags: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<FileNode, String> {
+    let db = state.db.write().map_err(|e| e.to_string())?;
+    api::files::set_tags(&db, &file_id, tags)
+}
+
 /// Context-preserving duplication: copies a file node and preserves context_data.
 #[tauri::command]
 pub fn duplicate_file_context(

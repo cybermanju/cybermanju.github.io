@@ -88,6 +88,7 @@ const shortcuts: { panel: PanelType; label: string; icon: string }[] = [
   { panel: 'collections', label: 'Collections', icon: 'solar:library-bold' },
   { panel: 'map', label: 'Map', icon: 'solar:map-bold' },
   { panel: 'code', label: 'Code', icon: 'solar:code-square-bold' },
+  { panel: 'devices', label: 'Devices', icon: 'solar:plug-circle-bold' },
   { panel: 'settings', label: 'Settings', icon: 'solar:settings-bold' },
   { panel: 'terminal', label: 'Terminal', icon: 'solar:file-terminal-bold' },
 ]

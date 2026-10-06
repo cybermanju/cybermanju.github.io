@@ -276,7 +276,10 @@ mod tests {
     fn chunks_pack_paragraphs_and_split_monsters() {
         let text = "aaa\n\nbbb\n\nccc";
         assert_eq!(chunk_text(text, 64), vec!["aaa\n\nbbb\n\nccc".to_string()]);
-        assert_eq!(chunk_text(text, 7).len(), 3);
+        // The floor is 64 chars (smaller chunks are useless) — split with
+        // real sizes.
+        let paras = ["a".repeat(40), "b".repeat(40), "c".repeat(40)].join("\n\n");
+        assert_eq!(chunk_text(&paras, 64).len(), 3);
         let monster = "x".repeat(200);
         let pieces = chunk_text(&monster, 64);
         assert!(pieces.len() >= 3);

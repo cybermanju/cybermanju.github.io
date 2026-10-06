@@ -3,12 +3,17 @@
 // different thread for the same transcript.
 import { describe, expect, it } from 'vitest'
 import {
+  applyBalancedToConfig,
+  applyYoloToConfig,
   buildThread,
   contextWindowFor,
   estimateCost,
   estimateTranscriptTokens,
+  isYoloConfig,
+  isYoloRuleset,
   permissionLabel,
   salientArg,
+  stripDeniedTools,
   toolPermissions,
   toolStateFromResult,
   toolTitle,
@@ -21,7 +26,7 @@ import {
   rememberAllowLocal,
   stripAnchorLocal,
 } from '../../src/composables/useAgent'
-import { agentErrorHint, type ChatMessage, type PermissionRuleset } from '../../src/types'
+import { agentErrorHint, agentPermissionPreset, defaultMcpServers, type AgentConfig, type ChatMessage, type PermissionRuleset } from '../../src/types'
 
 const readCall = (id: string, path: string): ChatMessage => ({
   role: 'assistant_tool',
@@ -151,6 +156,116 @@ describe('capability surface', () => {
     rememberAllowLocal(target, 'bash')
     expect(target.rules.bash).toBe('allow')
     expect(decideLocalTool(target, 'build', 'bash', { line: 'ls' }).kind).toBe('allow')
+  })
+})
+
+describe('YOLO mode', () => {
+  const yoloCfg = (over: Partial<AgentConfig> = {}): AgentConfig => ({
+    id: 'cfg-1',
+    name: 'yolo',
+    providerId: 'openrouter',
+    model: 'm',
+    workingDir: '',
+    agentKind: 'build',
+    permission: agentPermissionPreset('yolo'),
+    autoApprove: true,
+    maxTurns: 25,
+    hasKey: true,
+    mcpServers: {
+      fs: { transport: 'stdio', args: [], env: {}, headers: [], enabled: false },
+    },
+    createdAt: '',
+    updatedAt: '',
+    ...over,
+  })
+
+  it('the yolo preset allows everything with no rules to trip on', () => {
+    expect(agentPermissionPreset('yolo')).toEqual({ default: 'allow', rules: {} })
+    for (const tool of ['read', 'write', 'edit', 'bash', 'task', 'mcp__fs__read']) {
+      expect(decideLocalTool(agentPermissionPreset('yolo'), 'build', tool, {}).kind).toBe('allow')
+    }
+    expect(stripDeniedTools(['read', 'write', 'edit', 'bash', 'task'], agentPermissionPreset('yolo'), 'build')).toEqual([
+      'read',
+      'write',
+      'edit',
+      'bash',
+      'task',
+    ])
+  })
+
+  it('detects YOLO rulesets and rejects anything with an ask or deny', () => {
+    expect(isYoloRuleset(agentPermissionPreset('yolo'))).toBe(true)
+    expect(isYoloRuleset(agentPermissionPreset('balanced'))).toBe(false)
+    expect(isYoloRuleset(agentPermissionPreset('strict'))).toBe(false)
+    expect(isYoloRuleset({ default: 'allow', rules: { bash: 'ask' } })).toBe(false)
+    expect(isYoloRuleset({ default: 'allow', rules: { bash: [['*', 'allow'], ['rm *', 'deny']] } })).toBe(false)
+    expect(isYoloRuleset(undefined)).toBe(false)
+  })
+
+  it('a YOLO config needs build kind plus auto-approve, not just the ruleset', () => {
+    expect(isYoloConfig(yoloCfg())).toBe(true)
+    expect(isYoloConfig(yoloCfg({ autoApprove: false }))).toBe(false)
+    expect(isYoloConfig(yoloCfg({ agentKind: 'plan' }))).toBe(false)
+    expect(isYoloConfig(null)).toBe(false)
+  })
+
+  it('enabling YOLO flips kind, ruleset, auto-approve, and every MCP server', () => {
+    const out = applyYoloToConfig(yoloCfg({ agentKind: 'plan', autoApprove: false, permission: agentPermissionPreset('balanced') }))
+    expect(out.agentKind).toBe('build')
+    expect(out.autoApprove).toBe(true)
+    expect(out.permission).toEqual({ default: 'allow', rules: {} })
+    expect(out.mcpServers?.fs?.enabled).toBe(true)
+    expect(isYoloConfig(out)).toBe(true)
+  })
+
+  it('disabling YOLO returns to balanced ask-by-default', () => {
+    const out = applyBalancedToConfig(yoloCfg())
+    expect(out.autoApprove).toBe(false)
+    expect(out.permission).toEqual(agentPermissionPreset('balanced'))
+    expect(isYoloConfig(out)).toBe(false)
+  })
+})
+
+describe('default web search', () => {
+  it('ships the keyless Exa MCP server', () => {
+    const servers = defaultMcpServers()
+    expect(servers.exa.transport).toBe('http')
+    expect(servers.exa.url).toBe('https://mcp.exa.ai/mcp')
+    expect(servers.exa.enabled).toBe(true)
+  })
+
+  it('balanced preset allows curl/wget and the Exa tools, still asks otherwise', () => {
+    const preset = agentPermissionPreset('balanced')
+    expect(decideLocalTool(preset, 'build', 'bash', { command: 'curl -sS https://example.com' }).kind).toBe('allow')
+    expect(decideLocalTool(preset, 'build', 'bash', { command: 'wget -qO- https://example.com' }).kind).toBe('allow')
+    expect(decideLocalTool(preset, 'build', 'mcp__exa__web_search_exa', { query: 'news' }).kind).toBe('allow')
+    expect(decideLocalTool(preset, 'build', 'mcp__exa__web_fetch_exa', {}).kind).toBe('allow')
+    expect(decideLocalTool(preset, 'build', 'bash', { command: 'rm -rf /tmp/x' }).kind).toBe('deny')
+    expect(decideLocalTool(preset, 'build', 'bash', { command: 'ls /' }).kind).toBe('ask')
+  })
+
+  it('shell mode travels with the config (absent = backend auto)', () => {
+    const cfg: AgentConfig = {
+      id: 'cfg-shell',
+      name: 'shell',
+      providerId: 'openrouter',
+      model: 'm',
+      workingDir: '',
+      agentKind: 'build',
+      shellMode: 'cybsh',
+      permission: agentPermissionPreset('balanced'),
+      autoApprove: false,
+      maxTurns: 25,
+      hasKey: true,
+      createdAt: '',
+      updatedAt: '',
+    }
+    expect(applyYoloToConfig(cfg).shellMode).toBe('cybsh')
+    expect(applyBalancedToConfig(cfg).shellMode).toBe('cybsh')
+    // Old configs without the field stay valid — the backend defaults to auto.
+    const legacy = { ...cfg } as Record<string, unknown>
+    delete legacy.shellMode
+    expect('shellMode' in legacy).toBe(false)
   })
 })
 

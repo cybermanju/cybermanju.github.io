@@ -262,6 +262,32 @@ pub fn add_to_loose_group(
     Ok(group)
 }
 
+/// Replace a file's user tags (powers search/parse refinement + scene
+/// matching on every transport). Normalized: trimmed, de-duplicated,
+/// capped — never throws on messy input, just cleans it.
+pub fn set_tags(db: &Database, file_id: &str, tags: Vec<String>) -> Result<FileNode, String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut clean: Vec<String> = Vec::new();
+    for raw in tags {
+        let t = raw.trim().to_string();
+        if t.is_empty() || t.chars().count() > 48 {
+            continue;
+        }
+        let key = t.to_lowercase();
+        if seen.insert(key) {
+            clean.push(t);
+        }
+        if clean.len() >= 24 {
+            break;
+        }
+    }
+    let mut file_node = read_file(db, file_id)?;
+    file_node.tags = clean;
+    file_node.modified_at = chrono::Utc::now().to_rfc3339();
+    write_file(db, file_id, &file_node)?;
+    Ok(file_node)
+}
+
 /// Preview metadata for a file.
 pub fn preview(db: &Database, file_id: &str) -> Result<serde_json::Value, String> {
     let file_node = read_file(db, file_id)?;

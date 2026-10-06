@@ -3,28 +3,66 @@
     <!-- Search Panel -->
     <div v-if="panelType === 'search'" class="panel-search">
       <div class="bw-card search-card">
-        <div class="bw-title">TANTIVY SEARCH</div>
+        <div class="bw-title">SEARCH FILES</div>
+        <p class="panel-hint search-sub">Full-text search across file names and contents. Type at least 2 characters.</p>
         <UiToolbar glass divided>
           <template #lead>
-            <p class="text-muted search-summary">"{{ store.searchQuery }}" - {{ filteredSearchResults.length }} RESULTS</p>
+            <p class="text-muted search-summary" role="status" aria-live="polite">{{ searchSummary }}</p>
           </template>
           <UiSelect
             v-model="searchTypeFilter"
             :options="SEARCH_TYPE_OPTIONS"
             inline
-            aria-label="Filter by type"
-            title="FILTER BY TYPE"
+            aria-label="Filter results by type"
+            title="Filter results by type"
           />
-          <UiCheckbox v-model="searchCurrentDir" label="DIR" title="SEARCH ONLY IN CURRENT DIRECTORY" />
+          <UiCheckbox v-model="searchCurrentDir" label="Current folder only" title="Only search inside the current folder" />
+          <UiButton
+            size="sm"
+            variant="ghost"
+            icon="solar:keyboard-bold"
+            icon-only
+            title="Keyboard shortcuts (?)"
+            aria-label="Open keyboard shortcuts help"
+            @click="store.showShortcutsHelp = true"
+          />
         </UiToolbar>
       </div>
 
+      <div v-if="store.isSearching" class="panel-loading" role="status" aria-live="polite">
+        <UiSpinner size="sm" show-label label="Searching files" />
+      </div>
+
       <div v-if="recentSearches.length > 0 && !store.searchQuery" class="recent-searches">
-        <div class="bw-title">RECENT SEARCHES</div>
-        <div v-for="sq in recentSearches" :key="sq" class="recent-search-item" @click="store.searchQuery = sq; store.searchFiles(sq)">
+        <div class="recent-head">
+          <div class="bw-title">RECENT SEARCHES</div>
+          <UiButton size="xs" variant="ghost" icon-only icon="solar:close-bold" title="Clear recent searches" aria-label="Clear recent searches" @click="clearRecentSearches()" />
+        </div>
+        <button
+          v-for="sq in recentSearches"
+          :key="sq"
+          type="button"
+          class="recent-search-item"
+          :title="`Search again for ${sq}`"
+          @click="store.searchQuery = sq; store.searchFiles(sq)"
+        >
           <span class="text-muted"><AppIcon name="solar:history-bold" :size="12" /></span>
           <span>{{ sq }}</span>
-        </div>
+        </button>
+      </div>
+
+      <div v-if="sceneMatches.length > 0 && store.searchQuery.trim().length >= 2" class="scene-strip">
+        <span class="scene-strip__label">SCENES</span>
+        <button
+          v-for="s in sceneMatches"
+          :key="s.category"
+          type="button"
+          class="scene-chip"
+          :title="`Matched ${s.hits.slice(0, 3).join(', ')} — click to search ${s.category}`"
+          @click="searchScene(s.category)"
+        >
+          {{ s.label.toUpperCase() }} {{ Math.round(s.score * 100) }}%
+        </button>
       </div>
 
       <div v-if="filteredSearchResults.length" class="search-results-list">
@@ -38,6 +76,9 @@
           <div class="search-result-body">
             <div class="search-result-name" v-html="highlightTerms(result.fileName, store.searchQuery)"></div>
             <div class="search-result-snippet text-muted" v-if="result.snippet" v-html="highlightTerms(result.snippet, store.searchQuery)"></div>
+            <div v-if="topScene(result.fileName)" class="search-result-scene">
+              {{ topScene(result.fileName)!.label.toUpperCase() }} {{ Math.round(topScene(result.fileName)!.score * 100) }}%
+            </div>
           </div>
           <div class="search-result-score">{{ result.score.toFixed(3) }}</div>
         </div>
@@ -55,14 +96,25 @@
         size="sm"
         icon="solar:magnifier-bold"
         :title="`No results for “${store.searchQuery}”`"
-      />
+        description="Try fewer words, check spelling, or clear the type filter."
+      >
+        <template #actions>
+          <UiButton size="sm" variant="ghost" @click="clearSearch()">Clear search</UiButton>
+          <UiButton size="sm" variant="ghost" @click="store.searchQuery = ''; searchTypeFilter = 'all'">Show everything</UiButton>
+        </template>
+      </UiEmpty>
       <UiEmpty
         v-else-if="!store.searchQuery"
         size="sm"
         icon="solar:magnifier-bold"
-        title="Tantivy BM25 search"
-        description="Type in the search bar to search file contents."
-      />
+        title="Search your files"
+        description="Use the search bar above (Ctrl+F). Try a file name, a word inside a file, or a style tag."
+      >
+        <template #actions>
+          <UiButton size="sm" variant="ghost" icon="solar:face-scan-circle-bold" @click="wm.open('faces')">Browse people</UiButton>
+          <UiButton size="sm" variant="ghost" icon="solar:folder-bold" @click="wm.open('files')">Browse files</UiButton>
+        </template>
+      </UiEmpty>
     </div>
 
     <!-- Trash Panel -->
@@ -73,16 +125,17 @@
             <div class="panel-title">TRASH</div>
           </template>
           <template #trail>
-            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="REFRESH TRASH" aria-label="REFRESH TRASH" @click="store.fetchTrashItems()" />
-            <UiButton size="sm" variant="danger" icon="solar:trash-bin-trash-bold" icon-only title="EMPTY TRASH" aria-label="EMPTY TRASH" @click="store.emptyTrash()" />
+            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="Refresh trash" aria-label="Refresh trash" @click="store.fetchTrashItems()" />
+            <UiButton size="sm" variant="danger" icon="solar:trash-bin-trash-bold" icon-only title="Empty trash (asks first)" aria-label="Empty trash" :disabled="store.trashItems.length === 0" @click="confirmEmptyTrashVisible = true" />
           </template>
         </UiToolbar>
-        <p class="panel-hint">DELETED FILES CAN BE RESTORED FROM HERE.</p>
+        <p class="panel-hint">Deleted files rest here. Restore them, or delete permanently.</p>
         <UiEmpty
           v-if="store.trashItems.length === 0"
           size="sm"
           icon="solar:trash-bin-trash-bold"
-          title="No files in trash"
+          title="Trash is empty"
+          description="Files you delete will appear here so you can restore them."
         />
         <div v-else class="trash-list">
           <div v-for="item in store.trashItems" :key="item.id" class="trash-item">
@@ -92,11 +145,39 @@
               <span class="trash-date text-muted">{{ new Date(item.deletedAt).toLocaleDateString() }}</span>
             </div>
             <div class="trash-actions">
-              <UiButton size="xs" icon="solar:undo-left-round-bold" icon-only title="RESTORE" aria-label="RESTORE" @click="store.restoreTrashItem(item.originalFile.id)" />
-              <UiButton size="xs" variant="danger" icon="solar:trash-bin-trash-bold" icon-only title="DELETE PERMANENTLY" aria-label="DELETE PERMANENTLY" @click="store.deleteFromTrash(item.originalFile.id)" />
+              <UiButton size="xs" icon="solar:undo-left-round-bold" icon-only :title="`Restore ${item.originalFile.name}`" :aria-label="`Restore ${item.originalFile.name}`" @click="store.restoreTrashItem(item.originalFile.id)" />
+              <UiButton size="xs" variant="danger" icon="solar:trash-bin-trash-bold" icon-only :title="`Delete ${item.originalFile.name} permanently (asks first)`" :aria-label="`Delete ${item.originalFile.name} permanently`" @click="askDeleteTrashItem(item.originalFile.id, item.originalFile.name)" />
             </div>
           </div>
         </div>
+        <UiModal
+          v-model:visible="confirmEmptyTrashVisible"
+          title="Empty trash?"
+          :subtitle="`${store.trashItems.length} item${store.trashItems.length === 1 ? '' : 's'} will be permanently deleted`"
+          icon="solar:trash-bin-trash-bold"
+          size="sm"
+          danger
+        >
+          <p class="modal-text">This cannot be undone. Files in trash will be permanently deleted.</p>
+          <template #footer>
+            <UiButton variant="ghost" @click="confirmEmptyTrashVisible = false">Keep files</UiButton>
+            <UiButton variant="danger" icon="solar:trash-bin-trash-bold" :loading="trashBusy" @click="doEmptyTrash()">Delete permanently</UiButton>
+          </template>
+        </UiModal>
+        <UiModal
+          v-model:visible="confirmDeleteTrashVisible"
+          title="Delete permanently?"
+          :subtitle="pendingTrashName"
+          icon="solar:trash-bin-trash-bold"
+          size="sm"
+          danger
+        >
+          <p class="modal-text">“{{ pendingTrashName }}” will be permanently deleted. This cannot be undone.</p>
+          <template #footer>
+            <UiButton variant="ghost" @click="confirmDeleteTrashVisible = false">Keep file</UiButton>
+            <UiButton variant="danger" icon="solar:trash-bin-trash-bold" :loading="trashBusy" @click="doDeleteTrashItem()">Delete permanently</UiButton>
+          </template>
+        </UiModal>
       </div>
     </div>
 
@@ -108,15 +189,16 @@
             <div class="panel-title">ACTIVITY LOG</div>
           </template>
           <template #trail>
-            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="REFRESH" aria-label="REFRESH ACTIVITY" @click="store.fetchAuditLog()" />
+            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="Refresh activity" aria-label="Refresh activity" @click="store.fetchAuditLog()" />
           </template>
         </UiToolbar>
-        <p class="panel-hint">FILE OPERATIONS TIMELINE.</p>
+        <p class="panel-hint">Timeline of file operations, newest first.</p>
         <UiEmpty
           v-if="store.auditLog.length === 0"
           size="sm"
           icon="solar:pulse-bold"
-          title="No recent activity"
+          title="No activity yet"
+          description="Actions like uploads, moves, and deletes will show up here."
         />
         <div v-else class="activity-list">
           <div v-for="entry in store.auditLog" :key="entry.id" class="activity-item">
@@ -137,10 +219,10 @@
             <div class="panel-title">FAVORITES · {{ store.starredFiles.length }}</div>
           </template>
           <template #trail>
-            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="REFRESH" aria-label="REFRESH FAVORITES" :loading="store.isLoading" @click="refreshPanel()" />
+            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="Refresh favorites" aria-label="Refresh favorites" :loading="store.isLoading" @click="refreshPanel()" />
           </template>
         </UiToolbar>
-        <p class="panel-hint">STARRED FILES — PERSISTED IN THE LOCAL DB MIRROR.</p>
+        <p class="panel-hint">Starred files live here for quick access.</p>
         <UiError
           v-if="store.lastError"
           size="sm"
@@ -163,7 +245,7 @@
           <div v-for="f in store.starredFiles" :key="f.id" class="fav-item" @click="store.selectFile(f.id)">
             <span class="fav-icon"><AppIcon :name="f.fileType === 'folder' ? 'solar:folder-bold' : 'solar:file-bold'" :size="14" /></span>
             <span class="fav-name truncate">{{ f.name }}</span>
-            <UiButton size="xs" variant="ghost" icon="solar:star-bold" icon-only title="UNSTAR" aria-label="UNSTAR" @click.stop="store.toggleStar(f.id)" />
+            <UiButton size="xs" variant="ghost" icon="solar:star-bold" icon-only :title="`Remove ${f.name} from favorites`" :aria-label="`Remove ${f.name} from favorites`" @click.stop="store.toggleStar(f.id)" />
           </div>
         </div>
       </div>
@@ -177,10 +259,10 @@
             <div class="panel-title">RECENT FILES</div>
           </template>
           <template #trail>
-            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="REFRESH" aria-label="REFRESH RECENT" :loading="store.isLoading" @click="refreshPanel()" />
+            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="Refresh recent files" aria-label="Refresh recent files" :loading="store.isLoading" @click="refreshPanel()" />
           </template>
         </UiToolbar>
-        <p class="panel-hint">NEWEST FIRST — LIVE FROM THE FILE TABLE.</p>
+        <p class="panel-hint">Newest first. Open a file to see it here.</p>
         <UiError
           v-if="store.lastError"
           size="sm"
@@ -197,7 +279,12 @@
           size="sm"
           icon="solar:history-bold"
           title="No files yet"
-        />
+          description="Upload or create a file and it will appear here."
+        >
+          <template #actions>
+            <UiButton size="sm" variant="ghost" icon="solar:folder-bold" @click="wm.open('files')">Open files</UiButton>
+          </template>
+        </UiEmpty>
         <div v-else class="recent-list">
           <div
             v-for="f in recentFiles"
@@ -210,7 +297,7 @@
               <span class="recent-name truncate">{{ f.name }}</span>
               <span class="recent-date text-muted">{{ new Date(f.modifiedAt).toLocaleDateString() }}</span>
             </div>
-            <UiButton size="xs" variant="ghost" :icon="f.isStarred ? 'solar:star-bold' : 'solar:star-linear'" icon-only :title="f.isStarred ? 'UNSTAR' : 'STAR'" :aria-label="f.isStarred ? 'UNSTAR' : 'STAR'" @click.stop="store.toggleStar(f.id)" />
+            <UiButton size="xs" variant="ghost" :icon="f.isStarred ? 'solar:star-bold' : 'solar:star-linear'" icon-only :title="f.isStarred ? `Remove ${f.name} from favorites` : `Star ${f.name}`" :aria-label="f.isStarred ? `Remove ${f.name} from favorites` : `Star ${f.name}`" @click.stop="store.toggleStar(f.id)" />
           </div>
         </div>
       </div>
@@ -224,10 +311,10 @@
             <div class="panel-title">LOOSE FILE GROUPING · {{ store.looseGroups.length }}</div>
           </template>
           <template #trail>
-            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="REFRESH" aria-label="REFRESH LOOSE GROUPS" :loading="store.isLoading" @click="refreshPanel()" />
+            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="Refresh groups" aria-label="Refresh loose groups" :loading="store.isLoading" @click="refreshPanel()" />
           </template>
         </UiToolbar>
-        <p class="panel-hint">AD-HOC GROUPS — STORED IN THE INTERNAL DB ON EVERY TRANSPORT.</p>
+        <p class="panel-hint">Ad-hoc groups for gathering files together.</p>
         <UiError
           v-if="store.lastError"
           size="sm"
@@ -244,7 +331,7 @@
             clearable
           />
           <UiButton size="sm" icon="solar:add-circle-bold" type="submit" :loading="looseBusy" :disabled="!looseName.trim()">
-            CREATE
+            Create
           </UiButton>
         </form>
         <UiEmpty
@@ -277,10 +364,10 @@
                   :options="fileOptions"
                   inline
                   aria-label="Pick a file to add"
-                  title="PICK A FILE TO ADD"
+                  title="Pick a file to add"
                 />
                 <UiButton size="xs" icon="solar:add-circle-bold" :disabled="!addTarget[group.id]" @click="addFile(group.id)">
-                  ADD
+                  Add
                 </UiButton>
               </div>
             </div>
@@ -297,10 +384,10 @@
             <div class="panel-title">STYLE-BASED ORGANIZATION</div>
           </template>
           <template #trail>
-            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="REFRESH" aria-label="REFRESH TAGS" :loading="store.isLoading" @click="refreshPanel()" />
+            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="Refresh tags" aria-label="Refresh style tags" :loading="store.isLoading" @click="refreshPanel()" />
           </template>
         </UiToolbar>
-        <p class="panel-hint">FILES ORGANIZED BY VISUAL STYLE (CLIP MODEL)</p>
+        <p class="panel-hint">Files grouped by visual style. Click a tag to search it.</p>
         <UiError
           v-if="store.lastError"
           size="sm"
@@ -336,12 +423,14 @@ import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiEmpty from '@/components/ui/UiEmpty.vue'
 import UiError from '@/components/ui/UiError.vue'
 import UiInput from '@/components/ui/UiInput.vue'
+import UiModal from '@/components/ui/UiModal.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiSpinner from '@/components/ui/UiSpinner.vue'
 import UiToolbar from '@/components/ui/UiToolbar.vue'
 import { ref, computed, onMounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
+import { classifyScene, matchSceneQuery } from '@/utils/scene'
 import type { PanelType } from '@/types'
 
 const props = defineProps<{
@@ -400,16 +489,70 @@ const searchTypeFilter = ref('all')
 const searchCurrentDir = ref(false)
 
 const SEARCH_TYPE_OPTIONS = [
-  { label: 'ALL', value: 'all' },
-  { label: 'IMAGES', value: 'image' },
-  { label: 'TEXT', value: 'text' },
-  { label: 'FOLDERS', value: 'folder' },
-  { label: 'FILES', value: 'file' },
+  { label: 'All', value: 'all' },
+  { label: 'Images', value: 'image' },
+  { label: 'Text', value: 'text' },
+  { label: 'Folders', value: 'folder' },
+  { label: 'Files', value: 'file' },
 ]
 
 const recentSearches = ref<string[]>((() => {
   try { return JSON.parse(localStorage.getItem('cybermanju_recent_searches') || '[]') as string[] } catch { return [] }
 })())
+
+function clearSearch() {
+  store.searchQuery = ''
+}
+
+function clearRecentSearches() {
+  recentSearches.value = []
+  try { localStorage.setItem('cybermanju_recent_searches', '[]') } catch {}
+}
+
+const searchSummary = computed(() => {
+  const q = store.searchQuery.trim()
+  if (store.isSearching) return q ? `Searching for “${q}”…` : 'Searching…'
+  if (!q) return 'Type above to search'
+  const n = filteredSearchResults.value.length
+  const total = store.searchTotalResults
+  const shown = total > n ? `${n} of ${total}` : `${n}`
+  return `${shown} result${n === 1 ? '' : 's'} for “${q}”`
+})
+
+// ── Trash confirmations (destructive actions always ask first) ──
+const confirmEmptyTrashVisible = ref(false)
+const confirmDeleteTrashVisible = ref(false)
+const pendingTrashId = ref<string | null>(null)
+const pendingTrashName = ref('')
+const trashBusy = ref(false)
+
+function askDeleteTrashItem(fileId: string, name: string) {
+  pendingTrashId.value = fileId
+  pendingTrashName.value = name
+  confirmDeleteTrashVisible.value = true
+}
+
+async function doEmptyTrash() {
+  trashBusy.value = true
+  try {
+    await store.emptyTrash()
+    confirmEmptyTrashVisible.value = false
+  } finally {
+    trashBusy.value = false
+  }
+}
+
+async function doDeleteTrashItem() {
+  if (!pendingTrashId.value) return
+  trashBusy.value = true
+  try {
+    await store.deleteFromTrash(pendingTrashId.value)
+    confirmDeleteTrashVisible.value = false
+    pendingTrashId.value = null
+  } finally {
+    trashBusy.value = false
+  }
+}
 
 const recentFiles = computed(() =>
   [...store.files]
@@ -427,6 +570,29 @@ const filteredSearchResults = computed(() => {
     return true
   })
 })
+
+/** Scene categories named by the current query (multilingual, scored). */
+const sceneMatches = computed(() => {
+  const q = store.searchQuery.trim()
+  if (q.length < 2) return []
+  return matchSceneQuery(q).slice(0, 4)
+})
+
+function searchScene(category: string) {
+  store.searchQuery = category
+  void store.searchFiles(category)
+}
+
+/** Top heuristic scene for a result filename (with its tags when known). */
+function topScene(fileName: string) {
+  const file = store.files.find(f => f.name === fileName)
+  const scores = classifyScene({
+    fileName,
+    tags: file?.tags,
+    path: file?.path,
+  })
+  return scores[0] ?? null
+}
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -516,6 +682,17 @@ function highlightTerms(text: string, query: string): string {
 
 .search-card { margin-bottom: 12px; }
 .search-summary { margin: 0; font-size: 10px; flex: 1; min-width: 0; }
+.search-sub { margin: -6px 0 10px; }
+.modal-text { margin: 0; font-size: 13px; line-height: 1.5; }
+
+.recent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.recent-head .bw-title { margin-bottom: 8px; }
 
 .text-muted {
   color: var(--ui-text-3) !important;
@@ -534,6 +711,7 @@ function highlightTerms(text: string, query: string): string {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   padding: 6px 10px;
   cursor: pointer;
   font-family: var(--ui-font);
@@ -543,6 +721,7 @@ function highlightTerms(text: string, query: string): string {
   border-radius: var(--ui-radius-sm);
   margin-bottom: 4px;
   background: var(--ui-glass);
+  text-align: left;
   transition: border-color var(--ui-dur-fast) var(--ui-ease-out);
 }
 
@@ -601,6 +780,53 @@ function highlightTerms(text: string, query: string): string {
   font-family: var(--ui-font-mono);
   font-size: 9px;
   color: var(--ui-text-3);
+}
+
+.scene-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.scene-strip__label {
+  font-family: var(--ui-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--ui-text-3);
+}
+
+.scene-chip {
+  font-family: var(--ui-font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 3px 10px;
+  border-radius: var(--ui-radius-full);
+  border: 1px solid color-mix(in srgb, var(--ui-accent) 40%, transparent);
+  background: var(--ui-accent-softer);
+  color: var(--ui-accent);
+  cursor: pointer;
+}
+
+.scene-chip:hover {
+  background: color-mix(in srgb, var(--ui-accent) 20%, transparent);
+}
+
+.search-result-scene {
+  display: inline-block;
+  margin-top: 3px;
+  font-family: var(--ui-font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ui-accent);
+  background: var(--ui-accent-softer);
+  border: 1px solid color-mix(in srgb, var(--ui-accent) 30%, transparent);
+  border-radius: var(--ui-radius-full);
+  padding: 1px 7px;
 }
 
 .search-result-name :deep(mark),
