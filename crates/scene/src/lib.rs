@@ -173,7 +173,6 @@ fn is_unsegmented(hay: &str) -> bool {
         )
     })
 }
-}
 
 fn is_image_mime(mime: &str) -> bool {
     let m = mime.to_lowercase();

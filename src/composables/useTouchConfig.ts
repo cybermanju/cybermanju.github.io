@@ -38,6 +38,20 @@ export type TouchAction =
   | 'new_folder'
   | 'refresh'
   | 'escape'
+  | 'overview_toggle'
+  | 'strip_left'
+  | 'strip_right'
+  | 'strip_up'
+  | 'strip_down'
+  | 'strip_direction'
+  | 'autotile_toggle'
+  | 'focus_next'
+  | 'focus_prev'
+  | 'close_all_windows'
+  | 'layout_floating'
+  | 'layout_tiled'
+  | 'layout_strip'
+  | 'layout_overview'
   | 'none'
 
 const DEFAULT_GESTURE_MAP: Record<GestureType, TouchAction> = {
@@ -45,14 +59,18 @@ const DEFAULT_GESTURE_MAP: Record<GestureType, TouchAction> = {
   swipe_right: 'go_forward',
   swipe_up: 'scroll_up',
   swipe_down: 'scroll_down',
-  two_finger_left: 'go_back',
-  two_finger_right: 'go_forward',
-  two_finger_up: 'scroll_up',
-  two_finger_down: 'scroll_down',
+  // Two fingers drive the niri-style strip: left/right travel along the
+  // columns of the current line, up/down switches between lines.
+  two_finger_left: 'strip_left',
+  two_finger_right: 'strip_right',
+  two_finger_up: 'strip_up',
+  two_finger_down: 'strip_down',
   three_finger_left: 'prev_panel',
   three_finger_right: 'next_panel',
-  three_finger_up: 'toggle_sidebar',
-  three_finger_down: 'toggle_sidebar',
+  // Three fingers up zooms out to every screen (overview); swiping back
+  // down dismisses it.
+  three_finger_up: 'overview_toggle',
+  three_finger_down: 'overview_toggle',
   four_finger_left: 'escape',
   four_finger_right: 'toggle_fullscreen',
   four_finger_up: 'open_settings',
@@ -124,6 +142,20 @@ const ACTION_LABELS: Record<TouchAction, string> = {
   new_folder: 'New Folder',
   refresh: 'Refresh',
   escape: 'Escape / Close',
+  overview_toggle: 'Overview (all screens)',
+  strip_left: 'Strip: column left',
+  strip_right: 'Strip: column right',
+  strip_up: 'Strip: line up',
+  strip_down: 'Strip: line down',
+  strip_direction: 'Strip: flip ↔/↕ axis',
+  autotile_toggle: 'Toggle Autotile',
+  focus_next: 'Focus Next Window',
+  focus_prev: 'Focus Previous Window',
+  close_all_windows: 'Close All Windows',
+  layout_floating: 'Layout: Floating',
+  layout_tiled: 'Layout: Tiled',
+  layout_strip: 'Layout: Strip ∞',
+  layout_overview: 'Layout: Overview',
   none: 'No Action',
 }
 

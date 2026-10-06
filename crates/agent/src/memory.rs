@@ -72,8 +72,8 @@ pub fn tokens(text: &str) -> Vec<String> {
 
 /// Distinct query tokens present in the text.
 pub fn keyword_overlap(query: &str, text: &str) -> usize {
-    let hay: std::collections::HashSet<&str> =
-        tokens(text).iter().map(String::as_str).collect();
+    let binding = tokens(text);
+    let hay: std::collections::HashSet<&str> = binding.iter().map(String::as_str).collect();
     let mut seen = std::collections::HashSet::new();
     let mut hits = 0;
     for w in tokens(query) {
@@ -91,20 +91,19 @@ pub fn chunk_text(text: &str, max_chars: usize) -> Vec<String> {
     let max_chars = max_chars.max(64);
     let mut chunks = Vec::new();
     let mut current = String::new();
-    let mut flush = |current: &mut String| {
-        let trimmed = current.trim();
-        if !trimmed.is_empty() {
-            chunks.push(trimmed.to_string());
-        }
-        current.clear();
-    };
+    // Flush helper inlined at each site (a closure borrowing `chunks`
+    // conflicts with direct `chunks.push` calls under E0499).
     for para in text.split("\n\n") {
         let para = para.trim();
         if para.is_empty() {
             continue;
         }
         if para.chars().count() > max_chars {
-            flush(&mut current);
+            let trimmed = current.trim();
+            if !trimmed.is_empty() {
+                chunks.push(trimmed.to_string());
+            }
+            current.clear();
             let chars: Vec<char> = para.chars().collect();
             for piece in chars.chunks(max_chars) {
                 let s: String = piece.iter().collect();
@@ -117,14 +116,21 @@ pub fn chunk_text(text: &str, max_chars: usize) -> Vec<String> {
         }
         let add = para.chars().count() + 2;
         if !current.is_empty() && current.chars().count() + add > max_chars {
-            flush(&mut current);
+            let trimmed = current.trim();
+            if !trimmed.is_empty() {
+                chunks.push(trimmed.to_string());
+            }
+            current.clear();
         }
         if !current.is_empty() {
             current.push_str("\n\n");
         }
         current.push_str(para);
     }
-    flush(&mut current);
+    let trimmed = current.trim();
+    if !trimmed.is_empty() {
+        chunks.push(trimmed.to_string());
+    }
     chunks
 }
 
@@ -189,8 +195,9 @@ pub fn render_recall_block(hits: &[MemoryHit], budget: usize) -> String {
     if hits.is_empty() {
         return String::new();
     }
-    let mut out =
-        String::from("\n--- recalled memories (bounded; verify against the volume before acting) ---\n");
+    let mut out = String::from(
+        "\n--- recalled memories (bounded; verify against the volume before acting) ---\n",
+    );
     for h in hits {
         out.push_str(&format!("- {}\n", h.text));
     }
@@ -207,7 +214,8 @@ pub fn render_recall_block(hits: &[MemoryHit], budget: usize) -> String {
 pub fn render_export_markdown(memories: &[AgentMemory]) -> String {
     let mut rows: Vec<&AgentMemory> = memories.iter().collect();
     rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-    let mut out = String::from("# Memories\n\nExported from CyberManju semantic memory. Newest first.\n");
+    let mut out =
+        String::from("# Memories\n\nExported from CyberManju semantic memory. Newest first.\n");
     for m in rows {
         let origin = match m.origin {
             MemoryOrigin::Remember => "remembered",
@@ -268,7 +276,10 @@ mod tests {
 
     #[test]
     fn tokens_skip_short_words_on_both_sides() {
-        assert_eq!(tokens("go to the ok store"), vec!["the".to_string(), "store".to_string()]);
+        assert_eq!(
+            tokens("go to the ok store"),
+            vec!["the".to_string(), "store".to_string()]
+        );
         assert_eq!(keyword_overlap("red blue green", "RED boat"), 1);
     }
 
@@ -301,7 +312,12 @@ mod tests {
 
     #[test]
     fn dim_mismatch_falls_back_to_keyword() {
-        let rows = vec![mem("a", "postgres connection pooling", vec![0.1, 0.2, 0.3], 0)];
+        let rows = vec![mem(
+            "a",
+            "postgres connection pooling",
+            vec![0.1, 0.2, 0.3],
+            0,
+        )];
         let hits = recall_rank(Some(&[0.1, 0.2]), "postgres pooling", &rows, 3);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "a");

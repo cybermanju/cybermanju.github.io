@@ -259,10 +259,7 @@ pub fn recall_agent_memories(
 
 /// Delete one memory by id.
 #[tauri::command]
-pub fn delete_agent_memory(
-    memory_id: String,
-    state: State<'_, AppState>,
-) -> Result<bool, String> {
+pub fn delete_agent_memory(memory_id: String, state: State<'_, AppState>) -> Result<bool, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     cybermanju_web::api::agent_api::delete_memory(&db, &memory_id)
 }

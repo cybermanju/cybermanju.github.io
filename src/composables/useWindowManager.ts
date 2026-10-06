@@ -2,6 +2,11 @@ import { ref, computed, markRaw, defineAsyncComponent, type Component } from 'vu
 import { useLocalStorage } from '@vueuse/core'
 import type { PanelType } from '@/types'
 import { MODULE_METADATA } from '@/types'
+import {
+  computeTileRects,
+  clampStripOffset,
+  resolveStripLine,
+} from '@/utils/shellLayout'
 import FileManager from '@/components/FileManager.vue'
 import CollectionsPanel from '@/components/CollectionsPanel.vue'
 import FaceGroupingPanel from '@/components/FaceGroupingPanel.vue'
@@ -238,7 +243,12 @@ export function useWindowManager() {
     windows.value.push(win)
     windowFocusHistory.value = windowFocusHistory.value.filter(w => w !== id)
     windowFocusHistory.value.push(id)
-    if (shellAutoTile.value && shellLayoutMode.value === 'floating') {
+    // Tiled mode (or floating + autotile) re-tiles on open so the grid
+    // stays dense. Strip mode never resizes — the viewport follows instead.
+    if (
+      shellLayoutMode.value === 'tiled' ||
+      (shellAutoTile.value && shellLayoutMode.value === 'floating')
+    ) {
       tileWindows()
     }
     // Niri rule: a new window never resizes existing ones — the strip
@@ -253,6 +263,14 @@ export function useWindowManager() {
     windows.value = windows.value.filter(w => w.id !== id)
     windowFocusHistory.value = windowFocusHistory.value.filter(w => w !== id)
     resequenceColumns()
+    // Niri dynamic workspaces: a line with no windows is gone — pull the
+    // viewport back onto the nearest live line instead of an empty index.
+    const live = new Set(windows.value.map(w => w.line ?? 0))
+    if (!live.has(stripLine.value)) {
+      const sorted = [...live].sort((a, b) => a - b)
+      stripLine.value = sorted.length === 0 ? 0 : sorted[sorted.length - 1]
+    }
+    stripOffset.value = clampStripOffset(stripOffset.value, stripWindows.value.length)
   }
 
   function minimize(id: string) {
@@ -359,18 +377,13 @@ export function useWindowManager() {
     const list = windows.value.filter(w => !w.minimized)
     if (list.length === 0) return
     const { w, h } = workspaceSize()
-    const cols = Math.ceil(Math.sqrt(list.length))
-    const rows = Math.ceil(list.length / cols)
-    const gap = 10
-    const cw = Math.floor((w - gap * (cols + 1)) / cols)
-    const ch = Math.floor((h - gap * (rows + 1)) / rows)
+    const rects = computeTileRects(list.length, w, h)
     list.forEach((win, i) => {
-      const c = i % cols
-      const r = Math.floor(i / cols)
-      win.x = gap + c * (cw + gap)
-      win.y = gap + r * (ch + gap)
-      win.width = Math.max(320, cw)
-      win.height = Math.max(240, ch)
+      const r = rects[i]
+      win.x = r.x
+      win.y = r.y
+      win.width = r.width
+      win.height = r.height
       win.zIndex = 10 + i
     })
     nextZIndex.value = 10 + list.length
@@ -402,29 +415,24 @@ export function useWindowManager() {
   }
 
   // ── Niri-style strip viewport ───────────────────────────────
-  /** Scroll the infinite strip by `delta` columns/lines. */
+  /** Scroll the infinite strip by `delta` columns. Focus follows. */
   function scrollStrip(delta: number) {
     const n = stripWindows.value.length
     if (n === 0) return
-    const max = Math.max(0, n - 1)
-    stripOffset.value = Math.min(max, Math.max(0, stripOffset.value + delta))
+    stripOffset.value = clampStripOffset(stripOffset.value + delta, n)
     const target = stripWindows.value[stripOffset.value]
     if (target) focus(target.id)
   }
   function stripLeft() { scrollStrip(-1) }
   function stripRight() { scrollStrip(1) }
-  /** Move between vertical lines (workspaces) on the strip. */
+  /**
+   * Move between vertical lines (workspaces) on the strip. Niri keeps one
+   * empty line below the lowest occupied one — moving down onto it lets a
+   * new window claim a fresh line; empty lines otherwise vanish (see close).
+   */
   function stripLineMove(delta: number) {
-    const lines = [...new Set(windows.value.map(w => w.line ?? 0))].sort((a, b) => a - b)
-    if (lines.length === 0) {
-      stripLine.value = Math.max(0, stripLine.value + delta)
-      stripOffset.value = 0
-      return
-    }
-    let idx = lines.indexOf(stripLine.value)
-    if (idx === -1) idx = 0
-    const nextIdx = Math.min(lines.length - 1, Math.max(0, idx + delta))
-    stripLine.value = lines[nextIdx] ?? 0
+    const lines = [...new Set(windows.value.map(w => w.line ?? 0))]
+    stripLine.value = resolveStripLine(lines, stripLine.value, delta)
     stripOffset.value = 0
   }
   function moveFocusedOnStrip(delta: number) {
@@ -438,6 +446,18 @@ export function useWindowManager() {
     if (!a) return
     a.line = Math.max(0, (a.line ?? 0) + delta)
     resequenceColumns()
+  }
+
+  /**
+   * Nudge the focused window by a few pixels (floating/tiled arrow-key
+   * moves). In strip mode callers prefer moveFocusedOnStrip/ToLine instead
+   * so columns keep their size.
+   */
+  function nudgeFocused(dx: number, dy: number) {
+    const a = activeWindow.value
+    if (!a) return
+    a.x = Math.max(0, a.x + dx)
+    a.y = Math.max(0, a.y + dy)
   }
 
   // ── Layout mode ─────────────────────────────────────────────
@@ -509,6 +529,7 @@ export function useWindowManager() {
     stripLineMove,
     moveFocusedOnStrip,
     moveFocusedToLine,
+    nudgeFocused,
     setLayoutMode,
     cycleLayout,
     toggleAutoTile,

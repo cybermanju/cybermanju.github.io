@@ -101,6 +101,41 @@ touchConfig.onAction((action: TouchAction) => {
     none: () => {},
     scroll_up: () => window.scrollBy(0, -100),
     scroll_down: () => window.scrollBy(0, 100),
+    // ── Niri strip + overview gestures ──────────────────────────
+    // Three fingers up zooms out to every screen; two fingers travel the
+    // strip (left/right along the columns, up/down between lines). Outside
+    // strip mode the two-finger swipes fall back to focus movement so they
+    // stay useful in floating/tiled layouts.
+    overview_toggle: () => {
+      wm.setLayoutMode(wm.shellLayoutMode.value === 'overview'
+        ? (wm.shellAutoTile.value ? 'tiled' : 'floating')
+        : 'overview')
+    },
+    strip_left: () => {
+      if (wm.shellLayoutMode.value === 'strip') wm.stripLeft()
+      else wm.focusPrev()
+    },
+    strip_right: () => {
+      if (wm.shellLayoutMode.value === 'strip') wm.stripRight()
+      else wm.focusNext()
+    },
+    strip_up: () => {
+      if (wm.shellLayoutMode.value === 'strip') wm.stripLineMove(-1)
+      else wm.focusPrev()
+    },
+    strip_down: () => {
+      if (wm.shellLayoutMode.value === 'strip') wm.stripLineMove(1)
+      else wm.focusNext()
+    },
+    strip_direction: () => { wm.toggleStripDirection() },
+    autotile_toggle: () => { wm.toggleAutoTile() },
+    focus_next: () => { wm.focusNext() },
+    focus_prev: () => { wm.focusPrev() },
+    close_all_windows: () => { wm.closeAll() },
+    layout_floating: () => { wm.setLayoutMode('floating') },
+    layout_tiled: () => { wm.setLayoutMode('tiled') },
+    layout_strip: () => { wm.setLayoutMode('strip') },
+    layout_overview: () => { wm.setLayoutMode('overview') },
   }
   actionMap[action]?.()
 })
@@ -153,6 +188,55 @@ shortcuts.on('escape', () => {
   store.selectedFileId = null
   store.createFolderPromptOpen = false
 })
+// ── Window management: every handler below has a browser-safe Alt+
+// primary, so it fires identically in Tauri and in WASM/Pages. The few
+// Ctrl+ primaries (open_trash, autotile_toggle_alt, focus_next_alt…)
+// additionally register their Alt+ fallback inside useShortcuts —
+// Ctrl+T / Ctrl+W / Ctrl+Tab themselves can never reach page JS.
+shortcuts.on('close_window', () => { wm.closeFocused() })
+shortcuts.on('close_window_alt', () => { wm.closeFocused() })
+shortcuts.on('minimize_window', () => { wm.minimizeFocused() })
+shortcuts.on('maximize_toggle', () => {
+  const a = wm.activeWindow.value
+  if (a) wm.focus(a.id)
+})
+shortcuts.on('focus_next', () => { wm.focusNext() })
+shortcuts.on('focus_prev', () => { wm.focusPrev() })
+shortcuts.on('focus_next_alt', () => { wm.focusNext() })
+shortcuts.on('focus_prev_alt', () => { wm.focusPrev() })
+shortcuts.on('focus_window', () => { wm.focusNext() })
+shortcuts.on('tile_left', () => { wm.tileWindows() })
+shortcuts.on('tile_right', () => { wm.tileWindows() })
+shortcuts.on('tile_top', () => { wm.tileWindows() })
+shortcuts.on('tile_bottom', () => { wm.tileWindows() })
+function moveWindowOrNudge(dx: number, dy: number, onStrip: () => void) {
+  if (wm.shellLayoutMode.value === 'strip') onStrip()
+  else wm.nudgeFocused(dx, dy)
+}
+shortcuts.on('move_window_left', () => { moveWindowOrNudge(-24, 0, () => wm.moveFocusedOnStrip(-1)) })
+shortcuts.on('move_window_right', () => { moveWindowOrNudge(24, 0, () => wm.moveFocusedOnStrip(1)) })
+shortcuts.on('move_window_up', () => { moveWindowOrNudge(0, -24, () => wm.moveFocusedToLine(-1)) })
+shortcuts.on('move_window_down', () => { moveWindowOrNudge(0, 24, () => wm.moveFocusedToLine(1)) })
+shortcuts.on('cascade_windows', () => { wm.cascadeWindows() })
+shortcuts.on('autotile_toggle', () => { wm.toggleAutoTile() })
+shortcuts.on('autotile_toggle_alt', () => { wm.toggleAutoTile() })
+shortcuts.on('strip_left', () => { wm.stripLeft() })
+shortcuts.on('strip_right', () => { wm.stripRight() })
+shortcuts.on('strip_up', () => { wm.stripLineMove(-1) })
+shortcuts.on('strip_down', () => { wm.stripLineMove(1) })
+shortcuts.on('overview_toggle', () => {
+  wm.setLayoutMode(wm.shellLayoutMode.value === 'overview' ? 'floating' : 'overview')
+})
+shortcuts.on('layout_floating', () => { wm.setLayoutMode('floating') })
+shortcuts.on('layout_tiled', () => { wm.setLayoutMode('tiled') })
+shortcuts.on('layout_strip', () => { wm.setLayoutMode('strip') })
+shortcuts.on('layout_overview', () => { wm.setLayoutMode('overview') })
+shortcuts.on('strip_direction', () => { wm.toggleStripDirection() })
+shortcuts.on('close_all_windows', () => { wm.closeAll() })
+shortcuts.on('minimize_all', () => { wm.minimizeAll() })
+shortcuts.on('open_terminal', () => { wm.open('terminal') })
+shortcuts.on('open_editor', () => { wm.open('editor') })
+shortcuts.on('open_agent', () => { wm.open('agent') })
 shortcuts.on('go_back', () => { navigateInHistory(-1) })
 shortcuts.on('go_forward', () => { navigateInHistory(1) })
 shortcuts.on('open_trash', () => { wm.open('trash'); store.fetchTrashItems() })

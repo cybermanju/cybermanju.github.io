@@ -7,8 +7,12 @@
     >
       <div class="ks-help-modal" role="dialog" aria-label="Keyboard shortcuts">
         <div class="ks-help-header">
-          <h2>KEYBOARD SHORTCUTS</h2>
+          <h2>KEYBOARD SHORTCUTS · {{ transportLabel }}</h2>
           <button ref="closeBtnRef" class="close-btn" @click="store.showShortcutsHelp = false" aria-label="Close shortcuts help" title="Close (Esc)"><AppIcon name="solar:close-bold" :size="13" /></button>
+        </div>
+        <div v-if="inBrowser" class="ks-browser-note">
+          <AppIcon name="solar:info-circle-bold" :size="13" />
+          <span>Browser tabs own <b>Ctrl+T / Ctrl+W / Ctrl+Tab</b> — use the <b>Alt+</b> fallback shown. Tauri supports both.</span>
         </div>
         <div class="ks-help-body">
           <div v-for="group in groupedShortcuts" :key="group.label" class="ks-group">
@@ -16,13 +20,16 @@
             <div v-for="s in group.shortcuts" :key="s.action" class="ks-row">
               <span class="ks-key">{{ s.keys }}</span>
               <span class="ks-desc">{{ s.description }}</span>
+              <span v-if="s.blockedInBrowser" class="ks-fb" :title="`Primary ${s.primary} never reaches page JS in a browser — press ${s.fallback} instead`">
+                {{ inBrowser ? `was ${s.primary}` : `browser: ${s.fallback}` }}
+              </span>
             </div>
           </div>
           <div v-if="groupedShortcuts.length === 0" class="ks-empty text-muted">
             No shortcuts registered. Press Esc to close.
           </div>
         </div>
-        <div class="ks-help-foot text-muted">Press ? to toggle · Esc to close · Ctrl+K for commands</div>
+        <div class="ks-help-foot text-muted">Press ? to toggle · Esc to close · {{ inBrowser ? 'WASM uses Alt+ fallbacks' : 'Ctrl+K for commands · Alt+1-4 layouts' }}</div>
       </div>
     </div>
   </Teleport>
@@ -30,27 +37,38 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import { computed, inject, onMounted, onUnmounted, watch, nextTick, ref } from 'vue'
+import { computed, inject, watch, nextTick, ref } from 'vue'
+import { onKeyStroke } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'
 import { ShortcutsKey } from '@/composables/shortcutsKey'
 import type { ShortcutEntry } from '@/composables/useShortcuts'
+import { isTauri } from '@/composables/useTauri'
+import { wasmBackendActive } from '@/composables/useWasmBackend'
 
 const store = useAppStore()
 const shortcuts = inject(ShortcutsKey)
 const closeBtnRef = ref<HTMLElement | null>(null)
 
-function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape' && store.showShortcutsHelp) store.showShortcutsHelp = false
-}
-
-onMounted(() => window.addEventListener('keydown', onKey))
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+// VueUse key handler: Esc closes the modal wherever focus sits.
+onKeyStroke('Escape', () => {
+  if (store.showShortcutsHelp) store.showShortcutsHelp = false
+})
 
 watch(() => store.showShortcutsHelp, async (open) => {
   if (open) {
     await nextTick()
     closeBtnRef.value?.focus()
   }
+})
+
+const inBrowser = computed(() => {
+  if (typeof window !== 'undefined' && '__TAURI__' in window) return false
+  return true
+})
+const transportLabel = computed(() => {
+  if (isTauri()) return 'TAURI'
+  if (wasmBackendActive()) return 'WASM'
+  return 'WEB'
 })
 
 const allShortcuts = computed<ShortcutEntry[]>(() => {
@@ -63,7 +81,11 @@ const groupLabels: Record<string, string> = {
   'File Operations': 'FILE OPERATIONS',
   'View': 'VIEW',
   'Panels': 'PANELS',
+  'Windows': 'WINDOWS',
+  'Workspace': 'WORKSPACE · LAYOUT',
 }
+
+const groupOrder = ['Windows', 'Workspace', 'Global Shortcuts', 'Navigation', 'File Operations', 'View', 'Panels']
 
 const groupedShortcuts = computed(() => {
   const map = new Map<string, ShortcutEntry[]>()
@@ -72,10 +94,12 @@ const groupedShortcuts = computed(() => {
     if (!map.has(group)) map.set(group, [])
     map.get(group)!.push(s)
   }
-  return Array.from(map.entries()).map(([group, shortcuts]) => ({
-    label: groupLabels[group] || group,
-    shortcuts,
-  }))
+  return Array.from(map.entries())
+    .sort((a, b) => groupOrder.indexOf(a[0]) - groupOrder.indexOf(b[0]))
+    .map(([group, shortcuts]) => ({
+      label: groupLabels[group] || group.toUpperCase(),
+      shortcuts,
+    }))
 })
 </script>
 
@@ -92,9 +116,9 @@ const groupedShortcuts = computed(() => {
   -webkit-backdrop-filter: blur(6px);
 }
 
-.ks-help-modal {width: 520px;
-  max-width: 90vw;
-  max-height: 70vh;
+.ks-help-modal {width: 560px;
+  max-width: 92vw;
+  max-height: 74vh;
   background: var(--ui-glass-2);
   border: 1px solid var(--ui-border);
   box-shadow: var(--ui-shadow-2);
@@ -122,6 +146,20 @@ const groupedShortcuts = computed(() => {
   font-weight: 800;
   letter-spacing: 1px;
   margin: 0;
+}
+
+.ks-browser-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 14px 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ui-text-2);
+  border: 1px solid color-mix(in srgb, var(--ui-warning) 50%, transparent);
+  background: color-mix(in srgb, var(--ui-warning) 9%, transparent);
+  border-radius: var(--ui-radius-md);
 }
 
 .close-btn {
@@ -193,12 +231,22 @@ const groupedShortcuts = computed(() => {
   min-width: 100px;
   text-align: center;
   letter-spacing: 0.04em;
+  flex-shrink: 0;
 }
 
 .ks-desc {
   font-family: var(--ui-font);
   font-size: 10px;
   color: color-mix(in srgb, var(--ui-text) 70%, transparent);
+  flex: 1;
+}
+
+.ks-fb {
+  font-family: var(--ui-font-mono);
+  font-size: 8.5px;
+  color: var(--ui-warning);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .ks-empty { padding: 16px; text-align: center; font-size: 11px; }

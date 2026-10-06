@@ -8,7 +8,52 @@
         <div class="desktop-aurora" aria-hidden="true" />
       </div>
 
-      <div class="desktop-workspace">
+      <!-- Niri-style infinite strip: columns append right (or down in
+           vertical mode) and the viewport scrolls — existing windows keep
+           their size. Native scroll + Alt+arrows both drive stripOffset. -->
+      <div
+        v-if="isStrip"
+        ref="stripScrollRef"
+        class="desktop-strip"
+        :class="{ vertical: isVerticalStrip }"
+        @wheel.passive="onStripWheel"
+      >
+        <div class="strip-position" aria-hidden="true">
+          COL {{ wm.stripOffset.value + 1 }}/{{ wm.stripWindows.value.length || 1 }} · LINE {{ wm.stripLine.value }}
+        </div>
+        <TransitionGroup name="win">
+          <AppWindow
+            v-for="win in visibleWindows"
+            :key="win.id"
+            :win="win"
+            :focused="win.id === focusedWindowId"
+            @close="wm.close"
+            @minimize="wm.minimize"
+            @focus="wm.focus"
+            @move="wm.updatePosition"
+            @resize="wm.updateSize"
+          />
+        </TransitionGroup>
+      </div>
+
+      <!-- Overview: zoomed-out grid across every open window -->
+      <div v-else-if="isOverview" class="desktop-overview" role="dialog" aria-label="Window overview">
+        <button
+          v-for="win in overviewWindows"
+          :key="win.id"
+          class="overview-card"
+          :class="{ minimized: win.minimized }"
+          type="button"
+          @click="pickFromOverview(win.id)"
+        >
+          <span class="overview-card-icon"><AppIcon :name="win.icon" :size="18" /></span>
+          <span class="overview-card-title">{{ win.title }}</span>
+          <span class="overview-card-meta">COL {{ (win.column ?? 0) + 1 }} · LINE {{ win.line ?? 0 }}{{ win.minimized ? ' · MINIMIZED' : '' }}</span>
+        </button>
+        <div v-if="overviewWindows.length === 0" class="overview-empty">No windows open.</div>
+      </div>
+
+      <div v-else class="desktop-workspace">
         <div class="desktop-icons">
           <button
             v-for="shortcut in shortcuts"
@@ -44,6 +89,9 @@
 
     <Dock />
 
+    <!-- Right-bottom shell dock: shortcuts + tiling, above windows. -->
+    <ShellShortcutDock />
+
     <div
       v-if="dockMenu.visible"
       class="dock-context-overlay"
@@ -70,18 +118,21 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
+import { computeStripRects, stripColumnWidth } from '@/utils/shellLayout'
 import TopMenuBar from './TopMenuBar.vue'
 import Dock from './Dock.vue'
 import StatusBar from './StatusBar.vue'
 import AppWindow from './AppWindow.vue'
+import ShellShortcutDock from './ShellShortcutDock.vue'
 import type { PanelType } from '@/types'
 
 const wm = useWindowManager()
 const theme = useTheme()
 const selectShortcut = ref<PanelType | null>(null)
+const stripScrollRef = ref<HTMLElement | null>(null)
 
 const shortcuts: { panel: PanelType; label: string; icon: string }[] = [
   { panel: 'files', label: 'Files', icon: 'solar:folder-bold' },
@@ -96,6 +147,105 @@ const shortcuts: { panel: PanelType; label: string; icon: string }[] = [
 const visibleWindows = computed(() =>
   wm.windows.value.filter(w => !w.minimized)
 )
+
+/**
+ * Overview ("three fingers up") zooms out to EVERY screen — open windows
+ * and minimized ones alike — so nothing can hide from the grid.
+ */
+const overviewWindows = computed(() => wm.windows.value)
+
+const isStrip = computed(() => wm.shellLayoutMode.value === 'strip')
+const isOverview = computed(() => wm.shellLayoutMode.value === 'overview')
+const isVerticalStrip = computed(() => wm.shellStripDirection.value === 'vertical')
+
+function layoutStripColumns() {
+  const list = [...wm.windows.value]
+    .filter(w => !w.minimized && (w.line ?? 0) === wm.stripLine.value)
+    .sort((a, b) => (a.column ?? 0) - (b.column ?? 0))
+  if (list.length === 0) return
+  const vertical = wm.shellStripDirection.value === 'vertical'
+  const host = stripScrollRef.value
+  const vw = host?.clientWidth || window.innerWidth
+  const vh = host?.clientHeight || Math.max(400, window.innerHeight - 160)
+  const rects = computeStripRects(list.length, vw, vh, 12, vertical, stripColumnWidth(vw))
+  list.forEach((w, i) => {
+    const r = rects[i]
+    w.x = r.x
+    w.y = r.y
+    w.width = r.width
+    w.height = r.height
+  })
+}
+
+function scrollStripIntoView() {
+  const host = stripScrollRef.value
+  if (!host || !isStrip.value) return
+  const vertical = isVerticalStrip.value
+  const list = wm.stripWindows.value
+  const target = list[wm.stripOffset.value]
+  if (!target) return
+  if (vertical) {
+    host.scrollTo({ top: Math.max(0, target.y - 12), behavior: 'smooth' })
+  } else {
+    host.scrollTo({ left: Math.max(0, target.x - 12), behavior: 'smooth' })
+  }
+}
+
+watch(
+  () => [wm.shellLayoutMode.value, wm.shellStripDirection.value, wm.stripLine.value, wm.windows.value.length],
+  async () => {
+    if (wm.shellLayoutMode.value === 'strip') {
+      await nextTick()
+      layoutStripColumns()
+      scrollStripIntoView()
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => wm.stripOffset.value,
+  () => { scrollStripIntoView() },
+)
+
+/** Shift+wheel (or horizontal wheel) scrolls the infinite strip like niri. */
+function onStripWheel(e: WheelEvent) {
+  if (!isStrip.value) return
+  const host = stripScrollRef.value
+  if (!host) return
+  const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : (e.shiftKey ? e.deltaY : 0)
+  if (dx === 0 && !isVerticalStrip.value) return
+  if (isVerticalStrip.value && Math.abs(e.deltaY) < 4 && Math.abs(e.deltaX) < 4) return
+  // Let native scroll do the work; sync the column index afterwards.
+  requestAnimationFrame(() => {
+    const list = wm.stripWindows.value
+    if (list.length === 0) return
+    const pos = isVerticalStrip.value ? host.scrollTop : host.scrollLeft
+    let best = 0
+    let bestDist = Infinity
+    list.forEach((w, i) => {
+      const p = isVerticalStrip.value ? w.y : w.x
+      const d = Math.abs(p - pos - 12)
+      if (d < bestDist) { bestDist = d; best = i }
+    })
+    wm.stripOffset.value = best
+  })
+}
+
+function pickFromOverview(id: string) {
+  const win = wm.windows.value.find(w => w.id === id)
+  if (!win) return
+  // Minimized windows restore straight out of the zoomed-out grid.
+  if (win.minimized) wm.restore(id)
+  else wm.focus(id)
+  wm.setLayoutMode(wm.shellAutoTile.value ? 'tiled' : 'floating')
+}
+
+/** Viewport resizes re-run the active auto-layout so tiles stay dense. */
+function handleViewportResize() {
+  if (wm.shellLayoutMode.value === 'strip') layoutStripColumns()
+  else if (wm.shellLayoutMode.value === 'tiled') wm.tileWindows()
+}
 
 const focusedWindowId = computed(() => wm.activeWindow.value?.id ?? null)
 
@@ -135,12 +285,14 @@ onMounted(() => {
   window.addEventListener('cybermanju:dock-context', handleDockContext as EventListener)
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('contextmenu', () => { dockMenu.value.visible = false })
+  window.addEventListener('resize', handleViewportResize)
 })
 
 onUnmounted(() => {
   window.removeEventListener('cybermanju:dock-context', handleDockContext as EventListener)
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('contextmenu', () => { dockMenu.value.visible = false })
+  window.removeEventListener('resize', handleViewportResize)
 })
 </script>
 
@@ -346,4 +498,88 @@ onUnmounted(() => {
 .win-leave-active {
   pointer-events: none;
 }
+
+/* ── niri-style infinite strip ─────────────────────────────────── */
+.desktop-strip {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+}
+.desktop-strip.vertical {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.desktop-strip :deep(.app-window) {
+  /* columns keep their size; the viewport moves, never the tiles */
+  transition: box-shadow var(--ui-dur-slow) var(--ui-ease-out), border-color var(--ui-dur-slow) var(--ui-ease-out);
+}
+.strip-position {
+  position: sticky;
+  left: 12px;
+  top: 10px;
+  display: inline-block;
+  z-index: 5;
+  font-family: var(--ui-font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--ui-text-3);
+  background: var(--ui-glass);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-full);
+  padding: 3px 10px;
+  margin: 10px 0 0 12px;
+  backdrop-filter: blur(var(--ui-blur));
+  -webkit-backdrop-filter: blur(var(--ui-blur));
+  pointer-events: none;
+}
+.desktop-strip.vertical .strip-position {
+  position: sticky;
+  top: 10px;
+}
+
+/* ── overview grid ─────────────────────────────────────────────── */
+.desktop-overview {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  padding: 24px;
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--ui-bg-deep) 35%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.overview-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 16px;
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-glass-2);
+  border: 1px solid var(--ui-border-strong);
+  color: var(--ui-text);
+  cursor: pointer;
+  text-align: left;
+  transition: transform var(--ui-dur-fast) var(--ui-ease-spring), border-color var(--ui-dur-fast) var(--ui-ease-out);
+  animation: ui-pop var(--ui-dur) var(--ui-ease-spring) both;
+}
+.overview-card:hover {
+  transform: translateY(-2px) scale(1.01);
+  border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent);
+}
+.overview-card.minimized {
+  opacity: 0.72;
+  border-style: dashed;
+}
+.overview-card-icon { color: var(--ui-accent); }
+.overview-card-title { font-size: 13px; font-weight: 800; letter-spacing: 0.02em; }
+.overview-card-meta { font-family: var(--ui-font-mono); font-size: 9px; letter-spacing: 0.08em; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.overview-empty { grid-column: 1 / -1; text-align: center; color: color-mix(in srgb, var(--ui-text) 50%, transparent); font-size: 12px; padding: 40px; }
 </style>

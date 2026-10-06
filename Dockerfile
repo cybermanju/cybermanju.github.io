@@ -23,6 +23,9 @@ COPY vite-plugin-wasm-stub.ts wasm-pkg.ts ./
 COPY public/ ./public/
 COPY keymaps/ ./keymaps/
 COPY src/ ./src/
+# Scene tables: src/utils/scene.ts imports ../../crates/scene/data/scenes.json
+# (same file the Rust classifier uses) — it must exist in this stage.
+COPY crates/scene/data/ ./crates/scene/data/
 # prebuild:wasm:frontend runs `npm run icons` → scripts/generate-icon-set.mjs
 COPY scripts/ ./scripts/
 
@@ -61,7 +64,12 @@ COPY crates/web/Cargo.toml            crates/web/Cargo.toml
 COPY crates/sync/Cargo.toml           crates/sync/Cargo.toml
 COPY crates/faces/Cargo.toml          crates/faces/Cargo.toml
 COPY crates/tests/Cargo.toml          crates/tests/Cargo.toml
-COPY crates/os-wasm/Cargo.toml     crates/os-wasm/Cargo.toml
+COPY crates/scene/Cargo.toml          crates/scene/Cargo.toml
+COPY crates/os/Cargo.toml             crates/os/Cargo.toml
+COPY crates/disk/Cargo.toml           crates/disk/Cargo.toml
+COPY crates/erasure/Cargo.toml        crates/erasure/Cargo.toml
+COPY crates/agent/Cargo.toml          crates/agent/Cargo.toml
+COPY crates/os-wasm/Cargo.toml        crates/os-wasm/Cargo.toml
 COPY src-tauri/Cargo.toml             src-tauri/Cargo.toml
 COPY docker/server/Cargo.toml         docker/server/Cargo.toml
 

@@ -984,9 +984,10 @@ fn route_request(
                     ),
                     origin,
                 ),
-                Err(e) => api_response::<
-                    Vec<cybermanju_types::agent::AgentMemory>,
-                >(Err(e.to_string()), origin),
+                Err(e) => api_response::<Vec<cybermanju_types::agent::AgentMemory>>(
+                    Err(e.to_string()),
+                    origin,
+                ),
             };
         }
         ["api", "agent", "memories"] if method == "POST" => {
@@ -1004,12 +1005,7 @@ fn route_request(
             }
             let req: MemoryStoreBody = json_body!(body, origin);
             return api_response(
-                api::agent_api::store_memory_entry(
-                    db,
-                    &req.config_id,
-                    req.session_id,
-                    &req.text,
-                ),
+                api::agent_api::store_memory_entry(db, &req.config_id, req.session_id, &req.text),
                 origin,
             );
         }
@@ -1250,7 +1246,8 @@ fn route_request(
         ["api", "files", id, "content"] if method == "GET" => {
             api_response(api::files::read_content(db, id), origin)
         }
-        ["api", "files", id, "content"] if method == "PUT" => {            #[derive(Deserialize)]
+        ["api", "files", id, "content"] if method == "PUT" => {
+            #[derive(Deserialize)]
             struct ContentBody {
                 #[serde(default)]
                 content: String,
@@ -2881,7 +2878,13 @@ pub fn is_sse_events_path(method: &str, path: &str) -> Option<String> {
         .trim_start_matches('/')
         .split('/')
         .filter(|s| !s.is_empty());
-    match (segments.next(), segments.next(), segments.next(), segments.next(), segments.next()) {
+    match (
+        segments.next(),
+        segments.next(),
+        segments.next(),
+        segments.next(),
+        segments.next(),
+    ) {
         (Some("api"), Some("agent"), Some("jobs"), Some(id), Some("events")) => {
             if segments.next().is_none() && !id.is_empty() {
                 Some(id.to_string())
@@ -2990,10 +2993,7 @@ pub fn handle_sse_connection(
             }
             last_beat = Instant::now();
         }
-        let terminal = matches!(
-            snapshot.status.as_str(),
-            "done" | "error" | "cancelled"
-        );
+        let terminal = matches!(snapshot.status.as_str(), "done" | "error" | "cancelled");
         if terminal {
             let _ = stream.write_all(cybermanju_agent::stream::done_frame().as_bytes());
             break;

@@ -132,6 +132,13 @@ const CYBSH_SUBCOMMANDS: Record<string, readonly string[]> = {
   ai: ['ask', 'prompt'],
 }
 
+/** Every completable phrase (`disk create`, …) for ghost text when offline. */
+export const CYBSH_PHRASES: string[] = [
+  ...CYBSH_COMMANDS,
+  ...Object.entries(CYBSH_SUBCOMMANDS).flatMap(([cmd, subs]) => subs.map((s) => `${cmd} ${s}`)),
+  'history clear',
+]
+
 const CYBSH_ALIASES: Record<string, string> = {
   dir: 'ls',
   del: 'rm',

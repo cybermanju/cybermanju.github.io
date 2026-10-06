@@ -385,10 +385,7 @@ pub fn ensure_default_mcp_servers(
     servers: &mut std::collections::BTreeMap<String, McpServerConfig>,
 ) {
     if !servers.contains_key(DEFAULT_EXA_MCP_NAME) {
-        servers.insert(
-            DEFAULT_EXA_MCP_NAME.to_string(),
-            default_exa_mcp_server(),
-        );
+        servers.insert(DEFAULT_EXA_MCP_NAME.to_string(), default_exa_mcp_server());
     }
 }
 
@@ -396,10 +393,7 @@ pub fn ensure_default_mcp_servers(
 /// search tools so a fresh config can search the web without an approval
 /// round-trip. Only fills gaps: explicit user rules are never overwritten.
 pub fn ensure_default_agent_permissions(rules: &mut PermissionRuleset) {
-    for tool in [
-        "mcp__exa__web_search_exa",
-        "mcp__exa__web_fetch_exa",
-    ] {
+    for tool in ["mcp__exa__web_search_exa", "mcp__exa__web_fetch_exa"] {
         if !rules.rules.contains_key(tool) {
             rules.rules.insert(
                 tool.to_string(),

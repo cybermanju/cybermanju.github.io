@@ -130,7 +130,7 @@ pub fn parse_event_stream(chunk: &str) -> Vec<SseEvent> {
     let mut name = String::from("message");
     let mut data_lines: Vec<String> = Vec::new();
     let mut dropped = false;
-    let mut flush = |name: &mut String,
+    let flush = |name: &mut String,
                      data_lines: &mut Vec<String>,
                      dropped: &mut bool,
                      out: &mut Vec<SseEvent>| {
@@ -287,9 +287,8 @@ mod tests {
     #[test]
     fn oversized_event_drops_only_itself() {
         let big = "z".repeat(SSE_DATA_CAP + 8);
-        let chunk = format!(
-            "event: a\ndata: ok\n\nevent: b\ndata: {big}\n\nevent: c\ndata: ok2\n\n"
-        );
+        let chunk =
+            format!("event: a\ndata: ok\n\nevent: b\ndata: {big}\n\nevent: c\ndata: ok2\n\n");
         let events = parse_event_stream(&chunk);
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].data, "ok");

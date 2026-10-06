@@ -193,6 +193,10 @@
 
       <!-- ── keyboard ── -->
       <UiCard v-if="shortcuts" title="Keyboard bindings" icon="solar:keyboard-bold" :meta="`${shortcuts.getAllShortcuts().length} bindings`">
+        <UiText as="p" variant="small" tone="muted">
+          {{ isBrowserKeys ? 'Browser tab: Ctrl+T / Ctrl+W / Ctrl+Tab never reach the page — Alt+ fallbacks are listed.' : 'Tauri desktop: every binding fires, including Ctrl+T / Ctrl+W.' }}
+          Window layout lives under WINDOWS / WORKSPACE · LAYOUT.
+        </UiText>
         <div class="st-table st-table--keys" role="table" aria-label="Keyboard bindings">
           <div v-for="sc in shortcuts.getAllShortcuts()" :key="sc.action" class="st-table-row" role="row">
             <UiText as="span" variant="small" tone="muted" truncate>{{ sc.description }}</UiText>
@@ -205,6 +209,7 @@
               @focus="startRebind(sc.action, $event)"
               @keydown="captureRebind($event)"
             />
+            <span v-if="sc.blockedInBrowser" class="st-key-fb" :title="`Browser fallback: ${sc.fallback}`">→ {{ sc.fallback }}</span>
             <UiButton size="xs" icon="solar:undo-left-round-bold" aria-label="Reset to default" @click="resetBinding(sc.action)" />
           </div>
         </div>
@@ -271,6 +276,7 @@ const transportTone = computed<'neutral' | 'accent' | 'success' | 'warning' | 'd
 
 const store = useAppStore()
 const shortcuts = inject(ShortcutsKey, null)
+const isBrowserKeys = computed(() => typeof window !== 'undefined' && !('__TAURI__' in window))
 const touchConfig = useTouchConfig()
 const touchMeta = computed(() =>
   touchConfig.state.touchSupported ? (touchConfig.state.isMobile ? 'Touch · mobile' : 'Touch · desktop') : 'No touch',
@@ -591,7 +597,13 @@ async function handleRefresh() {
   border-bottom: 1px solid var(--ui-hairline);
 }
 .st-table-row:last-child { border-bottom: none; }
-.st-table--keys .st-table-row { grid-template-columns: 1fr 140px auto; }
+.st-table--keys .st-table-row { grid-template-columns: 1fr 140px auto auto; }
+.st-key-fb {
+  font-family: var(--ui-font-mono);
+  font-size: 9px;
+  color: var(--ui-warning);
+  white-space: nowrap;
+}
 .st-key-input {
   width: 140px;
   background: var(--ui-surface);

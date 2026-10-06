@@ -248,7 +248,10 @@ mod tests {
             "bye"
         );
         // No anchor at all is not an anchor failure.
-        assert_eq!(apply_edit(content, "hello", "bye", Some("")).expect("empty"), "bye");
+        assert_eq!(
+            apply_edit(content, "hello", "bye", Some("")).expect("empty"),
+            "bye"
+        );
     }
 
     #[test]
@@ -274,7 +277,10 @@ mod tests {
         // Nothing to strip ⇒ untouched, including near-miss lines.
         assert_eq!(strip_anchor(raw), raw);
         assert_eq!(strip_anchor("[blake3:short]"), "[blake3:short]");
-        assert_eq!(strip_anchor("a\n[blake3:not-hex]\n"), "a\n[blake3:not-hex]\n");
+        assert_eq!(
+            strip_anchor("a\n[blake3:not-hex]\n"),
+            "a\n[blake3:not-hex]\n"
+        );
         // Anchor-only content collapses to an empty file, not a stray line.
         assert_eq!(strip_anchor(&anchor_line(&blake3_hex(b"x"))), "");
     }

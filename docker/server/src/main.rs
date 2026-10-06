@@ -109,9 +109,8 @@ fn handle_connection(state: &AppState, mut stream: TcpStream) {
     let mut request_line = String::new();
     {
         use std::io::Read as _;
-        let mut capped = (&mut reader).take(
-            cybermanju_web::security::MAX_REQUEST_LINE_BYTES as u64 + 2,
-        );
+        let mut capped =
+            (&mut reader).take(cybermanju_web::security::MAX_REQUEST_LINE_BYTES as u64 + 2);
         if capped.read_line(&mut request_line).is_err() {
             let resp = http_response(
                 400,

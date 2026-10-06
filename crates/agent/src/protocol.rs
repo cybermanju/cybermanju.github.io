@@ -15,8 +15,17 @@ use cybermanju_types::agent::{AuthScheme, ChatMessage, ProviderPreset, TokenUsag
 /// Descriptions double as the model's usage guide — keep them imperative
 /// and specific about arguments, limits, and failure modes.
 pub const TOOL_NAMES: &[&str] = &[
-    "read", "write", "edit", "list", "grep", "glob", "bash", "task", "question",
-    "memory_recall", "memory_remember",
+    "read",
+    "write",
+    "edit",
+    "list",
+    "grep",
+    "glob",
+    "bash",
+    "task",
+    "question",
+    "memory_recall",
+    "memory_remember",
 ];
 
 fn tool_def(
@@ -630,8 +639,12 @@ mod tests {
         // schema-driven providers cannot call a tool they were never shown.
         assert!(tools.iter().any(|t| t["function"]["name"] == "question"));
         // Same for the semantic-memory tools (recall/remember).
-        assert!(tools.iter().any(|t| t["function"]["name"] == "memory_recall"));
-        assert!(tools.iter().any(|t| t["function"]["name"] == "memory_remember"));
+        assert!(tools
+            .iter()
+            .any(|t| t["function"]["name"] == "memory_recall"));
+        assert!(tools
+            .iter()
+            .any(|t| t["function"]["name"] == "memory_remember"));
         let anthropic = anthropic_tools();
         assert!(anthropic[0].get("input_schema").is_some());
         assert!(anthropic[0].get("parameters").is_none());

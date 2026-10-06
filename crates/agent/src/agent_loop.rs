@@ -375,7 +375,14 @@ mod tests {
     fn every_prompt_tool_exists_in_the_schema() {
         // The prompt must never advertise a tool the schema omits — providers
         // refuse calls for tool names they were not shown.
-        for tool in ["question", "task", "edit", "bash", "memory_recall", "memory_remember"] {
+        for tool in [
+            "question",
+            "task",
+            "edit",
+            "bash",
+            "memory_recall",
+            "memory_remember",
+        ] {
             assert!(
                 crate::protocol::TOOL_NAMES.contains(&tool),
                 "prompt mentions `{tool}` but TOOL_NAMES does not"

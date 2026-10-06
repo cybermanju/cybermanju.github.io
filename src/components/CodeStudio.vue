@@ -163,7 +163,7 @@
             </div>
             <form class="cs-termin" @submit.prevent="submitTerm">
               <span class="mono">❯</span>
-              <input v-model="termInput" class="mono" :placeholder="`cybsh in ${termCwd}…`" aria-label="Terminal input" />
+              <input v-model="termInput" class="mono" :placeholder="`cybsh in ${termCwd}… (TAB completes)`" aria-label="Terminal input" @keydown.tab.prevent="completeTerm" />
             </form>
           </div>
           <div v-else class="cs-problems">
@@ -719,6 +719,29 @@ async function runTerm(line: string) {
   termPush(res.ok ? 'out' : 'err', res.output || (res.ok ? 'ok' : 'failed'))
 }
 function submitTerm() { const v = termInput.value; termInput.value = ''; void runTerm(v) }
+
+/** Tab completion for the mirror terminal (same live table as CYBSH). */
+async function completeTerm() {
+  const prefix = termInput.value
+  if (!prefix.trim()) {
+    termPush('out', 'Tab completes commands · subcommands (disk …) — type to narrow')
+    return
+  }
+  let hits: string[] = []
+  try {
+    hits = await store.completeShellLine(prefix)
+  } catch {
+    hits = []
+  }
+  if (hits.length === 1) {
+    termInput.value = hits[0].includes(' ') ? hits[0] : `${hits[0]} `
+  } else if (hits.length > 1) {
+    termPush('out', hits.join('   '))
+    termPush('out', `${hits.length} candidates — keep typing`)
+  } else {
+    termPush('out', 'no candidates')
+  }
+}
 
 /* ═══════════════ AI panel ═══════════════ */
 

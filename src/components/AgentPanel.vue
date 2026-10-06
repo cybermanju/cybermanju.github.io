@@ -563,6 +563,13 @@ import {
   toolMeta,
   toolPermissions,
 } from '@/utils/agentUi'
+import {
+  capabilitySummary,
+  copyText as copyToClipboard,
+  formatTokens as fmtTokensHarness,
+  quickPrompts,
+  slashCommands,
+} from '@/composables/useAgentHarness'
 import { renderMarkdown } from '@/utils/markdown'
 import { useVoiceInput } from '@/composables/useVoiceInput'
 import { diffBlocks, editBlocksOf } from '@/utils/agentDiff'
@@ -623,6 +630,55 @@ const form = reactive({
 
 const chatConfigId = ref('')
 const promptInput = ref('')
+
+/* ── modern UX state (progressive disclosure, no behaviour change) ── */
+const activeTab = ref<'chat' | 'setup' | 'controls'>('chat')
+const sidebarOpen = ref(true)
+const sessionSearch = ref('')
+const composerFocused = ref(false)
+const copiedKey = ref('')
+const slashOpen = ref(false)
+const caps = computed(() => capabilitySummary(chatConfig.value, viewing.value, wasmMode.value))
+const friendlyTransport = computed(() =>
+  wasmMode.value ? 'On-device · browser sandbox' : 'Desktop · full tools',
+)
+const filteredSessions = computed(() => {
+  const q = sessionSearch.value.trim().toLowerCase()
+  if (!q) return sessions.value
+  return sessions.value.filter(s => s.title.toLowerCase().includes(q))
+})
+const slashHints = computed(() => {
+  const cur = promptInput.value
+  if (!cur.startsWith('/')) return []
+  const q = cur.slice(1).toLowerCase()
+  return slashCommands.filter(c => c.cmd.slice(1).startsWith(q)).slice(0, 5)
+})
+const charCount = computed(() => promptInput.value.length)
+async function copyRow(text: string, key: string) {
+  const ok = await copyToClipboard(text)
+  if (ok) {
+    copiedKey.value = key
+    window.setTimeout(() => { if (copiedKey.value === key) copiedKey.value = '' }, 1400)
+  }
+}
+function useQuick(prompt: string) {
+  promptInput.value = prompt
+  activeTab.value = 'chat'
+}
+function applySlash(insert: string) {
+  promptInput.value = insert
+  slashOpen.value = false
+}
+function onComposerKey(e: KeyboardEvent) {
+  if (e.key === '/' && promptInput.value === '') slashOpen.value = true
+  else if (e.key === 'Escape') slashOpen.value = false
+}
+function openSetup() {
+  showSetup.value = true
+  activeTab.value = 'setup'
+}
+watch(activeTab, t => { showSetup.value = t === 'setup' })
+watch(showSetup, v => { if (v) activeTab.value = 'setup' })
 
 /* ── voice dictation (prose mode: punctuation words → marks) ── */
 const voice = useVoiceInput('prose')

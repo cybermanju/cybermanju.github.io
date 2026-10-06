@@ -4,10 +4,22 @@ import AppIcon from '@/components/AppIcon.vue'
 //
 // Transport-agnostic: everything goes through the store, which calls
 // `invoke()` — so the same panel runs in tauri, rest and wasm builds.
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useVoiceInput } from '@/composables/useVoiceInput'
-import { correctShellLine } from '@/utils/speechCorrect'
+import { correctShellLine, CYBSH_PHRASES } from '@/utils/speechCorrect'
+import {
+  currentWord,
+  ghostSuffix,
+  historyTokenHints,
+  isVerbPosition,
+  loadHistory,
+  nextHistoryMatch,
+  prevHistoryMatch,
+  pushHistory,
+  replaceWord,
+  saveHistory,
+} from '@/utils/shellComplete'
 
 interface Line {
   id: number
@@ -31,11 +43,14 @@ const PROMPT = 'cybsh> '
 
 const lines = ref<Line[]>([])
 const input = ref('')
-const history = ref<string[]>([])
+/** Shell history: persisted across reloads, prefix-filtered on ↑/↓. */
+const history = ref<string[]>(loadHistory())
 const histIndex = ref(-1)
 const draft = ref('')
 const scrollEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLInputElement | null>(null)
+/** Caret position for ghost-text gating and word-bound Tab completion. */
+const caretPos = ref(0)
 const running = computed(() => store.shellBusy)
 let lineId = 0
 
@@ -109,31 +124,76 @@ async function copyLine(line: Line) {
   }
 }
 
-function currentWord(): string {
-  const upto = input.value.slice(0, caretWordStart())
-  return upto
+/** Ghost auto-suggest: history first, command table second. Shown only
+ *  when the caret is at the end of the line. → or Tab accepts. */
+const ghost = computed(() => {
+  if (caretPos.value !== input.value.length) return ''
+  return ghostSuffix(input.value, history.value, CYBSH_PHRASES)
+})
+
+function acceptGhost(): boolean {
+  if (!ghost.value) return false
+  input.value += ghost.value
+  caretPos.value = input.value.length
+  nextTick(() => {
+    inputEl.value?.setSelectionRange(caretPos.value, caretPos.value)
+  })
+  return true
 }
 
-function caretWordStart(): number {
-  const before = input.value
-  const idx = before.search(/\s[^\s]*$/)
-  return idx === -1 ? 0 : idx + 1
-}
-
-/** Tab: complete from the live command table, listing on ambiguity. */
+/**
+ * Tab: full-line completion off the live command table (commands AND
+ * `disk create`-style subcommands), history-word fallback for arguments,
+ * ghost accept when the server has nothing.
+ */
 async function complete() {
-  const word = currentWord()
-  const hits = await store.completeShellLine(word)
-  if (hits.length === 1) {
-    const start = caretWordStart()
-    input.value = input.value.slice(0, start) + hits[0]
+  const caret = caretPos.value
+  const prefix = input.value.slice(0, caret)
+  if (!prefix.trim()) {
+    push('sys', 'Tab completes commands · subcommands (disk …) · history words — type to narrow')
     return
   }
-  if (hits.length > 1) {
-    push('in', `${PROMPT}${input.value}`)
-    push('out', hits.join('   '))
-    push('sys', `${hits.length} candidates — keep typing`)
+  let hits = await store.completeShellLine(prefix)
+  let fromHistory = false
+  if (!hits.length) {
+    const w = currentWord(prefix, prefix.length)
+    if (w && !isVerbPosition(prefix, prefix.length)) {
+      hits = historyTokenHints(history.value, w)
+      fromHistory = hits.length > 0
+    }
   }
+  if (!hits.length) {
+    if (!acceptGhost()) push('sys', 'no candidates — ↑ walks matching history')
+    return
+  }
+  if (hits.length === 1) {
+    const hit = hits[0]
+    const atEnd = caret === input.value.length
+    if (fromHistory) {
+      const next = replaceWord(input.value, caret, hit)
+      input.value = next.line
+      caretPos.value = next.caret
+    } else if (hit === prefix) {
+      // Exact verb already typed — advance into its arguments.
+      input.value = `${hit} `
+      caretPos.value = input.value.length
+    } else {
+      // Replace everything up to the caret; keep text after the caret only
+      // when it starts at a word boundary (otherwise it is the fragment
+      // being completed and would double up, e.g. `cre|ate`).
+      const after = input.value.slice(caret)
+      const keep = after && /^\s/.test(after) ? after : ''
+      input.value = hit + (atEnd ? (hit.includes(' ') ? '' : ' ') : keep)
+      caretPos.value = atEnd ? input.value.length : hit.length
+    }
+    nextTick(() => {
+      inputEl.value?.setSelectionRange(caretPos.value, caretPos.value)
+    })
+    return
+  }
+  push('in', `${PROMPT}${input.value}`)
+  push('out', hits.join('   '))
+  push('sys', `${hits.length} candidates — keep typing`)
 }
 
 async function execAndRender(cmd: string) {
@@ -155,8 +215,8 @@ async function submit() {
     push('in', `${PROMPT}`)
     return
   }
-  if (history.value[history.value.length - 1] !== line) history.value.push(line)
-  if (history.value.length > 500) history.value.splice(0, history.value.length - 500)
+  history.value = pushHistory(history.value, line)
+  saveHistory(history.value)
   // Client-side dictionary fallback: repair the verb/subcommand before the
   // server ever sees it (`lss→ls`, `disk lis→list`, spoken `see dee→cd`).
   const fix = correctShellLine(line)
@@ -194,10 +254,31 @@ async function onPaste(event: ClipboardEvent) {
   input.value = tail
 }
 
+function trackCaret(el: HTMLInputElement | null) {
+  caretPos.value = el?.selectionStart ?? input.value.length
+}
+
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Tab') {
     event.preventDefault()
+    trackCaret(event.target as HTMLInputElement)
     void complete()
+    return
+  }
+  if (event.key === 'ArrowRight' && ghost.value) {
+    const el = event.target as HTMLInputElement
+    if ((el.selectionStart ?? 0) >= input.value.length) {
+      event.preventDefault()
+      acceptGhost()
+      return
+    }
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    input.value = ''
+    histIndex.value = -1
+    draft.value = ''
+    caretPos.value = 0
     return
   }
   if (event.key === 'ArrowUp') {
@@ -205,23 +286,35 @@ function onKeydown(event: KeyboardEvent) {
     if (history.value.length === 0) return
     if (histIndex.value === -1) {
       draft.value = input.value
-      histIndex.value = history.value.length - 1
-    } else if (histIndex.value > 0) {
-      histIndex.value -= 1
+      histIndex.value = prevHistoryMatch(history.value, draft.value, history.value.length - 1)
+    } else {
+      const i = prevHistoryMatch(history.value, draft.value, histIndex.value - 1)
+      if (i !== -1) histIndex.value = i
     }
-    input.value = history.value[histIndex.value] ?? ''
+    if (histIndex.value !== -1) {
+      input.value = history.value[histIndex.value] ?? ''
+      caretPos.value = input.value.length
+      nextTick(() => {
+        inputEl.value?.setSelectionRange(caretPos.value, caretPos.value)
+      })
+    }
     return
   }
   if (event.key === 'ArrowDown') {
     event.preventDefault()
     if (histIndex.value === -1) return
-    if (histIndex.value < history.value.length - 1) {
-      histIndex.value += 1
+    const i = nextHistoryMatch(history.value, draft.value, histIndex.value + 1)
+    if (i !== -1) {
+      histIndex.value = i
       input.value = history.value[histIndex.value] ?? ''
     } else {
       histIndex.value = -1
       input.value = draft.value
     }
+    caretPos.value = input.value.length
+    nextTick(() => {
+      inputEl.value?.setSelectionRange(caretPos.value, caretPos.value)
+    })
     return
   }
   // Ctrl+C — abandon the line being typed (the job itself is `kill <id>`).
@@ -235,6 +328,16 @@ function onKeydown(event: KeyboardEvent) {
 function focusInput() {
   inputEl.value?.focus()
 }
+
+// External inserts (voice dictation) land at the end — keep the caret
+// model in sync when the user is typing in the field.
+watch(input, () => {
+  if (document.activeElement === inputEl.value && inputEl.value) {
+    caretPos.value = inputEl.value.selectionStart ?? input.value.length
+  } else {
+    caretPos.value = input.value.length
+  }
+})
 
 /* ── voice input (shell mode: verbs + symbols, corrected on insert) ── */
 const voice = useVoiceInput('shell')
@@ -254,7 +357,7 @@ onBeforeUnmount(() => {
 })
 
 onMounted(async () => {
-  push('sys', `cybsh — type \`help\` for the command table · TAB completes · ↑/↓ walks history`)
+  push('sys', `cybsh — \`help\` lists commands · TAB completes (→ accepts the grey hint) · ↑/↓ walks matching history · ESC clears`)
   if (store.osWorkers === null) await store.fetchOsWorkers()
   focusInput()
   void scrollToBottom()
@@ -290,18 +393,23 @@ onMounted(async () => {
 
     <div class="term-input-row">
       <span class="term-prompt">{{ PROMPT }}</span>
-      <input
-        ref="inputEl"
-        v-model="input"
-        class="term-input"
-        type="text"
-        spellcheck="false"
-        autocomplete="off"
-        aria-label="cybsh command"
-        @keydown="onKeydown"
-        @keydown.enter.prevent="submit"
-        @paste="onPaste"
-      />
+      <div class="term-input-wrap">
+        <div class="term-ghost" aria-hidden="true"><span class="ghost-hide">{{ input }}</span><span class="ghost-show">{{ ghost }}</span></div>
+        <input
+          ref="inputEl"
+          v-model="input"
+          class="term-input"
+          type="text"
+          spellcheck="false"
+          autocomplete="off"
+          aria-label="cybsh command"
+          @keydown="onKeydown"
+          @keydown.enter.prevent="submit"
+          @keyup="trackCaret($event.target as HTMLInputElement)"
+          @click="trackCaret($event.target as HTMLInputElement)"
+          @paste="onPaste"
+        />
+      </div>
       <button
         v-if="voice.isSupported.value"
         class="ghost-btn"
@@ -427,11 +535,43 @@ onMounted(async () => {
 
 .term-input {
   flex: 1;
+  width: 100%;
   background: transparent;
   border: none;
   outline: none;
   color: var(--ui-text);
   font-family: inherit;
   font-size: 13px;
+  position: relative;
+  z-index: 1;
+  padding: 0;
+}
+
+/* Ghost auto-suggest: the invisible current text keeps metrics identical
+ * so the grey remainder aligns exactly with the real caret. */
+.term-input-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+
+.term-ghost {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  font-family: inherit;
+  font-size: 13px;
+  white-space: pre;
+  overflow: hidden;
+}
+
+.ghost-hide {
+  visibility: hidden;
+}
+
+.ghost-show {
+  color: color-mix(in srgb, var(--ui-text) 35%, transparent);
 }
 </style>

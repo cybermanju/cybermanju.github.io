@@ -227,11 +227,7 @@ pub fn decide(
 /// only for tools that can never run. The runtime `decide` gate stays in
 /// place regardless, so stripping is an optimization, never the security
 /// boundary.
-pub fn is_tool_denied_everywhere(
-    rules: &PermissionRuleset,
-    kind: AgentKind,
-    tool: &str,
-) -> bool {
+pub fn is_tool_denied_everywhere(rules: &PermissionRuleset, kind: AgentKind, tool: &str) -> bool {
     matches!(
         decide(rules, kind, tool, &serde_json::json!({})),
         PermissionDecision::Deny { .. }
@@ -526,16 +522,8 @@ mod strip_tests {
     #[test]
     fn denied_tools_are_detected_through_the_empty_probe() {
         let rules = deny_ruleset(&["bash"]);
-        assert!(is_tool_denied_everywhere(
-            &rules,
-            AgentKind::Build,
-            "bash"
-        ));
-        assert!(!is_tool_denied_everywhere(
-            &rules,
-            AgentKind::Build,
-            "read"
-        ));
+        assert!(is_tool_denied_everywhere(&rules, AgentKind::Build, "bash"));
+        assert!(!is_tool_denied_everywhere(&rules, AgentKind::Build, "read"));
     }
 
     #[test]
@@ -584,11 +572,7 @@ mod strip_tests {
             .into_iter()
             .collect(),
         };
-        assert!(!is_tool_denied_everywhere(
-            &rules,
-            AgentKind::Build,
-            "bash"
-        ));
+        assert!(!is_tool_denied_everywhere(&rules, AgentKind::Build, "bash"));
         let mut body = openai_body(&["bash", "read"]);
         assert_eq!(strip_denied_tools(&body, &rules, AgentKind::Build), 0);
         assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(2));
@@ -600,10 +584,7 @@ mod strip_tests {
             default: PermissionAction::Allow,
             rules: [(
                 "bash".to_string(),
-                PermissionRule::Granular(vec![(
-                    "*".into(),
-                    PermissionAction::Deny,
-                )]),
+                PermissionRule::Granular(vec![("*".into(), PermissionAction::Deny)]),
             )]
             .into_iter()
             .collect(),

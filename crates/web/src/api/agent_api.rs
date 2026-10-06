@@ -477,8 +477,7 @@ pub fn list_memories(
     let mut rows = Vec::new();
     for entry in table.iter().map_err(|e| e.to_string())? {
         let (_, value) = entry.map_err(|e| e.to_string())?;
-        let mut m: AgentMemory =
-            serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+        let mut m: AgentMemory = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
         if let Some(want) = config_id {
             if m.config_id != want {
                 continue;
@@ -605,8 +604,7 @@ fn bump_memory_uses(db: &Database, ids: &[String]) -> Result<(), String> {
                 .map_err(|e| e.to_string())?
                 .map(|guard| guard.value().to_string());
             if let Some(raw) = current {
-                let mut m: AgentMemory =
-                    serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+                let mut m: AgentMemory = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
                 m.uses = m.uses.saturating_add(1);
                 let serialized = serde_json::to_string(&m).map_err(|e| e.to_string())?;
                 table
@@ -672,14 +670,7 @@ pub fn recall_memory_entries(
     let model = embedding_model(&config);
     let guard = db.read().map_err(|e| e.to_string())?;
     Ok(recall_text(
-        &guard,
-        &cancel,
-        &endpoint,
-        &key,
-        &config.id,
-        query,
-        top_k,
-        &model,
+        &guard, &cancel, &endpoint, &key, &config.id, query, top_k, &model,
     ))
 }
 
@@ -732,9 +723,9 @@ fn remembered_in_run(turn: &agent_loop::AgentTurn) -> bool {
             .as_ref()
             .and_then(|v| v.as_array())
             .map(|calls| {
-                calls.iter().any(|c| {
-                    c.get("name").and_then(|n| n.as_str()) == Some("memory_remember")
-                })
+                calls
+                    .iter()
+                    .any(|c| c.get("name").and_then(|n| n.as_str()) == Some("memory_remember"))
             })
             .unwrap_or(false)
     })
@@ -2442,7 +2433,8 @@ fn run_agent_job(
                     s.result = Some(result);
                     // Hermes-style nudge, once: a long run that stored
                     // nothing earns a "teach me" hint for the UI.
-                    if agent_memory::should_nudge_memory(turn.turns_used, remembered_in_run(&turn)) {
+                    if agent_memory::should_nudge_memory(turn.turns_used, remembered_in_run(&turn))
+                    {
                         s.memory_hint = Some(
                             "This run learned things worth keeping — store one fact with memory_remember.".to_string(),
                         );
@@ -2457,7 +2449,8 @@ fn run_agent_job(
                         "turn budget exhausted after {} turns — raise MAX TURNS or COMPACT the session, then continue; last state saved",
                         turn.turns_used
                     ));
-                    if agent_memory::should_nudge_memory(turn.turns_used, remembered_in_run(&turn)) {
+                    if agent_memory::should_nudge_memory(turn.turns_used, remembered_in_run(&turn))
+                    {
                         s.memory_hint = Some(
                             "This run learned things worth keeping — store one fact with memory_remember.".to_string(),
                         );
@@ -2496,7 +2489,17 @@ fn run_agent_job(
                             format!("{} {arg}", call.name)
                         });
                     });
-                    match run_one_tool(db, job, &config, &root, &vol, &mut mcp_set, &turn, call, &mem_ctx) {
+                    match run_one_tool(
+                        db,
+                        job,
+                        &config,
+                        &root,
+                        &vol,
+                        &mut mcp_set,
+                        &turn,
+                        call,
+                        &mem_ctx,
+                    ) {
                         ToolOutcome::Continue(output) => {
                             turn.append_tool_result(call, clean_output(output));
                         }
