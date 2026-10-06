@@ -83,6 +83,14 @@ fn truncate_bytes(text: &str, cap: usize) -> &str {
 /// `\n`, which is why the truncation test budgets a few extra bytes).
 const DATA_LINE_BUDGET: usize = SSE_MAX_LINE_BYTES - 6 - 1; // "data: " + '\n'
 
+/// Bytes held back when truncating: the truncation-marker `data:` line
+/// plus the `\n` joins the parser re-inserts between wrapped lines.
+/// Without this the marked event re-joins over [`SSE_DATA_CAP`] and the
+/// parser drops the very event the marker was meant to save — and a body
+/// of exactly [`SSE_DATA_CAP`] bytes would wrap into two lines that
+/// re-join one byte over the cap and vanish without any marker at all.
+const TRUNCATION_RESERVE: usize = 64;
+
 /// Emit one `data:` line, wrapping payloads the parser would otherwise
 /// drop outright (a truncated event must arrive marked, not vanish).
 fn emit_data_line(out: &mut String, line: &str) {
@@ -115,8 +123,9 @@ fn emit_data_line(out: &mut String, line: &str) {
 pub fn format_event(event: &str, data: &str) -> String {
     let name = sanitize_event_name(event);
     let flat = data.replace('\r', "");
-    let truncated = flat.len() > SSE_DATA_CAP;
-    let body = truncate_bytes(&flat, SSE_DATA_CAP);
+    let body_cap = SSE_DATA_CAP - TRUNCATION_RESERVE;
+    let truncated = flat.len() > body_cap;
+    let body = truncate_bytes(&flat, body_cap);
     let mut out = String::with_capacity(name.len() + body.len() + 32);
     out.push_str("event: ");
     out.push_str(name);

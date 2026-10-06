@@ -933,11 +933,16 @@ mod tests {
             { "type": "tree", "name": "assets", "path": "assets" },
             { "type": "blob", "name": "a.cyb3", "path": "assets/a.cyb3" }
         ]);
-        let entries = entries_from_gitlab_tree(&json, "").expect("parse");
-        assert_eq!(entries.len(), 2);
-        assert!(entries[0].is_dir);
-        assert!(!entries[1].is_dir);
-        assert_eq!(entries[1].locator, "assets/a.cyb3");
+        // One level per listing, like the GitHub tree: the root shows the
+        // synthesised `assets` dir, the nested blob only under `assets/`.
+        let root = entries_from_gitlab_tree(&json, "").expect("parse");
+        assert_eq!(root.len(), 1);
+        assert!(root[0].is_dir);
+        assert_eq!(root[0].path, "assets");
+        let inner = entries_from_gitlab_tree(&json, "assets").expect("parse");
+        assert_eq!(inner.len(), 1);
+        assert!(!inner[0].is_dir);
+        assert_eq!(inner[0].locator, "assets/a.cyb3");
     }
 
     #[test]
