@@ -13,7 +13,13 @@
           :key="item.id"
           class="menu-item"
           :class="{ open: openMenu === item.id }"
+          role="button"
+          tabindex="0"
+          :aria-expanded="openMenu === item.id"
+          aria-haspopup="menu"
           @click="toggleMenu(item.id)"
+          @keydown.enter.prevent="toggleMenu(item.id)"
+          @keydown.space.prevent="toggleMenu(item.id)"
           @mouseenter="hoverMenu(item.id)"
         >
           <span class="menu-label">{{ item.label }}</span>
@@ -310,12 +316,20 @@ function handleClickOutside(e: MouseEvent) {
   }
 }
 
+function handleEscape(e: KeyboardEvent) {
+  if (e.key === 'Escape' && openMenu.value !== null) {
+    openMenu.value = null
+  }
+}
+
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
+  document.addEventListener('keydown', handleEscape)
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
+  document.removeEventListener('keydown', handleEscape)
 })
 </script>
 
@@ -342,7 +356,9 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
   min-width: 0;
-  overflow: hidden;
+  /* Must stay visible: the menu dropdowns overflow below the 36px bar.
+     `hidden` here clips them to zero height so clicks appear to do nothing. */
+  overflow: visible;
   -webkit-app-region: no-drag;
 }
 
@@ -398,9 +414,11 @@ onUnmounted(() => {
 .menu-items {
   display: flex;
   align-items: center;
-  overflow-x: auto;
-  scrollbar-width: none;
+  /* Must stay visible: any non-visible overflow-x forces overflow-y to
+     compute to auto/hidden and clips the absolutely-positioned dropdowns. */
+  overflow: visible;
   min-width: 0;
+  flex-shrink: 1;
 }
 
 .menu-items::-webkit-scrollbar {
@@ -418,6 +436,11 @@ onUnmounted(() => {
 .menu-item:hover,
 .menu-item.open {
   background: var(--ui-accent-softer);
+}
+
+.menu-item:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ui-accent) 80%, transparent);
+  outline-offset: 1px;
 }
 
 .menu-label {
@@ -729,6 +752,9 @@ onUnmounted(() => {
   }
   .logo-brand {
     display: none;
+  }
+  .menu-item {
+    padding: 5px 7px;
   }
 }
 </style>

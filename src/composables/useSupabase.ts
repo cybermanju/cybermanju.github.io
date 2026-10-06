@@ -70,9 +70,22 @@ export function getSupabaseConfig(): { url: string; key: string } {
   return { url: readLS(URL_KEY).replace(/\/+$/, ''), key: readLS(KEY_KEY) }
 }
 
-export function supabaseConfigured(): boolean {
+function readConfiguredFlag(): boolean {
   const { url, key } = getSupabaseConfig()
   return url.startsWith('http') && key.length > 0
+}
+
+/**
+ * Reactive mirror of the localStorage pair. localStorage itself never fires
+ * Vue reactivity, so `computed(() => supabaseConfigured())` used to be
+ * evaluated once and stay stale forever — saving the broker in Settings left
+ * "Broker not configured" banners and blocked OAuth buttons in Accounts until
+ * a full reload. Every write path below refreshes this flag.
+ */
+const configuredFlag = ref(readConfiguredFlag())
+
+export function supabaseConfigured(): boolean {
+  return configuredFlag.value
 }
 
 export function setSupabaseConfig(url: string, key: string) {
@@ -84,6 +97,7 @@ export function setSupabaseConfig(url: string, key: string) {
   void (cleanKey ? vaultSet(VAULT_KEY_KEY, cleanKey) : vaultDelete(VAULT_KEY_KEY))
   client = null
   clientKey = ''
+  configuredFlag.value = cleanUrl.startsWith('http') && cleanKey.length > 0
 }
 
 export function clearSupabaseConfig() {
@@ -93,6 +107,7 @@ export function clearSupabaseConfig() {
   void vaultDelete(VAULT_KEY_KEY)
   client = null
   clientKey = ''
+  configuredFlag.value = false
 }
 
 /**
@@ -108,6 +123,7 @@ export async function hydrateSupabaseConfig(): Promise<boolean> {
   writeLS(KEY_KEY, key || '')
   client = null
   clientKey = ''
+  configuredFlag.value = readConfiguredFlag()
   return supabaseConfigured()
 }
 

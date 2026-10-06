@@ -244,6 +244,19 @@ export function useTouchConfig(options: TouchConfigOptions = {}) {
     state.gestureMap[gesture] = action
   }
 
+  /**
+   * `state` is only exposed `readonly` — Settings must mutate thresholds
+   * through these setters or the write is silently dropped. Non-finite and
+   * negative values fall back to their default (never stored as garbage).
+   */
+  function sane(v: number, fallback: number): number {
+    return Number.isFinite(v) && v >= 0 ? Math.round(v) : fallback
+  }
+  function setThreshold(v: number) { state.threshold = sane(v, 50) }
+  function setLongPressThreshold(v: number) { state.longPressThreshold = sane(v, 600) }
+  function setEdgeZoneSize(v: number) { state.edgeZoneSize = sane(v, 30) }
+  function setDoubleTapTimeout(v: number) { state.doubleTapTimeout = sane(v, 300) }
+
   function resetGesture(gesture: GestureType) {
     state.gestureMap[gesture] = DEFAULT_GESTURE_MAP[gesture] || 'none'
   }
@@ -353,6 +366,10 @@ export function useTouchConfig(options: TouchConfigOptions = {}) {
     state: readonly(state) as typeof state,
     getAction,
     setAction,
+    setThreshold,
+    setLongPressThreshold,
+    setEdgeZoneSize,
+    setDoubleTapTimeout,
     resetGesture,
     resetAll,
     exportConfig,

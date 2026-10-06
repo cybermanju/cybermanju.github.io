@@ -401,7 +401,7 @@
 import AppIcon from '@/components/AppIcon.vue'
 import ProviderLogo from '@/components/ProviderLogo.vue'
 import UiEmpty from '@/components/ui/UiEmpty.vue'
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { isStaticHost } from '@/composables/useTauri'
@@ -450,8 +450,15 @@ import { pollUntilTrue } from '@/utils/poll'
 const store = useAppStore()
 const wm = useWindowManager()
 
-function openSettings() {
+/**
+ * "Configure" on the broker banners: open Settings *on* the OAuth broker card
+ * instead of dumping the user at Appearance — and wait one tick so a freshly
+ * opened Settings window has registered its listener before the event fires.
+ */
+async function openSettings() {
   wm.open('settings')
+  await nextTick()
+  window.dispatchEvent(new CustomEvent('cybermanju:settings-focus', { detail: 'oauth-broker' }))
 }
 
 /** Roving-tabindex arrow-key navigation for the tab bar. */
@@ -1461,11 +1468,14 @@ onBeforeUnmount(() => {
   padding: 10px 12px;
   margin-top: 10px;
   font-size: 12px;
+  line-height: 1.5;
   border: 1px solid;
 }
+/* text owns the free space so icon + message + action can never collide */
+.am-banner > span:not(.am-btn):not(.app-icon) { flex: 1 1 auto; min-width: 0; }
 .am-banner.warn { border-color: color-mix(in srgb, var(--ui-warning) 55%, transparent); background: color-mix(in srgb, var(--ui-warning) 10%, transparent); }
 .am-banner.info { border-color: color-mix(in srgb, var(--ui-info) 50%, transparent); background: color-mix(in srgb, var(--ui-info) 8%, transparent); }
-.am-banner .am-btn { margin-left: auto; }
+.am-banner .am-btn { margin-left: auto; flex-shrink: 0; }
 .am-note { margin: 8px 0 0; font-size: 11.5px; color: var(--ui-info); white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
 .am-note.warn { color: var(--ui-warning); }
 .am-note.err { color: var(--ui-danger); }
