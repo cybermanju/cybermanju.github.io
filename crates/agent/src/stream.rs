@@ -77,6 +77,37 @@ fn truncate_bytes(text: &str, cap: usize) -> &str {
     &text[..end]
 }
 
+/// Payload bytes per emitted `data:` line. The parser drops any line over
+/// [`SSE_MAX_LINE_BYTES`], so `format_event` must never emit one — long
+/// payload lines are wrapped (the parser re-joins `data:` lines with
+/// `\n`, which is why the truncation test budgets a few extra bytes).
+const DATA_LINE_BUDGET: usize = SSE_MAX_LINE_BYTES - 6 - 1; // "data: " + '\n'
+
+/// Emit one `data:` line, wrapping payloads the parser would otherwise
+/// drop outright (a truncated event must arrive marked, not vanish).
+fn emit_data_line(out: &mut String, line: &str) {
+    if line.len() + 6 + 1 <= SSE_MAX_LINE_BYTES {
+        out.push_str("data: ");
+        out.push_str(line);
+        out.push('\n');
+        return;
+    }
+    let mut rest = line;
+    while rest.len() + 6 + 1 > SSE_MAX_LINE_BYTES {
+        let mut end = DATA_LINE_BUDGET.min(rest.len());
+        while !rest.is_char_boundary(end) {
+            end -= 1;
+        }
+        out.push_str("data: ");
+        out.push_str(&rest[..end]);
+        out.push('\n');
+        rest = &rest[end..];
+    }
+    out.push_str("data: ");
+    out.push_str(rest);
+    out.push('\n');
+}
+
 /// Format one SSE event (`event:` + one `data:` line per input line,
 /// terminated by a blank line). `\r` is stripped so a `\r\n` in model
 /// text cannot inject a framing break; oversized payloads truncate with
@@ -94,9 +125,7 @@ pub fn format_event(event: &str, data: &str) -> String {
         out.push_str("data:\n");
     } else {
         for line in body.split('\n') {
-            out.push_str("data: ");
-            out.push_str(line);
-            out.push('\n');
+            emit_data_line(&mut out, line);
         }
     }
     if truncated {
