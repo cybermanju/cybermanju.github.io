@@ -131,9 +131,9 @@ pub fn parse_event_stream(chunk: &str) -> Vec<SseEvent> {
     let mut data_lines: Vec<String> = Vec::new();
     let mut dropped = false;
     let flush = |name: &mut String,
-                     data_lines: &mut Vec<String>,
-                     dropped: &mut bool,
-                     out: &mut Vec<SseEvent>| {
+                data_lines: &mut Vec<String>,
+                dropped: &mut bool,
+                out: &mut Vec<SseEvent>| {
         if out.len() >= SSE_MAX_EVENTS_PER_CHUNK {
             return;
         }

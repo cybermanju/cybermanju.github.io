@@ -662,97 +662,6 @@
   </div>
 </template>
 
-        <div v-if="!viewing.messages.length" class="empty text-muted">No messages yet — ask below.</div>
-      </div>
-
-      <div v-if="pendingApproval" class="approval attention">
-        <div class="approval-title">
-          <AppIcon :name="pendingApproval.question ? 'solar:question-circle-bold' : 'solar:shield-check-bold'" :size="13" />
-          {{ pendingApproval.question ? 'NEEDS YOUR ANSWER' : 'AGENT WAITS FOR APPROVAL' }}
-        </div>
-        <div class="approval-text">{{ pendingApproval.question || pendingApproval.summary }}</div>
-        <div class="approval-meta">
-          <span><span class="text-muted">TOOL</span> <span class="mono">{{ pendingApproval.tool }}</span></span>
-          <span v-if="approvalArg"><span class="text-muted">TARGET</span> <span class="mono">{{ approvalArg }}</span></span>
-          <span v-if="!pendingApproval.question" class="rule-line">
-            <span class="text-muted">ALLOW ALWAYS WRITES</span>
-            <span class="mono">rules["{{ pendingApproval.tool }}"] = "allow"</span>
-          </span>
-        </div>
-        <div v-if="approvalDiff" class="approval-diff">
-          <div class="diff-head text-muted">PROPOSED EDIT — {{ approvalDiff.oldLines }} → {{ approvalDiff.newLines }} LINES<span v-if="approvalDiff.truncated"> (TRUNCATED)</span></div>
-          <pre class="diff-body"><span v-for="(l, i) in approvalDiff.lines" :key="i" class="diff-line" :class="`diff-${l.kind}`">{{ (l.kind === 'del' ? '− ' : l.kind === 'add' ? '+ ' : '  ') + l.text }}
-</span></pre>
-        </div>
-        <pre v-else-if="approvalInput" class="tool-input approval-input">{{ approvalInput }}</pre>
-        <div v-if="pendingApproval.question" class="w-row">
-          <div class="w-field grow">
-            <UiInput
-              v-model="answerInput"
-              placeholder="TYPE ANSWER…"
-              aria-label="Approval answer"
-              @enter="answerApproval(true)"
-            />
-          </div>
-        </div>
-        <div v-else class="w-row">
-          <div class="w-field grow">
-            <UiInput
-              v-model="denyReason"
-              placeholder="DENY WITH FEEDBACK (OPTIONAL — THE MODEL MUST OBEY IT)…"
-              aria-label="Deny feedback"
-            />
-          </div>
-        </div>
-        <div class="w-actions">
-          <UiButton size="sm" variant="primary" @click="answerApproval(true)">ALLOW ONCE</UiButton>
-          <UiButton
-            size="sm"
-            title="Writes an explicit rule: rules[tool] = allow — visible in the capability surface above"
-            @click="answerApproval(true, true)"
-          >ALLOW ALWAYS</UiButton>
-          <UiButton size="sm" variant="danger" @click="answerApproval(false)">DENY</UiButton>
-        </div>
-        <p class="text-muted hint" v-if="!pendingApproval.question">DENY RETURNS <span class="mono">denied: …</span> TO THE MODEL — IT MUST WORK AROUND IT, NOT RETRY. ADD FEEDBACK ABOVE TO STEER THE NEXT ATTEMPT.</p>
-      </div>
-
-      <div v-if="queue.length" class="queue">
-        <UiBadge tone="info" size="sm" icon="solar:clock-circle-bold">QUEUED {{ queue.length }}</UiBadge>
-        <span v-for="(q, qi) in queue" :key="qi" class="queue-item">
-          <span class="queue-text">{{ q }}</span>
-          <UiButton
-            size="xs"
-            icon="solar:close-bold"
-            icon-only
-            title="Drop from queue"
-            aria-label="Drop queued prompt"
-            @click="queue.splice(qi, 1)"
-          />
-        </span>
-      </div>
-
-      <div class="prompt-row">
-        <textarea
-          v-model="promptInput"
-          class="prompt-box"
-          :placeholder="jobActive ? 'RUNNING — CTRL+ENTER QUEUES THE NEXT PROMPT…' : 'ASK THE AGENT… (Ctrl+Enter to send)'"
-          rows="3"
-          @keydown.ctrl.enter="sendPrompt"
-          @keydown.meta.enter="sendPrompt"
-        />
-      </div>
-      <div class="w-actions">
-        <UiButton v-if="voice.isSupported.value" size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : 'Dictate prompt (say “new line”, “comma”, “question mark”)'" @click="toggleVoice">{{ voice.listening.value ? 'STOP' : 'MIC' }}</UiButton>
-        <UiButton size="sm" variant="primary" :disabled="!canSend" @click="sendPrompt">{{ jobActive ? 'QUEUE' : 'SEND' }}</UiButton>
-        <UiButton v-if="jobActive" size="sm" variant="danger" @click="abortJob">ABORT</UiButton>
-      </div>
-      <div v-if="jobLine" class="w-msg job-line"><AppIcon name="solar:clock-circle-bold" :size="11" /> {{ jobLine }}</div>
-      <div v-if="jobError" class="w-msg err" :title="jobHint">{{ jobError }}</div>
-      <div v-if="jobHint && jobError" class="w-msg"><AppIcon name="solar:info-circle-bold" :size="11" /> {{ jobHint }}</div>
-    </div>
-  </div>
-</template>
-
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
 import UiBadge from '@/components/ui/UiBadge.vue'
@@ -2310,3 +2219,4 @@ onMounted(async () => {
   .approval.attention, .agent-avatar-pulse { animation: none; }
 }
 
+</style>

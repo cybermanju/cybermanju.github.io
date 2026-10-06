@@ -28,9 +28,15 @@ fn score_of(scores: &[SceneScore], category: &str) -> f32 {
 #[test]
 fn tables_parse_with_expected_shape() {
     let cats = category_list();
-    assert!(cats.len() >= 14, "expected 14+ categories, got {}", cats.len());
+    assert!(
+        cats.len() >= 14,
+        "expected 14+ categories, got {}",
+        cats.len()
+    );
     let ids: Vec<&str> = cats.iter().map(|(id, _)| id.as_str()).collect();
-    for want in ["human", "forest", "beach", "party", "animal", "dog", "cat", "city", "snow"] {
+    for want in [
+        "human", "forest", "beach", "party", "animal", "dog", "cat", "city", "snow",
+    ] {
         assert!(ids.contains(&want), "missing category {want}");
     }
 }
@@ -38,16 +44,16 @@ fn tables_parse_with_expected_shape() {
 #[test]
 fn beach_matches_in_many_languages() {
     for name in [
-        "praia_grande.jpg",   // pt
-        "playa_del_carmen.png", // es
-        "plage_normandie.jpg",  // fr
-        "ostsee_strand.heic",   // de
-        "spiaggia_roma.jpg",    // it
+        "praia_grande.jpg",        // pt
+        "playa_del_carmen.png",    // es
+        "plage_normandie.jpg",     // fr
+        "ostsee_strand.heic",      // de
+        "spiaggia_roma.jpg",       // it
         "scheveningen_strand.jpg", // nl
-        "пляж_сочи.jpg",        // ru
-        "海滩度假.jpg",          // zh
-        "沖縄ビーチ.jpg",        // ja
-        "sandy_beach_day.jpg",  // en
+        "пляж_сочи.jpg",           // ru
+        "海滩度假.jpg",            // zh
+        "沖縄ビーチ.jpg",          // ja
+        "sandy_beach_day.jpg",     // en
     ] {
         let scores = classify(&input(name));
         assert_eq!(
@@ -144,7 +150,10 @@ fn child_categories_imply_parents() {
 #[test]
 fn face_cluster_boosts_human() {
     let plain = classify(&input("IMG_0001.jpg"));
-    assert!(plain.is_empty(), "hash-named file must stay silent: {plain:?}");
+    assert!(
+        plain.is_empty(),
+        "hash-named file must stay silent: {plain:?}"
+    );
     let with_faces = classify(&SceneInput {
         file_name: "IMG_0001.jpg".to_string(),
         has_faces: true,
@@ -157,7 +166,10 @@ fn face_cluster_boosts_human() {
 fn empty_and_garbage_stay_silent() {
     for name in ["", "IMG_0042.jpg", "DSC_9918.heic", "document.pdf", "a.jpg"] {
         let scores = classify(&input(name));
-        assert!(scores.is_empty(), "{name} must report nothing, got {scores:?}");
+        assert!(
+            scores.is_empty(),
+            "{name} must report nothing, got {scores:?}"
+        );
     }
 }
 
@@ -182,6 +194,9 @@ fn every_category_is_reachable_in_english() {
                 .iter()
                 .any(|s| s.category == id)
         });
-        assert!(hit, "category {id} unreachable via its own English keywords");
+        assert!(
+            hit,
+            "category {id} unreachable via its own English keywords"
+        );
     }
 }

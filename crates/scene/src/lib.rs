@@ -32,8 +32,7 @@ struct Category {
 fn tables() -> &'static Tables {
     static ONCE: OnceLock<Tables> = OnceLock::new();
     ONCE.get_or_init(|| {
-        serde_json::from_str(include_str!("../data/scenes.json"))
-            .expect("scenes.json must parse")
+        serde_json::from_str(include_str!("../data/scenes.json")).expect("scenes.json must parse")
     })
 }
 
@@ -76,7 +75,11 @@ pub fn norm(s: &str) -> String {
 
 fn split_tokens(s: &str) -> Vec<String> {
     s.split(|c: char| {
-        c.is_whitespace() || matches!(c, '/' | '\\' | '_' | '-' | '.' | ',' | ';' | ':' | '(' | ')' | '[' | ']' | '\'' | '"')
+        c.is_whitespace()
+            || matches!(
+                c,
+                '/' | '\\' | '_' | '-' | '.' | ',' | ';' | ':' | '(' | ')' | '[' | ']' | '\'' | '"'
+            )
     })
     .filter(|t| !t.is_empty())
     .map(|t| t.to_string())
