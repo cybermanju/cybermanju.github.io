@@ -7,8 +7,6 @@ pub enum SyncBackendType {
     GitHub,
     GitLab,
     GoogleDrive,
-    GooglePhotos,
-    Telegram,
 }
 
 impl std::fmt::Display for SyncBackendType {
@@ -18,8 +16,6 @@ impl std::fmt::Display for SyncBackendType {
             Self::GitHub => write!(f, "github"),
             Self::GitLab => write!(f, "gitlab"),
             Self::GoogleDrive => write!(f, "googleDrive"),
-            Self::GooglePhotos => write!(f, "googlePhotos"),
-            Self::Telegram => write!(f, "telegram"),
         }
     }
 }
@@ -145,8 +141,7 @@ impl OAuthCredentials {
 /// providers. `remote_path` is the durable locator the pipeline uploaded
 /// to (item 2: without it restore and remote delete are impossible);
 /// `remote_url` is what `upload_file` returned (a provider locator such as
-/// a Telegram `file_id` or a Drive file URL) which some backends need for
-/// downloads.
+/// a Drive file URL) which some backends need for downloads.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncFile {
@@ -213,8 +208,6 @@ pub struct SyncConfig {
     #[serde(skip_serializing)]
     pub token: Option<String>,
     pub folder_id: Option<String>,
-    pub album_id: Option<String>,
-    pub chat_id: Option<String>,
     pub auto_sync: bool,
     pub compress_before_upload: bool,
     pub create_previews: bool,

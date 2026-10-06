@@ -489,8 +489,8 @@ pub fn restore(db: &RwLock<Database>, req: RestoreRequest) -> Result<RestoreOutc
                 .ok_or_else(|| format!("Sync record not found for file {}", file_id))?;
             let mut candidates: Vec<String> = Vec::new();
             // Stored path first (works for Local/GitHub/Drive/GitLab), then
-            // the provider locator upload returned (Telegram file_id,
-            // Photos media id) — tried in order until one downloads.
+            // the provider locator upload returned (e.g. a Drive file URL)
+            // — tried in order until one downloads.
             if let Some(path) = &record.remote_path {
                 candidates.push(path.clone());
             }

@@ -95,7 +95,7 @@
             </select>
             <button class="bw-btn" style="font-size:10px;" :disabled="!vfsNewConfig" @click="addVfsMount">+ MOUNT</button>
           </div>
-          <p class="text-muted" style="font-size:9px;padding:4px 8px;">CORS-OK ONLY: GITHUB · GITLAB · DRIVE. TELEGRAM / PHOTOS NEED THE DESKTOP APP.</p>
+          <p class="text-muted" style="font-size:9px;padding:4px 8px;">CORS-OK ONLY: GITHUB · GITLAB · DRIVE.</p>
         </div>
       </div>
 
@@ -195,7 +195,7 @@
       <div v-if="store.sidebarSection === 'sync'" class="sidebar-section">
         <div class="section-header" @click="wm.open('sync')">STORAGE SYNC &gt;</div>
         <div class="section-body">
-          <p class="text-muted" style="font-size:10px;padding:8px 0;">SYNC TO LOCAL, GITHUB, GDRIVE, GPHOTOS</p>
+          <p class="text-muted" style="font-size:10px;padding:8px 0;">SYNC TO LOCAL, GITHUB, GDRIVE</p>
           <div class="sync-backend-list">
             <div v-for="config in store.syncConfigs" :key="config.id" class="sidebar-item" style="margin-bottom:2px;" @click="wm.open('sync')">
               <div class="bw-dot" :class="{ 'bw-dot-on': config.enabled }" />

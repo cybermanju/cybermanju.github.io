@@ -170,8 +170,12 @@ export function useSystemHardware() {
   const notifyPermission = usePermission('notifications')
 
   // Media capture (face-grouping camera input, screen-share for demos).
-  const userMedia = useUserMedia({ enabled: false })
-  const displayMedia = useDisplayMedia()
+  // NOTE: useUserMedia with no constraints calls
+  // getUserMedia({ video: undefined, audio: undefined }) which the spec
+  // rejects with "At least one of audio and video must be requested".
+  // Always default to video so Start camera works out of the box.
+  const userMedia = useUserMedia({ enabled: false, constraints: { video: true, audio: false } })
+  const displayMedia = useDisplayMedia({ enabled: false, video: true })
   const speechRecognition = useSpeechRecognition({ lang: 'en-US' })
   const speechText = ref('CyberManju OS ready')
   const speechSynthesis = useSpeechSynthesis(speechText, { lang: 'en-US' })
@@ -354,9 +358,14 @@ export function useSystemHardware() {
   }
 
   // ── Media capture ──────────────────────────────────────────────
-  async function startCamera(constraints?: MediaStreamConstraints): Promise<void> {
+  async function startCamera(constraints: MediaStreamConstraints = { video: true, audio: false }): Promise<void> {
     try {
-      if (constraints) userMedia.constraints.value = constraints
+      // getUserMedia throws "At least one of audio and video must be
+      // requested" for {} / { video: false, audio: false } / all-undefined.
+      // Normalise so the camera button can never trigger that rejection.
+      const safe: MediaStreamConstraints = { ...constraints }
+      if (!safe.video && !safe.audio) safe.video = true
+      userMedia.constraints.value = safe
       userMedia.enabled.value = true
       await userMedia.start()
     } catch (e) { lastError.value = e instanceof Error ? e.message : String(e) }

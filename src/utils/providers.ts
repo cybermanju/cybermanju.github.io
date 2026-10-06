@@ -21,14 +21,11 @@ export function needsToken(b: SyncBackendType): boolean {
   return (
     b === 'github' ||
     b === 'gitlab' ||
-    b === 'telegram' ||
-    b === 'googleDrive' ||
-    b === 'googlePhotos'
+    b === 'googleDrive'
   )
 }
 
 export function tokenLabel(b: SyncBackendType): string {
-  if (b === 'telegram') return 'BOT TOKEN (PASSWORD FOR THIS CHAT)'
   if (b === 'github') return 'TOKEN — PERSONAL ACCESS TOKEN (USED AS THE PASSWORD)'
   if (b === 'gitlab') return 'TOKEN — PERSONAL ACCESS TOKEN (USED AS THE PASSWORD)'
   return 'TOKEN — OPTIONAL WHEN USING OAUTH'
@@ -41,10 +38,7 @@ export function authGuidance(b: SyncBackendType): string {
     case 'gitlab':
       return 'GitLab sign-in is OAUTH, or a personal access token (api scope) pasted as the password. Self-hosted? Set the instance URL too.'
     case 'googleDrive':
-    case 'googlePhotos':
       return 'Google accepts OAUTH only — there is no password login. CONNECT WITH OAUTH above.'
-    case 'telegram':
-      return 'Telegram uses a bot token from @BotFather plus the chat id — no OAuth, no password. Browsers cannot verify it (Telegram sends no CORS headers), so the demo saves it UNREACHABLE and live sync runs on desktop/Docker.'
     default:
       return 'Local directory needs no login — just the path.'
   }
@@ -56,8 +50,6 @@ export interface CredentialDraft {
   branch: string
   token: string
   folderId: string
-  albumId: string
-  chatId: string
   basePath: string
   name: string
 }
@@ -70,8 +62,6 @@ export function blankCredentialDraft(
     branch: 'main',
     token: '',
     folderId: '',
-    albumId: '',
-    chatId: '',
     basePath: '',
     name: '',
     ...init,
@@ -114,8 +104,6 @@ export function draftToSave(cfg: SyncConfig, d: CredentialDraft): SyncConfig {
     repoName: trimmed(d.repoName),
     branch: trimmed(d.branch),
     folderId: trimmed(d.folderId),
-    albumId: trimmed(d.albumId),
-    chatId: trimmed(d.chatId),
     basePath: trimmed(d.basePath),
   }
   const token = d.token.trim()
@@ -136,8 +124,6 @@ export function overlayDraft(cfg: SyncConfig, d: CredentialDraft | undefined): S
   if (d.repoName.trim()) merged.repoName = d.repoName.trim()
   if (d.branch.trim()) merged.branch = d.branch.trim()
   if (d.folderId.trim()) merged.folderId = d.folderId.trim()
-  if (d.albumId.trim()) merged.albumId = d.albumId.trim()
-  if (d.chatId.trim()) merged.chatId = d.chatId.trim()
   if (d.basePath.trim()) merged.basePath = d.basePath.trim()
   return merged
 }
@@ -148,8 +134,6 @@ export function refreshDraftFromSaved(d: CredentialDraft, saved: SyncConfig): vo
   d.branch = saved.branch ?? 'main'
   d.token = ''
   d.folderId = saved.folderId ?? ''
-  d.albumId = saved.albumId ?? ''
-  d.chatId = saved.chatId ?? ''
   d.basePath = saved.basePath ?? ''
   d.name = saved.name ?? ''
 }

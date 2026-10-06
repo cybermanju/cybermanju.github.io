@@ -131,7 +131,6 @@ export function supabaseProviderFor(backendType: string): OAuthBackend | null {
     case 'github':
       return 'github'
     case 'googleDrive':
-    case 'googlePhotos':
       return 'google'
     case 'gitlab':
       return 'gitlab'
@@ -147,8 +146,6 @@ export function supabaseScopesFor(backendType: string): string {
       return 'repo read:user user:email'
     case 'googleDrive':
       return 'openid email profile https://www.googleapis.com/auth/drive.file'
-    case 'googlePhotos':
-      return 'openid email profile https://www.googleapis.com/auth/photoslibrary.appendonly'
     case 'gitlab':
       return 'api'
     default:

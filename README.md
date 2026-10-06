@@ -145,7 +145,7 @@ Role-based access (`admin` / `user` / `viewer`), per-file `read` / `write` /
 ### 🛰️ Sync backends
 
 `Local` · `GitHub` (Contents + Releases to 2 GB) · `Google Drive` (v3) ·
-`Google Photos` — pipeline `compress → preview → upload → link → clean` with
+`GitLab` — pipeline `compress → preview → upload → link → clean` with
 live ETA + cancel. Runs are **async by design**:
 
 ```bash
@@ -231,8 +231,7 @@ ls --json   # every command speaks JSON too — pipes, &&, ||, ;, history, compl
   a referenced chunk), single-writer leases (`conflict:` on contention).
 
 > [!WARNING]
-> **Honest limits, on purpose.** Telegram/Photos delete → `unsupported:`.
-> WASM `sync` needs the dashboard. The content API caps at 1 MiB with
+> **Honest limits, on purpose.** WASM `sync` needs the dashboard. The content API caps at 1 MiB with
 > versioned saves and `encrypted:` / `binary:` / `too_large:` refusals.
 > Auth is fail-closed (404-before-401, RBAC `Claims{role}`, bootstrap-only
 > register, 0600 secrets).

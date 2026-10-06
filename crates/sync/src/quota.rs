@@ -2,7 +2,7 @@
 //
 // `quota::usage(config)` asks the provider how much room is left. Where an
 // endpoint exists (Drive quotaInfo, GitHub rate-limit) the numbers are real;
-// where the provider exposes none (Telegram, Photos, local disk) the answer
+// where the provider exposes none (local disk) the answer
 // is an honest `QuotaUsage` with `None` fields plus a `detail` note — never
 // a fabricated number.
 //
@@ -57,14 +57,6 @@ pub fn usage(config: &SyncConfig) -> Result<QuotaUsage, String> {
         SyncBackendType::GoogleDrive => drive_usage(config),
         SyncBackendType::GitHub => github_usage(config),
         SyncBackendType::GitLab => gitlab_usage(config),
-        SyncBackendType::GooglePhotos => Ok(QuotaUsage::unknown(
-            SyncBackendType::GooglePhotos,
-            "Google Photos publishes no storage-quota endpoint (best-effort: unknown)",
-        )),
-        SyncBackendType::Telegram => Ok(QuotaUsage::unknown(
-            SyncBackendType::Telegram,
-            "Telegram Bot API publishes no quota endpoint (best-effort: unknown)",
-        )),
         SyncBackendType::Local => Ok(QuotaUsage::unknown(
             SyncBackendType::Local,
             "local filesystem quota is not tracked (best-effort: unknown)",

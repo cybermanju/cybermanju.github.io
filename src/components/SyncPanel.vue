@@ -41,14 +41,6 @@
         <span class="w-label text-muted">DRIVE FOLDER ID</span>
         <UiInput v-model="form.folderId" placeholder="FOLDER ID" aria-label="Drive folder id" />
       </div>
-      <div v-if="needsAlbum" class="w-field">
-        <span class="w-label text-muted">PHOTOS ALBUM ID</span>
-        <UiInput v-model="form.albumId" placeholder="ALBUM ID" aria-label="Photos album id" />
-      </div>
-      <div v-if="needsChat" class="w-field">
-        <span class="w-label text-muted">TELEGRAM CHAT ID</span>
-        <UiInput v-model="form.chatId" placeholder="CHAT ID" aria-label="Telegram chat id" />
-      </div>
       <div class="w-field">
         <span class="w-label text-muted">TOKEN (PAT / OAuth, never shown back)</span>
         <UiInput
@@ -228,8 +220,6 @@ const form = reactive({
   branch: 'main',
   token: '',
   folderId: '',
-  albumId: '',
-  chatId: '',
   enabled: true,
   encryptBeforeUpload: true,
   compressBeforeUpload: true,
@@ -249,8 +239,6 @@ const runConfigOptions = computed(() => [
 const needsBasePath = computed(() => form.backendType === 'local')
 const needsRepo = computed(() => backendNeedsRepo(form.backendType))
 const needsFolder = computed(() => form.backendType === 'googleDrive')
-const needsAlbum = computed(() => form.backendType === 'googlePhotos')
-const needsChat = computed(() => form.backendType === 'telegram')
 const oauthable = computed(() => isOauthCapable(form.backendType))
 
 function hintFor(e: string) {
@@ -269,8 +257,6 @@ function toConfig(): Omit<SyncConfig, 'id' | 'createdAt' | 'updatedAt'> {
     branch: form.branch || undefined,
     token: form.token || undefined,
     folderId: form.folderId || undefined,
-    albumId: form.albumId || undefined,
-    chatId: form.chatId || undefined,
     compressBeforeUpload: form.compressBeforeUpload,
     encryptBeforeUpload: form.encryptBeforeUpload,
     conflictPolicy: form.conflictPolicy,
@@ -303,7 +289,7 @@ async function saveConfig() {
 async function oauthConnect() {
   // Prefer the config selected in START/MONITOR (the one the user means),
   // then the matching saved config, then '' for a brand-new provider —
-  // the store maps googleDrive/googlePhotos to the backend `google` slug.
+  // the store maps googleDrive to the backend `google` slug.
   const target =
     syncConfigs.value.find(c => c.id === runConfigId.value)
     ?? syncConfigs.value.find(c => c.backendType === form.backendType)

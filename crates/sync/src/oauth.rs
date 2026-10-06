@@ -34,12 +34,11 @@ pub struct ProviderEndpoints {
 /// Look up a provider by its route slug (`google` / `github` / `gitlab`).
 pub fn provider_endpoints(provider: &str) -> Result<ProviderEndpoints, String> {
     match provider.trim().to_ascii_lowercase().as_str() {
-        "google" | "google-drive" | "gdrive" | "google-drive-and-photos" => Ok(ProviderEndpoints {
+        "google" | "google-drive" | "gdrive" => Ok(ProviderEndpoints {
             provider: "google",
             authorize_url: "https://accounts.google.com/o/oauth2/v2/auth",
             token_url: "https://oauth2.googleapis.com/token",
-            scope: "https://www.googleapis.com/auth/drive.file \
-                    https://www.googleapis.com/auth/photoslibrary.readonly",
+            scope: "https://www.googleapis.com/auth/drive.file",
         }),
         "github" => Ok(ProviderEndpoints {
             provider: "github",
@@ -60,7 +59,7 @@ pub fn provider_endpoints(provider: &str) -> Result<ProviderEndpoints, String> {
 /// Map a sync backend onto its OAuth provider slug.
 pub fn backend_slug(backend: &SyncBackendType) -> Result<&'static str, String> {
     match backend {
-        SyncBackendType::GoogleDrive | SyncBackendType::GooglePhotos => Ok("google"),
+        SyncBackendType::GoogleDrive => Ok("google"),
         SyncBackendType::GitHub => Ok("github"),
         SyncBackendType::GitLab => Ok("gitlab"),
         other => Err(format!("Backend does not use OAuth: {}", other)),
@@ -611,8 +610,6 @@ mod tests {
             branch: None,
             token: None,
             folder_id: None,
-            album_id: None,
-            chat_id: None,
             auto_sync: false,
             compress_before_upload: false,
             create_previews: false,
@@ -642,8 +639,6 @@ mod tests {
             branch: None,
             token: Some("ghp_literal".to_string()),
             folder_id: None,
-            album_id: None,
-            chat_id: None,
             auto_sync: false,
             compress_before_upload: false,
             create_previews: false,

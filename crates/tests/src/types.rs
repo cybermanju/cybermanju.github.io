@@ -255,8 +255,6 @@ fn test_sync_backend_type_serde_roundtrip() {
         SyncBackendType::GitHub,
         SyncBackendType::GitLab,
         SyncBackendType::GoogleDrive,
-        SyncBackendType::GooglePhotos,
-        SyncBackendType::Telegram,
     ] {
         let json = serde_json::to_string(&bt).unwrap();
         let back: SyncBackendType = serde_json::from_str(&json).unwrap();
@@ -270,8 +268,6 @@ fn test_sync_backend_type_display() {
     assert_eq!(SyncBackendType::GitHub.to_string(), "github");
     assert_eq!(SyncBackendType::GitLab.to_string(), "gitlab");
     assert_eq!(SyncBackendType::GoogleDrive.to_string(), "googleDrive");
-    assert_eq!(SyncBackendType::GooglePhotos.to_string(), "googlePhotos");
-    assert_eq!(SyncBackendType::Telegram.to_string(), "telegram");
 }
 
 #[test]
@@ -323,8 +319,6 @@ fn test_sync_config_serde() {
         branch: Some("main".into()),
         token: Some("ghp_abc".into()),
         folder_id: None,
-        album_id: None,
-        chat_id: None,
         auto_sync: false,
         compress_before_upload: true,
         create_previews: true,

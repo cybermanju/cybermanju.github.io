@@ -23,8 +23,6 @@ pub fn local_config(id: &str, base_path: &str) -> SyncConfig {
         branch: None,
         token: None,
         folder_id: None,
-        album_id: None,
-        chat_id: None,
         auto_sync: false,
         compress_before_upload: true,
         create_previews: false,

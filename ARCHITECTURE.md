@@ -57,10 +57,10 @@
                                                                         │
 │  ┌────────────────────────────────────────────────────────────────┐   │
 │  │                  EXTERNAL SERVICES                              │   │
-│  │  ┌────────┐ ┌──────────────┐ ┌───────────┐ ┌───────────────┐  │   │
-│  │  │ Local  │ │   GitHub     │ │Google Drive│ │Google Photos  │  │   │
-│  │  │  FS    │ │Contents API  │ │Drive API  │ │  (curl API)   │  │   │
-│  │  └────────┘ └──────────────┘ └───────────┘ └───────────────┘  │   │
+│  │  ┌────────┐ ┌──────────────┐ ┌───────────┐  │   │
+│  │  │ Local  │ │   GitHub     │ │Google Drive│  │   │
+│  │  │  FS    │ │Contents API  │ │Drive API  │  │   │
+│  │  └────────┘ └──────────────┘ └───────────┘  │   │
 │  └────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -121,7 +121,7 @@ The frontend composable `useTauri.ts` auto-detects the environment via `window._
 | **faces/** | `src-tauri/src/faces/` | Face detection embeddings and DBSCAN clustering via connected components |
 | **tree_sitter/** | `src-tauri/src/tree_sitter/` | Code intelligence: real tree-sitter grammars (rust/python/js/ts/go/bash) + heuristic fallback for the rest; `"engine"` reports which ran |
 | **preview/** | `src-tauri/src/preview/` | Lanczos3 thumbnail generation, media metadata extraction |
-| **sync/** | `src-tauri/src/sync/` | Storage backend trait + 4 implementations (Local, GitHub, Google Drive, Google Photos) |
+| **sync/** | `src-tauri/src/sync/` | Storage backend trait + 3 implementations (Local, GitHub, Google Drive) |
 | **web_dashboard/** | `src-tauri/src/web_dashboard/` | Embedded HTTP/1.1 server on port 3456 with REST API |
 
 ---
@@ -345,14 +345,13 @@ Backend sync configuration entries.
 | JSON Field | Type | Description |
 |------------|------|-------------|
 | `id` | `string` | UUID v4 |
-| `backendType` | `string` | `"local"`, `"github"`, `"googleDrive"`, `"googlePhotos"` |
+| `backendType` | `string` | `"local"`, `"github"`, `"googleDrive"` |
 | `enabled` | `bool` | Whether this sync config is active |
 | `basePath` | `string?` | Local or remote base path |
 | `repoName` | `string?` | GitHub repo (owner/repo) |
 | `branch` | `string?` | Git branch |
 | `token` | `string?` | OAuth token / personal access token |
 | `folderId` | `string?` | Google Drive folder ID |
-| `albumId` | `string?` | Google Photos album ID |
 | `autoSync` | `bool` | Enable automatic sync |
 | `compressBeforeUpload` | `bool` | Apply triple compression before upload |
 | `createPreviews` | `bool` | Generate Lanczos3 thumbnails |
@@ -420,15 +419,7 @@ The sync system uses a trait-based backend architecture. All HTTP backends use `
     │          │  │Releases │  │            │
     │          │  │ + curl  │  │ multipart  │
     └──────────┘  └─────────┘  │ upload     │
-                               └─────────────┘
-                                    │
-                              ┌─────▼──────┐
-                              │Google Photos│
-                              │  Backend    │
-                              │             │
-                              │ curl upload │
-                              │ API v1      │
-                              └─────────────┘
+                                └─────────────┘
 ```
 
 ### Backend Details
@@ -438,7 +429,6 @@ The sync system uses a trait-based backend architecture. All HTTP backends use `
 | **Local** | None | `fs::copy` | Unlimited |
 | **GitHub** | Personal Access Token | Contents API (base64), Releases for >100MB | 100MB (Contents), 2GB (Releases) |
 | **Google Drive** | OAuth2 token | Drive API v3 multipart upload via `curl` | 5TB |
-| **Google Photos** | OAuth2 token | Upload endpoint via `curl` | 200MB (photos), 10GB (videos) |
 
 ---
 
@@ -841,7 +831,7 @@ providers → .cybermanju disks (CYBMJU1 sealed superblock, choosable capacity)
 - **Code:** `POST /api/code/parse {fileName, content}` (shared heuristic core, 1 MiB cap, 413 over); desktop Tauri `parse_text` runs the real grammars.
 - **Editor:** `GET|PUT /api/files/{id}/content` (1 MiB cap; version snapshot before overwrite; honest `encrypted:`/`binary:`/`too_large:` refusals); desktop Tauri twins; Pages edits the WASM volume (`write` op, localStorage).
 - **Auth:** fail-closed `Authenticated` default, `is_known_route` 404-before-401, `Claims{role}` RBAC, bootstrap-only register, sealed secrets.
-- **Known honest limits:** faces empty without ONNX; code parse heuristic for unbundled languages; Telegram/Photos delete `unsupported:`; WASM `sync` needs the dashboard.
+- **Known honest limits:** faces empty without ONNX; code parse heuristic for unbundled languages; WASM `sync` needs the dashboard.
 
 ### CI/CD Pipeline
 

@@ -350,7 +350,7 @@ export const COMPRESSION_INFO: Record<CompressionType, { name: string; descripti
   triple: { name: 'Triple-Layer', description: 'LZ4 -> ZSTD-15 -> Brotli-11 cascading. Maximum compression for archival.', color: '#FFFFFF', speed: 'Slow' },
 }
 
-export type SyncBackendType = 'local' | 'github' | 'gitlab' | 'googleDrive' | 'googlePhotos' | 'telegram'
+export type SyncBackendType = 'local' | 'github' | 'gitlab' | 'googleDrive'
 export type SyncStatusType =
   | 'idle'
   | 'scanning'
@@ -375,8 +375,6 @@ export interface SyncConfig {
   branch?: string
   token?: string
   folderId?: string
-  albumId?: string
-  chatId?: string
   autoSync: boolean
   compressBeforeUpload: boolean
   createPreviews: boolean
@@ -777,30 +775,17 @@ export const SYNC_BACKEND_INFO: Record<SyncBackendType, { name: string; descript
     color: '#FFFFFF',
     icon: 'solar:folder-sync-bold',
   },
-  googlePhotos: {
-    name: 'Google Photos',
-    description: 'Upload photos and videos to Google Photos. Optimized for media files.',
-    color: '#FFFFFF',
-    icon: 'solar:camera-bold',
-  },
-  telegram: {
-    name: 'Telegram',
-    description: 'Send files to a Telegram chat, channel, or group via Bot API. Files up to 50 MB per upload.',
-    color: '#FFFFFF',
-    icon: 'solar:plane-bold',
-  },
 }
 
 /**
  * Map a frontend `SyncBackendType` to the OAuth route slug the backend
  * understands (`crates/sync/src/oauth.rs::provider_endpoints`).
- * Returns `null` for backends with no OAuth flow (local dir, Telegram bot).
- * Google Drive and Google Photos share the `google` OAuth client.
+ * Returns `null` for backends with no OAuth flow (local dir).
+ * Google Drive uses the `google` OAuth client.
  */
 export function oauthSlugForBackend(backend: SyncBackendType | string): string | null {
   switch (backend) {
     case 'googleDrive':
-    case 'googlePhotos':
     case 'google':
       return 'google'
     case 'github':

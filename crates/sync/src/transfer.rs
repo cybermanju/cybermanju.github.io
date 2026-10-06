@@ -25,10 +25,6 @@ pub const DRIVE_MULTIPART_MAX: u64 = 5 * 1024 * 1024;
 pub const DRIVE_RESUMABLE_CHUNK: u64 = 5 * 1024 * 1024;
 /// Google Drive supports files up to 5 TiB (user quota aside).
 pub const DRIVE_MAX: u64 = 5 * 1024 * 1024 * 1024 * 1024;
-/// Google Photos single media item limit.
-pub const PHOTOS_MAX: u64 = 200 * 1024 * 1024;
-/// Telegram Bot API `sendDocument` limit.
-pub const TELEGRAM_MAX: u64 = 50 * 1024 * 1024;
 
 /// Hard per-provider ceiling used by `preflight`.
 ///
@@ -40,8 +36,6 @@ pub fn max_size_bytes(backend_type: &SyncBackendType) -> u64 {
         SyncBackendType::GitHub => GITHUB_RELEASE_MAX,
         SyncBackendType::GitLab => u64::MAX,
         SyncBackendType::GoogleDrive => DRIVE_MAX,
-        SyncBackendType::GooglePhotos => PHOTOS_MAX,
-        SyncBackendType::Telegram => TELEGRAM_MAX,
     }
 }
 
@@ -168,13 +162,7 @@ mod tests {
 
     #[test]
     fn preflight_rejects_only_real_limit_violations() {
-        assert!(preflight(&SyncBackendType::Telegram, TELEGRAM_MAX).is_ok());
-        let err = preflight(&SyncBackendType::Telegram, TELEGRAM_MAX + 1)
-            .expect_err("over the Bot API cap");
-        assert!(err.starts_with("too_large: "), "{err}");
-
         assert!(preflight(&SyncBackendType::GitHub, GITHUB_INLINE_MAX).is_ok());
-        assert!(preflight(&SyncBackendType::GooglePhotos, PHOTOS_MAX + 1).is_err());
 
         // No fixed cap: local disk and GitLab (project-configurable).
         assert!(preflight(&SyncBackendType::Local, u64::MAX).is_ok());

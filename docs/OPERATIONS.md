@@ -130,10 +130,9 @@ Anthropic degrades to keyword recall, never fails. HTTP:
   and file encryption is ChaCha20-Poly1305; the panel prints
   `X25519 + ChaCha20-Poly1305 (ML-KEM slot)` so the slot name never implies a
   lattice operation that did not run.
-- **CORS:** provider canals only claim `github`, `gitlab`, `googleDrive`.
-  `telegram` / `googlePhotos` send no `Access-Control-Allow-Origin`, so every
-  browser transport refuses them up front with a `cors:` error — live sync for
-  those needs the desktop app, Docker image, or dashboard server.
+- **CORS:** provider canals only claim `github`, `gitlab`, `googleDrive`
+  (anything else is refused up front with `unsupported:`) — live sync for
+  remote providers needs the desktop app, Docker image, or dashboard server.
 - **tree-sitter:** desktop `parse_text` runs real grammars
   (rust/python/js/ts/go/bash) and reports `"engine": "tree-sitter"`; every other
   language — and the whole Pages build — uses the heuristic parser and reports

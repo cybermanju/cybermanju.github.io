@@ -145,3 +145,11 @@ Stage Summary:
 - `tests/frontend/shell-swipe.test.ts` (11 tests): 1-finger swipe/tap, mouse ignored, pen works, two-finger parallel swipe, pinch in/out + pinch-and-pan precedence, post-pinch rebase scroll, 3/4-finger swipes, cancel silence, sub-threshold drift.
 - Verified here: `vue-tsc` clean, `vitest` 22 files / 250 pass, `npm run icons` clean, `check-version.sh` agrees.
 - Not run here: `cargo fmt/clippy/test --workspace`, Tauri/desktop builds — CI must prove Rust. Real-device check still needed: DevTools can't synthesize true 2/3-finger chords (remote-debug a phone/tablet or Playwright CDP `Input.dispatchTouchEvent`).
+## 2026-10-06 — remove Telegram/Google Photos providers (4 backends remain)
+
+- `SyncBackendType` is now Local/GitHub/GitLab/GoogleDrive only (`crates/types`, `src/types`); `album_id`/`chat_id` fields, `albumId`/`chatId` drafts, forms and wizard fields removed.
+- Deleted `GooglePhotosBackend` + `TelegramBackend` (~550 lines) and their factory arms from `crates/sync/src/backends.rs`; dropped `PHOTOS_MAX`/`TELEGRAM_MAX`, Photos/Telegram rate gates, quota arms, Photos scope (`drive.file` only) and OAuth slug arm; `compute.rs` capabilities cover the 4 survivors.
+- `os-wasm` canal: removed telegram/photos normalize + `cors:` arms (legacy names now get generic `unsupported:`); updated `useTauri` static probe, `useSupabase` slugs/scopes, `ProviderLogo`, `AccountManager`/`SyncPanel`/`Sidebar`, `providers.ts` helpers.
+- Docs: `ARCHITECTURE.md` (diagrams, tables, `backendType` enum), `README.md`, `AGENTS.md`, `docs/OPERATIONS.md` updated; historical `worklog.md` entries left intact.
+- Verified here: `check-version.sh` agrees, `npm run typecheck` clean (icons rebuilt, 161 — `camera-bold`/`plane-bold` pruned), `vitest` 22 files / 250 pass.
+- Not run here: `cargo fmt/clippy/test --workspace` (repo rule: CI's Rust Lint & Test job proves Rust).

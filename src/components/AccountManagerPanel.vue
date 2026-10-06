@@ -207,7 +207,7 @@
               <UiEmpty
                 icon="solar:cloud-bold"
                 title="No providers yet"
-                description="Connect GitHub, GitLab, Google Drive, Photos, Telegram or a local folder to start syncing."
+                description="Connect GitHub, GitLab, Google Drive or a local folder to start syncing."
               >
                 <template #actions>
                   <button class="am-btn sm primary" type="button" @click="wizOpen = true"><AppIcon name="solar:add-bold" :size="12" /> Add provider</button>
@@ -512,7 +512,7 @@ const showDiskPass = ref(false)
 const showWizToken = ref(false)
 const wizOpen = ref(false)
 
-const BACKEND_ORDER: SyncBackendType[] = ['local', 'github', 'gitlab', 'googleDrive', 'googlePhotos', 'telegram']
+const BACKEND_ORDER: SyncBackendType[] = ['local', 'github', 'gitlab', 'googleDrive']
 
 function logoKindFor(b: SyncBackendType | string): string {
   return b === 'local' ? 'local' : String(b)
@@ -528,7 +528,7 @@ function backendBlurb(b: SyncBackendType): string {
 }
 
 const LOGIN_CARDS: Array<{ id: OAuthBackend; label: string; logo: string; sub: string }> = [
-  { id: 'google', label: 'Google', logo: 'google', sub: 'Drive + Photos OAuth' },
+  { id: 'google', label: 'Google', logo: 'google', sub: 'Drive OAuth' },
   { id: 'github', label: 'GitHub', logo: 'github', sub: 'Repo Contents API' },
   { id: 'gitlab', label: 'GitLab', logo: 'gitlab', sub: 'Projects API v4' },
 ]
@@ -551,8 +551,6 @@ const wiz = reactive({
   branch: 'main',
   token: '',
   folderId: '',
-  albumId: '',
-  chatId: '',
   basePath: '',
 })
 
@@ -564,8 +562,6 @@ function resetWizard() {
   wiz.branch = 'main'
   wiz.token = ''
   wiz.folderId = ''
-  wiz.albumId = ''
-  wiz.chatId = ''
   wiz.basePath = ''
   wizMsg.value = ''
   wizOk.value = null
@@ -592,8 +588,6 @@ function isDraftDirty(cfg: SyncConfig): boolean {
     norm(d.repoName) !== norm(cfg.repoName) ||
     norm(d.branch || 'main') !== norm(cfg.branch || 'main') ||
     norm(d.folderId) !== norm(cfg.folderId) ||
-    norm(d.albumId) !== norm(cfg.albumId) ||
-    norm(d.chatId) !== norm(cfg.chatId) ||
     norm(d.basePath) !== norm(cfg.basePath)
   )
 }
@@ -644,7 +638,7 @@ watch(
 
 // ── dynamic per-backend setup/config schema ───────────────────
 interface FieldDef {
-  key: 'repoName' | 'branch' | 'folderId' | 'albumId' | 'chatId' | 'basePath' | 'token'
+  key: 'repoName' | 'branch' | 'folderId' | 'basePath' | 'token'
   label: string
   placeholder: string
   hint?: string
@@ -671,16 +665,6 @@ function fieldsFor(backend: SyncBackendType): FieldDef[] {
       return [
         { key: 'folderId', label: 'Drive folder ID', placeholder: 'folder id (optional)', hint: 'Empty = app root folder.' },
         { key: 'token', label: tokenLabel(backend), placeholder: 'paste — optional when using OAuth', secret: true, grow: true },
-      ]
-    case 'googlePhotos':
-      return [
-        { key: 'albumId', label: 'Photos album ID', placeholder: 'album id (optional)', hint: 'Empty = library upload.' },
-        { key: 'token', label: tokenLabel(backend), placeholder: 'paste — optional when using OAuth', secret: true, grow: true },
-      ]
-    case 'telegram':
-      return [
-        { key: 'chatId', label: 'Chat ID', placeholder: 'chat id', hint: 'Target chat, channel or group id.' },
-        { key: 'token', label: tokenLabel(backend), placeholder: 'bot token from @BotFather', secret: true, grow: true },
       ]
     default:
       return [
@@ -731,8 +715,6 @@ function draft(cfg: SyncConfig): CredentialDraft {
       repoName: cfg.repoName ?? '',
       branch: cfg.branch ?? 'main',
       folderId: cfg.folderId ?? '',
-      albumId: cfg.albumId ?? '',
-      chatId: cfg.chatId ?? '',
       basePath: cfg.basePath ?? '',
       name: cfg.name ?? '',
     })
@@ -1109,8 +1091,6 @@ function wizToConfig(): Omit<SyncConfig, 'id' | 'createdAt' | 'updatedAt'> {
     branch: wiz.branch.trim() || undefined,
     token: wiz.token.trim() || undefined,
     folderId: wiz.folderId.trim() || undefined,
-    albumId: wiz.albumId.trim() || undefined,
-    chatId: wiz.chatId.trim() || undefined,
   }
 }
 

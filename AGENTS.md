@@ -117,7 +117,7 @@ flatpak/arch/macos/android/wasm + SHA256SUMS).
 - **Hash-anchored edits (BLAKE3):** exact-once, whitespace-tolerant fallback,
   stale-anchor `integrity:` refusal, `conflict:` on ambiguity.
 - **Honest limits:** ONNX faces return empty (never fabricated); code parse
-  reports `"engine"`; Telegram/Photos delete → `unsupported:`; WASM `sync`
+  reports `"engine"`; WASM `sync`
   needs the dashboard; `encrypted:/binary:/too_large:` refusals on content API
   (1 MiB cap, versioned saves).
 - **Auth:** fail-closed, 404-before-401 on unknown routes, `Claims{role}`

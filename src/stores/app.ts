@@ -1043,7 +1043,7 @@ export const useAppStore = defineStore('cybermanju', () => {
   async function oauthStart(provider: string, configId: string) {
     try {
       // The backend route only knows google|github|gitlab slugs —
-      // Google Drive and Google Photos share the `google` OAuth client.
+      // Google Drive uses the `google` OAuth client.
       const slug = oauthSlugForBackend(provider as SyncBackendType) ?? provider
       const res = await invoke<{ authorizeUrl: string; state: string }>('oauth_start', { provider: slug, configId })
       if (res?.authorizeUrl && typeof window !== 'undefined') window.open(res.authorizeUrl, '_blank')

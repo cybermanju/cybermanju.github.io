@@ -5,10 +5,9 @@
 // `wnfs` uses, so nothing platform-specific leaks into the parser code.
 // TypeScript only orchestrates (token lookup, decode, cache, VFS paths).
 //
-// CORS-OK only, by decision: `github`, `gitlab`, `googleDrive`. Telegram and
-// Google Photos send no `Access-Control-Allow-Origin`, so *no* browser can
-// ever read them — they are refused up front with `cors:` instead of
-// failing as an opaque network error.
+// CORS-OK only, by decision: `github`, `gitlab`, `googleDrive`. Anything
+// else is refused up front with an honest prefix instead of failing as an
+// opaque network error.
 //
 // The provider HTTP shapes mirror `crates/sync/src/backends.rs` (Git trees,
 // GitLab repository/tree, Drive files.list + alt=media) so a listing means
@@ -135,8 +134,6 @@ pub fn normalize_backend(raw: &str) -> String {
         "github" => "github".to_string(),
         "gitlab" => "gitlab".to_string(),
         "googledrive" => "googleDrive".to_string(),
-        "googlephotos" => "googlePhotos".to_string(),
-        "telegram" => "telegram".to_string(),
         "local" => "local".to_string(),
         other => other.to_string(),
     }
@@ -147,14 +144,10 @@ pub fn backend_supported(backend: &str) -> bool {
 }
 
 /// Why a backend cannot be used from a browser — honest, never a generic
-/// failure. Telegram/Photos are CORS-dead ends; everything else is simply
-/// not one of the browser canals.
+/// failure. `local` is the local volume, not a remote canal; everything
+/// else outside the allowlist is simply not one of the browser canals.
 pub fn refusal(backend: &str) -> String {
     match normalize_backend(backend).as_str() {
-        "telegram" | "googlePhotos" => format!(
-            "cors: {backend} sends no Access-Control-Allow-Origin header, so no browser can \
-             read it — use the desktop app, Docker image or dashboard server"
-        ),
         "local" => {
             "unsupported: 'local' is not a remote provider — it is the local volume".to_string()
         }
@@ -823,8 +816,8 @@ mod tests {
         assert!(backend_supported("GoogleDrive"));
         assert!(!backend_supported("telegram"));
         assert!(!backend_supported("googlePhotos"));
-        assert!(refusal("telegram").starts_with("cors:"));
-        assert!(refusal("GooglePhotos").starts_with("cors:"));
+        assert!(refusal("telegram").starts_with("unsupported:"));
+        assert!(refusal("GooglePhotos").starts_with("unsupported:"));
         assert!(refusal("local").starts_with("unsupported:"));
         assert!(refusal("s3").starts_with("unsupported:"));
     }

@@ -109,12 +109,6 @@ pub fn capabilities_for(backend_type: &SyncBackendType) -> Capabilities {
         SyncBackendType::GoogleDrive => {
             Box::new(cybermanju_sync::backends::GoogleDriveBackend::new("", None))
         }
-        SyncBackendType::GooglePhotos => Box::new(
-            cybermanju_sync::backends::GooglePhotosBackend::new("", None),
-        ),
-        SyncBackendType::Telegram => {
-            Box::new(cybermanju_sync::backends::TelegramBackend::new("", ""))
-        }
     };
     backend.capabilities()
 }
@@ -610,8 +604,6 @@ mod tests {
             SyncBackendType::GitHub,
             SyncBackendType::GitLab,
             SyncBackendType::GoogleDrive,
-            SyncBackendType::GooglePhotos,
-            SyncBackendType::Telegram,
         ];
         for ty in all {
             let caps = capabilities_for(&ty);

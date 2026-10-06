@@ -2,7 +2,7 @@
 //
 // The sync pipeline fans out with rayon (`max_concurrent_uploads`), which
 // today means N simultaneous requests against one provider — a guaranteed
-// 429 on GitHub/Google and a hard fail on Telegram. Every backend method
+// 429 on GitHub/Google. Every backend method
 // takes a `Permit` for its provider first; the gate blocks (bounded) until a
 // slot frees up, so one provider never sees more in-flight operations than
 // its limit, no matter how wide the pool is.
@@ -35,14 +35,13 @@ impl Gate {
     }
 }
 
-// Limits: Git/Drive/Photos APIs are generous but shared; Telegram Bot API
-// allows ~1 message per second per chat, so it is strictly serialised.
+// Limits: Git/Drive APIs are generous but shared; the gates keep one
+// provider from ever seeing more in-flight operations than its limit,
+// no matter how wide the rayon pool is.
 static LOCAL_GATE: Gate = Gate::new(64);
 static GITHUB_GATE: Gate = Gate::new(4);
 static GITLAB_GATE: Gate = Gate::new(4);
 static DRIVE_GATE: Gate = Gate::new(4);
-static PHOTOS_GATE: Gate = Gate::new(2);
-static TELEGRAM_GATE: Gate = Gate::new(1);
 
 fn gate_for(backend_type: &SyncBackendType) -> &'static Gate {
     match backend_type {
@@ -50,8 +49,6 @@ fn gate_for(backend_type: &SyncBackendType) -> &'static Gate {
         SyncBackendType::GitHub => &GITHUB_GATE,
         SyncBackendType::GitLab => &GITLAB_GATE,
         SyncBackendType::GoogleDrive => &DRIVE_GATE,
-        SyncBackendType::GooglePhotos => &PHOTOS_GATE,
-        SyncBackendType::Telegram => &TELEGRAM_GATE,
     }
 }
 
@@ -104,7 +101,7 @@ mod tests {
 
     #[test]
     fn permits_are_returned_on_drop() {
-        let backend = SyncBackendType::GooglePhotos; // limit 2
+        let backend = SyncBackendType::GoogleDrive; // limit 4
         let a = acquire(&backend).expect("first permit");
         let b = acquire(&backend).expect("second permit");
         drop(a);

@@ -9,7 +9,7 @@
 //      it, so the prefix is the stable API. The `pub const`s below are the
 //      *bare tokens* — the `: ` separator is added by the message builders.
 //   2. `with_retry` — bounded exponential backoff with jitter, honoring
-//      `Retry-After` / `X-RateLimit-Reset` / Telegram `retry_after`.
+//      `Retry-After` / `X-RateLimit-Reset` / JSON-body `retry_after`.
 //
 // Retryable classes: `rate_limited:` and `network:` (5xx/408/transport).
 // Everything else is a decision that retrying cannot change.
@@ -138,7 +138,7 @@ pub fn http_error(
 ) -> String {
     let hint = match retry_after {
         Some(wait) => format!(" [retry_after={}s]", wait.as_secs()),
-        // Telegram carries the hint inside the JSON body, not in a header.
+        // Some providers carry the hint inside the JSON body, not in a header.
         None => json_retry_after(detail)
             .map(|secs| format!(" [retry_after={}s]", secs))
             .unwrap_or_default(),
@@ -181,7 +181,7 @@ pub fn provider_error(
     http_error(prefix, provider, op, status, retry_after, detail)
 }
 
-/// Extract `"retry_after": <secs>` (Telegram `parameters.retry_after`).
+/// Extract `"retry_after": <secs>` (some providers nest it under `parameters`).
 fn json_retry_after(detail: &str) -> Option<u64> {
     let idx = detail.find("\"retry_after\"")?;
     let rest = &detail[idx + "\"retry_after\"".len()..];
@@ -372,9 +372,9 @@ mod tests {
     }
 
     #[test]
-    fn telegram_body_carries_the_retry_hint() {
+    fn json_body_carries_the_retry_hint() {
         let detail = r#"{"ok":false,"error_code":429,"description":"Too Many Requests: retry after 12","parameters":{"retry_after":12}}"#;
-        let err = http_error("rate_limited:", "Telegram", "upload", 429, None, detail);
+        let err = http_error("rate_limited:", "GitHub", "upload", 429, None, detail);
         assert!(err.contains("[retry_after=12s]"), "{err}");
         assert_eq!(retry_after_hint(&err), Some(Duration::from_secs(12)));
     }

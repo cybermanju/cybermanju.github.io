@@ -1442,12 +1442,6 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
         }
         return res.ok
       }
-      case 'telegram': {
-        // api.telegram.org sends no Access-Control-Allow-Origin, so no
-        // browser — worker or main thread — can read the answer. Fail fast
-        // with the reason instead of a misleading AUTH FAILED.
-        throw blocked('api.telegram.org (no CORS headers)')
-      }
       case 'googleDrive': {
         if (!token) return false
         let res: Response
