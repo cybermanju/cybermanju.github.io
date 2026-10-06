@@ -153,3 +153,10 @@ Stage Summary:
 - Docs: `ARCHITECTURE.md` (diagrams, tables, `backendType` enum), `README.md`, `AGENTS.md`, `docs/OPERATIONS.md` updated; historical `worklog.md` entries left intact.
 - Verified here: `check-version.sh` agrees, `npm run typecheck` clean (icons rebuilt, 161 — `camera-bold`/`plane-bold` pruned), `vitest` 22 files / 250 pass.
 - Not run here: `cargo fmt/clippy/test --workspace` (repo rule: CI's Rust Lint & Test job proves Rust).
+## 2026-10-06 — first publish prep: Settings remake, broker reactivity, release notes, dual push
+
+- Settings page remade (collapsed-card text overlap fixed via block flow), status strip, section jump chips + scroll spy, keyboard-bindings filter, wrap-based rows; `useSupabase` reactive `configuredFlag` (badges flip on save/forget, no reload); Accounts Configure deep-links to the broker card; `useTouchConfig` threshold setters (state is readonly — direct writes were silently dropped); TopMenuBar keyboard access + dropdown clipping fix.
+- `release.yml`: release notes now carry the full v0.1.0 feature atlas + status/known-limits for the first publish (was: bare git-log list).
+- `push.sh` rewritten: `git add -A` + message arg (no more bare `update`), pushes main + tags to GitHub `origin` AND GitLab `gitlab` mirror, no force-push.
+- Verified here: `check-version.sh` agrees, `npm run typecheck` clean, `vitest` 22 files / 250 pass.
+- Not run here: `cargo fmt/clippy/test --workspace`, desktop/mobile builds — CI + release workflows must prove them. Previous v0.1.0 Release run failed on WASM build, Android signing secrets, and Linux apt deps (logs need repo admin to read); tag move + re-run pending.
