@@ -86,7 +86,7 @@ const defaultSizes: SizeMap = {
   map: { width: 720, height: 520 },
   code: { width: 650, height: 500 },
   editor: { width: 1280, height: 740 },
-  agent: { width: 720, height: 600 },
+  agent: { width: 1020, height: 680 },
   users: { width: 520, height: 460 },
   sync: { width: 580, height: 440 },
   settings: { width: 560, height: 520 },

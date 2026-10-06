@@ -2250,7 +2250,7 @@ fn run_agent_job(
     // Seed the user turn from the queued prompt.
     session.messages.push(ChatMessage {
         role: "user".into(),
-        content: prompt,
+        content: prompt.clone(),
         tool_call_id: None,
         tool_name: None,
         tool_input: None,

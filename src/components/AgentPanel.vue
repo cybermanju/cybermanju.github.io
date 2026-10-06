@@ -1,31 +1,39 @@
 <template>
-  <div class="agent-panel">
-    <div class="panel-header">
-      <div class="header-left">
-        <span class="icon-agent"><AppIcon name="solar:bot-bold" /></span>
-        <h2 class="panel-title">AI AGENT</h2>
-        <span class="text-muted transport-tag">{{ transportLabel }}</span>
+  <div class="agent" :class="{ 'agent--sidebar-closed': !sidebarOpen }">
+    <!-- ── Header: identity + transport + context + YOLO + setup ── -->
+    <header class="agent-header">
+      <button
+        class="agent-nav-toggle"
+        type="button"
+        :title="sidebarOpen ? 'Hide sidebar' : 'Show sidebar'"
+        :aria-label="sidebarOpen ? 'Hide sidebar' : 'Show sidebar'"
+        @click="sidebarOpen = !sidebarOpen"
+      >
+        <AppIcon name="solar:menu-dots-bold" :size="14" />
+      </button>
+      <span class="agent-avatar" aria-hidden="true">
+        <AppIcon name="solar:bot-bold" :size="16" />
+        <span v-if="jobActive" class="agent-avatar-pulse" />
+      </span>
+      <div class="agent-title">
+        <h2>Assistant</h2>
+        <p class="agent-subtitle">
+          {{ friendlyTransport }}
+          <span v-if="chatConfig" class="agent-subtitle-sep">·</span>
+          <span v-if="chatConfig">{{ chatConfig.name }} · {{ caps.model }}</span>
+        </p>
       </div>
-      <UiButton size="sm" :icon="showSetup ? 'solar:close-bold' : 'solar:settings-bold'" @click="showSetup = !showSetup">
-        {{ showSetup ? 'HIDE SETUP' : 'SETUP' }}
-      </UiButton>
-    </div>
-
-    <!-- Capability surface: what this agent may do, before it does it -->
-    <div v-if="capVisible" class="section caps">
-      <h3 class="section-title"><AppIcon name="solar:shield-check-bold" :size="13" /> CAPABILITY SURFACE</h3>
-      <div class="cap-row">
-        <span class="cap-chip" title="Transport between the panel and the agent loop"><AppIcon name="solar:server-bold" :size="11" /> {{ transportLabel }}</span>
-        <span class="cap-chip" title="Model the next turn will call"><AppIcon name="solar:cpu-bold" :size="11" /> {{ capModel }}</span>
-        <span class="cap-chip" :title="capKind === 'PLAN (READ-ONLY)' ? 'Plan agents may not edit, write or run commands' : 'Build agents may edit, write and run commands'">
-          <AppIcon name="solar:widget-bold" :size="11" /> {{ capKind }}
+      <div class="agent-header-meta">
+        <span
+          class="agent-ctx"
+          :title="`Estimated context ${fmtTokens(contextTokens)} of ${fmtTokens(contextWindow)}`"
+        >
+          <span class="agent-ctx-bar"><span class="agent-ctx-fill" :class="ctxTone" :style="{ width: contextPct + '%' }" /></span>
+          <span class="agent-ctx-label">{{ contextPct }}%</span>
         </span>
-        <span class="cap-chip" title="Volume-relative working directory"><AppIcon name="solar:folder-bold" :size="11" /> {{ capWorkingDir }}</span>
-        <span v-if="!wasmMode" class="cap-chip" title="Which shell the bash tool runs: cybsh volume shell, device shell, or auto (cybsh with shell fallback)"><AppIcon name="solar:file-terminal-bold" :size="11" /> {{ capShell }}</span>
-        <span class="cap-chip" :title="`Ruleset: ${permissionLabel(chatConfig?.permission)}`"><AppIcon name="solar:shield-check-bold" :size="11" /> {{ permissionLabel(chatConfig?.permission) }}</span>
         <UiButton
           size="sm"
-          icon="solar:fire-bold"
+          :icon="yoloOn ? 'solar:fire-bold' : 'solar:shield-check-bold'"
           :variant="yoloOn ? 'danger' : 'secondary'"
           :active="yoloOn"
           :loading="yoloBusy"
@@ -33,408 +41,627 @@
           :title="yoloTitle"
           aria-label="Toggle YOLO mode"
           @click="toggleYolo"
-        >{{ yoloOn ? 'YOLO ON' : 'YOLO' }}</UiButton>
-        <span class="cap-chip" :title="capHasKey ? 'A provider key is available for this config' : 'No provider key — saves but cannot call'">
-          <AppIcon :name="capHasKey ? 'solar:key-bold' : 'solar:lock-bold'" :size="11" /> {{ capHasKey ? 'KEY OK' : 'NO KEY' }}
-        </span>
+        >{{ yoloOn ? 'YOLO on' : 'YOLO' }}</UiButton>
+        <div class="agent-tabs" role="tablist" aria-label="Agent views">
+          <button
+            role="tab"
+            type="button"
+            :aria-selected="activeTab === 'chat'"
+            :class="{ on: activeTab === 'chat' }"
+            @click="activeTab = 'chat'"
+          >
+            <AppIcon name="solar:chat-round-dots-bold" :size="13" /> Chat
+          </button>
+          <button
+            role="tab"
+            type="button"
+            :aria-selected="activeTab === 'setup'"
+            :class="{ on: activeTab === 'setup' }"
+            @click="openSetup"
+          >
+            <AppIcon name="solar:settings-bold" :size="13" /> Setup
+          </button>
+          <button
+            role="tab"
+            type="button"
+            :aria-selected="activeTab === 'controls'"
+            :class="{ on: activeTab === 'controls' }"
+            @click="activeTab = 'controls'"
+          >
+            <AppIcon name="solar:shield-check-bold" :size="13" /> Controls
+          </button>
+        </div>
       </div>
-      <div class="cap-tools" role="list" title="Default action each tool takes on this ruleset — ask means the approval card below">
-        <span v-for="t in toolPerms" :key="t.tool" class="cap-tool" :class="`act-${t.action}`" role="listitem" :title="toolHelp(t)">
-          <AppIcon :name="toolMeta(t.tool).icon" :size="11" />
-          <span class="ct-name">{{ t.tool }}</span>
-          <span class="ct-act">{{ t.unsupported ? 'NO SHELL' : t.action.toUpperCase() }}</span>
-        </span>
-      </div>
-      <p v-if="wasmMode" class="text-muted hint">BROWSER SANDBOX — NO <span class="mono">bash</span>, NO SUBAGENTS, NO MCP. THOSE TOOLS ANSWER <span class="mono">unsupported:</span>.</p>
-    </div>
+    </header>
 
-    <!-- Provider + config setup -->
-    <div v-if="showSetup" class="section wizard">
-      <h3 class="section-title"><AppIcon name="solar:add-bold" :size="13" /> PROVIDER PRESETS ({{ allPresets.length }})</h3>
-      <div class="preset-grid">
-        <button
-          v-for="p in allPresets"
-          :key="p.id"
-          class="preset-card"
-          :class="{ on: form.providerId === p.id }"
-          @click="pickPreset(p)"
-          :title="`${p.baseUrl} · ${p.defaultModel}`"
-        >
-          <span class="preset-name">{{ p.label }}</span>
-          <span class="preset-meta text-muted">{{ p.family }} · {{ p.defaultModel }}</span>
-          <span v-if="p.keyless" class="preset-free">NO KEY</span>
-        </button>
-      </div>
-
-      <div class="w-field">
-        <span class="w-label text-muted">CONFIG NAME</span>
-        <UiInput v-model="form.name" placeholder="MY AGENT" aria-label="Config name" />
-      </div>
-      <div class="w-row">
-        <div class="w-field">
-          <span class="w-label text-muted">MODEL</span>
-          <div class="model-row">
-            <UiInput
-              v-model="form.model"
-              placeholder="MODEL ID"
-              list="agent-models"
-              aria-label="Model id"
-            />
-            <UiButton
-              size="sm"
-              icon="solar:refresh-bold"
-              icon-only
-              :disabled="modelBusy || !form.providerId"
-              :loading="modelBusy"
-              title="REFRESH MODEL LIST FROM PROVIDER"
-              aria-label="REFRESH MODEL LIST"
-              @click="refreshModels"
-            />
-          </div>
-          <datalist id="agent-models">
-            <option v-for="m in models" :key="m" :value="m" />
-          </datalist>
-        </div>
-        <div class="w-field">
-          <span class="w-label text-muted">KIND</span>
-          <UiSelect
-            :model-value="form.agentKind"
-            :options="[
-              { label: 'BUILD (FULL ACCESS)', value: 'build' },
-              { label: 'PLAN (READ-ONLY)', value: 'plan' },
-            ]"
-            @update:model-value="form.agentKind = $event as 'build' | 'plan'"
-          />
-        </div>
-      </div>
-      <div class="w-field">
-        <span class="w-label text-muted">ENDPOINT OVERRIDE (OPTIONAL)</span>
-        <UiInput v-model="form.baseUrlOverride" :placeholder="presetBase" aria-label="Endpoint override" />
-      </div>
-      <div v-if="isCustom" class="w-row">
-        <div class="w-field">
-          <span class="w-label text-muted">DIALECT</span>
-          <UiSelect
-            :model-value="form.dialectOverride"
-            :options="[
-              { label: 'OPENAI-COMPATIBLE', value: 'openAi' },
-              { label: 'ANTHROPIC', value: 'anthropic' },
-            ]"
-            @update:model-value="form.dialectOverride = $event as 'openAi' | 'anthropic'"
-          />
-        </div>
-        <div class="w-field">
-          <span class="w-label text-muted">AUTH</span>
-          <UiSelect
-            :model-value="form.authSchemeOverride"
-            :options="[
-              { label: 'BEARER', value: 'bearer' },
-              { label: 'HEADER', value: 'header' },
-              { label: 'QUERY (?key=)', value: 'query' },
-              { label: 'NONE', value: 'none' },
-            ]"
-            @update:model-value="form.authSchemeOverride = $event as 'bearer' | 'header' | 'query' | 'none'"
-          />
-        </div>
-        <div v-if="form.authSchemeOverride === 'header' || form.authSchemeOverride === 'query'" class="w-field">
-          <span class="w-label text-muted">AUTH NAME</span>
-          <UiInput v-model="form.authNameOverride" placeholder="x-api-key" aria-label="Auth header name" />
-        </div>
-      </div>
-      <div class="w-row">
-        <div class="w-field">
-          <span class="w-label text-muted">WORKING DIR (VOLUME-RELATIVE, EMPTY = ROOT)</span>
-          <UiInput v-model="form.workingDir" placeholder="/" aria-label="Working directory" />
-        </div>
-        <div class="w-field">
-          <span class="w-label text-muted">MAX TURNS</span>
-          <UiInput
-            :model-value="String(form.maxTurns)"
-            type="number"
-            :min="1"
-            :max="50"
-            aria-label="Max turns"
-            @update:model-value="form.maxTurns = Number($event)"
-          />
-        </div>
-        <div v-if="!wasmMode" class="w-field">
-          <span class="w-label text-muted">SHELL</span>
-          <UiSelect
-            :model-value="form.shellMode"
-            :options="[
-              { label: 'AUTO (CYBSH, SHELL FALLBACK)', value: 'auto' },
-              { label: 'CYBSH ONLY (VOLUME SHELL)', value: 'cybsh' },
-              { label: 'DEVICE ONLY (sh -c)', value: 'device' },
-            ]"
-            @update:model-value="form.shellMode = $event as 'auto' | 'cybsh' | 'device'"
-          />
-        </div>
-      </div>
-      <div class="w-row">
-        <div class="w-field">
-          <span class="w-label text-muted">PERMISSIONS</span>
-          <UiSelect
-            :model-value="permPreset"
-            :options="[
-              { label: 'STRICT (ASK EVERYTHING)', value: 'strict' },
-              { label: 'BALANCED (READS AUTO, MUTATIONS ASK)', value: 'balanced' },
-              { label: 'YOLO (ALLOW EVERYTHING)', value: 'yolo' },
-            ]"
-            @update:model-value="permPreset = $event as 'strict' | 'balanced' | 'yolo'"
-          />
-        </div>
-        <div class="w-field check-field">
-          <UiCheckbox v-model="form.autoApprove" label="AUTO-APPROVE ASKS" />
-        </div>
-      </div>
-      <div class="w-field">
-        <span class="w-label text-muted">{{ wasmMode ? 'API KEY (MEMORY ONLY — CLEARED ON RELOAD)' : 'API KEY (SEALED server-side, NEVER SHOWN BACK)' }}</span>
-        <div class="model-row">
-          <UiInput
-            v-model="keyInput"
-            type="password"
-            placeholder="PASTE KEY"
-            aria-label="API key"
-            autocomplete="off"
-          />
-          <UiButton
-            size="sm"
-            :disabled="!savedConfigId || !keyInput || keyBusy"
-            :loading="keyBusy"
-            @click="saveKey"
-          >SEAL KEY</UiButton>
-        </div>
-      </div>
-      <div class="w-actions">
-        <UiButton size="sm" variant="primary" :disabled="busy || !canSave" :loading="busy" @click="saveConfig">SAVE CONFIG</UiButton>
-      </div>
-      <div v-if="setupMsg" class="w-msg">{{ setupMsg }}</div>
-      <p class="text-muted hint">CUSTOM PROVIDER: pick the CUSTOM preset, set endpoint + dialect + auth. MODEL LIST refresh needs a saved key (Anthropic has no list API — enter manually).</p>
-    </div>
-
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:settings-minimalistic-bold" :size="13" /> AGENT CONFIGS ({{ configs.length }})</h3>
-      <div class="config-list">
-        <div v-for="cfg in configs" :key="cfg.id" class="config-card" :class="{ on: chatConfigId === cfg.id }" @click="chatConfigId = cfg.id">
-          <div class="cfg-header">
-            <span class="cfg-name">{{ cfg.name }}</span>
-            <span class="cfg-type text-muted">{{ cfg.providerId }}/{{ cfg.model }}</span>
-            <UiBadge :tone="cfg.hasKey || isKeyless(cfg) ? 'accent' : 'neutral'" size="sm">
-              {{ cfg.hasKey || isKeyless(cfg) ? 'READY' : 'NO KEY' }}
-            </UiBadge>
-            <span class="cfg-type text-muted">{{ cfg.agentKind.toUpperCase() }}</span>
-          </div>
-          <div class="cfg-actions">
-            <UiButton size="xs" variant="danger" @click.stop="removeCfg(cfg.id)">DEL</UiButton>
-          </div>
-        </div>
-      </div>
-      <UiEmpty
-        v-if="!configs.length"
-        size="sm"
-        icon="solar:bot-bold"
-        title="No agent configs"
-        description="Open SETUP, pick a preset, save a config."
-      />
-    </div>
-
-    <div v-if="chatConfig" class="section">
-      <h3 class="section-title"><AppIcon name="solar:plug-circle-bold" :size="13" /> SERVERS FOR {{ chatConfig.name.toUpperCase() }} ({{ mcpEntries.length }})</h3>
-      <div class="config-list">
-        <div v-for="m in mcpEntries" :key="m.name" class="config-card">
-          <div class="cfg-header">
-            <span class="cfg-name">{{ m.name }}</span>
-            <span class="cfg-type text-muted">{{ m.cfg.transport }}{{ m.cfg.enabled ? '' : ' · OFF' }}</span>
-          </div>
-          <div class="cfg-meta text-muted">
-            <span v-if="m.cfg.transport === 'stdio'">{{ m.cfg.command }} {{ (m.cfg.args || []).join(' ') }}</span>
-            <span v-else>{{ m.cfg.url }}</span>
-          </div>
-          <div class="cfg-actions">
-            <UiButton size="xs" variant="danger" @click="removeMcp(m.name)">DETACH</UiButton>
-          </div>
-        </div>
-      </div>
-      <div class="w-row">
-        <div class="w-field grow">
-          <UiInput v-model="mcpForm.name" placeholder="server-name" aria-label="MCP server name" spellcheck="false" />
-        </div>
-        <div class="w-field grow">
-          <UiSelect
-            :model-value="mcpForm.transport"
-            :options="[
-              { label: 'STDIO (LOCAL CMD)', value: 'stdio' },
-              { label: 'HTTP (STREAMABLE)', value: 'http' },
-            ]"
-            @update:model-value="mcpForm.transport = $event"
-          />
-        </div>
-      </div>
-      <div class="w-row">
-        <div v-if="mcpForm.transport === 'stdio'" class="w-field grow">
-          <UiInput v-model="mcpForm.command" placeholder="command on PATH (e.g. npx)" aria-label="MCP command" spellcheck="false" />
-        </div>
-        <div v-if="mcpForm.transport === 'stdio'" class="w-field grow">
-          <UiInput v-model="mcpForm.args" placeholder="args, space-separated" aria-label="MCP args" spellcheck="false" />
-        </div>
-        <div v-if="mcpForm.transport === 'http'" class="w-field grow">
-          <UiInput v-model="mcpForm.url" placeholder="https://…/mcp" aria-label="MCP URL" spellcheck="false" />
-        </div>
-        <UiButton size="sm" :disabled="mcpBusy || !mcpForm.name.trim()" :loading="mcpBusy" @click="addMcp">ATTACH</UiButton>
-        <UiButton size="sm" :disabled="mcpBusy || !chatConfigId" @click="refreshMcpTools">LIST TOOLS</UiButton>
-      </div>
-      <div v-if="mcpTools.length" class="remote-list">
-        <div v-for="t in mcpTools" :key="t.name" class="remote-row">
-          <span>{{ t.name }}</span><span class="text-muted">{{ (t.description || '').slice(0, 80) }}</span>
-        </div>
-      </div>
-      <div v-if="mcpMsg" class="w-msg">{{ mcpMsg }}</div>
-      <p class="text-muted hint">ATTACH/DETACH NEEDS ADMIN (STDIO SPAWNS PROCESSES). TOOLS APPEAR AS <span class="mono">mcp__server__tool</span> AND FOLLOW THE SAME ASK/DENY RULES.</p>
-    </div>
-
-    <div v-if="chatConfig" class="section">
-      <h3 class="section-title"><AppIcon name="solar:shield-check-bold" :size="13" /> PER-TOOL PERMISSIONS FOR {{ chatConfig.name.toUpperCase() }}</h3>
-      <div class="perm-grid">
-        <div v-for="t in permEditorTools" :key="t.tool" class="perm-row">
-          <AppIcon :name="toolMeta(t.tool).icon" :size="12" />
-          <span class="ct-name">{{ t.tool }}</span>
-          <UiSelect
-            :model-value="t.action"
-            :options="[
-              { label: 'ALLOW', value: 'allow' },
-              { label: 'ASK', value: 'ask' },
-              { label: 'DENY', value: 'deny' },
-            ]"
-            @update:model-value="setPermTool(t.tool, $event as 'allow' | 'ask' | 'deny')"
-          />
-        </div>
-      </div>
-      <div class="w-actions">
-        <UiButton size="sm" variant="primary" :disabled="permBusy" :loading="permBusy" @click="savePermRules">SAVE RULES</UiButton>
-        <UiButton size="sm" :disabled="permBusy" @click="resetPermRules">RESET TO BALANCED</UiButton>
-      </div>
-      <div v-if="permMsg" class="w-msg">{{ permMsg }}</div>
-      <p class="text-muted hint">WRITES THE SAME RULESET THE LOOP ENFORCES — DENIED TOOLS ARE ALSO STRIPPED FROM THE NATIVE SCHEMA, SO THE MODEL STOPS TRYING THEM.</p>
-    </div>
-
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:chat-square-bold" :size="13" /> SESSIONS ({{ sessions.length }})</h3>
-      <div class="w-row">
-        <div class="w-field grow">
-          <UiSelect
-            :model-value="chatConfigId"
-            :options="sessionConfigOptions"
-            @update:model-value="chatConfigId = $event"
-          />
-        </div>
-        <UiButton size="sm" icon="solar:add-bold" :disabled="!chatConfigId" @click="newSession">NEW</UiButton>
-        <UiButton
-          size="sm"
-          :disabled="!chatConfigId || jobActive"
-          title="Analyze the repo and write AGENTS.md with a detached run"
-          @click="initRepo"
-        >INIT REPO</UiButton>
-        <UiButton size="sm" icon="solar:download-bold" @click="importClick">IMPORT</UiButton>
-        <input ref="importEl" type="file" accept="application/json" hidden @change="importFile" />
-      </div>
-      <div class="session-list">
-        <div
-          v-for="s in sessions"
-          :key="s.id"
-          class="session-card"
-          :class="{ on: viewing?.id === s.id }"
-          @click="loadSession(s.id)"
-        >
-          <span class="session-title">{{ s.title }}</span>
-          <span class="text-muted session-meta">{{ s.messages.length }} msgs</span>
-          <UiButton
-            size="xs"
-            icon="solar:download-bold"
-            icon-only
-            title="EXPORT SESSION"
-            aria-label="EXPORT SESSION"
-            @click.stop="exportSession(s.id)"
-          />
-          <UiButton
-            size="xs"
-            variant="danger"
-            icon="solar:close-bold"
-            icon-only
-            title="CLOSE SESSION"
-            aria-label="CLOSE"
-            @click.stop="removeSession(s.id)"
-          />
-        </div>
-      </div>
-    </div>
-
-    <div v-if="viewing" class="section thread">
-      <h3 class="section-title">
-        <AppIcon name="solar:chat-square-bold" :size="13" /> {{ viewing.title }}
-        <span class="text-muted thread-meta">{{ viewing.model }} · {{ viewing.agentKind.toUpperCase() }}</span>
-      </h3>
-      <div class="w-actions thread-actions">
-        <UiButton
-          size="xs"
-          :disabled="!viewing.messages.length || jobActive"
-          title="Summarize into a fresh session (old kept)"
-          @click="compactThread"
-        >COMPACT</UiButton>
-        <span class="meter" title="Estimated transcript size vs the model window — EST, not provider billed">
-          <span class="meter-label">CTX EST {{ fmtTokens(contextTokens) }} / {{ fmtTokens(contextWindow) }} ({{ contextPct }}%)</span>
-          <span class="ctx-bar"><span class="ctx-fill" :class="ctxTone" :style="{ width: contextPct + '%' }" /></span>
-        </span>
-        <span class="meter-label" title="Provider-reported cumulative tokens">IN {{ fmtTokens(viewing.usage.inputTokens) }} · OUT {{ fmtTokens(viewing.usage.outputTokens) }}</span>
-        <span v-if="costUsd != null" class="meter-label" title="Approximate list price for this model — EST">~${{ costLabel }}</span>
-      </div>
-
-      <div ref="messagesEl" class="messages">
-        <template v-for="row in threadRows" :key="row.key">
-          <div v-if="row.kind === 'message'" class="msg" :class="`role-${row.message.role}`">
-            <div class="msg-role text-muted">{{ roleLabel(row.message) }}</div>
-            <div v-if="row.message.role === 'assistant' && row.message.content" class="msg-body md" v-html="renderMarkdown(row.message.content)"></div>
-            <div v-else-if="row.message.content" class="msg-body">{{ row.message.content }}</div>
-            <div v-else-if="row.message.toolName || row.message.toolInput" class="tool-block">
-              <span class="tool-name"><AppIcon name="solar:toolbox-bold" :size="12" /> {{ row.message.toolName ?? toolNameOf(row.message) }}</span>
-              <pre class="tool-input">{{ prettyInput(row.message) }}</pre>
-            </div>
-            <div v-if="row.key === lastAssistantKey" class="turn-footer text-muted">
-              {{ footerLine }}
+    <div class="agent-body">
+      <!-- ── Sidebar: conversations + assistants ── -->
+      <aside v-show="sidebarOpen" class="agent-sidebar" aria-label="Conversations and assistants">
+        <div class="agent-side-section">
+          <div class="agent-side-head">
+            <h3><AppIcon name="solar:chat-square-bold" :size="13" /> Conversations</h3>
+            <div class="agent-side-actions">
+              <UiButton size="xs" icon="solar:add-bold" :disabled="!chatConfigId" title="Start a new conversation" @click="newSession">New</UiButton>
+              <UiButton size="xs" icon="solar:download-bold" icon-only title="Import a session file" aria-label="Import session" @click="importClick" />
+              <input ref="importEl" type="file" accept="application/json" hidden @change="importFile" />
             </div>
           </div>
-
-          <div v-else class="tool-group">
-            <div v-if="row.lead" class="msg role-assistant_tool lead">
-              <div class="msg-body md" v-html="renderMarkdown(row.lead)"></div>
-            </div>
-            <div
-              v-for="t in row.rows"
-              :key="t.key"
-              class="tool-row"
-              :class="[`is-${t.state}`, { open: isOpen(t.key) }]"
+          <UiInput v-model="sessionSearch" placeholder="Search conversations…" aria-label="Search conversations" />
+          <div class="agent-side-list">
+            <button
+              v-for="s in filteredSessions"
+              :key="s.id"
+              type="button"
+              class="agent-side-item"
+              :class="{ on: viewing?.id === s.id }"
+              @click="loadSession(s.id)"
             >
-              <button
-                class="tool-head"
-                type="button"
-                :aria-expanded="isOpen(t.key)"
-                :title="t.state === 'running' ? 'Running…' : 'Show input and result'"
-                @click="toggleRow(t.key)"
-              >
-                <UiSpinner v-if="t.state === 'running'" size="xs" />
-                <AppIcon v-else :name="toolMeta(t.name).icon" :size="12" />
-                <span class="tool-title">{{ t.title }}</span>
-                <UiBadge v-if="t.state === 'denied'" tone="danger" size="sm">DENIED</UiBadge>
-                <UiBadge v-else-if="t.state === 'error'" tone="warning" size="sm">ERROR</UiBadge>
-                <span class="tool-chev" aria-hidden="true">›</span>
-              </button>
-              <div v-if="isOpen(t.key) || t.state === 'running'" class="tool-detail">
-                <pre class="tool-input">{{ prettyInput({ toolName: t.name, toolInput: t.input }) }}</pre>
-                <pre v-if="t.result" class="tool-result" :class="{ bad: t.state === 'error' || t.state === 'denied' }">{{ t.result }}</pre>
-                <div v-else class="text-muted tool-wait">waiting for result…</div>
+              <span class="agent-side-item-title">{{ s.title }}</span>
+              <span class="agent-side-item-meta">{{ s.messages.length }} msgs</span>
+              <span class="agent-side-item-btns" @click.stop>
+                <UiButton size="xs" icon="solar:download-bold" icon-only title="Export conversation" aria-label="Export conversation" @click="exportSession(s.id)" />
+                <UiButton size="xs" variant="danger" icon="solar:close-bold" icon-only title="Close conversation" aria-label="Close conversation" @click="removeSession(s.id)" />
+              </span>
+            </button>
+            <UiEmpty
+              v-if="!filteredSessions.length"
+              size="sm"
+              icon="solar:chat-round-dots-bold"
+              title="No conversations yet"
+              description="Pick an assistant below, then say hello."
+            />
+          </div>
+          <div class="agent-side-row">
+            <UiSelect
+              :model-value="chatConfigId"
+              :options="sessionConfigOptions"
+              @update:model-value="chatConfigId = $event"
+            />
+          </div>
+          <div class="agent-side-row">
+            <UiButton size="sm" :disabled="!chatConfigId || jobActive" title="Analyze the repo and write AGENTS.md with a detached run" @click="initRepo">Analyze repo</UiButton>
+          </div>
+        </div>
+
+        <div class="agent-side-section">
+          <div class="agent-side-head">
+            <h3><AppIcon name="solar:cpu-bold" :size="13" /> Assistants ({{ configs.length }})</h3>
+            <UiButton size="xs" icon="solar:add-bold" @click="openSetup">New</UiButton>
+          </div>
+          <div class="agent-side-list">
+            <button
+              v-for="cfg in configs"
+              :key="cfg.id"
+              type="button"
+              class="agent-side-item"
+              :class="{ on: chatConfigId === cfg.id }"
+              @click="chatConfigId = cfg.id"
+            >
+              <span class="agent-side-item-title">{{ cfg.name }}</span>
+              <span class="agent-side-item-meta">{{ cfg.providerId }} · {{ cfg.model }}</span>
+              <UiBadge :tone="cfg.hasKey || isKeyless(cfg) ? 'accent' : 'neutral'" size="sm">
+                {{ cfg.hasKey || isKeyless(cfg) ? 'Ready' : 'No key' }}
+              </UiBadge>
+              <span class="agent-side-item-btns" @click.stop>
+                <UiButton size="xs" variant="danger" @click="removeCfg(cfg.id)">Delete</UiButton>
+              </span>
+            </button>
+            <UiEmpty
+              v-if="!configs.length"
+              size="sm"
+              icon="solar:bot-bold"
+              title="No assistants yet"
+              description="Open Setup, pick a provider, save — it takes a minute."
+            />
+          </div>
+        </div>
+      </aside>
+
+      <!-- ── Main column ── -->
+      <main class="agent-main">
+        <!-- Capability strip: plain-language summary, not a wall of chips -->
+        <section v-if="capVisible" class="agent-caps" aria-label="What this assistant can do">
+          <span class="agent-cap" :title="caps.personaHint">
+            <AppIcon name="solar:cpu-bold" :size="12" /> {{ caps.model }} · {{ caps.persona }}
+          </span>
+          <span class="agent-cap" :title="'Working directory inside your volume'">
+            <AppIcon name="solar:folder-bold" :size="12" /> {{ caps.workingDir }}
+          </span>
+          <span v-if="!wasmMode" class="agent-cap" :title="'Which shell the bash tool runs'">
+            <AppIcon name="solar:file-terminal-bold" :size="12" /> {{ caps.shell }}
+          </span>
+          <span class="agent-cap" :title="'Permission ruleset: ' + caps.permission">
+            <AppIcon name="solar:shield-check-bold" :size="12" /> {{ caps.permission }}
+          </span>
+          <span class="agent-cap" :class="{ warn: !caps.hasKey }" :title="caps.keyHint">
+            <AppIcon :name="caps.hasKey ? 'solar:key-bold' : 'solar:lock-bold'" :size="12" />
+            {{ caps.hasKey ? 'Key ready' : 'No key' }}
+          </span>
+          <button type="button" class="agent-cap-link" @click="activeTab = 'controls'">
+            Details
+          </button>
+          <div class="agent-cap-tools" role="list" aria-label="Per-tool defaults">
+            <span v-for="t in toolPerms" :key="t.tool" class="agent-cap-tool" :class="`act-${t.action}`" role="listitem" :title="toolHelp(t)">
+              <AppIcon :name="toolMeta(t.tool).icon" :size="11" />
+              {{ t.tool }} · {{ t.unsupported ? 'n/a' : t.action }}
+            </span>
+          </div>
+          <p v-if="wasmMode" class="agent-note">Browser sandbox — no shell, no subagents, no MCP. Those tools answer <span class="mono">unsupported:</span> instead of failing silently.</p>
+        </section>
+
+        <!-- Setup tab: guided, 3 steps instead of one long form -->
+        <section v-if="activeTab === 'setup'" class="agent-card" aria-label="Assistant setup">
+          <h3 class="agent-card-title"><AppIcon name="solar:add-bold" :size="13" /> 1 · Pick a provider ({{ allPresets.length }})</h3>
+          <div class="preset-grid">
+            <button
+              v-for="p in allPresets"
+              :key="p.id"
+              class="preset-card"
+              :class="{ on: form.providerId === p.id }"
+              :title="`${p.baseUrl} · ${p.defaultModel}`"
+              @click="pickPreset(p)"
+            >
+              <span class="preset-name">{{ p.label }}</span>
+              <span class="preset-meta">{{ p.family }} · {{ p.defaultModel }}</span>
+              <span v-if="p.keyless" class="preset-free">No key needed</span>
+            </button>
+          </div>
+
+          <h3 class="agent-card-title"><AppIcon name="solar:key-bold" :size="13" /> 2 · Model &amp; key</h3>
+          <div class="w-field">
+            <span class="w-label">Assistant name</span>
+            <UiInput v-model="form.name" placeholder="My assistant" aria-label="Assistant name" />
+          </div>
+          <div class="w-row">
+            <div class="w-field">
+              <span class="w-label">Model</span>
+              <div class="model-row">
+                <UiInput v-model="form.model" placeholder="Model id" list="agent-models" aria-label="Model id" />
+                <UiButton
+                  size="sm"
+                  icon="solar:refresh-bold"
+                  icon-only
+                  :disabled="modelBusy || !form.providerId"
+                  :loading="modelBusy"
+                  title="Refresh the model list from the provider"
+                  aria-label="Refresh model list"
+                  @click="refreshModels"
+                />
+              </div>
+              <datalist id="agent-models">
+                <option v-for="m in models" :key="m" :value="m" />
+              </datalist>
+            </div>
+            <div class="w-field">
+              <span class="w-label">Style</span>
+              <UiSelect
+                :model-value="form.agentKind"
+                :options="[
+                  { label: 'Build — can edit & run', value: 'build' },
+                  { label: 'Plan — read-only', value: 'plan' },
+                ]"
+                @update:model-value="form.agentKind = $event as 'build' | 'plan'"
+              />
+            </div>
+          </div>
+          <div class="w-field">
+            <span class="w-label">Endpoint override (optional)</span>
+            <UiInput v-model="form.baseUrlOverride" :placeholder="presetBase" aria-label="Endpoint override" />
+          </div>
+          <div v-if="isCustom" class="w-row">
+            <div class="w-field">
+              <span class="w-label">Dialect</span>
+              <UiSelect
+                :model-value="form.dialectOverride"
+                :options="[
+                  { label: 'OpenAI-compatible', value: 'openAi' },
+                  { label: 'Anthropic', value: 'anthropic' },
+                ]"
+                @update:model-value="form.dialectOverride = $event as 'openAi' | 'anthropic'"
+              />
+            </div>
+            <div class="w-field">
+              <span class="w-label">Auth</span>
+              <UiSelect
+                :model-value="form.authSchemeOverride"
+                :options="[
+                  { label: 'Bearer', value: 'bearer' },
+                  { label: 'Header', value: 'header' },
+                  { label: 'Query (?key=)', value: 'query' },
+                  { label: 'None', value: 'none' },
+                ]"
+                @update:model-value="form.authSchemeOverride = $event as 'bearer' | 'header' | 'query' | 'none'"
+              />
+            </div>
+            <div v-if="form.authSchemeOverride === 'header' || form.authSchemeOverride === 'query'" class="w-field">
+              <span class="w-label">Auth name</span>
+              <UiInput v-model="form.authNameOverride" placeholder="x-api-key" aria-label="Auth header name" />
+            </div>
+          </div>
+
+          <h3 class="agent-card-title"><AppIcon name="solar:shield-check-bold" :size="13" /> 3 · Permissions &amp; workspace</h3>
+          <div class="w-row">
+            <div class="w-field">
+              <span class="w-label">Working dir (in your volume, empty = root)</span>
+              <UiInput v-model="form.workingDir" placeholder="/" aria-label="Working directory" />
+            </div>
+            <div class="w-field w-field-narrow">
+              <span class="w-label">Max turns</span>
+              <UiInput
+                :model-value="String(form.maxTurns)"
+                type="number"
+                :min="1"
+                :max="50"
+                aria-label="Max turns"
+                @update:model-value="form.maxTurns = Number($event)"
+              />
+            </div>
+            <div v-if="!wasmMode" class="w-field">
+              <span class="w-label">Shell</span>
+              <UiSelect
+                :model-value="form.shellMode"
+                :options="[
+                  { label: 'Auto (recommended)', value: 'auto' },
+                  { label: 'Volume shell only', value: 'cybsh' },
+                  { label: 'Device shell only', value: 'device' },
+                ]"
+                @update:model-value="form.shellMode = $event as 'auto' | 'cybsh' | 'device'"
+              />
+            </div>
+          </div>
+          <div class="w-row">
+            <div class="w-field">
+              <span class="w-label">Permissions</span>
+              <UiSelect
+                :model-value="permPreset"
+                :options="[
+                  { label: 'Strict — ask for everything', value: 'strict' },
+                  { label: 'Balanced — reads auto, changes ask', value: 'balanced' },
+                  { label: 'YOLO — allow everything', value: 'yolo' },
+                ]"
+                @update:model-value="permPreset = $event as 'strict' | 'balanced' | 'yolo'"
+              />
+            </div>
+            <div class="w-field check-field">
+              <UiCheckbox v-model="form.autoApprove" label="Auto-approve requests" />
+            </div>
+          </div>
+          <div class="w-field">
+            <span class="w-label">{{ wasmMode ? 'API key (kept in memory, cleared on reload)' : 'API key (sealed server-side, never shown back)' }}</span>
+            <div class="model-row">
+              <UiInput v-model="keyInput" type="password" placeholder="Paste key" aria-label="API key" autocomplete="off" />
+              <UiButton size="sm" :disabled="!savedConfigId || !keyInput || keyBusy" :loading="keyBusy" @click="saveKey">Save key</UiButton>
+            </div>
+          </div>
+          <div class="w-actions">
+            <UiButton size="sm" variant="primary" :disabled="busy || !canSave" :loading="busy" @click="saveConfig">Save assistant</UiButton>
+            <UiButton size="sm" variant="ghost" @click="activeTab = 'chat'">Back to chat</UiButton>
+          </div>
+          <div v-if="setupMsg" class="w-msg">{{ setupMsg }}</div>
+          <p class="agent-note">Custom provider: pick the Custom preset, set endpoint + dialect + auth. Model-list refresh needs a saved key (Anthropic has no list API — enter the model by hand).</p>
+        </section>
+
+        <!-- Controls tab: MCP servers + per-tool permissions -->
+        <section v-if="activeTab === 'controls'" class="agent-controls" aria-label="Agent controls">
+          <div v-if="chatConfig" class="agent-card">
+            <h3 class="agent-card-title"><AppIcon name="solar:plug-circle-bold" :size="13" /> Connected tools for {{ chatConfig.name }} ({{ mcpEntries.length }})</h3>
+            <div class="config-list">
+              <div v-for="m in mcpEntries" :key="m.name" class="config-card">
+                <div class="cfg-header">
+                  <span class="cfg-name">{{ m.name }}</span>
+                  <span class="cfg-type">{{ m.cfg.transport }}{{ m.cfg.enabled ? '' : ' · off' }}</span>
+                </div>
+                <div class="cfg-meta">
+                  <span v-if="m.cfg.transport === 'stdio'">{{ m.cfg.command }} {{ (m.cfg.args || []).join(' ') }}</span>
+                  <span v-else>{{ m.cfg.url }}</span>
+                </div>
+                <div class="cfg-actions">
+                  <UiButton size="xs" variant="danger" @click="removeMcp(m.name)">Disconnect</UiButton>
+                </div>
               </div>
             </div>
+            <div class="w-row">
+              <div class="w-field grow">
+                <UiInput v-model="mcpForm.name" placeholder="server-name" aria-label="MCP server name" spellcheck="false" />
+              </div>
+              <div class="w-field grow">
+                <UiSelect
+                  :model-value="mcpForm.transport"
+                  :options="[
+                    { label: 'Local command', value: 'stdio' },
+                    { label: 'HTTP endpoint', value: 'http' },
+                  ]"
+                  @update:model-value="mcpForm.transport = $event"
+                />
+              </div>
+            </div>
+            <div class="w-row">
+              <div v-if="mcpForm.transport === 'stdio'" class="w-field grow">
+                <UiInput v-model="mcpForm.command" placeholder="command on PATH (e.g. npx)" aria-label="MCP command" spellcheck="false" />
+              </div>
+              <div v-if="mcpForm.transport === 'stdio'" class="w-field grow">
+                <UiInput v-model="mcpForm.args" placeholder="args, space-separated" aria-label="MCP args" spellcheck="false" />
+              </div>
+              <div v-if="mcpForm.transport === 'http'" class="w-field grow">
+                <UiInput v-model="mcpForm.url" placeholder="https://…/mcp" aria-label="MCP URL" spellcheck="false" />
+              </div>
+              <UiButton size="sm" :disabled="mcpBusy || !mcpForm.name.trim()" :loading="mcpBusy" @click="addMcp">Connect</UiButton>
+              <UiButton size="sm" :disabled="mcpBusy || !chatConfigId" @click="refreshMcpTools">List tools</UiButton>
+            </div>
+            <div v-if="mcpTools.length" class="remote-list">
+              <div v-for="t in mcpTools" :key="t.name" class="remote-row">
+                <span>{{ t.name }}</span><span class="dim">{{ (t.description || '').slice(0, 80) }}</span>
+              </div>
+            </div>
+            <div v-if="mcpMsg" class="w-msg">{{ mcpMsg }}</div>
+            <p class="agent-note">Connecting tools needs admin (local commands spawn processes). Tools appear as <span class="mono">mcp__server__tool</span> and follow the same ask / deny rules.</p>
           </div>
-        </template>
+
+          <div v-if="chatConfig" class="agent-card">
+            <h3 class="agent-card-title"><AppIcon name="solar:shield-check-bold" :size="13" /> What {{ chatConfig.name }} may do</h3>
+            <div class="perm-grid">
+              <div v-for="t in permEditorTools" :key="t.tool" class="perm-row">
+                <AppIcon :name="toolMeta(t.tool).icon" :size="12" />
+                <span class="ct-name">{{ t.tool }}</span>
+                <UiSelect
+                  :model-value="t.action"
+                  :options="[
+                    { label: 'Allow', value: 'allow' },
+                    { label: 'Ask me', value: 'ask' },
+                    { label: 'Never', value: 'deny' },
+                  ]"
+                  @update:model-value="setPermTool(t.tool, $event as 'allow' | 'ask' | 'deny')"
+                />
+              </div>
+            </div>
+            <div class="w-actions">
+              <UiButton size="sm" variant="primary" :disabled="permBusy" :loading="permBusy" @click="savePermRules">Save rules</UiButton>
+              <UiButton size="sm" :disabled="permBusy" @click="resetPermRules">Reset to balanced</UiButton>
+              <UiButton size="sm" variant="ghost" @click="activeTab = 'chat'">Back to chat</UiButton>
+            </div>
+            <div v-if="permMsg" class="w-msg">{{ permMsg }}</div>
+            <p class="agent-note">Denied tools are also hidden from the assistant, so it stops trying them instead of failing.</p>
+          </div>
+          <UiEmpty
+            v-if="!chatConfig"
+            size="sm"
+            icon="solar:shield-check-bold"
+            title="No assistant selected"
+            description="Pick or create an assistant in the sidebar first."
+          />
+        </section>
+
+        <!-- Chat tab -->
+        <section v-show="activeTab === 'chat'" class="agent-chat" aria-label="Conversation">
+          <!-- Onboarding when there is nothing to show yet -->
+          <div v-if="!viewing" class="agent-welcome">
+            <span class="agent-welcome-avatar"><AppIcon name="solar:bot-bold" :size="22" /></span>
+            <h3>{{ configs.length ? 'What should we work on?' : 'Meet your assistant' }}</h3>
+            <p v-if="!configs.length">
+              Create an assistant in <button type="button" class="agent-link" @click="openSetup">Setup</button>
+              (pick a provider, save, add your key), then come back here.
+            </p>
+            <p v-else-if="!sessions.length">
+              Start a new conversation from the sidebar — or try one of these:
+            </p>
+            <p v-else>Pick a conversation on the left, or start fresh:</p>
+            <div v-if="configs.length" class="agent-quick">
+              <button
+                v-for="q in quickPrompts"
+                :key="q.label"
+                type="button"
+                class="agent-quick-card"
+                :disabled="!chatConfigId"
+                @click="useQuick(q.prompt)"
+              >
+                <AppIcon :name="q.icon" :size="14" />
+                <span class="agent-quick-label">{{ q.label }}</span>
+                <span class="agent-quick-hint">{{ q.prompt.slice(0, 64) }}…</span>
+              </button>
+            </div>
+            <div v-if="configs.length && !chatConfigId" class="w-msg">Select an assistant in the sidebar first.</div>
+          </div>
+
+          <template v-else>
+            <div class="agent-thread-head">
+              <div class="agent-thread-title">
+                <strong>{{ viewing.title }}</strong>
+                <span class="dim">{{ viewing.model }} · {{ viewing.agentKind === 'plan' ? 'Plan' : 'Build' }}</span>
+              </div>
+              <div class="w-actions thread-actions">
+                <UiButton size="xs" :disabled="!viewing.messages.length || jobActive" title="Summarize into a fresh conversation (keeps this one)" @click="compactThread">Summarize</UiButton>
+                <span class="meter" title="Estimated transcript size vs the model window — estimate, not billed usage">
+                  <span class="meter-label">Context {{ fmtTokens(contextTokens) }} / {{ fmtTokens(contextWindow) }} ({{ contextPct }}%)</span>
+                  <span class="ctx-bar"><span class="ctx-fill" :class="ctxTone" :style="{ width: contextPct + '%' }" /></span>
+                </span>
+                <span class="meter-label" title="Provider-reported cumulative tokens">In {{ fmtTokens(viewing.usage.inputTokens) }} · Out {{ fmtTokens(viewing.usage.outputTokens) }}</span>
+                <span v-if="costUsd != null" class="meter-label" title="Approximate list price — estimate">~${{ costLabel }}</span>
+              </div>
+            </div>
+
+            <div ref="messagesEl" class="agent-messages">
+              <template v-for="row in threadRows" :key="row.key">
+                <div v-if="row.kind === 'message'" class="msg" :class="`role-${row.message.role}`">
+                  <span
+                    class="msg-avatar"
+                    :class="`avatar-${row.message.role}`"
+                    aria-hidden="true"
+                  >
+                    <AppIcon
+                      :name="row.message.role === 'user' ? 'solar:user-circle-bold' : row.message.role === 'tool' ? 'solar:toolbox-bold' : 'solar:bot-bold'"
+                      :size="13"
+                    />
+                  </span>
+                  <div class="msg-main">
+                    <div class="msg-role">
+                      {{ roleLabel(row.message) }}
+                      <button
+                        v-if="row.message.content"
+                        type="button"
+                        class="msg-copy"
+                        :title="copiedKey === row.key ? 'Copied' : 'Copy message'"
+                        @click="copyRow(row.message.content ?? '', row.key)"
+                      >
+                        <AppIcon :name="copiedKey === row.key ? 'solar:check-bold' : 'solar:copy-bold'" :size="11" />
+                      </button>
+                    </div>
+                    <div v-if="row.message.role === 'assistant' && row.message.content" class="msg-body md" v-html="renderMarkdown(row.message.content)"></div>
+                    <div v-else-if="row.message.content" class="msg-body">{{ row.message.content }}</div>
+                    <div v-else-if="row.message.toolName || row.message.toolInput" class="tool-block">
+                      <span class="tool-name"><AppIcon name="solar:toolbox-bold" :size="12" /> {{ row.message.toolName ?? toolNameOf(row.message) }}</span>
+                      <pre class="tool-input">{{ prettyInput(row.message) }}</pre>
+                    </div>
+                    <div v-if="row.key === lastAssistantKey" class="turn-footer">{{ footerLine }}</div>
+                  </div>
+                </div>
+
+                <div v-else class="tool-group">
+                  <div v-if="row.lead" class="msg role-assistant_tool lead">
+                    <div class="msg-body md" v-html="renderMarkdown(row.lead)"></div>
+                  </div>
+                  <div
+                    v-for="t in row.rows"
+                    :key="t.key"
+                    class="tool-row"
+                    :class="[`is-${t.state}`, { open: isOpen(t.key) }]"
+                  >
+                    <button
+                      class="tool-head"
+                      type="button"
+                      :aria-expanded="isOpen(t.key)"
+                      :title="t.state === 'running' ? 'Running…' : 'Show input and result'"
+                      @click="toggleRow(t.key)"
+                    >
+                      <UiSpinner v-if="t.state === 'running'" size="xs" />
+                      <AppIcon v-else :name="toolMeta(t.name).icon" :size="12" />
+                      <span class="tool-title">{{ t.title }}</span>
+                      <UiBadge v-if="t.state === 'denied'" tone="danger" size="sm">Needs you</UiBadge>
+                      <UiBadge v-else-if="t.state === 'error'" tone="warning" size="sm">Failed</UiBadge>
+                      <span class="tool-chev" aria-hidden="true">›</span>
+                    </button>
+                    <div v-if="isOpen(t.key) || t.state === 'running'" class="tool-detail">
+                      <pre class="tool-input">{{ prettyInput({ toolName: t.name, toolInput: t.input }) }}</pre>
+                      <pre v-if="t.result" class="tool-result" :class="{ bad: t.state === 'error' || t.state === 'denied' }">{{ t.result }}</pre>
+                      <div v-else class="dim tool-wait">Waiting for result…</div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <div v-if="!viewing.messages.length" class="agent-thread-empty">
+                No messages yet — ask below. Try <button type="button" class="agent-link" @click="useQuick(quickPrompts[0].prompt)">“{{ quickPrompts[0].label }}”</button>.
+              </div>
+            </div>
+
+            <div v-if="pendingApproval" class="approval attention" role="alertdialog" aria-label="Assistant needs your approval">
+              <div class="approval-title">
+                <AppIcon :name="pendingApproval.question ? 'solar:question-circle-bold' : 'solar:shield-check-bold'" :size="14" />
+                {{ pendingApproval.question ? 'The assistant has a question' : 'Your approval needed' }}
+              </div>
+              <div class="approval-text">{{ pendingApproval.question || pendingApproval.summary }}</div>
+              <div class="approval-meta">
+                <span><span class="dim">Tool</span> <span class="mono">{{ pendingApproval.tool }}</span></span>
+                <span v-if="approvalArg"><span class="dim">Target</span> <span class="mono">{{ approvalArg }}</span></span>
+                <span v-if="!pendingApproval.question" class="rule-line">
+                  <span class="dim">“Always allow” saves</span>
+                  <span class="mono">rules["{{ pendingApproval.tool }}"] = "allow"</span>
+                </span>
+              </div>
+              <div v-if="approvalDiff" class="approval-diff">
+                <div class="diff-head dim">Proposed edit — {{ approvalDiff.oldLines }} → {{ approvalDiff.newLines }} lines<span v-if="approvalDiff.truncated"> (truncated)</span></div>
+                <pre class="diff-body"><span v-for="(l, i) in approvalDiff.lines" :key="i" class="diff-line" :class="`diff-${l.kind}`">{{ (l.kind === 'del' ? '− ' : l.kind === 'add' ? '+ ' : '  ') + l.text }}
+</span></pre>
+              </div>
+              <pre v-else-if="approvalInput" class="tool-input approval-input">{{ approvalInput }}</pre>
+              <div v-if="pendingApproval.question" class="w-row">
+                <div class="w-field grow">
+                  <UiInput
+                    v-model="answerInput"
+                    placeholder="Type your answer…"
+                    aria-label="Approval answer"
+                    @enter="answerApproval(true)"
+                  />
+                </div>
+              </div>
+              <div v-else class="w-row">
+                <div class="w-field grow">
+                  <UiInput
+                    v-model="denyReason"
+                    placeholder="Decline with feedback (optional — the assistant must follow it)…"
+                    aria-label="Decline feedback"
+                  />
+                </div>
+              </div>
+              <div class="w-actions">
+                <UiButton size="sm" variant="primary" @click="answerApproval(true)">Allow once</UiButton>
+                <UiButton
+                  size="sm"
+                  title="Saves an explicit rule: rules[tool] = allow — visible in Controls"
+                  @click="answerApproval(true, true)"
+                >Always allow</UiButton>
+                <UiButton size="sm" variant="danger" @click="answerApproval(false)">Decline</UiButton>
+              </div>
+              <p v-if="!pendingApproval.question" class="agent-note">Declining returns <span class="mono">denied: …</span> — the assistant works around it instead of retrying. Add feedback above to steer the next attempt.</p>
+            </div>
+
+            <div v-if="queue.length" class="queue" aria-label="Queued prompts">
+              <UiBadge tone="info" size="sm" icon="solar:clock-circle-bold">Queued {{ queue.length }}</UiBadge>
+              <span v-for="(q, qi) in queue" :key="qi" class="queue-item">
+                <span class="queue-text">{{ q }}</span>
+                <UiButton
+                  size="xs"
+                  icon="solar:close-bold"
+                  icon-only
+                  title="Remove from queue"
+                  aria-label="Remove queued prompt"
+                  @click="queue.splice(qi, 1)"
+                />
+              </span>
+            </div>
+
+            <div class="composer" :class="{ focused: composerFocused }">
+              <div v-if="slashHints.length && slashOpen" class="composer-slash" role="listbox" aria-label="Slash commands">
+                <button
+                  v-for="s in slashHints"
+                  :key="s.cmd"
+                  type="button"
+                  role="option"
+                  class="composer-slash-item"
+                  @click="applySlash(s.insert)"
+                >
+                  <span class="mono">{{ s.cmd }}</span><span class="dim">{{ s.hint }}</span>
+                </button>
+              </div>
+              <textarea
+                v-model="promptInput"
+                class="composer-box"
+                :placeholder="jobActive ? 'Working… type on, Enter queues your follow-up…' : 'Ask anything… (Enter to send, / for commands)'"
+                rows="2"
+                aria-label="Message the assistant"
+                @focus="composerFocused = true"
+                @blur="composerFocused = false"
+                @keydown="onComposerKey"
+                @keydown.enter.exact.prevent="sendPrompt"
+              />
+              <div class="composer-bar">
+                <span class="composer-hint dim">
+                  {{ charCount ? `${charCount} chars` : 'Enter ↵ send' }} · / commands
+                </span>
+                <span class="composer-spacer" />
+                <UiButton v-if="voice.isSupported.value" size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : 'Dictate your message'" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Dictate' }}</UiButton>
+                <UiButton v-if="jobActive" size="sm" variant="danger" icon="solar:stop-bold" @click="abortJob">Stop</UiButton>
+                <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend" @click="sendPrompt">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
+              </div>
+            </div>
+            <div v-if="jobLine" class="w-msg job-line"><AppIcon name="solar:clock-circle-bold" :size="11" /> {{ jobLine }}</div>
+            <div v-if="jobError" class="w-msg err" :title="jobHint">{{ jobError }}</div>
+            <div v-if="jobHint && jobError" class="w-msg"><AppIcon name="solar:info-circle-bold" :size="11" /> {{ jobHint }}</div>
+          </template>
+        </section>
+      </main>
+    </div>
+  </div>
+</template>
+
         <div v-if="!viewing.messages.length" class="empty text-muted">No messages yet — ask below.</div>
       </div>
 
@@ -566,7 +793,6 @@ import {
 import {
   capabilitySummary,
   copyText as copyToClipboard,
-  formatTokens as fmtTokensHarness,
   quickPrompts,
   slashCommands,
 } from '@/composables/useAgentHarness'
@@ -1733,383 +1959,354 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.agent-panel {
+/* CyberManju agent — modern chat UX.
+   Layout: header / (sidebar + main). Sidebar collapses under 760px.
+   Tone: sentence case, breathing room, sticky composer, avatars, meters. */
+
+.agent {
   width: 100%;
   height: 100%;
-  background: var(--ui-surface);
-  overflow-y: auto;
-  padding: 16px;
-  font-family: var(--ui-font);
-  color: var(--ui-text);
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--ui-border);
-  margin-bottom: 16px;
-}
-
-.header-left { display: flex; align-items: center; gap: 8px; }
-.icon-agent { font-size: 16px; }
-.panel-title { font-size: 14px; font-weight: 800; letter-spacing: 1px; margin: 0; }
-.transport-tag { font-size: 9px; }
-
-.section { margin-bottom: 16px; }
-
-.section-title {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: color-mix(in srgb, var(--ui-text) 60%, transparent);
-  margin: 0 0 8px;
-}
-
-.wizard {
-  border: 1px dashed color-mix(in srgb, var(--ui-border-strong) 80%, transparent);
-  border-radius: var(--ui-radius-md);
-  padding: 12px;
-  background: color-mix(in srgb, var(--ui-glass) 70%, transparent);
-  backdrop-filter: blur(calc(var(--ui-blur) * 0.6));
-  -webkit-backdrop-filter: blur(calc(var(--ui-blur) * 0.6));
-}
-
-.preset-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.preset-card {
-  background: color-mix(in srgb, var(--ui-surface) 55%, transparent);
-  border: 1px solid var(--ui-hairline);
-  border-radius: var(--ui-radius-sm);
-  color: var(--ui-text);
-  padding: 6px 8px;
-  text-align: left;
-  cursor: pointer;
-  font-family: inherit;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  transition:
-    border-color var(--ui-dur-fast) var(--ui-ease-out),
-    background-color var(--ui-dur-fast) var(--ui-ease-out),
-    box-shadow var(--ui-dur) var(--ui-ease-out);
-}
-
-.preset-card:hover {
-  border-color: var(--ui-border-hover);
-  background: var(--ui-glass-2);
-}
-
-.preset-card:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ui-accent) 75%, transparent);
-  outline-offset: 2px;
-}
-
-.preset-card.on {
-  border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent);
-  background: var(--ui-accent-softer);
-  box-shadow: var(--ui-glow-soft);
-}
-
-.preset-name { font-size: 11px; font-weight: 700; }
-.preset-meta { font-size: 9px; }
-.preset-free { font-size: 8px; color: var(--ui-accent); }
-
-.w-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; min-width: 0; flex: 1; }
-.w-field.grow { flex: 1; min-width: 140px; }
-.w-field.check-field { justify-content: flex-end; padding-bottom: 6px; flex: 0 0 auto; }
-.w-label { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; }
-.w-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; align-items: flex-end; }
-.w-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.w-msg { font-size: 10px; margin-top: 6px; color: color-mix(in srgb, var(--ui-text) 70%, transparent); }
-.w-msg.err { color: var(--ui-danger); }
-.hint { font-size: 9px; }
-.model-row { display: flex; gap: 6px; }
-.model-row .ui-field { flex: 1; }
-
-.config-list, .session-list { display: flex; flex-direction: column; gap: 6px; }
-.config-card, .session-card {
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-md);
-  padding: 8px 10px;
-  cursor: pointer;
-  background: color-mix(in srgb, var(--ui-glass) 55%, transparent);
-  transition: border-color var(--ui-dur-fast) var(--ui-ease-out), background-color var(--ui-dur-fast) var(--ui-ease-out);
-}
-.config-card:hover, .session-card:hover { border-color: var(--ui-border-hover); }
-.session-card { display: flex; align-items: center; gap: 8px; }
-.config-card.on, .session-card.on {
-  border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent);
-  background: var(--ui-accent-softer);
-}
-.cfg-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
-.cfg-name { font-size: 12px; font-weight: 700; flex: 1; }
-.cfg-type { font-size: 9px; }
-.cfg-actions { display: flex; gap: 6px; margin-top: 6px; }
-.session-title { font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.session-meta { font-size: 9px; }
-.empty { font-size: 10px; }
-
-.thread { border-top: 1px solid var(--ui-border); padding-top: 12px; }
-.thread-actions { margin-bottom: 8px; }
-.mono { font-family: var(--ui-font-mono); border: 1px solid var(--ui-border); padding: 0 4px; border-radius: var(--ui-radius-xs); }
-.remote-list { margin-top: 6px; }
-.remote-row { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; border-bottom: 1px solid var(--ui-hairline); padding: 2px 0; }
-.usage { font-size: 9px; margin-bottom: 6px; }
-.messages { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; max-height: 420px; overflow-y: auto; }
-.msg {
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-md);
-  padding: 6px 8px;
-  background: color-mix(in srgb, var(--ui-glass) 45%, transparent);
-}
-.msg-role { font-size: 9px; font-weight: 700; margin-bottom: 4px; }
-.msg-body { font-size: 11px; white-space: pre-wrap; word-break: break-word; }
-.role-user { border-color: var(--ui-border); }
-.role-assistant_tool { border-style: dashed; }
-.role-tool { background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
-.tool-block { margin-top: 4px; }
-.tool-name { font-size: 10px; font-weight: 700; }
-.tool-input { font-size: 9px; color: color-mix(in srgb, var(--ui-text) 70%, transparent); white-space: pre-wrap; margin: 4px 0 0; }
-
-.approval {
-  border: 1px solid color-mix(in srgb, var(--ui-warning) 55%, transparent);
-  border-radius: var(--ui-radius-md);
-  padding: 8px;
-  margin-bottom: 10px;
-  background: color-mix(in srgb, var(--ui-warning) 8%, transparent);
-  backdrop-filter: blur(calc(var(--ui-blur) * 0.4));
-  -webkit-backdrop-filter: blur(calc(var(--ui-blur) * 0.4));
-}
-.approval-title { font-size: 10px; font-weight: 700; color: var(--ui-warning); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
-.approval-text { font-size: 11px; margin-bottom: 8px; word-break: break-word; }
-
-.prompt-box {
-  width: 100%;
-  min-height: 64px;
-  resize: vertical;
-  margin-bottom: 8px;
-  background: color-mix(in srgb, var(--ui-surface) 70%, transparent);
-  border: 1px solid var(--ui-border-strong);
-  border-radius: var(--ui-radius-sm);
+  background: var(--ui-surface);
   color: var(--ui-text);
   font-family: var(--ui-font);
-  font-size: var(--ui-fs-sm);
-  padding: 8px 10px;
-  outline: none;
-  transition: border-color var(--ui-dur) var(--ui-ease-out), box-shadow var(--ui-dur) var(--ui-ease-out);
-}
-.prompt-box:hover { border-color: var(--ui-border-hover); }
-.prompt-box:focus {
-  border-color: color-mix(in srgb, var(--ui-accent) 70%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 15%, transparent);
-}
-.text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
-
-/* ── capability surface ── */
-.cap-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.cap-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  border: 1px solid var(--ui-hairline);
-  border-radius: var(--ui-radius-sm);
-  padding: 3px 6px;
-  background: color-mix(in srgb, var(--ui-glass) 60%, transparent);
-}
-.cap-tools { display: flex; flex-wrap: wrap; gap: 5px; }
-.cap-tool {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 9px;
-  font-weight: 700;
-  border: 1px solid var(--ui-hairline);
-  border-radius: var(--ui-radius-sm);
-  padding: 3px 6px;
-  font-family: inherit;
-  color: var(--ui-text);
-  background: color-mix(in srgb, var(--ui-surface) 70%, transparent);
-}
-.cap-tool .ct-act { font-size: 8px; letter-spacing: 0.06em; opacity: 0.8; }
-.cap-tool.act-allow { border-color: color-mix(in srgb, var(--ui-success) 45%, transparent); }
-.cap-tool.act-allow .ct-act { color: var(--ui-success); }
-.cap-tool.act-ask { border-color: color-mix(in srgb, var(--ui-warning) 50%, transparent); }
-.cap-tool.act-ask .ct-act { color: var(--ui-warning); }
-.cap-tool.act-deny { border-color: color-mix(in srgb, var(--ui-danger) 45%, transparent); }
-.cap-tool.act-deny .ct-act { color: var(--ui-danger); }
-
-/* ── thread meter ── */
-.thread-meta { font-size: 9px; font-weight: 500; letter-spacing: 0; }
-.meter { display: inline-flex; align-items: center; gap: 6px; }
-.meter-label { font-size: 9px; }
-.ctx-bar {
-  display: inline-block;
-  width: 72px;
-  height: 5px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--ui-text) 14%, transparent);
   overflow: hidden;
 }
-.ctx-fill {
-  display: block;
-  height: 100%;
-  border-radius: 3px;
-  background: var(--ui-accent);
-  transition: width var(--ui-dur) var(--ui-ease-out);
+
+/* ── header ── */
+.agent-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ui-border);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--ui-surface-2) 92%, transparent),
+    color-mix(in srgb, var(--ui-surface) 75%, transparent)
+  );
+  flex-shrink: 0;
 }
+.agent-nav-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--ui-radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ui-text-3);
+  cursor: pointer;
+}
+.agent-nav-toggle:hover { background: var(--ui-accent-softer); color: var(--ui-accent); }
+.agent-avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ui-accent-softer);
+  color: var(--ui-accent);
+  border: 1px solid color-mix(in srgb, var(--ui-accent) 35%, transparent);
+  flex-shrink: 0;
+}
+.agent-avatar-pulse {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--ui-accent) 55%, transparent);
+  animation: agent-pulse 1.6s ease-in-out infinite;
+}
+@keyframes agent-pulse { 0%,100% { opacity: .2; transform: scale(.94);} 50% { opacity: 1; transform: scale(1.04);} }
+.agent-title { min-width: 0; flex: 1; }
+.agent-title h2 { margin: 0; font-size: 14px; font-weight: 750; letter-spacing: .01em; }
+.agent-subtitle { margin: 1px 0 0; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agent-subtitle-sep { margin: 0 4px; opacity: .5; }
+.agent-header-meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.agent-ctx { display: inline-flex; align-items: center; gap: 6px; }
+.agent-ctx-label { font-size: 10px; font-weight: 700; color: color-mix(in srgb, var(--ui-text) 60%, transparent); }
+.agent-ctx-bar { display: inline-block; width: 72px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--ui-text) 14%, transparent); overflow: hidden; }
+.agent-ctx-fill { display: block; height: 100%; background: var(--ui-accent); transition: width var(--ui-dur) var(--ui-ease-out); }
+.agent-ctx-fill.warn { background: var(--ui-warning); }
+.agent-ctx-fill.bad { background: var(--ui-danger); }
+.agent-tabs { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-md); background: color-mix(in srgb, var(--ui-surface) 70%, transparent); }
+.agent-tabs button {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 0; background: transparent; color: color-mix(in srgb, var(--ui-text) 60%, transparent);
+  font: inherit; font-size: 11px; font-weight: 650;
+  padding: 5px 9px; border-radius: var(--ui-radius-sm); cursor: pointer;
+}
+.agent-tabs button:hover { color: var(--ui-text); background: color-mix(in srgb, var(--ui-text) 7%, transparent); }
+.agent-tabs button.on { color: var(--ui-accent); background: var(--ui-accent-softer); }
+
+/* ── body ── */
+.agent-body { flex: 1; display: flex; min-height: 0; }
+.agent-sidebar {
+  width: 264px; flex-shrink: 0;
+  border-right: 1px solid var(--ui-border);
+  overflow-y: auto; padding: 12px;
+  display: flex; flex-direction: column; gap: 14px;
+  background: color-mix(in srgb, var(--ui-glass) 40%, transparent);
+}
+.agent--sidebar-closed .agent-sidebar { display: none; }
+.agent-side-section { display: flex; flex-direction: column; gap: 8px; }
+.agent-side-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.agent-side-head h3 { margin: 0; font-size: 11px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text) 60%, transparent); display: flex; align-items: center; gap: 6px; }
+.agent-side-actions { display: flex; gap: 4px; }
+.agent-side-list { display: flex; flex-direction: column; gap: 6px; }
+.agent-side-item {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
+  padding: 8px 10px; cursor: pointer; background: color-mix(in srgb, var(--ui-glass) 55%, transparent);
+  color: var(--ui-text); font: inherit; text-align: left; width: 100%;
+}
+.agent-side-item:hover { border-color: var(--ui-border-hover); }
+.agent-side-item.on { border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent); background: var(--ui-accent-softer); }
+.agent-side-item-title { font-size: 12px; font-weight: 650; flex: 1 1 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-side-item-meta { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
+.agent-side-item-btns { display: flex; gap: 4px; margin-left: auto; }
+.agent-side-row { display: flex; gap: 8px; }
+.agent-side-row > * { flex: 1; min-width: 0; }
+
+.agent-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* capability strip */
+.agent-caps {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 10px 14px; border-bottom: 1px solid var(--ui-hairline);
+  background: color-mix(in srgb, var(--ui-surface) 85%, transparent);
+  flex-shrink: 0;
+}
+.agent-cap {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600;
+  border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-full);
+  padding: 3px 9px; background: color-mix(in srgb, var(--ui-glass) 60%, transparent);
+}
+.agent-cap.warn { border-color: color-mix(in srgb, var(--ui-warning) 55%, transparent); color: var(--ui-warning); }
+.agent-cap-link { border: 0; background: none; color: var(--ui-accent); font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; padding: 2px 4px; }
+.agent-cap-tools { display: flex; flex-wrap: wrap; gap: 4px; flex-basis: 100%; }
+.agent-cap-tool {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 650;
+  border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-sm);
+  padding: 2px 6px; color: color-mix(in srgb, var(--ui-text) 75%, transparent);
+}
+.agent-cap-tool.act-allow { border-color: color-mix(in srgb, var(--ui-success) 45%, transparent); }
+.agent-cap-tool.act-ask { border-color: color-mix(in srgb, var(--ui-warning) 50%, transparent); }
+.agent-cap-tool.act-deny { border-color: color-mix(in srgb, var(--ui-danger) 45%, transparent); }
+
+/* cards (setup / controls) */
+.agent-card {
+  margin: 12px 14px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
+  padding: 12px; background: color-mix(in srgb, var(--ui-glass) 55%, transparent);
+}
+.agent-card-title { font-size: 12px; font-weight: 750; margin: 12px 0 8px; display: flex; align-items: center; gap: 6px; }
+.agent-card-title:first-child { margin-top: 0; }
+.agent-controls { overflow-y: auto; padding-bottom: 12px; }
+.agent-note { font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); margin: 8px 0 0; }
+.agent-link { border: 0; background: none; padding: 0; color: var(--ui-accent); font: inherit; font-weight: 650; cursor: pointer; }
+.mono { font-family: var(--ui-font-mono); border: 1px solid var(--ui-border); padding: 0 4px; border-radius: var(--ui-radius-xs); font-size: .95em; }
+.dim { color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
+
+/* legacy form helpers kept (script unchanged) */
+.preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: 10px; }
+.preset-card {
+  background: color-mix(in srgb, var(--ui-surface) 55%, transparent);
+  border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-sm);
+  color: var(--ui-text); padding: 8px 10px; text-align: left; cursor: pointer; font-family: inherit;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.preset-card:hover { border-color: var(--ui-border-hover); background: var(--ui-glass-2); }
+.preset-card.on { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); background: var(--ui-accent-softer); }
+.preset-name { font-size: 12px; font-weight: 700; }
+.preset-meta { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.preset-free { font-size: 10px; color: var(--ui-accent); font-weight: 700; }
+.w-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; min-width: 0; flex: 1; }
+.w-field.grow { flex: 1; min-width: 140px; }
+.w-field-narrow { flex: 0 0 110px; }
+.w-field.check-field { justify-content: flex-end; padding-bottom: 6px; flex: 0 0 auto; }
+.w-label { font-size: 11px; font-weight: 650; color: color-mix(in srgb, var(--ui-text) 65%, transparent); }
+.w-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; align-items: flex-end; }
+.w-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.w-msg { font-size: 11px; margin-top: 6px; color: color-mix(in srgb, var(--ui-text) 70%, transparent); }
+.w-msg.err { color: var(--ui-danger); }
+.model-row { display: flex; gap: 6px; }
+.config-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.config-card { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); padding: 8px 10px; background: color-mix(in srgb, var(--ui-glass) 55%, transparent); }
+.cfg-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+.cfg-name { font-size: 12px; font-weight: 700; flex: 1; }
+.cfg-type { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.cfg-meta { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); margin-bottom: 4px; word-break: break-all; }
+.cfg-actions { display: flex; gap: 6px; margin-top: 6px; }
+.remote-list { margin-top: 6px; }
+.remote-row { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; border-bottom: 1px solid var(--ui-hairline); padding: 3px 0; }
+.perm-grid { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.perm-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.perm-row .ct-name { flex: 1; font-weight: 600; }
+
+/* chat */
+.agent-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.agent-welcome { margin: auto; max-width: 560px; padding: 24px; text-align: center; }
+.agent-welcome-avatar {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 52px; height: 52px; border-radius: 50%;
+  background: var(--ui-accent-softer); color: var(--ui-accent);
+  border: 1px solid color-mix(in srgb, var(--ui-accent) 35%, transparent);
+  margin-bottom: 10px;
+}
+.agent-welcome h3 { margin: 0 0 6px; font-size: 16px; }
+.agent-welcome p { font-size: 12px; color: color-mix(in srgb, var(--ui-text) 65%, transparent); margin: 0 0 12px; }
+.agent-quick { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; text-align: left; }
+.agent-quick-card {
+  display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+  border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
+  background: color-mix(in srgb, var(--ui-glass) 55%, transparent);
+  color: var(--ui-text); font: inherit; padding: 10px 12px; cursor: pointer;
+}
+.agent-quick-card:hover:not(:disabled) { border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent); }
+.agent-quick-card:disabled { opacity: .5; cursor: not-allowed; }
+.agent-quick-label { font-size: 12px; font-weight: 700; }
+.agent-quick-hint { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
+
+.agent-thread-head { padding: 10px 14px 6px; flex-shrink: 0; }
+.agent-thread-title { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; min-width: 0; }
+.agent-thread-title strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-thread-title .dim { font-size: 10px; }
+.thread-actions { margin-bottom: 4px; }
+.meter { display: inline-flex; align-items: center; gap: 6px; }
+.meter-label { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 60%, transparent); }
+.ctx-bar { display: inline-block; width: 72px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--ui-text) 14%, transparent); overflow: hidden; }
+.ctx-fill { display: block; height: 100%; background: var(--ui-accent); transition: width var(--ui-dur) var(--ui-ease-out); }
 .ctx-fill.warn { background: var(--ui-warning); }
 .ctx-fill.bad { background: var(--ui-danger); }
 
-/* ── grouped tool rows ── */
-.tool-group { display: flex; flex-direction: column; gap: 4px; }
-.tool-group .lead { padding: 6px 8px; }
-.tool-row {
+.agent-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 6px 14px 12px; }
+.agent-thread-empty { text-align: center; font-size: 12px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); padding: 18px; }
+.msg { display: flex; gap: 8px; }
+.msg-avatar {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; margin-top: 2px;
   border: 1px solid var(--ui-hairline);
-  border-radius: var(--ui-radius-sm);
-  background: color-mix(in srgb, var(--ui-glass) 45%, transparent);
-  overflow: hidden;
 }
-.tool-row.is-running { border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent); }
-.tool-row.is-denied { border-color: color-mix(in srgb, var(--ui-danger) 50%, transparent); }
-.tool-row.is-error { border-color: color-mix(in srgb, var(--ui-warning) 50%, transparent); }
-.tool-head {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 8px;
-  background: none;
-  border: 0;
-  color: var(--ui-text);
-  font-family: inherit;
-  font-size: 10px;
-  cursor: pointer;
-  text-align: left;
+.avatar-user { background: color-mix(in srgb, var(--ui-accent) 14%, transparent); color: var(--ui-accent); }
+.avatar-assistant { background: var(--ui-accent-softer); color: var(--ui-accent); }
+.avatar-tool, .avatar-assistant_tool { background: color-mix(in srgb, var(--ui-text) 8%, transparent); color: color-mix(in srgb, var(--ui-text) 65%, transparent); }
+.msg-main {
+  flex: 1; min-width: 0;
+  border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
+  padding: 8px 10px; background: color-mix(in srgb, var(--ui-glass) 45%, transparent);
 }
-.tool-head:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
-.tool-head:focus-visible { outline: 2px solid color-mix(in srgb, var(--ui-accent) 70%, transparent); outline-offset: -2px; }
-.tool-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.tool-chev {
-  color: color-mix(in srgb, var(--ui-text) 45%, transparent);
-  transform: rotate(90deg);
-  transition: transform var(--ui-dur-fast) var(--ui-ease-out);
-}
-.tool-row.open .tool-chev { transform: rotate(-90deg); }
-.tool-detail { border-top: 1px solid var(--ui-hairline); padding: 6px 8px; }
-.tool-result {
-  font-size: 9px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin: 6px 0 0;
-  color: color-mix(in srgb, var(--ui-text) 75%, transparent);
-}
-.tool-result.bad { color: var(--ui-danger); }
-.tool-wait { font-size: 9px; margin-top: 6px; }
-
-/* ── assistant markdown ── */
+.role-user .msg-main { background: var(--ui-accent-softer); border-color: color-mix(in srgb, var(--ui-accent) 30%, transparent); }
+.role-tool .msg-main { background: color-mix(in srgb, var(--ui-text) 5%, transparent); }
+.msg-role { font-size: 10px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text) 55%, transparent); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+.msg-copy { border: 0; background: none; color: inherit; opacity: .55; cursor: pointer; padding: 2px; display: inline-flex; }
+.msg-copy:hover { opacity: 1; }
+.msg-body { font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .msg-body.md { white-space: normal; }
 .msg-body.md :deep(p) { margin: 0 0 6px; }
 .msg-body.md :deep(p:last-child) { margin-bottom: 0; }
-.msg-body.md :deep(h2), .msg-body.md :deep(h3), .msg-body.md :deep(h4),
-.msg-body.md :deep(h5), .msg-body.md :deep(h6) {
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  margin: 8px 0 4px;
-}
+.msg-body.md :deep(h2), .msg-body.md :deep(h3), .msg-body.md :deep(h4) { font-size: 12px; font-weight: 800; margin: 8px 0 4px; }
 .msg-body.md :deep(pre) {
-  margin: 6px 0;
-  padding: 6px 8px;
-  background: color-mix(in srgb, var(--ui-surface) 80%, transparent);
-  border: 1px solid var(--ui-hairline);
-  border-radius: var(--ui-radius-xs);
-  overflow-x: auto;
-  white-space: pre;
-  font-size: 9px;
+  margin: 6px 0; padding: 8px; background: color-mix(in srgb, var(--ui-surface) 80%, transparent);
+  border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-xs);
+  overflow-x: auto; white-space: pre; font-size: 10px;
 }
-.msg-body.md :deep(code) { font-family: var(--ui-font-mono); font-size: 0.95em; }
+.msg-body.md :deep(code) { font-family: var(--ui-font-mono); font-size: .92em; }
 .msg-body.md :deep(ul), .msg-body.md :deep(ol) { margin: 4px 0; padding-left: 16px; }
-.msg-body.md :deep(li) { margin: 2px 0; }
-.msg-body.md :deep(blockquote) {
-  margin: 4px 0;
-  padding-left: 8px;
-  border-left: 2px solid var(--ui-border);
-  color: color-mix(in srgb, var(--ui-text) 65%, transparent);
-}
-.msg-body.md :deep(hr) { border: 0; border-top: 1px solid var(--ui-hairline); margin: 8px 0; }
+.msg-body.md :deep(blockquote) { margin: 4px 0; padding-left: 8px; border-left: 2px solid var(--ui-border); color: color-mix(in srgb, var(--ui-text) 65%, transparent); }
 .msg-body.md :deep(a) { color: var(--ui-accent); }
-.msg-body.md :deep(img) { max-width: 100%; }
-.turn-footer {
-  font-size: 9px;
-  letter-spacing: 0.03em;
-  margin-top: 6px;
-  padding-top: 5px;
-  border-top: 1px dashed var(--ui-hairline);
-}
+.turn-footer { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 50%, transparent); margin-top: 6px; padding-top: 5px; border-top: 1px dashed var(--ui-hairline); }
+.tool-block { margin-top: 4px; }
+.tool-name { font-size: 11px; font-weight: 700; }
+.tool-input { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 70%, transparent); white-space: pre-wrap; word-break: break-word; margin: 4px 0 0; font-family: var(--ui-font-mono); }
 
-/* ── queue + job line + approval detail ── */
-.queue { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
-.queue-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  border: 1px dashed var(--ui-border);
-  border-radius: var(--ui-radius-sm);
-  padding: 3px 6px;
+/* tool timeline */
+.tool-group { display: flex; flex-direction: column; gap: 4px; margin-left: 34px; }
+.tool-group .lead { padding: 6px 8px; }
+.tool-row { border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-sm); background: color-mix(in srgb, var(--ui-glass) 45%, transparent); overflow: hidden; }
+.tool-row.is-running { border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent); }
+.tool-row.is-denied { border-color: color-mix(in srgb, var(--ui-danger) 50%, transparent); }
+.tool-row.is-error { border-color: color-mix(in srgb, var(--ui-warning) 50%, transparent); }
+.tool-head { width: 100%; display: flex; align-items: center; gap: 7px; padding: 6px 8px; background: none; border: 0; color: var(--ui-text); font-family: inherit; font-size: 11px; cursor: pointer; text-align: left; }
+.tool-head:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
+.tool-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.tool-chev { color: color-mix(in srgb, var(--ui-text) 45%, transparent); transform: rotate(90deg); transition: transform var(--ui-dur-fast) var(--ui-ease-out); }
+.tool-row.open .tool-chev { transform: rotate(-90deg); }
+.tool-detail { border-top: 1px solid var(--ui-hairline); padding: 6px 8px; }
+.tool-result { font-size: 10px; white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; color: color-mix(in srgb, var(--ui-text) 75%, transparent); font-family: var(--ui-font-mono); max-height: 240px; overflow: auto; }
+.tool-result.bad { color: var(--ui-danger); }
+.tool-wait { font-size: 10px; margin-top: 6px; }
+
+/* approval */
+.approval {
+  margin: 0 14px 10px; border: 1px solid color-mix(in srgb, var(--ui-warning) 55%, transparent);
+  border-radius: var(--ui-radius-md); padding: 10px 12px;
+  background: color-mix(in srgb, var(--ui-warning) 8%, transparent);
 }
-.queue-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.job-line { display: flex; align-items: center; gap: 5px; }
-.approval-meta { display: flex; flex-direction: column; gap: 3px; font-size: 10px; margin-bottom: 6px; }
+.approval-title { font-size: 12px; font-weight: 750; color: var(--ui-warning); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+.approval-text { font-size: 12px; margin-bottom: 8px; word-break: break-word; }
+.approval-meta { display: flex; flex-direction: column; gap: 3px; font-size: 11px; margin-bottom: 6px; }
 .approval-meta > span { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
 .approval-input { max-height: 96px; overflow: auto; margin-bottom: 8px; }
-
-/* ── approval diff view (P2.1) ── */
 .approval-diff { margin-bottom: 8px; }
-.diff-head { font-size: 9px; font-weight: 700; margin-bottom: 4px; }
-.diff-body {
-  font-size: 9px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin: 0;
-  max-height: 220px;
-  overflow: auto;
-  border: 1px solid var(--ui-hairline);
-  border-radius: var(--ui-radius-sm);
-  padding: 6px 8px;
-  background: color-mix(in srgb, var(--ui-surface) 80%, transparent);
-}
+.diff-head { font-size: 10px; font-weight: 700; margin-bottom: 4px; }
+.diff-body { font-size: 10px; white-space: pre-wrap; word-break: break-word; margin: 0; max-height: 220px; overflow: auto; border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-sm); padding: 6px 8px; background: color-mix(in srgb, var(--ui-surface) 80%, transparent); }
 .diff-line { display: block; }
 .diff-del { color: var(--ui-danger); background: color-mix(in srgb, var(--ui-danger) 8%, transparent); }
 .diff-add { color: var(--ui-success); background: color-mix(in srgb, var(--ui-success) 8%, transparent); }
-.diff-ctx { opacity: 0.75; }
+.diff-ctx { opacity: .75; }
+.approval.attention { animation: approval-pulse 1.6s ease-in-out infinite; }
+@keyframes approval-pulse { 0%,100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-warning) 35%, transparent); } }
 
-/* ── attention surface (P3): pulse while the agent waits on the human ── */
-.approval.attention {
-  animation: approval-pulse 1.6s ease-in-out infinite;
-}
-@keyframes approval-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 transparent; }
-  50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-warning) 35%, transparent); }
-}
+/* queue */
+.queue { display: flex; flex-direction: column; gap: 4px; margin: 0 14px 8px; }
+.queue-item { display: flex; align-items: center; gap: 6px; font-size: 11px; border: 1px dashed var(--ui-border); border-radius: var(--ui-radius-sm); padding: 4px 8px; }
+.queue-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-line { display: flex; align-items: center; gap: 5px; margin: 0 14px; }
 
-/* ── granular permission editor (P2.3) ── */
-.perm-grid { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
-.perm-row { display: flex; align-items: center; gap: 8px; font-size: 10px; }
-.perm-row .ct-name { flex: 1; font-weight: 600; }
-.perm-row :deep(.ui-select) { min-width: 110px; }
+/* composer */
+.composer {
+  margin: 0 14px 8px; border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-md); background: color-mix(in srgb, var(--ui-surface) 70%, transparent);
+  transition: border-color var(--ui-dur) var(--ui-ease-out), box-shadow var(--ui-dur) var(--ui-ease-out);
+  position: relative;
+}
+.composer.focused { border-color: color-mix(in srgb, var(--ui-accent) 70%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 15%, transparent); }
+.composer-box {
+  width: 100%; border: 0; background: transparent; color: var(--ui-text);
+  font-family: var(--ui-font); font-size: 13px; line-height: 1.5;
+  padding: 10px 12px 4px; outline: none; resize: vertical; min-height: 52px;
+}
+.composer-bar { display: flex; align-items: center; gap: 8px; padding: 4px 8px 8px; }
+.composer-hint { font-size: 10px; }
+.composer-spacer { flex: 1; }
+.composer-slash {
+  position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 6px;
+  border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
+  background: var(--ui-surface-2); box-shadow: var(--ui-shadow-3); overflow: hidden; z-index: 5;
+}
+.composer-slash-item {
+  display: flex; gap: 10px; align-items: baseline; width: 100%;
+  border: 0; background: none; color: var(--ui-text); font: inherit; font-size: 12px;
+  padding: 8px 12px; cursor: pointer; text-align: left;
+}
+.composer-slash-item:hover { background: var(--ui-accent-softer); }
+
+/* responsive: sidebar becomes overlay-friendly single column */
+@media (max-width: 760px) {
+  .agent-header { flex-wrap: wrap; }
+  .agent-header-meta { flex-basis: 100%; justify-content: flex-start; flex-wrap: wrap; }
+  .agent-sidebar { position: absolute; z-index: 10; height: 100%; background: var(--ui-surface); box-shadow: var(--ui-shadow-3); }
+  .agent-body { position: relative; }
+  .tool-group { margin-left: 0; }
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .approval.attention { animation: none; }
+  .approval.attention, .agent-avatar-pulse { animation: none; }
 }
-</style>
+

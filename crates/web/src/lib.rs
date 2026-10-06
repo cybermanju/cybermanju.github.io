@@ -2937,7 +2937,7 @@ pub fn handle_sse_connection(
             return;
         }
     };
-    if security::authorize(claims, security::RequiredRole::Authenticated).is_err() {
+    if security::authorize(&claims, security::RequiredRole::Authenticated).is_err() {
         let _ = stream.write_all(json_error(403, "Forbidden", origin).as_bytes());
         return;
     }

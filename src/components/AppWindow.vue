@@ -77,14 +77,14 @@
       <component :is="win.component" v-bind="win.props" @close="onClose" />
     </div>
 
-    <div class="resize-handle n" @mousedown.prevent.stop="startResize('n')"></div>
-    <div class="resize-handle s" @mousedown.prevent.stop="startResize('s')"></div>
-    <div class="resize-handle e" @mousedown.prevent.stop="startResize('e')"></div>
-    <div class="resize-handle w" @mousedown.prevent.stop="startResize('w')"></div>
-    <div class="resize-handle ne" @mousedown.prevent.stop="startResize('ne')"></div>
-    <div class="resize-handle nw" @mousedown.prevent.stop="startResize('nw')"></div>
-    <div class="resize-handle se" @mousedown.prevent.stop="startResize('se')"></div>
-    <div class="resize-handle sw" @mousedown.prevent.stop="startResize('sw')"></div>
+    <div class="resize-handle n" @mousedown.prevent.stop="startResize('n', $event)"></div>
+    <div class="resize-handle s" @mousedown.prevent.stop="startResize('s', $event)"></div>
+    <div class="resize-handle e" @mousedown.prevent.stop="startResize('e', $event)"></div>
+    <div class="resize-handle w" @mousedown.prevent.stop="startResize('w', $event)"></div>
+    <div class="resize-handle ne" @mousedown.prevent.stop="startResize('ne', $event)"></div>
+    <div class="resize-handle nw" @mousedown.prevent.stop="startResize('nw', $event)"></div>
+    <div class="resize-handle se" @mousedown.prevent.stop="startResize('se', $event)"></div>
+    <div class="resize-handle sw" @mousedown.prevent.stop="startResize('sw', $event)"></div>
   </div>
 </template>
 
@@ -200,12 +200,12 @@ let resizeOrigY = 0
 let resizeOrigW = 0
 let resizeOrigH = 0
 
-function startResize(dir: string) {
+function startResize(dir: string, e?: MouseEvent) {
   if (isMaximized.value) return
   resizing = true
   resizeDir = dir
-  resizeStartX = window.event ? (window.event as MouseEvent).clientX : 0
-  resizeStartY = window.event ? (window.event as MouseEvent).clientY : 0
+  resizeStartX = e ? e.clientX : 0
+  resizeStartY = e ? e.clientY : 0
   resizeOrigX = props.win.x
   resizeOrigY = props.win.y
   resizeOrigW = props.win.width

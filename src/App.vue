@@ -594,7 +594,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="cybermanju-shell">
+  <!-- Gesture surface: useSwipe is bound here (mainAreaRef). touch-action
+       below hands multi-touch to the recognizer; inner scrollers keep
+       native scroll because they implement the gesture themselves. -->
+  <div ref="mainAreaRef" class="cybermanju-shell">
     <LandingPage
       v-if="store.currentPanel === 'landing'"
       @open-app="store.currentPanel = 'files'; wm.open('files')"
@@ -663,6 +666,12 @@ onBeforeUnmount(() => {
   color: var(--ui-text);
   overflow: hidden;
   position: relative;
+  /* Gesture ownership: the shell recognizer (useSwipe, Pointer Events)
+     handles 2/3/4-finger swipes and pinches, so the browser must not
+     natively zoom/scroll them (no pointercancel mid-gesture). Inner
+     scrollable panels keep native scroll — touch-action is intersected
+     only up to the element that implements the gesture. */
+  touch-action: none;
 }
 
 .error-banner {
