@@ -1,4 +1,4 @@
-// Cybermanju Drive — Storage Sync Backends
+// CyberManju OS — Storage Sync Backends
 // Six backends: Local, GitHub, GitLab, Google Drive, Google Photos, Telegram.
 // All HTTP goes through the shared client + `send_classified`/`send_probe`
 // wrappers, so every provider call gets retries, rate-limit gating and the
@@ -37,7 +37,7 @@ pub(crate) fn http_client() -> Result<reqwest::blocking::Client, String> {
         return Ok(client.clone());
     }
     let built = reqwest::blocking::Client::builder()
-        .user_agent("CybermanjuDrive/0.1")
+        .user_agent("CyberManjuOS/0.1")
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(300))
         .build()
@@ -1084,7 +1084,7 @@ impl GitHubBackend {
                 let body = serde_json::json!({
                     "tag_name": tag,
                     "name": format!("Sync upload: {}", asset_name),
-                    "body": format!("Uploaded via Cybermanju Drive sync: {}", remote_path),
+                    "body": format!("Uploaded via CyberManju OS sync: {}", remote_path),
                     "draft": true,
                     "prerelease": false,
                 });

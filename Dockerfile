@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════
-# Cybermanju Drive — Multi-stage Docker Build
+# CyberManju OS — Multi-stage Docker Build
 #
 # Stage 1: Build Vue 3 frontend (Node.js)
 # Stage 2: Build standalone Rust web server (no Tauri/GTK deps)
@@ -26,8 +26,9 @@ COPY src/ ./src/
 # prebuild:wasm:frontend runs `npm run icons` → scripts/generate-icon-set.mjs
 COPY scripts/ ./scripts/
 
-# DOCKER_BUILD=true tells vite.config.wasm.ts to use base: "/" instead of
-# the GitHub Pages prefix "/cybermanju-drive/". The docker image serves the
+# The static bundle is served from root (base: "/") both by the GitHub
+# Pages site (cybermanju.github.io) and by this image. The docker image
+# serves the
 # dashboard REST API on :3456, so the wasm backend is not needed here — the
 # frontend-only vite step uses the stub plugin (no wasm-pack in this stage).
 RUN DOCKER_BUILD=true npm run build:wasm:frontend
@@ -60,7 +61,7 @@ COPY crates/web/Cargo.toml            crates/web/Cargo.toml
 COPY crates/sync/Cargo.toml           crates/sync/Cargo.toml
 COPY crates/faces/Cargo.toml          crates/faces/Cargo.toml
 COPY crates/tests/Cargo.toml          crates/tests/Cargo.toml
-COPY crates/drive-wasm/Cargo.toml     crates/drive-wasm/Cargo.toml
+COPY crates/os-wasm/Cargo.toml     crates/os-wasm/Cargo.toml
 COPY src-tauri/Cargo.toml             src-tauri/Cargo.toml
 COPY docker/server/Cargo.toml         docker/server/Cargo.toml
 
@@ -71,14 +72,14 @@ RUN mkdir -p crates/*/src src-tauri/src docker/server/src && \
     printf '// stub\n' > src-tauri/src/lib.rs && \
     printf 'fn main() {}\n' > src-tauri/src/main.rs && \
     printf 'fn main() {}\n' > docker/server/src/main.rs && \
-    cargo build --release -p cybermanju-drive-server || true
+    cargo build --release -p cybermanju-os-server || true
 
 # ──3. Real sources ────────────────────────────────────────────────────
 COPY crates ./crates
 COPY src-tauri ./src-tauri
 COPY docker/server ./docker/server
 
-RUN cargo build --release -p cybermanju-drive-server
+RUN cargo build --release -p cybermanju-os-server
 
 # ─── Stage 3: Minimal Runtime ────────────────────────────────────────
 FROM alpine:3.21 AS runtime
@@ -92,7 +93,7 @@ RUN addgroup -S cybermanju && adduser -S cybermanju -G cybermanju
 WORKDIR /app
 
 # Copy the compiled Rust binary from stage 2
-COPY --from=backend-builder /build/target/release/cybermanju-drive-server ./
+COPY --from=backend-builder /build/target/release/cybermanju-os-server ./
 
 # Copy the compiled Vue frontend from stage 1
 COPY --from=frontend-builder /app/dist-wasm ./static
@@ -123,4 +124,4 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=15s \
     CMD wget --spider -q http://localhost:3456/api/readyz || exit 1
 
 # Start the server
-CMD ["./cybermanju-drive-server"]
+CMD ["./cybermanju-os-server"]

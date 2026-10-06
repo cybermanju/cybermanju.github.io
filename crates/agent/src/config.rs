@@ -17,6 +17,20 @@ pub fn remember_allow(rules: &mut PermissionRuleset, tool: &str) {
     );
 }
 
+/// Standing orders: files folded into the system prompt by
+/// `load_project_rules`, so whoever rewrites one owns every later turn.
+/// Mirrors Hermes `security.protected_instruction_files` — case-insensitive
+/// basename in any directory, plus the `.cybermanju/rules.md` path form.
+pub fn is_protected_instruction_path(path: &str) -> bool {
+    let norm = path.replace('\\', "/");
+    let lower = norm.to_ascii_lowercase();
+    let base = lower.rsplit('/').next().unwrap_or("");
+    if base == "agents.md" || base == "skill.md" {
+        return true;
+    }
+    lower.ends_with("/.cybermanju/rules.md") || lower == ".cybermanju/rules.md"
+}
+
 /// What the loop should do with a proposed tool call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PermissionDecision {
@@ -178,7 +192,19 @@ pub fn decide(
         }
     };
     match action {
-        PermissionAction::Allow => PermissionDecision::Allow,
+        PermissionAction::Allow => {
+            // Standing orders never auto-allow: a write/edit that would pass
+            // silently under an `allow` rule is downgraded to a human
+            // decision. `deny` still wins, and the plan persona still denies
+            // above — this only ever turns an allow into an ask.
+            let protected = is_protected_instruction_path(salient_arg(input));
+            if matches!(tool, "write" | "edit") && protected {
+                return PermissionDecision::Ask {
+                    summary: format!("Approve `{tool}` — protected standing orders"),
+                };
+            }
+            PermissionDecision::Allow
+        }
         PermissionAction::Deny => PermissionDecision::Deny {
             reason: format!("deny: `{tool}` is denied by the permission ruleset"),
         },
@@ -186,6 +212,77 @@ pub fn decide(
             summary: format!("Approve `{tool}`?"),
         },
     }
+}
+
+/// True when `tool` would be denied for every input under `rules`.
+///
+/// The probe calls [`decide`] with an empty object, which is exactly the
+/// match shape a bare tool name sees (`match_input` falls back to the
+/// tool name when no salient argument exists). A granular rule that
+/// denies one argument but allows another (e.g. `bash`: deny
+/// `git push *`, allow `git *`) therefore keeps the tool — stripping is
+/// only for tools that can never run. The runtime `decide` gate stays in
+/// place regardless, so stripping is an optimization, never the security
+/// boundary.
+pub fn is_tool_denied_everywhere(
+    rules: &PermissionRuleset,
+    kind: AgentKind,
+    tool: &str,
+) -> bool {
+    matches!(
+        decide(rules, kind, tool, &serde_json::json!({})),
+        PermissionDecision::Deny { .. }
+    )
+}
+
+/// Name carried by one entry of a built request `tools` array. Handles
+/// all three shapes that flow through here: OpenAI
+/// `{function: {name}}`, Anthropic/canonical `{name}`, and MCP
+/// canonical defs merged in by the driver.
+fn tool_entry_name(entry: &serde_json::Value) -> Option<&str> {
+    entry
+        .get("function")
+        .and_then(|f| f.get("name"))
+        .or_else(|| entry.get("name"))
+        .and_then(|n| n.as_str())
+}
+
+/// Strip tools the ruleset denies everywhere from a built provider
+/// request body (in place). Returns how many entries were removed.
+///
+/// Honesty edges, all covered by tests below:
+/// * a default-deny ruleset strips broadly — and the runtime `decide`
+///   gate would deny those calls anyway, so the model loses nothing it
+///   could have used;
+/// * an emptied `tools` array is removed entirely (providers reject an
+///   empty array), together with `tool_choice`, so the turn becomes an
+///   honest no-tools turn instead of a malformed one;
+/// * granular per-argument denies never strip the whole tool (see
+///   [`is_tool_denied_everywhere`]);
+/// * unknown shapes are kept — a strip pass must never hide a tool it
+///   cannot name.
+pub fn strip_denied_tools(
+    body: &mut serde_json::Value,
+    rules: &PermissionRuleset,
+    kind: AgentKind,
+) -> usize {
+    let tools = match body.get_mut("tools").and_then(|t| t.as_array_mut()) {
+        Some(tools) => tools,
+        None => return 0,
+    };
+    let before = tools.len();
+    tools.retain(|entry| match tool_entry_name(entry) {
+        Some(name) => !is_tool_denied_everywhere(rules, kind, name),
+        None => true,
+    });
+    let removed = before - tools.len();
+    if tools.is_empty() {
+        if let Some(obj) = body.as_object_mut() {
+            obj.remove("tools");
+            obj.remove("tool_choice");
+        }
+    }
+    removed
 }
 
 #[cfg(test)]
@@ -323,5 +420,232 @@ mod glob_tests {
         assert!(!lit.is_regex());
         assert!(lit.is_match("has a(b inside"));
         assert!(!lit.is_match("has ab inside"));
+    }
+}
+
+#[cfg(test)]
+mod protected_tests {
+    use super::*;
+    use cybermanju_types::agent::PermissionRule;
+
+    fn allow_ruleset(tool: &str) -> PermissionRuleset {
+        let mut rules = PermissionRuleset::default();
+        let allow = PermissionRule::Simple(PermissionAction::Allow);
+        rules.rules.insert(tool.to_string(), allow);
+        rules
+    }
+
+    #[test]
+    fn standing_orders_never_auto_allow() {
+        let rules = allow_ruleset("write");
+        let paths = ["AGENTS.md", "AGENTS.MD", "src/AGENTS.md", "docs/SKILL.md"];
+        for path in paths {
+            let input = serde_json::json!({ "path": path });
+            let d = decide(&rules, AgentKind::Build, "write", &input);
+            assert!(matches!(d, PermissionDecision::Ask { .. }), "{path}");
+        }
+        let rules_md = ".cybermanju/rules.md";
+        let input = serde_json::json!({ "path": rules_md });
+        let d = decide(&rules, AgentKind::Build, "edit", &input);
+        assert!(matches!(d, PermissionDecision::Ask { .. }));
+
+        // An ordinary file still passes the very same allow rule.
+        let input = serde_json::json!({ "path": "src/main.rs" });
+        let d = decide(&rules, AgentKind::Build, "write", &input);
+        assert_eq!(d, PermissionDecision::Allow);
+        // Reads are untouched — only writes and edits are guarded.
+        let reads = allow_ruleset("read");
+        let input = serde_json::json!({ "path": "AGENTS.md" });
+        let d = decide(&reads, AgentKind::Build, "read", &input);
+        assert_eq!(d, PermissionDecision::Allow);
+    }
+
+    #[test]
+    fn deny_still_beats_the_protection() {
+        let mut rules = PermissionRuleset::default();
+        let deny = PermissionRule::Simple(PermissionAction::Deny);
+        rules.rules.insert("write".to_string(), deny);
+        let input = serde_json::json!({ "path": "AGENTS.md" });
+        let d = decide(&rules, AgentKind::Build, "write", &input);
+        assert!(matches!(d, PermissionDecision::Deny { .. }));
+    }
+
+    #[test]
+    fn protected_paths_match_hermes_shape() {
+        assert!(is_protected_instruction_path("AGENTS.md"));
+        assert!(is_protected_instruction_path("docs\\AGENTS.MD"));
+        assert!(is_protected_instruction_path("a/.cybermanju/rules.md"));
+        assert!(!is_protected_instruction_path("AGENTS.md.bak"));
+        assert!(!is_protected_instruction_path("src/main.rs"));
+        assert!(!is_protected_instruction_path(""));
+    }
+}
+
+#[cfg(test)]
+mod strip_tests {
+    use super::*;
+    use cybermanju_types::agent::PermissionRule;
+    use std::collections::BTreeMap;
+
+    fn openai_body(names: &[&str]) -> serde_json::Value {
+        let tools: Vec<serde_json::Value> = names
+            .iter()
+            .map(|n| {
+                serde_json::json!({
+                    "type": "function",
+                    "function": { "name": n },
+                })
+            })
+            .collect();
+        serde_json::json!({ "model": "m", "tools": tools, "tool_choice": "auto" })
+    }
+
+    fn deny_ruleset(denied: &[&str]) -> PermissionRuleset {
+        let mut rules = PermissionRuleset {
+            default: PermissionAction::Allow,
+            rules: BTreeMap::new(),
+        };
+        for tool in denied {
+            rules.rules.insert(
+                (*tool).to_string(),
+                PermissionRule::Simple(PermissionAction::Deny),
+            );
+        }
+        rules
+    }
+
+    #[test]
+    fn denied_tools_are_detected_through_the_empty_probe() {
+        let rules = deny_ruleset(&["bash"]);
+        assert!(is_tool_denied_everywhere(
+            &rules,
+            AgentKind::Build,
+            "bash"
+        ));
+        assert!(!is_tool_denied_everywhere(
+            &rules,
+            AgentKind::Build,
+            "read"
+        ));
+    }
+
+    #[test]
+    fn default_deny_strips_broadly_but_keeps_allowed() {
+        let mut rules = PermissionRuleset {
+            default: PermissionAction::Deny,
+            rules: BTreeMap::new(),
+        };
+        rules.rules.insert(
+            "read".to_string(),
+            PermissionRule::Simple(PermissionAction::Allow),
+        );
+        let mut body = openai_body(&["read", "bash", "edit"]);
+        let removed = strip_denied_tools(&body, &rules, AgentKind::Build);
+        assert_eq!(removed, 2);
+        let tools = body["tools"].as_array().expect("tools remain");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["function"]["name"], "read");
+        assert_eq!(body["tool_choice"], "auto");
+    }
+
+    #[test]
+    fn empty_tools_key_and_choice_are_removed_together() {
+        let rules = PermissionRuleset {
+            default: PermissionAction::Deny,
+            rules: BTreeMap::new(),
+        };
+        let mut body = openai_body(&["bash"]);
+        let removed = strip_denied_tools(&body, &rules, AgentKind::Build);
+        assert_eq!(removed, 1);
+        assert!(body.get("tools").is_none());
+        assert!(body.get("tool_choice").is_none());
+    }
+
+    #[test]
+    fn granular_arg_denies_keep_the_whole_tool() {
+        let rules = PermissionRuleset {
+            default: PermissionAction::Allow,
+            rules: [(
+                "bash".to_string(),
+                PermissionRule::Granular(vec![
+                    ("*".into(), PermissionAction::Allow),
+                    ("git push *".into(), PermissionAction::Deny),
+                ]),
+            )]
+            .into_iter()
+            .collect(),
+        };
+        assert!(!is_tool_denied_everywhere(
+            &rules,
+            AgentKind::Build,
+            "bash"
+        ));
+        let mut body = openai_body(&["bash", "read"]);
+        assert_eq!(strip_denied_tools(&body, &rules, AgentKind::Build), 0);
+        assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(2));
+    }
+
+    #[test]
+    fn granular_catch_all_deny_strips_the_tool() {
+        let rules = PermissionRuleset {
+            default: PermissionAction::Allow,
+            rules: [(
+                "bash".to_string(),
+                PermissionRule::Granular(vec![(
+                    "*".into(),
+                    PermissionAction::Deny,
+                )]),
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let mut body = openai_body(&["bash", "read"]);
+        assert_eq!(strip_denied_tools(&body, &rules, AgentKind::Build), 1);
+        assert_eq!(body["tools"][0]["function"]["name"], "read");
+    }
+
+    #[test]
+    fn plan_persona_strips_mutation_whatever_the_rules() {
+        let mut rules = PermissionRuleset {
+            default: PermissionAction::Allow,
+            rules: BTreeMap::new(),
+        };
+        rules.rules.insert(
+            "edit".to_string(),
+            PermissionRule::Simple(PermissionAction::Allow),
+        );
+        let mut body = openai_body(&["read", "edit", "bash", "write"]);
+        let removed = strip_denied_tools(&body, &rules, AgentKind::Plan);
+        assert_eq!(removed, 3);
+        let tools = body["tools"].as_array().expect("read remains");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["function"]["name"], "read");
+    }
+
+    #[test]
+    fn anthropic_and_mcp_shapes_strip_by_name() {
+        let rules = deny_ruleset(&["mcp__fs__read"]);
+        let mut body = serde_json::json!({
+            "model": "c",
+            "tools": [
+                { "name": "read" },
+                { "name": "mcp__fs__read" },
+            ],
+        });
+        assert_eq!(strip_denied_tools(&body, &rules, AgentKind::Build), 1);
+        assert_eq!(body["tools"][0]["name"], "read");
+    }
+
+    #[test]
+    fn missing_or_unnameable_tools_are_left_alone() {
+        let rules = deny_ruleset(&["bash"]);
+        let mut body = serde_json::json!({ "model": "m" });
+        assert_eq!(strip_denied_tools(&body, &rules, AgentKind::Build), 0);
+        let mut odd = serde_json::json!({
+            "model": "m",
+            "tools": [{ "type": "function" }],
+        });
+        assert_eq!(strip_denied_tools(&odd, &rules, AgentKind::Build), 0);
+        assert_eq!(odd["tools"].as_array().map(|a| a.len()), Some(1));
     }
 }

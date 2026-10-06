@@ -1,4 +1,4 @@
-// Cybermanju Drive — Chunk manifest + multi-provider placement (AGENT-2 item 10)
+// CyberManju OS — Chunk manifest + multi-provider placement (AGENT-2 item 10)
 //
 // The "decentralized PC" core: a file is split into 4 MiB chunks, each
 // addressed by the BLAKE3 of its **plaintext**, and the chunks are placed

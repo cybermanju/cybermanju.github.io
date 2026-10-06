@@ -1,4 +1,4 @@
-// Cybermanju Drive — durability routes (AGENT-7)
+// CyberManju OS — durability routes (AGENT-7)
 //
 // Pre-created and pre-hooked by the supervisor: `crates/web/src/lib.rs` calls
 // `route()` right after the auth gate, and `repair`/`scrub`/`lease` are already

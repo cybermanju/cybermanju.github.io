@@ -1,4 +1,4 @@
-// Cybermanju Drive — Batch operations (shared by Tauri IPC and REST)
+// CyberManju OS — Batch operations (shared by Tauri IPC and REST)
 
 use cybermanju_db::Database;
 use cybermanju_types::schema::FileNode;

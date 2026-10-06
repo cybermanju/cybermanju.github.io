@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-// Cybermanju Drive — disk / volume manager (AGENT-8, item 9)
+// CyberManju OS — disk / volume manager (AGENT-8, item 9)
 //
 // One merged `df` bar over every `.cybermanju` disk, per-provider cards with
 // an adjustable size, and the attach / detach / resize / check controls.

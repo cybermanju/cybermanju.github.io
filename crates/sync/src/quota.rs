@@ -1,4 +1,4 @@
-// Cybermanju Drive — quota / usage probing (AGENT-1)
+// CyberManju OS — quota / usage probing (AGENT-1)
 //
 // `quota::usage(config)` asks the provider how much room is left. Where an
 // endpoint exists (Drive quotaInfo, GitHub rate-limit) the numbers are real;

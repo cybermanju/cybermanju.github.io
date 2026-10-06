@@ -1,4 +1,4 @@
-// Cybermanju Drive — database Web Worker (static/WASM build only)
+// CyberManju OS — database Web Worker (static/WASM build only)
 //
 // redb's `StorageBackend` is fully synchronous, and the only synchronous
 // file primitive in a browser is `FileSystemSyncAccessHandle`, which exists
@@ -11,7 +11,7 @@
 // `useWasmBackend.ts` is the only caller, and `invoke()` is already async
 // everywhere, so no Atomics/spinlock ferry is needed (those only exist for
 // callers that insist on *synchronous* calls from the main thread).
-import init, { db_dispatch, db_open, db_restore, db_snapshot } from 'cybermanju-drive-wasm'
+import init, { db_dispatch, db_open, db_restore, db_snapshot } from 'cybermanju-os-wasm'
 import { decodeContainer, encodeContainer } from '../utils/container'
 
 interface DbRequest {

@@ -1,4 +1,4 @@
-// Cybermanju Drive — User Management & File Permission Commands
+// CyberManju OS — User Management & File Permission Commands
 // Role-based access control: admin | user | viewer
 // Per-file permissions: read | write | admin
 // Password hashing: argon2id (cryptographically secure, salted, key-stretched)

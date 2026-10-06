@@ -2,7 +2,7 @@
 name = "cybermanju-tests"
 version = "0.1.0"
 edition = "2021"
-description = "Comprehensive test suite for all Cybermanju Drive crates"
+description = "Comprehensive test suite for all CyberManju OS crates"
 
 [dependencies]
 cybermanju-types = { path = "../types" }

@@ -7,7 +7,7 @@ description = "Native AI coding-agent core: providers, permissions, tool loop, h
 [features]
 default = []
 # Blocking HTTP transport (reqwest). Native targets (Tauri, server) enable
-# this; WASM builds the pure core only and fetch in drive-wasm instead.
+# this; WASM builds the pure core only and fetch in os-wasm instead.
 native = ["dep:reqwest"]
 
 [dependencies]

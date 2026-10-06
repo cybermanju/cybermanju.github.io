@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Default capability for Cybermanju Drive",
+  "description": "Default capability for CyberManju OS",
   "windows": ["main"],
   "permissions": [
     "core:default",

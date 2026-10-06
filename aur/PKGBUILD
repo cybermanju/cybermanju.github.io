@@ -1,10 +1,10 @@
-# Maintainer: Cybermanju <cybermanju@users.noreply.github.com>
-pkgname=cybermanju-drive
+# Maintainer: CyberManju <cybermanju@users.noreply.github.com>
+pkgname=cybermanju-os
 pkgver=0.1.0
 pkgrel=1
 pkgdesc="Encrypted file sync and management with post-quantum cryptography"
 arch=('x86_64')
-url="https://github.com/HautlyS/Cybermanju-Drive"
+url="https://github.com/cybermanju/cybermanju.github.io"
 license=('MIT')
 depends=(
   'webkit2gtk-4.1'
@@ -40,15 +40,15 @@ package() {
   cd "$pkgname"
 
   # Install the binary
-  install -Dm755 "target/release/cybermanju-drive" \
-    "$pkgdir/usr/bin/cybermanju-drive"
+  install -Dm755 "target/release/cybermanju-os-desktop" \
+    "$pkgdir/usr/bin/cybermanju-os-desktop"
 
   # Install desktop file
   local desktop_file
   desktop_file=$(find target/release/bundle -name '*.desktop' -type f 2>/dev/null | head -1)
   if [ -n "$desktop_file" ]; then
     install -Dm644 "$desktop_file" \
-      "$pkgdir/usr/share/applications/cybermanju-drive.desktop"
+      "$pkgdir/usr/share/applications/cybermanju-os.desktop"
   fi
 
   # Install icons
@@ -56,7 +56,7 @@ package() {
     local icon="src-tauri/icons/${size}x${size}.png"
     if [ -f "$icon" ]; then
       install -Dm644 "$icon" \
-        "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/cybermanju-drive.png"
+        "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/cybermanju-os.png"
     fi
   done
 

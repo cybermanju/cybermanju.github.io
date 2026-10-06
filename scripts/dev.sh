@@ -6,7 +6,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_ROOT"
 
-echo "=== Cybermanju Drive — Development Mode ==="
+echo "=== CyberManju OS — Development Mode ==="
 echo "Starting Vite dev server + Tauri..."
 echo ""
 

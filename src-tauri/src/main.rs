@@ -1,8 +1,8 @@
-// Cybermanju Drive — Tauri v2 Entry Point
+// CyberManju OS — Tauri v2 Entry Point
 // Neobrutalism × Buddhist-Nepalese × Matrix × Cyberpunk
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    cybermanju_drive_lib::run()
+    cybermanju_os_lib::run()
 }

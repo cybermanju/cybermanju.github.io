@@ -1,7 +1,7 @@
 # Security
 
 Threat model, transport story, key management and operational hardening for
-Cybermanju Drive. Owner: **AGENT-3** (`AGENT-3.md`).
+CyberManju OS. Owner: **AGENT-3** (`AGENT-3.md`).
 
 ---
 

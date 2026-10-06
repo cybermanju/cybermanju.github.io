@@ -1,4 +1,4 @@
-// Cybermanju Drive — Tantivy Full-Text Search Index
+// CyberManju OS — Tantivy Full-Text Search Index
 // BM25 ranking, faceted search, fuzzy matching, real term completions
 // Indexes: filename, content_text, tags, metadata
 //

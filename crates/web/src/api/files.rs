@@ -1,4 +1,4 @@
-// Cybermanju Drive — File tree operations (shared by Tauri IPC and REST)
+// CyberManju OS — File tree operations (shared by Tauri IPC and REST)
 
 use cybermanju_db::Database;
 use cybermanju_types::schema::FileNode;
@@ -184,6 +184,82 @@ pub fn rebuild_parent_index(db: &Database) -> Result<u32, String> {
     }
 
     Ok(count)
+}
+
+/// Create a loose group (ad-hoc file grouping).
+pub fn create_loose_group(
+    db: &Database,
+    name: String,
+    color: String,
+) -> Result<cybermanju_types::schema::LooseGroup, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("invalid: group name is required".to_string());
+    }
+    let group = cybermanju_types::schema::LooseGroup {
+        id: uuid::Uuid::new_v4().to_string(),
+        name,
+        color,
+        file_ids: Vec::new(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    let serialized = serde_json::to_string(&group).map_err(|e| e.to_string())?;
+    let tx = db.begin_write().map_err(|e| e.to_string())?;
+    {
+        let mut table = tx
+            .open_table(Database::get_loose_groups_table())
+            .map_err(|e| e.to_string())?;
+        table
+            .insert(group.id.as_str(), serialized.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(group)
+}
+
+/// Add a file to a loose group (also stamps the file node's id list).
+pub fn add_to_loose_group(
+    db: &Database,
+    group_id: &str,
+    file_id: &str,
+) -> Result<cybermanju_types::schema::LooseGroup, String> {
+    let tx_read = db.begin_read().map_err(|e| e.to_string())?;
+    let group_table = tx_read
+        .open_table(Database::get_loose_groups_table())
+        .map_err(|e| e.to_string())?;
+    let group_value = group_table
+        .get(group_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Loose group not found: {group_id}"))?;
+    let mut group: cybermanju_types::schema::LooseGroup =
+        serde_json::from_str(group_value.value()).map_err(|e| e.to_string())?;
+    drop(tx_read);
+
+    let mut file_node = read_file(db, file_id)?;
+    if !group.file_ids.contains(&file_id.to_string()) {
+        group.file_ids.push(file_id.to_string());
+    }
+    if !file_node.loose_group_ids.contains(&group_id.to_string()) {
+        file_node.loose_group_ids.push(group_id.to_string());
+    }
+
+    let group_serialized = serde_json::to_string(&group).map_err(|e| e.to_string())?;
+    let file_serialized = serde_json::to_string(&file_node).map_err(|e| e.to_string())?;
+    let tx = db.begin_write().map_err(|e| e.to_string())?;
+    {
+        let mut gt = tx
+            .open_table(Database::get_loose_groups_table())
+            .map_err(|e| e.to_string())?;
+        gt.insert(group_id, group_serialized.as_str())
+            .map_err(|e| e.to_string())?;
+        let mut ft = tx
+            .open_table(Database::get_files_table())
+            .map_err(|e| e.to_string())?;
+        ft.insert(file_id, file_serialized.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(group)
 }
 
 /// Preview metadata for a file.

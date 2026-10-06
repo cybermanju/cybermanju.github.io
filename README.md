@@ -1,9 +1,9 @@
-# Cybermanju Drive
+# CyberManju OS
 
 > Quantum-resistant encrypted file manager with AI face grouping, triple-layer compression, code intelligence, GPS map view, web dashboard, and multi-user access control — plus a decentralized OS layer: sized `.cybermanju` disks merged into one volume, Reed–Solomon durability, and a real `cybsh` system terminal.
 
 **Version:** 0.1.0  
-**Identifier:** `com.cybermanju.drive`  
+**Identifier:** `com.cybermanju.os`  
 **License:** MIT
 
 ---
@@ -148,8 +148,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/HautlyS/Cybermanju-Drive.git
-cd Cybermanju-Drive
+git clone https://github.com/cybermanju/cybermanju.github.io.git
+cd cybermanju.github.io
 
 # Install frontend dependencies
 npm install
@@ -218,14 +218,14 @@ cd aur/
 makepkg -si
 
 # Using an AUR helper (e.g., yay)
-yay -S cybermanju-drive
+yay -S cybermanju-os
 ```
 
 ### Docker Image
 
 ```bash
 # Build the multi-stage Docker image
-docker build -t cybermanju-drive:latest .
+docker build -t cybermanju-os:latest .
 
 # Run with Docker Compose
 docker compose up -d
@@ -248,13 +248,13 @@ Output is in `dist-wasm/`. The CI pipeline automatically deploys this to GitHub 
 
 ## ZimaOS Installation
 
-Cybermanju Drive is packaged as a ZimaOS App Store application with full metadata:
+CyberManju OS is packaged as a ZimaOS App Store application with full metadata:
 
 1. **Add the app** to your ZimaOS instance via the App Store, or deploy manually with:
    ```bash
    docker compose up -d
    ```
-2. The container maps persistent data to `/DATA/AppData/cybermanju-drive/config`
+2. The container maps persistent data to `/DATA/AppData/cybermanju-os/config`
 3. Access the web dashboard at `http://<your-nas-ip>:3456`
 4. Supported architectures: **amd64** and **arm64**
 
@@ -319,7 +319,7 @@ Full REST API documentation with request/response schemas is in [ARCHITECTURE.md
 ## Project Structure
 
 ```
-cybermanju-drive/
+cybermanju-os/
 ├── .github/workflows/
 │   └── ci.yml                          # Rust check, Docker build, WASM build, Pages deploy
 ├── docker/

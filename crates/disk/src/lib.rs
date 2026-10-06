@@ -1,4 +1,4 @@
-//! Cybermanju Drive — `.cybermanju` disk & volume substrate (AGENT-6).
+//! CyberManju OS — `.cybermanju` disk & volume substrate (AGENT-6).
 //!
 //! The decentralized-OS storage object: a provider-backed virtual disk with an
 //! adjustable, choosable capacity, a superblock that is sealed and

@@ -1,4 +1,4 @@
-// Cybermanju Drive — Reed–Solomon codec over GF(2^8) (AGENT-7 item 3)
+// CyberManju OS — Reed–Solomon codec over GF(2^8) (AGENT-7 item 3)
 //
 // `k` data shards + `m` parity shards: any `k` of the `k + m` shards
 // reconstruct the original payload byte-for-byte, so a striped chunk survives

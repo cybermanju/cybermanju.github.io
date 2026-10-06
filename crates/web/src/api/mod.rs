@@ -1,4 +1,4 @@
-// Cybermanju Drive — Shared command logic
+// CyberManju OS — Shared command logic
 //
 // Single source of truth for business logic used by BOTH the Tauri IPC
 // commands (`src-tauri/src/commands`) and the HTTP REST routes

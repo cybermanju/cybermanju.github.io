@@ -1,6 +1,6 @@
-// Cybermanju Drive — encryption + compression in the browser build
+// CyberManju OS — encryption + compression in the browser build
 //
-// Everything here runs on the wasm-pack exports (`crates/drive-wasm/src/
+// Everything here runs on the wasm-pack exports (`crates/os-wasm/src/
 // crypto.rs`, `compression.rs`) and stores its state in the `.cybermanju`
 // vault through `useVault` — keys, per-file metadata and the transformed
 // bytes all live in redb's `kv` table, so a file that is encrypted here

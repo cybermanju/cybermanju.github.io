@@ -1,5 +1,6 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { isEditableTarget } from '@/utils/dom'
 
 type ShortcutHandler = () => void
 
@@ -14,6 +15,7 @@ interface Shortcut {
 
 export function useKeyboardShortcuts(shortcuts: Shortcut[]) {
   function handleKeydown(e: KeyboardEvent) {
+    if (!e.ctrlKey && !e.metaKey && isEditableTarget(e.target)) return
     const store = useAppStore()
 
     for (const s of shortcuts) {

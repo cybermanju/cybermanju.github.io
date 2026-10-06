@@ -1,4 +1,4 @@
-// Cybermanju Drive — Keystore
+// CyberManju OS — Keystore
 //
 // Passphrase-derived keys at rest: Argon2id key derivation + ChaCha20Poly1305
 // AEAD. This module is the single source of truth for the machine-local
@@ -55,13 +55,13 @@ pub fn data_dir() -> Option<PathBuf> {
     #[cfg(windows)]
     {
         if let Ok(dir) = std::env::var("APPDATA") {
-            return Some(PathBuf::from(dir).join("CybermanjuDrive"));
+            return Some(PathBuf::from(dir).join("CyberManjuOS"));
         }
     }
     #[cfg(target_os = "macos")]
     {
         if let Ok(home) = std::env::var("HOME") {
-            return Some(PathBuf::from(home).join("Library/Application Support/CybermanjuDrive"));
+            return Some(PathBuf::from(home).join("Library/Application Support/CyberManjuOS"));
         }
     }
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -71,7 +71,7 @@ pub fn data_dir() -> Option<PathBuf> {
                 std::env::var("XDG_DATA_HOME")
                     .map(PathBuf::from)
                     .unwrap_or_else(|_| PathBuf::from(&home).join(".local/share"))
-                    .join("cybermanju-drive"),
+                    .join("cybermanju-os"),
             );
         }
     }

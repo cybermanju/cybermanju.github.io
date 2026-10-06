@@ -1,7 +1,7 @@
-// Cybermanju Drive — shell volume ⇄ `.cybermanju` mirror
+// CyberManju OS — shell volume ⇄ `.cybermanju` mirror
 //
 // The OS layer keeps a virtual volume (`{ path: text }`) in localStorage
-// (`cybermanju.os.volume`, capped at 1 MiB — see crates/drive-wasm/src/os.rs).
+// (`cybermanju.os.volume`, capped at 1 MiB — see crates/os-wasm/src/os.rs).
 // That copy dies with "clear site data" and never reaches the user's file, so
 // every entry is also mirrored into redb's `kv` table under `volume:<path>`,
 // where it survives inside `.cybermanju` and rides along with the container.

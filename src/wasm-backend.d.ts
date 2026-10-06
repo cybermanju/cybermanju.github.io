@@ -1,10 +1,10 @@
-// Types for the `cybermanju-drive-wasm` build artifact.
+// Types for the `cybermanju-os-wasm` build artifact.
 //
-// In the static/WASM bundle this resolves to `crates/drive-wasm/pkg`
+// In the static/WASM bundle this resolves to `crates/os-wasm/pkg`
 // (vite.config.wasm.ts alias); in desktop builds the virtual-module stub
 // (vite-plugin-wasm-stub) stands in. Declared here so `vue-tsc` is
 // deterministic whether or not `pkg/` has been built.
-declare module 'cybermanju-drive-wasm' {
+declare module 'cybermanju-os-wasm' {
   const init: () => Promise<void>;
   export default init;
   export function os_dispatch(cmd: string, argsJson: string): string;

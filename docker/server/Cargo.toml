@@ -1,8 +1,8 @@
 [package]
-name = "cybermanju-drive-server"
+name = "cybermanju-os-server"
 version = "0.1.0"
 edition = "2021"
-description = "Standalone web dashboard server for Cybermanju Drive (Docker deployment)"
+description = "Standalone web dashboard server for CyberManju OS (Docker deployment)"
 
 [dependencies]
 cybermanju-db = { path = "../../crates/db" }

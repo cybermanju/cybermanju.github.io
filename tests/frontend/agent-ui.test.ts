@@ -1,0 +1,237 @@
+// Agent thread + awareness helpers. These are the pieces the panel renders
+// from, so they are tested as a unit: if they drift, every transport shows a
+// different thread for the same transcript.
+import { describe, expect, it } from 'vitest'
+import {
+  buildThread,
+  contextWindowFor,
+  estimateCost,
+  estimateTranscriptTokens,
+  permissionLabel,
+  salientArg,
+  toolPermissions,
+  toolStateFromResult,
+  toolTitle,
+  type ToolGroupRow,
+} from '../../src/utils/agentUi'
+import { renderMarkdown } from '../../src/utils/markdown'
+import {
+  decideLocalTool,
+  normalizeAnchorLocal,
+  rememberAllowLocal,
+  stripAnchorLocal,
+} from '../../src/composables/useAgent'
+import { agentErrorHint, type ChatMessage, type PermissionRuleset } from '../../src/types'
+
+const readCall = (id: string, path: string): ChatMessage => ({
+  role: 'assistant_tool',
+  content: 'reading the file first',
+  toolInput: [{ id, name: 'read', input: { path } }],
+})
+
+const toolResult = (id: string, name: string, content: string): ChatMessage => ({
+  role: 'tool',
+  content,
+  toolCallId: id,
+  toolName: name,
+})
+
+describe('buildThread', () => {
+  it('pairs a call with its result and keeps the lead text', () => {
+    const rows = buildThread(
+      [
+        { role: 'user', content: 'look at src/app.ts' },
+        readCall('c1', '/src/app.ts'),
+        toolResult('c1', 'read', 'export const a = 1\n'),
+        { role: 'assistant', content: 'It exports `a`.' },
+      ],
+      false,
+    )
+    expect(rows.map(r => r.kind)).toEqual(['message', 'tools', 'message'])
+    const group = rows[1] as ToolGroupRow
+    expect(group.lead).toBe('reading the file first')
+    expect(group.rows).toHaveLength(1)
+    expect(group.rows[0].state).toBe('done')
+    expect(group.rows[0].title).toContain('src/app.ts')
+    expect(group.rows[0].result).toContain('export const a')
+  })
+
+  it('marks an unanswered call running while a run is live, error when it is not', () => {
+    const transcript: ChatMessage[] = [readCall('c1', '/a.ts')]
+    expect((buildThread(transcript, true)[0] as ToolGroupRow).rows[0].state).toBe('running')
+    expect((buildThread(transcript, false)[0] as ToolGroupRow).rows[0].state).toBe('error')
+  })
+
+  it('keeps a denial visible as denied rather than generic failure', () => {
+    const rows = buildThread(
+      [readCall('c1', '/secret'), toolResult('c1', 'read', 'deny: `read` is denied by the ruleset')],
+      false,
+    )
+    expect((rows[0] as ToolGroupRow).rows[0].state).toBe('denied')
+  })
+
+  it('surfaces a result that arrived without its assistant block', () => {
+    const rows = buildThread([toolResult('c9', 'grep', 'src/app.ts:12: export const a')], false)
+    expect(rows).toHaveLength(1)
+    const group = rows[0] as ToolGroupRow
+    expect(group.rows[0].state).toBe('done')
+    expect(group.rows[0].result).toContain('app.ts:12')
+  })
+})
+
+describe('toolStateFromResult', () => {
+  it('classifies by the machine prefix, not by wording', () => {
+    expect(toolStateFromResult('ok')).toBe('done')
+    expect(toolStateFromResult('  denied: user rejected')).toBe('denied')
+    expect(toolStateFromResult('deny: bash is denied')).toBe('denied')
+    expect(toolStateFromResult('not_found: old_block absent')).toBe('error')
+    expect(toolStateFromResult('context: prompt is too long')).toBe('error')
+    expect(toolStateFromResult('truncated: output capped')).toBe('error')
+    expect(toolStateFromResult(null)).toBe('running')
+  })
+})
+
+describe('titles and salient arguments', () => {
+  it('leads with the target a human cares about', () => {
+    expect(salientArg({ path: '/src/app.ts' })).toBe('/src/app.ts')
+    expect(toolTitle('read', { path: '/src/app.ts' })).toBe('Reading /src/app.ts')
+    expect(toolTitle('grep', { pattern: 'TODO', path: '/src' })).toContain('TODO')
+    expect(toolTitle('question', { question: 'Which DB?' })).toContain('Which DB?')
+  })
+})
+
+describe('context and cost awareness', () => {
+  it('estimates the transcript at ~4 chars per token', () => {
+    const msgs: ChatMessage[] = [{ role: 'user', content: 'x'.repeat(400) }]
+    expect(estimateTranscriptTokens(msgs)).toBe(100)
+  })
+
+  it('knows the window belongs to the model family', () => {
+    expect(contextWindowFor('claude-sonnet-4-5')).toBe(200_000)
+    expect(contextWindowFor('gpt-5')).toBe(200_000)
+    expect(contextWindowFor('gemini-2.5-pro')).toBe(1_048_576)
+    expect(contextWindowFor('totally-unknown-model')).toBe(128_000)
+  })
+
+  it('prices only what it recognises and says so for the rest', () => {
+    const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 }
+    expect(estimateCost('claude-sonnet-4-5', usage)).toBeCloseTo(18, 5)
+    expect(estimateCost('some-local-model', usage)).toBeNull()
+  })
+})
+
+describe('capability surface', () => {
+  const rules: PermissionRuleset = { default: 'ask', rules: { read: 'allow', bash: 'deny' } }
+
+  it('reports the same decision the loop will apply', () => {
+    const perms = toolPermissions(rules, 'build', ['read', 'write', 'bash'])
+    expect(perms).toEqual([
+      { tool: 'read', action: 'allow' },
+      { tool: 'write', action: 'ask' },
+      { tool: 'bash', action: 'deny' },
+    ])
+    expect(decideLocalTool(rules, 'build', 'write', {}).kind).toBe('ask')
+  })
+
+  it('shows a plan agent as read-only without reading the ruleset', () => {
+    const perms = toolPermissions(rules, 'plan', ['edit', 'write', 'bash'])
+    expect(perms.every(p => p.action === 'deny')).toBe(true)
+  })
+
+  it('labels the ruleset in one word', () => {
+    expect(permissionLabel({ default: 'ask', rules: {} })).toBe('STRICT')
+    expect(permissionLabel({ default: 'allow', rules: {} })).toBe('YOLO')
+    expect(permissionLabel({ default: 'allow', rules: { read: 'allow' } })).toBe('OPEN')
+    expect(permissionLabel(rules)).toBe('BALANCED')
+    expect(permissionLabel(undefined)).toBe('DEFAULT')
+  })
+
+  it('writes "allow always" as a visible rule, never an always-list', () => {
+    const target: PermissionRuleset = { default: 'ask', rules: {} }
+    rememberAllowLocal(target, 'bash')
+    expect(target.rules.bash).toBe('allow')
+    expect(decideLocalTool(target, 'build', 'bash', { line: 'ls' }).kind).toBe('allow')
+  })
+})
+
+describe('renderMarkdown', () => {
+  it('never lets raw markup through — the model writes untrusted text', () => {
+    const html = renderMarkdown('hello <img src=x onerror="alert(1)"> and <script>bad()</script>')
+    expect(html).not.toContain('<img')
+    expect(html).not.toContain('<script>')
+    expect(html).toContain('&lt;img')
+  })
+
+  it('keeps fenced code verbatim and escaped', () => {
+    const html = renderMarkdown('```ts\nconst a: number = 1 < 2\n```')
+    expect(html).toContain('class="language-ts"')
+    expect(html).toContain('const a: number = 1 &lt; 2')
+    expect(html).not.toContain('1 < 2')
+  })
+
+  it('renders links only for web-safe targets', () => {
+    expect(renderMarkdown('[docs](https://example.com/a?b=1&c=2)')).toContain('href="https://example.com/a?b=1&amp;c=2"')
+    expect(renderMarkdown('[x](javascript:alert(1))')).not.toContain('<a ')
+    expect(renderMarkdown('[x](data:text/html,<script>)')).not.toContain('<a ')
+  })
+
+  it('renders structure a human can scan', () => {
+    const html = renderMarkdown('# Title\n\n- one\n- two\n\n**bold** and `code`')
+    expect(html).toContain('<h2>')
+    expect(html).toContain('<li>')
+    expect(html).toContain('<strong>bold</strong>')
+    expect(html).toContain('<code>code</code>')
+  })
+
+  it('treats a trailing unclosed fence as code, not literal ticks', () => {
+    const html = renderMarkdown('here:\n```ts\nconst a = 1 < 2\n')
+    expect(html).toContain('<pre class="md-code">')
+    expect(html).toContain('const a = 1 &lt; 2')
+    expect(html).not.toContain('```')
+  })
+})
+
+describe('agentErrorHint', () => {
+  it('turns a machine prefix into the next human step', () => {
+    expect(agentErrorHint('context: prompt is too long').prefix).toBe('context')
+    expect(agentErrorHint('context: prompt is too long').hint).toMatch(/COMPACT/)
+    expect(agentErrorHint('auth: 401').prefix).toBe('auth')
+    expect(agentErrorHint('something nobody classified').hint).toMatch(/transcript/)
+  })
+})
+
+describe('read anchor (browser mirror of Rust `edit::strip_anchor`)', () => {
+  const hash = 'a'.repeat(64)
+
+  it('removes a trailing [blake3:<hex>] line and nothing else', () => {
+    const raw = 'fn a() {}\n'
+    expect(stripAnchorLocal(`${raw}\n[blake3:${hash}]`)).toBe(raw)
+    expect(stripAnchorLocal(`\n[blake3:${hash}]`)).toBe('')
+    expect(stripAnchorLocal(`[blake3:${hash}]\n`)).toBe('')
+  })
+
+  it('leaves ordinary content and near-miss lines alone', () => {
+    expect(stripAnchorLocal('fn a() {}\n')).toBe('fn a() {}\n')
+    expect(stripAnchorLocal('[blake3:short]')).toBe('[blake3:short]')
+    expect(stripAnchorLocal('a\n[blake3:not-hex]\n')).toBe('a\n[blake3:not-hex]\n')
+    expect(stripAnchorLocal(`inner [blake3:${hash}]`)).toBe(`inner [blake3:${hash}]`)
+  })
+})
+
+describe('anchor normalization (browser mirror of Rust `edit::normalize_anchor`)', () => {
+  const hex = 'a'.repeat(64)
+
+  it('accepts every shape a model might echo back', () => {
+    expect(normalizeAnchorLocal(hex)).toBe(hex)
+    expect(normalizeAnchorLocal(`blake3:${hex}`)).toBe(hex)
+    expect(normalizeAnchorLocal(`[blake3:${hex}]`)).toBe(hex)
+    expect(normalizeAnchorLocal(`  ${hex}  `)).toBe(hex)
+    expect(normalizeAnchorLocal(hex.slice(0, 16))).toBe(hex.slice(0, 16))
+  })
+
+  it('treats an absent or empty anchor as no anchor', () => {
+    expect(normalizeAnchorLocal('')).toBe('')
+    expect(normalizeAnchorLocal('   ')).toBe('')
+    expect(normalizeAnchorLocal('[blake3:]')).toBe('')
+  })
+})

@@ -1,5 +1,5 @@
 /**
- * Single source of truth for the Cybermanju Drive design language.
+ * Single source of truth for the CyberManju OS design language.
  *
  * Every colour, radius, shadow, blur and motion value used by the OS shell,
  * its windows and every panel is derived from the theme definitions below

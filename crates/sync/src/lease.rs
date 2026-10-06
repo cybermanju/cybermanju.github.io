@@ -1,4 +1,4 @@
-// Cybermanju Drive — multi-writer safety (AGENT-7 item 8 / MISSING F4)
+// CyberManju OS — multi-writer safety (AGENT-7 item 8 / MISSING F4)
 //
 // Two devices pointed at one pool must not silently clobber each other.
 // Two mechanisms, both required by the brief:

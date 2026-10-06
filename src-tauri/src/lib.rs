@@ -1,4 +1,4 @@
-// Cybermanju Drive — Core Library
+// CyberManju OS — Core Library
 // Orchestrates redb, ML-KEM PQC (pqcrypto-mlkem), Tantivy, Tree-sitter, triple compression, face clustering
 
 pub mod commands;
@@ -38,7 +38,7 @@ pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
-    tracing::info!("Cybermanju Drive starting...");
+    tracing::info!("CyberManju OS starting...");
 
     // Initialize redb database (opened exactly once — shared with the web dashboard)
     let db = match Database::new("cybermanju.db") {
@@ -262,7 +262,7 @@ pub fn run() {
             commands::disk::check_disk,
         ])
         .run(tauri::generate_context!())
-        .expect("Fatal error while running Cybermanju Drive — see logs above");
+        .expect("Fatal error while running CyberManju OS — see logs above");
 
     // ─── Clean shutdown: stop the dashboard before dropping the Arc ──
     dashboard.stop();

@@ -1,9 +1,9 @@
-// Type declaration for the wasm-pack bundle of `crates/drive-wasm`
-// (resolved at build time via the `cybermanju-drive-wasm` alias in
+// Type declaration for the wasm-pack bundle of `crates/os-wasm`
+// (resolved at build time via the `cybermanju-os-wasm` alias in
 // vite.config.wasm.ts). Mirrors the `#[wasm_bindgen]` exports in
-// `crates/drive-wasm/src` — keep it in sync when an entry point lands
+// `crates/os-wasm/src` — keep it in sync when an entry point lands
 // (pkg/ itself is a gitignored CI artifact and is never committed).
-declare module 'cybermanju-drive-wasm' {
+declare module 'cybermanju-os-wasm' {
   /** One entry point for every transport: dispatches an os/* command. */
   export function os_dispatch(cmd: string, args_json: string): string
   /** redb-in-OPFS handshake; resolves to the worker's storage environment. */

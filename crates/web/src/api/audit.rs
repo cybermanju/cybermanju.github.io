@@ -1,4 +1,4 @@
-// Cybermanju Drive — Audit log (shared by Tauri IPC and REST)
+// CyberManju OS — Audit log (shared by Tauri IPC and REST)
 
 use cybermanju_db::Database;
 use cybermanju_types::schema::AuditEntry;

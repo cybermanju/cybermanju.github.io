@@ -1,4 +1,4 @@
-// Cybermanju Drive — shared AI agent types.
+// CyberManju OS — shared AI agent types.
 //
 // Used by the Tauri desktop app, the Docker web server, and the WASM
 // dispatcher. Raw provider keys NEVER appear here: configs carry no key

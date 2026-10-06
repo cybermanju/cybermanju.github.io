@@ -1,4 +1,4 @@
-// Cybermanju Drive — WASM `os/*` dispatcher (AGENT-8, items 3 & 14)
+// CyberManju OS — WASM `os/*` dispatcher (AGENT-8, items 3 & 14)
 //
 // The GitHub Pages build has no dashboard behind it, so `POST /api/os/exec`
 // would be an empty shell there. This module is the same entry point from the
@@ -631,7 +631,7 @@ fn dispatch(cmd: &str, args: &[String]) -> String {
         "df-attached" | "mount" | "umount" | "disk" | "providers" | "quota"
         | "sync" | "scrub" | "repair" | "gc" | "lease" | "keygen" | "encrypt"
         | "decrypt" => err(format!(
-            "unsupported: `{cmd}` needs the Cybermanju dashboard — the wasm build is a \
+            "unsupported: `{cmd}` needs the CyberManju dashboard — the wasm build is a \
              browser sandbox (volume lives in localStorage)"
         )),
         _ => err(format!(

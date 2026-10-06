@@ -1,4 +1,4 @@
-//! Cybermanju Drive — Reed–Solomon erasure coding (AGENT-7).
+//! CyberManju OS — Reed–Solomon erasure coding (AGENT-7).
 //!
 //! Replaces the replication-only `parity` in striped placement with real
 //! `k`-data + `m`-parity shard coding, so a chunk survives `m` provider losses

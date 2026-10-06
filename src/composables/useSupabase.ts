@@ -1,4 +1,4 @@
-// Cybermanju Drive — Supabase Auth bridge (static/offline builds)
+// CyberManju OS — Supabase Auth bridge (static/offline builds)
 //
 // Why this exists: PKCE OAuth from a pure static page is impossible against
 // the providers directly (GitHub demands `client_secret` + serves no CORS;

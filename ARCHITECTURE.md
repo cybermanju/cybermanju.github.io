@@ -1,4 +1,4 @@
-# Cybermanju Drive — Architecture
+# CyberManju OS — Architecture
 
 ## Table of Contents
 
@@ -20,7 +20,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        CYBERMANJU DRIVE                             │
+│                        CYBERMANJU OS                                │
 │                                                                     │
 │  ┌──────────────────────┐    ┌──────────────────────────────────┐   │
 │  │   FRONTEND (Vue 3)   │    │         BACKEND (Rust)           │   │
@@ -655,14 +655,14 @@ Cancellation is supported via `AtomicBool` flag checked between each file.
 
 ```yaml
 services:
-  cybermanju-drive:
-    image: cybermanju-drive:latest
-    container_name: cybermanju-drive
+  cybermanju-os:
+    image: cybermanju-os:latest
+    container_name: cybermanju-os
     restart: unless-stopped
     ports:
       - "3456:3456"
     volumes:
-      - /DATA/AppData/cybermanju-drive/config:/data
+      - /DATA/AppData/cybermanju-os/config:/data
     environment:
       - RUST_LOG=info
       - PORT=3456
@@ -680,7 +680,7 @@ services:
 │                     │   │                          │   │                  │
 │  npm install        │   │  cargo build --release   │   │  ca-certificates │
 │  npm run build:wasm │──►│  (web_dashboard only)    │──►│  wget            │
-│  → dist-wasm/       │   │  → cybermanju-drive-     │   │  non-root user   │
+│  → dist-wasm/       │   │  → cybermanju-os-     │   │  non-root user   │
 │                     │   │    server binary          │   │                  │
 └─────────────────────┘   └──────────────────────────┘   │  /app/static/    │
                                                         │  /data/ (volume) │
@@ -696,7 +696,7 @@ The `x-casaos` section in `docker-compose.yml` provides ZimaOS App Store integra
 - **Architectures:** `amd64`, `arm64`
 - **Category:** File Sync, Utilities
 - **Port:** 3456
-- **Volume:** `/DATA/AppData/cybermanju-drive/config` mapped to `/data`
+- **Volume:** `/DATA/AppData/cybermanju-os/config` mapped to `/data`
 - **Health Check:** `GET /api/health` every 30s
 - **Localization:** English (en_us) and Chinese (zh_cn)
 
@@ -799,7 +799,7 @@ Headless deployment for NAS devices, servers, and ZimaOS. Runs the web dashboard
 
 **Build:**
 ```bash
-docker build -t cybermanju-drive:latest .
+docker build -t cybermanju-os:latest .
 ```
 
 **Run:**
@@ -813,7 +813,7 @@ docker compose up -d
 
 ### 3. WASM / GitHub Pages
 
-Static frontend-only deployment for public showcase. Connects to a remote Cybermanju Drive instance via REST API, or runs in read-only demo mode.
+Static frontend-only deployment for public showcase. Connects to a remote CyberManju OS instance via REST API, or runs in read-only demo mode.
 
 **Build:**
 ```bash
@@ -822,7 +822,7 @@ npm run build:wasm
 
 **Output:** `dist-wasm/` directory served via GitHub Actions to GitHub Pages.
 
-**Transports:** `tauri` IPC (desktop; `os_*/disk/*` are `REST_FIRST` → `:3456`), `rest` (Docker/web), `wasm` (Pages: `drive-wasm` localStorage volume + BM25-lite; server ops answer `unsupported:`). Settings shows the active transport (`VITE_TRANSPORT` override).
+**Transports:** `tauri` IPC (desktop; `os_*/disk/*` are `REST_FIRST` → `:3456`), `rest` (Docker/web), `wasm` (Pages: `os-wasm` localStorage volume + BM25-lite; server ops answer `unsupported:`). Settings shows the active transport (`VITE_TRANSPORT` override).
 
 ## 12. Decentralized OS layer (disks, durability, cybsh)
 

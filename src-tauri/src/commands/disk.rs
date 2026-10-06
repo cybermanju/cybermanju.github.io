@@ -1,4 +1,4 @@
-// Cybermanju Drive — disk & volume commands (AGENT-6)
+// CyberManju OS — disk & volume commands (AGENT-6)
 //
 // Thin wrappers over `cybermanju-disk`: every command takes the shared
 // `AppState`, borrows the redb handle for the duration of the call and hands

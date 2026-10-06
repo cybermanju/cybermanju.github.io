@@ -1,5 +1,5 @@
 /**
- * Cybermanju Drive — glass & motion layer.
+ * CyberManju OS — glass & motion layer.
  *
  * Utilities shared by every window, panel and overlay. Values come from the
  * `--ui-*` custom properties published by `useTheme()`, so this whole file

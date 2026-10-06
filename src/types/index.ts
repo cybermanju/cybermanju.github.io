@@ -1,4 +1,4 @@
-export type ViewMode = 'grid' | 'list' | 'masonry'
+export type ViewMode = 'grid' | 'list' | 'masonry' | 'columns' | 'details'
 export type PanelType = 'landing' | 'files' | 'preview' | 'encryption' | 'compression' | 'collections' | 'faces' | 'map' | 'code' | 'editor' | 'agent' | 'search' | 'style' | 'accounts' | 'loose-groups' | 'sync' | 'webdash' | 'users' | 'dashboard' | 'settings' | 'trash' | 'activity' | 'favorites' | 'recent' | 'storage' | 'terminal' | 'processes' | 'disks' | 'permissions'
 export type SidebarSection = 'tree' | 'locations' | 'collections' | 'people' | 'styles' | 'loose' | 'users' | 'sync' | 'dashboard' | 'landing' | 'tools'
 
@@ -567,6 +567,37 @@ export function describeSyncError(err: string): { prefix: string; hint: string }
   }
 }
 
+/** Hints for *agent* errors — the sync hints above talk about scrub/resize,
+ *  which is nonsense for an LLM run. `context:` is agent-specific: retrying
+ *  an overflowed transcript can never work, compacting it can. */
+export function agentErrorHint(err: string): { prefix: string; hint: string } {
+  const prefix = (err.split(':')[0] || '').trim()
+  switch (prefix) {
+    case 'auth':
+      return { prefix, hint: 'Provider rejected the key — reseal it in SETUP, then retry.' }
+    case 'rate_limited':
+      return { prefix, hint: 'Provider throttled the call. The harness backs off automatically.' }
+    case 'context':
+      return { prefix, hint: 'Transcript too large for this model — run COMPACT, then continue.' }
+    case 'not_found':
+      return { prefix, hint: 'Path or config is gone — re-check WORKING DIR and the file tree.' }
+    case 'unsupported':
+      return { prefix, hint: 'This transport cannot run that tool (browser sandbox has no shell).' }
+    case 'too_large':
+      return { prefix, hint: 'Input exceeds the tool size cap — narrow the scope or split the file.' }
+    case 'integrity':
+      return { prefix, hint: 'The file changed under the agent — it should re-read and retry.' }
+    case 'conflict':
+      return { prefix, hint: 'Ambiguous edit anchor — the agent must resend a larger block.' }
+    case 'invalid':
+      return { prefix, hint: 'Request rejected before the run — fix the config field named in the message.' }
+    case 'network':
+      return { prefix, hint: 'Transport failure. Retry once; auth errors are never retried.' }
+    default:
+      return { prefix: prefix || 'unknown', hint: 'See the transcript for the machine-prefixed error.' }
+  }
+}
+
 export const MODULE_METADATA: Record<PanelType, ModuleInfo> = {
   landing: { id: 'landing', label: 'HOME', icon: 'solar:house-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0a0a0a 50%, #000000 100%)', description: 'Quantum-resistant encrypted file manager', requiresAuth: false },
   files: { id: 'files', label: 'FILES', icon: 'solar:folder-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0a0a1a 50%, #000000 100%)', description: 'Browse and manage your encrypted files', requiresAuth: true },
@@ -892,6 +923,8 @@ export interface AgentJob {
   result?: string | null
   error?: string | null
   pending?: PendingApproval | null
+  /** Live worker status (`thinking · gpt-5`, `read src/lib.rs`). */
+  activity?: string | null
 }
 
 /** Built-in permission presets offered by the Agent panel wizard. */

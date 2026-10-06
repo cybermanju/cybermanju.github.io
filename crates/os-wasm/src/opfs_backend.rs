@@ -1,4 +1,4 @@
-// Cybermanju Drive — OPFS `StorageBackend` for redb (WASM demo build)
+// CyberManju OS — OPFS `StorageBackend` for redb (WASM demo build)
 //
 // redb's only filesystem assumption is the 5-method `StorageBackend` trait
 // (`len/read/set_len/sync_data/write`), all synchronous. In a browser the

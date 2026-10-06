@@ -1,325 +1,409 @@
 <template>
-  <div class="acct-panel">
-    <div class="panel-header">
-      <div class="header-left">
-        <span class="icon-acct"><AppIcon name="solar:user-circle-bold" /></span>
-        <h2 class="panel-title">ACCOUNTS</h2>
-        <span class="text-muted">{{ store.syncConfigs.length }} PROVIDERS · {{ store.disks.length }} DISKS</span>
+  <div class="am">
+    <!-- ── header ─────────────────────────────────────────── -->
+    <header class="am-top">
+      <div class="am-brand">
+        <span class="am-brand-mark"><AppIcon name="solar:user-circle-bold" :size="20" /></span>
+        <div>
+          <h2 class="am-title">Accounts</h2>
+          <p class="am-subtitle">{{ store.syncConfigs.length }} providers · {{ attachedDisks }} disks · {{ identity ? identity.name : 'signed out' }}</p>
+        </div>
       </div>
-      <div class="header-right">
-        <button class="ghost-btn" type="button" @click="refresh" :disabled="refreshing">{{ refreshing ? '…' : 'REFRESH' }}</button>
+      <div class="am-top-actions">
+        <span v-if="dbBackend" class="am-chip" :class="dbBackend === 'memory' ? 'is-warn' : 'is-ok'">
+          <AppIcon name="solar:database-bold" :size="12" /> {{ dbBackend === 'memory' ? 'SESSION DB' : dbBackend.toUpperCase() + ' DB' }}
+        </span>
+        <button class="am-btn" type="button" :disabled="refreshing" @click="refresh">
+          <AppIcon name="solar:restart-bold" :size="13" /> {{ refreshing ? 'Refreshing…' : 'Refresh' }}
+        </button>
       </div>
-    </div>
+    </header>
 
-    <!-- Merged volume: proof that every .cybermanju disk is one volume -->
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:ssd-square-bold" :size="13" /> ONE MERGED DISK</h3>
-      <div v-if="staticHost" class="static-note">
-        OFFLINE DEMO VAULT — real redb cybermanju.db in this browser{{ dbBackend ? ` (${dbBackend.toUpperCase()})` : '' }}. ACCOUNTS, PROVIDERS, DISKS, USERS + FILES WORK HERE; ONLY PROVIDER NETWORK SYNC NEEDS THE SERVER.
+    <!-- ── merged volume hero ─────────────────────────────── -->
+    <section class="am-hero">
+      <div class="am-hero-row">
+        <div class="am-hero-stat">
+          <span class="am-hero-label">Merged volume</span>
+          <strong class="am-hero-value">{{ humanBytes(volumeView?.usedBytes ?? 0) }} <span>of {{ humanBytes(volumeView?.totalBytes ?? 0) }}</span></strong>
+        </div>
+        <div class="am-hero-stat right">
+          <span class="am-hero-label">{{ volumeView?.diskCount ?? 0 }} disks attached</span>
+          <strong class="am-hero-value">{{ volumePct.toFixed(1) }}<span>% used</span></strong>
+        </div>
       </div>
-      <div class="df-bar" role="img" :aria-label="`Volume ${volumePct.toFixed(1)} percent used`">
-        <div class="df-used" :style="{ width: `${volumePct}%` }"></div>
+      <div class="am-bar" role="img" :aria-label="`Volume ${volumePct.toFixed(1)} percent used`">
+        <div class="am-bar-fill" :style="{ width: `${volumePct}%` }"></div>
       </div>
-      <div class="df-legend">
-        <span>USED {{ humanBytes(volumeView?.usedBytes ?? 0) }}</span>
-        <span>FREE {{ humanBytes(volumeView?.freeBytes ?? 0) }}</span>
-        <span>TOTAL {{ humanBytes(volumeView?.totalBytes ?? 0) }}</span>
-        <span class="text-muted">{{ volumeView?.diskCount ?? 0 }} DISKS ATTACHED</span>
+      <div class="am-hero-legend">
+        <span>Free {{ humanBytes(volumeView?.freeBytes ?? 0) }}</span>
+        <span v-if="staticHost">Offline demo vault — providers, disks, users and files run here; only provider network sync needs the server.</span>
       </div>
-    </div>
+    </section>
 
-    <!-- Identity — OAuth is the only sign-in; there is no password form -->
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:login-bold" :size="13" /> IDENTITY — OAUTH SIGN-IN</h3>
-      <div v-if="identity" class="card">
-        <div class="row-between">
-          <span class="identity-row">
-            <img v-if="identity.avatarUrl" class="avatar" :src="identity.avatarUrl" alt="" />
-            {{ identity.name }}
-            <span class="text-muted small"> · {{ identity.email || identity.provider }}</span>
-          </span>
-          <span class="row-actions">
-            <span class="badge-on">{{ identity.provider.toUpperCase() }}</span>
-            <button class="ghost-btn xs" type="button" :disabled="signingOut" @click="signOut">{{ signingOut ? '…' : 'SIGN OUT' }}</button>
-          </span>
-        </div>
-        <p class="text-muted small">Signed in through the Supabase broker — this app stores no password anywhere.</p>
-      </div>
-      <div v-else class="card">
-        <div class="row-between">
-          <span class="text-muted">NOT SIGNED IN — PICK A PROVIDER (APPROVE THERE, NOTHING IS TYPED HERE).</span>
-        </div>
-        <div class="row-actions" style="margin-top:6px;">
-          <button
-            v-for="p in IDENTITY_PROVIDERS"
-            :key="p.id"
-            class="ghost-btn xs primary"
-            type="button"
-            :disabled="signInBusy === p.id || !sbConfigured"
-            @click="signIn(p.id)"
-          >{{ signInBusy === p.id ? 'OPENING…' : `CONTINUE WITH ${p.label}` }}</button>
-        </div>
-        <p v-if="signInMsg" class="note">{{ signInMsg }}</p>
-        <p v-if="!sbConfigured" class="note">Set SUPABASE URL + KEY in Settings → OAUTH first — the broker runs the sign-in flow (enable the provider under Supabase → Authentication → Sign-in).</p>
-      </div>
-    </div>
+    <!-- ── tabs ───────────────────────────────────────────── -->
+    <nav class="am-tabs" role="tablist" aria-label="Account sections" @keydown="onTabsKey">
+      <button
+        v-for="t in TABS"
+        :key="t.id"
+        :id="`am-tab-${t.id}`"
+        role="tab"
+        :aria-controls="`am-panel-${t.id}`"
+        :aria-selected="activeTab === t.id"
+        :tabindex="activeTab === t.id ? 0 : -1"
+        class="am-tab"
+        :class="{ active: activeTab === t.id }"
+        type="button"
+        @click="activeTab = t.id"
+      >
+        <AppIcon :name="t.icon" :size="14" /> {{ t.label }}
+        <span v-if="t.id === 'providers' && store.syncConfigs.length" class="am-tab-count">{{ store.syncConfigs.length }}</span>
+        <span v-if="t.id === 'signin' && identity" class="am-dot" aria-hidden="true"></span>
+        <span v-if="t.id === 'vault' && disk.dirty" class="am-dot warn" aria-hidden="true"></span>
+      </button>
+    </nav>
 
-    <!-- This machine: the .cybermanju file the whole vault lives in -->
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:diskette-bold" :size="13" /> DISK — THIS MACHINE (.CYBERMANJU FILE)</h3>
-      <div class="card">
-        <div class="row-between">
-          <span>
-            <template v-if="disk.attached">
-              <i class="dot" :class="{ on: !disk.dirty }"></i>{{ disk.name }}
-              <span class="text-muted small"> · {{ humanBytes(disk.savedBytes) }}<template v-if="disk.dirty"> · UNSAVED CHANGES</template><template v-else> · SAVED {{ timeOf(disk.savedAt) }}</template></span>
-            </template>
-            <span v-else class="text-muted">NO FILE ATTACHED — THE VAULT LIVES IN THIS BROWSER ONLY.</span>
-          </span>
-          <span class="row-actions">
-            <button class="ghost-btn xs primary" type="button" :disabled="disk.busy" @click="openDiskFile">{{ disk.busy ? '…' : 'OPEN' }}</button>
-            <button class="ghost-btn xs" type="button" :disabled="disk.busy" @click="createDiskFile">CREATE</button>
-            <button class="ghost-btn xs" type="button" :disabled="disk.busy || !disk.bound" @click="saveDiskFile">SAVE NOW</button>
-            <button class="ghost-btn xs" type="button" :disabled="disk.busy" @click="exportDiskFile">EXPORT</button>
-            <button class="ghost-btn xs" type="button" :disabled="disk.busy" @click="pickImport">IMPORT</button>
-            <button v-if="disk.bound" class="ghost-btn xs danger" type="button" :disabled="disk.busy" @click="detachDiskFile">DETACH</button>
-          </span>
-        </div>
-        <input ref="importInput" type="file" accept=".cybermanju,application/octet-stream" class="hidden-input" @change="onImportFile" />
-
-        <div class="form-row" style="margin-top:6px;">
-          <input
-            v-model="diskPassphrase"
-            class="input"
-            type="password"
-            placeholder="PASSPHRASE (OPTIONAL — ENCRYPTS THE FILE, NEVER STORED)"
-            autocomplete="new-password"
-            aria-label="File passphrase"
-          />
-          <span class="text-muted small">{{ disk.supported ? 'FILE SYSTEM ACCESS API — SAVES STRAIGHT TO YOUR DISK' : 'NO FILE SYSTEM ACCESS API — USE EXPORT / IMPORT' }}</span>
-        </div>
-
-        <div v-if="disk.needsPassphrase" class="oauth-block">
-          <div class="row-between">
-            <span class="small">{{ disk.name }} IS ENCRYPTED — ENTER ITS PASSPHRASE TO OPEN</span>
-            <button class="ghost-btn xs primary" type="button" :disabled="disk.busy" @click="unlockDisk">UNLOCK & OPEN</button>
-          </div>
-        </div>
-        <div v-else-if="disk.needsPermission" class="oauth-block">
-          <div class="row-between">
-            <span class="small">{{ disk.name }} IS REMEMBERED — THE BROWSER WANTS ONE CLICK TO RE-OPEN IT</span>
-            <button class="ghost-btn xs primary" type="button" :disabled="disk.busy" @click="unlockDisk">ALLOW & OPEN</button>
-          </div>
-        </div>
-
-        <p v-if="disk.lastMessage" class="note">{{ disk.lastMessage }}</p>
-        <p v-if="disk.lastError" class="note err">{{ disk.lastError }}</p>
-        <p v-if="disk.bound && disk.dirty" class="note">Changes are written back automatically — SAVE NOW forces it immediately.</p>
-      </div>
-    </div>
-
-    <!-- Providers -->
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:cloud-bold" :size="13" /> CLOUD + LOCAL CONNECTIONS</h3>
-      <div v-if="!store.syncConfigs.length" class="card">
-        <span class="text-muted">No providers connected — add one below.</span>
-      </div>
-      <article v-for="cfg in store.syncConfigs" :key="cfg.id" class="card provider">
-        <header class="row-between">
-          <div>
-            <span class="p-name">{{ cfg.name || cfg.backendType }}</span>
-            <span class="text-muted small"> · {{ backendLabel(cfg.backendType) }}</span>
-          </div>
-          <span class="row-actions">
-            <button
-              class="ghost-btn xs"
-              type="button"
-              :class="{ on: cfg.enabled }"
-              @click="toggleEnabled(cfg)"
-              :title="cfg.enabled ? 'Disable provider' : 'Enable provider'"
-            >{{ cfg.enabled ? 'ON' : 'OFF' }}</button>
-            <button class="ghost-btn xs" type="button" :disabled="probing.has(cfg.id)" @click="probe(cfg)">TEST</button>
-            <button class="ghost-btn xs danger" type="button" @click="removeProvider(cfg.id)">DEL</button>
-          </span>
-        </header>
-
-        <!-- auth status -->
-        <div class="auth-row">
-          <span class="auth-badge" :class="authClass(cfg.id)">{{ authLabel(cfg.id) }}</span>
-          <span v-if="authDetail(cfg.id)" class="text-muted small" :title="authHint(cfg.id)">{{ authDetail(cfg.id) }}</span>
-        </div>
-
-        <!-- PKCE OAuth -->
-        <div v-if="isOauthCapable(cfg.backendType) && !staticHost" class="oauth-block">
-          <div class="row-between">
-            <span class="small">PKCE OAUTH — BROWSER APPROVAL, NO PASSWORD TYPED HERE</span>
-            <button
-              class="ghost-btn xs primary"
-              type="button"
-              :disabled="oauthBusy === cfg.id"
-              @click="oauthConnect(cfg)"
-            >{{ oauthBusy === cfg.id ? 'WAITING…' : 'CONNECT WITH OAUTH' }}</button>
-          </div>
-          <p v-if="oauthMsg[cfg.id]" class="note">{{ oauthMsg[cfg.id] }}</p>
-          <p v-if="oauthBusy === cfg.id" class="note">Approve in the opened browser tab — this panel polls the provider until credentials land. <button class="linklike" type="button" @click="cancelOauth">cancel</button></p>
-          <p v-if="oauthUrl[cfg.id]" class="note">Popup blocked? Open manually: <span class="mono url">{{ oauthUrl[cfg.id] }}</span></p>
-        </div>
-
-        <!-- Supabase-brokered OAuth (static/offline builds: no dashboard) -->
-        <div v-if="isOauthCapable(cfg.backendType) && staticHost" class="oauth-block">
-          <div class="row-between">
-            <span class="small">OAUTH VIA SUPABASE — APPROVE AT THE PROVIDER, TOKEN LANDS HERE</span>
-            <button
-              class="ghost-btn xs primary"
-              type="button"
-              :disabled="sbBusy === cfg.id"
-              @click="supabaseConnect(cfg)"
-            >{{ sbBusy === cfg.id ? 'WAITING…' : 'CONNECT WITH OAUTH' }}</button>
-          </div>
-          <p v-if="sbMsg[cfg.id]" class="note">{{ sbMsg[cfg.id] }}</p>
-          <p v-if="sbBusy === cfg.id" class="note">Approve in the popup — polling for the provider token… <button class="linklike" type="button" @click="cancelSupabase">cancel</button></p>
-          <p v-if="!sbConfigured" class="note">Set SUPABASE URL + KEY in Settings → OAUTH first (enable {{ cfg.backendType }} under Supabase → Authentication → Sign-in).</p>
-        </div>
-
-        <!-- credentials -->
-        <div class="cred-grid">
-          <label v-if="needsRepo(cfg.backendType)" class="field">
-            <span class="text-muted small">{{ cfg.backendType === 'gitlab' ? 'PROJECT ID' : 'REPO (owner/repo)' }}</span>
-            <input v-model="draft(cfg).repoName" class="input" placeholder="owner/repo" autocomplete="off" />
-          </label>
-          <label v-if="needsRepo(cfg.backendType)" class="field">
-            <span class="text-muted small">BRANCH</span>
-            <input v-model="draft(cfg).branch" class="input" placeholder="main" autocomplete="off" />
-          </label>
-          <label v-if="cfg.backendType === 'googleDrive'" class="field">
-            <span class="text-muted small">DRIVE FOLDER ID</span>
-            <input v-model="draft(cfg).folderId" class="input" placeholder="folder id (optional)" autocomplete="off" />
-          </label>
-          <label v-if="cfg.backendType === 'googlePhotos'" class="field">
-            <span class="text-muted small">PHOTOS ALBUM ID</span>
-            <input v-model="draft(cfg).albumId" class="input" placeholder="album id (optional)" autocomplete="off" />
-          </label>
-          <label v-if="cfg.backendType === 'telegram'" class="field">
-            <span class="text-muted small">CHAT ID</span>
-            <input v-model="draft(cfg).chatId" class="input" placeholder="chat id" autocomplete="off" />
-          </label>
-          <label v-if="cfg.backendType === 'gitlab'" class="field grow">
-            <span class="text-muted small">INSTANCE URL (SELF-HOSTED — EMPTY = GITLAB.COM)</span>
-            <input v-model="draft(cfg).basePath" class="input" placeholder="https://gitlab.example.com" autocomplete="off" />
-          </label>
-          <label v-if="cfg.backendType === 'local'" class="field grow">
-            <span class="text-muted small">LOCAL PATH</span>
-            <input v-model="draft(cfg).basePath" class="input" placeholder="/DATA/SYNC" autocomplete="off" />
-          </label>
-          <label v-if="needsToken(cfg.backendType)" class="field grow">
-            <span class="text-muted small">{{ tokenLabel(cfg.backendType) }}</span>
-            <input v-model="draft(cfg).token" class="input" type="password" placeholder="paste — never shown back" autocomplete="off" />
-          </label>
-        </div>
-        <p class="text-muted small">{{ authGuidance(cfg.backendType) }}</p>
-        <div class="row-actions" style="margin-top:6px;">
-          <button class="ghost-btn xs primary" type="button" :disabled="saving === cfg.id" @click="saveCreds(cfg)">{{ saving === cfg.id ? 'SAVING…' : 'SAVE & VERIFY' }}</button>
-          <button class="ghost-btn xs" type="button" title="Uses saved credentials — SAVE & VERIFY first if you just pasted a token" @click="quota(cfg)">QUOTA</button>
-          <span v-if="quotaMsg[cfg.id]" class="text-muted small">{{ quotaMsg[cfg.id] }}</span>
-        </div>
-
-        <!-- disks bound to this provider: the .cybermanju file size lives here -->
-        <div class="disks-block">
-          <div class="row-between">
-            <span class="small">SYSTEM DISKS ON THIS PROVIDER ({{ disksFor(cfg.id).length }}) — EACH IS ONE .CYBERMANJU FILE, MERGED INTO THE VOLUME</span>
-          </div>
-          <p v-if="disksFor(cfg.id).length === 0" class="note">
-            No system disk yet — provision one below and this provider contributes space + compute to the merged volume.
-          </p>
-          <div v-for="d in disksFor(cfg.id)" :key="d.id" class="disk-row">
-            <div class="row-between">
-              <span>{{ d.name || d.id.slice(0, 8) }} · <span class="text-muted">{{ d.state }} / {{ d.health }}</span></span>
-              <span class="row-actions">
-                <button v-if="d.state !== 'attached'" class="ghost-btn xs primary" type="button" :disabled="diskBusy === d.id" @click="attachDisk(d.id, cfg.id)">ATTACH</button>
-                <button v-else class="ghost-btn xs" type="button" :disabled="diskBusy === d.id" @click="store.detachDisk(d.id)">DETACH</button>
-                <button class="ghost-btn xs" type="button" :disabled="diskBusy === d.id" @click="store.checkDisk(d.id)">CHECK</button>
-              </span>
+    <main class="am-body">
+      <!-- ══ SIGN IN ══ -->
+      <section v-if="activeTab === 'signin'" id="am-panel-signin" class="am-section" role="tabpanel" aria-labelledby="am-tab-signin" tabindex="0">
+        <div v-if="identity" class="am-card am-identity">
+          <div class="am-identity-row">
+            <img v-if="identity.avatarUrl" class="am-avatar" :src="identity.avatarUrl" alt="" />
+            <ProviderLogo v-else :provider="identity.provider" :size="40" />
+            <div class="am-identity-meta">
+              <strong>{{ identity.name }}</strong>
+              <span class="muted">{{ identity.email || identity.provider }}</span>
             </div>
-            <div class="text-muted small truncate" :title="d.containerPath">FILE {{ d.containerPath }}</div>
-            <div class="mini-bar"><div class="mini-used" :style="{ width: `${diskPct(d.usedBytes, d.capacityBytes)}%` }"></div></div>
-            <div class="row-between small">
-              <span>{{ humanBytes(d.usedBytes) }} / {{ humanBytes(d.capacityBytes) }}</span>
-              <span class="row-actions">
-                <input v-model.number="resizeMb[d.id]" class="input xs-num" type="number" min="64" max="8192" step="64" :placeholder="String(Math.max(64, Math.round(d.capacityBytes / 1048576)))" :aria-label="`New size MB for ${d.name}`" />
-                <span class="text-muted">MB</span>
-                <button class="ghost-btn xs" type="button" :disabled="diskBusy === d.id" @click="applyResize(d.id)">APPLY SIZE</button>
+            <span class="am-status is-ok"><ProviderLogo :provider="identity.provider" :size="18" /> {{ identity.provider.toUpperCase() }}</span>
+            <button class="am-btn sm" type="button" :disabled="signingOut" @click="signOut">{{ signingOut ? '…' : 'Sign out' }}</button>
+          </div>
+          <p class="am-hint">Signed in through the Supabase broker — this app stores no password anywhere.</p>
+        </div>
+
+        <div v-else class="am-card">
+          <h3 class="am-card-title">Sign in with a provider</h3>
+          <p class="am-hint">Approve at the provider — nothing is typed here. OAuth is the only sign-in; there is no password form.</p>
+          <div class="am-login-grid">
+            <button
+              v-for="p in LOGIN_CARDS"
+              :key="p.id"
+              class="am-login"
+              type="button"
+              :disabled="signInBusy === p.id || !sbConfigured"
+              :title="sbConfigured ? `Continue with ${p.label}` : 'Set Supabase URL + key first'"
+              @click="signIn(p.id)"
+            >
+              <ProviderLogo :provider="p.logo" :size="36" />
+              <span class="am-login-label">{{ signInBusy === p.id ? 'Opening…' : `Continue with ${p.label}` }}</span>
+              <span class="am-login-sub">{{ p.sub }}</span>
+            </button>
+          </div>
+          <p v-if="signInMsg" class="am-note">{{ signInMsg }}</p>
+          <div v-if="!sbConfigured" class="am-banner warn">
+            <AppIcon name="solar:key-bold" :size="15" />
+            <span>Broker not configured — set the Supabase URL + key, and enable the provider under Supabase → Authentication → Sign-in.</span>
+            <button class="am-btn sm primary" type="button" @click="openSettings">Configure</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ VAULT FILE ══ -->
+      <section v-if="activeTab === 'vault'" id="am-panel-vault" class="am-section" role="tabpanel" aria-labelledby="am-tab-vault" tabindex="0">
+        <div class="am-card" :class="{ 'is-attached': disk.attached }">
+          <div class="am-card-head">
+            <div class="am-card-head-left">
+              <ProviderLogo provider="local" :size="34" />
+              <div>
+                <h3 class="am-card-title">{{ disk.attached ? disk.name : 'No vault file attached' }}</h3>
+                <p class="am-hint">
+                  <template v-if="disk.attached">
+                    <span class="am-status sm" :class="disk.dirty ? 'is-warn' : 'is-ok'">{{ disk.dirty ? 'Unsaved changes' : `Saved ${timeOf(disk.savedAt)}` }}</span>
+                    <span class="muted"> · {{ humanBytes(disk.savedBytes) }}</span>
+                  </template>
+                  <template v-else>The vault lives in this browser session only. Create or open a <code class="am-code">.cybermanju</code> file to keep it on your disk.</template>
+                </p>
+              </div>
+            </div>
+            <span class="am-status sm" :class="disk.bound ? 'is-ok' : ''">{{ disk.bound ? 'BOUND' : 'SESSION ONLY' }}</span>
+          </div>
+
+          <div class="am-btn-grid">
+            <button class="am-btn primary" type="button" :disabled="disk.busy" @click="openDiskFile"><AppIcon name="solar:folder-open-bold" :size="13" /> {{ disk.busy ? '…' : 'Open' }}</button>
+            <button class="am-btn primary" type="button" :disabled="disk.busy" @click="createDiskFile"><AppIcon name="solar:add-bold" :size="13" /> Create</button>
+            <button class="am-btn" type="button" :disabled="disk.busy || !disk.bound" @click="saveDiskFile"><AppIcon name="solar:diskette-bold" :size="13" /> Save now</button>
+            <button class="am-btn" type="button" :disabled="disk.busy" @click="exportDiskFile"><AppIcon name="solar:download-bold" :size="13" /> Export</button>
+            <button class="am-btn" type="button" :disabled="disk.busy" @click="pickImport"><AppIcon name="solar:upload-bold" :size="13" /> Import</button>
+            <button v-if="disk.bound" class="am-btn danger" type="button" :disabled="disk.busy" @click="detachDiskFile">Detach</button>
+          </div>
+          <input ref="importInput" type="file" accept=".cybermanju,application/octet-stream" class="am-hidden" @change="onImportFile" />
+
+          <label class="am-field">
+            <span class="am-field-label">Passphrase <span class="muted">(optional — encrypts the file, never stored)</span></span>
+            <span class="am-input-wrap">
+              <input
+                v-model="diskPassphrase"
+                class="am-input"
+                :type="showDiskPass ? 'text' : 'password'"
+                placeholder="Passphrase for create / unlock"
+                autocomplete="new-password"
+                aria-label="File passphrase"
+              />
+              <button class="am-icon-btn" type="button" :title="showDiskPass ? 'Hide' : 'Show'" @click="showDiskPass = !showDiskPass">
+                <AppIcon :name="showDiskPass ? 'solar:eye-closed-bold' : 'solar:eye-bold'" :size="14" />
+              </button>
+            </span>
+          </label>
+          <p class="am-hint">{{ disk.supported ? 'File System Access API available — saves go straight to your disk.' : 'No File System Access API in this browser — use Export / Import instead.' }}</p>
+
+          <div v-if="disk.needsPassphrase" class="am-banner warn">
+            <AppIcon name="solar:lock-bold" :size="15" />
+            <span><strong>{{ disk.name }}</strong> is encrypted — enter its passphrase to open it.</span>
+            <button class="am-btn sm primary" type="button" :disabled="disk.busy" @click="unlockDisk">Unlock &amp; open</button>
+          </div>
+          <div v-else-if="disk.needsPermission" class="am-banner info">
+            <AppIcon name="solar:cursor-bold" :size="15" />
+            <span><strong>{{ disk.name }}</strong> is remembered — the browser wants one click to re-open it.</span>
+            <button class="am-btn sm primary" type="button" :disabled="disk.busy" @click="unlockDisk">Allow &amp; open</button>
+          </div>
+
+          <p v-if="disk.lastMessage" class="am-note">{{ disk.lastMessage }}</p>
+          <p v-if="disk.lastError" class="am-note err">{{ disk.lastError }}</p>
+          <p v-if="disk.bound && disk.dirty" class="am-note warn">Changes write back automatically — Save now forces it immediately.</p>
+        </div>
+      </section>
+
+      <!-- ══ PROVIDERS ══ -->
+      <section v-if="activeTab === 'providers'" id="am-panel-providers" class="am-section" role="tabpanel" aria-labelledby="am-tab-providers" tabindex="0">
+        <div class="am-providers">
+          <!-- list -->
+          <div class="am-list-col">
+            <div class="am-list-head">
+              <span class="muted small">{{ filteredConfigs.length }} of {{ store.syncConfigs.length }}</span>
+              <button class="am-btn sm primary" type="button" @click="wizOpen = !wizOpen">
+                <AppIcon name="solar:add-bold" :size="12" /> {{ wizOpen ? 'Close' : 'Add' }}
+              </button>
+            </div>
+            <label v-if="store.syncConfigs.length > 3" class="am-search">
+              <AppIcon name="solar:magnifier-bold" :size="13" />
+              <input v-model="provFilter" class="am-search-input" type="search" placeholder="Filter providers…" aria-label="Filter providers" />
+            </label>
+            <button
+              v-for="cfg in filteredConfigs"
+              :key="cfg.id"
+              type="button"
+              class="am-prov"
+              :class="{ active: selectedId === cfg.id }"
+              @click="selectedId = cfg.id"
+            >
+              <ProviderLogo :provider="logoKindFor(cfg.backendType)" :size="34" />
+              <span class="am-prov-meta">
+                <strong class="am-prov-name">{{ cfg.name || backendLabel(cfg.backendType) }}<span v-if="isDraftDirty(cfg)" class="am-unsaved" title="Unsaved edits" aria-label="Unsaved edits">●</span></strong>
+                <span class="muted small">{{ backendLabel(cfg.backendType) }} · {{ disksFor(cfg.id).length }} disks</span>
               </span>
+              <span class="am-status sm" :class="statusTone(cfg.id)">{{ authLabel(cfg.id) }}</span>
+              <span class="am-switch" :class="{ on: cfg.enabled }" :title="cfg.enabled ? 'Enabled' : 'Disabled'"></span>
+            </button>
+            <p v-if="store.syncConfigs.length && !filteredConfigs.length" class="am-hint">No providers match “{{ provFilter }}”. <button class="am-link" type="button" @click="provFilter = ''">Clear filter</button></p>
+            <div v-if="!store.syncConfigs.length && !wizOpen" class="am-card">
+              <UiEmpty
+                icon="solar:cloud-bold"
+                title="No providers yet"
+                description="Connect GitHub, GitLab, Google Drive, Photos, Telegram or a local folder to start syncing."
+              >
+                <template #actions>
+                  <button class="am-btn sm primary" type="button" @click="wizOpen = true"><AppIcon name="solar:add-bold" :size="12" /> Add provider</button>
+                </template>
+              </UiEmpty>
+            </div>
+
+            <!-- add-provider wizard -->
+            <div v-if="wizOpen" class="am-card am-wiz">
+              <h3 class="am-card-title">Add provider</h3>
+              <div class="am-logo-picker" role="radiogroup" aria-label="Provider type">
+                <button
+                  v-for="b in BACKEND_ORDER"
+                  :key="b"
+                  type="button"
+                  role="radio"
+                  :aria-checked="wiz.backendType === b"
+                  class="am-logo-pick"
+                  :class="{ active: wiz.backendType === b }"
+                  :title="backendLabel(b)"
+                  @click="wiz.backendType = b"
+                >
+                  <ProviderLogo :provider="logoKindFor(b)" :size="30" />
+                  <span>{{ shortName(b) }}</span>
+                </button>
+              </div>
+              <p class="am-hint">{{ backendBlurb(wiz.backendType) }}</p>
+              <label class="am-field">
+                <span class="am-field-label">Display name</span>
+                <input v-model="wiz.name" class="am-input" placeholder="e.g. Work GitHub" aria-label="Display name" />
+              </label>
+              <div class="am-fields">
+                <label v-for="f in fieldsFor(wiz.backendType)" :key="f.key" class="am-field" :class="{ grow: f.grow }">
+                  <span class="am-field-label">{{ f.label }}</span>
+                  <span class="am-input-wrap" v-if="f.secret">
+                    <input v-model="(wiz as any)[f.key]" class="am-input" :type="showWizToken ? 'text' : 'password'" :placeholder="f.placeholder" autocomplete="off" />
+                    <button class="am-icon-btn" type="button" @click="showWizToken = !showWizToken" :title="showWizToken ? 'Hide' : 'Show'"><AppIcon :name="showWizToken ? 'solar:eye-closed-bold' : 'solar:eye-bold'" :size="14" /></button>
+                  </span>
+                  <input v-else v-model="(wiz as any)[f.key]" class="am-input" :placeholder="f.placeholder" autocomplete="off" />
+                  <span v-if="f.hint" class="am-field-hint">{{ f.hint }}</span>
+                </label>
+              </div>
+              <p class="am-hint">{{ authGuidance(wiz.backendType) }}</p>
+              <div class="am-row">
+                <button class="am-btn sm primary" type="button" :disabled="wizBusy" @click="addProvider(true)">{{ wizBusy ? 'Verifying…' : 'Save & verify' }}</button>
+                <button class="am-btn sm" type="button" :disabled="wizBusy" @click="addProvider(false)">Save</button>
+                <button class="am-btn sm" type="button" :disabled="wizBusy" @click="resetWizard()">Reset</button>
+                <span v-if="wizMsg" class="am-note" :class="wizOk === false ? 'err' : wizOk === true ? 'ok' : ''" style="margin:0;" role="status">{{ wizMsg }}</span>
+              </div>
             </div>
           </div>
-          <div class="form-row">
-            <label class="small text-muted">{{ disksFor(cfg.id).length === 0 ? 'PROVISION SYSTEM DISK' : 'NEW DISK' }} — {{ newDiskMb[cfg.id] ?? 512 }} MB</label>
-            <input v-model.number="newDiskMb[cfg.id]" class="slider" type="range" min="64" max="8192" step="64" :aria-label="`New disk size for ${cfg.name || cfg.backendType}`" />
-            <input v-model="newDiskPass[cfg.id]" class="input" type="password" placeholder="PASSPHRASE (ALSO UNLOCKS)" autocomplete="off" :aria-label="`Passphrase for new disk on ${cfg.name || cfg.backendType}`" />
-            <button class="ghost-btn xs primary" type="button" :disabled="diskBusy === cfg.id" @click="createDisk(cfg.id)">{{ diskBusy === cfg.id ? 'CREATING…' : disksFor(cfg.id).length === 0 ? 'PROVISION SYSTEM DISK' : 'CREATE & ATTACH' }}</button>
+
+          <!-- detail -->
+          <div v-if="selectedCfg" class="am-detail-col">
+            <article class="am-card am-detail">
+              <header class="am-card-head">
+                <div class="am-card-head-left">
+                  <ProviderLogo :provider="logoKindFor(selectedCfg.backendType)" :size="40" />
+                  <div>
+                    <h3 class="am-card-title">{{ selectedCfg.name || backendLabel(selectedCfg.backendType) }}</h3>
+                    <p class="am-hint">{{ backendLabel(selectedCfg.backendType) }} · {{ backendBlurb(selectedCfg.backendType) }}</p>
+                  </div>
+                </div>
+                <span class="am-status" :class="statusTone(selectedCfg.id)">{{ authLabel(selectedCfg.id) }}</span>
+              </header>
+
+              <div class="am-row wrap">
+                <button class="am-btn sm" :class="{ on: selectedCfg.enabled }" type="button" @click="toggleEnabled(selectedCfg!)">{{ selectedCfg.enabled ? 'Enabled' : 'Disabled' }}</button>
+                <button class="am-btn sm" type="button" :disabled="probing.has(selectedCfg.id)" @click="probe(selectedCfg!)">{{ probing.has(selectedCfg.id) ? 'Testing…' : 'Test connection' }}</button>
+                <button class="am-btn sm" type="button" @click="quota(selectedCfg!)">Quota</button>
+                <button class="am-btn sm danger" type="button" @click="removeProvider(selectedCfg!.id)">Delete</button>
+                <span v-if="quotaMsg[selectedCfg.id]" class="muted small">{{ quotaMsg[selectedCfg.id] }}</span>
+              </div>
+              <p v-if="authDetail(selectedCfg.id)" class="am-note" :class="authState[selectedCfg.id]?.ok === false ? 'err' : ''" :title="authHint(selectedCfg.id)">{{ authDetail(selectedCfg.id) }}</p>
+
+              <!-- step 1: connect -->
+              <div v-if="isOauthCapable(selectedCfg.backendType) && !staticHost" class="am-step">
+                <h4 class="am-step-title"><span class="am-step-n">1</span> Connect with OAuth</h4>
+                <div class="am-row">
+                  <ProviderLogo :provider="logoKindFor(selectedCfg.backendType)" :size="24" />
+                  <span class="small">Browser approval — no password typed here.</span>
+                  <button class="am-btn sm primary" type="button" :disabled="oauthBusy === selectedCfg.id" @click="oauthConnect(selectedCfg!)">{{ oauthBusy === selectedCfg.id ? 'Waiting…' : 'Connect with OAuth' }}</button>
+                </div>
+                <p v-if="oauthMsg[selectedCfg.id]" class="am-note">{{ oauthMsg[selectedCfg.id] }}</p>
+                <p v-if="oauthBusy === selectedCfg.id" class="am-note">Approve in the opened browser tab — this panel polls until credentials land. <button class="am-link" type="button" @click="cancelOauth">cancel</button></p>
+                <p v-if="oauthUrl[selectedCfg.id]" class="am-note">Popup blocked? Open manually: <span class="am-code">{{ oauthUrl[selectedCfg.id] }}</span></p>
+              </div>
+              <div v-if="isOauthCapable(selectedCfg.backendType) && staticHost" class="am-step">
+                <h4 class="am-step-title"><span class="am-step-n">1</span> Connect with OAuth <span class="muted">via Supabase</span></h4>
+                <div class="am-row">
+                  <ProviderLogo :provider="logoKindFor(selectedCfg.backendType)" :size="24" />
+                  <span class="small">Approve at the provider, token lands here.</span>
+                  <button class="am-btn sm primary" type="button" :disabled="sbBusy === selectedCfg.id" @click="supabaseConnect(selectedCfg!)">{{ sbBusy === selectedCfg.id ? 'Waiting…' : 'Connect with OAuth' }}</button>
+                </div>
+                <p v-if="sbMsg[selectedCfg.id]" class="am-note">{{ sbMsg[selectedCfg.id] }}</p>
+                <p v-if="sbBusy === selectedCfg.id" class="am-note">Approve in the popup — polling for the provider token… <button class="am-link" type="button" @click="cancelSupabase">cancel</button></p>
+                <div v-if="!sbConfigured" class="am-banner warn">
+                  <AppIcon name="solar:key-bold" :size="15" />
+                  <span>Broker not configured — enable {{ selectedCfg.backendType }} under Supabase → Authentication → Sign-in first.</span>
+                  <button class="am-btn sm primary" type="button" @click="openSettings">Configure</button>
+                </div>
+              </div>
+
+              <!-- step 2: configure -->
+              <div class="am-step">
+                <h4 class="am-step-title"><span class="am-step-n">2</span> Configure</h4>
+                <div class="am-fields">
+                  <label class="am-field">
+                    <span class="am-field-label">Display name</span>
+                    <input v-model="draft(selectedCfg!).name" class="am-input" placeholder="Display name" autocomplete="off" />
+                  </label>
+                  <label v-for="f in fieldsFor(selectedCfg.backendType)" :key="f.key" class="am-field" :class="{ grow: f.grow }">
+                    <span class="am-field-label">{{ f.label }}</span>
+                    <span class="am-input-wrap" v-if="f.secret">
+                      <input v-model="(draft(selectedCfg!) as any)[f.key]" class="am-input" :type="showTokens[selectedCfg.id] ? 'text' : 'password'" :placeholder="f.placeholder" autocomplete="off" />
+                      <button class="am-icon-btn" type="button" @click="showTokens[selectedCfg.id] = !showTokens[selectedCfg.id]" :title="showTokens[selectedCfg.id] ? 'Hide' : 'Show'"><AppIcon :name="showTokens[selectedCfg.id] ? 'solar:eye-closed-bold' : 'solar:eye-bold'" :size="14" /></button>
+                    </span>
+                    <input v-else v-model="(draft(selectedCfg!) as any)[f.key]" class="am-input" :placeholder="f.placeholder" autocomplete="off" />
+                    <span v-if="f.hint" class="am-field-hint">{{ f.hint }}</span>
+                  </label>
+                </div>
+                <p class="am-hint">{{ authGuidance(selectedCfg.backendType) }}</p>
+              </div>
+
+              <!-- step 3: verify -->
+              <div class="am-step">
+                <h4 class="am-step-title"><span class="am-step-n">3</span> Verify &amp; save</h4>
+                <div class="am-row">
+                  <button class="am-btn sm primary" type="button" :disabled="saving === selectedCfg.id" @click="saveCreds(selectedCfg!)">{{ saving === selectedCfg.id ? 'Saving…' : 'Save & verify' }}</button>
+                  <span class="muted small">Uses saved credentials — save first if you just pasted a token.</span>
+                </div>
+              </div>
+
+              <!-- disks -->
+              <div class="am-step">
+                <h4 class="am-step-title"><span class="am-step-n">4</span> System disks on this provider ({{ disksFor(selectedCfg.id).length }})</h4>
+                <p v-if="disksFor(selectedCfg.id).length === 0" class="am-hint">No system disk yet — provision one below and this provider contributes space + compute to the merged volume.</p>
+                <div v-for="d in disksFor(selectedCfg.id)" :key="d.id" class="am-disk">
+                  <div class="am-row between">
+                    <strong class="small">{{ d.name || d.id.slice(0, 8) }} · <span class="muted">{{ d.state }} / {{ d.health }}</span></strong>
+                    <span class="am-row">
+                      <button v-if="d.state !== 'attached'" class="am-btn xs primary" type="button" :disabled="diskBusy === d.id" @click="attachDisk(d.id, selectedCfg!.id)">Attach</button>
+                      <button v-else class="am-btn xs" type="button" :disabled="diskBusy === d.id" @click="store.detachDisk(d.id)">Detach</button>
+                      <button class="am-btn xs" type="button" :disabled="diskBusy === d.id" @click="store.checkDisk(d.id)">Check</button>
+                    </span>
+                  </div>
+                  <div class="muted small truncate" :title="d.containerPath">FILE {{ d.containerPath }}</div>
+                  <div class="am-mini"><div class="am-mini-fill" :style="{ width: `${diskPct(d.usedBytes, d.capacityBytes)}%` }"></div></div>
+                  <div class="am-row between small">
+                    <span>{{ humanBytes(d.usedBytes) }} / {{ humanBytes(d.capacityBytes) }}</span>
+                    <span class="am-row">
+                      <input v-model.number="resizeMb[d.id]" class="am-input xs-num" type="number" min="64" max="8192" step="64" :placeholder="String(Math.max(64, Math.round(d.capacityBytes / 1048576)))" :aria-label="`New size MB for ${d.name}`" />
+                      <span class="muted">MB</span>
+                      <button class="am-btn xs" type="button" :disabled="diskBusy === d.id" @click="applyResize(d.id)">Apply size</button>
+                    </span>
+                  </div>
+                </div>
+                <div class="am-newdisk">
+                  <label class="small muted">{{ disksFor(selectedCfg.id).length === 0 ? 'Provision system disk' : 'New disk' }} — {{ newDiskMb[selectedCfg.id] ?? 512 }} MB</label>
+                  <input v-model.number="newDiskMb[selectedCfg.id]" class="am-slider" type="range" min="64" max="8192" step="64" :aria-label="`New disk size for ${selectedCfg.name || selectedCfg.backendType}`" />
+                  <input v-model="newDiskPass[selectedCfg.id]" class="am-input" type="password" placeholder="Passphrase (also unlocks)" autocomplete="off" :aria-label="`Passphrase for new disk on ${selectedCfg.name || selectedCfg.backendType}`" />
+                  <button class="am-btn sm primary" type="button" :disabled="diskBusy === selectedCfg.id" @click="createDisk(selectedCfg!.id)">{{ diskBusy === selectedCfg.id ? 'Creating…' : disksFor(selectedCfg.id).length === 0 ? 'Provision system disk' : 'Create & attach' }}</button>
+                </div>
+              </div>
+            </article>
           </div>
         </div>
-      </article>
-    </div>
+      </section>
+    </main>
 
-    <!-- New provider wizard -->
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:add-bold" :size="13" /> ADD PROVIDER</h3>
-      <div class="card">
-        <div class="form-row">
-          <select v-model="wiz.backendType" class="input" aria-label="Backend">
-            <option v-for="(info, key) in SYNC_BACKEND_INFO" :key="key" :value="key">{{ info.name }}</option>
-          </select>
-          <input v-model="wiz.name" class="input" placeholder="DISPLAY NAME" aria-label="Display name" />
-        </div>
-        <div class="cred-grid">
-          <label v-if="needsRepo(wiz.backendType)" class="field">
-            <span class="text-muted small">{{ wiz.backendType === 'gitlab' ? 'PROJECT ID' : 'REPO (owner/repo)' }}</span>
-            <input v-model="wiz.repoName" class="input" placeholder="owner/repo" autocomplete="off" />
-          </label>
-          <label v-if="needsRepo(wiz.backendType)" class="field">
-            <span class="text-muted small">BRANCH</span>
-            <input v-model="wiz.branch" class="input" placeholder="main" autocomplete="off" />
-          </label>
-          <label v-if="wiz.backendType === 'googleDrive'" class="field">
-            <span class="text-muted small">DRIVE FOLDER ID</span>
-            <input v-model="wiz.folderId" class="input" placeholder="optional" autocomplete="off" />
-          </label>
-          <label v-if="wiz.backendType === 'googlePhotos'" class="field">
-            <span class="text-muted small">PHOTOS ALBUM ID</span>
-            <input v-model="wiz.albumId" class="input" placeholder="optional" autocomplete="off" />
-          </label>
-          <label v-if="wiz.backendType === 'telegram'" class="field">
-            <span class="text-muted small">CHAT ID</span>
-            <input v-model="wiz.chatId" class="input" placeholder="chat id" autocomplete="off" />
-          </label>
-          <label v-if="wiz.backendType === 'gitlab'" class="field grow">
-            <span class="text-muted small">INSTANCE URL (SELF-HOSTED — EMPTY = GITLAB.COM)</span>
-            <input v-model="wiz.basePath" class="input" placeholder="https://gitlab.example.com" autocomplete="off" />
-          </label>
-          <label v-if="wiz.backendType === 'local'" class="field grow">
-            <span class="text-muted small">LOCAL PATH</span>
-            <input v-model="wiz.basePath" class="input" placeholder="/DATA/SYNC" autocomplete="off" />
-          </label>
-          <label v-if="needsToken(wiz.backendType)" class="field grow">
-            <span class="text-muted small">{{ tokenLabel(wiz.backendType) }}</span>
-            <input v-model="wiz.token" class="input" type="password" placeholder="paste token — optional when using OAuth" autocomplete="off" />
-          </label>
-        </div>
-        <p class="text-muted small">{{ authGuidance(wiz.backendType) }}</p>
-        <div class="row-actions" style="margin-top:6px;">
-          <button class="ghost-btn xs primary" type="button" :disabled="wizBusy" @click="addProvider(true)">{{ wizBusy ? 'VERIFYING…' : 'SAVE & VERIFY' }}</button>
-          <button class="ghost-btn xs" type="button" :disabled="wizBusy" @click="addProvider(false)">SAVE</button>
-          <span v-if="wizMsg" class="text-muted small">{{ wizMsg }}</span>
-        </div>
+    <!-- ── warnings footer ────────────────────────────────── -->
+    <footer class="am-warnings" aria-live="polite">
+      <div class="am-warnings-head">
+        <AppIcon :name="warnings.some(w => w.level === 'error') ? 'solar:danger-triangle-bold' : warnings.length ? 'solar:info-circle-bold' : 'solar:check-circle-bold'" :size="14" />
+        <strong>Warnings</strong>
+        <span class="am-tab-count" :class="{ 'is-err': warnings.some(w => w.level === 'error') }">{{ warnings.length }}</span>
+        <button v-if="!sbConfigured" class="am-btn xs" type="button" title="Open Settings → OAuth broker" @click="openSettings">Configure broker</button>
       </div>
-    </div>
+      <ul v-if="warnings.length" class="am-warnings-list">
+        <li v-for="(w, i) in warnings" :key="i" class="am-warning" :class="`is-${w.level}`">
+          <AppIcon :name="w.level === 'error' ? 'solar:danger-triangle-bold' : 'solar:info-circle-bold'" :size="13" />
+          <span>{{ w.text }}</span>
+        </li>
+      </ul>
+      <p v-else class="am-warnings-empty">All clear — vault file bound, providers verified, session healthy.</p>
+    </footer>
   </div>
 </template>
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import ProviderLogo from '@/components/ProviderLogo.vue'
+import UiEmpty from '@/components/ui/UiEmpty.vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useWindowManager } from '@/composables/useWindowManager'
 import { isStaticHost } from '@/composables/useTauri'
 import { wasmDbBackend } from '@/composables/useWasmBackend'
 import {
@@ -337,16 +421,16 @@ import {
   type OAuthBackend,
 } from '@/composables/useSupabase'
 import {
-  createCybermanjuFile,
-  detachCybermanjuFile,
+  createCyberManjuFile,
+  detachCyberManjuFile,
   disk,
   diskSupported,
-  exportCybermanjuFile,
-  importCybermanjuFile,
-  openCybermanjuFile,
-  reattachCybermanjuDisk,
-  saveCybermanjuFile,
-} from '@/composables/useCybermanjuFile'
+  exportCyberManjuFile,
+  importCyberManjuFile,
+  openCyberManjuFile,
+  reattachCyberManjuDisk,
+  saveCyberManjuFile,
+} from '@/composables/useCyberManjuFile'
 import { SYNC_BACKEND_INFO, describeSyncError, isOauthCapable } from '@/types'
 import type { DiskRow, SyncBackendType, SyncConfig } from '@/types'
 import { humanBytes, diskPct } from '@/utils/format'
@@ -355,8 +439,6 @@ import {
   backendLabel,
   blankCredentialDraft,
   draftToSave,
-  needsRepo,
-  needsToken,
   overlayDraft,
   refreshDraftFromSaved,
   syncConfigDefaults,
@@ -366,6 +448,26 @@ import type { CredentialDraft } from '@/utils/providers'
 import { pollUntilTrue } from '@/utils/poll'
 
 const store = useAppStore()
+const wm = useWindowManager()
+
+function openSettings() {
+  wm.open('settings')
+}
+
+/** Roving-tabindex arrow-key navigation for the tab bar. */
+function onTabsKey(e: KeyboardEvent) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return
+  const order = TABS.map(t => t.id)
+  let i = order.indexOf(activeTab.value)
+  if (e.key === 'ArrowRight') i = (i + 1) % order.length
+  else if (e.key === 'ArrowLeft') i = (i - 1 + order.length) % order.length
+  else if (e.key === 'Home') i = 0
+  else i = order.length - 1
+  e.preventDefault()
+  activeTab.value = order[i]
+  const el = (e.currentTarget as HTMLElement).querySelector<HTMLElement>(`#am-tab-${order[i]}`)
+  el?.focus()
+}
 
 /**
  * Static WASM pack (GitHub Pages): no dashboard behind the page. Accounts,
@@ -382,6 +484,8 @@ const probing = ref<Set<string>>(new Set())
 const diskBusy = ref<string | null>(null)
 const wizBusy = ref(false)
 const wizMsg = ref('')
+const wizOk = ref<boolean | null>(null)
+const provFilter = ref('')
 const oauthBusy = ref<string | null>(null)
 const oauthAbort = ref<AbortController | null>(null)
 
@@ -394,10 +498,39 @@ const sbAbort = ref<AbortController | null>(null)
 const sbMsg = ref<Record<string, string>>({})
 const sbConfigured = computed(() => supabaseConfigured())
 
-const IDENTITY_PROVIDERS: Array<{ id: OAuthBackend; label: string }> = [
-  { id: 'google', label: 'GOOGLE' },
-  { id: 'github', label: 'GITHUB' },
-  { id: 'gitlab', label: 'GITLAB' },
+// ── new interactive UI state ──────────────────────────────────
+type TabId = 'signin' | 'vault' | 'providers'
+const TABS: Array<{ id: TabId; label: string; icon: string }> = [
+  { id: 'signin', label: 'Sign in', icon: 'solar:login-bold' },
+  { id: 'vault', label: 'Vault file', icon: 'solar:diskette-bold' },
+  { id: 'providers', label: 'Connections', icon: 'solar:cloud-bold' },
+]
+const activeTab = ref<TabId>('signin')
+const selectedId = ref<string | null>(null)
+const showTokens = ref<Record<string, boolean>>({})
+const showDiskPass = ref(false)
+const showWizToken = ref(false)
+const wizOpen = ref(false)
+
+const BACKEND_ORDER: SyncBackendType[] = ['local', 'github', 'gitlab', 'googleDrive', 'googlePhotos', 'telegram']
+
+function logoKindFor(b: SyncBackendType | string): string {
+  return b === 'local' ? 'local' : String(b)
+}
+
+function shortName(b: SyncBackendType): string {
+  const n = backendLabel(b)
+  return n.replace('Google ', '').replace('Local Storage', 'Local')
+}
+
+function backendBlurb(b: SyncBackendType): string {
+  return SYNC_BACKEND_INFO[b]?.description ?? ''
+}
+
+const LOGIN_CARDS: Array<{ id: OAuthBackend; label: string; logo: string; sub: string }> = [
+  { id: 'google', label: 'Google', logo: 'google', sub: 'Drive + Photos OAuth' },
+  { id: 'github', label: 'GitHub', logo: 'github', sub: 'Repo Contents API' },
+  { id: 'gitlab', label: 'GitLab', logo: 'gitlab', sub: 'Projects API v4' },
 ]
 const signInBusy = ref<OAuthBackend | null>(null)
 const signInMsg = ref('')
@@ -423,12 +556,49 @@ const wiz = reactive({
   basePath: '',
 })
 
-const df = computed(() => store.osDf)
-const usedPct = computed(() => {
-  const d = df.value
-  if (!d || d.totalBytes === 0) return 0
-  return Math.min(100, (d.usedBytes / d.totalBytes) * 100)
+/** Restore the add-provider wizard to pristine defaults. */
+function resetWizard() {
+  wiz.backendType = 'local'
+  wiz.name = ''
+  wiz.repoName = ''
+  wiz.branch = 'main'
+  wiz.token = ''
+  wiz.folderId = ''
+  wiz.albumId = ''
+  wiz.chatId = ''
+  wiz.basePath = ''
+  wizMsg.value = ''
+  wizOk.value = null
+  showWizToken.value = false
+}
+
+const filteredConfigs = computed(() => {
+  const q = provFilter.value.trim().toLowerCase()
+  if (!q) return store.syncConfigs
+  return store.syncConfigs.filter(c => {
+    const hay = `${c.name ?? ''} ${backendLabel(c.backendType)} ${c.backendType}`.toLowerCase()
+    return hay.includes(q)
+  })
 })
+
+/** True when the in-memory draft differs from the saved row (or holds an unsaved token). */
+function isDraftDirty(cfg: SyncConfig): boolean {
+  const d = drafts[cfg.id]
+  if (!d) return false
+  if (d.token.trim() !== '') return true
+  const norm = (v: string | undefined) => (v ?? '').trim()
+  return (
+    norm(d.name) !== norm(cfg.name) ||
+    norm(d.repoName) !== norm(cfg.repoName) ||
+    norm(d.branch || 'main') !== norm(cfg.branch || 'main') ||
+    norm(d.folderId) !== norm(cfg.folderId) ||
+    norm(d.albumId) !== norm(cfg.albumId) ||
+    norm(d.chatId) !== norm(cfg.chatId) ||
+    norm(d.basePath) !== norm(cfg.basePath)
+  )
+}
+
+const df = computed(() => store.osDf)
 
 // In the static build the OS `df` covers the terminal's virtual volume, so
 // the strip instead sums the real attached `.cybermanju` disks — the same
@@ -452,6 +622,106 @@ const volumePct = computed(() => {
   const d = volumeView.value
   if (!d || d.totalBytes === 0) return 0
   return Math.min(100, (d.usedBytes / d.totalBytes) * 100)
+})
+
+const attachedDisks = computed(() => store.disks.filter(d => d.state === 'attached').length)
+const selectedCfg = computed<SyncConfig | null>(() => {
+  if (selectedId.value) {
+    const found = store.syncConfigs.find(c => c.id === selectedId.value)
+    if (found) return found
+  }
+  return store.syncConfigs[0] ?? null
+})
+
+watch(
+  () => store.syncConfigs.map(c => c.id).join(','),
+  () => {
+    if (!selectedId.value || !store.syncConfigs.some(c => c.id === selectedId.value)) {
+      selectedId.value = store.syncConfigs[0]?.id ?? null
+    }
+  },
+)
+
+// ── dynamic per-backend setup/config schema ───────────────────
+interface FieldDef {
+  key: 'repoName' | 'branch' | 'folderId' | 'albumId' | 'chatId' | 'basePath' | 'token'
+  label: string
+  placeholder: string
+  hint?: string
+  secret?: boolean
+  grow?: boolean
+}
+
+function fieldsFor(backend: SyncBackendType): FieldDef[] {
+  switch (backend) {
+    case 'github':
+      return [
+        { key: 'repoName', label: 'Repo (owner/repo)', placeholder: 'owner/repo', hint: 'The repository that stores this vault. Needs the repo scope.' },
+        { key: 'branch', label: 'Branch', placeholder: 'main' },
+        { key: 'token', label: tokenLabel(backend), placeholder: 'paste — optional when using OAuth', secret: true, grow: true },
+      ]
+    case 'gitlab':
+      return [
+        { key: 'repoName', label: 'Project ID', placeholder: '12345678', hint: 'Numeric project id (Settings → General in GitLab).' },
+        { key: 'branch', label: 'Branch', placeholder: 'main' },
+        { key: 'basePath', label: 'Instance URL (self-hosted — empty = gitlab.com)', placeholder: 'https://gitlab.example.com', grow: true },
+        { key: 'token', label: tokenLabel(backend), placeholder: 'paste — optional when using OAuth', secret: true, grow: true },
+      ]
+    case 'googleDrive':
+      return [
+        { key: 'folderId', label: 'Drive folder ID', placeholder: 'folder id (optional)', hint: 'Empty = app root folder.' },
+        { key: 'token', label: tokenLabel(backend), placeholder: 'paste — optional when using OAuth', secret: true, grow: true },
+      ]
+    case 'googlePhotos':
+      return [
+        { key: 'albumId', label: 'Photos album ID', placeholder: 'album id (optional)', hint: 'Empty = library upload.' },
+        { key: 'token', label: tokenLabel(backend), placeholder: 'paste — optional when using OAuth', secret: true, grow: true },
+      ]
+    case 'telegram':
+      return [
+        { key: 'chatId', label: 'Chat ID', placeholder: 'chat id', hint: 'Target chat, channel or group id.' },
+        { key: 'token', label: tokenLabel(backend), placeholder: 'bot token from @BotFather', secret: true, grow: true },
+      ]
+    default:
+      return [
+        { key: 'basePath', label: 'Local path', placeholder: '/DATA/SYNC', hint: 'Directory on this machine. No login needed.', grow: true },
+      ]
+  }
+}
+
+// ── sticky warnings footer ────────────────────────────────────
+interface Warning {
+  level: 'error' | 'warn' | 'info'
+  text: string
+}
+
+const warnings = computed<Warning[]>(() => {
+  const out: Warning[] = []
+  if (disk.lastError) out.push({ level: 'error', text: `Vault file: ${disk.lastError}` })
+  if (disk.needsPassphrase) out.push({ level: 'warn', text: `${disk.name || 'Vault file'} is encrypted — enter its passphrase in the Vault file tab.` })
+  if (disk.needsPermission) out.push({ level: 'warn', text: `${disk.name || 'Vault file'} is remembered — the browser needs one click to re-open it (Vault file tab).` })
+  if (!disk.bound) out.push({ level: 'warn', text: 'No vault file bound — the vault lives in this browser session only. Create or open a .cybermanju file.' })
+  if (disk.bound && disk.dirty) out.push({ level: 'warn', text: 'Unsaved vault changes — they write back automatically, or press Save now.' })
+  if (dbBackend.value === 'memory') out.push({ level: 'warn', text: 'Database is in-memory (OPFS unavailable here) — bind a .cybermanju file and export regularly so nothing is lost on reload.' })
+  if (!disk.supported) out.push({ level: 'info', text: 'This browser has no File System Access API — use Export / Import for the vault file.' })
+  for (const cfg of store.syncConfigs) {
+    const s = authState.value[cfg.id]
+    if (!s || s.ok === null) {
+      out.push({ level: 'warn', text: `${cfg.name || backendLabel(cfg.backendType)}: connection untested — press Test connection.` })
+    } else if (!s.ok) {
+      out.push({
+        level: isUnreachable(s.detail) ? 'warn' : 'error',
+        text: `${cfg.name || backendLabel(cfg.backendType)}: ${isUnreachable(s.detail) ? 'unreachable (network/CORS — token may still be fine)' : `auth failed — ${s.detail}`}`,
+      })
+    }
+  }
+  const needsBroker = store.syncConfigs.some(c => isOauthCapable(c.backendType))
+  if ((needsBroker || !identity.value) && !sbConfigured.value) {
+    out.push({ level: 'warn', text: 'Supabase broker not configured — set the URL + key in Settings → OAuth to sign in and connect providers with OAuth.' })
+  }
+  if (staticHost) out.push({ level: 'info', text: 'Offline demo vault — provider network calls need the server; everything else runs locally.' })
+  if (!identity.value) out.push({ level: 'info', text: 'Not signed in — pick a provider in the Sign in tab.' })
+  return out
 })
 
 function draft(cfg: SyncConfig): CredentialDraft {
@@ -482,11 +752,11 @@ function authLabel(id: string): string {
   return isUnreachable(s.detail) ? 'UNREACHABLE' : 'AUTH FAILED'
 }
 
-function authClass(id: string): string {
+function statusTone(id: string): string {
   const s = authState.value[id]
   if (!s || s.ok === null) return ''
-  if (s.ok) return 'ok'
-  return isUnreachable(s.detail) ? 'warn' : 'bad'
+  if (s.ok) return 'is-ok'
+  return isUnreachable(s.detail) ? 'is-warn' : 'is-err'
 }
 
 /** Transport failure (offline / CORS-blocked / timeout) is not a verdict
@@ -546,20 +816,20 @@ function timeOf(ts: number): string {
 }
 
 async function openDiskFile() {
-  await openCybermanjuFile()
+  await openCyberManjuFile()
 }
 
 async function createDiskFile() {
-  await createCybermanjuFile(diskPassphrase.value)
+  await createCyberManjuFile(diskPassphrase.value)
 }
 
 async function saveDiskFile() {
-  const ok = await saveCybermanjuFile()
+  const ok = await saveCyberManjuFile()
   if (ok) store.notifySuccess(disk.lastMessage || 'Saved')
 }
 
 async function exportDiskFile() {
-  await exportCybermanjuFile(diskPassphrase.value || undefined)
+  await exportCyberManjuFile(diskPassphrase.value || undefined)
 }
 
 function pickImport() {
@@ -571,17 +841,17 @@ async function onImportFile(ev: Event) {
   const file = input.files?.[0] ?? null
   input.value = ''
   if (!file) return
-  await importCybermanjuFile(file)
+  await importCyberManjuFile(file)
   if (disk.attached) store.notifySuccess(`${disk.name} imported`)
 }
 
 async function unlockDisk() {
-  await reattachCybermanjuDisk(diskPassphrase.value)
+  await reattachCyberManjuDisk(diskPassphrase.value)
 }
 
 async function detachDiskFile() {
   if (!window.confirm('Detach this file? The vault keeps living in this browser session until the file is opened again.')) return
-  await detachCybermanjuFile()
+  await detachCyberManjuFile()
 }
 
 async function toggleEnabled(cfg: SyncConfig) {
@@ -610,6 +880,7 @@ async function removeProvider(id: string) {
   if (!window.confirm('Delete this provider connection? Its disks stay in the catalog.')) return
   delete drafts[id]
   delete authState.value[id]
+  if (selectedId.value === id) selectedId.value = null
   await store.deleteSyncConfig(id)
 }
 
@@ -844,22 +1115,47 @@ function wizToConfig(): Omit<SyncConfig, 'id' | 'createdAt' | 'updatedAt'> {
 }
 
 async function addProvider(verify: boolean) {
+  if (wizBusy.value) return
   wizBusy.value = true
   wizMsg.value = ''
-  const token = wiz.token.trim()
-  const saved = await store.saveSyncConfig({ ...(wizToConfig() as SyncConfig), id: '' })
-  wiz.token = ''
-  if (!saved) { wizBusy.value = false; return }
-  if (verify) {
-    wizMsg.value = 'Verifying…'
-    const r = await store.probeSyncConnection(token ? { ...saved, token } : saved)
-    authState.value[saved.id] = { ok: r.ok, detail: r.detail }
-    wizMsg.value = r.ok ? 'Verified — provider connected.' : `Saved, but verification failed: ${r.detail}`
-  } else {
-    wizMsg.value = 'Saved.'
+  wizOk.value = null
+  try {
+    const token = wiz.token.trim()
+    const saved = await store.saveSyncConfig({ ...(wizToConfig() as SyncConfig), id: '' })
+    if (!saved) {
+      wizMsg.value = 'Could not save — check the connection and retry.'
+      wizOk.value = false
+      return
+    }
+    selectedId.value = saved.id
+    activeTab.value = 'providers'
+    if (verify) {
+      wizMsg.value = 'Verifying…'
+      const r = await store.probeSyncConnection(token ? { ...saved, token } : saved)
+      authState.value[saved.id] = { ok: r.ok, detail: r.detail }
+      if (r.ok) {
+        wizMsg.value = 'Verified — provider connected.'
+        wizOk.value = true
+        store.notifySuccess('Provider verified — credentials work')
+        wizOpen.value = false
+        resetWizard()
+      } else {
+        // Keep the wizard open so the failure stays visible and editable.
+        wizOpen.value = true
+        wizMsg.value = `Saved, but verification failed: ${r.detail}`
+        wizOk.value = false
+      }
+    } else {
+      authState.value[saved.id] = { ok: null, detail: '' }
+      wizMsg.value = 'Saved.'
+      wizOk.value = true
+      store.notifySuccess('Provider saved')
+      wizOpen.value = false
+      resetWizard()
+    }
+  } finally {
+    wizBusy.value = false
   }
-  wiz.name = ''
-  wizBusy.value = false
 }
 
 onMounted(() => {
@@ -894,141 +1190,407 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.acct-panel {
+.am {
   height: 100%;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--ui-surface);
   color: var(--ui-text);
   font-family: var(--ui-font);
   font-size: 13px;
 }
 
-.panel-header {
+/* header */
+.am-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
+  gap: 10px;
+  padding: 12px 14px 10px;
   border-bottom: 1px solid var(--ui-border);
 }
-
-.header-left {
-  display: flex;
+.am-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.am-brand-mark {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ui-accent) 16%, transparent);
+  color: var(--ui-accent);
+  border: 1px solid color-mix(in srgb, var(--ui-accent) 40%, transparent);
 }
-
-.icon-acct { color: var(--ui-accent); }
-
-.panel-title {
-  margin: 0;
-  font-size: 13px;
-  letter-spacing: 2px;
+.am-title { margin: 0; font-size: 15px; letter-spacing: 0.4px; }
+.am-subtitle { margin: 1px 0 0; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.am-top-actions { display: flex; align-items: center; gap: 8px; }
+.am-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  border: 1px solid var(--ui-border);
+  border-radius: 20px;
+  padding: 3px 9px;
+  color: color-mix(in srgb, var(--ui-text) 65%, transparent);
 }
+.am-chip.is-ok { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
+.am-chip.is-warn { color: var(--ui-warning); border-color: color-mix(in srgb, var(--ui-warning) 60%, transparent); }
 
-.header-right { display: flex; gap: 6px; }
+/* hero */
+.am-hero {
+  margin: 12px 14px 0;
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--ui-text) 3%, transparent);
+}
+.am-hero-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.am-hero-stat { display: flex; flex-direction: column; gap: 2px; }
+.am-hero-stat.right { text-align: right; }
+.am-hero-label { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
+.am-hero-value { font-size: 18px; }
+.am-hero-value span { font-size: 12px; font-weight: 400; color: color-mix(in srgb, var(--ui-text) 60%, transparent); }
+.am-bar { height: 10px; border-radius: 6px; margin-top: 10px; background: color-mix(in srgb, var(--ui-text) 10%, transparent); overflow: hidden; }
+.am-bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--ui-accent), var(--ui-info)); transition: width 0.3s ease; }
+.am-hero-legend { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 60%, transparent); }
 
-.ghost-btn {
+/* tabs */
+.am-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 12px 14px 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.am-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   background: transparent;
   border: 1px solid var(--ui-border);
+  border-radius: 9px;
   color: color-mix(in srgb, var(--ui-text) 70%, transparent);
   font-family: inherit;
-  font-size: 11px;
-  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 12px;
   cursor: pointer;
+  transition:
+    color var(--ui-dur-fast) var(--ui-ease-out),
+    border-color var(--ui-dur-fast) var(--ui-ease-out),
+    background-color var(--ui-dur-fast) var(--ui-ease-out),
+    box-shadow var(--ui-dur-fast) var(--ui-ease-out);
+  flex-shrink: 0;
+}
+.am-tab:hover { color: var(--ui-text); border-color: var(--ui-border-strong); }
+.am-tab.active { color: var(--ui-text); background: color-mix(in srgb, var(--ui-accent) 14%, transparent); border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
+.am-tab:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ui-accent) 75%, transparent);
+  outline-offset: 2px;
+}
+.am-tab-count {
+  font-size: 10px;
+  min-width: 18px;
+  text-align: center;
+  border-radius: 10px;
+  padding: 1px 5px;
+  background: color-mix(in srgb, var(--ui-text) 12%, transparent);
+}
+.am-tab-count.is-err { background: color-mix(in srgb, var(--ui-danger) 25%, transparent); color: var(--ui-danger); }
+.am-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ui-accent); flex-shrink: 0; }
+.am-dot.warn { background: var(--ui-warning); }
+.am-unsaved {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--ui-warning);
+  vertical-align: super;
 }
 
-.ghost-btn:hover:not(:disabled) { color: var(--ui-text); border-color: var(--ui-border-strong); }
-.ghost-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.ghost-btn.primary { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 60%, transparent); }
-.ghost-btn.primary:hover:not(:disabled) { color: var(--ui-text); background: var(--ui-accent); border-color: var(--ui-accent); }
-.ghost-btn.danger { color: var(--ui-danger); border-color: color-mix(in srgb, var(--ui-danger) 55%, transparent); }
-.ghost-btn.danger:hover:not(:disabled) { color: var(--ui-text); background: var(--ui-danger); border-color: var(--ui-danger); }
-.ghost-btn.xs { font-size: 10px; padding: 2px 6px; }
-.ghost-btn.on { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 60%, transparent); }
-
-.section { padding: 12px; border-bottom: 1px solid var(--ui-border); }
-
-.section-title {
-  margin: 0 0 10px;
-  font-size: 11px;
-  letter-spacing: 1.5px;
-  color: color-mix(in srgb, var(--ui-text) 50%, transparent);
+/* body */
+.am-body { flex: 1; overflow-y: auto; padding: 12px 14px; }
+.am-section { display: flex; flex-direction: column; gap: 10px; }
+.am-section:focus { outline: none; }
+.am-section:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ui-accent) 60%, transparent);
+  outline-offset: -2px;
+  border-radius: 8px;
 }
+.am-card {
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--ui-text) 2%, transparent);
+}
+.am-card.is-attached { border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent); }
+.am-card-title { margin: 0; font-size: 13px; }
+.am-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.am-card-head-left { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
+.am-hint { margin: 6px 0 0; font-size: 11.5px; line-height: 1.5; color: color-mix(in srgb, var(--ui-text) 60%, transparent); }
+.am-code { font-family: ui-monospace, monospace; font-size: 11px; color: var(--ui-info); }
+.muted { color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.small { font-size: 11px; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.df-bar { height: 18px; background: color-mix(in srgb, var(--ui-text) 10%, transparent); border: 1px solid var(--ui-border); }
-.df-used { height: 100%; background: linear-gradient(90deg, var(--ui-accent), var(--ui-info)); }
-.df-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 11px; }
+/* login grid */
+.am-login-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 12px; }
+.am-login {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.08s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.am-login:hover:not(:disabled) { border-color: var(--ui-accent); box-shadow: 0 4px 18px rgb(0 0 0 / 0.25); transform: translateY(-1px); }
+.am-login:disabled { opacity: 0.55; cursor: not-allowed; }
+.am-login-label { font-size: 13px; font-weight: 700; }
+.am-login-sub { font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.am-identity-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.am-identity-meta { display: flex; flex-direction: column; flex: 1; min-width: 120px; }
+.am-avatar { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--ui-border); }
 
-.card { border: 1px solid var(--ui-border); padding: 10px; margin-bottom: 8px; }
-.card.clickable { cursor: pointer; }
-.card.clickable:hover { border-color: var(--ui-border); }
-.card.active { border-color: color-mix(in srgb, var(--ui-accent) 60%, transparent); }
-.card.provider { border-width: 1px; }
+/* status pills */
+.am-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  border: 1px solid var(--ui-border);
+  border-radius: 20px;
+  padding: 3px 9px;
+  color: color-mix(in srgb, var(--ui-text) 60%, transparent);
+  white-space: nowrap;
+}
+.am-status.sm { font-size: 9.5px; padding: 2px 8px; }
+.am-status.is-ok { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
+.am-status.is-warn { color: var(--ui-warning); border-color: color-mix(in srgb, var(--ui-warning) 65%, transparent); }
+.am-status.is-err { color: var(--ui-danger); border-color: color-mix(in srgb, var(--ui-danger) 60%, transparent); }
 
-.cards { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+/* buttons */
+.am-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--ui-text) 75%, transparent);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.am-btn:hover:not(:disabled) { color: var(--ui-text); border-color: var(--ui-border-strong); }
+.am-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.am-btn.primary { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
+.am-btn.primary:hover:not(:disabled) { background: var(--ui-accent); color: var(--ui-text); }
+.am-btn.danger { color: var(--ui-danger); border-color: color-mix(in srgb, var(--ui-danger) 50%, transparent); }
+.am-btn.danger:hover:not(:disabled) { background: var(--ui-danger); color: #fff; }
+.am-btn.sm { font-size: 11px; padding: 5px 10px; }
+.am-btn.xs { font-size: 10px; padding: 3px 8px; border-radius: 6px; }
+.am-btn.on { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
+.am-icon-btn { background: none; border: none; color: color-mix(in srgb, var(--ui-text) 55%, transparent); cursor: pointer; padding: 4px; display: inline-flex; border-radius: 6px; }
+.am-icon-btn:hover { color: var(--ui-text); }
+.am-icon-btn:focus-visible, .am-link:focus-visible, .am-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ui-accent) 75%, transparent);
+  outline-offset: 2px;
+}
+.am-link { background: none; border: none; color: var(--ui-info); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; border-radius: 4px; }
+.am-btn-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.am-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.am-row.between { justify-content: space-between; }
+.am-row.wrap { flex-wrap: wrap; }
 
-.row-between { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.row-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-
-.dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border: 1px solid var(--ui-text-2); border-radius: 50%; }
-.dot.on { background: var(--ui-accent); border-color: var(--ui-accent); }
-.badge-on { font-size: 10px; color: var(--ui-accent); border: 1px solid color-mix(in srgb, var(--ui-accent) 60%, transparent); padding: 1px 6px; }
-
-.auth-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
-.auth-badge { font-size: 10px; font-weight: 700; border: 1px solid var(--ui-border); color: color-mix(in srgb, var(--ui-text) 60%, transparent); padding: 1px 6px; }
-.auth-badge.ok { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 60%, transparent); }
-.auth-badge.bad { color: var(--ui-danger); border-color: color-mix(in srgb, var(--ui-danger) 60%, transparent); }
-.auth-badge.warn { color: var(--ui-warning); border-color: color-mix(in srgb, var(--ui-warning) 75%, transparent); }
-
-.oauth-block { border: 1px dashed var(--ui-border); padding: 8px; margin: 8px 0; }
-
-.cred-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin-top: 8px; }
-.field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
-.field.grow { grid-column: 1 / -1; }
-
-.input {
+/* fields */
+.am-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; }
+.am-field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; min-width: 0; }
+.am-field.grow { grid-column: 1 / -1; }
+.am-field-label { font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.am-field-hint { font-size: 10.5px; color: color-mix(in srgb, var(--ui-text) 50%, transparent); line-height: 1.4; }
+.am-input {
   background: var(--ui-surface);
   border: 1px solid var(--ui-border);
+  border-radius: 8px;
   color: var(--ui-text);
   font-family: inherit;
   font-size: 12px;
-  padding: 5px 6px;
+  padding: 8px 10px;
   outline: none;
   min-width: 0;
+  width: 100%;
 }
-.input:focus { border-color: var(--ui-accent); }
-.input.xs-num { width: 76px; }
+.am-input:focus { border-color: var(--ui-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 15%, transparent); }
+.am-input.xs-num { width: 76px; }
+.am-input-wrap { display: flex; align-items: center; gap: 4px; }
+.am-input-wrap .am-input { flex: 1; }
+.am-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  min-height: 32px;
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  background: var(--ui-surface);
+  color: color-mix(in srgb, var(--ui-text) 55%, transparent);
+  transition: border-color var(--ui-dur-fast) var(--ui-ease-out), box-shadow var(--ui-dur-fast) var(--ui-ease-out);
+}
+.am-search:focus-within {
+  border-color: color-mix(in srgb, var(--ui-accent) 65%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 14%, transparent);
+  color: var(--ui-text);
+}
+.am-search-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--ui-text);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 7px 0;
+}
+.am-search-input::placeholder { color: color-mix(in srgb, var(--ui-text) 40%, transparent); }
+.am-search-input::-webkit-search-cancel-button { cursor: pointer; }
+.am-slider { flex: 1; min-width: 140px; accent-color: var(--ui-accent); }
+.am-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
-.form-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
-.form-row .input { flex: 1; min-width: 140px; }
+/* banners + notes */
+.am-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 10px;
+  font-size: 12px;
+  border: 1px solid;
+}
+.am-banner.warn { border-color: color-mix(in srgb, var(--ui-warning) 55%, transparent); background: color-mix(in srgb, var(--ui-warning) 10%, transparent); }
+.am-banner.info { border-color: color-mix(in srgb, var(--ui-info) 50%, transparent); background: color-mix(in srgb, var(--ui-info) 8%, transparent); }
+.am-banner .am-btn { margin-left: auto; }
+.am-note { margin: 8px 0 0; font-size: 11.5px; color: var(--ui-info); white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+.am-note.warn { color: var(--ui-warning); }
+.am-note.err { color: var(--ui-danger); }
+.am-note.ok { color: var(--ui-accent); }
 
-.disks-block { margin-top: 10px; border-top: 1px solid var(--ui-border); padding-top: 8px; }
-.disk-row { border: 1px solid var(--ui-border); padding: 6px 8px; margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
-.mini-bar { height: 8px; background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
-.mini-used { height: 100%; background: var(--ui-accent); }
-.slider { flex: 1; min-width: 140px; accent-color: var(--ui-accent); }
+/* providers split */
+.am-providers { display: grid; grid-template-columns: 250px 1fr; gap: 10px; align-items: start; }
+@media (max-width: 720px) { .am-providers { grid-template-columns: 1fr; } }
+.am-list-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.am-list-head { display: flex; align-items: center; justify-content: space-between; }
+.am-prov {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--ui-border);
+  background: transparent;
+  color: var(--ui-text);
+  font-family: inherit;
+  cursor: pointer;
+}
+.am-prov:hover { border-color: var(--ui-border-strong); }
+.am-prov:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ui-accent) 75%, transparent);
+  outline-offset: 2px;
+}
+.am-prov.active { border-color: color-mix(in srgb, var(--ui-accent) 60%, transparent); background: color-mix(in srgb, var(--ui-accent) 8%, transparent); }
+.am-prov-meta { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.am-prov-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.am-switch { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--ui-border-strong); flex-shrink: 0; }
+.am-switch.on { background: var(--ui-accent); border-color: var(--ui-accent); }
+.am-detail-col { min-width: 0; }
+.am-step { border-top: 1px dashed var(--ui-border); padding-top: 12px; margin-top: 12px; }
+.am-step-title { margin: 0 0 8px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text) 60%, transparent); display: flex; align-items: center; gap: 8px; }
+.am-step-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--ui-accent) 18%, transparent);
+  color: var(--ui-accent);
+  border: 1px solid color-mix(in srgb, var(--ui-accent) 50%, transparent);
+}
 
-.note { margin: 6px 0 0; font-size: 11px; color: var(--ui-info); white-space: pre-wrap; word-break: break-word; }
-.static-note {
-  border: 1px dashed var(--ui-warning);
-  color: var(--ui-warning);
+/* logo picker */
+.am-logo-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.am-logo-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px;
   font-size: 10px;
-  line-height: 1.5;
-  padding: 8px 10px;
-  margin-bottom: 8px;
-  letter-spacing: 0.3px;
+  font-family: inherit;
+  color: color-mix(in srgb, var(--ui-text) 70%, transparent);
+  background: transparent;
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+  cursor: pointer;
 }
-.mono { font-family: inherit; }
-.url { word-break: break-all; color: var(--ui-info); }
-.linklike { background: none; border: none; color: var(--ui-info); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; }
-.small { font-size: 11px; }
-.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.empty { margin: 0 0 8px; font-size: 12px; }
-.text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
+.am-logo-pick:hover { border-color: var(--ui-border-strong); color: var(--ui-text); }
+.am-logo-pick:focus-visible, .am-login:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ui-accent) 75%, transparent);
+  outline-offset: 2px;
+}
+.am-logo-pick.active { border-color: color-mix(in srgb, var(--ui-accent) 60%, transparent); color: var(--ui-text); background: color-mix(in srgb, var(--ui-accent) 8%, transparent); }
+.am-wiz { margin-top: 4px; }
 
-/* identity + .cybermanju disk block */
-.note.err { color: var(--ui-danger); }
-.hidden-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.avatar { width: 16px; height: 16px; border-radius: 50%; vertical-align: -3px; margin-right: 6px; border: 1px solid var(--ui-border); }
-.identity-row { display: inline-flex; align-items: center; }
+/* disks */
+.am-disk { border: 1px solid var(--ui-border); border-radius: 10px; padding: 10px; margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.am-mini { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--ui-text) 8%, transparent); overflow: hidden; }
+.am-mini-fill { height: 100%; background: var(--ui-accent); border-radius: 4px; }
+.am-newdisk { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; border: 1px dashed var(--ui-border); border-radius: 10px; padding: 10px; }
+
+/* warnings footer */
+.am-warnings {
+  border-top: 1px solid var(--ui-border);
+  background: color-mix(in srgb, var(--ui-warning) 5%, transparent);
+  padding: 10px 14px;
+  max-height: 168px;
+  overflow-y: auto;
+}
+.am-warnings-head { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text) 65%, transparent); }
+.am-warnings-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.am-warning { display: flex; align-items: flex-start; gap: 8px; font-size: 11.5px; line-height: 1.45; }
+.am-warning.is-error { color: var(--ui-danger); }
+.am-warning.is-warn { color: var(--ui-warning); }
+.am-warning.is-info { color: color-mix(in srgb, var(--ui-text) 65%, transparent); }
+.am-warnings-empty { margin: 8px 0 0; font-size: 11.5px; color: var(--ui-accent); }
+
+/* motion + density polish: respect reduced motion, keep narrow windows usable */
+@media (prefers-reduced-motion: reduce) {
+  .am-bar-fill, .am-tab, .am-login, .am-prov, .am-btn, .am-logo-pick { transition: none; }
+}
+@media (max-width: 560px) {
+  .am-top { flex-wrap: wrap; }
+  .am-hero-legend { flex-direction: column; gap: 4px; }
+  .am-btn-grid { gap: 6px; }
+  .am-login-grid { grid-template-columns: 1fr; }
+  .am-logo-picker { grid-template-columns: repeat(2, 1fr); }
+}
 </style>

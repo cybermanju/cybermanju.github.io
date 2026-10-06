@@ -123,6 +123,9 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
   background: transparent;
   z-index: 50;
   pointer-events: none;
+  min-width: 0;
+  max-width: 100vw;
+  overflow: hidden;
 }
 
 .dock {
@@ -140,6 +143,13 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
     inset 0 1px 0 var(--ui-glass-highlight);
   pointer-events: auto;
   position: relative;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dock::-webkit-scrollbar {
+  display: none;
 }
 
 .dock::before {

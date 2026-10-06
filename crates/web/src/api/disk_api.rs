@@ -1,4 +1,4 @@
-// Cybermanju Drive — disk & volume routes (AGENT-6)
+// CyberManju OS — disk & volume routes (AGENT-6)
 //
 // Pre-created and pre-hooked by the supervisor: `crates/web/src/lib.rs` calls
 // `route()` right after the auth gate, and `os`/`disk`/`volume` are already in

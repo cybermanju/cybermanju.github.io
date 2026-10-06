@@ -1,8 +1,8 @@
-pkgbase = cybermanju-drive
+pkgbase = cybermanju-os
 	pkgdesc = Encrypted file sync and management with post-quantum cryptography
 	pkgver = 0.1.0
 	pkgrel = 1
-	url = https://github.com/HautlyS/Cybermanju-Drive
+	url = https://github.com/cybermanju/cybermanju.github.io
 	arch = x86_64
 	license = MIT
 	makedepends = cargo
@@ -16,7 +16,7 @@ pkgbase = cybermanju-drive
 	depends = librsvg
 	depends = libsoup3
 	depends = openssl
-	source = cybermanju-drive::git+https://github.com/HautlyS/Cybermanju-Drive.git#tag=v0.1.0
+	source = cybermanju-os::git+https://github.com/cybermanju/cybermanju.github.io.git#tag=v0.1.0
 	sha256sums = SKIP
 
-pkgname = cybermanju-drive
+pkgname = cybermanju-os

@@ -1,8 +1,8 @@
-app-id: com.cybermanju.drive
+app-id: com.cybermanju.os
 runtime: org.gnome.Platform
 runtime-version: '47'
 sdk: org.gnome.Sdk
-command: cybermanju-drive
+command: cybermanju-os-desktop
 
 finish-args:
   - --share=ipc
@@ -14,7 +14,7 @@ finish-args:
   - --env=FLATPAK=1
 
 modules:
-  - name: cybermanju-drive
+  - name: cybermanju-os-desktop
     buildsystem: simple
     build-commands:
       - |
@@ -44,25 +44,25 @@ modules:
           fi
         done
         # Make sure the launcher ends up at /app/bin (what 'command:' resolves)
-        if [ ! -x /app/bin/cybermanju-drive ]; then
-          binary_path=$(find /app -name 'cybermanju-drive' -type f 2>/dev/null | head -1)
+        if [ ! -x /app/bin/cybermanju-os-desktop ]; then
+          binary_path=$(find /app -name 'cybermanju-os-desktop' -type f 2>/dev/null | head -1)
           if [ -z "$binary_path" ]; then
-            echo "ERROR: cybermanju-drive binary not found after extraction"
+            echo "ERROR: cybermanju-os-desktop binary not found after extraction"
             ls -R deb-root || true
             exit 1
           fi
           mkdir -p /app/bin
-          ln -sf "$binary_path" /app/bin/cybermanju-drive
+          ln -sf "$binary_path" /app/bin/cybermanju-os-desktop
         fi
         # Rewrite Exec/TryExec: the deb ships host paths (/usr/bin/...), which
         # do not exist inside the sandbox.
         for desktop in /app/share/applications/*.desktop; do
           [ -f "$desktop" ] || continue
-          sed -i 's|^Exec=.*|Exec=cybermanju-drive|' "$desktop"
-          sed -i 's|^TryExec=.*|TryExec=cybermanju-drive|' "$desktop"
+          sed -i 's|^Exec=.*|Exec=cybermanju-os-desktop|' "$desktop"
+          sed -i 's|^TryExec=.*|TryExec=cybermanju-os-desktop|' "$desktop"
         done
         echo "Staged app files:"
-        ls -l /app/bin/cybermanju-drive
+        ls -l /app/bin/cybermanju-os-desktop
         ls /app/share/applications/ || true
     sources:
       - type: dir

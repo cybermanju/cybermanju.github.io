@@ -1,4 +1,4 @@
-// Cybermanju Drive — Sync Pipeline
+// CyberManju OS — Sync Pipeline
 // Orchestrates the full sync flow: scan → compress → encrypt → upload →
 // verify → link → clean
 //

@@ -132,17 +132,38 @@
     <!-- Favorites Panel -->
     <div v-if="panelType === 'favorites'" class="panel-page">
       <div class="panel-card">
-        <div class="panel-title">FAVORITES</div>
+        <UiToolbar divided>
+          <template #lead>
+            <div class="panel-title">FAVORITES · {{ store.starredFiles.length }}</div>
+          </template>
+          <template #trail>
+            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="REFRESH" aria-label="REFRESH FAVORITES" :loading="store.isLoading" @click="refreshPanel()" />
+          </template>
+        </UiToolbar>
+        <p class="panel-hint">STARRED FILES — PERSISTED IN THE LOCAL DB MIRROR.</p>
+        <UiError
+          v-if="store.lastError"
+          size="sm"
+          title="Could not load favorites"
+          :message="store.lastError"
+          retryable
+          @retry="refreshPanel()"
+        />
+        <div v-else-if="store.isLoading && store.starredFiles.length === 0" class="panel-loading">
+          <UiSpinner size="sm" show-label label="Loading favorites" />
+        </div>
         <UiEmpty
-          v-if="store.starredFiles.length === 0"
+          v-else-if="store.starredFiles.length === 0"
           size="sm"
           icon="solar:star-bold"
           title="No starred files"
+          description="Star anything in Files to pin it here."
         />
         <div v-else class="fav-list">
           <div v-for="f in store.starredFiles" :key="f.id" class="fav-item" @click="store.selectFile(f.id)">
             <span class="fav-icon"><AppIcon :name="f.fileType === 'folder' ? 'solar:folder-bold' : 'solar:file-bold'" :size="14" /></span>
             <span class="fav-name truncate">{{ f.name }}</span>
+            <UiButton size="xs" variant="ghost" icon="solar:star-bold" icon-only title="UNSTAR" aria-label="UNSTAR" @click.stop="store.toggleStar(f.id)" />
           </div>
         </div>
       </div>
@@ -151,9 +172,28 @@
     <!-- Recent Panel -->
     <div v-if="panelType === 'recent'" class="panel-page">
       <div class="panel-card">
-        <div class="panel-title">RECENT FILES</div>
+        <UiToolbar divided>
+          <template #lead>
+            <div class="panel-title">RECENT FILES</div>
+          </template>
+          <template #trail>
+            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="REFRESH" aria-label="REFRESH RECENT" :loading="store.isLoading" @click="refreshPanel()" />
+          </template>
+        </UiToolbar>
+        <p class="panel-hint">NEWEST FIRST — LIVE FROM THE FILE TABLE.</p>
+        <UiError
+          v-if="store.lastError"
+          size="sm"
+          title="Could not load recent files"
+          :message="store.lastError"
+          retryable
+          @retry="refreshPanel()"
+        />
+        <div v-else-if="store.isLoading && recentFiles.length === 0" class="panel-loading">
+          <UiSpinner size="sm" show-label label="Loading recent files" />
+        </div>
         <UiEmpty
-          v-if="recentFiles.length === 0"
+          v-else-if="recentFiles.length === 0"
           size="sm"
           icon="solar:history-bold"
           title="No files yet"
@@ -170,6 +210,7 @@
               <span class="recent-name truncate">{{ f.name }}</span>
               <span class="recent-date text-muted">{{ new Date(f.modifiedAt).toLocaleDateString() }}</span>
             </div>
+            <UiButton size="xs" variant="ghost" :icon="f.isStarred ? 'solar:star-bold' : 'solar:star-linear'" icon-only :title="f.isStarred ? 'UNSTAR' : 'STAR'" :aria-label="f.isStarred ? 'UNSTAR' : 'STAR'" @click.stop="store.toggleStar(f.id)" />
           </div>
         </div>
       </div>
@@ -178,12 +219,70 @@
     <!-- Loose Groups Panel -->
     <div v-if="panelType === 'loose-groups'" class="panel-page">
       <div class="panel-card">
-        <div class="panel-title">LOOSE FILE GROUPING</div>
-        <div class="loose-groups-list">
+        <UiToolbar divided>
+          <template #lead>
+            <div class="panel-title">LOOSE FILE GROUPING · {{ store.looseGroups.length }}</div>
+          </template>
+          <template #trail>
+            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="REFRESH" aria-label="REFRESH LOOSE GROUPS" :loading="store.isLoading" @click="refreshPanel()" />
+          </template>
+        </UiToolbar>
+        <p class="panel-hint">AD-HOC GROUPS — STORED IN THE INTERNAL DB ON EVERY TRANSPORT.</p>
+        <UiError
+          v-if="store.lastError"
+          size="sm"
+          title="Could not load loose groups"
+          :message="store.lastError"
+          retryable
+          @retry="refreshPanel()"
+        />
+        <form class="loose-create" @submit.prevent="createGroup()">
+          <UiInput
+            v-model="looseName"
+            placeholder="New group name…"
+            aria-label="New loose group name"
+            clearable
+          />
+          <UiButton size="sm" icon="solar:add-circle-bold" type="submit" :loading="looseBusy" :disabled="!looseName.trim()">
+            CREATE
+          </UiButton>
+        </form>
+        <UiEmpty
+          v-if="!store.lastError && store.looseGroups.length === 0"
+          size="sm"
+          icon="solar:users-group-two-rounded-bold"
+          title="No loose groups yet"
+          description="Create one above, then add files from the picker on each card."
+        />
+        <div v-else class="loose-groups-list">
           <div v-for="group in store.looseGroups" :key="group.id" class="loose-group-item panel-card-row">
             <div class="lg-info">
               <div class="lg-name">{{ group.name }}</div>
               <div class="lg-count">{{ group.fileIds.length }} FILES</div>
+              <div v-if="group.fileIds.length" class="lg-members">
+                <button
+                  v-for="fid in group.fileIds"
+                  :key="fid"
+                  type="button"
+                  class="lg-member"
+                  :title="fileName(fid)"
+                  @click="store.selectFile(fid)"
+                >
+                  {{ fileName(fid) }}
+                </button>
+              </div>
+              <div class="lg-add">
+                <UiSelect
+                  v-model="addTarget[group.id]"
+                  :options="fileOptions"
+                  inline
+                  aria-label="Pick a file to add"
+                  title="PICK A FILE TO ADD"
+                />
+                <UiButton size="xs" icon="solar:add-circle-bold" :disabled="!addTarget[group.id]" @click="addFile(group.id)">
+                  ADD
+                </UiButton>
+              </div>
             </div>
           </div>
         </div>
@@ -193,10 +292,35 @@
     <!-- Style Tags Panel -->
     <div v-if="panelType === 'style'" class="panel-page">
       <div class="panel-card">
-        <div class="panel-title">STYLE-BASED ORGANIZATION</div>
+        <UiToolbar divided>
+          <template #lead>
+            <div class="panel-title">STYLE-BASED ORGANIZATION</div>
+          </template>
+          <template #trail>
+            <UiButton size="sm" icon="solar:refresh-bold" icon-only title="REFRESH" aria-label="REFRESH TAGS" :loading="store.isLoading" @click="refreshPanel()" />
+          </template>
+        </UiToolbar>
         <p class="panel-hint">FILES ORGANIZED BY VISUAL STYLE (CLIP MODEL)</p>
-        <div class="style-tags">
-          <span v-for="tag in [...new Set(store.files.flatMap(f => f.tags || []))]" :key="tag" class="style-tag" @click="store.searchQuery = tag; wm.open('search'); store.searchFiles(tag)">
+        <UiError
+          v-if="store.lastError"
+          size="sm"
+          title="Could not load tags"
+          :message="store.lastError"
+          retryable
+          @retry="refreshPanel()"
+        />
+        <div v-else-if="store.isLoading && allStyleTags.length === 0" class="panel-loading">
+          <UiSpinner size="sm" show-label label="Loading tags" />
+        </div>
+        <UiEmpty
+          v-else-if="allStyleTags.length === 0"
+          size="sm"
+          icon="solar:tag-bold"
+          title="No style tags yet"
+          description="Tags appear here once files are tagged."
+        />
+        <div v-else class="style-tags">
+          <span v-for="tag in allStyleTags" :key="tag" class="style-tag" @click="store.searchQuery = tag; wm.open('search'); store.searchFiles(tag)">
             {{ tag }}
           </span>
         </div>
@@ -210,9 +334,12 @@ import AppIcon from '@/components/AppIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiEmpty from '@/components/ui/UiEmpty.vue'
+import UiError from '@/components/ui/UiError.vue'
+import UiInput from '@/components/ui/UiInput.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
+import UiSpinner from '@/components/ui/UiSpinner.vue'
 import UiToolbar from '@/components/ui/UiToolbar.vue'
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import type { PanelType } from '@/types'
@@ -223,6 +350,51 @@ const props = defineProps<{
 
 const store = useAppStore()
 const wm = useWindowManager()
+
+const looseName = ref('')
+const looseBusy = ref(false)
+const addTarget = ref<Record<string, string>>({})
+
+async function refreshPanel() {
+  store.clearError()
+  await Promise.allSettled([store.fetchFiles(), store.fetchLooseGroups()])
+}
+
+async function createGroup() {
+  const name = looseName.value.trim()
+  if (!name) return
+  looseBusy.value = true
+  try {
+    const created = await store.createLooseGroup(name)
+    if (created) looseName.value = ''
+  } finally {
+    looseBusy.value = false
+  }
+}
+
+async function addFile(groupId: string) {
+  const fid = addTarget.value[groupId]
+  if (!fid) return
+  await store.addFileToLooseGroup(groupId, fid)
+}
+
+function fileName(fileId: string): string {
+  return store.files.find(f => f.id === fileId)?.name ?? fileId.slice(0, 8)
+}
+
+const fileOptions = computed(() =>
+  store.files.map(f => ({ label: f.name, value: f.id }))
+)
+
+const allStyleTags = computed(() =>
+  [...new Set(store.files.flatMap(f => f.tags || []))].sort()
+)
+
+onMounted(() => {
+  if (['favorites', 'recent', 'loose-groups', 'style'].includes(props.panelType)) {
+    void refreshPanel()
+  }
+})
 
 const searchTypeFilter = ref('all')
 const searchCurrentDir = ref(false)
@@ -579,5 +751,71 @@ function highlightTerms(text: string, query: string): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.panel-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px 0;
+}
+
+.loose-create {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+
+.loose-create > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.lg-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.lg-member {
+  font-family: var(--ui-font-mono);
+  font-size: 9.5px;
+  padding: 2px 8px;
+  border-radius: var(--ui-radius-full);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-glass);
+  color: var(--ui-text-2);
+  cursor: pointer;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: border-color var(--ui-dur-fast) var(--ui-ease-out), color var(--ui-dur-fast) var(--ui-ease-out);
+}
+
+.lg-member:hover {
+  border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent);
+  color: var(--ui-accent);
+}
+
+.lg-add {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.lg-add > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .window-content-panel .ui-empty,
+  .window-content-panel .ui-error {
+    animation: none;
+  }
 }
 </style>

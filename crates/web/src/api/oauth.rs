@@ -1,4 +1,4 @@
-// Cybermanju Drive — OAuth authorization-code + PKCE routes
+// CyberManju OS — OAuth authorization-code + PKCE routes
 //
 // <<< AGENT-3 OAUTH: `GET /api/sync/oauth/{provider}/start` and
 // `GET /api/sync/oauth/{provider}/callback`. The flow itself (URL building,

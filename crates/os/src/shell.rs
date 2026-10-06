@@ -682,7 +682,7 @@ fn help_text(json: bool) -> String {
         return serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string());
     }
     let mut out = format!(
-        "{BOLD}cybsh{RESET} — the Cybermanju OS shell (v{})\n\n",
+        "{BOLD}cybsh{RESET} — the CyberManju OS shell (v{})\n\n",
         crate::OS_VERSION
     );
     for (group, cmds) in groups {

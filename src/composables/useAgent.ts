@@ -1,4 +1,4 @@
-// Cybermanju — browser-local agent loop (static-host / Pages transport).
+// CyberManju — browser-local agent loop (static-host / Pages transport).
 //
 // The WASM dispatcher exposes single-turn primitives (`agent_catalog`,
 // `agent_prompt`); this composable drives the multi-turn loop entirely in
@@ -12,7 +12,8 @@
 
 import { ref } from 'vue'
 import { wasmAgentCatalog, wasmAgentPrompt } from './useWasmBackend'
-import { wasmOsDispatch } from './useWasmBackend'
+import { wasmModuleExports, wasmOsDispatch } from './useWasmBackend'
+import { prepareWireMessages } from '@/utils/agentUi'
 import type {
   AgentConfig,
   AgentJob,
@@ -137,9 +138,87 @@ export function decideLocalTool(
       }
     }
   }
-  if (action === 'allow') return { kind: 'allow' }
+  if (action === 'allow') {
+    // Standing orders never auto-allow: a `write`/`edit` that would pass
+    // silently under an `allow` rule is downgraded to a human decision
+    // (Hermes applies the same guard even under `--yolo`). `deny` still wins.
+    if (
+      (tool === 'write' || tool === 'edit') &&
+      isProtectedInstructionPath(String(input.path ?? ''))
+    ) {
+      return {
+        kind: 'ask',
+        summary: `Approve \`${tool}\` — protected standing orders`,
+      }
+    }
+    return { kind: 'allow' }
+  }
   if (action === 'deny') return { kind: 'deny', reason: `deny: \`${tool}\` is denied by the permission ruleset` }
   return { kind: 'ask', summary: `Approve \`${tool}\`?` }
+}
+
+/** Mirror of Rust `config::remember_allow`: "allow always" becomes an
+ *  explicit, visible rule on the tool — never an invisible always-list. */
+export function rememberAllowLocal(rules: PermissionRuleset, tool: string): void {
+  rules.rules[tool] = 'allow'
+}
+
+// ─── standing orders + refusal circuit breaker ───────────────────
+
+/** Basenames that are the agent's standing orders — they get folded into the
+ *  system prompt, so whoever rewrites them owns every later turn. */
+const PROTECTED_INSTRUCTION_BASENAMES = new Set(['agents.md', 'skill.md'])
+
+/** Mirror of Rust `config::is_protected_instruction_path` (Hermes
+ *  `security.protected_instruction_files`): case-insensitive basename in any
+ *  directory, plus the `.cybermanju/rules.md` path form. */
+export function isProtectedInstructionPath(path: string): boolean {
+  const norm = String(path || '').replace(/\\/g, '/').toLowerCase()
+  const base = norm.slice(norm.lastIndexOf('/') + 1)
+  if (PROTECTED_INSTRUCTION_BASENAMES.has(base)) return true
+  return /(^|\/)\.cybermanju\/rules\.md$/.test(norm)
+}
+
+/** AUTO APPROVE is the exact state a prompt injection aims for, so it never
+ *  covers a standing-orders write: that call fails closed with a denial the
+ *  model can act on. Returns the denial text, or `null` when the call is an
+ *  ordinary ask (parked for the human as usual). */
+export function protectedAutoApproveDenial(
+  tool: string,
+  input: Record<string, unknown>,
+): string | null {
+  if (tool !== 'write' && tool !== 'edit') return null
+  if (!isProtectedInstructionPath(String(input.path ?? ''))) return null
+  return (
+    'deny: protected instruction file (AGENTS.md / SKILL.md / .cybermanju/rules.md) — ' +
+    'AUTO APPROVE never covers standing orders; disable AUTO APPROVE to write one'
+  )
+}
+
+/** Consecutive refusals that stop the loop from asking again — after this
+ *  many `no`s on the same tool, re-prompting is nagging, not consent
+ *  (Hermes `approvals.denial_breaker_threshold`, same default). */
+export const DENIAL_BREAKER_THRESHOLD = 3
+
+export class DenialBreaker {
+  private readonly counts = new Map<string, number>()
+
+  /** `refused` false resets the tool — one approval clears the tally. */
+  record(tool: string, refused: boolean): void {
+    if (refused) this.counts.set(tool, (this.counts.get(tool) ?? 0) + 1)
+    else this.counts.delete(tool)
+  }
+
+  isOpen(tool: string): boolean {
+    return (this.counts.get(tool) ?? 0) >= DENIAL_BREAKER_THRESHOLD
+  }
+
+  reason(tool: string): string {
+    return (
+      `denied: \`${tool}\` was refused ${DENIAL_BREAKER_THRESHOLD} times in a row — the approval ` +
+      'breaker is open; stop retrying it, take a different approach, or edit the permission ruleset'
+    )
+  }
 }
 
 // ─── volume tools (WASM dispatcher) ─────────────────────────────
@@ -169,9 +248,63 @@ async function wasmList(path: string): Promise<string> {
   return res.output
 }
 
-/** Mirror of Rust `edit::apply_edit` (exact-once anchored replacement). */
-function applyEditLocal(current: string, oldBlock: string, newBlock: string): string {
+/** Trailer `read` appends: `\n[blake3:<hex>]`. Mirrors `edit::anchor_line`. */
+function anchorLineLocal(hash: string): string {
+  return `\n[blake3:${hash}]`
+}
+
+/** Accept every shape a model might echo back — the whole line, a
+ *  `blake3:` prefix, brackets, whitespace — mirrors Rust `edit::normalize_anchor`. */
+export function normalizeAnchorLocal(raw: string): string {
+  const t = raw.trim()
+  const stripped = t.startsWith('[blake3:') ? t.slice('[blake3:'.length)
+    : t.startsWith('blake3:') ? t.slice('blake3:'.length)
+    : t
+  return stripped.replace(/\]+$/, '').trim()
+}
+
+/** Drop a trailing anchor line (with its newline) — mirrors Rust
+ *  `edit::strip_anchor`. The trailer describes the file; it is never content. */
+export function stripAnchorLocal(text: string): string {
+  const m = /(^|\n)\[blake3:[0-9a-f]{64}\]\n?$/i.exec(text)
+  if (!m) return text
+  return text.slice(0, text.length - m[0].length)
+}
+
+/** BLAKE3 hex of text via the loaded wasm module, or `null` when the module
+ *  is not up yet (then a provided anchor simply is not checked — we never
+ *  claim a verification we did not perform). */
+async function blake3HexIfAvailable(text: string): Promise<string | null> {
+  try {
+    const w = await wasmModuleExports<{ blake3_hash(d: Uint8Array): string }>()
+    if (!w || typeof w.blake3_hash !== 'function') return null
+    return w.blake3_hash(new TextEncoder().encode(text))
+  } catch {
+    return null
+  }
+}
+
+/** Mirror of Rust `edit::apply_edit` (exact-once anchored replacement).
+ *  `expectedHash` is honoured the same way: a stale BLAKE3 refuses with
+ *  `integrity:` instead of writing over a file someone else moved. */
+async function applyEditLocal(
+  current: string,
+  oldBlock: string,
+  newBlock: string,
+  expectedHash?: string,
+): Promise<string> {
   if (!oldBlock) throw new Error('invalid: old_block is empty')
+  const anchor = normalizeAnchorLocal(expectedHash ?? '')
+  if (anchor) {
+    const actual = await blake3HexIfAvailable(current)
+    // Prefix-accept, like Rust: a short anchor still detects a moved file and
+    // never turns into a permanent edit blocker.
+    if (actual && !actual.startsWith(anchor)) {
+      throw new Error(
+        `integrity: file changed since anchor (expected ${anchor}, got ${actual}) — re-read and retry`,
+      )
+    }
+  }
   const hits = current.split(oldBlock).length - 1
   if (hits === 0) throw new Error('not_found: old_block does not occur in the file — re-read and retry')
   if (hits > 1) throw new Error(`conflict: old_block occurs ${hits} times — resend a larger, unique block`)
@@ -189,7 +322,11 @@ async function execLocalTool(
   };
   switch (call.name) {
     case 'read': {
-      return wasmRead(join(String(call.input.path ?? '')))
+      const raw = await wasmRead(join(String(call.input.path ?? '')))
+      // Same contract as native: hand back an anchor the model can pass as
+      // `expected_hash`. Never claim one we could not compute.
+      const hash = await blake3HexIfAvailable(raw)
+      return hash ? `${raw}${anchorLineLocal(hash)}` : raw
     }
     case 'list': {
       const p = String(call.input.path ?? '')
@@ -197,21 +334,29 @@ async function execLocalTool(
     }
     case 'write': {
       const path = join(String(call.input.path ?? ''))
-      const content = String(call.input.content ?? '')
+      // A `[blake3:…]` line echoed out of a `read` is metadata, never content.
+      const content = stripAnchorLocal(String(call.input.content ?? ''))
       if (content.length > 1024 * 1024) throw new Error('too_large: content exceeds the 1 MiB browser write cap')
       await wasmWrite(path, content)
-      return `wrote ${path} (${content.length} bytes)`
+      const hash = await blake3HexIfAvailable(content)
+      return hash ? `wrote ${path} (${content.length} bytes, blake3:${hash})` : `wrote ${path} (${content.length} bytes)`
     }
     case 'edit': {
       const path = join(String(call.input.path ?? ''))
       const current = await wasmRead(path)
-      const updated = applyEditLocal(
+      const anchor = String(call.input.expected_hash ?? '').trim()
+      const updated = await applyEditLocal(
         current,
         String(call.input.old_block ?? ''),
         String(call.input.new_block ?? ''),
+        anchor || undefined,
       )
-      await wasmWrite(path, updated)
-      return `edited ${path}`
+      // Hash exactly the bytes that land on disk, so the printed anchor
+      // verifies against the file the next read returns.
+      const written = stripAnchorLocal(updated)
+      await wasmWrite(path, written)
+      const hash = await blake3HexIfAvailable(written)
+      return hash ? `edited ${path} (blake3:${hash})` : `edited ${path}`
     }
     case 'grep': {
       const rawPattern = String(call.input.pattern ?? '')
@@ -297,6 +442,8 @@ export interface LocalRunOpts {
   permission: PermissionRuleset
   autoApprove: boolean
   agentKind: 'build' | 'plan'
+  /** Persist an "allow always" rule the user just granted (config write). */
+  onRemember?: (tool: string) => void
 }
 
 export interface ApprovalRequest {
@@ -304,11 +451,13 @@ export interface ApprovalRequest {
   input: Record<string, unknown>
   summary: string
   question?: string | null
-  resolve: (approved: boolean, answer?: string) => void
+  resolve: (approved: boolean, answer?: string, remember?: boolean) => void
 }
 
 const running = ref(false)
 const pendingApproval = ref<ApprovalRequest | null>(null)
+/** One-liner of what the browser loop is doing right now (job line in the UI). */
+export const localActivity = ref('')
 let abortRequested = false
 
 /** Ask the running browser loop to stop at the next turn boundary. */
@@ -321,13 +470,15 @@ export function abortLocalRun(): void {
   }
 }
 
-function waitApproval(req: Omit<ApprovalRequest, 'resolve'>): Promise<{ approved: boolean; answer?: string }> {
+function waitApproval(
+  req: Omit<ApprovalRequest, 'resolve'>,
+): Promise<{ approved: boolean; answer?: string; remember?: boolean }> {
   return new Promise(resolve => {
     pendingApproval.value = {
       ...req,
-      resolve: (approved, answer) => {
+      resolve: (approved, answer, remember) => {
         pendingApproval.value = null
-        resolve({ approved, answer })
+        resolve({ approved, answer, remember })
       },
     }
   })
@@ -346,16 +497,31 @@ export async function runLocalAgent(
 ): Promise<{ stopped: 'done' | 'limit' | 'aborted' | 'error'; error?: string }> {
   running.value = true
   abortRequested = false
+  localActivity.value = `thinking · ${opts.model}`
+  // Doom-loop guard (native `agent_api` parity): three byte-identical calls
+  // in a row are denied instead of silently burning the turn budget.
+  let lastSig: { name: string; json: string } | null = null
+  let repeats = 0
+  // Refusal breaker (Hermes parity): three `no`s on one tool stop the loop
+  // from parking on the human for the same call a fourth time.
+  const breaker = new DenialBreaker()
   try {
     for (let turn = 0; turn < Math.min(50, Math.max(1, opts.maxTurns)); turn++) {
       if (abortRequested) return { stopped: 'aborted' as const }
+      localActivity.value = `thinking · ${opts.model}`
+      // Context pressure is relieved on the *wire* only: the transcript the
+      // user sees keeps every byte, the provider gets the pruned copy.
+      const wire = prepareWireMessages(messages, { model: opts.model })
+      if (wire.pruned > 0) {
+        localActivity.value = `compacting · pruned ${wire.pruned} tool result(s)`
+      }
       const res = await wasmAgentPrompt({
         url: opts.dialect === 'anthropic' ? `${opts.baseUrl.replace(/\/$/, '')}/v1/messages` : `${opts.baseUrl.replace(/\/$/, '')}/chat/completions`,
         dialect: opts.dialect,
         model: opts.model,
         headers: opts.headers,
         system: opts.system,
-        messages: messages as unknown as Array<Record<string, unknown>>,
+        messages: wire.messages as unknown as Array<Record<string, unknown>>,
         tools: true,
       })
       if (!res.ok) {
@@ -377,9 +543,28 @@ export async function runLocalAgent(
       onUpdate?.()
       for (const call of turnData.tool_calls) {
         const input = (call.input ?? {}) as Record<string, unknown>
+        const json = JSON.stringify(call.input ?? {})
+        if (lastSig && lastSig.name === call.name && lastSig.json === json) {
+          repeats += 1
+        } else {
+          lastSig = { name: call.name, json }
+          repeats = 1
+        }
+        if (repeats >= 3) {
+          messages.push({
+            role: 'tool',
+            content: 'denied: identical tool call repeated 3 times (doom-loop guard) — vary the input or explain',
+            toolCallId: call.id,
+            toolName: call.name,
+          })
+          onUpdate?.()
+          continue
+        }
         if (call.name === 'question') {
           const q = String(input.question ?? 'The agent has a question.')
+          localActivity.value = 'question · waiting for you'
           const ans = await waitApproval({ tool: 'question', input, summary: q, question: q })
+          localActivity.value = `thinking · ${opts.model}`
           messages.push({
             role: 'tool',
             content: ans.approved ? `user answered: ${ans.answer || 'approved without comment'}` : 'declined: user declined to answer',
@@ -389,8 +574,10 @@ export async function runLocalAgent(
           onUpdate?.()
           continue
         }
+        localActivity.value = activityLine(call.name, input)
         const decision = decideLocalTool(opts.permission, opts.agentKind, call.name, input)
         if (decision.kind === 'deny') {
+          breaker.record(call.name, true)
           messages.push({
             role: 'tool',
             content: `${decision.reason} — adjust the permission ruleset to allow it`,
@@ -400,9 +587,32 @@ export async function runLocalAgent(
           onUpdate?.()
           continue
         }
+        if (decision.kind === 'ask' && opts.autoApprove) {
+          // Auto mode approves ordinary asks — never standing orders.
+          const refused = protectedAutoApproveDenial(call.name, input)
+          if (refused) {
+            breaker.record(call.name, true)
+            messages.push({ role: 'tool', content: refused, toolCallId: call.id, toolName: call.name })
+            onUpdate?.()
+            continue
+          }
+          breaker.record(call.name, false)
+        }
         if (decision.kind === 'ask' && !opts.autoApprove) {
+          if (breaker.isOpen(call.name)) {
+            messages.push({
+              role: 'tool',
+              content: breaker.reason(call.name),
+              toolCallId: call.id,
+              toolName: call.name,
+            })
+            onUpdate?.()
+            continue
+          }
+          localActivity.value = `${call.name} · waiting for approval`
           const ans = await waitApproval({ tool: call.name, input, summary: decision.summary, question: null })
           if (!ans.approved) {
+            breaker.record(call.name, true)
             messages.push({
               role: 'tool',
               content: `denied: user rejected \`${call.name}\` — work around it or explain`,
@@ -412,7 +622,13 @@ export async function runLocalAgent(
             onUpdate?.()
             continue
           }
+          breaker.record(call.name, false)
+          if (ans.remember) {
+            rememberAllowLocal(opts.permission, call.name)
+            opts.onRemember?.(call.name)
+          }
         }
+        if (decision.kind === 'allow') breaker.record(call.name, false)
         try {
           const output = await execLocalTool(call, '/')
           messages.push({ role: 'tool', content: output, toolCallId: call.id, toolName: call.name })
@@ -426,7 +642,21 @@ export async function runLocalAgent(
     return { stopped: 'limit' }
   } finally {
     running.value = false
+    localActivity.value = ''
   }
+}
+
+/** `edit /src/app.rs` — same salient-argument shape the native job line shows. */
+function activityLine(name: string, input: Record<string, unknown>): string {
+  let arg = ''
+  try {
+    arg = JSON.stringify(input ?? {})
+  } catch {
+    arg = ''
+  }
+  if (arg === '{}' || arg === 'undefined') return name
+  arg = arg.replace(/["[\]{}]/g, '').replace(/,/g, ' ').trim()
+  return arg.length > 150 ? `${name} ${arg.slice(0, 150)}…` : `${name} ${arg}`
 }
 
 // ─── local configs + sessions (localStorage; keys never persisted) ──
@@ -490,6 +720,7 @@ export function useAgent() {
   return {
     running,
     pendingApproval,
+    localActivity,
     wasmAgentCatalog,
     runLocalAgent,
     listLocalConfigs,

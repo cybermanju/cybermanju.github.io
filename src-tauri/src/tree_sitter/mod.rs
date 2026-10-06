@@ -1,4 +1,4 @@
-// Cybermanju Drive — Tree-sitter Code Intelligence Module
+// CyberManju OS — Tree-sitter Code Intelligence Module
 // Incremental parsing for 200+ languages
 // Extracts symbols, structure, semantic info for file organization
 //

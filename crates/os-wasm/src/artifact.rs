@@ -1,4 +1,4 @@
-// Cybermanju Drive — WASM artifact codec (the read half of canal B).
+// CyberManju OS — WASM artifact codec (the read half of canal B).
 //
 // Undo exactly what `crates/sync/src/pipeline.rs::transform_payload` did on
 // the way out, byte for byte, so a browser can open artifacts a desktop

@@ -1,4 +1,4 @@
-// Cybermanju Drive — AGENT-6 disk & volume tests
+// CyberManju OS — AGENT-6 disk & volume tests
 //
 // Pre-created and registered by the supervisor so `cargo test -p cybermanju-tests`
 // picks the module up as soon as AGENT-6 adds cases. Acceptance lives in

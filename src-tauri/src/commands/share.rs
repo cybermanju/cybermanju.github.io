@@ -1,4 +1,4 @@
-// Cybermanju Drive — Share link commands (thin wrappers over the shared API)
+// CyberManju OS — Share link commands (thin wrappers over the shared API)
 
 use cybermanju_web::api;
 use tauri::State;

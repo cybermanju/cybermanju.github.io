@@ -118,7 +118,7 @@ function runPost() {
   moduleLines.value = []
   postDone.value = false
   const postLines = [
-    'Cybermanju Systems POST v0.0.1',
+    'CyberManju Systems POST v0.0.1',
     'CPU: Quantum Co-Processor @ 2.4 GHz [PASS]',
     'CRYPTO: ML-KEM-1024 Accelerator [PASS]',
     'MEM: 16 GUARD ChaCha20 Zones [PASS]',
@@ -276,7 +276,7 @@ onUnmounted(() => {
 
         <div class="boot-report" role="status" aria-label="Module load report">
           <div class="report-head">
-            <span class="report-title">CYBERMANJU DRIVE v0.0.1 — ALL MODULES LOADED</span>
+            <span class="report-title">CYBERMANJU OS v0.0.1 — ALL MODULES LOADED</span>
             <span class="report-counts">{{ moduleLines.filter(m => m.ok).length }}/{{ moduleLines.length }} OK</span>
           </div>
           <div class="report-quote">{{ currentQuote }}</div>

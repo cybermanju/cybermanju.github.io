@@ -1,4 +1,4 @@
-// Cybermanju Drive — provider health scoring & quarantine (AGENT-7 item 5)
+// CyberManju OS — provider health scoring & quarantine (AGENT-7 item 5)
 //
 // Every operation against a provider is an observation: how long it took and
 // whether it worked. Those observations roll up into a per-config score

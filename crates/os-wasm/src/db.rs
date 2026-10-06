@@ -1,4 +1,4 @@
-// Cybermanju Drive — browser-native database for the WASM demo build
+// CyberManju OS — browser-native database for the WASM demo build
 //
 // This is a REAL redb database (`cybermanju.db`), not a mock: it uses the
 // same table names (`cybermanju_db::Database::get_*_table()`) and the same
@@ -43,11 +43,127 @@ thread_local! {
     static DB: RefCell<Option<DbHandle>> = const { RefCell::new(None) };
 }
 
+#[derive(Debug, Clone, Default)]
+struct MemoryBackend(std::sync::Arc<std::sync::RwLock<Vec<u8>>>);
+
+impl MemoryBackend {
+    fn new() -> Self {
+        Self(std::sync::Arc::new(std::sync::RwLock::new(Vec::new())))
+    }
+}
+
+impl StorageBackend for MemoryBackend {
+    fn len(&self) -> Result<u64, std::io::Error> {
+        self.0
+            .read()
+            .map(|g| g.len() as u64)
+            .map_err(|_| std::io::Error::other("memory backend poisoned"))
+    }
+
+    fn read(&self, offset: u64, len: usize) -> Result<Vec<u8>, std::io::Error> {
+        let guard = self
+            .0
+            .read()
+            .map_err(|_| std::io::Error::other("memory backend poisoned"))?;
+        let offset = usize::try_from(offset)
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "offset OOR"))?;
+        if offset + len <= guard.len() {
+            Ok(guard[offset..offset + len].to_vec())
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "read OOR",
+            ))
+        }
+    }
+
+    fn set_len(&self, len: u64) -> Result<(), std::io::Error> {
+        let mut guard = self
+            .0
+            .write()
+            .map_err(|_| std::io::Error::other("memory backend poisoned"))?;
+        let len = usize::try_from(len)
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "len OOR"))?;
+        if guard.len() < len {
+            guard.resize(len, 0);
+        } else {
+            guard.truncate(len);
+        }
+        Ok(())
+    }
+
+    fn sync_data(&self, _eventual: bool) -> Result<(), std::io::Error> {
+        Ok(())
+    }
+
+    fn write(&self, offset: u64, data: &[u8]) -> Result<(), std::io::Error> {
+        let mut guard = self
+            .0
+            .write()
+            .map_err(|_| std::io::Error::other("memory backend poisoned"))?;
+        let offset = usize::try_from(offset)
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "offset OOR"))?;
+        if offset + data.len() <= guard.len() {
+            guard[offset..offset + data.len()].copy_from_slice(data);
+            Ok(())
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "write OOR",
+            ))
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum Backend {
+    Opfs(OpfsBackend),
+    Memory(MemoryBackend),
+}
+
+impl StorageBackend for Backend {
+    fn len(&self) -> Result<u64, std::io::Error> {
+        match self {
+            Backend::Opfs(b) => b.len(),
+            Backend::Memory(b) => b.len(),
+        }
+    }
+
+    fn read(&self, offset: u64, len: usize) -> Result<Vec<u8>, std::io::Error> {
+        match self {
+            Backend::Opfs(b) => b.read(offset, len),
+            Backend::Memory(b) => b.read(offset, len),
+        }
+    }
+
+    fn set_len(&self, len: u64) -> Result<(), std::io::Error> {
+        match self {
+            Backend::Opfs(b) => b.set_len(len),
+            Backend::Memory(b) => b.set_len(len),
+        }
+    }
+
+    fn sync_data(&self, eventual: bool) -> Result<(), std::io::Error> {
+        match self {
+            Backend::Opfs(b) => b.sync_data(eventual),
+            Backend::Memory(b) => b.sync_data(eventual),
+        }
+    }
+
+    fn write(&self, offset: u64, data: &[u8]) -> Result<(), std::io::Error> {
+        match self {
+            Backend::Opfs(b) => b.write(offset, data),
+            Backend::Memory(b) => b.write(offset, data),
+        }
+    }
+}
+
 struct DbHandle {
     db: RedbDatabase,
     /// Retained so `db_snapshot`/`db_restore` can read and rewrite the full
-    /// file image. `None` on the in-memory fallback (nothing to snapshot).
-    backend: Option<OpfsBackend>,
+    /// file image. Both backends (OPFS-durable and in-memory) are snapshotable,
+    /// so `.cybermanju` CREATE/EXPORT/IMPORT works even without OPFS.
+    backend: Backend,
 }
 
 // ─── JS bridges ────────────────────────────────────────────────────────
@@ -204,23 +320,26 @@ fn open_all_tables(db: &RedbDatabase) -> Result<(), String> {
 }
 
 /// Open (or create) the demo database. Resolves OPFS in this context;
-/// falls back to a process-local in-memory database with zero persistence.
+/// falls back to a process-local in-memory database. The in-memory image is
+/// kept in a shared (`Arc`) backend so `db_snapshot`/`db_restore` — and with
+/// them `.cybermanju` CREATE/EXPORT/IMPORT — work on both backends.
 #[wasm_bindgen]
 pub async fn db_open() -> Result<JsValue, JsValue> {
     let (db, backend_name, backend) = match open_opfs_handle(DB_FILE).await {
         Ok(handle) => {
             let backend = OpfsBackend::new(handle, DB_FILE);
             let db = redb::Builder::new()
-                .create_with_backend(backend.clone())
+                .create_with_backend(Backend::Opfs(backend.clone()))
                 .map_err(|e| format!("network: redb open failed: {e}"))?;
-            (db, "opfs", Some(backend))
+            (db, "opfs", Backend::Opfs(backend))
         }
         Err(detail) => {
+            let backend = MemoryBackend::new();
             let db = redb::Builder::new()
-                .create_with_backend(redb::backends::InMemoryBackend::new())
+                .create_with_backend(Backend::Memory(backend.clone()))
                 .map_err(|e| format!("network: in-memory open failed: {e}"))?;
             let _ = detail;
-            (db, "memory", None)
+            (db, "memory", Backend::Memory(backend))
         }
     };
     if let Err(e) = open_all_tables(&db) {
@@ -1013,9 +1132,9 @@ fn err_envelope(error: &str) -> String {
     envelope_json(false, &serde_json::Value::Null, Some(error.to_string()))
 }
 
-/// Whole-file image of the open database, for crash-recovery snapshots.
-/// The worker writes it to `cybermanju.backup.db` (plain async OPFS) on a
-/// timer and restores it over a missing/empty main file at boot.
+/// Whole-file image of the open database, for crash-recovery snapshots and
+/// `.cybermanju` CREATE/EXPORT. Works on both backends: OPFS (durable) and
+/// the shared in-memory backend (session image, still a real redb file).
 #[wasm_bindgen]
 pub fn db_snapshot() -> Result<JsValue, JsValue> {
     let bytes: Vec<u8> = DB
@@ -1024,14 +1143,15 @@ pub fn db_snapshot() -> Result<JsValue, JsValue> {
             let handle = borrow.as_ref().ok_or_else(|| {
                 "unavailable: database is not open (call db_open first)".to_string()
             })?;
-            let backend = handle.backend.as_ref().ok_or_else(|| {
-                "unsupported: snapshots need the OPFS backend (in-memory database)".to_string()
-            })?;
+            let backend = &handle.backend;
             let len = backend
                 .len()
                 .map_err(|e| format!("network: snapshot size failed: {e}"))?;
             if len > 256 * 1024 * 1024 {
                 return Err("unsupported: database image exceeds 256 MiB snapshot cap".to_string());
+            }
+            if len == 0 {
+                return Err("unavailable: database image is empty (call db_open first)".to_string());
             }
             backend
                 .read(0, len as usize)
@@ -1045,7 +1165,8 @@ pub fn db_snapshot() -> Result<JsValue, JsValue> {
 
 /// Replace the database file with a snapshot image and reopen. The open
 /// handle is reused (dropped redb state first), so no new OPFS acquisition
-/// — and no second sync handle on the same file — is needed.
+/// — and no second sync handle on the same file — is needed. Works on both
+/// the OPFS and the in-memory backend, so IMPORT works everywhere.
 #[wasm_bindgen]
 pub fn db_restore(data: &[u8]) -> String {
     if data.is_empty() {
@@ -1056,11 +1177,9 @@ pub fn db_restore(data: &[u8]) -> String {
     }
     let backend = DB.with(|cell| cell.borrow_mut().take().map(|h| h.backend));
     let backend = match backend {
-        Some(Some(b)) => b,
+        Some(b) => b,
         _ => {
-            return err_envelope(
-                "unsupported: restore needs an open OPFS database (call db_open first)",
-            )
+            return err_envelope("unavailable: restore needs an open database (call db_open first)")
         }
     };
     let reopened: Result<RedbDatabase, String> = (|| {
@@ -1081,19 +1200,24 @@ pub fn db_restore(data: &[u8]) -> String {
     })();
     match reopened {
         Ok(db) => {
-            DB.with(|cell| {
-                *cell.borrow_mut() = Some(DbHandle {
-                    db,
-                    backend: Some(backend),
-                })
-            });
+            DB.with(|cell| *cell.borrow_mut() = Some(DbHandle { db, backend }));
             envelope_json(
                 true,
                 &serde_json::json!({ "restoredBytes": data.len() }),
                 None,
             )
         }
-        Err(e) => err_envelope(&e),
+        Err(e) => {
+            // Restore failed after the handle was taken — reopen the (possibly
+            // truncated) backend so the vault stays usable instead of stuck
+            // in "not open". Best-effort: surface the original error.
+            if let Ok(db) = redb::Builder::new().create_with_backend(backend.clone()) {
+                DB.with(|cell| {
+                    *cell.borrow_mut() = Some(DbHandle { db, backend });
+                });
+            }
+            err_envelope(&e)
+        }
     }
 }
 

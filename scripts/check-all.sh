@@ -6,7 +6,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_ROOT"
 
-echo "=== Cybermanju Drive — Full Check ==="
+echo "=== CyberManju OS — Full Check ==="
 echo ""
 
 echo "[1/3] TypeScript type check..."

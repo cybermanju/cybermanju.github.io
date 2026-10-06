@@ -1,4 +1,4 @@
-// Cybermanju Drive — Trash commands (thin wrappers over the shared API)
+// CyberManju OS — Trash commands (thin wrappers over the shared API)
 
 use cybermanju_web::api;
 use tauri::State;

@@ -1,4 +1,4 @@
-// Cybermanju Drive — OAuth2 flows
+// CyberManju OS — OAuth2 flows
 //
 // Authorization-code + PKCE (RFC 7636) for Google / GitHub / GitLab, token
 // refresh, a passphrase-protected credential store, and the `resolve_token`
@@ -505,7 +505,7 @@ pub fn resolve_token(config: &SyncConfig) -> Result<String, String> {
 
 fn http_client() -> Result<Client, String> {
     Client::builder()
-        .user_agent("CybermanjuDrive/0.1")
+        .user_agent("CyberManjuOS/0.1")
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(30))
         .build()

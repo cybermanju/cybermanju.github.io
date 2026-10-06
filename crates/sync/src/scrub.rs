@@ -1,4 +1,4 @@
-// Cybermanju Drive — background scrubber (AGENT-7 item 1)
+// CyberManju OS — background scrubber (AGENT-7 item 1)
 //
 // Silent loss becomes detectable: a scheduled pass walks every chunk copy in
 // every manifest, downloads it, and re-verifies its BLAKE3 against the

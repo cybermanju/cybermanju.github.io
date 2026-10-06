@@ -2,7 +2,7 @@
   <div class="desktop-shell" :class="{ 'desktop-shell--glow': theme.settings.glow }">
     <TopMenuBar />
 
-    <div class="desktop-area" ref="desktopRef" @click="handleWorkspaceClick">
+    <div class="desktop-area" @click="handleWorkspaceClick">
       <div class="desktop-wallpaper">
         <slot name="wallpaper" />
         <div class="desktop-aurora" aria-hidden="true" />
@@ -81,7 +81,6 @@ import type { PanelType } from '@/types'
 
 const wm = useWindowManager()
 const theme = useTheme()
-const desktopRef = ref<HTMLElement | null>(null)
 const selectShortcut = ref<PanelType | null>(null)
 
 const shortcuts: { panel: PanelType; label: string; icon: string }[] = [
@@ -97,11 +96,7 @@ const visibleWindows = computed(() =>
   wm.windows.value.filter(w => !w.minimized)
 )
 
-const focusedWindowId = computed(() => {
-  if (wm.windows.value.length === 0) return null
-  const sorted = [...wm.windows.value].sort((a, b) => b.zIndex - a.zIndex)
-  return sorted[0].id
-})
+const focusedWindowId = computed(() => wm.activeWindow.value?.id ?? null)
 
 const dockMenu = ref({
   visible: false,
@@ -125,12 +120,14 @@ function handleClickOutside() {
 
 function handleWorkspaceClick(e: MouseEvent) {
   const target = e.target as HTMLElement | null
-  if (e.target === desktopRef.value || target?.closest('.desktop-area')) {
+  if (!target) return
+  if (target.closest('.app-window')) {
     selectShortcut.value = null
-    wm.windows.value.forEach(w => {
-      w.zIndex = 1
-    })
+    return
   }
+  if (target.closest('.desktop-shortcut')) return
+  selectShortcut.value = null
+  wm.blurAll()
 }
 
 onMounted(() => {

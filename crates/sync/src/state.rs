@@ -1,4 +1,4 @@
-// Cybermanju Drive — Shared Sync State
+// CyberManju OS — Shared Sync State
 // Live progress + cancellation flag shared between the sync pipeline and
 // whichever front-end is driving it (Tauri IPC, REST or WASM).
 //

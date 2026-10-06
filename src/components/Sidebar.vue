@@ -30,8 +30,8 @@
           <button class="ql-item" @click="wm.open('sync')"><AppIcon name="solar:cloud-bold" :size="12" /> CLOUD SYNC</button>
           <button class="ql-item" @click="wm.open('terminal')">[&gt;] TERMINAL (cybsh)</button>
           <button class="ql-item" @click="wm.open('disks')"><AppIcon name="solar:ssd-square-bold" :size="12" /> DISKS &amp; VOLUME</button>
-          <a href="https://github.com/hautlythird211/Cybermanju-Drive" target="_blank" class="ql-item"><AppIcon name="solar:code-square-bold" :size="12" /> SOURCE CODE</a>
-          <a href="https://github.com/hautlythird211/Cybermanju-Drive/blob/main/README.md" target="_blank" class="ql-item"><AppIcon name="solar:book-bold" :size="12" /> DOCS</a>
+          <a href="https://github.com/cybermanju/cybermanju.github.io" target="_blank" class="ql-item"><AppIcon name="solar:code-square-bold" :size="12" /> SOURCE CODE</a>
+          <a href="https://github.com/cybermanju/cybermanju.github.io/blob/main/README.md" target="_blank" class="ql-item"><AppIcon name="solar:book-bold" :size="12" /> DOCS</a>
         </div>
       </div>
 
@@ -105,7 +105,7 @@
       </div>
 
       <div v-if="store.sidebarSection === 'styles'" class="sidebar-section">
-        <div class="section-header">TAGS</div>
+        <div class="section-header section-header--link" @click="wm.open('style')" title="OPEN STYLE TAGS PANEL">TAGS &gt;</div>
         <div class="tag-cloud">
           <span v-if="allTags.length === 0" class="text-muted" style="font-size:10px;padding:8px;">NO TAGS</span>
           <span
@@ -120,7 +120,7 @@
       </div>
 
       <div v-if="store.sidebarSection === 'loose'" class="sidebar-section">
-        <div class="section-header">LOOSE GROUPS</div>
+        <div class="section-header section-header--link" @click="wm.open('loose-groups')" title="OPEN LOOSE GROUPS PANEL">LOOSE GROUPS &gt;</div>
         <div class="loose-list">
           <div
             v-for="group in store.looseGroups"
@@ -182,6 +182,9 @@
           <button class="ql-item" @click="wm.open('recent')" aria-label="OPEN RECENT FILES"><AppIcon name="solar:history-bold" :size="12" /> RECENT FILES</button>
           <button class="ql-item" @click="wm.open('activity'); store.fetchAuditLog()" aria-label="OPEN ACTIVITY LOG"><AppIcon name="solar:pulse-bold" :size="12" /> ACTIVITY LOG</button>
           <button class="ql-item" @click="wm.open('storage')" aria-label="OPEN STORAGE DASHBOARD"><AppIcon name="solar:database-bold" :size="12" /> STORAGE</button>
+          <button class="ql-item" @click="wm.open('loose-groups')" aria-label="OPEN LOOSE GROUPS"><AppIcon name="solar:users-group-two-rounded-bold" :size="12" /> LOOSE GROUPS</button>
+          <button class="ql-item" @click="wm.open('style')" aria-label="OPEN STYLE TAGS"><AppIcon name="solar:tag-bold" :size="12" /> STYLE TAGS</button>
+          <button class="ql-item" @click="wm.open('webdash')" aria-label="OPEN OVERLAY DASHBOARD"><AppIcon name="solar:kanban-square-bold" :size="12" /> OVERLAY</button>
           <button class="ql-item" @click="wm.open('settings')" aria-label="OPEN SETTINGS"><AppIcon name="solar:settings-bold" :size="12" /> SETTINGS</button>
           <button class="ql-item" @click="wm.open('trash'); store.fetchTrashItems()" aria-label="OPEN TRASH"><AppIcon name="solar:trash-bin-trash-bold" :size="12" /> TRASH</button>
         </div>
@@ -384,6 +387,10 @@ function showTreeContextMenu(e: MouseEvent) {
 
 .section-header:hover {
   color: var(--ui-text);
+}
+
+.section-header--link {
+  cursor: pointer;
 }
 
 .sidebar-item {

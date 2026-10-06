@@ -1,4 +1,4 @@
-// Cybermanju Drive — User management (shared by Tauri IPC and REST)
+// CyberManju OS — User management (shared by Tauri IPC and REST)
 //
 // <<< AGENT-3 IDENTITY: registration modes, pinned Argon2id parameters and a
 // single legacy-hash migration path shared by the HTTP and Tauri transports. >>>

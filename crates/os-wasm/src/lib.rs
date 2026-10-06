@@ -17,5 +17,5 @@ pub use os::*;
 #[wasm_bindgen(start)]
 pub fn init() {
     wasm_logger::init(wasm_logger::Config::default());
-    log::info!("Cybermanju Drive WASM module initialized");
+    log::info!("CyberManju OS WASM module initialized");
 }

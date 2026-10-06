@@ -1,4 +1,4 @@
-// Cybermanju Drive — File version operations (shared by Tauri IPC and REST)
+// CyberManju OS — File version operations (shared by Tauri IPC and REST)
 
 use cybermanju_db::Database;
 use cybermanju_types::schema::{FileNode, FileVersion};

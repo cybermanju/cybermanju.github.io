@@ -1,4 +1,4 @@
-// Cybermanju Drive — `.cybermanju` file binding (browser side)
+// CyberManju OS — `.cybermanju` file binding (browser side)
 //
 // Three layers, in order of what the browser allows:
 //
@@ -30,7 +30,7 @@ const HANDLE_KEY = 'cybermanju.diskHandle'
 
 const PICKER_TYPES = [
   {
-    description: 'Cybermanju vault',
+    description: 'CyberManju vault',
     accept: { 'application/octet-stream': ['.cybermanju'] },
   },
 ] as const
@@ -179,7 +179,7 @@ async function attach(
 }
 
 /** Restore the remembered handle on startup (permission/passphrase gated). */
-export function bootCybermanjuDisk(): Promise<void> {
+export function bootCyberManjuDisk(): Promise<void> {
   if (bootPromise) return bootPromise
   bootPromise = (async () => {
     disk.supported = diskSupported()
@@ -206,7 +206,7 @@ export function bootCybermanjuDisk(): Promise<void> {
 }
 
 /** User click that grants readwrite and then opens the remembered file. */
-export async function reattachCybermanjuDisk(passphrase = ''): Promise<boolean> {
+export async function reattachCyberManjuDisk(passphrase = ''): Promise<boolean> {
   const target = pending
   if (!target?.handle) return false
   disk.busy = true
@@ -229,7 +229,7 @@ export async function reattachCybermanjuDisk(passphrase = ''): Promise<boolean> 
   }
 }
 
-export async function openCybermanjuFile(): Promise<boolean> {
+export async function openCyberManjuFile(): Promise<boolean> {
   if (!diskSupported()) {
     disk.supported = false
     disk.lastError = 'this browser has no File System Access API — use IMPORT / EXPORT instead'
@@ -254,7 +254,7 @@ export async function openCybermanjuFile(): Promise<boolean> {
   }
 }
 
-export async function createCybermanjuFile(passphrase = ''): Promise<boolean> {
+export async function createCyberManjuFile(passphrase = ''): Promise<boolean> {
   if (!diskSupported()) {
     disk.supported = false
     disk.lastError = 'this browser has no File System Access API — use EXPORT instead'
@@ -269,7 +269,7 @@ export async function createCybermanjuFile(passphrase = ''): Promise<boolean> {
     disk.busy = true
     // No bytes → the live database is kept and written into the new file.
     await attach(handle, handle.name, null, passphrase)
-    await saveCybermanjuFile()
+    await saveCyberManjuFile()
     return true
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') return false
@@ -280,7 +280,7 @@ export async function createCybermanjuFile(passphrase = ''): Promise<boolean> {
   }
 }
 
-export async function saveCybermanjuFile(): Promise<boolean> {
+export async function saveCyberManjuFile(): Promise<boolean> {
   if (!disk.bound) {
     disk.lastError = 'no .cybermanju file bound — CREATE FILE or IMPORT one first'
     return false
@@ -300,7 +300,7 @@ export async function saveCybermanjuFile(): Promise<boolean> {
 }
 
 /** Download the container — the fallback when there is no FSA API. */
-export async function exportCybermanjuFile(passphrase?: string): Promise<boolean> {
+export async function exportCyberManjuFile(passphrase?: string): Promise<boolean> {
   disk.busy = true
   try {
     const { bytes, name } = await wasmExportDisk(passphrase)
@@ -324,7 +324,7 @@ export async function exportCybermanjuFile(passphrase?: string): Promise<boolean
 }
 
 /** Open a `.cybermanju` picked through `<input type=file>` (all browsers). */
-export async function importCybermanjuFile(file: File): Promise<boolean> {
+export async function importCyberManjuFile(file: File): Promise<boolean> {
   disk.busy = true
   try {
     const bytes = new Uint8Array(await file.arrayBuffer())
@@ -338,7 +338,7 @@ export async function importCybermanjuFile(file: File): Promise<boolean> {
   }
 }
 
-export async function detachCybermanjuFile(): Promise<void> {
+export async function detachCyberManjuFile(): Promise<void> {
   disk.busy = true
   try {
     pending = null
@@ -357,7 +357,7 @@ export async function detachCybermanjuFile(): Promise<void> {
 }
 
 /** Refresh disk fields from the worker (called by periodic UI ticks). */
-export async function refreshCybermanjuDisk(): Promise<void> {
+export async function refreshCyberManjuDisk(): Promise<void> {
   try {
     const status = await wasmDiskStatus()
     apply(status, disk.bound && status.attached)

@@ -1,4 +1,4 @@
-// Cybermanju Drive — WASM provider canal (canal B).
+// CyberManju OS — WASM provider canal (canal B).
 //
 // The Rust half of the read path: probe / list / fetch against a provider,
 // byte-oriented, no `std::fs` anywhere — the same BlockStore-style boundary
@@ -151,8 +151,9 @@ pub fn refusal(backend: &str) -> String {
             "cors: {backend} sends no Access-Control-Allow-Origin header, so no browser can \
              read it — use the desktop app, Docker image or dashboard server"
         ),
-        "local" => "unsupported: 'local' is not a remote provider — it is the local volume"
-            .to_string(),
+        "local" => {
+            "unsupported: 'local' is not a remote provider — it is the local volume".to_string()
+        }
         other => format!(
             "unsupported: '{other}' is not a browser canal (CORS-OK only: {})",
             CORS_OK_BACKENDS.join(", ")
@@ -342,7 +343,12 @@ pub fn entries_from_github_tree(
             encode_path(path)
         )
     };
-    Ok(children_from_git_paths(raw.into_iter(), prefix, sizes, urls))
+    Ok(children_from_git_paths(
+        raw.into_iter(),
+        prefix,
+        sizes,
+        urls,
+    ))
 }
 
 /// Parse a `GET /projects/{id}/repository/tree` page (or several, already
@@ -362,10 +368,14 @@ pub fn entries_from_gitlab_tree(
             Some((path, dir))
         })
         .collect();
-    let urls = |path: &str| -> String {
-        format!("https://gitlab.com/-/blob/{}", encode_path(path))
-    };
-    Ok(children_from_git_paths(raw.into_iter(), prefix, |_| None, urls))
+    let urls =
+        |path: &str| -> String { format!("https://gitlab.com/-/blob/{}", encode_path(path)) };
+    Ok(children_from_git_paths(
+        raw.into_iter(),
+        prefix,
+        |_| None,
+        urls,
+    ))
 }
 
 /// Parse a Drive `files.list` page (folders kept — unlike the native
@@ -418,7 +428,9 @@ pub fn status_error(provider: &str, op: &str, status: u16, body: &[u8]) -> Resul
         _ => "network",
     };
     if detail.is_empty() {
-        return Err(format!("{prefix}: {provider} {op} failed with HTTP {status}"));
+        return Err(format!(
+            "{prefix}: {provider} {op} failed with HTTP {status}"
+        ));
     }
     Err(format!(
         "{prefix}: {provider} {op} failed with HTTP {status} — {detail}"
@@ -561,7 +573,9 @@ async fn probe_backend(cfg: &CanalConfig) -> Result<serde_json::Value, String> {
             };
             let headers = [("PRIVATE-TOKEN", cfg.token())];
             let json = get_json("GitLab", "probe", &url, &headers).await?;
-            let who = json["username"].as_str().or_else(|| json["path_with_namespace"].as_str());
+            let who = json["username"]
+                .as_str()
+                .or_else(|| json["path_with_namespace"].as_str());
             Ok(serde_json::json!({ "backend": "gitlab", "who": who.unwrap_or("") }))
         }
         "googleDrive" => {
@@ -783,10 +797,7 @@ fn config_from(args: &serde_json::Value) -> Result<CanalConfig, String> {
 /// envelope carries, so the caller renders them identically.
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub async fn canal_fetch(
-    config_json: &str,
-    locator: &str,
-) -> Result<js_sys::Uint8Array, JsValue> {
+pub async fn canal_fetch(config_json: &str, locator: &str) -> Result<js_sys::Uint8Array, JsValue> {
     let cfg: CanalConfig = serde_json::from_str(config_json)
         .map_err(|e| JsValue::from_str(&format!("invalid: bad canal config ({e})")))?;
     let bytes = fetch_backend(&cfg, locator)
@@ -825,7 +836,7 @@ mod tests {
             "basePath": null,
             "folderId": null
         }))
-            .expect("must parse");
+        .expect("must parse");
         assert_eq!(cfg.backend(), "github");
         assert_eq!(cfg.repo(), "owner/repo");
         assert_eq!(cfg.branch_or_main(), "main");

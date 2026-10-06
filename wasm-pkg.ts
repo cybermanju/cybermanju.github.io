@@ -1,4 +1,4 @@
-// Freshness gate for the wasm-pack output (`crates/drive-wasm/pkg`).
+// Freshness gate for the wasm-pack output (`crates/os-wasm/pkg`).
 //
 // pkg/ is a gitignored artifact: CI rebuilds it in the wasm job, but a local
 // copy outlives Rust edits and would otherwise be bundled silently — which
@@ -9,7 +9,7 @@
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
-const PKG_ENTRY = 'crates/drive-wasm/pkg/cybermanju_drive_wasm.js'
+const PKG_ENTRY = 'crates/os-wasm/pkg/cybermanju_os_wasm.js'
 
 // Everything under crates/ that can change the artifact: Rust sources plus
 // the Cargo manifests (a dependency edit rebuilds the wasm too).
@@ -48,7 +48,7 @@ function newestSourceMtime(root: string): number {
 /**
  * Path to the wasm-pack entry file, or `null` when there is no usable pkg/
  * — absent (Docker/frontend-only stage) or older than `crates/**` (rebuild
- * it, don't bundle it). Callers then resolve `cybermanju-drive-wasm` to the
+ * it, don't bundle it). Callers then resolve `cybermanju-os-wasm` to the
  * wasm stub.
  */
 export function wasmPkgEntry(root: string): string | null {
@@ -60,7 +60,7 @@ export function wasmPkgEntry(root: string): string | null {
       console.warn(
         `[wasm] ${PKG_ENTRY} is older than the Rust sources in crates/ — ` +
           'ignoring it and bundling the wasm stub instead. Rebuild with:\n' +
-          '  wasm-pack build crates/drive-wasm --target web --out-dir pkg',
+          '  wasm-pack build crates/os-wasm --target web --out-dir pkg',
       )
     }
     return null

@@ -98,7 +98,7 @@ public class KeyCheck {
 }
 EOF
   local store_pass="${ANDROID_KEYSTORE_PASSWORD:-}"
-  local key_alias="${ANDROID_KEY_ALIAS:-cybermanju-drive}"
+  local key_alias="${ANDROID_KEY_ALIAS:-cybermanju-os}"
   local key_pass="${ANDROID_KEY_PASSWORD:-$store_pass}"
   local fell_back=0
   local probe_out probe_code
@@ -234,7 +234,7 @@ verify() {
     local version friendly
     version="$(node -p "require('./package.json').version" 2>/dev/null || echo "")"
     if [ -n "$version" ]; then
-      friendly="$(dirname "$apk")/Cybermanju-Drive-$version-arm64-v8a.apk"
+      friendly="$(dirname "$apk")/CyberManju-OS-$version-arm64-v8a.apk"
       if [ "$apk" != "$friendly" ]; then
         mv "$apk" "$friendly"
         apk="$friendly"

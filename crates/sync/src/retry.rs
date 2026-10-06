@@ -1,4 +1,4 @@
-// Cybermanju Drive — retry / backoff policy (AGENT-1)
+// CyberManju OS — retry / backoff policy (AGENT-1)
 //
 // Two things live here:
 //

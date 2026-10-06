@@ -1,4 +1,4 @@
-# Cybermanju Drive — Operations Runbook
+# CyberManju OS — Operations Runbook
 
 How to run the decentralized OS in production: Docker/ZimaOS, backup, env, TLS, health, and the `cybsh` terminal.
 

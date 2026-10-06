@@ -5,23 +5,18 @@ import wasmStub from "./vite-plugin-wasm-stub";
 import { wasmPkgEntry } from "./wasm-pkg";
 
 // Determine the base path:
-// - GitHub Pages: /cybermanju-drive/ (lowercase repo slug)
+// - GitHub Pages (cybermanju.github.io root site): /
 // - Docker / standalone: / (served from root)
 // Override with VITE_BASE env var if needed
-const base =
-  process.env.VITE_BASE ||
-  (process.env.NODE_ENV === "production" &&
-  process.env.DOCKER_BUILD !== "true"
-    ? "/Cybermanju-Drive/"
-    : "/");
+const base = process.env.VITE_BASE || "/";
 
 export default defineConfig({
   plugins: [vue(), wasmStub()],
   resolve: {
     alias: {
       "@": resolve(__dirname, "src"),
-      // wasm-pack output (`wasm-pack build crates/drive-wasm --target web
-      // --out-dir crates/drive-wasm/pkg`) — the integrated backend for the
+      // wasm-pack output (`wasm-pack build crates/os-wasm --target web
+      // --out-dir crates/os-wasm/pkg`) — the integrated backend for the
       // static/GH-Pages bundle. Used only when present AND not older than
       // crates/**: a stale pkg falls back to the stub instead of shipping an
       // artifact that no longer matches the Rust (see wasm-pkg.ts).
@@ -29,7 +24,7 @@ export default defineConfig({
       // bundles don't apply package.json directory resolution, so a
       // directory alias EISDIRs the db-worker chunk. Without a usable pkg
       // (Docker frontend stage) the stub file stands in, same guarantee.
-      "cybermanju-drive-wasm":
+      "cybermanju-os-wasm":
         wasmPkgEntry(__dirname) ?? resolve(__dirname, "src/wasm-stub.js"),
     },
   },

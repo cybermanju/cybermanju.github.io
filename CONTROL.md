@@ -33,7 +33,7 @@ Living task tracker. Updated as each task lands. Status legend:
 - [x] 1.5 `src/composables/useWasmBackend.ts` — `wasmAttachDisk/wasmSaveDisk/wasmDiskStatus/
       wasmExportDisk/wasmDetachDisk` + explicit "needs the worker" errors in the
       main-thread fallback.
-- [x] 1.6 `src/composables/useCybermanjuFile.ts` — open/create picker, re-attach from IDB with
+- [x] 1.6 `src/composables/useCyberManjuFile.ts` — open/create picker, re-attach from IDB with
       permission re-request, passphrase prompt for encrypted files, save now,
       export/import fallback (Firefox/Safari have no FSA API), boot restore.
 
@@ -41,7 +41,7 @@ Living task tracker. Updated as each task lands. Status legend:
 
 - [x] 2.1 Rust `crates/db/src/database.rs` — `KV_TABLE` (`kv`) + `get_kv_table()`, opened in
       `Database::new`.
-- [x] 2.2 Rust `crates/drive-wasm/src/db.rs` — `kv` opened in `open_all_tables`;
+- [x] 2.2 Rust `crates/os-wasm/src/db.rs` — `kv` opened in `open_all_tables`;
       ops `kv.get` / `kv.set` (64 MiB cap) / `kv.delete` / `kv.list` (keys+sizes only);
       `files.create` (node + optional `content:` body); `files.patch` (whitelisted fields
       + `modifiedAt`). Compiles in CI (`rust-check`).
@@ -105,7 +105,7 @@ renders them as a single virtual filesystem under `providers/`.
 **Decisions locked in (user, 2026-10-06):**
 - **B — fully Rust-wasm canal**: transport (list/fetch/probe) + artifact
   unwrap (Argon2id → ChaCha20-Poly1305 → Brotli/ZSTD/LZ4) live in
-  `crates/drive-wasm`, not TypeScript fetch. TS only orchestrates.
+  `crates/os-wasm`, not TypeScript fetch. TS only orchestrates.
 - **Ships inside the `.cybermanju`**: mount registry + directory cache +
   master passphrase live in the redb `kv` table, so `_save`/`_attach` of the
   container carries the whole provider namespace with it. No new redb table.
@@ -126,7 +126,7 @@ renders them as a single virtual filesystem under `providers/`.
 | `bare-vfs` | Inode-based memfs that targets `wasm32-unknown-unknown` and snapshots via serde — validates "build the tree in memory, persist by snapshot"; we snapshot through redb instead. |
 | `MrElectrify/virtual-fs`, `wasi_virt_layer` | Confirms the two standard layers: a path-resolving VFS over pluggable backends, plus (for us) a TS-side path mapper at the `invoke()` choke point. |
 
-- [x] 5.1 `crates/drive-wasm/src/canal.rs` — exports: `canal_dispatch(op,
+- [x] 5.1 `crates/os-wasm/src/canal.rs` — exports: `canal_dispatch(op,
       args_json)` async (`probe` / `list`, envelope like `db_dispatch`) +
       `canal_fetch(config_json, locator) -> Uint8Array` (binary out, no
       base64). Transport over `web_sys::fetch` (window **or** worker global
@@ -140,13 +140,13 @@ renders them as a single virtual filesystem under `providers/`.
       folding) are natively `cargo test`-covered; `CanalConfig` accepts a
       raw `SyncConfig` JSON (`backendType` alias, null-tolerant fields,
       casing-normalised backend names).
-- [x] 5.2 `crates/drive-wasm/src/artifact.rs` — `artifact_magic()` +
+- [x] 5.2 `crates/os-wasm/src/artifact.rs` — `artifact_magic()` +
       `artifact_open()`: `CYBE1` → Argon2id (m=19456,t=2,p=1 — byte-identical
       to `crypto/keystore.rs::derive_key`) → ChaCha20-Poly1305 → triple
       decompress Brotli→ZSTD→LZ4; ZSTD via pure-Rust `ruzstd`
       (`cybermanju-compression` is unbuildable on wasm — `zstd-sys` is C).
       `CYBMJ01` / `CYBMJU1` pass through for the TS container codec.
-- [x] 5.3 `crates/drive-wasm/Cargo.toml` — added `ruzstd = "0.9"` (std on by
+- [x] 5.3 `crates/os-wasm/Cargo.toml` — added `ruzstd = "0.9"` (std on by
       default) and `web-sys` features `Window, WorkerGlobalScope, Request,
       RequestInit, Response, Headers`; `lib.rs` wires `pub mod artifact;
       pub mod canal;`, `db::envelope_json` is `pub(crate)` so both

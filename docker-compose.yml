@@ -1,10 +1,10 @@
 services:
-  cybermanju-drive:
-    image: cybermanju-drive:latest
+  cybermanju-os:
+    image: cybermanju-os:latest
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: cybermanju-drive
+    container_name: cybermanju-os
     restart: unless-stopped
     # ── Hardening ─────────────────────────────────────────────────────
     # Root filesystem immutable; only /data (volume) and /tmp (tmpfs) are
@@ -26,7 +26,7 @@ services:
       # default below. See docs/OPERATIONS.md.
       - "${CYBERMANJU_HOST_IP:-127.0.0.1}:3456:3456"
     volumes:
-      - /DATA/AppData/cybermanju-drive/config:/data
+      - /DATA/AppData/cybermanju-os/config:/data
     environment:
       - RUST_LOG=info
       - PORT=3456
@@ -47,13 +47,13 @@ x-casaos:
   architectures:
     - amd64
     - arm64
-  author: Cybermanju Team
+  author: CyberManju Team
   category:
     - File Sync
     - Utilities
   description:
     en_us: >-
-      Cybermanju Drive is an encrypted file manager with a web dashboard for
+      CyberManju OS is an encrypted file manager with a web dashboard for
       browser-based access from any device. The server ships full-text search
       (Tantivy), post-quantum cryptography (ML-KEM/ML-DSA with
       ChaCha20Poly1305), triple-layer compression (LZ4 + Zstd + Brotli),
@@ -61,20 +61,20 @@ x-casaos:
       and clustering, GPS map view and the desktop tray are part of the
       desktop app only.
     zh_cn: >-
-      Cybermanju Drive 是一款带网页仪表板的加密文件管理器，可从任何设备通过浏览器访问。
+      CyberManju OS 是一款带网页仪表板的加密文件管理器，可从任何设备通过浏览器访问。
       服务端内置全文搜索（Tantivy）、后量子密码学（ML-KEM/ML-DSA 与
       ChaCha20Poly1305）、三层压缩（LZ4 + Zstd + Brotli）、多用户权限、
       审计日志和云端同步。人脸检测与聚类、GPS 地图视图以及桌面托盘
       仅属于桌面版应用。
-  developer: Cybermanju Team
-  icon: https://raw.githubusercontent.com/cybermanju/cybermanju-drive/main/src-tauri/icons/icon.svg
+  developer: CyberManju Team
+  icon: https://raw.githubusercontent.com/cybermanju/cybermanju.github.io/main/src-tauri/icons/icon.svg
   tagline:
     en_us: Encrypted file manager with post-quantum cryptography
     zh_cn: 具备后量子加密能力的文件管理器
   thumbnail: ""
   title:
-    en_us: Cybermanju Drive
-    zh_cn: Cybermanju Drive
+    en_us: CyberManju OS
+    zh_cn: CyberManju OS
   index: /
   port_map: "3456"
   version: "0.1.0"

@@ -17,11 +17,15 @@ pub fn apply_edit(
     if old_block.is_empty() {
         return Err("invalid: old_block is empty".to_string());
     }
-    if let Some(expected) = expected_hash {
+    let anchor = normalize_anchor(expected_hash.unwrap_or(""));
+    if !anchor.is_empty() {
         let actual = blake3_hex(current.as_bytes());
-        if actual != expected {
+        // Prefix-accept: both tools print the full hex, but a model echoing a
+        // short prefix must still get a real race check (64+ bits) instead of
+        // a permanent `integrity:` blocker.
+        if !actual.starts_with(&anchor) {
             return Err(format!(
-                "integrity: file changed since anchor (expected {expected}, got {actual}) — re-read and retry"
+                "integrity: file changed since anchor (expected {anchor}, got {actual}) — re-read and retry"
             ));
         }
     }
@@ -123,6 +127,54 @@ pub fn blake3_hex(bytes: &[u8]) -> String {
     blake3::hash(bytes).to_hex().to_string()
 }
 
+/// The trailer `read` appends so the model has an anchor to hand back as
+/// `expected_hash`: a newline plus `[blake3:<hex>]`.
+pub fn anchor_line(hash: &str) -> String {
+    format!("\n[blake3:{hash}]")
+}
+
+/// Drop a trailing `[blake3:<hex>]` line (with its newline) from content the
+/// model is writing back. The trailer describes the file; it is never file
+/// content — a model that echoes it out of a `read` must not corrupt the file.
+pub fn strip_anchor(content: &str) -> &str {
+    let body = content.strip_suffix('\n').unwrap_or(content);
+    let line_start = match body.rfind('\n') {
+        Some(i) => i + 1,
+        None => 0,
+    };
+    if !is_anchor(&body[line_start..]) {
+        return content;
+    }
+    if line_start == 0 {
+        ""
+    } else {
+        &content[..line_start - 1]
+    }
+}
+
+/// Accept every shape a model might echo back — the whole `[blake3:<hex>]`
+/// line, a `blake3:` prefix, brackets, stray whitespace — then compare.
+fn normalize_anchor(raw: &str) -> &str {
+    let t = raw.trim();
+    let t = t
+        .strip_prefix("[blake3:")
+        .or_else(|| t.strip_prefix("blake3:"))
+        .unwrap_or(t);
+    t.trim_end_matches(']').trim()
+}
+
+fn is_anchor(line: &str) -> bool {
+    let rest = match line.strip_prefix("[blake3:") {
+        Some(rest) => rest,
+        None => return false,
+    };
+    let hex = match rest.strip_suffix(']') {
+        Some(hex) => hex,
+        None => return false,
+    };
+    hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,5 +247,35 @@ mod tests {
             apply_edit(content, "hello", "bye", Some(&right)).expect("fresh"),
             "bye"
         );
+        // No anchor at all is not an anchor failure.
+        assert_eq!(apply_edit(content, "hello", "bye", Some("")).expect("empty"), "bye");
+    }
+
+    #[test]
+    fn a_short_anchor_prefix_still_verifies() {
+        let content = "hello";
+        let full = blake3_hex(content.as_bytes());
+        let short = &full[..16];
+        assert!(apply_edit(content, "hello", "bye", Some(short)).is_ok());
+        assert!(apply_edit(content, "hello", "bye", Some("deadbeefdeadbeef")).is_err());
+        // …and every shape a model might echo back still verifies.
+        assert!(apply_edit(content, "hello", "bye", Some(&format!("blake3:{full}"))).is_ok());
+        assert!(apply_edit(content, "hello", "bye", Some(&format!("[blake3:{full}]"))).is_ok());
+        assert!(apply_edit(content, "hello", "bye", Some(&format!("  {short}  "))).is_ok());
+    }
+
+    #[test]
+    fn read_anchor_round_trips_and_never_survives_a_write() {
+        let raw = "fn a() {}\n";
+        let read_back = format!("{raw}{}", anchor_line(&blake3_hex(raw.as_bytes())));
+        assert!(read_back.contains("\n[blake3:"));
+        // write/edit see exactly the bytes the model read.
+        assert_eq!(strip_anchor(&read_back), raw);
+        // Nothing to strip ⇒ untouched, including near-miss lines.
+        assert_eq!(strip_anchor(raw), raw);
+        assert_eq!(strip_anchor("[blake3:short]"), "[blake3:short]");
+        assert_eq!(strip_anchor("a\n[blake3:not-hex]\n"), "a\n[blake3:not-hex]\n");
+        // Anchor-only content collapses to an empty file, not a stray line.
+        assert_eq!(strip_anchor(&anchor_line(&blake3_hex(b"x"))), "");
     }
 }

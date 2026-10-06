@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Cybermanju OS — supervisor.
+# CyberManju OS — supervisor.
 #
 # Spawns three opencode agents (AGENT-6/7/8) against this worktree and loops
-# until the Cybermanju OS vision is 100%: every checkbox in the three briefs
+# until the CyberManju OS vision is 100%: every checkbox in the three briefs
 # ticked, the workspace gate green, and scripts/os-acceptance.sh passing.
 #
 #   nohup bash scripts/os-supervisor.sh > logs/supervisor.log 2>&1 &
@@ -75,7 +75,7 @@ scope_of() {
 build_prompt() {
   local n="$1" extra="${2:-}"
   cat <<EOF
-You are AGENT-$n in a three-agent parallel push that is building the Cybermanju
+You are AGENT-$n in a three-agent parallel push that is building the CyberManju
 OS. The attached AGENT-$n.md is your brief — read it first, then work through
 EVERY unchecked "- [ ]" box until none remain, ticking each one in the file as
 you finish it.

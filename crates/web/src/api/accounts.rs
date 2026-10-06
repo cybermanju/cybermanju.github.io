@@ -1,4 +1,4 @@
-// Cybermanju Drive — Account switching (shared by Tauri IPC and REST)
+// CyberManju OS — Account switching (shared by Tauri IPC and REST)
 
 use cybermanju_db::Database;
 use cybermanju_types::schema::Account;

@@ -1,8 +1,8 @@
-// Cybermanju Drive — key/value vault
+// CyberManju OS — key/value vault
 //
 // Secrets, app config and small blobs belong inside `.cybermanju`, so they
 // live in redb's `kv` table through the worker (`kv.get/set/delete/list`,
-// crates/drive-wasm/src/db.rs). Everything is namespaced by convention:
+// crates/os-wasm/src/db.rs). Everything is namespaced by convention:
 //
 //   secret:<account>/<name>   provider PATs, Supabase service secrets
 //   config:<name>             app + provider configuration

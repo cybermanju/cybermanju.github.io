@@ -1,4 +1,5 @@
 import { onMounted, onUnmounted, watch, type Ref } from 'vue'
+import { isEditableTarget } from '@/utils/dom'
 
 export type ShortcutGroup = 'Global Shortcuts' | 'Navigation' | 'File Operations' | 'View' | 'Panels' | 'Touchpad'
 
@@ -147,6 +148,7 @@ export function useShortcuts(
 
   function handleKey(e: KeyboardEvent) {
     if (paused) return
+    if (!e.ctrlKey && !e.metaKey && isEditableTarget(e.target)) return
     const seq = keyEventToSequence(e)
     if (chord.timeout) {
       clearTimeout(chord.timeout)

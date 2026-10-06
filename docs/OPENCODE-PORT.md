@@ -1,4 +1,4 @@
-# Porting opencode into Cybermanju OS — research + port plan
+# Porting opencode into CyberManju OS — research + port plan
 
 Researched 2026-10-06 against **opencode 1.18.34** (installed locally, server
 probed live on `:4199`: `/global/health` → `{healthy:true}`, 162-path OpenAPI

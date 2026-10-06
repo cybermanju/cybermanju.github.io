@@ -6,6 +6,7 @@ import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiChip from '@/components/ui/UiChip.vue'
 import UiDivider from '@/components/ui/UiDivider.vue'
 import UiEmpty from '@/components/ui/UiEmpty.vue'
+import UiError from '@/components/ui/UiError.vue'
 import UiGrid from '@/components/ui/UiGrid.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiListRow from '@/components/ui/UiListRow.vue'
@@ -21,7 +22,7 @@ import UiToggle from '@/components/ui/UiToggle.vue'
 import UiToolbar from '@/components/ui/UiToolbar.vue'
 
 /**
- * The Cybermanju design system. Registered globally in `main.ts` so every
+ * The CyberManju design system. Registered globally in `main.ts` so every
  * window, panel and dialog renders from the same primitives — this, together
  * with the `--ui-*` tokens, is the single source of truth for the OS's UI/UX.
  */
@@ -33,6 +34,7 @@ export const uiComponents = {
   UiChip,
   UiDivider,
   UiEmpty,
+  UiError,
   UiGrid,
   UiInput,
   UiListRow,

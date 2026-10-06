@@ -1,4 +1,4 @@
-// Cybermanju Drive — chunk GC, eviction & rebalance (AGENT-7 items 6 + 7)
+// CyberManju OS — chunk GC, eviction & rebalance (AGENT-7 items 6 + 7)
 //
 // Three ways space gets reclaimed without ever losing a byte that is still
 // referenced:

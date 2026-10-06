@@ -1,4 +1,4 @@
-// Cybermanju Drive — Real Post-Quantum Cryptography Implementation
+// CyberManju OS — Real Post-Quantum Cryptography Implementation
 // ML-KEM (FIPS 203) via pqcrypto-mlkem — actual lattice-based key encapsulation
 // ML-DSA (FIPS 204) via ml-dsa — actual lattice-based digital signatures
 // Hybrid mode: ML-KEM-768 + X25519 for defense-in-depth

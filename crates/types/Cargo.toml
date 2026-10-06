@@ -2,7 +2,7 @@
 name = "cybermanju-types"
 version = "0.1.0"
 edition = "2021"
-description = "Shared data types for Cybermanju Drive"
+description = "Shared data types for CyberManju OS"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

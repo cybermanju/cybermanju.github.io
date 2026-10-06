@@ -1,4 +1,4 @@
-// Cybermanju Drive — Pinia Store
+// CyberManju OS — Pinia Store
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { invoke } from '@/composables/useTauri'
@@ -19,7 +19,8 @@ import type {
   SyncBackendType,
 } from '@/types'
 import { MODULE_METADATA, oauthSlugForBackend } from '@/types'
-import { setAuthToken, getAuthToken, isWebMode } from '@/composables/useTauri'
+import { parseStarIds, serializeStarIds } from '@/utils/stars'
+import { setAuthToken, getAuthToken, isWebMode, isStaticHost } from '@/composables/useTauri'
 
 export const useAppStore = defineStore('cybermanju', () => {
   // ── Navigation State ──────────────────────────────────────
@@ -179,6 +180,71 @@ export const useAppStore = defineStore('cybermanju', () => {
     files.value.filter(f => f.parentId === selectedFileId.value || (selectedFileId.value === null && !f.parentId))
   )
 
+  // ── Favorites (persisted stars) ─────────────────────────
+  // The Rust `FileNode` schema has no star column, so stars live beside
+  // the file table: localStorage everywhere (instant, offline) mirrored
+  // into the worker kv (`stars` key) on static hosts so they ride inside
+  // the `.cybermanju` container alongside third-party provider data.
+  const STAR_LS_KEY = 'cybermanju.stars.v1'
+  const STAR_KV_KEY = 'stars'
+  const starredIds = ref<Set<string>>(new Set())
+
+  function applyStars() {
+    const ids = starredIds.value
+    for (const f of files.value) {
+      f.isStarred = ids.has(f.id)
+    }
+  }
+
+  function readStarCache(): string[] {
+    try {
+      const raw = localStorage.getItem(STAR_LS_KEY)
+      if (!raw) return []
+      return parseStarIds(raw)
+    } catch {
+      return []
+    }
+  }
+
+  async function loadStars() {
+    const cached = readStarCache()
+    // Static host: the container kv wins when present (shared/portable).
+    if (isStaticHost()) {
+      try {
+        const { wasmDbDispatch } = await import('@/composables/useWasmBackend')
+        const row = (await wasmDbDispatch('kv.get', { key: STAR_KV_KEY }).catch(() => null)) as {
+          value?: unknown
+        } | null
+        const ids = parseStarIds(row?.value)
+        if (ids.length > 0) {
+          starredIds.value = new Set(ids)
+          try { localStorage.setItem(STAR_LS_KEY, serializeStarIds(ids)) } catch { /* private mode */ }
+          applyStars()
+          return
+        }
+      } catch {
+        // Worker unavailable — fall through to the localStorage cache.
+      }
+    }
+    if (cached.length > 0) {
+      starredIds.value = new Set(cached)
+      applyStars()
+    }
+  }
+
+  async function persistStars() {
+    const raw = serializeStarIds(starredIds.value)
+    try { localStorage.setItem(STAR_LS_KEY, raw) } catch { /* private mode */ }
+    if (isStaticHost()) {
+      try {
+        const { wasmDbDispatch } = await import('@/composables/useWasmBackend')
+        await wasmDbDispatch('kv.set', { key: STAR_KV_KEY, value: raw }).catch(() => null)
+      } catch {
+        // Best-effort mirror — localStorage already holds the truth.
+      }
+    }
+  }
+
   const { notify } = useNotifications()
 
   function notifyError(msg: string, error: unknown) {
@@ -207,6 +273,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     isLoading.value = true
     clearError()
     try {
+      await loadStars()
       await Promise.allSettled([
         fetchFiles(),
         fetchAccounts(),
@@ -247,11 +314,15 @@ export const useAppStore = defineStore('cybermanju', () => {
     selectedFileId.value = fileId
   }
 
-  function toggleStar(fileId: string) {
+  async function toggleStar(fileId: string) {
     const file = files.value.find(f => f.id === fileId)
-    if (file) {
-      file.isStarred = !file.isStarred
-    }
+    const next = !(file?.isStarred ?? starredIds.value.has(fileId))
+    if (next) starredIds.value.add(fileId)
+    else starredIds.value.delete(fileId)
+    if (file) file.isStarred = next
+    // Persist beside the DB (localStorage + container kv mirror); the
+    // file-table schema itself carries no star column on any backend.
+    await persistStars()
   }
 
   // ── Actions: Files ────────────────────────────────────────
@@ -262,6 +333,8 @@ export const useAppStore = defineStore('cybermanju', () => {
       const path = parentPath || currentPath.value
       const result = await invoke<FileNode[]>('list_files', { parentPath: path })
       files.value = result
+      // Re-apply persisted stars — no backend ships a star column.
+      applyStars()
     } catch (e) {
       notifyError('Failed to fetch files', e)
     } finally {
@@ -697,6 +770,35 @@ export const useAppStore = defineStore('cybermanju', () => {
       looseGroups.value = await invoke<LooseGroup[]>('list_loose_groups')
     } catch (e) {
       notifyError('Failed to fetch loose groups', e)
+    }
+  }
+
+  async function createLooseGroup(name: string, color = '#FFFFFF') {
+    const clean = name.trim()
+    if (!clean) {
+      notifyError('Invalid group name', 'Give the loose group a name first')
+      return null
+    }
+    try {
+      const group = await invoke<LooseGroup>('create_loose_group', { name: clean, color })
+      await fetchLooseGroups()
+      notifySuccess(`Loose group "${clean}" created`)
+      return group
+    } catch (e) {
+      notifyError('Failed to create loose group', e)
+      return null
+    }
+  }
+
+  async function addFileToLooseGroup(groupId: string, fileId: string) {
+    try {
+      const group = await invoke<LooseGroup>('add_to_loose_group', { groupId, fileId })
+      await Promise.allSettled([fetchLooseGroups(), fetchFiles()])
+      notifySuccess('File added to loose group')
+      return group
+    } catch (e) {
+      notifyError('Failed to add file to loose group', e)
+      return null
     }
   }
 
@@ -1449,12 +1551,35 @@ export const useAppStore = defineStore('cybermanju', () => {
       const i = agentJobs.value.findIndex(j => j.jobId === jobId)
       if (i >= 0) agentJobs.value[i] = job
       else agentJobs.value.unshift(job)
+      announceAgentJob(jobId, job)
       if (job.status === 'running' || job.status === 'waiting_approval') {
         setTimeout(() => pollAgentJob(jobId), 1500)
       }
     } catch (e) {
       notifyError('Failed to poll agent job', e)
     }
+  }
+
+  /**
+   * Announce the two things a user must not miss — the agent is blocked on
+   * them, and the run is over — exactly once per job and status.
+   */
+  const agentJobSeen: Record<string, string> = {}
+  function announceAgentJob(jobId: string, job: AgentJob) {
+    if (agentJobSeen[jobId] === job.status) return
+    agentJobSeen[jobId] = job.status
+    if (job.status === 'waiting_approval') {
+      const tool = job.pending?.tool ?? 'a tool'
+      notifySuccess(`Agent waiting for approval — ${tool}`)
+      return
+    }
+    if (job.status === 'done') {
+      const out = (job.result ?? '').trim().split('\n')[0]?.slice(0, 120)
+      notifySuccess(out ? `Agent finished — ${out}` : 'Agent finished')
+      return
+    }
+    if (job.status === 'error') notifyError('Agent run failed', job.error ?? 'unknown error')
+    if (job.status === 'cancelled') notifySuccess('Agent run cancelled')
   }
 
   async function abortAgentJob(jobId: string) {
@@ -1623,7 +1748,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     fetchFaceGroups, detectFaces, detectFacesBatch, reclusterFaces,
     renameFaceGroup, mergeFaceGroups, deleteFaceGroup, findSimilarFaces,
     fetchAccounts, createAccount, switchAccount, deleteAccount, fetchGeoFiles,
-    parseFileCode, parseCodeText, fetchLooseGroups,
+    parseFileCode, parseCodeText, fetchLooseGroups, createLooseGroup, addFileToLooseGroup,
     readManagedContent, saveManagedContent, readWasmFile, saveWasmFile, listWasmDir,
     fetchSyncConfigs, createSyncConfig, saveSyncConfig, probeSyncConnection, deleteSyncConfig, startSync,
     getSyncProgress, testSyncConnection, cancelSync, listRemoteFiles,

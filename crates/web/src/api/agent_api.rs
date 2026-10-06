@@ -1,4 +1,4 @@
-// Cybermanju Drive — native AI agent runtime (shared by Tauri IPC and REST)
+// CyberManju OS — native AI agent runtime (shared by Tauri IPC and REST)
 //
 // Configs (keyless rows, sealed keys) → sessions (transcripts) → detached
 // jobs (`prompt_async` → 202-style job, poll `jobs/{id}`) with ask-approval
@@ -42,6 +42,9 @@ const MAX_LIST_ENTRIES: usize = 200;
 const OVERVIEW_CAP: usize = 200;
 /// Nested `task` runs get a short leash.
 const SUBAGENT_MAX_TURNS: u32 = 5;
+/// Denial sent when the model repeats one exact tool call.
+const DOOM_LOOP_DENIAL: &str =
+    "denied: identical tool call repeated 3 times (doom-loop guard) — vary the input or explain";
 
 // ─── wire types ──────────────────────────────────────────────────────────
 
@@ -73,6 +76,11 @@ pub struct JobSnapshot {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending: Option<PendingApproval>,
+    /// What the worker is doing right now (`thinking · gpt-5`,
+    /// `read src/lib.rs`) — polled by the UI so a running job is never a
+    /// frozen status line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity: Option<String>,
 }
 
 // ─── secrets (never serialized) ──────────────────────────────────────────
@@ -377,6 +385,7 @@ struct JobState {
     result: Option<String>,
     error: Option<String>,
     pending: Option<PendingApproval>,
+    activity: Option<String>,
 }
 
 pub struct AgentJob {
@@ -418,6 +427,7 @@ fn snapshot(job: &AgentJob) -> JobSnapshot {
         result: state.result.clone(),
         error: state.error.clone(),
         pending: state.pending.clone(),
+        activity: state.activity.clone(),
     }
 }
 
@@ -509,7 +519,8 @@ fn volume_root() -> PathBuf {
 
 // ─── tool executors (native) ─────────────────────────────────────────────
 
-fn tool_read(root: &Path, vol: &Path, path: &str) -> Result<String, String> {
+/// File bytes only — what `edit` hashes and what `write` overwrites.
+fn read_raw(root: &Path, vol: &Path, path: &str) -> Result<String, String> {
     let full = join_contained(root, vol, path)?;
     let bytes =
         std::fs::read(&full).map_err(|_| format!("not_found: '{}' does not exist", path.trim()))?;
@@ -523,6 +534,15 @@ fn tool_read(root: &Path, vol: &Path, path: &str) -> Result<String, String> {
     }
     String::from_utf8(bytes)
         .map_err(|_| format!("binary: '{}' is not valid UTF-8 text", path.trim()))
+}
+
+/// What the model sees: the file plus a `[blake3:<hex>]` trailer it can hand
+/// back as `expected_hash`. Without it the anchor could never be obtained —
+/// `write`/`edit` only print a hash for bytes they just wrote.
+fn tool_read(root: &Path, vol: &Path, path: &str) -> Result<String, String> {
+    let raw = read_raw(root, vol, path)?;
+    let hash = agent_edit::blake3_hex(raw.as_bytes());
+    Ok(format!("{raw}{}", agent_edit::anchor_line(&hash)))
 }
 
 fn tool_list(root: &Path, vol: &Path, path: &str) -> Result<String, String> {
@@ -731,6 +751,9 @@ fn tool_write(
     path: &str,
     content: &str,
 ) -> Result<String, String> {
+    // A `[blake3:…]` line echoed out of a `read` is metadata about the file,
+    // never file content — strip it before the bytes land on disk.
+    let content = agent_edit::strip_anchor(content);
     if content.len() > MAX_TOOL_BYTES {
         return Err(format!(
             "too_large: content is {} bytes, tool limit is {}",
@@ -760,7 +783,7 @@ fn tool_write(
         "wrote {} ({} bytes, blake3:{})",
         path.trim(),
         content.len(),
-        &hash[..16.min(hash.len())]
+        hash
     ))
 }
 
@@ -892,13 +915,16 @@ fn exec_tool(db: &Database, root: &Path, vol: &Path, call: &ToolCall) -> Result<
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let expected = call.input.get("expected_hash").and_then(|v| v.as_str());
-            let current = tool_read(root, vol, &path)?;
+            let current = read_raw(root, vol, &path)?;
             let updated = agent_edit::apply_edit(&current, old_block, new_block, expected)?;
-            tool_write(db, root, vol, &path, &updated)?;
+            // Hash exactly the bytes that land on disk, so the anchor printed
+            // here verifies against the file the next call will read.
+            let written = agent_edit::strip_anchor(&updated).to_string();
+            tool_write(db, root, vol, &path, &written)?;
             Ok(format!(
                 "edited {} (blake3:{})",
                 path.trim(),
-                &agent_edit::blake3_hex(updated.as_bytes())[..16]
+                agent_edit::blake3_hex(written.as_bytes())
             ))
         }
         "bash" => {
@@ -1427,6 +1453,7 @@ pub fn start_job(
             result: None,
             error: None,
             pending: None,
+            activity: Some("starting".to_string()),
         }),
         cancel: AtomicBool::new(false),
     });
@@ -1699,6 +1726,7 @@ fn run_agent_job(
             s.status = "error".to_string();
             s.error = Some(message);
             s.pending = None;
+            s.activity = None;
         });
     };
 
@@ -1786,6 +1814,13 @@ fn run_agent_job(
     }
     let mut mcp_set = McpSet { conns: mcp_conns };
 
+    // Doom-loop guard state spans the WHOLE run, not one tool batch: the
+    // system prompt promises three identical repeats are auto-denied, and a
+    // model that loops once per turn is exactly what a per-batch counter
+    // (the original shape here) never catches.
+    let mut doom_sig: Option<(String, String)> = None;
+    let mut doom_repeats = 0u32;
+
     loop {
         if job.cancel.load(Ordering::SeqCst) {
             set_state(job, |s| {
@@ -1803,6 +1838,11 @@ fn run_agent_job(
             true,
         );
         merge_mcp_tools(&mut body, endpoint.dialect, &mcp_defs);
+        // Strip what the ruleset denies everywhere (default-deny strips
+        // broadly — honestly so, the runtime `decide` gate would deny
+        // those calls anyway). An emptied `tools` key is removed with
+        // `tool_choice` so the turn stays a valid no-tools turn.
+        agent_config::strip_denied_tools(&mut body, &config.permission, config.agent_kind);
         if endpoint.dialect == LlmDialect::Anthropic {
             anthropic_cache(&mut body);
         }
@@ -1810,6 +1850,11 @@ fn run_agent_job(
             let name = endpoint.auth_name.as_deref().unwrap_or("key");
             url = protocol::with_query_key(&url, name, &api_key);
         }
+        // Tell the poller what is happening: a provider round trip can take
+        // minutes, and "RUNNING TURN 3/25" alone reads as a hang.
+        set_state(job, |s| {
+            s.activity = Some(format!("thinking · {model}"));
+        });
         let reply = match post_with_retry(&job.cancel, &url, &headers, &body) {
             Ok(reply) => reply,
             Err(e) if e == "cancelled" => {
@@ -1882,31 +1927,35 @@ fn run_agent_job(
             }
             agent_loop::LoopEvent::ToolCalls(calls) => {
                 let mut stop = false;
-                // Doom-loop guard (omp calls it `doom_loop`): the same call
-                // with byte-identical input three times in a row is denied
-                // instead of burning the turn budget.
-                let mut last_sig: Option<(String, String)> = None;
-                let mut repeats = 0u32;
                 for call in &calls {
                     if job.cancel.load(Ordering::SeqCst) {
                         stop = true;
                         break;
                     }
                     let input_json = serde_json::to_string(&call.input).unwrap_or_default();
-                    if last_sig
+                    if doom_sig
                         .as_ref()
                         .map(|sig| sig.0 == call.name && sig.1 == input_json)
                         .unwrap_or(false)
                     {
-                        repeats += 1;
+                        doom_repeats += 1;
                     } else {
-                        last_sig = Some((call.name.clone(), input_json));
-                        repeats = 1;
+                        doom_sig = Some((call.name.clone(), input_json));
+                        doom_repeats = 1;
                     }
-                    if repeats >= 3 {
-                        turn.append_tool_result(call, "denied: identical tool call repeated 3 times (doom-loop guard) — vary the input or explain".to_string());
+                    if doom_repeats >= 3 {
+                        turn.append_tool_result(call, DOOM_LOOP_DENIAL.to_string());
                         continue;
                     }
+                    set_state(job, |s| {
+                        let arg = cybermanju_agent::config::salient_arg(&call.input);
+                        s.activity = Some(if arg.is_empty() {
+                            call.name.clone()
+                        } else {
+                            let arg: String = arg.chars().take(160).collect();
+                            format!("{} {arg}", call.name)
+                        });
+                    });
                     match run_one_tool(db, job, &config, &root, &vol, &mut mcp_set, &turn, call) {
                         ToolOutcome::Continue(output) => {
                             turn.append_tool_result(call, clean_output(output));
@@ -1931,6 +1980,9 @@ fn run_agent_job(
     session.messages = turn.messages.clone();
     session.usage = turn.usage.clone();
     persist_turn(db, &session);
+    set_state(job, |s| {
+        s.activity = None;
+    });
     let _ = db.read().map(|guard| {
         let _ = guard.log_audit(
             "agent_run",
@@ -1999,12 +2051,14 @@ fn run_one_tool(
                         summary: summary.clone(),
                         question,
                     });
+                    s.activity = Some("waiting for your approval".to_string());
                 });
                 match wait_approval(job) {
                     Some(answer) if answer.approved => {
                         set_state(job, |s| {
                             s.status = "running".to_string();
                             s.pending = None;
+                            s.activity = Some(call.name.clone());
                         });
                         if call.name == "question" {
                             let text = answer
@@ -2128,12 +2182,14 @@ fn run_subagent(
                 summary: "Spawn a subagent for this goal?".into(),
                 question: None,
             });
+            s.activity = Some("waiting to spawn a subagent".to_string());
         });
         match wait_approval(job) {
             Some(answer) if answer.approved => {
                 set_state(job, |s| {
                     s.status = "running".to_string();
                     s.pending = None;
+                    s.activity = Some("subagent · running".to_string());
                 });
             }
             Some(_) => {
@@ -2192,7 +2248,8 @@ fn run_subagent(
         turn.task_depth + 1,
     );
     let system = format!(
-        "{}{}",
+        "{}{}\nSUBAGENT TOOLSET: this run has `read`, `list` and `grep` only — no edit, \
+        write, bash, task or question. Investigate and report; the parent acts on it.",
         agent_loop::system_prompt(
             &root.to_string_lossy(),
             "build",
@@ -2220,7 +2277,11 @@ fn run_subagent(
             let name = endpoint.auth_name.as_deref().unwrap_or("key");
             url = protocol::with_query_key(&url, name, &api_key);
         }
-        // Strip mutating tools: subagents read and report.
+        // Strip mutating tools: subagents read and report. The read-only
+        // allowlist runs first, then the shared ruleset strip (a
+        // default-deny parent strips even reads it did not allow — the
+        // runtime gate would deny them anyway, so the schema stays
+        // honest). An emptied `tools` key is removed with `tool_choice`.
         if let Some(tools) = body.get_mut("tools").and_then(|t| t.as_array_mut()) {
             let keep = |name: &str| matches!(name, "read" | "list" | "grep");
             tools.retain(|t| {
@@ -2231,7 +2292,14 @@ fn run_subagent(
                     .map(keep)
                     .unwrap_or(false)
             });
+            if tools.is_empty() {
+                if let Some(obj) = body.as_object_mut() {
+                    obj.remove("tools");
+                    obj.remove("tool_choice");
+                }
+            }
         }
+        agent_config::strip_denied_tools(&mut body, &config.permission, config.agent_kind);
         if endpoint.dialect == LlmDialect::Anthropic {
             anthropic_cache(&mut body);
         }

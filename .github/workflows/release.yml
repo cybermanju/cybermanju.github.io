@@ -249,14 +249,14 @@ jobs:
 
       - name: Build Flatpak bundle
         run: |
-          flatpak-builder --force-clean --repo=repo build-dir src-tauri/flatpak/com.cybermanju.drive.yml
-          flatpak build-bundle repo cybermanju-drive.flatpak com.cybermanju.drive
+          flatpak-builder --force-clean --repo=repo build-dir src-tauri/flatpak/com.cybermanju.os.yml
+          flatpak build-bundle repo cybermanju-os.flatpak com.cybermanju.os
 
       - name: Upload Flatpak artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-flatpak
-          path: cybermanju-drive.flatpak
+          path: cybermanju-os.flatpak
           retention-days: 30
           if-no-files-found: error
 
@@ -497,7 +497,7 @@ jobs:
         # GHCR requires a lowercase repository path.
         run: |
           owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          echo "name=ghcr.io/${owner}/cybermanju-drive" >> "$GITHUB_OUTPUT"
+          echo "name=ghcr.io/${owner}/cybermanju-os" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -589,7 +589,7 @@ jobs:
           PREV_TAG=$(git tag --sort=-creatordate | grep -vx "$CURRENT_TAG" | head -1 || true)
           # Published image name — must match the docker-build job above.
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          IMAGE="ghcr.io/${OWNER}/cybermanju-drive"
+          IMAGE="ghcr.io/${OWNER}/cybermanju-os"
           
           echo "## What's Changed" > release_notes.md
           echo "" >> release_notes.md
@@ -624,7 +624,7 @@ jobs:
           echo "" >> release_notes.md
           echo '```bash' >> release_notes.md
           echo "# LAN-only by default; publish on your NAS address with -p 192.168.x.x:3456:3456" >> release_notes.md
-          echo "docker run -d -p 127.0.0.1:3456:3456 -v /DATA/AppData/cybermanju-drive/config:/data ${IMAGE}:latest" >> release_notes.md
+          echo "docker run -d -p 127.0.0.1:3456:3456 -v /DATA/AppData/cybermanju-os/config:/data ${IMAGE}:latest" >> release_notes.md
           echo '```' >> release_notes.md
           echo "" >> release_notes.md
           echo "## Installation" >> release_notes.md
@@ -632,7 +632,7 @@ jobs:
           echo "- **Windows**: Download and run the \`.exe\` installer" >> release_notes.md
           echo "- **Linux (Debian/Ubuntu)**: Install the \`.deb\` package" >> release_notes.md
           echo "- **Linux (Fedora/RHEL)**: Install the \`.rpm\` package" >> release_notes.md
-          echo "- **Linux (Flatpak)**: \`flatpak install cybermanju-drive.flatpak\`" >> release_notes.md
+          echo "- **Linux (Flatpak)**: \`flatpak install cybermanju-os.flatpak\`" >> release_notes.md
           echo "- **Linux (Arch/CachyOS)**: Run the \`.AppImage\` or build from AUR" >> release_notes.md
           echo "- **macOS**: Open the \`.dmg\` and drag to Applications" >> release_notes.md
           echo "- **Android**: Enable unknown sources, install the \`.apk\` (arm64-v8a devices only)" >> release_notes.md
@@ -716,7 +716,7 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: "Cybermanju Drive ${{ github.ref_name }}"
+          name: "CyberManju OS ${{ github.ref_name }}"
           body_path: release_notes.md
           draft: false
           prerelease: false

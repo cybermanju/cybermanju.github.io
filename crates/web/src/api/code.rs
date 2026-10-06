@@ -1,4 +1,4 @@
-// Cybermanju Drive — code-intelligence routes.
+// CyberManju OS — code-intelligence routes.
 //
 // `POST /api/code/parse {fileName, content}` parses source text and answers
 // the same shape as the Tauri `parse_text` command. The grammar engine lives

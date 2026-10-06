@@ -1,4 +1,4 @@
-// Cybermanju Drive — Sync configuration + run lifecycle (shared by Tauri IPC and REST)
+// CyberManju OS — Sync configuration + run lifecycle (shared by Tauri IPC and REST)
 //
 // <<< AGENT-2 JOBS: `POST /api/sync/start` no longer runs the pipeline on a
 // request thread. `start_job` registers a run and returns `202 {jobId}`

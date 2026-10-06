@@ -1,4 +1,4 @@
-// Cybermanju Drive — Face Detection & Clustering Module (v2 — Performance Optimized)
+// CyberManju OS — Face Detection & Clustering Module (v2 — Performance Optimized)
 // ═══════════════════════════════════════════════════════════════════════════════════
 //
 // PIPELINE: detect → embed → index → cluster → store

@@ -1,4 +1,4 @@
-// Cybermanju Drive — repair, provider relocation & catalog (AGENT-7 items 2 + 4)
+// CyberManju OS — repair, provider relocation & catalog (AGENT-7 items 2 + 4)
 //
 // Scrub reports findings; this module fixes them:
 //

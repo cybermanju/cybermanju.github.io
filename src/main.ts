@@ -1,4 +1,4 @@
-// Cybermanju Drive — Main Entry
+// CyberManju OS — Main Entry
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'

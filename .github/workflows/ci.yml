@@ -101,12 +101,12 @@ jobs:
           context: .
           file: ./Dockerfile
           push: false
-          tags: cybermanju-drive:latest
+          tags: cybermanju-os:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Verify image exists
-        run: docker images cybermanju-drive:latest
+        run: docker images cybermanju-os:latest
 
   # ─── Dependency audit (advisory until the tree is clean) ──────────
   audit:
@@ -148,7 +148,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # Item 17: the Rust half. These steps are what make CI fail when
-      # crates/drive-wasm stops compiling for the browser target.
+      # crates/os-wasm stops compiling for the browser target.
       - name: Install Rust WASM target
         run: rustup target add wasm32-unknown-unknown
 
@@ -158,8 +158,8 @@ jobs:
           workspaces: "."
           cache-on-failure: true
 
-      - name: cargo check drive-wasm for wasm32
-        run: cargo check --target wasm32-unknown-unknown -p cybermanju-drive-wasm
+      - name: cargo check os-wasm for wasm32
+        run: cargo check --target wasm32-unknown-unknown -p cybermanju-os-wasm
 
       # Prebuilt binary; building wasm-pack from source costs minutes.
       - name: Install wasm-pack
@@ -168,7 +168,7 @@ jobs:
           tool: wasm-pack
 
       - name: wasm-pack build (assertion)
-        run: wasm-pack build crates/drive-wasm --target web --out-dir pkg
+        run: wasm-pack build crates/os-wasm --target web --out-dir pkg
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -190,7 +190,7 @@ jobs:
         run: npm test
 
       # Keep the freshly built pkg in place so the vite step's alias to
-      # crates/drive-wasm/pkg resolves to the wasm backend (integrated
+      # crates/os-wasm/pkg resolves to the wasm backend (integrated
       # into the dist-wasm bundle rather than fetched at runtime).
       - name: Build WASM bundle
         run: npm run build:wasm:frontend
@@ -356,14 +356,14 @@ jobs:
 
       - name: Build Flatpak bundle
         run: |
-          flatpak-builder --force-clean --repo=repo build-dir src-tauri/flatpak/com.cybermanju.drive.yml
-          flatpak build-bundle repo cybermanju-drive.flatpak com.cybermanju.drive
+          flatpak-builder --force-clean --repo=repo build-dir src-tauri/flatpak/com.cybermanju.os.yml
+          flatpak build-bundle repo cybermanju-os.flatpak com.cybermanju.os
 
       - name: Upload Flatpak artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dist-flatpak
-          path: cybermanju-drive.flatpak
+          path: cybermanju-os.flatpak
           retention-days: 7
           if-no-files-found: error
 

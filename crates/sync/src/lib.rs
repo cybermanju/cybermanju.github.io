@@ -1,4 +1,4 @@
-// Cybermanju Drive — Storage Sync Engine
+// CyberManju OS — Storage Sync Engine
 // Shared by the Tauri desktop app, the web dashboard and the Docker server.
 //
 // Single source of truth for:

@@ -2,7 +2,7 @@
 name = "cybermanju-os"
 version = "0.1.0"
 edition = "2021"
-description = "Cybermanju OS layer: cybsh terminal, task table, compute fan-out, syscall boundary"
+description = "CyberManju OS layer: cybsh terminal, task table, compute fan-out, syscall boundary"
 
 [dependencies]
 anyhow = "1"

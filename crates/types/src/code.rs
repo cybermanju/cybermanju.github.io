@@ -1,4 +1,4 @@
-// Cybermanju Drive — shared code-intelligence core.
+// CyberManju OS — shared code-intelligence core.
 //
 // Pure functions, no I/O, no OS calls: language detection plus the heuristic
 // symbol extractor. Lives here (not in `src-tauri`) so every transport uses

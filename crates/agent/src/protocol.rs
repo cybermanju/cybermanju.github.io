@@ -2,7 +2,7 @@
 //
 // Two dialects, one normalized shape. Everything here is pure JSON in/out;
 // the actual HTTP hop is caller-provided (blocking reqwest behind `native`,
-// `fetch` in drive-wasm, the dashboard proxy later). Errors carry the house
+// `fetch` in os-wasm, the dashboard proxy later). Errors carry the house
 // machine prefixes (`auth:`, `rate_limited:`, `network:`, `integrity:`).
 
 use cybermanju_types::agent::{AuthScheme, ChatMessage, ProviderPreset, TokenUsage, ToolCall};
@@ -15,7 +15,7 @@ use cybermanju_types::agent::{AuthScheme, ChatMessage, ProviderPreset, TokenUsag
 /// Descriptions double as the model's usage guide — keep them imperative
 /// and specific about arguments, limits, and failure modes.
 pub const TOOL_NAMES: &[&str] = &[
-    "read", "write", "edit", "list", "grep", "glob", "bash", "task",
+    "read", "write", "edit", "list", "grep", "glob", "bash", "task", "question",
 ];
 
 fn tool_def(
@@ -40,7 +40,7 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
     vec![
         tool_def(
             "read",
-            "Read a UTF-8 text file. Always read a file before editing it. Refuses encrypted, binary and oversized files with a prefixed error.",
+            "Read a UTF-8 text file. Always read a file before editing it. Prints the file, then a final `[blake3:<hex>]` line: pass it back as expected_hash on a later edit, and never write it back (write/edit strip it). Refuses encrypted, binary and oversized files with a prefixed error.",
             serde_json::json!({ "path": { "type": "string", "description": "Volume path: leading / = volume root, else working-dir-relative" } }),
             &["path"],
         ),
@@ -55,12 +55,12 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         ),
         tool_def(
             "edit",
-            "Replace ONE exact old_block with new_block. Fails when the block is missing (not_found:) or occurs more than once (conflict:) — then re-read and send a larger unique block. Pass expected_hash (the file BLAKE3 from a prior read) when writers may race you.",
+            "Replace ONE exact old_block with new_block. Fails when the block is missing (not_found:) or occurs more than once (conflict:) — then re-read and send a larger unique block. Pass expected_hash (the `[blake3:<hex>]` line a read printed, or the blake3: of a prior write/edit) when writers may race you.",
             serde_json::json!({
                 "path": { "type": "string" },
                 "old_block": { "type": "string", "description": "Exact current text to replace" },
                 "new_block": { "type": "string", "description": "Replacement text" },
-                "expected_hash": { "type": "string", "description": "Optional BLAKE3 hex of the file before editing" },
+                "expected_hash": { "type": "string", "description": "Optional BLAKE3 hex (or a unique prefix) of the file before editing" },
             }),
             &["path", "old_block", "new_block"],
         ),
@@ -107,6 +107,18 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
                 "context": { "type": "string", "description": "Relevant file paths or notes" },
             }),
             &["goal"],
+        ),
+        // The system prompt advertises this tool, so it must exist in the
+        // schema too: schema-driven providers refuse to emit a tool name
+        // they were never shown, which silently killed the "ask the human"
+        // path before.
+        tool_def(
+            "question",
+            "Ask the human a question when genuinely blocked — sparingly. Returns their answer as the tool result; a denial means work around it or explain.",
+            serde_json::json!({
+                "question": { "type": "string", "description": "One clear question for the user" },
+            }),
+            &["question"],
         ),
     ]
 }
@@ -460,6 +472,19 @@ pub fn classify_provider_error(status: Option<u16>, message: &str, code: &str) -
     {
         return format!("rate_limited: provider throttled the request: {message}");
     }
+    // Context overflow is NOT a network failure — retrying it identically is
+    // exactly wrong. The driver/UI treat `context:` as "compact the session".
+    if haystack.contains("context_length_exceeded")
+        || haystack.contains("prompt is too long")
+        || haystack.contains("maximum context")
+        || haystack.contains("max context")
+        || haystack.contains("context window")
+        || haystack.contains("too many tokens")
+        || haystack.contains("input length and")
+        || haystack.contains("reduce the length")
+    {
+        return format!("context: transcript exceeds the model's context window: {message}");
+    }
     if let Some(status) = status {
         return format!("network: provider HTTP {status}: {message}");
     }
@@ -577,12 +602,15 @@ mod tests {
     use super::*;
     use cybermanju_types::agent::LlmDialect;
     #[test]
-    fn tool_schemas_cover_eight_tools_in_openai_shape() {
+    fn tool_schemas_cover_nine_tools_in_openai_shape() {
         let tools = openai_tools();
-        assert_eq!(tools.as_array().map(|a| a.len()), Some(8));
+        assert_eq!(tools.as_array().map(|a| a.len()), Some(9));
         let first = &tools[0];
         assert_eq!(first["type"], "function");
         assert_eq!(first["function"]["name"], "read");
+        // The prompt-advertised `question` tool must be in the schema —
+        // schema-driven providers cannot call a tool they were never shown.
+        assert!(tools.iter().any(|t| t["function"]["name"] == "question"));
         let anthropic = anthropic_tools();
         assert!(anthropic[0].get("input_schema").is_some());
         assert!(anthropic[0].get("parameters").is_none());
@@ -604,7 +632,7 @@ mod tests {
         );
         assert_eq!(body["model"], "gpt-5");
         assert_eq!(body["messages"][0]["role"], "system");
-        assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(8));
+        assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(9));
 
         let reply = serde_json::json!({
             "choices": [{
@@ -633,6 +661,26 @@ mod tests {
 
         let err = serde_json::json!({ "error": { "message": "Incorrect API key", "code": "invalid_api_key" } });
         assert!(openai_parse(&err).expect_err("auth").starts_with("auth:"));
+    }
+
+    #[test]
+    fn overflow_is_context_not_network() {
+        // A 400 context overflow must never classify as `network:` — the UI
+        // hint for network says "retry", which cannot work.
+        let err = classify_provider_error(
+            Some(400),
+            "This model's maximum context length is 128000 tokens",
+            "context_length_exceeded",
+        );
+        assert!(err.starts_with("context:"), "{err}");
+        let anthropic = classify_provider_error(
+            Some(400),
+            "prompt is too long: 210000 tokens > 200000 maximum",
+            "invalid_request_error",
+        );
+        assert!(anthropic.starts_with("context:"), "{anthropic}");
+        // …and plain HTTP failures stay network.
+        assert!(classify_provider_error(Some(500), "boom", "").starts_with("network:"));
     }
 
     #[test]

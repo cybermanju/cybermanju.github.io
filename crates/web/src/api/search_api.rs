@@ -1,4 +1,4 @@
-// Cybermanju Drive — Search (shared by Tauri IPC and REST)
+// CyberManju OS — Search (shared by Tauri IPC and REST)
 
 use std::sync::{Arc, RwLock};
 

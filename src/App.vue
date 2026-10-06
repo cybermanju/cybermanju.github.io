@@ -11,7 +11,7 @@ import { useTouchConfig, type TouchAction } from '@/composables/useTouchConfig'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { finishSupabaseReturn, hydrateSupabaseConfig, refreshIdentity } from '@/composables/useSupabase'
 import { migrateVaultFromLocalStorage } from '@/composables/useVault'
-import { bootCybermanjuDisk, disk } from '@/composables/useCybermanjuFile'
+import { bootCyberManjuDisk, disk } from '@/composables/useCyberManjuFile'
 import { startVolumeMirror, replayVolumeFromVault, flushVolumeMirror } from '@/composables/useVolumeMirror'
 import { defaultKpl, defaultKpd } from '@/keymaps'
 import { ShortcutsKey } from '@/composables/shortcutsKey'
@@ -467,7 +467,7 @@ onMounted(() => {
     try {
       await migrateVaultFromLocalStorage()
       await hydrateSupabaseConfig()
-      await bootCybermanjuDisk()
+      await bootCyberManjuDisk()
       await replayVolumeFromVault(disk.attached)
       if (disk.attached) store.notifySuccess(`${disk.name} opened — vault is on disk`)
     } catch (e) {

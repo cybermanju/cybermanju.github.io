@@ -1,4 +1,4 @@
-// Cybermanju Drive — Dashboard Control Commands
+// CyberManju OS — Dashboard Control Commands
 // Exposes web dashboard status and start/stop controls to the Tauri frontend.
 //
 // The dashboard instance itself is managed by Tauri (see `run()` in lib.rs),

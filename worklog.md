@@ -47,13 +47,13 @@ Stage Summary:
   it. New `scripts/android-signing.sh` injects the keystore (repo secrets
   ANDROID_KEYSTORE_B64 / _PASSWORD / _ALIAS) into the generated project,
   verifies the signature with apksigner and renames the APK to
-  `Cybermanju-Drive-<version>-arm64-v8a.apk`.
+  `CyberManju-OS-<version>-arm64-v8a.apk`.
 - Release workflow: fails if any format artifact is missing (previously only
   `warn`), fixes setup-android's removed `tools` package, and publishes
   SHA256SUMS.txt with the release assets.
 ## 2026-10-05 — decentralized-OS production pass (no toolchain; CI must prove)
 
-- Frontend transport surface closed: `REST_ROUTES` + `REST_FIRST` for sync jobs/runs/status/restore/remote/usage/oauth and durability (`repair/scrub/lease/gc`); Pinia actions + `SyncJob/SyncRunRecord/RestoreOutcome/QuotaUsage/ScrubRun/RepairStatus/GcReport/LeaseInfo` types + `describeSyncError` hints; full `SyncPanel.vue` wizard (config per-backend fields, test/save/OAuth, start/cancel/runs, quota, restore/remote-delete/browse, striped placement + conflict policy); Settings active transport (`VITE_TRANSPORT`, wasm-aware); `env.d.ts` typed env; `user-scalable=no` removed; WASM base fixed to `/cybermanju-drive/`.
+- Frontend transport surface closed: `REST_ROUTES` + `REST_FIRST` for sync jobs/runs/status/restore/remote/usage/oauth and durability (`repair/scrub/lease/gc`); Pinia actions + `SyncJob/SyncRunRecord/RestoreOutcome/QuotaUsage/ScrubRun/RepairStatus/GcReport/LeaseInfo` types + `describeSyncError` hints; full `SyncPanel.vue` wizard (config per-backend fields, test/save/OAuth, start/cancel/runs, quota, restore/remote-delete/browse, striped placement + conflict policy); Settings active transport (`VITE_TRANSPORT`, wasm-aware); `env.d.ts` typed env; `user-scalable=no` removed; WASM base fixed to `/` (root Pages site).
 - Honesty: face detection no longer fabricates pseudo-faces (empty set + log, helper kept `#[allow(dead_code)]` for tests); `import_from_url` writes `imports/{id}_{name}` + `original_path`; README tree-sitter claim corrected to heuristic regex; `cybsh sync start` refusal points at `POST /api/sync/start → 202` (R8-1 resolved as documented).
 - Docs: new `docs/OPERATIONS.md`; README OS section + ARCHITECTURE §12; `AGENT-7.md` ticked `[x]` with Log; `AGENT-8.md` items 1–12/14–15 ticked, 13 in progress, R8-1/R8-2 resolved; `AUDIT.md` OS-push entry.
 - Honest status of old claims: "Zero mocks remaining" (prior worklog) was premature — F1/F7/F8/F19 covered above; version single-source holds (`package.json` truth, status endpoint uses `CARGO_PKG_VERSION`).
@@ -75,7 +75,7 @@ Stage Summary:
 
 - New pure-Rust `crates/agent` (providers catalog ×10 + custom, opencode-style permission matcher, OpenAI+Anthropic protocol builders/parsers, turn state machine, hash-anchored edits) with unit tests; `native` feature gates blocking HTTP.
 - Server runtime `crates/web/src/api/agent_api.rs`: keyless config CRUD (keys sealed in `sync_secrets`, `hasKey` only), model refresh, sessions + import/export, detached jobs (202 poll/abort/approve with 10-min ask parking), 7 native tools (read/write/edit/list/grep/bash/task-subagent) contained under the working root, audited, caps everywhere; routes in `lib.rs` (jobs lockless like sync), `agent` auth segment, Tauri thin commands, `cybsh ai` (parser + lockless intercept + honest direct fallback).
-- WASM: `drive-wasm` agent bridge (catalog + single-turn fetch) + `useAgent` browser loop (volume tools, local matcher mirror, in-memory keys, localStorage transcripts) + `write` dispatcher op.
+- WASM: `os-wasm` agent bridge (catalog + single-turn fetch) + `useAgent` browser loop (volume tools, local matcher mirror, in-memory keys, localStorage transcripts) + `write` dispatcher op.
 - UI: lazy `AgentPanel` (Dock, Ctrl+G, presets/custom/endpoints/models/keys/permissions/sessions/thread/approvals/usage, dual server+local modes), `FileContent`/`SavedContent`/agent types, store actions, invoke mappings; `files/{id}/content` read/write (versioned saves) backing the editor on REST; `crates/tests/src/agent.rs` pins gating, key hygiene, validation, import re-keying, `ai` intercept.
 - Docs: README features + REST table, ARCHITECTURE endpoints + `agent_configs`/`agent_sessions` tables, OPERATIONS §4b.
 - Not run here: `cargo fmt/clippy/test --workspace`, Tauri/desktop builds, `os-acceptance.sh`.

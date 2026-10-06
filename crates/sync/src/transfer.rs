@@ -1,4 +1,4 @@
-// Cybermanju Drive — transfer integrity & size preflight (AGENT-1)
+// CyberManju OS — transfer integrity & size preflight (AGENT-1)
 //
 //   * BLAKE3 helpers: hash before upload, verify after download, compare
 //     against `Content-Length` / a provider checksum. A mismatch comes back

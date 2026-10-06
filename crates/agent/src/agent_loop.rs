@@ -178,14 +178,16 @@ pub fn system_prompt(
         }
     };
     format!(
-        "You are Cybermanju, an AI coding agent operating inside a decentralized file volume.\n\
+        "You are CyberManju, an AI coding agent operating inside a decentralized file volume.\n\
          Working root: {working_dir}\n\
          Agent mode: {agent_kind} (plan = read-only: never call edit, write, or bash).\n\
          {sandbox_rules}\n\
          TOOLS — call them with exact JSON arguments. Paths are volume paths: \
          a leading `/` means the volume root, anything else is relative to \
          the working root.\n\
-         - read {{path}}: UTF-8 text up to 1 MiB. Always read a file before editing it.\n\
+         - read {{path}}: UTF-8 text up to 1 MiB, ending with a `[blake3:<hex>]` line you \
+         can hand back as expected_hash. Always read a file before editing it, and never \
+         write that line back — write/edit strip it automatically.\n\
          - list {{path?}}: one directory level. Orient here first (`/` first, then drill in).\n\
          - grep {{pattern, path?, limit?}}: regex over file contents (an invalid regex \
          searches literally). Locate code with it; never guess locations.\n\
@@ -193,8 +195,9 @@ pub fn system_prompt(
          Prefer it over listing whole trees.\n\
          - edit {{path, old_block, new_block, expected_hash?}}: replace ONE exact block. \
          It fails when the block is missing (not_found:) or ambiguous (conflict:) — then \
-         re-read and send a larger unique block. Pass the file's BLAKE3 (seen on a prior \
-         read) as expected_hash when writers may race you.\n\
+         re-read and send a larger unique block. Pass the `[blake3:<hex>]` line a prior read \
+         printed (or the blake3: a prior write/edit returned) as expected_hash when writers \
+         may race you.\n\
          - write {{path, content}}: full-file create/overwrite (versioned where supported). \
          Prefer edit for small changes.\n\
          - bash {{command, timeout_secs?}}: shell with timeout (default 120s, 5–600). \
@@ -208,7 +211,9 @@ pub fn system_prompt(
          identical repeats are auto-denied).\n\
          ERRORS carry machine prefixes — report them verbatim: auth: (key missing or \
          rejected — tell the user, do not retry), rate_limited: (back off; the harness \
-         retries), not_found:, unsupported: (capability absent on this transport), \
+         retries), context: (transcript too large for this model — ask the human to \
+         compact the session; retrying unchanged cannot work), not_found:, \
+         unsupported: (capability absent on this transport), \
          too_large: (narrow scope), integrity: (hash moved under you — re-read), network:.\n\
          OUTPUT: answer concisely; lead with what changed (file:line), then how to \
          verify. No chain-of-thought dumps.\n\
@@ -312,10 +317,25 @@ mod tests {
         assert!(native.contains("glob"));
         assert!(native.contains("expected_hash"));
         assert!(native.contains("bash"));
+        assert!(native.contains("context:"));
         assert!(!native.contains("NO bash"));
         let browser = system_prompt("/vol", "plan", "a.rs", Sandbox::Browser);
         assert!(browser.contains("NO bash"));
         assert!(browser.contains("read-only"));
+    }
+
+    #[test]
+    fn every_prompt_tool_exists_in_the_schema() {
+        // The prompt must never advertise a tool the schema omits — providers
+        // refuse calls for tool names they were not shown.
+        for tool in ["question", "task", "edit", "bash"] {
+            assert!(
+                crate::protocol::TOOL_NAMES.contains(&tool),
+                "prompt mentions `{tool}` but TOOL_NAMES does not"
+            );
+        }
+        let defs = crate::protocol::tool_definitions();
+        assert!(defs.iter().any(|d| d["name"] == "question"));
     }
 
     #[test]

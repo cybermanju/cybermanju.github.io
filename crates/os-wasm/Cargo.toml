@@ -1,8 +1,8 @@
 [package]
-name = "cybermanju-drive-wasm"
+name = "cybermanju-os-wasm"
 version = "0.1.0"
 edition = "2021"
-description = "Cybermanju Drive — WASM bridge for browser-based crypto, compression, and storage"
+description = "CyberManju OS — WASM bridge for browser-based crypto, compression, and storage"
 
 [lib]
 crate-type = ["cdylib"]

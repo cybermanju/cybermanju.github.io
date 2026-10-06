@@ -387,6 +387,10 @@ async function handleRefresh() { await store.fetchGeoFiles() }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner { animation: none; }
+}
+
 .status-footer {
   margin-top: auto;
   padding-top: 10px;

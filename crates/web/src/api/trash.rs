@@ -1,4 +1,4 @@
-// Cybermanju Drive — Trash operations (shared by Tauri IPC and REST)
+// CyberManju OS — Trash operations (shared by Tauri IPC and REST)
 //
 // The caller holds the application database lock for the duration of the
 // call, exactly as the original Tauri commands did.

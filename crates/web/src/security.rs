@@ -1,4 +1,4 @@
-// Cybermanju Drive — reusable authentication / authorization / HTTP guards
+// CyberManju OS — reusable authentication / authorization / HTTP guards
 //
 // This module is the single source of truth for the security primitives that
 // both HTTP transports share:
@@ -615,13 +615,13 @@ pub fn default_secret_dir() -> Option<PathBuf> {
     #[cfg(windows)]
     {
         if let Ok(d) = std::env::var("APPDATA") {
-            return Some(PathBuf::from(d).join("CybermanjuDrive"));
+            return Some(PathBuf::from(d).join("CyberManjuOS"));
         }
     }
     #[cfg(target_os = "macos")]
     {
         if let Ok(h) = std::env::var("HOME") {
-            return Some(PathBuf::from(h).join("Library/Application Support/CybermanjuDrive"));
+            return Some(PathBuf::from(h).join("Library/Application Support/CyberManjuOS"));
         }
     }
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -635,7 +635,7 @@ pub fn default_secret_dir() -> Option<PathBuf> {
                     .map(|h| PathBuf::from(h).join(".local/share"))
             });
         if let Some(base) = base {
-            return Some(base.join("cybermanju-drive"));
+            return Some(base.join("cybermanju-os"));
         }
     }
     None

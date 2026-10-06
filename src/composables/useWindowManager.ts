@@ -1,7 +1,7 @@
 import { ref, computed, markRaw, defineAsyncComponent, type Component } from 'vue'
 import type { PanelType } from '@/types'
 import { MODULE_METADATA } from '@/types'
-import FileGrid from '@/components/FileGrid.vue'
+import FileManager from '@/components/FileManager.vue'
 import CollectionsPanel from '@/components/CollectionsPanel.vue'
 import FaceGroupingPanel from '@/components/FaceGroupingPanel.vue'
 import MapView from '@/components/MapView.vue'
@@ -33,10 +33,10 @@ const AgentPanel = defineAsyncComponent(
   () => import('@/components/AgentPanel.vue')
 )
 
-// The code editor is a second heavy panel (highlight overlay + outline), so
-// it is code-split like the terminal — fetched on first open, not on boot.
-const CodeEditorPanel = defineAsyncComponent(
-  () => import('@/components/CodeEditorPanel.vue')
+// The code studio (editor + AI sidecar) is as heavy as the terminal, so it
+// is code-split like the terminal — fetched on first open, not on boot.
+const CodeStudio = defineAsyncComponent(
+  () => import('@/components/CodeStudio.vue')
 )
 
 export interface WindowState {
@@ -58,13 +58,13 @@ type SizeMap = { [K in PanelType]?: { width: number; height: number } } & {
   permissions?: { width: number; height: number }
 }
 const defaultSizes: SizeMap = {
-  files: { width: 900, height: 580 },
+  files: { width: 1240, height: 720 },
   search: { width: 600, height: 480 },
   collections: { width: 500, height: 420 },
   faces: { width: 600, height: 460 },
   map: { width: 720, height: 520 },
   code: { width: 650, height: 500 },
-  editor: { width: 980, height: 620 },
+  editor: { width: 1280, height: 740 },
   agent: { width: 720, height: 600 },
   users: { width: 520, height: 460 },
   sync: { width: 580, height: 440 },
@@ -73,7 +73,7 @@ const defaultSizes: SizeMap = {
   activity: { width: 540, height: 400 },
   favorites: { width: 420, height: 360 },
   recent: { width: 420, height: 360 },
-  accounts: { width: 640, height: 560 },
+  accounts: { width: 780, height: 640 },
   'loose-groups': { width: 440, height: 380 },
   style: { width: 440, height: 360 },
   storage: { width: 580, height: 480 },
@@ -94,12 +94,12 @@ const inlinePanels: PanelType[] = [
 ]
 
 const panelComponentMap: Record<string, Component> = {
-  files: FileGrid,
+  files: FileManager,
   collections: CollectionsPanel,
   faces: FaceGroupingPanel,
   map: MapView,
   code: CodeIntelligencePanel,
-  editor: CodeEditorPanel,
+  editor: CodeStudio,
   agent: AgentPanel,
   users: UserManagementPanel,
   dashboard: WebDashboardPanel,
@@ -211,6 +211,10 @@ export function useWindowManager() {
     }
   }
 
+  function blurAll() {
+    windowFocusHistory.value = []
+  }
+
   function toggle(panelType: PanelType, props?: Record<string, unknown>) {
     const existing = windows.value.find(
       w => w.panelType === panelType
@@ -268,6 +272,7 @@ export function useWindowManager() {
     minimize,
     restore,
     focus,
+    blurAll,
     toggle,
     closeAll,
     minimizeAll,

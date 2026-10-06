@@ -1,4 +1,4 @@
-// Cybermanju Drive — per-provider concurrency caps (AGENT-1)
+// CyberManju OS — per-provider concurrency caps (AGENT-1)
 //
 // The sync pipeline fans out with rayon (`max_concurrent_uploads`), which
 // today means N simultaneous requests against one provider — a guaranteed

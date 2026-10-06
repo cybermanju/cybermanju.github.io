@@ -1,5 +1,5 @@
 {
-  "name": "cybermanju-drive",
+  "name": "cybermanju-os",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -27,7 +27,7 @@
     "clean": "rm -rf dist target src-tauri/target cybermanju.db tantivy_index",
     "db:reset": "rm -f cybermanju.db tantivy_index",
     "prebuild:wasm:frontend": "npm run icons",
-    "build:wasm": "wasm-pack build crates/drive-wasm --target web --out-dir pkg && vite build --mode production --config vite.config.wasm.ts --outDir dist-wasm",
+    "build:wasm": "wasm-pack build crates/os-wasm --target web --out-dir pkg && vite build --mode production --config vite.config.wasm.ts --outDir dist-wasm",
     "build:wasm:frontend": "vite build --mode production --config vite.config.wasm.ts --outDir dist-wasm",
     "test": "vitest run"
   },

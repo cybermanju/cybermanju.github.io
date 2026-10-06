@@ -1,4 +1,4 @@
-// Cybermanju Drive — AGENT-7 durability & repair tests
+// CyberManju OS — AGENT-7 durability & repair tests
 //
 // Pre-created and registered by the supervisor. Acceptance lives in
 // `scripts/os-acceptance.sh` Tier 1; unit/contract cases belong here.

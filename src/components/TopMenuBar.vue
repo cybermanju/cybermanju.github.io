@@ -229,6 +229,9 @@ const menuStructure = computed<MenuGroup[]>(() => [
       { id: 'search', label: 'Search', icon: 'solar:magnifer-bold', shortcut: 'Ctrl+F', action: () => { store.searchQuery = ''; wm.open('search') } },
       { id: 'storage', label: 'Storage Dashboard', icon: 'solar:database-bold', action: () => { wm.open('storage') } },
       { id: 'sync-panel', label: 'Sync Panel', icon: 'solar:refresh-bold', action: () => { wm.open('sync') } },
+      { id: 'loose-groups', label: 'Loose Groups', icon: 'solar:users-group-two-rounded-bold', action: () => { wm.open('loose-groups') } },
+      { id: 'style', label: 'Style Tags', icon: 'solar:tag-bold', action: () => { wm.open('style') } },
+      { id: 'overlay', label: 'Overlay Dashboard', icon: 'solar:kanban-square-bold', action: () => { wm.open('webdash') } },
       { id: 'div2', divider: true },
       { id: 'minimize-all', label: 'Minimize All', icon: 'solar:minimize-square-bold', action: () => wm.minimizeAll() },
       { id: 'close-all', label: 'Close All Windows', icon: 'solar:close-circle-bold', action: () => wm.closeAll() },
@@ -259,8 +262,8 @@ const menuStructure = computed<MenuGroup[]>(() => [
     id: 'help',
     label: 'Help',
     children: [
-      { id: 'about', label: 'About Cybermanju Drive', icon: 'solar:info-circle-bold', action: () => {} },
-      { id: 'docs', label: 'Documentation', icon: 'solar:book-bookmark-bold', action: () => { window.open('https://github.com/hautlythird211/Cybermanju-Drive', '_blank') } },
+      { id: 'about', label: 'About CyberManju OS', icon: 'solar:info-circle-bold', action: () => {} },
+      { id: 'docs', label: 'Documentation', icon: 'solar:book-bookmark-bold', action: () => { window.open('https://github.com/cybermanju/cybermanju.github.io', '_blank') } },
       { id: 'div1', divider: true },
       { id: 'matrix', label: 'Toggle Matrix Rain', icon: 'solar:widget-bold', checked: store.matrixRainEnabled, action: () => { store.matrixRainEnabled = !store.matrixRainEnabled } },
     ],
@@ -330,6 +333,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  overflow: hidden;
   -webkit-app-region: no-drag;
 }
 
@@ -385,6 +390,13 @@ onUnmounted(() => {
 .menu-items {
   display: flex;
   align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-width: 0;
+}
+
+.menu-items::-webkit-scrollbar {
+  display: none;
 }
 
 .menu-item {
@@ -615,6 +627,13 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  max-width: 100%;
+}
+
+.sys-tray::-webkit-scrollbar {
+  display: none;
 }
 
 .tray-icon {
@@ -685,5 +704,23 @@ onUnmounted(() => {
   font-size: 8.5px;
   color: var(--ui-text-3);
   line-height: 1.2;
+}
+
+@media (max-width: 960px) {
+  .tmb-center {
+    max-width: 220px;
+  }
+  .clock-date {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .tmb-center {
+    display: none;
+  }
+  .logo-brand {
+    display: none;
+  }
 }
 </style>

@@ -1,4 +1,4 @@
-// Cybermanju Drive — auto-sync scheduler (AGENT-2 item 11)
+// CyberManju OS — auto-sync scheduler (AGENT-2 item 11)
 //
 // `SyncConfig.auto_sync` used to be a field nothing read. This is the
 // reader: a background thread that wakes once a minute and, for every

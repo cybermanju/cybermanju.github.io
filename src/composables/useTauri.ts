@@ -1,4 +1,4 @@
-// Cybermanju Drive — Tauri IPC Composable
+// CyberManju OS — Tauri IPC Composable
 // Supports both Tauri desktop (IPC) and Server/Web (REST) modes
 //
 // In Tauri mode: delegates to @tauri-apps/api/core invoke
@@ -92,7 +92,7 @@ export function isWebMode(): boolean {
  * True when the app is served from a static host (GitHub Pages / WASM pack)
  * with no dashboard behind it. On those origins every REST call would hit
  * `localhost:3456` and die with ERR_CONNECTION_REFUSED, so the OS layer is
- * routed through the `cybermanju-drive-wasm` crate instead.
+ * routed through the `cybermanju-os-wasm` crate instead.
  */
 export function isStaticHost(): boolean {
   if (typeof window === 'undefined') return false
@@ -299,6 +299,23 @@ const REST_ROUTES: Record<string, RestMapping> = {
   list_loose_groups: {
     method: 'GET',
     buildPath: () => '/api/loose-groups',
+  },
+
+  create_loose_group: {
+    method: 'POST',
+    buildPath: () => '/api/loose-groups',
+    transformRequest: (args) => ({
+      name: args.name,
+      color: args.color ?? '#FFFFFF',
+    }),
+  },
+
+  add_to_loose_group: {
+    method: 'POST',
+    buildPath: (args) => `/api/loose-groups/${encodeURIComponent(String(args.groupId ?? ''))}/files`,
+    transformRequest: (args) => ({
+      fileId: args.fileId,
+    }),
   },
 
   // ── Encryption ────────────────────────────────────────────
@@ -1024,7 +1041,7 @@ const REST_FIRST = new Set([
   'mcp_add_server', 'mcp_remove_server', 'mcp_list_tools',
 ])
 
-// Commands the `cybermanju-drive-wasm` crate serves on a static host.
+// Commands the `cybermanju-os-wasm` crate serves on a static host.
 const OS_WASM_COMMANDS = new Set([
   'os_exec', 'os_complete', 'os_stat', 'os_ls', 'os_du', 'os_df',
   'os_ps', 'os_top', 'os_workers', 'os_jobs', 'os_write',
@@ -1185,6 +1202,58 @@ function guessMime(name: string): string {
  */
 type StaticHandler = (args: Record<string, unknown>) => Promise<unknown>
 
+interface StaticLooseGroup {
+  id: string
+  name: string
+  color: string
+  fileIds: string[]
+  createdAt: string
+}
+
+const LOOSE_INDEX_KEY = 'loose:index'
+const looseKey = (id: string) => `loose:${id}`
+
+async function readStaticLooseGroups(): Promise<StaticLooseGroup[]> {
+  const idx = (await wasmDbDispatch('kv.get', { key: LOOSE_INDEX_KEY }).catch(() => null)) as {
+    value?: unknown
+  } | null
+  let ids: string[] = []
+  if (typeof idx?.value === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(idx.value)
+      if (Array.isArray(parsed)) ids = parsed.filter((v): v is string => typeof v === 'string')
+    } catch { ids = [] }
+  }
+  const groups: StaticLooseGroup[] = []
+  for (const id of ids) {
+    const row = (await wasmDbDispatch('kv.get', { key: looseKey(id) }).catch(() => null)) as {
+      value?: unknown
+    } | null
+    if (typeof row?.value !== 'string') continue
+    try {
+      const parsed: unknown = JSON.parse(row.value)
+      const g = parsed as Partial<StaticLooseGroup>
+      if (typeof g?.id === 'string' && typeof g?.name === 'string') {
+        groups.push({
+          id: g.id,
+          name: g.name,
+          color: typeof g.color === 'string' ? g.color : '#FFFFFF',
+          fileIds: Array.isArray(g.fileIds) ? g.fileIds.filter((v): v is string => typeof v === 'string') : [],
+          createdAt: typeof g.createdAt === 'string' ? g.createdAt : new Date().toISOString(),
+        })
+      }
+    } catch { /* skip corrupt rows */ }
+  }
+  return groups
+}
+
+async function writeStaticLooseGroups(groups: StaticLooseGroup[]): Promise<void> {
+  for (const g of groups) {
+    await wasmDbDispatch('kv.set', { key: looseKey(g.id), value: JSON.stringify(g) })
+  }
+  await wasmDbDispatch('kv.set', { key: LOOSE_INDEX_KEY, value: JSON.stringify(groups.map((g) => g.id)) })
+}
+
 const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
   // Byte upload → base64 body in kv + `encoding:<id>` marker (binary files
   // are re-decoded on read so the editor still gets text out of them).
@@ -1244,6 +1313,42 @@ const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
   compress_file: async (args) =>
     compressFile(String(args.fileId ?? ''), String(args.layer ?? 'lz4')),
   decompress_file: async (args) => decompressFile(String(args.fileId ?? '')),
+
+  // ── Loose groups (kv-backed mirror of the desktop loose-groups table) ──
+  // The wasm crate ships no loose-group table, so the static build keeps
+  // the same JSON row shape under `loose:<id>` keys with an index at
+  // `loose:index`. Rows ride inside the `.cybermanju` container next to
+  // third-party provider configs, and the store calls the same command
+  // names on every transport.
+  list_loose_groups: async () => readStaticLooseGroups(),
+  create_loose_group: async (args) => {
+    const name = String(args.name ?? '').trim()
+    if (!name) throw new Error('invalid: group name is required')
+    const now = new Date().toISOString()
+    const group = {
+      id: `loose-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      color: String(args.color ?? '#FFFFFF'),
+      fileIds: [] as string[],
+      createdAt: now,
+    }
+    const groups = await readStaticLooseGroups()
+    groups.push(group)
+    await writeStaticLooseGroups(groups)
+    return group
+  },
+  add_to_loose_group: async (args) => {
+    const groupId = String(args.groupId ?? '')
+    const fileId = String(args.fileId ?? '')
+    if (!groupId) throw new Error('invalid: groupId is required')
+    if (!fileId) throw new Error('invalid: fileId is required')
+    const groups = await readStaticLooseGroups()
+    const group = groups.find((g) => g.id === groupId)
+    if (!group) throw new Error(`not_found: loose group ${groupId}`)
+    if (!group.fileIds.includes(fileId)) group.fileIds.push(fileId)
+    await writeStaticLooseGroups(groups)
+    return group
+  },
 }
 
 /**
@@ -1366,7 +1471,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     // Anything else (provider network sync, encryption, faces, …) still
     // needs the server — one clear error, no fetch spam.
     throw new Error(
-      `[WASM Mode] "${cmd}" needs the Cybermanju dashboard (REST API on port 3456). ` +
+      `[WASM Mode] "${cmd}" needs the CyberManju dashboard (REST API on port 3456). ` +
       'This static build runs the browser sandbox — accounts, files, providers and disks work offline, but provider network sync requires the desktop app, Docker image or dashboard server.'
     )
   }

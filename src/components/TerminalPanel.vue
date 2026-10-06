@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-// Cybermanju Drive — cybsh terminal (AGENT-8)
+// CyberManju OS — cybsh terminal (AGENT-8)
 //
 // Transport-agnostic: everything goes through the store, which calls
 // `invoke()` — so the same panel runs in tauri, rest and wasm builds.

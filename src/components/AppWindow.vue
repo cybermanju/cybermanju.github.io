@@ -10,7 +10,7 @@
       'app-window--narrow': isNarrow,
     }"
     :style="windowStyle"
-    @mousedown.prevent="onFocus"
+    @mousedown="onFocus"
   >
     <div
       class="window-titlebar"
@@ -136,6 +136,19 @@ const windowStyle = computed(() => {
   if (props.win.minimized) {
     return { display: 'none' }
   }
+  if (isMaximized.value) {
+    // Maximized = fill the whole desktop workspace: from the bottom of the
+    // desktop area up to the start of the top header. The window lives inside
+    // `.desktop-workspace` (inset:0 of `.desktop-area`, directly below
+    // TopMenuBar), so 0/0 + 100% is exactly that region — no magic offsets.
+    return {
+      left: '0px',
+      top: '0px',
+      width: '100%',
+      height: '100%',
+      zIndex: props.win.zIndex,
+    }
+  }
   const style: Record<string, string | number> = {
     left: `${props.win.x}px`,
     top: `${props.win.y}px`,
@@ -246,6 +259,33 @@ function onFocus() {
   emit('focus', props.win.id)
 }
 
+function getWorkspaceSize(): { w: number; h: number } {
+  // The window is a child of `.desktop-workspace`, whose inset:0 box is
+  // exactly the usable desktop area (below TopMenuBar, above Dock/StatusBar).
+  const host: HTMLElement | null | undefined =
+    rootRef.value?.closest('.desktop-workspace') ??
+    rootRef.value?.parentElement
+  if (host && host.clientWidth > 0 && host.clientHeight > 0) {
+    return { w: host.clientWidth, h: host.clientHeight }
+  }
+  const area = document.querySelector('.desktop-workspace') ?? document.querySelector('.desktop-area')
+  if (area && (area as HTMLElement).clientWidth > 0) {
+    return {
+      w: (area as HTMLElement).clientWidth,
+      h: (area as HTMLElement).clientHeight,
+    }
+  }
+  return { w: window.innerWidth, h: window.innerHeight }
+}
+
+function applyMaximizedRect() {
+  // Keep the stored rect in sync so window-aware children (useWindowUi)
+  // see the real maximized geometry.
+  const { w, h } = getWorkspaceSize()
+  emit('move', props.win.id, 0, 0)
+  emit('resize', props.win.id, w, h)
+}
+
 function toggleMaximize() {
   if (isMaximized.value) {
     isMaximized.value = false
@@ -259,11 +299,12 @@ function toggleMaximize() {
       height: props.win.height,
     }
     isMaximized.value = true
-    emit('move', props.win.id, 0, 32)
-    const h = window.innerHeight - 32 - 60
-    const w = window.innerWidth
-    emit('resize', props.win.id, w, h)
+    applyMaximizedRect()
   }
+}
+
+function handleViewportResize() {
+  if (isMaximized.value) applyMaximizedRect()
 }
 
 function handleGlobalKeydown(e: KeyboardEvent) {
@@ -275,12 +316,14 @@ function handleGlobalKeydown(e: KeyboardEvent) {
 
 onMounted(() => {
   document.addEventListener('keydown', handleGlobalKeydown)
+  window.addEventListener('resize', handleViewportResize)
   // Hand the live element to the window context so descendants get real geometry.
   winUi.observe(rootRef.value)
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleGlobalKeydown)
+  window.removeEventListener('resize', handleViewportResize)
   stopDrag()
   stopResize()
 })
@@ -333,6 +376,8 @@ onUnmounted(() => {
 
 .app-window.maximized {
   border-radius: 0;
+  border-left: none;
+  border-right: none;
 }
 
 /* ── titlebar ─────────────────────────────────────────────────────────── */

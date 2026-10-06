@@ -18,7 +18,7 @@ const wasmTarget =
 export default defineConfig(async () => ({
   plugins: [vue(), wasmStub()],
   // Worker bundles don't inherit config plugins — the db worker imports
-  // 'cybermanju-drive-wasm', so the stub must apply there too.
+  // 'cybermanju-os-wasm', so the stub must apply there too.
   worker: {
     format: 'es',
     plugins: () => [wasmStub()],
@@ -26,7 +26,7 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       "@": resolve(__dirname, "src"),
-      "cybermanju-drive-wasm": wasmTarget,
+      "cybermanju-os-wasm": wasmTarget,
     },
   },
   clearScreen: false,

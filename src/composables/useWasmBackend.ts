@@ -1,9 +1,9 @@
-// Cybermanju Drive — WASM Backend Bridge
+// CyberManju OS — WASM Backend Bridge
 //
 // The GitHub Pages build ships no dashboard behind it, so REST calls to
 // `http://localhost:3456` are doomed to `ERR_CONNECTION_REFUSED`. Instead,
 // when the app runs from a non-3456 origin (i.e. the WASM / Pages pack),
-// the OS-layer commands are served by the `cybermanju-drive-wasm` crate:
+// the OS-layer commands are served by the `cybermanju-os-wasm` crate:
 // `os_dispatch(cmd, args_json)` answers the terminal, task table, volume df
 // and workers against a virtual volume kept in localStorage.
 //
@@ -47,7 +47,7 @@ export interface WasmAgentTurn {
   error?: string
 }
 
-/** One provider turn over browser fetch (see drive-wasm agent_prompt). */
+/** One provider turn over browser fetch (see os-wasm agent_prompt). */
 export async function wasmAgentPrompt(req: {
   url: string
   dialect: string
@@ -68,7 +68,7 @@ export async function wasmAgentPrompt(req: {
 }
 
 // ── Provider canal (Phase 5, canal B) ─────────────────────────────────
-// probe/list/fetch and the artifact codec live in `crates/drive-wasm`
+// probe/list/fetch and the artifact codec live in `crates/os-wasm`
 // (canal.rs / artifact.rs). Main-thread load path, same as the agent —
 // the browser fetch needs a real origin, so these never run in the
 // db-worker.
@@ -144,7 +144,7 @@ async function loadWasm(): Promise<typeof wasmModule> {
   if (wasmModule) return wasmModule
   if (!wasmLoad) {
     wasmLoad = (async () => {
-      const mod = (await import('cybermanju-drive-wasm')) as unknown as WasmBackend & {
+      const mod = (await import('cybermanju-os-wasm')) as unknown as WasmBackend & {
         default: () => Promise<void>
       }
       await mod.default()
@@ -309,26 +309,56 @@ function dbRejectAll(err: Error) {
 
 let mainDbOpen: Promise<unknown> | null = null
 
-async function mainThreadDbDispatch(op: string, args: Record<string, unknown>): Promise<unknown> {
-  if (op === '_status') return { backend: 'memory', file: 'cybermanju.db', disk: { attached: false } }
-  if (op === '_detach') return { attached: false, name: '', savedAt: 0, savedBytes: 0, dirty: false }
-  if (op === '_attach' || op === '_save' || op === '_export') {
-    // `db_snapshot`/`db_restore` need the OPFS-backed database, which only
-    // exists inside the worker — say so instead of half-working.
-    throw new Error(
-      'the .cybermanju file needs the database worker (OPFS is worker-only in this browser)',
-    )
+interface MainDiskState {
+  handle: FileSystemFileHandle | null
+  name: string
+  passphrase: string
+  savedAt: number
+  savedBytes: number
+}
+
+let mainDisk: MainDiskState | null = null
+let mainDirty = false
+
+function mainDiskStatus() {
+  return {
+    backend: 'memory' as const,
+    file: 'cybermanju.db',
+    attached: !!mainDisk,
+    name: mainDisk?.name ?? '',
+    savedAt: mainDisk?.savedAt ?? 0,
+    savedBytes: mainDisk?.savedBytes ?? 0,
+    dirty: mainDirty,
+    lastError: null,
+    disk: {
+      attached: !!mainDisk,
+      name: mainDisk?.name ?? '',
+      savedAt: mainDisk?.savedAt ?? 0,
+      savedBytes: mainDisk?.savedBytes ?? 0,
+      dirty: mainDirty,
+    },
   }
+}
+
+function mainIsReadOnly(op: string): boolean {
+  return (
+    op === '_status' ||
+    op === '_snapshot' ||
+    op === '_restore' ||
+    op.endsWith('.list') ||
+    op.endsWith('.get') ||
+    op === 'volume.df' ||
+    op === 'disks.check' ||
+    op === 'sync.secret'
+  )
+}
+
+async function ensureMainDb() {
   const mod = await loadWasm()
   if (!mod || typeof (mod as unknown as { db_dispatch?: unknown }).db_dispatch !== 'function') {
     throw new Error('wasm database unavailable')
   }
-  const { db_dispatch, db_open } = mod as unknown as {
-    db_dispatch: (op: string, argsJson: string) => string
-    db_open: () => Promise<string>
-  }
-  // The main-thread module needs the same open handshake as the worker —
-  // OPFS resolution fails here by design, so this always lands on memory.
+  const { db_open } = mod as unknown as { db_open: () => Promise<string> }
   if (!mainDbOpen) {
     mainDbOpen = (async () => {
       const raw = await db_open()
@@ -341,12 +371,108 @@ async function mainThreadDbDispatch(op: string, args: Record<string, unknown>): 
     })
   }
   await mainDbOpen
+  return mod as unknown as {
+    db_dispatch: (op: string, argsJson: string) => string
+    db_snapshot: () => Uint8Array
+    db_restore: (data: Uint8Array) => string
+  }
+}
+
+async function mainSnapshot(): Promise<Uint8Array> {
+  const mod = await ensureMainDb()
+  const out = mod.db_snapshot() as unknown as Uint8Array
+  return out instanceof Uint8Array ? out : new Uint8Array(out as unknown as ArrayLike<number>)
+}
+
+async function mainRestore(image: Uint8Array): Promise<void> {
+  const mod = await ensureMainDb()
+  const raw = mod.db_restore(image)
+  const env = JSON.parse(raw) as { ok: boolean; data?: unknown; error?: string }
+  if (!env.ok) throw new Error(String(env.error ?? 'restore failed'))
+}
+
+async function mainThreadDbDispatch(op: string, args: Record<string, unknown>): Promise<unknown> {
+  if (op === '_status') return mainDiskStatus()
+  if (op === '_detach') {
+    mainDisk = null
+    mainDirty = false
+    return { attached: false, name: '', savedAt: 0, savedBytes: 0, dirty: false }
+  }
+  if (op === '_attach') {
+    const mod = await ensureMainDb()
+    void mod
+    const handle = (args?.handle ?? null) as FileSystemFileHandle | null
+    const passphrase = String(args?.passphrase ?? '')
+    const bytes = (args?.bytes ?? null) as Uint8Array | null
+    const name = String(args?.name ?? 'cybermanju.cybermanju')
+    if (bytes && bytes.byteLength > 0) {
+      const { decodeContainer } = await import('@/utils/container')
+      const { image } = await decodeContainer(bytes, passphrase)
+      await mainRestore(image)
+    }
+    mainDisk = {
+      handle,
+      name,
+      passphrase,
+      savedAt: Date.now(),
+      savedBytes: bytes?.byteLength ?? 0,
+    }
+    mainDirty = false
+    // Mirror the worker: a picked handle binds (attached), a bare import
+    // restores into the session database only (attached=false, EXPORT to keep).
+    return {
+      attached: !!handle,
+      name,
+      savedAt: mainDisk.savedAt,
+      savedBytes: mainDisk.savedBytes,
+      dirty: false,
+    }
+  }
+  if (op === '_save') {
+    if (!mainDisk?.handle) {
+      // Session-only import (or nothing bound): persist via download path.
+      // Keep the error actionable — EXPORT still works through _export.
+      if (!mainDisk) throw new Error('no .cybermanju file attached — open or create one first')
+      throw new Error('session-only import has no file to save back to — use EXPORT to download it')
+    }
+    const image = await mainSnapshot()
+    const { encodeContainer } = await import('@/utils/container')
+    const payload = await encodeContainer(image, mainDisk.passphrase)
+    const writable = await (mainDisk.handle as unknown as {
+      createWritable: () => Promise<{ write: (d: Uint8Array) => Promise<void>; close: () => Promise<void> }>
+    }).createWritable()
+    await writable.write(payload)
+    await writable.close()
+    mainDirty = false
+    mainDisk.savedAt = Date.now()
+    mainDisk.savedBytes = payload.byteLength
+    return {
+      attached: true,
+      name: mainDisk.name,
+      savedAt: mainDisk.savedAt,
+      savedBytes: mainDisk.savedBytes,
+      dirty: false,
+    }
+  }
+  if (op === '_export') {
+    const passphrase = String(args?.passphrase ?? mainDisk?.passphrase ?? '')
+    const image = await mainSnapshot()
+    const { encodeContainer } = await import('@/utils/container')
+    const payload = await encodeContainer(image, passphrase)
+    return { bytes: payload, name: mainDisk?.name ?? 'cybermanju.cybermanju' }
+  }
+  const mod = await ensureMainDb()
+  const { db_dispatch } = mod
+  // The main-thread module needs the same open handshake as the worker —
+  // OPFS resolution fails here by design, so this always lands on memory.
+  await mainDbOpen
   const raw = db_dispatch(
     op,
     JSON.stringify({ ...args, now: new Date().toISOString() }),
   )
   const env = JSON.parse(raw) as { ok: boolean; data?: unknown; error?: string }
   if (!env.ok) throw new Error(String(env.error ?? 'unknown db error'))
+  if (!mainIsReadOnly(op)) mainDirty = true
   return env.data ?? null
 }
 
@@ -425,14 +551,19 @@ export interface AttachDiskRequest {
 }
 
 export async function wasmDiskStatus(): Promise<WasmDiskStatus> {
-  const raw = (await wasmDbDispatch('_status', {}, 60000)) as Partial<WasmDiskStatus> | null
+  const raw = (await wasmDbDispatch('_status', {}, 60000)) as (Partial<WasmDiskStatus> & {
+    disk?: Partial<WasmDiskStatus> | null
+  }) | null
+  // The worker nests the file state under `disk` (`{backend, file, disk}`),
+  // the main-thread fallback returns it flat — accept both.
+  const d = raw?.disk ?? raw
   return {
-    attached: !!raw?.attached,
-    name: String(raw?.name ?? ''),
-    savedAt: Number(raw?.savedAt ?? 0),
-    savedBytes: Number(raw?.savedBytes ?? 0),
-    dirty: !!raw?.dirty,
-    lastError: raw?.lastError ?? null,
+    attached: !!d?.attached,
+    name: String(d?.name ?? raw?.name ?? ''),
+    savedAt: Number(d?.savedAt ?? 0),
+    savedBytes: Number(d?.savedBytes ?? 0),
+    dirty: !!(d?.dirty ?? (raw as Partial<WasmDiskStatus>)?.dirty),
+    lastError: d?.lastError ?? raw?.lastError ?? null,
     backend: raw?.backend,
     file: raw?.file,
   }

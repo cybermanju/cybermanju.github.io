@@ -339,7 +339,7 @@ impl Default for VolumeRow {
         Self {
             id: VOLUME_KEY.to_string(),
             uuid: uuid::Uuid::new_v4().to_string(),
-            name: "Cybermanju Volume".to_string(),
+            name: "CyberManju Volume".to_string(),
             policy: "spanned".to_string(),
             rr_cursor: 0,
             created_at: now.clone(),

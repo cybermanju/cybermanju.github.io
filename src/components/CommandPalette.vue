@@ -113,6 +113,26 @@ const commands = computed<CommandGroup[]>(() => [
     ],
   },
   {
+    label: 'AGENT',
+    items: [
+      { id: 'agent-open', label: 'Open AI Agent panel', icon: 'solar:bot-bold', action: () => { wm.open('agent') } },
+      { id: 'agent-abort', label: 'Agent — abort the current run', icon: 'solar:stop-circle-bold', action: () => {
+        const job = store.activeAgentJob
+        if (job && (job.status === 'running' || job.status === 'waiting_approval')) void store.abortAgentJob(job.jobId)
+        else store.notifyError('No agent run to abort', 'the agent is idle')
+      } },
+      { id: 'agent-init', label: 'Agent — analyze repo and write AGENTS.md', icon: 'solar:file-text-bold', action: () => {
+        wm.open('agent')
+        const cfg = store.agentConfigs[0]
+        if (!cfg) {
+          store.notifyError('No agent config', 'open the Agent panel and save a config first')
+          return
+        }
+        void store.initAgentRun(cfg.id)
+      } },
+    ],
+  },
+  {
     label: 'VIEW',
     items: [
       { id: 'view-grid', label: 'Grid View', icon: 'solar:grid-3x3-bold', shortcut: 'Ctrl+G', action: () => { wm.open('files'); store.viewMode = 'grid' } },

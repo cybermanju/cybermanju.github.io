@@ -1,5 +1,4 @@
-// Shared byte/percentage formatting — one implementation for every panel
-// (FileGrid-adjacent panels previously each carried a copy).
+// Shared byte/percentage formatting — one implementation for every panel.
 
 /** `1536` → `"1.5 KB"`, `0`/null → `"0 B"`. Binary (1024) units. */
 export function humanBytes(bytes: number | null | undefined): string {

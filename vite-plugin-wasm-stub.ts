@@ -1,5 +1,5 @@
-// Virtual module for `cybermanju-drive-wasm` in builds that don't have the
-// wasm-pack output (`crates/drive-wasm/pkg`):
+// Virtual module for `cybermanju-os-wasm` in builds that don't have the
+// wasm-pack output (`crates/os-wasm/pkg`):
 // - desktop/Tauri builds (vite.config.ts): the OS layer goes through Tauri
 //   IPC / same-origin REST, so the stub throws only if ever loaded — which
 //   never happens (isStaticHost() is false there).
@@ -13,7 +13,7 @@ import { wasmPkgEntry } from './wasm-pkg'
 
 const STUB_SOURCE = `
 function unavailable() {
-  throw new Error('cybermanju-drive-wasm is not bundled in this build')
+  throw new Error('cybermanju-os-wasm is not bundled in this build')
 }
 export const os_dispatch = unavailable
 export const db_open = unavailable
@@ -29,17 +29,17 @@ export default function init() {
 
 export default function wasmStubPlugin() {
   return {
-    name: 'cybermanju-drive-wasm-stub',
+    name: 'cybermanju-os-wasm-stub',
     resolveId(id: string) {
-      if (id !== 'cybermanju-drive-wasm') return null
+      if (id !== 'cybermanju-os-wasm') return null
       // Usable pkg? Let the alias handle it (plugins run after aliases, so
       // returning null here defers to the alias — and if the alias target is
       // missing or stale we stub instead of failing the build).
       if (wasmPkgEntry(process.cwd())) return null
-      return '\0cybermanju-drive-wasm-stub'
+      return '\0cybermanju-os-wasm-stub'
     },
     load(id: string) {
-      if (id === '\0cybermanju-drive-wasm-stub') return STUB_SOURCE
+      if (id === '\0cybermanju-os-wasm-stub') return STUB_SOURCE
       return null
     },
   }

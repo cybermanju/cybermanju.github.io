@@ -1,4 +1,4 @@
-// Cybermanju Drive — Standalone Web Server (Docker)
+// CyberManju OS — Standalone Web Server (Docker)
 //
 // Unified HTTP server that:
 // 1. Serves compiled Vue frontend as static files (binary-safe)
@@ -63,6 +63,23 @@ fn install_signal_handlers() {
 }
 
 fn handle_connection(state: &AppState, mut stream: TcpStream) {
+    // Same 256-slot cap as the desktop transport: `in_flight` is
+    // incremented before spawn, so reaching the cap here means shedding
+    // this connection with 503 instead of growing threads unbounded.
+    // SSE tails hold a slot for up to 5 min each — the cap is ample
+    // because every stream is time-bounded (see `handle_sse_connection`).
+    if state.in_flight.load(Ordering::SeqCst)
+        > cybermanju_web::security::MAX_CONCURRENT_CONNECTIONS as usize
+    {
+        let resp = http_response(
+            503,
+            "application/json",
+            r#"{"error":true,"status":503,"message":"Too many connections"}"#,
+            None,
+        );
+        let _ = stream.write_all(resp.as_bytes());
+        return;
+    }
     stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
 
@@ -88,19 +105,35 @@ fn handle_connection(state: &AppState, mut stream: TcpStream) {
 
     let mut reader = BufReader::new(&stream);
 
-    // Read request line
+    // Read request line (capped — an unbounded line is a memory DoS).
     let mut request_line = String::new();
-    if reader.read_line(&mut request_line).is_err() {
+    {
+        use std::io::Read as _;
+        let mut capped = (&mut reader).take(
+            cybermanju_web::security::MAX_REQUEST_LINE_BYTES as u64 + 2,
+        );
+        if capped.read_line(&mut request_line).is_err() {
+            let resp = http_response(
+                400,
+                "application/json",
+                r#"{"error":true,"status":400,"message":"Malformed request line"}"#,
+                None,
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            return;
+        }
+    }
+    if request_line.len() > cybermanju_web::security::MAX_REQUEST_LINE_BYTES {
         let resp = http_response(
             400,
             "application/json",
-            r#"{"error":true,"status":400,"message":"Malformed request line"}"#,
+            r#"{"error":true,"status":400,"message":"Request line too long"}"#,
             None,
         );
         let _ = stream.write_all(resp.as_bytes());
         return;
     }
-    let request_line = request_line.trim();
+    let request_line = request_line.trim().to_string();
 
     // Parse method and path from "GET /path HTTP/1.1"
     let parts: Vec<&str> = request_line.splitn(3, ' ').collect();
@@ -117,15 +150,40 @@ fn handle_connection(state: &AppState, mut stream: TcpStream) {
     let method = parts[0];
     let path = parts[1];
 
-    // Read headers to determine Content-Length, Authorization, and Origin
+    // Read headers to determine Content-Length, Authorization, and Origin.
+    // Capped like the desktop transport: at most 100 header lines, each
+    // at most 8 KiB, auth at most 4 KiB — an uncapped header loop is a
+    // memory DoS at 256 concurrent connections.
     let mut content_length: usize = 0;
     let mut auth_header: Option<String> = None;
     let mut origin_header: Option<String> = None;
+    let mut header_lines: usize = 0;
     loop {
+        if header_lines >= cybermanju_web::security::MAX_HEADER_LINES {
+            let resp = http_response(
+                400,
+                "application/json",
+                r#"{"error":true,"status":400,"message":"Too many headers"}"#,
+                None,
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            return;
+        }
         let mut line = String::new();
         if reader.read_line(&mut line).is_err() || line == "\r\n" || line.is_empty() {
             break;
         }
+        if line.len() > cybermanju_web::security::MAX_HEADER_LINE_BYTES {
+            let resp = http_response(
+                400,
+                "application/json",
+                r#"{"error":true,"status":400,"message":"Header line too long"}"#,
+                None,
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            return;
+        }
+        header_lines += 1;
         let line_trimmed = line.trim().to_lowercase();
         if line_trimmed.starts_with("content-length:") {
             content_length = line_trimmed
@@ -136,6 +194,16 @@ fn handle_connection(state: &AppState, mut stream: TcpStream) {
                 .unwrap_or(0);
         } else if line_trimmed.starts_with("authorization:") {
             let val = line.trim();
+            if val.len() > 14 + cybermanju_web::security::MAX_AUTH_HEADER_BYTES {
+                let resp = http_response(
+                    401,
+                    "application/json",
+                    r#"{"error":true,"status":401,"message":"Authorization header too long"}"#,
+                    None,
+                );
+                let _ = stream.write_all(resp.as_bytes());
+                return;
+            }
             auth_header = val
                 .strip_prefix("Authorization:")
                 .or_else(|| val.strip_prefix("authorization:"))
@@ -178,6 +246,22 @@ fn handle_connection(state: &AppState, mut stream: TcpStream) {
     // and `http_response` re-checks it, so a forwarded header cannot smuggle
     // a permissive Access-Control-Allow-Origin. >>>
     let origin = cybermanju_web::security::cors_origin_allowed(origin_header.as_deref());
+
+    // SSE job tail serves the identical stream as the desktop transport.
+    // The shared handler clears the write timeout, heartbeats, and caps
+    // the stream at 5 min. Drop the buffered reader first: it borrows
+    // the socket and the handler takes it by value.
+    if let Some(job_id) = cybermanju_web::is_sse_events_path(method, path) {
+        drop(reader);
+        cybermanju_web::handle_sse_connection(
+            &state.dashboard,
+            stream,
+            &job_id,
+            auth_header.as_deref(),
+            origin.as_deref(),
+        );
+        return;
+    }
 
     // Route: /api/* → shared REST handlers, everything else → static files
     if path.starts_with("/api/") || path == "/api" {
@@ -288,6 +372,12 @@ fn main() {
         rate_limits: Mutex::new(HashMap::new()),
         in_flight: AtomicUsize::new(0),
     });
+    // The shared SSE handler polls `dashboard.running` as its liveness
+    // signal; this transport never calls `WebDashboard::start` (it runs
+    // its own accept loop), so arm it here and drop it after the accept
+    // loop exits — otherwise every Docker SSE stream would end on its
+    // first tick.
+    state.dashboard.running.store(true, Ordering::SeqCst);
 
     let addr = format!("0.0.0.0:{}", port);
     let listener = match TcpListener::bind(&addr) {
@@ -301,7 +391,7 @@ fn main() {
     listener.set_nonblocking(true).ok();
 
     info!("═══════════════════════════════════════════════════════");
-    info!("  Cybermanju Drive — Web Server");
+    info!("  CyberManju OS — Web Server");
     info!("  Listening on http://{}", addr);
     info!("  API:        http://localhost:{}/api/health", port);
     info!("  Database:   {}", state.db_path);
@@ -330,6 +420,8 @@ fn main() {
         }
     }
 
+    // End SSE tails at the next 500 ms poll tick before draining.
+    state.dashboard.running.store(false, Ordering::SeqCst);
     // <<< AGENT-4 OPS: drain → flush → exit (item 13) >>>
     info!(
         "Shutdown requested — draining {} in-flight request(s)",

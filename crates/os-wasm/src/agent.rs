@@ -1,4 +1,4 @@
-// Cybermanju Drive — WASM agent bridge (Pages transport).
+// CyberManju OS — WASM agent bridge (Pages transport).
 //
 // The browser cannot spawn the native worker loop, so this module exposes
 // two primitives and the TypeScript `useAgent` composable drives the loop:

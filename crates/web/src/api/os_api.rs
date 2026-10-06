@@ -1,4 +1,4 @@
-// Cybermanju Drive — OS routes (AGENT-8)
+// CyberManju OS — OS routes (AGENT-8)
 //
 // Pre-created and pre-hooked by the supervisor: `crates/web/src/lib.rs` calls
 // `route()` right after the auth gate, and `os` is already in

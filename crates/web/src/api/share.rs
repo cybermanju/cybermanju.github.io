@@ -1,4 +1,4 @@
-// Cybermanju Drive — Share links (shared by Tauri IPC and REST)
+// CyberManju OS — Share links (shared by Tauri IPC and REST)
 //
 // <<< AGENT-3 SHARE: request-derived URLs, revocation and a content stream
 // that actually serves the bytes behind a link. >>>

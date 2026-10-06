@@ -40,6 +40,14 @@
       >{{ jobLabel }}</span>
       <span class="sb-div">|</span>
       <span
+        class="sb-clickable agent-icon"
+        :class="{ 'sb-active': agentBusy, 'sb-wait': agentWaiting }"
+        :title="agentTip"
+        aria-label="AGENT STATUS (OPENS AGENT PANEL)"
+        @click="wm.open('agent')"
+      >{{ agentLabel }}</span>
+      <span class="sb-div">|</span>
+      <span
         class="sb-clickable sync-icon"
         :class="{ 'sb-active': isSyncActive }"
         title="SYNC STATUS"
@@ -104,6 +112,26 @@ const isSyncActive = computed(() => {
     status === 'cleaning' ||
     status === 'syncing'
   )
+})
+
+// The agent is the one background actor that can be *blocked on the user* —
+// surface that distinctly, and jump straight to the panel on click.
+const agentJob = computed(() => store.activeAgentJob)
+const agentStatus = computed(() => agentJob.value?.status ?? '')
+const agentWaiting = computed(() => agentStatus.value === 'waiting_approval')
+const agentBusy = computed(() => agentStatus.value === 'running' || agentWaiting.value)
+const agentLabel = computed(() => {
+  if (agentWaiting.value) return 'AGENT:WAIT'
+  if (agentStatus.value === 'running') {
+    return `AGENT:${agentJob.value?.turnsUsed ?? 0}/${agentJob.value?.maxTurns ?? 0}`
+  }
+  if (agentStatus.value) return `AGENT:${agentStatus.value.slice(0, 7).toUpperCase()}`
+  return 'AGENT:IDLE'
+})
+const agentTip = computed(() => {
+  if (agentWaiting.value) return 'AGENT NEEDS APPROVAL (OPENS AGENT)'
+  const act = agentJob.value?.activity
+  return act ? `AGENT — ${act} (OPENS AGENT)` : 'AGENT (OPENS AGENT)'
 })
 </script>
 
@@ -253,6 +281,19 @@ const isSyncActive = computed(() => {
 
 .job-icon {
   font-size: 9px;
+}
+
+.agent-icon {
+  font-size: 9px;
+}
+
+/* Blocked on the human, not just busy — louder than the running state. */
+.sb-wait {
+  color: var(--ui-warning);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--ui-warning) 16%, transparent);
+  border-color: color-mix(in srgb, var(--ui-warning) 45%, transparent);
+  animation: bw-pulse 1.4s ease-in-out infinite;
 }
 
 @media (max-width: 768px) {

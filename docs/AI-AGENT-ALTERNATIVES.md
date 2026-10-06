@@ -1,4 +1,4 @@
-# AI agent alternatives for Cybermanju OS — research + recommendation
+# AI agent alternatives for CyberManju OS — research + recommendation
 
 Researched 2026-10-06. Question: what gives this OS AI coding ability on
 **all three transports** (Tauri desktop, Docker web, Pages WASM) over
@@ -57,7 +57,7 @@ desktop/Docker power users).
 - **Kernel syscall boundary** (`crates/os/src/api.rs`): open/read/write/
   seek/close/stat/unlink/readdir/mkdir/rename/du/df — the file-tool set,
   sandboxed, transport-agnostic.
-- **WASM volume ops** (`drive-wasm/src/os.rs`): `cat`/`write`/`touch`/`ls`/
+- **WASM volume ops** (`os-wasm/src/os.rs`): `cat`/`write`/`touch`/`ls`/
   `stat` over localStorage — the same tools in the sandbox.
 - **Code intel** (`parse_text`, tree-sitter + heuristic, `"engine"`-labeled)
   and **Tantivy search**: repo-map + context retrieval without new deps.
@@ -70,7 +70,7 @@ desktop/Docker power users).
 - **Transports**: `invoke()` tri-transport dispatch, `REST_FIRST`,
   `isStaticHost()`/wasm bridge. Missing pieces, all small: chunked SSE in
   the hand-rolled server (polling fallback exists), an `fetch`-capable HTTP
-  client in `drive-wasm` (it already has `wasm-bindgen` +
+  client in `os-wasm` (it already has `wasm-bindgen` +
   `wasm-bindgen-futures` + `serde_json`; web-sys fetch is additive).
 
 ## 3. Recommendation: custom Rust agent core (`crates/agent`)

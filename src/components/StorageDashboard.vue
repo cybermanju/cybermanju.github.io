@@ -5,7 +5,23 @@
         <span class="icon-storage"><AppIcon name="solar:database-bold" /></span>
         <h2 class="panel-title">STORAGE DASHBOARD</h2>
       </div>
+      <UiButton size="sm" icon="solar:refresh-bold" icon-only title="REFRESH STORAGE" aria-label="REFRESH STORAGE" :loading="store.isLoading" @click="refresh()" />
     </div>
+
+    <UiError
+      v-if="store.lastError"
+      size="sm"
+      title="Could not load storage"
+      :message="store.lastError"
+      retryable
+      @retry="refresh()"
+    />
+
+    <div v-if="store.isLoading && store.files.length === 0" class="storage-loading">
+      <UiSpinner show-label label="Loading storage" />
+    </div>
+
+    <template v-else>
 
     <div class="section">
       <h3 class="section-title"><AppIcon name="solar:checklist-bold" :size="13" /> FILE COUNTS</h3>
@@ -72,11 +88,15 @@
       </div>
       <button class="open-disks" type="button" @click="wm.open('disks')">OPEN DISK MANAGER</button>
     </div>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiError from '@/components/ui/UiError.vue'
+import UiSpinner from '@/components/ui/UiSpinner.vue'
 import { computed, onMounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
@@ -84,6 +104,16 @@ import { humanBytes } from '@/utils/format'
 
 const store = useAppStore()
 const wm = useWindowManager()
+
+async function refresh() {
+  store.clearError()
+  await Promise.allSettled([
+    store.fetchFiles(),
+    store.fetchTrashItems(),
+    store.fetchOsDf(),
+    store.fetchDisks(),
+  ])
+}
 
 // AGENT-8: the storage dashboard doubles as the volume overview — the merged
 // `df` bar grows as providers are attached.
@@ -95,8 +125,7 @@ const usedPct = computed(() => {
 })
 
 onMounted(() => {
-  void store.fetchOsDf()
-  void store.fetchDisks()
+  void refresh()
 })
 
 const trashCount = computed(() => store.trashItems.length)
@@ -293,5 +322,19 @@ const byType = computed(() => {
   color: var(--ui-text);
 }
 
+.storage-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30px 0;
+}
+
 .text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .storage-panel .ui-empty,
+  .storage-panel .ui-error {
+    animation: none;
+  }
+}
 </style>

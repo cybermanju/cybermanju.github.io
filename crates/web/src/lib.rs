@@ -1,4 +1,4 @@
-// Cybermanju Drive — Web Dashboard Server (Security-Hardened Rewrite)
+// CyberManju OS — Web Dashboard Server (Security-Hardened Rewrite)
 // Embedded HTTP server for any-device browser access
 // Exposes REST API mirroring all Tauri IPC commands
 //
@@ -421,6 +421,24 @@ fn handle_connection(dashboard: &WebDashboard, mut stream: TcpStream) {
     };
 
     let effective_origin = effective_origin.as_deref();
+
+    // SSE job tail: a long-lived `text/event-stream` on the same socket.
+    // It must branch before `handle_request` (which can only return one
+    // complete `Content-Length` response) so the stream below owns the
+    // socket: headers now, one flushed frame per job change, heartbeat
+    // comments while idle. Polling `GET /api/agent/jobs/:id` stays the
+    // fallback — browsers using `EventSource` cannot send the
+    // `Authorization` header, so the panel keeps its 1.5 s poller.
+    if let Some(job_id) = is_sse_events_path(&method, &path) {
+        handle_sse_connection(
+            dashboard,
+            stream,
+            &job_id,
+            auth_header.as_deref(),
+            effective_origin,
+        );
+        return;
+    }
 
     // Handle the request — the database lock is taken inside `handle_request`
     let response = handle_request(
@@ -963,6 +981,18 @@ fn route_request(
                 Err(e) => api_response::<Vec<api::agent_api::McpToolView>>(Err(e), origin),
             };
         }
+        ["api", "agent", "jobs", _, "events"] if method == "GET" => {
+            // The live tail never reaches this router: `handle_connection`
+            // intercepts the path and streams `text/event-stream` on the
+            // socket. A caller that arrives here (tests, embedded use) gets
+            // the honest one-shot equivalent instead of a silent 404.
+            return json_error(
+                400,
+                "GET /api/agent/jobs/:id/events needs an SSE stream; \
+                 poll GET /api/agent/jobs/:id instead",
+                origin,
+            );
+        }
         _ => {}
     }
     // <<< /AI AGENT JOBS >>>
@@ -1358,6 +1388,35 @@ fn route_request(
         ["api", "loose-groups"] if method == "GET" => {
             list_all_json(db, Database::get_loose_groups_table(), origin)
         }
+        ["api", "loose-groups"] if method == "POST" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct CreateLooseGroupBody {
+                name: String,
+                color: Option<String>,
+            }
+            let req: CreateLooseGroupBody = json_body!(body, origin);
+            api_response(
+                api::files::create_loose_group(
+                    db,
+                    req.name,
+                    req.color.unwrap_or_else(|| "#FFFFFF".to_string()),
+                ),
+                origin,
+            )
+        }
+        ["api", "loose-groups", group_id, "files"] if method == "POST" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct AddLooseFileBody {
+                file_id: String,
+            }
+            let req: AddLooseFileBody = json_body!(body, origin);
+            api_response(
+                api::files::add_to_loose_group(db, group_id, &req.file_id),
+                origin,
+            )
+        }
 
         // ─── Encryption endpoints ─────────────────────────────────
         ["api", "encryption", "status"] if method == "GET" => encryption_status(origin),
@@ -1620,7 +1679,7 @@ fn route_request(
             // Shape matches the Tauri `DashboardStatus` command so the
             // frontend can use one mapping in every transport.
             let status = serde_json::json!({
-                "service": "Cybermanju Drive Web Dashboard",
+                "service": "CyberManju OS Web Dashboard",
                 "running": dashboard.running.load(Ordering::SeqCst),
                 "port": dashboard.port,
                 "url": format!("http://localhost:{}", dashboard.port),
@@ -1670,7 +1729,7 @@ fn route_request(
             let checks = readiness_checks(dashboard, db);
             let ready = is_ready(&checks);
             let health = serde_json::json!({
-                "service": "Cybermanju Drive Web Dashboard",
+                "service": "CyberManju OS Web Dashboard",
                 "status": if ready { "ok" } else { "degraded" },
                 "ready": ready,
                 "checks": checks,
@@ -2679,6 +2738,159 @@ fn json_error(status: u16, message: &str, origin: Option<&str>) -> String {
     });
     let body_str = serde_json::to_string(&body).unwrap_or_else(|_| message.to_string());
     http_response(status, "application/json", &body_str, origin)
+}
+
+// ─── SSE job tail (`GET /api/agent/jobs/:id/events`) ─────────────────
+//
+// The hand-rolled server speaks one complete `Content-Length` response
+// per request everywhere else; SSE is the one deliberate exception — a
+// long-lived `text/event-stream` with no `Content-Length`, flushed per
+// frame. All framing bytes come from `cybermanju-agent::stream` (pure,
+// unit-tested); this block owns only sockets, timeouts and shutdown:
+//
+// * the 5 s write timeout set in `handle_connection` is **cleared** on
+//   entry — a stream that lives minutes would otherwise die on its first
+//   idle gap longer than 5 s;
+// * the connection-cap slot taken in `handle_connection` is held for the
+//   whole stream (the `ActiveConnectionGuard` lives in the caller), so 256
+//   slow readers can never spawn a 257th thread — the cap is ample
+//   because each stream is bounded by `SSE_MAX_STREAM_SECS`;
+// * heartbeats keep proxies and read timeouts from closing idle streams;
+// * any failed write ends the stream immediately (half-open clients must
+//   not spin a thread forever);
+// * shutdown (`running == false`) ends the stream at the next poll tick.
+
+/// Match `GET /api/agent/jobs/<id>/events` (query string ignored) and
+/// return the job id. `None` for every other method/path. Pub so the
+/// Docker transport reuses the exact same match.
+pub fn is_sse_events_path(method: &str, path: &str) -> Option<String> {
+    if method != "GET" {
+        return None;
+    }
+    let clean = path.split('?').next().unwrap_or(path);
+    let mut segments = clean
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty());
+    match (segments.next(), segments.next(), segments.next(), segments.next(), segments.next()) {
+        (Some("api"), Some("agent"), Some("jobs"), Some(id), Some("events")) => {
+            if segments.next().is_none() && !id.is_empty() {
+                Some(id.to_string())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// SSE response headers: event-stream content type, no buffering, CORS
+/// and hardening included, deliberately no `Content-Length` — the socket
+/// stays open until `[DONE]`, the stream cap, or a client disconnect.
+pub fn sse_response_headers(origin: Option<&str>) -> String {
+    format!(
+        "HTTP/1.1 200 OK\r\n\
+         Content-Type: text/event-stream\r\n\
+         Cache-Control: no-cache\r\n\
+         Connection: keep-alive\r\n\
+         X-Accel-Buffering: no\r\n\
+         {}{}\
+         \r\n",
+        security::cors_response_headers(origin),
+        security::security_headers()
+    )
+}
+
+/// Serve one SSE job tail on an already-accepted socket. Returns when the
+/// job reaches a terminal state, the stream cap elapses, the client goes
+/// away, or the server stops.
+///
+/// Pub so the Docker transport serves the identical stream (same timeout
+/// clearing, same cap accounting by the caller, same heartbeat) instead
+/// of drifting into a second implementation.
+pub fn handle_sse_connection(
+    dashboard: &WebDashboard,
+    mut stream: TcpStream,
+    job_id: &str,
+    auth_header: Option<&str>,
+    origin: Option<&str>,
+) {
+    // Same gate as every other `Authenticated` route: unknown id shape is
+    // a 404-shaped JSON error, bad credentials a 401 — both as a normal
+    // one-shot response, never as an event stream.
+    let claims = match verify_jwt_auth(dashboard, auth_header, origin) {
+        Ok(claims) => claims,
+        Err(resp) => {
+            let _ = stream.write_all(resp.as_bytes());
+            return;
+        }
+    };
+    if security::authorize(claims, security::RequiredRole::Authenticated).is_err() {
+        let _ = stream.write_all(json_error(403, "Forbidden", origin).as_bytes());
+        return;
+    }
+    if let Err(message) = api::agent_api::job_status(job_id) {
+        let status = if message.contains("not found") || message.starts_with("not_found:") {
+            404
+        } else {
+            400
+        };
+        let _ = stream.write_all(json_error(status, &message, origin).as_bytes());
+        return;
+    }
+
+    // Clearing the write timeout is the whole point of this branch: the
+    // 5 s timeout that protects normal request/response exchanges would
+    // otherwise kill any stream idle longer than one heartbeat gap.
+    stream.set_write_timeout(None).ok();
+    if stream
+        .write_all(sse_response_headers(origin).as_bytes())
+        .is_err()
+    {
+        return;
+    }
+    let started = Instant::now();
+    let max_stream = Duration::from_secs(cybermanju_agent::stream::SSE_MAX_STREAM_SECS);
+    let heartbeat_every = Duration::from_secs(cybermanju_agent::stream::SSE_HEARTBEAT_SECS);
+    let poll_every = Duration::from_millis(500);
+    let mut last_body = String::new();
+    let mut last_beat = Instant::now();
+    loop {
+        if !dashboard.running.load(Ordering::SeqCst) {
+            break;
+        }
+        if started.elapsed() >= max_stream {
+            break;
+        }
+        let snapshot = match api::agent_api::job_status(job_id) {
+            Ok(snapshot) => snapshot,
+            Err(_) => break,
+        };
+        let body = serde_json::to_string(&snapshot).unwrap_or_default();
+        if body != last_body {
+            last_body = body.clone();
+            let frame = cybermanju_agent::stream::format_event("job", &body);
+            if stream.write_all(frame.as_bytes()).is_err() {
+                break;
+            }
+            last_beat = Instant::now();
+        } else if last_beat.elapsed() >= heartbeat_every {
+            let frame = cybermanju_agent::stream::heartbeat_frame();
+            if stream.write_all(frame.as_bytes()).is_err() {
+                break;
+            }
+            last_beat = Instant::now();
+        }
+        let terminal = matches!(
+            snapshot.status.as_str(),
+            "done" | "error" | "cancelled"
+        );
+        if terminal {
+            let _ = stream.write_all(cybermanju_agent::stream::done_frame().as_bytes());
+            break;
+        }
+        thread::sleep(poll_every);
+    }
 }
 
 // ─── Query string parser ────────────────────────────────────────────

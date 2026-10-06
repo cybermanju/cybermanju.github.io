@@ -1,4 +1,4 @@
-// Cybermanju Drive — `.cybermanju` container codec
+// CyberManju OS — `.cybermanju` container codec
 //
 // A `.cybermanju` file is one redb database image (`db_snapshot()` bytes),
 // optionally compressed and optionally encrypted:
@@ -66,11 +66,11 @@ function bytesToHex(bytes: Uint8Array): string {
   return s
 }
 
-/** Lazily bind the codec to `cybermanju-drive-wasm` (avoids loading it in tests). */
+/** Lazily bind the codec to `cybermanju-os-wasm` (avoids loading it in tests). */
 export function containerPrimitives(): Promise<ContainerPrimitives> {
   if (!primitivesPromise) {
     primitivesPromise = (async () => {
-      const mod = (await import('cybermanju-drive-wasm')) as unknown as {
+      const mod = (await import('cybermanju-os-wasm')) as unknown as {
         compress_lz4(d: Uint8Array): Uint8Array
         decompress_lz4(d: Uint8Array): Uint8Array
         chacha20_encrypt(k: Uint8Array, n: Uint8Array, p: Uint8Array): Uint8Array

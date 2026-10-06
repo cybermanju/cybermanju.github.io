@@ -1,8 +1,8 @@
 [package]
-name = "cybermanju-drive"
+name = "cybermanju-os-desktop"
 version = "0.1.0"
-description = "Cybermanju Drive — Quantum-resistant encrypted file manager"
-authors = ["Cybermanju Team"]
+description = "CyberManju OS — Quantum-resistant encrypted file manager"
+authors = ["CyberManju Team"]
 edition = "2021"
 
 [features]
@@ -22,7 +22,7 @@ real-treesitter = [
 ]
 
 [lib]
-name = "cybermanju_drive_lib"
+name = "cybermanju_os_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

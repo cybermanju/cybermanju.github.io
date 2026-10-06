@@ -1,4 +1,4 @@
-// Cybermanju Drive — Search commands (thin wrappers over the shared API)
+// CyberManju OS — Search commands (thin wrappers over the shared API)
 
 use std::sync::Arc;
 

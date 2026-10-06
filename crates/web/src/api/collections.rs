@@ -1,4 +1,4 @@
-// Cybermanju Drive — Collections (shared by Tauri IPC and REST)
+// CyberManju OS — Collections (shared by Tauri IPC and REST)
 
 use cybermanju_db::Database;
 use cybermanju_types::schema::{Collection, CollectionItem, FileNode};

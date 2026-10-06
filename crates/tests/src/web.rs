@@ -403,7 +403,7 @@ fn health_keeps_the_old_shape_and_stays_green_when_not_ready() {
     let resp = call(&d, "GET", "/api/health", "", None);
     assert_eq!(status_of(&resp), 200, "{resp}");
     let health: serde_json::Value = serde_json::from_str(body_of(&resp)).expect("health json");
-    assert_eq!(health["service"], "Cybermanju Drive Web Dashboard");
+    assert_eq!(health["service"], "CyberManju OS Web Dashboard");
     assert!(health["status"].is_string(), "status must stay a string");
     assert!(health["timestamp"].is_u64());
     // Liveness (200) and readiness are separate: this dashboard has no search
@@ -475,7 +475,7 @@ fn dashboard_status_reports_a_version_string() {
         3,
         "version must be MAJOR.MINOR.PATCH, got {version}"
     );
-    assert_eq!(payload["service"], "Cybermanju Drive Web Dashboard");
+    assert_eq!(payload["service"], "CyberManju OS Web Dashboard");
 }
 
 #[test]

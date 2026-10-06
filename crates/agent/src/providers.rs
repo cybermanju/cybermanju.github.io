@@ -46,8 +46,8 @@ pub fn all_presets() -> Vec<ProviderPreset> {
             key_env: "OPENROUTER_API_KEY".into(),
             keyless: false,
             extra_headers: vec![
-                ("HTTP-Referer".into(), "https://cybermanju-drive/".into()),
-                ("X-Title".into(), "Cybermanju Drive".into()),
+                ("HTTP-Referer".into(), "https://cybermanju.github.io/".into()),
+                ("X-Title".into(), "CyberManju OS".into()),
             ],
         },
         ProviderPreset {

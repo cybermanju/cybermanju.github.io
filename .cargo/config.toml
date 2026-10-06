@@ -1,4 +1,4 @@
-# Cybermanju Drive — build tuning
+# CyberManju OS — build tuning
 #
 # Policy: a change to one workspace crate rebuilds that crate and whatever
 # depends on it. Nothing else — least of all the 760+ third-party crates —

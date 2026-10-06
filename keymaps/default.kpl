@@ -1,7 +1,7 @@
 [Global]
-name=Cybermanju Default
+name=CyberManju Default
 version=1.2
-description=Default keyboard & touchpad profile for Cybermanju Drive
+description=Default keyboard & touchpad profile for CyberManju OS
 
 [Global Shortcuts]
 toggle_sidebar=Ctrl+B

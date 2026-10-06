@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-// Cybermanju Drive — process table (AGENT-8, item 10)
+// CyberManju OS — process table (AGENT-8, item 10)
 //
 // Fed by `GET /api/os/ps` and `GET /api/os/top`; every control goes through
 // the same syscall boundary the terminal uses (`kill <id>`, `compute run …`).

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start (or restart) the Cybermanju OS supervisor, fully detached from the
+# Start (or restart) the CyberManju OS supervisor, fully detached from the
 # shell that launched it — a tool-call interrupt must not take the three
 # agents down with it.
 #

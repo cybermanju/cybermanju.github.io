@@ -1,206 +1,233 @@
 <template>
-  <div class="settings-panel">
-    <div class="panel-header">
-      <div class="header-left">
-        <span class="icon-settings"><AppIcon name="solar:settings-bold" /></span>
-        <h2 class="panel-title">SETTINGS</h2>
-      </div>
-    </div>
-
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:monitor-bold" :size="13" /> VIEW PREFERENCES</h3>
-      <div class="setting-row">
-        <span class="setting-label text-muted">DEFAULT VIEW</span>
-        <UiSelect
-          :model-value="store.viewMode"
-          :options="['grid', 'list', 'masonry']"
-          style="flex:1;"
-          @update:model-value="store.viewMode = $event as 'grid' | 'list' | 'masonry'"
-        />
-      </div>
-      <div class="setting-row">
-        <span class="setting-label text-muted">MATRIX RAIN</span>
-        <UiToggle v-model="store.matrixRainEnabled" aria-label="MATRIX RAIN" />
-      </div>
-      <div class="setting-row">
-        <span class="setting-label text-muted">SIDEBAR DEFAULT</span>
-        <UiToggle
-          :model-value="!store.sidebarCollapsed"
-          aria-label="SIDEBAR DEFAULT"
-          @update:model-value="store.sidebarCollapsed = !$event"
-        />
-      </div>
-    </div>
-
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:info-circle-bold" :size="13" /> ABOUT</h3>
-      <div class="info-card">
-        <div class="info-row"><span class="info-key text-muted">VERSION</span><span class="info-value">0.1.0</span></div>
-        <div class="info-row"><span class="info-key text-muted">FRAMEWORK</span><span class="info-value">VUE 3 + PINIA</span></div>
-        <div class="info-row"><span class="info-key text-muted">DESKTOP</span><span class="info-value">TAURI V2</span></div>
-        <div class="info-row"><span class="info-key text-muted">SEARCH</span><span class="info-value">TANTIVY BM25</span></div>
-        <div class="info-row"><span class="info-key text-muted">ENCRYPTION</span><span class="info-value">RUSTPQ (PQC)</span></div>
-        <div class="info-row"><span class="info-key text-muted">DATABASE</span><span class="info-value">REDB</span></div>
-      </div>
-    </div>
-
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:server-bold" :size="13" /> CONNECTION</h3>
-      <div class="setting-row">
-        <span class="setting-label text-muted">MODE</span>
-        <span class="info-value">{{ activeTransport }}</span>
-      </div>
-      <div class="setting-row">
-        <span class="setting-label text-muted">API URL</span>
-        <span class="info-value mono">{{ effectiveApiUrl }}</span>
-      </div>
-      <div class="setting-row" style="align-items:flex-start;">
-        <span class="setting-label text-muted">REMOTE<br/>DASHBOARD</span>
-        <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
-          <div style="display:flex;gap:6px;">
-            <UiInput
-              v-model="serverUrlDraft"
-              style="flex:1;"
-              placeholder="https://my-server:3456 (empty = auto)"
-              aria-label="Remote dashboard URL"
-              @enter="saveServerUrl"
-            />
-            <UiButton variant="primary" size="sm" icon="solar:diskette-bold" title="SAVE" aria-label="SAVE SERVER URL" @click="saveServerUrl" />
-            <UiButton v-if="serverUrlDraft || currentServerUrl" size="sm" icon="solar:close-bold" title="Forget the remote dashboard" aria-label="CLEAR SERVER URL" @click="clearServerUrl" />
-          </div>
-          <p class="text-muted" style="font-size:9px;margin:0;">STATIC BUILD + YOUR OWN SERVER = FULL OAUTH, SYNC + QUOTA HERE. PAGE RELOADS TO RECONNECT.</p>
+  <div class="st">
+    <!-- ── header (same visual language as Accounts) ─────────── -->
+    <header class="st-top">
+      <div class="st-brand">
+        <span class="st-brand-mark"><AppIcon name="solar:settings-bold" :size="20" /></span>
+        <div>
+          <h2 class="st-title">Settings</h2>
+          <p class="st-subtitle">Workspace preferences · connection · OAuth broker</p>
         </div>
       </div>
-    </div>
+      <div class="st-top-actions">
+        <UiBadge :label="transportShort" :tone="transportTone" icon="solar:server-bold" />
+        <UiButton size="sm" icon="solar:restart-bold" @click="handleRefresh">Refresh</UiButton>
+      </div>
+    </header>
 
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:key-bold" :size="13" /> SUPABASE BROKER</h3>
-      <div class="setting-row">
-        <span class="setting-label text-muted">STATUS</span>
-        <span class="info-value">{{ supabaseStatus }}</span>
+    <!-- ── connection hero ───────────────────────────────────── -->
+    <section class="st-hero" aria-label="Connection summary">
+      <div class="st-hero-row">
+        <div class="st-hero-stat">
+          <span class="st-hero-label">Connection</span>
+          <strong class="st-hero-value">{{ activeTransport }}</strong>
+        </div>
+        <div class="st-hero-stat right">
+          <span class="st-hero-label">Broker</span>
+          <strong class="st-hero-value">
+            <UiBadge
+              :label="supabaseConfiguredNow ? 'Broker ready' : 'Broker not set'"
+              :tone="supabaseConfiguredNow ? 'success' : 'warning'"
+              :dot="true"
+            />
+          </strong>
+        </div>
       </div>
-      <div class="setting-row" style="align-items:flex-start;">
-        <span class="setting-label text-muted">PROJECT<br/>URL</span>
-        <UiInput
-          v-model="supabaseUrlDraft"
-          style="flex:1;"
-          placeholder="https://xyzcompany.supabase.co"
-          aria-label="Supabase project URL"
-          autocomplete="off"
-        />
+      <div class="st-hero-legend">
+        <span class="st-mono">{{ effectiveApiUrl }}</span>
+        <span>Static build + your own server = full OAuth, sync + quota here.</span>
       </div>
-      <div class="setting-row" style="align-items:flex-start;">
-        <span class="setting-label text-muted">ANON/<br/>PUBLISHABLE<br/>KEY</span>
-        <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
-          <div style="display:flex;gap:6px;">
+    </section>
+
+    <main class="st-body">
+      <!-- ── appearance ── -->
+      <UiCard title="Appearance" icon="solar:monitor-bold" meta="View">
+        <div class="st-row">
+          <UiText as="span" variant="label" tone="muted">Default view</UiText>
+          <UiSelect
+            :model-value="store.viewMode"
+            :options="['grid', 'list', 'masonry']"
+            aria-label="Default view"
+            @update:model-value="store.viewMode = $event as 'grid' | 'list' | 'masonry'"
+          />
+        </div>
+        <div class="st-row">
+          <UiText as="span" variant="label" tone="muted">Matrix rain</UiText>
+          <UiToggle v-model="store.matrixRainEnabled" aria-label="Matrix rain" />
+        </div>
+        <div class="st-row">
+          <UiText as="span" variant="label" tone="muted">Sidebar expanded</UiText>
+          <UiToggle
+            :model-value="!store.sidebarCollapsed"
+            aria-label="Sidebar expanded"
+            @update:model-value="store.sidebarCollapsed = !$event"
+          />
+        </div>
+      </UiCard>
+
+      <!-- ── remote dashboard ── -->
+      <UiCard title="Remote dashboard" icon="solar:server-bold" meta="Connection">
+        <div class="st-field-row">
+          <UiInput
+            v-model="serverUrlDraft"
+            label="Dashboard URL"
+            placeholder="https://my-server:3456 (empty = auto)"
+            hint="Static build + your own server = full OAuth, sync + quota. Page reloads to reconnect."
+            prefix-icon="solar:link-bold"
+            clearable
+            @enter="saveServerUrl"
+          />
+          <div class="st-actions">
+            <UiButton variant="primary" size="sm" icon="solar:diskette-bold" @click="saveServerUrl">Save</UiButton>
+            <UiButton v-if="serverUrlDraft || currentServerUrl" size="sm" icon="solar:close-bold" @click="clearServerUrl">Forget</UiButton>
+          </div>
+        </div>
+      </UiCard>
+
+      <!-- ── supabase broker ── -->
+      <UiCard title="OAuth broker" icon="solar:key-bold" meta="Supabase" :accent="!supabaseConfiguredNow">
+        <template #actions>
+          <UiBadge :label="supabaseStatus" :tone="supabaseConfiguredNow ? 'success' : 'warning'" :dot="true" />
+        </template>
+        <div class="st-stack">
+          <UiInput
+            v-model="supabaseUrlDraft"
+            label="Project URL"
+            placeholder="https://xyzcompany.supabase.co"
+            prefix-icon="solar:link-bold"
+            autocomplete="off"
+            clearable
+          />
+          <div class="st-field-row">
             <UiInput
               v-model="supabaseKeyDraft"
-              style="flex:1;"
+              label="Anon / publishable key"
               type="password"
               placeholder="sb_publishable_… or eyJ…"
-              aria-label="Supabase anon key"
+              prefix-icon="solar:lock-bold"
               autocomplete="off"
             />
-            <UiButton variant="primary" size="sm" icon="solar:diskette-bold" title="SAVE" aria-label="SAVE SUPABASE CONFIG" @click="saveSupabase" />
-            <UiButton v-if="supabaseConfiguredNow" size="sm" icon="solar:close-bold" title="Forget Supabase config" aria-label="CLEAR SUPABASE CONFIG" @click="clearSupabase" />
+            <div class="st-actions">
+              <UiButton variant="primary" size="sm" icon="solar:diskette-bold" @click="saveSupabase">Save</UiButton>
+              <UiButton v-if="supabaseConfiguredNow" size="sm" icon="solar:close-bold" @click="clearSupabase">Forget</UiButton>
+            </div>
           </div>
-          <p class="text-muted" style="font-size:9px;margin:0;">STATIC BUILD OAUTH BROKER: GITHUB / GOOGLE / GITLAB LOGIN WITHOUT YOUR OWN SERVER. ENABLE THE PROVIDERS IN SUPABASE → AUTHENTICATION → SIGN-IN, AND ADD THIS PAGE'S URL TO REDIRECT URLS.</p>
+          <UiText as="p" variant="small" tone="muted">
+            Static-build OAuth broker: GitHub / Google / GitLab login without your own server.
+            Enable the providers in Supabase → Authentication → Sign-in, and add this page's URL to redirect URLs.
+          </UiText>
+          <div v-if="!supabaseConfiguredNow" class="st-banner warn">
+            <AppIcon name="solar:info-circle-bold" :size="15" />
+            <span>Accounts sign-in and provider OAuth need this broker. Paste the URL + key, then enable providers in Supabase.</span>
+          </div>
         </div>
-      </div>
-    </div>
+      </UiCard>
 
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:refresh-bold" :size="13" /> AUTO-REFRESH</h3>
-      <div class="setting-row">
-        <span class="setting-label text-muted">INTERVAL</span>
-        <UiSelect
-          :model-value="String(store.autoRefreshInterval)"
-          :options="REFRESH_OPTIONS"
-          style="flex:1;"
-          @update:model-value="store.autoRefreshInterval = Number($event)"
-        />
-      </div>
-    </div>
-
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:database-bold" :size="13" /> MANAGE</h3>
-      <UiButton block icon="solar:refresh-bold" @click="handleRefresh">REFRESH ALL DATA</UiButton>
-      <p class="text-muted" style="font-size:9px;margin-top:4px;">RE-FETCH FILES, ACCOUNTS, COLLECTIONS, FACE GROUPS, AND SYNC CONFIGS.</p>
-    </div>
-
-    <div class="section" v-if="touchConfig">
-      <h3 class="section-title"><AppIcon name="solar:cursor-square-bold" :size="13" /> GESTURES</h3>
-      <p class="text-muted" style="font-size:9px;margin-bottom:6px;">DEVICE: {{ touchConfig.state.touchSupported ? 'TOUCH ENABLED' : 'NO TOUCH' }} | {{ touchConfig.state.isMobile ? 'MOBILE' : 'DESKTOP' }}</p>
-      <div class="gesture-table">
-        <div v-for="gesture in touchConfig.getAllGestures()" :key="gesture" class="gesture-row">
-          <span class="gesture-label text-muted">{{ touchConfig.getGestureLabel(gesture) }}</span>
+      <!-- ── auto-refresh + data ── -->
+      <UiCard title="Sync behaviour" icon="solar:refresh-bold" meta="Refresh">
+        <div class="st-row">
+          <UiText as="span" variant="label" tone="muted">Auto-refresh</UiText>
           <UiSelect
-            class="gesture-select"
-            :model-value="touchConfig.getAction(gesture)"
-            :options="touchConfig.getAllActions().map(a => ({ label: touchConfig.getActionLabel(a), value: a }))"
-            @update:model-value="onGestureChange(gesture, $event)"
+            :model-value="String(store.autoRefreshInterval)"
+            :options="REFRESH_OPTIONS"
+            aria-label="Auto-refresh interval"
+            @update:model-value="store.autoRefreshInterval = Number($event)"
           />
-          <button class="gesture-reset" @click="onGestureReset(gesture)" title="RESET" aria-label="RESET GESTURE"><AppIcon name="solar:undo-left-round-bold" :size="13" /></button>
         </div>
-      </div>
-      <div class="gesture-settings">
-        <div class="gs-row">
-          <span class="gs-label text-muted">SWIPE THRESHOLD</span>
-          <input class="gs-input" type="number" :value="touchConfig.state.threshold" @change="touchConfig.state.threshold = parseInt(($event.target as HTMLInputElement).value)" min="10" max="200" />
-        </div>
-        <div class="gs-row">
-          <span class="gs-label text-muted">LONG PRESS (MS)</span>
-          <input class="gs-input" type="number" :value="touchConfig.state.longPressThreshold" @change="touchConfig.state.longPressThreshold = parseInt(($event.target as HTMLInputElement).value)" min="200" max="2000" step="50" />
-        </div>
-        <div class="gs-row">
-          <span class="gs-label text-muted">EDGE ZONE (PX)</span>
-          <input class="gs-input" type="number" :value="touchConfig.state.edgeZoneSize" @change="touchConfig.state.edgeZoneSize = parseInt(($event.target as HTMLInputElement).value)" min="10" max="100" />
-        </div>
-        <div class="gs-row">
-          <span class="gs-label text-muted">DOUBLE TAP (MS)</span>
-          <input class="gs-input" type="number" :value="touchConfig.state.doubleTapTimeout" @change="touchConfig.state.doubleTapTimeout = parseInt(($event.target as HTMLInputElement).value)" min="100" max="600" step="50" />
-        </div>
-      </div>
-      <div class="gesture-actions">
-        <UiButton icon="solar:undo-left-round-bold" @click="touchConfig.resetAll()">RESET ALL GESTURES</UiButton>
-        <UiButton icon="solar:download-bold" @click="exportTouchConfig">EXPORT GESTURES</UiButton>
-        <UiButton icon="solar:upload-bold" @click="importTouchConfig">IMPORT GESTURES</UiButton>
-      </div>
-      <input ref="touchImportRef" type="file" accept=".json" style="display:none" @change="handleTouchImport" />
-    </div>
+        <UiDivider spaced />
+        <UiButton block icon="solar:refresh-bold" @click="handleRefresh">Refresh all data</UiButton>
+        <UiText as="p" variant="small" tone="muted">Re-fetch files, accounts, collections, face groups and sync configs.</UiText>
+      </UiCard>
 
-    <div class="section" v-if="shortcuts">
-      <h3 class="section-title"><AppIcon name="solar:keyboard-bold" :size="13" /> KEYBOARD BINDINGS</h3>
-      <div class="shortcuts-table">
-        <div v-for="sc in shortcuts.getAllShortcuts()" :key="sc.action" class="sc-row">
-          <span class="sc-action text-muted">{{ sc.description }}</span>
-          <div class="sc-binding">
+      <!-- ── gestures ── -->
+      <UiCard v-if="touchConfig" title="Gestures" icon="solar:cursor-square-bold" :meta="touchMeta">
+        <UiText as="p" variant="small" tone="muted">
+          Device: {{ touchConfig.state.touchSupported ? 'touch enabled' : 'no touch' }} ·
+          {{ touchConfig.state.isMobile ? 'mobile' : 'desktop' }}
+        </UiText>
+        <div class="st-table" role="table" aria-label="Gesture bindings">
+          <div v-for="gesture in touchConfig.getAllGestures()" :key="gesture" class="st-table-row" role="row">
+            <UiText as="span" variant="small" tone="muted" truncate>{{ touchConfig.getGestureLabel(gesture) }}</UiText>
+            <UiSelect
+              :model-value="touchConfig.getAction(gesture)"
+              :options="touchConfig.getAllActions().map(a => ({ label: touchConfig.getActionLabel(a), value: a }))"
+              :aria-label="`Action for ${touchConfig.getGestureLabel(gesture)}`"
+              @update:model-value="onGestureChange(gesture, $event)"
+            />
+            <UiButton size="xs" icon="solar:undo-left-round-bold" aria-label="Reset gesture" @click="onGestureReset(gesture)" />
+          </div>
+        </div>
+        <div class="st-grid-2">
+          <UiInput
+            :model-value="String(touchConfig.state.threshold)"
+            label="Swipe threshold"
+            type="number"
+            @update:model-value="touchConfig.state.threshold = Number($event)"
+          />
+          <UiInput
+            :model-value="String(touchConfig.state.longPressThreshold)"
+            label="Long press (ms)"
+            type="number"
+            @update:model-value="touchConfig.state.longPressThreshold = Number($event)"
+          />
+          <UiInput
+            :model-value="String(touchConfig.state.edgeZoneSize)"
+            label="Edge zone (px)"
+            type="number"
+            @update:model-value="touchConfig.state.edgeZoneSize = Number($event)"
+          />
+          <UiInput
+            :model-value="String(touchConfig.state.doubleTapTimeout)"
+            label="Double tap (ms)"
+            type="number"
+            @update:model-value="touchConfig.state.doubleTapTimeout = Number($event)"
+          />
+        </div>
+        <div class="st-actions wrap">
+          <UiButton size="sm" icon="solar:undo-left-round-bold" @click="touchConfig.resetAll()">Reset all</UiButton>
+          <UiButton size="sm" icon="solar:download-bold" @click="exportTouchConfig">Export</UiButton>
+          <UiButton size="sm" icon="solar:upload-bold" @click="importTouchConfig">Import</UiButton>
+        </div>
+        <input ref="touchImportRef" type="file" accept=".json" class="st-hidden" @change="handleTouchImport" />
+      </UiCard>
+
+      <!-- ── keyboard ── -->
+      <UiCard v-if="shortcuts" title="Keyboard bindings" icon="solar:keyboard-bold" :meta="`${shortcuts.getAllShortcuts().length} bindings`">
+        <div class="st-table st-table--keys" role="table" aria-label="Keyboard bindings">
+          <div v-for="sc in shortcuts.getAllShortcuts()" :key="sc.action" class="st-table-row" role="row">
+            <UiText as="span" variant="small" tone="muted" truncate>{{ sc.description }}</UiText>
             <input
-              class="sc-input"
+              class="st-key-input"
               :value="getBindingDisplay(sc.action)"
+              :placeholder="sc.keys"
+              :aria-label="`Shortcut for ${sc.description}`"
+              readonly
               @focus="startRebind(sc.action, $event)"
               @keydown="captureRebind($event)"
-              :ref="(el: any) => { if (el) rebindInputs[sc.action] = el as HTMLInputElement }"
-              :placeholder="sc.keys"
-              readonly
             />
-            <button class="sc-reset" @click="resetBinding(sc.action)" title="RESET TO DEFAULT" aria-label="RESET TO DEFAULT"><AppIcon name="solar:undo-left-round-bold" :size="13" /></button>
+            <UiButton size="xs" icon="solar:undo-left-round-bold" aria-label="Reset to default" @click="resetBinding(sc.action)" />
           </div>
         </div>
-      </div>
-      <div class="sc-actions">
-        <UiButton icon="solar:download-bold" @click="exportKeymap">EXPORT KEYMAP</UiButton>
-        <UiButton icon="solar:upload-bold" @click="importKeymap">IMPORT KEYMAP</UiButton>
-        <UiButton icon="solar:undo-left-round-bold" @click="resetAllBindings">RESET ALL</UiButton>
-      </div>
-      <input
-        ref="importInputRef"
-        type="file"
-        accept=".kpl,.kpd,.json"
-        style="display:none"
-        @change="handleImportFile"
-      />
-    </div>
+        <div class="st-actions wrap">
+          <UiButton size="sm" icon="solar:download-bold" @click="exportKeymap">Export</UiButton>
+          <UiButton size="sm" icon="solar:upload-bold" @click="importKeymap">Import</UiButton>
+          <UiButton size="sm" icon="solar:undo-left-round-bold" @click="resetAllBindings">Reset all</UiButton>
+        </div>
+        <input ref="importInputRef" type="file" accept=".kpl,.kpd,.json" class="st-hidden" @change="handleImportFile" />
+      </UiCard>
+
+      <!-- ── about ── -->
+      <UiCard title="About" icon="solar:info-circle-bold" meta="0.1.0">
+        <dl class="st-info">
+          <div class="st-info-row"><dt>Version</dt><dd>0.1.0</dd></div>
+          <div class="st-info-row"><dt>Framework</dt><dd>Vue 3 + Pinia</dd></div>
+          <div class="st-info-row"><dt>Desktop</dt><dd>Tauri v2</dd></div>
+          <div class="st-info-row"><dt>Search</dt><dd>Tantivy BM25</dd></div>
+          <div class="st-info-row"><dt>Encryption</dt><dd>RustPQ (PQC)</dd></div>
+          <div class="st-info-row"><dt>Database</dt><dd>redb</dd></div>
+        </dl>
+      </UiCard>
+    </main>
   </div>
 </template>
 
@@ -223,22 +250,38 @@ import { useTouchConfig, type GestureType, type TouchAction } from '@/composable
 /** Active transport: tauri IPC, REST dashboard, or local WASM (GitHub Pages). */
 const activeTransport = computed(() => {
   if (import.meta.env.VITE_TRANSPORT) return String(import.meta.env.VITE_TRANSPORT).toUpperCase()
-  if (isTauri()) return 'TAURI DESKTOP (REST_FIRST: os/disk via :3456)'
-  if (wasmBackendActive()) return 'WASM LOCAL (PAGES)'
-  if (isWebMode()) return 'WEB / REST (:3456)'
-  return 'UNKNOWN'
+  if (isTauri()) return 'Tauri desktop (REST-first: os/disk via :3456)'
+  if (wasmBackendActive()) return 'WASM local (Pages)'
+  if (isWebMode()) return 'Web / REST (:3456)'
+  return 'Unknown'
+})
+
+const transportShort = computed(() => {
+  if (isTauri()) return 'Tauri'
+  if (wasmBackendActive()) return 'WASM'
+  if (isWebMode()) return 'Web'
+  return 'Unknown'
+})
+
+const transportTone = computed<'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info'>(() => {
+  if (isTauri()) return 'accent'
+  if (wasmBackendActive()) return 'info'
+  return 'neutral'
 })
 
 const store = useAppStore()
 const shortcuts = inject(ShortcutsKey, null)
 const touchConfig = useTouchConfig()
+const touchMeta = computed(() =>
+  touchConfig.state.touchSupported ? (touchConfig.state.isMobile ? 'Touch · mobile' : 'Touch · desktop') : 'No touch',
+)
 
 const REFRESH_OPTIONS = [
-  { label: 'DISABLED', value: '0' },
-  { label: '10 SECONDS', value: '10' },
-  { label: '30 SECONDS', value: '30' },
-  { label: '1 MINUTE', value: '60' },
-  { label: '5 MINUTES', value: '300' },
+  { label: 'Disabled', value: '0' },
+  { label: 'Every 10 seconds', value: '10' },
+  { label: 'Every 30 seconds', value: '30' },
+  { label: 'Every minute', value: '60' },
+  { label: 'Every 5 minutes', value: '300' },
 ]
 
 const currentServerUrl = computed(() => getServerUrl())
@@ -264,7 +307,7 @@ const supabaseUrlDraft = ref(getSupabaseConfig().url)
 const supabaseKeyDraft = ref('')
 const supabaseConfiguredNow = computed(() => supabaseConfigured())
 const supabaseStatus = computed(() =>
-  supabaseConfiguredNow.value ? `CONFIGURED (${getSupabaseConfig().url})` : 'NOT CONFIGURED',
+  supabaseConfiguredNow.value ? `Configured (${getSupabaseConfig().url})` : 'Not configured',
 )
 
 function saveSupabase() {
@@ -290,7 +333,7 @@ function getBindingDisplay(action: string): string {
 function startRebind(action: string, e: FocusEvent) {
   rebindingAction.value = action
   const input = e.target as HTMLInputElement
-  input.value = 'PRESS KEYS...'
+  input.value = 'Press keys…'
   input.select()
 }
 
@@ -442,217 +485,152 @@ async function handleRefresh() {
 </script>
 
 <style scoped>
-.settings-panel {
-  width: 100%;
+.st {
   height: 100%;
-  background: var(--ui-surface);
-  overflow-y: auto;
-  padding: 16px;
-  font-family: var(--ui-font);
-  color: var(--ui-text);
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--ui-border);
-  margin-bottom: 16px;
-}
-
-.header-left { display: flex; align-items: center; gap: 8px; }
-.icon-settings { font-size: 16px; }
-.panel-title { font-size: 14px; font-weight: 800; letter-spacing: 1px; margin: 0; }
-
-.section { margin-bottom: 16px; }
-
-.section-title {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: color-mix(in srgb, var(--ui-text) 60%, transparent);
-  margin: 0 0 8px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--ui-hairline);
-}
-
-.setting-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-}
-
-.setting-label {
-  font-size: 10px;
-  min-width: 100px;
-  flex-shrink: 0;
-}
-
-.info-card {
-  border: 1px solid var(--ui-border);
-  padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  overflow: hidden;
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font-family: var(--ui-font);
+  font-size: 13px;
 }
 
-.info-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.info-key { font-size: 10px; }
-.info-value { font-size: 10px; font-weight: 700; }
-.mono { font-family: var(--ui-font); }
-
-.shortcuts-table {
-  border: 1px solid var(--ui-hairline);
-  max-height: 300px;
-  overflow-y: auto;
-  margin-bottom: 8px;
-}
-
-.sc-row {
+/* header — mirrors Accounts */
+.st-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 3px 8px;
-  font-size: 10px;
+  gap: 10px;
+  padding: 12px 14px 10px;
   border-bottom: 1px solid var(--ui-border);
 }
-
-.sc-action {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sc-binding {
-  display: flex;
+.st-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.st-brand-mark {
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ui-accent) 16%, transparent);
+  color: var(--ui-accent);
+  border: 1px solid color-mix(in srgb, var(--ui-accent) 40%, transparent);
   flex-shrink: 0;
 }
+.st-title { margin: 0; font-size: 15px; letter-spacing: 0.4px; }
+.st-subtitle { margin: 1px 0 0; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.st-top-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
-.sc-input {
-  width: 120px;
-  background: var(--ui-surface);
+/* hero — mirrors Accounts */
+.st-hero {
+  margin: 12px 14px 0;
   border: 1px solid var(--ui-border);
-  color: var(--ui-text);
-  font-family: var(--ui-font);
-  font-size: 9px;
-  padding: 2px 4px;
-  cursor: pointer;
-  text-align: center;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--ui-text) 3%, transparent);
 }
+.st-hero-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.st-hero-stat { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.st-hero-stat.right { text-align: right; align-items: flex-end; }
+.st-hero-label { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
+.st-hero-value { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.st-hero-legend { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 60%, transparent); }
+.st-mono { font-family: var(--ui-font-mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.sc-input:focus {
-  background: var(--ui-glass-2);
-  color: var(--ui-text);
-}
-
-.sc-reset {
-  background: transparent;
-  border: 1px solid var(--ui-border);
-  color: color-mix(in srgb, var(--ui-text) 60%, transparent);
-  font-family: var(--ui-font);
-  font-size: 8px;
-  padding: 1px 4px;
-  cursor: pointer;
-}
-
-.sc-reset:hover {
-  background: var(--ui-glass-2);
-  color: var(--ui-text);
-}
-
-.sc-actions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.gesture-table {
-  border: 1px solid var(--ui-hairline);
-  max-height: 300px;
+/* body */
+.st-body {
+  flex: 1;
   overflow-y: auto;
-  margin-bottom: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-
-.gesture-row {
+.st-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 6px;
-  font-size: 9px;
-  border-bottom: 1px solid var(--ui-border);
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
 }
-
-.gesture-label {
-  flex: 1;
+.st-row + .st-row { border-top: 1px dashed var(--ui-hairline); }
+.st-stack { display: flex; flex-direction: column; gap: 10px; }
+.st-field-row { display: flex; gap: 8px; align-items: flex-start; }
+.st-field-row > :first-child { flex: 1; min-width: 0; }
+.st-actions { display: flex; gap: 6px; flex-shrink: 0; padding-top: 22px; }
+.st-actions.wrap { flex-wrap: wrap; padding-top: 0; }
+.st-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  border: 1px solid;
+}
+.st-banner.warn {
+  border-color: color-mix(in srgb, var(--ui-warning) 55%, transparent);
+  background: color-mix(in srgb, var(--ui-warning) 10%, transparent);
+}
+.st-grid-2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.st-table {
+  border: 1px solid var(--ui-hairline);
+  border-radius: 10px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 9px;
+  max-height: 280px;
+  overflow-y: auto;
 }
-
-.gesture-select {
+.st-table-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--ui-hairline);
+}
+.st-table-row:last-child { border-bottom: none; }
+.st-table--keys .st-table-row { grid-template-columns: 1fr 140px auto; }
+.st-key-input {
   width: 140px;
   background: var(--ui-surface);
   border: 1px solid var(--ui-border);
+  border-radius: 8px;
   color: var(--ui-text);
-  font-family: var(--ui-font);
-  font-size: 8px;
-  padding: 1px 2px;
-}
-
-.gesture-reset {
-  background: transparent;
-  border: 1px solid var(--ui-border);
-  color: color-mix(in srgb, var(--ui-text) 50%, transparent);
-  font-family: var(--ui-font);
-  font-size: 8px;
-  padding: 1px 4px;
-  cursor: pointer;
-}
-
-.gesture-reset:hover { background: var(--ui-glass-2); color: var(--ui-text); }
-
-.gesture-settings {
-  border: 1px solid var(--ui-hairline);
-  padding: 6px;
-  margin-bottom: 8px;
-}
-
-.gs-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 3px 0;
-  font-size: 9px;
-}
-
-.gs-label { font-size: 9px; }
-.gs-input {
-  width: 60px;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-border);
-  color: var(--ui-text);
-  font-family: var(--ui-font);
-  font-size: 9px;
-  padding: 1px 4px;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 6px 8px;
   text-align: center;
+  cursor: pointer;
+  outline: none;
 }
-
-.gesture-actions {
+.st-key-input:focus {
+  border-color: color-mix(in srgb, var(--ui-accent) 65%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 14%, transparent);
+}
+.st-info { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.st-info-row {
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
 }
+.st-info-row dt { color: color-mix(in srgb, var(--ui-text) 55%, transparent); text-transform: uppercase; letter-spacing: 0.8px; font-size: 10px; }
+.st-info-row dd { margin: 0; font-weight: 700; }
+.st-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
-.text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
+@media (max-width: 560px) {
+  .st-top { flex-wrap: wrap; }
+  .st-hero-legend { flex-direction: column; gap: 4px; }
+  .st-field-row { flex-direction: column; }
+  .st-field-row > :first-child { width: 100%; }
+  .st-actions { padding-top: 0; }
+  .st-table--keys .st-table-row { grid-template-columns: 1fr; }
+  .st-key-input { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .st-top-actions, .st-hero, .st-body { transition: none; }
+}
 </style>

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cybermanju OS — acceptance gate.
+# CyberManju OS — acceptance gate.
 #
 # Proves the vision end-to-end. Three tiers, matching MISSING.md:
 #   Tier 0 — .cybermanju disks with choosable sizes merge into one df (AGENT-6)
@@ -99,14 +99,14 @@ tier2() {
 # same property crates/tests/src/web.rs pins for the older families.
 live_auth_probe() {
   echo "  ..  live REST auth probe"
-  if ! cargo build -p cybermanju-drive-server > logs/acc-build-server.log 2>&1; then
-    fail "could not build cybermanju-drive-server"; tail -10 logs/acc-build-server.log | sed 's/^/        /'
+  if ! cargo build -p cybermanju-os-server > logs/acc-build-server.log 2>&1; then
+    fail "could not build cybermanju-os-server"; tail -10 logs/acc-build-server.log | sed 's/^/        /'
     return
   fi
   local tmp; tmp=$(mktemp -d)
   local port=$(( 3500 + RANDOM % 400 ))
   PORT="$port" DB_PATH="$tmp/acc.redb" STATIC_DIR="$tmp" RUST_LOG=warn \
-    ./target/debug/cybermanju-drive-server > logs/acc-server.log 2>&1 &
+    ./target/debug/cybermanju-os-server > logs/acc-server.log 2>&1 &
   local srv=$!
   local up=0
   for _ in $(seq 1 40); do

@@ -1,4 +1,4 @@
-// Cybermanju Drive — File Preview Generation Module
+// CyberManju OS — File Preview Generation Module
 // Creates lightweight preview files linked to originals
 // Uses image crate for thumbnails, auto-thumbnail pattern for media
 

@@ -1,11 +1,11 @@
-// Cybermanju Drive — IndexedDB pocket for `FileSystemFileHandle` values.
+// CyberManju OS — IndexedDB pocket for `FileSystemFileHandle` values.
 //
 // Handles are structured-cloneable, so they survive a page reload when kept
 // in IndexedDB — that is what lets a `.cybermanju` file stay attached across
 // sessions without re-picking it. The browser still gates *permission* per
 // origin: after a reload the handle comes back as `prompt`, and the app must
 // ask the user for readwrite again (a user gesture — see
-// `useCybermanjuFile.reattach()`).
+// `useCyberManjuFile.reattach()`).
 
 const DB_NAME = 'cybermanju'
 const STORE = 'handles'
