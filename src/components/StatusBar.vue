@@ -73,6 +73,8 @@
         @click="wm.open('devices')"
       >{{ deviceLabel }}</span>
       <span class="sb-div">|</span>
+      <span class="sb-tech" :title="presenceTitle">{{ presenceLabel }}</span>
+      <span class="sb-div">|</span>
       <span class="sb-tech" :title="netTitle">{{ netLabel }}</span>
       <span class="sb-div">|</span>
       <span class="sb-tech">{{ isWebMode() ? 'WEB MODE' : 'TAURI MODE' }}</span>
@@ -102,6 +104,12 @@ const netLabel = computed(() => {
   return hw.network.effectiveType.value ? hw.network.effectiveType.value.toUpperCase() : 'ONLINE'
 })
 const netTitle = computed(() => `type ${hw.network.type.value}, rtt ${hw.network.rtt.value ?? '—'}ms, downlink ${hw.network.downlink.value ?? '—'}Mbps`)
+// Presence: idle / hidden tab at a glance (VueUse useIdle + visibility).
+const presenceLabel = computed(() => {
+  if (hw.idle.idle.value) return 'AWAY'
+  return hw.visibility.value === 'visible' ? (hw.focused.value ? 'HERE' : 'BG') : 'HIDDEN'
+})
+const presenceTitle = computed(() => `idle ${hw.idle.idle.value ? 'yes' : 'no'}, visibility ${hw.visibility.value}, focused ${hw.focused.value ? 'yes' : 'no'}`)
 
 // AGENT-8 item 11: the bar shows background work — a `cybsh` line in flight
 // or any task running in the table — and jumps to the task list on click.

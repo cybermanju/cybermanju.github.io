@@ -8,7 +8,7 @@
       <div class="ks-help-modal" role="dialog" aria-label="Keyboard shortcuts">
         <div class="ks-help-header">
           <h2>KEYBOARD SHORTCUTS</h2>
-          <button class="close-btn" @click="store.showShortcutsHelp = false" aria-label="CLOSE"><AppIcon name="solar:close-bold" :size="13" /></button>
+          <button ref="closeBtnRef" class="close-btn" @click="store.showShortcutsHelp = false" aria-label="Close shortcuts help" title="Close (Esc)"><AppIcon name="solar:close-bold" :size="13" /></button>
         </div>
         <div class="ks-help-body">
           <div v-for="group in groupedShortcuts" :key="group.label" class="ks-group">
@@ -18,7 +18,11 @@
               <span class="ks-desc">{{ s.description }}</span>
             </div>
           </div>
+          <div v-if="groupedShortcuts.length === 0" class="ks-empty text-muted">
+            No shortcuts registered. Press Esc to close.
+          </div>
         </div>
+        <div class="ks-help-foot text-muted">Press ? to toggle · Esc to close · Ctrl+K for commands</div>
       </div>
     </div>
   </Teleport>
@@ -26,13 +30,28 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import { computed, inject } from 'vue'
+import { computed, inject, onMounted, onUnmounted, watch, nextTick, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { ShortcutsKey } from '@/composables/shortcutsKey'
 import type { ShortcutEntry } from '@/composables/useShortcuts'
 
 const store = useAppStore()
 const shortcuts = inject(ShortcutsKey)
+const closeBtnRef = ref<HTMLElement | null>(null)
+
+function onKey(e: KeyboardEvent) {
+  if (e.key === 'Escape' && store.showShortcutsHelp) store.showShortcutsHelp = false
+}
+
+onMounted(() => window.addEventListener('keydown', onKey))
+onUnmounted(() => window.removeEventListener('keydown', onKey))
+
+watch(() => store.showShortcutsHelp, async (open) => {
+  if (open) {
+    await nextTick()
+    closeBtnRef.value?.focus()
+  }
+})
 
 const allShortcuts = computed<ShortcutEntry[]>(() => {
   return shortcuts?.getAllShortcuts() || []
@@ -180,5 +199,16 @@ const groupedShortcuts = computed(() => {
   font-family: var(--ui-font);
   font-size: 10px;
   color: color-mix(in srgb, var(--ui-text) 70%, transparent);
+}
+
+.ks-empty { padding: 16px; text-align: center; font-size: 11px; }
+
+.ks-help-foot {
+  padding: 8px 16px;
+  border-top: 1px solid var(--ui-border);
+  font-family: var(--ui-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-align: center;
 }
 </style>

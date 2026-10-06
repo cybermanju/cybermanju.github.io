@@ -332,6 +332,44 @@ export const useAppStore = defineStore('cybermanju', () => {
     clearError()
     try {
       const path = parentPath || currentPath.value
+      // CONTROL 5.7 — read-only provider browse: `/providers/<id>/…` never
+      // touches `list_files`; mounts are lower layers served by the canal.
+      if (String(path || '').replace(/\\/g, '/').startsWith('/providers')) {
+        const canal = await import('@/composables/useProviderCanal')
+        const parsed = canal.parseProviderPath(String(path))
+        if (!parsed) {
+          const mounts = await canal.listVfsMounts()
+          const now = new Date().toISOString()
+          files.value = mounts.map(m => ({
+            id: `providers/${m.id}`,
+            name: m.name,
+            fileType: 'folder',
+            parentId: '/providers',
+            path: `/providers/${m.id}`,
+            sizeBytes: 0,
+            encrypted: false,
+            compressionLayers: [],
+            createdAt: m.createdAt || now,
+            modifiedAt: m.updatedAt || now,
+          }) as FileNode)
+        } else {
+          const entries = await canal.listVfsDir(parsed.mountId, parsed.remotePath)
+          files.value = entries.map(e => ({
+            id: `providers/${parsed.mountId}/${e.locator || e.path}`,
+            name: e.name,
+            fileType: e.isDir ? 'folder' : 'file',
+            parentId: String(path),
+            path: canal.providerPathFor(parsed.mountId, e.path),
+            sizeBytes: Number(e.sizeBytes ?? 0),
+            encrypted: false,
+            compressionLayers: [],
+            createdAt: String(e.modifiedAt || new Date().toISOString()),
+            modifiedAt: String(e.modifiedAt || new Date().toISOString()),
+          }) as FileNode)
+        }
+        applyStars()
+        return
+      }
       const result = await invoke<FileNode[]>('list_files', { parentPath: path })
       files.value = result
       // Re-apply persisted stars — no backend ships a star column.

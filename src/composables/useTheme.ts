@@ -15,7 +15,17 @@ const STORAGE_KEY = 'cybermanju_theme_v1'
 function loadSettings(): ThemeSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { ...DEFAULT_SETTINGS }
+    if (!raw) {
+      // First run: honour the host OS preference (mirrors VueUse
+      // usePreferredDark/usePreferredColorScheme without a setup scope).
+      try {
+        if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches) {
+          const light = (Object.keys(THEMES) as ThemeId[]).find((id) => THEMES[id].mode === 'light')
+          if (light) return { ...DEFAULT_SETTINGS, theme: light }
+        }
+      } catch { /* default theme stands */ }
+      return { ...DEFAULT_SETTINGS }
+    }
     const parsed = JSON.parse(raw) as Partial<ThemeSettings>
     const theme =
       parsed.theme && parsed.theme in THEMES ? parsed.theme : DEFAULT_SETTINGS.theme

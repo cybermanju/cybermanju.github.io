@@ -119,3 +119,25 @@ Anthropic degrades to keyword recall, never fails. HTTP:
 ## 8. Transports
 
 `tauri IPC` (desktop, but `os_*/disk/*` are `REST_FIRST` → `:3456`), `rest` (Docker/web), `wasm` (Pages: localStorage volume + BM25-lite, server ops answer `unsupported:`). Settings shows the active transport.
+
+## 9. Honest limits (browser + crypto)
+
+- **WASM caps:** the Pages pack compresses `lz4` + `brotli` only — `zstd` and
+  therefore `triple` stay desktop-only; the dashboard build has no
+  compression endpoint at all. Editor + `write` op cap at 1 MiB.
+- **ML-KEM label:** the wasm bundle ships X25519 + ML-DSA-65 + ChaCha20-Poly1305
+  and no ML-KEM. Keygen for `kyber*`/`hybrid`/`frodokem*` mints X25519 material
+  and file encryption is ChaCha20-Poly1305; the panel prints
+  `X25519 + ChaCha20-Poly1305 (ML-KEM slot)` so the slot name never implies a
+  lattice operation that did not run.
+- **CORS:** provider canals only claim `github`, `gitlab`, `googleDrive`.
+  `telegram` / `googlePhotos` send no `Access-Control-Allow-Origin`, so every
+  browser transport refuses them up front with a `cors:` error — live sync for
+  those needs the desktop app, Docker image, or dashboard server.
+- **tree-sitter:** desktop `parse_text` runs real grammars
+  (rust/python/js/ts/go/bash) and reports `"engine": "tree-sitter"`; every other
+  language — and the whole Pages build — uses the heuristic parser and reports
+  `"engine": "heuristic"`. The editor outline badge shows which one ran.
+- **FSA:** the `.cybermanju` open/create/save path needs the File System Access
+  API (Chromium). Firefox/Safari get Export/Import fallback instead, and the
+  Accounts panel says so before the picker opens.

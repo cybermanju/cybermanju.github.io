@@ -46,6 +46,9 @@ export interface VfsFile {
 export const VFS_MOUNT_INDEX_KEY = 'vfs:mount:index'
 export const VFS_CACHE_TTL_MS = 60_000
 export const VFS_CACHE_PREFIX = 'vfs:cache:'
+/** Master passphrase for `CYBE1` artifacts — lives in `kv` so it ships
+ *  inside the `.cybermanju` container with mounts + cache (CONTROL 5.8). */
+export const VFS_SECRET_MASTER_KEY = 'vfs:secret:master'
 
 export const mountKey = (id: string): string => `vfs:mount:${id}`
 export const cacheKey = (mountId: string, remotePath: string): string =>
@@ -295,13 +298,24 @@ export async function readVfsFile(
   const bytes = await wasmCanalFetch(config, locator)
   const magic = await wasmArtifactMagic(bytes).catch(() => 'raw')
   if (magic === 'CYBE1') {
-    const passphrase = String(opts.passphrase ?? '')
+    const passphrase = String(opts.passphrase ?? (await getVfsMasterPassphrase().catch(() => '')) ?? '')
     if (!passphrase) throw new Error('auth: artifact is encrypted — passphrase required')
     const open = await wasmArtifactOpen(bytes, passphrase)
     return { bytes: open, magic, text: decodeText(open) }
   }
   // CYBMJ01 / CYBMJU1 pass through untouched — their codecs live elsewhere.
   return { bytes, magic, text: magic === 'raw' ? decodeText(bytes) : null }
+}
+
+/** Master passphrase CRUD — `kv` row, so `_save`/`_attach` carries it. */
+export async function getVfsMasterPassphrase(): Promise<string> {
+  return (await kvGet(VFS_SECRET_MASTER_KEY)) ?? ''
+}
+
+export async function setVfsMasterPassphrase(passphrase: string): Promise<void> {
+  const v = String(passphrase ?? '')
+  if (!v) await kvDelete(VFS_SECRET_MASTER_KEY)
+  else await kvSet(VFS_SECRET_MASTER_KEY, v)
 }
 
 function decodeText(bytes: Uint8Array): string | null {

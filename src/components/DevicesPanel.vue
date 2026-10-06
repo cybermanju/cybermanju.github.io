@@ -207,7 +207,11 @@ const powerLine = computed(() => {
   return hw.battery.charging.value ? `charging ${Math.round((hw.battery.level.value ?? 0) * 100)}%` : `${Math.round((hw.battery.level.value ?? 0) * 100)}%${hw.battery.dischargingTime.value ? ` · ${Math.round(hw.battery.dischargingTime.value / 60)}min left` : ''}`
 })
 const batteryLine = computed(() => `${Math.round((hw.battery.level.value ?? 0) * 100)}% · ${hw.battery.charging.value ? 'charging' : 'on battery'}`)
-const orientationLine = computed(() => `${hw.orientation.orientation.value?.type ?? screen.orientation?.type ?? 'unknown'} · ${window.innerWidth}×${window.innerHeight}`)
+const orientationLine = computed(() => {
+  const raw = hw.orientation.orientation.value as unknown as string | { type?: string } | null | undefined
+  const oType = typeof raw === 'string' ? raw : (raw?.type ?? (screen.orientation as ScreenOrientation | undefined)?.type ?? 'unknown')
+  return `${oType} · ${window.innerWidth}×${window.innerHeight}`
+})
 const hasGeo = computed(() => hw.geo.coords.value.latitude !== Infinity && isFinite(hw.geo.coords.value.latitude))
 const geoLat = computed(() => hw.geo.coords.value.latitude.toFixed(5))
 const geoLon = computed(() => hw.geo.coords.value.longitude.toFixed(5))
@@ -280,7 +284,7 @@ function passkeyInfo() {
     : 'WebAuthn not available here.'
 }
 async function askNotify() {
-  try { await hw.webNotification.requestPermissions() } catch { /* denied */ }
+  try { await hw.webNotification.ensurePermissions() } catch { /* denied */ }
 }
 function testNotify() {
   try { hw.webNotification.show({ body: 'CyberManju OS notifications work.', tag: 'cybermanju-test' }) } catch { /* noop */ }

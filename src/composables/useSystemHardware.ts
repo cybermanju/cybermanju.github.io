@@ -98,7 +98,7 @@ export interface ScreenInfo {
   primary: boolean
 }
 
-interface NavigatorWithDevices extends Navigator {
+interface NavigatorDeviceAPIs {
   usb?: {
     getDevices(): Promise<unknown[]>
     requestDevice(opts: unknown): Promise<unknown>
@@ -117,11 +117,10 @@ interface NavigatorWithDevices extends Navigator {
     addEventListener?: (t: string, l: EventListener) => void
     removeEventListener?: (t: string, l: EventListener) => void
   }
-  bluetooth?: { getDevices?: () => Promise<unknown[]>; requestDevice(opts: unknown): Promise<unknown> }
 }
 
-function nav(): NavigatorWithDevices {
-  return navigator as NavigatorWithDevices
+function nav(): NavigatorDeviceAPIs {
+  return navigator as unknown as NavigatorDeviceAPIs
 }
 
 function labelOf(d: unknown, fallback: string): string {
@@ -174,7 +173,8 @@ export function useSystemHardware() {
   const userMedia = useUserMedia({ enabled: false })
   const displayMedia = useDisplayMedia()
   const speechRecognition = useSpeechRecognition({ lang: 'en-US' })
-  const speechSynthesis = useSpeechSynthesis('CyberManju OS ready', { lang: 'en-US' })
+  const speechText = ref('CyberManju OS ready')
+  const speechSynthesis = useSpeechSynthesis(speechText, { lang: 'en-US' })
 
   // Local files without Tauri: File System Access API + classic picker.
   const fsAccess = useFileSystemAccess({ dataType: 'Text' })
@@ -373,7 +373,7 @@ export function useSystemHardware() {
   }
   function speak(text: string): void {
     try {
-      speechSynthesis.text.value = text
+      speechText.value = text
       speechSynthesis.speak()
     } catch (e) { lastError.value = e instanceof Error ? e.message : String(e) }
   }
@@ -388,10 +388,9 @@ export function useSystemHardware() {
   }
   async function saveLocalFile(content: string, suggestedName = 'cybermanju.txt'): Promise<void> {
     try {
-      fsAccess.fileName.value = suggestedName
-      await fsAccess.saveAs()
-      fsAccess.updateData(content)
-      await fsAccess.save()
+      fsAccess.data.value = content
+      await fsAccess.saveAs({ suggestedName })
+      await fsAccess.updateData()
     } catch (e) { lastError.value = e instanceof Error ? e.message : String(e) }
   }
   function pickFiles(): void {
@@ -400,10 +399,10 @@ export function useSystemHardware() {
   async function copyRichHtml(html: string, textFallback: string): Promise<void> {
     try {
       if (clipboardItems.isSupported.value) {
-        await clipboardItems.copy(new ClipboardItem({
+        await clipboardItems.copy([new ClipboardItem({
           'text/html': new Blob([html], { type: 'text/html' }),
           'text/plain': new Blob([textFallback], { type: 'text/plain' }),
-        }))
+        })])
       } else {
         await copy(textFallback)
       }

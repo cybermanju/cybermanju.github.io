@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import { ref, provide, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, provide, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue'
+import { useTitle, useBroadcastChannel } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'
 import { useKeyboardShortcuts, getGlobalShortcuts } from '@/composables/useKeyboardShortcuts'
 import { useShortcuts } from '@/composables/useShortcuts'
@@ -31,6 +32,23 @@ import type { PanelType } from '@/types'
 
 const store = useAppStore()
 const wm = useWindowManager()
+
+// OS chrome: live tab title + multi-tab refresh bus (VueUse).
+// Title shows job/sync pressure at a glance; any tab that writes files
+// broadcasts `cybermanju:files-changed` so siblings re-fetch instead of
+// going stale.
+const pageTitle = useTitle('CyberManju OS')
+const tabBus = useBroadcastChannel<string, string>({ name: 'cybermanju-os' })
+const titleText = computed(() => {
+  const n = store.files.length
+  if (store.shellBusy) return `● CyberManju OS — working (${n})`
+  if (store.activeAgentJob?.status === 'running') return `● CyberManju OS — agent (${n})`
+  return `CyberManju OS — ${n} files`
+})
+watch(titleText, (t) => { pageTitle.value = t }, { immediate: true })
+watch(() => tabBus.data.value, (msg) => {
+  if (msg === 'cybermanju:files-changed') void store.fetchFiles(store.currentPath)
+})
 
 useKeyboardShortcuts(getGlobalShortcuts(store))
 

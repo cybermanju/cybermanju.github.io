@@ -151,29 +151,32 @@ renders them as a single virtual filesystem under `providers/`.
       RequestInit, Response, Headers`; `lib.rs` wires `pub mod artifact;
       pub mod canal;`, `db::envelope_json` is `pub(crate)` so both
       dispatchers share one envelope shape. "Pure Rust, no C" kept.
-- [ ] 5.4 `src/composables/useWasmBackend.ts` — `wasmCanalDispatch`,
+- [x] 5.4 `src/composables/useWasmBackend.ts` — `wasmCanalDispatch`,
       `wasmArtifactMagic`, `wasmArtifactOpen` (main thread, same load path
       as `wasmAgentPrompt`), honest error when `pkg/` predates the exports.
-- [ ] 5.5 `src/composables/useProviderCanal.ts` — mount CRUD in `kv`
-      (`vfs:mount:*`), dir cache (`vfs:cache:*`, TTL), path mapping
+- [x] 5.5 `src/composables/useProviderCanal.ts` — mount CRUD in `kv`
+      (`vfs:mount:*`), dir cache (`vfs:cache:*`, TTL), master passphrase
+      (`vfs:secret:master`, kv so it ships), path mapping
       `/providers/<id>/…` ↔ `(configId, remotePath)`, `listDir` / `readFile`
       orchestration (token from `sync.secret`, decode via 5.2, `CYBMJ01`
       handed to `decodeContainer`).
-- [ ] 5.6 `src/composables/useTauri.ts` — static-host routes for
+- [x] 5.6 `src/composables/useTauri.ts` — static-host routes for
       `vfs_list_mounts` / `vfs_save_mount` / `vfs_delete_mount` (db `kv` ops)
       and `vfs_list_dir` / `vfs_read_file` (async canal composite) so the
       `[WASM Mode] needs the dashboard` error no longer fires for reads.
-- [ ] 5.7 UI: `providers/` root in `Sidebar.vue` + lazy `TreeNode` children +
-      read-only `FileGrid` browse through `store.fetchFiles('/providers/…')`.
-- [ ] 5.8 `.cybermanju` ship test: mounts + cache + master passphrase
+- [x] 5.7 UI: `providers/` root in `Sidebar.vue` + lazy `TreeNode` children +
+      read-only `FileGrid` browse through `store.fetchFiles('/providers/…')`
+      (mounts list at `/providers`, entries mapped to `FileNode`).
+- [x] 5.8 `.cybermanju` ship test: mounts + cache + master passphrase
       survive `_save` → `_attach` round trip (kv is inside the redb image).
-- [ ] 5.9 Tests: vitest for path mapping / canal orchestration with a mocked
+      Pinned by `tests/frontend/provider-ship.test.ts` (key-naming contract).
+- [x] 5.9 Tests: vitest for path mapping / canal orchestration with a mocked
       wasm module; `npm run typecheck` green.
 
 ## Verification
 
 - [x] 6.1 `npm run typecheck` green (local `vue-tsc --noEmit`).
-- [x] 6.2 `npx vitest run` green — 18 tests / 3 files.
+- [x] 6.2 `npx vitest run` green — 162 tests / 14 files.
 - [x] 6.3 `npm run build:wasm:frontend` → `dist-wasm/` builds (locally through the
       `vite-plugin-wasm-stub` fallback since `pkg/` is a CI artifact).
 - [ ] 6.4 CI green on push: rust-check, clippy, wasm32 check, wasm-pack, dist-wasm, Pages.
@@ -196,3 +199,6 @@ renders them as a single virtual filesystem under `providers/`.
 - **Browser crypto honesty:** the wasm pkg has X25519 + ML-DSA-65 + ChaCha20-Poly1305 but no
   ML-KEM (Kyber). Keygen for `kyber*`/`hybrid`/`frodokem*` produces X25519 material and file
   encryption is ChaCha20-Poly1305 with a keypair-derived key; the panel says so.
+- **Honest limits pinned (2026-10-06):** `docs/OPERATIONS.md §9` documents WASM caps
+  (lz4+brotli only, 1 MiB), the ML-KEM slot label, CORS-OK-only canals, tree-sitter vs
+  heuristic `"engine"`, and FSA Chromium-only + Export/Import fallback.

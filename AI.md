@@ -168,19 +168,24 @@ This file is the tracker; that file is the reasoning.
       `agent_loop.rs` prompt tests, `edit.rs` anchor tests,
       `agent_api.rs` activity/doom-loop/read-anchor/write-strip).
 
-## Phase 3 — deferred (P2/P3, out of this pass)
+## Phase 3 — P2/P3 (landed 2026-10-06)
 
-- [ ] 3.1 P2 — approval **diff view** (what the edit actually changes) instead of
-      raw JSON.
-- [ ] 3.2 P2 — **reject-with-feedback**: DENY with a reason the model must obey
-      (opencode's `reject` + user message).
-- [ ] 3.3 P2 — **granular permission editor** (per-tool/per-pattern UI writing
-      the same ruleset the strip reads).
-- [ ] 3.4 P2 — **strip denied tools from the schema** (opencode removes them so
-      the model stops trying); today they are advertised and answered `deny:`.
-- [ ] 3.5 P2 — **SSE streaming** of assistant text (native), instead of
-      turn-granularity polling.
-- [ ] 3.6 P2 — `LimitReached` → actionable "turn budget exhausted — raise MAX
-      TURNS or COMPACT" instead of a bare sentence.
-- [ ] 3.7 P3 — auto-compaction when the context meter passes ~85 %.
-- [ ] 3.8 P3 — attention surface (flashing/pulsing panel while `waiting_approval`).
+- [x] 3.1 P2 — approval **diff view** (`src/utils/agentDiff.ts` + approval card:
+      `diffBlocks`/`editBlocksOf`, 6 vitest).
+- [x] 3.2 P2 — **reject-with-feedback**: DENY carries `denyReason` into
+      `denied: … — user feedback: …` on both transports (native `approve`
+      `answer`, browser `waitApproval` answer).
+- [x] 3.3 P2 — **granular permission editor** (per-tool ALLOW/ASK/DENY selects
+      writing the same ruleset the loop enforces; SAVE RULES persists).
+- [x] 3.4 P2 — **strip denied tools from the schema** (`strip_denied_tools`
+      in `crates/agent/src/config.rs`, called in `agent_api.rs` ×2; TS mirror
+      `stripDeniedTools` in `agentUi.ts`).
+- [x] 3.5 P2 — **SSE streaming** of assistant text (native
+      `GET /api/agent/jobs/:id/events` via fetch reader in
+      `store.subscribeAgentJob`, `parseAgentStreamChunk` + 6 vitest, poll fallback).
+- [x] 3.6 P2 — `LimitReached` → actionable "turn budget exhausted — raise MAX
+      TURNS or COMPACT" (`AgentPanel` limit copy + `agentErrorHint('limit')`).
+- [x] 3.7 P3 — auto-compaction when the context meter passes ~85 %
+      (`shouldAutoCompact` + once-per-session watcher, old transcript kept).
+- [x] 3.8 P3 — attention surface (pulsing `.approval.attention` + `AGENT:WAIT`
+      status while `waiting_approval`).

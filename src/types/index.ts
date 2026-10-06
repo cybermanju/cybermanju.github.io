@@ -579,6 +579,8 @@ export function agentErrorHint(err: string): { prefix: string; hint: string } {
       return { prefix, hint: 'Provider throttled the call. The harness backs off automatically.' }
     case 'context':
       return { prefix, hint: 'Transcript too large for this model — run COMPACT, then continue.' }
+    case 'limit':
+      return { prefix, hint: 'Turn budget exhausted — raise MAX TURNS or COMPACT, then continue.' }
     case 'not_found':
       return { prefix, hint: 'Path or config is gone — re-check WORKING DIR and the file tree.' }
     case 'unsupported':

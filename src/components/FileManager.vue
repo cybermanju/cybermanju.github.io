@@ -1,5 +1,5 @@
 <template>
-  <div ref="rootRef" class="fm" tabindex="0" @keydown="onKeydown">
+  <div ref="rootRef" class="fm" :class="{ 'fm-drop': isOverDropZone }" tabindex="0" @keydown="onKeydown">
     <div class="fm-aurora" aria-hidden="true" />
     <div class="fm-grain" aria-hidden="true" />
 
@@ -567,6 +567,7 @@
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { useDropZone } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useContextMenu } from '@/composables/useContextMenu'
@@ -923,6 +924,20 @@ async function doSyncTo(configId: string) {
 
 // ── upload / new file ──
 function onUploadClick() { filePickRef.value?.click() }
+// OS file drops anywhere on the manager (VueUse useDropZone): same pipeline
+// as the picker, so dragging from the host OS just works.
+async function uploadDroppedFiles(files: File[] | null) {
+  if (!files?.length) return
+  for (const f of files) {
+    try {
+      const buf = new Uint8Array(await f.arrayBuffer())
+      await invoke('upload_file', { fileName: f.name, fileData: Array.from(buf), parentPath: store.currentPath })
+    } catch (err) { store.notifyError(`Upload failed: ${f.name}`, err) }
+  }
+  await store.fetchFiles(store.currentPath)
+  store.notifySuccess(`Upload complete (${files.length})`)
+}
+const { isOverDropZone } = useDropZone(rootRef, { onDrop: (files) => void uploadDroppedFiles(files ?? []) })
 async function onFilesPicked(e: Event) {
   const input = e.target as HTMLInputElement
   const list = input.files
@@ -1100,6 +1115,8 @@ onMounted(() => {
 .fm-grain { position: absolute; inset: 0; pointer-events: none; z-index: 0; opacity: .5;
   background-image: radial-gradient(color-mix(in srgb, var(--ui-text) 5%, transparent) 1px, transparent 1px); background-size: 22px 22px; }
 .fm > *:not(.fm-aurora):not(.fm-grain) { position: relative; z-index: 1; }
+/* OS drop target (VueUse useDropZone): host-OS files land straight in the vault. */
+.fm-drop { outline: 2px dashed color-mix(in srgb, var(--ui-accent) 70%, transparent); outline-offset: -6px; }
 
 /* top bar */
 .fm-top { display: flex; align-items: center; gap: 8px; padding: 8px 10px;
