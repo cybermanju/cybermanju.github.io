@@ -2187,7 +2187,7 @@ fn run_agent_job(
         AgentKind::Build => "build",
         AgentKind::Plan => "plan",
     };
-    let system = format!(
+    let mut system = format!(
         "{}{}",
         agent_loop::system_prompt(
             &root.to_string_lossy(),
@@ -2197,6 +2197,17 @@ fn run_agent_job(
         ),
         load_project_rules(&root)
     );
+    // Semantic auto-recall (Hermes memory pattern): the user prompt seeds a
+    // bounded `<recalled-memories>` block up front, so the run starts with
+    // what past sessions learned instead of re-discovering it.
+    system.push_str(&recall_block_for_run(
+        db,
+        &endpoint,
+        &api_key,
+        &config,
+        &prompt,
+        &job.cancel,
+    ));
     let headers = endpoint_headers(&endpoint, &api_key);
     let model = config.model.clone();
 
@@ -2237,6 +2248,18 @@ fn run_agent_job(
     // (the original shape here) never catches.
     let mut doom_sig: Option<(String, String)> = None;
     let mut doom_repeats = 0u32;
+
+    // Memory context for the run's tools: recall reads, remember stores
+    // (gated by the same `decide` every other tool goes through).
+    let mem_ctx = MemoryCtx {
+        endpoint: &endpoint,
+        api_key: &api_key,
+        cancel: &job.cancel,
+        config_id: &config.id,
+        session_id: &session.id,
+        embedding_model: embedding_model(&config),
+        allow_remember: true,
+    };
 
     loop {
         if job.cancel.load(Ordering::SeqCst) {
@@ -2373,7 +2396,7 @@ fn run_agent_job(
                             format!("{} {arg}", call.name)
                         });
                     });
-                    match run_one_tool(db, job, &config, &root, &vol, &mut mcp_set, &turn, call) {
+                    match run_one_tool(db, job, &config, &root, &vol, &mut mcp_set, &turn, call, &mem_ctx) {
                         ToolOutcome::Continue(output) => {
                             turn.append_tool_result(call, clean_output(output));
                         }
@@ -2763,7 +2786,18 @@ fn run_subagent(
                                     continue;
                                 }
                             };
-                            match exec_tool(&guard, root, vol, call) {
+                            // Subagents report — the `memory_remember` arm
+                            // denies stores even if the schema ever leaks one.
+                            let mem_ctx = MemoryCtx {
+                                endpoint: &endpoint,
+                                api_key: &api_key,
+                                cancel: &job.cancel,
+                                config_id: &config.id,
+                                session_id: &job.session_id,
+                                embedding_model: embedding_model(config),
+                                allow_remember: false,
+                            };
+                            match exec_tool(&guard, root, vol, call, &mem_ctx) {
                                 Ok(output) => clean_output(output),
                                 Err(e) => format!("error: {e}"),
                             }
