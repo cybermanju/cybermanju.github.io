@@ -148,6 +148,8 @@ pub fn match_input(tool: &str, input: &serde_json::Value) -> String {
 /// The salient argument alone (`git status --porcelain`, not
 /// `bash git status --porcelain`): opencode-style `bash` patterns match the
 /// parsed command, so rules are tried against all three shapes.
+/// `memory_remember` carries its fact in `text`, so content patterns
+/// (`*password*`) match what would actually be stored.
 pub fn salient_arg(input: &serde_json::Value) -> &str {
     input
         .get("command")
@@ -156,6 +158,7 @@ pub fn salient_arg(input: &serde_json::Value) -> &str {
         .or_else(|| input.get("glob"))
         .or_else(|| input.get("query"))
         .or_else(|| input.get("url"))
+        .or_else(|| input.get("text"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
 }

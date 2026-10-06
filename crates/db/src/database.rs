@@ -79,6 +79,11 @@ const AGENT_CONFIGS_TABLE: TableDefinition<'static, &'static str, &'static str> 
     TableDefinition::new("agent_configs");
 const AGENT_SESSIONS_TABLE: TableDefinition<'static, &'static str, &'static str> =
     TableDefinition::new("agent_sessions");
+// <<< SEMANTIC MEMORY: long-term memories (curated text + embedding vector
+// as JSON rows). New table = backward compatible: existing DB files gain it
+// on open, like every table above. >>>
+const AGENT_MEMORIES_TABLE: TableDefinition<'static, &'static str, &'static str> =
+    TableDefinition::new("agent_memories");
 // Generic key/value blob: vault secrets, app config, shell file content and
 // any other session state the browser build keeps inside `.cybermanju`.
 // Keys are namespaced by convention (`secret:`, `config:`, `content:`,
@@ -132,6 +137,7 @@ impl Database {
             // <<< AI AGENT tables >>>
             write_txn.open_table(AGENT_CONFIGS_TABLE)?;
             write_txn.open_table(AGENT_SESSIONS_TABLE)?;
+            write_txn.open_table(AGENT_MEMORIES_TABLE)?;
             // Generic kv blob (secrets, config, content) — same table the
             // browser build writes so a `.cybermanju` image opens here too.
             write_txn.open_table(KV_TABLE)?;
@@ -261,6 +267,10 @@ impl Database {
     /// Agent session transcripts.
     pub fn get_agent_sessions_table() -> TableDefinition<'static, &'static str, &'static str> {
         AGENT_SESSIONS_TABLE
+    }
+    /// Agent long-term memories (text + embedding vectors as JSON rows).
+    pub fn get_agent_memories_table() -> TableDefinition<'static, &'static str, &'static str> {
+        AGENT_MEMORIES_TABLE
     }
 
     /// Generic key/value blob (secrets, config, file content, volume mirror).

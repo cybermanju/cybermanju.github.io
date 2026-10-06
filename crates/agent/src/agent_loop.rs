@@ -204,6 +204,17 @@ pub fn system_prompt(
          Prefer read/list/grep over cat/ls/find; never run interactive commands.\n\
          - task {{goal, context?}}: one bounded read-only subagent for delegated exploration.\n\
          - question {{question}}: ask the human when genuinely blocked — sparingly.\n\
+         - memory_recall {{query, top_k?}}: search long-term memory (past sessions, \
+         stored facts). Recalled context is bounded and may be stale — verify against \
+         the volume before acting on it.\n\
+         - memory_remember {{text}}: store ONE durable fact for future sessions \
+         (a decision, preference, environment quirk, lesson learned). One fact per \
+         call; check memory_recall first so facts are not stored twice; never store \
+         secrets or whole files.\n\
+         MEMORY: recalled memories arrive bounded in the system prompt — that is \
+         semantic memory, not the transcript. Store durable facts with \
+         memory_remember instead of repeating them every turn; the transcript \
+         compacts, memory persists.\n\
          WORKFLOW: orient (list/glob) → read → act (edit/write) → verify (re-read, \
          grep, run tests via bash). Small verified steps; never invent file contents.\n\
          APPROVALS: some calls pause for human approval (allow/deny). A denial is \
@@ -328,7 +339,7 @@ mod tests {
     fn every_prompt_tool_exists_in_the_schema() {
         // The prompt must never advertise a tool the schema omits — providers
         // refuse calls for tool names they were not shown.
-        for tool in ["question", "task", "edit", "bash"] {
+        for tool in ["question", "task", "edit", "bash", "memory_recall", "memory_remember"] {
             assert!(
                 crate::protocol::TOOL_NAMES.contains(&tool),
                 "prompt mentions `{tool}` but TOOL_NAMES does not"

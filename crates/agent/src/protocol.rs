@@ -16,6 +16,7 @@ use cybermanju_types::agent::{AuthScheme, ChatMessage, ProviderPreset, TokenUsag
 /// and specific about arguments, limits, and failure modes.
 pub const TOOL_NAMES: &[&str] = &[
     "read", "write", "edit", "list", "grep", "glob", "bash", "task", "question",
+    "memory_recall", "memory_remember",
 ];
 
 fn tool_def(
@@ -119,6 +120,23 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
                 "question": { "type": "string", "description": "One clear question for the user" },
             }),
             &["question"],
+        ),
+        tool_def(
+            "memory_recall",
+            "Search long-term memory (past sessions, stored facts) for the query. Recalled context is bounded and may be stale — verify against the volume before acting on it.",
+            serde_json::json!({
+                "query": { "type": "string", "description": "What to remember (e.g. deployment quirks, user preferences)" },
+                "top_k": { "type": "integer", "description": "Max memories, default 3" },
+            }),
+            &["query"],
+        ),
+        tool_def(
+            "memory_remember",
+            "Store ONE durable fact for future sessions (a decision, preference, environment quirk, lesson learned). Plain text, one fact per call; secrets are redacted automatically. Check memory_recall first so facts are not stored twice.",
+            serde_json::json!({
+                "text": { "type": "string", "description": "The single fact to remember" },
+            }),
+            &["text"],
         ),
     ]
 }
@@ -602,15 +620,18 @@ mod tests {
     use super::*;
     use cybermanju_types::agent::LlmDialect;
     #[test]
-    fn tool_schemas_cover_nine_tools_in_openai_shape() {
+    fn tool_schemas_cover_eleven_tools_in_openai_shape() {
         let tools = openai_tools();
-        assert_eq!(tools.as_array().map(|a| a.len()), Some(9));
+        assert_eq!(tools.as_array().map(|a| a.len()), Some(11));
         let first = &tools[0];
         assert_eq!(first["type"], "function");
         assert_eq!(first["function"]["name"], "read");
         // The prompt-advertised `question` tool must be in the schema —
         // schema-driven providers cannot call a tool they were never shown.
         assert!(tools.iter().any(|t| t["function"]["name"] == "question"));
+        // Same for the semantic-memory tools (recall/remember).
+        assert!(tools.iter().any(|t| t["function"]["name"] == "memory_recall"));
+        assert!(tools.iter().any(|t| t["function"]["name"] == "memory_remember"));
         let anthropic = anthropic_tools();
         assert!(anthropic[0].get("input_schema").is_some());
         assert!(anthropic[0].get("parameters").is_none());
@@ -632,7 +653,7 @@ mod tests {
         );
         assert_eq!(body["model"], "gpt-5");
         assert_eq!(body["messages"][0]["role"], "system");
-        assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(9));
+        assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(11));
 
         let reply = serde_json::json!({
             "choices": [{

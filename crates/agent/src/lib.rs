@@ -16,6 +16,7 @@ pub mod agent_loop;
 pub mod config;
 pub mod edit;
 pub mod mcp;
+pub mod memory;
 pub mod protocol;
 pub mod providers;
 pub mod redact;

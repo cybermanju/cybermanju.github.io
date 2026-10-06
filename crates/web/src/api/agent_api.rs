@@ -15,12 +15,13 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 use cybermanju_agent::{
-    agent_loop, config as agent_config, edit as agent_edit, protocol, providers,
+    agent_loop, config as agent_config, edit as agent_edit, memory as agent_memory, protocol,
+    providers,
 };
 use cybermanju_db::Database;
 use cybermanju_types::agent::{
-    AgentConfig, AgentKind, AgentSession, ChatMessage, LlmDialect, McpServerConfig, TokenUsage,
-    ToolCall,
+    AgentConfig, AgentKind, AgentMemory, AgentSession, ChatMessage, LlmDialect, McpServerConfig,
+    MemoryHit, MemoryOrigin, TokenUsage, ToolCall,
 };
 use redb::ReadableTable;
 use serde::{Deserialize, Serialize};
@@ -81,6 +82,10 @@ pub struct JobSnapshot {
     /// frozen status line.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activity: Option<String>,
+    /// Terminal-state nudge: the run was long enough to have learned
+    /// something but stored no memory — the UI offers a one-tap REMEMBER.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_hint: Option<String>,
 }
 
 // ─── secrets (never serialized) ──────────────────────────────────────────
@@ -375,6 +380,323 @@ pub fn import_session(db: &Database, mut session: AgentSession) -> Result<AgentS
     Ok(session)
 }
 
+// ─── semantic memory ─────────────────────────────────────────────────────
+// Long-term memory: curated text + embedding vectors in `agent_memories`
+// (redb, same DB file as sessions). Recall is hybrid — vector cosine when
+// comparable, keyword overlap otherwise — and always char-budgeted, so
+// memory augments the prompt instead of becoming it (Hermes
+// `memory_char_limit` parity: 2200). Memory must never break a run: every
+// failure mode degrades to keyword recall or an empty block.
+
+/// Default embedding model when the config sets none (OpenAI + Ollama
+/// `-embed` models serve `{base}/embeddings`).
+const DEFAULT_EMBEDDING_MODEL: &str = "text-embedding-3-small";
+
+fn embedding_model(config: &AgentConfig) -> String {
+    config
+        .embedding_model
+        .clone()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_EMBEDDING_MODEL.to_string())
+}
+
+/// One OpenAI-compatible embedding call. Anthropic has no embeddings API —
+/// honest `unsupported:` (callers fall back to keyword recall, never fail).
+fn embed_text(
+    cancel: &AtomicBool,
+    endpoint: &providers::ResolvedEndpoint,
+    api_key: &str,
+    model: &str,
+    text: &str,
+) -> Result<Vec<f32>, String> {
+    if endpoint.dialect != LlmDialect::OpenAi {
+        return Err(
+            "unsupported: this provider dialect has no embeddings API — keyword recall applies"
+                .to_string(),
+        );
+    }
+    let url = format!("{}/embeddings", endpoint.base_url.trim_end_matches('/'));
+    let headers = endpoint_headers(endpoint, api_key);
+    let body = serde_json::json!({ "model": model, "input": text });
+    let reply = post_with_retry(cancel, &url, &headers, &body)?;
+    let arr = reply
+        .get("data")
+        .and_then(|d| d.get(0))
+        .and_then(|e| e.get("embedding"))
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "network: unreadable embeddings reply".to_string())?;
+    let mut out = Vec::with_capacity(arr.len());
+    for n in arr {
+        let f = n
+            .as_f64()
+            .ok_or_else(|| "network: non-numeric embedding value".to_string())?;
+        if !f.is_finite() {
+            return Err("network: non-finite embedding value".to_string());
+        }
+        out.push(f as f32);
+    }
+    if out.is_empty() {
+        return Err("network: empty embedding vector".to_string());
+    }
+    Ok(out)
+}
+
+pub fn save_memory_row(db: &Database, memory: &AgentMemory) -> Result<(), String> {
+    let serialized = serde_json::to_string(memory).map_err(|e| e.to_string())?;
+    let tx = db.begin_write().map_err(|e| e.to_string())?;
+    {
+        let mut table = tx
+            .open_table(Database::get_agent_memories_table())
+            .map_err(|e| e.to_string())?;
+        table
+            .insert(memory.id.as_str(), serialized.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Newest-first memory list, optionally scoped to one config. Vectors are
+/// stripped unless `include_vectors` — list views never ship megabytes of
+/// floats; export/sync restores do.
+pub fn list_memories(
+    db: &Database,
+    config_id: Option<&str>,
+    include_vectors: bool,
+) -> Result<Vec<AgentMemory>, String> {
+    let tx = db.begin_read().map_err(|e| e.to_string())?;
+    let table = tx
+        .open_table(Database::get_agent_memories_table())
+        .map_err(|e| e.to_string())?;
+    let mut rows = Vec::new();
+    for entry in table.iter().map_err(|e| e.to_string())? {
+        let (_, value) = entry.map_err(|e| e.to_string())?;
+        let mut m: AgentMemory =
+            serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+        if let Some(want) = config_id {
+            if m.config_id != want {
+                continue;
+            }
+        }
+        if !include_vectors {
+            m.embedding = Vec::new();
+            m.dims = 0;
+        }
+        rows.push(m);
+    }
+    rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    rows.truncate(agent_memory::MEMORY_LIST_LIMIT);
+    Ok(rows)
+}
+
+/// Delete one memory by id.
+pub fn delete_memory(db: &Database, memory_id: &str) -> Result<bool, String> {
+    crate::security::validate_id(memory_id)?;
+    let tx = db.begin_write().map_err(|e| e.to_string())?;
+    {
+        let mut table = tx
+            .open_table(Database::get_agent_memories_table())
+            .map_err(|e| e.to_string())?;
+        let removed = table
+            .remove(memory_id)
+            .map_err(|e| e.to_string())?
+            .is_some();
+        if !removed {
+            return Err(format!("Agent memory not found: {memory_id}"));
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Sanitize + embed one text into an unsaved row. Holds NO lock — the caller
+/// saves with `save_memory_row` under a brief transaction, so the provider
+/// round trip never stalls concurrent writers. Embedding failure stores the
+/// row vectorless (keyword recall still finds it); only cancellation and
+/// empty-after-cleaning fail.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_memory(
+    cancel: &AtomicBool,
+    endpoint: &providers::ResolvedEndpoint,
+    api_key: &str,
+    config_id: &str,
+    session_id: Option<String>,
+    text: &str,
+    origin: MemoryOrigin,
+    embedding_model: &str,
+) -> Result<AgentMemory, String> {
+    if config_id.trim().is_empty() {
+        return Err("invalid: config_id is required".to_string());
+    }
+    let (cleaned, _) = agent_memory::sanitize_text(text);
+    if cleaned.is_empty() {
+        return Err("invalid: nothing memorable after cleaning".to_string());
+    }
+    let embedding = match embed_text(cancel, endpoint, api_key, embedding_model, &cleaned) {
+        Ok(v) => v,
+        Err(e) if e == "cancelled" => return Err(e),
+        Err(_) => Vec::new(),
+    };
+    let now = chrono::Utc::now().to_rfc3339();
+    Ok(AgentMemory {
+        id: uuid::Uuid::new_v4().to_string(),
+        config_id: config_id.to_string(),
+        text: cleaned,
+        dims: embedding.len() as u32,
+        embedding,
+        origin,
+        session_id,
+        uses: 0,
+        created_at: now.clone(),
+        updated_at: now,
+    })
+}
+
+/// Route-level store: brief read for config + key, embed off-lock, brief
+/// write for the row. Never holds the request lock across provider I/O.
+pub fn store_memory_entry(
+    db: &Arc<RwLock<Database>>,
+    config_id: &str,
+    session_id: Option<String>,
+    text: &str,
+) -> Result<AgentMemory, String> {
+    let (config, key) = {
+        let guard = db.read().map_err(|e| e.to_string())?;
+        (get_config(&guard, config_id)?, load_key(&guard, config_id)?)
+    };
+    let endpoint = providers::resolve(&config)?;
+    let cancel = AtomicBool::new(false);
+    let model = embedding_model(&config);
+    let memory = prepare_memory(
+        &cancel,
+        &endpoint,
+        &key,
+        &config.id,
+        session_id,
+        text,
+        MemoryOrigin::Remember,
+        &model,
+    )?;
+    {
+        let guard = db.read().map_err(|e| e.to_string())?;
+        save_memory_row(&guard, &memory)?;
+    }
+    Ok(memory)
+}
+
+/// Count one served recall per hit (feeds the uses-tiebreak so memory that
+/// proved useful ranks first). Best effort — recall results never depend on
+/// the counter landing.
+fn bump_memory_uses(db: &Database, ids: &[String]) -> Result<(), String> {
+    let tx = db.begin_write().map_err(|e| e.to_string())?;
+    {
+        let mut table = tx
+            .open_table(Database::get_agent_memories_table())
+            .map_err(|e| e.to_string())?;
+        for id in ids {
+            let current: Option<String> = table
+                .get(id.as_str())
+                .map_err(|e| e.to_string())?
+                .map(|guard| guard.value().to_string());
+            if let Some(raw) = current {
+                let mut m: AgentMemory =
+                    serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+                m.uses = m.uses.saturating_add(1);
+                let serialized = serde_json::to_string(&m).map_err(|e| e.to_string())?;
+                table
+                    .insert(id.as_str(), serialized.as_str())
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Vector-first recall with keyword fallback, over one config's memories.
+/// Embedding failure degrades to keywords — recall answers from what the
+/// store has, never from a failed provider call.
+pub fn recall_text(
+    db: &Database,
+    cancel: &AtomicBool,
+    endpoint: &providers::ResolvedEndpoint,
+    api_key: &str,
+    config_id: &str,
+    query: &str,
+    top_k: usize,
+    embedding_model: &str,
+) -> Vec<MemoryHit> {
+    let memories = list_memories(db, Some(config_id), true).unwrap_or_default();
+    if memories.is_empty() {
+        return Vec::new();
+    }
+    let query_vec = embed_text(cancel, endpoint, api_key, embedding_model, query).ok();
+    let hits = agent_memory::recall_rank(query_vec.as_deref(), query, &memories, top_k);
+    if !hits.is_empty() {
+        let ids: Vec<String> = hits.iter().map(|h| h.id.clone()).collect();
+        let _ = bump_memory_uses(db, &ids);
+    }
+    hits
+}
+
+/// Pre-prompt auto-recall: the user prompt seeds a bounded
+/// `<recalled-memories>` block. Empty store or failed embedding → "" and the
+/// run continues with the transcript alone — memory augments, never blocks.
+fn recall_block_for_run(
+    db: &Arc<RwLock<Database>>,
+    endpoint: &providers::ResolvedEndpoint,
+    api_key: &str,
+    config: &AgentConfig,
+    prompt: &str,
+    cancel: &AtomicBool,
+) -> String {
+    if prompt.trim().is_empty() {
+        return String::new();
+    }
+    let model = embedding_model(config);
+    let memories = match db.read() {
+        Ok(guard) => list_memories(&guard, Some(&config.id), true).unwrap_or_default(),
+        Err(_) => return String::new(),
+    };
+    if memories.is_empty() {
+        return String::new();
+    }
+    let query_vec = embed_text(cancel, endpoint, api_key, &model, prompt).ok();
+    let hits = agent_memory::recall_rank(
+        query_vec.as_deref(),
+        prompt,
+        &memories,
+        agent_memory::MEMORY_TOP_K,
+    );
+    if hits.is_empty() {
+        return String::new();
+    }
+    let ids: Vec<String> = hits.iter().map(|h| h.id.clone()).collect();
+    if let Ok(guard) = db.read() {
+        let _ = bump_memory_uses(&guard, &ids);
+    }
+    agent_memory::render_recall_block(&hits, agent_memory::MEMORY_RECALL_BUDGET_CHARS)
+}
+
+/// Did this run store any memory (tool call present in the transcript)?
+fn remembered_in_run(turn: &agent_loop::AgentTurn) -> bool {
+    turn.messages.iter().any(|m| {
+        if m.tool_name.as_deref() == Some("memory_remember") {
+            return true;
+        }
+        m.tool_input
+            .as_ref()
+            .and_then(|v| v.as_array())
+            .map(|calls| {
+                calls.iter().any(|c| {
+                    c.get("name").and_then(|n| n.as_str()) == Some("memory_remember")
+                })
+            })
+            .unwrap_or(false)
+    })
+}
+
 // ─── job registry ────────────────────────────────────────────────────────
 
 struct JobState {
@@ -386,6 +708,9 @@ struct JobState {
     error: Option<String>,
     pending: Option<PendingApproval>,
     activity: Option<String>,
+    /// Hermes-style nudge, set once at terminal states: a long run that
+    /// stored nothing earns one "teach me" hint. Never mid-run nagging.
+    memory_hint: Option<String>,
 }
 
 pub struct AgentJob {
@@ -428,6 +753,7 @@ fn snapshot(job: &AgentJob) -> JobSnapshot {
         error: state.error.clone(),
         pending: state.pending.clone(),
         activity: state.activity.clone(),
+        memory_hint: state.memory_hint.clone(),
     }
 }
 
@@ -860,7 +1186,26 @@ fn tool_bash(root: &Path, command: &str, timeout_secs: u64) -> Result<String, St
 }
 
 /// Dispatch one approved tool call to native execution.
-fn exec_tool(db: &Database, root: &Path, vol: &Path, call: &ToolCall) -> Result<String, String> {
+/// What the memory tools need beyond `db`: embedding endpoint + key,
+/// cancellation, owning config/session, and whether this run may store
+/// (subagents report — they never remember).
+struct MemoryCtx<'a> {
+    endpoint: &'a providers::ResolvedEndpoint,
+    api_key: &'a str,
+    cancel: &'a AtomicBool,
+    config_id: &'a str,
+    session_id: &'a str,
+    embedding_model: String,
+    allow_remember: bool,
+}
+
+fn exec_tool(
+    db: &Database,
+    root: &Path,
+    vol: &Path,
+    call: &ToolCall,
+    mem: &MemoryCtx,
+) -> Result<String, String> {
     let get = |key: &str| {
         call.input
             .get(key)
@@ -934,6 +1279,77 @@ fn exec_tool(db: &Database, root: &Path, vol: &Path, call: &ToolCall) -> Result<
                 .and_then(|v| v.as_u64())
                 .unwrap_or(120);
             tool_bash(root, &get("command"), timeout)
+        }
+        "memory_recall" => {
+            let top_k = call
+                .input
+                .get("top_k")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(agent_memory::MEMORY_TOP_K as u64) as usize;
+            let query = get("query");
+            if query.trim().is_empty() {
+                return Err("invalid: query is required".to_string());
+            }
+            let hits = recall_text(
+                db,
+                mem.cancel,
+                mem.endpoint,
+                mem.api_key,
+                mem.config_id,
+                &query,
+                top_k,
+                &mem.embedding_model,
+            );
+            if hits.is_empty() {
+                Ok("no memories match — proceed with the transcript alone".to_string())
+            } else {
+                Ok(hits
+                    .iter()
+                    .map(|h| format!("- {}", h.text))
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+            }
+        }
+        "memory_remember" => {
+            if !mem.allow_remember {
+                return Err(
+                    "deny: subagents cannot store memories — report findings to the parent run"
+                        .to_string(),
+                );
+            }
+            if mem.cancel.load(Ordering::SeqCst) {
+                return Ok("cancelled: memory store skipped — the run is stopping".to_string());
+            }
+            let text = call
+                .input
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            match prepare_memory(
+                mem.cancel,
+                mem.endpoint,
+                mem.api_key,
+                mem.config_id,
+                Some(mem.session_id.to_string()),
+                text,
+                MemoryOrigin::Remember,
+                &mem.embedding_model,
+            ) {
+                Ok(m) => match save_memory_row(db, &m) {
+                    Ok(()) => Ok(format!(
+                        "remembered {} ({} chars{})",
+                        m.id,
+                        m.text.chars().count(),
+                        if m.embedding.is_empty() {
+                            ", keyword-only: embeddings unavailable"
+                        } else {
+                            ""
+                        }
+                    )),
+                    Err(e) => Err(e),
+                },
+                Err(e) => Err(e),
+            }
         }
         other => Err(format!("unsupported: unknown tool '{other}'")),
     }
@@ -1454,6 +1870,7 @@ pub fn start_job(
             error: None,
             pending: None,
             activity: Some("starting".to_string()),
+            memory_hint: None,
         }),
         cancel: AtomicBool::new(false),
     });
@@ -2012,6 +2429,7 @@ fn run_one_tool(
     mcp: &mut McpSet,
     turn: &agent_loop::AgentTurn,
     call: &ToolCall,
+    mem: &MemoryCtx,
 ) -> ToolOutcome {
     // Nested subagents run a bounded inline loop — no registry, no parking.
     if call.name == "task" {
@@ -2136,7 +2554,7 @@ fn run_one_tool(
         Ok(guard) => guard,
         Err(e) => return ToolOutcome::Continue(format!("error: database unavailable: {e}")),
     };
-    match exec_tool(&guard, root, vol, call) {
+    match exec_tool(&guard, root, vol, call, mem) {
         Ok(output) => {
             let mut output = output;
             if output.len() > TOOL_OUTPUT_CAP {

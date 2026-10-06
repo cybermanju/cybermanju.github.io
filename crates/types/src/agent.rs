@@ -155,6 +155,11 @@ pub struct AgentConfig {
     /// A key is stored server-side (never echoed back).
     #[serde(default)]
     pub has_key: bool,
+    /// Embedding model for semantic memory (`{base}/embeddings`,
+    /// OpenAI dialect). Defaults to `text-embedding-3-small`; Ollama serves
+    /// any `-embed` model here. Unset = provider default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_model: Option<String>,
     /// Server-assigned; clients may omit them on create/update.
     #[serde(default)]
     pub created_at: String,
@@ -217,6 +222,64 @@ pub struct AgentSession {
     #[serde(default)]
     pub usage: TokenUsage,
     pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Where a long-term memory came from.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MemoryOrigin {
+    /// The agent explicitly stored it via `memory_remember`.
+    #[default]
+    Remember,
+    /// Auto-stored session-compaction handoff.
+    CompactHandoff,
+    /// Imported envelope (sync restore / migration).
+    Import,
+}
+
+/// One long-term memory: curated text + embedding vector, persisted in the
+/// `agent_memories` redb table (same DB file as sessions — the `.cybermanju`
+/// volume home, synced like any other row).
+///
+/// Vectors are namespaced per config AND per embedding dimension: recall only
+/// compares same-dims vectors, so swapping the embedding model never corrupts
+/// ranking — it just starts a fresh partition. A memory without a vector
+/// (embedding failed or dialect has no embeddings API) is still recalled via
+/// the keyword fallback, never silently dropped.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMemory {
+    pub id: String,
+    pub config_id: String,
+    pub text: String,
+    /// Embedding vector; empty when never embedded (keyword-only recall).
+    #[serde(default)]
+    pub embedding: Vec<f32>,
+    /// `embedding.len()` at store time — the comparability gate.
+    #[serde(default)]
+    pub dims: u32,
+    #[serde(default)]
+    pub origin: MemoryOrigin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub uses: u64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// One ranked recall hit. Vectors never leave the server in list views —
+/// only recall serves text + score; export carries vectors for sync restore.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryHit {
+    pub id: String,
+    pub text: String,
+    pub score: f32,
+    pub origin: MemoryOrigin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
     pub updated_at: String,
 }
 
