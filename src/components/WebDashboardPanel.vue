@@ -10,14 +10,14 @@
     <div class="section">
       <h3 class="section-title"><AppIcon name="solar:pulse-bold" :size="13" /> DASHBOARD STATUS</h3>
       <div class="status-card">
-        <div class="s-row"><span class="s-key text-muted">STATUS</span><span class="s-value">{{ store.dashboardStatus.running ? 'RUNNING' : 'STOPPED' }}</span></div>
-        <div class="s-row"><span class="s-key text-muted">PORT</span><span class="s-value">{{ store.dashboardStatus.port }}</span></div>
-        <div class="s-row"><span class="s-key text-muted">URL</span><span class="s-value mono">{{ store.dashboardStatus.url }}</span></div>
-        <div class="s-row"><span class="s-key text-muted">CONNECTIONS</span><span class="s-value">{{ store.dashboardStatus.activeConnections }}</span></div>
+        <div class="s-row"><span class="s-key text-muted">STATUS</span><span class="s-value">{{ store.dashboardStatus?.running ? 'RUNNING' : 'STOPPED' }}</span></div>
+        <div class="s-row"><span class="s-key text-muted">PORT</span><span class="s-value">{{ store.dashboardStatus?.port }}</span></div>
+        <div class="s-row"><span class="s-key text-muted">URL</span><span class="s-value mono">{{ store.dashboardStatus?.url }}</span></div>
+        <div class="s-row"><span class="s-key text-muted">CONNECTIONS</span><span class="s-value">{{ store.dashboardStatus?.activeConnections }}</span></div>
       </div>
       <div style="display:flex;gap:6px;margin-top:8px;">
-        <button class="bw-btn" style="flex:1;" @click="store.startDashboard()" :disabled="store.dashboardStatus.running" title="START DASHBOARD"><AppIcon name="solar:play-bold" :size="12" /> START</button>
-        <button class="bw-btn" style="flex:1;" @click="store.stopDashboard()" :disabled="!store.dashboardStatus.running" title="STOP DASHBOARD"><AppIcon name="solar:close-square-bold" :size="12" /> STOP</button>
+        <button class="bw-btn" style="flex:1;" @click="store.startDashboard()" :disabled="store.dashboardStatus?.running" title="START DASHBOARD"><AppIcon name="solar:play-bold" :size="12" /> START</button>
+        <button class="bw-btn" style="flex:1;" @click="store.stopDashboard()" :disabled="!store.dashboardStatus?.running" title="STOP DASHBOARD"><AppIcon name="solar:close-square-bold" :size="12" /> STOP</button>
         <button class="bw-btn" style="flex:1;" @click="store.fetchDashboardStatus()"><AppIcon name="solar:refresh-bold" :size="13" /> REFRESH</button>
       </div>
     </div>

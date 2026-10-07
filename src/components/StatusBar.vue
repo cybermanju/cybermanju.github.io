@@ -52,7 +52,7 @@
         :class="{ 'sb-active': isSyncActive }"
         title="SYNC STATUS"
         aria-label="SYNC STATUS"
-      >{{ isSyncActive ? 'SYNC:' + store.syncProgress?.status.toUpperCase() : 'SYNC:IDLE' }}</span>
+      >{{ isSyncActive ? 'SYNC:' + (store.syncProgress?.status?.toUpperCase() ?? '…') : 'SYNC:IDLE' }}</span>
       <span class="sb-div">|</span>
       <span
         class="sb-clickable"

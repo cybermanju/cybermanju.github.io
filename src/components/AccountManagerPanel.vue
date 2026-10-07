@@ -79,9 +79,25 @@
           <p class="am-hint">Signed in through the Supabase broker — this app stores no password anywhere.</p>
         </div>
 
-        <div v-else class="am-card">
-          <h3 class="am-card-title">Sign in with a provider</h3>
-          <p class="am-hint">Approve at the provider — nothing is typed here. OAuth is the only sign-in; there is no password form.</p>
+        <div v-if="connectedAccounts.length" class="am-card">
+          <h3 class="am-card-title">Connected accounts ({{ connectedAccounts.length }})</h3>
+          <p class="am-hint">Supabase holds one active session — the rest stay remembered here, so you can switch back in one click, including a second account on the same provider.</p>
+          <div v-for="acc in connectedAccounts" :key="acc.id" class="am-identity-row">
+            <img v-if="acc.avatarUrl" class="am-avatar" :src="acc.avatarUrl" alt="" />
+            <ProviderLogo v-else :provider="acc.provider" :size="32" />
+            <div class="am-identity-meta">
+              <strong>{{ acc.name }}</strong>
+              <span class="muted">{{ acc.email || acc.provider }}</span>
+            </div>
+            <span class="am-status sm" :class="acc.id === identity?.id ? 'is-ok' : ''">{{ acc.id === identity?.id ? 'ACTIVE' : acc.provider.toUpperCase() }}</span>
+            <button v-if="acc.id !== identity?.id" class="am-btn xs primary" type="button" :disabled="!!signInBusy" @click="switchAccount(acc)">Switch</button>
+            <button class="am-btn xs" type="button" :title="`Forget ${acc.name}`" @click="forgetAccount(acc.id)">Forget</button>
+          </div>
+        </div>
+
+        <div class="am-card">
+          <h3 class="am-card-title">{{ identity ? 'Add another account' : 'Sign in with a provider' }}</h3>
+          <p class="am-hint">Approve at the provider — nothing is typed here. OAuth is the only sign-in; there is no password form. Every login is fresh, so pick any account at the provider — even a second one on the same provider.</p>
           <div class="am-login-grid">
             <button
               v-for="p in LOGIN_CARDS"
@@ -407,6 +423,8 @@ import { useWindowManager } from '@/composables/useWindowManager'
 import { isStaticHost } from '@/composables/useTauri'
 import { wasmDbBackend } from '@/composables/useWasmBackend'
 import {
+  connectedAccounts,
+  forgetConnectedAccount,
   getPendingOAuthConfig,
   identity,
   refreshIdentity,
@@ -417,7 +435,9 @@ import {
   supabaseConfigured,
   supabaseProviderFor,
   supabaseSession,
+  supabaseSessionProvider,
   takeProviderTokenStash,
+  type ConnectedAccount,
   type OAuthBackend,
 } from '@/composables/useSupabase'
 import {
@@ -800,6 +820,19 @@ async function signOut() {
   }
 }
 
+/** Switch to a remembered account: fresh login with its provider — the
+ * provider's own chooser picks the account, so a second login on the SAME
+ * provider works too. */
+async function switchAccount(acc: ConnectedAccount) {
+  if (signInBusy.value) return
+  await signOutIdentity().catch(() => {})
+  await signIn(acc.provider as OAuthBackend)
+}
+
+function forgetAccount(id: string) {
+  forgetConnectedAccount(id)
+}
+
 function timeOf(ts: number): string {
   return ts ? new Date(ts).toLocaleTimeString() : ''
 }
@@ -962,13 +995,12 @@ function cancelOauth() {
 async function supabaseConnect(cfg: SyncConfig) {
   cancelSupabase()
   if (!supabaseConfigured()) {
-    const { debugSupabaseConfig } = await import('@/composables/useSupabase')
-    debugSupabaseConfig('AccountManagerPanel: connect blocked, broker missing')
     sbMsg.value[cfg.id] =
-      'Broker not configured — set the Supabase URL + key (Settings → OAuth broker, or bake VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY into the Pages build and redeploy), and enable this provider under Supabase → Authentication → Sign-in. See console [supabase] for diagnostics.'
+      'Broker not configured — set the Supabase URL + key (Settings → OAuth broker, or bake VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY into the Pages build and redeploy), and enable this provider under Supabase → Authentication → Sign-in.'
     return
   }
   setPendingOAuthConfig(cfg.id)
+  const expected = supabaseProviderFor(cfg.backendType)
   let url = ''
   try {
     ;({ url } = await startSupabaseOAuth(cfg.backendType))
@@ -986,14 +1018,29 @@ async function supabaseConnect(cfg: SyncConfig) {
   sbMsg.value[cfg.id] = 'Approve at the provider in the popup — waiting for the token…'
   const abort = new AbortController()
   sbAbort.value = abort
+  // Wake up early when the popup reports completion; the shared session
+  // stays the source of truth.
+  let msgDone = false
+  const onMsg = (e: MessageEvent) => {
+    try {
+      if (e?.data?.type === 'cybermanju:oauth-done') msgDone = true
+    } catch {
+      // Ignore malformed messages.
+    }
+  }
+  window.addEventListener('message', onMsg)
   try {
     const ok = await pollUntilTrue(
       async () => {
-        if (popup.closed) throw new Error('popup-closed')
+        if (popup.closed && !msgDone) throw new Error('popup-closed')
         let token = ''
         try {
           const session = await supabaseSession()
-          token = session?.provider_token ?? ''
+          const prov = session ? supabaseSessionProvider(session) : null
+          // Only accept the token minted for THIS provider — a stale session
+          // from an earlier login with another provider must not close the
+          // flow early with the wrong credentials.
+          if (prov && prov === expected) token = session?.provider_token ?? ''
         } catch {
           token = ''
         }
@@ -1018,6 +1065,7 @@ async function supabaseConnect(cfg: SyncConfig) {
         ? 'Popup closed before approval — retry, or paste a token below.'
         : 'Cancelled.'
   } finally {
+    window.removeEventListener('message', onMsg)
     sbAbort.value = null
     sbBusy.value = null
   }

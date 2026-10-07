@@ -229,6 +229,141 @@ pub fn list_remote_files(config: &SyncConfig, prefix: &str) -> Result<Vec<Remote
     backend.list_files(prefix)
 }
 
+// ─── Private vault repo provisioning (GitHub + GitLab) ─────────────
+
+/// `POST /api/sync/create-repo` body. When `configId` is set the stored
+/// provider token is used unless `token` is pasted explicitly; otherwise
+/// `token` is required. `name` accepts `my-vault` or `owner/my-vault`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateRepoRequest {
+    pub backend_type: String,
+    #[serde(default)]
+    pub config_id: Option<String>,
+    #[serde(default)]
+    pub token: Option<String>,
+    pub name: String,
+    #[serde(default = "default_private")]
+    pub private: bool,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub base_path: Option<String>,
+}
+
+fn default_private() -> bool {
+    true
+}
+
+/// Create a new private vault repository on GitHub/GitLab and return what
+/// the frontend stores in `SyncConfig.repo_name` (+ branch + URL).
+pub fn create_repo(
+    db: &RwLock<Database>,
+    req: CreateRepoRequest,
+) -> Result<cybermanju_sync::CreatedRepo, String> {
+    if req.name.trim().is_empty() {
+        return Err("unsupported: repo name must not be empty".to_string());
+    }
+    // Resolve the token: explicit paste wins, then the stored secret of an
+    // existing provider config (so OAuth-connected providers need no paste).
+    let mut token = req.token.clone().unwrap_or_default();
+    if token.trim().is_empty() {
+        if let Some(config_id) = req.config_id.as_deref().filter(|s| !s.trim().is_empty()) {
+            crate::security::validate_id(config_id)?;
+            let db = db.read().map_err(|e| e.to_string())?;
+            let config = get_config(&db, config_id)?;
+            token = cybermanju_sync::oauth::resolve_token(&config).unwrap_or_default();
+            if token.trim().is_empty() {
+                let secret = db
+                    .get_sync_secret(config_id)
+                    .map_err(|e| e.to_string())?
+                    .unwrap_or_default();
+                token = secret;
+            }
+        }
+    }
+    if token.trim().is_empty() {
+        return Err("auth: repo creation needs a token — paste a PAT or connect with OAuth first".to_string());
+    }
+    cybermanju_sync::create_repository(&cybermanju_sync::CreateRepoInput {
+        backend: req.backend_type,
+        token,
+        name: req.name,
+        private: req.private,
+        description: req.description.unwrap_or_default(),
+        branch: req.branch.unwrap_or_else(|| "main".to_string()),
+        base_url: req.base_path,
+    })
+}
+
+/// One text/binary seed file for a fresh vault repo.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeedFile {
+    pub path: String,
+    pub content_base64: String,
+}
+
+/// `POST /api/sync/seed-repo` body — writes small bootstrap files
+/// (README, `cybermanju.json` manifest, the exported `vault.cybermanju`
+/// bytes as base64) into an existing provider repo via its sync backend.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeedRepoRequest {
+    pub config: SyncConfig,
+    pub files: Vec<SeedFile>,
+}
+
+/// Seed a vault repo with bootstrap files. Each file is base64-decoded to a
+/// temp file and uploaded through the provider backend (Contents API on
+/// GitHub, files API on GitLab). Caps: 8 files, 5 MiB each — the vault
+/// container itself is seeded the same way by the frontend export step.
+pub fn seed_repo(req: SeedRepoRequest) -> Result<Vec<String>, String> {
+    if req.files.is_empty() {
+        return Err("unsupported: seed needs at least one file".to_string());
+    }
+    if req.files.len() > 8 {
+        return Err("too_large: seed holds at most 8 files".to_string());
+    }
+    let backend = create_backend(&req.config)?;
+    let dir = std::env::temp_dir().join(format!("cyb-seed-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&dir).map_err(|e| format!("network: cannot stage seed files: {}", e))?;
+    let mut urls = Vec::with_capacity(req.files.len());
+    for file in &req.files {
+        let clean = file.path.trim().trim_matches('/').to_string();
+        if clean.is_empty()
+            || clean.split('/').any(|s| s == "..")
+            || clean.len() > 256
+        {
+            let _ = fs::remove_dir_all(&dir);
+            return Err(format!("unsupported: seed path '{}' is invalid", file.path));
+        }
+        let bytes = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            file.content_base64.trim(),
+        )
+        .map_err(|e| format!("unsupported: seed file '{}' is not base64: {}", clean, e))?;
+        if bytes.len() > 5 * 1024 * 1024 {
+            let _ = fs::remove_dir_all(&dir);
+            return Err(format!("too_large: seed file '{}' exceeds 5 MiB", clean));
+        }
+        let stage = dir.join(format!("seed-{}", urls.len()));
+        fs::write(&stage, &bytes)
+            .map_err(|e| format!("network: cannot stage seed file '{}': {}", clean, e))?;
+        match backend.upload_file(stage.to_string_lossy().as_ref(), &clean) {
+            Ok(url) => urls.push(url),
+            Err(e) => {
+                let _ = fs::remove_dir_all(&dir);
+                return Err(e);
+            }
+        }
+    }
+    let _ = fs::remove_dir_all(&dir);
+    Ok(urls)
+}
+
 // ─── Progress & cancel ───────────────────────────────────────────────
 
 /// Current sync progress snapshot (lockless).

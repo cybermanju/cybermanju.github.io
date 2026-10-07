@@ -29,7 +29,7 @@ pub mod lease;
 pub mod repair;
 pub mod scrub;
 
-pub use backends::create_backend;
+pub use backends::{create_backend, create_repository, CreateRepoInput, CreatedRepo};
 pub use cybermanju_types::sync::*;
 pub use pipeline::SyncPipeline;
 pub use state::SyncState;

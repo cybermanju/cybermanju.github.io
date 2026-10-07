@@ -1054,6 +1054,59 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
+  /**
+   * Create a new private vault repo on GitHub/GitLab (PAT or stored OAuth
+   * token). Desktop/Docker go through the Rust backend; the static Pages
+   * build posts directly to the provider API (CORS-OK).
+   */
+  async function createProviderRepo(args: {
+    backendType: string
+    configId?: string
+    token?: string
+    name: string
+    private?: boolean
+    description?: string
+    branch?: string
+    basePath?: string
+  }) {
+    try {
+      const repo = await invoke<{
+        backend: string
+        repoName: string
+        fullName: string
+        branch: string
+        url: string
+        projectId?: string | null
+      }>('create_provider_repo', {
+        backendType: args.backendType,
+        configId: args.configId,
+        token: args.token,
+        name: args.name,
+        private: args.private ?? true,
+        description: args.description,
+        branch: args.branch,
+        basePath: args.basePath,
+      })
+      return repo ?? null
+    } catch (e) {
+      notifyError('Repo creation failed', e)
+      return null
+    }
+  }
+
+  /** Seed a fresh vault repo with README / manifest / vault bytes. */
+  async function seedRepoFiles(
+    config: SyncConfig,
+    files: Array<{ path: string; contentBase64: string }>,
+  ) {
+    try {
+      return await invoke<string[]>('seed_repo_files', { config, files })
+    } catch (e) {
+      notifyError('Repo seed failed', e)
+      return null
+    }
+  }
+
   function logout() {
     currentUser.value = null
     setSessionToken('')
@@ -1259,9 +1312,27 @@ export const useAppStore = defineStore('cybermanju', () => {
   }
 
   // ── Actions: Dashboard Status ───────────────────────────────
+  // Static hosts (Pages/WASM) have no dashboard behind the page: the invoke
+  // layer answers with a local `{running:false}` stub, so this never throws
+  // and never poisons `dashboardStatus` with a shapeless payload (a prior
+  // Pages crash was `Cannot read properties of undefined (reading
+  // 'running')` from templates reading `dashboardStatus.running` after a
+  // bad assignment).
+  const DASHBOARD_OFFLINE: DashboardStatus = {
+    running: false,
+    port: 3456,
+    url: 'http://localhost:3456',
+    activeConnections: 0,
+  }
+  function isDashboardStatus(v: unknown): v is DashboardStatus {
+    const o = v as Partial<DashboardStatus> | null | undefined
+    return !!o && typeof o.running === 'boolean'
+  }
   async function fetchDashboardStatus() {
     try {
-      dashboardStatus.value = await invoke<DashboardStatus>('dashboard_status')
+      const res = await invoke<DashboardStatus>('dashboard_status')
+      if (!isDashboardStatus(res)) return
+      dashboardStatus.value = res
     } catch (e) {
       notifyError('Failed to fetch dashboard status', e)
     }
@@ -1270,6 +1341,7 @@ export const useAppStore = defineStore('cybermanju', () => {
   async function startDashboard() {
     try {
       const result = await invoke<DashboardStatus>('start_dashboard')
+      if (!isDashboardStatus(result)) return
       dashboardStatus.value = result
       notifySuccess('Dashboard started')
     } catch (e) {
@@ -1440,7 +1512,6 @@ export const useAppStore = defineStore('cybermanju', () => {
     try {
       const res = await invoke<OsPs>('os_ps')
       if (!res || !Array.isArray((res as OsPs).tasks) || !(res as OsPs).counts) {
-        console.warn('[os_ps] shapeless payload dropped (expected {tasks, counts})', res)
         osPs.value = null
         return
       }
@@ -1920,7 +1991,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     fetchSyncConfigs, createSyncConfig, saveSyncConfig, probeSyncConnection, deleteSyncConfig, startSync,
     getSyncProgress, testSyncConnection, cancelSync, listRemoteFiles,
     getSyncJob, fetchSyncRuns, fetchSyncStatus, restoreSyncFile, deleteRemoteFile,
-    fetchSyncUsage, oauthStart,
+    fetchSyncUsage, oauthStart, createProviderRepo, seedRepoFiles,
     fetchRepairStatus, runRepair, runRebuild, runGc, runScrub, fetchScrubRuns,
     fetchRepairTasks, fetchRepairHealth,
     acquireLease, releaseLease, fetchLeaseStatus,

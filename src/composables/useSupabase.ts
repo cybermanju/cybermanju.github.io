@@ -7,16 +7,25 @@
 // Supabase's server does the secret-holding exchange with the provider.
 //
 // Flow (all standard supabase-js v2 PKCE):
-//  1. `startSupabaseOAuth()` — `signInWithOAuth({ skipBrowserRedirect: true })`
-//     returns the Supabase authorize URL (PKCE verifier stashed in
-//     localStorage by the client). We open it in a popup.
+//  1. `startSupabaseOAuth()` / `startSupabaseSignIn()` —
+//     `signInWithOAuth({ skipBrowserRedirect: true })` returns the Supabase
+//     authorize URL (PKCE verifier stashed in localStorage by the client).
+//     We open it in a popup WITHOUT `noopener` so the opener chain survives.
 //  2. User approves at the provider → Supabase → redirectTo (our page,
 //     `?oauth=popup`) lands *inside the popup*.
-//  3. The popup boots this same app; `finishSupabaseReturn()` (App.vue boot)
+//  3. The popup boots this same bundle but takes the popup fast-path
+//     (`isOAuthPopup()` → App.vue minimal view): `finishSupabaseReturn()`
 //     lets the client auto-exchange `?code=` (`detectSessionInUrl`), reads
-//     `session.provider_token`, stashes it, and closes the popup.
-//  4. The opener polls `supabaseSession()` until `provider_token` appears,
-//     saves it into the provider config, and probes — CONNECTED.
+//     `session.provider_token`, records the account, postMessages the opener
+//     (`cybermanju:oauth-done`) and closes itself with retries — it NEVER
+//     renders the full app in the popup window.
+//  4. The opener wakes on the message (or its session poll), verifies the
+//     token belongs to the expected provider, closes the popup reference it
+//     holds, and finalizes — CONNECTED.
+// Sign-in is always FRESH (existing session signed out first), so every
+// provider button stays usable and multiple accounts on the same provider
+// can be added one after another; `connectedAccounts` remembers them all
+// while Supabase holds the single active session.
 //
 // The provider token is a real provider credential (GitHub honors it as a
 // token; Drive accepts the Bearer). Requested scopes are the minimum the
@@ -86,58 +95,6 @@ export function getSupabaseConfig(): { url: string; key: string; source: string 
   return { url: '', key: '', source: 'none' }
 }
 
-/**
- * Verbose, secret-safe diagnostics for the "Broker not configured" mystery.
- * Logs the resolved source (localStorage > build-env > none), the URL host,
- * key prefix/length (NEVER the full key), the page origin (Supabase redirect
- * allow-list must cover `${origin}${pathname}?oauth=popup`) and whether the
- * Vite build actually baked the env in. Throttled: one line per unique
- * signature so hot paths (computed badges, polls) don't spam the console.
- */
-const loggedSupabaseSigs = new Set<string>()
-
-export function debugSupabaseConfig(reason: string): void {
-  try {
-    const { url, key, source } = getSupabaseConfig()
-    const bakedUrl = String(
-      (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? '',
-    ).trim()
-    const bakedKey = String(
-      ((import.meta.env.VITE_SUPABASE_ANON_KEY ??
-        import.meta.env.VITE_SUPABASE_KEY) as string | undefined) ?? '',
-    ).trim()
-    let host = ''
-    try {
-      host = url ? new URL(url).host : ''
-    } catch {
-      host = 'INVALID-URL'
-    }
-    const sig = `${reason}|${source}|${host}|${url.length}|${key.length}|${supabaseConfigured()}`
-    if (loggedSupabaseSigs.has(sig)) return
-    loggedSupabaseSigs.add(sig)
-    const origin =
-      typeof window !== 'undefined'
-        ? `${window.location.origin}${window.location.pathname}?oauth=popup`
-        : 'no-window'
-    // eslint-disable-next-line no-console
-    console.info('[supabase]', reason, {
-      source,
-      configured: supabaseConfigured(),
-      urlHost: host || '(missing)',
-      urlLen: url.length,
-      keyPrefix: key ? `${key.slice(0, 6)}…` : '(missing)',
-      keyLen: key.length,
-      bakedInBuild: { urlLen: bakedUrl.length, keyLen: bakedKey.length },
-      redirectMustAllow: origin,
-      hint: supabaseConfigured()
-        ? 'broker resolved — if OAuth still fails, enable the provider under Supabase → Authentication → Sign-in and allow the redirect above'
-        : 'broker MISSING — Settings → OAuth broker paste, or set GH Secrets VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY and rebuild (Pages needs a fresh deploy to bake them in)',
-    })
-  } catch {
-    // Diagnostics must never break auth.
-  }
-}
-
 function readConfiguredFlag(): boolean {
   const { url, key } = getSupabaseConfig()
   return url.startsWith('http') && key.length > 0
@@ -166,7 +123,6 @@ export function setSupabaseConfig(url: string, key: string) {
   client = null
   clientKey = ''
   configuredFlag.value = cleanUrl.startsWith('http') && cleanKey.length > 0
-  debugSupabaseConfig('setSupabaseConfig: broker saved from Settings')
 }
 
 export function clearSupabaseConfig() {
@@ -177,7 +133,6 @@ export function clearSupabaseConfig() {
   client = null
   clientKey = ''
   configuredFlag.value = false
-  debugSupabaseConfig('clearSupabaseConfig: broker forgotten')
 }
 
 /**
@@ -186,28 +141,20 @@ export function clearSupabaseConfig() {
  * localStorage so `getSupabaseConfig()` stays synchronous everywhere.
  */
 export async function hydrateSupabaseConfig(): Promise<boolean> {
-  debugSupabaseConfig('hydrateSupabaseConfig: boot')
   if (supabaseConfigured()) return false
   const [url, key] = await Promise.all([vaultGet(VAULT_URL_KEY), vaultGet(VAULT_KEY_KEY)])
-  if (!url && !key) {
-    debugSupabaseConfig('hydrateSupabaseConfig: vault empty')
-    return false
-  }
+  if (!url && !key) return false
   writeLS(URL_KEY, url || '')
   writeLS(KEY_KEY, key || '')
   client = null
   clientKey = ''
   configuredFlag.value = readConfiguredFlag()
-  debugSupabaseConfig('hydrateSupabaseConfig: restored from vault')
   return supabaseConfigured()
 }
 
 export async function getSupabaseClient(): Promise<SupabaseClient | null> {
-  const { url, key, source } = getSupabaseConfig()
-  if (!url || !key) {
-    debugSupabaseConfig('getSupabaseClient: no credentials')
-    return null
-  }
+  const { url, key } = getSupabaseConfig()
+  if (!url || !key) return null
   const cacheKey = `${url}|${key.slice(0, 8)}`
   if (!client || clientKey !== cacheKey) {
     const { createClient } = await import('@supabase/supabase-js')
@@ -215,7 +162,6 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
       auth: { flowType: 'pkce', detectSessionInUrl: true },
     })
     clientKey = cacheKey
-    debugSupabaseConfig(`getSupabaseClient: client created (source=${source})`)
   }
   return client
 }
@@ -281,18 +227,75 @@ export function takeProviderTokenStash(): ProviderTokenStash | null {
 }
 
 /**
+ * True when THIS window is an OAuth popup we opened — not the main tab.
+ * Supabase redirects back with `?code=` (or `?error=` on deny) and our
+ * `redirectTo` carries the `?oauth=popup` marker while `window.opener` is
+ * alive. The popup boots the same bundle, so without this check it renders
+ * the whole app inside the small window and never closes.
+ */
+export function isOAuthPopup(): boolean {
+  try {
+    if (typeof window === 'undefined') return false
+    const params = new URLSearchParams(window.location.search)
+    if (params.has('code')) return true
+    if (typeof window.opener !== 'undefined' && window.opener && !window.opener.closed) {
+      if (params.get('oauth') === 'popup' || params.has('error')) return true
+    }
+  } catch {
+    return false
+  }
+  return false
+}
+
+/**
+ * Tell the opener tab the popup flow finished. The opener treats the shared
+ * session as source of truth and only uses this to wake up early — so even
+ * if `window.close()` is refused, the flow still completes over there.
+ */
+function notifyOpenerOAuthDone(ok: boolean, provider?: string | null): void {
+  try {
+    if (typeof window === 'undefined' || !window.opener || window.opener.closed) return
+    const msg = { type: 'cybermanju:oauth-done', ok, provider: provider ?? null }
+    try {
+      window.opener.postMessage(msg, window.location.origin)
+    } catch {
+      window.opener.postMessage(msg, '*')
+    }
+  } catch {
+    // No opener to tell — the opener polls the shared session as fallback.
+  }
+}
+
+/**
+ * Aggressively close an OAuth popup. A bare `window.close()` is refused when
+ * the opener chain was severed (`noopener`) or the browser wants a gesture —
+ * retry on a timer. ONLY call this in a popup (`isOAuthPopup()`), never in
+ * the main tab.
+ */
+export function closeOAuthPopup(): void {
+  for (const delayMs of [0, 600, 2000]) {
+    window.setTimeout(() => {
+      try {
+        if (window.closed) return
+        window.close()
+      } catch {
+        // Blocked — the opener also holds a reference and closes from its
+        // side; the fallback message below invites a manual close.
+      }
+    }, delayMs)
+  }
+}
+
+/**
  * Begin PKCE OAuth without leaving the app: returns the Supabase authorize
  * URL for us to open in a popup. Throws when Supabase is not configured.
  */
 export async function startSupabaseOAuth(backendType: string): Promise<{ url: string }> {
   const provider = supabaseProviderFor(backendType)
   if (!provider) throw new Error(`unsupported: no Supabase OAuth for '${backendType}'`)
-  debugSupabaseConfig(`startSupabaseOAuth: backend=${backendType} provider=${provider}`)
   const sb = await getSupabaseClient()
   if (!sb) throw new Error('Supabase is not configured — set URL + key in Settings first')
   const redirectTo = `${window.location.origin}${window.location.pathname}?oauth=popup`
-  // eslint-disable-next-line no-console
-  console.info('[supabase] authorize start', { provider, redirectTo, scopes: supabaseScopesFor(backendType) })
   const { data, error } = await sb.auth.signInWithOAuth({
     provider,
     options: {
@@ -321,10 +324,11 @@ export async function supabaseSignOut(): Promise<void> {
 }
 
 /**
- * Called once at app boot. If this page load IS an OAuth return (`?code=`,
- * Supabase configured), the client auto-exchanges it (`detectSessionInUrl`)
- * — here we just read the session, stash the provider token, clean the URL,
- * and close popup returns. Returns true when it handled a return.
+ * Called once at app boot (and on the popup fast-path). If this page load
+ * IS an OAuth return (`?code=`, `?error=`, or the `?oauth=popup` marker with
+ * a live opener), the client auto-exchanges it (`detectSessionInUrl`) — here
+ * we read the session, stash + record, clean the URL, notify the opener and
+ * close popup returns. Returns true when it handled a return.
  */
 export async function finishSupabaseReturn(): Promise<boolean> {
   let params: URLSearchParams
@@ -333,14 +337,39 @@ export async function finishSupabaseReturn(): Promise<boolean> {
   } catch {
     return false
   }
-  if (!params.get('code')) return false
-  if (!supabaseConfigured()) {
-    debugSupabaseConfig('finishSupabaseReturn: ?code= present but broker missing — cannot exchange')
-    // A code we can never exchange — strip it so it doesn't linger.
+  const code = params.get('code')
+  const err = params.get('error')
+  const popup = isOAuthPopup()
+  if (!code && !err && !popup) return false
+
+  const stripReturnParams = () => {
     params.delete('code')
-    window.history.replaceState(null, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}`)
+    params.delete('error')
+    params.delete('error_description')
+    params.delete('oauth')
+    window.history.replaceState(null, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}${window.location.hash}`)
+  }
+
+  // No code to exchange: denied at the provider, broker missing, or a bare
+  // marker. Never boot the app in a popup — tell the opener and close.
+  if (!code) {
+    stripReturnParams()
+    if (popup) {
+      notifyOpenerOAuthDone(false)
+      closeOAuthPopup()
+    }
     return true
   }
+  if (!supabaseConfigured()) {
+    // A code we can never exchange — strip it so it doesn't linger.
+    stripReturnParams()
+    if (popup) {
+      notifyOpenerOAuthDone(false)
+      closeOAuthPopup()
+    }
+    return true
+  }
+  let provider: OAuthBackend | null = null
   try {
     // `detectSessionInUrl` auto-exchanges `?code=` during client creation,
     // but the exchange races this read — one retry before giving up.
@@ -350,10 +379,10 @@ export async function finishSupabaseReturn(): Promise<boolean> {
       session = await supabaseSession()
     }
     const token = session?.provider_token
+    provider = supabaseSessionProvider(session)
     if (token) {
-      const provider = providerFromSession(session) ?? 'github'
       stashProviderToken({
-        backend: provider,
+        backend: provider ?? 'github',
         providerToken: token,
         providerRefreshToken: session?.provider_refresh_token ?? null,
         at: Date.now(),
@@ -361,21 +390,19 @@ export async function finishSupabaseReturn(): Promise<boolean> {
     }
     // The popup path is also a sign-in: publish whoever came back.
     identity.value = identityFromSession(session)
+    recordConnectedAccount(session)
+    if (popup) notifyOpenerOAuthDone(true, provider)
   } catch {
     // Exchange failed (expired code, verifier mismatch) — still clean up.
+    if (popup) notifyOpenerOAuthDone(false)
   }
-  params.delete('code')
-  const clean = `${window.location.pathname}${params.toString() ? `?${params}` : ''}${window.location.hash}`
-  window.history.replaceState(null, '', clean)
-  try {
-    if (window.opener && !window.opener.closed) window.close()
-  } catch {
-    // Cross-origin opener — the main window polls the session anyway.
-  }
+  stripReturnParams()
+  if (popup) closeOAuthPopup()
   return true
 }
 
-function providerFromSession(session: Session | null): OAuthBackend | null {
+/** Provider slug behind a Supabase session (`user.app_metadata.provider`). */
+export function supabaseSessionProvider(session: Session | null): OAuthBackend | null {
   const provider = (session?.user?.app_metadata as Record<string, unknown> | undefined)?.provider
   if (provider === 'github' || provider === 'google' || provider === 'gitlab') return provider
   return null
@@ -399,6 +426,77 @@ export interface CyberIdentity {
 
 export const identity = ref<CyberIdentity | null>(null)
 
+// ── Connected accounts (multi-account) ────────────────────────────────
+//
+// Supabase holds ONE active session, but users have several logins (work /
+// personal, same provider twice). Every successful sign-in is recorded here
+// (persisted in localStorage) so the Accounts panel can list them all and
+// switch in one click: switch = sign out + fresh login with that provider,
+// letting the provider's own chooser pick the account.
+
+export interface ConnectedAccount {
+  id: string
+  email: string
+  name: string
+  avatarUrl: string
+  provider: string
+  lastUsed: number
+}
+
+const ACCOUNTS_KEY = 'cybermanju.connectedAccounts'
+
+function loadConnectedAccounts(): ConnectedAccount[] {
+  try {
+    const raw = localStorage.getItem(ACCOUNTS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as ConnectedAccount[]
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(a => a && typeof a.id === 'string' && typeof a.provider === 'string').slice(0, 10)
+  } catch {
+    return []
+  }
+}
+
+export const connectedAccounts = ref<ConnectedAccount[]>(loadConnectedAccounts())
+
+function persistConnectedAccounts(): void {
+  try {
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(connectedAccounts.value))
+  } catch {
+    // Private mode — memory only.
+  }
+}
+
+/** Record a session's user in the remembered list (deduped by user id). */
+export function recordConnectedAccount(session: Session | null): ConnectedAccount | null {
+  const idn = identityFromSession(session)
+  if (!idn) return null
+  const acc: ConnectedAccount = {
+    id: idn.id,
+    email: idn.email,
+    name: idn.name,
+    avatarUrl: idn.avatarUrl,
+    provider: idn.provider,
+    lastUsed: Date.now(),
+  }
+  connectedAccounts.value = [acc, ...connectedAccounts.value.filter(a => a.id !== acc.id)].slice(0, 10)
+  persistConnectedAccounts()
+  return acc
+}
+
+/**
+ * Forget a remembered account. Forgetting the ACTIVE one also ends the
+ * session (there is nothing to stay signed in as).
+ */
+export function forgetConnectedAccount(id: string): void {
+  connectedAccounts.value = connectedAccounts.value.filter(a => a.id !== id)
+  persistConnectedAccounts()
+  if (identity.value?.id === id) {
+    identity.value = null
+    void supabaseSignOut().catch(() => {})
+  }
+}
+
 function identityFromSession(session: Session | null): CyberIdentity | null {
   const user = session?.user
   if (!user) return null
@@ -416,7 +514,10 @@ function identityFromSession(session: Session | null): CyberIdentity | null {
 
 /** Read the current session and publish it as `identity`. */
 export async function refreshIdentity(): Promise<CyberIdentity | null> {
-  identity.value = identityFromSession(await supabaseSession())
+  const session = await supabaseSession()
+  identity.value = identityFromSession(session)
+  // Repopulate the remembered list on fresh browsers (cleared site data).
+  if (session) recordConnectedAccount(session)
   return identity.value
 }
 
@@ -425,7 +526,6 @@ export async function refreshIdentity(): Promise<CyberIdentity | null> {
  * authorize URL for a popup (same shape as `startSupabaseOAuth`).
  */
 export async function startSupabaseSignIn(provider: OAuthBackend): Promise<{ url: string }> {
-  debugSupabaseConfig(`startSupabaseSignIn: provider=${provider}`)
   const sb = await getSupabaseClient()
   if (!sb) {
     throw new Error(
@@ -449,41 +549,74 @@ export async function startSupabaseSignIn(provider: OAuthBackend): Promise<{ url
 
 /**
  * Full interactive sign-in: opens the provider in a centered popup and waits
- * for the session to land back in this tab. Throws when popups are blocked
- * or the flow never completes.
+ * for the session to land back in this tab. Every call starts FRESH — any
+ * existing session is signed out first — so re-login with the same user, a
+ * second account on the same provider, or another provider always lands a
+ * new session (and the provider shows its account chooser). Throws when
+ * popups are blocked or the flow never completes.
  */
 export async function signInWithPopup(provider: OAuthBackend): Promise<CyberIdentity> {
-  const before = (await supabaseSession())?.user?.id ?? null
+  // Fresh login: end the previous session first so the poll below recognizes
+  // ANY arriving session (same-user re-login used to hang forever here,
+  // because `id !== before` could never turn true).
+  await supabaseSignOut().catch(() => {})
+  identity.value = null
   const { url } = await startSupabaseSignIn(provider)
   const width = 520
   const height = 640
   const left = Math.max(0, Math.round(window.screen.width / 2 - width / 2))
   const top = Math.max(0, Math.round(window.screen.height / 2 - height / 2))
+  // NOTE: no `noopener` — severing the opener chain is what left the popup
+  // open with the app rendered inside it (close + postMessage both need it).
   const popup = window.open(
     url,
     'cybermanju-signin',
-    `width=${width},height=${height},left=${left},top=${top},noopener`,
+    `width=${width},height=${height},left=${left},top=${top}`,
   )
   if (!popup) {
     throw new Error('the browser blocked the sign-in popup — allow popups for this site, then retry')
   }
-  const deadline = Date.now() + 180_000
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 700))
+  // Wake up early when the popup reports completion; the shared session in
+  // localStorage stays the source of truth.
+  let msgDone = false
+  const onMsg = (e: MessageEvent) => {
+    try {
+      if (e?.data?.type === 'cybermanju:oauth-done') msgDone = true
+    } catch {
+      // Ignore malformed messages.
+    }
+  }
+  window.addEventListener('message', onMsg)
+  try {
+    const deadline = Date.now() + 180_000
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 700))
+      const session = await supabaseSession()
+      const id = identityFromSession(session)
+      if (id) {
+        try {
+          if (!popup.closed) popup.close()
+        } catch {
+          // Already gone — the popup closes itself too.
+        }
+        identity.value = id
+        recordConnectedAccount(session)
+        return id
+      }
+      // A manually closed popup with no completion message ends the wait;
+      // a self-closed popup after notifying keeps polling until the session
+      // lands (or the deadline hits).
+      if (popup.closed && !msgDone) break
+    }
     const session = await supabaseSession()
     const id = identityFromSession(session)
-    // Only accept a session that appeared *during* this flow — a pre-existing
-    // session must not count as a fresh sign-in.
-    if (id && id.id !== before) {
+    if (id) {
       identity.value = id
+      recordConnectedAccount(session)
       return id
     }
-    if (popup.closed) break
-  }
-  const id = identityFromSession(await supabaseSession())
-  if (id && id.id !== before) {
-    identity.value = id
-    return id
+  } finally {
+    window.removeEventListener('message', onMsg)
   }
   throw new Error('sign-in did not complete — the popup closed before a session appeared')
 }

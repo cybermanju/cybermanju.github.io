@@ -161,3 +161,13 @@ Stage Summary:
 - Verified here: `check-version.sh` agrees, `npm run typecheck` clean, `vitest` 22 files / 250 pass.
 - Not run here: `cargo fmt/clippy/test --workspace`, desktop/mobile builds — CI + release workflows must prove them. Previous v0.1.0 Release run failed on WASM build, Android signing secrets, and Linux apt deps (logs need repo admin to read); tag move + re-run pending.
 - GitLab mirror live (`.gitlab-ci.yml` 15 jobs + secrets inventory); first pipeline fails at creation with `Identity verification is required in order to run CI jobs` — account-level gate, needs owner verification + the 5 CI variables.
+## 2026-10-07 — OAuth popup close + multi-account sign-in
+
+- Popup stuck open showing the app inside: `signInWithPopup` used `noopener` (severed opener chain, so `window.close()` + opener messaging died) and never closed the popup from the opener side; deny/error returns (`?error=`, no `?code=`) booted the full app in the popup. Fixed with `isOAuthPopup()` detection, App.vue popup fast-path (minimal view, skips store/vault boot), `finishSupabaseReturn()` opener notify (`cybermanju:oauth-done` postMessage) + retried `closeOAuthPopup()`, `?error=` handling, and opener-side `popup.close()` on success.
+- Account manager hid all provider logins after first sign-in (`v-if="identity"` / `v-else`): login grid with all 3 providers now always renders ("Add another account" when signed in). Multi-account via `connectedAccounts` (persisted, deduped by user id) with Switch/Forget; every sign-in starts fresh (sign-out first) so same-provider re-login and provider switching work; `refreshIdentity()` repopulates the list on fresh browsers.
+- `supabaseConnect` token poll now only accepts the token minted for the expected provider (`supabaseSessionProvider()`), so a stale session from another provider can't close the flow with wrong credentials; added opener message wake-up.
+- Verified here: `vue-tsc --noEmit` clean, `vitest` 22 files / 250 pass.
+## 2026-10-07 — OAuth debug logging removed
+
+- Stripped all `[supabase]` console diagnostics (`debugSupabaseConfig` + call sites in Settings/Accounts, authorize/return/sign-in/account logs), the `[WASM Mode]` envelope passthrough warn, and the `[os_ps]`/`[dashboard_status]`/`[start_dashboard]` shapeless-payload warns (silent drops kept). Behavior unchanged.
+- Verified here: `vue-tsc --noEmit` clean, `vitest` 22 files / 250 pass.

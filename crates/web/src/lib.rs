@@ -880,6 +880,23 @@ fn route_request(
                 origin,
             );
         }
+        ["api", "sync", "create-repo"] if method == "POST" => {
+            let req: api::sync_api::CreateRepoRequest = json_body!(body, origin);
+            return match api::sync_api::create_repo(db, req) {
+                Ok(value) => json_ok(&value, origin),
+                Err(e) if e.starts_with("unsupported:") => json_error(501, &e, origin),
+                Err(e) if e.starts_with("conflict:") => json_error(409, &e, origin),
+                Err(e) => api_response::<()>(Err(e), origin),
+            };
+        }
+        ["api", "sync", "seed-repo"] if method == "POST" => {
+            let req: api::sync_api::SeedRepoRequest = json_body!(body, origin);
+            return match api::sync_api::seed_repo(req) {
+                Ok(value) => json_ok(&value, origin),
+                Err(e) if e.starts_with("unsupported:") => json_error(501, &e, origin),
+                Err(e) => api_response::<()>(Err(e), origin),
+            };
+        }
         _ => {}
     }
     // <<< /AGENT-2 ROUTES >>>

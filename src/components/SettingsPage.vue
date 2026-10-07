@@ -137,7 +137,6 @@
             Static-build OAuth broker: GitHub / Google / GitLab login without your own server.
             Enable the providers in Supabase → Authentication → Sign-in, and add this page's URL to redirect URLs.
             <span v-if="supabaseConfiguredNow">Source: {{ supabaseSource }}.</span>
-            Open the browser console for <span class="mono">[supabase]</span> diagnostics.
           </UiText>
           <div v-if="!supabaseConfiguredNow" class="st-banner warn">
             <AppIcon name="solar:info-circle-bold" :size="15" />
@@ -288,7 +287,6 @@ import {
   clearSupabaseConfig,
   supabaseConfigured,
   supabaseSignOut,
-  debugSupabaseConfig,
 } from '@/composables/useSupabase'
 import { wasmBackendActive } from '@/composables/useWasmBackend'
 import { ShortcutsKey } from '@/composables/shortcutsKey'
@@ -358,10 +356,6 @@ const supabaseConfiguredNow = computed(() => supabaseConfigured())
 const supabaseSource = computed(() => getSupabaseConfig().source)
 /** Inline result of the last Save / Forget (clears as soon as a field is edited). */
 const brokerMsg = ref<{ text: string; tone: 'ok' | 'err' } | null>(null)
-
-onMounted(() => {
-  debugSupabaseConfig('SettingsPage: mounted')
-})
 
 function saveSupabase() {
   const url = supabaseUrlDraft.value.trim()

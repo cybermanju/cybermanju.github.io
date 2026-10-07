@@ -2609,3 +2609,253 @@ pub(crate) fn gitlab_instance_base(config: &SyncConfig) -> String {
         "https://gitlab.com".to_string()
     }
 }
+
+// ===========================================================================
+// 5. Private vault repository provisioning (GitHub + GitLab)
+// ===========================================================================
+//
+// `create_repository` turns a pasted PAT/OAuth token into a new *private*
+// repo that will hold the `.cybermanju` vault file. No local git is needed:
+// both providers expose a JSON "create project" endpoint and this uses the
+// same classified `send_classified` plumbing as every other provider call,
+// so failures carry the AGENT-1 `auth:` / `conflict:` / `network:` prefixes
+// the UI already maps to hints.
+
+/// A freshly created remote repository.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatedRepo {
+    /// `github` | `gitlab` (canonical backend slug).
+    pub backend: String,
+    /// What to store in `SyncConfig.repo_name`: `owner/repo` (GitHub) or
+    /// the numeric project id (GitLab).
+    pub repo_name: String,
+    /// Human `owner/repo` / `group/path` form (GitLab also fills this).
+    pub full_name: String,
+    /// Default branch the provider created (`main` unless it says otherwise).
+    pub branch: String,
+    /// Browser URL of the new repo.
+    pub url: String,
+    /// GitLab numeric project id (GitHub: `None`).
+    pub project_id: Option<String>,
+}
+
+/// Input for [`create_repository`]. `name` accepts `repo` or `owner/repo`
+/// (GitHub) / `group/path` (GitLab) — only the last segment becomes the
+/// project name; the owner/group prefix is resolved by the provider token.
+#[derive(Debug, Clone)]
+pub struct CreateRepoInput {
+    pub backend: String,
+    pub token: String,
+    pub name: String,
+    pub private: bool,
+    pub description: String,
+    pub branch: String,
+    pub base_url: Option<String>,
+}
+
+fn valid_repo_segment(seg: &str) -> bool {
+    if seg.is_empty() || seg.len() > 100 {
+        return false;
+    }
+    seg.bytes().all(|b| {
+        matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.')
+    }) && seg != "."
+        && seg != ".."
+}
+
+fn last_segment(name: &str) -> String {
+    name.trim()
+        .trim_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+fn slugify(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+            out.push(c.to_ascii_lowercase());
+        } else if c == ' ' || c == '.' {
+            out.push('-');
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "cybermanju-vault".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn create_github_repo(input: &CreateRepoInput, repo: &str) -> Result<CreatedRepo, String> {
+    if input.token.trim().is_empty() {
+        return Err(format!("{}: GitHub repo creation needs a token", retry::AUTH));
+    }
+    if !valid_repo_segment(repo) {
+        return Err(format!(
+            "{}: repo name '{}' is invalid — use letters, numbers, '-', '_' or '.' (max 100 chars)",
+            retry::UNSUPPORTED,
+            repo
+        ));
+    }
+    let branch = if input.branch.trim().is_empty() {
+        "main".to_string()
+    } else {
+        input.branch.trim().to_string()
+    };
+    let client = http_client()?;
+    let token = input.token.trim().to_string();
+    let body = serde_json::json!({
+        "name": repo,
+        "private": input.private,
+        "description": input.description,
+        "auto_init": true,
+        "default_branch": branch,
+    });
+    let resp = send_classified("GitHub", "repo create", &[201], || {
+        Ok(client
+            .post("https://api.github.com/user/repos")
+            .header("Authorization", format!("token {}", token))
+            .header("Accept", "application/vnd.github+json")
+            .json(&body))
+    })?;
+    let json = parse_json(resp, "GitHub", "repo create")?;
+    let full = json["full_name"].as_str().unwrap_or_default().to_string();
+    let full = if full.is_empty() {
+        repo.to_string()
+    } else {
+        full
+    };
+    let url = json["html_url"]
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("https://github.com/{}", full));
+    let branch = json["default_branch"]
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or(branch);
+    Ok(CreatedRepo {
+        backend: "github".to_string(),
+        repo_name: full.clone(),
+        full_name: full,
+        branch,
+        url,
+        project_id: None,
+    })
+}
+
+fn create_gitlab_project(
+    input: &CreateRepoInput,
+    repo: &str,
+    base: &str,
+) -> Result<CreatedRepo, String> {
+    if input.token.trim().is_empty() {
+        return Err(format!("{}: GitLab project creation needs a token", retry::AUTH));
+    }
+    if !valid_repo_segment(repo) {
+        return Err(format!(
+            "{}: project name '{}' is invalid — use letters, numbers, '-', '_' or '.' (max 100 chars)",
+            retry::UNSUPPORTED,
+            repo
+        ));
+    }
+    let branch = if input.branch.trim().is_empty() {
+        "main".to_string()
+    } else {
+        input.branch.trim().to_string()
+    };
+    let client = http_client()?;
+    let token = input.token.trim().to_string();
+    let body = serde_json::json!({
+        "name": repo,
+        "path": slugify(repo),
+        "visibility": if input.private { "private" } else { "public" },
+        "description": input.description,
+        "initialize_with_readme": true,
+        "default_branch": branch,
+    });
+    let url = format!("{}/api/v4/projects", base);
+    let resp = send_classified("GitLab", "project create", &[201], || {
+        Ok(client
+            .post(&url)
+            .header("PRIVATE-TOKEN", &token)
+            .json(&body))
+    })?;
+    let json = parse_json(resp, "GitLab", "project create")?;
+    let id = json["id"].clone();
+    let id_str = if let Some(n) = id.as_u64() {
+        n.to_string()
+    } else if let Some(s) = id.as_str() {
+        s.to_string()
+    } else {
+        return Err(format!(
+            "{}: GitLab project create returned no id",
+            retry::NETWORK
+        ));
+    };
+    let full = json["path_with_namespace"]
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| repo.to_string());
+    let web_url = json["web_url"]
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{}/{}", base, full));
+    let branch = json["default_branch"]
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or(branch);
+    Ok(CreatedRepo {
+        backend: "gitlab".to_string(),
+        repo_name: id_str.clone(),
+        full_name: full,
+        branch,
+        url: web_url,
+        project_id: Some(id_str),
+    })
+}
+
+/// Create a new private vault repository on GitHub or GitLab.
+///
+/// `input.backend` accepts `github`/`gitlab` (any casing). `input.name` may
+/// be `my-vault` or `owner/my-vault`; only the last segment is sent — the
+/// provider derives the owner from the token. An existing name surfaces as
+/// `conflict:` (HTTP 422/400 from the provider) so the UI can suggest a new
+/// name instead of showing a raw API error.
+pub fn create_repository(input: &CreateRepoInput) -> Result<CreatedRepo, String> {
+    let backend = input.backend.trim().to_ascii_lowercase();
+    let repo = last_segment(&input.name);
+    if repo.is_empty() {
+        return Err(format!(
+            "{}: repo name must not be empty",
+            retry::UNSUPPORTED
+        ));
+    }
+    match backend.as_str() {
+        "github" => create_github_repo(input, &repo),
+        "gitlab" => {
+            let base = input
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.trim_end_matches('/').to_string())
+                .filter(|s| s.starts_with("https://") || s.starts_with("http://"))
+                .unwrap_or_else(|| "https://gitlab.com".to_string());
+            create_gitlab_project(input, &repo, &base)
+        }
+        other if other.is_empty() => Err(format!(
+            "{}: provider is required ('github' or 'gitlab')",
+            retry::UNSUPPORTED
+        )),
+        other => Err(format!(
+            "{}: repo creation is not supported for '{}' (github + gitlab only)",
+            retry::UNSUPPORTED,
+            other
+        )),
+    }
+}

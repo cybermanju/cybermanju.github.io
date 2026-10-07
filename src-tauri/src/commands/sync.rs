@@ -142,3 +142,50 @@ pub fn get_sync_job(
 pub fn list_sync_runs(state: State<'_, AppState>) -> Result<Vec<SyncRunRecord>, String> {
     cybermanju_web::api::sync_api::runs(&state.db, 20)
 }
+
+/// Create a new private vault repository on GitHub/GitLab.
+///
+/// Resolves the provider token from the explicit paste or from the stored
+/// secret of `configId`, then calls the provider "create repo" endpoint.
+/// Returns what the frontend stores in `SyncConfig.repo_name`.
+#[tauri::command]
+pub fn create_provider_repo(
+    backend_type: String,
+    config_id: Option<String>,
+    token: Option<String>,
+    name: String,
+    private: Option<bool>,
+    description: Option<String>,
+    branch: Option<String>,
+    base_path: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<cybermanju_sync::CreatedRepo, String> {
+    cybermanju_web::api::sync_api::create_repo(
+        &state.db,
+        cybermanju_web::api::sync_api::CreateRepoRequest {
+            backend_type,
+            config_id,
+            token,
+            name,
+            private: private.unwrap_or(true),
+            description,
+            branch,
+            base_path,
+        },
+    )
+}
+
+/// Seed a vault repo with bootstrap files (README, manifest, exported
+/// `.cybermanju` bytes as base64) through the provider sync backend.
+#[tauri::command]
+pub fn seed_repo_files(
+    config: SyncConfig,
+    files: Vec<cybermanju_web::api::sync_api::SeedFile>,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let _ = state;
+    cybermanju_web::api::sync_api::seed_repo(cybermanju_web::api::sync_api::SeedRepoRequest {
+        config,
+        files,
+    })
+}

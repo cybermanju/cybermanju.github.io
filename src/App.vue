@@ -11,7 +11,7 @@ import { useSwipe } from '@/composables/useSwipe'
 import { useTouchConfig, type TouchAction } from '@/composables/useTouchConfig'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useFullscreen } from '@vueuse/core'
-import { finishSupabaseReturn, hydrateSupabaseConfig, refreshIdentity } from '@/composables/useSupabase'
+import { finishSupabaseReturn, hydrateSupabaseConfig, refreshIdentity, isOAuthPopup, closeOAuthPopup } from '@/composables/useSupabase'
 import { migrateVaultFromLocalStorage } from '@/composables/useVault'
 import { bootCyberManjuDisk, disk } from '@/composables/useCyberManjuFile'
 import { startVolumeMirror, replayVolumeFromVault, flushVolumeMirror } from '@/composables/useVolumeMirror'
@@ -551,7 +551,33 @@ function openAgent(event: KeyboardEvent) {
 
 const openAccountsWindow = () => wm.open('accounts')
 
+// OAuth popup fast-path: this window is the login popup our app opened
+// (Supabase redirected back into it). It must NEVER render the full app —
+// just exchange the code, notify the opener and close itself.
+const isPopupMode = isOAuthPopup()
+const popupStatus = ref('Completing sign-in…')
+
+function closePopupNow() {
+  closeOAuthPopup()
+}
+
 onMounted(() => {
+  if (isPopupMode) {
+    document.title = 'Completing sign-in — CyberManju OS'
+    // Broker comes from localStorage/build-env synchronously; no vault boot
+    // needed in here. Exchange, publish, notify + close (retried inside).
+    void finishSupabaseReturn().then(async (handled) => {
+      try {
+        await refreshIdentity()
+      } catch {
+        // Session read is best-effort here; the opener polls regardless.
+      }
+      popupStatus.value = handled
+        ? 'Done — this window closes automatically.'
+        : 'Nothing to complete — this window closes automatically.'
+    })
+    return
+  }
   store.currentPanel = 'landing'
   store.initialize()
   // OAuth return (Supabase PKCE popup or full-redirect): exchange ?code=,
@@ -594,10 +620,17 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- OAuth popup fast-path: Supabase redirected back into the window we
+       opened. Minimal view only — the full app must never load in here. -->
+  <div v-if="isPopupMode" class="oauth-popup">
+    <p class="oauth-popup-title">CyberManju OS — sign in</p>
+    <p class="oauth-popup-status">{{ popupStatus }}</p>
+    <button class="oauth-popup-close" type="button" @click="closePopupNow">Close window</button>
+  </div>
   <!-- Gesture surface: useSwipe is bound here (mainAreaRef). touch-action
        below hands multi-touch to the recognizer; inner scrollers keep
        native scroll because they implement the gesture themselves. -->
-  <div ref="mainAreaRef" class="cybermanju-shell">
+  <div v-else ref="mainAreaRef" class="cybermanju-shell">
     <LandingPage
       v-if="store.currentPanel === 'landing'"
       @open-app="store.currentPanel = 'files'; wm.open('files')"
@@ -657,6 +690,47 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.oauth-popup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100vh;
+  width: 100vw;
+  background: var(--ui-bg);
+  color: var(--ui-text);
+  font-family: var(--ui-font);
+  text-align: center;
+  padding: 24px;
+}
+
+.oauth-popup-title {
+  font-size: var(--ui-fs-md);
+  font-weight: 800;
+  letter-spacing: var(--ui-tracking-wide);
+  margin: 0;
+}
+
+.oauth-popup-status {
+  font-size: var(--ui-fs-sm);
+  color: color-mix(in srgb, var(--ui-text) 70%, transparent);
+  margin: 0;
+}
+
+.oauth-popup-close {
+  margin-top: 8px;
+  padding: 8px 18px;
+  border-radius: var(--ui-radius-full);
+  border: 1px solid var(--ui-border-strong);
+  background: var(--ui-surface-2);
+  color: var(--ui-text);
+  font-family: var(--ui-font);
+  font-size: var(--ui-fs-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .cybermanju-shell {
   display: flex;
   flex-direction: column;

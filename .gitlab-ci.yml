@@ -9,9 +9,19 @@
 #   produced (exe/dmg attach when the manual jobs run first).
 # - Secrets (GitLab → Settings → CI/CD → Variables, masked + protected):
 #   TAURI_SIGNING_PRIVATE_KEY, ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD,
-#   ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD.
+#   ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD, VITE_SUPABASE_URL,
+#   VITE_SUPABASE_ANON_KEY.
 #   Android release signing is REQUIRE_SIGNING=1: without the keystore that
-#   job fails by design, same as GitHub.
+#   job fails by design, same as GitHub. The Supabase vars are baked into the
+#   Pages bundle at build time (same as GitHub Secrets); empty when unset —
+#   the app falls back to the manual Settings paste.
+# - gitlab.com SaaS runners require the account to pass identity verification
+#   (credit/debit card or phone). Until that is done every pipeline fails
+#   with "Identity verification is required in order to run CI jobs" before
+#   any job starts — no YAML change can bypass it. Verify at
+#   https://gitlab.com/-/profile/account, then retry the pipeline.
+#   Alternative: attach a self-hosted runner to this project (any machine
+#   with docker) and remove the SaaS-only dependency.
 # - Prose-only pushes (**.md, docs/**, LICENSE) skip the heavy jobs, tags and
 #   MRs always run everything. Redundant pipelines auto-cancel.
 
@@ -113,6 +123,12 @@ wasm-build:
   image: rust:latest
   interruptible: true
   extends: .code-rules
+  variables:
+    # Baked into the Pages bundle at build time (parity with GitHub
+    # `secrets.VITE_SUPABASE_*`). Empty when unset — the app falls back to
+    # the manual Settings paste (see useSupabase.ts).
+    VITE_SUPABASE_URL: $VITE_SUPABASE_URL
+    VITE_SUPABASE_ANON_KEY: $VITE_SUPABASE_ANON_KEY
   cache:
     key:
       files: [Cargo.lock, package-lock.json]
@@ -342,8 +358,11 @@ pages:
     - if: $CI_COMMIT_BRANCH == "main"
   script:
     - mkdir -p public && cp -r dist-wasm/. public/
+    - test -f public/index.html || { echo "ERROR: public/index.html missing (wasm-build produced no bundle)"; exit 1; }
+    - ls public/ | head -n 20
   artifacts:
     paths: [public/]
+    expire_in: 1 week
 
 docker-push:
   stage: deploy

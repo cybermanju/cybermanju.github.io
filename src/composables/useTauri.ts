@@ -684,6 +684,28 @@ const REST_ROUTES: Record<string, RestMapping> = {
     transformRequest: (args) => ({ configId: args.configId, remotePath: args.remotePath }),
   },
 
+  create_provider_repo: {
+    method: 'POST',
+    buildPath: () => '/api/sync/create-repo',
+    transformRequest: (args) => ({
+      backendType: args.backendType,
+      configId: args.configId,
+      token: args.token,
+      name: args.name,
+      private: args.private ?? true,
+      description: args.description,
+      branch: args.branch,
+      basePath: args.basePath,
+    }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  seed_repo_files: {
+    method: 'POST',
+    buildPath: () => '/api/sync/seed-repo',
+    transformRequest: (args) => ({ config: args.config, files: args.files }),
+  },
+
   get_sync_usage: {
     method: 'GET',
     buildPath: (args) => `/api/sync/usage/${args.configId}`,
@@ -1388,6 +1410,20 @@ const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
     await writeStaticLooseGroups(groups)
     return group
   },
+
+  // ── Dashboard (no server behind a static host) ──
+  // Pages/WASM has no `:3456` web server, so `dashboard_status` used to
+  // throw `needs the CyberManju dashboard` on every boot/poll while the
+  // templates read `dashboardStatus.running` — one shapeless assignment
+  // away from `Cannot read properties of undefined (reading 'running')`.
+  // Answer locally with the same row shape instead: offline, never throws.
+  dashboard_status: async () => ({
+    running: false, port: 3456, url: 'http://localhost:3456', activeConnections: 0,
+  }),
+  start_dashboard: async () => ({
+    running: false, port: 3456, url: 'http://localhost:3456', activeConnections: 0,
+  }),
+  stop_dashboard: async () => ({ ok: true }),
 }
 
 /**
@@ -1502,6 +1538,56 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
         )) as T
     }
   }
+  // ── Static-host vault repo provisioning: direct provider fetch (CORS-OK),
+  // no dashboard behind the page. Desktop/Docker fall through to Tauri/REST.
+  if (isStaticHost() && (cmd === 'create_provider_repo' || cmd === 'seed_repo_files')) {
+    const prov = await import('@/utils/gitProvision')
+    if (cmd === 'create_provider_repo') {
+      const backendType = String(args?.backendType ?? 'github').toLowerCase()
+      if (backendType !== 'github' && backendType !== 'gitlab') {
+        throw new Error(`unsupported: repo creation is not supported for '${args?.backendType}' (github + gitlab only)`)
+      }
+      return (await prov.createRepoDirect({
+        backendType: backendType as 'github' | 'gitlab',
+        token: String(args?.token ?? ''),
+        name: String(args?.name ?? ''),
+        privateRepo: args?.private !== false,
+        description: typeof args?.description === 'string' ? args.description : undefined,
+        branch: typeof args?.branch === 'string' ? args.branch : undefined,
+        instanceUrl: typeof args?.basePath === 'string' ? args.basePath : undefined,
+      })) as T
+    }
+    // seed_repo_files on a static host: push each file straight at the
+    // provider Contents/files API (same layout the Rust seeder writes).
+    const cfg = (args?.config ?? {}) as Record<string, unknown>
+    const backendType = String(cfg.backendType ?? 'github').toLowerCase()
+    const files = (args?.files ?? []) as Array<{ path: string; contentBase64: string }>
+    const repoName = String(cfg.repoName ?? '')
+    const branch = String(cfg.branch ?? 'main')
+    if (backendType !== 'github' && backendType !== 'gitlab') {
+      throw new Error(`unsupported: repo seed is not supported for '${cfg.backendType}'`)
+    }
+    const token = String(cfg.token ?? '')
+    if (!token) throw new Error('auth: repo seed needs a token — paste it on the provider card first')
+    if (!repoName) throw new Error('unsupported: provider has no repo yet — create the private repo first')
+    const repo = {
+      backend: backendType,
+      repoName,
+      fullName: backendType === 'github' ? repoName : repoName,
+      branch,
+      url: '',
+      projectId: backendType === 'gitlab' ? repoName : null,
+    }
+    // GitLab fullName for URL building: fall back to the id when the
+    // human path is unknown (the files API only needs the id).
+    return (await prov.seedRepoDirect(
+      backendType as 'github' | 'gitlab',
+      repo,
+      token,
+      files,
+      typeof cfg.basePath === 'string' ? cfg.basePath : undefined,
+    )) as T
+  }
   const mapping = REST_ROUTES[cmd]
   if (isTauri() && !REST_FIRST.has(cmd)) {
     // ── Tauri IPC path ────────────────────────────────────
@@ -1534,7 +1620,6 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
         try {
           return transformResponseKeys(JSON.parse(inner)) as T
         } catch {
-          console.warn(`[WASM Mode] "${cmd}" returned non-JSON output — passing envelope through`, raw)
           return raw as T
         }
       }
