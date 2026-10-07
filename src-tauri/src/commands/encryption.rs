@@ -80,8 +80,7 @@ fn find_latest_key(
         let key: crate::db::schema::EncryptionKey =
             serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
         // Match the algorithm family (e.g. "kyber768" and "hybrid" both map to Hybrid)
-        if key.algorithm == algorithm
-            && best.as_ref().is_none_or(|b| key.created_at > b.created_at)
+        if key.algorithm == algorithm && best.as_ref().is_none_or(|b| key.created_at > b.created_at)
         {
             best = Some(key);
         }
