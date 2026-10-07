@@ -22,6 +22,16 @@ export function swipeDirection(dx: number, dy: number): SwipeDir {
 
 /**
  * Grid-tile `count` windows into a view (classic autotile).
+ *
+ * Up to 4 windows get dedicated quadrant layouts so every pixel is used:
+ * - 1 window: fills the view (uniform `gap` margin).
+ * - 2 windows: side-by-side halves in landscape, stacked halves in
+ *   portrait (uses the longer axis so both tiles stay usable).
+ * - 3 windows: master left (full height) + two stacked on the right.
+ *   No empty hole, unlike a naive 2×2 grid with one cell missing.
+ * - 4 windows: equal 2×2 quadrants.
+ * - 5+ windows: uniform cols×rows grid fallback (dense, never overlaps).
+ *
  * Rows fill left→right, top→bottom with a uniform `gap` margin.
  */
 export function computeTileRects(
@@ -31,19 +41,80 @@ export function computeTileRects(
   gap = 10,
 ): Rect[] {
   if (count <= 0) return []
+  const w = Math.max(0, Math.floor(viewW))
+  const h = Math.max(0, Math.floor(viewH))
+  const g = Math.max(0, gap)
+
+  if (count === 1) {
+    return [
+      {
+        x: g,
+        y: g,
+        width: Math.max(0, w - 2 * g),
+        height: Math.max(0, h - 2 * g),
+      },
+    ]
+  }
+
+  if (count === 2) {
+    // Split along the longer axis so both tiles stay usable.
+    if (w >= h) {
+      const cw = Math.max(0, Math.floor((w - 3 * g) / 2))
+      const ch = Math.max(0, h - 2 * g)
+      return [
+        { x: g, y: g, width: cw, height: ch },
+        { x: g + cw + g, y: g, width: cw, height: ch },
+      ]
+    }
+    const cw = Math.max(0, w - 2 * g)
+    const ch = Math.max(0, Math.floor((h - 3 * g) / 2))
+    return [
+      { x: g, y: g, width: cw, height: ch },
+      { x: g, y: g + ch + g, width: cw, height: ch },
+    ]
+  }
+
+  if (count === 3) {
+    // Master + stack: left tile takes the full height, right column
+    // holds two equal stacked tiles. Every cell is occupied.
+    const masterW = Math.max(0, Math.floor((w - 3 * g) / 2))
+    const fullH = Math.max(0, h - 2 * g)
+    const stackH = Math.max(0, Math.floor((h - 3 * g) / 2))
+    const rx = g + masterW + g
+    return [
+      { x: g, y: g, width: masterW, height: fullH },
+      { x: rx, y: g, width: masterW, height: stackH },
+      { x: rx, y: g + stackH + g, width: masterW, height: stackH },
+    ]
+  }
+
+  if (count === 4) {
+    // Four squared quadrants: two equal columns × two equal rows.
+    const cw = Math.max(0, Math.floor((w - 3 * g) / 2))
+    const ch = Math.max(0, Math.floor((h - 3 * g) / 2))
+    const x1 = g + cw + g
+    const y1 = g + ch + g
+    return [
+      { x: g, y: g, width: cw, height: ch },
+      { x: x1, y: g, width: cw, height: ch },
+      { x: g, y: y1, width: cw, height: ch },
+      { x: x1, y: y1, width: cw, height: ch },
+    ]
+  }
+
   const cols = Math.ceil(Math.sqrt(count))
   const rows = Math.ceil(count / cols)
-  const cw = Math.floor((viewW - gap * (cols + 1)) / cols)
-  const ch = Math.floor((viewH - gap * (rows + 1)) / rows)
+  const cw = Math.max(0, Math.floor((w - g * (cols + 1)) / cols))
+  const ch = Math.max(0, Math.floor((h - g * (rows + 1)) / rows))
   const rects: Rect[] = []
   for (let i = 0; i < count; i++) {
     const c = i % cols
     const r = Math.floor(i / cols)
     rects.push({
-      x: gap + c * (cw + gap),
-      y: gap + r * (ch + gap),
-      width: Math.max(320, cw),
-      height: Math.max(240, ch),
+      x: g + c * (cw + g),
+      y: g + r * (ch + g),
+      width: cw,
+      height: ch,
     })
   }
   return rects

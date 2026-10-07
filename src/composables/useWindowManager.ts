@@ -256,10 +256,7 @@ export function useWindowManager() {
     windowFocusHistory.value.push(id)
     // Tiled mode (or floating + autotile) re-tiles on open so the grid
     // stays dense. Strip mode never resizes — the viewport follows instead.
-    if (
-      shellLayoutMode.value === 'tiled' ||
-      (shellAutoTile.value && shellLayoutMode.value === 'floating')
-    ) {
+    if (shouldAutoTile()) {
       tileWindows()
     }
     // Niri rule: a new window never resizes existing ones — the strip
@@ -282,6 +279,8 @@ export function useWindowManager() {
       stripLine.value = sorted.length === 0 ? 0 : sorted[sorted.length - 1]
     }
     stripOffset.value = clampStripOffset(stripOffset.value, stripWindows.value.length)
+    // Keep the grid dense: a closed tile lets the survivors expand.
+    if (shouldAutoTile()) tileWindows()
   }
 
   function minimize(id: string) {
@@ -289,6 +288,8 @@ export function useWindowManager() {
     if (win) {
       win.minimized = true
       windowFocusHistory.value = windowFocusHistory.value.filter(w => w !== id)
+      // A minimized tile leaves the grid — survivors expand to fill it.
+      if (shouldAutoTile()) tileWindows()
     }
   }
 
@@ -297,6 +298,8 @@ export function useWindowManager() {
     if (win) {
       win.minimized = false
       focus(id)
+      // A restored tile rejoins the grid instead of overlapping it.
+      if (shouldAutoTile()) tileWindows()
     }
   }
 
@@ -383,10 +386,24 @@ export function useWindowManager() {
   }
 
   // ── Auto-organization ───────────────────────────────────────
-  /** Grid-tile every visible window into the workspace (classic autotile). */
+  /** True when the active layout should keep windows grid-tiled. */
+  function shouldAutoTile(): boolean {
+    return (
+      shellLayoutMode.value === 'tiled' ||
+      (shellAutoTile.value && shellLayoutMode.value === 'floating')
+    )
+  }
+
+  /** Grid-tile every visible window into the workspace (classic autotile).
+   *
+   * 1 window fills the screen, 2 split halves, 3 use master + stacked
+   * pair, 4 fill equal 2×2 quadrants, 5+ fall back to a dense grid.
+   * The focused window is re-raised on top so tiling never steals focus.
+   */
   function tileWindows() {
     const list = windows.value.filter(w => !w.minimized)
     if (list.length === 0) return
+    const activeId = activeWindow.value?.id
     const { w, h } = workspaceSize()
     const rects = computeTileRects(list.length, w, h)
     list.forEach((win, i) => {
@@ -398,6 +415,11 @@ export function useWindowManager() {
       win.zIndex = 10 + i
     })
     nextZIndex.value = 10 + list.length
+    // Keep the focused window visible on top of its fresh tile.
+    if (activeId) {
+      const active = list.find(win => win.id === activeId)
+      if (active) active.zIndex = nextZIndex.value++
+    }
   }
 
   /** Cascade from top-left (classic floating cleanup). */

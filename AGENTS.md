@@ -75,9 +75,15 @@
 - Default branch is `main`. Push with `git push origin main`
   (no `-f` unless explicitly requested).
 - When asked to push: `git add -A` + commit (descriptive message, not bare
-  `update`) + push, then watch CI. `push.sh ["message"]` does exactly this for
-  both remotes (`origin` GitHub + `gitlab` mirror): stage all, commit, push
-  main + tags, no force-push.
+  `update`) + push, then watch CI. `push.sh [-m msg] [--watch] ["message"]`
+  does exactly this for both remotes (`origin` GitHub + `gitlab` mirror):
+  heal `.git` ownership, stage all (aborts if `git add` fails), commit,
+  fetch both remotes, auto-rebase onto `origin/main` when behind (never
+  force-push), push main, push only tags the remote lacks (divergent remote
+  tags are left alone with a warning). `--watch`
+  (or `PUSH_WATCH_CI=1`) chains into `scripts/watch-ci.sh --sha HEAD`,
+  which polls the CI run via `gh api .../actions/runs/...` + `/jobs`
+  and saves/prints the FULL logs of all steps (`logs/ci-<run-id>/`).
 - CI skips **pushes that touch only prose** (`**.md`, `docs/**`, `LICENSE`).
   Code pushes run the full ~15 min pipeline; `pull_request` always runs all.
 

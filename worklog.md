@@ -215,3 +215,37 @@ Stage Summary:
 - Robustness: probe JSON bodies read via `safeJson` (unreadable body → `network:`, never a throw); provider transport errors rethrown instead of masked as `not_found`; local `rm -r` counts successes only.
 - Version bump 0.1.0 → 0.1.1 across all carriers (`check-version.sh` green).
 - Verified here: `vue-tsc --noEmit` clean, `vitest` 28 files / 362 pass (static-cybsh suite 28→58 tests). Rust `fmt/clippy/test` left to CI per repo rules.
+## 2026-10-07 — CI watch script + push commit-message UX
+
+- New `scripts/watch-ci.sh`: polls the GitHub CI run (by `--run`, `--sha`, or
+  latest on `--branch`) and saves/prints the FULL logs of all jobs/steps to
+  `logs/ci-<run-id>/`. All state via `gh api .../actions/runs/...` + `/jobs`
+  (works on old `gh` 2.4.0, which lacks `run view --branch`); falls back to
+  `curl` + `$GH_TOKEN`/`$GITHUB_TOKEN` and `python3` stdlib when `gh`/`jq` are
+  absent. Handles prose-only pushes (no run started), superseded runs under
+  CI's cancel-in-progress concurrency, and `--print failed|all|none`.
+- `push.sh` remake (backward compatible): `-m/--message`, multi-word
+  positional join, TTY prompt with dated default (silent default when piped),
+  bare-`update` refusal, `--allow-empty`, `--dry-run`, and `--watch/--no-watch`
+  (`PUSH_WATCH_CI=1` env) chaining into `watch-ci.sh --sha HEAD` after a good
+  origin push. AGENTS.md §3 documents the new flow.
+- Verified here: `bash -n` clean on both, `--help`/`--dry-run`/bare-`update`
+  refusal/auth-error paths exercised. Live GH polling needs stored `gh` auth.
+## 2026-10-07 — Quadrant autotile (≤4 windows) + push.sh hardening
+
+- Autotiling (`src/utils/shellLayout.ts:computeTileRects`): dedicated layouts
+  for ≤4 windows — 1 fills the screen, 2 split halves (long-axis aware), 3 use
+  master-left + two stacked right (no empty hole), 4 fill equal 2×2 quadrants;
+  5+ fall back to a dense grid. Dropped the `Math.max(320/240, …)` minimums that
+  forced tiles to overlap/overflow on small screens.
+- `src/composables/useWindowManager.ts`: re-tile on close/minimize/restore so
+  survivors expand (grid stays dense); focused window is re-raised on top so
+  tiling never steals focus.
+- `push.sh` fixes: heal mixed root/uid `.git/objects` ownership (root hands
+  `.git` back to the worktree owner); abort if `git add -A` fails instead of
+  pushing stale HEAD; refuse unless on `main`; fetch both remotes and
+  auto-rebase onto `origin/main` when behind (never force-push); push only tags
+  the remote lacks — a divergent remote tag (e.g. `v0.1.0`) now warns instead
+  of marking the whole mirror push FAILED. AGENTS.md §3 documents the flow.
+- Verified here: `vue-tsc --noEmit` clean, `vitest` 28 files / 362 pass,
+  `push.sh --dry-run` prints the new fetch/rebase/tag flow.
