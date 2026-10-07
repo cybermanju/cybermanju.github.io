@@ -1518,7 +1518,27 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     if (OS_WASM_COMMANDS.has(cmd)) {
       const wasmArgs = wasmArgsForCommand(cmd, args ?? {})
       const raw = await wasmOsDispatch(wasmArgs.cmd, wasmArgs.args)
-      return raw as T
+      // The wasm dispatcher ALWAYS envelopes: `{"ok":bool,"output":"<inner>"}`
+      // (see crates/os-wasm/src/os.rs `ok`/`err`). `os_exec` IS that envelope
+      // (ShellResult), but the structured commands (ps/top/workers/jobs/df/…)
+      // carry the REST payload JSON-encoded INSIDE `output`. Returning the
+      // envelope as-is used to put `{ok, output}` into `store.osPs`, so
+      // `store.osPs?.counts` was undefined and StatusBar's
+      // `counts.running` threw `Cannot read properties of undefined`
+      // every 4s poll. Unwrap the inner JSON for those commands.
+      if (cmd === 'os_exec' || cmd === 'os_complete' || cmd === 'os_write') {
+        return raw as T
+      }
+      if (raw && typeof raw === 'object' && typeof (raw as Record<string, unknown>).output === 'string') {
+        const inner = (raw as Record<string, unknown>).output as string
+        try {
+          return transformResponseKeys(JSON.parse(inner)) as T
+        } catch {
+          console.warn(`[WASM Mode] "${cmd}" returned non-JSON output — passing envelope through`, raw)
+          return raw as T
+        }
+      }
+      return transformResponseKeys(raw) as T
     }
     if (cmd === 'search_files') {
       const hits = await wasmSearchFiles(String(args?.query ?? ''))

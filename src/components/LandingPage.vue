@@ -184,7 +184,7 @@ async function runLoading() {
     ['USERS', async () => { await store.fetchUsers(); return `${store.users.length} app users (argon2)` }],
     ['TRASH', async () => { await store.fetchTrashItems(); return `${store.trashItems.length} trashed items` }],
     ['AUDIT', async () => { await store.fetchAuditLog(25); return `${store.auditLog.length} recent audit entries` }],
-    ['DASHBOARD', async () => { await store.fetchDashboardStatus(); const d = store.dashboardStatus; return d.running ? `serving ${d.url} (${d.activeConnections} conns)` : 'embedded server idle' }],
+    ['DASHBOARD', async () => { await store.fetchDashboardStatus(); const d = store.dashboardStatus; return d?.running ? `serving ${d.url} (${d.activeConnections} conns)` : 'embedded server idle' }],
   ]
 
   for (const [label, load] of STEPS) {

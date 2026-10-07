@@ -136,6 +136,8 @@
           <UiText as="p" variant="small" tone="muted">
             Static-build OAuth broker: GitHub / Google / GitLab login without your own server.
             Enable the providers in Supabase → Authentication → Sign-in, and add this page's URL to redirect URLs.
+            <span v-if="supabaseConfiguredNow">Source: {{ supabaseSource }}.</span>
+            Open the browser console for <span class="mono">[supabase]</span> diagnostics.
           </UiText>
           <div v-if="!supabaseConfiguredNow" class="st-banner warn">
             <AppIcon name="solar:info-circle-bold" :size="15" />
@@ -286,6 +288,7 @@ import {
   clearSupabaseConfig,
   supabaseConfigured,
   supabaseSignOut,
+  debugSupabaseConfig,
 } from '@/composables/useSupabase'
 import { wasmBackendActive } from '@/composables/useWasmBackend'
 import { ShortcutsKey } from '@/composables/shortcutsKey'
@@ -351,12 +354,20 @@ function clearServerUrl() {
 const supabaseUrlDraft = ref(getSupabaseConfig().url)
 const supabaseKeyDraft = ref('')
 const supabaseConfiguredNow = computed(() => supabaseConfigured())
+/** Where the broker credentials came from — shown so Pages deploys can tell baked-in env apart from a manual paste. */
+const supabaseSource = computed(() => getSupabaseConfig().source)
 /** Inline result of the last Save / Forget (clears as soon as a field is edited). */
 const brokerMsg = ref<{ text: string; tone: 'ok' | 'err' } | null>(null)
 
+onMounted(() => {
+  debugSupabaseConfig('SettingsPage: mounted')
+})
+
 function saveSupabase() {
   const url = supabaseUrlDraft.value.trim()
-  const key = supabaseKeyDraft.value.trim()
+  // Keep the already-stored/baked key when rotating only the URL — the
+  // password field stays empty by design (we never echo the secret back).
+  const key = supabaseKeyDraft.value.trim() || getSupabaseConfig().key
   if (!url && !key) {
     brokerMsg.value = { text: 'Paste the project URL and the anon / publishable key first.', tone: 'err' }
     return

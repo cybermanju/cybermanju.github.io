@@ -105,8 +105,12 @@ jobs:
 
       # Keep the freshly built pkg in place so the vite step's alias to
       # crates/os-wasm/pkg resolves to the wasm backend (same as ci.yml).
+      # Supabase broker baked from GH Secrets (see useSupabase.ts).
       - name: Build WASM bundle
         run: npm run build:wasm:frontend
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload WASM artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

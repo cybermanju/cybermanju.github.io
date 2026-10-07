@@ -1433,10 +1433,18 @@ export const useAppStore = defineStore('cybermanju', () => {
   }
 
   /** Polled from the status bar, so failures stay quiet — the task panel
-   *  shows `…` until the API is reachable instead of spamming toasts. */
+   *  shows `…` until the API is reachable instead of spamming toasts.
+   *  Shapeless payloads (e.g. an un-unwrapped wasm envelope) are dropped
+   *  with a console warning instead of poisoning `osPs.counts`. */
   async function fetchOsPs() {
     try {
-      osPs.value = await invoke<OsPs>('os_ps')
+      const res = await invoke<OsPs>('os_ps')
+      if (!res || !Array.isArray((res as OsPs).tasks) || !(res as OsPs).counts) {
+        console.warn('[os_ps] shapeless payload dropped (expected {tasks, counts})', res)
+        osPs.value = null
+        return
+      }
+      osPs.value = res
     } catch {
       osPs.value = null
     }

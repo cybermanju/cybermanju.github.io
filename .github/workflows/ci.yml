@@ -192,8 +192,14 @@ jobs:
       # Keep the freshly built pkg in place so the vite step's alias to
       # crates/os-wasm/pkg resolves to the wasm backend (integrated
       # into the dist-wasm bundle rather than fetched at runtime).
+      # Supabase broker: GH Secrets are baked into the Pages bundle as
+      # Vite env at build time. Empty when unset — the app then falls
+      # back to the manual Settings paste (see useSupabase.ts).
       - name: Build WASM bundle
         run: npm run build:wasm:frontend
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload WASM artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

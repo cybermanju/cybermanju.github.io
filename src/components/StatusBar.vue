@@ -113,7 +113,9 @@ const presenceTitle = computed(() => `idle ${hw.idle.idle.value ? 'yes' : 'no'},
 
 // AGENT-8 item 11: the bar shows background work — a `cybsh` line in flight
 // or any task running in the table — and jumps to the task list on click.
-const runningTasks = computed(() => store.osPs?.counts.running ?? 0)
+// NOTE: `counts` itself is optional-chained: a malformed/shapeless `os_ps`
+// payload must render 0, never throw `Cannot read properties of undefined`.
+const runningTasks = computed(() => store.osPs?.counts?.running ?? 0)
 const hasJob = computed(() => store.shellBusy || runningTasks.value > 0)
 const jobLabel = computed(() => {
   if (store.shellBusy) return 'CYBSH:BUSY'

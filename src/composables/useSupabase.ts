@@ -66,8 +66,76 @@ function writeLS(key: string, value: string) {
   }
 }
 
-export function getSupabaseConfig(): { url: string; key: string } {
-  return { url: readLS(URL_KEY).replace(/\/+$/, ''), key: readLS(KEY_KEY) }
+export function getSupabaseConfig(): { url: string; key: string; source: string } {
+  const lsUrl = readLS(URL_KEY).replace(/\/+$/, '')
+  const lsKey = readLS(KEY_KEY)
+  if (lsUrl || lsKey) return { url: lsUrl, key: lsKey, source: 'localStorage' }
+  // Build-time fallback so GitHub Pages / static deploys work without a
+  // manual paste in Settings. CI injects GH Secrets as Vite env at build
+  // time (see .github/workflows/ci.yml `wasm-build`):
+  //   VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_KEY).
+  // Local dev equivalent: a `.env` file with the same two keys.
+  const envUrl = String(
+    (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? '',
+  ).trim().replace(/\/+$/, '')
+  const envKey = String(
+    ((import.meta.env.VITE_SUPABASE_ANON_KEY ??
+      import.meta.env.VITE_SUPABASE_KEY) as string | undefined) ?? '',
+  ).trim()
+  if (envUrl || envKey) return { url: envUrl, key: envKey, source: 'build-env' }
+  return { url: '', key: '', source: 'none' }
+}
+
+/**
+ * Verbose, secret-safe diagnostics for the "Broker not configured" mystery.
+ * Logs the resolved source (localStorage > build-env > none), the URL host,
+ * key prefix/length (NEVER the full key), the page origin (Supabase redirect
+ * allow-list must cover `${origin}${pathname}?oauth=popup`) and whether the
+ * Vite build actually baked the env in. Throttled: one line per unique
+ * signature so hot paths (computed badges, polls) don't spam the console.
+ */
+const loggedSupabaseSigs = new Set<string>()
+
+export function debugSupabaseConfig(reason: string): void {
+  try {
+    const { url, key, source } = getSupabaseConfig()
+    const bakedUrl = String(
+      (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? '',
+    ).trim()
+    const bakedKey = String(
+      ((import.meta.env.VITE_SUPABASE_ANON_KEY ??
+        import.meta.env.VITE_SUPABASE_KEY) as string | undefined) ?? '',
+    ).trim()
+    let host = ''
+    try {
+      host = url ? new URL(url).host : ''
+    } catch {
+      host = 'INVALID-URL'
+    }
+    const sig = `${reason}|${source}|${host}|${url.length}|${key.length}|${supabaseConfigured()}`
+    if (loggedSupabaseSigs.has(sig)) return
+    loggedSupabaseSigs.add(sig)
+    const origin =
+      typeof window !== 'undefined'
+        ? `${window.location.origin}${window.location.pathname}?oauth=popup`
+        : 'no-window'
+    // eslint-disable-next-line no-console
+    console.info('[supabase]', reason, {
+      source,
+      configured: supabaseConfigured(),
+      urlHost: host || '(missing)',
+      urlLen: url.length,
+      keyPrefix: key ? `${key.slice(0, 6)}…` : '(missing)',
+      keyLen: key.length,
+      bakedInBuild: { urlLen: bakedUrl.length, keyLen: bakedKey.length },
+      redirectMustAllow: origin,
+      hint: supabaseConfigured()
+        ? 'broker resolved — if OAuth still fails, enable the provider under Supabase → Authentication → Sign-in and allow the redirect above'
+        : 'broker MISSING — Settings → OAuth broker paste, or set GH Secrets VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY and rebuild (Pages needs a fresh deploy to bake them in)',
+    })
+  } catch {
+    // Diagnostics must never break auth.
+  }
 }
 
 function readConfiguredFlag(): boolean {
@@ -98,6 +166,7 @@ export function setSupabaseConfig(url: string, key: string) {
   client = null
   clientKey = ''
   configuredFlag.value = cleanUrl.startsWith('http') && cleanKey.length > 0
+  debugSupabaseConfig('setSupabaseConfig: broker saved from Settings')
 }
 
 export function clearSupabaseConfig() {
@@ -108,6 +177,7 @@ export function clearSupabaseConfig() {
   client = null
   clientKey = ''
   configuredFlag.value = false
+  debugSupabaseConfig('clearSupabaseConfig: broker forgotten')
 }
 
 /**
@@ -116,20 +186,28 @@ export function clearSupabaseConfig() {
  * localStorage so `getSupabaseConfig()` stays synchronous everywhere.
  */
 export async function hydrateSupabaseConfig(): Promise<boolean> {
+  debugSupabaseConfig('hydrateSupabaseConfig: boot')
   if (supabaseConfigured()) return false
   const [url, key] = await Promise.all([vaultGet(VAULT_URL_KEY), vaultGet(VAULT_KEY_KEY)])
-  if (!url && !key) return false
+  if (!url && !key) {
+    debugSupabaseConfig('hydrateSupabaseConfig: vault empty')
+    return false
+  }
   writeLS(URL_KEY, url || '')
   writeLS(KEY_KEY, key || '')
   client = null
   clientKey = ''
   configuredFlag.value = readConfiguredFlag()
+  debugSupabaseConfig('hydrateSupabaseConfig: restored from vault')
   return supabaseConfigured()
 }
 
 export async function getSupabaseClient(): Promise<SupabaseClient | null> {
-  const { url, key } = getSupabaseConfig()
-  if (!url || !key) return null
+  const { url, key, source } = getSupabaseConfig()
+  if (!url || !key) {
+    debugSupabaseConfig('getSupabaseClient: no credentials')
+    return null
+  }
   const cacheKey = `${url}|${key.slice(0, 8)}`
   if (!client || clientKey !== cacheKey) {
     const { createClient } = await import('@supabase/supabase-js')
@@ -137,6 +215,7 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
       auth: { flowType: 'pkce', detectSessionInUrl: true },
     })
     clientKey = cacheKey
+    debugSupabaseConfig(`getSupabaseClient: client created (source=${source})`)
   }
   return client
 }
@@ -208,9 +287,12 @@ export function takeProviderTokenStash(): ProviderTokenStash | null {
 export async function startSupabaseOAuth(backendType: string): Promise<{ url: string }> {
   const provider = supabaseProviderFor(backendType)
   if (!provider) throw new Error(`unsupported: no Supabase OAuth for '${backendType}'`)
+  debugSupabaseConfig(`startSupabaseOAuth: backend=${backendType} provider=${provider}`)
   const sb = await getSupabaseClient()
   if (!sb) throw new Error('Supabase is not configured — set URL + key in Settings first')
   const redirectTo = `${window.location.origin}${window.location.pathname}?oauth=popup`
+  // eslint-disable-next-line no-console
+  console.info('[supabase] authorize start', { provider, redirectTo, scopes: supabaseScopesFor(backendType) })
   const { data, error } = await sb.auth.signInWithOAuth({
     provider,
     options: {
@@ -253,6 +335,7 @@ export async function finishSupabaseReturn(): Promise<boolean> {
   }
   if (!params.get('code')) return false
   if (!supabaseConfigured()) {
+    debugSupabaseConfig('finishSupabaseReturn: ?code= present but broker missing — cannot exchange')
     // A code we can never exchange — strip it so it doesn't linger.
     params.delete('code')
     window.history.replaceState(null, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}`)
@@ -342,6 +425,7 @@ export async function refreshIdentity(): Promise<CyberIdentity | null> {
  * authorize URL for a popup (same shape as `startSupabaseOAuth`).
  */
 export async function startSupabaseSignIn(provider: OAuthBackend): Promise<{ url: string }> {
+  debugSupabaseConfig(`startSupabaseSignIn: provider=${provider}`)
   const sb = await getSupabaseClient()
   if (!sb) {
     throw new Error(

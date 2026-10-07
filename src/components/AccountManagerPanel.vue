@@ -962,8 +962,10 @@ function cancelOauth() {
 async function supabaseConnect(cfg: SyncConfig) {
   cancelSupabase()
   if (!supabaseConfigured()) {
+    const { debugSupabaseConfig } = await import('@/composables/useSupabase')
+    debugSupabaseConfig('AccountManagerPanel: connect blocked, broker missing')
     sbMsg.value[cfg.id] =
-      'Set SUPABASE URL + KEY in Settings → OAUTH first (and enable this provider under Supabase → Authentication → Sign-in).'
+      'Broker not configured — set the Supabase URL + key (Settings → OAuth broker, or bake VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY into the Pages build and redeploy), and enable this provider under Supabase → Authentication → Sign-in. See console [supabase] for diagnostics.'
     return
   }
   setPendingOAuthConfig(cfg.id)
