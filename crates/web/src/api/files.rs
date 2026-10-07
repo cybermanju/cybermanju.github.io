@@ -309,17 +309,17 @@ pub fn preview(db: &Database, file_id: &str) -> Result<serde_json::Value, String
 }
 
 // ─── Object-level access (P0-1) ───────────────────────────────────────────
-///
-/// Port of the Tauri `verify_file_access` gate (`src-tauri/.../users.rs`)
-/// for the REST transport, which previously never called it.
-///
-/// Fail-closed: any unknown (missing file row, missing user row, database
-/// error, no matching permission) is `Err` — callers map that to 403/404
-/// and never serve bytes. `admin` bypasses like the Tauri helper, but only
-/// for active admin accounts. Permission rows are read as structs first
-/// (Tauri writer, `camelCase`) with a `serde_json::Value` fallback (legacy
-/// `userId`/`fileId` rows written by the REST setter), so neither writer
-/// silently loses its grants.
+//
+// Port of the Tauri `verify_file_access` gate (`src-tauri/.../users.rs`)
+// for the REST transport, which previously never called it.
+//
+// Fail-closed: any unknown (missing file row, missing user row, database
+// error, no matching permission) is `Err` — callers map that to 403/404
+// and never serve bytes. `admin` bypasses like the Tauri helper, but only
+// for active admin accounts. Permission rows are read as structs first
+// (Tauri writer, `camelCase`) with a `serde_json::Value` fallback (legacy
+// `userId`/`fileId` rows written by the REST setter), so neither writer
+// silently loses its grants.
 
 /// Required access level ranks (`read` < `write` < `admin`).
 fn access_rank(access: &str) -> u8 {
