@@ -244,7 +244,7 @@ fn save_config_unchecked(db: &Database, config: &mut AgentConfig) -> Result<Agen
     // entries always win (`ensure_*` only fills gaps).
     cybermanju_types::agent::ensure_default_mcp_servers(&mut config.mcp_servers);
     cybermanju_types::agent::ensure_default_agent_permissions(&mut config.permission);
-    validate_config(&config)?;
+    validate_config(config)?;
     config.max_turns = config.max_turns.clamp(1, agent_loop::MAX_TURNS_HARD_CAP);
     let now = chrono::Utc::now().to_rfc3339();
     if config.created_at.is_empty() {
