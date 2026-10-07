@@ -34,9 +34,9 @@ export function tokenLabel(b: SyncBackendType): string {
 export function authGuidance(b: SyncBackendType): string {
   switch (b) {
     case 'github':
-      return 'GitHub removed account passwords: sign in with OAUTH above, or paste a personal access token (repo scope) as the password.'
+      return 'GitHub removed account passwords: sign in with OAUTH above, or paste a personal access token (repo scope — repo creation needs it too) as the password.'
     case 'gitlab':
-      return 'GitLab sign-in is OAUTH, or a personal access token (api scope) pasted as the password. Self-hosted? Set the instance URL too.'
+      return 'GitLab sign-in is OAUTH, or a personal access token (api scope — project creation needs it) pasted as the password. Self-hosted? Set the instance URL too.'
     case 'googleDrive':
       return 'Google accepts OAUTH only — there is no password login. CONNECT WITH OAUTH above.'
     default:

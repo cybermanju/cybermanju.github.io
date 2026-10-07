@@ -43,6 +43,11 @@ export const VAULT_README_PATH = 'README.md'
 export const VAULT_MANIFEST_PATH = '.cybermanju.json'
 export const DEFAULT_VAULT_REPO = 'cybermanju-vault'
 export const DEFAULT_VAULT_BRANCH = 'main'
+/** Upper bound for one repo-set provisioning run (provider rate limits). */
+export const MAX_VAULT_REPOS = 8
+/** Seed endpoint cap per file — mirrored vaults bigger than this seed
+ *  README + manifest only (the live sync still carries the data). */
+export const MAX_SEED_BYTES = 5 * 1024 * 1024
 
 const SEGMENT_RE = /^[A-Za-z0-9._-]{1,100}$/
 

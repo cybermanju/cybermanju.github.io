@@ -267,6 +267,7 @@
                 </label>
               </div>
               <p class="am-hint">{{ authGuidance(wiz.backendType) }}</p>
+              <p v-if="wiz.backendType === 'github' || wiz.backendType === 'gitlab'" class="am-hint">No repo yet? Save with just a token (skip the repo field), then use <strong>New private vault repo</strong> in the provider detail to create + sync one.</p>
               <div class="am-row">
                 <button class="am-btn sm primary" type="button" :disabled="wizBusy" @click="addProvider(true)">{{ wizBusy ? 'Verifying…' : 'Save & verify' }}</button>
                 <button class="am-btn sm" type="button" :disabled="wizBusy" @click="addProvider(false)">Save</button>
@@ -355,6 +356,32 @@
                   <button class="am-btn sm primary" type="button" :disabled="saving === selectedCfg.id" @click="saveCreds(selectedCfg!)">{{ saving === selectedCfg.id ? 'Saving…' : 'Save & verify' }}</button>
                   <span class="muted small">Uses saved credentials — save first if you just pasted a token.</span>
                 </div>
+              </div>
+
+              <!-- step 3b: new private vault repo (github/gitlab only) -->
+              <div v-if="selectedCfg.backendType === 'github' || selectedCfg.backendType === 'gitlab'" class="am-step">
+                <h4 class="am-step-title"><span class="am-step-n">3½</span> New private vault repo</h4>
+                <p class="am-hint">No repo yet? Create a private <code class="am-code">{{ selectedCfg.backendType }}</code> repo, seed it with README + manifest + your <code class="am-code">vault.cybermanju</code>, and attach a system disk — one click, fully synced.</p>
+                <div class="am-fields">
+                  <label class="am-field grow">
+                    <span class="am-field-label">New repo name (private)</span>
+                    <input v-model="vaultRepoName" class="am-input" placeholder="cybermanju-vault" autocomplete="off" :aria-label="`New private repo name on ${selectedCfg.backendType}`" />
+                  </label>
+                  <label class="am-field">
+                    <span class="am-field-label">System disk</span>
+                    <input v-model.number="vaultDiskMb" class="am-input xs-num" type="number" min="64" max="8192" step="64" aria-label="System disk size MB" />
+                  </label>
+                </div>
+                <label class="am-field">
+                  <span class="am-field-label">Token for repo creation <span class="muted">(uses the pasted token above, or the saved one)</span></span>
+                  <input v-model="vaultRepoToken" class="am-input" type="password" placeholder="paste PAT — or leave empty to reuse the saved token" autocomplete="off" aria-label="Token for repo creation" />
+                </label>
+                <label class="small muted"><input v-model="vaultIncludeFile" type="checkbox" /> Include current vault file bytes (<code class="am-code">vault.cybermanju</code>) in the seed commit</label>
+                <div class="am-row">
+                  <button class="am-btn sm primary" type="button" :disabled="vaultBusy" @click="createVaultRepo(selectedCfg!)">{{ vaultBusy ? 'Creating…' : 'Create private repo + sync vault' }}</button>
+                  <span v-if="vaultMsg" class="am-note" :class="vaultOk === false ? 'err' : vaultOk === true ? 'ok' : ''" style="margin:0;" role="status">{{ vaultMsg }}</span>
+                </div>
+                <p v-if="vaultUrl" class="am-note">Repo live: <span class="am-code">{{ vaultUrl }}</span></p>
               </div>
 
               <!-- disks -->
@@ -568,6 +595,16 @@ const importInput = ref<HTMLInputElement | null>(null)
 const newDiskMb = ref<Record<string, number>>({})
 const newDiskPass = ref<Record<string, string>>({})
 const resizeMb = ref<Record<string, number>>({})
+
+// ── private vault repo provisioning (github/gitlab) ──────────────
+const vaultRepoName = ref('cybermanju-vault')
+const vaultRepoToken = ref('')
+const vaultDiskMb = ref(512)
+const vaultIncludeFile = ref(true)
+const vaultBusy = ref(false)
+const vaultMsg = ref('')
+const vaultOk = ref<boolean | null>(null)
+const vaultUrl = ref('')
 
 const drafts = reactive<Record<string, CredentialDraft>>({})
 
@@ -1134,6 +1171,101 @@ async function createDisk(configId: string) {
     newDiskPass.value[configId] = ''
   } finally {
     diskBusy.value = null
+  }
+}
+
+/**
+ * One-click private vault repo: create the repo → save provider config →
+ * seed README/manifest (+ vault bytes) → probe → provision + attach a
+ * system disk. Token precedence: the repo-creation field, then the
+ * configure-step draft, then the saved secret (OAuth).
+ */
+async function createVaultRepo(cfg: SyncConfig) {
+  if (vaultBusy.value) return
+  const { validateRepoName, provisionSyncedSystem } = await import('@/utils/gitProvision')
+  const { isStaticHost: checkStatic } = await import('@/composables/useTauri')
+  vaultBusy.value = true
+  vaultMsg.value = ''
+  vaultOk.value = null
+  vaultUrl.value = ''
+  try {
+    const problem = validateRepoName(vaultRepoName.value)
+    if (problem) {
+      vaultMsg.value = problem
+      vaultOk.value = false
+      return
+    }
+    const d = drafts[cfg.id]
+    const token = vaultRepoToken.value.trim() || d?.token.trim() || ''
+    if (cfg.backendType !== 'github' && cfg.backendType !== 'gitlab') {
+      vaultMsg.value = 'Vault repos need GitHub or GitLab.'
+      vaultOk.value = false
+      return
+    }
+    vaultMsg.value = 'Creating private repo…'
+    const repo = await store.createProviderRepo({
+      backendType: cfg.backendType,
+      configId: token ? undefined : cfg.id,
+      token: token || undefined,
+      name: vaultRepoName.value.trim(),
+      private: true,
+      description: 'Private CyberManju OS vault (.cybermanju)',
+      branch: (d?.branch.trim() || cfg.branch || 'main'),
+      basePath: (d?.basePath.trim() || cfg.basePath || undefined),
+    })
+    if (!repo) {
+      vaultMsg.value = 'Repo creation failed — see the toast for the error prefix.'
+      vaultOk.value = false
+      return
+    }
+    vaultUrl.value = repo.url
+    vaultMsg.value = `Repo ${repo.fullName} created — seeding vault + attaching disk…`
+    // Current vault container bytes for the seed commit (best effort:
+    // an unbound session vault still seeds README + manifest).
+    let vaultBytes: Uint8Array | null = null
+    if (vaultIncludeFile.value) {
+      try {
+        const { wasmExportDisk } = await import('@/composables/useWasmBackend')
+        const out = await wasmExportDisk().catch(() => null) as { bytes?: Uint8Array } | null
+        if (out?.bytes && out.bytes.length > 0) vaultBytes = out.bytes
+      } catch {
+        vaultBytes = null
+      }
+    }
+    const staticHostNow = checkStatic()
+    const { config: saved, diskId } = await provisionSyncedSystem({
+      backendType: cfg.backendType as 'github' | 'gitlab',
+      repo,
+      token,
+      displayName: `${repo.fullName} vault`,
+      instanceUrl: d?.basePath.trim() || cfg.basePath || undefined,
+      diskSizeMb: clampDiskMb(vaultDiskMb.value, 512),
+      diskPassphrase: newDiskPass.value[cfg.id] ?? '',
+      vaultBytes,
+      saveConfig: (c) => store.saveSyncConfig({ ...c, id: '' } as SyncConfig),
+      seedViaBackend: (c, files) => store.seedRepoFiles(c, files).then((r) => r ?? []),
+      probe: (c) => store.probeSyncConnection(c),
+      createDisk: async (configId, sizeBytes, passphrase) => {
+        const row = await store.createDisk(configId, sizeBytes, passphrase)
+        return row ? { id: (row as { id: string }).id } : null
+      },
+      attachDisk: (diskId, passphrase) => store.attachDisk(diskId, passphrase),
+      useDirectSeed: staticHostNow,
+    })
+    await Promise.allSettled([store.fetchSyncConfigs(), store.fetchDisks()])
+    selectedId.value = saved.id
+    authState.value[saved.id] = { ok: true, detail: `vault repo ${repo.fullName} verified` }
+    vaultRepoToken.value = ''
+    vaultMsg.value = diskId
+      ? `Synced — ${repo.fullName} holds vault.cybermanju and a ${vaultDiskMb.value} MB system disk is attached.`
+      : `Synced — ${repo.fullName} holds the vault (system disk step was skipped, add one in step 4).`
+    vaultOk.value = true
+    store.notifySuccess(`Private vault repo ${repo.fullName} synced`)
+  } catch (e) {
+    vaultMsg.value = e instanceof Error ? e.message : String(e)
+    vaultOk.value = false
+  } finally {
+    vaultBusy.value = false
   }
 }
 
