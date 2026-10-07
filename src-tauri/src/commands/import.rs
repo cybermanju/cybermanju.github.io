@@ -40,8 +40,8 @@ pub fn import_file(
         return Err(format!("not_found: file '{}' not found", file_path));
     }
 
-    let metadata =
-        std::fs::metadata(path).map_err(|e| format!("integrity: cannot read file metadata: {}", e))?;
+    let metadata = std::fs::metadata(path)
+        .map_err(|e| format!("integrity: cannot read file metadata: {}", e))?;
 
     let file_name = path
         .file_name()

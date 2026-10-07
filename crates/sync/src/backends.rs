@@ -2658,9 +2658,9 @@ fn valid_repo_segment(seg: &str) -> bool {
     if seg.is_empty() || seg.len() > 100 {
         return false;
     }
-    seg.bytes().all(|b| {
-        matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.')
-    }) && seg != "."
+    seg.bytes()
+        .all(|b| matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.'))
+        && seg != "."
         && seg != ".."
 }
 
@@ -2693,7 +2693,10 @@ fn slugify(name: &str) -> String {
 
 fn create_github_repo(input: &CreateRepoInput, repo: &str) -> Result<CreatedRepo, String> {
     if input.token.trim().is_empty() {
-        return Err(format!("{}: GitHub repo creation needs a token", retry::AUTH));
+        return Err(format!(
+            "{}: GitHub repo creation needs a token",
+            retry::AUTH
+        ));
     }
     if !valid_repo_segment(repo) {
         return Err(format!(
@@ -2754,7 +2757,10 @@ fn create_gitlab_project(
     base: &str,
 ) -> Result<CreatedRepo, String> {
     if input.token.trim().is_empty() {
-        return Err(format!("{}: GitLab project creation needs a token", retry::AUTH));
+        return Err(format!(
+            "{}: GitLab project creation needs a token",
+            retry::AUTH
+        ));
     }
     if !valid_repo_segment(repo) {
         return Err(format!(

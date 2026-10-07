@@ -195,7 +195,9 @@ pub fn compress_file(
                                 stats.blake3_hash,
                             ))
                         }
-                        Err(e) => return Err(format!("integrity: triple compression failed: {}", e)),
+                        Err(e) => {
+                            return Err(format!("integrity: triple compression failed: {}", e))
+                        }
                     }
                 } else {
                     match state.compression.compress_data(&data, &layer) {
