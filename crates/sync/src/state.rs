@@ -316,9 +316,11 @@ impl RunRegistry {
     /// `requester` is the trusted local path and sees everything.
     pub fn get_for(&self, run_id: &str, requester: &str, is_admin: bool) -> Option<Arc<SyncRun>> {
         let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
-        inner.runs.get(run_id).cloned().filter(|run| {
-            requester.is_empty() || is_admin || run.owner_id == requester
-        })
+        inner
+            .runs
+            .get(run_id)
+            .cloned()
+            .filter(|run| requester.is_empty() || is_admin || run.owner_id == requester)
     }
 
     /// Most recently started run (finished or not).
@@ -388,11 +390,7 @@ impl RunRegistry {
             let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
             match run_id {
                 Some(id) => match inner.runs.get(id) {
-                    Some(run)
-                        if requester.is_empty()
-                            || is_admin
-                            || run.owner_id == requester =>
-                    {
+                    Some(run) if requester.is_empty() || is_admin || run.owner_id == requester => {
                         Some(Arc::clone(run))
                     }
                     _ => return false,

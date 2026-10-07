@@ -219,24 +219,25 @@ pub fn try_sync_start_exec(
         }
     }
 
-    let output = match crate::api::sync_api::start_job_for(shared, &config_id, start.file_ids, &owner_id) {
-        Ok(job) => format!(
-            "started sync job {} (config {}) · {}/{} files — poll with `sync status`",
-            job.job_id, job.config_id, job.progress.processed_files, job.progress.total_files,
-        ),
-        Err(message) => {
-            return Some(crate::json_ok(
-                &ExecResult {
-                    ok: false,
-                    line,
-                    output: message.clone(),
-                    error: None,
-                    prompt: cybermanju_os::PROMPT,
-                },
-                origin,
-            ));
-        }
-    };
+    let output =
+        match crate::api::sync_api::start_job_for(shared, &config_id, start.file_ids, &owner_id) {
+            Ok(job) => format!(
+                "started sync job {} (config {}) · {}/{} files — poll with `sync status`",
+                job.job_id, job.config_id, job.progress.processed_files, job.progress.total_files,
+            ),
+            Err(message) => {
+                return Some(crate::json_ok(
+                    &ExecResult {
+                        ok: false,
+                        line,
+                        output: message.clone(),
+                        error: None,
+                        prompt: cybermanju_os::PROMPT,
+                    },
+                    origin,
+                ));
+            }
+        };
     Some(crate::json_ok(
         &ExecResult {
             ok: true,
@@ -352,8 +353,15 @@ pub fn route(
                             }),
                             origin,
                         ),
-                        Err(message) if message.starts_with("too_large:") || message.starts_with("disk_full:") => {
-                            let status = if message.starts_with("too_large:") { 413 } else { 507 };
+                        Err(message)
+                            if message.starts_with("too_large:")
+                                || message.starts_with("disk_full:") =>
+                        {
+                            let status = if message.starts_with("too_large:") {
+                                413
+                            } else {
+                                507
+                            };
                             crate::json_error(status, &message, origin)
                         }
                         Err(message) => respond(Err(message), origin),
@@ -377,6 +385,5 @@ pub fn route(
 
 /// Endpoints this family owns, for the 405 arm above.
 const KNOWN: &[&str] = &[
-    "exec", "complete", "stat", "ls", "du", "df", "ps", "top", "workers", "jobs",
-    "write",
+    "exec", "complete", "stat", "ls", "du", "df", "ps", "top", "workers", "jobs", "write",
 ];

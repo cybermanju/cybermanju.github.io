@@ -721,10 +721,7 @@ pub fn job_for(
     // No live run visible to this caller — fall through to history only
     // when the id is not claimed by someone else's live run (avoid a
     // history oracle for live foreign ids).
-    if !requester.is_empty()
-        && !is_admin
-        && RunRegistry::global().get(job_id).is_some()
-    {
+    if !requester.is_empty() && !is_admin && RunRegistry::global().get(job_id).is_some() {
         return Err(format!("not_found: sync job '{job_id}' not found"));
     }
     let db = db.read().map_err(|e| e.to_string())?;
@@ -772,7 +769,12 @@ pub fn runs_for(
     }
     Ok(rows
         .into_iter()
-        .filter(|r| r.owner_id.as_deref().map(|o| o == requester).unwrap_or(true))
+        .filter(|r| {
+            r.owner_id
+                .as_deref()
+                .map(|o| o == requester)
+                .unwrap_or(true)
+        })
         .collect())
 }
 

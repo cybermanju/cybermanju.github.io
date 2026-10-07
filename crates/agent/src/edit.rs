@@ -170,7 +170,7 @@ pub fn strip_anchor(content: &str) -> &str {
 /// A model that edits a file and echoes the *old* trailer is still echoing
 /// our metadata, not writing content, so the echo goes. Anything else —
 /// including a trailer-shaped line the model composed itself — stays.
-pub fn strip_echo(content: &str, existing: Option<&str>) -> &str {
+pub fn strip_echo<'a>(content: &'a str, existing: Option<&str>) -> &'a str {
     let hex = match anchor_trailer(content) {
         Some(hex) => hex,
         None => return content,

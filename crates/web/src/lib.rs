@@ -923,7 +923,11 @@ fn route_request(
                     if let Err(e) =
                         api::files::check_access_many(&guard, claims, &req.file_ids, "read")
                     {
-                        let status = if e.starts_with("not_found:") { 404 } else { 403 };
+                        let status = if e.starts_with("not_found:") {
+                            404
+                        } else {
+                            403
+                        };
                         return json_error(status, &e, origin);
                     }
                 }
@@ -944,7 +948,10 @@ fn route_request(
             let (owner_id, is_admin) = claims_owner(&claims);
             // Foreign runs answer `not_found:` (indistinguishable by design),
             // so the plain mapper keeps every status exactly as before.
-            return api_response(api::sync_api::job_for(db, job_id, &owner_id, is_admin), origin);
+            return api_response(
+                api::sync_api::job_for(db, job_id, &owner_id, is_admin),
+                origin,
+            );
         }
         ["api", "sync", "runs"] if method == "GET" => {
             // P0-10: admins see all rows, everyone else only their own runs
@@ -964,7 +971,11 @@ fn route_request(
                 };
                 if let Some(claims) = &claims {
                     if let Err(e) = api::files::check_access(&guard, claims, file_id, "write") {
-                        let status = if e.starts_with("not_found:") { 404 } else { 403 };
+                        let status = if e.starts_with("not_found:") {
+                            404
+                        } else {
+                            403
+                        };
                         return json_error(status, &e, origin);
                     }
                 }
@@ -1605,9 +1616,12 @@ fn route_request(
             }
             let req: BatchBody = json_body!(body, origin);
             if let Some(claims) = &claims {
-                if let Err(e) = api::files::check_access_many(db, claims, &req.file_ids, "write")
-                {
-                    let status = if e.starts_with("not_found:") { 404 } else { 403 };
+                if let Err(e) = api::files::check_access_many(db, claims, &req.file_ids, "write") {
+                    let status = if e.starts_with("not_found:") {
+                        404
+                    } else {
+                        403
+                    };
                     return json_error(status, &e, origin);
                 }
             }
@@ -1622,9 +1636,12 @@ fn route_request(
             }
             let req: BatchBody = json_body!(body, origin);
             if let Some(claims) = &claims {
-                if let Err(e) = api::files::check_access_many(db, claims, &req.file_ids, "write")
-                {
-                    let status = if e.starts_with("not_found:") { 404 } else { 403 };
+                if let Err(e) = api::files::check_access_many(db, claims, &req.file_ids, "write") {
+                    let status = if e.starts_with("not_found:") {
+                        404
+                    } else {
+                        403
+                    };
                     return json_error(status, &e, origin);
                 }
             }
@@ -1642,9 +1659,12 @@ fn route_request(
             }
             let req: BatchBody = json_body!(body, origin);
             if let Some(claims) = &claims {
-                if let Err(e) = api::files::check_access_many(db, claims, &req.file_ids, "write")
-                {
-                    let status = if e.starts_with("not_found:") { 404 } else { 403 };
+                if let Err(e) = api::files::check_access_many(db, claims, &req.file_ids, "write") {
+                    let status = if e.starts_with("not_found:") {
+                        404
+                    } else {
+                        403
+                    };
                     return json_error(status, &e, origin);
                 }
             }
@@ -1858,7 +1878,10 @@ fn route_request(
             // admin (process spawn + unattended shell). Everyone else saves
             // only unprivileged configs — `auth:` denials are 403.
             let (_, is_admin) = claims_owner(&claims);
-            auth_response(api::agent_api::save_config_as(db, req.config, is_admin), origin)
+            auth_response(
+                api::agent_api::save_config_as(db, req.config, is_admin),
+                origin,
+            )
         }
         ["api", "agent", "configs", id] if method == "GET" => {
             api_response(api::agent_api::get_config(db, id), origin)
@@ -3194,7 +3217,8 @@ pub fn handle_sse_connection(
         let _ = stream.write_all(json_error(403, "Forbidden", origin).as_bytes());
         return;
     }
-    if let Err(message) = api::agent_api::job_status_for(job_id, &claims.user_id, claims.is_admin()) {
+    if let Err(message) = api::agent_api::job_status_for(job_id, &claims.user_id, claims.is_admin())
+    {
         let status = if message.contains("not found") || message.starts_with("not_found:") {
             404
         } else if message.starts_with("auth:") {
@@ -3229,11 +3253,11 @@ pub fn handle_sse_connection(
         if started.elapsed() >= max_stream {
             break;
         }
-        let snapshot = match api::agent_api::job_status_for(job_id, &claims.user_id, claims.is_admin())
-        {
-            Ok(snapshot) => snapshot,
-            Err(_) => break,
-        };
+        let snapshot =
+            match api::agent_api::job_status_for(job_id, &claims.user_id, claims.is_admin()) {
+                Ok(snapshot) => snapshot,
+                Err(_) => break,
+            };
         let body = serde_json::to_string(&snapshot).unwrap_or_default();
         if body != last_body {
             last_body = body.clone();

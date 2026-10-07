@@ -110,11 +110,11 @@ fn tick(db: &RwLock<Database>, last_run: &mut HashMap<String, Instant>) -> Resul
 
         last_run.insert(config.id.clone(), Instant::now());
         let total = file_ids.len() as u32;
-        let run = match registry.begin_owned(&config.id, Arc::new(SyncState::new()), total, "system")
-        {
-            Ok(run) => run,
-            Err(_) => return Ok(()),
-        };
+        let run =
+            match registry.begin_owned(&config.id, Arc::new(SyncState::new()), total, "system") {
+                Ok(run) => run,
+                Err(_) => return Ok(()),
+            };
         info!(
             "auto-sync run {} started for config '{}'",
             run.run_id, config.id

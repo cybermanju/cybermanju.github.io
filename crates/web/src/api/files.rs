@@ -347,10 +347,12 @@ pub fn check_access(
         let users = tx
             .open_table(Database::get_users_table())
             .map_err(|_| "auth: access check unavailable".to_string())?;
-        for entry in users.iter().map_err(|_| "auth: access check unavailable".to_string())? {
+        for entry in users
+            .iter()
+            .map_err(|_| "auth: access check unavailable".to_string())?
+        {
             let (_, value) = entry.map_err(|_| "auth: access check unavailable".to_string())?;
-            if let Ok(user) =
-                serde_json::from_str::<cybermanju_types::schema::User>(value.value())
+            if let Ok(user) = serde_json::from_str::<cybermanju_types::schema::User>(value.value())
             {
                 if user.id == claims.user_id && user.role == "admin" && user.is_active {
                     return Ok(());
@@ -368,7 +370,10 @@ pub fn check_access(
         .open_table(Database::get_users_table())
         .map_err(|_| "auth: access check unavailable".to_string())?;
     let mut caller_active = false;
-    for entry in users.iter().map_err(|_| "auth: access check unavailable".to_string())? {
+    for entry in users
+        .iter()
+        .map_err(|_| "auth: access check unavailable".to_string())?
+    {
         let (_, value) = entry.map_err(|_| "auth: access check unavailable".to_string())?;
         if let Ok(user) = serde_json::from_str::<cybermanju_types::schema::User>(value.value()) {
             if user.id == claims.user_id {
@@ -394,12 +399,14 @@ pub fn check_access(
         .open_table(Database::get_user_file_perms_table())
         .map_err(|_| "auth: access check unavailable".to_string())?;
     let need = access_rank(required);
-    for entry in table.iter().map_err(|_| "auth: access check unavailable".to_string())? {
+    for entry in table
+        .iter()
+        .map_err(|_| "auth: access check unavailable".to_string())?
+    {
         let (_, value) = entry.map_err(|_| "auth: access check unavailable".to_string())?;
         let raw = value.value();
         // Struct path first (both writers store camelCase JSON).
-        if let Ok(perm) =
-            serde_json::from_str::<cybermanju_types::schema::UserFilePermission>(raw)
+        if let Ok(perm) = serde_json::from_str::<cybermanju_types::schema::UserFilePermission>(raw)
         {
             if perm.user_id == claims.user_id
                 && perm.file_id == file_id

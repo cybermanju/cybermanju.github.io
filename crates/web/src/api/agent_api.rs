@@ -194,9 +194,7 @@ pub fn config_needs_admin(config: &AgentConfig) -> Option<&'static str> {
         }
         Some(PermissionRule::Granular(pairs)) => {
             for (pattern, action) in pairs {
-                if *action == PermissionAction::Allow
-                    && (pattern == "*" || pattern.trim() == "*")
-                {
+                if *action == PermissionAction::Allow && (pattern == "*" || pattern.trim() == "*") {
                     return Some("bash: catch-all allow needs admin");
                 }
             }
@@ -2129,7 +2127,11 @@ pub fn job_status(job_id: &str) -> Result<JobSnapshot, String> {
 
 /// Owner-bound poll for the REST transport: strangers get `auth:` instead
 /// of the job, unknown ids stay 404-shaped (`not_found:`).
-pub fn job_status_for(job_id: &str, requester: &str, is_admin: bool) -> Result<JobSnapshot, String> {
+pub fn job_status_for(
+    job_id: &str,
+    requester: &str,
+    is_admin: bool,
+) -> Result<JobSnapshot, String> {
     crate::security::validate_id(job_id)?;
     let registry = jobs().lock().unwrap_or_else(|p| p.into_inner());
     let job = registry
@@ -2152,9 +2154,7 @@ pub fn list_jobs_for(requester: &str, is_admin: bool) -> Vec<JobSnapshot> {
     let registry = jobs().lock().unwrap_or_else(|p| p.into_inner());
     let mut out: Vec<JobSnapshot> = registry
         .values()
-        .filter(|job| {
-            requester.is_empty() || is_admin || job.owner_id == requester
-        })
+        .filter(|job| requester.is_empty() || is_admin || job.owner_id == requester)
         .map(|job| snapshot(job))
         .collect();
     out.sort_by(|a, b| b.job_id.cmp(&a.job_id));
