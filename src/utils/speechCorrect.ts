@@ -112,23 +112,26 @@ function joinShellSplits(s: string): string {
   return out.trim()
 }
 
-// ─── cybsh dictionary (mirrors crates/os `command_table`) ───────────────
+// ─── cybsh dictionary (mirrors crates/os `command_table` plus the static
+// layer's vault verbs in `src/utils/staticCybsh.ts`: `oauth`, `compress`,
+// `decompress`) ───────────────
 
 export const CYBSH_COMMANDS = [
   'help', 'history', 'clear', 'version', 'echo', 'ls', 'cd', 'pwd', 'cat',
   'cp', 'mv', 'rm', 'mkdir', 'touch', 'stat', 'du', 'df', 'mount', 'umount',
-  'disk', 'providers', 'quota', 'sync', 'scrub', 'repair', 'gc', 'lease',
-  'ps', 'top', 'kill', 'jobs', 'compute', 'workers', 'keygen', 'encrypt',
-  'decrypt', 'search', 'ai',
+  'disk', 'providers', 'quota', 'oauth', 'sync', 'scrub', 'repair', 'gc',
+  'lease', 'ps', 'top', 'kill', 'jobs', 'compute', 'workers', 'keygen',
+  'encrypt', 'decrypt', 'compress', 'decompress', 'search', 'ai',
 ] as const
 
 const CYBSH_SUBCOMMANDS: Record<string, readonly string[]> = {
-  disk: ['create', 'attach', 'detach', 'resize', 'check', 'destroy', 'list'],
-  sync: ['start', 'status', 'runs', 'cancel', 'restore'],
+  disk: ['create', 'attach', 'detach', 'resize', 'check', 'destroy', 'list', 'status', 'df'],
+  sync: ['start', 'status', 'list', 'runs', 'cancel', 'restore'],
   compute: ['run'],
   lease: ['acquire', 'release', 'status'],
   repair: ['run', 'rebuild', 'gc', 'status'],
   scrub: ['run', 'runs'],
+  oauth: ['status', 'start'],
   ai: ['ask', 'prompt'],
 }
 

@@ -32,6 +32,13 @@ describe('bestMatch', () => {
   it('returns null when nothing is close', () => {
     expect(bestMatch('zzzq', CYBSH_COMMANDS)).toBeNull()
   })
+  it('knows the static-layer vault verbs', () => {
+    for (const verb of ['oauth', 'compress', 'decompress', 'quota', 'providers']) {
+      expect(CYBSH_COMMANDS).toContain(verb)
+      expect(bestMatch(verb, CYBSH_COMMANDS)?.match).toBe(verb)
+    }
+    expect(bestMatch('outh', CYBSH_COMMANDS)?.match).toBe('oauth')
+  })
 })
 
 describe('correctShellLine', () => {

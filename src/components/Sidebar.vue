@@ -224,7 +224,7 @@
             </div>
           </div>
           <button class="bw-btn" style="width:100%;font-size:10px;margin-top:6px;" @click="wm.open('sync')"><AppIcon name="solar:square-arrow-right-up-bold" :size="12" /> SYNC PANEL</button>
-          <button class="bw-btn" style="width:100%;font-size:10px;margin-top:4px;" @click="wm.open('accounts', { tab: 'providers' })"><AppIcon name="solar:square-arrow-right-up-bold" :size="12" /> ACCOUNTS + OAUTH</button>
+          <button class="bw-btn" style="width:100%;font-size:10px;margin-top:4px;" @click="wm.open('accounts', { tab: 'connections' })"><AppIcon name="solar:square-arrow-right-up-bold" :size="12" /> ACCOUNTS + OAUTH</button>
         </div>
       </div>
 

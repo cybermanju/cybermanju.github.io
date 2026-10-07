@@ -257,7 +257,8 @@ const menuStructure = computed<MenuGroup[]>(() => [
       { id: 'recent', label: 'Recent Files', icon: 'solar:history-2-bold', action: () => { wm.open('recent') } },
       { id: 'div1', divider: true },
       { id: 'accounts', label: 'Account Manager', icon: 'solar:user-id-bold', action: () => { wm.open('accounts') } },
-      { id: 'sync-panel-link', label: 'Provider Connections (OAuth)', icon: 'solar:link-bold', action: () => { wm.open('accounts', { tab: 'providers' }) } },
+      { id: 'sync-panel-link', label: 'Provider Connections (OAuth)', icon: 'solar:link-bold', action: () => { wm.open('accounts', { tab: 'connections' }) } },
+      { id: 'transfer', label: 'Transfer Board (mv/cp)', icon: 'solar:share-bold', action: () => { wm.open('transfer') } },
       { id: 'terminal', label: 'Terminal (cybsh)', icon: 'solar:file-terminal-bold', shortcut: 'Ctrl+`', action: () => { wm.open('terminal') } },
       { id: 'tasks', label: 'Tasks (ps/top)', icon: 'solar:cpu-bold', action: () => { wm.open('processes') } },
       { id: 'disks', label: 'Disks & Volume', icon: 'solar:flash-drive-bold', action: () => { wm.open('disks') } },
@@ -274,6 +275,7 @@ const menuStructure = computed<MenuGroup[]>(() => [
     children: [
       { id: 'about', label: 'About CyberManju OS', icon: 'solar:info-circle-bold', action: () => {} },
       { id: 'docs', label: 'Documentation', icon: 'solar:book-bookmark-bold', action: () => { window.open('https://github.com/cybermanju/cybermanju.github.io', '_blank') } },
+      { id: 'setup', label: 'Setup wizard', icon: 'solar:magic-wand-bold', action: () => { window.dispatchEvent(new CustomEvent('cybermanju:open-setup')) } },
       { id: 'div1', divider: true },
       { id: 'matrix', label: 'Toggle Matrix Rain', icon: 'solar:widget-bold', checked: store.matrixRainEnabled, action: () => { store.matrixRainEnabled = !store.matrixRainEnabled } },
     ],

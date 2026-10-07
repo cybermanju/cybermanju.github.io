@@ -1,6 +1,6 @@
 [package]
 name = "cybermanju-crypto"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Post-quantum cryptography engine (ML-KEM, ML-DSA, ChaCha20)"
 

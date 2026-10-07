@@ -6,10 +6,14 @@
 // terminal's questions against a virtual volume kept in `localStorage`
 // (in-memory when storage is unavailable), with a BM25-lite `search`.
 //
-// Everything the *server* owns — attached disks, providers, scrub, repair —
-// answers `unsupported: …` rather than pretending. The shell contract
-// (`"prefix: detail"`) is unchanged, so the terminal renders identically on
-// all three transports.
+// Two layers answer here. The volume verbs below run natively against the
+// virtual volume; the vault verbs (`quota`, `providers`, `oauth`, `encrypt`,
+// …) are intercepted first by the TypeScript layer
+// (`src/utils/staticCybsh.ts`), which sees the local vault and the provider
+// network that this crate cannot reach. Anything reaching the refusal arm is
+// genuinely server-owned and answers `unsupported: …` rather than
+// pretending. The shell contract (`"prefix: detail"`) is unchanged, so the
+// terminal renders identically on all three transports.
 
 #[cfg(target_arch = "wasm32")]
 use js_sys::global;
@@ -207,16 +211,25 @@ fn bytes_of(volume: &BTreeMap<String, String>) -> u64 {
 }
 
 /// The browser-side command table — the same names `help` advertises.
+///
+/// Verbs the terminal answers locally from the vault live here too
+/// (`quota`, `providers`, `oauth`, `encrypt`, …): on a static host the
+/// TypeScript layer (`src/utils/staticCybsh.ts`) intercepts the single-command
+/// line first and the Rust arms below stay a fallback; `complete` suggests
+/// the same table either way so Tab never hides a verb `exec` understands.
 fn cybermanju_commands() -> &'static [&'static str] {
     &[
         "help",
         "history",
         "clear",
         "version",
+        "echo",
         "pwd",
         "cd",
         "ls",
         "cat",
+        "cp",
+        "mv",
         "write",
         "touch",
         "mkdir",
@@ -226,6 +239,7 @@ fn cybermanju_commands() -> &'static [&'static str] {
         "df",
         "ps",
         "top",
+        "kill",
         "jobs",
         "workers",
         "search",
@@ -239,10 +253,44 @@ fn cybermanju_commands() -> &'static [&'static str] {
         "umount",
         "providers",
         "quota",
+        "oauth",
         "lease",
         "keygen",
         "encrypt",
         "decrypt",
+        "compress",
+        "decompress",
+        "ai",
+    ]
+}
+
+/// Multi-word candidates Tab also offers — mirrors `completions()` in the
+/// native shell plus the static layer's vault verbs, so discovery matches
+/// the desktop on every transport.
+fn complete_subs() -> &'static [&'static str] {
+    &[
+        "disk create",
+        "disk attach",
+        "disk detach",
+        "disk resize",
+        "disk check",
+        "disk list",
+        "disk status",
+        "disk df",
+        "ai ask",
+        "ai init",
+        "ai status",
+        "ai abort",
+        "ai sessions",
+        "sync start",
+        "sync status",
+        "sync list",
+        "sync cancel",
+        "compute run",
+        "lease status",
+        "history clear",
+        "oauth status",
+        "oauth start",
     ]
 }
 
@@ -363,19 +411,42 @@ fn dispatch(cmd: &str, args: &[String]) -> String {
             ok(combined)
         }
         // Tab completion for the terminal prompt — the raw JSON array the
-        // `os_complete` route also returns.
+        // `os_complete` route also returns. Verbs plus sub-commands, like
+        // the native `completions()`.
         "complete" => {
             let prefix = args.first().map(String::as_str).unwrap_or_default();
-            let hits: Vec<&str> = cybermanju_commands()
+            let mut hits: Vec<&str> = cybermanju_commands()
                 .iter()
                 .filter(|c| c.starts_with(prefix))
                 .copied()
                 .collect();
+            for sub in complete_subs() {
+                if sub.starts_with(prefix) && !hits.contains(sub) {
+                    hits.push(sub);
+                }
+            }
+            hits.sort();
             serde_json::to_string(&hits).unwrap_or_else(|_| "[]".to_string())
         }
         "help" => ok(format!(
-            "cybsh (wasm transport) — {}",
-            cybermanju_commands().join(" · ")
+            "cybsh (wasm transport)\n\
+             local volume:\n  {}\n\
+             local vault (offline, no dashboard):\n  {}\n\
+             dashboard only (desktop app, Docker, :3456):\n  \
+             sync start · sync cancel · provider push · full OAuth dance · provider scrub/repair · ai ask",
+            [
+                "help", "history", "clear", "version", "echo", "pwd", "cd",
+                "ls", "cat", "cp", "mv", "write", "touch", "mkdir", "rm",
+                "stat", "du", "df", "ps", "top", "kill", "jobs", "workers",
+                "search", "compute",
+            ]
+            .join(" · "),
+            [
+                "quota", "providers", "oauth", "disk", "sync status",
+                "sync list", "lease", "mount", "scrub", "repair", "gc",
+                "keygen", "encrypt", "decrypt", "compress", "decompress",
+            ]
+            .join(" · "),
         )),
         "version" => ok(format!(
             "cybermanju os {} (wasm transport)",
@@ -393,6 +464,7 @@ fn dispatch(cmd: &str, args: &[String]) -> String {
             HISTORY.with(|h| h.borrow_mut().clear());
             ok(String::new())
         }
+        "echo" => ok(args.join(" ")),
         "pwd" => ok(CWD.with(|c| c.borrow().clone())),
         "cd" => {
             let target = args
@@ -450,6 +522,55 @@ fn dispatch(cmd: &str, args: &[String]) -> String {
                 Some(text) => ok(text.clone()),
                 None => err(format!("not found: {path}")),
             }
+        }
+        "cp" => {
+            if args.len() < 2 {
+                return err("usage: cp <src> <dst>".to_string());
+            }
+            let cwd = CWD.with(|c| c.borrow().clone());
+            let src = join(&cwd, &args[0]);
+            let dst = join(&cwd, &args[1]);
+            let text = match volume.get(&src) {
+                Some(text) => text.clone(),
+                None => {
+                    let prefix = format!("{src}/");
+                    if volume.keys().any(|k| k.starts_with(&prefix)) {
+                        return err(format!("is a directory: {} (wasm cp copies files only)", args[0]));
+                    }
+                    return err(format!("not found: {}", args[0]));
+                }
+            };
+            if text.len() > MAX_WRITE_BYTES {
+                return err(format!(
+                    "too_large: content is {} bytes, wasm write limit is {}",
+                    text.len(),
+                    MAX_WRITE_BYTES
+                ));
+            }
+            volume.insert(dst.clone(), text);
+            save_volume(&volume);
+            ok(format!("{src} -> {dst}"))
+        }
+        "mv" => {
+            if args.len() < 2 {
+                return err("usage: mv <src> <dst>".to_string());
+            }
+            let cwd = CWD.with(|c| c.borrow().clone());
+            let src = join(&cwd, &args[0]);
+            let dst = join(&cwd, &args[1]);
+            let text = match volume.remove(&src) {
+                Some(text) => text,
+                None => {
+                    let prefix = format!("{src}/");
+                    if volume.keys().any(|k| k.starts_with(&prefix)) {
+                        return err(format!("is a directory: {} (wasm mv moves files only)", args[0]));
+                    }
+                    return err(format!("not found: {}", args[0]));
+                }
+            };
+            volume.insert(dst.clone(), text);
+            save_volume(&volume);
+            ok(format!("{src} -> {dst}"))
         }
         "touch" => {
             for arg in args {
@@ -572,6 +693,24 @@ fn dispatch(cmd: &str, args: &[String]) -> String {
                 TASKS.with(|t| t.borrow().len())
             ))
         }
+        "kill" => {
+            let target = args.first().map(String::as_str).unwrap_or_default();
+            let id: u32 = match target.parse() {
+                Ok(id) => id,
+                Err(_) => return err("usage: kill <id>".to_string()),
+            };
+            let removed = TASKS.with(|t| {
+                let mut tasks = t.borrow_mut();
+                let before = tasks.len();
+                tasks.retain(|task| task.id != id);
+                tasks.len() != before
+            });
+            if removed {
+                ok(format!("killed task {id}"))
+            } else {
+                err(format!("not_found: no task {id}"))
+            }
+        }
         "jobs" => ok(
             r#"[{"name":"hash","description":"BLAKE3 every file in the volume","takesPath":true},{"name":"search","description":"Re-run the BM25-lite index over stored text","takesPath":false}]"#
                 .to_string(),
@@ -627,12 +766,25 @@ fn dispatch(cmd: &str, args: &[String]) -> String {
                 matched.len()
             ))
         }
+        // The agent needs a detached worker no browser sandbox can host —
+        // same honest answer as the static layer and the native shell.
+        "ai" => err(
+            "unsupported: `ai ask` needs a detached worker — run it from the Agent panel or POST /api/os/exec on the dashboard; see docs/OPERATIONS.md".to_string(),
+        ),
         // The server-owned surface: honest refusal, never a fake success.
-        "df-attached" | "mount" | "umount" | "disk" | "providers" | "quota"
+        //
+        // On a static host the terminal intercepts these verbs first
+        // (`src/utils/staticCybsh.ts` answers `quota`/`providers`/`oauth`/
+        // `disk`/`sync status`/`encrypt`/`compress`/… locally from the vault
+        // plus live CORS-OK provider probes), so reaching this arm means a
+        // chained line or a direct dispatch call — keep the refusal honest
+        // and point at both the local answer and the dashboard.
+        "df-attached" | "mount" | "umount" | "disk" | "providers" | "quota" | "oauth"
         | "sync" | "scrub" | "repair" | "gc" | "lease" | "keygen" | "encrypt"
-        | "decrypt" => err(format!(
-            "unsupported: `{cmd}` needs the CyberManju dashboard — the wasm build is a \
-             browser sandbox (volume lives in localStorage)"
+        | "decrypt" | "compress" | "decompress" => err(format!(
+            "unsupported: `{cmd}` needs the CyberManju dashboard for provider work — the wasm build is a \
+             browser sandbox (volume lives in localStorage, secrets in the local vault). \
+             Run `{cmd}` as a single-command line for the local vault answer, or connect a dashboard (:3456) for provider push"
         )),
         _ => err(format!(
             "unknown command: '{cmd}' — try `help`"
@@ -713,5 +865,125 @@ mod tests {
         let big = "x".repeat(MAX_WRITE_BYTES + 1);
         let out = dispatch("write", &["/big.txt".to_string(), big]);
         assert!(out.contains("too_large:"), "{out}");
+    }
+
+    #[test]
+    fn echo_joins_args() {
+        let out = dispatch("echo", &["hello".to_string(), "wasm".to_string()]);
+        assert!(out.contains(r#""ok":true"#), "{out}");
+        assert!(out.contains("hello wasm"), "{out}");
+        let out = dispatch("echo", &[]);
+        assert!(out.contains(r#""ok":true"#), "{out}");
+    }
+
+    #[test]
+    fn cp_and_mv_round_trip() {
+        let out = dispatch(
+            "write",
+            &["/cp-src.txt".to_string(), "copy me".to_string()],
+        );
+        assert!(out.contains(r#""ok":true"#), "{out}");
+        let out = dispatch(
+            "cp",
+            &["/cp-src.txt".to_string(), "/cp-dst.txt".to_string()],
+        );
+        assert!(out.contains(r#""ok":true"#), "{out}");
+        // The source survives a copy.
+        let out = dispatch("cat", &["/cp-src.txt".to_string()]);
+        assert!(out.contains("copy me"), "{out}");
+        let out = dispatch("cat", &["/cp-dst.txt".to_string()]);
+        assert!(out.contains("copy me"), "{out}");
+        let out = dispatch(
+            "mv",
+            &["/cp-dst.txt".to_string(), "/cp-moved.txt".to_string()],
+        );
+        assert!(out.contains(r#""ok":true"#), "{out}");
+        // The source is gone after a move.
+        let out = dispatch("cat", &["/cp-dst.txt".to_string()]);
+        assert!(out.contains("not found:"), "{out}");
+        let out = dispatch("cat", &["/cp-moved.txt".to_string()]);
+        assert!(out.contains("copy me"), "{out}");
+        // Missing sources refuse with the house prefix.
+        let out = dispatch(
+            "cp",
+            &["/cp-nope.txt".to_string(), "/cp-x.txt".to_string()],
+        );
+        assert!(out.contains("not found:"), "{out}");
+        let out = dispatch("cp", &["/cp-src.txt".to_string()]);
+        assert!(out.contains("usage: cp"), "{out}");
+    }
+
+    #[test]
+    fn kill_removes_only_the_named_task() {
+        let out = dispatch(
+            "compute",
+            &["run".to_string(), "hash".to_string(), "/".to_string()],
+        );
+        assert!(out.contains(r#""ok":true"#), "{out}");
+        let id: u32 = out
+            .split("(task ")
+            .nth(1)
+            .and_then(|tail| tail.split(')').next())
+            .and_then(|n| n.parse().ok())
+            .expect("compute reports (task <id>)");
+        let out = dispatch("kill", &["not-a-number".to_string()]);
+        assert!(out.contains("usage: kill"), "{out}");
+        let out = dispatch("kill", &["999999".to_string()]);
+        assert!(out.contains("not_found:"), "{out}");
+        let out = dispatch("kill", &[id.to_string()]);
+        assert!(out.contains(r#""ok":true"#), "{out}");
+        assert!(out.contains(&format!("killed task {id}")), "{out}");
+        let out = dispatch("kill", &[id.to_string()]);
+        assert!(out.contains("not_found:"), "{out}");
+    }
+
+    #[test]
+    fn ai_refuses_with_the_detached_worker_hint() {
+        let out = dispatch("ai", &["ask".to_string(), "hi".to_string()]);
+        assert!(out.contains("unsupported:"), "{out}");
+        assert!(out.contains("detached worker"), "{out}");
+        assert!(out.contains(r#""ok":false"#), "{out}");
+    }
+
+    #[test]
+    fn complete_suggests_verbs_and_subcommands() {
+        let out = dispatch("complete", &["sync ".to_string()]);
+        assert!(out.contains("sync start"), "{out}");
+        assert!(out.contains("sync status"), "{out}");
+        assert!(out.contains("sync cancel"), "{out}");
+        let out = dispatch("complete", &["oauth".to_string()]);
+        assert!(out.contains("oauth"), "{out}");
+        assert!(out.contains("oauth status"), "{out}");
+        assert!(out.contains("oauth start"), "{out}");
+        let out = dispatch("complete", &["ai ".to_string()]);
+        assert!(out.contains("ai ask"), "{out}");
+        // No prefix narrows nothing: every verb is offered exactly once.
+        let out = dispatch("complete", &[]);
+        for cmd in cybermanju_commands() {
+            assert!(
+                out.matches(cmd).count() >= 1,
+                "{cmd} missing from completion: {out}"
+            );
+        }
+    }
+
+    #[test]
+    fn help_groups_local_volume_vault_and_dashboard() {
+        let out = dispatch("help", &[]);
+        assert!(out.contains(r#""ok":true"#), "{out}");
+        assert!(out.contains("local volume:"), "{out}");
+        assert!(out.contains("local vault (offline, no dashboard):"), "{out}");
+        assert!(out.contains("dashboard only"), "{out}");
+        assert!(out.contains("quota"), "{out}");
+        assert!(out.contains("sync start"), "{out}");
+    }
+
+    #[test]
+    fn vault_verbs_refuse_with_the_local_answer_hint() {
+        for cmd in ["quota", "oauth", "compress", "decompress"] {
+            let out = dispatch(cmd, &[]);
+            assert!(out.contains("unsupported:"), "{cmd}: {out}");
+            assert!(out.contains("single-command line"), "{cmd}: {out}");
+        }
     }
 }

@@ -56,15 +56,16 @@
         @click="activeTab = t.id"
       >
         <AppIcon :name="t.icon" :size="14" /> {{ t.label }}
-        <span v-if="t.id === 'providers' && store.syncConfigs.length" class="am-tab-count">{{ store.syncConfigs.length }}</span>
-        <span v-if="t.id === 'signin' && identity" class="am-dot" aria-hidden="true"></span>
+        <span v-if="t.id === 'connections' && store.syncConfigs.length" class="am-tab-count">{{ store.syncConfigs.length }}</span>
+        <span v-if="t.id === 'connections' && identity" class="am-dot" aria-hidden="true"></span>
         <span v-if="t.id === 'vault' && disk.dirty" class="am-dot warn" aria-hidden="true"></span>
       </button>
     </nav>
 
     <main class="am-body">
-      <!-- ══ SIGN IN ══ -->
-      <section v-if="activeTab === 'signin'" id="am-panel-signin" class="am-section" role="tabpanel" aria-labelledby="am-tab-signin" tabindex="0">
+      <!-- ══ CONNECTIONS (identity + providers, merged) ══ -->
+      <section v-if="activeTab === 'connections'" id="am-panel-connections" class="am-section" role="tabpanel" aria-labelledby="am-tab-connections" tabindex="0">
+        <!-- ── who you are ── -->
         <div v-if="identity" class="am-card am-identity">
           <div class="am-identity-row">
             <img v-if="identity.avatarUrl" class="am-avatar" :src="identity.avatarUrl" alt="" />
@@ -76,10 +77,21 @@
             <span class="am-status is-ok"><ProviderLogo :provider="identity.provider" :size="18" /> {{ identity.provider.toUpperCase() }}</span>
             <button class="am-btn sm" type="button" :disabled="signingOut" @click="signOut">{{ signingOut ? '…' : 'Sign out' }}</button>
           </div>
-          <p class="am-hint">Signed in through the Supabase broker — this app stores no password anywhere.</p>
+          <p class="am-hint">Signed in through the Supabase broker — this app stores no password anywhere. Signing in also unlocks one-click OAuth for the providers below.</p>
         </div>
 
-        <div v-if="connectedAccounts.length" class="am-card">
+        <button
+          v-if="identity"
+          class="am-accounts-toggle"
+          type="button"
+          :aria-expanded="accountsOpen"
+          @click="accountsOpen = !accountsOpen"
+        >
+          <AppIcon :name="accountsOpen ? 'solar:alt-arrow-up-bold' : 'solar:alt-arrow-down-bold'" :size="13" />
+          {{ accountsOpen ? 'Hide sign-in options' : `Switch or add account${connectedAccounts.length > 1 ? ` (${connectedAccounts.length})` : ''}` }}
+        </button>
+
+        <div v-if="connectedAccounts.length && (!identity || accountsOpen)" class="am-card">
           <h3 class="am-card-title">Connected accounts ({{ connectedAccounts.length }})</h3>
           <p class="am-hint">Supabase holds one active session — the rest stay remembered here, so you can switch back in one click, including a second account on the same provider.</p>
           <div v-for="acc in connectedAccounts" :key="acc.id" class="am-identity-row">
@@ -95,9 +107,9 @@
           </div>
         </div>
 
-        <div class="am-card">
-          <h3 class="am-card-title">{{ identity ? 'Add another account' : 'Sign in with a provider' }}</h3>
-          <p class="am-hint">Approve at the provider — nothing is typed here. OAuth is the only sign-in; there is no password form. Every login is fresh, so pick any account at the provider — even a second one on the same provider.</p>
+        <div v-if="!identity || accountsOpen" class="am-card">
+          <h3 class="am-card-title">{{ identity ? 'Add another account' : 'Sign in' }}</h3>
+          <p class="am-hint">Approve at the provider — nothing is typed here. OAuth is the only sign-in; there is no password form. Every login is fresh, so pick any account at the provider — even a second one on the same provider. The same approval connects the matching provider below.</p>
           <div class="am-login-grid">
             <button
               v-for="p in LOGIN_CARDS"
@@ -116,79 +128,15 @@
           <p v-if="signInMsg" class="am-note">{{ signInMsg }}</p>
           <div v-if="!sbConfigured" class="am-banner warn">
             <AppIcon name="solar:key-bold" :size="15" />
-            <span>Broker not configured — set the Supabase URL + key, and enable the provider under Supabase → Authentication → Sign-in.</span>
+            <span>Broker not configured — set the Supabase URL + key once, and sign-in plus provider OAuth both start working.</span>
             <button class="am-btn sm primary" type="button" @click="openSettings">Configure</button>
           </div>
         </div>
-      </section>
 
-      <!-- ══ VAULT FILE ══ -->
-      <section v-if="activeTab === 'vault'" id="am-panel-vault" class="am-section" role="tabpanel" aria-labelledby="am-tab-vault" tabindex="0">
-        <div class="am-card" :class="{ 'is-attached': disk.attached }">
-          <div class="am-card-head">
-            <div class="am-card-head-left">
-              <ProviderLogo provider="local" :size="34" />
-              <div>
-                <h3 class="am-card-title">{{ disk.attached ? disk.name : 'No vault file attached' }}</h3>
-                <p class="am-hint">
-                  <template v-if="disk.attached">
-                    <span class="am-status sm" :class="disk.dirty ? 'is-warn' : 'is-ok'">{{ disk.dirty ? 'Unsaved changes' : `Saved ${timeOf(disk.savedAt)}` }}</span>
-                    <span class="muted"> · {{ humanBytes(disk.savedBytes) }}</span>
-                  </template>
-                  <template v-else>The vault lives in this browser session only. Create or open a <code class="am-code">.cybermanju</code> file to keep it on your disk.</template>
-                </p>
-              </div>
-            </div>
-            <span class="am-status sm" :class="disk.bound ? 'is-ok' : ''">{{ disk.bound ? 'BOUND' : 'SESSION ONLY' }}</span>
-          </div>
+        <div class="am-section-divider" aria-hidden="true"><span>Provider connections</span></div>
 
-          <div class="am-btn-grid">
-            <button class="am-btn primary" type="button" :disabled="disk.busy" @click="openDiskFile"><AppIcon name="solar:folder-open-bold" :size="13" /> {{ disk.busy ? '…' : 'Open' }}</button>
-            <button class="am-btn primary" type="button" :disabled="disk.busy" @click="createDiskFile"><AppIcon name="solar:add-bold" :size="13" /> Create</button>
-            <button class="am-btn" type="button" :disabled="disk.busy || !disk.bound" @click="saveDiskFile"><AppIcon name="solar:diskette-bold" :size="13" /> Save now</button>
-            <button class="am-btn" type="button" :disabled="disk.busy" @click="exportDiskFile"><AppIcon name="solar:download-bold" :size="13" /> Export</button>
-            <button class="am-btn" type="button" :disabled="disk.busy" @click="pickImport"><AppIcon name="solar:upload-bold" :size="13" /> Import</button>
-            <button v-if="disk.bound" class="am-btn danger" type="button" :disabled="disk.busy" @click="detachDiskFile">Detach</button>
-          </div>
-          <input ref="importInput" type="file" accept=".cybermanju,application/octet-stream" class="am-hidden" @change="onImportFile" />
-
-          <label class="am-field">
-            <span class="am-field-label">Passphrase <span class="muted">(optional — encrypts the file, never stored)</span></span>
-            <span class="am-input-wrap">
-              <input
-                v-model="diskPassphrase"
-                class="am-input"
-                :type="showDiskPass ? 'text' : 'password'"
-                placeholder="Passphrase for create / unlock"
-                autocomplete="new-password"
-                aria-label="File passphrase"
-              />
-              <button class="am-icon-btn" type="button" :title="showDiskPass ? 'Hide' : 'Show'" @click="showDiskPass = !showDiskPass">
-                <AppIcon :name="showDiskPass ? 'solar:eye-closed-bold' : 'solar:eye-bold'" :size="14" />
-              </button>
-            </span>
-          </label>
-          <p class="am-hint">{{ disk.supported ? 'File System Access API available — saves go straight to your disk.' : 'No File System Access API in this browser — use Export / Import instead.' }}</p>
-
-          <div v-if="disk.needsPassphrase" class="am-banner warn">
-            <AppIcon name="solar:lock-bold" :size="15" />
-            <span><strong>{{ disk.name }}</strong> is encrypted — enter its passphrase to open it.</span>
-            <button class="am-btn sm primary" type="button" :disabled="disk.busy" @click="unlockDisk">Unlock &amp; open</button>
-          </div>
-          <div v-else-if="disk.needsPermission" class="am-banner info">
-            <AppIcon name="solar:cursor-bold" :size="15" />
-            <span><strong>{{ disk.name }}</strong> is remembered — the browser wants one click to re-open it.</span>
-            <button class="am-btn sm primary" type="button" :disabled="disk.busy" @click="unlockDisk">Allow &amp; open</button>
-          </div>
-
-          <p v-if="disk.lastMessage" class="am-note">{{ disk.lastMessage }}</p>
-          <p v-if="disk.lastError" class="am-note err">{{ disk.lastError }}</p>
-          <p v-if="disk.bound && disk.dirty" class="am-note warn">Changes write back automatically — Save now forces it immediately.</p>
-        </div>
-      </section>
-
-      <!-- ══ PROVIDERS ══ -->
-      <section v-if="activeTab === 'providers'" id="am-panel-providers" class="am-section" role="tabpanel" aria-labelledby="am-tab-providers" tabindex="0">
+      <!-- ── what is connected ── -->
+      <div class="am-providers-wrap">
         <div class="am-providers">
           <!-- list -->
           <div class="am-list-col">
@@ -300,37 +248,39 @@
               </div>
               <p v-if="authDetail(selectedCfg.id)" class="am-note" :class="authState[selectedCfg.id]?.ok === false ? 'err' : ''" :title="authHint(selectedCfg.id)">{{ authDetail(selectedCfg.id) }}</p>
 
-              <!-- step 1: connect -->
-              <div v-if="isOauthCapable(selectedCfg.backendType) && !staticHost" class="am-step">
-                <h4 class="am-step-title"><span class="am-step-n">1</span> Connect with OAuth</h4>
-                <div class="am-row">
-                  <ProviderLogo :provider="logoKindFor(selectedCfg.backendType)" :size="24" />
-                  <span class="small">Browser approval — no password typed here.</span>
-                  <button class="am-btn sm primary" type="button" :disabled="oauthBusy === selectedCfg.id" @click="oauthConnect(selectedCfg!)">{{ oauthBusy === selectedCfg.id ? 'Waiting…' : 'Connect with OAuth' }}</button>
+              <!-- step 1: connect — one button, best transport first -->
+              <div v-if="isOauthCapable(selectedCfg.backendType)" class="am-step">
+                <h4 class="am-step-title"><span class="am-step-n">1</span> Connect <span class="am-method">{{ staticHost ? 'via Supabase broker' : 'via dashboard' }}</span></h4>
+                <div class="am-connect">
+                  <ProviderLogo :provider="logoKindFor(selectedCfg.backendType)" :size="28" />
+                  <div class="am-connect-meta">
+                    <strong class="small">{{ connectTitle(selectedCfg) }}</strong>
+                    <span class="muted small">{{ connectSubtitle(selectedCfg) }}</span>
+                  </div>
+                  <button
+                    v-if="connectBusy !== selectedCfg.id"
+                    class="am-btn sm primary"
+                    type="button"
+                    :disabled="!connectAvailable(selectedCfg)"
+                    :title="connectCtaHint(selectedCfg)"
+                    @click="connectWithOAuth(selectedCfg!)"
+                  >{{ connectCta(selectedCfg) }}</button>
+                  <button v-else class="am-btn sm" type="button" @click="cancelConnect">Cancel</button>
                 </div>
-                <p v-if="oauthMsg[selectedCfg.id]" class="am-note">{{ oauthMsg[selectedCfg.id] }}</p>
-                <p v-if="oauthBusy === selectedCfg.id" class="am-note">Approve in the opened browser tab — this panel polls until credentials land. <button class="am-link" type="button" @click="cancelOauth">cancel</button></p>
-                <p v-if="oauthUrl[selectedCfg.id]" class="am-note">Popup blocked? Open manually: <span class="am-code">{{ oauthUrl[selectedCfg.id] }}</span></p>
-              </div>
-              <div v-if="isOauthCapable(selectedCfg.backendType) && staticHost" class="am-step">
-                <h4 class="am-step-title"><span class="am-step-n">1</span> Connect with OAuth <span class="muted">via Supabase</span></h4>
-                <div class="am-row">
-                  <ProviderLogo :provider="logoKindFor(selectedCfg.backendType)" :size="24" />
-                  <span class="small">Approve at the provider, token lands here.</span>
-                  <button class="am-btn sm primary" type="button" :disabled="sbBusy === selectedCfg.id" @click="supabaseConnect(selectedCfg!)">{{ sbBusy === selectedCfg.id ? 'Waiting…' : 'Connect with OAuth' }}</button>
-                </div>
-                <p v-if="sbMsg[selectedCfg.id]" class="am-note">{{ sbMsg[selectedCfg.id] }}</p>
-                <p v-if="sbBusy === selectedCfg.id" class="am-note">Approve in the popup — polling for the provider token… <button class="am-link" type="button" @click="cancelSupabase">cancel</button></p>
-                <div v-if="!sbConfigured" class="am-banner warn">
+                <div v-if="connectBusy === selectedCfg.id" class="am-progress" role="status" aria-live="polite"><div class="am-progress-fill"></div></div>
+                <p v-if="connectMsg[selectedCfg.id]" class="am-note" :class="authState[selectedCfg.id]?.ok === false ? 'err' : ''">{{ connectMsg[selectedCfg.id] }}</p>
+                <p v-if="connectUrl[selectedCfg.id]" class="am-note">Popup blocked? <button class="am-link" type="button" @click="copyConnectUrl(selectedCfg!)">Copy link</button> or open manually: <span class="am-code">{{ connectUrl[selectedCfg.id] }}</span></p>
+                <div v-if="!connectAvailable(selectedCfg)" class="am-banner warn">
                   <AppIcon name="solar:key-bold" :size="15" />
-                  <span>Broker not configured — enable {{ selectedCfg.backendType }} under Supabase → Authentication → Sign-in first.</span>
+                  <span>{{ connectUnavailableReason(selectedCfg) }}</span>
                   <button class="am-btn sm primary" type="button" @click="openSettings">Configure</button>
                 </div>
+                <p v-else class="am-hint">Prefer a token? Paste it in step 2 instead — OAuth stays optional.</p>
               </div>
 
               <!-- step 2: configure -->
               <div class="am-step">
-                <h4 class="am-step-title"><span class="am-step-n">2</span> Configure</h4>
+                <h4 class="am-step-title"><span class="am-step-n">2</span> Details <span class="muted">optional — OAuth already filled the secret</span></h4>
                 <div class="am-fields">
                   <label class="am-field">
                     <span class="am-field-label">Display name</span>
@@ -349,9 +299,9 @@
                 <p class="am-hint">{{ authGuidance(selectedCfg.backendType) }}</p>
               </div>
 
-              <!-- step 2b: sync behavior (encrypt / compress / placement) -->
+              <!-- sync behavior (encrypt / compress / placement) -->
               <div class="am-step">
-                <h4 class="am-step-title"><span class="am-step-n">2½</span> Sync behavior</h4>
+                <h4 class="am-step-title"><span class="am-step-n">3</span> Sync behavior</h4>
                 <div class="am-row wrap">
                   <label class="small"><input v-model="behavior(selectedCfg!).encryptBeforeUpload" type="checkbox" @change="saveBehavior(selectedCfg!)" /> Encrypt uploads</label>
                   <label class="small"><input v-model="behavior(selectedCfg!).compressBeforeUpload" type="checkbox" @change="saveBehavior(selectedCfg!)" /> Compress uploads</label>
@@ -374,18 +324,18 @@
                 <p class="am-hint">Striped spreads 4 MiB chunks across every enabled provider (needs ≥2); parity adds replicas per chunk. Hiding filenames keeps the originals in the local sync record for restore.</p>
               </div>
 
-              <!-- step 3: verify -->
+              <!-- verify -->
               <div class="am-step">
-                <h4 class="am-step-title"><span class="am-step-n">3</span> Verify &amp; save</h4>
+                <h4 class="am-step-title"><span class="am-step-n">4</span> Verify &amp; save</h4>
                 <div class="am-row">
                   <button class="am-btn sm primary" type="button" :disabled="saving === selectedCfg.id" @click="saveCreds(selectedCfg!)">{{ saving === selectedCfg.id ? 'Saving…' : 'Save & verify' }}</button>
                   <span class="muted small">Uses saved credentials — save first if you just pasted a token.</span>
                 </div>
               </div>
 
-              <!-- step 3b: new private vault repos (github/gitlab only) -->
+              <!-- new private vault repos (github/gitlab only) -->
               <div v-if="selectedCfg.backendType === 'github' || selectedCfg.backendType === 'gitlab'" class="am-step">
-                <h4 class="am-step-title"><span class="am-step-n">3½</span> New private vault repos</h4>
+                <h4 class="am-step-title"><span class="am-step-n">5</span> New private vault repos <span class="muted">optional</span></h4>
                 <p class="am-hint">Create 1–8 private <code class="am-code">{{ selectedCfg.backendType }}</code> repos at once — each gets README + manifest + your encrypted <code class="am-code">vault.cybermanju</code> plus its own system disk, and all disks merge into one virtual volume ({{ vaultRepoCount }} × {{ vaultDiskMb }} MB).</p>
                 <div class="am-fields">
                   <label class="am-field grow">
@@ -427,9 +377,10 @@
                 <p v-if="vaultUrl" class="am-note">First repo live: <span class="am-code">{{ vaultUrl }}</span></p>
               </div>
 
-              <!-- disks -->
+              <!-- cloud disks on this provider (≠ the local vault file tab) -->
               <div class="am-step">
-                <h4 class="am-step-title"><span class="am-step-n">4</span> System disks on this provider ({{ disksFor(selectedCfg.id).length }})</h4>
+                <h4 class="am-step-title"><span class="am-step-n">6</span> Cloud disks on this provider ({{ disksFor(selectedCfg.id).length }})</h4>
+                <p class="am-hint">Cloud-side compute + space. The <strong>Vault file</strong> tab next door is the local <code class="am-code">.cybermanju</code> file — different store, same merged volume.</p>
                 <p v-if="disksFor(selectedCfg.id).length === 0" class="am-hint">No system disk yet — provision one below and this provider contributes space + compute to the merged volume.</p>
                 <div v-for="d in disksFor(selectedCfg.id)" :key="d.id" class="am-disk">
                   <div class="am-row between">
@@ -461,13 +412,87 @@
             </article>
           </div>
         </div>
+      </div>
+      </section>
+
+      <!-- ══ VAULT FILE (local .cybermanju file — cloud disks live per-provider in Connections) ══ -->
+      <section v-if="activeTab === 'vault'" id="am-panel-vault" class="am-section" role="tabpanel" aria-labelledby="am-tab-vault" tabindex="0">
+        <p class="am-hint" style="margin:0;">Local file on this machine — cloud disks are managed per-provider in Connections step 6 and merge into the same volume.</p>
+        <div class="am-card" :class="{ 'is-attached': disk.attached }">
+          <div class="am-card-head">
+            <div class="am-card-head-left">
+              <ProviderLogo provider="local" :size="34" />
+              <div>
+                <h3 class="am-card-title">{{ disk.attached ? disk.name : 'No vault file attached' }}</h3>
+                <p class="am-hint">
+                  <template v-if="disk.attached">
+                    <span class="am-status sm" :class="disk.dirty ? 'is-warn' : 'is-ok'">{{ disk.dirty ? 'Unsaved changes' : `Saved ${timeOf(disk.savedAt)}` }}</span>
+                    <span class="muted"> · {{ humanBytes(disk.savedBytes) }}</span>
+                  </template>
+                  <template v-else>The vault lives in this browser session only. Create or open a <code class="am-code">.cybermanju</code> file to keep it on your disk.</template>
+                </p>
+              </div>
+            </div>
+            <span class="am-status sm" :class="disk.bound ? 'is-ok' : ''">{{ disk.bound ? 'BOUND' : 'SESSION ONLY' }}</span>
+          </div>
+
+          <div class="am-btn-grid">
+            <button class="am-btn primary" type="button" :disabled="disk.busy" @click="openDiskFile"><AppIcon name="solar:folder-open-bold" :size="13" /> {{ disk.busy ? '…' : 'Open' }}</button>
+            <button class="am-btn primary" type="button" :disabled="disk.busy" @click="createDiskFile"><AppIcon name="solar:add-bold" :size="13" /> Create</button>
+            <button class="am-btn" type="button" :disabled="disk.busy || !disk.bound" @click="saveDiskFile"><AppIcon name="solar:diskette-bold" :size="13" /> Save now</button>
+            <button class="am-btn" type="button" :disabled="disk.busy" @click="exportDiskFile"><AppIcon name="solar:download-bold" :size="13" /> Export</button>
+            <button class="am-btn" type="button" :disabled="disk.busy" @click="pickImport"><AppIcon name="solar:upload-bold" :size="13" /> Import</button>
+            <button v-if="disk.bound" class="am-btn danger" type="button" :disabled="disk.busy" @click="detachDiskFile">Detach</button>
+          </div>
+          <input ref="importInput" type="file" accept=".cybermanju,application/octet-stream" class="am-hidden" @change="onImportFile" />
+
+          <div class="am-fields">
+            <label class="am-field grow">
+              <span class="am-field-label">Passphrase <span class="muted">(optional — encrypts the file, never stored)</span></span>
+              <span class="am-input-wrap">
+                <input
+                  v-model="diskPassphrase"
+                  class="am-input"
+                  :type="showDiskPass ? 'text' : 'password'"
+                  placeholder="Passphrase for create / unlock"
+                  autocomplete="new-password"
+                  aria-label="File passphrase"
+                />
+                <button class="am-icon-btn" type="button" :title="showDiskPass ? 'Hide' : 'Show'" @click="showDiskPass = !showDiskPass">
+                  <AppIcon :name="showDiskPass ? 'solar:eye-closed-bold' : 'solar:eye-bold'" :size="14" />
+                </button>
+              </span>
+            </label>
+            <label class="am-field">
+              <span class="am-field-label">Size</span>
+              <span class="am-input" aria-live="polite">{{ disk.attached ? humanBytes(disk.savedBytes) : '—' }}</span>
+              <span class="am-field-hint">The file grows automatically with your data — no size to pick. Cloud disks are sized per-provider in Connections step 6.</span>
+            </label>
+          </div>
+          <p class="am-hint">{{ disk.supported ? 'File System Access API available — saves go straight to your disk.' : 'No File System Access API in this browser — use Export / Import instead.' }}</p>
+
+          <div v-if="disk.needsPassphrase" class="am-banner warn">
+            <AppIcon name="solar:lock-bold" :size="15" />
+            <span><strong>{{ disk.name }}</strong> is encrypted — enter its passphrase to open it.</span>
+            <button class="am-btn sm primary" type="button" :disabled="disk.busy" @click="unlockDisk">Unlock &amp; open</button>
+          </div>
+          <div v-else-if="disk.needsPermission" class="am-banner info">
+            <AppIcon name="solar:cursor-bold" :size="15" />
+            <span><strong>{{ disk.name }}</strong> is remembered — the browser wants one click to re-open it.</span>
+            <button class="am-btn sm primary" type="button" :disabled="disk.busy" @click="unlockDisk">Allow &amp; open</button>
+          </div>
+
+          <p v-if="disk.lastMessage" class="am-note">{{ disk.lastMessage }}</p>
+          <p v-if="disk.lastError" class="am-note err">{{ disk.lastError }}</p>
+          <p v-if="disk.bound && disk.dirty" class="am-note warn">Changes write back automatically — Save now forces it immediately.</p>
+        </div>
       </section>
 
       <!-- ══ LOCAL USERS (merged user management) ══ -->
       <section v-if="activeTab === 'users'" id="am-panel-users" class="am-section" role="tabpanel" aria-labelledby="am-tab-users" tabindex="0">
         <div class="am-card">
           <h3 class="am-card-title">Registered users ({{ store.users.length }})</h3>
-          <p class="am-hint">Per-file username + password auth with Argon2 hashing. Roles: admin, user, viewer. This is the local user list — cloud sign-in lives on the Sign in tab.</p>
+          <p class="am-hint">Per-file username + password auth with Argon2 hashing. Roles: admin, user, viewer. This is the local user list — cloud sign-in lives at the top of the Connections tab.</p>
           <p v-if="!store.users.length" class="am-hint">No users registered yet.</p>
           <div v-for="user in store.users" :key="user.id" class="am-identity-row">
             <div class="am-identity-meta">
@@ -614,35 +639,48 @@ const wizBusy = ref(false)
 const wizMsg = ref('')
 const wizOk = ref<boolean | null>(null)
 const provFilter = ref('')
-const oauthBusy = ref<string | null>(null)
+// Unified OAuth-connect UI state (one button per provider: Supabase broker
+// on static hosts, dashboard PKCE otherwise). The per-transport refs below
+// stay as the cancellation handles; visible status lives in connectMsg/Url.
+const connectBusy = ref<string | null>(null)
+const connectAbort = ref<AbortController | null>(null)
+const connectMsg = ref<Record<string, string>>({})
+const connectUrl = ref<Record<string, string>>({})
 const oauthAbort = ref<AbortController | null>(null)
 
-const oauthMsg = ref<Record<string, string>>({})
-const oauthUrl = ref<Record<string, string>>({})
 const quotaMsg = ref<Record<string, string>>({})
 const authState = ref<Record<string, { ok: boolean | null; detail: string }>>({})
-const sbBusy = ref<string | null>(null)
 const sbAbort = ref<AbortController | null>(null)
-const sbMsg = ref<Record<string, string>>({})
 const sbConfigured = computed(() => supabaseConfigured())
 
 // ── new interactive UI state ──────────────────────────────────
-type TabId = 'signin' | 'vault' | 'providers' | 'users'
+// Single "Connections" tab merges the old Sign-in + Providers tabs: the
+// identity (who you are) sits on top of the provider list (what is
+// connected) so OAuth sign-in and per-provider OAuth connect share one
+// broker status, one button language and one troubleshooting path.
+type TabId = 'connections' | 'vault' | 'users'
 const TABS: Array<{ id: TabId; label: string; icon: string }> = [
-  { id: 'signin', label: 'Sign in', icon: 'solar:login-bold' },
+  { id: 'connections', label: 'Connections', icon: 'solar:cloud-bold' },
   { id: 'vault', label: 'Vault file', icon: 'solar:diskette-bold' },
-  { id: 'providers', label: 'Connections', icon: 'solar:cloud-bold' },
   { id: 'users', label: 'Users', icon: 'solar:users-group-rounded-bold' },
 ]
-const activeTab = ref<TabId>('signin')
+const activeTab = ref<TabId>('connections')
 
-// Merged windows: `users` opens here on the users tab.
+// Merged windows: `users` opens here on the users tab. Legacy deep-links
+// (`signin`, `providers`) steer to `connections`.
 const props = defineProps<{ tab?: string }>()
-if (props.tab === 'users' || props.tab === 'providers' || props.tab === 'vault' || props.tab === 'signin') {
-  activeTab.value = props.tab
+function normalizeTab(t: unknown): TabId | null {
+  if (t === 'users' || t === 'vault' || t === 'connections') return t
+  if (t === 'providers' || t === 'signin') return 'connections'
+  return null
+}
+{
+  const initial = normalizeTab(props.tab)
+  if (initial) activeTab.value = initial
 }
 watch(() => props.tab, (t) => {
-  if (t === 'users' || t === 'providers' || t === 'vault' || t === 'signin') activeTab.value = t
+  const next = normalizeTab(t)
+  if (next) activeTab.value = next
 })
 watch(activeTab, (t) => { if (t === 'users') void store.fetchUsers() })
 const selectedId = ref<string | null>(null)
@@ -674,6 +712,8 @@ const LOGIN_CARDS: Array<{ id: OAuthBackend; label: string; logo: string; sub: s
 const signInBusy = ref<OAuthBackend | null>(null)
 const signInMsg = ref('')
 const signingOut = ref(false)
+/** Collapse the switch/add-account cards once signed in (compact Connections). */
+const accountsOpen = ref(false)
 const diskPassphrase = ref('')
 const importInput = ref<HTMLInputElement | null>(null)
 
@@ -880,7 +920,7 @@ const warnings = computed<Warning[]>(() => {
     out.push({ level: 'warn', text: 'Supabase broker not configured — set the URL + key in Settings → OAuth to sign in and connect providers with OAuth.' })
   }
   if (staticHost) out.push({ level: 'info', text: 'Offline demo vault — provider network calls need the server; everything else runs locally.' })
-  if (!identity.value) out.push({ level: 'info', text: 'Not signed in — pick a provider in the Sign in tab.' })
+  if (!identity.value) out.push({ level: 'info', text: 'Not signed in — pick a provider at the top of the Connections tab.' })
   return out
 })
 
@@ -1105,6 +1145,73 @@ async function quota(cfg: SyncConfig) {
     : 'quota unavailable'
 }
 
+/** One-button connect: Supabase broker on static hosts, dashboard PKCE otherwise. */
+function connectAvailable(cfg: SyncConfig): boolean {
+  if (!isOauthCapable(cfg.backendType)) return false
+  if (staticHost) return supabaseConfigured()
+  return true
+}
+
+function connectUnavailableReason(cfg: SyncConfig): string {
+  if (staticHost && !supabaseConfigured()) {
+    return 'Broker not configured — set the Supabase URL + key once (Settings → OAuth broker), and enable this provider in your Supabase project. Sign-in above uses the same broker.'
+  }
+  return 'OAuth is not available for this provider — paste a token in step 2.'
+}
+
+function connectCta(cfg: SyncConfig): string {
+  const s = authState.value[cfg.id]
+  if (s && s.ok === false) return `Reconnect ${shortName(cfg.backendType)}`
+  if (s && s.ok) return 'Reconnect'
+  return `Connect ${shortName(cfg.backendType)}`
+}
+
+function connectCtaHint(cfg: SyncConfig): string {
+  if (!connectAvailable(cfg)) return connectUnavailableReason(cfg)
+  return staticHost
+    ? 'Approve at the provider — the token lands here via the Supabase broker'
+    : 'Approve at the provider — the dashboard finishes the exchange'
+}
+
+function connectTitle(cfg: SyncConfig): string {
+  const s = authState.value[cfg.id]
+  if (s?.ok) return `${shortName(cfg.backendType)} is connected`
+  if (s && s.ok === false) return isUnreachable(s.detail) ? 'Last check could not reach the provider' : 'Last check failed — reconnect or paste a token'
+  return `Connect ${backendLabel(cfg.backendType)}`
+}
+
+function connectSubtitle(cfg: SyncConfig): string {
+  return staticHost
+    ? 'Browser approval — no password typed here, token lands automatically.'
+    : 'Browser approval — no password typed here, the dashboard completes it.'
+}
+
+async function connectWithOAuth(cfg: SyncConfig) {
+  if (staticHost) await supabaseConnect(cfg)
+  else await oauthConnect(cfg)
+}
+
+function cancelConnect() {
+  connectAbort.value?.abort()
+  connectAbort.value = null
+  oauthAbort.value?.abort()
+  oauthAbort.value = null
+  sbAbort.value?.abort()
+  sbAbort.value = null
+  connectBusy.value = null
+}
+
+async function copyConnectUrl(cfg: SyncConfig) {
+  const url = connectUrl.value[cfg.id]
+  if (!url) return
+  try {
+    await navigator.clipboard.writeText(url)
+    connectMsg.value[cfg.id] = 'Link copied — open it in a browser where you are signed in, approve, then come back.'
+  } catch {
+    connectMsg.value[cfg.id] = 'Copy failed — select the link text manually.'
+  }
+}
+
 /** PKCE OAuth: open the provider approval, then poll until credentials land. */
 async function oauthConnect(cfg: SyncConfig) {
   // No dashboard behind the static build means no server-side callback to
@@ -1112,23 +1219,24 @@ async function oauthConnect(cfg: SyncConfig) {
   // (If Settings → Remote Dashboard points at a server, this build is a
   // REST client and this branch never runs.)
   if (staticHost) {
-    oauthMsg.value[cfg.id] =
+    connectMsg.value[cfg.id] =
       'OAuth needs a dashboard for the server callback — set REMOTE DASHBOARD in Settings to your server for full OAuth here, or paste a token below for the offline vault.'
     return
   }
-  cancelOauth()
-  oauthBusy.value = cfg.id
-  oauthMsg.value[cfg.id] = 'Opening provider approval…'
+  cancelConnect()
+  connectBusy.value = cfg.id
+  connectMsg.value[cfg.id] = 'Opening provider approval…'
   const res = await store.oauthStart(cfg.backendType, cfg.id)
   if (!res?.authorizeUrl) {
-    oauthMsg.value[cfg.id] = 'OAuth did not start — paste a token below instead.'
-    oauthBusy.value = null
+    connectMsg.value[cfg.id] = 'OAuth did not start — paste a token below instead.'
+    connectBusy.value = null
     return
   }
   const popup = window.open(res.authorizeUrl, 'cyb_oauth', 'width=620,height=720')
-  if (!popup) oauthUrl.value[cfg.id] = res.authorizeUrl
-  oauthMsg.value[cfg.id] = 'Approve in the browser tab — waiting for the callback…'
+  if (!popup) connectUrl.value[cfg.id] = res.authorizeUrl
+  connectMsg.value[cfg.id] = 'Approve in the opened browser tab — waiting for the callback…'
   const abort = new AbortController()
+  connectAbort.value = abort
   oauthAbort.value = abort
   try {
     const ok = await pollUntilTrue(
@@ -1138,29 +1246,24 @@ async function oauthConnect(cfg: SyncConfig) {
         maxAttempts: 40,
         signal: abort.signal,
         onAttempt: (n) => {
-          oauthMsg.value[cfg.id] = `Approve in the browser tab — waiting… (${n * 3}s)`
+          connectMsg.value[cfg.id] = `Approve in the browser tab — waiting… (${n * 3}s)`
         },
       },
     )
     if (ok) {
       authState.value[cfg.id] = { ok: true, detail: 'OAuth credentials verified' }
-      oauthMsg.value[cfg.id] = 'Connected — OAuth credentials verified.'
+      connectMsg.value[cfg.id] = 'Connected — OAuth credentials verified.'
       store.notifySuccess(`${cfg.name || cfg.backendType}: OAuth connected`)
     } else {
-      oauthMsg.value[cfg.id] = 'Timed out waiting for approval (2 min). Retry, or paste a token below.'
+      connectMsg.value[cfg.id] = 'Timed out waiting for approval (2 min). Retry, or paste a token below.'
     }
   } catch {
-    oauthMsg.value[cfg.id] = 'Cancelled.'
+    connectMsg.value[cfg.id] = 'Cancelled.'
   } finally {
+    connectAbort.value = null
     oauthAbort.value = null
-    oauthBusy.value = null
+    connectBusy.value = null
   }
-}
-
-function cancelOauth() {
-  oauthAbort.value?.abort()
-  oauthAbort.value = null
-  oauthBusy.value = null
 }
 
 /**
@@ -1169,10 +1272,10 @@ function cancelOauth() {
  * it into the provider config and probe — CONNECTED.
  */
 async function supabaseConnect(cfg: SyncConfig) {
-  cancelSupabase()
+  cancelConnect()
   if (!supabaseConfigured()) {
-    sbMsg.value[cfg.id] =
-      'Broker not configured — set the Supabase URL + key (Settings → OAuth broker, or bake VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY into the Pages build and redeploy), and enable this provider under Supabase → Authentication → Sign-in.'
+    connectMsg.value[cfg.id] =
+      'Broker not configured — set the Supabase URL + key (Settings → OAuth broker), and enable this provider in your Supabase project. The Sign-in buttons above need the same broker.'
     return
   }
   setPendingOAuthConfig(cfg.id)
@@ -1181,18 +1284,19 @@ async function supabaseConnect(cfg: SyncConfig) {
   try {
     ;({ url } = await startSupabaseOAuth(cfg.backendType))
   } catch (e) {
-    sbMsg.value[cfg.id] = e instanceof Error ? e.message : String(e)
+    connectMsg.value[cfg.id] = e instanceof Error ? e.message : String(e)
     return
   }
   const popup = window.open(url, 'cyb_sb_oauth', 'width=620,height=720')
-  sbBusy.value = cfg.id
+  connectBusy.value = cfg.id
   if (!popup) {
-    sbMsg.value[cfg.id] = 'Popup blocked — approving in this tab…'
+    connectMsg.value[cfg.id] = 'Popup blocked — approving in this tab…'
     window.location.href = url
     return
   }
-  sbMsg.value[cfg.id] = 'Approve at the provider in the popup — waiting for the token…'
+  connectMsg.value[cfg.id] = 'Approve at the provider in the popup — waiting for the token…'
   const abort = new AbortController()
+  connectAbort.value = abort
   sbAbort.value = abort
   // Wake up early when the popup reports completion; the shared session
   // stays the source of truth.
@@ -1230,43 +1334,38 @@ async function supabaseConnect(cfg: SyncConfig) {
         maxAttempts: 90,
         signal: abort.signal,
         onAttempt: (n) => {
-          if (n % 10 === 0) sbMsg.value[cfg.id] = `Approve at the provider in the popup — waiting… (${n * 2}s)`
+          if (n % 10 === 0) connectMsg.value[cfg.id] = `Approve at the provider in the popup — waiting… (${n * 2}s)`
         },
       },
     )
-    if (!ok) sbMsg.value[cfg.id] = 'Timed out waiting for approval (3 min). Retry, or paste a token below.'
+    if (!ok) connectMsg.value[cfg.id] = 'Timed out waiting for approval (3 min). Retry, or paste a token below.'
   } catch (e) {
-    sbMsg.value[cfg.id] =
+    connectMsg.value[cfg.id] =
       e instanceof Error && e.message === 'popup-closed'
         ? 'Popup closed before approval — retry, or paste a token below.'
         : 'Cancelled.'
   } finally {
     window.removeEventListener('message', onMsg)
+    connectAbort.value = null
     sbAbort.value = null
-    sbBusy.value = null
+    connectBusy.value = null
   }
-}
-
-function cancelSupabase() {
-  sbAbort.value?.abort()
-  sbAbort.value = null
-  sbBusy.value = null
 }
 
 async function finalizeSupabaseToken(cfg: SyncConfig, token: string) {
   const saved = await store.saveSyncConfig({ ...cfg, token })
   if (!saved) {
-    sbMsg.value[cfg.id] = 'Token received, but saving it failed — retry.'
+    connectMsg.value[cfg.id] = 'Token received, but saving it failed — retry.'
     setPendingOAuthConfig(null)
     return
   }
   const r = await store.probeSyncConnection({ ...saved, token })
   authState.value[cfg.id] = { ok: r.ok, detail: r.detail }
   if (r.ok) {
-    sbMsg.value[cfg.id] = 'Connected — provider token verified.'
+    connectMsg.value[cfg.id] = 'Connected — provider token verified.'
     store.notifySuccess(`${cfg.name || cfg.backendType}: OAuth connected via Supabase`)
   } else {
-    sbMsg.value[cfg.id] = `Token saved, but verification failed: ${r.detail}`
+    connectMsg.value[cfg.id] = `Token saved, but verification failed: ${r.detail}`
   }
   setPendingOAuthConfig(null)
 }
@@ -1457,7 +1556,7 @@ async function addProvider(verify: boolean) {
       return
     }
     selectedId.value = saved.id
-    activeTab.value = 'providers'
+    activeTab.value = 'connections'
     if (verify) {
       wizMsg.value = 'Verifying…'
       const r = await store.probeSyncConnection(token ? { ...saved, token } : saved)
@@ -1503,7 +1602,7 @@ onMounted(() => {
     if (stash && pending) {
       const cfg = store.syncConfigs.find(c => c.id === pending)
       if (cfg && supabaseProviderFor(cfg.backendType) === stash.backend) {
-        sbMsg.value[cfg.id] = 'Approval received — verifying…'
+        connectMsg.value[cfg.id] = 'Approval received — verifying…'
         await finalizeSupabaseToken(cfg, stash.providerToken)
       } else {
         setPendingOAuthConfig(null)
@@ -1513,8 +1612,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  cancelOauth()
-  cancelSupabase()
+  cancelConnect()
 })
 </script>
 
@@ -1687,6 +1785,18 @@ onBeforeUnmount(() => {
 .am-login-label { font-size: 13px; font-weight: 700; }
 .am-login-sub { font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
 .am-identity-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.am-accounts-toggle {
+  display: inline-flex; align-items: center; gap: 7px; align-self: flex-start;
+  background: transparent; border: 1px solid var(--ui-border); border-radius: 8px;
+  color: color-mix(in srgb, var(--ui-text) 70%, transparent);
+  font-family: inherit; font-size: 11.5px; font-weight: 600;
+  padding: 6px 11px; cursor: pointer;
+}
+.am-accounts-toggle:hover { color: var(--ui-text); border-color: var(--ui-border-strong); }
+.am-accounts-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ui-accent) 75%, transparent);
+  outline-offset: 2px;
+}
 .am-identity-meta { display: flex; flex-direction: column; flex: 1; min-width: 120px; }
 .am-avatar { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--ui-border); }
 
@@ -1824,6 +1934,50 @@ onBeforeUnmount(() => {
 .am-note.ok { color: var(--ui-accent); }
 
 /* providers split */
+.am-section-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 2px;
+  font-size: 10px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ui-text) 50%, transparent);
+}
+.am-section-divider::before, .am-section-divider::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: var(--ui-border);
+}
+.am-providers-wrap { min-width: 0; }
+.am-connect { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.am-connect-meta { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 160px; }
+.am-method {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--ui-info);
+  border: 1px solid color-mix(in srgb, var(--ui-info) 45%, transparent);
+  border-radius: 12px;
+  padding: 2px 8px;
+}
+.am-progress {
+  height: 6px;
+  border-radius: 4px;
+  margin-top: 10px;
+  background: color-mix(in srgb, var(--ui-text) 10%, transparent);
+  overflow: hidden;
+}
+.am-progress-fill {
+  height: 100%;
+  width: 40%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--ui-accent), var(--ui-info));
+  animation: am-slide 1.2s ease-in-out infinite alternate;
+}
+@keyframes am-slide { from { margin-left: -10%; } to { margin-left: 70%; } }
 .am-providers { display: grid; grid-template-columns: 250px 1fr; gap: 10px; align-items: start; }
 @media (max-width: 720px) { .am-providers { grid-template-columns: 1fr; } }
 .am-list-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -1916,7 +2070,7 @@ onBeforeUnmount(() => {
 
 /* motion + density polish: respect reduced motion, keep narrow windows usable */
 @media (prefers-reduced-motion: reduce) {
-  .am-bar-fill, .am-tab, .am-login, .am-prov, .am-btn, .am-logo-pick { transition: none; }
+  .am-bar-fill, .am-tab, .am-login, .am-prov, .am-btn, .am-logo-pick, .am-progress-fill { transition: none; animation: none; }
 }
 @media (max-width: 560px) {
   .am-top { flex-wrap: wrap; }

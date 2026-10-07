@@ -619,6 +619,21 @@ onUnmounted(() => {
      actually scroll: `height: 100%` pinned every panel to the viewport
      height, clipping anything taller with no way to reach it. */
   min-height: 100%;
+  /* Global overflow safety net: no window child may push content past the
+     window frame horizontally — shrink, wrap, and scroll internally. */
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: break-word;
+}
+
+/* Wide media / code / tables must scroll inside the window, never widen it. */
+.window-content :deep(img, video, canvas, table) {
+  max-width: 100%;
+}
+.window-content :deep(pre) {
+  max-width: 100%;
+  overflow: auto;
 }
 
 /* ── resize handles ───────────────────────────────────────────────────── */

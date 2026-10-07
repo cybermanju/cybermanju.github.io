@@ -21,6 +21,7 @@ import FilePermissionsPanel from '@/components/FilePermissionsPanel.vue'
 import ProcessPanel from '@/components/ProcessPanel.vue'
 import DevicesPanel from '@/components/DevicesPanel.vue'
 import AccountManagerPanel from '@/components/AccountManagerPanel.vue'
+import TransferGraph from '@/components/TransferGraph.vue'
 import WindowContent from '@/components/WindowContent.vue'
 
 // AGENT-8: the terminal is the heaviest new panel (a few thousand scrollback
@@ -85,6 +86,7 @@ const defaultSizes: SizeMap = {
   agent: { width: 1020, height: 680 },
   users: { width: 520, height: 460 },
   sync: { width: 580, height: 440 },
+  transfer: { width: 980, height: 660 },
   settings: { width: 560, height: 520 },
   trash: { width: 500, height: 400 },
   activity: { width: 540, height: 400 },
@@ -127,6 +129,7 @@ const panelComponentMap: Record<string, Component> = {
   users: AccountManagerPanel,
   dashboard: WebDashboardPanel,
   sync: SyncPanel,
+  transfer: TransferGraph,
   settings: SettingsPage,
   storage: DiskManagerPage,
   terminal: TerminalPanel,

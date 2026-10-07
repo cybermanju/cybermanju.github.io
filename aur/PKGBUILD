@@ -1,6 +1,6 @@
 # Maintainer: CyberManju <cybermanju@users.noreply.github.com>
 pkgname=cybermanju-os
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="Encrypted file sync and management with post-quantum cryptography"
 arch=('x86_64')

@@ -94,6 +94,27 @@ Anthropic degrades to keyword recall, never fails. HTTP:
 `GET|POST|DELETE /api/agent/memories`, `POST …/recall`, `GET …/export`
 (Hermes-compatible `MEMORY.md` + vectors for sync restore).
 
+## 4c. Static-site cybsh (Pages/WASM transport, no dashboard)
+
+On a static host every `os_exec` line is offered to `src/utils/staticCybsh.ts`
+first; chained lines and unknown verbs fall through to the wasm dispatcher
+(`crates/os-wasm/src/os.rs`). Verbs answered locally from the local-pc vault
+(`sync.secret` signs, `secret:cybsh:key:*` keys, the `.cybermanju` file):
+
+- `quota` — shell volume + browser storage + live per-provider probes (same
+  endpoints as `crates/sync/src/quota.rs`); provider push still needs `:3456`.
+- `providers`, `oauth status|start`, `disk`, `sync status|list`, `mount`.
+- `encrypt|decrypt|keygen` (ChaCha20-Poly1305, vault keys), `compress|decompress` (lz4/brotli).
+- `cp|mv|rm|mkdir` across the merged namespace: plain paths hit the shell
+  volume, `/providers/<mountId>/…` hits that mount (same-provider renames,
+  cross-provider and provider↔local moves, `-r` for trees, `.keep` markers
+  for empty dirs — git mounts cannot hold those natively).
+- `scrub` (BLAKE3 snapshot vs `cache:cybsh:scrub`), `repair` (prunes the
+  record), `gc` (dry-run default, `--apply` deletes), `lease`, `echo`, `kill`, `ai`.
+
+`sync start|cancel`, the OAuth redirect dance and provider push refuse with
+`unsupported:` pointing at the desktop app / Docker image / dashboard server.
+
 ## 5. Durability: scrub / repair / gc / leases
 
 | Task | Route | Notes |

@@ -1,6 +1,6 @@
 [package]
 name = "cybermanju-os"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "CyberManju OS layer: cybsh terminal, task table, compute fan-out, syscall boundary"
 

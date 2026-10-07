@@ -468,7 +468,7 @@
                   <button class="fm-pill xs" title="Sync this file now" @click="syncFileTo(c.id)">⇪</button>
                   <button class="fm-pill xs ghost" title="Probe remote copy" @click="probeRemote(c.id)">locate</button>
                 </div>
-                <div v-if="!store.syncConfigs.length" class="fm-sempty">No providers configured — <button class="fm-link" @click="wm.open('accounts', { tab: 'providers' })">add one in Accounts</button>.</div>
+                <div v-if="!store.syncConfigs.length" class="fm-sempty">No providers configured — <button class="fm-link" @click="wm.open('accounts', { tab: 'connections' })">add one in Accounts</button>.</div>
               </div>
               <div v-if="remoteHits.length" class="fm-side-h">REMOTE COPIES FOUND · {{ remoteHits.length }}</div>
               <div v-for="r in remoteHits" :key="r.url + r.path" class="fm-kv small">

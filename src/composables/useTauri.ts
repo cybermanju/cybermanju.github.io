@@ -5,7 +5,25 @@
 // In Web mode: calls the Web Dashboard REST API (port 3456 by default)
 
 import type { FileNode } from '@/types'
-import { wasmOsDispatch, wasmSearchFiles, wasmBackendActive, wasmDbDispatch } from './useWasmBackend'
+import {
+  notifyOsDispatch,
+  wasmDbDispatch,
+  wasmDiskStatus,
+  wasmModuleExports,
+  wasmOsDispatch,
+  wasmSearchFiles,
+  wasmBackendActive,
+} from './useWasmBackend'
+import { vaultGet, vaultSet } from './useVault'
+import {
+  probeProviderQuotaViaFetch,
+  runStaticCybshLine,
+  staticConfigFromRow,
+  type StaticChacha,
+  type StaticCodecs,
+  type StaticCybshDeps,
+  type StaticSyncConfig,
+} from '@/utils/staticCybsh'
 import {
   compressFile,
   decryptFile,
@@ -1363,6 +1381,244 @@ async function writeStaticLooseGroups(groups: StaticLooseGroup[]): Promise<void>
   await wasmDbDispatch('kv.set', { key: LOOSE_INDEX_KEY, value: JSON.stringify(groups.map((g) => g.id)) })
 }
 
+// ── Static-host cybsh deps (real browser implementations) ─────────────
+// The terminal's vault-aware verbs (`quota`, `providers`, `oauth`, `disk`,
+// `sync status`, `encrypt`, `compress`, cross-mount `cp`/`mv`/`rm`/`mkdir`)
+// run in `src/utils/staticCybsh.ts` against these: the local-pc vault
+// (`.cybermanju` file + kv secrets), the shell volume, and live CORS-OK
+// provider probes. Provider push still needs the dashboard.
+
+const STATIC_VOLUME_KEY = 'cybermanju.os.volume'
+
+function readStaticVolume(): Record<string, string> {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STATIC_VOLUME_KEY) : null
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const out: Record<string, string> = {}
+      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof v === 'string') out[k] = v
+      }
+      return out
+    }
+  } catch {
+    // Missing or corrupt — treated as an empty volume.
+  }
+  return {}
+}
+
+function writeStaticVolume(volume: Record<string, string>): void {
+  try {
+    localStorage.setItem(STATIC_VOLUME_KEY, JSON.stringify(volume))
+  } catch {
+    throw new Error('disk_full: browser storage refused the write — attach the .cybermanju file or free site data')
+  }
+  notifyOsDispatch()
+}
+
+async function staticFetchAdapter(
+  url: string,
+  init?: Record<string, unknown>,
+): Promise<{ ok: boolean; status: number; json(): Promise<unknown> }> {
+  const res = await fetch(url, init as RequestInit)
+  return { ok: res.ok, status: res.status, json: () => res.json() as Promise<unknown> }
+}
+
+interface WasmCryptoExports {
+  chacha20_generate_key(): Uint8Array
+  chacha20_generate_nonce(): Uint8Array
+  chacha20_encrypt(key: Uint8Array, nonce: Uint8Array, plaintext: Uint8Array): Uint8Array
+  chacha20_decrypt(key: Uint8Array, nonce: Uint8Array, ciphertext: Uint8Array): Uint8Array
+  compress_lz4(data: Uint8Array): Uint8Array
+  decompress_lz4(data: Uint8Array): Uint8Array
+  compress_brotli(data: Uint8Array, quality: number): Uint8Array
+  decompress_brotli(data: Uint8Array): Uint8Array
+  blake3_hash(data: Uint8Array): string
+}
+
+async function staticCryptoExports(): Promise<WasmCryptoExports | null> {
+  try {
+    const mod = await wasmModuleExports<Partial<WasmCryptoExports>>()
+    if (
+      typeof mod.chacha20_encrypt !== 'function' ||
+      typeof mod.compress_lz4 !== 'function' ||
+      typeof mod.blake3_hash !== 'function'
+    ) {
+      return null
+    }
+    return mod as WasmCryptoExports
+  } catch {
+    return null
+  }
+}
+
+const STATIC_CYBSH_DEPS: StaticCybshDeps = {
+  readVolume: readStaticVolume,
+  getCwd: async () => {
+    try {
+      const raw = (await wasmOsDispatch('pwd', {})) as { output?: unknown } | null
+      if (raw && typeof raw.output === 'string' && raw.output.startsWith('/')) return raw.output
+    } catch {
+      // Stale bundle or missing export — root is the honest fallback.
+    }
+    return '/'
+  },
+  writeVolumeFile: async (path, content) => {
+    try {
+      const raw = (await wasmOsDispatch('write', { path, content })) as {
+        ok?: boolean
+        output?: unknown
+      } | null
+      if (raw && typeof raw === 'object' && raw.ok === false) {
+        throw new Error(String(raw.output ?? 'write failed'))
+      }
+      return
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e)
+      if (!/unknown command|wasm backend unavailable/i.test(detail)) throw e
+      // Stale pkg without the `write` arm — write the volume directly and
+      // nudge the mirror so `volume:*` kv rows still follow.
+      const volume = readStaticVolume()
+      volume[path] = content
+      writeStaticVolume(volume)
+    }
+  },
+  deleteVolumePath: async (path, recursive) => {
+    const volume = readStaticVolume()
+    const prefix = path === '/' ? '/' : `${path}/`
+    const keys = Object.keys(volume).filter((k) => k === path || k.startsWith(prefix))
+    if (!recursive && keys.some((k) => k !== path)) {
+      throw new Error(`is a directory: ${path} (use -r)`)
+    }
+    const freed = keys.reduce((n, k) => n + (volume[k]?.length ?? 0), 0)
+    try {
+      const raw = (await wasmOsDispatch('rm', {
+        recursive,
+        paths: [path],
+      })) as { ok?: boolean; output?: unknown } | null
+      if (raw && typeof raw === 'object' && raw.ok === false) {
+        throw new Error(String(raw.output ?? 'rm failed'))
+      }
+      return freed
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e)
+      if (!/unknown command|wasm backend unavailable/i.test(detail)) throw e
+      for (const k of keys) delete volume[k]
+      writeStaticVolume(volume)
+      return freed
+    }
+  },
+  killTask: async (id) => {
+    const raw = (await wasmOsDispatch('kill', { id })) as {
+      ok?: boolean
+      output?: unknown
+    } | null
+    if (raw && typeof raw === 'object') {
+      if (raw.ok) return true
+      const out = String(raw.output ?? '')
+      if (/no task|not_found/.test(out)) return false
+      throw new Error(out || 'kill failed')
+    }
+    throw new Error('wasm backend unavailable')
+  },
+  listSyncConfigs: async () => {
+    const raw = (await wasmDbDispatch('sync.list', {}).catch(() => [])) as Array<
+      Record<string, unknown>
+    >
+    if (!Array.isArray(raw)) return []
+    const out: StaticSyncConfig[] = []
+    for (const row of raw) {
+      if (row && typeof row === 'object') {
+        const cfg = staticConfigFromRow(row)
+        if (cfg) out.push(cfg)
+      }
+    }
+    return out
+  },
+  getConfigSecret: async (configId) => {
+    try {
+      const raw = await wasmDbDispatch('sync.secret', { configId })
+      if (typeof raw === 'string') return raw
+      if (raw && typeof raw === 'object') {
+        const token = (raw as Record<string, unknown>).token
+        if (typeof token === 'string') return token
+      }
+    } catch {
+      // No secret table in this bundle — unsigned.
+    }
+    return ''
+  },
+  getDiskStatus: async () => {
+    const s = await wasmDiskStatus()
+    return { attached: s.attached, name: s.name, savedBytes: s.savedBytes, dirty: s.dirty }
+  },
+  getStorageEstimate: async () => {
+    try {
+      const est = await navigator.storage?.estimate()
+      if (!est) return null
+      return { usage: est.usage, quota: est.quota }
+    } catch {
+      return null
+    }
+  },
+  listMounts: async () => {
+    const canal = await import('./useProviderCanal')
+    const mounts = await canal.listVfsMounts()
+    return mounts.map((m) => ({ id: m.id, name: m.name, backendType: m.backendType, configId: m.configId }))
+  },
+  providerRead: async (mountId, remotePath) => {
+    const canal = await import('./useProviderCanal')
+    const file = await canal.readVfsFile(mountId, remotePath)
+    return file.bytes
+  },
+  providerWrite: async (mountId, remotePath, data) => {
+    const canal = await import('./useProviderCanal')
+    await canal.writeVfsFile(mountId, remotePath, data)
+  },
+  providerDelete: async (mountId, remotePath) => {
+    const canal = await import('./useProviderCanal')
+    await canal.deleteVfsFile(mountId, remotePath)
+  },
+  providerList: async (mountId, remotePath) => {
+    const canal = await import('./useProviderCanal')
+    const entries = await canal.listVfsDir(mountId, remotePath)
+    return entries.map((e) => ({ name: e.name, path: e.path, isDir: e.isDir, sizeBytes: e.sizeBytes ?? 0 }))
+  },
+  probeProviderQuota: (cfg, token) => probeProviderQuotaViaFetch(cfg, token, staticFetchAdapter),
+  keyGet: (name) => vaultGet(name),
+  keySet: (name, value) => vaultSet(name, value),
+  chacha: async (): Promise<StaticChacha | null> => {
+    const mod = await staticCryptoExports()
+    if (!mod) return null
+    return {
+      genKey: () => mod.chacha20_generate_key(),
+      genNonce: () => mod.chacha20_generate_nonce(),
+      encrypt: (k, n, p) => mod.chacha20_encrypt(k, n, p),
+      decrypt: (k, n, c) => mod.chacha20_decrypt(k, n, c),
+    }
+  },
+  codecs: async (): Promise<StaticCodecs | null> => {
+    const mod = await staticCryptoExports()
+    if (!mod) return null
+    return {
+      compressLz4: (d) => mod.compress_lz4(d),
+      decompressLz4: (d) => mod.decompress_lz4(d),
+      compressBrotli: (d) => mod.compress_brotli(d, 11),
+      decompressBrotli: (d) => mod.decompress_brotli(d),
+    }
+  },
+  blake3: async (data) => {
+    try {
+      const mod = await staticCryptoExports()
+      if (!mod) return null
+      return mod.blake3_hash(new TextEncoder().encode(data))
+    } catch {
+      return null
+    }
+  },
+}
+
 const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
   // Byte upload → base64 body in kv + `encoding:<id>` marker (binary files
   // are re-decoded on read so the editor still gets text out of them).
@@ -1457,6 +1713,42 @@ const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
     if (!group.fileIds.includes(fileId)) group.fileIds.push(fileId)
     await writeStaticLooseGroups(groups)
     return group
+  },
+
+  // ── Provider quota (vault token + live CORS-OK probe, no dashboard) ──
+  // The Sync panel's quota button works on Pages too: same endpoints as
+  // `crates/sync/src/quota.rs`, token sealed in the local vault.
+  get_sync_usage: async (args) => {
+    const configId = String(args.configId ?? '')
+    if (!configId) throw new Error('invalid: configId is required')
+    const all = (await wasmDbDispatch('sync.list', {}).catch(() => [])) as Array<
+      Record<string, unknown>
+    >
+    const row = (Array.isArray(all) ? all : []).find((c) => String(c?.id) === configId)
+    if (!row) throw new Error(`not_found: sync config ${configId}`)
+    const cfg = staticConfigFromRow(row)
+    if (!cfg) throw new Error(`not_found: sync config ${configId}`)
+    let secret = ''
+    try {
+      const s = await wasmDbDispatch('sync.secret', { configId }).catch(() => null)
+      if (typeof s === 'string') secret = s
+      else if (s && typeof (s as Record<string, unknown>).token === 'string') {
+        secret = (s as Record<string, unknown>).token as string
+      }
+    } catch {
+      secret = ''
+    }
+    const probe = await probeProviderQuotaViaFetch(cfg, secret, staticFetchAdapter)
+    if (!probe.ok) throw new Error(probe.error ?? 'quota probe failed')
+    return {
+      backendType: cfg.backendType,
+      totalBytes: probe.totalBytes ?? null,
+      usedBytes: probe.usedBytes ?? null,
+      remainingRequests: probe.remainingRequests ?? null,
+      requestLimit: probe.requestLimit ?? null,
+      resetAt: probe.resetAt ?? null,
+      detail: probe.detail,
+    }
   },
 
   // ── Dashboard (no server behind a static host) ──
@@ -1671,6 +1963,19 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
   // refuses fast with one clear error instead of ERR_CONNECTION_REFUSED.
   if (isStaticHost() && (OS_WASM_COMMANDS.has(cmd) || mapping || STATIC_COMMAND_HANDLERS[cmd])) {
     if (OS_WASM_COMMANDS.has(cmd)) {
+      // Vault-aware cybsh verbs (`quota`, `providers`, `oauth`, `disk`,
+      // `sync`, `encrypt`, cross-mount `cp`/`mv`/`rm`/`mkdir`, …) answer
+      // from the local vault + live provider probes before the wasm volume
+      // dispatcher ever sees the line. Chained lines and unknown verbs
+      // return `null` and fall through to the Rust shell as before.
+      if (cmd === 'os_exec') {
+        try {
+          const handled = await runStaticCybshLine(String(args?.line ?? ''), STATIC_CYBSH_DEPS)
+          if (handled) return handled as T
+        } catch {
+          // Interceptor failure — the wasm dispatcher stays the fallback.
+        }
+      }
       const wasmArgs = wasmArgsForCommand(cmd, args ?? {})
       const raw = await wasmOsDispatch(wasmArgs.cmd, wasmArgs.args)
       // The wasm dispatcher ALWAYS envelopes: `{"ok":bool,"output":"<inner>"}`

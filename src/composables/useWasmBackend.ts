@@ -210,6 +210,16 @@ function fireOsDispatchHooks() {
 }
 
 /**
+ * Nudge volume-mirror subscribers after a direct localStorage volume edit.
+ * The static cybsh layer mutates the volume itself for provider↔local moves
+ * (the wasm `rm` arm may predate the deployed pkg); the debounced mirror
+ * then carries the delta into `volume:*` kv rows as usual.
+ */
+export function notifyOsDispatch(): void {
+  fireOsDispatchHooks()
+}
+
+/**
  * Map the os/* REST contract onto the dispatcher's arg-list contract.
  * The wasm dispatcher takes positional string args; the frontend passes
  * named ones.
@@ -232,6 +242,13 @@ function argsToArgList(cmd: string, args: Record<string, unknown>): string[] {
     case 'write':
       if (args.path) list.push(String(args.path))
       list.push(String(args.content ?? ''))
+      break
+    case 'rm':
+      if (args.recursive) list.push('-r')
+      for (const p of (args.paths as string[] | undefined) ?? []) list.push(p)
+      break
+    case 'kill':
+      if (args.id !== undefined) list.push(String(args.id))
       break
     case 'search':
       if (args.query) list.push(String(args.query))

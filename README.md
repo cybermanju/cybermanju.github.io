@@ -17,7 +17,7 @@
 [![Rust](https://img.shields.io/badge/backend-Rust_2021-dea584?style=for-the-badge&logo=rust)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-00FF41?style=for-the-badge)](LICENSE)
 
-**Version:** 0.1.0 \
+**Version:** 0.1.1 \
 **Identifier:** `com.cybermanju.os` \
 **License:** MIT
 

@@ -91,6 +91,7 @@ const commands = computed<CommandGroup[]>(() => [
       { id: 'nav-map', label: 'Go to Map', icon: 'solar:map-bold', action: () => { wm.open('map'); store.fetchGeoFiles() } },
       { id: 'nav-code', label: 'Open Code Studio', icon: 'solar:code-bold', action: () => { wm.open('editor') } },
       { id: 'nav-sync', label: 'Go to Sync (providers + OAuth)', icon: 'solar:refresh-bold', action: () => { wm.open('sync') } },
+      { id: 'nav-transfer', label: 'Open Transfer Board (mv/cp between providers)', icon: 'solar:share-bold', action: () => { wm.open('transfer') } },
       { id: 'nav-accounts', label: 'Go to Account Manager', icon: 'solar:user-circle-bold', action: () => { wm.open('accounts') } },
       { id: 'nav-users', label: 'Go to Accounts & Users', icon: 'solar:users-group-rounded-bold', action: () => { wm.open('accounts', { tab: 'users' }) } },
       { id: 'nav-terminal', label: 'Open Terminal (cybsh)', icon: 'solar:file-terminal-bold', shortcut: 'Ctrl+`', action: () => { wm.open('terminal') } },

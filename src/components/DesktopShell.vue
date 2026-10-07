@@ -117,14 +117,20 @@
     </div>
 
     <StatusBar />
+
+    <!-- First-run setup wizard (desktop): vault + local sync + agent AI. -->
+    <SetupWizard v-if="setupOpen" @close="setupOpen = false" />
   </div>
 </template>
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
+import SetupWizard from '@/components/SetupWizard.vue'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
+import { isTauri } from '@/composables/useTauri'
+import { setupSeen } from '@/utils/setupWizard'
 import { computeStripRects, stripColumnWidth } from '@/utils/shellLayout'
 import TopMenuBar from './TopMenuBar.vue'
 import Dock from './Dock.vue'
@@ -136,6 +142,12 @@ import type { PanelType } from '@/types'
 const wm = useWindowManager()
 const theme = useTheme()
 const selectShortcut = ref<PanelType | null>(null)
+
+/** First-run setup wizard (desktop auto-open + Help-menu re-run). */
+const setupOpen = ref(false)
+function openSetup() {
+  setupOpen.value = true
+}
 const stripScrollRef = ref<HTMLElement | null>(null)
 
 const shortcuts: { panel: PanelType; label: string; icon: string }[] = [
@@ -332,6 +344,10 @@ onMounted(() => {
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('contextmenu', () => { dockMenu.value.visible = false })
   window.addEventListener('resize', handleViewportResize)
+  window.addEventListener('cybermanju:open-setup', openSetup)
+  // First launch on desktop: offer vault + sync + agent setup once.
+  // Web/static builds never auto-open (no file picker / no key sealing there).
+  if (isTauri() && !setupSeen()) setupOpen.value = true
 })
 
 onUnmounted(() => {
@@ -339,6 +355,7 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('contextmenu', () => { dockMenu.value.visible = false })
   window.removeEventListener('resize', handleViewportResize)
+  window.removeEventListener('cybermanju:open-setup', openSetup)
 })
 </script>
 

@@ -140,7 +140,7 @@ const remoteFiles = ref<{ name: string; path: string; sizeBytes: number }[]>([])
 
 /** Provider connections live in Accounts now — this panel runs them. */
 function openProviders() {
-  wm.open('accounts', { tab: 'providers' })
+  wm.open('accounts', { tab: 'connections' })
 }
 
 const runConfigOptions = computed(() => [
