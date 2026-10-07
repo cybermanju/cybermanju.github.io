@@ -244,7 +244,7 @@ ls --json   # every command speaks JSON too — pipes, &&, ||, ;, history, compl
 |---|---|
 | 🖥️ Desktop | Tauri v2 (`com.cybermanju.os`, 1400×900) — 20 command modules, 35 handlers |
 | 🦀 Backend | Rust 2021 workspace — **15 crates** + `src-tauri` + `docker/server` |
-| 🎨 Frontend | Vue 3 Composition + Pinia + TS 5.8 + Vite 6.3 — **45 components · 25 composables · 18 utils** |
+| 🎨 Frontend | Vue 3 Composition + Pinia + TS 5.8 + Vite 6.3 — **42 components · 27 composables · 25 utils** |
 | ✨ Reactive | `@vueuse/core` 14 — one shared `useSystemHardware()` for the whole OS |
 | 🎨 Icons | `@iconify/vue` Solar set (generated — unknown `solar:*` **fails the build**) |
 | 🗺️ Maps | MapLibre GL 6 |
@@ -254,7 +254,7 @@ ls --json   # every command speaks JSON too — pipes, &&, ||, ;, history, compl
 | 🗜️ Pack | LZ4 → ZSTD-15 → Brotli-11 |
 | </> Parse | tree-sitter (6 real grammars) + heuristic fallback |
 | 🌐 WASM | `crates/os-wasm` via `wasm-pack` + OPFS — full OS in the browser |
-| ✅ Tests | Vitest **14 files / 162 tests** + Rust workspace tests in CI |
+| ✅ Tests | Vitest **25 files / 281 tests** + Rust workspace tests in CI |
 
 ---
 
@@ -347,15 +347,15 @@ npm run build:wasm:frontend   # → dist-wasm/ (Pages deploys on every main push
 ## 🗂️ Repo map
 
 ```
-├── src/ (45 components · 25 composables · 18 utils · App.vue · main.ts)
-│   ├── components/  FileManager · DesktopShell · AgentPanel · DevicesPanel · TerminalPanel …
+├── src/ (42 components · 27 composables · 25 utils · App.vue · main.ts)
+│   ├── components/  FileManager · DesktopShell · AgentPanel · DevicesPanel · TerminalPanel · CodeStudio · OrganizePanel · ShieldPanel · SearchPanel …
 │   ├── composables/ useTauri (3 transports) · useSystemHardware · useAgent · useProviderCanal …
 │   ├── stores/app.ts · types/ · utils/ · workers/ · keymaps.ts
 ├── crates/ (15)  agent · os · os-wasm · disk · erasure · web (18 api) · sync · db
 │                 types · crypto · compression · search · faces · scene · tests
 ├── src-tauri/ (20 command modules · lib.rs · tauri.conf.json 1400×900)
 ├── docker/server/ (headless web entrypoint) · Dockerfile · docker-compose.yml
-├── tests/frontend/ (14 files · 162 tests — scene 42 · memory · canal/ship · hermes)
+├── tests/frontend/ (25 files · 281 tests — scene 42 · memory · canal/ship · hermes · panel-aliases)
 ├── scripts/ (check-version · android-signing · os-* ops · generate-icon-set)
 ├── docs/ OPERATIONS · SECURITY · MEMORY · HERMES-INSIGHTS · AGENT-REVIEW · OPENCODE-PORT …
 ├── .github/workflows/ ci.yml (13 jobs) · release.yml (v* → 8 families + GHCR)
@@ -373,7 +373,7 @@ npm run build:wasm:frontend   # → dist-wasm/ (Pages deploys on every main push
 ```bash
 bash scripts/check-version.sh   # versions agree everywhere (package.json rules)
 npx vue-tsc --noEmit             # icons + types
-npm test                         # 14 files / 162 tests
+npm test                         # 25 files / 281 tests
 ```
 
 > [!IMPORTANT]

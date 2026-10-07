@@ -58,22 +58,19 @@ interface DockApp {
 const dockApps = computed<DockApp[]>(() => [
   { panelType: 'files', label: 'File Browser', icon: 'solar:folder-bold', category: 'core' },
   { panelType: 'search', label: 'Search', icon: 'solar:magnifier-bold', category: 'core' },
-  { panelType: 'collections', label: 'Collections', icon: 'solar:library-bold', category: 'organize' },
+  { panelType: 'collections', label: 'Organize', icon: 'solar:library-bold', category: 'organize' },
   { panelType: 'faces', label: 'People', icon: 'solar:face-scan-circle-bold', category: 'organize' },
   { panelType: 'map', label: 'Map', icon: 'solar:map-bold', category: 'tools' },
-  { panelType: 'code', label: 'Code', icon: 'solar:code-bold', category: 'tools' },
-  { panelType: 'editor', label: 'Editor', icon: 'solar:file-code-bold', category: 'tools' },
+  { panelType: 'editor', label: 'Code Studio', icon: 'solar:file-code-bold', category: 'tools' },
   { panelType: 'agent', label: 'Agent', icon: 'solar:bot-bold', category: 'tools' },
   { panelType: 'sync', label: 'Sync', icon: 'solar:refresh-bold', category: 'tools' },
-  { panelType: 'storage', label: 'Storage', icon: 'solar:database-bold', category: 'tools' },
-  { panelType: 'disks', label: 'Disks', icon: 'solar:ssd-square-bold', category: 'tools' },
+  { panelType: 'disks', label: 'Storage & Disks', icon: 'solar:ssd-square-bold', category: 'tools' },
   { panelType: 'devices', label: 'Devices', icon: 'solar:plug-circle-bold', category: 'tools' },
   { panelType: 'terminal', label: 'Terminal', icon: 'solar:file-terminal-bold', category: 'system' },
   { panelType: 'processes', label: 'Tasks', icon: 'solar:cpu-bold', category: 'system' },
   { panelType: 'settings', label: 'Settings', icon: 'solar:settings-bold', category: 'system' },
   { panelType: 'trash', label: 'Trash', icon: 'solar:trash-bin-trash-bold', category: 'system' },
-  { panelType: 'users', label: 'Users', icon: 'solar:users-group-rounded-bold', category: 'system' },
-  { panelType: 'accounts', label: 'Accounts', icon: 'solar:user-circle-bold', category: 'system' },
+  { panelType: 'accounts', label: 'Accounts & Users', icon: 'solar:user-circle-bold', category: 'system' },
 ])
 
 const minimizedWindows = computed(() =>
@@ -146,11 +143,30 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
   position: relative;
   max-width: 100%;
   overflow-x: auto;
-  scrollbar-width: none;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
 }
 
+/* Auto-hide stylized bar: invisible until hovered, then accent-tinted. */
 .dock::-webkit-scrollbar {
-  display: none;
+  height: 6px;
+}
+.dock::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dock::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: var(--ui-radius-full);
+}
+.dock:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ui-accent) 50%, transparent);
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+.dock:hover {
+  scrollbar-color: color-mix(in srgb, var(--ui-accent) 50%, transparent) transparent;
 }
 
 .dock::before {

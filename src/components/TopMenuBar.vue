@@ -71,7 +71,7 @@
           class="tray-icon"
           :class="{ active: store.encryptionStatus.isEncrypted }"
           type="button"
-          @click="wm.open('encryption')"
+          @click="wm.open('encryption', { tab: 'shield' })"
           :title="`Encryption: ${store.encryptionStatus.isEncrypted ? 'ON' : 'OFF'}`"
         >
           <AppIcon :name="store.encryptionStatus.isEncrypted ? 'solar:shield-check-bold' : 'solar:shield-bold'" :size="14" />
@@ -81,7 +81,7 @@
           class="tray-icon"
           :class="{ active: store.compressedFiles.length > 0 }"
           type="button"
-          @click="wm.open('compression')"
+          @click="wm.open('encryption', { tab: 'compress' })"
           :title="`Compression: ${store.compressedFiles.length} files`"
         >
           <AppIcon name="solar:archive-bold" :size="14" />
@@ -230,18 +230,18 @@ const menuStructure = computed<MenuGroup[]>(() => [
     label: 'View',
     children: [
       { id: 'file-browser', label: 'File Browser', icon: 'solar:folder-bold', shortcut: 'Ctrl+1', action: () => { wm.open('files') } },
-      { id: 'collections', label: 'Collections', icon: 'solar:library-bold', action: () => { wm.open('collections') } },
+      { id: 'collections', label: 'Organize', icon: 'solar:library-bold', action: () => { wm.open('collections') } },
       { id: 'people', label: 'People (Faces)', icon: 'solar:face-scan-square-bold', action: () => { wm.open('faces') } },
       { id: 'map', label: 'Map View', icon: 'solar:map-bold', action: () => { wm.open('map') } },
-      { id: 'code', label: 'Code Intelligence', icon: 'solar:code-square-bold', action: () => { wm.open('code') } },
+      { id: 'code', label: 'Code Studio', icon: 'solar:code-square-bold', action: () => { wm.open('editor') } },
       { id: 'div1', divider: true },
       { id: 'search', label: 'Search', icon: 'solar:magnifer-bold', shortcut: 'Ctrl+F', action: () => { store.searchQuery = ''; wm.open('search') } },
-      { id: 'storage', label: 'Storage Dashboard', icon: 'solar:database-bold', action: () => { wm.open('storage') } },
+      { id: 'storage', label: 'Storage & Disks', icon: 'solar:database-bold', action: () => { wm.open('disks') } },
       { id: 'sync-panel', label: 'Sync Panel', icon: 'solar:refresh-bold', action: () => { wm.open('sync') } },
       { id: 'devices', label: 'Devices & Sensors', icon: 'solar:plug-circle-bold', action: () => { wm.open('devices') } },
       { id: 'loose-groups', label: 'Loose Groups', icon: 'solar:users-group-two-rounded-bold', action: () => { wm.open('loose-groups') } },
       { id: 'style', label: 'Style Tags', icon: 'solar:tag-bold', action: () => { wm.open('style') } },
-      { id: 'overlay', label: 'Overlay Dashboard', icon: 'solar:kanban-square-bold', action: () => { wm.open('webdash') } },
+      { id: 'overlay', label: 'Remote Dashboard', icon: 'solar:kanban-square-bold', action: () => { wm.open('dashboard') } },
       { id: 'div2', divider: true },
       { id: 'minimize-all', label: 'Minimize All', icon: 'solar:minimize-square-bold', action: () => wm.minimizeAll() },
       { id: 'close-all', label: 'Close All Windows', icon: 'solar:close-circle-bold', action: () => wm.closeAll() },
@@ -257,12 +257,12 @@ const menuStructure = computed<MenuGroup[]>(() => [
       { id: 'recent', label: 'Recent Files', icon: 'solar:history-2-bold', action: () => { wm.open('recent') } },
       { id: 'div1', divider: true },
       { id: 'accounts', label: 'Account Manager', icon: 'solar:user-id-bold', action: () => { wm.open('accounts') } },
-      { id: 'sync-panel-link', label: 'Provider Connections (OAuth)', icon: 'solar:link-bold', action: () => { wm.open('sync') } },
+      { id: 'sync-panel-link', label: 'Provider Connections (OAuth)', icon: 'solar:link-bold', action: () => { wm.open('accounts', { tab: 'providers' }) } },
       { id: 'terminal', label: 'Terminal (cybsh)', icon: 'solar:file-terminal-bold', shortcut: 'Ctrl+`', action: () => { wm.open('terminal') } },
       { id: 'tasks', label: 'Tasks (ps/top)', icon: 'solar:cpu-bold', action: () => { wm.open('processes') } },
       { id: 'disks', label: 'Disks & Volume', icon: 'solar:flash-drive-bold', action: () => { wm.open('disks') } },
-      { id: 'storage', label: 'Storage Dashboard', icon: 'solar:database-bold', action: () => { wm.open('storage') } },
-      { id: 'users', label: 'User Management', icon: 'solar:users-group-rounded-bold', action: () => { wm.open('users'); store.fetchUsers() } },
+      { id: 'storage', label: 'Storage & Disks', icon: 'solar:database-bold', action: () => { wm.open('disks') } },
+      { id: 'users', label: 'Accounts & Users', icon: 'solar:users-group-rounded-bold', action: () => { wm.open('accounts', { tab: 'users' }) } },
       { id: 'div2', divider: true },
       { id: 'command-palette', label: 'Command Palette', icon: 'solar:command-bold', shortcut: 'Ctrl+K', action: () => { store.commandPaletteOpen = true } },
       { id: 'keyboard-shortcuts', label: 'Keyboard Shortcuts', icon: 'solar:keyboard-bold', shortcut: '?', action: () => { store.showShortcutsHelp = true } },
@@ -659,12 +659,30 @@ onUnmounted(() => {
   align-items: center;
   gap: 2px;
   overflow-x: auto;
-  scrollbar-width: none;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
   max-width: 100%;
 }
 
 .sys-tray::-webkit-scrollbar {
-  display: none;
+  height: 6px;
+}
+.sys-tray::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sys-tray::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: var(--ui-radius-full);
+}
+.sys-tray:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ui-accent) 50%, transparent);
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+.sys-tray:hover {
+  scrollbar-color: color-mix(in srgb, var(--ui-accent) 50%, transparent) transparent;
 }
 
 .tray-icon {

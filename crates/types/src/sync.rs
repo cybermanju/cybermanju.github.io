@@ -231,6 +231,18 @@ pub struct SyncConfig {
     // set 0 for pure round-robin (no redundancy). Ignored in `whole` mode. >>>
     #[serde(default = "default_parity")]
     pub parity: u8,
+    // <<< FULL-IMPROVE: encrypt-or-fail + basename obfuscation >>>
+    // `require_encryption`: refuse the upload when no master passphrase is
+    // available instead of uploading WITHOUT encryption with a warning.
+    // Defaults off (warning path preserved); turn it on for vault sets.
+    #[serde(default)]
+    pub require_encryption: bool,
+    // `obfuscate_names`: hash file basenames into the remote locator so
+    // providers see `cybermanju_sync/<dir8>/<hash16>` instead of real names.
+    // Deterministic (idempotent re-syncs converge); the original name stays
+    // in the local `sync_files` record for restore. Defaults off.
+    #[serde(default)]
+    pub obfuscate_names: bool,
     // <<< AGENT-3 CONTRACT: filled/refreshed by the OAuth flow. Secrets
     // inside `OAuthCredentials` are individually `skip_serializing`. >>>
     #[serde(default, skip_serializing_if = "Option::is_none")]

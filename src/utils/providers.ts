@@ -1,8 +1,9 @@
 // Shared provider metadata + credential-draft helpers.
 //
-// Two panels (AccountManager's per-provider cards + SyncPanel's wizard) ask
-// the same questions — which fields does this backend need, what do we call
-// the token, how do we explain auth — so the answers live here exactly once.
+// AccountManager's per-provider cards ask the same questions for every
+// backend — which fields does it need, what do we call the token, how do
+// we explain auth — so the answers live here exactly once. (SyncPanel used
+// to carry a second copy of this form; since the merge it only runs syncs.)
 
 import { SYNC_BACKEND_INFO } from '@/types'
 import type { SyncBackendType, SyncConfig } from '@/types'
@@ -81,7 +82,7 @@ export function syncConfigDefaults(): Omit<
   return {
     enabled: true,
     autoSync: false,
-    compressBeforeUpload: false,
+    compressBeforeUpload: true,
     createPreviews: false,
     deleteRawAfterSync: false,
     maxConcurrentUploads: 1,
@@ -89,6 +90,8 @@ export function syncConfigDefaults(): Omit<
     conflictPolicy: 'skip',
     placement: 'whole',
     parity: 1,
+    requireEncryption: false,
+    obfuscateNames: false,
   }
 }
 

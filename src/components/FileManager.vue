@@ -405,9 +405,10 @@
                 </form>
               </div>
               <div v-if="active.gpsLat != null" class="fm-kv"><span>GPS</span><b class="mono">{{ active.gpsLat.toFixed(4) }}, {{ active.gpsLon?.toFixed(4) }}</b></div>
+              <div v-if="active.faceGroupIds?.length" class="fm-kv"><span>Faces</span><b>{{ active.faceGroupIds.map(getFaceGroupName).join(', ') }}</b></div>
+              <div v-if="store.parseResult?.symbols.length" class="fm-kv"><span>Symbols</span><b class="mono">{{ store.parseResult.symbols.length }} · {{ store.parseResult.language }}</b></div>
               <div class="fm-btnrow">
                 <button class="fm-pill xs" @click="openFile(active)">Open</button>
-                <button class="fm-pill xs ghost" @click="wm.open('preview')">Preview</button>
                 <button class="fm-pill xs ghost" @click="copyPath(active)">Copy path</button>
                 <button class="fm-pill xs ghost" @click="beginRename(active)">Rename</button>
               </div>
@@ -434,7 +435,7 @@
               <div class="fm-btnrow">
                 <button v-if="!active.encrypted" class="fm-pill xs" @click="encryptWith('hybrid')">Encrypt · hybrid</button>
                 <button v-else class="fm-pill xs" @click="store.decryptFile(active!.id)">Decrypt</button>
-                <button class="fm-pill xs ghost" @click="wm.open('encryption')">Key manager</button>
+                <button class="fm-pill xs ghost" @click="wm.open('encryption', { tab: 'shield' })">Key manager</button>
               </div>
               <div class="fm-side-h">COMPRESSION — ACTUAL STATE</div>
               <div class="fm-cryptocard" :class="{ on: encLayer(active) !== 'none' }">
@@ -450,7 +451,7 @@
               <div class="fm-btnrow">
                 <button class="fm-pill xs" @click="compressWith('zstd')">Compress · zstd</button>
                 <button v-if="encLayer(active) !== 'none'" class="fm-pill xs ghost" @click="store.decompressFile(active!.id)">Decompress</button>
-                <button class="fm-pill xs ghost" @click="wm.open('compression')">Engine</button>
+                <button class="fm-pill xs ghost" @click="wm.open('encryption', { tab: 'compress' })">Engine</button>
               </div>
             </div>
             <!-- DISTRIBUTION -->
@@ -467,7 +468,7 @@
                   <button class="fm-pill xs" title="Sync this file now" @click="syncFileTo(c.id)">⇪</button>
                   <button class="fm-pill xs ghost" title="Probe remote copy" @click="probeRemote(c.id)">locate</button>
                 </div>
-                <div v-if="!store.syncConfigs.length" class="fm-sempty">No providers configured — <button class="fm-link" @click="wm.open('sync')">add one in Sync</button>.</div>
+                <div v-if="!store.syncConfigs.length" class="fm-sempty">No providers configured — <button class="fm-link" @click="wm.open('accounts', { tab: 'providers' })">add one in Accounts</button>.</div>
               </div>
               <div v-if="remoteHits.length" class="fm-side-h">REMOTE COPIES FOUND · {{ remoteHits.length }}</div>
               <div v-for="r in remoteHits" :key="r.url + r.path" class="fm-kv small">
@@ -793,7 +794,11 @@ function openFolder(f: FileNode) {
 function openFile(f: FileNode) {
   if (f.fileType === 'folder') return openFolder(f)
   store.selectFile(f.id)
-  wm.open('preview')
+  // Merged quick-look: the floating preview window is gone — details live
+  // in the inspector, so opening a file raises it on the info tab.
+  inspectorOpen.value = true
+  inspTab.value = 'info'
+  wm.open('files', { inspector: true, inspTab: 'info' })
 }
 function revealFile(f: FileNode) {
   store.selectFile(f.id)
@@ -815,7 +820,7 @@ function fileMenu(e: MouseEvent, f: FileNode) {
   ctx.replaceEntries('file_grid_item', [
     { id: 'open', label: 'OPEN', icon: 'solar:folder-open-bold', action: () => openFile(f) },
     { id: 'terminal', label: 'OPEN IN TERMINAL', icon: 'solar:file-terminal-bold', action: () => openFolderInTerm(f) },
-    { id: 'preview', label: 'QUICK LOOK', icon: 'solar:eye-bold', action: () => { store.selectFile(f.id); wm.open('preview') } },
+    { id: 'preview', label: 'QUICK LOOK', icon: 'solar:eye-bold', action: () => { store.selectFile(f.id); inspectorOpen.value = true; inspTab.value = 'info'; wm.open('files', { inspector: true, inspTab: 'info' }) } },
     { id: 'div0', label: '', divider: true },
     { id: 'compress', label: 'COMPRESS · ZSTD', icon: 'solar:archive-bold', action: () => store.compressFile(f.id, 'zstd') },
     { id: 'encrypt', label: 'ENCRYPT · HYBRID', icon: 'solar:lock-bold', action: () => store.encryptFile(f.id, 'hybrid') },
@@ -1006,6 +1011,22 @@ watch(() => store.selectedFileId, id => {
   if (inspTab.value === 'crypto') void store.fetchEncryptionStatus()
 })
 
+// Merged quick-look: `preview` opens Files with the inspector raised.
+const winProps = defineProps<{ inspector?: boolean; inspTab?: string }>()
+function applyWindowProps() {
+  if (winProps.inspector) inspectorOpen.value = true
+  const t = winProps.inspTab
+  if (t === 'info' || t === 'crypto' || t === 'distro' || t === 'vers' || t === 'share') {
+    inspTab.value = t
+    onTab(t)
+  }
+}
+watch(() => [winProps.inspector, winProps.inspTab], applyWindowProps)
+
+function getFaceGroupName(groupId: string): string {
+  return store.faceGroups.find(fg => fg.id === groupId)?.name || groupId
+}
+
 // ── share ──
 const lastShare = ref('')
 const sharesForActive = computed(() => active.value ? store.shareLinks.filter(s => s.fileId === active.value!.id) : [])
@@ -1100,6 +1121,7 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(() => {
   void Promise.all([store.fetchOsDf(), store.fetchSyncConfigs(), store.fetchDisks(), store.fetchCollections()]).catch(() => {})
   void store.fetchFiles(store.currentPath)
+  applyWindowProps()
 })
 </script>
 
@@ -1211,8 +1233,13 @@ onMounted(() => {
 .fm-bulk button:disabled { opacity: .35; } .fm-bulk button.danger { color: var(--ui-danger); }
 
 /* grid — perf: containment + content-visibility */
-.fm-grid { flex: 1; overflow-y: auto; padding: 12px; display: grid; gap: 10px; align-content: start;
+.fm-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-x pan-y;
+  scrollbar-gutter: stable; padding: 12px; display: grid; gap: 10px; align-content: start;
   grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); }
+.fm-grid::-webkit-scrollbar { width: 10px; }
+.fm-grid::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  border-radius: var(--ui-radius-full); border: 3px solid transparent; background-clip: content-box; }
+.fm-grid::-webkit-scrollbar-thumb:hover { background: var(--ui-accent); background-clip: content-box; border: 2px solid transparent; }
 .fm-grid.masonry { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .fm-grid.compact { gap: 6px; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
 .fm-card { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 14px 8px 10px;
@@ -1255,7 +1282,11 @@ onMounted(() => {
 .fm-lhead.compact { height: 26px; }
 .fm-lhead span { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fm-lhead span:hover { color: var(--ui-text); }
-.fm-lbody { flex: 1; overflow-y: auto; }
+.fm-lbody { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-x pan-y; }
+.fm-lbody::-webkit-scrollbar { width: 10px; }
+.fm-lbody::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  border-radius: var(--ui-radius-full); border: 3px solid transparent; background-clip: content-box; }
+.fm-lbody::-webkit-scrollbar-thumb:hover { background: var(--ui-accent); background-clip: content-box; border: 2px solid transparent; }
 .fm-lrow { height: 34px; border-bottom: 1px solid var(--ui-hairline); cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 34px; font-size: 11.5px; }
 .fm-lrow.compact { height: 28px; }
 .fm-lrow:hover { background: color-mix(in srgb, var(--ui-text) 4%, transparent); }
@@ -1290,7 +1321,12 @@ onMounted(() => {
 .fm-term { border-top: 1px solid color-mix(in srgb, var(--ui-accent) 30%, transparent); background: rgba(0,0,0,.55);
   backdrop-filter: blur(12px); display: flex; flex-direction: column; height: 190px; flex-shrink: 0; }
 .fm-term-h { display: flex; align-items: center; gap: 7px; padding: 5px 10px; color: var(--ui-text-2); border-bottom: 1px solid var(--ui-hairline); font-size: 10.5px; }
-.fm-term-body { flex: 1; overflow-y: auto; padding: 6px 10px; font-family: var(--ui-font-mono); font-size: 10.5px; }
+.fm-term-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-x pan-y;
+  scrollbar-gutter: stable; padding: 6px 10px; font-family: var(--ui-font-mono); font-size: 10.5px; }
+.fm-term-body::-webkit-scrollbar { width: 10px; }
+.fm-term-body::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  border-radius: var(--ui-radius-full); border: 3px solid transparent; background-clip: content-box; }
+.fm-term-body::-webkit-scrollbar-thumb:hover { background: var(--ui-accent); background-clip: content-box; border: 2px solid transparent; }
 .fm-term-l.in { color: var(--ui-accent); font-weight: 700; }
 .fm-term-l.out { color: var(--ui-text-2); white-space: pre-wrap; word-break: break-word; }
 .fm-term-l.err { color: var(--ui-danger); white-space: pre-wrap; }

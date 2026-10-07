@@ -80,6 +80,9 @@ describe('provisionSyncedSystem', () => {
       saveConfig: async (c) => {
         calls.push('save')
         expect(c.repoName).toBe('o/v')
+        // Vault sets are secure by default: fail-closed uploads, hidden names.
+        expect(c.requireEncryption).toBe(true)
+        expect(c.obfuscateNames).toBe(true)
         return saved as never
       },
       seedViaBackend: async (_c, files) => {
@@ -229,6 +232,93 @@ describe('repo sets (multi-repo merged disks)', () => {
         useDirectSeed: false,
       }),
     ).rejects.toThrow(/auth:/)
+  })
+
+  it('retries GitHub overwrites with the looked-up blob SHA', async () => {
+    const { seedRepoDirect } = await import('@/utils/gitProvision')
+    const bodies: string[] = []
+    const fakeFetch = vi.fn(async (url: string, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''))
+      const method = init?.method ?? 'GET'
+      if (method === 'PUT' && !bodies[bodies.length - 1].includes('"sha"')) {
+        return new Response('{"message": "already exists"}', { status: 422 })
+      }
+      if (method === 'GET') return new Response('{"sha": "abc123sha"}', { status: 200 })
+      return new Response('{"content": {}}', { status: 200 })
+    })
+    vi.stubGlobal('fetch', fakeFetch)
+    try {
+      const urls = await seedRepoDirect(
+        'github',
+        { backend: 'github', repoName: 'o/v', fullName: 'o/v', branch: 'main', url: '', projectId: null },
+        'tok',
+        [{ path: 'vault.cybermanju', contentBase64: 'aGk=' }],
+      )
+      expect(urls).toHaveLength(1)
+      // Second PUT carried the SHA from the lookup — a real overwrite.
+      expect(bodies.some((b) => b.includes('"sha":"abc123sha"'))).toBe(true)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('writes new Drive files with parent folders + overwrites by id', async () => {
+    const { driveWriteDirect, driveDeleteDirect } = await import('@/utils/gitProvision')
+    const calls: Array<{ url: string; method: string }> = []
+    const fakeFetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      calls.push({ url, method })
+      if (url.includes('/drive/v3/files?q=')) return new Response('{"files":[]}', { status: 200 })
+      if (url.includes('upload/drive/v3/files?uploadType=multipart')) {
+        return new Response('{"id":"new-file-id"}', { status: 200 })
+      }
+      if (url === 'https://www.googleapis.com/drive/v3/files' && method === 'POST') {
+        return new Response('{"id":"folder-docs"}', { status: 200 })
+      }
+      if (method === 'DELETE') return new Response(null, { status: 204 })
+      return new Response('{}', { status: 200 })
+    })
+    vi.stubGlobal('fetch', fakeFetch)
+    try {
+      const id = await driveWriteDirect({
+        token: 'tok',
+        remotePath: 'docs/note.txt',
+        contentBase64: 'aGk=',
+      })
+      expect(id).toBe('new-file-id')
+      // One folder create (docs/) + one multipart upload.
+      expect(calls.filter((c) => c.method === 'POST')).toHaveLength(2)
+      expect(calls.some((c) => c.url.includes('uploadType=multipart'))).toBe(true)
+      await driveDeleteDirect({ token: 'tok', remotePath: 'docs/note.txt', locator: 'new-file-id' })
+      const del = calls.find((c) => c.method === 'DELETE')
+      expect(del?.url).toContain('/drive/v3/files/new-file-id')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('overwrites an existing Drive child instead of duplicating it', async () => {
+    const { driveWriteDirect } = await import('@/utils/gitProvision')
+    const patched: string[] = []
+    const fakeFetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url.includes('/drive/vfs') || url.includes('/drive/v3/files?q=')) {
+        return new Response('{"files":[{"id":"child-1"}]}', { status: 200 })
+      }
+      if (url.includes('/upload/drive/v3/files/child-1')) {
+        patched.push(url)
+        return new Response('{}', { status: 200 })
+      }
+      return new Response('{"files":[{"id":"child-1"}]}', { status: 200 })
+    })
+    vi.stubGlobal('fetch', fakeFetch)
+    try {
+      const id = await driveWriteDirect({ token: 'tok', remotePath: 'note.txt', contentBase64: 'aGk=' })
+      expect(id).toBe('child-1')
+      expect(patched).toHaveLength(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('skips the vault file seed when the container exceeds the seed cap', async () => {

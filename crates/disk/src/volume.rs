@@ -109,7 +109,7 @@ pub fn admit(db: &Database, bytes: u64) -> Result<(), String> {
         .fold(0u64, u64::saturating_add);
     if bytes > free {
         return Err(format!(
-            "disk full: {} bytes needed but the volume has {} free across {} disk{}",
+            "disk_full: {} bytes needed but the volume has {} free across {} disk{}",
             bytes,
             free,
             disks.len(),
@@ -172,7 +172,7 @@ pub fn put_block(db: &Database, lba: u64, data: &[u8]) -> Result<BlockInfo, Stri
     let disks = catalog::attached_disks(db)?;
     let first = disks
         .first()
-        .ok_or_else(|| "disk full: no .cybermanju disk is attached — 0 bytes free".to_string())?;
+        .ok_or_else(|| "disk_full: no .cybermanju disk is attached — 0 bytes free".to_string())?;
     let block_size = first.block_size;
     if data.len() > usize::try_from(block_size).unwrap_or(usize::MAX) {
         return Err(format!(
@@ -366,7 +366,7 @@ fn place_block(
     let volume = catalog::get_volume(db)?;
     let disks = catalog::attached_disks(db)?;
     if disks.is_empty() {
-        return Err("disk full: no .cybermanju disk is attached — 0 bytes free".to_string());
+        return Err("disk_full: no .cybermanju disk is attached — 0 bytes free".to_string());
     }
 
     let round_robin = volume.policy == "round_robin";
@@ -417,7 +417,7 @@ fn place_block(
 
     let biggest_free = disks.iter().map(|row| row.free_bytes()).max().unwrap_or(0);
     Err(format!(
-        "disk full: {} bytes needed and no single disk can hold the block \
+        "disk_full: {} bytes needed and no single disk can hold the block \
          (largest free: {} bytes across {} disk{})",
         new_len,
         biggest_free,
@@ -687,7 +687,7 @@ mod tests {
         fx.create(1024 * 1024);
         admit(&fx.db, 1024 * 1024).expect("exactly the capacity fits");
         let err = admit(&fx.db, 1024 * 1024 + 1).expect_err("one byte too far");
-        assert!(err.starts_with("disk full:"), "{err}");
+        assert!(err.starts_with("disk_full:"), "{err}");
 
         // A payload that does not fit is refused *before* anything is stored.
         let before = fx.remote_files();
@@ -710,7 +710,7 @@ mod tests {
         );
         admit(&fx.db, 324 * 1024).expect("still room");
         let err = admit(&fx.db, 324 * 1024 + 1).expect_err("overflow");
-        assert!(err.starts_with("disk full:"), "{err}");
+        assert!(err.starts_with("disk_full:"), "{err}");
         // A config with no disk bound is a no-op, not a failure.
         charge(&fx.db, "unbound-config", 10).expect("unbound");
     }

@@ -223,11 +223,11 @@ pub fn run_scheduled(snapshot: &Workers, kind: &str, path: &str) -> Result<JobRe
     let kernel = Kernel::global();
     let root = kernel.resolve(path)?;
     if !root.exists() {
-        return Err(format!("not found: {path}"));
+        return Err(format!("not_found: {path}"));
     }
     let files = collect_files(&root);
     if files.is_empty() {
-        return Err(format!("no files: {path} has nothing to process"));
+        return Err(format!("not_found: {path} has nothing to process"));
     }
 
     let snapshot = snapshot.clone();
@@ -319,11 +319,11 @@ fn run_index(snapshot: &Workers, path: &str) -> Result<JobReport, String> {
     let kernel = Kernel::global();
     let root = kernel.resolve(path)?;
     if !root.exists() {
-        return Err(format!("not found: {path}"));
+        return Err(format!("not_found: {path}"));
     }
     let files = collect_files(&root);
     if files.is_empty() {
-        return Err(format!("no files: {path} has nothing to index"));
+        return Err(format!("not_found: {path} has nothing to index"));
     }
 
     let snapshot = snapshot.clone();

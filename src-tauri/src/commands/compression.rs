@@ -78,7 +78,7 @@ pub fn compress_file(
     let value = table_read
         .get(file_id.as_str())
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("File not found: {}", file_id))?;
+        .ok_or_else(|| format!("not_found: file '{}' not found", file_id))?;
     let mut file_node: crate::db::schema::FileNode =
         serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
     drop(tx_read);
@@ -133,7 +133,7 @@ pub fn compress_file(
                         stats.blake3_hash,
                     ))
                 }
-                Err(e) => return Err(format!("Triple compression failed: {}", e)),
+                Err(e) => return Err(format!("integrity: triple compression failed: {}", e)),
             }
         } else {
             match state.compression.compress_data(&data, &layer) {
@@ -195,7 +195,7 @@ pub fn compress_file(
                                 stats.blake3_hash,
                             ))
                         }
-                        Err(e) => return Err(format!("Triple compression failed: {}", e)),
+                        Err(e) => return Err(format!("integrity: triple compression failed: {}", e)),
                     }
                 } else {
                     match state.compression.compress_data(&data, &layer) {
@@ -279,7 +279,7 @@ pub fn decompress_file(
     let value = table_read
         .get(file_id.as_str())
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("File not found: {}", file_id))?;
+        .ok_or_else(|| format!("not_found: file '{}' not found", file_id))?;
     let mut file_node: crate::db::schema::FileNode =
         serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
     drop(tx_read);
@@ -428,7 +428,7 @@ pub fn get_compression_stats(
     let value = table
         .get(file_id.as_str())
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("File not found: {}", file_id))?;
+        .ok_or_else(|| format!("not_found: file '{}' not found", file_id))?;
 
     let file_node: crate::db::schema::FileNode =
         serde_json::from_str(value.value()).map_err(|e| e.to_string())?;

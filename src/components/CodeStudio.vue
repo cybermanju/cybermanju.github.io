@@ -60,18 +60,11 @@
           </div>
         </template>
 
-        <!-- SEARCH -->
+        <!-- SEARCH (shared surface — same component as the Search window) -->
         <template v-else-if="sideView === 'search'">
           <div class="cs-side-h">SEARCH</div>
-          <input v-model="searchQuery" class="cs-input" placeholder="Search contents…" spellcheck="false" @keyup.enter="runSearch" />
-          <div class="cs-tree">
-            <button v-for="r in store.searchResults" :key="r.fileId" class="cs-trow col" @click="openSearchResult(r.fileId)">
-              <span class="truncate"><b>{{ r.fileName }}</b></span>
-              <span v-if="r.snippet" class="dim cs-snip">{{ r.snippet.slice(0, 120) }}</span>
-            </button>
-            <p v-if="store.isSearching" class="dim cs-empty">Searching…</p>
-            <p v-else-if="searchQuery && !store.searchResults.length" class="dim cs-empty">No matches.</p>
-            <p v-else-if="!searchQuery" class="dim cs-empty">Tantivy BM25 over file contents.</p>
+          <div class="cs-searchwrap">
+            <SearchPanel @open="openSearchResult" />
           </div>
         </template>
 
@@ -89,8 +82,68 @@
           </div>
         </template>
 
+        <!-- INTEL (merged tree-sitter panel: active file / paste / path) -->
+        <template v-else-if="sideView === 'intel'">
+          <div class="cs-side-h">CODE INTEL · {{ intelSymbols.length }}</div>
+          <div class="cs-intel-src" role="tablist" aria-label="Intel source">
+            <button :class="{ on: intelSource === 'file' }" role="tab" @click="intelSource = 'file'">FILE</button>
+            <button :class="{ on: intelSource === 'paste' }" role="tab" @click="intelSource = 'paste'">PASTE</button>
+            <button v-if="isDesktop" :class="{ on: intelSource === 'path' }" role="tab" @click="intelSource = 'path'">PATH</button>
+          </div>
+          <template v-if="intelSource === 'paste'">
+            <input v-model="intelFileName" class="cs-input" placeholder="snippet.rs (drives language)…" spellcheck="false" />
+            <textarea v-model="intelPaste" class="cs-input cs-intel-paste" rows="5" placeholder="fn main() { … }" spellcheck="false" />
+            <div class="cs-pathrow">
+              <span class="mono dim">{{ intelPaste.length }} CHARS / 1 MiB</span>
+              <span class="cs-spacer" />
+              <button class="cs-btn xs primary" :disabled="!intelPaste.trim() || intelBusy" @click="runIntelPaste">{{ intelBusy ? 'Parsing…' : 'Parse' }}</button>
+            </div>
+          </template>
+          <template v-else-if="intelSource === 'path'">
+            <div class="cs-pathrow">
+              <input v-model="intelPath" class="cs-input" placeholder="/home/user/main.rs" spellcheck="false" @keyup.enter="runIntelPath" />
+            </div>
+            <div class="cs-pathrow">
+              <span class="dim">DESKTOP ONLY — reads from disk via Tauri.</span>
+              <span class="cs-spacer" />
+              <button class="cs-btn xs primary" :disabled="!intelPath.trim() || intelBusy" @click="runIntelPath">{{ intelBusy ? 'Parsing…' : 'Parse' }}</button>
+            </div>
+          </template>
+          <p v-if="intelError" class="cs-err">{{ intelError }}</p>
+          <div v-if="intelMeta" class="cs-intel-meta mono dim">
+            <span>{{ intelMetaTitle }}</span>
+            <span>{{ intelMeta.language }} · {{ (intelMeta.engine || 'heuristic').toUpperCase() }} · {{ intelMeta.totalLines }} LINES · {{ intelMeta.symbols.length }} SYMS · {{ intelMeta.parseTimeMs }}ms</span>
+          </div>
+          <p v-else-if="intelSource === 'file'" class="dim cs-empty">{{ focusTab ? 'Parsing…' : 'Open a file to parse.' }}</p>
+          <input v-model="intelFilter" class="cs-input" placeholder="Filter symbols…" spellcheck="false" />
+          <div v-if="intelKindCounts.length" class="cs-chips">
+            <button :class="{ on: !intelKind }" @click="intelKind = ''">ALL</button>
+            <button v-for="kc in intelKindCounts" :key="kc.kind" :class="{ on: intelKind === kc.kind }" @click="intelKind = intelKind === kc.kind ? '' : kc.kind">{{ kc.kind }} ({{ kc.count }})</button>
+          </div>
+          <div class="cs-tree">
+            <button v-for="s in intelSymbols" :key="s.name + s.startLine" class="cs-trow" @click="intelJump(s)" :title="s.detail || s.name">
+              <span class="cs-kind">{{ s.kind }}</span>
+              <span class="truncate">{{ s.name }}</span>
+              <span class="dim mono">:{{ s.startLine }}{{ s.endLine !== s.startLine ? '–' + s.endLine : '' }}</span>
+            </button>
+            <p v-if="intelMeta && !intelSymbols.length" class="dim cs-empty">{{ intelMeta.symbols.length ? 'No symbols match the filter.' : 'No symbols found — try another file.' }}</p>
+          </div>
+          <div v-if="intelSource === 'paste' && intelPasteLines.length" ref="intelPreviewRef" class="cs-intel-preview">
+            <div
+              v-for="(line, li) in intelPasteLines"
+              :key="li"
+              class="cs-intel-pline"
+              :class="{ hit: li + 1 === intelPreviewLine }"
+              :data-ln="li + 1"
+            >
+              <span class="cs-intel-pln">{{ li + 1 }}</span>
+              <span class="cs-intel-pcode" v-html="highlightPasteLine(line)"></span>
+            </div>
+          </div>
+        </template>
+
         <!-- SESSIONS -->
-        <template v-else>
+        <template v-else-if="sideView === 'sessions'">
           <div class="cs-side-h">AI SESSIONS · {{ ai.sessions.value.length }}</div>
           <div class="cs-tree">
             <button v-for="s in ai.sessions.value" :key="s.id" class="cs-trow col" :class="{ active: ai.viewing.value?.id === s.id }" @click="ai.loadSession(s.id)">
@@ -285,6 +338,7 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
+import SearchPanel from '@/components/SearchPanel.vue'
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, h, defineComponent } from 'vue'
 import type { PropType } from 'vue'
 import { useAppStore } from '@/stores/app'
@@ -352,6 +406,7 @@ const activities = [
   { id: 'files', label: 'Explorer', icon: 'solar:folder-bold' },
   { id: 'search', label: 'Search', icon: 'solar:magnifier-bold' },
   { id: 'outline', label: 'Outline', icon: 'solar:folder-tree-bold' },
+  { id: 'intel', label: 'Code intel (tree-sitter)', icon: 'solar:code-bold' },
   { id: 'sessions', label: 'AI sessions', icon: 'solar:chat-square-bold' },
 ]
 const explorerFilter = ref('')
@@ -503,11 +558,8 @@ async function openWasmPath(path: string, label: string) {
 
 /* ═══════════════ search ═══════════════ */
 
-const searchQuery = ref('')
-function runSearch() {
-  const q = searchQuery.value.trim()
-  if (q) void store.searchFiles(q)
-}
+/* ═══════════════ search (shared SearchPanel) ═══════════════ */
+
 async function openSearchResult(fileId: string) {
   const node = store.files.find(f => f.id === fileId)
   if (node && isEditableNode(node)) return openNode(node)
@@ -581,6 +633,100 @@ function jumpToLine(line: number) {
   el.focus()
   el.selectionStart = el.selectionEnd = pos
   updateCursorFromDom()
+}
+
+/* ═══════════════ code intel (merged tree-sitter panel) ═══════════════
+   The old standalone Code Intelligence window lives here now: one studio,
+   three sources — the active FILE tab (live reparse), PASTE (ad-hoc text)
+   and PATH (desktop disk read). Paste/path parses stay local so they never
+   clobber the shared store result that the inspector preview renders. */
+
+const intelSource = ref<'file' | 'paste' | 'path'>('file')
+const intelKind = ref('')
+const intelFilter = ref('')
+const intelFileName = ref('snippet.rs')
+const intelPaste = ref('')
+const intelPasteResult = ref<ParseResult | null>(null)
+const intelPath = ref('')
+const intelPathResult = ref<ParseResult | null>(null)
+const intelBusy = ref(false)
+const intelError = ref('')
+const intelPreviewRef = ref<HTMLElement | null>(null)
+const intelPreviewLine = ref(0)
+
+const intelMeta = computed<ParseResult | null>(() =>
+  intelSource.value === 'file' ? focusTab.value?.parse ?? null
+  : intelSource.value === 'paste' ? intelPasteResult.value
+  : intelPathResult.value,
+)
+const intelMetaTitle = computed(() => {
+  if (intelSource.value === 'file') return focusTab.value?.label ?? ''
+  if (intelSource.value === 'paste') return intelFileName.value.trim() || 'snippet.txt'
+  return intelMeta.value?.filePath ?? intelPath.value.trim()
+})
+const intelKindCounts = computed(() => {
+  const counts = new Map<string, number>()
+  for (const s of intelMeta.value?.symbols ?? []) counts.set(s.kind, (counts.get(s.kind) ?? 0) + 1)
+  return [...counts.entries()]
+    .map(([kind, count]) => ({ kind, count }))
+    .sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind))
+})
+const intelSymbols = computed<CodeSymbol[]>(() => {
+  const q = intelFilter.value.trim().toLowerCase()
+  return (intelMeta.value?.symbols ?? []).filter(s => {
+    if (intelKind.value && s.kind !== intelKind.value) return false
+    if (!q) return true
+    return s.name.toLowerCase().includes(q) || (s.detail ?? '').toLowerCase().includes(q)
+  })
+})
+/** Paste preview is capped so a megabyte dump can't freeze the sidebar. */
+const intelPasteLines = computed(() => (intelSource.value === 'paste' && intelPasteResult.value ? intelPaste.value.split('\n').slice(0, 300) : []))
+function highlightPasteLine(line: string): string {
+  return highlightSyntax(line, intelPasteResult.value?.language ?? '')
+}
+async function runIntelPaste() {
+  const content = intelPaste.value
+  if (!content.trim() || content.length > MAX_EDIT_BYTES) {
+    intelError.value = content.length > MAX_EDIT_BYTES ? 'Paste exceeds the 1 MiB parse limit.' : ''
+    return
+  }
+  intelBusy.value = true
+  intelError.value = ''
+  try {
+    intelPasteResult.value = await invoke<ParseResult>('parse_text', { fileName: intelFileName.value.trim() || 'snippet.txt', content })
+    intelKind.value = ''
+    intelPreviewLine.value = 0
+  } catch (e) {
+    intelError.value = e instanceof Error ? e.message : 'Parse failed.'
+  } finally {
+    intelBusy.value = false
+  }
+}
+async function runIntelPath() {
+  const p = intelPath.value.trim()
+  if (!p) return
+  intelBusy.value = true
+  intelError.value = ''
+  try {
+    intelPathResult.value = await invoke<ParseResult>('parse_file', { filePath: p })
+    intelKind.value = ''
+  } catch (e) {
+    intelError.value = e instanceof Error ? e.message : 'Parse failed.'
+  } finally {
+    intelBusy.value = false
+  }
+}
+function intelJump(s: CodeSymbol) {
+  if (intelSource.value === 'file') {
+    jumpToLine(s.startLine)
+    return
+  }
+  if (intelSource.value === 'paste') {
+    intelPreviewLine.value = s.startLine
+    nextTick(() => {
+      intelPreviewRef.value?.querySelector(`[data-ln="${s.startLine}"]`)?.scrollIntoView({ block: 'center' })
+    })
+  }
 }
 
 /* ═══════════════ find / replace ═══════════════ */
@@ -998,7 +1144,9 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); stopVoice?.() })
 .cs-side { width: 232px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px;
   border-right: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-surface) 55%, transparent); min-height: 0; }
 .cs-side-h { display: flex; align-items: center; font-size: 9.5px; font-weight: 800; letter-spacing: .12em; color: var(--ui-text-3); padding: 2px 4px; }
-.cs-tree { flex: 1; overflow-y: auto; min-height: 0; }
+.cs-tree { flex: 1; overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; }
+.cs-searchwrap { flex: 1; overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; }
+.cs-searchwrap :deep(.panel-search) { padding: 4px 0; }
 .cs-trow { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 6px; border-radius: 8px; cursor: pointer;
   background: transparent; border: none; color: var(--ui-text-2); font-size: 12px; text-align: left; }
 .cs-trow:hover { background: var(--ui-accent-softer); color: var(--ui-text); }
@@ -1012,6 +1160,22 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); stopVoice?.() })
 .cs-snip { font-size: 10px; }
 .cs-empty { padding: 10px; font-size: 11px; text-align: center; }
 .cs-pathrow { display: flex; align-items: center; gap: 6px; }
+.cs-intel-src { display: flex; gap: 4px; }
+.cs-intel-src button { flex: 1; padding: 4px 0; font-size: 9.5px; font-weight: 800; letter-spacing: .08em;
+  background: transparent; border: 1px solid var(--ui-hairline); color: var(--ui-text-3); border-radius: 8px; cursor: pointer; }
+.cs-intel-src button.on { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent); background: var(--ui-accent-softer); }
+.cs-intel-meta { display: flex; flex-direction: column; gap: 2px; font-size: 9.5px; padding: 2px 4px; }
+.cs-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.cs-chips button { font-size: 9px; font-weight: 800; padding: 2px 8px; border-radius: 99px; cursor: pointer;
+  border: 1px solid var(--ui-hairline); background: transparent; color: var(--ui-text-3); }
+.cs-chips button.on { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent); background: var(--ui-accent-softer); }
+.cs-intel-paste { resize: vertical; min-height: 90px; font-family: var(--ui-font-mono); font-size: 11px; }
+.cs-intel-preview { border: 1px solid var(--ui-hairline); border-radius: 8px; max-height: 220px; overflow-y: auto;
+  overscroll-behavior: contain; font-family: var(--ui-font-mono); font-size: 10.5px; line-height: 1.5; }
+.cs-intel-pline { display: flex; gap: 8px; padding: 0 8px; }
+.cs-intel-pline.hit { background: var(--ui-accent-softer); box-shadow: inset 2px 0 0 var(--ui-accent); }
+.cs-intel-pln { width: 30px; flex-shrink: 0; text-align: right; color: color-mix(in srgb, var(--ui-text) 30%, transparent); user-select: none; }
+.cs-intel-pcode { flex: 1; white-space: pre; overflow-x: auto; }
 .mono { font-family: var(--ui-font-mono); font-size: 10.5px; } .dim { color: var(--ui-text-3); }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -1021,7 +1185,8 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); stopVoice?.() })
 .cs-groups.split .cs-group { width: 50%; }
 .cs-group { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .cs-group + .cs-group { border-left: 1px solid var(--ui-hairline); }
-.cs-tabs { display: flex; overflow-x: auto; border-bottom: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-surface) 65%, transparent); flex-shrink: 0; }
+.cs-tabs { display: flex; overflow-x: auto; overscroll-behavior: contain; touch-action: pan-x pan-y;
+  border-bottom: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-surface) 65%, transparent); flex-shrink: 0; }
 .cs-tab { display: flex; align-items: center; gap: 6px; padding: 7px 8px 7px 12px; font-size: 11.5px; cursor: pointer; white-space: nowrap;
   color: var(--ui-text-3); border-right: 1px solid var(--ui-hairline); max-width: 190px; }
 .cs-tab.active { color: var(--ui-text); background: var(--ui-accent-softer); box-shadow: inset 0 2px 0 var(--ui-accent); }
@@ -1051,11 +1216,21 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); stopVoice?.() })
   border-bottom: 2px solid transparent; color: var(--ui-text-3); cursor: pointer; }
 .cs-btabs button.active { color: var(--ui-accent); border-bottom-color: var(--ui-accent); }
 .cs-termwrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.cs-term { flex: 1; overflow-y: auto; padding: 6px 10px; font-family: var(--ui-font-mono); font-size: 10.5px; }
+.cs-term { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-x pan-y;
+  scrollbar-gutter: stable; padding: 6px 10px; font-family: var(--ui-font-mono); font-size: 10.5px; }
+.cs-term::-webkit-scrollbar, .cs-thread::-webkit-scrollbar, .cs-tree::-webkit-scrollbar,
+.cs-problems::-webkit-scrollbar, .cs-tabs::-webkit-scrollbar, .cs-input2::-webkit-scrollbar { height: 8px; width: 10px; }
+.cs-term::-webkit-scrollbar-thumb, .cs-thread::-webkit-scrollbar-thumb, .cs-tree::-webkit-scrollbar-thumb,
+.cs-problems::-webkit-scrollbar-thumb, .cs-tabs::-webkit-scrollbar-thumb, .cs-input2::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  border-radius: var(--ui-radius-full); border: 3px solid transparent; background-clip: content-box; }
+.cs-term::-webkit-scrollbar-thumb:hover, .cs-thread::-webkit-scrollbar-thumb:hover, .cs-tree::-webkit-scrollbar-thumb:hover,
+.cs-problems::-webkit-scrollbar-thumb:hover, .cs-tabs::-webkit-scrollbar-thumb:hover, .cs-input2::-webkit-scrollbar-thumb:hover {
+  background: var(--ui-accent); background-clip: content-box; border: 2px solid transparent; }
 .cs-terml.in { color: var(--ui-accent); font-weight: 700; } .cs-terml.out { color: var(--ui-text-2); white-space: pre-wrap; } .cs-terml.err { color: var(--ui-danger); white-space: pre-wrap; }
 .cs-termin { display: flex; gap: 7px; padding: 6px 10px; border-top: 1px solid var(--ui-hairline); color: var(--ui-accent); }
 .cs-termin input { flex: 1; background: transparent; border: none; outline: none; color: var(--ui-text); font-size: 11.5px; }
-.cs-problems { flex: 1; overflow-y: auto; padding: 4px 8px; }
+.cs-problems { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-x pan-y; padding: 4px 8px; }
 .cs-prow { display: flex; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 8px; cursor: pointer; font-size: 11.5px; }
 .cs-prow:hover { background: var(--ui-accent-softer); }
 .cs-pkind { font-size: 8.5px; font-weight: 800; padding: 1px 7px; border-radius: 99px; background: color-mix(in srgb, var(--ui-text) 8%, transparent); }
@@ -1083,7 +1258,8 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); stopVoice?.() })
 .cs-ctxbar { height: 4px; border-radius: 99px; background: color-mix(in srgb, var(--ui-text) 10%, transparent); margin-top: 4px; overflow: hidden; }
 .cs-ctxbar i { display: block; height: 100%; background: var(--ui-success); border-radius: 99px; }
 .cs-ctxbar i.warn { background: var(--ui-warning); } .cs-ctxbar i.bad { background: var(--ui-danger); }
-.cs-thread { flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.cs-thread { flex: 1; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-x pan-y;
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .cs-msg { padding: 7px 9px; border-radius: 11px; border: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-text) 2.5%, transparent); }
 .cs-msg.r-user { background: var(--ui-accent-softer); border-color: color-mix(in srgb, var(--ui-accent) 30%, transparent); }
 .cs-role { font-size: 8.5px; font-weight: 800; letter-spacing: .1em; margin-bottom: 3px; }

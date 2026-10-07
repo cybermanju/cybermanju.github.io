@@ -257,7 +257,7 @@ pub fn parse_file(file_path: String) -> Result<Value, String> {
 
     // Read the file from disk
     let content = std::fs::read_to_string(&file_path)
-        .map_err(|e| format!("Failed to read file {}: {}", file_path, e))?;
+        .map_err(|e| format!("integrity: cannot read file {}: {}", file_path, e))?;
 
     // Extract filename for language detection
     let filename = std::path::Path::new(&file_path)
@@ -286,7 +286,7 @@ pub fn parse_file(file_path: String) -> Result<Value, String> {
 #[tauri::command]
 pub fn get_symbols(file_path: String) -> Result<Vec<Value>, String> {
     let content = std::fs::read_to_string(&file_path)
-        .map_err(|e| format!("Failed to read file {}: {}", file_path, e))?;
+        .map_err(|e| format!("integrity: cannot read file {}: {}", file_path, e))?;
 
     let filename = std::path::Path::new(&file_path)
         .file_name()

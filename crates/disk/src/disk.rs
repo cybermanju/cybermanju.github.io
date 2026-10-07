@@ -126,14 +126,14 @@ fn create_inner(
     container: &Path,
 ) -> Result<DiskRow, String> {
     if passphrase.is_empty() {
-        return Err("invalid: a disk passphrase must not be empty".to_string());
+        return Err("unsupported: a disk passphrase must not be empty".to_string());
     }
     if size_bytes == 0 {
-        return Err("invalid: size_bytes must be greater than 0".to_string());
+        return Err("unsupported: size_bytes must be greater than 0".to_string());
     }
     if size_bytes < u64::from(DEFAULT_BLOCK_SIZE) {
         return Err(format!(
-            "invalid: {} bytes is smaller than one block ({} bytes)",
+            "unsupported: {} bytes is smaller than one block ({} bytes)",
             size_bytes, DEFAULT_BLOCK_SIZE
         ));
     }
@@ -395,12 +395,12 @@ pub fn detach(db: &Database, disk_id: &str) -> Result<DiskRow, String> {
 /// not a disk.
 pub fn resize(db: &Database, disk_id: &str, new_size: u64) -> Result<DiskRow, String> {
     if new_size == 0 {
-        return Err("invalid: size must be greater than 0".to_string());
+        return Err("unsupported: size must be greater than 0".to_string());
     }
     let row = get(db, disk_id)?.ok_or_else(|| not_found(disk_id))?;
     if new_size < u64::from(row.block_size) {
         return Err(format!(
-            "invalid: {} bytes is smaller than one block ({} bytes)",
+            "unsupported: {} bytes is smaller than one block ({} bytes)",
             new_size, row.block_size
         ));
     }
@@ -423,7 +423,7 @@ pub fn resize(db: &Database, disk_id: &str, new_size: u64) -> Result<DiskRow, St
     let new_slots = (new_size / u64::from(row.block_size)) as usize;
     if new_slots < used_slots {
         return Err(format!(
-            "invalid: cannot shrink {} to {} bytes — {} of {} blocks are in use",
+            "unsupported: cannot shrink {} to {} bytes — {} of {} blocks are in use",
             disk_id, new_size, used_slots, old_slots
         ));
     }
@@ -657,7 +657,7 @@ mod tests {
             path("a.cybermanju").as_path(),
         )
         .expect_err("zero");
-        assert!(err.starts_with("invalid:"), "{err}");
+        assert!(err.starts_with("unsupported:"), "{err}");
 
         let err = create_at(
             &fx.db,
@@ -667,7 +667,7 @@ mod tests {
             path("b.cybermanju").as_path(),
         )
         .expect_err("smaller than a block");
-        assert!(err.starts_with("invalid:"), "{err}");
+        assert!(err.starts_with("unsupported:"), "{err}");
 
         let err = create_at(
             &fx.db,
@@ -687,7 +687,7 @@ mod tests {
             path("d.cybermanju").as_path(),
         )
         .expect_err("empty passphrase");
-        assert!(err.starts_with("invalid:"), "{err}");
+        assert!(err.starts_with("unsupported:"), "{err}");
 
         // A second disk must not be able to clobber the first container.
         let row = fx.create(1024 * 1024);
@@ -752,7 +752,7 @@ mod tests {
         volume::put_block(&fx.db, 1, &[8u8; 1024]).expect("block 1");
 
         let err = resize(&fx.db, &row.id, DEFAULT_BLOCK_SIZE as u64).expect_err("shrink");
-        assert!(err.starts_with("invalid:"), "{err}");
+        assert!(err.starts_with("unsupported:"), "{err}");
 
         let shrunk = resize(&fx.db, &row.id, 2 * u64::from(DEFAULT_BLOCK_SIZE))
             .expect("shrink that still fits");

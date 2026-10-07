@@ -349,6 +349,31 @@
                 <p class="am-hint">{{ authGuidance(selectedCfg.backendType) }}</p>
               </div>
 
+              <!-- step 2b: sync behavior (encrypt / compress / placement) -->
+              <div class="am-step">
+                <h4 class="am-step-title"><span class="am-step-n">2½</span> Sync behavior</h4>
+                <div class="am-row wrap">
+                  <label class="small"><input v-model="behavior(selectedCfg!).encryptBeforeUpload" type="checkbox" @change="saveBehavior(selectedCfg!)" /> Encrypt uploads</label>
+                  <label class="small"><input v-model="behavior(selectedCfg!).compressBeforeUpload" type="checkbox" @change="saveBehavior(selectedCfg!)" /> Compress uploads</label>
+                  <label class="small" title="Refuse the upload when no master passphrase exists, instead of uploading plaintext with a warning"><input v-model="behavior(selectedCfg!).requireEncryption" type="checkbox" @change="saveBehavior(selectedCfg!)" /> Require encryption</label>
+                  <label class="small" title="Hash basenames into remote locators so providers never see real filenames"><input v-model="behavior(selectedCfg!).obfuscateNames" type="checkbox" @change="saveBehavior(selectedCfg!)" /> Hide filenames</label>
+                </div>
+                <div class="am-fields">
+                  <label class="am-field">
+                    <span class="am-field-label">Placement</span>
+                    <select v-model="behavior(selectedCfg!).placement" class="am-input" aria-label="Chunk placement" @change="saveBehavior(selectedCfg!)">
+                      <option value="whole">Whole file → this provider</option>
+                      <option value="striped">Striped → all enabled providers</option>
+                    </select>
+                  </label>
+                  <label class="am-field">
+                    <span class="am-field-label">Parity replicas (striped)</span>
+                    <input v-model.number="behavior(selectedCfg!).parity" class="am-input xs-num" type="number" min="0" max="4" step="1" aria-label="Striped parity replicas" @change="saveBehavior(selectedCfg!)" />
+                  </label>
+                </div>
+                <p class="am-hint">Striped spreads 4 MiB chunks across every enabled provider (needs ≥2); parity adds replicas per chunk. Hiding filenames keeps the originals in the local sync record for restore.</p>
+              </div>
+
               <!-- step 3: verify -->
               <div class="am-step">
                 <h4 class="am-step-title"><span class="am-step-n">3</span> Verify &amp; save</h4>
@@ -434,6 +459,37 @@
                 </div>
               </div>
             </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ LOCAL USERS (merged user management) ══ -->
+      <section v-if="activeTab === 'users'" id="am-panel-users" class="am-section" role="tabpanel" aria-labelledby="am-tab-users" tabindex="0">
+        <div class="am-card">
+          <h3 class="am-card-title">Registered users ({{ store.users.length }})</h3>
+          <p class="am-hint">Per-file username + password auth with Argon2 hashing. Roles: admin, user, viewer. This is the local user list — cloud sign-in lives on the Sign in tab.</p>
+          <p v-if="!store.users.length" class="am-hint">No users registered yet.</p>
+          <div v-for="user in store.users" :key="user.id" class="am-identity-row">
+            <div class="am-identity-meta">
+              <strong>{{ user.username }}</strong>
+              <span class="muted">{{ user.role }} · {{ user.isActive ? 'active' : 'inactive' }}</span>
+            </div>
+            <span style="flex:1" />
+            <button class="am-btn xs" type="button" :title="`Toggle ${user.username} role`" @click="handleUserRole(user.id, user.role === 'admin' ? 'user' : 'admin')">Make {{ user.role === 'admin' ? 'user' : 'admin' }}</button>
+            <button class="am-btn xs danger" type="button" :title="`Delete ${user.username}`" @click="handleUserDelete(user.id)">Delete</button>
+          </div>
+        </div>
+        <div class="am-card">
+          <h3 class="am-card-title">Create user</h3>
+          <div class="am-row">
+            <input v-model="newUsername" class="am-input" placeholder="Username" aria-label="Username" @keyup.enter="handleUserCreate" />
+            <input v-model="newPassword" class="am-input" type="password" placeholder="Password" aria-label="Password" autocomplete="new-password" @keyup.enter="handleUserCreate" />
+            <select v-model="newRole" class="am-input" aria-label="Role">
+              <option value="user">USER</option>
+              <option value="admin">ADMIN</option>
+              <option value="viewer">VIEWER</option>
+            </select>
+            <button class="am-btn sm primary" type="button" @click="handleUserCreate">Create</button>
           </div>
         </div>
       </section>
@@ -571,13 +627,24 @@ const sbMsg = ref<Record<string, string>>({})
 const sbConfigured = computed(() => supabaseConfigured())
 
 // ── new interactive UI state ──────────────────────────────────
-type TabId = 'signin' | 'vault' | 'providers'
+type TabId = 'signin' | 'vault' | 'providers' | 'users'
 const TABS: Array<{ id: TabId; label: string; icon: string }> = [
   { id: 'signin', label: 'Sign in', icon: 'solar:login-bold' },
   { id: 'vault', label: 'Vault file', icon: 'solar:diskette-bold' },
   { id: 'providers', label: 'Connections', icon: 'solar:cloud-bold' },
+  { id: 'users', label: 'Users', icon: 'solar:users-group-rounded-bold' },
 ]
 const activeTab = ref<TabId>('signin')
+
+// Merged windows: `users` opens here on the users tab.
+const props = defineProps<{ tab?: string }>()
+if (props.tab === 'users' || props.tab === 'providers' || props.tab === 'vault' || props.tab === 'signin') {
+  activeTab.value = props.tab
+}
+watch(() => props.tab, (t) => {
+  if (t === 'users' || t === 'providers' || t === 'vault' || t === 'signin') activeTab.value = t
+})
+watch(activeTab, (t) => { if (t === 'users') void store.fetchUsers() })
 const selectedId = ref<string | null>(null)
 const showTokens = ref<Record<string, boolean>>({})
 const showDiskPass = ref(false)
@@ -629,6 +696,29 @@ const vaultUrl = ref('')
 const vaultSteps = ref<string[]>([])
 
 const drafts = reactive<Record<string, CredentialDraft>>({})
+
+// ── local users (merged user management: Argon2 username+password, roles) ──
+const newUsername = ref('')
+const newPassword = ref('')
+const newRole = ref('user')
+
+async function handleUserCreate() {
+  if (!newUsername.value.trim() || !newPassword.value.trim()) return
+  await store.createUser(newUsername.value.trim(), newPassword.value.trim(), newRole.value)
+  newUsername.value = ''
+  newPassword.value = ''
+  newRole.value = 'user'
+}
+
+async function handleUserDelete(userId: string) {
+  const u = store.users.find(x => x.id === userId)
+  if (!window.confirm(`Delete user "${u?.username ?? userId}"?`)) return
+  await store.deleteUser(userId)
+}
+
+async function handleUserRole(userId: string, role: string) {
+  await store.updateUserRole(userId, role)
+}
 
 const wiz = reactive({
   backendType: 'local' as SyncBackendType,
@@ -940,6 +1030,33 @@ async function toggleEnabled(cfg: SyncConfig) {
   saving.value = cfg.id
   try {
     await store.saveSyncConfig({ ...cfg, enabled: !cfg.enabled })
+  } finally {
+    saving.value = null
+  }
+}
+
+/** Sync-behavior flags with backend-matching defaults (filled in place). */
+function behavior(cfg: SyncConfig): SyncConfig {
+  if (cfg.encryptBeforeUpload === undefined) cfg.encryptBeforeUpload = true
+  if (cfg.compressBeforeUpload === undefined) cfg.compressBeforeUpload = true
+  if (cfg.requireEncryption === undefined) cfg.requireEncryption = false
+  if (cfg.obfuscateNames === undefined) cfg.obfuscateNames = false
+  if (cfg.placement === undefined) cfg.placement = 'whole'
+  if (cfg.parity === undefined) cfg.parity = 1
+  return cfg
+}
+
+/** Persist one behavior toggle (parity clamped to the 0–4 replica range). */
+async function saveBehavior(cfg: SyncConfig) {
+  if (saving.value) return
+  saving.value = cfg.id
+  try {
+    const parity = Math.min(4, Math.max(0, Math.round(Number(cfg.parity) || 0)))
+    const saved = await store.saveSyncConfig({ ...cfg, parity })
+    if (saved) {
+      cfg.parity = saved.parity
+      store.notifySuccess('Sync behavior saved')
+    }
   } finally {
     saving.value = null
   }

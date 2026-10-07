@@ -190,7 +190,7 @@ impl Allocator {
     ) -> Result<bool, String> {
         if slot >= self.block_count as u64 {
             return Err(format!(
-                "invalid: slot {} is beyond this disk's {} blocks",
+                "unsupported: slot {} is beyond this disk's {} blocks",
                 slot, self.block_count
             ));
         }
@@ -202,7 +202,7 @@ impl Allocator {
         }
         if hash.len() != HASH_HEX_LEN {
             return Err(format!(
-                "invalid: chunk hash '{}' is not a BLAKE3 hex digest",
+                "unsupported: chunk hash '{}' is not a BLAKE3 hex digest",
                 hash
             ));
         }
@@ -465,7 +465,7 @@ mod tests {
         let err = allocator.occupy(0, 1, &hash(2), 8).expect_err("second");
         assert!(err.contains("already allocated"), "{err}");
         let err = allocator.occupy(7, 2, &hash(3), 8).expect_err("range");
-        assert!(err.starts_with("invalid:"), "{err}");
+        assert!(err.starts_with("unsupported:"), "{err}");
     }
 
     #[test]

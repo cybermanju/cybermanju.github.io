@@ -37,11 +37,11 @@ pub fn import_file(
 
     let path = std::path::Path::new(&file_path);
     if !path.exists() {
-        return Err(format!("File not found: {}", file_path));
+        return Err(format!("not_found: file '{}' not found", file_path));
     }
 
     let metadata =
-        std::fs::metadata(path).map_err(|e| format!("Failed to read file metadata: {}", e))?;
+        std::fs::metadata(path).map_err(|e| format!("integrity: cannot read file metadata: {}", e))?;
 
     let file_name = path
         .file_name()
@@ -405,7 +405,7 @@ pub fn upload_file(
 ) -> Result<UploadResult, String> {
     let path = std::path::Path::new(&file_path);
     if !path.exists() {
-        return Err(format!("File not found: {}", file_path));
+        return Err(format!("not_found: file '{}' not found", file_path));
     }
 
     let _file_name = path

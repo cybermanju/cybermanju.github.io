@@ -605,13 +605,20 @@ onUnmounted(() => {
 
 .window-content {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   position: relative;
   background: color-mix(in srgb, var(--ui-content) 96%, transparent);
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  scrollbar-gutter: stable;
 }
 
 .window-content > :deep(*) {
-  height: 100%;
+  /* Fill short windows but grow tall content so the outer scroller can
+     actually scroll: `height: 100%` pinned every panel to the viewport
+     height, clipping anything taller with no way to reach it. */
+  min-height: 100%;
 }
 
 /* ── resize handles ───────────────────────────────────────────────────── */

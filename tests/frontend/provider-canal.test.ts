@@ -64,3 +64,29 @@ describe('saveVfsMount validation', () => {
     void vi
   })
 })
+
+describe('vfs write-through validation', () => {
+  it('refuses empty paths before touching any backend', async () => {
+    const mod = await import('../../src/composables/useProviderCanal')
+    await expect(mod.writeVfsFile('m', '', new Uint8Array([1]))).rejects.toThrow('invalid: remotePath is required')
+    await expect(mod.deleteVfsFile('m', '')).rejects.toThrow('invalid: remotePath is required')
+  })
+
+  it('refuses path escapes out of the mount', async () => {
+    const mod = await import('../../src/composables/useProviderCanal')
+    await expect(mod.writeVfsFile('m', '../evil.txt', 'x')).rejects.toThrow('unsupported:')
+  })
+
+  it('refuses oversized writes up front (5 MiB cap)', async () => {
+    const mod = await import('../../src/composables/useProviderCanal')
+    await expect(
+      mod.writeVfsFile('m', 'big.bin', new Uint8Array(6 * 1024 * 1024)),
+    ).rejects.toThrow('too_large:')
+  })
+
+  it('reports unknown mounts as not_found', async () => {
+    const mod = await import('../../src/composables/useProviderCanal')
+    await expect(mod.writeVfsFile('mnt-missing', 'a.txt', 'hi')).rejects.toThrow('not_found:')
+    await expect(mod.deleteVfsFile('mnt-missing', 'a.txt')).rejects.toThrow('not_found:')
+  })
+})

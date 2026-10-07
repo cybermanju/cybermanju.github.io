@@ -292,7 +292,7 @@ pub fn encrypt_file(
     let value = table_read
         .get(file_id.as_str())
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("File not found: {}", file_id))?;
+        .ok_or_else(|| format!("not_found: file '{}' not found", file_id))?;
     let mut file_node: crate::db::schema::FileNode =
         serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
     drop(tx_read);
@@ -423,7 +423,7 @@ pub fn decrypt_file(
     let value = table_read
         .get(file_id.as_str())
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("File not found: {}", file_id))?;
+        .ok_or_else(|| format!("not_found: file '{}' not found", file_id))?;
     let mut file_node: crate::db::schema::FileNode =
         serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
     drop(tx_read);
@@ -470,7 +470,7 @@ pub fn decrypt_file(
                     let _ = std::fs::remove_file(&meta_path);
                 }
                 Err(e) => {
-                    return Err(format!("Decryption failed: {}", e));
+                    return Err(format!("integrity: decryption failed: {}", e));
                 }
             }
         }

@@ -60,7 +60,7 @@ pub fn mount(db: Arc<RwLock<Database>>, mountpoint: &Path) -> Result<Mount, Stri
     }
     std::fs::create_dir_all(mountpoint).map_err(|e| {
         format!(
-            "invalid: cannot create mountpoint '{}': {}",
+            "unsupported: cannot create mountpoint '{}': {}",
             mountpoint.display(),
             e
         )

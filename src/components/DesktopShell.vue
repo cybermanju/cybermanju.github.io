@@ -14,10 +14,14 @@
       <div
         v-if="isStrip"
         ref="stripScrollRef"
-        class="desktop-strip"
+        class="desktop-strip ui-scroll"
         :class="{ vertical: isVerticalStrip }"
-        @wheel.passive="onStripWheel"
+        @wheel="onStripWheel"
       >
+        <!-- Scroll extent: guarantees the viewport can reach every column
+             even while windows animate in/out (absolute tiles alone are a
+             fragile scroll driver across browsers). -->
+        <div class="strip-sizer" :style="stripContentStyle" aria-hidden="true" />
         <div class="strip-position" aria-hidden="true">
           COL {{ wm.stripOffset.value + 1 }}/{{ wm.stripWindows.value.length || 1 }} · LINE {{ wm.stripLine.value }}
         </div>
@@ -138,7 +142,7 @@ const shortcuts: { panel: PanelType; label: string; icon: string }[] = [
   { panel: 'files', label: 'Files', icon: 'solar:folder-bold' },
   { panel: 'collections', label: 'Collections', icon: 'solar:library-bold' },
   { panel: 'map', label: 'Map', icon: 'solar:map-bold' },
-  { panel: 'code', label: 'Code', icon: 'solar:code-square-bold' },
+  { panel: 'editor', label: 'Code Studio', icon: 'solar:code-square-bold' },
   { panel: 'devices', label: 'Devices', icon: 'solar:plug-circle-bold' },
   { panel: 'settings', label: 'Settings', icon: 'solar:settings-bold' },
   { panel: 'terminal', label: 'Terminal', icon: 'solar:file-terminal-bold' },
@@ -157,6 +161,23 @@ const overviewWindows = computed(() => wm.windows.value)
 const isStrip = computed(() => wm.shellLayoutMode.value === 'strip')
 const isOverview = computed(() => wm.shellLayoutMode.value === 'overview')
 const isVerticalStrip = computed(() => wm.shellStripDirection.value === 'vertical')
+
+/**
+ * Explicit scroll extent for the infinite strip. Absolutely-positioned
+ * tiles are a fragile scroll driver on their own (transition wrappers,
+ * containing-block quirks), so a dedicated sizer guarantees the viewport
+ * can always reach the last column / line.
+ */
+const stripContentStyle = computed(() => {
+  const list = wm.stripWindows.value
+  if (list.length === 0) return {}
+  const maxRight = Math.max(...list.map(w => w.x + w.width))
+  const maxBottom = Math.max(...list.map(w => w.y + w.height))
+  if (isVerticalStrip.value) {
+    return { width: '100%', height: `${Math.max(maxBottom + 24, 400)}px` }
+  }
+  return { width: `${Math.max(maxRight + 24, 800)}px`, height: '100%' }
+})
 
 function layoutStripColumns() {
   const list = [...wm.windows.value]
@@ -208,23 +229,48 @@ watch(
   () => { scrollStripIntoView() },
 )
 
-/** Shift+wheel (or horizontal wheel) scrolls the infinite strip like niri. */
+/** Niri-style wheel: vertical wheel drives a horizontal strip (and vice versa
+ *  only via Shift / horizontal deltas). Wheel events that start inside a
+ *  nested scroller which can still move in that direction are left alone so
+ *  terminal / file / code panes keep their own scroll. */
 function onStripWheel(e: WheelEvent) {
   if (!isStrip.value) return
   const host = stripScrollRef.value
   if (!host) return
-  const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : (e.shiftKey ? e.deltaY : 0)
-  if (dx === 0 && !isVerticalStrip.value) return
-  if (isVerticalStrip.value && Math.abs(e.deltaY) < 4 && Math.abs(e.deltaX) < 4) return
-  // Let native scroll do the work; sync the column index afterwards.
+  const vertical = isVerticalStrip.value
+  const target = e.target as HTMLElement | null
+  const inner = target?.closest?.('.window-content, .term-scroll, .cs-term, .fm-grid, .fm-lbody, .window-content-panel') as HTMLElement | null
+  if (inner && inner !== host) {
+    const canY = inner.scrollHeight - inner.scrollTop - inner.clientHeight > 1 && e.deltaY !== 0
+    const canX = inner.scrollWidth - inner.scrollLeft - inner.clientWidth > 1 && (e.deltaX !== 0 || e.shiftKey)
+    if (!vertical && canY) return
+    if (vertical && (canY || canX)) return
+  }
+  if (!vertical) {
+    // Horizontal strip: plain vertical wheel would do nothing against
+    // `overflow-y: hidden` — translate it (niri-style) instead.
+    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+    if (delta === 0) return
+    e.preventDefault()
+    host.scrollLeft += delta
+  } else {
+    const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
+    if (Math.abs(delta) < 1) return
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      e.preventDefault()
+      host.scrollTop += e.deltaX
+    }
+    // Otherwise let the native vertical scroll run, then sync the index.
+  }
+  // Sync the column index after the viewport settles.
   requestAnimationFrame(() => {
     const list = wm.stripWindows.value
     if (list.length === 0) return
-    const pos = isVerticalStrip.value ? host.scrollTop : host.scrollLeft
+    const pos = vertical ? host.scrollTop : host.scrollLeft
     let best = 0
     let bestDist = Infinity
     list.forEach((w, i) => {
-      const p = isVerticalStrip.value ? w.y : w.x
+      const p = vertical ? w.y : w.x
       const d = Math.abs(p - pos - 12)
       if (d < bestDist) { bestDist = d; best = i }
     })
@@ -506,11 +552,41 @@ onUnmounted(() => {
   z-index: 1;
   overflow-x: auto;
   overflow-y: hidden;
-  scroll-behavior: smooth;
+  /* Wheel deltas drive `scrollLeft` directly per tick — `smooth` here would
+     queue an animation per tick and feel laggy. Programmatic jumps
+     (stripOffset) still pass `behavior: 'smooth'` explicitly. */
+  scroll-behavior: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
 }
 .desktop-strip.vertical {
   overflow-x: hidden;
   overflow-y: auto;
+}
+.desktop-strip::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+.desktop-strip::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  border-radius: var(--ui-radius-full);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.desktop-strip::-webkit-scrollbar-thumb:hover {
+  background: var(--ui-accent);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+/* Explicit scroll extent behind the absolute tiles (see template). */
+.strip-sizer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  visibility: hidden;
 }
 .desktop-strip :deep(.app-window) {
   /* columns keep their size; the viewport moves, never the tiles */
@@ -551,9 +627,26 @@ onUnmounted(() => {
   gap: 12px;
   padding: 24px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  scrollbar-gutter: stable;
   background: color-mix(in srgb, var(--ui-bg-deep) 35%, transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+}
+.desktop-overview::-webkit-scrollbar {
+  width: 10px;
+}
+.desktop-overview::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  border-radius: var(--ui-radius-full);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.desktop-overview::-webkit-scrollbar-thumb:hover {
+  background: var(--ui-accent);
+  background-clip: content-box;
+  border: 2px solid transparent;
 }
 .overview-card {
   display: flex;

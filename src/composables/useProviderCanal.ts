@@ -3,12 +3,14 @@
 // TS half of canal B: mounts + directory cache live in the redb `kv`
 // table (so `_save`/`_attach` of the `.cybermanju` container carries the
 // whole provider namespace), the Rust half (`crates/os-wasm` canal.rs /
-// artifact.rs) does transport + artifact unwrap. This module never fetches
-// a provider directly — every network byte goes through `canal_dispatch` /
+// artifact.rs) does transport + artifact unwrap. Reads never fetch
+// a provider directly — every read byte goes through `canal_dispatch` /
 // `canal_fetch`, so CORS/honest-prefix behaviour stays in one place.
+// Writes go through `upload_remote_file` (desktop/Docker Rust backend) or
+// direct provider fetch (static host), then invalidate the directory cache.
 //
 // Namespace: single virtual root `providers/<mountId>/<remotePath>`.
-// Mounts are read-only lower layers (never merged into `/`).
+// Mounts are provider-backed directories (never merged into `/`).
 
 import {
   wasmArtifactMagic,
@@ -325,4 +327,163 @@ function decodeText(bytes: Uint8Array): string | null {
   } catch {
     return null
   }
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = ''
+  const CHUNK = 8192
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(bin)
+}
+
+/** Parent directory of a remote path (`a/b/c.txt` → `a/b`, root → `''`). */
+function parentDirOf(rel: string): string {
+  const clean = String(rel ?? '').replace(/^\/+|\/+$/g, '')
+  const idx = clean.lastIndexOf('/')
+  return idx < 0 ? '' : clean.slice(0, idx)
+}
+
+/** Live sync config behind a mount (for write/delete callers). */
+export async function getMountConfig(mountId: string): Promise<{
+  mount: ProviderMount
+  config: Record<string, unknown>
+}> {
+  const mounts = await listVfsMounts()
+  const mount = mounts.find(m => m.id === mountId)
+  if (!mount) throw new Error(`not_found: provider mount ${mountId}`)
+  return { mount, config: await canalConfigFor(mount) }
+}
+
+/**
+ * Write bytes to a provider path (creates or overwrites). Returns the
+ * provider URL. Directory listings that could contain the file (its parent
+ * + the mount root) are invalidated so the next read is live.
+ */
+export async function writeVfsFile(
+  mountId: string,
+  remotePath: string,
+  data: Uint8Array | string,
+  opts: { locator?: string } = {},
+): Promise<string> {
+  const rel = String(opts.locator ?? remotePath ?? '').replace(/^\/+/, '')
+  if (!rel) throw new Error('invalid: remotePath is required')
+  if (/(^|\/)\.\.(\/|$)/.test(rel)) throw new Error(`unsupported: provider path '${rel}' escapes the mount`)
+  const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data
+  if (bytes.length > 5 * 1024 * 1024) throw new Error(`too_large: '${rel}' exceeds the 5 MiB write cap`)
+  const { mount, config } = await getMountConfig(mountId)
+  const backend = String((config.backendType ?? config.backend ?? mount.backendType) ?? 'github')
+  const { isStaticHost } = await import('./useTauri')
+  if (isStaticHost()) {
+    // No dashboard behind the page: git mounts speak the provider REST APIs
+    // directly and Drive mounts speak the Drive API (both CORS-OK). Local
+    // mounts stay read-only here; everywhere else every backend writes
+    // through the Rust backend below.
+    if (backend !== 'github' && backend !== 'gitlab' && backend !== 'googleDrive') {
+      throw new Error(`unsupported: writes need the dashboard for '${backend}' mounts`)
+    }
+    const prov = await import('@/utils/gitProvision')
+    const token = String(config.token ?? '')
+    if (!token) throw new Error('auth: mount has no token — save one on the provider card first')
+    if (backend === 'googleDrive') {
+      const url = await prov.driveWriteDirect({
+        token,
+        folderId: typeof config.folderId === 'string' ? config.folderId : undefined,
+        basePath: typeof config.basePath === 'string' ? config.basePath : undefined,
+        remotePath: rel,
+        contentBase64: bytesToBase64(bytes),
+      })
+      await kvDelete(cacheKey(mountId, parentDirOf(rel))).catch(() => undefined)
+      if (parentDirOf(rel)) await kvDelete(cacheKey(mountId, '')).catch(() => undefined)
+      return url
+    }
+    const repo = {
+      backend,
+      repoName: String(config.repoName ?? ''),
+      fullName: String(config.repoName ?? ''),
+      branch: String(config.branch ?? 'main'),
+      url: '',
+      projectId: backend === 'gitlab' ? String(config.repoName ?? '') : null,
+    }
+    if (!repo.repoName) throw new Error('unsupported: provider has no repo yet — create the private repo first')
+    const urls = await prov.seedRepoDirect(
+      backend as 'github' | 'gitlab',
+      repo,
+      token,
+      [{ path: rel, contentBase64: bytesToBase64(bytes) }],
+      typeof config.basePath === 'string' ? config.basePath : undefined,
+    )
+    await kvDelete(cacheKey(mountId, parentDirOf(rel))).catch(() => undefined)
+    if (parentDirOf(rel)) await kvDelete(cacheKey(mountId, '')).catch(() => undefined)
+    return urls[0] ?? rel
+  }
+  const { invoke } = await import('./useTauri')
+  const url = await invoke<string>('upload_remote_file', {
+    config,
+    remotePath: rel,
+    contentBase64: bytesToBase64(bytes),
+  })
+  await kvDelete(cacheKey(mountId, parentDirOf(rel))).catch(() => undefined)
+  if (parentDirOf(rel)) await kvDelete(cacheKey(mountId, '')).catch(() => undefined)
+  return url
+}
+
+/**
+ * Delete one provider file. Directory caches for its parent + root are
+ * invalidated. Directories themselves need no delete (blob stores fold
+ * empty prefixes away).
+ */
+export async function deleteVfsFile(
+  mountId: string,
+  remotePath: string,
+  opts: { locator?: string } = {},
+): Promise<void> {
+  const rel = String(opts.locator ?? remotePath ?? '').replace(/^\/+/, '')
+  if (!rel) throw new Error('invalid: remotePath is required')
+  const { mount, config } = await getMountConfig(mountId)
+  const backend = String((config.backendType ?? config.backend ?? mount.backendType) ?? 'github')
+  const { isStaticHost } = await import('./useTauri')
+  if (isStaticHost()) {
+    if (backend !== 'github' && backend !== 'gitlab' && backend !== 'googleDrive') {
+      throw new Error(`unsupported: deletes need the dashboard for '${backend}' mounts`)
+    }
+    if (backend === 'googleDrive') {
+      const provDrive = await import('@/utils/gitProvision')
+      const tokenDrive = String(config.token ?? '')
+      if (!tokenDrive) throw new Error('auth: mount has no token — save one on the provider card first')
+      await provDrive.driveDeleteDirect({
+        token: tokenDrive,
+        folderId: typeof config.folderId === 'string' ? config.folderId : undefined,
+        basePath: typeof config.basePath === 'string' ? config.basePath : undefined,
+        remotePath: rel,
+        locator: opts.locator,
+      })
+      await kvDelete(cacheKey(mountId, parentDirOf(rel))).catch(() => undefined)
+      if (parentDirOf(rel)) await kvDelete(cacheKey(mountId, '')).catch(() => undefined)
+      return
+    }
+    const prov = await import('@/utils/gitProvision')
+    const token = String(config.token ?? '')
+    if (!token) throw new Error('auth: mount has no token — save one on the provider card first')
+    await prov.deleteFileDirect(
+      backend as 'github' | 'gitlab',
+      {
+        backend,
+        repoName: String(config.repoName ?? ''),
+        fullName: String(config.repoName ?? ''),
+        branch: String(config.branch ?? 'main'),
+        url: '',
+        projectId: backend === 'gitlab' ? String(config.repoName ?? '') : null,
+      },
+      token,
+      rel,
+      typeof config.basePath === 'string' ? config.basePath : undefined,
+    )
+  } else {
+    const { invoke } = await import('./useTauri')
+    await invoke('delete_remote_file', { configId: mount.configId, remotePath: rel })
+  }
+  await kvDelete(cacheKey(mountId, parentDirOf(rel))).catch(() => undefined)
+  if (parentDirOf(rel)) await kvDelete(cacheKey(mountId, '')).catch(() => undefined)
 }

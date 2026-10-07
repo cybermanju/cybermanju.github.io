@@ -52,7 +52,7 @@ pub fn provider_endpoints(provider: &str) -> Result<ProviderEndpoints, String> {
             token_url: "https://gitlab.com/oauth/token",
             scope: "api read_user",
         }),
-        other => Err(format!("Unsupported OAuth provider: {}", other)),
+        other => Err(format!("unsupported: OAuth provider '{}' is not supported", other)),
     }
 }
 
@@ -76,7 +76,7 @@ pub fn client_credentials(provider: &str) -> Result<(String, Option<String>), St
         "google" | "google-drive" | "gdrive" => "GOOGLE",
         "github" => "GITHUB",
         "gitlab" => "GITLAB",
-        other => return Err(format!("Unsupported OAuth provider: {}", other)),
+        other => return Err(format!("unsupported: OAuth provider '{}' is not supported", other)),
     };
 
     let id_var = format!("CYBERMANJU_OAUTH_{}_CLIENT_ID", provider);
@@ -619,6 +619,8 @@ mod tests {
             conflict_policy: Default::default(),
             placement: Default::default(),
             parity: 1,
+        require_encryption: false,
+        obfuscate_names: false,
             oauth_credentials: None,
             created_at: None,
             updated_at: None,
@@ -648,6 +650,8 @@ mod tests {
             conflict_policy: Default::default(),
             placement: Default::default(),
             parity: 1,
+        require_encryption: false,
+        obfuscate_names: false,
             oauth_credentials: None,
             created_at: None,
             updated_at: None,

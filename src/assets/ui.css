@@ -250,7 +250,12 @@
   scroll-behavior: auto !important;
 }
 
-/* ── scrollbars / selection ───────────────────────────────────────────── */
+/* ── scrollbars / selection ─────────────────────────────────────────────
+   Single stylized system: thin translucent track, glass thumb that warms
+   to the accent on hover. Firefox uses `scrollbar-*`; Chromium uses the
+   `::-webkit-scrollbar` family. Every scroll container also gets native
+   touch panning + contained overscroll so nested panels never scroll the
+   desktop behind them. */
 
 ::selection {
   background: color-mix(in srgb, var(--ui-accent) 35%, transparent);
@@ -259,12 +264,12 @@
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--ui-border-strong) transparent;
+  scrollbar-color: color-mix(in srgb, var(--ui-text) 22%, transparent) transparent;
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -272,13 +277,66 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--ui-border-strong);
+  background: color-mix(in srgb, var(--ui-text) 22%, transparent);
   border-radius: var(--ui-radius-full);
-  border: 2px solid transparent;
+  border: 3px solid transparent;
   background-clip: content-box;
+  min-height: 40px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--ui-border-hover);
+  background: color-mix(in srgb, var(--ui-accent) 65%, transparent);
   background-clip: content-box;
+  border: 2px solid transparent;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: var(--ui-accent);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Shared scroll-container behaviour: native panning on touch, wheel + touch
+   stay inside the panel, layout stays stable when bars appear. */
+.ui-scroll,
+.window-content,
+.term-scroll,
+.cs-term,
+.cs-thread,
+.cs-tree,
+.cs-problems,
+.cs-tabs,
+.desktop-strip,
+.desktop-overview,
+.fm-grid,
+.fm-lbody,
+.fm-side,
+.fm-crumbs,
+.fm-sub {
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Thin variant for dense chrome (tab strips, crumb bars, docks). */
+.ui-scroll-thin {
+  scrollbar-width: thin;
+}
+.ui-scroll-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.ui-scroll-thin::-webkit-scrollbar-thumb {
+  border-width: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+  }
 }

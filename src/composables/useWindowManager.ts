@@ -7,22 +7,18 @@ import {
   clampStripOffset,
   resolveStripLine,
 } from '@/utils/shellLayout'
+import { PANEL_ALIASES, ALIAS_TAB_PROPS, resolvePanel } from '@/utils/panels'
 import FileManager from '@/components/FileManager.vue'
-import CollectionsPanel from '@/components/CollectionsPanel.vue'
+import OrganizePanel from '@/components/OrganizePanel.vue'
 import FaceGroupingPanel from '@/components/FaceGroupingPanel.vue'
 import MapView from '@/components/MapView.vue'
-import CodeIntelligencePanel from '@/components/CodeIntelligencePanel.vue'
-import UserManagementPanel from '@/components/UserManagementPanel.vue'
 import WebDashboardPanel from '@/components/WebDashboardPanel.vue'
 import SyncPanel from '@/components/SyncPanel.vue'
 import SettingsPage from '@/components/SettingsPage.vue'
-import StorageDashboard from '@/components/StorageDashboard.vue'
-import EncryptionPanel from '@/components/EncryptionPanel.vue'
-import CompressionPanel from '@/components/CompressionPanel.vue'
-import FilePermissionsPanel from '@/components/FilePermissionsPanel.vue'
-import FilePreview from '@/components/FilePreview.vue'
-import ProcessPanel from '@/components/ProcessPanel.vue'
 import DiskManagerPage from '@/components/DiskManagerPage.vue'
+import ShieldPanel from '@/components/ShieldPanel.vue'
+import FilePermissionsPanel from '@/components/FilePermissionsPanel.vue'
+import ProcessPanel from '@/components/ProcessPanel.vue'
 import DevicesPanel from '@/components/DevicesPanel.vue'
 import AccountManagerPanel from '@/components/AccountManagerPanel.vue'
 import WindowContent from '@/components/WindowContent.vue'
@@ -84,7 +80,7 @@ const defaultSizes: SizeMap = {
   collections: { width: 500, height: 420 },
   faces: { width: 620, height: 640 },
   map: { width: 720, height: 520 },
-  code: { width: 650, height: 500 },
+  code: { width: 1280, height: 740 },
   editor: { width: 1280, height: 740 },
   agent: { width: 1020, height: 680 },
   users: { width: 520, height: 460 },
@@ -111,32 +107,37 @@ const defaultSizes: SizeMap = {
 }
 
 const inlinePanels: PanelType[] = [
-  'search', 'trash', 'activity', 'favorites', 'recent',
-  'loose-groups', 'style'
+  'search', 'trash', 'activity', 'recent',
 ]
 
 const panelComponentMap: Record<string, Component> = {
   files: FileManager,
-  collections: CollectionsPanel,
+  collections: OrganizePanel,
+  favorites: OrganizePanel,
+  'loose-groups': OrganizePanel,
+  style: OrganizePanel,
   faces: FaceGroupingPanel,
   map: MapView,
-  code: CodeIntelligencePanel,
+  // Merged studio: `code` (tree-sitter intel) and `editor` (VSCode-like)
+  // are one window now — `code` stays as an alias so old shortcuts,
+  // palette entries and menu items keep working.
+  code: CodeStudio,
   editor: CodeStudio,
   agent: AgentPanel,
-  users: UserManagementPanel,
+  users: AccountManagerPanel,
   dashboard: WebDashboardPanel,
   sync: SyncPanel,
   settings: SettingsPage,
-  storage: StorageDashboard,
+  storage: DiskManagerPage,
   terminal: TerminalPanel,
   processes: ProcessPanel,
   disks: DiskManagerPage,
   devices: DevicesPanel,
   accounts: AccountManagerPanel,
-  encryption: EncryptionPanel,
-  compression: CompressionPanel,
+  encryption: ShieldPanel,
+  compression: ShieldPanel,
   permissions: FilePermissionsPanel,
-  preview: FilePreview,
+  preview: FileManager,
   webdash: WebDashboardPanel,
 }
 
@@ -205,28 +206,35 @@ export function useWindowManager() {
   }
 
   function open(panelType: PanelType, props?: Record<string, unknown>) {
+    // Merged-window aliases: `preview` opens Files with the inspector up,
+    // `storage` opens Disks on its overview tab, etc.
+    const target = resolvePanel(panelType)
+    const mergedProps = { ...(ALIAS_TAB_PROPS[panelType] || {}), ...(props || {}) }
     const existing = windows.value.find(
-      w => w.panelType === panelType && !w.minimized
+      w => w.panelType === target && !w.minimized
     )
     if (existing) {
+      // Re-steer the live window (e.g. switch the organize tab) instead of
+      // stacking a second copy of the same surface.
+      existing.props = { ...(existing.props || {}), ...mergedProps }
       focus(existing.id)
       return existing.id
     }
 
-    const meta = MODULE_METADATA[panelType] || { label: panelType.toUpperCase(), icon: 'solar:grid-2x2-bold' }
-    const size = defaultSizes[panelType] || { width: 520, height: 440 }
+    const meta = MODULE_METADATA[target] || { label: target.toUpperCase(), icon: 'solar:grid-2x2-bold' }
+    const size = defaultSizes[target] || { width: 520, height: 440 }
     const pos = cascadePosition(windows.value.length)
     const id = `win-${++windowCounter}`
-    const comp = getComponent(panelType)
+    const comp = getComponent(target)
 
-    const resolvedProps = { ...(props || {}) }
-    if (inlinePanels.includes(panelType)) {
-      resolvedProps.panelType = panelType
+    const resolvedProps = { ...mergedProps }
+    if (inlinePanels.includes(target)) {
+      resolvedProps.panelType = target
     }
 
     const win: WindowState = {
       id,
-      panelType,
+      panelType: target,
       title: meta.label,
       icon: meta.icon,
       x: pos.x,

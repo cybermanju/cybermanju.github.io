@@ -189,3 +189,20 @@ pub fn seed_repo_files(
         files,
     })
 }
+
+/// Write one file's bytes (base64) to a provider remote path — the VFS
+/// write-through, so provider mounts are read-write on desktop too.
+#[tauri::command]
+pub fn upload_remote_file(
+    config: SyncConfig,
+    remote_path: String,
+    content_base64: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let _ = state;
+    cybermanju_web::api::sync_api::upload_bytes(cybermanju_web::api::sync_api::UploadRequest {
+        config,
+        remote_path,
+        content_base64,
+    })
+}

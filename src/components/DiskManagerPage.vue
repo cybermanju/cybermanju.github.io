@@ -5,11 +5,16 @@ import AppIcon from '@/components/AppIcon.vue'
 // One merged `df` bar over every `.cybermanju` disk, per-provider cards with
 // an adjustable size, and the attach / detach / resize / check controls.
 // Disk rows come from AGENT-6's catalog; the merged bar from `/api/os/df`.
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { humanBytes, diskPct } from '@/utils/format'
 
 const store = useAppStore()
+
+// Merged storage window: `storage` opens here on the overview tab.
+const props = defineProps<{ tab?: string }>()
+const view = ref<'overview' | 'disks'>(props.tab === 'overview' ? 'overview' : 'disks')
+watch(() => props.tab, (t) => { if (t === 'overview' || t === 'disks') view.value = t })
 
 const configId = ref('')
 const createSizeMb = ref(512)
@@ -31,7 +36,7 @@ const usedPct = computed(() => {
 })
 
 async function refresh() {
-  await Promise.all([store.fetchDisks(), store.fetchOsDf()])
+  await Promise.all([store.fetchDisks(), store.fetchOsDf(), store.fetchFiles(), store.fetchTrashItems()])
   if (store.syncConfigs.length === 0) await store.fetchSyncConfigs()
 }
 
@@ -75,6 +80,40 @@ async function check(diskId: string) {
   busyId.value = null
 }
 
+/* ── overview stats (merged storage dashboard) ── */
+const trashCount = computed(() => store.trashItems.length)
+const totalSize = computed(() => store.files.reduce((s, f) => s + f.sizeBytes, 0))
+const totalSizeFormatted = computed(() => humanBytes(totalSize.value))
+const largestFile = computed(() => {
+  if (store.files.length === 0) return '--'
+  const biggest = [...store.files].sort((a, b) => b.sizeBytes - a.sizeBytes)[0]
+  return `${biggest.name} (${humanBytes(biggest.sizeBytes)})`
+})
+const avgSizeFormatted = computed(() => {
+  if (store.files.length === 0) return '--'
+  return humanBytes(Math.round(totalSize.value / store.files.length))
+})
+const gpsCount = computed(() => store.files.filter(f => f.gpsLat).length)
+const faceCount = computed(() => store.files.filter(f => f.faceGroupIds && f.faceGroupIds.length > 0).length)
+const byType = computed(() => {
+  const groups: Record<string, { totalBytes: number; count: number }> = {}
+  for (const f of store.files) {
+    const type = f.mimeType?.split('/')[0] || f.fileType || 'unknown'
+    if (!groups[type]) groups[type] = { totalBytes: 0, count: 0 }
+    groups[type].totalBytes += f.sizeBytes
+    groups[type].count++
+  }
+  const total = totalSize.value
+  const entries = Object.entries(groups).map(([label, data]) => ({
+    label: label.toUpperCase(),
+    totalBytes: data.totalBytes,
+    count: data.count,
+    percent: total > 0 ? (data.totalBytes / total) * 100 : 0,
+  }))
+  entries.sort((a, b) => b.totalBytes - a.totalBytes)
+  return entries
+})
+
 onMounted(refresh)
 </script>
 
@@ -91,6 +130,81 @@ onMounted(refresh)
       </div>
     </div>
 
+    <div class="dm-tabs" role="tablist" aria-label="Disks views">
+      <button role="tab" :aria-selected="view === 'overview'" :class="{ on: view === 'overview' }" type="button" @click="view = 'overview'">OVERVIEW</button>
+      <button role="tab" :aria-selected="view === 'disks'" :class="{ on: view === 'disks' }" type="button" @click="view = 'disks'">DISKS</button>
+    </div>
+
+    <!-- ══ OVERVIEW (merged storage dashboard) ══ -->
+    <template v-if="view === 'overview'">
+    <div class="section">
+      <h3 class="section-title"><AppIcon name="solar:checklist-bold" :size="13" /> FILE COUNTS</h3>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-value">{{ store.files.length }}</span>
+          <span class="stat-label text-muted">TOTAL FILES</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value">{{ store.folders.length }}</span>
+          <span class="stat-label text-muted">FOLDERS</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value">{{ store.encryptedFiles.length }}</span>
+          <span class="stat-label text-muted">ENCRYPTED</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value">{{ store.compressedFiles.length }}</span>
+          <span class="stat-label text-muted">COMPRESSED</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value">{{ store.starredFiles.length }}</span>
+          <span class="stat-label text-muted">STARRED</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value">{{ trashCount }}</span>
+          <span class="stat-label text-muted">IN TRASH</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3 class="section-title"><AppIcon name="solar:ruler-bold" :size="13" /> TOTAL BY TYPE</h3>
+      <div class="type-breakdown">
+        <div v-for="entry in byType" :key="entry.label" class="type-row">
+          <span class="type-label">{{ entry.label }}</span>
+          <span class="type-bar"><span class="type-bar-fill" :style="{ width: entry.percent + '%' }" /></span>
+          <span class="type-size">{{ humanBytes(entry.totalBytes) }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3 class="section-title"><AppIcon name="solar:database-bold" :size="13" /> STORAGE FOOTPRINT</h3>
+      <div class="info-card">
+        <div class="info-row"><span class="info-key text-muted">TOTAL SIZE</span><span class="info-value">{{ totalSizeFormatted }}</span></div>
+        <div class="info-row"><span class="info-key text-muted">LARGEST FILE</span><span class="info-value">{{ largestFile }}</span></div>
+        <div class="info-row"><span class="info-key text-muted">AVG FILE SIZE</span><span class="info-value">{{ avgSizeFormatted }}</span></div>
+        <div class="info-row"><span class="info-key text-muted">FILES WITH GPS</span><span class="info-value">{{ gpsCount }}</span></div>
+        <div class="info-row"><span class="info-key text-muted">FILES WITH FACES</span><span class="info-value">{{ faceCount }}</span></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3 class="section-title"><AppIcon name="solar:ssd-square-bold" :size="13" /> MERGED DISKS ({{ df ? df.diskCount : 0 }})</h3>
+      <div class="df-bar" role="img" :aria-label="`Volume ${usedPct.toFixed(1)} percent used`">
+        <div class="df-used" :style="{ width: usedPct + '%' }"></div>
+      </div>
+      <div class="df-figures">
+        <span>USED {{ df ? humanBytes(df.usedBytes) : '—' }}</span>
+        <span>FREE {{ df ? humanBytes(df.freeBytes) : '—' }}</span>
+        <span>TOTAL {{ df ? humanBytes(df.totalBytes) : '—' }}</span>
+        <span class="text-muted">ROOT {{ df ? df.root : '—' }}</span>
+      </div>
+      <button class="open-disks" type="button" @click="view = 'disks'">MANAGE DISKS</button>
+    </div>
+    </template>
+
+    <template v-if="view === 'disks'">
     <div class="section">
       <h3 class="section-title"><AppIcon name="solar:layers-bold" :size="13" /> MERGED VOLUME</h3>
       <div class="df-bar" role="img" :aria-label="`Volume ${usedPct.toFixed(1)} percent used`">
@@ -208,6 +322,7 @@ onMounted(refresh)
         provider compute slots to the fan-out pool.
       </p>
     </div>
+    </template>
   </div>
 </template>
 
@@ -290,6 +405,120 @@ onMounted(refresh)
 .section {
   padding: 12px;
   border-bottom: 1px solid var(--ui-border);
+}
+
+.dm-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+}
+.dm-tabs button {
+  flex: 1;
+  padding: 6px 0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  background: transparent;
+  border: 1px solid var(--ui-hairline);
+  border-radius: 8px;
+  color: var(--ui-text-3);
+  cursor: pointer;
+}
+.dm-tabs button.on {
+  color: var(--ui-accent);
+  border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent);
+  background: var(--ui-accent-softer);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.stat-card {
+  border: 1px solid var(--ui-border);
+  padding: 10px;
+  text-align: center;
+}
+.stat-value {
+  display: block;
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+.stat-label {
+  font-size: 8px;
+  letter-spacing: 0.5px;
+}
+.type-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.type-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 9px;
+}
+.type-label {
+  width: 80px;
+  flex-shrink: 0;
+  font-weight: 700;
+}
+.type-bar {
+  flex: 1;
+  height: 10px;
+  border: 1px solid var(--ui-border-strong);
+  position: relative;
+  background: transparent;
+}
+.type-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--ui-glass-2);
+}
+.type-size {
+  width: 70px;
+  text-align: right;
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--ui-text) 60%, transparent);
+}
+.info-card {
+  border: 1px solid var(--ui-border);
+  padding: 10px;
+}
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--ui-border);
+}
+.info-row:last-child {
+  border-bottom: none;
+}
+.info-key { color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
+.info-value { font-weight: 700; }
+.df-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 10px;
+  margin-top: 6px;
+}
+.open-disks {
+  margin-top: 8px;
+  background: transparent;
+  border: 1px solid var(--ui-border-strong);
+  color: var(--ui-text);
+  font-family: inherit;
+  font-size: 10px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.open-disks:hover {
+  background: var(--ui-glass-2);
 }
 
 .section-title {

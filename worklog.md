@@ -171,3 +171,37 @@ Stage Summary:
 
 - Stripped all `[supabase]` console diagnostics (`debugSupabaseConfig` + call sites in Settings/Accounts, authorize/return/sign-in/account logs), the `[WASM Mode]` envelope passthrough warn, and the `[os_ps]`/`[dashboard_status]`/`[start_dashboard]` shapeless-payload warns (silent drops kept). Behavior unchanged.
 - Verified here: `vue-tsc --noEmit` clean, `vitest` 22 files / 250 pass.
+## 2026-10-07 — Full VFS/sync hardening: encrypt-or-fail, hidden names, folder sync, VFS writes, parity UI
+
+- Encrypt-or-fail: new `SyncConfig.requireEncryption` (Rust + TS, default false); pipeline refuses the file with `auth:` when no master passphrase exists instead of uploading plaintext with a warning.
+- Basename obfuscation: new `SyncConfig.obfuscateNames`; `remote_path_for(path, obfuscate)` maps to `cybermanju_sync/<dir8>/<nameHash16>` (deterministic, idempotent; striped chunks were already content-addressed). Originals stay in the local sync record for restore.
+- Recursive folder sync: `sync_api::expand_sync_ids` BFS through the parent index (cap 5000, `too_large:` beyond) wired into both `start` (Tauri) and `start_job` (REST 202); unknown ids pass through, cycles impossible.
+- VFS write-through: new `upload_bytes` (`POST /api/sync/upload`, 5 MiB cap) + `upload_remote_file` Tauri command; `useProviderCanal.writeVfsFile/deleteVfsFile` (Rust backend on desktop/Docker, direct provider fetch on static hosts, `deleteFileDirect` for GitHub SHA + GitLab); `vfs_write_file`/`vfs_delete_file` invoke routes; Sidebar mounts are read-write now (upload button, per-file delete, cache invalidation).
+- Surfaced knobs: SyncPanel wizard has parity (0–4) + require-encryption + hide-filenames; Account Manager provider detail has a Sync behavior step (encrypt/compress/require/hide/placement/parity, saved per config); `compressBeforeUpload` default flipped to true; vault-set provisioning defaults to requireEncryption + obfuscateNames on.
+- Rust struct literals updated for the new fields (`disk/testkit`, `sync/oauth` ×2, `tests/types`); old config rows parse via serde defaults (same pattern as `health.rs` test).
+- Verified here: `vue-tsc --noEmit` clean, `vitest` 23 files / 267 pass. Rust `fmt/clippy/test` left to CI per repo rules.
+## 2026-10-07 — Drive parity on static hosts + GitHub overwrite fix
+
+- Google Drive rides the full sync engine (pipeline transforms, striped chunks, disks are backend-agnostic); only repo *creation* is git-only by nature (Drive uses folders, created implicitly on upload).
+- Static-host VFS writes/deletes now cover Drive too: `driveWriteDirect` (parent-folder auto-create, same-name overwrite via media PATCH, multipart create) + `driveDeleteDirect` (listing locator id preferred, else path resolve; 404-tolerant); canal static branches route `googleDrive` mounts to them instead of refusing.
+- Fixed a silent-loss bug in `seedRepoDirect` (GitHub): overwriting an existing file returned 422 which was swallowed as success — now looks up the blob SHA and retries the PUT (same rule the Rust backend follows).
+- Verified here: `vue-tsc --noEmit` clean, `vitest` 23 files / 270 pass. Rust `fmt/clippy/test` left to CI per repo rules.
+## 2026-10-07 — System-wide gap sweep: contract prefixes, REST parity, log redaction, orphan cleanup
+
+- Error-prefix contract (AGENT-1): swept `File not found`, `Failed to…`, `disk full:`, `not found:`, `no files:`, `invalid:`, `Unsupported OAuth…`, `Sync config not found`, `Triple compression/Decryption failed` into `not_found:/unsupported:/disk_full:/integrity:` across `sync/pipeline+oauth`, `web/sync_api`, `disk/*`, `os/api+compute`, `tauri/compression+encryption+import+tree_sitter`; updated the asserting unit/contract tests. `describeSyncError` already covered every prefix (kept the legacy `disk full` alias).
+- REST parity (web transport): added `suggest`, `get_shared_file`, `set_file_permission`, `get_preview` mappings to verified server routes; `get_compression_stats`/`get_symbols` marked WRITE_ONLY (local paths only); `search_files` now passes real BM25 score/snippet instead of fabricating 1.0/''; `get_encryption_status` passes real fields through; exported `REST_ROUTES`/`WRITE_ONLY_COMMANDS` + new `transport-routes.test.ts` (6 tests) locks the table.
+- Security: access log strips query strings (OAuth `code/state`) and masks `/api/shared/<token>`; secret files (JWT + master passphrase) refuse group/other-readable modes fail-closed WITHOUT rotating over them (rotation would orphan sealed keys / kill sessions).
+- Durability: striped chunk temps guarded by `RemoveOnDrop` (retry-exhaustion/cancel no longer leaks `cybermanju-up-*.cyb3`); link/record failures after landed uploads now compensating-delete (whole-file remote + every striped chunk copy).
+- Restore hardening: `destPath` rejects NUL + `..` escapes; restore errors prefixed (`not_found:/unsupported:/integrity:`).
+- Verified here: `vue-tsc --noEmit` clean, `vitest` 24 files / 276 pass. Rust `fmt/clippy/test` left to CI per repo rules.
+## 2026-10-07 — Scroll repair + stylized scrollbars across OS and repo shells
+
+- Root causes: `touch-action: none` on `.cybermanju-shell` forced `none` on every nested panel (intersection) killing touch scroll; `AppWindow` pinned children to `height: 100%` so tall content clipped with no scroll; `TerminalPanel` used `contain: strict` without `min-height: 0`; strip wheel handler never drove `scrollLeft` for vertical-wheel input.
+- Fixes: shell allows `pan-x pan-y`; window children use `min-height: 100%`; `contain: layout paint` + `min-height: 0` on all three cybsh scrollbacks (terminal, CodeStudio bottom, FileManager inline); niri-style wheel translation with inner-scroller passthrough + explicit strip sizer; one stylized accent scrollbar system in `ui.css` (Dock/tray bars auto-hide, rest always visible).
+- Verified here: `vue-tsc --noEmit` clean, `vitest` 23 files / 267 pass. Rust `fmt/clippy/test` left to CI per repo rules.
+## 2026-10-07 — Window merge pass: 7 panels folded into 4 surfaces
+
+- One-window mechanism: `PANEL_ALIASES` + per-alias tab props in `useWindowManager.open()` (re-steers a live window instead of stacking copies); every merged surface takes a `tab` prop with a watcher.
+- `code`→CodeStudio (new INTEL side view: file/paste/path tree-sitter parse, kind chips, preview); `webdash`→`dashboard`; `storage`→Disks overview tab; encryption+compression→new tabbed `ShieldPanel`; `users`→Accounts Users tab; SyncPanel slimmed to runs/monitor (CRUD lives in Accounts); collections/favorites/loose-groups/style→new tabbed `OrganizePanel`; `preview`→Files inspector (faces/symbols rows added); search extracted to shared `SearchPanel` (Search window + Studio side view).
+- Deleted: `CodeIntelligencePanel`, `StorageDashboard`, `EncryptionPanel`, `CompressionPanel`, `UserManagementPanel`, `CollectionsPanel`, `FilePreview`. Also removed dead `showEncryptionPanel/showCompressionPanel/showPermissionsPanel` store flags and rewired Ctrl+E / Ctrl+Shift+C to the Shield window. Follow-up review: `PANEL_ALIASES` extracted to pure `src/utils/panels.ts` + `tests/frontend/panel-aliases.test.ts` (5 tests lock no-cycles/metadata); user delete asks first; stale counts refreshed in AGENTS.md/README.md.
+- Verified here: `vue-tsc --noEmit` clean, `vitest` 25 files / 281 pass. Rust `fmt/clippy/test` left to CI per repo rules.

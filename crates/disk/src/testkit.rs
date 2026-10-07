@@ -32,6 +32,8 @@ pub fn local_config(id: &str, base_path: &str) -> SyncConfig {
         conflict_policy: Default::default(),
         placement: Default::default(),
         parity: 1,
+        require_encryption: false,
+        obfuscate_names: false,
         oauth_credentials: None,
         created_at: None,
         updated_at: None,

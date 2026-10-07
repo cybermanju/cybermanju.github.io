@@ -237,9 +237,11 @@ async function handleRefresh() { await store.fetchGeoFiles() }
   color: var(--ui-text);
 }
 
-.map-view::-webkit-scrollbar { width: 4px; }
-.map-view::-webkit-scrollbar-track { background: var(--ui-surface); }
-.map-view::-webkit-scrollbar-thumb { background: var(--ui-glass-2); }
+.map-view::-webkit-scrollbar { width: 10px; }
+.map-view::-webkit-scrollbar-track { background: transparent; }
+.map-view::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  border-radius: var(--ui-radius-full); border: 3px solid transparent; background-clip: content-box; }
+.map-view::-webkit-scrollbar-thumb:hover { background: var(--ui-accent); background-clip: content-box; border: 2px solid transparent; }
 
 .panel-header {
   display: flex;

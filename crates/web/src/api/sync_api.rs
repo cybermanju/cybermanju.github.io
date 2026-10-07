@@ -189,7 +189,7 @@ pub fn delete_config(db: &Database, config_id: &str) -> Result<bool, String> {
             .map_err(|e| e.to_string())?
             .is_some();
         if !removed {
-            return Err(format!("Sync config not found: {}", config_id));
+            return Err(format!("not_found: sync config '{}' not found", config_id));
         }
         let mut secrets = tx
             .open_table(Database::get_sync_secrets_table())
@@ -209,7 +209,7 @@ pub fn get_config(db: &Database, config_id: &str) -> Result<SyncConfig, String> 
     let value = table
         .get(config_id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Sync config not found: {}", config_id))?;
+        .ok_or_else(|| format!("not_found: sync config '{}' not found", config_id))?;
     let mut config: SyncConfig = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
     if config.token.is_none() {
         config.token = db.get_sync_secret(config_id).map_err(|e| e.to_string())?;
@@ -364,6 +364,46 @@ pub fn seed_repo(req: SeedRepoRequest) -> Result<Vec<String>, String> {
     Ok(urls)
 }
 
+/// `POST /api/sync/upload` body — one file's bytes (base64) written to a
+/// provider remote path through its sync backend. This is the VFS
+/// write-through: provider mounts are no longer read-only.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadRequest {
+    pub config: SyncConfig,
+    pub remote_path: String,
+    pub content_base64: String,
+}
+
+/// Write raw bytes to `remote_path` on the provider. Same 5 MiB cap and
+/// path validation as the seeder; the bytes travel as-is (callers pass
+/// already-encrypted artifacts when the config demands it).
+pub fn upload_bytes(req: UploadRequest) -> Result<String, String> {
+    let clean = req.remote_path.trim().trim_matches('/').to_string();
+    if clean.is_empty()
+        || clean.split('/').any(|s| s == "..")
+        || clean.len() > 256
+    {
+        return Err(format!("unsupported: upload path '{}' is invalid", req.remote_path));
+    }
+    let bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        req.content_base64.trim(),
+    )
+    .map_err(|e| format!("unsupported: upload body is not base64: {}", e))?;
+    if bytes.len() > 5 * 1024 * 1024 {
+        return Err(format!("too_large: upload of '{}' exceeds 5 MiB", clean));
+    }
+    let backend = create_backend(&req.config)?;
+    let dir = std::env::temp_dir().join(format!("cyb-upload-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&dir).map_err(|e| format!("network: cannot stage upload: {}", e))?;
+    let stage = dir.join("upload.bin");
+    fs::write(&stage, &bytes).map_err(|e| format!("network: cannot stage upload: {}", e))?;
+    let out = backend.upload_file(stage.to_string_lossy().as_ref(), &clean);
+    let _ = fs::remove_dir_all(&dir);
+    out
+}
+
 // ─── Progress & cancel ───────────────────────────────────────────────
 
 /// Current sync progress snapshot (lockless).
@@ -413,6 +453,41 @@ fn validate_file_ids(file_ids: &[String]) -> Result<(), String> {
         crate::security::validate_id(id)?;
     }
     Ok(())
+}
+
+/// Expand folder ids into their descendant file ids (breadth-first through
+/// the parent index), so "sync this folder to provider X" just works.
+/// Unknown ids pass through untouched (the pipeline reports them honestly);
+/// cycles are impossible via the `seen` set. Caps at 5000 files — beyond
+/// that the caller should sync in batches (`too_large:`).
+fn expand_sync_ids(db: &Database, file_ids: &[String]) -> Result<Vec<String>, String> {
+    const MAX_EXPANDED: usize = 5000;
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut stack: Vec<String> = file_ids.to_vec();
+    while let Some(id) = stack.pop() {
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        let is_folder = db
+            .get_file_node(&id)
+            .ok()
+            .flatten()
+            .is_some_and(|node| node.file_type == "folder");
+        if is_folder {
+            let children = db.list_by_parent(&id).map_err(|e| e.to_string())?;
+            stack.extend(children);
+        } else {
+            out.push(id);
+        }
+        if out.len() + stack.len() > MAX_EXPANDED {
+            return Err(format!(
+                "too_large: folder expansion exceeds {} files — sync in smaller batches",
+                MAX_EXPANDED
+            ));
+        }
+    }
+    Ok(out)
 }
 
 fn job_snapshot(run: &SyncRun) -> SyncJob {
@@ -507,6 +582,12 @@ pub fn start_job(
     // a bad config must be a 4xx, not a job that fails in the dark.
     let config = load_enabled_config(db, config_id)?;
     validate_file_ids(&file_ids)?;
+    // Folders expand to their descendant files (short read lock, released
+    // before the worker thread starts).
+    let file_ids = {
+        let guard = db.read().map_err(|e| e.to_string())?;
+        expand_sync_ids(&guard, &file_ids)?
+    };
 
     let run = RunRegistry::global().begin(
         config_id,
@@ -561,6 +642,12 @@ pub fn start(
 ) -> Result<SyncResult, String> {
     let config = load_enabled_config(db, config_id)?;
     validate_file_ids(&file_ids)?;
+    // Same folder → files expansion as the REST path (short read lock;
+    // the pipeline takes its own per-file locks afterwards).
+    let file_ids = {
+        let guard = db.read().map_err(|e| e.to_string())?;
+        expand_sync_ids(&guard, &file_ids)?
+    };
 
     let run =
         RunRegistry::global().begin(config_id, Arc::clone(sync_state), file_ids.len() as u32)?;
@@ -621,7 +708,7 @@ pub fn restore(db: &RwLock<Database>, req: RestoreRequest) -> Result<RestoreOutc
             let record: SyncFile = db
                 .get_sync_file(file_id, &req.config_id)
                 .map_err(|e| e.to_string())?
-                .ok_or_else(|| format!("Sync record not found for file {}", file_id))?;
+                .ok_or_else(|| format!("not_found: sync record not found for file {}", file_id))?;
             let mut candidates: Vec<String> = Vec::new();
             // Stored path first (works for Local/GitHub/Drive/GitLab), then
             // the provider locator upload returned (e.g. a Drive file URL)
@@ -637,7 +724,7 @@ pub fn restore(db: &RwLock<Database>, req: RestoreRequest) -> Result<RestoreOutc
             if candidates.is_empty() && record.manifest_ref.is_none() {
                 // Striped records legitimately have no single locator — the
                 // manifest branch below reassembles them instead.
-                return Err("Sync record has no remote locator".to_string());
+                return Err("not_found: sync record has no remote locator".to_string());
             }
             let dest = record.original_path.clone();
             (candidates, Some(record), Some(dest))
@@ -646,7 +733,7 @@ pub fn restore(db: &RwLock<Database>, req: RestoreRequest) -> Result<RestoreOutc
                 .remote_path
                 .clone()
                 .filter(|p| !p.trim().is_empty())
-                .ok_or_else(|| "remotePath or fileId is required".to_string())?;
+                .ok_or_else(|| "unsupported: remotePath or fileId is required".to_string())?;
             (vec![remote], None, None)
         }
     };
@@ -656,6 +743,21 @@ pub fn restore(db: &RwLock<Database>, req: RestoreRequest) -> Result<RestoreOutc
         (None, Some(dest)) => dest.clone(),
         (None, None) => return Err("destPath is required when restoring by remotePath".to_string()),
     };
+    // Destination hygiene: NUL bytes never reach the filesystem, and `..`
+    // segments must not escape the destination's own parent directory
+    // (recorded original paths are server-truth and unaffected; explicit
+    // `destPath` values are caller-controlled on multi-user dashboards).
+    if dest.contains('\0') {
+        return Err("unsupported: restore destination contains a NUL byte".to_string());
+    }
+    if dest.split('/').any(|segment| segment == "..")
+        || dest.split('\\').any(|segment| segment == "..")
+    {
+        return Err(format!(
+            "unsupported: restore destination '{}' escapes its directory",
+            dest
+        ));
+    }
 
     // Striped placement (item 10): the manifest — not a single locator —
     // says where the pieces live. Reassembly downloads, verifies every
@@ -705,7 +807,7 @@ pub fn restore(db: &RwLock<Database>, req: RestoreRequest) -> Result<RestoreOutc
         );
     }
 
-    let mut bytes = fs::read(&part).map_err(|e| format!("restore read failed: {}", e))?;
+    let mut bytes = fs::read(&part).map_err(|e| format!("integrity: restore read failed: {}", e))?;
     let _ = fs::remove_file(&part);
 
     // Decrypt first (magic prefix), then decompress.
@@ -755,10 +857,10 @@ pub fn restore(db: &RwLock<Database>, req: RestoreRequest) -> Result<RestoreOutc
     if let Some(parent) = Path::new(&dest).parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent)
-                .map_err(|e| format!("restore could not create '{}': {}", parent.display(), e))?;
+                .map_err(|e| format!("integrity: restore could not create '{}': {}", parent.display(), e))?;
         }
     }
-    fs::write(&dest, &bytes).map_err(|e| format!("restore write failed: {}", e))?;
+    fs::write(&dest, &bytes).map_err(|e| format!("integrity: restore write failed: {}", e))?;
 
     // Stamp the locator record so the next verification starts fresh.
     if let Some(mut record) = record {

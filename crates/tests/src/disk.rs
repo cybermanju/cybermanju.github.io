@@ -361,7 +361,7 @@ fn a_full_volume_refuses_the_next_write_and_leaves_no_partial_upload() {
     let (status, resp) = put_block(&d, &auth, slots as u64, &payload(slots as u64, block_size));
     assert_eq!(status, 400, "{resp}");
     assert!(
-        body_of(&resp).contains("disk full"),
+        body_of(&resp).contains("disk_full"),
         "the refusal names the condition: {resp}"
     );
     assert_eq!(
@@ -420,7 +420,7 @@ fn admission_refuses_a_sync_write_when_the_volume_is_full() {
     // …and nothing beyond it does.
     let err = cybermanju_sync::quota::admit_write(&guard, MIB + 1)
         .expect_err("the volume cannot hold it");
-    assert!(err.contains("disk full"), "{err}");
+    assert!(err.contains("disk_full"), "{err}");
 
     // The usage the pipeline sees agrees with what `df` reports.
     let usage = cybermanju_sync::quota::volume_usage(&guard).expect("usage");

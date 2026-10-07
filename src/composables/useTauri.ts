@@ -207,7 +207,7 @@ interface RestMapping {
   transformResponse?: (raw: unknown, args: Record<string, unknown>) => unknown
 }
 
-const REST_ROUTES: Record<string, RestMapping> = {
+export const REST_ROUTES: Record<string, RestMapping> = {
   // ── Files ─────────────────────────────────────────────────
   list_files: {
     method: 'GET',
@@ -241,18 +241,34 @@ const REST_ROUTES: Record<string, RestMapping> = {
     buildPath: (args) => `/api/files/${args.fileId}`,
   },
 
+  get_preview: {
+    method: 'GET',
+    buildPath: (args) => `/api/files/${args.fileId}/preview`,
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
   search_files: {
     method: 'GET',
     buildPath: (args) => `/api/search?q=${encodeURIComponent(String(args.query ?? ''))}`,
     transformResponse: (raw) => {
-      // REST returns raw file objects; map to SearchResult shape
+      // REST returns scored BM25 hits; map to SearchResult shape
       const items = transformResponseKeys(raw) as Array<Record<string, unknown>>
       return items.map(item => ({
-        fileId: item.id ?? '',
-        fileName: item.name ?? '',
-        score: 1.0,
-        snippet: '',
+        fileId: item.fileId ?? item.id ?? '',
+        fileName: item.fileName ?? item.name ?? '',
+        score: typeof item.score === 'number' ? item.score : 1.0,
+        snippet: typeof item.snippet === 'string' ? item.snippet : '',
       }))
+    },
+  },
+
+  suggest: {
+    method: 'GET',
+    buildPath: (args) => {
+      const params = new URLSearchParams()
+      params.set('q', String(args.prefix ?? args.query ?? ''))
+      params.set('limit', String(args.limit ?? 10))
+      return `/api/search/suggest?${params.toString()}`
     },
   },
 
@@ -321,15 +337,18 @@ const REST_ROUTES: Record<string, RestMapping> = {
   // ── Encryption ────────────────────────────────────────────
   get_encryption_status: {
     method: 'GET',
-    buildPath: () => '/api/encryption/status',
+    buildPath: (args) => {
+      const fileId = String(args?.fileId ?? '')
+      return fileId ? `/api/encryption/status?fileId=${encodeURIComponent(fileId)}` : '/api/encryption/status'
+    },
     transformResponse: (raw) => {
       const data = transformResponseKeys(raw) as Record<string, unknown>
       return {
-        isEncrypted: false,
-        algorithm: undefined,
-        nistLevel: undefined,
-        keyId: undefined,
-        encryptedAt: undefined,
+        isEncrypted: typeof data.isEncrypted === 'boolean' ? data.isEncrypted : false,
+        algorithm: typeof data.algorithm === 'string' ? data.algorithm : undefined,
+        nistLevel: typeof data.nistLevel === 'number' ? data.nistLevel : undefined,
+        keyId: typeof data.keyId === 'string' ? data.keyId : undefined,
+        encryptedAt: typeof data.encryptedAt === 'string' ? data.encryptedAt : undefined,
         // Include extra info from the REST response
         available: data.available ?? false,
         supportedAlgorithms: data.supportedAlgorithms ?? [],
@@ -385,6 +404,23 @@ const REST_ROUTES: Record<string, RestMapping> = {
       fileId: args.fileId,
       access: args.access,
     }),
+  },
+
+  set_file_permission: {
+    method: 'POST',
+    buildPath: () => '/api/permissions',
+    transformRequest: (args) => ({
+      userId: args.userId,
+      fileId: args.fileId,
+      access: args.access,
+    }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  get_shared_file: {
+    method: 'GET',
+    buildPath: (args) => `/api/shared/${encodeURIComponent(String(args.token ?? ''))}`,
+    transformResponse: (raw) => transformResponseKeys(raw),
   },
 
   verify_file_access: {
@@ -704,6 +740,16 @@ const REST_ROUTES: Record<string, RestMapping> = {
     method: 'POST',
     buildPath: () => '/api/sync/seed-repo',
     transformRequest: (args) => ({ config: args.config, files: args.files }),
+  },
+
+  upload_remote_file: {
+    method: 'POST',
+    buildPath: () => '/api/sync/upload',
+    transformRequest: (args) => ({
+      config: args.config,
+      remotePath: args.remotePath,
+      contentBase64: args.contentBase64,
+    }),
   },
 
   get_sync_usage: {
@@ -1048,7 +1094,7 @@ const REST_ROUTES: Record<string, RestMapping> = {
 
 // Commands that exist in Tauri but have NO REST equivalent yet
 // (native dialogs, ONNX face models, local file system, desktop-only controls).
-const WRITE_ONLY_COMMANDS = new Set([
+export const WRITE_ONLY_COMMANDS = new Set([
   // Face detection — ONNX runtime + model files stay desktop-only
   'detect_faces',
   'detect_faces_batch_cmd',
@@ -1063,7 +1109,9 @@ const WRITE_ONLY_COMMANDS = new Set([
   'decrypt_file',
   'compress_file',
   'decompress_file',
+  'get_compression_stats',
   'parse_file',
+  'get_symbols',
   'start_dashboard',
   'stop_dashboard',
   'revoke_file_permission',
@@ -1503,10 +1551,12 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   // ── Provider VFS (CONTROL Phase 5.6): served by the TS canal
   // orchestration on EVERY transport — mounts + cache live in kv (inside
-  // the `.cybermanju` container on static hosts), network bytes go through
-  // the Rust canal, so reads never hit the "needs the dashboard" refusal.
+  // the `.cybermanju` container on static hosts); reads go through the Rust
+  // canal and writes through `upload_remote_file`/direct fetch, so neither
+  // hits the "needs the dashboard" refusal.
   if (cmd === 'vfs_list_mounts' || cmd === 'vfs_save_mount' || cmd === 'vfs_delete_mount' ||
-    cmd === 'vfs_list_dir' || cmd === 'vfs_read_file') {
+    cmd === 'vfs_list_dir' || cmd === 'vfs_read_file' ||
+    cmd === 'vfs_write_file' || cmd === 'vfs_delete_file') {
     const canal = await import('./useProviderCanal')
     switch (cmd) {
       case 'vfs_list_mounts':
@@ -1536,6 +1586,25 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
             passphrase: args?.passphrase as string | undefined,
           },
         )) as T
+      case 'vfs_write_file': {
+        const raw = args?.data ?? args?.bytes ?? args?.content ?? ''
+        const data = typeof raw === 'string'
+          ? raw as string
+          : new Uint8Array(raw as ArrayLike<number>)
+        return (await canal.writeVfsFile(
+          String(args?.mountId ?? args?.id ?? ''),
+          String(args?.remotePath ?? args?.path ?? ''),
+          data,
+          { locator: args?.locator as string | undefined },
+        )) as T
+      }
+      case 'vfs_delete_file':
+        await canal.deleteVfsFile(
+          String(args?.mountId ?? args?.id ?? ''),
+          String(args?.remotePath ?? args?.path ?? ''),
+          { locator: args?.locator as string | undefined },
+        )
+        return { ok: true } as T
     }
   }
   // ── Static-host vault repo provisioning: direct provider fetch (CORS-OK),

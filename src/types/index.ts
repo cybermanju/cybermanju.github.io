@@ -384,6 +384,10 @@ export interface SyncConfig {
   conflictPolicy?: 'skip' | 'overwrite' | 'keepBoth'
   placement?: 'whole' | 'striped'
   parity?: number
+  /** Refuse upload when no master passphrase exists (default false = warn + upload). */
+  requireEncryption?: boolean
+  /** Hash basenames into remote locators so providers never see real names. */
+  obfuscateNames?: boolean
   createdAt?: string
   updatedAt?: string
 }
@@ -602,31 +606,31 @@ export const MODULE_METADATA: Record<PanelType, ModuleInfo> = {
   landing: { id: 'landing', label: 'HOME', icon: 'solar:house-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0a0a0a 50%, #000000 100%)', description: 'Quantum-resistant encrypted file manager', requiresAuth: false },
   files: { id: 'files', label: 'FILES', icon: 'solar:folder-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0a0a1a 50%, #000000 100%)', description: 'Browse and manage your encrypted files', requiresAuth: true },
   search: { id: 'search', label: 'SEARCH', icon: 'solar:magnifier-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0a0a0a 50%, #000000 100%)', description: 'Tantivy BM25 full-text search', requiresAuth: true },
-  collections: { id: 'collections', label: 'COLLECTIONS', icon: 'solar:library-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0800 50%, #000000 100%)', description: 'Curate and organize file collections', requiresAuth: true },
+  collections: { id: 'collections', label: 'ORGANIZE', icon: 'solar:library-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0800 50%, #000000 100%)', description: 'Collections, loose groups, tags and favorites', requiresAuth: true },
   faces: { id: 'faces', label: 'PEOPLE', icon: 'solar:face-scan-circle-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0008 50%, #000000 100%)', description: 'AI face detection and clustering', requiresAuth: true },
   map: { id: 'map', label: 'MAP', icon: 'solar:map-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000a0d 50%, #000000 100%)', description: 'GPS-tagged files on MapLibre GL', requiresAuth: true },
-  code: { id: 'code', label: 'CODE', icon: 'solar:code-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'Tree-sitter code intelligence', requiresAuth: true },
-  editor: { id: 'editor', label: 'EDITOR', icon: 'solar:file-code-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'Cross-device code editor with outline and syntax view', requiresAuth: true },
+  code: { id: 'code', label: 'CODE STUDIO', icon: 'solar:code-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'Code Studio — editor + tree-sitter intel (alias of editor)', requiresAuth: true },
+  editor: { id: 'editor', label: 'CODE STUDIO', icon: 'solar:file-code-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'VSCode-like editor with tree-sitter outline, AI sidecar and terminal', requiresAuth: true },
   sync: { id: 'sync', label: 'SYNC', icon: 'solar:refresh-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #00080d 50%, #000000 100%)', description: 'Multi-backend cloud sync', requiresAuth: true },
-  accounts: { id: 'accounts', label: 'ACCOUNTS', icon: 'solar:user-circle-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0a0a0d 50%, #000000 100%)', description: 'Manage local and cloud accounts', requiresAuth: true },
-  'loose-groups': { id: 'loose-groups', label: 'LOOSE', icon: 'solar:users-group-two-rounded-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0d00 50%, #000000 100%)', description: 'Ad-hoc file grouping', requiresAuth: true },
-  style: { id: 'style', label: 'TAGS', icon: 'solar:tag-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0a000d 50%, #000000 100%)', description: 'CLIP-based visual style tags', requiresAuth: true },
-  users: { id: 'users', label: 'USERS', icon: 'solar:users-group-rounded-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0000 50%, #000000 100%)', description: 'Multi-user access control', requiresAuth: true },
+  accounts: { id: 'accounts', label: 'ACCOUNTS', icon: 'solar:user-circle-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0a0a0d 50%, #000000 100%)', description: 'Sign-in, providers, vault file and local users', requiresAuth: true },
+  'loose-groups': { id: 'loose-groups', label: 'ORGANIZE', icon: 'solar:users-group-two-rounded-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0d00 50%, #000000 100%)', description: 'Loose groups (alias of organize)', requiresAuth: true },
+  style: { id: 'style', label: 'ORGANIZE', icon: 'solar:tag-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0a000d 50%, #000000 100%)', description: 'Style tags (alias of organize)', requiresAuth: true },
+  users: { id: 'users', label: 'ACCOUNTS', icon: 'solar:users-group-rounded-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0000 50%, #000000 100%)', description: 'Local users (alias of accounts)', requiresAuth: true },
   dashboard: { id: 'dashboard', label: 'REMOTE', icon: 'solar:monitor-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #00080d 50%, #000000 100%)', description: 'Web dashboard and API status', requiresAuth: true },
-  webdash: { id: 'webdash', label: 'OVERLAY', icon: 'solar:kanban-square-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #05050a 50%, #000000 100%)', description: 'Remote access dashboard', requiresAuth: true },
-  preview: { id: 'preview', label: 'PREVIEW', icon: 'solar:eye-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0a0a0a 50%, #000000 100%)', description: 'File preview panel', requiresAuth: true },
-  encryption: { id: 'encryption', label: 'ENCRYPT', icon: 'solar:lock-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0000 50%, #000000 100%)', description: 'Post-quantum encryption management', requiresAuth: true },
-  compression: { id: 'compression', label: 'COMPRESS', icon: 'solar:archive-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d00 50%, #000000 100%)', description: 'Triple-layer compression pipeline', requiresAuth: true },
+  webdash: { id: 'webdash', label: 'REMOTE', icon: 'solar:kanban-square-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #05050a 50%, #000000 100%)', description: 'Remote dashboard (alias of dashboard)', requiresAuth: true },
+  preview: { id: 'preview', label: 'FILES', icon: 'solar:eye-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0a0a0a 50%, #000000 100%)', description: 'Quick look (alias of files inspector)', requiresAuth: true },
+  encryption: { id: 'encryption', label: 'SHIELD', icon: 'solar:lock-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0000 50%, #000000 100%)', description: 'File shield — keys, encryption and compression', requiresAuth: true },
+  compression: { id: 'compression', label: 'SHIELD', icon: 'solar:archive-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d00 50%, #000000 100%)', description: 'Compression engine (alias of shield)', requiresAuth: true },
   settings: { id: 'settings', label: 'SETTINGS', icon: 'solar:settings-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0a0a0a 50%, #000000 100%)', description: 'Application settings and preferences', requiresAuth: true },
   trash: { id: 'trash', label: 'TRASH', icon: 'solar:trash-bin-trash-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0000 50%, #000000 100%)', description: 'Deleted files', requiresAuth: true },
   activity: { id: 'activity', label: 'ACTIVITY', icon: 'solar:pulse-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #00080d 50%, #000000 100%)', description: 'File activity log', requiresAuth: true },
-  favorites: { id: 'favorites', label: 'FAVORITES', icon: 'solar:star-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0800 50%, #000000 100%)', description: 'Starred files', requiresAuth: true },
+  favorites: { id: 'favorites', label: 'ORGANIZE', icon: 'solar:star-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0800 50%, #000000 100%)', description: 'Favorites (alias of organize)', requiresAuth: true },
   recent: { id: 'recent', label: 'RECENT', icon: 'solar:history-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #080808 50%, #000000 100%)', description: 'Recently modified files', requiresAuth: true },
-  storage: { id: 'storage', label: 'STORAGE', icon: 'solar:database-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000a00 50%, #000000 100%)', description: 'Storage usage dashboard', requiresAuth: true },
+  storage: { id: 'storage', label: 'DISKS', icon: 'solar:database-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000a00 50%, #000000 100%)', description: 'Storage overview (alias of disks)', requiresAuth: true },
   terminal: { id: 'terminal', label: 'CYBSH', icon: 'solar:file-terminal-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'System terminal — cybsh', requiresAuth: true },
   agent: { id: 'agent', label: 'AGENT', icon: 'solar:bot-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'Native AI coding agent', requiresAuth: true },
   processes: { id: 'processes', label: 'TASKS', icon: 'solar:cpu-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d0d 50%, #000000 100%)', description: 'Process table, top and task control', requiresAuth: true },
-  disks: { id: 'disks', label: 'DISKS', icon: 'solar:ssd-square-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000a00 50%, #000000 100%)', description: 'Per-provider disks and the merged volume', requiresAuth: true },
+  disks: { id: 'disks', label: 'DISKS', icon: 'solar:ssd-square-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000a00 50%, #000000 100%)', description: 'Storage overview, per-provider disks and the merged volume', requiresAuth: true },
   devices: { id: 'devices', label: 'DEVICES', icon: 'solar:plug-circle-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000a0d 50%, #000000 100%)', description: 'Plugged hardware, sensors and browser capabilities', requiresAuth: true },
   permissions: { id: 'permissions', label: 'PERMS', icon: 'solar:key-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0000 50%, #000000 100%)', description: 'Per-file access control', requiresAuth: true },
 }

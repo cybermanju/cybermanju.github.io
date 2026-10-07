@@ -328,6 +328,8 @@ fn test_sync_config_serde() {
         conflict_policy: Default::default(),
         placement: Default::default(),
         parity: 1,
+        require_encryption: false,
+        obfuscate_names: false,
         oauth_credentials: None,
         created_at: None,
         updated_at: None,

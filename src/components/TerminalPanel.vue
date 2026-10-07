@@ -426,6 +426,8 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
+  overflow: hidden;
   background: var(--ui-surface);
   color: var(--ui-text);
   font-family: var(--ui-font-mono);
@@ -486,9 +488,33 @@ onMounted(async () => {
 
 .term-scroll {
   flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  scrollbar-gutter: stable;
   padding: 8px 12px;
-  contain: strict;
+  /* `strict` included size containment, which fights the flex layout and
+     can pin the scroll height so new lines never become reachable.
+     Layout + paint containment keeps the 60fps budget without that. */
+  contain: layout paint;
+}
+
+.term-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.term-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  border-radius: var(--ui-radius-full);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.term-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--ui-accent);
+  background-clip: content-box;
+  border: 2px solid transparent;
 }
 
 .term-line {

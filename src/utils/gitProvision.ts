@@ -286,13 +286,41 @@ export async function seedRepoDirect(
   if (backendType === 'github') {
     const [owner, name] = repo.fullName.split('/')
     if (!owner || !name) throw new Error('unsupported: GitHub repo has no owner/name yet — create it first')
+    const headers = {
+      Authorization: `token ${token}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+    }
     for (const f of files) {
-      const res = await fetch(`https://api.github.com/repos/${owner}/${name}/contents/${f.path}`, {
-        method: 'PUT',
-        headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: `CyberManju vault seed: ${f.path}`, content: f.contentBase64, branch: repo.branch }),
-      })
-      if (!res.ok && res.status !== 422) {
+      const put = (sha?: string) =>
+        fetch(`https://api.github.com/repos/${owner}/${name}/contents/${f.path}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({
+            message: `CyberManju vault seed: ${f.path}`,
+            content: f.contentBase64,
+            branch: repo.branch,
+            ...(sha ? { sha } : {}),
+          }),
+        })
+      let res = await put()
+      if (res.status === 422) {
+        // File exists — the Contents API needs the current blob SHA to
+        // overwrite (same rule the Rust backend follows). Look it up once.
+        const lookup = await fetch(
+          `https://api.github.com/repos/${owner}/${name}/contents/${f.path}?ref=${encodeURIComponent(repo.branch || DEFAULT_VAULT_BRANCH)}`,
+          { headers },
+        )
+        if (!lookup.ok) {
+          throw new Error(`network: GitHub lookup of '${f.path}' failed (HTTP ${lookup.status})`)
+        }
+        const current = (await lookup.json().catch(() => ({}))) as { sha?: unknown }
+        if (Array.isArray(current) || typeof current.sha !== 'string' || !current.sha) {
+          throw new Error(`unsupported: GitHub returned no blob sha for '${f.path}'`)
+        }
+        res = await put(current.sha)
+      }
+      if (!res.ok) {
         const body = await res.text().catch(() => '')
         throw new Error(`network: GitHub seed of '${f.path}' failed (HTTP ${res.status}): ${body.slice(0, 200)}`)
       }
@@ -328,6 +356,253 @@ export async function seedRepoDirect(
 }
 
 /**
+ * Delete one file straight from a provider repo (static-host path; the
+ * desktop/Docker builds use `delete_remote_file` through the Rust backend).
+ * GitHub needs the blob SHA: one lookup, then the delete. GitLab deletes by
+ * path directly. Missing files resolve as success (idempotent).
+ */
+export async function deleteFileDirect(
+  backendType: 'github' | 'gitlab',
+  repo: CreatedRepo,
+  token: string,
+  remotePath: string,
+  instanceUrl?: string,
+): Promise<void> {
+  const rel = String(remotePath ?? '').replace(/^\/+|\/+$/g, '')
+  if (!rel) throw new Error('invalid: remotePath is required')
+  if (!token.trim()) throw new Error('auth: provider delete needs a token')
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 20000)
+  try {
+    if (backendType === 'github') {
+      const [owner, name] = repo.fullName.split('/')
+      if (!owner || !name) throw new Error('unsupported: GitHub repo has no owner/name yet')
+      const headers = {
+        Authorization: `token ${token}`,
+        Accept: 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+      }
+      const lookup = await fetch(
+        `https://api.github.com/repos/${owner}/${name}/contents/${rel}?ref=${encodeURIComponent(repo.branch || DEFAULT_VAULT_BRANCH)}`,
+        { headers, signal: ctrl.signal },
+      ).catch(() => {
+        throw new Error('network: api.github.com is not reachable from this browser')
+      })
+      if (lookup.status === 404) return
+      if (!lookup.ok) throw new Error(`network: GitHub lookup of '${rel}' failed (HTTP ${lookup.status})`)
+      const json = (await lookup.json().catch(() => ({}))) as { sha?: unknown }
+      if (Array.isArray(json)) return
+      const sha = typeof json.sha === 'string' ? json.sha : ''
+      if (!sha) throw new Error(`unsupported: GitHub returned no blob sha for '${rel}'`)
+      const res = await fetch(`https://api.github.com/repos/${owner}/${name}/contents/${rel}`, {
+        method: 'DELETE',
+        headers,
+        body: JSON.stringify({ message: `CyberManju delete: ${rel}`, sha, branch: repo.branch || DEFAULT_VAULT_BRANCH }),
+        signal: ctrl.signal,
+      }).catch(() => {
+        throw new Error('network: api.github.com is not reachable from this browser')
+      })
+      if (!res.ok && res.status !== 404) {
+        throw new Error(`network: GitHub delete of '${rel}' failed (HTTP ${res.status})`)
+      }
+      return
+    }
+    const base = gitlabBase(instanceUrl)
+    const res = await fetch(
+      `${base}/api/v4/projects/${encodeURIComponent(repo.repoName)}/repository/files/${encodeURIComponent(rel)}?branch=${encodeURIComponent(repo.branch || DEFAULT_VAULT_BRANCH)}`,
+      {
+        method: 'DELETE',
+        headers: { 'PRIVATE-TOKEN': token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ branch: repo.branch || DEFAULT_VAULT_BRANCH, commit_message: `CyberManju delete: ${rel}` }),
+        signal: ctrl.signal,
+      },
+    ).catch(() => {
+      throw new Error(`network: ${base} is not reachable from this browser`)
+    })
+    if (!res.ok && res.status !== 404) {
+      throw new Error(`network: GitLab delete of '${rel}' failed (HTTP ${res.status})`)
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+const DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files'
+const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files'
+const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder'
+
+function driveHeaders(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}` }
+}
+
+function decodeBase64Bytes(b64: string): Uint8Array {
+  const bin = atob(b64)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  return out
+}
+
+async function driveJson(
+  token: string,
+  url: string,
+  init?: RequestInit,
+  provider = 'Google Drive',
+): Promise<{ status: number; json: Record<string, unknown> }> {
+  const res = await fetch(url, {
+    ...init,
+    headers: { ...driveHeaders(token), ...(init?.headers ?? {}) },
+  }).catch(() => {
+    throw new Error('network: www.googleapis.com is not reachable from this browser (offline or blocked)')
+  })
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+  void provider
+  return { status: res.status, json }
+}
+
+/** First child id named `name` under `parentId` (files and folders). */
+async function driveFindChild(token: string, parentId: string, name: string): Promise<string | null> {
+  const q = `name='${name.replace(/'/g, "''")}' and '${parentId}' in parents and trashed=false`
+  const { status, json } = await driveJson(
+    token,
+    `${DRIVE_FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id)&pageSize=10`,
+  )
+  if (status === 401 || status === 403) throw new Error(`auth: Google rejected the token (HTTP ${status}) — reconnect with OAuth`)
+  if (status !== 200) throw new Error(`network: Drive lookup failed (HTTP ${status})`)
+  const files = Array.isArray(json.files) ? json.files : []
+  const first = files[0] as { id?: unknown } | undefined
+  return typeof first?.id === 'string' && first.id ? first.id : null
+}
+
+/** Walk `parts` below `rootId`, creating missing folders. Returns the parent id. */
+async function driveEnsureParents(token: string, rootId: string, parts: string[]): Promise<string> {
+  let parent = rootId
+  for (const seg of parts) {
+    const found = await driveFindChild(token, parent, seg)
+    if (found) {
+      parent = found
+      continue
+    }
+    const { status, json } = await driveJson(token, DRIVE_FILES_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: seg, mimeType: DRIVE_FOLDER_MIME, parents: [parent] }),
+    })
+    const id = json.id
+    if (status !== 200 || typeof id !== 'string' || !id) {
+      throw new Error(`network: Drive folder create for '${seg}' failed (HTTP ${status})`)
+    }
+    parent = id
+  }
+  return parent
+}
+
+/**
+ * Write one file to Google Drive straight from the browser (static-host
+ * path; desktop/Docker use the Rust backend). Creates parent folders and
+ * overwrites an existing same-named child. Returns the Drive file id.
+ */
+export async function driveWriteDirect(input: {
+  token: string
+  folderId?: string
+  basePath?: string
+  remotePath: string
+  contentBase64: string
+}): Promise<string> {
+  const token = input.token.trim()
+  if (!token) throw new Error('auth: Drive write needs a token — connect with OAuth first')
+  const rel = String(input.remotePath ?? '').replace(/^\/+|\/+$/g, '')
+  if (!rel || /(^|\/)\.\.(\/|$)/.test(rel)) throw new Error(`unsupported: Drive path '${input.remotePath}' is invalid`)
+  const bytes = decodeBase64Bytes(input.contentBase64)
+  if (bytes.length > 5 * 1024 * 1024) throw new Error(`too_large: '${rel}' exceeds the 5 MiB write cap`)
+  const root = input.folderId?.trim() || 'root'
+  const prefix = String(input.basePath ?? '').trim().replace(/^\/+|\/+$/g, '')
+  const parts = [...prefix.split('/'), ...rel.split('/')].map((s) => s.trim()).filter((s) => s && s !== '.')
+  const name = parts.pop() ?? ''
+  if (!name) throw new Error('unsupported: Drive path must name a file')
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 30000)
+  try {
+    const parentId = await driveEnsureParents(token, root, parts)
+    const existing = await driveFindChild(token, parentId, name)
+    if (existing) {
+      const res = await fetch(`${DRIVE_UPLOAD_URL}/${existing}?uploadType=media`, {
+        method: 'PATCH',
+        headers: { ...driveHeaders(token), 'Content-Type': 'application/octet-stream' },
+        body: bytes as unknown as BodyInit,
+        signal: ctrl.signal,
+      }).catch(() => {
+        throw new Error('network: www.googleapis.com is not reachable from this browser')
+      })
+      if (!res.ok) throw new Error(`network: Drive overwrite of '${rel}' failed (HTTP ${res.status})`)
+      return existing
+    }
+    const boundary = `cybermanju-${Date.now().toString(36)}`
+    const meta = new TextEncoder().encode(
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+        JSON.stringify({ name, parents: [parentId] }) +
+        `\r\n--${boundary}\r\nContent-Type: application/octet-stream\r\n\r\n`,
+    )
+    const tail = new TextEncoder().encode(`\r\n--${boundary}--`)
+    const body = new Uint8Array(meta.length + bytes.length + tail.length)
+    body.set(meta, 0)
+    body.set(bytes, meta.length)
+    body.set(tail, meta.length + bytes.length)
+    const res = await fetch(`${DRIVE_UPLOAD_URL}?uploadType=multipart`, {
+      method: 'POST',
+      headers: { ...driveHeaders(token), 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body: body as unknown as BodyInit,
+      signal: ctrl.signal,
+    }).catch(() => {
+      throw new Error('network: www.googleapis.com is not reachable from this browser')
+    })
+    if (!res.ok) throw new Error(`network: Drive upload of '${rel}' failed (HTTP ${res.status})`)
+    const json = (await res.json().catch(() => ({}))) as { id?: unknown }
+    if (typeof json.id !== 'string' || !json.id) throw new Error('network: Drive upload returned no file id')
+    return json.id
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Delete one Drive file straight from the browser. Prefers the listing
+ * locator (already a file id); otherwise resolves `folderId/basePath/rel`.
+ */
+export async function driveDeleteDirect(input: {
+  token: string
+  folderId?: string
+  basePath?: string
+  remotePath: string
+  locator?: string
+}): Promise<void> {
+  const token = input.token.trim()
+  if (!token) throw new Error('auth: Drive delete needs a token — connect with OAuth first')
+  let id = String(input.locator ?? '').trim()
+  if (!id) {
+    const rel = String(input.remotePath ?? '').replace(/^\/+|\/+$/g, '')
+    if (!rel) throw new Error('invalid: remotePath is required')
+    const root = input.folderId?.trim() || 'root'
+    const prefix = String(input.basePath ?? '').trim().replace(/^\/+|\/+$/g, '')
+    const parts = [...prefix.split('/'), ...rel.split('/')].map((s) => s.trim()).filter((s) => s && s !== '.')
+    const name = parts.pop() ?? ''
+    if (!name) throw new Error('invalid: remotePath is required')
+    let parent = root
+    for (const seg of parts) {
+      const next = await driveFindChild(token, parent, seg)
+      if (!next) return
+      parent = next
+    }
+    const found = await driveFindChild(token, parent, name)
+    if (!found) return
+    id = found
+  }
+  const { status } = await driveJson(token, `${DRIVE_FILES_URL}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  if (status !== 204 && status !== 200 && status !== 404) {
+    throw new Error(`network: Drive delete failed (HTTP ${status})`)
+  }
+}
+
+/**
  * Full synced-system provisioning after the repo exists:
  * save provider config → seed README/manifest (+ vault bytes when given) →
  * probe → create + attach a system disk. Returns the saved config + disk id.
@@ -342,6 +617,10 @@ export async function provisionSyncedSystem(deps: {
   diskPassphrase?: string
   /** Compress uploads on future syncs (the container itself is always LZ4). */
   compressBeforeUpload?: boolean
+  /** Refuse uploads without a master passphrase (default true for vault sets). */
+  requireEncryption?: boolean
+  /** Hash basenames into remote locators (default true for vault sets). */
+  obfuscateNames?: boolean
   /** Set membership for the manifest when provisioning N repos at once. */
   set?: VaultSetInfo
   vaultBytes?: Uint8Array | null
@@ -362,6 +641,8 @@ export async function provisionSyncedSystem(deps: {
     deleteRawAfterSync: false,
     maxConcurrentUploads: 1,
     encryptBeforeUpload: true,
+    requireEncryption: deps.requireEncryption !== false,
+    obfuscateNames: deps.obfuscateNames !== false,
     conflictPolicy: 'skip',
     placement: 'whole',
     parity: 1,
@@ -437,6 +718,8 @@ export async function provisionVaultRepoSet(deps: {
   diskSizeMb?: number
   diskPassphrase?: string
   compressBeforeUpload?: boolean
+  requireEncryption?: boolean
+  obfuscateNames?: boolean
   vaultBytes?: Uint8Array | null
   createRepo: (input: ProvisionInput) => Promise<CreatedRepo>
   saveConfig: (cfg: Omit<SyncConfig, 'id' | 'createdAt' | 'updatedAt'>) => Promise<SyncConfig | null>
@@ -475,6 +758,8 @@ export async function provisionVaultRepoSet(deps: {
         diskSizeMb: deps.diskSizeMb,
         diskPassphrase: deps.diskPassphrase,
         compressBeforeUpload: deps.compressBeforeUpload,
+        requireEncryption: deps.requireEncryption,
+        obfuscateNames: deps.obfuscateNames,
         set: total > 1 ? { name: setName, index: i + 1, total } : undefined,
         vaultBytes: deps.vaultBytes,
         saveConfig: deps.saveConfig,

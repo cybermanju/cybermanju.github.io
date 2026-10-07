@@ -27,6 +27,40 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
+/// Removes a staging file when it drops, so retry-exhausted or cancelled
+/// uploads never leak `cybermanju-*.cyb3` temps (error paths included —
+/// the explicit success-path removals stay as the fast path).
+struct RemoveOnDrop<'a> {
+    path: &'a Path,
+}
+
+impl Drop for RemoveOnDrop<'_> {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(self.path);
+    }
+}
+
+/// Best-effort removal of every landed striped chunk copy. Shared by the
+/// link/record failure paths (both run after chunk copies landed on
+/// providers with no manifest pointing at them).
+fn remove_striped_copies(
+    backends: &HashMap<String, Box<dyn StorageBackend>>,
+    manifest_obj: &manifest::ChunkManifest,
+) {
+    for chunk in &manifest_obj.chunks {
+        for loc in std::iter::once(&chunk.primary).chain(chunk.replicas.iter()) {
+            if let Some(backend) = backends.get(&loc.config_id) {
+                if let Err(remove_err) = backend.delete_file(&loc.remote_path) {
+                    warn!(
+                        "orphaned striped chunk '{}' could not be removed: {}",
+                        loc.remote_path, remove_err
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Magic prefix on artifacts whose payload is a `keystore::seal` blob.
 /// Restores key off this, so a `remotePath` restore works even without a
 /// local `sync_files` record.
@@ -311,7 +345,7 @@ impl SyncPipeline {
         }
 
         if !Path::new(&original_path).exists() {
-            return Err(format!("File not found on disk: {}", original_path));
+            return Err(format!("not_found: file not found on disk: {}", original_path));
         }
 
         // <<< AGENT-6 ADMISSION >>>
@@ -348,8 +382,9 @@ impl SyncPipeline {
             }
         }
 
-        // 3. Collision-safe, stable remote locator (item 4).
-        let mut remote_name = remote_path_for(&original_path);
+        // 3. Collision-safe, stable remote locator (item 4; basename
+        //    hashed when the config opts into obfuscation).
+        let mut remote_name = remote_path_for(&original_path, self.config.obfuscate_names);
 
         // 4. Conflict policy (item 9). Same file + same content + same
         //    locator as the stored record is an idempotent re-sync, not a
@@ -437,8 +472,19 @@ impl SyncPipeline {
 
         // 10. Link in FileNode's context_data + persist the durable locator
         //     (item 2: remote_path, backend, hashes, verification stamp).
+        //     A link/record failure after a landed upload must not leave a
+        //     verified-but-unreferenced remote object behind: compensate
+        //     with a best-effort delete so GC never has to guess.
         self.state.set_status(SyncStatus::Linking);
-        self.create_link(file_id, &remote_url, db)?;
+        if let Err(e) = self.create_link(file_id, &remote_url, db) {
+            if let Err(remove_err) = backend.delete_file(&remote_name) {
+                warn!(
+                    "orphaned remote copy '{}' could not be removed: {}",
+                    remote_name, remove_err
+                );
+            }
+            return Err(e);
+        }
         let record = SyncFile {
             id: file_id.to_string(),
             config_id: Some(self.config.id.clone()),
@@ -461,7 +507,15 @@ impl SyncPipeline {
             status: SyncStatus::Completed,
             error_message: None,
         };
-        write_sync_file(&record, db)?;
+        if let Err(e) = write_sync_file(&record, db) {
+            if let Err(remove_err) = backend.delete_file(&remote_name) {
+                warn!(
+                    "orphaned remote copy '{}' could not be removed: {}",
+                    remote_name, remove_err
+                );
+            }
+            return Err(e);
+        }
 
         // 11. Cleanup — delete the raw original only behind a verified
         //     remote copy; otherwise drop the temporary artifact (the
@@ -569,7 +623,7 @@ impl SyncPipeline {
         let (payload, bytes_saved, compressed) = if want_compress {
             let (compressed_bytes, _stats) = compressor
                 .compress_triple(&raw)
-                .map_err(|e| format!("Triple compression failed: {}", e))?;
+                .map_err(|e| format!("integrity: triple compression failed: {}", e))?;
             let saved = original_size.saturating_sub(compressed_bytes.len() as u64);
             (compressed_bytes, saved, true)
         } else {
@@ -585,6 +639,16 @@ impl SyncPipeline {
                     out.extend_from_slice(CYBE_MAGIC);
                     out.extend(sealed);
                     (out, true, Some(SYNC_KEY_HANDLE.to_string()))
+                }
+                None if self.config.require_encryption => {
+                    // Encrypt-or-fail: refuse the upload instead of sending
+                    // plaintext with a warning. The error is per-file, so one
+                    // locked file never blocks the rest of the run.
+                    return Err(format!(
+                        "auth: no master passphrase available — '{}' refused \
+                         (requireEncryption is on; set a master passphrase or turn it off)",
+                        label
+                    ));
                 }
                 None => {
                     // Never block a sync on key material, never pretend it
@@ -732,8 +796,11 @@ impl SyncPipeline {
                 index
             ));
             let tmp_str = tmp.to_string_lossy().to_string();
+            // Guard first: every `?` below (quota, backend lookup,
+            // rate-limit, exhausted retries) drops through here.
+            let _cleanup = RemoveOnDrop { path: &tmp };
             fs::write(&tmp, &payload)
-                .map_err(|e| format!("Failed to write chunk artifact: {}", e))?;
+                .map_err(|e| format!("integrity: cannot write chunk artifact: {}", e))?;
 
             let (primary_idx, replica_idxs) = manifest::placements(index as usize, n, parity);
             let mut locs: Vec<manifest::ChunkLoc> = Vec::with_capacity(1 + replica_idxs.len());
@@ -741,7 +808,7 @@ impl SyncPipeline {
                 let config_id = participants[cfg_idx].id.clone();
                 let backend = backends
                     .get(&config_id)
-                    .ok_or_else(|| format!("No backend for config '{}'", config_id))?;
+                    .ok_or_else(|| format!("not_found: no backend for config '{}'", config_id))?;
                 self.state.set_status(SyncStatus::Uploading);
                 let _permit = rate_limit::acquire(&backend.backend_type())?;
                 retry::with_retry(&retry::RetryPolicy::default(), || {
@@ -794,7 +861,10 @@ impl SyncPipeline {
         let manifest_json = serde_json::to_string(&manifest_obj).map_err(|e| e.to_string())?;
 
         self.state.set_status(SyncStatus::Linking);
-        self.create_link(file_id, &format!("striped:{}", local_hash), db)?;
+        if let Err(e) = self.create_link(file_id, &format!("striped:{}", local_hash), db) {
+            remove_striped_copies(&backends, &manifest_obj);
+            return Err(e);
+        }
 
         let record = SyncFile {
             id: file_id.to_string(),
@@ -821,7 +891,10 @@ impl SyncPipeline {
             status: SyncStatus::Completed,
             error_message: None,
         };
-        write_sync_file(&record, db)?;
+        if let Err(e) = write_sync_file(&record, db) {
+            remove_striped_copies(&backends, &manifest_obj);
+            return Err(e);
+        }
 
         // <<< AGENT-6 ADMISSION >>>
         // Same ledger as the whole-file path: only growth is charged, and the
@@ -963,7 +1036,7 @@ impl SyncPipeline {
 
         let (compressed, _stats) = compressor
             .compress_triple(&data)
-            .map_err(|e| format!("Triple compression failed: {}", e))?;
+            .map_err(|e| format!("integrity: triple compression failed: {}", e))?;
         let compressed_size = compressed.len() as u64;
 
         // Write compressed file next to the original with .cyb3 extension
@@ -1157,10 +1230,10 @@ struct Artifact {
 }
 
 /// Persist one `sync_files` locator record (item 2).
-fn write_sync_file(record: &SyncFile, db: &RwLock<Database>) -> Result<(), String> {
-    let db = db.write().map_err(|e| e.to_string())?;
-    db.upsert_sync_file(record).map_err(|e| e.to_string())
-}
+    fn write_sync_file(record: &SyncFile, db: &RwLock<Database>) -> Result<(), String> {
+        let db = db.write().map_err(|e| e.to_string())?;
+        db.upsert_sync_file(record).map_err(|e| e.to_string())
+    }
 
 /// Collision-safe remote locator for a local path (item 4).
 ///
@@ -1168,7 +1241,13 @@ fn write_sync_file(record: &SyncFile, db: &RwLock<Database>) -> Result<(), Strin
 /// basename in different directories never collide, and the mapping is a
 /// pure function of the path, so a re-sync targets the same remote object
 /// (idempotency preserved).
-pub fn remote_path_for(original_path: &str) -> String {
+///
+/// With `obfuscate` the basename is replaced by the first 16 hex chars of
+/// its BLAKE3 (`cybermanju_sync/{parent_hash8}/{name_hash16}`): providers
+/// never see real filenames, and the mapping stays deterministic so
+/// idempotent re-syncs still converge. The original name is kept in the
+/// local `sync_files` record, which is what restore reads back.
+pub fn remote_path_for(original_path: &str, obfuscate: bool) -> String {
     let path = Path::new(original_path);
     let parent = path
         .parent()
@@ -1185,7 +1264,12 @@ pub fn remote_path_for(original_path: &str) -> String {
         .map(|n| n.to_string_lossy().to_string())
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| "unnamed".to_string());
-    format!("cybermanju_sync/{}/{}", dir_hash, name)
+    if obfuscate {
+        let name_hash = &transfer::blake3_hex(name.as_bytes())[..16];
+        format!("cybermanju_sync/{}/{}", dir_hash, name_hash)
+    } else {
+        format!("cybermanju_sync/{}/{}", dir_hash, name)
+    }
 }
 
 /// Derive the `keepBoth` variant of a locator: deterministic in the local
@@ -1213,8 +1297,8 @@ mod tests {
 
     #[test]
     fn remote_paths_never_collide_across_directories() {
-        let a = remote_path_for("/home/alice/report.txt");
-        let b = remote_path_for("/home/bob/report.txt");
+        let a = remote_path_for("/home/alice/report.txt", false);
+        let b = remote_path_for("/home/bob/report.txt", false);
         assert_ne!(a, b, "same basename, different parents must differ");
         assert!(a.starts_with("cybermanju_sync/"));
         assert!(a.ends_with("/report.txt"));
@@ -1222,16 +1306,29 @@ mod tests {
 
     #[test]
     fn remote_paths_are_stable_for_idempotent_resync() {
-        let first = remote_path_for("/data/photo.png");
-        let second = remote_path_for("/data/photo.png");
+        let first = remote_path_for("/data/photo.png", false);
+        let second = remote_path_for("/data/photo.png", false);
         assert_eq!(first, second);
     }
 
     #[test]
     fn bare_relative_paths_still_produce_a_locator() {
-        let p = remote_path_for("photo.png");
+        let p = remote_path_for("photo.png", false);
         assert!(p.starts_with("cybermanju_sync/"));
         assert!(p.ends_with("/photo.png"));
+    }
+
+    #[test]
+    fn obfuscated_paths_hide_the_basename_but_stay_stable() {
+        let plain = remote_path_for("/data/photo.png", false);
+        let hidden = remote_path_for("/data/photo.png", true);
+        assert!(plain.ends_with("/photo.png"));
+        assert!(!hidden.contains("photo"), "obfuscated locator must not leak the name");
+        assert!(!hidden.contains("png"), "obfuscated locator must not leak the extension");
+        assert_eq!(hidden, remote_path_for("/data/photo.png", true));
+        // Same basename elsewhere still maps elsewhere (dir hash preserved).
+        let other = remote_path_for("/elsewhere/photo.png", true);
+        assert_ne!(hidden, other);
     }
 
     #[test]

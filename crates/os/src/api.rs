@@ -10,7 +10,7 @@
 //! local scratch **plus every attached `.cybermanju` disk in the `disks`
 //! table** (AGENT-6's registry — read leniently so either side's field
 //! naming works). Attaching a disk therefore grows `df`, and a write past
-//! the merged capacity is refused with `disk full: …` instead of being
+//! the merged capacity is refused with `disk_full: …` instead of being
 //! silently accepted.
 //!
 //! When `crates/disk` publishes its allocator/mount API, [`Kernel`] is the
@@ -361,7 +361,7 @@ impl Kernel {
         let total = self.capacity();
         if used.saturating_add(incoming) > total {
             return Err(format!(
-                "disk full: {} of {} bytes in use, {} more would not fit",
+                "disk_full: {} of {} bytes in use, {} more would not fit",
                 used, total, incoming
             ));
         }
@@ -535,7 +535,7 @@ impl Kernel {
             if host.exists() {
                 return Err(format!("not a directory: {}", self.display(&host)));
             }
-            return Err(format!("not found: {path}"));
+            return Err(format!("not_found: {path}"));
         }
         let rd =
             std::fs::read_dir(&host).map_err(|e| format!("io error: cannot read {path}: {e}"))?;
@@ -570,7 +570,7 @@ impl Kernel {
         let a = self.resolve(from)?;
         let b = self.resolve(to)?;
         if !a.exists() {
-            return Err(format!("not found: {from}"));
+            return Err(format!("not_found: {from}"));
         }
         if b.exists() {
             return Err(format!("already exists: {to}"));
@@ -586,7 +586,7 @@ impl Kernel {
     pub fn du(&self, path: &str) -> Result<(u64, u64), String> {
         let host = self.resolve(path)?;
         if !host.exists() {
-            return Err(format!("not found: {path}"));
+            return Err(format!("not_found: {path}"));
         }
         Ok(dir_size_and_files(&host))
     }
@@ -628,7 +628,7 @@ fn handle_len_delta(written: u64, start: u64, existing: u64) -> i64 {
 
 fn not_found(e: &std::io::Error, path: &str) -> String {
     match e.kind() {
-        std::io::ErrorKind::NotFound => format!("not found: {path}"),
+        std::io::ErrorKind::NotFound => format!("not_found: {path}"),
         std::io::ErrorKind::PermissionDenied => format!("permission denied: {path}"),
         _ => format!("io error: {path}: {e}"),
     }
@@ -774,7 +774,7 @@ mod tests {
         let k = kernel_under(dir.path());
         let fd = k.open("/big.bin", OpenFlags::create()).expect("open");
         let err = k.write(fd, &vec![0u8; 65_537]).expect_err("must refuse");
-        assert!(err.starts_with("disk full:"), "got {err}");
+        assert!(err.starts_with("disk_full:"), "got {err}");
         k.write(fd, &vec![1u8; 65_536])
             .expect("exactly at capacity");
         k.close(fd).expect("close");

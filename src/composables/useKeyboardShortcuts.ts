@@ -1,5 +1,6 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useWindowManager } from '@/composables/useWindowManager'
 import { isEditableTarget } from '@/utils/dom'
 
 type ShortcutHandler = () => void
@@ -50,8 +51,6 @@ export function getGlobalShortcuts(store: ReturnType<typeof useAppStore>): Short
     {
       key: 'Escape', handler: () => {
         if (store.commandPaletteOpen) { store.commandPaletteOpen = false; return }
-        if (store.showEncryptionPanel) { store.showEncryptionPanel = false; return }
-        if (store.showCompressionPanel) { store.showCompressionPanel = false; return }
         if (store.selectedFileId) { store.selectedFileId = null; return }
       },
       description: 'Close panel / deselect file',
@@ -67,12 +66,12 @@ export function getGlobalShortcuts(store: ReturnType<typeof useAppStore>): Short
       description: 'Delete selected file',
     },
     {
-      key: 'e', ctrl: true, handler: () => { store.showEncryptionPanel = !store.showEncryptionPanel },
-      description: 'Toggle encryption panel',
+      key: 'e', ctrl: true, handler: () => { useWindowManager().open('encryption', { tab: 'shield' }) },
+      description: 'Open file shield',
     },
     {
-      key: 'c', ctrl: true, shift: true, handler: () => { store.showCompressionPanel = !store.showCompressionPanel },
-      description: 'Toggle compression panel',
+      key: 'c', ctrl: true, shift: true, handler: () => { useWindowManager().open('encryption', { tab: 'compress' }) },
+      description: 'Open compression engine',
     },
     {
       key: 'b', ctrl: true, handler: () => { store.sidebarCollapsed = !store.sidebarCollapsed },

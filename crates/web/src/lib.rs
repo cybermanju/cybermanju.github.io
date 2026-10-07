@@ -710,12 +710,22 @@ pub fn handle_request(
     } else {
         "accepted"
     };
+    // Never log secrets: strip the query string (OAuth `?code=&state=`)
+    // and mask share tokens (capability secrets in the path).
+    let logged_path = match path.split_once('?') {
+        Some((p, _)) => p.to_string(),
+        None => path.to_string(),
+    };
+    let logged_path = match logged_path.strip_prefix("/api/shared/") {
+        Some(_) => "/api/shared/<redacted>".to_string(),
+        None => logged_path,
+    };
     info!(
         target: "access",
         "rid={} method={} path={} status={} latency_ms={} auth={}",
         request_id,
         method,
-        path,
+        logged_path,
         status,
         started.elapsed().as_millis(),
         auth
@@ -892,6 +902,14 @@ fn route_request(
         ["api", "sync", "seed-repo"] if method == "POST" => {
             let req: api::sync_api::SeedRepoRequest = json_body!(body, origin);
             return match api::sync_api::seed_repo(req) {
+                Ok(value) => json_ok(&value, origin),
+                Err(e) if e.starts_with("unsupported:") => json_error(501, &e, origin),
+                Err(e) => api_response::<()>(Err(e), origin),
+            };
+        }
+        ["api", "sync", "upload"] if method == "POST" => {
+            let req: api::sync_api::UploadRequest = json_body!(body, origin);
+            return match api::sync_api::upload_bytes(req) {
                 Ok(value) => json_ok(&value, origin),
                 Err(e) if e.starts_with("unsupported:") => json_error(501, &e, origin),
                 Err(e) => api_response::<()>(Err(e), origin),

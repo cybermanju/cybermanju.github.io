@@ -135,9 +135,6 @@ export const useAppStore = defineStore('cybermanju', () => {
   const isLoading = ref(false)
   const lastError = ref<string | null>(null)
   const matrixRainEnabled = ref(true)
-  const showEncryptionPanel = ref(false)
-  const showCompressionPanel = ref(false)
-  const showPermissionsPanel = ref(false)
   const commandPaletteOpen = ref(false)
   const showShortcutsHelp = ref(false)
   const createFolderPromptOpen = ref(false)
@@ -149,7 +146,7 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   // ── Module Helpers ─────────────────────────────────────────
   const currentModule = computed<ModuleInfo>(() =>
-    MODULE_METADATA[(showEncryptionPanel.value ? 'encryption' : showCompressionPanel.value ? 'compression' : currentPanel.value) as PanelType] || MODULE_METADATA.files
+    MODULE_METADATA[currentPanel.value as PanelType] || MODULE_METADATA.files
   )
 
   // ── Computed ──────────────────────────────────────────────
@@ -1972,7 +1969,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     osPs, osTop, osWorkers, osJobs, osDf, disks, shellBusy,
     trashItems, showTrashPanel, auditLog, fileVersions, dashboardStatus, shareLinks,
     searchQuery, searchTotalResults, isSearching, isLoading, lastError, matrixRainEnabled,
-    showEncryptionPanel, showCompressionPanel, showPermissionsPanel, commandPaletteOpen,
+    commandPaletteOpen,
     showShortcutsHelp, createFolderPromptOpen,
     selectedFileIds, isMultiSelect, users, autoRefreshInterval, sortBy,
     // Computed

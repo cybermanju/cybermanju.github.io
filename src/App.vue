@@ -82,7 +82,7 @@ touchConfig.onAction((action: TouchAction) => {
     open_collections: () => { wm.open('collections') },
     open_faces: () => { wm.open('faces') },
     open_map: () => { wm.open('map') },
-    open_code: () => { wm.open('code') },
+    open_code: () => { wm.open('editor') },
     open_settings: () => { wm.open('settings') },
     open_storage: () => { wm.open('storage') },
     escape: () => {
@@ -741,11 +741,14 @@ onBeforeUnmount(() => {
   overflow: hidden;
   position: relative;
   /* Gesture ownership: the shell recognizer (useSwipe, Pointer Events)
-     handles 2/3/4-finger swipes and pinches, so the browser must not
-     natively zoom/scroll them (no pointercancel mid-gesture). Inner
-     scrollable panels keep native scroll — touch-action is intersected
-     only up to the element that implements the gesture. */
-  touch-action: none;
+     handles 2/3/4-finger swipes and pinches. Single-finger panning stays
+     native so every nested scroller keeps working: `touch-action` values
+     are intersected up the ancestor chain, so `none` here would force
+     `none` on every inner panel and kill touch scroll. `pan-x pan-y`
+     lets the browser scroll (firing pointercancel, which useSwipe treats
+     as "browser took over — never double-handle") while multi-finger
+     chords still reach the recognizer. */
+  touch-action: pan-x pan-y;
 }
 
 .error-banner {

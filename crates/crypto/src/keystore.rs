@@ -93,6 +93,11 @@ pub fn master_passphrase() -> Option<String> {
     }
     let dir = data_dir()?;
     let path = dir.join("master.passphrase");
+    // A present-but-unreadable file must fail closed: generating a fresh
+    // passphrase over it would orphan everything sealed under the old one.
+    if path.exists() && !secret_file_mode_ok(&path) {
+        return None;
+    }
     if let Some(existing) = read_secret_file(&path) {
         if !existing.is_empty() {
             return Some(existing);
@@ -106,7 +111,36 @@ pub fn master_passphrase() -> Option<String> {
     Some(encoded)
 }
 
+/// Fail-closed permission gate: a secret file readable by group/other is
+/// refused (fail-closed) instead of silently trusted. Non-unix platforms
+/// skip the check (no mode bits to inspect).
+fn secret_file_mode_ok(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        match std::fs::metadata(path) {
+            Ok(meta) if meta.permissions().mode() & 0o077 == 0 => true,
+            Ok(_) => {
+                log::warn!(
+                    "refusing world/group-readable secret file {} (fix with chmod 600)",
+                    path.display()
+                );
+                false
+            }
+            Err(_) => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        true
+    }
+}
+
 fn read_secret_file(path: &Path) -> Option<String> {
+    if !secret_file_mode_ok(path) {
+        return None;
+    }
     std::fs::read_to_string(path)
         .ok()
         .map(|s| s.chars().filter(|c| !c.is_whitespace()).collect::<String>())

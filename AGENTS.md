@@ -23,7 +23,7 @@
 |---|---|---|
 | Desktop | Tauri v2 (`src-tauri/`, `productName` CyberManju OS, 1400×900 window) | 20 command modules in `src-tauri/src/commands/`, 35 handlers wired in `lib.rs` |
 | Backend | Rust 2021 workspace, 15 members (`crates/*` + `src-tauri` + `docker/server`) | resolver `2`; dev/test profiles use `line-tables-only`, no workspace deps for third-party |
-| Frontend | Vue 3 Composition API + Pinia + TypeScript 5.8 + Vite 6.3 | 45 `src/components/*.vue`, 25 `src/composables/*.ts`, 18 `src/utils/*.ts`, 1 Pinia store (`stores/app.ts`) |
+| Frontend | Vue 3 Composition API + Pinia + TypeScript 5.8 + Vite 6.3 | 42 `src/components/*.vue`, 27 `src/composables/*.ts`, 25 `src/utils/*.ts`, 1 Pinia store (`stores/app.ts`) |
 | Reactive layer | `@vueuse/core` ^14.4.0 | Single shared hook `useSystemHardware()`; `useTitle`/`useBroadcastChannel`/`useDropZone` in use |
 | Icons | `@iconify/vue` + `@iconify-json/solar` via `scripts/generate-icon-set.mjs` | `npm run typecheck` runs `icons` first — **unknown `solar:*` names fail the build** |
 | Maps | `maplibre-gl` ^6.12.0 | GPS MapView with EXIF clustering |
@@ -33,7 +33,7 @@
 | Compression | LZ4 → ZSTD-15 → Brotli-11 cascade | Per-layer stats, `.cyb3` payloads |
 | Code intel | tree-sitter (rust/python/js/ts/go/bash) + heuristic fallback | Every result reports `"engine"` |
 | WASM | `crates/os-wasm` (agent/artifact/canal/compression/crypto/db/opfs/os) via `wasm-pack` + OPFS/localStorage | Pages transport = local volume + BM25-lite |
-| Tests | Vitest (node env), 14 files / 162 tests in `tests/frontend/` | Includes `scene` (42), `memory`, `provider-canal/ship`, `hermes`, `agent-*` |
+| Tests | Vitest (node env), 25 files / 281 tests in `tests/frontend/` | Includes `scene` (42), `memory`, `provider-canal/ship`, `hermes`, `agent-*`, `panel-aliases` |
 
 ### Crate map (`crates/`)
 

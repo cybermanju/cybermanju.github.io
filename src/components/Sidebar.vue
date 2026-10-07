@@ -49,7 +49,7 @@
           />
           <div v-if="rootFolders.length === 0" class="empty-section text-muted">NO FOLDERS</div>
         </div>
-        <div class="section-header" title="Read-only provider mounts under providers/<id>/…">PROVIDERS (READ-ONLY)</div>
+        <div class="section-header" title="Provider mounts under providers/<id>/… — click to browse, upload and delete files">PROVIDERS</div>
         <div class="provider-block">
           <div v-if="vfsError" class="vfs-error">{{ vfsError }}</div>
           <div
@@ -76,8 +76,27 @@
               >
                 <span class="tree-arrow">{{ e.isDir ? '▸' : '·' }}</span>
                 <span class="tree-name truncate">{{ e.name }}</span>
+                <button
+                  v-if="!e.isDir"
+                  class="vfs-del"
+                  title="Delete from provider"
+                  @click.stop="deleteVfsEntry(m.id, e)"
+                >✕</button>
               </div>
               <div v-if="!(vfsEntries[m.id] ?? []).length && !vfsLoading[m.id]" class="empty-section text-muted">EMPTY</div>
+              <div class="vfs-upload-row">
+                <button class="bw-btn" style="font-size:10px;" :disabled="!!vfsBusy[m.id]" @click="pickVfsUpload(m.id)">
+                  {{ vfsBusy[m.id] ? 'UPLOADING…' : '+ UPLOAD' }}
+                </button>
+                <input
+                  :ref="(el) => { vfsFileInputs[m.id] = el as HTMLInputElement | null }"
+                  type="file"
+                  multiple
+                  class="vfs-file-input"
+                  :aria-label="`Upload files to ${m.name}`"
+                  @change="onVfsFilesPicked(m.id, $event)"
+                />
+              </div>
             </div>
           </div>
           <div v-if="!vfsMounts.length" class="empty-section text-muted">NO MOUNTS</div>
@@ -185,10 +204,10 @@
       </div>
 
       <div v-if="store.sidebarSection === 'users'" class="sidebar-section">
-        <div class="section-header" @click="wm.open('users')">USER ACCESS &gt;</div>
+        <div class="section-header" @click="wm.open('accounts', { tab: 'users' })">USER ACCESS &gt;</div>
         <div class="section-body">
           <p class="text-muted" style="font-size:10px;padding:8px 0;">PER-FILE USERNAME + PASSWORD AUTH WITH ARGON2</p>
-          <button class="bw-btn" style="width:100%;font-size:10px;" @click="wm.open('users')"><AppIcon name="solar:square-arrow-right-up-bold" :size="12" /> USER MGMT</button>
+          <button class="bw-btn" style="width:100%;font-size:10px;" @click="wm.open('accounts', { tab: 'users' })"><AppIcon name="solar:square-arrow-right-up-bold" :size="12" /> USER MGMT</button>
         </div>
       </div>
 
@@ -205,7 +224,7 @@
             </div>
           </div>
           <button class="bw-btn" style="width:100%;font-size:10px;margin-top:6px;" @click="wm.open('sync')"><AppIcon name="solar:square-arrow-right-up-bold" :size="12" /> SYNC PANEL</button>
-          <button class="bw-btn" style="width:100%;font-size:10px;margin-top:4px;" @click="wm.open('accounts')"><AppIcon name="solar:square-arrow-right-up-bold" :size="12" /> ACCOUNTS + OAUTH</button>
+          <button class="bw-btn" style="width:100%;font-size:10px;margin-top:4px;" @click="wm.open('accounts', { tab: 'providers' })"><AppIcon name="solar:square-arrow-right-up-bold" :size="12" /> ACCOUNTS + OAUTH</button>
         </div>
       </div>
 
@@ -226,13 +245,13 @@
           <button class="ql-item" @click="wm.open('terminal')" aria-label="OPEN TERMINAL">[&gt;] TERMINAL (cybsh)</button>
           <button class="ql-item" @click="wm.open('processes')" aria-label="OPEN TASKS"><AppIcon name="solar:cpu-bold" :size="12" /> TASKS (ps/top)</button>
           <button class="ql-item" @click="wm.open('disks')" aria-label="OPEN DISKS"><AppIcon name="solar:ssd-square-bold" :size="12" /> DISKS &amp; VOLUME</button>
-          <button class="ql-item" @click="wm.open('favorites')" aria-label="OPEN FAVORITES"><AppIcon name="solar:star-bold" :size="12" /> FAVORITES ({{ store.starredFiles.length }})</button>
+          <button class="ql-item" @click="wm.open('collections', { tab: 'favorites' })" aria-label="OPEN FAVORITES"><AppIcon name="solar:star-bold" :size="12" /> FAVORITES ({{ store.starredFiles.length }})</button>
           <button class="ql-item" @click="wm.open('recent')" aria-label="OPEN RECENT FILES"><AppIcon name="solar:history-bold" :size="12" /> RECENT FILES</button>
           <button class="ql-item" @click="wm.open('activity'); store.fetchAuditLog()" aria-label="OPEN ACTIVITY LOG"><AppIcon name="solar:pulse-bold" :size="12" /> ACTIVITY LOG</button>
-          <button class="ql-item" @click="wm.open('storage')" aria-label="OPEN STORAGE DASHBOARD"><AppIcon name="solar:database-bold" :size="12" /> STORAGE</button>
-          <button class="ql-item" @click="wm.open('loose-groups')" aria-label="OPEN LOOSE GROUPS"><AppIcon name="solar:users-group-two-rounded-bold" :size="12" /> LOOSE GROUPS</button>
-          <button class="ql-item" @click="wm.open('style')" aria-label="OPEN STYLE TAGS"><AppIcon name="solar:tag-bold" :size="12" /> STYLE TAGS</button>
-          <button class="ql-item" @click="wm.open('webdash')" aria-label="OPEN OVERLAY DASHBOARD"><AppIcon name="solar:kanban-square-bold" :size="12" /> OVERLAY</button>
+          <button class="ql-item" @click="wm.open('disks')" aria-label="OPEN STORAGE DASHBOARD"><AppIcon name="solar:database-bold" :size="12" /> STORAGE</button>
+          <button class="ql-item" @click="wm.open('collections', { tab: 'loose' })" aria-label="OPEN LOOSE GROUPS"><AppIcon name="solar:users-group-two-rounded-bold" :size="12" /> LOOSE GROUPS</button>
+          <button class="ql-item" @click="wm.open('collections', { tab: 'tags' })" aria-label="OPEN STYLE TAGS"><AppIcon name="solar:tag-bold" :size="12" /> STYLE TAGS</button>
+          <button class="ql-item" @click="wm.open('dashboard')" aria-label="OPEN REMOTE DASHBOARD"><AppIcon name="solar:kanban-square-bold" :size="12" /> DASHBOARD</button>
           <button class="ql-item" @click="wm.open('settings')" aria-label="OPEN SETTINGS"><AppIcon name="solar:settings-bold" :size="12" /> SETTINGS</button>
           <button class="ql-item" @click="wm.open('trash'); store.fetchTrashItems()" aria-label="OPEN TRASH"><AppIcon name="solar:trash-bin-trash-bold" :size="12" /> TRASH</button>
         </div>
@@ -268,6 +287,8 @@ const vfsMounts = ref<ProviderMount[]>([])
 const vfsOpen = ref<Record<string, boolean>>({})
 const vfsEntries = ref<Record<string, VfsEntry[]>>({})
 const vfsLoading = ref<Record<string, boolean>>({})
+const vfsBusy = ref<Record<string, boolean>>({})
+const vfsFileInputs = ref<Record<string, HTMLInputElement | null>>({})
 const vfsError = ref('')
 const vfsNewConfig = ref('')
 const vfsPreview = ref<string | null>(null)
@@ -283,9 +304,7 @@ async function refreshVfsMounts() {
   }
 }
 
-async function toggleVfsMount(id: string) {
-  vfsOpen.value[id] = !vfsOpen.value[id]
-  if (!vfsOpen.value[id] || vfsEntries.value[id]) return
+async function loadVfsEntries(id: string) {
   vfsLoading.value[id] = true
   try {
     const { listVfsDir } = await import('@/composables/useProviderCanal')
@@ -295,6 +314,58 @@ async function toggleVfsMount(id: string) {
     vfsError.value = e instanceof Error ? e.message : String(e)
   } finally {
     vfsLoading.value[id] = false
+  }
+}
+
+async function toggleVfsMount(id: string) {
+  vfsOpen.value[id] = !vfsOpen.value[id]
+  if (!vfsOpen.value[id] || vfsEntries.value[id]) return
+  await loadVfsEntries(id)
+}
+
+function pickVfsUpload(id: string) {
+  vfsFileInputs.value[id]?.click()
+}
+
+async function onVfsFilesPicked(id: string, ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const files = input.files ? Array.from(input.files) : []
+  input.value = ''
+  if (!files.length || vfsBusy.value[id]) return
+  vfsBusy.value[id] = true
+  try {
+    const { writeVfsFile } = await import('@/composables/useProviderCanal')
+    for (const f of files) {
+      const bytes = new Uint8Array(await f.arrayBuffer())
+      await writeVfsFile(id, f.name, bytes)
+    }
+    await loadVfsEntries(id)
+    vfsError.value = ''
+  } catch (e) {
+    vfsError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    vfsBusy.value[id] = false
+  }
+}
+
+async function deleteVfsEntry(mountId: string, entry: VfsEntry) {
+  if (entry.isDir) return
+  if (!window.confirm(`Delete '${entry.name}' from this provider?`)) return
+  if (vfsBusy.value[mountId]) return
+  vfsBusy.value[mountId] = true
+  try {
+    const { deleteVfsFile } = await import('@/composables/useProviderCanal')
+    await deleteVfsFile(mountId, entry.path, { locator: entry.locator })
+    if (vfsPreviewTitle.value === entry.path) {
+      vfsPreview.value = null
+      vfsPreviewTitle.value = ''
+    }
+    await loadVfsEntries(mountId)
+    vfsError.value = ''
+  } catch (e) {
+    vfsError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    vfsBusy.value[mountId] = false
   }
 }
 
@@ -709,6 +780,14 @@ function showTreeContextMenu(e: MouseEvent) {
 
 .vfs-entry {
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vfs-entry .tree-name {
+  flex: 1;
+  min-width: 0;
 }
 
 .vfs-error {
@@ -750,6 +829,15 @@ function showTreeContextMenu(e: MouseEvent) {
   gap: 4px;
   padding: 4px;
   align-items: center;
+}
+
+.vfs-upload-row {
+  display: flex;
+  padding: 4px 2px 2px;
+}
+
+.vfs-file-input {
+  display: none;
 }
 
 .vfs-select {

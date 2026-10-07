@@ -5,88 +5,13 @@
         <span class="icon-sync"><AppIcon name="solar:refresh-bold" /></span>
         <h2 class="panel-title">STORAGE SYNC</h2>
       </div>
-      <UiButton size="sm" :icon="showWizard ? 'solar:close-bold' : 'solar:add-bold'" @click="showWizard = !showWizard">
-        {{ showWizard ? 'CLOSE' : 'CONFIG' }}
+      <UiButton size="sm" icon="solar:cloud-bold" @click="openProviders">
+        PROVIDERS
       </UiButton>
     </div>
 
-    <!-- Config wizard -->
-    <div v-if="showWizard" class="section wizard">
-      <h3 class="section-title"><AppIcon name="solar:add-bold" :size="13" /> PROVIDER CONFIG</h3>
-      <div class="w-field">
-        <span class="w-label text-muted">BACKEND</span>
-        <UiSelect
-          :model-value="form.backendType"
-          :options="backendOptions"
-          @update:model-value="form.backendType = $event as SyncConfig['backendType']"
-        />
-      </div>
-      <div class="w-field">
-        <span class="w-label text-muted">NAME</span>
-        <UiInput v-model="form.name" placeholder="MY PROVIDER" aria-label="Provider name" />
-      </div>
-      <div v-if="needsBasePath" class="w-field">
-        <span class="w-label text-muted">LOCAL PATH</span>
-        <UiInput v-model="form.basePath" placeholder="/DATA/SYNC" aria-label="Local path" />
-      </div>
-      <div v-if="needsRepo" class="w-field">
-        <span class="w-label text-muted">REPO (owner/repo)</span>
-        <UiInput v-model="form.repoName" placeholder="OWNER/REPO" aria-label="Repository" />
-      </div>
-      <div v-if="needsRepo" class="w-field">
-        <span class="w-label text-muted">BRANCH</span>
-        <UiInput v-model="form.branch" placeholder="MAIN" aria-label="Branch" />
-      </div>
-      <div v-if="needsFolder" class="w-field">
-        <span class="w-label text-muted">DRIVE FOLDER ID</span>
-        <UiInput v-model="form.folderId" placeholder="FOLDER ID" aria-label="Drive folder id" />
-      </div>
-      <div class="w-field">
-        <span class="w-label text-muted">TOKEN (PAT / OAuth, never shown back)</span>
-        <UiInput
-          v-model="form.token"
-          type="password"
-          placeholder="PASTE TOKEN"
-          aria-label="Provider token"
-          autocomplete="off"
-        />
-      </div>
-      <div class="w-row checks">
-        <UiCheckbox v-model="form.enabled" label="ENABLED" />
-        <UiCheckbox v-model="form.encryptBeforeUpload" label="ENCRYPT" />
-        <UiCheckbox v-model="form.compressBeforeUpload" label="COMPRESS" />
-      </div>
-      <div class="w-row">
-        <div class="w-field">
-          <span class="w-label text-muted">PLACEMENT</span>
-          <UiSelect
-            :model-value="form.placement"
-            :options="[
-              { label: 'WHOLE', value: 'whole' },
-              { label: 'STRIPED (≥2 providers)', value: 'striped' },
-            ]"
-            @update:model-value="form.placement = $event as 'whole' | 'striped'"
-          />
-        </div>
-        <div class="w-field">
-          <span class="w-label text-muted">POLICY</span>
-          <UiSelect
-            :model-value="form.conflictPolicy"
-            :options="[
-              { label: 'SKIP', value: 'skip' },
-              { label: 'OVERWRITE', value: 'overwrite' },
-              { label: 'KEEP-BOTH', value: 'keepBoth' },
-            ]"
-            @update:model-value="form.conflictPolicy = $event as 'skip' | 'overwrite' | 'keepBoth'"
-          />
-        </div>
-      </div>
-      <div class="w-actions">
-        <UiButton size="sm" :disabled="busy" @click="testCurrent">TEST</UiButton>
-        <UiButton size="sm" variant="primary" :disabled="busy" @click="saveConfig">SAVE</UiButton>
-        <UiButton v-if="oauthable" size="sm" :disabled="busy" @click="oauthConnect">OAUTH CONNECT</UiButton>
-      </div>
-      <div v-if="testMsg" class="w-msg">{{ testMsg }}</div>
+    <div class="section providers-note">
+      <p class="text-muted hint">Provider connections live in Accounts → Connections. This panel starts runs, watches progress and restores files.</p>
     </div>
 
     <div class="section">
@@ -108,7 +33,6 @@
             <UiButton size="xs" variant="primary" @click="startCfg(cfg)">START</UiButton>
             <UiButton v-if="isOauthCapable(cfg.backendType)" size="xs" @click="oauthConnectCfg(cfg)">OAUTH</UiButton>
             <UiButton size="xs" @click="usageCfg(cfg)">QUOTA</UiButton>
-            <UiButton size="xs" variant="danger" @click="removeCfg(cfg.id)">DEL</UiButton>
           </div>
           <div v-if="quotaMsg[cfg.id]" class="cfg-msg">{{ quotaMsg[cfg.id] }}</div>
         </div>
@@ -118,8 +42,12 @@
         size="sm"
         icon="solar:cloud-storage-bold"
         title="No providers connected"
-        description="Open CONFIG above, pick a backend, paste a token, and SAVE."
-      />
+        description="Add one in Accounts → Connections, then come back to run it."
+      >
+        <template #actions>
+          <UiButton size="sm" icon="solar:cloud-bold" @click="openProviders">OPEN ACCOUNTS</UiButton>
+        </template>
+      </UiEmpty>
     </div>
 
     <div class="section">
@@ -186,25 +114,23 @@
 import AppIcon from '@/components/AppIcon.vue'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
-import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiEmpty from '@/components/ui/UiEmpty.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
-import { computed, reactive, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { SYNC_BACKEND_INFO, describeSyncError, isOauthCapable } from '@/types'
+import { useWindowManager } from '@/composables/useWindowManager'
+import { describeSyncError, isOauthCapable } from '@/types'
 import type { SyncConfig } from '@/types'
 import { humanBytes } from '@/utils/format'
-import { needsRepo as backendNeedsRepo, syncConfigDefaults } from '@/utils/providers'
 
 const store = useAppStore()
+const wm = useWindowManager()
 const syncConfigs = computed(() => store.syncConfigs)
 const syncProgress = computed(() => store.syncProgress)
 const syncRuns = computed(() => store.syncRuns)
 
-const showWizard = ref(false)
 const busy = ref(false)
-const testMsg = ref('')
 const jobMsg = ref('')
 const quotaMsg = ref<Record<string, string>>({})
 const runConfigId = ref('')
@@ -212,91 +138,19 @@ const restoreFileId = ref('')
 const restoreRemotePath = ref('')
 const remoteFiles = ref<{ name: string; path: string; sizeBytes: number }[]>([])
 
-const form = reactive({
-  backendType: 'local' as SyncConfig['backendType'],
-  name: '',
-  basePath: '',
-  repoName: '',
-  branch: 'main',
-  token: '',
-  folderId: '',
-  enabled: true,
-  encryptBeforeUpload: true,
-  compressBeforeUpload: true,
-  placement: 'whole' as 'whole' | 'striped',
-  conflictPolicy: 'skip' as 'skip' | 'overwrite' | 'keepBoth',
-})
-
-const backendOptions = computed(() =>
-  Object.entries(SYNC_BACKEND_INFO).map(([key, info]) => ({ label: info.name, value: key })),
-)
+/** Provider connections live in Accounts now — this panel runs them. */
+function openProviders() {
+  wm.open('accounts', { tab: 'providers' })
+}
 
 const runConfigOptions = computed(() => [
   { label: 'SELECT CONFIG', value: '' },
   ...syncConfigs.value.map(c => ({ label: c.name || c.backendType, value: c.id })),
 ])
 
-const needsBasePath = computed(() => form.backendType === 'local')
-const needsRepo = computed(() => backendNeedsRepo(form.backendType))
-const needsFolder = computed(() => form.backendType === 'googleDrive')
-const oauthable = computed(() => isOauthCapable(form.backendType))
-
 function hintFor(e: string) {
   const d = describeSyncError(e)
   return `${d.prefix}: ${d.hint}`
-}
-
-function toConfig(): Omit<SyncConfig, 'id' | 'createdAt' | 'updatedAt'> {
-  return {
-    ...syncConfigDefaults(),
-    backendType: form.backendType,
-    enabled: form.enabled,
-    name: form.name || undefined,
-    basePath: form.basePath || undefined,
-    repoName: form.repoName || undefined,
-    branch: form.branch || undefined,
-    token: form.token || undefined,
-    folderId: form.folderId || undefined,
-    compressBeforeUpload: form.compressBeforeUpload,
-    encryptBeforeUpload: form.encryptBeforeUpload,
-    conflictPolicy: form.conflictPolicy,
-    placement: form.placement,
-  }
-}
-
-async function testCurrent() {
-  busy.value = true
-  testMsg.value = 'Testing…'
-  try {
-    const ok = await store.testSyncConnection(toConfig() as SyncConfig)
-    testMsg.value = ok ? 'Connection OK' : 'Connection failed — see toast for prefix + hint.'
-  } finally {
-    busy.value = false
-  }
-}
-
-async function saveConfig() {
-  busy.value = true
-  try {
-    await store.createSyncConfig(toConfig())
-    showWizard.value = false
-    testMsg.value = ''
-  } finally {
-    busy.value = false
-  }
-}
-
-async function oauthConnect() {
-  // Prefer the config selected in START/MONITOR (the one the user means),
-  // then the matching saved config, then '' for a brand-new provider —
-  // the store maps googleDrive to the backend `google` slug.
-  const target =
-    syncConfigs.value.find(c => c.id === runConfigId.value)
-    ?? syncConfigs.value.find(c => c.backendType === form.backendType)
-  testMsg.value = target
-    ? `Opening provider approval for ${target.backendType}… approve, then return here.`
-    : 'No matching saved config yet — SAVE first, then OAUTH CONNECT (or paste a token above).'
-  await store.oauthStart(form.backendType, target?.id ?? '')
 }
 
 async function oauthConnectCfg(cfg: SyncConfig) {
@@ -328,10 +182,6 @@ async function cancelRun() {
 async function refreshRuns() {
   await store.fetchSyncRuns()
   await store.fetchSyncStatus()
-}
-
-async function removeCfg(id: string) {
-  await store.deleteSyncConfig(id)
 }
 
 async function usageCfg(cfg: SyncConfig) {
@@ -390,14 +240,8 @@ async function browseRemote() {
   margin: 0 0 8px;
 }
 
-.wizard {
-  border: 1px dashed color-mix(in srgb, var(--ui-border-strong) 80%, transparent);
-  border-radius: var(--ui-radius-md);
-  padding: 12px;
-  background: color-mix(in srgb, var(--ui-glass) 70%, transparent);
-  backdrop-filter: blur(calc(var(--ui-blur) * 0.6));
-  -webkit-backdrop-filter: blur(calc(var(--ui-blur) * 0.6));
-}
+.providers-note { margin-bottom: 12px; }
+.hint { font-size: 10px; margin: 0; line-height: 1.5; }
 
 .w-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; min-width: 0; }
 .w-field.grow { flex: 1; }

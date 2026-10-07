@@ -205,6 +205,7 @@ pub fn run() {
             sync_cmd::list_sync_runs,
             sync_cmd::create_provider_repo,
             sync_cmd::seed_repo_files,
+            sync_cmd::upload_remote_file,
             // Native AI agent (configs/sessions/detached jobs)
             commands::agent::list_agent_providers,
             commands::agent::list_agent_configs,

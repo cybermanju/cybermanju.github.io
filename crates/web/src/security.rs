@@ -641,8 +641,36 @@ pub fn default_secret_dir() -> Option<PathBuf> {
     None
 }
 
+/// Fail-closed permission gate (mirrors the keystore): group/other-readable
+/// secret files are refused instead of silently trusted.
+fn secret_file_mode_ok(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        match std::fs::metadata(path) {
+            Ok(meta) if meta.permissions().mode() & 0o077 == 0 => true,
+            Ok(_) => {
+                warn_log(&format!(
+                    "refusing world/group-readable secret file {} (fix with chmod 600)",
+                    path.display()
+                ));
+                false
+            }
+            Err(_) => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        true
+    }
+}
+
 /// Read `path` if it exists, trimming trailing whitespace.
 fn read_secret_file(path: &Path) -> Option<String> {
+    if !secret_file_mode_ok(path) {
+        return None;
+    }
     std::fs::read_to_string(path)
         .ok()
         .map(|s| s.chars().filter(|c| !c.is_whitespace()).collect::<String>())
@@ -715,6 +743,14 @@ pub fn load_or_create_jwt_secret_in(dir_hint: Option<&Path>) -> [u8; 32] {
     };
 
     let path = dir.join("jwt_secret");
+    // Present-but-loose secrets fail closed on a per-process secret WITHOUT
+    // overwriting the file (rotating over it would silently invalidate every
+    // session and destroy the evidence).
+    if path.exists() && !secret_file_mode_ok(&path) {
+        let mut secret = [0u8; 32];
+        rand_core::OsRng.fill_bytes(&mut secret);
+        return secret;
+    }
     if let Some(existing) = read_secret_file(&path) {
         if let Ok(bytes) = hex_decode(&existing) {
             if let Ok(arr) = <[u8; 32]>::try_from(bytes.as_slice()) {
