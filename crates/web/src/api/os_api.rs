@@ -364,7 +364,7 @@ pub fn route(
                             };
                             crate::json_error(status, &message, origin)
                         }
-                        Err(message) => respond(Err(message), origin),
+                        Err(message) => respond::<serde_json::Value>(Err(message), origin),
                     }
                 }
             }
