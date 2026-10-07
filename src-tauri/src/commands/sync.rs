@@ -148,6 +148,9 @@ pub fn list_sync_runs(state: State<'_, AppState>) -> Result<Vec<SyncRunRecord>, 
 /// Resolves the provider token from the explicit paste or from the stored
 /// secret of `configId`, then calls the provider "create repo" endpoint.
 /// Returns what the frontend stores in `SyncConfig.repo_name`.
+// Flat arity is the Tauri IPC + REST contract (store + `useTauri` pass one
+// JSON object per arg); the body funnels everything into `CreateRepoRequest`.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn create_provider_repo(
     backend_type: String,
