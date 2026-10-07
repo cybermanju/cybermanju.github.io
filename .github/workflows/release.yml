@@ -588,6 +588,10 @@ jobs:
         with:
           path: artifacts/
           merge-multiple: false
+          # Skip Buildx provenance blobs (e.g. `repo~...dockerbuild`): their
+          # blob downloads flake and one bad blob fails the whole step, while
+          # nothing downstream needs them — only the release families below.
+          pattern: '{release-*,dist-wasm}'
 
       - name: List downloaded artifacts
         run: find artifacts/ -type f | head -100
