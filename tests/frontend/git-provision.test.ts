@@ -1,15 +1,19 @@
 // Private vault repo provisioning — validation, naming, seed layout.
 import { describe, expect, it, vi } from 'vitest'
 import {
+  MAX_VAULT_REPOS,
   VAULT_FILE_PATH,
   VAULT_MANIFEST_PATH,
   VAULT_README_PATH,
   buildSeedFiles,
   defaultVaultRepoName,
   encodeUtf8Base64,
+  expandRepoNames,
   lastSegment,
   provisionSyncedSystem,
+  provisionVaultRepoSet,
   suggestRepoName,
+  validateRepoCount,
   validateRepoName,
   vaultManifest,
   vaultReadme,
@@ -119,5 +123,134 @@ describe('provisionSyncedSystem', () => {
       }),
     ).rejects.toThrow(/probe failed/)
     expect(seedViaBackend).toHaveBeenCalledOnce()
+  })
+})
+
+describe('repo sets (multi-repo merged disks)', () => {
+  it('clamps counts and expands suffixed names', () => {
+    expect(validateRepoCount(0)).toBe(1)
+    expect(validateRepoCount(3)).toBe(3)
+    expect(validateRepoCount(99)).toBe(MAX_VAULT_REPOS)
+    expect(validateRepoCount('nope')).toBe(1)
+    expect(expandRepoNames('vault', 1)).toEqual(['vault'])
+    expect(expandRepoNames('vault', 3)).toEqual(['vault-1', 'vault-2', 'vault-3'])
+    // Owner prefix survives; suffix lands on the last segment only.
+    expect(expandRepoNames('owner/vault', 2)).toEqual(['owner/vault-1', 'owner/vault-2'])
+    for (const n of expandRepoNames('vault', 8)) expect(validateRepoName(n)).toBe('')
+  })
+
+  it('stamps set membership into the manifest', () => {
+    const solo = JSON.parse(vaultManifest('o/v', 'main')) as Record<string, unknown>
+    expect(solo.set).toBeUndefined()
+    const m = JSON.parse(
+      vaultManifest('o/v-1', 'main', { name: 'v', index: 1, total: 3 }),
+    ) as Record<string, { index: number; total: number }>
+    expect(m.set.index).toBe(1)
+    expect(m.set.total).toBe(3)
+    expect(vaultReadme('o/v-1', 'main', { name: 'v', index: 1, total: 3 })).toContain('1 of 3')
+  })
+
+  it('provisions N repos with mirrored vault + one disk each', async () => {
+    const created: string[] = []
+    const stages: string[] = []
+    const set = await provisionVaultRepoSet({
+      backendType: 'github',
+      baseName: 'vault',
+      count: 3,
+      token: 'tok',
+      diskSizeMb: 100,
+      diskPassphrase: 's3cret',
+      vaultBytes: new Uint8Array([9, 9]),
+      createRepo: async (input) => {
+        created.push(input.name)
+        const seg = input.name.split('/').pop() ?? input.name
+        return { backend: 'github', repoName: `o/${seg}`, fullName: `o/${seg}`, branch: 'main', url: `https://x/o/${seg}`, projectId: null }
+      },
+      saveConfig: async (c) => ({ id: `cfg-${c.repoName}`, ...c }) as never,
+      seedViaBackend: async (_c, files) => {
+        // Mirrored encrypted vault in every repo of the set.
+        expect(files.some((f) => f.path === 'vault.cybermanju')).toBe(true)
+        return []
+      },
+      probe: async () => ({ ok: true, detail: 'ok' }),
+      createDisk: async (configId) => ({ id: `disk-${configId}` }),
+      attachDisk: async () => undefined,
+      useDirectSeed: false,
+      onProgress: (_d, _t, stage) => {
+        stages.push(stage)
+      },
+    })
+    expect(created).toEqual(['vault-1', 'vault-2', 'vault-3'])
+    expect(set.repos).toHaveLength(3)
+    expect(set.diskIds).toEqual(['disk-cfg-o/vault-1', 'disk-cfg-o/vault-2', 'disk-cfg-o/vault-3'])
+    expect(set.totalDiskBytes).toBe(3 * 100 * 1024 * 1024)
+    expect(set.failures).toEqual([])
+    expect(stages).toContain('synced')
+  })
+
+  it('collects per-repo failures and still resolves the survivors', async () => {
+    const set = await provisionVaultRepoSet({
+      backendType: 'gitlab',
+      baseName: 'vault',
+      count: 3,
+      token: 'tok',
+      createRepo: async (input) => {
+        if (input.name.endsWith('-2')) throw new Error('conflict: that repo name is taken on GitLab')
+        return { backend: 'gitlab', repoName: '42', fullName: input.name, branch: 'main', url: 'https://x', projectId: '42' }
+      },
+      saveConfig: async (c) => ({ id: `cfg-${c.repoName}`, ...c }) as never,
+      seedViaBackend: async () => [],
+      probe: async () => ({ ok: true, detail: 'ok' }),
+      createDisk: async () => null,
+      attachDisk: async () => undefined,
+      useDirectSeed: false,
+    })
+    expect(set.repos).toHaveLength(2)
+    expect(set.failures).toHaveLength(1)
+    expect(set.failures[0].name).toBe('vault-2')
+    expect(set.totalDiskBytes).toBe(0)
+  })
+
+  it('rejects only when every repo failed', async () => {
+    await expect(
+      provisionVaultRepoSet({
+        backendType: 'github',
+        baseName: 'vault',
+        count: 2,
+        token: 'bad',
+        createRepo: async () => {
+          throw new Error('auth: GitHub rejected the token (HTTP 401)')
+        },
+        saveConfig: async () => null,
+        seedViaBackend: async () => [],
+        probe: async () => ({ ok: true, detail: 'ok' }),
+        createDisk: async () => null,
+        attachDisk: async () => undefined,
+        useDirectSeed: false,
+      }),
+    ).rejects.toThrow(/auth:/)
+  })
+
+  it('skips the vault file seed when the container exceeds the seed cap', async () => {
+    let seeded = 0
+    const out = await provisionSyncedSystem({
+      backendType: 'github',
+      repo: { backend: 'github', repoName: 'o/v', fullName: 'o/v', branch: 'main', url: 'https://x', projectId: null },
+      token: 'tok',
+      displayName: 'o/v vault',
+      vaultBytes: new Uint8Array(6 * 1024 * 1024),
+      saveConfig: async (c) => ({ id: 'cfg-1', ...c }) as never,
+      seedViaBackend: async (_c, files) => {
+        seeded = files.length
+        expect(files.some((f) => f.path === 'vault.cybermanju')).toBe(false)
+        return []
+      },
+      probe: async () => ({ ok: true, detail: 'ok' }),
+      createDisk: async () => null,
+      attachDisk: async () => undefined,
+      useDirectSeed: false,
+    })
+    expect(out.vaultSeeded).toBe(false)
+    expect(seeded).toBe(2)
   })
 })

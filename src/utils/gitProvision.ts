@@ -87,13 +87,17 @@ export function defaultVaultRepoName(): string {
   return DEFAULT_VAULT_REPO
 }
 
-export function vaultReadme(fullName: string, branch: string): string {
+export function vaultReadme(fullName: string, branch: string, set?: VaultSetInfo): string {
+  const setLine = set && set.total > 1
+    ? `Vault set \`${set.name}\` — repo ${set.index} of ${set.total} (disks merge into one virtual volume).`
+    : null
   return [
     `# ${fullName || 'cybermanju-vault'}`,
     '',
     'Private CyberManju OS vault — created from Accounts → Connections.',
+    ...(setLine ? ['', setLine] : []),
     '',
-    `- \`vault.cybermanju\` — encrypted vault container (the file this app opens).`,
+    `- \`vault.cybermanju\` — encrypted + compressed vault container (the file this app opens).`,
     `- \`.cybermanju.json\` — vault manifest (version, branch, updated-at).`,
     '',
     `Branch: \`${branch || DEFAULT_VAULT_BRANCH}\``,
@@ -103,7 +107,16 @@ export function vaultReadme(fullName: string, branch: string): string {
   ].join('\n')
 }
 
-export function vaultManifest(fullName: string, branch: string): string {
+export interface VaultSetInfo {
+  /** Base name of the set (`cybermanju-vault`). */
+  name: string
+  /** 1-based index of this repo inside the set. */
+  index: number
+  /** Total repos in the set (merged into one virtual disk). */
+  total: number
+}
+
+export function vaultManifest(fullName: string, branch: string, set?: VaultSetInfo): string {
   return JSON.stringify(
     {
       app: 'cybermanju-os',
@@ -111,11 +124,33 @@ export function vaultManifest(fullName: string, branch: string): string {
       repo: fullName,
       branch: branch || DEFAULT_VAULT_BRANCH,
       vaultFile: VAULT_FILE_PATH,
+      ...(set ? { set } : {}),
       updatedAt: new Date().toISOString(),
     },
     null,
     2,
   ) + '\n'
+}
+
+/** Clamp a requested repo count into the supported range. */
+export function validateRepoCount(n: unknown): number {
+  const parsed = typeof n === 'number' ? Math.floor(n) : parseInt(String(n ?? ''), 10)
+  if (!Number.isFinite(parsed)) return 1
+  return Math.min(MAX_VAULT_REPOS, Math.max(1, parsed))
+}
+
+/**
+ * Expand a base name into per-repo names: `vault` → [`vault`] for one repo,
+ * `vault` → [`vault-1`, …, `vault-N`] for a set. Every name stays valid for
+ * `validateRepoName` (suffixes are appended to the last segment only).
+ */
+export function expandRepoNames(base: string, count: number): string[] {
+  const n = validateRepoCount(count)
+  const seg = lastSegment(base) || DEFAULT_VAULT_REPO
+  const prefix = String(base ?? '').trim().replace(/^\/+|\/+$/g, '')
+  const head = prefix.includes('/') ? `${prefix.slice(0, prefix.lastIndexOf('/') + 1)}` : ''
+  if (n === 1) return [`${head}${seg}`]
+  return Array.from({ length: n }, (_, i) => `${head}${seg}-${i + 1}`)
 }
 
 export function encodeUtf8Base64(text: string): string {
@@ -135,10 +170,14 @@ export function encodeBytesBase64(bytes: Uint8Array): string {
 }
 
 /** Bootstrap files for a fresh vault repo (README + manifest). */
-export function buildSeedFiles(fullName: string, branch: string): Array<{ path: string; contentBase64: string }> {
+export function buildSeedFiles(
+  fullName: string,
+  branch: string,
+  set?: VaultSetInfo,
+): Array<{ path: string; contentBase64: string }> {
   return [
-    { path: VAULT_README_PATH, contentBase64: encodeUtf8Base64(vaultReadme(fullName, branch)) },
-    { path: VAULT_MANIFEST_PATH, contentBase64: encodeUtf8Base64(vaultManifest(fullName, branch)) },
+    { path: VAULT_README_PATH, contentBase64: encodeUtf8Base64(vaultReadme(fullName, branch, set)) },
+    { path: VAULT_MANIFEST_PATH, contentBase64: encodeUtf8Base64(vaultManifest(fullName, branch, set)) },
   ]
 }
 
@@ -301,6 +340,10 @@ export async function provisionSyncedSystem(deps: {
   instanceUrl?: string
   diskSizeMb?: number
   diskPassphrase?: string
+  /** Compress uploads on future syncs (the container itself is always LZ4). */
+  compressBeforeUpload?: boolean
+  /** Set membership for the manifest when provisioning N repos at once. */
+  set?: VaultSetInfo
   vaultBytes?: Uint8Array | null
   saveConfig: (cfg: Omit<SyncConfig, 'id' | 'createdAt' | 'updatedAt'>) => Promise<SyncConfig | null>
   seedViaBackend: (cfg: SyncConfig, files: Array<{ path: string; contentBase64: string }>) => Promise<unknown>
@@ -308,13 +351,13 @@ export async function provisionSyncedSystem(deps: {
   createDisk: (configId: string, sizeBytes: number, passphrase: string) => Promise<{ id: string } | null>
   attachDisk: (diskId: string, passphrase: string) => Promise<unknown>
   useDirectSeed: boolean
-}): Promise<{ config: SyncConfig; diskId: string | null }> {
+}): Promise<{ config: SyncConfig; diskId: string | null; vaultSeeded: boolean }> {
   const branch = deps.repo.branch || DEFAULT_VAULT_BRANCH
   const baseCfg: Omit<SyncConfig, 'id' | 'createdAt' | 'updatedAt'> = {
     backendType: deps.backendType,
     enabled: true,
     autoSync: false,
-    compressBeforeUpload: false,
+    compressBeforeUpload: deps.compressBeforeUpload !== false,
     createPreviews: false,
     deleteRawAfterSync: false,
     maxConcurrentUploads: 1,
@@ -332,9 +375,14 @@ export async function provisionSyncedSystem(deps: {
   }
   const saved = await deps.saveConfig(baseCfg)
   if (!saved?.id) throw new Error('network: provider config could not be saved — retry')
-  const files = buildSeedFiles(deps.repo.fullName, branch)
-  if (deps.vaultBytes && deps.vaultBytes.length > 0) {
+  const files = buildSeedFiles(deps.repo.fullName, branch, deps.set)
+  // Mirror the encrypted + compressed container into every repo of the set.
+  // Oversized vaults skip the file seed (README + manifest still land; the
+  // live sync carries the data instead of a 5 MiB-capped seed commit).
+  let vaultSeeded = false
+  if (deps.vaultBytes && deps.vaultBytes.length > 0 && deps.vaultBytes.length <= MAX_SEED_BYTES) {
     files.push({ path: VAULT_FILE_PATH, contentBase64: encodeBytesBase64(deps.vaultBytes) })
+    vaultSeeded = true
   }
   if (deps.useDirectSeed) {
     await seedRepoDirect(deps.backendType, deps.repo, deps.token, files, deps.instanceUrl)
@@ -354,5 +402,103 @@ export async function provisionSyncedSystem(deps: {
     // like a provisioning failure. Surface it through the returned null.
     console.warn('[vault-provision] system disk step failed (repo is still synced):', e)
   }
-  return { config: saved, diskId }
+  return { config: saved, diskId, vaultSeeded }
+}
+
+export interface VaultSetResult {
+  repos: CreatedRepo[]
+  configs: SyncConfig[]
+  diskIds: (string | null)[]
+  /** Sum of the requested per-disk sizes (bytes). */
+  totalDiskBytes: number
+  /** Every repo whose step failed — the rest of the set is still live. */
+  failures: Array<{ name: string; error: string }>
+}
+
+/**
+ * Provision a whole set of private vault repos on one provider (1–8):
+ * sequential create → config → seed (mirrored encrypted vault) → probe →
+ * encrypted system disk per repo. Disks merge into one virtual volume, so
+ * N repos × M MB = N×M of merged space.
+ *
+ * Partial failure is normal (name taken, rate limit): failures are collected
+ * per repo and the run resolves when at least one repo synced; it rejects
+ * only when nothing succeeded.
+ */
+export async function provisionVaultRepoSet(deps: {
+  backendType: 'github' | 'gitlab'
+  baseName: string
+  count: number
+  token: string
+  description?: string
+  branch?: string
+  instanceUrl?: string
+  displayPrefix?: string
+  diskSizeMb?: number
+  diskPassphrase?: string
+  compressBeforeUpload?: boolean
+  vaultBytes?: Uint8Array | null
+  createRepo: (input: ProvisionInput) => Promise<CreatedRepo>
+  saveConfig: (cfg: Omit<SyncConfig, 'id' | 'createdAt' | 'updatedAt'>) => Promise<SyncConfig | null>
+  seedViaBackend: (cfg: SyncConfig, files: Array<{ path: string; contentBase64: string }>) => Promise<unknown>
+  probe: (cfg: SyncConfig) => Promise<{ ok: boolean; detail: string }>
+  createDisk: (configId: string, sizeBytes: number, passphrase: string) => Promise<{ id: string } | null>
+  attachDisk: (diskId: string, passphrase: string) => Promise<unknown>
+  useDirectSeed: boolean
+  onProgress?: (done: number, total: number, stage: string, name: string) => void
+}): Promise<VaultSetResult> {
+  const total = validateRepoCount(deps.count)
+  const names = expandRepoNames(deps.baseName, total)
+  const branch = deps.branch?.trim() || DEFAULT_VAULT_BRANCH
+  const setName = lastSegment(deps.baseName) || DEFAULT_VAULT_REPO
+  const result: VaultSetResult = { repos: [], configs: [], diskIds: [], totalDiskBytes: 0, failures: [] }
+  for (let i = 0; i < names.length; i++) {
+    const name = names[i]
+    try {
+      deps.onProgress?.(i, total, 'creating repo', name)
+      const repo = await deps.createRepo({
+        backendType: deps.backendType,
+        token: deps.token,
+        name,
+        privateRepo: true,
+        description: deps.description,
+        branch,
+        instanceUrl: deps.instanceUrl,
+      })
+      deps.onProgress?.(i, total, 'seeding + disk', repo.fullName)
+      const { config, diskId } = await provisionSyncedSystem({
+        backendType: deps.backendType,
+        repo,
+        token: deps.token,
+        displayName: `${deps.displayPrefix || setName} ${i + 1}/${total}`,
+        instanceUrl: deps.instanceUrl,
+        diskSizeMb: deps.diskSizeMb,
+        diskPassphrase: deps.diskPassphrase,
+        compressBeforeUpload: deps.compressBeforeUpload,
+        set: total > 1 ? { name: setName, index: i + 1, total } : undefined,
+        vaultBytes: deps.vaultBytes,
+        saveConfig: deps.saveConfig,
+        seedViaBackend: deps.seedViaBackend,
+        probe: deps.probe,
+        createDisk: deps.createDisk,
+        attachDisk: deps.attachDisk,
+        useDirectSeed: deps.useDirectSeed,
+      })
+      result.repos.push(repo)
+      result.configs.push(config)
+      result.diskIds.push(diskId)
+      deps.onProgress?.(i + 1, total, diskId ? 'synced' : 'synced (disk skipped)', repo.fullName)
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e)
+      result.failures.push({ name, error })
+      deps.onProgress?.(i + 1, total, `failed: ${error.slice(0, 80)}`, name)
+    }
+  }
+  if (result.repos.length === 0) {
+    const first = result.failures[0]
+    throw new Error(first ? first.error : 'network: repo set provisioning failed')
+  }
+  const mb = Math.min(8192, Math.max(64, Math.round(deps.diskSizeMb ?? 512)))
+  result.totalDiskBytes = result.diskIds.filter((d): d is string => !!d).length * mb * 1024 * 1024
+  return result
 }
