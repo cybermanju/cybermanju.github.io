@@ -461,6 +461,23 @@ jobs:
           yes | sdkmanager --licenses > /dev/null || true
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;$NDK_VERSION"
 
+      # Tauri picks the NEWEST NDK under $ANDROID_HOME/ndk even when
+      # NDK_HOME/ANDROID_NDK_HOME point at the pinned one — leave exactly
+      # one NDK behind so "newest" == "pinned". (Same as ci.yml.)
+      - name: Enforce pinned NDK (drop preinstalled)
+        run: |
+          echo "NDKs before:"
+          ls "${ANDROID_HOME}/ndk" || true
+          for d in "${ANDROID_HOME}"/ndk/*; do
+            if [ "$(basename "$d")" != "${NDK_VERSION}" ]; then
+              echo "removing $d"
+              rm -rf "$d"
+            fi
+          done
+          echo "NDKs after:"
+          ls "${ANDROID_HOME}/ndk"
+          test -d "${ANDROID_HOME}/ndk/${NDK_VERSION}"
+
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -485,6 +502,12 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+
+      # `:buildSrc` kotlin-dsl artifacts resolve through pluginManagement
+      # (plugin portal only in the generated project) — harden to
+      # mavenCentral()/google() + retries. (Same as ci.yml.)
+      - name: Harden Gradle repositories
+        run: bash scripts/android-gradle-harden.sh
 
       # A release APK must be installable, so a missing keystore is a hard
       # failure here (REQUIRE_SIGNING) rather than a warning.

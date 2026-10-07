@@ -344,7 +344,8 @@ import type { PropType } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useStudioAgent, type FileCtx } from '@/composables/useStudioAgent'
-import { invoke, isTauri, isStaticHost } from '@/composables/useTauri'
+import { invoke } from '@/composables/useTauri'
+import { useTransport } from '@/composables/useTransport'
 import { escapeHtml, renderMarkdown } from '@/utils/markdown'
 import { checkBrackets, detectLanguage, highlightSyntax } from '@/utils/codeDetect'
 import { correctShellLine } from '@/utils/speechCorrect'
@@ -373,11 +374,10 @@ const store = useAppStore()
 const wm = useWindowManager()
 const ai = useStudioAgent()
 
-const isDesktop = isTauri()
-const isWasm = computed(() => {
-  try { return isStaticHost() } catch { return false }
-})
-const transportLabel = computed(() => (isDesktop ? 'DESKTOP' : isWasm.value ? 'WASM LOCAL' : 'WEB / REST'))
+const transportBackend = computed(() => useTransport().backend)
+const isDesktop = computed(() => transportBackend.value === 'tauri')
+const isWasm = computed(() => transportBackend.value === 'wasm')
+const transportLabel = computed(() => (isDesktop.value ? 'DESKTOP' : isWasm.value ? 'WASM LOCAL' : 'WEB / REST'))
 
 const tabs = ref<Tab[]>([])
 const groupAKey = ref('')

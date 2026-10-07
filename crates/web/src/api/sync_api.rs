@@ -414,8 +414,25 @@ pub fn progress(sync_state: &Arc<SyncState>) -> SyncProgress {
 /// Progress of the most recent registered run; falls back to the shared
 /// state when nothing has run yet. This is what `GET /api/sync/progress`
 /// serves so legacy pollers keep working across runs.
+/// Trusted-local entry point (no owner check).
 pub fn latest_progress(fallback: &Arc<SyncState>) -> SyncProgress {
     match RunRegistry::global().latest() {
+        Some(run) => run.state.snapshot(),
+        None => fallback.snapshot(),
+    }
+}
+
+/// Owner-bound variant of [`latest_progress`] (P0-10): non-admins read
+/// their own latest run's progress, never another user's `current_file`.
+pub fn latest_progress_for(
+    fallback: &Arc<SyncState>,
+    requester: &str,
+    is_admin: bool,
+) -> SyncProgress {
+    if requester.is_empty() || is_admin {
+        return latest_progress(fallback);
+    }
+    match RunRegistry::global().latest_for(requester, false) {
         Some(run) => run.state.snapshot(),
         None => fallback.snapshot(),
     }
@@ -431,8 +448,16 @@ pub fn cancel(sync_state: &Arc<SyncState>) -> bool {
 
 /// Cancel a specific run by id, or the latest run when `job_id` is `None`.
 /// Unknown ids answer `false`; "nothing running" answers `true` (idempotent).
+/// Trusted-local entry point (no owner check).
 pub fn cancel_job(job_id: Option<&str>) -> bool {
     RunRegistry::global().cancel(job_id)
+}
+
+/// Owner-bound cancel for the REST transport (P0-10): explicit ids cancel
+/// only the caller's own run (admins: any); `None` cancels the caller's
+/// latest own run instead of the global latest.
+pub fn cancel_job_as(job_id: Option<&str>, requester: &str, is_admin: bool) -> bool {
+    RunRegistry::global().cancel_as(job_id, requester, is_admin)
 }
 
 // ─── Run lifecycle ───────────────────────────────────────────────────
@@ -546,6 +571,7 @@ fn execute_run(
     let record = SyncRunRecord {
         run_id: run.run_id.clone(),
         config_id: run.config_id.clone(),
+        owner_id: Some(run.owner_id.clone()),
         started_at: run.started_at.clone(),
         finished_at: run
             .outcome()
@@ -573,10 +599,23 @@ fn execute_run(
 
 /// Start a sync run on a worker thread; returns as soon as the run is
 /// registered (the REST `202 {jobId}` path).
+///
+/// Trusted-local entry point: the run is owned by `"local"`. REST callers
+/// must use [`start_job_for`] with the JWT `user_id` (P0-10).
 pub fn start_job(
     db: &Arc<RwLock<Database>>,
     config_id: &str,
     file_ids: Vec<String>,
+) -> Result<SyncJob, String> {
+    start_job_for(db, config_id, file_ids, "local")
+}
+
+/// Owner-bound variant of [`start_job`] for the REST transport.
+pub fn start_job_for(
+    db: &Arc<RwLock<Database>>,
+    config_id: &str,
+    file_ids: Vec<String>,
+    owner_id: &str,
 ) -> Result<SyncJob, String> {
     // Validate everything while the caller is still on the request thread:
     // a bad config must be a 4xx, not a job that fails in the dark.
@@ -589,10 +628,11 @@ pub fn start_job(
         expand_sync_ids(&guard, &file_ids)?
     };
 
-    let run = RunRegistry::global().begin(
+    let run = RunRegistry::global().begin_owned(
         config_id,
         Arc::new(SyncState::new()),
         file_ids.len() as u32,
+        owner_id,
     )?;
 
     let db2 = Arc::clone(db);
@@ -658,16 +698,47 @@ pub fn start(
 
 /// Run status/progress/result by id — memory first, then `sync_runs`
 /// history (so a job id survives both eviction and restarts).
+/// Trusted-local entry point (no owner check).
 pub fn job(db: &RwLock<Database>, job_id: &str) -> Result<SyncJob, String> {
+    job_for(db, job_id, "", true)
+}
+
+/// Owner-bound poll for the REST transport (P0-10): live runs are checked
+/// with [`RunRegistry::get_for`], history rows with an owner are checked
+/// against the caller (admins bypass both). Legacy history rows without an
+/// owner stay visible to any authenticated caller. Unknown ids and
+/// other-users' runs are indistinguishable (`not_found:`).
+pub fn job_for(
+    db: &RwLock<Database>,
+    job_id: &str,
+    requester: &str,
+    is_admin: bool,
+) -> Result<SyncJob, String> {
     crate::security::validate_id(job_id)?;
-    if let Some(run) = RunRegistry::global().get(job_id) {
+    if let Some(run) = RunRegistry::global().get_for(job_id, requester, is_admin) {
         return Ok(job_snapshot(&run));
+    }
+    // No live run visible to this caller — fall through to history only
+    // when the id is not claimed by someone else's live run (avoid a
+    // history oracle for live foreign ids).
+    if !requester.is_empty()
+        && !is_admin
+        && RunRegistry::global().get(job_id).is_some()
+    {
+        return Err(format!("not_found: sync job '{job_id}' not found"));
     }
     let db = db.read().map_err(|e| e.to_string())?;
     let record = db
         .get_sync_run(job_id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Sync job not found: {}", job_id))?;
+        .ok_or_else(|| format!("not_found: sync job '{job_id}' not found"))?;
+    if !requester.is_empty() && !is_admin {
+        if let Some(owner) = record.owner_id.as_deref() {
+            if owner != requester {
+                return Err(format!("not_found: sync job '{job_id}' not found"));
+            }
+        }
+    }
     Ok(SyncJob {
         job_id: record.run_id,
         config_id: record.config_id,
@@ -679,11 +750,30 @@ pub fn job(db: &RwLock<Database>, job_id: &str) -> Result<SyncJob, String> {
     })
 }
 
-/// Run history, newest first (item 14).
+/// Run history, newest first (item 14). Trusted-local (Tauri): all rows.
 pub fn runs(db: &RwLock<Database>, limit: usize) -> Result<Vec<SyncRunRecord>, String> {
     let db = db.read().map_err(|e| e.to_string())?;
     db.list_sync_runs(limit.clamp(1, 50))
         .map_err(|e| e.to_string())
+}
+
+/// Owner-bound history for the REST transport (P0-10): admins see all
+/// rows, everyone else sees only their own runs plus legacy rows without
+/// an owner. Empty requester (trusted local) sees everything.
+pub fn runs_for(
+    db: &RwLock<Database>,
+    limit: usize,
+    requester: &str,
+    is_admin: bool,
+) -> Result<Vec<SyncRunRecord>, String> {
+    let rows = runs(db, limit)?;
+    if requester.is_empty() || is_admin {
+        return Ok(rows);
+    }
+    Ok(rows
+        .into_iter()
+        .filter(|r| r.owner_id.as_deref().map(|o| o == requester).unwrap_or(true))
+        .collect())
 }
 
 // ─── Restore & remote delete (item 7) ────────────────────────────────

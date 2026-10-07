@@ -167,6 +167,10 @@ pub struct SyncRunOutcome {
 pub struct SyncRun {
     pub run_id: String,
     pub config_id: String,
+    /// JWT `user_id` that started the run (`"system"` for the auto-sync
+    /// scheduler, `"local"` for the trusted Tauri path). Cancel/poll entry
+    /// points check it (P0-10).
+    pub owner_id: String,
     pub state: Arc<SyncState>,
     pub started_at: String,
     outcome: Mutex<Option<SyncRunOutcome>>,
@@ -197,7 +201,21 @@ impl SyncRun {
 /// `sync_runs` table, which keeps its own 20-row history.
 const MAX_LIVE_RUNS: usize = 16;
 
-static NEXT_RUN_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+/// Unpredictable run ids (P0-10): 128 bits from the OS RNG, hex-encoded.
+/// The previous `run-<timestamp>-<seq>` shape was guessable across users.
+fn new_run_id() -> String {
+    use rand_core::RngCore;
+    let mut bytes = [0u8; 16];
+    rand_core::OsRng.fill_bytes(&mut bytes);
+    let mut out = String::with_capacity(36);
+    out.push_str("run-");
+    for b in bytes {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
+}
 
 struct RegistryInner {
     runs: HashMap<String, Arc<SyncRun>>,
@@ -238,11 +256,27 @@ impl RunRegistry {
     /// state that already has an **active** run — the old un-cancel bug —
     /// and only then arms and resets it, so a cancel can never be cleared
     /// out from under a run that already exists.
+    ///
+    /// Trusted-local entry point: the run is owned by `"local"`. REST
+    /// callers must use [`RunRegistry::begin_owned`] with the JWT `user_id`.
     pub fn begin(
         &self,
         config_id: &str,
         state: Arc<SyncState>,
         total: u32,
+    ) -> Result<Arc<SyncRun>, String> {
+        self.begin_owned(config_id, state, total, "local")
+    }
+
+    /// Owner-bound registration (P0-10): the run id is unpredictable
+    /// ([`new_run_id`]) and the owner is stored for every later
+    /// cancel/poll check.
+    pub fn begin_owned(
+        &self,
+        config_id: &str,
+        state: Arc<SyncState>,
+        total: u32,
+        owner_id: &str,
     ) -> Result<Arc<SyncRun>, String> {
         let mut inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         let active_on_state = inner
@@ -256,14 +290,11 @@ impl RunRegistry {
         state.prepare_run();
         state.reset(total);
 
-        let run_id = format!(
-            "run-{}-{}",
-            chrono::Utc::now().format("%Y%m%d%H%M%S%.6f"),
-            NEXT_RUN_SEQ.fetch_add(1, Ordering::SeqCst)
-        );
+        let run_id = new_run_id();
         let run = Arc::new(SyncRun {
             run_id: run_id.clone(),
             config_id: config_id.to_string(),
+            owner_id: owner_id.to_string(),
             state,
             started_at: chrono::Utc::now().to_rfc3339(),
             outcome: Mutex::new(None),
@@ -280,6 +311,16 @@ impl RunRegistry {
         inner.runs.get(run_id).cloned()
     }
 
+    /// Owner-bound lookup (P0-10): `None` for unknown ids AND for runs
+    /// owned by someone else (indistinguishable on purpose). Empty
+    /// `requester` is the trusted local path and sees everything.
+    pub fn get_for(&self, run_id: &str, requester: &str, is_admin: bool) -> Option<Arc<SyncRun>> {
+        let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        inner.runs.get(run_id).cloned().filter(|run| {
+            requester.is_empty() || is_admin || run.owner_id == requester
+        })
+    }
+
     /// Most recently started run (finished or not).
     pub fn latest(&self) -> Option<Arc<SyncRun>> {
         let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
@@ -287,6 +328,27 @@ impl RunRegistry {
             .latest
             .as_ref()
             .and_then(|id| inner.runs.get(id))
+            .cloned()
+    }
+
+    /// Most recently started run owned by `requester` (P0-10): what an
+    /// owner-scoped "cancel latest" targets. Empty `requester` (trusted
+    /// local) or `is_admin` keeps the legacy global-latest behaviour.
+    pub fn latest_for(&self, requester: &str, is_admin: bool) -> Option<Arc<SyncRun>> {
+        let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        if requester.is_empty() || is_admin {
+            return inner
+                .latest
+                .as_ref()
+                .and_then(|id| inner.runs.get(id))
+                .cloned();
+        }
+        inner
+            .order
+            .iter()
+            .rev()
+            .filter_map(|id| inner.runs.get(id))
+            .find(|run| run.owner_id == requester)
             .cloned()
     }
 
@@ -310,19 +372,48 @@ impl RunRegistry {
     ///
     /// Returns `false` only for an unknown id — "nothing to cancel" is a
     /// success (the REST route and its idempotency test rely on that).
+    ///
+    /// Trusted-local entry point (no owner check). REST callers must use
+    /// [`RunRegistry::cancel_as`].
     pub fn cancel(&self, run_id: Option<&str>) -> bool {
+        self.cancel_as(run_id, "", true)
+    }
+
+    /// Owner-bound cancel (P0-10): an explicit id cancels only the caller's
+    /// own run (admins: any run) — strangers get `false` (unknown-id shape,
+    /// no oracle). `None` cancels the caller's latest own run (admins keep
+    /// the legacy global-latest); "nothing running" is success.
+    pub fn cancel_as(&self, run_id: Option<&str>, requester: &str, is_admin: bool) -> bool {
         let target = {
             let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
             match run_id {
                 Some(id) => match inner.runs.get(id) {
-                    Some(run) => Some(Arc::clone(run)),
-                    None => return false,
+                    Some(run)
+                        if requester.is_empty()
+                            || is_admin
+                            || run.owner_id == requester =>
+                    {
+                        Some(Arc::clone(run))
+                    }
+                    _ => return false,
                 },
-                None => inner
-                    .latest
-                    .as_ref()
-                    .and_then(|id| inner.runs.get(id))
-                    .cloned(),
+                None => {
+                    if requester.is_empty() || is_admin {
+                        inner
+                            .latest
+                            .as_ref()
+                            .and_then(|id| inner.runs.get(id))
+                            .cloned()
+                    } else {
+                        inner
+                            .order
+                            .iter()
+                            .rev()
+                            .filter_map(|id| inner.runs.get(id))
+                            .find(|run| run.owner_id == requester)
+                            .cloned()
+                    }
+                }
             }
         };
         if let Some(run) = target {

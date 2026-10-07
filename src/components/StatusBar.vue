@@ -77,7 +77,7 @@
       <span class="sb-div">|</span>
       <span class="sb-tech" :title="netTitle">{{ netLabel }}</span>
       <span class="sb-div">|</span>
-      <span class="sb-tech">{{ isWebMode() ? 'WEB MODE' : 'TAURI MODE' }}</span>
+      <span class="sb-tech">{{ transportShort }} MODE</span>
     </div>
   </footer>
 </template>
@@ -85,13 +85,16 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { isWebMode } from '@/composables/useTauri'
+import { useTransport } from '@/composables/useTransport'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useSystemHardware } from '@/composables/useSystemHardware'
 
 const store = useAppStore()
 const wm = useWindowManager()
 const hw = useSystemHardware()
+
+// 3-state transport tag (tauri | wasm | rest) — single source of truth.
+const transportShort = computed(() => useTransport().short)
 
 // Live device / power / network readout (VueUse-backed, shared subscription).
 const deviceLabel = computed(() => {

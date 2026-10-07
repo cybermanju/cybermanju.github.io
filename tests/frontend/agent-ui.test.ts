@@ -21,10 +21,12 @@ import {
 } from '../../src/utils/agentUi'
 import { renderMarkdown } from '../../src/utils/markdown'
 import {
+  anchorTrailerHex,
   decideLocalTool,
   normalizeAnchorLocal,
   rememberAllowLocal,
   stripAnchorLocal,
+  stripEcho,
 } from '../../src/composables/useAgent'
 import { agentErrorHint, agentPermissionPreset, defaultMcpServers, type AgentConfig, type ChatMessage, type PermissionRuleset } from '../../src/types'
 
@@ -316,20 +318,54 @@ describe('agentErrorHint', () => {
 })
 
 describe('read anchor (browser mirror of Rust `edit::strip_anchor`)', () => {
-  const hash = 'a'.repeat(64)
+  const BODY = 'fn a() {}\n'
+  const HEX = 'a'.repeat(64)
+  // Hermetic stand-in for the wasm BLAKE3: only BODY hashes to HEX, every
+  // other byte string hashes to something else.
+  const fakeHash = async (s: string) => (s === BODY ? HEX : 'b'.repeat(64))
 
-  it('removes a trailing [blake3:<hex>] line and nothing else', () => {
-    const raw = 'fn a() {}\n'
-    expect(stripAnchorLocal(`${raw}\n[blake3:${hash}]`)).toBe(raw)
-    expect(stripAnchorLocal(`\n[blake3:${hash}]`)).toBe('')
-    expect(stripAnchorLocal(`[blake3:${hash}]\n`)).toBe('')
+  it('removes a trailing [blake3:<hex>] line only when it verifies', async () => {
+    await expect(stripAnchorLocal(`${BODY}\n[blake3:${HEX}]`, fakeHash)).resolves.toBe(BODY)
+    // Anchor-only content strips only when it is ours (hash of empty).
+    const emptyHash = async (s: string) => (s === '' ? HEX : 'b'.repeat(64))
+    await expect(stripAnchorLocal(`\n[blake3:${HEX}]`, emptyHash)).resolves.toBe('')
+    await expect(stripAnchorLocal(`[blake3:${HEX}]\n`, emptyHash)).resolves.toBe('')
   })
 
-  it('leaves ordinary content and near-miss lines alone', () => {
-    expect(stripAnchorLocal('fn a() {}\n')).toBe('fn a() {}\n')
-    expect(stripAnchorLocal('[blake3:short]')).toBe('[blake3:short]')
-    expect(stripAnchorLocal('a\n[blake3:not-hex]\n')).toBe('a\n[blake3:not-hex]\n')
-    expect(stripAnchorLocal(`inner [blake3:${hash}]`)).toBe(`inner [blake3:${hash}]`)
+  it('preserves legitimate anchor-shaped content lines', async () => {
+    const foreign = 'c'.repeat(64)
+    const legit = `${BODY}\n[blake3:${foreign}]`
+    await expect(stripAnchorLocal(legit, fakeHash)).resolves.toBe(legit)
+    // …and preserves everything when no hash is available to prove ownership.
+    const ours = `${BODY}\n[blake3:${HEX}]`
+    await expect(stripAnchorLocal(ours, async () => null)).resolves.toBe(ours)
+  })
+
+  it('leaves ordinary content and near-miss lines alone', async () => {
+    await expect(stripAnchorLocal('fn a() {}\n', fakeHash)).resolves.toBe('fn a() {}\n')
+    await expect(stripAnchorLocal('[blake3:short]', fakeHash)).resolves.toBe('[blake3:short]')
+    await expect(stripAnchorLocal('a\n[blake3:not-hex]\n', fakeHash)).resolves.toBe('a\n[blake3:not-hex]\n')
+    await expect(stripAnchorLocal(`inner [blake3:${HEX}]`, fakeHash)).resolves.toBe(`inner [blake3:${HEX}]`)
+  })
+
+  it('detects an anchor-shaped trailer without judging ownership', () => {
+    expect(anchorTrailerHex(`${BODY}\n[blake3:${HEX}]`)).toBe(HEX)
+    expect(anchorTrailerHex('fn a() {}\n')).toBeNull()
+    expect(anchorTrailerHex('[blake3:short]')).toBeNull()
+  })
+
+  it('strips an edited echo against the previously stored bytes', async () => {
+    const before = 'line one\nline two\n'
+    const after = 'line one\nline CHANGED\n'
+    const hashBefore = async (s: string) => (s === before ? HEX : 'b'.repeat(64))
+    const staleEcho = `${after}\n[blake3:${HEX}]`
+    // Body-hash alone does not verify (the content changed)…
+    await expect(stripEcho(staleEcho, null, hashBefore)).resolves.toBe(staleEcho)
+    // …but against the bytes the model actually read, it is ours.
+    await expect(stripEcho(staleEcho, before, hashBefore)).resolves.toBe(after)
+    // A trailer the model composed itself stays even with `existing`.
+    const forged = `${after}[blake3:${'f'.repeat(64)}]`
+    await expect(stripEcho(forged, before, hashBefore)).resolves.toBe(forged)
   })
 })
 

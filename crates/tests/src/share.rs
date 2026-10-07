@@ -6,7 +6,8 @@
 // stays behind the admin role.
 
 use crate::web::{
-    bearer, body_of, bootstrap_session, call, mint, mk_dashboard, now_secs, status_of,
+    bearer, body_of, bootstrap_session, call, grant_file_access, mint, mk_dashboard, now_secs,
+    status_of,
 };
 use cybermanju_web::WebDashboard;
 
@@ -39,6 +40,16 @@ fn share_link_round_trip_is_public() {
     let token = bootstrap_session(&d, "ida", "correct horse battery");
     let auth = bearer(&token);
     let folder_id = create_folder(&d, &auth, "Holiday");
+    // P0-1: sharing publishes bytes — the grant comes first (no grant: 403).
+    let denied = call(
+        &d,
+        "POST",
+        "/api/share-links",
+        &format!(r#"{{"fileId":"{folder_id}"}}"#),
+        Some(auth.as_str()),
+    );
+    assert_eq!(status_of(&denied), 403, "{denied}");
+    grant_file_access(&d, &auth, "ida", &folder_id, "read");
 
     let created = call(
         &d,
@@ -127,6 +138,8 @@ fn share_listing_and_revoke_are_admin_only() {
     let user = bootstrap_session(&d, "lena", "correct horse battery");
     let user_auth = bearer(&user);
     let folder_id = create_folder(&d, &user_auth, "Private");
+    // P0-1: sharing needs the object grant even for the folder creator.
+    grant_file_access(&d, &user_auth, "lena", &folder_id, "read");
 
     let created = call(
         &d,

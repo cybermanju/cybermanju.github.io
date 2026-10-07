@@ -165,8 +165,78 @@ fn validate_config(config: &AgentConfig) -> Result<(), String> {
     Ok(())
 }
 
+/// P0-8: does this config need an admin to save it?
+///
+/// Returns the reason when privileged material is present:
+/// * `mcp_servers` beyond the keyless default `exa` entry (stdio entries
+///   spawn processes — same reason `POST/DELETE .../mcp` is admin-gated),
+/// * `auto_approve: true` (unattended `ask` → unattended `tool_bash`),
+/// * a broad `bash` allow (simple `allow`, or a granular catch-all `*`
+///   allow — the shipped default of scoped `curl *`/`wget *` allows plus a
+///   `*` ask stays non-admin).
+pub fn config_needs_admin(config: &AgentConfig) -> Option<&'static str> {
+    use cybermanju_types::agent::{PermissionAction, PermissionRule};
+    for (name, server) in &config.mcp_servers {
+        if name != cybermanju_types::agent::DEFAULT_EXA_MCP_NAME {
+            return Some("mcp_servers: attaching non-default MCP servers needs admin");
+        }
+        // Even the default name re-declared as stdio is a process spawn.
+        if server.transport == "stdio" {
+            return Some("mcp_servers: stdio MCP servers spawn processes and need admin");
+        }
+    }
+    if config.auto_approve {
+        return Some("auto_approve: unattended approvals need admin");
+    }
+    match config.permission.rules.get("bash") {
+        Some(PermissionRule::Simple(PermissionAction::Allow)) => {
+            return Some("bash: blanket allow needs admin");
+        }
+        Some(PermissionRule::Granular(pairs)) => {
+            for (pattern, action) in pairs {
+                if *action == PermissionAction::Allow
+                    && (pattern == "*" || pattern.trim() == "*")
+                {
+                    return Some("bash: catch-all allow needs admin");
+                }
+            }
+        }
+        _ => {}
+    }
+    None
+}
+
+/// Create or overwrite a config, enforcing the P0-8 admin gate.
+///
+/// `is_admin` must come from the caller's JWT claims on the REST path
+/// (non-admin callers get `auth:` when the config carries `mcp_servers` /
+/// `auto_approve` / broad `bash` allow). The trusted local path (Tauri IPC)
+/// passes `true`, mirroring `RegistrationMode::LocalIpc`.
+pub fn save_config_as(
+    db: &Database,
+    mut config: AgentConfig,
+    is_admin: bool,
+) -> Result<AgentConfig, String> {
+    if !is_admin {
+        if let Some(reason) = config_needs_admin(&config) {
+            return Err(format!("auth: {reason}"));
+        }
+    }
+    save_config_unchecked(db, &mut config)
+}
+
 /// Create or overwrite a config. The row never holds key material.
+///
+/// Trusted-local entry point (Tauri IPC): no admin gate — the desktop
+/// process is the trust boundary, like `RegistrationMode::LocalIpc`.
+/// REST callers must use [`save_config_as`] with the claims role instead.
 pub fn save_config(db: &Database, mut config: AgentConfig) -> Result<AgentConfig, String> {
+    save_config_unchecked(db, &mut config)
+}
+
+/// Validated + persisted config write shared by [`save_config`] and
+/// [`save_config_as`].
+fn save_config_unchecked(db: &Database, config: &mut AgentConfig) -> Result<AgentConfig, String> {
     if config.id.is_empty() {
         config.id = uuid::Uuid::new_v4().to_string();
     }
@@ -204,7 +274,7 @@ pub fn save_config(db: &Database, mut config: AgentConfig) -> Result<AgentConfig
             .map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
-    with_has_key(db, config)
+    with_has_key(db, config.clone())
 }
 
 /// Delete a config and its sealed key.
@@ -752,6 +822,10 @@ pub struct AgentJob {
     pub session_id: String,
     pub config_id: String,
     pub started_at: String,
+    /// JWT `user_id` that started the job (`"local"` on the trusted Tauri
+    /// path, which has no JWT). Never serialized — `JobSnapshot` carries no
+    /// owner, and every status/abort/approve entry point checks it.
+    pub owner_id: String,
     state: Mutex<JobState>,
     cancel: AtomicBool,
 }
@@ -771,6 +845,17 @@ fn jobs() -> &'static Mutex<HashMap<String, Arc<AgentJob>>> {
 
 fn approvals() -> &'static Mutex<HashMap<String, ApprovalAnswer>> {
     APPROVALS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Ownership check shared by every per-job entry point (P0-10).
+/// `requester` empty means the trusted local path (Tauri IPC, cybsh
+/// scheduler helpers) — allowed through like an admin. Otherwise the caller
+/// must own the job or hold `admin`.
+fn check_job_owner(job: &AgentJob, requester: &str, is_admin: bool) -> Result<(), String> {
+    if requester.is_empty() || is_admin || job.owner_id == requester {
+        return Ok(());
+    }
+    Err("auth: agent job belongs to another user".to_string())
 }
 
 fn snapshot(job: &AgentJob) -> JobSnapshot {
@@ -1112,8 +1197,20 @@ fn tool_write(
     content: &str,
 ) -> Result<String, String> {
     // A `[blake3:…]` line echoed out of a `read` is metadata about the file,
-    // never file content — strip it before the bytes land on disk.
-    let content = agent_edit::strip_anchor(content);
+    // never file content — strip it, but only when it verifies as ours (the
+    // exact round-trip trailer, or the trailer of the file already on disk
+    // for edited echoes). A legitimate anchor-shaped content line stays.
+    let full = join_contained(root, vol, path)?;
+    let owned;
+    let content = if agent_edit::anchor_trailer(content).is_some() {
+        let existing = std::fs::read(&full)
+            .ok()
+            .and_then(|b| String::from_utf8(b).ok());
+        owned = agent_edit::strip_echo(content, existing.as_deref()).to_string();
+        owned.as_str()
+    } else {
+        content
+    };
     if content.len() > MAX_TOOL_BYTES {
         return Err(format!(
             "too_large: content is {} bytes, tool limit is {}",
@@ -1121,7 +1218,6 @@ fn tool_write(
             MAX_TOOL_BYTES
         ));
     }
-    let full = join_contained(root, vol, path)?;
     if let Some(parent) = full.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)
@@ -1337,8 +1433,11 @@ fn exec_tool(
             let current = read_raw(root, vol, &path)?;
             let updated = agent_edit::apply_edit(&current, old_block, new_block, expected)?;
             // Hash exactly the bytes that land on disk, so the anchor printed
-            // here verifies against the file the next call will read.
-            let written = agent_edit::strip_anchor(&updated).to_string();
+            // here verifies against the file the next call will read. Strip
+            // our trailer against the pre-edit bytes: a model echoing the
+            // read trailer into `new_block` is still echoing metadata, while
+            // a trailer-shaped line it composed itself stays as content.
+            let written = agent_edit::strip_echo(&updated, Some(&current)).to_string();
             tool_write(db, root, vol, &path, &written)?;
             Ok(format!(
                 "edited {} (blake3:{})",
@@ -1878,11 +1977,28 @@ fn mcp_call(
 /// Start an agent run on a worker thread; returns immediately with a job
 /// snapshot (the REST `202`-style path — the request thread never waits on
 /// a provider, same contract as `POST /api/sync/start`).
+///
+/// Trusted-local entry point (Tauri IPC, cybsh helpers): the job is owned
+/// by `"local"`. REST callers must use [`start_job_as`] with the JWT
+/// `user_id` so the job is bound to its owner (P0-10).
 pub fn start_job(
     db: &Arc<RwLock<Database>>,
     config_id: &str,
     session_id: Option<String>,
     prompt: String,
+) -> Result<JobSnapshot, String> {
+    start_job_as(db, config_id, session_id, prompt, "local")
+}
+
+/// Owner-bound variant of [`start_job`] for the REST transport: `owner_id`
+/// is the JWT `user_id` and is stored on the job for every later
+/// status/abort/approve check. Job ids are `agent-<uuid v4>` (unpredictable).
+pub fn start_job_as(
+    db: &Arc<RwLock<Database>>,
+    config_id: &str,
+    session_id: Option<String>,
+    prompt: String,
+    owner_id: &str,
 ) -> Result<JobSnapshot, String> {
     if prompt.trim().is_empty() {
         return Err("invalid: prompt is required".to_string());
@@ -1935,6 +2051,7 @@ pub fn start_job(
         session_id: session.id.clone(),
         config_id: config.id.clone(),
         started_at: chrono::Utc::now().to_rfc3339(),
+        owner_id: owner_id.to_string(),
         state: Mutex::new(JobState {
             status: "running".to_string(),
             turns_used: 0,
@@ -1996,36 +2113,72 @@ pub fn start_init_job(db: &Arc<RwLock<Database>>, config_id: &str) -> Result<Job
     start_job(db, config_id, None, INIT_PROMPT.to_string())
 }
 
-/// Poll one job.
-pub fn job_status(job_id: &str) -> Result<JobSnapshot, String> {
-    crate::security::validate_id(job_id)?;
-    let registry = jobs().lock().unwrap_or_else(|p| p.into_inner());
-    registry
-        .get(job_id)
-        .map(|job| snapshot(job))
-        .ok_or_else(|| format!("Agent job not found: {}", job_id))
+/// Owner-bound variant of [`start_init_job`] for the REST transport.
+pub fn start_init_job_as(
+    db: &Arc<RwLock<Database>>,
+    config_id: &str,
+    owner_id: &str,
+) -> Result<JobSnapshot, String> {
+    start_job_as(db, config_id, None, INIT_PROMPT.to_string(), owner_id)
 }
 
-/// All known jobs (capped; registry order is not chronological — the UI
-/// sorts by recency from status polls).
-pub fn list_jobs() -> Vec<JobSnapshot> {
+/// Poll one job (trusted-local: Tauri IPC, SSE pre-check, cybsh helpers).
+pub fn job_status(job_id: &str) -> Result<JobSnapshot, String> {
+    job_status_for(job_id, "", true)
+}
+
+/// Owner-bound poll for the REST transport: strangers get `auth:` instead
+/// of the job, unknown ids stay 404-shaped (`not_found:`).
+pub fn job_status_for(job_id: &str, requester: &str, is_admin: bool) -> Result<JobSnapshot, String> {
+    crate::security::validate_id(job_id)?;
     let registry = jobs().lock().unwrap_or_else(|p| p.into_inner());
-    let mut out: Vec<JobSnapshot> = registry.values().map(|job| snapshot(job)).collect();
+    let job = registry
+        .get(job_id)
+        .ok_or_else(|| format!("not_found: agent job '{job_id}' not found"))?;
+    check_job_owner(job, requester, is_admin)?;
+    Ok(snapshot(job))
+}
+
+/// All known jobs (trusted-local; capped; registry order is not
+/// chronological — the UI sorts by recency from status polls).
+pub fn list_jobs() -> Vec<JobSnapshot> {
+    list_jobs_for("", true)
+}
+
+/// Owner-bound list for the REST transport: admins see everything,
+/// everyone else sees only their own jobs. Empty requester (trusted local)
+/// sees everything.
+pub fn list_jobs_for(requester: &str, is_admin: bool) -> Vec<JobSnapshot> {
+    let registry = jobs().lock().unwrap_or_else(|p| p.into_inner());
+    let mut out: Vec<JobSnapshot> = registry
+        .values()
+        .filter(|job| {
+            requester.is_empty() || is_admin || job.owner_id == requester
+        })
+        .map(|job| snapshot(job))
+        .collect();
     out.sort_by(|a, b| b.job_id.cmp(&a.job_id));
     out.truncate(50);
     out
 }
 
 /// Request cancellation. Idempotent: unknown ids are 404, finished jobs
-/// report success without side effects.
+/// report success without side effects. Trusted-local (no owner check).
 pub fn abort_job(job_id: &str) -> Result<bool, String> {
+    abort_job_for(job_id, "", true)
+}
+
+/// Owner-bound abort for the REST transport: strangers get `auth:`.
+pub fn abort_job_for(job_id: &str, requester: &str, is_admin: bool) -> Result<bool, String> {
+    crate::security::validate_id(job_id)?;
     let job = {
         let registry = jobs().lock().unwrap_or_else(|p| p.into_inner());
         registry
             .get(job_id)
             .cloned()
-            .ok_or_else(|| format!("Agent job not found: {}", job_id))?
+            .ok_or_else(|| format!("not_found: agent job '{job_id}' not found"))?
     };
+    check_job_owner(&job, requester, is_admin)?;
     job.cancel.store(true, Ordering::SeqCst);
     Ok(true)
 }
@@ -2034,6 +2187,7 @@ pub fn abort_job(job_id: &str) -> Result<bool, String> {
 /// Returns false when nothing is waiting — the UI polls, so a stale tap
 /// must not error loudly. With `remember`, an approval additionally stores
 /// "allow always" for that tool in the config (explicit row, reversible).
+/// Trusted-local entry point (Tauri IPC): no owner check.
 pub fn approve_job(
     db: &Arc<RwLock<Database>>,
     job_id: &str,
@@ -2041,12 +2195,29 @@ pub fn approve_job(
     answer: Option<String>,
     remember: bool,
 ) -> Result<bool, String> {
+    approve_job_for(db, job_id, approved, answer, remember, "", true)
+}
+
+/// Owner-bound approval for the REST transport: only the job owner (or an
+/// admin) may answer a parked `ask` — otherwise any authenticated user
+/// could approve someone else's job (P0-10). Unknown ids stay
+/// `not_found:`-shaped; strangers get `auth:`.
+pub fn approve_job_for(
+    db: &Arc<RwLock<Database>>,
+    job_id: &str,
+    approved: bool,
+    answer: Option<String>,
+    remember: bool,
+    requester: &str,
+    is_admin: bool,
+) -> Result<bool, String> {
     crate::security::validate_id(job_id)?;
-    let tool: Option<String> = {
+    let (tool, owner_ok): (Option<String>, Result<(), String>) = {
         let registry = jobs().lock().unwrap_or_else(|p| p.into_inner());
         let job = registry
             .get(job_id)
-            .ok_or_else(|| format!("Agent job not found: {}", job_id))?;
+            .ok_or_else(|| format!("not_found: agent job '{job_id}' not found"))?;
+        let owner_ok = check_job_owner(job, requester, is_admin);
         let tool = job
             .state
             .lock()
@@ -2054,8 +2225,11 @@ pub fn approve_job(
             .pending
             .as_ref()
             .map(|pending| pending.tool.clone());
-        tool
+        (tool, owner_ok)
     };
+    // Fail closed before recording anything: a stranger's answer must never
+    // land in another user's approval slot.
+    owner_ok?;
     {
         let mut pending = approvals().lock().unwrap_or_else(|p| p.into_inner());
         pending.insert(job_id.to_string(), ApprovalAnswer { approved, answer });
@@ -2966,10 +3140,16 @@ fn ai_err(line: String, output: String, origin: Option<&str>) -> String {
 /// Called from `route_request` before any lock is taken (job start spawns a
 /// worker that takes its own locks; the registry itself is process-global).
 /// Returns `None` for non-`ai` lines so they flow to the normal locked path.
+///
+/// P0-10: `owner_id`/`is_admin` come from the JWT claims — jobs started
+/// here are owned by the caller, and status/abort only see the caller's
+/// own jobs (admins see all).
 pub fn try_ai_exec(
     shared: &Arc<RwLock<Database>>,
     body: &str,
     origin: Option<&str>,
+    owner_id: &str,
+    is_admin: bool,
 ) -> Option<String> {
     #[derive(Deserialize)]
     struct ExecLine {
@@ -3005,7 +3185,7 @@ pub fn try_ai_exec(
                     }
                 }
             };
-            match start_job(shared, &config_id, session_id, prompt) {
+            match start_job_as(shared, &config_id, session_id, prompt, owner_id) {
                 Ok(job) => Some(ai_ok(
                     line,
                     format!(
@@ -3019,8 +3199,8 @@ pub fn try_ai_exec(
         }
         cybermanju_os::shell::AiCommand::Status { job_id } => {
             let snapshot = match job_id {
-                Some(id) => job_status(&id).ok(),
-                None => list_jobs()
+                Some(id) => job_status_for(&id, owner_id, is_admin).ok(),
+                None => list_jobs_for(owner_id, is_admin)
                     .into_iter()
                     .find(|j| j.status == "running" || j.status == "waiting_approval"),
             };
@@ -3048,7 +3228,7 @@ pub fn try_ai_exec(
         cybermanju_os::shell::AiCommand::Abort { job_id } => {
             let id = match job_id {
                 Some(id) => id,
-                None => match list_jobs()
+                None => match list_jobs_for(owner_id, is_admin)
                     .into_iter()
                     .find(|j| j.status == "running" || j.status == "waiting_approval")
                 {
@@ -3062,7 +3242,7 @@ pub fn try_ai_exec(
                     }
                 },
             };
-            match abort_job(&id) {
+            match abort_job_for(&id, owner_id, is_admin) {
                 Ok(true) => Some(ai_ok(line, format!("agent job {id} aborted"), origin)),
                 Ok(false) => Some(ai_ok(
                     line,
@@ -3116,7 +3296,7 @@ pub fn try_ai_exec(
                     }
                 }
             };
-            match start_init_job(shared, &config_id) {
+            match start_init_job_as(shared, &config_id, owner_id) {
                 Ok(job) => Some(ai_ok(
                     line,
                     format!(

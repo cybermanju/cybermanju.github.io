@@ -121,7 +121,7 @@ import { onClickOutside } from '@vueuse/core'
 import { ShortcutsKey } from '@/composables/shortcutsKey'
 import { useWindowManager, type ShellLayoutMode } from '@/composables/useWindowManager'
 import { isTauri } from '@/composables/useTauri'
-import { wasmBackendActive } from '@/composables/useWasmBackend'
+import { useTransport } from '@/composables/useTransport'
 import { useAppStore } from '@/stores/app'
 
 const dockRef = ref<HTMLElement | null>(null)
@@ -132,19 +132,12 @@ const shortcuts = inject(ShortcutsKey, null)
 const wm = useWindowManager()
 const store = useAppStore()
 
-const inBrowser = computed(() => {
-  if (typeof window !== 'undefined' && '__TAURI__' in window) return false
-  return true
-})
-const transportShort = computed(() => {
-  if (isTauri()) return 'TAURI'
-  if (wasmBackendActive()) return 'WASM'
-  return 'WEB'
-})
+const inBrowser = computed(() => !isTauri())
+const transportShort = computed(() => useTransport().short)
 const transportLabel = computed(() => {
-  if (isTauri()) return 'TAURI'
-  if (wasmBackendActive()) return 'WASM · BROWSER KEYS'
-  return 'WEB · BROWSER KEYS'
+  const t = useTransport()
+  if (t.backend === 'tauri') return 'TAURI'
+  return `${t.short} · BROWSER KEYS`
 })
 
 const layoutModes: { id: ShellLayoutMode; label: string; key: string; icon: string }[] = [

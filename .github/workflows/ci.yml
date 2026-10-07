@@ -503,6 +503,24 @@ jobs:
           yes | sdkmanager --licenses > /dev/null || true
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;$NDK_VERSION"
 
+      # Tauri picks the NEWEST NDK under $ANDROID_HOME/ndk even when
+      # NDK_HOME/ANDROID_NDK_HOME point at the pinned one (CI 2026-10-07:
+      # Rust compiled against preinstalled r30 while the job pinned r28).
+      # Leave exactly one NDK behind so "newest" == "pinned".
+      - name: Enforce pinned NDK (drop preinstalled)
+        run: |
+          echo "NDKs before:"
+          ls "${ANDROID_HOME}/ndk" || true
+          for d in "${ANDROID_HOME}"/ndk/*; do
+            if [ "$(basename "$d")" != "${NDK_VERSION}" ]; then
+              echo "removing $d"
+              rm -rf "$d"
+            fi
+          done
+          echo "NDKs after:"
+          ls "${ANDROID_HOME}/ndk"
+          test -d "${ANDROID_HOME}/ndk/${NDK_VERSION}"
+
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -528,11 +546,20 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
 
+      # `:buildSrc` resolves kotlin-dsl's org.jetbrains.kotlin:* through
+      # pluginManagement (plugin portal ONLY in the generated project), so a
+      # portal hiccup fails the build with "Could not find
+      # kotlin-stdlib:2.0.21" (CI 2026-10-07). Declare mavenCentral()/google()
+      # for buildSrc + every build via an init script, and retry fetches.
+      - name: Harden Gradle repositories
+        run: bash scripts/android-gradle-harden.sh
+
       # Without this Gradle emits `*-release-unsigned.apk`, which Android
       # refuses to install. The keystore only exists as a repo secret.
       - name: Configure Android release signing
         run: bash scripts/android-signing.sh prepare
         env:
+          REQUIRE_SIGNING: "1"
           ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -548,6 +575,8 @@ jobs:
 
       - name: Verify Android APK signature
         run: bash scripts/android-signing.sh verify
+        env:
+          REQUIRE_SIGNING: "1"
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

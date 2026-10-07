@@ -110,7 +110,8 @@ fn tick(db: &RwLock<Database>, last_run: &mut HashMap<String, Instant>) -> Resul
 
         last_run.insert(config.id.clone(), Instant::now());
         let total = file_ids.len() as u32;
-        let run = match registry.begin(&config.id, Arc::new(SyncState::new()), total) {
+        let run = match registry.begin_owned(&config.id, Arc::new(SyncState::new()), total, "system")
+        {
             Ok(run) => run,
             Err(_) => return Ok(()),
         };
@@ -149,6 +150,7 @@ fn tick(db: &RwLock<Database>, last_run: &mut HashMap<String, Instant>) -> Resul
         let record = SyncRunRecord {
             run_id: run.run_id.clone(),
             config_id: run.config_id.clone(),
+            owner_id: Some(run.owner_id.clone()),
             started_at: run.started_at.clone(),
             finished_at: run
                 .outcome()

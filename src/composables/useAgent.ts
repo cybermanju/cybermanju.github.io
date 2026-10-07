@@ -253,6 +253,10 @@ async function wasmList(path: string): Promise<string> {
   return res.output
 }
 
+/** Minimum anchor strength: 16 hex chars = 64 bits — mirrors Rust `edit`.
+ *  Anything shorter refuses with `integrity:` instead of coin-flipping. */
+const MIN_ANCHOR_HEX = 16
+
 /** Trailer `read` appends: `\n[blake3:<hex>]`. Mirrors `edit::anchor_line`. */
 function anchorLineLocal(hash: string): string {
   return `\n[blake3:${hash}]`
@@ -268,12 +272,58 @@ export function normalizeAnchorLocal(raw: string): string {
   return stripped.replace(/\]+$/, '').trim()
 }
 
-/** Drop a trailing anchor line (with its newline) — mirrors Rust
- *  `edit::strip_anchor`. The trailer describes the file; it is never content. */
-export function stripAnchorLocal(text: string): string {
-  const m = /(^|\n)\[blake3:[0-9a-f]{64}\]\n?$/i.exec(text)
-  if (!m) return text
-  return text.slice(0, text.length - m[0].length)
+/** Hex of a syntactically valid trailing `[blake3:<64hex>]` line, or `null`.
+ *  Pure syntax (one trailing newline tolerated) — says nothing about whose
+ *  trailer it is. Mirrors Rust `edit::anchor_trailer`. */
+export function anchorTrailerHex(text: string): string | null {
+  const body = text.endsWith('\n') ? text.slice(0, -1) : text
+  const i = body.lastIndexOf('\n')
+  const line = i < 0 ? body : body.slice(i + 1)
+  const m = /^\[blake3:([0-9a-fA-F]{64})\]$/.exec(line)
+  return m ? m[1].toLowerCase() : null
+}
+
+/** Bytes before the trailing anchor line. Mirrors Rust `edit::body_before_trailer`. */
+function bodyBeforeTrailer(text: string): string {
+  const body = text.endsWith('\n') ? text.slice(0, -1) : text
+  const i = body.lastIndexOf('\n')
+  return i < 0 ? '' : text.slice(0, i)
+}
+
+/** Drop a trailing anchor line only when it verifies as ours: the hex must
+ *  equal the BLAKE3 of the bytes before it (the exact trailer `read`
+ *  appended), or of `existing` — bytes already stored (the pre-edit file in
+ *  an edit flow). A file that legitimately ends with an anchor-shaped line
+ *  survives untouched. `hashBody` is injectable so tests stay hermetic; when
+ *  no hash is available we preserve bytes rather than delete them.
+ *  Mirrors Rust `edit::strip_echo`. */
+export async function stripEcho(
+  text: string,
+  existing: string | null,
+  hashBody: (body: string) => Promise<string | null> = blake3HexIfAvailable,
+): Promise<string> {
+  const hex = anchorTrailerHex(text)
+  if (!hex) return text
+  const body = bodyBeforeTrailer(text)
+  const actual = await hashBody(body)
+  // Without a hash we cannot prove the trailer is ours — keep the bytes.
+  if (!actual) return text
+  if (actual === hex) return body
+  if (existing !== null) {
+    const prev = await hashBody(existing)
+    if (prev === hex) return body
+  }
+  return text
+}
+
+/** Drop a trailing anchor line we added (hash-verified). Anything else —
+ *  including anchor-shaped content lines — is preserved. The async verified
+ *  form of the old sync strip; mirrors Rust `edit::strip_anchor`. */
+export async function stripAnchorLocal(
+  text: string,
+  hashBody: (body: string) => Promise<string | null> = blake3HexIfAvailable,
+): Promise<string> {
+  return stripEcho(text, null, hashBody)
 }
 
 /** BLAKE3 hex of text via the loaded wasm module, or `null` when the module
@@ -301,9 +351,17 @@ async function applyEditLocal(
   if (!oldBlock) throw new Error('invalid: old_block is empty')
   const anchor = normalizeAnchorLocal(expectedHash ?? '')
   if (anchor) {
+    // A race check is only real with 64+ bits behind it (mirrors Rust): a
+    // shorter anchor refuses even when the wasm hash is unavailable, because
+    // weakness is a property of the anchor, not of our ability to verify.
+    if (anchor.length < MIN_ANCHOR_HEX) {
+      throw new Error(
+        `integrity: anchor '${anchor}' is too short (need ≥${MIN_ANCHOR_HEX} hex chars / 64+ bits) — re-read and retry`,
+      )
+    }
     const actual = await blake3HexIfAvailable(current)
-    // Prefix-accept, like Rust: a short anchor still detects a moved file and
-    // never turns into a permanent edit blocker.
+    // Prefix-accept, like Rust: a 16+-char anchor still detects a moved file
+    // and never turns into a permanent edit blocker.
     if (actual && !actual.startsWith(anchor)) {
       throw new Error(
         `integrity: file changed since anchor (expected ${anchor}, got ${actual}) — re-read and retry`,
@@ -340,8 +398,21 @@ async function execLocalTool(
     }
     case 'write': {
       const path = join(String(call.input.path ?? ''))
-      // A `[blake3:…]` line echoed out of a `read` is metadata, never content.
-      const content = stripAnchorLocal(String(call.input.content ?? ''))
+      // A `[blake3:…]` line echoed out of a `read` is metadata, never
+      // content — strip it only when it verifies as ours (exact round-trip
+      // trailer, or the trailer of the file already stored for edited
+      // echoes). Anything else is user content and stays.
+      const rawIn = String(call.input.content ?? '')
+      let content = rawIn
+      if (anchorTrailerHex(rawIn)) {
+        let existing: string | null = null
+        try {
+          existing = await wasmRead(path)
+        } catch {
+          // New file (or unreadable): only the round-trip trailer can verify.
+        }
+        content = await stripEcho(rawIn, existing)
+      }
       if (content.length > 1024 * 1024) throw new Error('too_large: content exceeds the 1 MiB browser write cap')
       await wasmWrite(path, content)
       const hash = await blake3HexIfAvailable(content)
@@ -358,8 +429,10 @@ async function execLocalTool(
         anchor || undefined,
       )
       // Hash exactly the bytes that land on disk, so the printed anchor
-      // verifies against the file the next read returns.
-      const written = stripAnchorLocal(updated)
+      // verifies against the file the next read returns. Strip our trailer
+      // against the pre-edit bytes: an echo of the read trailer in
+      // `new_block` is still metadata, not content.
+      const written = await stripEcho(updated, current)
       await wasmWrite(path, written)
       const hash = await blake3HexIfAvailable(written)
       return hash ? `edited ${path} (blake3:${hash})` : `edited ${path}`

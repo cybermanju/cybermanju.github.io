@@ -275,6 +275,53 @@ pub(crate) fn login_session(d: &WebDashboard, username: &str, password: &str) ->
     payload["token"].as_str().expect("token").to_string()
 }
 
+/// P0-1 object-gate setup: grant `username` `access` (`read`/`write`) on
+/// `file_id` by writing a canonical permission row straight into the store
+/// (the same shape both the Tauri and REST setters persist). Tests that
+/// touch file bytes/links must call this first — object access is
+/// fail-closed and no grant means 403.
+pub(crate) fn grant_file_access(
+    d: &WebDashboard,
+    auth: &str,
+    username: &str,
+    file_id: &str,
+    access: &str,
+) {
+    let listed = call(d, "GET", "/api/users", "", Some(auth));
+    assert_eq!(status_of(&listed), 200, "{listed}");
+    let users: serde_json::Value = serde_json::from_str(body_of(&listed)).expect("users json");
+    let user_id = users
+        .as_array()
+        .expect("users array")
+        .iter()
+        .find(|u| u["username"] == username)
+        .and_then(|u| u["id"].as_str())
+        .expect("user id")
+        .to_string();
+    let perm = cybermanju_types::schema::UserFilePermission {
+        id: format!("perm-{file_id}-{access}"),
+        user_id,
+        file_id: file_id.to_string(),
+        access: access.to_string(),
+        granted_by: "test".to_string(),
+        granted_at: "2026-01-01T00:00:00Z".to_string(),
+    };
+    let guard = d.db.write().expect("db write lock");
+    let tx = guard.begin_write().expect("write tx");
+    {
+        let mut table = tx
+            .open_table(cybermanju_db::Database::get_user_file_perms_table())
+            .expect("perms table");
+        table
+            .insert(
+                perm.id.as_str(),
+                serde_json::to_string(&perm).expect("perm json").as_str(),
+            )
+            .expect("insert perm");
+    }
+    tx.commit().expect("commit perm");
+}
+
 /// Ephemeral port nothing is holding right now.
 fn free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")

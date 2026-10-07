@@ -97,7 +97,10 @@ export function getServerUrl(): string {
 // ── Environment Detection ────────────────────────────────────
 
 export function isTauri(): boolean {
-  return typeof window !== 'undefined' && '__TAURI__' in window
+  // Truthiness, not presence: vite.config.wasm.ts defines `__TAURI__` as
+  // false for static builds, so `'__TAURI__' in window` misfires there.
+  if (typeof window === 'undefined') return false
+  return Boolean((window as unknown as Record<string, unknown>).__TAURI__)
 }
 
 export function isWebMode(): boolean {
@@ -145,43 +148,84 @@ function buildHeaders(): Record<string, string> {
 /** Generic REST fetch with proper error handling. */
 async function restFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
   const url = `${getBaseUrl()}${path}`
-  const init: RequestInit = {
-    method,
-    headers: buildHeaders(),
-  }
-  if (body !== undefined) {
-    init.body = JSON.stringify(body)
-  }
-
-  let res: Response
-  try {
-    res = await fetch(url, init)
-  } catch (err) {
-    throw new Error(
-      `Network error calling ${method} ${path}: ${err instanceof Error ? err.message : String(err)}`
-    )
-  }
-
-  if (!res.ok) {
-    // Expired / missing JWT — tell the app to offer a login (F2)
-    if (res.status === 401 && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('cybermanju:unauthorized'))
+  const TIMEOUT_MS = 15000
+  const MAX_ATTEMPTS = 2
+  // AGENT-1 transient prefixes worth one backoff retry.
+  const isRetriable = (msg: string) =>
+    msg.startsWith('network:') || msg.startsWith('rate_limited:')
+  const backoff = (attempt: number) =>
+    new Promise<void>((r) => setTimeout(r, 300 * (attempt + 1)))
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const init: RequestInit = {
+      method,
+      headers: buildHeaders(),
     }
-    let message = `HTTP ${res.status} ${res.statusText}`
+    if (body !== undefined) {
+      init.body = JSON.stringify(body)
+    }
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
+    init.signal = ctrl.signal
+
+    let res: Response
     try {
-      const errBody = await res.json()
-      if (errBody?.message) message = errBody.message
-      else if (errBody?.error) message = `${res.status}: ${errBody.error}`
-    } catch {
-      // ignore parse failure
+      res = await fetch(url, init)
+    } catch (err) {
+      clearTimeout(timer)
+      const reason = err instanceof Error ? err.message : String(err)
+      const aborted =
+        err instanceof Error && (err.name === 'AbortError' || reason.includes('abort'))
+      const msg = aborted
+        ? `network: request timed out after ${TIMEOUT_MS}ms calling ${method} ${path}: ${reason}`
+        : `network: Network error calling ${method} ${path}: ${reason}`
+      lastError = new Error(msg)
+      if (attempt + 1 < MAX_ATTEMPTS && isRetriable(msg)) {
+        await backoff(attempt)
+        continue
+      }
+      throw lastError
     }
-    throw new Error(message)
+    clearTimeout(timer)
+
+    if (!res.ok) {
+      // Expired / missing JWT — tell the app to offer a login (F2)
+      if (res.status === 401 && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cybermanju:unauthorized'))
+      }
+      let message = `HTTP ${res.status} ${res.statusText}`
+      try {
+        const errBody = await res.json()
+        if (errBody?.message) message = errBody.message
+        else if (errBody?.error) message = `${res.status}: ${errBody.error}`
+      } catch {
+        // Server sent plain text (or empty) — preserve any AGENT-1 prefix it carries.
+        try {
+          const text = await res.text()
+          if (text.trim()) message = text.trim()
+        } catch {
+          // ignore body read failure
+        }
+      }
+      // Normalize bare HTTP failures to AGENT-1 prefixes so callers can hint.
+      if (message.startsWith('HTTP 401') || res.status === 401) {
+        if (!message.includes('auth:')) message = `auth: ${message}`
+      } else if (res.status === 429 && !message.startsWith('rate_limited:')) {
+        message = `rate_limited: ${message}`
+      }
+      if (attempt + 1 < MAX_ATTEMPTS && isRetriable(message)) {
+        await backoff(attempt)
+        continue
+      }
+      throw new Error(message)
+    }
+
+    // 204 No Content
+    if (res.status === 204) return undefined as T
+
+    return res.json() as Promise<T>
   }
-
-  // 204 No Content
-  if (res.status === 204) return undefined as T
-
-  return res.json() as Promise<T>
+  throw lastError instanceof Error ? lastError : new Error('network: request failed')
 }
 
 // ── Response key transformation ──────────────────────────────
@@ -1054,15 +1098,20 @@ export const REST_ROUTES: Record<string, RestMapping> = {
   },
   os_stat: {
     method: 'GET',
-    buildPath: (args) => `/api/os/stat${String(args.path ?? '')}`,
+    buildPath: (args) => `/api/os/stat?path=${encodeURIComponent(String(args.path ?? '/'))}`,
   },
   os_ls: {
     method: 'GET',
-    buildPath: (args) => `/api/os/ls${String(args.path ?? '')}`,
+    buildPath: (args) => `/api/os/ls?path=${encodeURIComponent(String(args.path ?? '/'))}`,
   },
   os_du: {
     method: 'GET',
-    buildPath: (args) => `/api/os/du${String(args.path ?? '')}`,
+    buildPath: (args) => `/api/os/du?path=${encodeURIComponent(String(args.path ?? '/'))}`,
+  },
+  os_write: {
+    method: 'PUT',
+    buildPath: () => '/api/os/write',
+    transformRequest: (args) => ({ path: args.path, content: args.content }),
   },
   os_df: { method: 'GET', buildPath: () => '/api/os/df' },
   os_ps: { method: 'GET', buildPath: () => '/api/os/ps' },
@@ -1143,14 +1192,21 @@ export const WRITE_ONLY_COMMANDS = new Set([
  * IPC twin — the desktop app runs the same web server on :3456 — so routing
  * these through `core.invoke` would fail on the very machine that has the
  * feature. Same for the disk/volume API.
+ *
+ * The whole sync domain is REST_FIRST too (P1-5): a job started over IPC is
+ * invisible to the REST poller, so one side per domain — REST — with a
+ * `core.invoke` fallback in the REST path when the dashboard is down.
  */
-const REST_FIRST = new Set([
+export const REST_FIRST = new Set([
   'os_exec', 'os_complete', 'os_stat', 'os_ls', 'os_du', 'os_df', 'os_ps',
-  'os_top', 'os_workers', 'os_jobs',
+  'os_top', 'os_workers', 'os_jobs', 'os_write',
   'list_disks', 'get_disk', 'create_disk', 'attach_disk', 'detach_disk',
   'resize_disk', 'destroy_disk', 'check_disk', 'volume_df',
-  'get_sync_job', 'list_sync_runs', 'get_sync_status', 'restore_sync_file',
-  'delete_remote_file', 'get_sync_usage', 'oauth_start',
+  'list_sync_configs', 'create_sync_config', 'delete_sync_config',
+  'start_sync', 'cancel_sync', 'get_sync_progress', 'test_sync_connection',
+  'list_remote_files', 'get_sync_job', 'list_sync_runs', 'get_sync_status',
+  'restore_sync_file', 'delete_remote_file', 'create_provider_repo',
+  'seed_repo_files', 'upload_remote_file', 'get_sync_usage', 'oauth_start',
   'repair_status', 'repair_tasks', 'repair_health', 'repair_run',
   'repair_rebuild', 'repair_gc', 'scrub_run', 'scrub_runs',
   'lease_acquire', 'lease_release', 'lease_status',
@@ -1832,7 +1888,9 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
         return res.ok
       }
       default:
-        return false
+        throw new Error(
+          `unsupported: sync backend "${backend || '(none)'}" cannot be probed from this browser — probing supports local/github/gitlab/googleDrive only`
+        )
     }
   } finally {
     clearTimeout(timer)
@@ -2008,6 +2066,24 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
         snippet: '',
       })) as unknown as T
     }
+    // Paginated search answers from the same BM25-lite volume index, sliced
+    // server-side-style so the store never throws `[WASM Mode]` here and
+    // silently downgrades to the unpaginated shape (P1-8).
+    if (cmd === 'search_files_paginated') {
+      const hits = await wasmSearchFiles(String(args?.query ?? ''))
+      const limit = Math.max(1, Number(args?.limit ?? 20) || 20)
+      const offset = Math.max(0, Number(args?.offset ?? 0) || 0)
+      const page = hits.slice(offset, offset + limit)
+      return {
+        results: page.map(h => ({
+          fileId: h.path,
+          fileName: h.path.split('/').pop() ?? h.path,
+          score: h.score,
+          snippet: '',
+        })),
+        total: hits.length,
+      } as unknown as T
+    }
     const dbRoute = DB_WASM_ROUTES[cmd]
     if (dbRoute) {
       if (dbRoute.probe) return (await probeStaticConnection(args ?? {})) as T
@@ -2037,7 +2113,29 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
       body = args
     }
 
-    const raw = await restFetch<unknown>(mapping.method, path, body)
+    let raw: unknown
+    try {
+      raw = await restFetch<unknown>(mapping.method, path, body)
+    } catch (restErr) {
+      // P1-5 health gate: the desktop dashboard (:3456) can be down while
+      // the native IPC twin in the same process is alive (same DB, same
+      // sync registry). Fall back to it instead of surfacing a raw
+      // connection refusal; when no twin exists (OS layer) the original
+      // REST error is rethrown below.
+      if (isTauri()) {
+        try {
+          const core = await import('@tauri-apps/api/core')
+          const ipc = await core.invoke<unknown>(cmd, args ?? {})
+          if (mapping.transformResponse) {
+            return (mapping.transformResponse(ipc, args ?? {})) as T
+          }
+          return transformResponseKeys(ipc) as T
+        } catch {
+          // No usable IPC twin — report the REST failure.
+        }
+      }
+      throw restErr
+    }
 
     if (mapping.transformResponse) {
       return (mapping.transformResponse(raw, args ?? {})) as T

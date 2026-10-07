@@ -643,22 +643,52 @@ Cancellation is supported via `AtomicBool` flag checked between each file.
 
 ### Docker Compose
 
+`docker-compose.yml` is the single source of truth for the container shape —
+the snippet below is a copy kept in sync by inspection. Deploys bind
+LAN-only via `${CYBERMANJU_HOST_IP:-127.0.0.1}` (never a wide-open
+`3456:3456`), run read-only with all capabilities dropped, and probe
+**readiness** at `GET /api/readyz` (`GET /api/health` is liveness-only).
+
 ```yaml
 services:
   cybermanju-os:
     image: cybermanju-os:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: cybermanju-os
     restart: unless-stopped
+    # Hardening: immutable root FS (/data volume + /tmp tmpfs writable only),
+    # every capability dropped, no privilege escalation, memory capped.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
     ports:
-      - "3456:3456"
+      # LAN only: bound to a private address, never 0.0.0.0. Override with
+      # CYBERMANJU_HOST_IP (e.g. 192.168.1.50) to serve other devices.
+      - "${CYBERMANJU_HOST_IP:-127.0.0.1}:3456:3456"
     volumes:
       - /DATA/AppData/cybermanju-os/config:/data
     environment:
       - RUST_LOG=info
       - PORT=3456
       - DB_PATH=/data/cybermanju.db
+      - SEARCH_INDEX_PATH=/data/tantivy_index
       - STATIC_DIR=/app/static
       - TZ=UTC
+    healthcheck:
+      # /api/readyz is 200 only when redb, the Tantivy index and the data
+      # volume are all usable; /api/health (liveness) is always 200.
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3456/api/readyz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 ```
 
 ### Multi-Stage Docker Build
@@ -687,7 +717,16 @@ The `x-casaos` section in `docker-compose.yml` provides ZimaOS App Store integra
 - **Category:** File Sync, Utilities
 - **Port:** 3456
 - **Volume:** `/DATA/AppData/cybermanju-os/config` mapped to `/data`
-- **Health Check:** `GET /api/health` every 30s
+- **Health Check:** readiness `GET /api/readyz` (wget, every 30s —
+  `interval: 30s`, `timeout: 10s`, `retries: 3`, `start_period: 15s`);
+  `GET /api/health` is liveness-only, not the container probe
+- **Icon:** pinned to
+  `https://raw.githubusercontent.com/cybermanju/cybermanju.github.io/main/src-tauri/icons/icon.svg` —
+  it tracks `src-tauri/icons/icon.svg` on `main`; change both together
+- **Routing consistency:** ZimaOS `index: /` + `port_map: "3456"` assume the
+  app is served from root — this matches `vite.config.wasm.ts` (`base: "/"`
+  by default, `VITE_BASE` override only when embedding under a sub-path)
+  and Docker serving `STATIC_DIR=/app/static` at `/`
 - **Localization:** English (en_us) and Chinese (zh_cn)
 
 ---

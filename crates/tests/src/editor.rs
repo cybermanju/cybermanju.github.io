@@ -5,7 +5,9 @@
 // (`POST /api/code/parse`). Bytes live at `context_data.original_path`,
 // seeded here directly since REST cannot mint byte-backed nodes.
 
-use crate::web::{bearer, body_of, bootstrap_session, call, mk_dashboard, status_of};
+use crate::web::{
+    bearer, body_of, bootstrap_session, call, grant_file_access, mk_dashboard, status_of,
+};
 use cybermanju_types::schema::FileNode;
 use cybermanju_web::WebDashboard;
 use std::sync::Arc;
@@ -86,6 +88,8 @@ fn content_round_trip_versions_the_save() {
     let token = bootstrap_session(&d, "ed", "correct horse battery");
     let auth = bearer(&token);
     seed_file(&d, &dir, "f1", "a.rs", b"fn a() {}", false);
+    // P0-1: file bytes need an object grant — no grant means 403.
+    grant_file_access(&d, &auth, "ed", "f1", "write");
 
     let got = call(&d, "GET", "/api/files/f1/content", "", Some(&auth));
     assert_eq!(status_of(&got), 200, "{got}");
@@ -125,6 +129,10 @@ fn content_refuses_honestly() {
     let auth = bearer(&token);
     seed_file(&d, &dir, "enc", "s.rs", b"ciphertext", true);
     seed_file(&d, &dir, "bin", "b.bin", &[0xff, 0xfe, 0x00], false);
+    // P0-1: reach the content layer through object grants so the refusal
+    // prefixes below are exercised (without grants these are 403).
+    grant_file_access(&d, &auth, "ed2", "enc", "write");
+    grant_file_access(&d, &auth, "ed2", "bin", "read");
 
     let resp = call(&d, "GET", "/api/files/enc/content", "", Some(&auth));
     assert_eq!(status_of(&resp), 400, "{resp}");

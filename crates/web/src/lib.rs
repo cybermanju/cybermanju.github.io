@@ -645,6 +645,49 @@ fn json_ok<T: Serialize>(value: &T, origin: Option<&str>) -> String {
 }
 
 /// Render a shared-API `Result` as an HTTP response: 200 on success, 404
+/// when the message reports a missing entity, 403 when it reports an
+/// `auth:` denial, 400 otherwise.
+///
+/// `api_response` would flatten `auth:` into 400 — every owner/object gate
+/// in this router goes through here so denials stay 403.
+fn auth_response<T: Serialize>(result: Result<T, String>, origin: Option<&str>) -> String {
+    match result {
+        Ok(value) => json_ok(&value, origin),
+        Err(e) if e.starts_with("auth:") => json_error(403, &e, origin),
+        Err(e) => api_response::<T>(Err(e), origin),
+    }
+}
+
+/// P0-1 object gate: deny when `claims` may not use `file_id` at `required`
+/// (`read`/`write`). Returns `Some(response)` when denied (`403 auth:` or
+/// `404 not_found:`), `None` when allowed or when the route is public
+/// (token-capability share bytes carry no claims).
+fn deny_file(
+    db: &Database,
+    claims: &Option<security::Claims>,
+    file_id: &str,
+    required: &str,
+    origin: Option<&str>,
+) -> Option<String> {
+    let claims = claims.as_ref()?;
+    match api::files::check_access(db, claims, file_id, required) {
+        Ok(()) => None,
+        Err(e) if e.starts_with("not_found:") => Some(json_error(404, &e, origin)),
+        Err(e) => Some(json_error(403, &e, origin)),
+    }
+}
+
+/// `(user_id, is_admin)` for the P0-10 owner checks, from verified claims.
+/// `None` claims (public share bytes) map to an empty untrusted id — scoped
+/// helpers then deny unless the check is bypassed for trusted-local calls.
+fn claims_owner(claims: &Option<security::Claims>) -> (String, bool) {
+    match claims {
+        Some(c) => (c.user_id.clone(), c.role == "admin"),
+        None => (String::new(), false),
+    }
+}
+
+/// Render a shared-API `Result` as an HTTP response: 200 on success, 404
 /// when the message reports a missing entity, 400 otherwise.
 fn api_response<T: Serialize>(result: Result<T, String>, origin: Option<&str>) -> String {
     match result {
@@ -783,7 +826,9 @@ fn route_request(
     // Route → required role, then verify the JWT and authorize its claims.
     // Default is `Authenticated`; `Public` covers health/login/register/
     // share-link/OAuth-callback/AGENT-4 probes, `Admin` is the narrow table
-    // in `security::required_role`.
+    // in `security::required_role`. P0-2: `authorize` also takes the method
+    // so `viewer` stays read-only (writes denied even on `Authenticated`
+    // routes).
     let required = security::required_role(method, &path_segments);
     let claims: Option<security::Claims> = match required {
         security::RequiredRole::Public => None,
@@ -793,7 +838,7 @@ fn route_request(
         },
     };
     if let Some(claims) = &claims {
-        if let Err(reason) = security::authorize(claims, required) {
+        if let Err(reason) = security::authorize(claims, required, method) {
             return json_error(403, &format!("Forbidden: {}", reason), origin);
         }
     }
@@ -809,10 +854,22 @@ fn route_request(
             // Lazily start the auto-sync scheduler (item 11): the first
             // contact with the sync API arms the background scan.
             cybermanju_sync::scheduler::ensure_started(Arc::clone(db));
-            let progress = api::sync_api::latest_progress(dashboard.sync_state());
-            let provider = cybermanju_sync::state::RunRegistry::global()
-                .latest()
-                .map(|run| run.config_id.clone());
+            // P0-10: non-admins read their own latest run, never `current_file`
+            // of someone else's run.
+            let (owner_id, is_admin) = claims_owner(&claims);
+            let progress =
+                api::sync_api::latest_progress_for(dashboard.sync_state(), &owner_id, is_admin);
+            // P0-10: non-admins see their own latest run's provider, never
+            // another user's.
+            let provider = if is_admin || owner_id.is_empty() {
+                cybermanju_sync::state::RunRegistry::global()
+                    .latest()
+                    .map(|run| run.config_id.clone())
+            } else {
+                cybermanju_sync::state::RunRegistry::global()
+                    .latest_for(&owner_id, false)
+                    .map(|run| run.config_id.clone())
+            };
             let status = serde_json::json!({
                 "syncEnabled": true,
                 "status": progress.status,
@@ -828,42 +885,90 @@ fn route_request(
         }
         ["api", "sync", "progress"] if method == "GET" => {
             cybermanju_sync::scheduler::ensure_started(Arc::clone(db));
+            // P0-10: non-admins read their own latest run, never `current_file`
+            // of someone else's run.
+            let (owner_id, is_admin) = claims_owner(&claims);
             return json_ok(
-                &api::sync_api::latest_progress(dashboard.sync_state()),
+                &api::sync_api::latest_progress_for(dashboard.sync_state(), &owner_id, is_admin),
                 origin,
             );
         }
         ["api", "sync", "cancel"] if method == "POST" => {
             // Empty body (and the legacy `{}`) means "cancel the latest run".
+            // P0-10: scoped — `None` cancels the caller's latest own run,
+            // never the global latest (admins keep legacy behaviour).
             let req: api::sync_api::CancelRequest = if body.trim().is_empty() {
                 Default::default()
             } else {
                 json_body!(body, origin)
             };
-            return json_ok(&api::sync_api::cancel_job(req.job_id.as_deref()), origin);
+            let (owner_id, is_admin) = claims_owner(&claims);
+            return json_ok(
+                &api::sync_api::cancel_job_as(req.job_id.as_deref(), &owner_id, is_admin),
+                origin,
+            );
         }
         ["api", "sync", "start"] if method == "POST" => {
             // 202 + job id — the pipeline runs on a worker thread; the
             // request thread must never wait on a provider.
             let req: api::sync_api::StartRequest = json_body!(body, origin);
-            return match api::sync_api::start_job(db, &req.config_id, req.file_ids) {
+            let (owner_id, _) = claims_owner(&claims);
+            // P0-1: every synced id must be readable by the caller.
+            {
+                let guard = match db.read() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                if let Some(claims) = &claims {
+                    if let Err(e) =
+                        api::files::check_access_many(&guard, claims, &req.file_ids, "read")
+                    {
+                        let status = if e.starts_with("not_found:") { 404 } else { 403 };
+                        return json_error(status, &e, origin);
+                    }
+                }
+            }
+            return match api::sync_api::start_job_for(db, &req.config_id, req.file_ids, &owner_id) {
                 Ok(job) => http_response(
                     202,
                     "application/json",
                     &serde_json::to_string(&job).unwrap_or_else(|_| "{}".to_string()),
                     origin,
                 ),
+                // Legacy `auth:` here means "no provider key saved" (400 by
+                // contract) — ownership is stored, never denied, on start.
                 Err(e) => api_response::<()>(Err(e), origin),
             };
         }
         ["api", "sync", "jobs", job_id] if method == "GET" => {
-            return api_response(api::sync_api::job(db, job_id), origin);
+            let (owner_id, is_admin) = claims_owner(&claims);
+            // Foreign runs answer `not_found:` (indistinguishable by design),
+            // so the plain mapper keeps every status exactly as before.
+            return api_response(api::sync_api::job_for(db, job_id, &owner_id, is_admin), origin);
         }
         ["api", "sync", "runs"] if method == "GET" => {
-            return api_response(api::sync_api::runs(db, 20), origin);
+            // P0-10: admins see all rows, everyone else only their own runs
+            // plus legacy ownerless rows.
+            let (owner_id, is_admin) = claims_owner(&claims);
+            return api_response(api::sync_api::runs_for(db, 20, &owner_id, is_admin), origin);
         }
         ["api", "sync", "restore"] if method == "POST" => {
             let req: api::sync_api::RestoreRequest = json_body!(body, origin);
+            // P0-1: restoring by file rewrites local bytes — needs `write`
+            // on that file. Remote-path restores carry no file id and rely
+            // on the role gate.
+            if let Some(file_id) = req.file_id.as_deref() {
+                let guard = match db.read() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                if let Some(claims) = &claims {
+                    if let Err(e) = api::files::check_access(&guard, claims, file_id, "write") {
+                        let status = if e.starts_with("not_found:") { 404 } else { 403 };
+                        return json_error(status, &e, origin);
+                    }
+                }
+            }
             return api_response(api::sync_api::restore(db, req), origin);
         }
         ["api", "sync", "remote"] if method == "DELETE" => {
@@ -937,24 +1042,44 @@ fn route_request(
                 prompt: String,
             }
             let req: PromptBody = json_body!(body, origin);
-            return match api::agent_api::start_job(db, &req.config_id, req.session_id, req.prompt) {
+            // P0-10: the job is owned by the JWT caller.
+            let (owner_id, _) = claims_owner(&claims);
+            return match api::agent_api::start_job_as(
+                db,
+                &req.config_id,
+                req.session_id,
+                req.prompt,
+                &owner_id,
+            ) {
                 Ok(job) => http_response(
                     202,
                     "application/json",
                     &serde_json::to_string(&job).unwrap_or_else(|_| "{}".to_string()),
                     origin,
                 ),
+                // Legacy `auth:` here means "no provider key saved" (400 by
+                // contract) — ownership is stored, never denied, on start.
                 Err(e) => api_response::<()>(Err(e), origin),
             };
         }
         ["api", "agent", "jobs"] if method == "GET" => {
-            return json_ok(&api::agent_api::list_jobs(), origin);
+            // P0-10: admins see all jobs, everyone else only their own.
+            let (owner_id, is_admin) = claims_owner(&claims);
+            return json_ok(&api::agent_api::list_jobs_for(&owner_id, is_admin), origin);
         }
         ["api", "agent", "jobs", job_id] if method == "GET" => {
-            return api_response(api::agent_api::job_status(job_id), origin);
+            let (owner_id, is_admin) = claims_owner(&claims);
+            return auth_response(
+                api::agent_api::job_status_for(job_id, &owner_id, is_admin),
+                origin,
+            );
         }
         ["api", "agent", "jobs", job_id, "abort"] if method == "POST" => {
-            return api_response(api::agent_api::abort_job(job_id), origin);
+            let (owner_id, is_admin) = claims_owner(&claims);
+            return auth_response(
+                api::agent_api::abort_job_for(job_id, &owner_id, is_admin),
+                origin,
+            );
         }
         ["api", "agent", "jobs", job_id, "approve"] if method == "POST" => {
             #[derive(Deserialize)]
@@ -967,8 +1092,17 @@ fn route_request(
                 remember: bool,
             }
             let req: ApproveBody = json_body!(body, origin);
-            return api_response(
-                api::agent_api::approve_job(db, job_id, req.approved, req.answer, req.remember),
+            let (owner_id, is_admin) = claims_owner(&claims);
+            return auth_response(
+                api::agent_api::approve_job_for(
+                    db,
+                    job_id,
+                    req.approved,
+                    req.answer,
+                    req.remember,
+                    &owner_id,
+                    is_admin,
+                ),
                 origin,
             );
         }
@@ -980,7 +1114,8 @@ fn route_request(
                 config_id: String,
             }
             let req: InitBody = json_body!(body, origin);
-            return match api::agent_api::start_init_job(db, &req.config_id) {
+            let (owner_id, _) = claims_owner(&claims);
+            return match api::agent_api::start_init_job_as(db, &req.config_id, &owner_id) {
                 Ok(job) => http_response(
                     202,
                     "application/json",
@@ -1138,7 +1273,7 @@ fn route_request(
     // denied workspace-wide.)
     if let Some(resp) = (method == "POST"
         && matches!(path_segments.as_slice(), ["api", "os", "exec"]))
-    .then(|| api::os_api::try_sync_start_exec(db, body, origin))
+    .then(|| api::os_api::try_sync_start_exec(db, body, origin, claims.as_ref()))
     .flatten()
     {
         return resp;
@@ -1155,7 +1290,10 @@ fn route_request(
     // every `ai` line dispatches here; anything else falls through.
     if let Some(resp) = (method == "POST"
         && matches!(path_segments.as_slice(), ["api", "os", "exec"]))
-    .then(|| api::agent_api::try_ai_exec(db, body, origin))
+    .then(|| {
+        let (owner_id, is_admin) = claims_owner(&claims);
+        api::agent_api::try_ai_exec(db, body, origin, &owner_id, is_admin)
+    })
     .flatten()
     {
         return resp;
@@ -1191,7 +1329,7 @@ fn route_request(
     if let Some(resp) = api::repair_api::route(db, method, &path_segments, body, origin) {
         return resp;
     }
-    if let Some(resp) = api::os_api::route(db, method, &path_segments, body, origin) {
+    if let Some(resp) = api::os_api::route(db, method, &path_segments, query, body, origin) {
         return resp;
     }
     // <<< /CYBERMANJU OS PRE-WIRE >>>
@@ -1235,12 +1373,22 @@ fn route_request(
             api_response(api::files::rebuild_parent_index(db), origin)
         }
         ["api", "files", id] if method == "GET" => {
+            // P0-1: object-level read gate (fail-closed).
+            if let Some(denied) = deny_file(db, &claims, id, "read", origin) {
+                return denied;
+            }
             get_by_id(db, Database::get_files_table(), id, origin)
         }
         ["api", "files", id] if method == "DELETE" => {
+            if let Some(denied) = deny_file(db, &claims, id, "write", origin) {
+                return denied;
+            }
             api_response(api::files::delete(db, id), origin)
         }
         ["api", "files", id, "rename"] if method == "POST" => {
+            if let Some(denied) = deny_file(db, &claims, id, "write", origin) {
+                return denied;
+            }
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
             struct RenameBody {
@@ -1250,6 +1398,9 @@ fn route_request(
             api_response(api::files::rename(db, id, req.new_name), origin)
         }
         ["api", "files", id, "move"] if method == "POST" => {
+            if let Some(denied) = deny_file(db, &claims, id, "write", origin) {
+                return denied;
+            }
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
             struct MoveBody {
@@ -1259,9 +1410,15 @@ fn route_request(
             api_response(api::files::move_to(db, id, req.parent_id), origin)
         }
         ["api", "files", id, "duplicate"] if method == "POST" => {
+            if let Some(denied) = deny_file(db, &claims, id, "write", origin) {
+                return denied;
+            }
             api_response(api::files::duplicate(db, id), origin)
         }
         ["api", "files", id, "tags"] if method == "PUT" => {
+            if let Some(denied) = deny_file(db, &claims, id, "write", origin) {
+                return denied;
+            }
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
             struct TagsBody {
@@ -1272,6 +1429,9 @@ fn route_request(
             api_response(api::files::set_tags(db, id, req.tags), origin)
         }
         ["api", "files", id, "preview"] if method == "GET" => {
+            if let Some(denied) = deny_file(db, &claims, id, "read", origin) {
+                return denied;
+            }
             api_response(api::files::preview(db, id), origin)
         }
         // ─── File text content (code editor) ────────────────────
@@ -1279,9 +1439,15 @@ fn route_request(
         // version snapshot before every overwrite. Refusals carry prefixes
         // (`encrypted:`, `binary:`, `too_large:`, `not_found:`).
         ["api", "files", id, "content"] if method == "GET" => {
+            if let Some(denied) = deny_file(db, &claims, id, "read", origin) {
+                return denied;
+            }
             api_response(api::files::read_content(db, id), origin)
         }
         ["api", "files", id, "content"] if method == "PUT" => {
+            if let Some(denied) = deny_file(db, &claims, id, "write", origin) {
+                return denied;
+            }
             #[derive(Deserialize)]
             struct ContentBody {
                 #[serde(default)]
@@ -1291,12 +1457,21 @@ fn route_request(
             api_response(api::files::write_content(db, id, &req.content), origin)
         }
         ["api", "files", id, "versions"] if method == "GET" => {
+            if let Some(denied) = deny_file(db, &claims, id, "read", origin) {
+                return denied;
+            }
             api_response(api::versions::list(db, id), origin)
         }
         ["api", "files", id, "versions"] if method == "POST" => {
+            if let Some(denied) = deny_file(db, &claims, id, "write", origin) {
+                return denied;
+            }
             api_response(api::versions::create(db, id), origin)
         }
         ["api", "files", id, "versions", version_id, "revert"] if method == "POST" => {
+            if let Some(denied) = deny_file(db, &claims, id, "write", origin) {
+                return denied;
+            }
             api_response(api::versions::revert(db, id, version_id), origin)
         }
 
@@ -1355,6 +1530,10 @@ fn route_request(
             let req: ShareBody = json_body!(body, origin);
             if let Err(e) = security::validate_id(&req.file_id) {
                 return json_error(400, &e, origin);
+            }
+            // P0-1: sharing publishes bytes — the caller must read the file.
+            if let Some(denied) = deny_file(db, &claims, &req.file_id, "read", origin) {
+                return denied;
             }
             let actor = claims.as_ref().map(|c| c.user_id.clone());
             let result =
@@ -1416,6 +1595,8 @@ fn route_request(
         }
 
         // ─── Batch operations ────────────────────────────────────
+        // P0-1: every id is owner-checked up front (`write` — delete,
+        // encrypt and compress all mutate), fail-closed on the first denial.
         ["api", "batch", "delete"] if method == "POST" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
@@ -1423,6 +1604,13 @@ fn route_request(
                 file_ids: Vec<String>,
             }
             let req: BatchBody = json_body!(body, origin);
+            if let Some(claims) = &claims {
+                if let Err(e) = api::files::check_access_many(db, claims, &req.file_ids, "write")
+                {
+                    let status = if e.starts_with("not_found:") { 404 } else { 403 };
+                    return json_error(status, &e, origin);
+                }
+            }
             api_response(api::batch::delete(db, &req.file_ids), origin)
         }
         ["api", "batch", "encrypt"] if method == "POST" => {
@@ -1433,6 +1621,13 @@ fn route_request(
                 algorithm: String,
             }
             let req: BatchBody = json_body!(body, origin);
+            if let Some(claims) = &claims {
+                if let Err(e) = api::files::check_access_many(db, claims, &req.file_ids, "write")
+                {
+                    let status = if e.starts_with("not_found:") { 404 } else { 403 };
+                    return json_error(status, &e, origin);
+                }
+            }
             api_response(
                 api::batch::encrypt(db, &req.file_ids, &req.algorithm),
                 origin,
@@ -1446,6 +1641,13 @@ fn route_request(
                 layer: String,
             }
             let req: BatchBody = json_body!(body, origin);
+            if let Some(claims) = &claims {
+                if let Err(e) = api::files::check_access_many(db, claims, &req.file_ids, "write")
+                {
+                    let status = if e.starts_with("not_found:") { 404 } else { 403 };
+                    return json_error(status, &e, origin);
+                }
+            }
             api_response(api::batch::compress(db, &req.file_ids, &req.layer), origin)
         }
 
@@ -1508,12 +1710,19 @@ fn route_request(
                 note: Option<String>,
             }
             let req: AddItemBody = json_body!(body, origin);
+            // P0-1: collecting a file needs `read` on it.
+            if let Some(denied) = deny_file(db, &claims, &req.file_id, "read", origin) {
+                return denied;
+            }
             api_response(
                 api::collections::add_item(db, id, &req.file_id, req.note),
                 origin,
             )
         }
         ["api", "collections", id, "items", file_id] if method == "DELETE" => {
+            if let Some(denied) = deny_file(db, &claims, file_id, "read", origin) {
+                return denied;
+            }
             api_response(api::collections::remove_item(db, id, file_id), origin)
         }
         ["api", "collection-items"] if method == "GET" => {
@@ -1553,6 +1762,10 @@ fn route_request(
                 file_id: String,
             }
             let req: AddLooseFileBody = json_body!(body, origin);
+            // P0-1: grouping a file stamps its node — needs `read`.
+            if let Some(denied) = deny_file(db, &claims, &req.file_id, "read", origin) {
+                return denied;
+            }
             api_response(
                 api::files::add_to_loose_group(db, group_id, &req.file_id),
                 origin,
@@ -1641,7 +1854,11 @@ fn route_request(
                 config: cybermanju_types::agent::AgentConfig,
             }
             let req: ConfigBody = json_body!(body, origin);
-            api_response(api::agent_api::save_config(db, req.config), origin)
+            // P0-8: `mcp_servers` / `auto_approve` / broad `bash` allow need
+            // admin (process spawn + unattended shell). Everyone else saves
+            // only unprivileged configs — `auth:` denials are 403.
+            let (_, is_admin) = claims_owner(&claims);
+            auth_response(api::agent_api::save_config_as(db, req.config, is_admin), origin)
         }
         ["api", "agent", "configs", id] if method == "GET" => {
             api_response(api::agent_api::get_config(db, id), origin)
@@ -2815,6 +3032,7 @@ fn status_text(status: u16) -> &'static str {
         500 => "Internal Server Error",
         501 => "Not Implemented",
         503 => "Service Unavailable",
+        507 => "Insufficient Storage",
         _ => "Error",
     }
 }
@@ -2972,13 +3190,15 @@ pub fn handle_sse_connection(
             return;
         }
     };
-    if security::authorize(&claims, security::RequiredRole::Authenticated).is_err() {
+    if security::authorize(&claims, security::RequiredRole::Authenticated, "GET").is_err() {
         let _ = stream.write_all(json_error(403, "Forbidden", origin).as_bytes());
         return;
     }
-    if let Err(message) = api::agent_api::job_status(job_id) {
+    if let Err(message) = api::agent_api::job_status_for(job_id, &claims.user_id, claims.is_admin()) {
         let status = if message.contains("not found") || message.starts_with("not_found:") {
             404
+        } else if message.starts_with("auth:") {
+            403
         } else {
             400
         };
@@ -3009,7 +3229,8 @@ pub fn handle_sse_connection(
         if started.elapsed() >= max_stream {
             break;
         }
-        let snapshot = match api::agent_api::job_status(job_id) {
+        let snapshot = match api::agent_api::job_status_for(job_id, &claims.user_id, claims.is_admin())
+        {
             Ok(snapshot) => snapshot,
             Err(_) => break,
         };

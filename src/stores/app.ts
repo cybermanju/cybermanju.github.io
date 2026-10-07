@@ -19,7 +19,7 @@ import type {
   ShellResult, OsPs, OsTop, OsWorkers, OsJob, OsVolumeDf, DiskRow,
   SyncBackendType,
 } from '@/types'
-import { MODULE_METADATA, oauthSlugForBackend } from '@/types'
+import { MODULE_METADATA, oauthSlugForBackend, describeSyncError, agentErrorHint } from '@/types'
 import { parseStarIds, serializeStarIds } from '@/utils/stars'
 import { setAuthToken, getAuthToken, isWebMode, isStaticHost } from '@/composables/useTauri'
 
@@ -244,16 +244,28 @@ export const useAppStore = defineStore('cybermanju', () => {
   }
 
   const { notify } = useNotifications()
+  /** Count of suppressed `[WASM Mode]` parity gaps — surfaced in Settings/logs. */
+  const wasmGapCount = ref(0)
 
   function notifyError(msg: string, error: unknown) {
     const detail = error instanceof Error ? error.message : String(error)
     // On the static WASM pack the absence of the dashboard is expected —
-    // don't spam a toast per failed fetch on startup.
+    // don't spam a toast per failed fetch on startup, but log + count so
+    // parity gaps stay visible in the console.
     if (detail.startsWith('[WASM Mode]')) {
+      wasmGapCount.value += 1
+      console.error(`[WASM parity gap #${wasmGapCount.value}] ${msg}: ${detail}`)
       lastError.value = null
       return
     }
-    lastError.value = `${msg}: ${detail}`
+    // Centralized AGENT-1 hint: sync wording first, agent wording when the
+    // prefix is agent-specific (invalid:/context:/limit:) or sync has no hint.
+    let hint = describeSyncError(detail).hint
+    if (hint === 'See logs for detail.') {
+      const agent = agentErrorHint(detail)
+      if (!agent.hint.startsWith('See the transcript')) hint = agent.hint
+    }
+    lastError.value = hint !== 'See logs for detail.' ? `${msg}: ${detail} — ${hint}` : `${msg}: ${detail}`
     notify('error', lastError.value)
     console.error(lastError.value)
   }
@@ -1968,7 +1980,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     syncJobs, syncRuns, syncStatus, repairStatus, scrubRuns, leaseInfo, lastGc,
     osPs, osTop, osWorkers, osJobs, osDf, disks, shellBusy,
     trashItems, showTrashPanel, auditLog, fileVersions, dashboardStatus, shareLinks,
-    searchQuery, searchTotalResults, isSearching, isLoading, lastError, matrixRainEnabled,
+    searchQuery, searchTotalResults, isSearching, isLoading, lastError, wasmGapCount, matrixRainEnabled,
     commandPaletteOpen,
     showShortcutsHelp, createFolderPromptOpen,
     selectedFileIds, isMultiSelect, users, autoRefreshInterval, sortBy,

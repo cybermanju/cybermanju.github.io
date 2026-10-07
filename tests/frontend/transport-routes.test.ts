@@ -5,7 +5,7 @@
 // dashboard actually serves (see crates/web/src/lib.rs), and local-only
 // commands must be listed in WRITE_ONLY_COMMANDS instead of 404ing.
 import { describe, expect, it } from 'vitest'
-import { REST_ROUTES, WRITE_ONLY_COMMANDS } from '@/composables/useTauri'
+import { REST_FIRST, REST_ROUTES, WRITE_ONLY_COMMANDS } from '@/composables/useTauri'
 
 describe('REST route coverage', () => {
   it('maps suggest to the server suggest endpoint', () => {
@@ -22,6 +22,60 @@ describe('REST route coverage', () => {
     expect(REST_ROUTES.upload_remote_file.buildPath({})).toBe('/api/sync/upload')
   })
 
+  it('maps os_write to PUT /api/os/write (P1-6)', () => {
+    const r = REST_ROUTES.os_write
+    expect(r.method).toBe('PUT')
+    expect(r.buildPath({})).toBe('/api/os/write')
+    expect(r.transformRequest!({ path: '/note.txt', content: 'hi' })).toEqual({
+      path: '/note.txt',
+      content: 'hi',
+    })
+    expect(REST_FIRST.has('os_write')).toBe(true)
+  })
+
+  it('encodes OS volume paths as ?path= (P1-7)', () => {
+    expect(REST_ROUTES.os_stat.buildPath({ path: '/foo bar' })).toBe(
+      '/api/os/stat?path=%2Ffoo%20bar',
+    )
+    expect(REST_ROUTES.os_ls.buildPath({ path: '/a/b' })).toBe('/api/os/ls?path=%2Fa%2Fb')
+    expect(REST_ROUTES.os_du.buildPath({})).toBe('/api/os/du?path=%2F')
+    // Parent traversal survives as data, not as URL segments.
+    expect(REST_ROUTES.os_stat.buildPath({ path: '/x/../y' })).toBe(
+      '/api/os/stat?path=%2Fx%2F..%2Fy',
+    )
+  })
+
+  it('keeps the whole sync domain REST_FIRST (P1-5)', () => {
+    for (const cmd of [
+      'list_sync_configs',
+      'create_sync_config',
+      'delete_sync_config',
+      'start_sync',
+      'cancel_sync',
+      'get_sync_progress',
+      'test_sync_connection',
+      'list_remote_files',
+      'get_sync_job',
+      'list_sync_runs',
+      'get_sync_status',
+      'restore_sync_file',
+      'delete_remote_file',
+      'create_provider_repo',
+      'seed_repo_files',
+      'upload_remote_file',
+      'get_sync_usage',
+      'oauth_start',
+    ]) {
+      expect(REST_ROUTES[cmd]).toBeTruthy()
+      expect(REST_FIRST.has(cmd)).toBe(true)
+    }
+  })
+
+  it('keeps the paginated search REST route for the wasm unwrap (P1-8)', () => {
+    const r = REST_ROUTES.search_files_paginated
+    expect(r.method).toBe('GET')
+    expect(r.buildPath({ query: 'vault', limit: 20, offset: 40 })).toContain('/api/search/paginated')
+  })
   it('keeps local-only commands in WRITE_ONLY instead of 404ing', () => {
     for (const cmd of ['get_compression_stats', 'get_symbols', 'parse_file', 'upload_file']) {
       expect(WRITE_ONLY_COMMANDS.has(cmd)).toBe(true)

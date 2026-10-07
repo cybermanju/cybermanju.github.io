@@ -1360,6 +1360,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cybermanju-scene"
+version = "0.1.1"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cybermanju-search"
 version = "0.1.1"
 dependencies = [

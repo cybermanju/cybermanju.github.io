@@ -1,13 +1,13 @@
 # AGENTS.md — CyberManju OS agent rules
 
 > Source of truth for AI agents working in this repo. Verified against the
-> tree on 2026-10-06 (v0.1.0, `com.cybermanju.os`). If a rule below conflicts
+> tree on 2026-10-07 (v0.1.1, `com.cybermanju.os`). If a rule below conflicts
 > with a doc, this file wins for workflow; `ARCHITECTURE.md` wins for design.
 
 ## 0. Project identity
 
 - **Name:** CyberManju OS — quantum-resistant encrypted file manager + decentralized OS layer.
-- **Version:** `0.1.0` — `package.json` is the single source of truth.
+- **Version:** `0.1.1` — `package.json` is the single source of truth.
   Every other version carrier must agree (`bash scripts/check-version.sh`):
   `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`,
   all 15 `crates/*/Cargo.toml`, `docker-compose.yml` (`x-casaos`), `aur/PKGBUILD`, `README.md`.
@@ -21,9 +21,9 @@
 
 | Layer | Technology | Pinned fact |
 |---|---|---|
-| Desktop | Tauri v2 (`src-tauri/`, `productName` CyberManju OS, 1400×900 window) | 20 command modules in `src-tauri/src/commands/`, 35 handlers wired in `lib.rs` |
-| Backend | Rust 2021 workspace, 15 members (`crates/*` + `src-tauri` + `docker/server`) | resolver `2`; dev/test profiles use `line-tables-only`, no workspace deps for third-party |
-| Frontend | Vue 3 Composition API + Pinia + TypeScript 5.8 + Vite 6.3 | 42 `src/components/*.vue`, 27 `src/composables/*.ts`, 25 `src/utils/*.ts`, 1 Pinia store (`stores/app.ts`) |
+| Desktop | Tauri v2 (`src-tauri/`, `productName` CyberManju OS, 1400×900 window) | 19 command modules in `src-tauri/src/commands/`, 130 handlers wired in `lib.rs` |
+| Backend | Rust 2021 workspace, 17 members (15 `crates/*` + `src-tauri` + `docker/server`) | resolver `2`; dev/test profiles use `line-tables-only`, no workspace deps for third-party |
+| Frontend | Vue 3 Composition API + Pinia + TypeScript 5.8 + Vite 6.3 | 44 top-level `src/components/*.vue` (+21 `ui/` primitives), 28 `src/composables/*.ts`, 28 `src/utils/*.ts`, 1 Pinia store (`stores/app.ts`) |
 | Reactive layer | `@vueuse/core` ^14.4.0 | Single shared hook `useSystemHardware()`; `useTitle`/`useBroadcastChannel`/`useDropZone` in use |
 | Icons | `@iconify/vue` + `@iconify-json/solar` via `scripts/generate-icon-set.mjs` | `npm run typecheck` runs `icons` first — **unknown `solar:*` names fail the build** |
 | Maps | `maplibre-gl` ^6.12.0 | GPS MapView with EXIF clustering |
@@ -33,21 +33,21 @@
 | Compression | LZ4 → ZSTD-15 → Brotli-11 cascade | Per-layer stats, `.cyb3` payloads |
 | Code intel | tree-sitter (rust/python/js/ts/go/bash) + heuristic fallback | Every result reports `"engine"` |
 | WASM | `crates/os-wasm` (agent/artifact/canal/compression/crypto/db/opfs/os) via `wasm-pack` + OPFS/localStorage | Pages transport = local volume + BM25-lite |
-| Tests | Vitest (node env), 25 files / 281 tests in `tests/frontend/` | Includes `scene` (42), `memory`, `provider-canal/ship`, `hermes`, `agent-*`, `panel-aliases` |
+| Tests | Vitest (node env), 28 files / 365 tests in `tests/frontend/` | Includes `scene` (42), `memory`, `provider-canal/ship`, `hermes`, `agent-*`, `panel-aliases` |
 
 ### Crate map (`crates/`)
 
 `agent` (loop/protocol/config/memory/providers/mcp/edit/redact/stream) ·
 `os` (api/shell/task/compute) · `os-wasm` (browser volume) ·
 `disk` (superblock/disk/allocator/catalog/volume) · `erasure` (RS k+m) ·
-`web` (18 `api/*.rs` + `security.rs`) · `sync` (models/backends/pipeline/scrub/repair/gc/lease) ·
+`web` (18 `api/*.rs` + `security.rs`) · `sync` (backends/pipeline/scrub/repair/gc/lease/state) ·
 `db` · `types` · `crypto` · `compression` · `search` · `faces` · `scene` · `tests`.
 
 ### Frontend transports (`src/composables/useTauri.ts`)
 
 `tauri` IPC (desktop) · `rest` (Docker/web `:3456`) · `wasm` (Pages).
 `os_*/disk/*` are `REST_FIRST`. Settings shows the active transport
-(`VITE_TRANSPORT` override). REST has 135+ route matches in `crates/web/src/lib.rs`.
+(`VITE_TRANSPORT` override). REST has 114 route arms in `crates/web/src/lib.rs`.
 
 ## 2. Toolchain rules (hard)
 
@@ -129,7 +129,10 @@ Secrets mirror GitHub (`TAURI_SIGNING_PRIVATE_KEY`, `ANDROID_KEYSTORE_*`).
   (`agent:key:<config_id>`, `hasKey` only). MCP tools `mcp__server__tool`,
   same rules, admin-gated attach.
 - **Hash-anchored edits (BLAKE3):** exact-once, whitespace-tolerant fallback,
-  stale-anchor `integrity:` refusal, `conflict:` on ambiguity.
+  stale-anchor `integrity:` refusal, short-anchor (<16 hex chars / 64 bits)
+  `integrity:` refusal, `conflict:` on ambiguity. Our trailer strips only
+  when it verifies (round-trip hash, or pre-edit bytes on edit/write) —
+  foreign anchor-shaped lines are content and stay.
 - **Honest limits:** ONNX faces return empty (never fabricated); code parse
   reports `"engine"`; WASM `sync`
   needs the dashboard; `encrypted:/binary:/too_large:` refusals on content API

@@ -280,7 +280,8 @@
 import AppIcon from '@/components/AppIcon.vue'
 import { ref, inject, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { isWebMode, isTauri, getServerUrl, setServerUrl } from '@/composables/useTauri'
+import { isTauri, getServerUrl, setServerUrl } from '@/composables/useTauri'
+import { useTransport } from '@/composables/useTransport'
 import {
   getSupabaseConfig,
   setSupabaseConfig,
@@ -288,35 +289,31 @@ import {
   supabaseConfigured,
   supabaseSignOut,
 } from '@/composables/useSupabase'
-import { wasmBackendActive } from '@/composables/useWasmBackend'
 import { ShortcutsKey } from '@/composables/shortcutsKey'
 import { useTouchConfig, type GestureType, type TouchAction } from '@/composables/useTouchConfig'
 
-/** Active transport: tauri IPC, REST dashboard, or local WASM (GitHub Pages). */
-const activeTransport = computed(() => {
-  if (import.meta.env.VITE_TRANSPORT) return String(import.meta.env.VITE_TRANSPORT).toUpperCase()
-  if (isTauri()) return 'Tauri desktop (REST-first: os/disk via :3456)'
-  if (wasmBackendActive()) return 'WASM local (Pages)'
-  if (isWebMode()) return 'Web / REST (:3456)'
-  return 'Unknown'
-})
+/**
+ * Active transport: tauri IPC, REST dashboard, or local WASM (GitHub Pages).
+ * Single source of truth is `useTransport()` (tauri → static-host/wasm →
+ * rest); `VITE_TRANSPORT` ('tauri'|'wasm'|'rest', aliases
+ * 'desktop'/'static'/'pages'/'web') forces a value when set at build time.
+ * `isStaticHost()` is the sync first-paint signal — never branch the label
+ * on async `wasmBackendActive()` (P1-4 flicker).
+ */
+const activeTransport = computed(() => useTransport().label)
 
 const transportShort = computed(() => {
-  if (isTauri()) return 'Tauri'
-  if (wasmBackendActive()) return 'WASM'
-  if (isWebMode()) return 'Web'
-  return 'Unknown'
+  const short = useTransport().short
+  return short === 'TAURI' ? 'Tauri' : short === 'WASM' ? 'WASM' : 'Web'
 })
 
-const transportTone = computed<'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info'>(() => {
-  if (isTauri()) return 'accent'
-  if (wasmBackendActive()) return 'info'
-  return 'neutral'
-})
+const transportTone = computed<'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info'>(
+  () => useTransport().tone,
+)
 
 const store = useAppStore()
 const shortcuts = inject(ShortcutsKey, null)
-const isBrowserKeys = computed(() => typeof window !== 'undefined' && !('__TAURI__' in window))
+const isBrowserKeys = computed(() => !isTauri())
 const touchConfig = useTouchConfig()
 const touchMeta = computed(() =>
   touchConfig.state.touchSupported ? (touchConfig.state.isMobile ? 'Touch · mobile' : 'Touch · desktop') : 'No touch',
@@ -333,9 +330,10 @@ const REFRESH_OPTIONS = [
 const currentServerUrl = computed(() => getServerUrl())
 const serverUrlDraft = ref(getServerUrl())
 const effectiveApiUrl = computed(() => {
-  if (currentServerUrl.value) return currentServerUrl.value.toUpperCase()
-  if (isTauri()) return 'TAURI IPC + HTTP://LOCALHOST:3456'
-  return 'HTTP://LOCALHOST:3456'
+  // Preserve case: upper-casing breaks copy-paste (HTTPS://…).
+  if (currentServerUrl.value) return currentServerUrl.value
+  if (isTauri()) return 'TAURI IPC + http://localhost:3456'
+  return 'http://localhost:3456'
 })
 
 function saveServerUrl() {

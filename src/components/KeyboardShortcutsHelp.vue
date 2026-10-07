@@ -43,7 +43,7 @@ import { useAppStore } from '@/stores/app'
 import { ShortcutsKey } from '@/composables/shortcutsKey'
 import type { ShortcutEntry } from '@/composables/useShortcuts'
 import { isTauri } from '@/composables/useTauri'
-import { wasmBackendActive } from '@/composables/useWasmBackend'
+import { useTransport } from '@/composables/useTransport'
 
 const store = useAppStore()
 const shortcuts = inject(ShortcutsKey)
@@ -61,15 +61,8 @@ watch(() => store.showShortcutsHelp, async (open) => {
   }
 })
 
-const inBrowser = computed(() => {
-  if (typeof window !== 'undefined' && '__TAURI__' in window) return false
-  return true
-})
-const transportLabel = computed(() => {
-  if (isTauri()) return 'TAURI'
-  if (wasmBackendActive()) return 'WASM'
-  return 'WEB'
-})
+const inBrowser = computed(() => !isTauri())
+const transportLabel = computed(() => useTransport().short)
 
 const allShortcuts = computed<ShortcutEntry[]>(() => {
   return shortcuts?.getAllShortcuts() || []

@@ -541,7 +541,15 @@ export interface LeaseInfo {
   [key: string]: unknown
 }
 
-/** Map AGENT-1 error prefixes to user-facing hints. Never throws. */
+/** Map AGENT-1 error prefixes to user-facing hints. Never throws.
+ *
+ * Covers the full AGENT-1 contract shared by sync + agent transports:
+ * `auth:/rate_limited:/not_found:/unsupported:/too_large:/integrity:/
+ * network:/disk_full:/conflict:` plus `invalid:/context:/limit:`.
+ * Sync call sites use the storage-flavoured hints below; agent call sites
+ * prefer {@link agentErrorHint} for LLM-run-flavoured wording of the same
+ * prefixes. Both functions recognise every prefix — the split is hint
+ * wording (scrub/resize vs COMPACT/retry), not coverage. */
 export function describeSyncError(err: string): { prefix: string; hint: string } {
   const prefix = (err.split(':')[0] || '').trim()
   switch (prefix) {
@@ -564,6 +572,12 @@ export function describeSyncError(err: string): { prefix: string; hint: string }
       return { prefix: 'disk_full', hint: 'Volume is full. Attach or resize a disk, then retry.' }
     case 'conflict':
       return { prefix, hint: 'Another writer holds the volume. Resolve the lease or change conflict policy.' }
+    case 'invalid':
+      return { prefix, hint: 'Request rejected before it ran — fix the field named in the message.' }
+    case 'context':
+      return { prefix, hint: 'Working set too large for this pass — narrow the scope, then retry.' }
+    case 'limit':
+      return { prefix, hint: 'Budget or page limit hit — raise the limit or continue from the cursor.' }
     default:
       return { prefix: 'unknown', hint: 'See logs for detail.' }
   }

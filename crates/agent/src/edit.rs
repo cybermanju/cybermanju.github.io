@@ -7,6 +7,11 @@
 // bigger block), `integrity:` (hash moved under you). Pure bytes in/out so
 // every transport — and the unit tests — share one applier.
 
+/// Minimum anchor strength: 16 hex chars = 64 bits. Anything shorter is
+/// refused outright — a 4-hex-char (16-bit) prefix "matches" one file in
+/// 65536 by luck, which is a coin flip, not a race check.
+const MIN_ANCHOR_HEX: usize = 16;
+
 /// Apply one anchored replacement. Returns the new file bytes.
 pub fn apply_edit(
     current: &str,
@@ -19,10 +24,16 @@ pub fn apply_edit(
     }
     let anchor = normalize_anchor(expected_hash.unwrap_or(""));
     if !anchor.is_empty() {
+        // Prefix-accept: both tools print the full hex, and a model echoing a
+        // 16+-char prefix still gets a real race check (64+ bits) instead of
+        // a permanent `integrity:` blocker. Shorter than that is not a check
+        // at all — refuse rather than flip a coin or block forever.
+        if anchor.len() < MIN_ANCHOR_HEX {
+            return Err(format!(
+                "integrity: anchor '{anchor}' is too short (need ≥{MIN_ANCHOR_HEX} hex chars / 64+ bits) — re-read and retry"
+            ));
+        }
         let actual = blake3_hex(current.as_bytes());
-        // Prefix-accept: both tools print the full hex, but a model echoing a
-        // short prefix must still get a real race check (64+ bits) instead of
-        // a permanent `integrity:` blocker.
         if !actual.starts_with(anchor) {
             return Err(format!(
                 "integrity: file changed since anchor (expected {anchor}, got {actual}) — re-read and retry"
@@ -133,22 +144,57 @@ pub fn anchor_line(hash: &str) -> String {
     format!("\n[blake3:{hash}]")
 }
 
-/// Drop a trailing `[blake3:<hex>]` line (with its newline) from content the
-/// model is writing back. The trailer describes the file; it is never file
-/// content — a model that echoes it out of a `read` must not corrupt the file.
-pub fn strip_anchor(content: &str) -> &str {
+/// Hex of a syntactically valid trailing `[blake3:<64hex>]` line, if the
+/// content ends with one (one trailing newline tolerated). Pure syntax —
+/// says nothing about whose trailer it is.
+pub fn anchor_trailer(content: &str) -> Option<&str> {
     let body = content.strip_suffix('\n').unwrap_or(content);
     let line_start = match body.rfind('\n') {
         Some(i) => i + 1,
         None => 0,
     };
-    if !is_anchor(&body[line_start..]) {
-        return content;
+    anchor_trailer_hex(&body[line_start..])
+}
+
+/// Drop a trailing `[blake3:<hex>]` line (with its newline) that **we**
+/// added — i.e. whose hex is the BLAKE3 of the bytes before it, the exact
+/// trailer `read` appends. A file that legitimately ends with an
+/// anchor-shaped line survives a write untouched: its hex cannot equal the
+/// hash of its own prefix unless a `read` put it there.
+pub fn strip_anchor(content: &str) -> &str {
+    strip_echo(content, None)
+}
+
+/// Write-path policy: like [`strip_anchor`], but also accepts the trailer of
+/// `existing` — bytes already on disk (the pre-edit file in an edit flow).
+/// A model that edits a file and echoes the *old* trailer is still echoing
+/// our metadata, not writing content, so the echo goes. Anything else —
+/// including a trailer-shaped line the model composed itself — stays.
+pub fn strip_echo(content: &str, existing: Option<&str>) -> &str {
+    let hex = match anchor_trailer(content) {
+        Some(hex) => hex,
+        None => return content,
+    };
+    let body = body_before_trailer(content);
+    if blake3_hex(body.as_bytes()) == hex {
+        return body;
     }
-    if line_start == 0 {
-        ""
-    } else {
-        &content[..line_start - 1]
+    if let Some(prev) = existing {
+        if blake3_hex(prev.as_bytes()) == hex {
+            return body;
+        }
+    }
+    content
+}
+
+/// Bytes before the trailing anchor line (never carrying its newline).
+/// Only meaningful when [`anchor_trailer`] is `Some`; otherwise the result
+/// is unused by the callers above.
+fn body_before_trailer(content: &str) -> &str {
+    let body = content.strip_suffix('\n').unwrap_or(content);
+    match body.rfind('\n') {
+        Some(i) => &content[..i],
+        None => "",
     }
 }
 
@@ -163,16 +209,10 @@ fn normalize_anchor(raw: &str) -> &str {
     t.trim_end_matches(']').trim()
 }
 
-fn is_anchor(line: &str) -> bool {
-    let rest = match line.strip_prefix("[blake3:") {
-        Some(rest) => rest,
-        None => return false,
-    };
-    let hex = match rest.strip_suffix(']') {
-        Some(hex) => hex,
-        None => return false,
-    };
-    hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit())
+fn anchor_trailer_hex(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("[blake3:")?;
+    let hex = rest.strip_suffix(']')?;
+    (hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then_some(hex)
 }
 
 #[cfg(test)]
@@ -268,6 +308,27 @@ mod tests {
     }
 
     #[test]
+    fn anchors_shorter_than_64_bits_refuse_as_integrity() {
+        let content = "hello";
+        let full = blake3_hex(content.as_bytes());
+        // 15 correct hex chars still refuse: a prefix that short is a coin
+        // flip (1 in 4 billion… worse, 16-bit at 4 chars), not a race check.
+        let tiny = &full[..15];
+        assert!(full.starts_with(tiny));
+        let err = apply_edit(content, "hello", "bye", Some(tiny)).expect_err("short");
+        assert!(err.starts_with("integrity:"), "{err}");
+        // Empty/missing anchor still means "no check", not a failure.
+        assert_eq!(
+            apply_edit(content, "hello", "bye", None).expect("none"),
+            "bye"
+        );
+        assert_eq!(
+            apply_edit(content, "hello", "bye", Some("")).expect("empty"),
+            "bye"
+        );
+    }
+
+    #[test]
     fn read_anchor_round_trips_and_never_survives_a_write() {
         let raw = "fn a() {}\n";
         let read_back = format!("{raw}{}", anchor_line(&blake3_hex(raw.as_bytes())));
@@ -281,7 +342,41 @@ mod tests {
             strip_anchor("a\n[blake3:not-hex]\n"),
             "a\n[blake3:not-hex]\n"
         );
-        // Anchor-only content collapses to an empty file, not a stray line.
-        assert_eq!(strip_anchor(&anchor_line(&blake3_hex(b"x"))), "");
+        // Anchor-only content strips only when it is ours (hash of empty);
+        // a foreign anchor-shaped line is content and stays.
+        assert_eq!(strip_anchor(&anchor_line(&blake3_hex(b""))), "");
+        let foreign = anchor_line(&blake3_hex(b"x"));
+        assert_eq!(strip_anchor(&foreign), foreign.as_str());
+    }
+
+    #[test]
+    fn legitimate_anchor_shaped_lines_survive_a_write() {
+        // A file that happens to end with an anchor-shaped line is content,
+        // not metadata: its hex cannot be the hash of its own prefix.
+        let foreign_hex = "0123456789abcdef".repeat(4);
+        assert_eq!(foreign_hex.len(), 64);
+        let legit = format!("doc about anchors\n[blake3:{foreign_hex}]");
+        assert_eq!(strip_anchor(&legit), legit.as_str());
+        // …unless it really is the round-trip trailer `read` appended.
+        let body = "doc about anchors\n";
+        let ours = format!("{body}{}", anchor_line(&blake3_hex(body.as_bytes())));
+        assert_eq!(strip_anchor(&ours), body);
+    }
+
+    #[test]
+    fn edited_echoes_of_the_previous_file_still_strip() {
+        let before = "line one\nline two\n";
+        let after_body = "line one\nline CHANGED\n";
+        let stale_echo = format!(
+            "{after_body}{}",
+            anchor_line(&blake3_hex(before.as_bytes()))
+        );
+        // Body-hash alone does not verify (the content changed)…
+        assert_eq!(strip_anchor(&stale_echo), stale_echo.as_str());
+        // …but against the bytes the model actually read, it is ours.
+        assert_eq!(strip_echo(&stale_echo, Some(before)), after_body);
+        // A trailer the model composed itself is content even with `existing`.
+        let forged = format!("{after_body}[blake3:{}]", "f".repeat(64));
+        assert_eq!(strip_echo(&forged, Some(before)), forged.as_str());
     }
 }

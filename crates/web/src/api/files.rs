@@ -308,6 +308,145 @@ pub fn preview(db: &Database, file_id: &str) -> Result<serde_json::Value, String
     }))
 }
 
+// ─── Object-level access (P0-1) ───────────────────────────────────────────
+///
+/// Port of the Tauri `verify_file_access` gate (`src-tauri/.../users.rs`)
+/// for the REST transport, which previously never called it.
+///
+/// Fail-closed: any unknown (missing file row, missing user row, database
+/// error, no matching permission) is `Err` — callers map that to 403/404
+/// and never serve bytes. `admin` bypasses like the Tauri helper, but only
+/// for active admin accounts. Permission rows are read as structs first
+/// (Tauri writer, `camelCase`) with a `serde_json::Value` fallback (legacy
+/// `userId`/`fileId` rows written by the REST setter), so neither writer
+/// silently loses its grants.
+
+/// Required access level ranks (`read` < `write` < `admin`).
+fn access_rank(access: &str) -> u8 {
+    match access {
+        "admin" => 3,
+        "write" => 2,
+        "read" => 1,
+        _ => 0,
+    }
+}
+
+/// Enforce that `claims` may use `file_id` at `required` (`read`/`write`).
+pub fn check_access(
+    db: &Database,
+    claims: &crate::security::Claims,
+    file_id: &str,
+    required: &str,
+) -> Result<(), String> {
+    if !claims.is_expired() && claims.role == "admin" {
+        // Admins hold global access — but only when the account still
+        // exists and is active (a deleted/deactivated admin loses it).
+        let tx = db
+            .begin_read()
+            .map_err(|_| "auth: access check unavailable".to_string())?;
+        let users = tx
+            .open_table(Database::get_users_table())
+            .map_err(|_| "auth: access check unavailable".to_string())?;
+        for entry in users.iter().map_err(|_| "auth: access check unavailable".to_string())? {
+            let (_, value) = entry.map_err(|_| "auth: access check unavailable".to_string())?;
+            if let Ok(user) =
+                serde_json::from_str::<cybermanju_types::schema::User>(value.value())
+            {
+                if user.id == claims.user_id && user.role == "admin" && user.is_active {
+                    return Ok(());
+                }
+            }
+        }
+        return Err("auth: admin account is not active".to_string());
+    }
+
+    let tx = db
+        .begin_read()
+        .map_err(|_| "auth: access check unavailable".to_string())?;
+    // Fail closed when the caller itself is unknown or deactivated.
+    let users = tx
+        .open_table(Database::get_users_table())
+        .map_err(|_| "auth: access check unavailable".to_string())?;
+    let mut caller_active = false;
+    for entry in users.iter().map_err(|_| "auth: access check unavailable".to_string())? {
+        let (_, value) = entry.map_err(|_| "auth: access check unavailable".to_string())?;
+        if let Ok(user) = serde_json::from_str::<cybermanju_types::schema::User>(value.value()) {
+            if user.id == claims.user_id {
+                caller_active = user.is_active;
+                break;
+            }
+        }
+    }
+    if !caller_active {
+        return Err("auth: unknown or deactivated account".to_string());
+    }
+
+    // The file must exist — unknown ids deny, never pass.
+    if db
+        .get_file_node(file_id)
+        .map_err(|_| "auth: access check unavailable".to_string())?
+        .is_none()
+    {
+        return Err(format!("not_found: file '{file_id}' not found"));
+    }
+
+    let table = tx
+        .open_table(Database::get_user_file_perms_table())
+        .map_err(|_| "auth: access check unavailable".to_string())?;
+    let need = access_rank(required);
+    for entry in table.iter().map_err(|_| "auth: access check unavailable".to_string())? {
+        let (_, value) = entry.map_err(|_| "auth: access check unavailable".to_string())?;
+        let raw = value.value();
+        // Struct path first (both writers store camelCase JSON).
+        if let Ok(perm) =
+            serde_json::from_str::<cybermanju_types::schema::UserFilePermission>(raw)
+        {
+            if perm.user_id == claims.user_id
+                && perm.file_id == file_id
+                && access_rank(&perm.access) >= need
+            {
+                return Ok(());
+            }
+            continue;
+        }
+        // Legacy/value fallback for rows with unexpected shapes.
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) {
+            let p_user = v
+                .get("userId")
+                .or_else(|| v.get("user_id"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
+            let p_file = v
+                .get("fileId")
+                .or_else(|| v.get("file_id"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
+            let p_access = v.get("access").and_then(|x| x.as_str()).unwrap_or("");
+            if p_user == claims.user_id && p_file == file_id && access_rank(p_access) >= need {
+                return Ok(());
+            }
+        }
+    }
+    Err(format!(
+        "auth: '{required}' access to file '{file_id}' denied"
+    ))
+}
+
+/// Enforce [`check_access`] over a batch of ids (fail-closed on the first
+/// denial — one unreadable id fails the whole batch).
+pub fn check_access_many(
+    db: &Database,
+    claims: &crate::security::Claims,
+    file_ids: &[String],
+    required: &str,
+) -> Result<(), String> {
+    for id in file_ids {
+        crate::security::validate_id(id).map_err(|e| format!("invalid: {e}"))?;
+        check_access(db, claims, id, required)?;
+    }
+    Ok(())
+}
+
 fn read_file(db: &Database, file_id: &str) -> Result<FileNode, String> {
     db.get_file_node(file_id)
         .map_err(|e| e.to_string())?

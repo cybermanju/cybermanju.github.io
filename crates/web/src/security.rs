@@ -112,6 +112,13 @@ impl RequiredRole {
     }
 }
 
+/// True for HTTP methods that mutate state. `GET`/`HEAD`/`OPTIONS` are
+/// reads; everything else (including `PATCH`, unknown verbs fail closed as
+/// writes at the call site via `authorize`) is a write.
+pub fn is_write_method(method: &str) -> bool {
+    matches!(method, "POST" | "PUT" | "DELETE" | "PATCH")
+}
+
 /// Second path segments the router in `route_request` actually matches.
 ///
 /// Kept beside the role table on purpose: both answer "does this path exist?",
@@ -208,16 +215,28 @@ pub fn required_role(method: &str, segments: &[&str]) -> RequiredRole {
     }
 }
 
-/// Authorize verified `claims` against a route requirement.
+/// Authorize verified `claims` against a route requirement for one HTTP
+/// method.
 ///
 /// Returns `Ok(())` when allowed, otherwise a short machine-readable reason
 /// that the caller turns into an HTTP 403.
-pub fn authorize(claims: &Claims, required: RequiredRole) -> Result<(), &'static str> {
+///
+/// P0-2 viewer rule: `role == "viewer"` is read-only — any write method
+/// (`POST`/`PUT`/`DELETE`/`PATCH`) is denied even when the route itself only
+/// demands `Authenticated`. Admins and `user`s are unaffected.
+pub fn authorize(
+    claims: &Claims,
+    required: RequiredRole,
+    method: &str,
+) -> Result<(), &'static str> {
     if claims.is_expired() {
         return Err("token expired");
     }
     if !required.is_satisfied_by(&claims.role) {
         return Err("insufficient role");
+    }
+    if claims.role == "viewer" && is_write_method(method) {
+        return Err("viewer role is read-only");
     }
     Ok(())
 }
@@ -899,15 +918,31 @@ mod tests {
             role: "user".into(),
             ..admin.clone()
         };
-        assert!(authorize(&admin, RequiredRole::Admin).is_ok());
-        assert!(authorize(&member, RequiredRole::Admin).is_err());
-        assert!(authorize(&member, RequiredRole::Authenticated).is_ok());
+        let viewer = Claims {
+            role: "viewer".into(),
+            ..admin.clone()
+        };
+        assert!(authorize(&admin, RequiredRole::Admin, "DELETE").is_ok());
+        assert!(authorize(&member, RequiredRole::Admin, "DELETE").is_err());
+        assert!(authorize(&member, RequiredRole::Authenticated, "POST").is_ok());
+
+        // P0-2: viewer is read-only — GET passes, writes are denied.
+        assert!(authorize(&viewer, RequiredRole::Authenticated, "GET").is_ok());
+        assert!(authorize(&viewer, RequiredRole::Authenticated, "HEAD").is_ok());
+        for method in ["POST", "PUT", "DELETE", "PATCH"] {
+            assert!(
+                authorize(&viewer, RequiredRole::Authenticated, method).is_err(),
+                "viewer must not {method}"
+            );
+        }
+        // Viewer still cannot reach admin routes even for reads.
+        assert!(authorize(&viewer, RequiredRole::Admin, "GET").is_err());
 
         let expired = Claims {
             exp: now_secs().saturating_sub(5),
             ..admin.clone()
         };
-        assert!(authorize(&expired, RequiredRole::Authenticated).is_err());
+        assert!(authorize(&expired, RequiredRole::Authenticated, "GET").is_err());
     }
 
     #[test]

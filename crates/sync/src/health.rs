@@ -325,6 +325,18 @@ pub fn status(db: &Database) -> Result<Vec<ProviderHealth>, String> {
 mod tests {
     use super::*;
 
+    /// The live health registry is process-global, and `cargo test` runs
+    /// tests in the same binary on multiple threads. A `clear()` in one
+    /// test would otherwise wipe another test's observations mid-run
+    /// (e.g. `failures_streak_into_quarantine…` observed 3 failures, then
+    /// a parallel `clear()` reverted the id to Healthy before `eligible()`
+    /// ran — `left: 2, right: 1`). Serialise every test that touches the
+    /// registry through this lock.
+    fn test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
     fn probe(id: &str) -> ProviderHealth {
         ProviderHealth {
             config_id: id.to_string(),
@@ -334,6 +346,7 @@ mod tests {
 
     #[test]
     fn a_fresh_provider_is_perfect_and_eligible() {
+        let _guard = test_lock().lock().unwrap();
         let h = probe("health-fresh");
         assert_eq!(h.score, 1.0);
         assert_eq!(h.status, HealthStatus::Healthy);
@@ -344,6 +357,7 @@ mod tests {
 
     #[test]
     fn failures_streak_into_quarantine_and_successes_re_admit() {
+        let _guard = test_lock().lock().unwrap();
         clear();
         let id = "health-streak";
         for i in 0..FAILURE_STREAK {
@@ -376,6 +390,7 @@ mod tests {
 
     #[test]
     fn a_disabled_config_is_never_eligible_even_when_healthy() {
+        let _guard = test_lock().lock().unwrap();
         let configs = vec![local_config("health-disabled", false)];
         assert!(eligible(&configs).is_empty());
     }
@@ -402,6 +417,7 @@ mod tests {
 
     #[test]
     fn quarantine_by_hand_is_noted_and_survives_a_perfect_score() {
+        let _guard = test_lock().lock().unwrap();
         clear();
         let h = quarantine("health-hand", "401 on every call");
         assert_eq!(h.status, HealthStatus::Quarantined);
@@ -428,6 +444,7 @@ mod tests {
 
     #[test]
     fn health_round_trips_through_the_table() {
+        let _guard = test_lock().lock().unwrap();
         let dir = std::env::temp_dir().join(format!(
             "cybermanju-health-test-{}-{}",
             std::process::id(),

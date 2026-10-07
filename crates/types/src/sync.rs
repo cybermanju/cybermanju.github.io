@@ -180,6 +180,11 @@ pub struct SyncFile {
 pub struct SyncRunRecord {
     pub run_id: String,
     pub config_id: String,
+    /// JWT `user_id` that started the run (`None` = legacy row written
+    /// before per-user jobs; those stay visible to any authenticated
+    /// caller, new rows are owner-checked).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<String>,
     pub started_at: String,
     pub finished_at: String,
     pub status: SyncStatus,
