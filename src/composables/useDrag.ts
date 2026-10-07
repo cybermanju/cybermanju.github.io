@@ -185,7 +185,12 @@ export function useDrag() {
       el?.classList.remove(options.highlightClass || 'drop-highlight')
       const raw = e.dataTransfer?.getData(DATA_TRANSFER_TYPE)
       if (!raw) return
-      const data = JSON.parse(raw)
+      let data: unknown
+      try {
+        data = JSON.parse(raw)
+      } catch {
+        return
+      }
       if (options.accept && !options.accept(data)) return
       options.onDrop?.(data, e)
     }

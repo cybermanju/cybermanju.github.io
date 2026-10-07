@@ -660,13 +660,13 @@ jobs:
           echo "" >> release_notes.md
           echo "| Platform | File |" >> release_notes.md
           echo "|----------|------|" >> release_notes.md
-          echo "| Windows | \`dist-windows.zip\` (MSI/NSIS installers) |" >> release_notes.md
-          echo "| Linux | \`dist-linux.zip\` (deb + AppImage) |" >> release_notes.md
-          echo "| Linux (RPM) | \`dist-rpm.zip\` (RPM for Fedora/RHEL) |" >> release_notes.md
-          echo "| Linux (Flatpak) | \`dist-flatpak.zip\` (Universal Linux) |" >> release_notes.md
-          echo "| Linux (Arch) | \`dist-arch.zip\` (deb + AppImage on Arch) |" >> release_notes.md
-          echo "| macOS | \`dist-macos.zip\` (DMG) |" >> release_notes.md
-          echo "| Android | \`dist-android.zip\` (signed APK, arm64-v8a) |" >> release_notes.md
+          echo "| Windows | \`.exe\` / \`.msi\` installers, straight off the release |" >> release_notes.md
+          echo "| Linux | \`.deb\` + \`.AppImage\`, straight off the release |" >> release_notes.md
+          echo "| Linux (RPM) | \`.rpm\` for Fedora/RHEL |" >> release_notes.md
+          echo "| Linux (Flatpak) | \`.flatpak\` (Universal Linux) |" >> release_notes.md
+          echo "| Linux (Arch) | \`*-arch.deb\` / \`*-arch.AppImage\` built on Arch |" >> release_notes.md
+          echo "| macOS | \`.dmg\` (app inside) |" >> release_notes.md
+          echo "| Android | signed \`.apk\` (arm64-v8a) |" >> release_notes.md
           echo "| Web (WASM) | \`dist-wasm.zip\` (static files for any web server) |" >> release_notes.md
           echo "| Docker | \`docker pull ${IMAGE}:latest\` |" >> release_notes.md
           echo "" >> release_notes.md
@@ -697,63 +697,42 @@ jobs:
       - name: Package artifacts
         run: |
           mkdir -p packages
-          
-          # Package Windows artifacts
-          if [ -d "artifacts/release-windows" ]; then
-            cd artifacts/release-windows
-            zip -r ../../packages/dist-windows.zip .
-            cd ../..
-          fi
-          
-          # Package Linux artifacts
-          if [ -d "artifacts/release-linux" ]; then
-            cd artifacts/release-linux
-            zip -r ../../packages/dist-linux.zip .
-            cd ../..
-          fi
-          
-          # Package RPM artifacts
-          if [ -d "artifacts/release-rpm" ]; then
-            cd artifacts/release-rpm
-            zip -r ../../packages/dist-rpm.zip .
-            cd ../..
-          fi
-          
-          # Package Flatpak artifacts
-          if [ -d "artifacts/release-flatpak" ]; then
-            cd artifacts/release-flatpak
-            zip -r ../../packages/dist-flatpak.zip .
-            cd ../..
-          fi
-          
-          # Package Arch artifacts
-          if [ -d "artifacts/release-arch" ]; then
-            cd artifacts/release-arch
-            zip -r ../../packages/dist-arch.zip .
-            cd ../..
-          fi
-          
-          # Package macOS artifacts
-          if [ -d "artifacts/release-macos" ]; then
-            cd artifacts/release-macos
-            zip -r ../../packages/dist-macos.zip .
-            cd ../..
-          fi
-          
-          # Package Android artifacts
-          if [ -d "artifacts/release-android" ]; then
-            cd artifacts/release-android
-            zip -r ../../packages/dist-android.zip .
-            cd ../..
-          fi
-          
-          # Package WASM artifacts
+
+          # Native installers ship as themselves (no zips): GitHub Release
+          # assets are a flat file list, so each family lands unpacked.
+          # Arch files take an `-arch` stem — the Arch container rebuilds the
+          # same Tauri bundle names as the Ubuntu job, so bare copies would
+          # clobber each other. macOS `.app` dirs are skipped on purpose: the
+          # app ships inside the `.dmg`.
+          copy_files() {
+            src="$1"; suffix="$2"; shift 2
+            [ -d "$src" ] || return 0
+            for pat in "$@"; do
+              while IFS= read -r -d '' f; do
+                base=$(basename "$f")
+                if [ -n "$suffix" ]; then
+                  stem="${base%.*}"; ext="${base##*.}"
+                  base="${stem}${suffix}.${ext}"
+                fi
+                cp "$f" "packages/$base"
+              done < <(find "$src" -type f -name "$pat" -print0)
+            done
+          }
+
+          copy_files artifacts/release-windows "" '*.exe' '*.msi'
+          copy_files artifacts/release-linux "" '*.deb' '*.AppImage'
+          copy_files artifacts/release-rpm "" '*.rpm'
+          copy_files artifacts/release-flatpak "" '*.flatpak'
+          copy_files artifacts/release-arch "-arch" '*.deb' '*.AppImage'
+          copy_files artifacts/release-macos "" '*.dmg'
+          copy_files artifacts/release-android "" '*.apk'
+
+          # Web stays a zip: it is a directory tree (index.html + assets),
+          # not a single installable file.
           if [ -d "artifacts/dist-wasm" ]; then
-            cd artifacts/dist-wasm
-            zip -r ../../packages/dist-wasm.zip .
-            cd ../..
+            (cd artifacts/dist-wasm && zip -r ../../packages/dist-wasm.zip .)
           fi
-          
+
           # List all packages
           ls -la packages/
 

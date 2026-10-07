@@ -147,8 +147,9 @@ pub fn workers(db: Option<&Database>) -> Workers {
                 if !disk.provider.is_empty() && providers.contains_key(&disk.provider) {
                     // Same provider seen through its disk: merge, never double
                     // count — one provider, one slice of the pool.
-                    let entry = providers.get_mut(&disk.provider).expect("checked above");
-                    entry.slots = entry.slots.max(slots);
+                    if let Some(entry) = providers.get_mut(&disk.provider) {
+                        entry.slots = entry.slots.max(slots);
+                    }
                     continue;
                 }
                 let id = disk.id.clone();

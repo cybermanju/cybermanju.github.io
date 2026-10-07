@@ -233,7 +233,9 @@ pub fn compress_file(
         }
     };
 
-    let (orig, comp, ratio, layer_label, layer_details, hash) = result.unwrap();
+    let Some((orig, comp, ratio, layer_label, layer_details, hash)) = result else {
+        return Err("integrity: compression produced no output".to_string());
+    };
     let duration_ms = start.elapsed().as_millis() as u64;
 
     // Update file node metadata

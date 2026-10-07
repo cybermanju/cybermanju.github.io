@@ -74,8 +74,8 @@
         <div class="search-result-body">
           <div class="search-result-name" v-html="highlightTerms(result.fileName, store.searchQuery)"></div>
           <div class="search-result-snippet text-muted" v-if="result.snippet" v-html="highlightTerms(result.snippet, store.searchQuery)"></div>
-          <div v-if="topScene(result.fileName)" class="search-result-scene">
-            {{ topScene(result.fileName)!.label.toUpperCase() }} {{ Math.round(topScene(result.fileName)!.score * 100) }}%
+          <div v-if="sceneBadge(result.fileName)" class="search-result-scene">
+            {{ sceneBadge(result.fileName) }}
           </div>
         </div>
         <div class="search-result-score">{{ result.score.toFixed(3) }}</div>
@@ -205,6 +205,13 @@ function topScene(fileName: string) {
     path: file?.path,
   })
   return scores[0] ?? null
+}
+
+/** Single-call badge text for the template (avoids triple classification per row). */
+function sceneBadge(fileName: string): string {
+  const top = topScene(fileName)
+  if (!top) return ''
+  return `${top.label.toUpperCase()} ${Math.round(top.score * 100)}%`
 }
 
 function escapeHtml(s: string): string {

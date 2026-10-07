@@ -149,11 +149,13 @@ function toggleMapStyle() {
 }
 
 function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen()
-  } else {
-    document.exitFullscreen()
-  }
+  try {
+    if (!document.fullscreenElement) {
+      void document.documentElement.requestFullscreen().catch(() => {})
+    } else {
+      void document.exitFullscreen().catch(() => {})
+    }
+  } catch { /* fullscreen unsupported — stay embedded */ }
 }
 
 async function handleLocationSearch() {
@@ -163,17 +165,22 @@ async function handleLocationSearch() {
   if (coordsMatch) {
     const lat = parseFloat(coordsMatch[1])
     const lng = parseFloat(coordsMatch[2])
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return
     if (map) map.flyTo({ center: [lng, lat], zoom: 12, essential: true })
     return
   }
   try {
     const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`)
+    if (!res.ok) return
     const data = await res.json()
     if (data && data.length > 0) {
       const { lat, lon } = data[0]
-      if (map) map.flyTo({ center: [parseFloat(lon), parseFloat(lat)], zoom: 12, essential: true })
+      const flat = parseFloat(lat)
+      const flon = parseFloat(lon)
+      if (!Number.isFinite(flat) || !Number.isFinite(flon)) return
+      if (map) map.flyTo({ center: [flon, flat], zoom: 12, essential: true })
     }
-  } catch {}
+  } catch { /* offline / blocked geocoder — stay on current view */ }
 }
 
 function destroyMap() {
@@ -208,8 +215,8 @@ function addMarkers() {
     el.style.cssText = 'width:16px;height:16px;border:2px solid #000;background:#fff;cursor:pointer;'
     el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.4)' })
     el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)' })
-    const m = new maplibreglModule!.Marker({ element: el }).setLngLat([marker.lng, marker.lat]).addTo(map)
-    markers.push(m)
+    const m = maplibreglModule ? new maplibreglModule.Marker({ element: el }).setLngLat([marker.lng, marker.lat]).addTo(map) : null
+    if (m) markers.push(m)
   })
 }
 

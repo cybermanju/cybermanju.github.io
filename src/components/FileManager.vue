@@ -665,7 +665,8 @@ const scopeFolder = computed(() => {
 })
 const baseFiles = computed(() => {
   if (scopeFolder.value) {
-    const kids = store.files.filter(f => f.parentId === scopeFolder.value!.id)
+    const folderId = scopeFolder.value.id
+    const kids = store.files.filter(f => f.parentId === folderId)
     if (kids.length) return kids
   }
   return store.files
@@ -855,10 +856,20 @@ async function pasteHere() {
 }
 
 // ── bulk ──
-async function bulkEncrypt() { for (const id of [...store.selectedFileIds]) { try { await store.encryptFile(id, 'hybrid') } catch {} } clearSel() }
-async function bulkCompress() { for (const id of [...store.selectedFileIds]) { try { await store.compressFile(id, 'zstd') } catch {} } clearSel() }
+async function bulkEncrypt() {
+  let failed = 0
+  for (const id of [...store.selectedFileIds]) { try { await store.encryptFile(id, 'hybrid') } catch { failed++ } }
+  if (failed) store.notifyError(`Bulk encrypt: ${failed} file(s) failed`, 'see per-file messages')
+  clearSel()
+}
+async function bulkCompress() {
+  let failed = 0
+  for (const id of [...store.selectedFileIds]) { try { await store.compressFile(id, 'zstd') } catch { failed++ } }
+  if (failed) store.notifyError(`Bulk compress: ${failed} file(s) failed`, 'see per-file messages')
+  clearSel()
+}
 function bulkSync() { dlgSyncIds.value = [...store.selectedFileIds]; dlgSync.value = true }
-function bulkStar() { for (const id of store.selectedFileIds) store.toggleStar(id); clearSel() }
+async function bulkStar() { for (const id of [...store.selectedFileIds]) { try { await store.toggleStar(id) } catch { /* per-file toast already shown */ } } clearSel() }
 function askDeleteSel() { dlgDelete.value = null; dlgDeleteMany.value = store.selectedFileIds.length }
 
 // ── dialogs ──
@@ -983,11 +994,13 @@ const probing = ref(false)
 const remoteHits = ref<{ name: string; path: string; sizeBytes: number; url: string }[]>([])
 async function probeRemote(configId: string) {
   const cfg = store.syncConfigs.find(c => c.id === configId)
-  if (!cfg || !active.value) return
+  const file = active.value
+  if (!cfg || !file) return
+  const name = file.name
   probing.value = true
   try {
     const rem = await store.listRemoteFiles(cfg, '')
-    remoteHits.value = rem.filter(r => r.name.toLowerCase().includes(active.value!.name.toLowerCase().split('.')[0])).slice(0, 12)
+    remoteHits.value = rem.filter(r => r.name.toLowerCase().includes(name.toLowerCase().split('.')[0])).slice(0, 12)
     if (!remoteHits.value.length) store.notifySuccess('Probe done — no name match on this provider')
   } finally { probing.value = false }
 }
@@ -1029,7 +1042,7 @@ function getFaceGroupName(groupId: string): string {
 
 // ── share ──
 const lastShare = ref('')
-const sharesForActive = computed(() => active.value ? store.shareLinks.filter(s => s.fileId === active.value!.id) : [])
+const sharesForActive = computed(() => active.value ? store.shareLinks.filter(s => s.fileId === active.value?.id) : [])
 async function makeShare(hours: number) {
   if (!active.value) return
   const s = await store.generateShareLink(active.value.id, hours)

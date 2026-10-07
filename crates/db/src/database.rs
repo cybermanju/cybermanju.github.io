@@ -537,7 +537,7 @@ impl Database {
             let trash_table = tx.open_table(TRASH_TABLE)?;
             let found: Option<TrashItem> = trash_table
                 .get(file_id)?
-                .map(|v| serde_json::from_str::<TrashItem>(v.value()).unwrap());
+                .and_then(|v| serde_json::from_str::<TrashItem>(v.value()).ok());
             found
         };
         if let Some(ref item) = result {
@@ -649,7 +649,7 @@ impl Database {
             let mut files_table = tx.open_table(FILES_TABLE)?;
             let existing_node: Option<FileNode> = files_table
                 .get(file_id)?
-                .map(|v| serde_json::from_str::<FileNode>(v.value()).unwrap());
+                .and_then(|v| serde_json::from_str::<FileNode>(v.value()).ok());
             if let Some(mut file_node) = existing_node {
                 file_node.hash_blake3 = ver.hash_blake3.clone();
                 file_node.size_bytes = ver.size_bytes;
