@@ -160,3 +160,4 @@ Stage Summary:
 - `push.sh` rewritten: `git add -A` + message arg (no more bare `update`), pushes main + tags to GitHub `origin` AND GitLab `gitlab` mirror, no force-push.
 - Verified here: `check-version.sh` agrees, `npm run typecheck` clean, `vitest` 22 files / 250 pass.
 - Not run here: `cargo fmt/clippy/test --workspace`, desktop/mobile builds — CI + release workflows must prove them. Previous v0.1.0 Release run failed on WASM build, Android signing secrets, and Linux apt deps (logs need repo admin to read); tag move + re-run pending.
+- GitLab mirror live (`.gitlab-ci.yml` 15 jobs + secrets inventory); first pipeline fails at creation with `Identity verification is required in order to run CI jobs` — account-level gate, needs owner verification + the 5 CI variables.
