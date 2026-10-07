@@ -285,7 +285,10 @@ pub fn create_repo(
         }
     }
     if token.trim().is_empty() {
-        return Err("auth: repo creation needs a token — paste a PAT or connect with OAuth first".to_string());
+        return Err(
+            "auth: repo creation needs a token — paste a PAT or connect with OAuth first"
+                .to_string(),
+        );
     }
     cybermanju_sync::create_repository(&cybermanju_sync::CreateRepoInput {
         backend: req.backend_type,
@@ -333,10 +336,7 @@ pub fn seed_repo(req: SeedRepoRequest) -> Result<Vec<String>, String> {
     let mut urls = Vec::with_capacity(req.files.len());
     for file in &req.files {
         let clean = file.path.trim().trim_matches('/').to_string();
-        if clean.is_empty()
-            || clean.split('/').any(|s| s == "..")
-            || clean.len() > 256
-        {
+        if clean.is_empty() || clean.split('/').any(|s| s == "..") || clean.len() > 256 {
             let _ = fs::remove_dir_all(&dir);
             return Err(format!("unsupported: seed path '{}' is invalid", file.path));
         }
@@ -380,11 +380,11 @@ pub struct UploadRequest {
 /// already-encrypted artifacts when the config demands it).
 pub fn upload_bytes(req: UploadRequest) -> Result<String, String> {
     let clean = req.remote_path.trim().trim_matches('/').to_string();
-    if clean.is_empty()
-        || clean.split('/').any(|s| s == "..")
-        || clean.len() > 256
-    {
-        return Err(format!("unsupported: upload path '{}' is invalid", req.remote_path));
+    if clean.is_empty() || clean.split('/').any(|s| s == "..") || clean.len() > 256 {
+        return Err(format!(
+            "unsupported: upload path '{}' is invalid",
+            req.remote_path
+        ));
     }
     let bytes = base64::Engine::decode(
         &base64::engine::general_purpose::STANDARD,
@@ -807,7 +807,8 @@ pub fn restore(db: &RwLock<Database>, req: RestoreRequest) -> Result<RestoreOutc
         );
     }
 
-    let mut bytes = fs::read(&part).map_err(|e| format!("integrity: restore read failed: {}", e))?;
+    let mut bytes =
+        fs::read(&part).map_err(|e| format!("integrity: restore read failed: {}", e))?;
     let _ = fs::remove_file(&part);
 
     // Decrypt first (magic prefix), then decompress.
@@ -856,8 +857,13 @@ pub fn restore(db: &RwLock<Database>, req: RestoreRequest) -> Result<RestoreOutc
 
     if let Some(parent) = Path::new(&dest).parent() {
         if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("integrity: restore could not create '{}': {}", parent.display(), e))?;
+            fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "integrity: restore could not create '{}': {}",
+                    parent.display(),
+                    e
+                )
+            })?;
         }
     }
     fs::write(&dest, &bytes).map_err(|e| format!("integrity: restore write failed: {}", e))?;

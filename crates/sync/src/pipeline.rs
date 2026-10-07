@@ -345,7 +345,10 @@ impl SyncPipeline {
         }
 
         if !Path::new(&original_path).exists() {
-            return Err(format!("not_found: file not found on disk: {}", original_path));
+            return Err(format!(
+                "not_found: file not found on disk: {}",
+                original_path
+            ));
         }
 
         // <<< AGENT-6 ADMISSION >>>
@@ -1230,10 +1233,10 @@ struct Artifact {
 }
 
 /// Persist one `sync_files` locator record (item 2).
-    fn write_sync_file(record: &SyncFile, db: &RwLock<Database>) -> Result<(), String> {
-        let db = db.write().map_err(|e| e.to_string())?;
-        db.upsert_sync_file(record).map_err(|e| e.to_string())
-    }
+fn write_sync_file(record: &SyncFile, db: &RwLock<Database>) -> Result<(), String> {
+    let db = db.write().map_err(|e| e.to_string())?;
+    db.upsert_sync_file(record).map_err(|e| e.to_string())
+}
 
 /// Collision-safe remote locator for a local path (item 4).
 ///
@@ -1323,8 +1326,14 @@ mod tests {
         let plain = remote_path_for("/data/photo.png", false);
         let hidden = remote_path_for("/data/photo.png", true);
         assert!(plain.ends_with("/photo.png"));
-        assert!(!hidden.contains("photo"), "obfuscated locator must not leak the name");
-        assert!(!hidden.contains("png"), "obfuscated locator must not leak the extension");
+        assert!(
+            !hidden.contains("photo"),
+            "obfuscated locator must not leak the name"
+        );
+        assert!(
+            !hidden.contains("png"),
+            "obfuscated locator must not leak the extension"
+        );
         assert_eq!(hidden, remote_path_for("/data/photo.png", true));
         // Same basename elsewhere still maps elsewhere (dir hash preserved).
         let other = remote_path_for("/elsewhere/photo.png", true);
