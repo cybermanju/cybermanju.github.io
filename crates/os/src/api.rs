@@ -827,7 +827,7 @@ mod tests {
         assert_eq!(k.unlink("/docs").expect_err("dir"), "is a directory: /docs");
         k.remove_tree("/docs").expect("rm -r");
         assert!(k.readdir("/docs").is_err());
-        assert_eq!(k.stat("/docs").expect_err("gone"), "not found: /docs");
+        assert_eq!(k.stat("/docs").expect_err("gone"), "not_found: /docs");
     }
 
     #[test]
