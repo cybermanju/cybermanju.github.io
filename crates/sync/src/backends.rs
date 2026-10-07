@@ -2854,7 +2854,7 @@ pub fn create_repository(input: &CreateRepoInput) -> Result<CreatedRepo, String>
                 .unwrap_or_else(|| "https://gitlab.com".to_string());
             create_gitlab_project(input, &repo, &base)
         }
-        other if other.is_empty() => Err(format!(
+        "" => Err(format!(
             "{}: provider is required ('github' or 'gitlab')",
             retry::UNSUPPORTED
         )),
