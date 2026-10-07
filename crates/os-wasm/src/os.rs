@@ -878,10 +878,7 @@ mod tests {
 
     #[test]
     fn cp_and_mv_round_trip() {
-        let out = dispatch(
-            "write",
-            &["/cp-src.txt".to_string(), "copy me".to_string()],
-        );
+        let out = dispatch("write", &["/cp-src.txt".to_string(), "copy me".to_string()]);
         assert!(out.contains(r#""ok":true"#), "{out}");
         let out = dispatch(
             "cp",
@@ -904,10 +901,7 @@ mod tests {
         let out = dispatch("cat", &["/cp-moved.txt".to_string()]);
         assert!(out.contains("copy me"), "{out}");
         // Missing sources refuse with the house prefix.
-        let out = dispatch(
-            "cp",
-            &["/cp-nope.txt".to_string(), "/cp-x.txt".to_string()],
-        );
+        let out = dispatch("cp", &["/cp-nope.txt".to_string(), "/cp-x.txt".to_string()]);
         assert!(out.contains("not found:"), "{out}");
         let out = dispatch("cp", &["/cp-src.txt".to_string()]);
         assert!(out.contains("usage: cp"), "{out}");
@@ -972,7 +966,10 @@ mod tests {
         let out = dispatch("help", &[]);
         assert!(out.contains(r#""ok":true"#), "{out}");
         assert!(out.contains("local volume:"), "{out}");
-        assert!(out.contains("local vault (offline, no dashboard):"), "{out}");
+        assert!(
+            out.contains("local vault (offline, no dashboard):"),
+            "{out}"
+        );
         assert!(out.contains("dashboard only"), "{out}");
         assert!(out.contains("quota"), "{out}");
         assert!(out.contains("sync start"), "{out}");
