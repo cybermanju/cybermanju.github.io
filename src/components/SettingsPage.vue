@@ -45,6 +45,78 @@
     <main ref="bodyEl" class="st-body" @scroll.passive="onBodyScroll">
       <!-- ── appearance ── -->
       <UiCard id="st-sec-appearance" title="Appearance" icon="solar:monitor-bold" meta="View">
+        <div class="st-stack">
+          <UiText as="span" variant="label" tone="muted">Theme · {{ themeGroups.flatMap(g => g.ids).length }} themes</UiText>
+          <div v-for="group in themeGroups" :key="group.id" class="st-theme-group">
+            <UiText as="span" variant="small" tone="muted">{{ group.label }}</UiText>
+            <div class="st-theme-grid">
+              <button
+                v-for="id in group.ids"
+                :key="id"
+                type="button"
+                class="st-theme-swatch"
+                :class="{ 'is-active': theme.settings.theme === id }"
+                :title="theme.themes[id].label"
+                :aria-pressed="theme.settings.theme === id"
+                @click="theme.setTheme(id)"
+              >
+                <span
+                  class="st-theme-dot"
+                  :style="{
+                    background: `linear-gradient(135deg, ${theme.themes[id].palette.bgDeep} 0%, ${theme.themes[id].palette.bg} 55%, ${theme.themes[id].palette.accent} 140%)`,
+                    borderColor: theme.themes[id].palette.accent,
+                  }"
+                />
+                <span class="st-theme-name">{{ theme.themes[id].label }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="st-row">
+          <UiText as="span" variant="label" tone="muted">Accent</UiText>
+          <UiSelect
+            :model-value="theme.settings.accent ?? ''"
+            :options="accentOptions"
+            aria-label="Accent colour"
+            @update:model-value="theme.setAccent($event || null)"
+          />
+        </div>
+        <div class="st-row">
+          <UiText as="span" variant="label" tone="muted">Density</UiText>
+          <UiSelect
+            :model-value="theme.settings.density"
+            :options="[{ label: 'Comfortable', value: 'comfortable' }, { label: 'Compact', value: 'compact' }]"
+            aria-label="Density"
+            @update:model-value="theme.setDensity($event as 'comfortable' | 'compact')"
+          />
+        </div>
+        <div class="st-row">
+          <UiText as="span" variant="label" tone="muted">Vibrancy</UiText>
+          <UiSelect
+            :model-value="String(theme.settings.glass)"
+            :options="[
+              { label: 'Solid', value: '0' },
+              { label: 'Light', value: '1' },
+              { label: 'Default', value: '2' },
+              { label: 'Rich', value: '3' },
+            ]"
+            aria-label="Vibrancy"
+            @update:model-value="theme.setGlass(Number($event) as 0 | 1 | 2 | 3)"
+          />
+        </div>
+        <div class="st-row">
+          <UiText as="span" variant="label" tone="muted">Motion</UiText>
+          <UiSelect
+            :model-value="theme.settings.motion"
+            :options="[{ label: 'Auto', value: 'auto' }, { label: 'Full', value: 'full' }, { label: 'Reduced', value: 'reduced' }]"
+            aria-label="Motion"
+            @update:model-value="theme.setMotion($event as 'auto' | 'full' | 'reduced')"
+          />
+        </div>
+        <div class="st-row">
+          <UiText as="span" variant="label" tone="muted">Wallpaper glow</UiText>
+          <UiToggle :model-value="theme.settings.glow" aria-label="Wallpaper glow" @update:model-value="theme.setGlow($event)" />
+        </div>
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Default view</UiText>
           <UiSelect
@@ -294,6 +366,8 @@ import {
 } from '@/composables/useSupabase'
 import { ShortcutsKey } from '@/composables/shortcutsKey'
 import { useTouchConfig, type GestureType, type TouchAction } from '@/composables/useTouchConfig'
+import { useTheme } from '@/composables/useTheme'
+import { ACCENT_CHOICES, THEME_GROUPS, type ThemeId } from '@/ui/tokens'
 
 /**
  * Active transport: tauri IPC, REST dashboard, or local WASM (GitHub Pages).
@@ -315,6 +389,13 @@ const transportTone = computed<'neutral' | 'accent' | 'success' | 'warning' | 'd
 )
 
 const store = useAppStore()
+const theme = useTheme()
+const themeGroups = THEME_GROUPS
+const accentOptions = ACCENT_CHOICES.map((c) => ({ label: c.label, value: c.value }))
+
+function setThemeId(id: string) {
+  theme.setTheme(id as ThemeId)
+}
 const shortcuts = inject(ShortcutsKey, null)
 const isBrowserKeys = computed(() => !isTauri())
 const touchConfig = useTouchConfig()

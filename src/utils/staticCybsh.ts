@@ -1721,6 +1721,16 @@ const STATIC_THEME_IDS = [
   'mac-graphite-light',
   'mac-graphite-dark',
   'mac-midnight',
+  'ocean-light',
+  'sunset-light',
+  'forest-light',
+  'lavender-light',
+  'rose-light',
+  'ocean-night',
+  'forest-night',
+  'ember-night',
+  'nebula-night',
+  'cyber-night',
 ]
 const STATIC_THEME_ALIASES: Record<string, string> = {
   midnight: 'mac-midnight',

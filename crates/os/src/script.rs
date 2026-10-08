@@ -786,9 +786,6 @@ fn run_statement(ip: &mut Interp, lines: &[Line], idx: usize) -> Result<usize, S
         }
         return Ok(idx + 1);
     }
-        }
-        return Ok(idx + 1);
-    }
     if is_kw(&text, "free") {
         let name = expect_rest(&text, "free", lineno)?.trim().to_string();
         if ip.vars.remove(&name).is_some() {

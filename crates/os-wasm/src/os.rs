@@ -1416,6 +1416,16 @@ fn theme_ids() -> &'static [&'static str] {
         "mac-graphite-light",
         "mac-graphite-dark",
         "mac-midnight",
+        "ocean-light",
+        "sunset-light",
+        "forest-light",
+        "lavender-light",
+        "rose-light",
+        "ocean-night",
+        "forest-night",
+        "ember-night",
+        "nebula-night",
+        "cyber-night",
     ]
 }
 
@@ -1426,6 +1436,16 @@ fn canonical_theme(id: &str) -> Option<&'static str> {
         "mac-graphite-light" => Some("mac-graphite-light"),
         "mac-graphite-dark" => Some("mac-graphite-dark"),
         "mac-midnight" => Some("mac-midnight"),
+        "ocean-light" => Some("ocean-light"),
+        "sunset-light" => Some("sunset-light"),
+        "forest-light" => Some("forest-light"),
+        "lavender-light" => Some("lavender-light"),
+        "rose-light" => Some("rose-light"),
+        "ocean-night" => Some("ocean-night"),
+        "forest-night" => Some("forest-night"),
+        "ember-night" => Some("ember-night"),
+        "nebula-night" => Some("nebula-night"),
+        "cyber-night" => Some("cyber-night"),
         "midnight" => Some("mac-midnight"),
         "nebula" => Some("mac-dark"),
         "ember" => Some("mac-dark"),
@@ -1568,7 +1588,10 @@ fn ui_cmd(args: &[String]) -> String {
                 Some(r) => r,
                 None => return err("usage: ui accent <#rrggbb|#rgb|default>".to_string()),
             };
-            let next: Option<String> = if raw.as_str() == "default" || raw.as_str() == "system" || raw.as_str() == "none" {
+            let next: Option<String> = if raw.as_str() == "default"
+                || raw.as_str() == "system"
+                || raw.as_str() == "none"
+            {
                 None
             } else {
                 let hex = if raw.starts_with('#') {
