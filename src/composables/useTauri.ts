@@ -1247,6 +1247,8 @@ export const REST_FIRST = new Set([
   'agent_job_status', 'list_agent_jobs', 'abort_agent_job',
   'approve_agent_job', 'init_agent_run', 'compact_agent_session',
   'mcp_add_server', 'mcp_remove_server', 'mcp_list_tools',
+  'list_agent_memories', 'store_agent_memory', 'delete_agent_memory',
+  'recall_agent_memories',
 ])
 
 // Commands the `cybermanju-os-wasm` crate serves on a static host.
@@ -1701,6 +1703,19 @@ const STATIC_CYBSH_DEPS: StaticCybshDeps = {
     } catch {
       return null
     }
+  },
+  // Inline `sh` for `.cybsh` scripts: the wasm volume dispatcher answers
+  // single-command lines the static verbs don't (ls/cat/df/…).
+  execFallback: async (line) => {
+    const raw = (await wasmOsDispatch('exec', { line })) as {
+      ok?: boolean
+      output?: unknown
+    } | null
+    if (raw && typeof raw === 'object') {
+      if (raw.ok) return String(raw.output ?? '')
+      throw new Error(String(raw.output ?? 'command failed'))
+    }
+    throw new Error('wasm backend unavailable')
   },
 }
 

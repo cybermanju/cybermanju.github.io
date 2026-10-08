@@ -19,11 +19,23 @@ import {
   saveLocalSession,
   deleteLocalSession,
   abortLocalRun,
+  getLocalKey,
+  setLocalKey,
+  hasLocalKey,
   recallBlockLocal,
+  readChatConfigId,
+  writeChatConfigId,
+  CHAT_CONFIG_EVENT,
+  CHAT_CONFIG_ID_KEY,
+  LOCAL_CONFIGS_KEY,
+  AGENT_CONFIGS_EVENT,
+  AGENT_KEYS_EVENT,
+  localKeyRevision,
 } from '@/composables/useAgent'
 import { buildThread, estimateTranscriptTokens, contextWindowFor, estimateCost } from '@/utils/agentUi'
 import { agentErrorHint } from '@/types'
 import type { AgentConfig, AgentJob, AgentSession, ProviderPreset } from '@/types'
+import type { LocalFailoverRoute } from '@/composables/useAgent'
 
 export interface FileCtx {
   label: string
@@ -51,7 +63,7 @@ function localSystemPrompt(config: AgentConfig): string {
     `Working root: ${root}\n` +
     `Agent mode: ${config.agentKind} (plan = read-only, never edit).\n` +
     `SANDBOX: browser file volume — read/list/grep/glob/write/edit plus cybsh-subset bash, ` +
-    `one bounded read-only subagent (task), and HTTP MCP servers (mcp__*). Device shell ` +
+    `one bounded subagent (task) with the full file/shell toolset, and HTTP MCP servers (mcp__*). Device shell ` +
     `and stdio MCP need the dashboard and answer unsupported: there.\n` +
     `TOOLS — paths: leading / = volume root, else working-dir-relative.\n` +
     `- read {path}: always read a file before editing it; the output ends with a ` +
@@ -65,14 +77,21 @@ function localSystemPrompt(config: AgentConfig): string {
     `you read so a concurrent writer cannot slip through.\n` +
     `- write {path, content}: full-file create/overwrite; prefer edit for small changes.\n` +
     `- bash {command}: cybsh volume commands; device verbs answer unsupported:.\n` +
-    `- task {goal, context?}: one bounded read-only subagent (read/list/grep/glob only, 5 turns).\n` +
+    `- task {goal, context?}: one bounded subagent with the full file/shell toolset (read/edit/write/bash, 5 turns).\n` +
+    `- self_research {query, path?, limit?}: introspect YOUR OWN source — sweep this repo for how something works, get file:line snippets back. Read-only, plan-safe. Call it before claiming how the agent works.\n` +
+    `- skill_save {name, description, content}: persist a reusable skill into the \`.cybermanju\` container — survives restarts, syncs across devices.\n` +
+    `- mcp_attach {name, url}: attach an HTTP MCP server to this assistant persistently (verified before saving; stdio refused here).\n` +
+    `- repo_analyze {repo, branch?}: analyze any public GitHub repo WITHOUT cloning (metadata + tree + README over HTTPS; no git needed, works everywhere).\n` +
     `- mcp__server__tool: attached HTTP MCP servers only; stdio answers unsupported:.\n` +
     `- memory_recall {query, top_k?}: search long-term memory (past sessions, stored facts). ` +
     `Bounded and possibly stale — verify before acting.\n` +
     `- memory_remember {text}: store ONE durable fact for future sessions; one fact per call, ` +
     `never secrets or whole files.\n` +
-    `STANDING ORDERS: AGENTS.md, SKILL.md and .cybermanju/rules.md define your instructions, ` +
+    `STANDING ORDERS: AGENTS.md, SKILL.md, .cybermanju/rules.md and persisted skills ` +
+    `(.cybermanju/skills/*/SKILL.md) define your instructions, ` +
     `so writing one always asks for approval — AUTO APPROVE never covers them.\n` +
+    `SELF-UNDERSTANDING: when asked how YOU work, call self_research first and cite the files it returns; ` +
+    `extend yourself with skill_save (knowledge) and mcp_attach (HTTP tools).\n` +
     `WORKFLOW: orient (list/glob) → read → act → verify. Small verified steps; ` +
     `never invent file contents. Denials are information — work around them, never ` +
     `retry identically. Report errors with their machine prefix. Answer concisely; ` +
@@ -95,7 +114,9 @@ function createDriver() {
     }
   })
 
-  const chatConfigId = ref('')
+  // Shared with AgentPanel via localStorage: switching the assistant in one
+  // panel follows in the other, and the sealed key is never asked for twice.
+  const chatConfigId = ref(readChatConfigId())
   const serverViewing = ref<AgentSession | null>(null)
   const localViewing = ref<AgentSession | null>(null)
   const viewing = computed(() => (wasmMode.value ? localViewing.value : serverViewing.value))
@@ -119,9 +140,70 @@ function createDriver() {
   }
 
   function refreshLocal() {
-    localConfigs.value = listLocalConfigs().map(c => ({ ...c, hasKey: !!localKeys.value[c.id] || c.hasKey }))
+    // Touch the revision so hasKey badges re-evaluate when another panel
+    // seals/forgets a key (the vault itself is a non-reactive Map).
+    void localKeyRevision.value
+    localConfigs.value = listLocalConfigs().map(c => ({ ...c, hasKey: !!localKeys.value[c.id] || hasLocalKey(c.id) || c.hasKey }))
     localSessions.value = listLocalSessions()
+    // Drop a stale selection (config deleted elsewhere), else adopt the
+    // shared selection / first config so the Studio never idles on empty.
+    if (chatConfigId.value && !localConfigs.value.some(c => c.id === chatConfigId.value)) {
+      const shared = readChatConfigId()
+      chatConfigId.value = localConfigs.value.some(c => c.id === shared) ? shared : ''
+    }
+    if (!chatConfigId.value) {
+      const shared = readChatConfigId()
+      if (shared && localConfigs.value.some(c => c.id === shared)) chatConfigId.value = shared
+      else if (localConfigs.value.length) chatConfigId.value = localConfigs.value[0].id
+    }
   }
+
+  function adoptSharedSelection(id: string) {
+    if (!id) return
+    if (chatConfigId.value === id) return
+    // WASM: only adopt ids that exist locally; server mode validates below
+    // via the store list watcher.
+    if (wasmMode.value && !localConfigs.value.some(c => c.id === id)) {
+      refreshLocal()
+      if (!localConfigs.value.some(c => c.id === id)) return
+    }
+    chatConfigId.value = id
+  }
+
+  let studioSyncWired = false
+  function wireSharedSelection() {
+    if (studioSyncWired || typeof window === 'undefined') return
+    studioSyncWired = true
+    window.addEventListener(CHAT_CONFIG_EVENT, (e: Event) => {
+      adoptSharedSelection((e as CustomEvent<string>).detail ?? '')
+    })
+    window.addEventListener('storage', (e: StorageEvent) => {
+      if (e.key === CHAT_CONFIG_ID_KEY && e.newValue) adoptSharedSelection(e.newValue)
+      if (e.key === LOCAL_CONFIGS_KEY) refreshLocal()
+    })
+    window.addEventListener(AGENT_CONFIGS_EVENT, () => refreshLocal())
+    window.addEventListener(AGENT_KEYS_EVENT, () => refreshLocal())
+  }
+  wireSharedSelection()
+
+  // Persist every local change so the Agent panel (and a reload) follows.
+  watch(chatConfigId, id => {
+    if (id && readChatConfigId() !== id) writeChatConfigId(id)
+  })
+  // Server-mode configs live in Pinia: follow shared selection + deletions.
+  watch(() => store.agentConfigs.map(c => c.id).join(','), () => {
+    if (wasmMode.value) return
+    const ids = new Set(store.agentConfigs.map(c => c.id))
+    if (chatConfigId.value && !ids.has(chatConfigId.value)) {
+      const shared = readChatConfigId()
+      chatConfigId.value = shared && ids.has(shared) ? shared : (store.agentConfigs[0]?.id ?? '')
+    }
+    if (!chatConfigId.value) {
+      const shared = readChatConfigId()
+      if (shared && ids.has(shared)) chatConfigId.value = shared
+      else if (store.agentConfigs.length) chatConfigId.value = store.agentConfigs[0].id
+    }
+  })
 
   function localPresetFor(config: AgentConfig): ProviderPreset | null {
     return (
@@ -285,8 +367,32 @@ function createDriver() {
       store.notifyError('No endpoint', 'set an endpoint override or pick a preset with one')
       return false
     }
-    const key = localKeys.value[cfg.id] ?? ''
-    if (!key && !(preset?.keyless ?? false)) {
+    const key = localKeys.value[cfg.id] ?? getLocalKey(cfg.id) ?? ''
+    // Fallback routes: same transcript continues on the next usable assistant
+    // (extra account/key or another provider) when this one's call dies.
+    // Mirrors AgentPanel.sendPromptLocal (max 4, skip self/dupes/unusable).
+    const fallbackRoutes: LocalFailoverRoute[] = []
+    {
+      const seen = new Set([cfg.id])
+      for (const fid of cfg.fallbackIds ?? []) {
+        if (seen.has(fid) || fallbackRoutes.length >= 4) continue
+        seen.add(fid)
+        const fc = localConfigs.value.find(c => c.id === fid)
+        if (!fc) continue
+        const fp = localPresetFor(fc)
+        const fbase = (fc.baseUrlOverride || fp?.baseUrl || '').replace(/\/$/, '')
+        if (!fbase) continue
+        const fkey = localKeys.value[fc.id] ?? getLocalKey(fc.id) ?? ''
+        if (!fkey && !(fp?.keyless ?? false)) continue
+        const fdialect = (fc.dialectOverride ?? fp?.dialect ?? 'openAi') as 'openAi' | 'anthropic'
+        const fauth = (fc.authSchemeOverride ?? fp?.auth ?? 'bearer') as 'bearer' | 'header' | 'query' | 'none'
+        const fheaders: Array<[string, string]> = [...(fp?.extraHeaders ?? [])]
+        if (fauth === 'bearer' && fkey) fheaders.push(['Authorization', `Bearer ${fkey}`])
+        else if (fauth === 'header') fheaders.push([fc.authNameOverride || fp?.authName || 'x-api-key', fkey])
+        fallbackRoutes.push({ label: `${fc.name} · ${fc.model}`, baseUrl: fbase, dialect: fdialect, model: fc.model, headers: fheaders })
+      }
+    }
+    if (!key && !(preset?.keyless ?? false) && !fallbackRoutes.length) {
       store.notifyError('No API key', 'seal the key first (held in memory only)')
       return false
     }
@@ -330,6 +436,7 @@ function createDriver() {
         maxTurns: cfg.maxTurns,
         permission: cfg.permission, autoApprove: cfg.autoApprove, agentKind: cfg.agentKind,
         configId: cfg.id,
+        fallbacks: fallbackRoutes,
         onRemember: (tool: string) => {
           const updated: AgentConfig = {
             ...cfg, permission: { default: cfg.permission.default, rules: { ...cfg.permission.rules, [tool]: 'allow' } },
@@ -392,6 +499,7 @@ function createDriver() {
 
   function sealLocalKey(configId: string, key: string) {
     localKeys.value[configId] = key
+    setLocalKey(configId, key)
     refreshLocal()
   }
 

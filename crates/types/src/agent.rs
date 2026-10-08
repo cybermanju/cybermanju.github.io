@@ -402,9 +402,16 @@ pub fn ensure_default_mcp_servers(
 
 /// Default-allow the safe network-fetch commands and the default Exa
 /// search tools so a fresh config can search the web without an approval
-/// round-trip. Only fills gaps: explicit user rules are never overwritten.
+/// round-trip. Read-only research tools (`self_research`, `repo_analyze`)
+/// are allowed too — they never mutate. Only fills gaps: explicit user
+/// rules are never overwritten.
 pub fn ensure_default_agent_permissions(rules: &mut PermissionRuleset) {
-    for tool in ["mcp__exa__web_search_exa", "mcp__exa__web_fetch_exa"] {
+    for tool in [
+        "mcp__exa__web_search_exa",
+        "mcp__exa__web_fetch_exa",
+        "self_research",
+        "repo_analyze",
+    ] {
         if !rules.rules.contains_key(tool) {
             rules.rules.insert(
                 tool.to_string(),

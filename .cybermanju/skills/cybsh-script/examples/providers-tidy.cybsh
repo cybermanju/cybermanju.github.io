@@ -1,0 +1,28 @@
+# cybsh: 1
+# cap: deny=rm read=/providers/inbox write=/archive
+# providers-tidy.cybsh — provider inbox triage + theme signal.
+# Usage: `run /scripts/providers-tidy.cybsh`
+# Needs provider mounts (`/providers/<id>/…`); dashboard-only legs
+# (`sync start`, provider push) stay honest `unsupported:` on WASM.
+
+print "providers on this host:"
+$ providers
+
+try:
+  let pending = sh("ls /providers/inbox")
+  if len(pending) == 0:
+    print "inbox empty — nothing to file"
+  else:
+    print "filing:"
+    print pending
+    $ cp /providers/inbox/notes.txt /archive/notes.txt
+catch e:
+  print "triage skipped: " + e
+
+print "durability:"
+sh "scrub || echo scrub-unavailable-here"
+sh "gc --dry || echo gc-unavailable-here"
+
+# green accent = tidy run finished; errors above abort first.
+sh "ui accent #34c759"
+print "tidy done"

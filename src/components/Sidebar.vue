@@ -508,10 +508,9 @@ function showTreeContextMenu(e: MouseEvent) {
 
 .sidebar-account-name {
   font-family: var(--ui-font);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   color: var(--ui-text);
-  text-transform: uppercase;
 }
 
 .sidebar-tabs {

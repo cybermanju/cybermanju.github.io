@@ -100,8 +100,7 @@ function onClick(event: MouseEvent) {
   border-radius: var(--ui-radius-sm);
   border: 1px solid transparent;
   font-family: var(--ui-font);
-  font-weight: 650;
-  letter-spacing: 0.03em;
+  font-weight: 500;
   user-select: none;
   white-space: nowrap;
   cursor: pointer;
@@ -109,17 +108,17 @@ function onClick(event: MouseEvent) {
     background-color var(--ui-dur-fast) var(--ui-ease-out),
     border-color var(--ui-dur-fast) var(--ui-ease-out),
     color var(--ui-dur-fast) var(--ui-ease-out),
-    box-shadow var(--ui-dur) var(--ui-ease-out),
-    transform var(--ui-dur-fast) var(--ui-ease-spring);
+    box-shadow var(--ui-dur-fast) var(--ui-ease-out);
 }
 
 .ui-btn:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ui-accent) 75%, transparent);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--ui-glow-soft);
+  border-color: var(--ui-accent);
 }
 
 .ui-btn:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 
 .ui-btn:disabled {
@@ -152,37 +151,27 @@ function onClick(event: MouseEvent) {
 
 /* variants */
 .ui-btn--primary {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--ui-accent) 88%, white) 0%,
-    var(--ui-accent) 100%
-  );
+  background: var(--ui-accent);
   color: var(--ui-on-accent);
-  border-color: color-mix(in srgb, var(--ui-accent) 70%, transparent);
-  box-shadow:
-    var(--ui-glow-soft),
-    inset 0 1px 0 color-mix(in srgb, white 35%, transparent);
+  border-color: transparent;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 .ui-btn--primary:hover:not(:disabled) {
   background: var(--ui-accent-strong);
-  box-shadow: var(--ui-glow);
-  transform: translateY(-1px);
 }
 
 .ui-btn--secondary {
-  background: var(--ui-glass);
+  background: var(--ui-surface-2);
   border-color: var(--ui-border-strong);
-  color: var(--ui-text-2);
-  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  color: var(--ui-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
 .ui-btn--secondary:hover:not(:disabled) {
   background: var(--ui-surface-3);
   border-color: var(--ui-border-hover);
   color: var(--ui-text);
-  transform: translateY(-1px);
 }
 
 .ui-btn--ghost {
@@ -191,45 +180,41 @@ function onClick(event: MouseEvent) {
 }
 
 .ui-btn--ghost:hover:not(:disabled) {
-  background: var(--ui-accent-softer);
+  background: color-mix(in srgb, var(--ui-text) 7%, transparent);
   color: var(--ui-text);
 }
 
 .ui-btn--outline {
   background: transparent;
-  border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent);
-  color: var(--ui-accent);
+  border-color: var(--ui-border-strong);
+  color: var(--ui-text);
 }
 
 .ui-btn--outline:hover:not(:disabled) {
-  background: var(--ui-accent-softer);
-  border-color: var(--ui-accent);
-  box-shadow: var(--ui-glow-soft);
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--ui-text) 5%, transparent);
+  border-color: var(--ui-border-hover);
 }
 
 .ui-btn--danger {
-  background: color-mix(in srgb, var(--ui-danger) 16%, transparent);
-  border-color: color-mix(in srgb, var(--ui-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--ui-danger) 12%, transparent);
+  border-color: transparent;
   color: var(--ui-danger);
 }
 
 .ui-btn--danger:hover:not(:disabled) {
   background: var(--ui-danger);
   color: white;
-  box-shadow: 0 0 18px color-mix(in srgb, var(--ui-danger) 35%, transparent);
-  transform: translateY(-1px);
 }
 
 .ui-btn--subtle {
-  background: var(--ui-surface-2);
-  border-color: var(--ui-border);
+  background: color-mix(in srgb, var(--ui-text) 5%, transparent);
+  border-color: transparent;
   color: var(--ui-text-2);
 }
 
 .ui-btn--subtle:hover:not(:disabled) {
-  background: var(--ui-surface-3);
-  border-color: var(--ui-border-hover);
+  background: color-mix(in srgb, var(--ui-text) 9%, transparent);
+  border-color: transparent;
   color: var(--ui-text);
 }
 
@@ -249,37 +234,22 @@ function onClick(event: MouseEvent) {
 }
 
 .ui-btn__glow {
-  position: absolute;
-  inset: auto 10% -60% 10%;
-  height: 60%;
-  background: radial-gradient(
-    50% 100% at 50% 100%,
-    color-mix(in srgb, var(--ui-accent) 40%, transparent),
-    transparent
-  );
-  opacity: 0;
-  transition: opacity var(--ui-dur) var(--ui-ease-out);
-  pointer-events: none;
-  z-index: 0;
+  display: none;
 }
 
-.ui-btn:hover .ui-btn__glow {
-  opacity: 0.55;
-}
-
-/* ripple */
+/* ripple: quiet neutral press feedback */
 .ui-btn__ripple {
   position: absolute;
   width: 12px;
   height: 12px;
   margin: -6px 0 0 -6px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 18%, transparent);
   transform: scale(0);
-  opacity: 0.7;
+  opacity: 0.6;
   pointer-events: none;
   z-index: 0;
-  animation: ui-ripple 520ms var(--ui-ease-out) forwards;
+  animation: ui-ripple 420ms var(--ui-ease-out) forwards;
 }
 
 @keyframes ui-ripple {

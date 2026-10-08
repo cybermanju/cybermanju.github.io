@@ -3,14 +3,14 @@
     <div class="panel-header">
       <div class="header-left">
         <span class="icon-shield"><AppIcon name="solar:shield-check-bold" /></span>
-        <h2 class="panel-title">FILE SHIELD</h2>
+        <h2 class="panel-title">Security</h2>
       </div>
-      <button class="close-btn" @click="$emit('close')" aria-label="CLOSE"><AppIcon name="solar:close-bold" :size="13" /></button>
+      <button class="close-btn" @click="$emit('close')" aria-label="Close"><AppIcon name="solar:close-bold" :size="13" /></button>
     </div>
 
     <div class="sh-tabs" role="tablist" aria-label="Shield views">
-      <button role="tab" :aria-selected="activeTab === 'shield'" :class="{ on: activeTab === 'shield' }" type="button" @click="activeTab = 'shield'">SHIELD</button>
-      <button role="tab" :aria-selected="activeTab === 'compress'" :class="{ on: activeTab === 'compress' }" type="button" @click="activeTab = 'compress'">COMPRESS</button>
+      <button role="tab" :aria-selected="activeTab === 'shield'" :class="{ on: activeTab === 'shield' }" type="button" @click="activeTab = 'shield'">Shield</button>
+      <button role="tab" :aria-selected="activeTab === 'compress'" :class="{ on: activeTab === 'compress' }" type="button" @click="activeTab = 'compress'">Compress</button>
     </div>
 
     <!-- ══ SHIELD (merged encryption panel) ══ -->
@@ -18,33 +18,33 @@
       <div class="status-card" :class="{ protected: encryptionStatus?.isEncrypted }">
         <div class="status-top">
           <span class="status-badge" :class="encryptionStatus?.isEncrypted ? 'badge-protected' : 'badge-unprotected'">
-            {{ encryptionStatus?.isEncrypted ? 'PROTECTED' : 'UNPROTECTED' }}
+            {{ encryptionStatus?.isEncrypted ? 'Protected' : 'Not protected' }}
           </span>
         </div>
 
         <div class="status-details" v-if="encryptionStatus?.isEncrypted">
           <div class="algo-name">
-            <span>{{ encryptionStatus.algorithm || 'UNKNOWN' }}</span>
+            <span>{{ encryptionStatus.algorithm || 'Unknown' }}</span>
             <span class="nist-stars">
               <span v-for="n in (encryptionStatus.nistLevel || 0)" :key="n" class="star filled">*</span>
               <span v-for="n in 5 - (encryptionStatus.nistLevel || 0)" :key="'e' + n" class="star empty">o</span>
             </span>
           </div>
           <div class="status-meta">
-            <span class="meta-label">KEY ID:</span>
+            <span class="meta-label">Key</span>
             <span class="mono">{{ encryptionStatus.keyId || '--' }}</span>
           </div>
           <div class="status-meta" v-if="encryptionStatus.encryptedAt">
-            <span class="meta-label">ENCRYPTED:</span>
+            <span class="meta-label">Encrypted</span>
             <span class="mono">{{ formatDate(encryptionStatus.encryptedAt) }}</span>
           </div>
         </div>
         <div class="status-details" v-else>
-          <p class="unprotected-msg">NO QUANTUM-RESISTANT ENCRYPTION ACTIVE. GENERATE A KEYPAIR BELOW.</p>
+          <p class="unprotected-msg">No encryption active yet. Generate a key below to protect your files.</p>
         </div>
 
         <div class="nist-viz">
-          <span class="nist-label">NIST LEVEL</span>
+          <span class="nist-label">Strength</span>
           <div class="nist-circles">
             <div v-for="n in 5" :key="n" class="nist-circle" :class="{ filled: n <= (encryptionStatus?.nistLevel || 0) }">
               <span class="circle-num">{{ n }}</span>
@@ -56,7 +56,7 @@
       <div class="web-note" :class="{ info: !webLocked }">{{ cryptoNote }}</div>
 
       <div class="section">
-        <h3 class="section-title"><AppIcon name="solar:key-bold" :size="13" /> GENERATE KEYPAIR</h3>
+        <h3 class="section-title"><AppIcon name="solar:key-bold" :size="13" /> New key</h3>
         <div class="algo-buttons">
           <button v-for="(info, algo) in ENCRYPTION_INFO" :key="algo" class="algo-btn" :disabled="webLocked" :title="webLocked ? 'Needs the desktop app or offline build' : 'Generate ' + info.name" @click="handleGenerate(algo as EncryptionAlgo)">
             <div class="algo-top">
@@ -69,7 +69,7 @@
       </div>
 
       <div class="section" v-if="encryptionKeys.length > 0">
-        <h3 class="section-title"><AppIcon name="solar:key-bold" :size="13" /> ACTIVE KEYS ({{ encryptionKeys.length }})</h3>
+        <h3 class="section-title"><AppIcon name="solar:key-bold" :size="13" /> Keys ({{ encryptionKeys.length }})</h3>
         <div class="keys-list">
           <div v-for="key in encryptionKeys" :key="key.id" class="key-card">
             <div class="key-header">
@@ -83,7 +83,7 @@
       </div>
 
       <div class="section" v-if="selectedFile">
-        <h3 class="section-title"><AppIcon name="solar:lock-bold" :size="13" /> ENCRYPT SELECTED FILE</h3>
+        <h3 class="section-title"><AppIcon name="solar:lock-bold" :size="13" /> Encrypt selected file</h3>
         <p class="selected-file-name">{{ selectedFile.name }}</p>
         <div class="encrypt-actions">
           <select v-model="encAlgo" class="encrypt-select">
@@ -97,7 +97,7 @@
     <!-- ══ COMPRESS (merged compression panel) ══ -->
     <div v-else class="sh-compress">
       <div class="section">
-        <h3 class="section-title"><AppIcon name="solar:archive-bold" :size="13" /> COMPRESSION ALGORITHMS</h3>
+        <h3 class="section-title"><AppIcon name="solar:archive-bold" :size="13" /> Algorithm</h3>
         <div class="algo-list">
           <button
             v-for="(info, type) in COMPRESSION_INFO"
@@ -120,28 +120,28 @@
       <div class="web-note" :class="{ info: !webLocked }">{{ compressNote }}</div>
 
       <div class="section" v-if="selectedFile">
-        <h3 class="section-title"><AppIcon name="solar:file-bold" :size="13" /> SELECTED FILE</h3>
+        <h3 class="section-title"><AppIcon name="solar:file-bold" :size="13" /> Selected file</h3>
         <p class="selected-file-name">{{ selectedFile.name }}</p>
-        <button class="compress-btn" :disabled="webLocked" :title="webLocked ? 'Needs the desktop app or offline build' : 'Compress file'" @click="handleCompress"><AppIcon name="solar:archive-bold" :size="14" /> COMPRESS</button>
+        <button class="compress-btn" :disabled="webLocked" :title="webLocked ? 'Needs the desktop app or offline build' : 'Compress file'" @click="handleCompress"><AppIcon name="solar:archive-bold" :size="14" /> Compress</button>
       </div>
 
       <div class="section" v-if="compressionStats">
-        <h3 class="section-title"><AppIcon name="solar:chart-bold" :size="13" /> RESULTS</h3>
+        <h3 class="section-title"><AppIcon name="solar:chart-bold" :size="13" /> Result</h3>
         <div class="stats-card">
           <div class="stat-row">
-            <span class="stat-key text-muted">ORIGINAL</span>
+            <span class="stat-key text-muted">Original</span>
             <span class="stat-value">{{ humanBytes(compressionStats.originalSize) }}</span>
           </div>
           <div class="stat-row">
-            <span class="stat-key text-muted">COMPRESSED</span>
+            <span class="stat-key text-muted">Compressed</span>
             <span class="stat-value">{{ humanBytes(compressionStats.compressedSize) }}</span>
           </div>
           <div class="stat-row">
-            <span class="stat-key text-muted">RATIO</span>
+            <span class="stat-key text-muted">Ratio</span>
             <span class="stat-value">{{ (compressionStats.ratio * 100).toFixed(1) }}%</span>
           </div>
           <div class="stat-row">
-            <span class="stat-key text-muted">DURATION</span>
+            <span class="stat-key text-muted">Time</span>
             <span class="stat-value">{{ compressionStats.durationMs }}ms</span>
           </div>
         </div>
@@ -251,7 +251,7 @@ async function handleCompress() {
 }
 .header-left { display: flex; align-items: center; gap: 8px; }
 .icon-shield { font-size: 16px; }
-.panel-title { font-size: 14px; font-weight: 800; letter-spacing: 1px; margin: 0; }
+.panel-title { font-size: 13px; font-weight: 600; margin: 0; }
 .close-btn {
   background: none; border: 1px solid var(--ui-border); color: var(--ui-text);
   cursor: pointer; width: 24px; height: 24px; display: flex; align-items: center;
@@ -261,14 +261,14 @@ async function handleCompress() {
 
 .sh-tabs { display: flex; gap: 4px; }
 .sh-tabs button {
-  flex: 1; padding: 6px 0; font-size: 10px; font-weight: 800; letter-spacing: 0.1em;
-  background: transparent; border: 1px solid var(--ui-hairline); border-radius: 8px;
+  flex: 1; padding: 6px 0; font-size: 12px; font-weight: 500;
+  background: transparent; border: 1px solid transparent; border-radius: 8px;
   color: var(--ui-text-3); cursor: pointer;
 }
 .sh-tabs button.on {
-  color: var(--ui-accent);
-  border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent);
-  background: var(--ui-accent-softer);
+  color: var(--ui-text);
+  background: color-mix(in srgb, var(--ui-text) 8%, transparent);
+  font-weight: 600;
 }
 
 .sh-shield, .sh-compress { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
@@ -288,8 +288,8 @@ async function handleCompress() {
 
 .section { display: flex; flex-direction: column; gap: 10px; }
 .section-title {
-  font-size: 11px; font-weight: 700; letter-spacing: 1px;
-  color: color-mix(in srgb, var(--ui-text) 60%, transparent);
+  font-size: 12px; font-weight: 600;
+  color: var(--ui-text);
   margin: 0; display: flex; align-items: center; gap: 6px;
   padding-bottom: 4px; border-bottom: 1px solid var(--ui-hairline);
 }

@@ -1218,3 +1218,61 @@ describe('durability edge cases', () => {
     expect(fres?.output).toContain('0B freed')
   })
 })
+
+describe('text verbs (grep/find/head/tail/wc/edit)', () => {
+  it('are claimed by the static layer', () => {
+    for (const v of ['grep', 'find', 'head', 'tail', 'wc', 'edit']) {
+      expect(handlesStaticVerb(v)).toBe(true)
+      expect(handlesStaticVerb(v.toUpperCase())).toBe(true)
+    }
+  })
+
+  it('greps the local volume, case-insensitively with -n', async () => {
+    const { deps } = fakeDeps({ volume: { '/notes.txt': 'hello brave world\nsecond line' } })
+    expect((await runStaticCybshLine('grep brave /notes.txt', deps))?.output).toContain('brave')
+    expect((await runStaticCybshLine('grep -i BRAVE /notes.txt', deps))?.output).toContain('brave')
+    expect((await runStaticCybshLine('grep -n brave /notes.txt', deps))?.output).toMatch(/^1:/)
+    expect((await runStaticCybshLine('grep zzzqqq /notes.txt', deps))?.output).toMatch(/no matches/)
+    expect((await runStaticCybshLine('grep', deps))?.output).toMatch(/^usage: grep/)
+    expect((await runStaticCybshLine('grep x /missing.txt', deps))?.output).toMatch(/^not_found:/)
+  })
+
+  it('greps provider files and finds across the merged namespace', async () => {
+    const { deps } = fakeDeps()
+    expect((await runStaticCybshLine('grep readme /providers/m1/docs/a.md', deps))?.output).toContain(
+      'readme',
+    )
+    expect((await runStaticCybshLine('find /notes.txt', deps))?.output).toBe('/notes.txt')
+    expect((await runStaticCybshLine('find / notes', deps))?.output).toContain('/notes.txt')
+    expect((await runStaticCybshLine('find / zzzqqq', deps))?.output).toBe('(no matches)')
+    expect((await runStaticCybshLine('find /missing-dir', deps))?.output).toBe('(no matches)')
+  })
+
+  it('heads, tails and counts words', async () => {
+    const { deps } = fakeDeps({ volume: { '/n.txt': 'a\nb\nc' } })
+    expect((await runStaticCybshLine('head -n 1 /n.txt', deps))?.output).toBe('a')
+    expect((await runStaticCybshLine('tail -n 1 /n.txt', deps))?.output).toBe('c')
+    expect((await runStaticCybshLine('head /providers/m1/docs/a.md', deps))?.output).toContain(
+      '# readme',
+    )
+    const wc = await runStaticCybshLine('wc /n.txt', deps)
+    expect(wc?.output).toBe('3 3 5 /n.txt')
+    expect((await runStaticCybshLine('wc', deps))?.output).toMatch(/^usage: wc/)
+    expect((await runStaticCybshLine('head', deps))?.output).toMatch(/^usage: head/)
+    expect((await runStaticCybshLine('cat /missing.txt', deps))).toBeNull()
+  })
+
+  it('edits exact-once locally and on providers', async () => {
+    const { deps, state } = fakeDeps({ volume: { '/e.txt': 'hello brave world' } })
+    const ok = await runStaticCybshLine('edit /e.txt brave fearless', deps)
+    expect(ok?.ok).toBe(true)
+    expect(state.volume['/e.txt']).toBe('hello fearless world')
+    expect((await runStaticCybshLine('edit /e.txt zzzqqq y', deps))?.output).toMatch(/^not_found:/)
+    state.volume['/dup.txt'] = 'x x x'
+    expect((await runStaticCybshLine('edit /dup.txt x y', deps))?.output).toMatch(/^conflict:/)
+    expect((await runStaticCybshLine('edit /e.txt', deps))?.output).toMatch(/^usage: edit/)
+    const pv = await runStaticCybshLine('edit /providers/m1/docs/a.md readme README', deps)
+    expect(pv?.ok).toBe(true)
+    expect(new TextDecoder().decode(state.providers.m1['docs/a.md'])).toBe('# README')
+  })
+})

@@ -1,0 +1,29 @@
+# cybsh: 1
+# functions.cybsh — dicts, defs, structured shell output.
+# Usage: `run /scripts/functions.cybsh`
+
+def summarize(files):
+  let counts = {}
+  for f in files:
+    let ext = f
+    counts = set(counts, ext, int(str(len(ext))))
+  return counts
+
+let inventory = summarize(["notes", "report", "data"])
+print inventory
+print keys(inventory)
+
+try:
+  let st = sh("sync status --json")
+  print "jobs: " + str(len(st))
+catch:
+  print "sync status unavailable here — continuing"
+
+def pick(d, key, fallback):
+  try:
+    return d[key]
+  catch:
+    return fallback
+
+print pick({a: 1}, "b", "missing")
+print "functions done"

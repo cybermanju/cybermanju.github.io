@@ -1,17 +1,21 @@
 /**
  * Single source of truth for the CyberManju OS design language.
  *
- * Every colour, radius, shadow, blur and motion value used by the OS shell,
- * its windows and every panel is derived from the theme definitions below
- * and published to the document as `--ui-*` custom properties by
- * `useTheme().apply()`. Components never hardcode colours — they reference
- * the variables, so switching a theme restyles the whole virtual OS at once.
+ * macOS-inspired system theme: quiet neutral surfaces, one restrained blue
+ * accent, SF-first typography, subtle elevation. Components never hardcode
+ * colours — they reference the `--ui-*` variables published by
+ * `useTheme()`, so switching a theme restyles the whole virtual OS at once.
  */
 
-export type ThemeId = 'midnight' | 'nebula' | 'ember' | 'daylight' | 'ghostline'
+export type ThemeId =
+  | 'mac-light'
+  | 'mac-dark'
+  | 'mac-graphite-light'
+  | 'mac-graphite-dark'
+  | 'mac-midnight'
 export type Density = 'compact' | 'comfortable'
 export type MotionPref = 'auto' | 'full' | 'reduced'
-/** 0 = solid (no blur) · 1 = light glass · 2 = default glass · 3 = heavy glass */
+/** 0 = solid (no blur) · 1 = light vibrancy · 2 = default vibrancy · 3 = rich vibrancy */
 export type GlassLevel = 0 | 1 | 2 | 3
 
 export interface ThemePalette {
@@ -44,7 +48,7 @@ export interface ThemePalette {
   warning: string
   danger: string
   info: string
-  /** Base RGB (no alpha) used for glass tints — typically the surface colour. */
+  /** Base RGB (no alpha) used for vibrancy tints — typically the surface colour. */
   glassBase: string
 }
 
@@ -62,181 +66,195 @@ export interface ThemeSettings {
   density: Density
   glass: GlassLevel
   motion: MotionPref
-  /** Wallpaper ambience: soft accent glow behind the desktop. */
+  /** Wallpaper ambience: soft neutral depth behind the desktop. */
   glow: boolean
 }
 
-export const THEME_IDS: ThemeId[] = ['midnight', 'nebula', 'ember', 'daylight', 'ghostline']
+/** Stored pre-macOS theme ids map onto their closest macOS successor. */
+export const LEGACY_THEME_ALIASES: Record<string, ThemeId> = {
+  midnight: 'mac-midnight',
+  nebula: 'mac-dark',
+  ember: 'mac-dark',
+  daylight: 'mac-light',
+  ghostline: 'mac-dark',
+}
+
+export const THEME_IDS: ThemeId[] = [
+  'mac-light',
+  'mac-dark',
+  'mac-graphite-light',
+  'mac-graphite-dark',
+  'mac-midnight',
+]
 
 export const THEMES: Record<ThemeId, ThemeDefinition> = {
-  midnight: {
-    id: 'midnight',
+  'mac-light': {
+    id: 'mac-light',
+    label: 'Light',
+    mode: 'light',
+    palette: {
+      bg: '#e9ebef',
+      bgDeep: '#dfe3e9',
+      surface: 'rgba(246, 246, 248, 0.72)',
+      surface2: 'rgba(255, 255, 255, 0.82)',
+      surface3: 'rgba(255, 255, 255, 0.96)',
+      window: 'rgba(242, 243, 246, 0.78)',
+      windowIdle: 'rgba(242, 243, 246, 0.66)',
+      border: 'rgba(0, 0, 0, 0.08)',
+      borderStrong: 'rgba(0, 0, 0, 0.14)',
+      borderHover: 'rgba(0, 0, 0, 0.22)',
+      hairline: 'rgba(0, 0, 0, 0.06)',
+      text: '#1d1d1f',
+      text2: '#515154',
+      text3: '#6e6e73',
+      textFaint: '#aeaeb2',
+      accent: '#007aff',
+      onAccent: '#ffffff',
+      success: '#248a3d',
+      warning: '#b25000',
+      danger: '#d70015',
+      info: '#0071e3',
+      glassBase: '255, 255, 255',
+    },
+  },
+  'mac-dark': {
+    id: 'mac-dark',
+    label: 'Dark',
+    mode: 'dark',
+    palette: {
+      bg: '#1e1e21',
+      bgDeep: '#17171a',
+      surface: 'rgba(44, 44, 46, 0.72)',
+      surface2: 'rgba(54, 54, 58, 0.78)',
+      surface3: 'rgba(66, 66, 70, 0.86)',
+      window: 'rgba(30, 30, 33, 0.74)',
+      windowIdle: 'rgba(30, 30, 33, 0.62)',
+      border: 'rgba(255, 255, 255, 0.09)',
+      borderStrong: 'rgba(255, 255, 255, 0.15)',
+      borderHover: 'rgba(255, 255, 255, 0.24)',
+      hairline: 'rgba(255, 255, 255, 0.06)',
+      text: '#f5f5f7',
+      text2: '#c7c7cc',
+      text3: '#98989f',
+      textFaint: '#636366',
+      accent: '#0a84ff',
+      onAccent: '#ffffff',
+      success: '#30d158',
+      warning: '#ff9f0a',
+      danger: '#ff453a',
+      info: '#64d2ff',
+      glassBase: '48, 48, 52',
+    },
+  },
+  'mac-graphite-light': {
+    id: 'mac-graphite-light',
+    label: 'Graphite Light',
+    mode: 'light',
+    palette: {
+      bg: '#e8e8ea',
+      bgDeep: '#dcdce0',
+      surface: 'rgba(244, 244, 246, 0.72)',
+      surface2: 'rgba(255, 255, 255, 0.82)',
+      surface3: 'rgba(255, 255, 255, 0.96)',
+      window: 'rgba(240, 240, 243, 0.78)',
+      windowIdle: 'rgba(240, 240, 243, 0.66)',
+      border: 'rgba(0, 0, 0, 0.08)',
+      borderStrong: 'rgba(0, 0, 0, 0.14)',
+      borderHover: 'rgba(0, 0, 0, 0.22)',
+      hairline: 'rgba(0, 0, 0, 0.06)',
+      text: '#1d1d1f',
+      text2: '#515154',
+      text3: '#6e6e73',
+      textFaint: '#aeaeb2',
+      accent: '#636366',
+      onAccent: '#ffffff',
+      success: '#248a3d',
+      warning: '#b25000',
+      danger: '#d70015',
+      info: '#515154',
+      glassBase: '250, 250, 252',
+    },
+  },
+  'mac-graphite-dark': {
+    id: 'mac-graphite-dark',
+    label: 'Graphite Dark',
+    mode: 'dark',
+    palette: {
+      bg: '#1d1d1f',
+      bgDeep: '#161617',
+      surface: 'rgba(42, 42, 44, 0.72)',
+      surface2: 'rgba(52, 52, 54, 0.78)',
+      surface3: 'rgba(62, 62, 64, 0.86)',
+      window: 'rgba(29, 29, 31, 0.74)',
+      windowIdle: 'rgba(29, 29, 31, 0.62)',
+      border: 'rgba(255, 255, 255, 0.09)',
+      borderStrong: 'rgba(255, 255, 255, 0.15)',
+      borderHover: 'rgba(255, 255, 255, 0.24)',
+      hairline: 'rgba(255, 255, 255, 0.06)',
+      text: '#f5f5f7',
+      text2: '#c7c7cc',
+      text3: '#98989f',
+      textFaint: '#636366',
+      accent: '#98989f',
+      onAccent: '#1d1d1f',
+      success: '#30d158',
+      warning: '#ff9f0a',
+      danger: '#ff453a',
+      info: '#98989f',
+      glassBase: '46, 46, 48',
+    },
+  },
+  'mac-midnight': {
+    id: 'mac-midnight',
     label: 'Midnight',
     mode: 'dark',
     palette: {
-      bg: '#07090a',
-      bgDeep: '#040506',
-      surface: 'rgba(16, 20, 22, 0.72)',
-      surface2: 'rgba(23, 28, 30, 0.78)',
-      surface3: 'rgba(32, 39, 42, 0.86)',
-      window: 'rgba(11, 14, 16, 0.74)',
-      windowIdle: 'rgba(11, 14, 16, 0.62)',
-      border: 'rgba(255, 255, 255, 0.09)',
+      bg: '#000000',
+      bgDeep: '#0a0a0c',
+      surface: 'rgba(28, 28, 30, 0.72)',
+      surface2: 'rgba(38, 38, 41, 0.80)',
+      surface3: 'rgba(50, 50, 54, 0.88)',
+      window: 'rgba(16, 16, 18, 0.76)',
+      windowIdle: 'rgba(16, 16, 18, 0.64)',
+      border: 'rgba(255, 255, 255, 0.10)',
       borderStrong: 'rgba(255, 255, 255, 0.16)',
       borderHover: 'rgba(255, 255, 255, 0.26)',
-      hairline: 'rgba(255, 255, 255, 0.06)',
-      text: '#e9eef0',
-      text2: '#a9b4b8',
-      text3: '#78858a',
-      textFaint: '#556066',
-      accent: '#00ff88',
-      onAccent: '#04120c',
-      success: '#2ee66b',
-      warning: '#ffc048',
-      danger: '#ff5f6d',
-      info: '#4cc9f0',
-      glassBase: '14, 18, 20',
-    },
-  },
-  nebula: {
-    id: 'nebula',
-    label: 'Nebula',
-    mode: 'dark',
-    palette: {
-      bg: '#08070f',
-      bgDeep: '#050409',
-      surface: 'rgba(20, 17, 34, 0.72)',
-      surface2: 'rgba(28, 24, 46, 0.78)',
-      surface3: 'rgba(38, 33, 60, 0.86)',
-      window: 'rgba(13, 11, 22, 0.74)',
-      windowIdle: 'rgba(13, 11, 22, 0.62)',
-      border: 'rgba(255, 255, 255, 0.10)',
-      borderStrong: 'rgba(255, 255, 255, 0.18)',
-      borderHover: 'rgba(255, 255, 255, 0.28)',
       hairline: 'rgba(255, 255, 255, 0.07)',
-      text: '#efeaff',
-      text2: '#b3aacb',
-      text3: '#837b9e',
-      textFaint: '#5e5777',
-      accent: '#8b7bff',
-      onAccent: '#0a0716',
-      success: '#4ade80',
-      warning: '#fbbf24',
-      danger: '#fb7185',
-      info: '#22d3ee',
-      glassBase: '22, 18, 38',
-    },
-  },
-  ember: {
-    id: 'ember',
-    label: 'Ember',
-    mode: 'dark',
-    palette: {
-      bg: '#0c0806',
-      bgDeep: '#070403',
-      surface: 'rgba(28, 20, 15, 0.72)',
-      surface2: 'rgba(38, 27, 20, 0.78)',
-      surface3: 'rgba(50, 36, 26, 0.86)',
-      window: 'rgba(17, 12, 9, 0.74)',
-      windowIdle: 'rgba(17, 12, 9, 0.62)',
-      border: 'rgba(255, 236, 220, 0.10)',
-      borderStrong: 'rgba(255, 236, 220, 0.18)',
-      borderHover: 'rgba(255, 236, 220, 0.30)',
-      hairline: 'rgba(255, 236, 220, 0.07)',
-      text: '#f6ede6',
-      text2: '#c3b3a7',
-      text3: '#94837a',
-      textFaint: '#6d5f58',
-      accent: '#ffa63d',
-      onAccent: '#1a0e02',
-      success: '#5ad07a',
-      warning: '#ffd166',
-      danger: '#ff6b57',
-      info: '#63c7ff',
-      glassBase: '34, 24, 18',
-    },
-  },
-  ghostline: {
-    id: 'ghostline',
-    label: 'Ghostline',
-    mode: 'dark',
-    palette: {
-      bg: '#000000',
-      bgDeep: '#020604',
-      surface: 'rgba(4, 12, 7, 0.92)',
-      surface2: 'rgba(6, 18, 10, 0.94)',
-      surface3: 'rgba(8, 26, 14, 0.96)',
-      window: 'rgba(2, 8, 5, 0.96)',
-      windowIdle: 'rgba(2, 8, 5, 0.92)',
-      border: 'rgba(0, 255, 65, 0.16)',
-      borderStrong: 'rgba(0, 255, 65, 0.34)',
-      borderHover: 'rgba(0, 255, 65, 0.55)',
-      hairline: 'rgba(0, 255, 65, 0.10)',
-      text: '#d6ffe2',
-      text2: '#8fdba5',
-      text3: '#4d8a60',
-      textFaint: '#2c5238',
-      accent: '#00ff41',
-      onAccent: '#001505',
-      success: '#00ff41',
-      warning: '#ffb000',
-      danger: '#ff1f3d',
-      info: '#00e5a0',
-      glassBase: '3, 10, 6',
-    },
-  },
-  daylight: {
-    id: 'daylight',
-    label: 'Daylight',
-    mode: 'light',
-    palette: {
-      bg: '#eef1f5',
-      bgDeep: '#e2e7ee',
-      surface: 'rgba(255, 255, 255, 0.72)',
-      surface2: 'rgba(255, 255, 255, 0.84)',
-      surface3: 'rgba(255, 255, 255, 0.96)',
-      window: 'rgba(250, 252, 255, 0.78)',
-      windowIdle: 'rgba(250, 252, 255, 0.66)',
-      border: 'rgba(15, 23, 42, 0.10)',
-      borderStrong: 'rgba(15, 23, 42, 0.18)',
-      borderHover: 'rgba(15, 23, 42, 0.30)',
-      hairline: 'rgba(15, 23, 42, 0.07)',
-      text: '#0f172a',
-      text2: '#475569',
-      text3: '#64748b',
-      textFaint: '#94a3b8',
-      accent: '#2563eb',
+      text: '#f5f5f7',
+      text2: '#c7c7cc',
+      text3: '#98989f',
+      textFaint: '#636366',
+      accent: '#0a84ff',
       onAccent: '#ffffff',
-      success: '#16a34a',
-      warning: '#d97706',
-      danger: '#dc2626',
-      info: '#0891b2',
-      glassBase: '255, 255, 255',
+      success: '#30d158',
+      warning: '#ff9f0a',
+      danger: '#ff453a',
+      info: '#64d2ff',
+      glassBase: '28, 28, 30',
     },
   },
 }
 
 export const ACCENT_CHOICES: { id: string; label: string; value: string }[] = [
-  { id: 'default', label: 'Theme', value: '' },
-  { id: 'matrix', label: 'Matrix', value: '#00ff41' },
-  { id: 'bloodred', label: 'Bloodred', value: '#ff1f3d' },
-  { id: 'jade', label: 'Jade', value: '#00ff88' },
-  { id: 'mint', label: 'Mint', value: '#00e5a0' },
-  { id: 'cyan', label: 'Cyan', value: '#22d3ee' },
-  { id: 'azure', label: 'Azure', value: '#3b82f6' },
-  { id: 'violet', label: 'Violet', value: '#8b7bff' },
-  { id: 'orchid', label: 'Orchid', value: '#d946ef' },
-  { id: 'amber', label: 'Amber', value: '#ffa63d' },
-  { id: 'rose', label: 'Rose', value: '#fb7185' },
+  { id: 'default', label: 'System', value: '' },
+  { id: 'blue', label: 'Blue', value: '#007aff' },
+  { id: 'purple', label: 'Purple', value: '#af52de' },
+  { id: 'pink', label: 'Pink', value: '#ff2d55' },
+  { id: 'red', label: 'Red', value: '#ff3b30' },
+  { id: 'orange', label: 'Orange', value: '#ff9500' },
+  { id: 'yellow', label: 'Yellow', value: '#ffcc00' },
+  { id: 'green', label: 'Green', value: '#34c759' },
+  { id: 'teal', label: 'Teal', value: '#5ac8fa' },
+  { id: 'graphite', label: 'Graphite', value: '#8e8e93' },
 ]
 
 export const DENSITY_SCALE: Record<Density, { unit: number; control: number; fs: number }> = {
-  compact: { unit: 0.86, control: 26, fs: 0.94 },
-  comfortable: { unit: 1, control: 32, fs: 1 },
+  compact: { unit: 0.9, control: 24, fs: 0.96 },
+  comfortable: { unit: 1, control: 28, fs: 1 },
 }
 
 export const DEFAULT_SETTINGS: ThemeSettings = {
-  theme: 'ghostline',
+  theme: 'mac-light',
   accent: null,
   density: 'comfortable',
   glass: 2,
@@ -277,20 +295,20 @@ export function mix(hex: string, target: string, amount: number): string {
  * panels only ever read the variables.
  */
 export function buildCssVars(s: ThemeSettings): Record<string, string> {
-  const theme = THEMES[s.theme] ?? THEMES.midnight
+  const theme = THEMES[s.theme] ?? THEMES['mac-light']
   const p = theme.palette
   const accent = s.accent && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(s.accent) ? s.accent : p.accent
   const [ar, ag, ab] = hexToRgb(accent)
   const accentRgb = `${ar}, ${ag}, ${ab}`
   const density = DENSITY_SCALE[s.density]
 
-  // Glass strength: 0 disables blur entirely (backdrop-filter falls back to
-  // a plain translucent tint), higher levels trade contrast for depth.
-  const glassAlpha = [1, 0.86, 0.7, 0.56][s.glass] ?? 0.7
-  const blur = [0, 8, 16, 26][s.glass] ?? 16
+  // Vibrancy strength: 0 disables blur (solid fills), higher levels trade
+  // contrast for depth the way macOS materials do.
+  const glassAlpha = [1, 0.82, 0.66, 0.54][s.glass] ?? 0.66
+  const blur = [0, 12, 20, 30][s.glass] ?? 20
   const onAccentLuma = (() => {
     const [r, g, b] = hexToRgb(accent)
-    return (r * 299 + g * 587 + b * 114) / 1000 > 145 ? '#0b0d0e' : '#ffffff'
+    return (r * 299 + g * 587 + b * 114) / 1000 > 145 ? '#1d1d1f' : '#ffffff'
   })()
 
   const surfaceGlass = (base: string, a: number) => {
@@ -299,7 +317,7 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     return `rgba(${r}, ${g}, ${b}, ${a})`
   }
 
-  const shadowColor = theme.mode === 'light' ? '15, 23, 42' : '0, 0, 0'
+  const shadowColor = theme.mode === 'light' ? '0, 0, 0' : '0, 0, 0'
 
   return {
     // surfaces
@@ -308,17 +326,17 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-surface': p.surface,
     '--ui-surface-2': p.surface2,
     '--ui-surface-3': p.surface3,
-    '--ui-window': s.glass === 0 ? (theme.mode === 'light' ? '#f8fafc' : '#0d1114') : p.window,
+    '--ui-window': s.glass === 0 ? (theme.mode === 'light' ? '#f2f3f6' : '#1e1e21') : p.window,
     '--ui-window-idle': p.windowIdle,
-    '--ui-content': surfaceGlass(p.glassBase, Math.min(0.94, glassAlpha + 0.14)),
-    // glass
+    '--ui-content': surfaceGlass(p.glassBase, Math.min(0.96, glassAlpha + 0.16)),
+    // glass (macOS vibrancy: modest saturation, strong blur)
     '--ui-glass': surfaceGlass(p.glassBase, glassAlpha * 0.92),
     '--ui-glass-2': surfaceGlass(p.glassBase, Math.min(1, glassAlpha + 0.1)),
-    '--ui-glass-border': theme.mode === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(255, 255, 255, 0.12)',
-    '--ui-glass-highlight': theme.mode === 'light' ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.08)',
+    '--ui-glass-border': theme.mode === 'light' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.1)',
+    '--ui-glass-highlight': theme.mode === 'light' ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.06)',
     '--ui-blur': `${blur}px`,
-    '--ui-blur-strong': `${Math.round(blur * 1.75)}px`,
-    '--ui-saturate': s.glass === 0 ? '100%' : '150%',
+    '--ui-blur-strong': `${Math.round(blur * 1.5)}px`,
+    '--ui-saturate': s.glass === 0 ? '100%' : '120%',
     // borders
     '--ui-border': p.border,
     '--ui-border-strong': p.borderStrong,
@@ -329,12 +347,12 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-text-2': p.text2,
     '--ui-text-3': p.text3,
     '--ui-text-faint': p.textFaint,
-    // accent + status
+    // accent + status (single restrained accent; quiet focus ring)
     '--ui-accent': accent,
     '--ui-accent-rgb': accentRgb,
-    '--ui-accent-soft': `rgba(${accentRgb}, 0.14)`,
-    '--ui-accent-softer': `rgba(${accentRgb}, 0.07)`,
-    '--ui-accent-strong': mix(accent, theme.mode === 'light' ? '#ffffff' : '#000000', 0.18),
+    '--ui-accent-soft': `rgba(${accentRgb}, 0.12)`,
+    '--ui-accent-softer': `rgba(${accentRgb}, 0.08)`,
+    '--ui-accent-strong': mix(accent, theme.mode === 'light' ? '#ffffff' : '#000000', 0.12),
     '--ui-on-accent': s.accent ? onAccentLuma : p.onAccent,
     '--ui-success': p.success,
     '--ui-success-rgb': hexToRgb(p.success).join(', '),
@@ -344,48 +362,48 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-danger-rgb': hexToRgb(p.danger).join(', '),
     '--ui-info': p.info,
     '--ui-info-rgb': hexToRgb(p.info).join(', '),
-    // radius
-    '--ui-radius-xs': '3px',
+    // radius (macOS: small, consistent, never pill-everything)
+    '--ui-radius-xs': '4px',
     '--ui-radius-sm': '6px',
-    '--ui-radius-md': '10px',
-    '--ui-radius-lg': '14px',
-    '--ui-radius-xl': '20px',
-    '--ui-radius-2xl': '28px',
+    '--ui-radius-md': '8px',
+    '--ui-radius-lg': '10px',
+    '--ui-radius-xl': '14px',
+    '--ui-radius-2xl': '20px',
     '--ui-radius-full': '999px',
-    // elevation
-    '--ui-shadow-1': `0 1px 2px rgba(${shadowColor}, 0.16), 0 2px 8px rgba(${shadowColor}, 0.14)`,
-    '--ui-shadow-2': `0 6px 18px rgba(${shadowColor}, 0.22), 0 2px 6px rgba(${shadowColor}, 0.16)`,
-    '--ui-shadow-3': `0 18px 48px rgba(${shadowColor}, 0.34), 0 6px 18px rgba(${shadowColor}, 0.22)`,
-    '--ui-glow': `0 0 0 1px rgba(${accentRgb}, 0.35), 0 0 24px rgba(${accentRgb}, 0.18)`,
-    '--ui-glow-soft': `0 0 20px rgba(${accentRgb}, 0.12)`,
-    // typography
+    // elevation (soft, neutral — no coloured glows)
+    '--ui-shadow-1': `0 1px 2px rgba(${shadowColor}, 0.08), 0 2px 6px rgba(${shadowColor}, 0.06)`,
+    '--ui-shadow-2': `0 4px 12px rgba(${shadowColor}, 0.10), 0 1px 3px rgba(${shadowColor}, 0.08)`,
+    '--ui-shadow-3': `0 12px 32px rgba(${shadowColor}, 0.16), 0 4px 12px rgba(${shadowColor}, 0.10)`,
+    '--ui-glow': `0 0 0 3px rgba(${accentRgb}, 0.25)`,
+    '--ui-glow-soft': `0 0 0 3px rgba(${accentRgb}, 0.12)`,
+    // typography (SF first, system fallbacks)
     '--ui-font':
-      "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+      "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
     '--ui-font-mono':
-      "'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace",
-    '--ui-fs-xs': `${(10 * density.fs).toFixed(1)}px`,
-    '--ui-fs-sm': `${(11.5 * density.fs).toFixed(1)}px`,
+      "'SF Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace",
+    '--ui-fs-xs': `${(11 * density.fs).toFixed(1)}px`,
+    '--ui-fs-sm': `${(12.5 * density.fs).toFixed(1)}px`,
     '--ui-fs-md': `${(13 * density.fs).toFixed(1)}px`,
     '--ui-fs-lg': `${(15 * density.fs).toFixed(1)}px`,
-    '--ui-fs-xl': `${(19 * density.fs).toFixed(1)}px`,
-    '--ui-fs-2xl': `${(24 * density.fs).toFixed(1)}px`,
-    '--ui-fs-3xl': `${(32 * density.fs).toFixed(1)}px`,
-    '--ui-tracking': '0.01em',
-    '--ui-tracking-wide': '0.12em',
+    '--ui-fs-xl': `${(17 * density.fs).toFixed(1)}px`,
+    '--ui-fs-2xl': `${(21 * density.fs).toFixed(1)}px`,
+    '--ui-fs-3xl': `${(28 * density.fs).toFixed(1)}px`,
+    '--ui-tracking': '0',
+    '--ui-tracking-wide': '0.02em',
     // spacing / sizing
     '--ui-unit': `${density.unit}`,
     '--ui-space': `${(8 * density.unit).toFixed(2)}px`,
     '--ui-space-2': `${(16 * density.unit).toFixed(2)}px`,
     '--ui-space-3': `${(24 * density.unit).toFixed(2)}px`,
     '--ui-control-h': `${density.control}px`,
-    '--ui-titlebar-h': `${Math.round(density.control * 1.06)}px`,
-    // motion
-    '--ui-dur-fast': '120ms',
-    '--ui-dur': '200ms',
-    '--ui-dur-slow': '360ms',
+    '--ui-titlebar-h': `${Math.round(density.control * 1.14)}px`,
+    // motion (calm, macOS-like)
+    '--ui-dur-fast': '100ms',
+    '--ui-dur': '160ms',
+    '--ui-dur-slow': '260ms',
     '--ui-ease': 'cubic-bezier(0.32, 0.72, 0, 1)',
     '--ui-ease-out': 'cubic-bezier(0.22, 1, 0.36, 1)',
-    '--ui-ease-spring': 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+    '--ui-ease-spring': 'cubic-bezier(0.3, 1.2, 0.4, 1)',
     // legacy aliases (older markup still reads these)
     '--bg-deep': p.bg,
     '--bg-surface': p.surface,
@@ -398,17 +416,17 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--text-secondary': p.text2,
     '--text-muted': p.text3,
     '--accent': accent,
-    '--accent-dim': `rgba(${accentRgb}, 0.15)`,
+    '--accent-dim': `rgba(${accentRgb}, 0.12)`,
     '--danger': p.danger,
     '--warning': p.warning,
     '--success': p.success,
     '--radius-sm': '6px',
-    '--radius-md': '10px',
-    '--radius-lg': '14px',
-    '--radius-xl': '20px',
-    '--shadow-window': `0 18px 48px rgba(${shadowColor}, 0.34), 0 6px 18px rgba(${shadowColor}, 0.22)`,
-    '--shadow-dropdown': `0 18px 48px rgba(${shadowColor}, 0.34)`,
-    '--shadow-card': `0 6px 18px rgba(${shadowColor}, 0.22)`,
+    '--radius-md': '8px',
+    '--radius-lg': '10px',
+    '--radius-xl': '14px',
+    '--shadow-window': `0 12px 32px rgba(${shadowColor}, 0.16), 0 4px 12px rgba(${shadowColor}, 0.10)`,
+    '--shadow-dropdown': `0 12px 32px rgba(${shadowColor}, 0.16)`,
+    '--shadow-card': `0 4px 12px rgba(${shadowColor}, 0.10)`,
     '--scrollbar-track': 'transparent',
     '--scrollbar-thumb': p.borderStrong,
     '--scrollbar-thumb-hover': p.borderHover,

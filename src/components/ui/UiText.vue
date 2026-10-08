@@ -95,20 +95,18 @@ const classes = computed(() => ({
 .ui-text--caption { font-size: var(--ui-fs-xs); line-height: 1.45; color: var(--ui-text-3); }
 
 .ui-text--overline {
-  font-family: var(--ui-font-mono);
-  font-size: var(--ui-fs-xs);
-  font-weight: 700;
-  letter-spacing: var(--ui-tracking-wide);
+  font-family: var(--ui-font);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--ui-text-3);
 }
 
 .ui-text--label {
-  font-family: var(--ui-font-mono);
+  font-family: var(--ui-font);
   font-size: var(--ui-fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--ui-text-2);
 }
 
@@ -127,16 +125,7 @@ const classes = computed(() => ({
 .ui-text--inverse { color: var(--ui-on-accent); }
 
 .ui-text--gradient {
-  background: linear-gradient(115deg, var(--ui-text) 10%, var(--ui-accent) 55%, var(--ui-text) 100%);
-  background-size: 180% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: ui-text-flow 9s ease-in-out infinite alternate;
-}
-
-@keyframes ui-text-flow {
-  from { background-position: 0% 50%; }
-  to { background-position: 100% 50%; }
+  color: var(--ui-text);
+  font-weight: 600;
 }
 </style>

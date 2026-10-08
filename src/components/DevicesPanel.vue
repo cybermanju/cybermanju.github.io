@@ -56,6 +56,10 @@
         <UiButton size="sm" :disabled="!hw.support.value.camera" @click="toggleCam">{{ camOn ? 'Stop camera' : 'Start camera' }}</UiButton>
         <UiButton size="sm" :disabled="!hw.support.value.screenShare" @click="toggleShare">{{ shareOn ? 'Stop share' : 'Share screen' }}</UiButton>
         <UiButton size="sm" :disabled="!hw.support.value.speechSynthesis" @click="hw.speak('CyberManju OS ready')">Speak</UiButton>
+        <select v-if="hw.support.value.speechRecognition" class="dv-select" :value="hw.speechLang.value" aria-label="Voice language" title="Voice language: English (EN) or Portuguese (PT-BR)" @change="hw.setSpeechLang(($event.target as HTMLSelectElement).value as 'en-US' | 'pt-BR')">
+          <option value="en-US">EN</option>
+          <option value="pt-BR">PT</option>
+        </select>
         <UiButton v-if="hw.support.value.speechRecognition" size="sm" @click="toggleListen">{{ listening ? 'Stop listening' : 'Voice command' }}</UiButton>
       </div>
       <div v-if="camOn || shareOn" class="dv-vids">
@@ -353,7 +357,12 @@ onMounted(() => { void hw.refreshDevices(); void loadStorage() })
 .dv-kind { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
 .dv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ui-border-strong); flex-shrink: 0; }
 .dv-dot.on { background: var(--ui-success, #22c55e); box-shadow: 0 0 8px color-mix(in srgb, var(--ui-success, #22c55e) 70%, transparent); }
-.dv-pair { display: flex; gap: 6px; flex-wrap: wrap; }
+.dv-pair { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.dv-select {
+  font-size: 11px; font-weight: 700; padding: 5px 6px; border-radius: 8px;
+  border: 1px solid var(--ui-border); background: var(--ui-glass); color: var(--ui-text);
+  cursor: pointer;
+}
 .dv-hint, .dv-muted { font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); margin: 0; }
 .dv-line { font-size: 12px; margin: 0; overflow: hidden; text-overflow: ellipsis; }
 .dv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }

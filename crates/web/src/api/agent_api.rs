@@ -1096,6 +1096,14 @@ fn volume_root() -> PathBuf {
 /// File bytes only — what `edit` hashes and what `write` overwrites.
 fn read_raw(root: &Path, vol: &Path, path: &str) -> Result<String, String> {
     let full = join_contained(root, vol, path)?;
+    // A directory is not a missing file — say so, so the model reaches for
+    // `list` instead of retrying the read (browser `cat` answers the same).
+    if full.is_dir() {
+        return Err(format!(
+            "invalid: '{}' is a directory — use list to list it",
+            path.trim()
+        ));
+    }
     let bytes =
         std::fs::read(&full).map_err(|_| format!("not_found: '{}' does not exist", path.trim()))?;
     if bytes.len() > MAX_TOOL_BYTES {
@@ -1503,6 +1511,251 @@ fn tool_bash(
 }
 
 /// Dispatch one approved tool call to native execution.
+/// `self_research` sweeps the agent's own source (read-only, plan-safe):
+/// rank files by query overlap, read the top hits, return grounded snippets.
+/// `skill_save` persists into the `.cybermanju` container so skills survive
+/// restarts and sync across devices. `mcp_attach` persists an HTTP MCP
+/// server on the config (stdio refused — it spawns processes). `repo_analyze`
+/// fetches a GitHub repo over plain HTTPS — no `git` binary, so it works on
+/// desktop, Docker, mobile and WASM alike.
+/// `self_research`: bounded introspection sweep over the working root.
+/// Read-only: safe for plan agents. Skips VCS/build dirs, ranks by query
+/// overlap (`self_research::rank_research_files`), reads the top hits and
+/// returns path + matching lines + head snippet per file.
+fn tool_self_research(root: &Path, vol: &Path, query: &str, sub: &str, limit: usize) -> Result<String, String> {
+    use cybermanju_agent::self_research as sr;
+    if query.trim().is_empty() {
+        return Err("invalid: query is required".to_string());
+    }
+    let base = if sub.trim().is_empty() {
+        root.to_path_buf()
+    } else {
+        join_contained(root, vol, sub)?
+    };
+    const SKIP_DIRS: &[&str] = &[
+        ".git", "node_modules", "target", "dist", "dist-wasm", "build", ".hg", ".svn",
+    ];
+    const MAX_FILES_SEEN: usize = 2000;
+    let mut all: Vec<String> = Vec::new();
+    let mut seen = 0usize;
+    let mut stack = vec![base.clone()];
+    while let Some(dir) = stack.pop() {
+        if seen >= MAX_FILES_SEEN {
+            break;
+        }
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            if seen >= MAX_FILES_SEEN {
+                break;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') && name != ".cybermanju" {
+                // Dotfiles are config, not source — except our own container.
+                if entry.path().is_dir() && SKIP_DIRS.contains(&name.as_str()) {
+                    continue;
+                }
+                if name != ".cybermanju" && entry.path().is_dir() {
+                    continue;
+                }
+            }
+            if SKIP_DIRS.contains(&name.as_str()) {
+                continue;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            // Source + docs only: what answers "how does it work".
+            let lower = name.to_lowercase();
+            let interesting = lower.ends_with(".rs")
+                || lower.ends_with(".ts")
+                || lower.ends_with(".vue")
+                || lower.ends_with(".md")
+                || lower.ends_with(".toml")
+                || lower.ends_with(".json")
+                || name == "Dockerfile"
+                || name == "AGENTS.md"
+                || name == "SKILL.md";
+            if !interesting {
+                continue;
+            }
+            seen += 1;
+            let rel = path
+                .strip_prefix(&base)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            all.push(rel);
+        }
+    }
+    let picked = sr::rank_research_files(&all, query, limit.clamp(1, sr::SELF_RESEARCH_MAX_FILES));
+    if picked.is_empty() {
+        return Ok(format!("self_research: no files match `{}` under `{}` — try broader terms or list/glob first", query.trim(), sub.trim()));
+    }
+    let matcher = cybermanju_agent::config::GrepPattern::compile(query);
+    let mut out = format!("self_research: `{}` ({} files)\n", query.trim(), picked.len());
+    for rel in &picked {
+        let full = base.join(rel);
+        let bytes = match std::fs::read(&full) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        if bytes.len() > MAX_TOOL_BYTES || bytes.contains(&0) {
+            continue;
+        }
+        let text = match String::from_utf8(bytes) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        out.push_str(&format!("\n=== {rel} ===\n"));
+        let mut shown = 0;
+        for (i, line) in text.lines().enumerate() {
+            if matcher.is_match(line) && shown < 12 {
+                let snippet: String = line.trim().chars().take(240).collect();
+                out.push_str(&format!("  L{}: {snippet}\n", i + 1));
+                shown += 1;
+            }
+        }
+        if shown == 0 {
+            let head: String = text.chars().take(800).collect();
+            out.push_str(&format!("  (no query lines; head)\n{head}\n"));
+        }
+        // Per-file snippet bound.
+        if out.len() > sr::RESEARCH_OUTPUT_CAP {
+            break;
+        }
+    }
+    out.push_str("\nRead full files with `read` for exact code; cite file:line.");
+    Ok(sr::cap_research_output(&out))
+}
+
+/// `skill_save`: persist one skill into the `.cybermanju` container
+/// (absolute volume path, so it works from any working dir). Overwrites the
+/// same name — one focused skill per call.
+fn tool_skill_save(vol: &Path, name: &str, description: &str, content: &str) -> Result<String, String> {
+    use cybermanju_agent::self_research as sr;
+    let name = name.trim();
+    if !sr::valid_skill_name(name) {
+        return Err("invalid: skill name must be 1-64 chars of [A-Za-z0-9._-]".to_string());
+    }
+    if description.trim().is_empty() {
+        return Err("invalid: description is required".to_string());
+    }
+    if content.trim().is_empty() {
+        return Err("invalid: content is required".to_string());
+    }
+    if content.len() > sr::SKILL_FILE_BUDGET {
+        return Err(format!(
+            "too_large: skill content is {} bytes, cap is {}",
+            content.len(),
+            sr::SKILL_FILE_BUDGET
+        ));
+    }
+    let rel = sr::skill_rel_path(name);
+    let mut full = vol.to_path_buf();
+    for part in rel.split('/') {
+        full.push(part);
+    }
+    if let Some(parent) = full.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("not_found: cannot create skill dir: {e}"))?;
+    }
+    let file = sr::render_skill_file(name, description.trim(), content.trim());
+    std::fs::write(&full, file.as_bytes())
+        .map_err(|e| format!("not_found: cannot write skill '{name}': {e}"))?;
+    Ok(format!(
+        "saved skill '{name}' → {rel} ({} bytes; folded into future prompts, syncs with provider data)",
+        file.len()
+    ))
+}
+
+/// `mcp_attach`: verify-then-persist an HTTP MCP server on this config.
+/// stdio is refused (process spawn — desktop UI instead). The new tools go
+/// live on the NEXT run (this run's `McpSet` was connected up front).
+fn tool_mcp_attach(db: &Database, config_id: &str, name: &str, url: &str) -> Result<String, String> {
+    let name = name.trim();
+    if !cybermanju_agent::mcp::valid_server_name(name) {
+        return Err("invalid: MCP server name must be 1-64 chars of [A-Za-z0-9_-]".to_string());
+    }
+    let url = url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("invalid: mcp_attach needs an http(s) url (stdio servers spawn processes — attach those from the desktop UI)".to_string());
+    }
+    let cfg = cybermanju_types::agent::McpServerConfig {
+        transport: "http".to_string(),
+        command: None,
+        args: Vec::new(),
+        env: std::collections::BTreeMap::new(),
+        url: Some(url.to_string()),
+        headers: Vec::new(),
+        enabled: true,
+    };
+    cfg.validate()?;
+    // Verify before persisting: a dead server must fail loudly, not hide.
+    let (conn, tools) = mcp_connect(name, &cfg)?;
+    drop(conn);
+    let mut config = get_config(db, config_id)?;
+    config.mcp_servers.insert(name.to_string(), cfg);
+    save_config_unchecked(db, &mut config)?;
+    Ok(format!(
+        "attached MCP '{name}' ({url}) — {} tools verified; takes effect on the next run (mcp__{name}__*)",
+        tools.len()
+    ))
+}
+
+/// `repo_analyze`: GitHub repo analysis over plain HTTPS (no git binary).
+/// Fetches repo metadata + recursive tree + README, summarizes layout,
+/// language mix and entry files. Public repos only; private/missing answer
+/// `not_found:`/`auth:` honestly.
+fn tool_repo_analyze(slug: &str, branch: &str) -> Result<String, String> {
+    use cybermanju_agent::self_research as sr;
+    let (owner, repo) = sr::parse_repo_slug(slug)?;
+    let full_slug = format!("{owner}/{repo}");
+    let (meta_url, _tree_url, _readme_url) = sr::github_api_urls(&owner, &repo, branch);
+    let headers = vec![
+        ("User-Agent".to_string(), "cybermanju-os".to_string()),
+        ("Accept".to_string(), "application/vnd.github+json".to_string()),
+    ];
+    let meta = protocol::get_json(&meta_url, &headers).map_err(|e| {
+        if e.starts_with("auth:") || e.contains("403") || e.contains("404") {
+            format!("not_found: repo '{full_slug}' not found or private (no token on this tool): {e}")
+        } else {
+            e
+        }
+    })?;
+    let resolved_branch = if branch.trim().is_empty() {
+        meta.get("default_branch").and_then(|v| v.as_str()).unwrap_or("main").to_string()
+    } else {
+        branch.trim().to_string()
+    };
+    let (_, tree_url_b, readme_url_b) = sr::github_api_urls(&owner, &repo, &resolved_branch);
+    let tree: serde_json::Value = protocol::get_json(&tree_url_b, &headers).map_err(|e| {
+        format!("network: cannot fetch tree for '{full_slug}@{resolved_branch}': {e}")
+    })?;
+    // README is best-effort: missing docs never fail the analysis.
+    let readme_head = protocol::get_json(&readme_url_b, &headers)
+        .ok()
+        .and_then(|v| {
+            // `GET /readme` answers `{content: base64, encoding}`.
+            let b64 = v.get("content").and_then(|c| c.as_str()).unwrap_or("");
+            if b64.is_empty() {
+                return None;
+            }
+            use base64::Engine as _;
+            let cleaned: String = b64.chars().filter(|c| !c.is_whitespace()).collect();
+            base64::engine::general_purpose::STANDARD
+                .decode(&cleaned)
+                .ok()
+                .and_then(|b| String::from_utf8(b).ok())
+        })
+        .unwrap_or_default();
+    Ok(sr::summarize_repo_tree(&full_slug, &resolved_branch, &meta, &tree, &readme_head))
+}
+
 /// What the memory tools need beyond `db`: embedding endpoint + key,
 /// cancellation, owning config/session, and whether this run may store
 /// (subagents report — they never remember).
@@ -1672,6 +1925,33 @@ fn exec_tool(
                 Err(e) => Err(e),
             }
         }
+        "self_research" => {
+            let limit = call
+                .input
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(8) as usize;
+            tool_self_research(root, vol, &get("query"), &get("path"), limit)
+        }
+        "skill_save" => tool_skill_save(
+            vol,
+            &get("name"),
+            call.input
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or(""),
+            call.input
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or(""),
+        ),
+        "mcp_attach" => tool_mcp_attach(
+            db,
+            mem.config_id,
+            &get("name"),
+            call.input.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+        ),
+        "repo_analyze" => tool_repo_analyze(&get("repo"), &get("branch")),
         other => Err(format!("unsupported: unknown tool '{other}'")),
     }
 }
@@ -1697,11 +1977,16 @@ fn clean_output(output: String) -> String {
 
 /// Project rules folded into every system prompt (opencode reads
 /// `AGENTS.md`; we additionally honor `SKILL.md` and
-/// `.cybermanju/rules.md`). Each file capped, total capped, missing or
-/// binary files silently skipped — rules guide, never break, a run.
+/// `.cybermanju/rules.md`). Persisted skills
+/// (`.cybermanju/skills/<name>/SKILL.md`, written by the `skill_save` tool
+/// so they ride the `.cybermanju` container across devices) are folded in
+/// too — most relevant first, all under the same total cap. Each file capped,
+/// total capped, missing or binary files silently skipped — rules guide,
+/// never break, a run.
 fn load_project_rules(root: &Path) -> String {
     const PER_FILE_CAP: usize = 8192;
     const TOTAL_CAP: usize = 24_576;
+    const MAX_SKILLS_IN_PROMPT: usize = 5;
     let mut out = String::new();
     for name in ["AGENTS.md", "SKILL.md", ".cybermanju/rules.md"] {
         if out.len() >= TOTAL_CAP {
@@ -1723,6 +2008,50 @@ fn load_project_rules(root: &Path) -> String {
             continue;
         }
         out.push_str(&format!("\n--- project rules ({name}) ---\n{trimmed}\n"));
+    }
+    // Persisted skills: alphabetical, capped like any standing order.
+    if out.len() < TOTAL_CAP {
+        let skills_dir = root.join(".cybermanju/skills");
+        if let Ok(entries) = std::fs::read_dir(&skills_dir) {
+            let mut names: Vec<String> = entries
+                .flatten()
+                .filter_map(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if name.starts_with('.') {
+                        return None;
+                    }
+                    if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                        Some(name)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            names.sort();
+            for name in names.into_iter().take(MAX_SKILLS_IN_PROMPT) {
+                if out.len() >= TOTAL_CAP {
+                    break;
+                }
+                let bytes = match std::fs::read(skills_dir.join(&name).join("SKILL.md")) {
+                    Ok(bytes) => bytes,
+                    Err(_) => continue,
+                };
+                if bytes.len() > PER_FILE_CAP {
+                    continue;
+                }
+                let text = match String::from_utf8(bytes) {
+                    Ok(text) => text,
+                    Err(_) => continue,
+                };
+                let trimmed = text.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let room = TOTAL_CAP.saturating_sub(out.len());
+                let slice: String = trimmed.chars().take(room.min(PER_FILE_CAP)).collect();
+                out.push_str(&format!("\n--- skill ({name}) ---\n{slice}\n"));
+            }
+        }
     }
     if out.len() > TOTAL_CAP {
         out.truncate(TOTAL_CAP);
@@ -2733,6 +3062,14 @@ fn run_agent_job(
     let mut doom_sig: Option<(String, String)> = None;
     let mut doom_repeats = 0u32;
 
+    // Detached background subagents: spawned by `task background:true`,
+    // harvested without blocking after every batch, waited for when the
+    // model would otherwise stop. Totals are unbounded — only concurrent
+    // workers are capped (see `MAX_BG_SUBAGENTS`), and finished slots are
+    // reusable, so the parent may fan out as widely as the work needs.
+    let mut bg_tasks: Vec<BgSubagent> = Vec::new();
+    let mut bg_next: u64 = 0;
+
     // Memory context for the run's tools: recall reads, remember stores
     // (gated by the same `decide` every other tool goes through).
     // Embeddings stay on the primary route even after a chat failover —
@@ -2846,6 +3183,41 @@ fn run_agent_job(
 
         match event {
             agent_loop::LoopEvent::TextDone => {
+                // The model stopped calling tools — but background subagents
+                // may still be running. Wait for them and feed their results
+                // back as new messages instead of ending mid-flight.
+                if !bg_tasks.is_empty() {
+                    set_state(job, |s| {
+                        s.activity = Some(format!(
+                            "waiting for {} background subagent(s)",
+                            bg_tasks.len()
+                        ));
+                    });
+                    match drain_bg_tasks(job, &mut bg_tasks) {
+                        Some(done) if !done.is_empty() => {
+                            for (id, summary) in done {
+                                turn.messages.push(ChatMessage {
+                                    role: "user".into(),
+                                    content: agent_loop::bg_finished_message(&id, &summary),
+                                    tool_call_id: None,
+                                    tool_name: None,
+                                    tool_input: None,
+                                });
+                            }
+                            session.messages = turn.messages.clone();
+                            persist_turn(db, &session);
+                            continue;
+                        }
+                        Some(_) => {}
+                        None => {
+                            set_state(job, |s| {
+                                s.status = "cancelled".to_string();
+                                s.pending = None;
+                            });
+                            break;
+                        }
+                    }
+                }
                 let text = turn
                     .messages
                     .iter()
@@ -2876,10 +3248,44 @@ fn run_agent_job(
                 break;
             }
             agent_loop::LoopEvent::LimitReached => {
+                // Turn budget is spent, but background results must not be
+                // lost: wait for them, save them to the transcript, and say
+                // so — the next run continues from saved state.
+                let mut bg_note = String::new();
+                if !bg_tasks.is_empty() {
+                    match drain_bg_tasks(job, &mut bg_tasks) {
+                        Some(done) if !done.is_empty() => {
+                            for (id, summary) in &done {
+                                turn.messages.push(ChatMessage {
+                                    role: "user".into(),
+                                    content: agent_loop::bg_finished_message(id, summary),
+                                    tool_call_id: None,
+                                    tool_name: None,
+                                    tool_input: None,
+                                });
+                            }
+                            session.messages = turn.messages.clone();
+                            session.usage = turn.usage.clone();
+                            persist_turn(db, &session);
+                            bg_note = format!(
+                                " {} background subagent result(s) arrived and were saved to the transcript.",
+                                done.len()
+                            );
+                        }
+                        Some(_) => {}
+                        None => {
+                            set_state(job, |s| {
+                                s.status = "cancelled".to_string();
+                                s.pending = None;
+                            });
+                            break;
+                        }
+                    }
+                }
                 set_state(job, |s| {
                     s.status = "done".to_string();
                     s.result = Some(format!(
-                        "turn budget exhausted after {} turns — raise MAX TURNS or COMPACT the session, then continue; last state saved",
+                        "turn budget exhausted after {} turns — raise MAX TURNS or COMPACT the session, then continue; last state saved.{bg_note}",
                         turn.turns_used
                     ));
                     if agent_memory::should_nudge_memory(turn.turns_used, remembered_in_run(&turn))
@@ -2932,6 +3338,8 @@ fn run_agent_job(
                         &turn,
                         call,
                         &mem_ctx,
+                        &mut bg_tasks,
+                        &mut bg_next,
                     ) {
                         ToolOutcome::Continue(output) => {
                             turn.append_tool_result(call, clean_output(output));
@@ -2945,6 +3353,25 @@ fn run_agent_job(
                 session.messages = turn.messages.clone();
                 session.usage = turn.usage.clone();
                 persist_turn(db, &session);
+                // Harvest finished background subagents without blocking:
+                // their results arrive as new user messages so the next
+                // turn sees them while the parent kept working meanwhile.
+                if !bg_tasks.is_empty() {
+                    let done = sweep_bg_tasks(&mut bg_tasks);
+                    if !done.is_empty() {
+                        for (id, summary) in done {
+                            turn.messages.push(ChatMessage {
+                                role: "user".into(),
+                                content: agent_loop::bg_finished_message(&id, &summary),
+                                tool_call_id: None,
+                                tool_name: None,
+                                tool_input: None,
+                            });
+                        }
+                        session.messages = turn.messages.clone();
+                        persist_turn(db, &session);
+                    }
+                }
                 if stop {
                     break;
                 }
@@ -2989,10 +3416,14 @@ fn run_one_tool(
     turn: &agent_loop::AgentTurn,
     call: &ToolCall,
     mem: &MemoryCtx,
+    bg: &mut Vec<BgSubagent>,
+    bg_next: &mut u64,
 ) -> ToolOutcome {
-    // Nested subagents run a bounded inline loop — no registry, no parking.
+    // Subagents fan out without a per-run cap on totals: foreground calls
+    // wait inline, `background:true` detaches (id now, results injected as
+    // new messages, waited for at the end). Nested levels stay foreground.
     if call.name == "task" {
-        return run_subagent(db, job, config, root, vol, turn, call);
+        return run_task(db, job, config, root, vol, turn, call, bg, bg_next);
     }
 
     let decision = agent_config::decide(
@@ -3131,28 +3562,30 @@ fn run_one_tool(
     }
 }
 
-/// Inline bounded subagent: same config, read-only tool subset, short leash.
-/// Shares the parent transcript afterwards as one summarized tool result.
-#[allow(clippy::too_many_arguments)]
-fn run_subagent(
+/// Validated inputs for one subagent spawn: depth gate, permission rule,
+/// spawn approval, goal, provider route. Shared by foreground (wait) and
+/// background (detach) spawns — approval parks the worker once, up front,
+/// so a detached thread never races the parent for the single approval slot.
+struct SubagentSetup {
+    goal: String,
+    context: String,
+    endpoint: providers::ResolvedEndpoint,
+    api_key: String,
+}
+
+fn task_prelude(
     db: &Arc<RwLock<Database>>,
     job: &Arc<AgentJob>,
     config: &AgentConfig,
-    root: &Path,
-    vol: &Path,
     turn: &agent_loop::AgentTurn,
     call: &ToolCall,
-) -> ToolOutcome {
+) -> Result<SubagentSetup, String> {
     if turn.task_depth >= agent_loop::MAX_TASK_DEPTH {
-        return ToolOutcome::Continue(
-            "deny: max subagent depth reached — finish this level yourself".to_string(),
-        );
+        return Err("deny: max subagent depth reached — finish this level yourself".to_string());
     }
     let decision = agent_config::decide(&config.permission, config.agent_kind, "task", &call.input);
     if matches!(decision, agent_config::PermissionDecision::Deny { .. }) {
-        return ToolOutcome::Continue(
-            "deny: `task` is denied by the permission ruleset".to_string(),
-        );
+        return Err("deny: `task` is denied by the permission ruleset".to_string());
     }
     if !config.auto_approve {
         // Subagents spawn workers — always ask first unless auto mode.
@@ -3179,14 +3612,14 @@ fn run_subagent(
                     s.status = "running".to_string();
                     s.pending = None;
                 });
-                return ToolOutcome::Continue("denied: user rejected the subagent".to_string());
+                return Err("denied: user rejected the subagent".to_string());
             }
             None => {
                 set_state(job, |s| {
                     s.status = "running".to_string();
                     s.pending = None;
                 });
-                return ToolOutcome::Continue("denied: subagent approval timed out".to_string());
+                return Err("denied: subagent approval timed out".to_string());
             }
         }
     }
@@ -3199,25 +3632,174 @@ fn run_subagent(
         .trim()
         .to_string();
     if goal.is_empty() {
-        return ToolOutcome::Continue("invalid: task needs a goal".to_string());
+        return Err("invalid: task needs a goal".to_string());
     }
-    let endpoint = match providers::resolve(config) {
-        Ok(endpoint) => endpoint,
-        Err(e) => return ToolOutcome::Continue(format!("error: {e}")),
-    };
-    let api_key = match db
+    let endpoint = providers::resolve(config).map_err(|e| format!("error: {e}"))?;
+    let api_key = db
         .read()
         .ok()
         .and_then(|guard| load_key(&guard, &config.id).ok())
-    {
-        Some(key) => key,
-        None => return ToolOutcome::Continue("error: database unavailable".to_string()),
-    };
+        .ok_or_else(|| "error: database unavailable".to_string())?;
     let context = call
         .input
         .get("context")
         .and_then(|c| c.as_str())
-        .unwrap_or("");
+        .unwrap_or("")
+        .to_string();
+    Ok(SubagentSetup { goal, context, endpoint, api_key })
+}
+
+/// Everything a subagent worker owns. All owned/cloned up front so a
+/// detached thread never borrows the parent loop.
+struct SubagentBody {
+    db: Arc<RwLock<Database>>,
+    job: Arc<AgentJob>,
+    config: AgentConfig,
+    root: PathBuf,
+    vol: PathBuf,
+    setup: SubagentSetup,
+    depth: u32,
+}
+
+/// One detached background subagent: the worker thread plus its id.
+struct BgSubagent {
+    id: String,
+    handle: std::thread::JoinHandle<String>,
+}
+
+/// Finished background workers, harvested without blocking. A panicked
+/// worker reports honestly instead of vanishing.
+fn sweep_bg_tasks(bg: &mut Vec<BgSubagent>) -> Vec<(String, String)> {
+    let mut done = Vec::new();
+    let mut i = 0;
+    while i < bg.len() {
+        if bg[i].handle.is_finished() {
+            let task = bg.remove(i);
+            let summary = task
+                .handle
+                .join()
+                .unwrap_or_else(|_| "subagent worker panicked".to_string());
+            done.push((task.id, summary));
+        } else {
+            i += 1;
+        }
+    }
+    done
+}
+
+/// Block until every background subagent finishes (or the run is
+/// cancelled). `None` means stop: the caller must not inject after that.
+fn drain_bg_tasks(job: &Arc<AgentJob>, bg: &mut Vec<BgSubagent>) -> Option<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    loop {
+        if job.cancel.load(Ordering::SeqCst) {
+            return None;
+        }
+        out.extend(sweep_bg_tasks(bg));
+        if bg.is_empty() {
+            return Some(out);
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// `task` dispatch: foreground waits inline, `background:true` detaches and
+/// returns an id immediately so the parent keeps working. Run totals are
+/// unbounded — only *concurrent* workers are capped, and finished slots are
+/// reusable. Background spawns are root-level only: deeper levels fall
+/// through to the foreground depth gate.
+#[allow(clippy::too_many_arguments)]
+fn run_task(
+    db: &Arc<RwLock<Database>>,
+    job: &Arc<AgentJob>,
+    config: &AgentConfig,
+    root: &Path,
+    vol: &Path,
+    turn: &agent_loop::AgentTurn,
+    call: &ToolCall,
+    bg: &mut Vec<BgSubagent>,
+    bg_next: &mut u64,
+) -> ToolOutcome {
+    let background = call
+        .input
+        .get("background")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if background && turn.task_depth == 0 {
+        let unfinished = bg.iter().filter(|t| !t.handle.is_finished()).count();
+        if unfinished >= agent_loop::MAX_BG_SUBAGENTS {
+            return ToolOutcome::Continue(format!(
+                "busy: {} background subagents already running (cap {}) — wait for results to arrive, or use a foreground task",
+                unfinished,
+                agent_loop::MAX_BG_SUBAGENTS
+            ));
+        }
+        let setup = match task_prelude(db, job, config, turn, call) {
+            Ok(setup) => setup,
+            Err(message) => return ToolOutcome::Continue(message),
+        };
+        *bg_next += 1;
+        let id = format!("bg-{}", *bg_next);
+        let goal = setup.goal.clone();
+        let body = SubagentBody {
+            db: Arc::clone(db),
+            job: Arc::clone(job),
+            config: config.clone(),
+            root: root.to_path_buf(),
+            vol: vol.to_path_buf(),
+            setup,
+            depth: turn.task_depth,
+        };
+        match std::thread::Builder::new()
+            .name(format!("subagent-{id}"))
+            .spawn(move || subagent_body(body))
+        {
+            Ok(handle) => {
+                bg.push(BgSubagent { id: id.clone(), handle });
+                ToolOutcome::Continue(agent_loop::bg_started_message(&id, &goal))
+            }
+            Err(e) => {
+                ToolOutcome::Continue(format!("error: could not start background subagent: {e}"))
+            }
+        }
+    } else {
+        run_subagent(db, job, config, root, vol, turn, call)
+    }
+}
+
+/// Foreground `task`: validate, run inline, report.
+#[allow(clippy::too_many_arguments)]
+fn run_subagent(
+    db: &Arc<RwLock<Database>>,
+    job: &Arc<AgentJob>,
+    config: &AgentConfig,
+    root: &Path,
+    vol: &Path,
+    turn: &agent_loop::AgentTurn,
+    call: &ToolCall,
+) -> ToolOutcome {
+    let setup = match task_prelude(db, job, config, turn, call) {
+        Ok(setup) => setup,
+        Err(message) => return ToolOutcome::Continue(message),
+    };
+    ToolOutcome::Continue(subagent_body(SubagentBody {
+        db: Arc::clone(db),
+        job: Arc::clone(job),
+        config: config.clone(),
+        root: root.to_path_buf(),
+        vol: vol.to_path_buf(),
+        setup,
+        depth: turn.task_depth,
+    }))
+}
+
+/// The bounded subagent loop, shared by foreground (inline) and background
+/// (worker thread) spawns — same code, same caps, same transcript shape.
+fn subagent_body(params: SubagentBody) -> String {
+    let SubagentBody { db, job, config, root, vol, setup, depth } = params;
+    let root = root.as_path();
+    let vol = vol.as_path();
+    let SubagentSetup { goal, context, endpoint, api_key } = setup;
     let mut sub = agent_loop::AgentTurn::new(
         vec![cybermanju_types::agent::ChatMessage {
             role: "user".into(),
@@ -3227,11 +3809,13 @@ fn run_subagent(
             tool_input: None,
         }],
         SUBAGENT_MAX_TURNS,
-        turn.task_depth + 1,
+        depth + 1,
     );
     let system = format!(
-        "{}{}\nSUBAGENT TOOLSET: this run has `read`, `list` and `grep` only — no edit, \
-        write, bash, task or question. Investigate and report; the parent acts on it.",
+        "{}{}\nSUBAGENT TOOLSET: this run has `read`, `list`, `grep`, `glob`, `self_research`, \
+        `repo_analyze`, `edit`, `write`, `bash` and the memory tools (`memory_recall`, \
+        `memory_remember` — use them when past context or a durable lesson helps) — no task \
+        or question. Investigate, edit and verify; the parent reviews it.",
         agent_loop::system_prompt(
             &root.to_string_lossy(),
             "build",
@@ -3246,7 +3830,7 @@ fn run_subagent(
     let mut summary = String::from("(subagent produced no text)");
     for _ in 0..SUBAGENT_MAX_TURNS {
         if job.cancel.load(Ordering::SeqCst) {
-            return ToolOutcome::Continue("subagent cancelled with the parent run".to_string());
+            return "subagent cancelled with the parent run".to_string();
         }
         let (mut url, headers, mut body) = sub.build_request(
             &endpoint.base_url,
@@ -3260,13 +3844,30 @@ fn run_subagent(
             let name = endpoint.auth_name.as_deref().unwrap_or("key");
             url = protocol::with_query_key(&url, name, &api_key);
         }
-        // Strip mutating tools: subagents read and report. The read-only
+        // Subagents share the full file/shell toolset (read, write, bash)
+        // plus the memory tools (recall/remember are available, never
+        // required) — but never nest (`task`) or ask questions. The
         // allowlist runs first, then the shared ruleset strip (a
         // default-deny parent strips even reads it did not allow — the
         // runtime gate would deny them anyway, so the schema stays
         // honest). An emptied `tools` key is removed with `tool_choice`.
         if let Some(tools) = body.get_mut("tools").and_then(|t| t.as_array_mut()) {
-            let keep = |name: &str| matches!(name, "read" | "list" | "grep");
+            let keep = |name: &str| {
+                matches!(
+                    name,
+                    "read"
+                        | "list"
+                        | "grep"
+                        | "glob"
+                        | "self_research"
+                        | "repo_analyze"
+                        | "edit"
+                        | "write"
+                        | "bash"
+                        | "memory_recall"
+                        | "memory_remember"
+                )
+            };
             tools.retain(|t| {
                 t.get("function")
                     .and_then(|f| f.get("name"))
@@ -3289,12 +3890,12 @@ fn run_subagent(
         let reply = match post_with_retry(&job.cancel, &url, &headers, &body) {
             Ok(reply) => reply,
             Err(e) if e == "cancelled" => {
-                return ToolOutcome::Continue("subagent cancelled with the parent run".to_string())
+                return "subagent cancelled with the parent run".to_string()
             }
-            Err(e) => return ToolOutcome::Continue(format!("subagent transport failed: {e}")),
+            Err(e) => return format!("subagent transport failed: {e}"),
         };
         if job.cancel.load(Ordering::SeqCst) {
-            return ToolOutcome::Continue("subagent cancelled with the parent run".to_string());
+            return "subagent cancelled with the parent run".to_string();
         }
         match sub.ingest_reply(endpoint.dialect, &reply) {
             Ok(agent_loop::LoopEvent::TextDone) => {
@@ -3314,10 +3915,20 @@ fn run_subagent(
             }
             Ok(agent_loop::LoopEvent::ToolCalls(calls)) => {
                 for call in &calls {
-                    // Belt and braces: the stripped schema above plus a
-                    // runtime gate — a subagent never mutates.
+                    // Belt and braces: the allowlist schema above plus a
+                    // runtime gate — a subagent never nests or asks.
                     let output = match call.name.as_str() {
-                        "read" | "list" | "grep" => {
+                        "read"
+                        | "list"
+                        | "grep"
+                        | "glob"
+                        | "self_research"
+                        | "repo_analyze"
+                        | "edit"
+                        | "write"
+                        | "bash"
+                        | "memory_recall"
+                        | "memory_remember" => {
                             let guard = match db.read() {
                                 Ok(guard) => guard,
                                 Err(e) => {
@@ -3328,16 +3939,16 @@ fn run_subagent(
                                     continue;
                                 }
                             };
-                            // Subagents report — the `memory_remember` arm
-                            // denies stores even if the schema ever leaks one.
+                            // Memory runs in the parent config scope: recall reads
+                            // shared context, remember stores like any turn.
                             let mem_ctx = MemoryCtx {
                                 endpoint: &endpoint,
                                 api_key: &api_key,
                                 cancel: &job.cancel,
                                 config_id: &config.id,
                                 session_id: &job.session_id,
-                                embedding_model: embedding_model(config),
-                                allow_remember: false,
+                                embedding_model: embedding_model(&config),
+                                allow_remember: true,
                             };
                             match exec_tool(&guard, root, vol, call, &mem_ctx, config.shell_mode) {
                                 Ok(output) => clean_output(output),
@@ -3353,7 +3964,7 @@ fn run_subagent(
         }
     }
     let short: String = summary.chars().take(4000).collect();
-    ToolOutcome::Continue(format!("subagent result:\n{short}"))
+    format!("subagent result:\n{short}")
 }
 
 // ─── cybsh `ai …` (lockless REST intercept) ────────────────────────────────
@@ -3513,7 +4124,10 @@ pub fn try_ai_exec(
         }
         cybermanju_os::shell::AiCommand::Sessions => {
             let guard = shared.read().ok()?;
-            match list_sessions(&guard) {
+            // Owner-bound like every sibling arm (P0-10): a REST
+            // `POST /api/os/exec {line:"ai sessions"}` caller must only see
+            // their own transcripts (plus legacy unowned rows; admins all).
+            match list_sessions_for(&guard, owner_id, is_admin) {
                 Ok(sessions) if sessions.is_empty() => Some(ai_ok(
                     line,
                     "no agent sessions yet — `ai ask \"…\"` starts one".to_string(),

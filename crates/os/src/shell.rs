@@ -83,6 +83,7 @@ pub fn command_table() -> &'static [&'static str] {
         "disk",
         "providers",
         "quota",
+        "oauth",
         "sync",
         "scrub",
         "repair",
@@ -97,8 +98,20 @@ pub fn command_table() -> &'static [&'static str] {
         "keygen",
         "encrypt",
         "decrypt",
+        "compress",
+        "decompress",
         "search",
+        "grep",
+        "find",
+        "head",
+        "tail",
+        "wc",
+        "write",
+        "edit",
         "ai",
+        "run",
+        "theme",
+        "ui",
     ]
 }
 
@@ -122,12 +135,19 @@ pub fn completions(prefix: &str) -> Vec<String> {
         "ai status",
         "ai abort",
         "ai sessions",
+        "oauth status",
+        "oauth start",
         "sync start",
         "sync status",
+        "sync list",
         "sync cancel",
         "compute run",
         "lease status",
         "history clear",
+        "ui theme",
+        "ui accent",
+        "ui get",
+        "theme get",
     ];
     for s in sub {
         if s.starts_with(prefix) && !out.iter().any(|o| o == s) {
@@ -610,6 +630,7 @@ fn dispatch(
         "umount" => umount_cmd(args, db, json),
         "providers" => providers_cmd(db, json),
         "quota" => quota_cmd(db, json),
+        "oauth" => oauth_cmd(args, db, json),
         "sync" => sync_cmd(args, db, json),
         "scrub" => scrub_cmd(db, json),
         "repair" => repair_cmd(db, json),
@@ -624,8 +645,20 @@ fn dispatch(
         "keygen" => keygen_cmd(args, db, json),
         "encrypt" => encrypt_cmd(args, json),
         "decrypt" => decrypt_cmd(args, json),
+        "compress" => compress_cmd(args, json),
+        "decompress" => decompress_cmd(args, json),
         "search" => search_cmd(args, json),
+        "grep" => grep_cmd(args, stdin, json),
+        "find" => find_cmd(args, json),
+        "head" => head_cmd(args, stdin),
+        "tail" => tail_cmd(args, stdin),
+        "wc" => wc_cmd(args, stdin, json),
+        "write" => write_cmd(args, stdin),
+        "edit" => edit_cmd(args, json),
         "ai" => ai_cmd(args, db, json),
+        "run" => run_cmd(args, db, json),
+        "theme" => theme_cmd(args, json),
+        "ui" => ui_cmd(args, json),
         unknown => Err(did_you_mean("unknown command", unknown, command_table())),
     }
 }
@@ -643,6 +676,9 @@ fn help_text(json: bool) -> String {
             "files",
             &[
                 "ls", "cd", "pwd", "cat", "cp", "mv", "rm", "mkdir", "touch", "stat", "du",
+                "grep [-i] [-n] <pattern> [paths…]", "find [path] [pattern]",
+                "head|tail [-n N] <path>", "wc [paths…]", "write <path> <content…>",
+                "edit <path> <old> <new>",
             ],
         ),
         (
@@ -656,18 +692,43 @@ fn help_text(json: bool) -> String {
         ),
         (
             "providers",
-            &["providers", "quota", "sync start|status|cancel"],
+            &[
+                "providers",
+                "quota",
+                "oauth status|start",
+                "sync start|status|list|cancel",
+            ],
         ),
         ("durability", &["scrub", "repair", "gc", "lease status"]),
         ("tasks", &["ps", "top", "kill <id>"]),
         ("compute", &["jobs", "compute run <job> <path>", "workers"]),
-        ("crypto/search", &["keygen", "encrypt", "decrypt", "search"]),
+        (
+            "crypto/search",
+            &[
+                "keygen",
+                "encrypt",
+                "decrypt",
+                "compress <path> [lz4|brotli]",
+                "decompress <path.(lz4|br)>",
+                "search",
+                "grep",
+            ],
+        ),
         (
             "agent",
             &[
                 "ai ask \"…\" [--config <id>] [--session <id>]",
                 "ai init [--config <id>]",
                 "ai status|abort|sessions",
+            ],
+        ),
+        (
+            "script",
+            &[
+                "run <file.cybsh> [--dry] [--json] [--record j.json] [--replay j.json]",
+                "def/print/let/if/try-catch/fetch/ui in `.cybsh` (see SKILL.md)",
+                "theme <id>|get",
+                "ui theme <id>|accent <#hex|default>|get",
             ],
         ),
     ];
@@ -1462,6 +1523,89 @@ fn ai_cmd(args: &[String], _db: Option<&Database>, json: bool) -> Result<String,
     })
 }
 
+fn oauth_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, String> {
+    let sub = args.first().map(|s| s.to_lowercase()).unwrap_or_else(|| "status".to_string());
+    match sub.as_str() {
+        "status" | "list" => {
+            let db =
+                db.ok_or_else(|| "unsupported: oauth status needs the database".to_string())?;
+            let configs = db.list_sync_configs().map_err(|e| e.to_string())?;
+            let rows: Vec<serde_json::Value> = configs
+                .iter()
+                .map(|c| {
+                    let backend = c.backend_type.to_string();
+                    let slug = match backend.to_lowercase().as_str() {
+                        "github" => Some("github"),
+                        "gitlab" => Some("gitlab"),
+                        s if s.contains("google") || s.contains("drive") => Some("google"),
+                        _ => None,
+                    };
+                    serde_json::json!({
+                        "id": c.id,
+                        "backend": backend,
+                        "oauth": slug,
+                        "signedIn": c.token.as_ref().map(|t| !t.is_empty()).unwrap_or(false),
+                    })
+                })
+                .collect();
+            if json {
+                return serde_json::to_string(&serde_json::json!({
+                    "oauth": rows, "dashboardRequired": true,
+                }))
+                .map_err(|e| e.to_string());
+            }
+            if rows.is_empty() {
+                return Ok("no provider configs yet — add one on its provider card first".to_string());
+            }
+            let mut out = Vec::new();
+            for r in &rows {
+                let id = r["id"].as_str().unwrap_or("?");
+                let backend = r["backend"].as_str().unwrap_or("?");
+                let signed = r["signedIn"].as_bool().unwrap_or(false);
+                if r["oauth"].is_null() {
+                    out.push(format!("{id} ({backend}): local backend, no OAuth flow — nothing to sign"));
+                } else if signed {
+                    out.push(format!("{id} ({backend}): signed in (token sealed server-side)"));
+                } else {
+                    out.push(format!("{id} ({backend}): NOT signed in — `oauth start {backend} {id}`"));
+                }
+            }
+            Ok(out.join("\n"))
+        }
+        "start" => {
+            let backend = args.get(1).cloned().unwrap_or_default();
+            let config = args.get(2).cloned().unwrap_or_default();
+            let slug = match backend.to_lowercase().as_str() {
+                "github" | "gitlab" => backend.to_lowercase(),
+                s if s.contains("google") || s.contains("drive") => "google".to_string(),
+                _ => String::new(),
+            };
+            if slug.is_empty() {
+                return Err(format!(
+                    "unsupported: no OAuth flow for '{backend}' (oauth-capable: github, gitlab, googleDrive)"
+                ));
+            }
+            let hint = if config.is_empty() {
+                format!("GET /api/sync/oauth/{slug}/start — then complete the provider redirect (see docs/SECURITY.md §5)")
+            } else {
+                format!("GET /api/sync/oauth/{slug}/start?configId={config} — then complete the provider redirect (see docs/SECURITY.md §5)")
+            };
+            if json {
+                return serde_json::to_string(&serde_json::json!({
+                    "signedIn": false, "dashboardRequired": true, "hint": hint,
+                }))
+                .map_err(|e| e.to_string());
+            }
+            Err(format!("auth: the OAuth dance needs the dashboard — {hint}"))
+        }
+        other => Err(did_you_mean(
+            "unknown oauth subcommand",
+            other,
+            &["status", "start"],
+        )),
+    }
+}
+
 fn sync_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, String> {
     let sub = args.first().map(String::as_str).unwrap_or("status");
     let rest = if args.is_empty() { &[][..] } else { &args[1..] };
@@ -1537,10 +1681,48 @@ fn sync_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String
                  then poll with `sync status`; see docs/OPERATIONS.md"
             ))
         }
+        "list" => {
+            let db =
+                db.ok_or_else(|| "unsupported: sync list needs the database".to_string())?;
+            let configs = db.list_sync_configs().map_err(|e| e.to_string())?;
+            if json {
+                let rows: Vec<serde_json::Value> = configs
+                    .iter()
+                    .map(|c| {
+                        serde_json::json!({
+                            "id": c.id,
+                            "backend": c.backend_type.to_string(),
+                            "enabled": c.enabled,
+                            "hasToken": c.token.as_ref().map(|t| !t.is_empty()).unwrap_or(false),
+                        })
+                    })
+                    .collect();
+                return serde_json::to_string(&rows).map_err(|e| e.to_string());
+            }
+            if configs.is_empty() {
+                return Ok("no sync configs yet — add a provider first".to_string());
+            }
+            let mut out = format!("{:<20} {:<12} {:<8} {}\n", "ID", "BACKEND", "ENABLED", "SIGNED-IN");
+            for c in &configs {
+                let signed = if c.token.as_ref().map(|t| !t.is_empty()).unwrap_or(false) {
+                    "yes"
+                } else {
+                    "no"
+                };
+                out.push_str(&format!(
+                    "{:<20} {:<12} {:<8} {}\n",
+                    c.id,
+                    c.backend_type.to_string(),
+                    if c.enabled { "yes" } else { "no" },
+                    signed
+                ));
+            }
+            Ok(out.trim_end().to_string())
+        }
         other => Err(did_you_mean(
             "unknown sync subcommand",
             other,
-            &["start", "status", "cancel"],
+            &["start", "status", "list", "cancel"],
         )),
     }
 }
@@ -2013,6 +2195,939 @@ fn search_cmd(args: &[String], json: bool) -> Result<String, String> {
     Ok(out.trim_end().to_string())
 }
 
+// ─── file text verbs (grep/find/head/tail/wc/write/edit) ──────────────────
+
+/// Read one file fully (binary-safe). Caps single reads at 8 MiB.
+fn read_file_bytes(path: &str) -> Result<Vec<u8>, String> {
+    let kernel = Kernel::global();
+    let fd = kernel.open(path, OpenFlags::read_only())?;
+    let mut data = Vec::new();
+    loop {
+        let chunk = kernel.read(fd, 64 * 1024)?;
+        if chunk.is_empty() {
+            break;
+        }
+        data.extend_from_slice(&chunk);
+        if data.len() > 8 * 1024 * 1024 {
+            kernel.close(fd)?;
+            return Err("too_large: file exceeds the 8 MiB shell read cap".to_string());
+        }
+    }
+    kernel.close(fd)?;
+    Ok(data)
+}
+
+/// Recursively list files under `root` (cap 5000, dirs included when `dirs`).
+fn walk_files(root: &str, dirs: bool) -> Result<Vec<String>, String> {
+    let kernel = Kernel::global();
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_string()];
+    while let Some(dir) = stack.pop() {
+        let entries = kernel.readdir(&dir)?;
+        for e in entries {
+            let child = if dir == "/" {
+                format!("/{}", e.name)
+            } else {
+                format!("{}/{}", dir.trim_end_matches('/'), e.name)
+            };
+            if e.is_dir {
+                if dirs {
+                    out.push(child.clone());
+                }
+                stack.push(child);
+            } else {
+                out.push(child);
+            }
+            if out.len() >= 5000 {
+                return Ok(out);
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// `*`-only glob match (case-sensitive). `*` spans separators.
+fn glob_match(pattern: &str, text: &str) -> bool {
+    if pattern == "*" || pattern.is_empty() {
+        return true;
+    }
+    if !pattern.contains('*') {
+        return text.contains(pattern);
+    }
+    let parts: Vec<&str> = pattern.split('*').collect();
+    let mut rest = text;
+    let mut first = true;
+    for (i, part) in parts.iter().enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+        let last = i == parts.len() - 1;
+        if first && !pattern.starts_with('*') {
+            if !rest.starts_with(part) {
+                return false;
+            }
+            rest = &rest[part.len()..];
+            first = false;
+            continue;
+        }
+        first = false;
+        match rest.find(part) {
+            Some(pos) => {
+                if last && !pattern.ends_with('*') && pos + part.len() != rest.len() {
+                    return false;
+                }
+                rest = &rest[pos + part.len()..];
+            }
+            None => return false,
+        }
+    }
+    true
+}
+
+fn grep_cmd(args: &[String], stdin: &str, json: bool) -> Result<String, String> {
+    let mut insensitive = false;
+    let mut show_line = false;
+    let mut rest: Vec<&String> = Vec::new();
+    for a in args {
+        match a.as_str() {
+            "-i" | "--ignore-case" => insensitive = true,
+            "-n" | "--line-number" => show_line = true,
+            _ if a.starts_with('-') && a.len() > 1 && !a.contains('/') => {
+                let flags = a.trim_start_matches('-');
+                if flags.chars().all(|c| c == 'i' || c == 'n') {
+                    if flags.contains('i') {
+                        insensitive = true;
+                    }
+                    if flags.contains('n') {
+                        show_line = true;
+                    }
+                } else {
+                    rest.push(a);
+                }
+            }
+            _ => rest.push(a),
+        }
+    }
+    if rest.is_empty() {
+        return Err("usage: grep [-i] [-n] <pattern> [paths…]".to_string());
+    }
+    let pattern = rest[0].clone();
+    let needle = if insensitive {
+        pattern.to_lowercase()
+    } else {
+        pattern.clone()
+    };
+    let matches_line = |line: &str| -> bool {
+        if insensitive {
+            line.to_lowercase().contains(&needle)
+        } else {
+            line.contains(&needle)
+        }
+    };
+    // No paths: grep stdin (pipe) or report usage.
+    if rest.len() == 1 {
+        if !stdin.is_empty() {
+            let mut hits = Vec::new();
+            for (i, line) in stdin.lines().enumerate() {
+                if matches_line(line) {
+                    hits.push(if show_line {
+                        format!("{}:{line}", i + 1)
+                    } else {
+                        line.to_string()
+                    });
+                }
+            }
+            if json {
+                return serde_json::to_string(&serde_json::json!({
+                    "pattern": pattern, "matches": hits,
+                }))
+                .map_err(|e| e.to_string());
+            }
+            if hits.is_empty() {
+                return Ok(format!("no matches for `{pattern}`"));
+            }
+            return Ok(truncate(hits.join("\n")));
+        }
+        return Err("usage: grep [-i] [-n] <pattern> [paths…]".to_string());
+    }
+    let mut hits: Vec<String> = Vec::new();
+    // Collect every file first so single-file greps print bare lines and
+    // tree greps print `file:line` — the same rule on every transport.
+    let mut targets: Vec<String> = Vec::new();
+    for target in &rest[1..] {
+        let path = absolute(target);
+        let stat = Kernel::global().stat(&path);
+        match stat {
+            Ok(s) if !s.is_dir => targets.push(path),
+            Ok(_) => targets.extend(walk_files(&path, false)?),
+            Err(_) => return Err(format!("not_found: {target}")),
+        }
+    }
+    let prefix_file = targets.len() > 1;
+    for file in &targets {
+        let data = match read_file_bytes(file) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+            // Binary files: match on the lossy view, report the path only.
+            let text = String::from_utf8_lossy(&data);
+            for (i, line) in text.lines().enumerate() {
+                if matches_line(line) {
+                    let body = if show_line {
+                        format!("{}:{line}", i + 1)
+                    } else {
+                        line.to_string()
+                    };
+                    hits.push(if prefix_file {
+                        format!("{file}:{body}")
+                    } else {
+                        body
+                    });
+                    if hits.len() >= MAX_LINES {
+                        break;
+                    }
+                }
+            }
+            if hits.len() >= MAX_LINES {
+                break;
+            }
+        }
+    if json {
+        return serde_json::to_string(&serde_json::json!({
+            "pattern": pattern, "matches": hits,
+        }))
+        .map_err(|e| e.to_string());
+    }
+    if hits.is_empty() {
+        return Ok(format!("no matches for `{pattern}`"));
+    }
+    Ok(truncate(hits.join("\n")))
+}
+
+fn find_cmd(args: &[String], json: bool) -> Result<String, String> {
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    let (root_arg, pattern) = match paths.len() {
+        0 => ("/", None),
+        1 => {
+            // `find foo` — root if it exists as a dir, else pattern under /.
+            let probe = absolute(paths[0]);
+            if Kernel::global().stat(&probe).map(|s| s.is_dir).unwrap_or(false) {
+                (paths[0].as_str(), None)
+            } else {
+                ("/", Some(paths[0].as_str()))
+            }
+        }
+        _ => (paths[0].as_str(), Some(paths[1].as_str())),
+    };
+    let root = absolute(root_arg);
+    let stat = Kernel::global()
+        .stat(&root)
+        .map_err(|_| format!("not_found: {root_arg}"))?;
+    let files = if stat.is_dir {
+        walk_files(&root, true)?
+    } else {
+        vec![root.clone()]
+    };
+    let hits: Vec<String> = files
+        .into_iter()
+        .filter(|f| match pattern {
+            None => true,
+            Some(p) => {
+                let base = f.rsplit('/').next().unwrap_or(f);
+                glob_match(p, base) || glob_match(p, f)
+            }
+        })
+        .collect();
+    if json {
+        return serde_json::to_string(&serde_json::json!({
+            "root": root, "pattern": pattern, "matches": hits,
+        }))
+        .map_err(|e| e.to_string());
+    }
+    if hits.is_empty() {
+        return Ok("(no matches)".to_string());
+    }
+    Ok(truncate(hits.join("\n")))
+}
+
+fn parse_head_tail_n(args: &[String]) -> (usize, Vec<&String>) {
+    let mut n = 10usize;
+    let mut rest: Vec<&String> = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        if (args[i] == "-n" || args[i] == "--lines") && i + 1 < args.len() {
+            n = args[i + 1].parse().unwrap_or(10);
+            i += 2;
+            continue;
+        }
+        if args[i].starts_with("-n") && args[i].len() > 2 {
+            n = args[i][2..].parse().unwrap_or(10);
+            i += 1;
+            continue;
+        }
+        rest.push(&args[i]);
+        i += 1;
+    }
+    (n.max(1), rest)
+}
+
+fn head_cmd(args: &[String], stdin: &str) -> Result<String, String> {
+    let (n, rest) = parse_head_tail_n(args);
+    let text = if rest.is_empty() {
+        if stdin.is_empty() {
+            return Err("usage: head [-n N] <path>".to_string());
+        }
+        stdin.to_string()
+    } else {
+        let data = read_file_bytes(&absolute(rest[0]))?;
+        String::from_utf8_lossy(&data).into_owned()
+    };
+    Ok(text.lines().take(n).collect::<Vec<_>>().join("\n"))
+}
+
+fn tail_cmd(args: &[String], stdin: &str) -> Result<String, String> {
+    let (n, rest) = parse_head_tail_n(args);
+    let text = if rest.is_empty() {
+        if stdin.is_empty() {
+            return Err("usage: tail [-n N] <path>".to_string());
+        }
+        stdin.to_string()
+    } else {
+        let data = read_file_bytes(&absolute(rest[0]))?;
+        String::from_utf8_lossy(&data).into_owned()
+    };
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(n);
+    Ok(lines[start..].join("\n"))
+}
+
+fn wc_cmd(args: &[String], stdin: &str, json: bool) -> Result<String, String> {
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    let mut totals = (0u64, 0u64, 0u64);
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    let count = |data: &[u8]| -> (u64, u64, u64) {
+        let text = String::from_utf8_lossy(data);
+        let lines = text.lines().count() as u64;
+        let words = text.split_whitespace().count() as u64;
+        (lines, words, data.len() as u64)
+    };
+    if paths.is_empty() {
+        if stdin.is_empty() {
+            return Err("usage: wc [paths…]".to_string());
+        }
+        let (l, w, b) = count(stdin.as_bytes());
+        if json {
+            return serde_json::to_string(&serde_json::json!({
+                "lines": l, "words": w, "bytes": b,
+            }))
+            .map_err(|e| e.to_string());
+        }
+        return Ok(format!("{l} {w} {b}"));
+    }
+    for p in paths {
+        let path = absolute(p);
+        let data = read_file_bytes(&path)?;
+        let (l, w, b) = count(&data);
+        totals = (totals.0 + l, totals.1 + w, totals.2 + b);
+        rows.push(serde_json::json!({ "path": path, "lines": l, "words": w, "bytes": b }));
+    }
+    if json {
+        return serde_json::to_string(&serde_json::json!({
+            "files": rows,
+            "total": { "lines": totals.0, "words": totals.1, "bytes": totals.2 },
+        }))
+        .map_err(|e| e.to_string());
+    }
+    let mut out: Vec<String> = rows
+        .iter()
+        .map(|r| {
+            format!(
+                "{} {} {} {}",
+                r["lines"], r["words"], r["bytes"], r["path"].as_str().unwrap_or("?")
+            )
+        })
+        .collect();
+    if rows.len() > 1 {
+        out.push(format!("{} {} {} total", totals.0, totals.1, totals.2));
+    }
+    Ok(out.join("\n"))
+}
+
+fn write_cmd(args: &[String], stdin: &str) -> Result<String, String> {
+    if args.is_empty() {
+        return Err("usage: write <path> <content…>".to_string());
+    }
+    let path = absolute(&args[0]);
+    let content = if args.len() > 1 {
+        args[1..].join(" ")
+    } else {
+        stdin.to_string()
+    };
+    if content.len() > 1024 * 1024 {
+        return Err(format!(
+            "too_large: content is {} bytes, shell write limit is {}",
+            content.len(),
+            1024 * 1024
+        ));
+    }
+    let kernel = Kernel::global();
+    let fd = kernel.open(&path, OpenFlags::create())?;
+    kernel.write(fd, content.as_bytes())?;
+    kernel.close(fd)?;
+    Ok(format!("wrote {} ({} bytes)", path, content.len()))
+}
+
+fn edit_cmd(args: &[String], json: bool) -> Result<String, String> {
+    if args.len() < 3 {
+        return Err("usage: edit <path> <old> <new>".to_string());
+    }
+    if args[1].len() < 1 {
+        return Err("integrity: refusing empty anchor (old text must be ≥1 char)".to_string());
+    }
+    let path = absolute(&args[0]);
+    let data = read_file_bytes(&path)?;
+    let text =
+        String::from_utf8(data).map_err(|_| "invalid: file is not UTF-8 text".to_string())?;
+    let occurrences = text.matches(args[1].as_str()).count();
+    if occurrences == 0 {
+        return Err(format!("not_found: anchor occurs 0 times in {path}"));
+    }
+    if occurrences > 1 {
+        return Err(format!(
+            "conflict: anchor occurs {occurrences} times in {path} — refine it to exactly one"
+        ));
+    }
+    let updated = text.replacen(args[1].as_str(), &args[2], 1);
+    let kernel = Kernel::global();
+    let fd = kernel.open(&path, OpenFlags::create())?;
+    kernel.write(fd, updated.as_bytes())?;
+    kernel.close(fd)?;
+    if json {
+        return serde_json::to_string(&serde_json::json!({
+            "path": path, "replaced": 1, "bytes": updated.len(),
+        }))
+        .map_err(|e| e.to_string());
+    }
+    Ok(format!("edited {} (1 replacement, {} bytes)", path, updated.len()))
+}
+
+// ─── scripts: `run` + `theme`/`ui` ──────────────────────────────────────
+
+/// Nesting guard for scripts calling scripts (`run` → `sh "run …"`).
+fn run_depth() -> &'static Mutex<usize> {
+    static RUN_DEPTH: OnceLock<Mutex<usize>> = OnceLock::new();
+    RUN_DEPTH.get_or_init(|| Mutex::new(0))
+}
+
+/// `run <file.cybsh> [--dry] [--json]` — interpreted automation, no build.
+/// Inline `sh` lines execute through `execute()`, so every operator and
+/// verb keeps working; `--dry` only parses.
+/// One recorded host call inside a replay journal.
+#[derive(Debug, Clone)]
+struct JournalCall {
+    ok: bool,
+    output: String,
+}
+
+/// A `--record`/`--replay` journal: every nondeterministic host input a
+/// script saw (`sh` outputs, `fetch` bodies), keyed by call, fingerprinted
+/// by script source (hermetic-sandbox rule: a replay of changed code is an
+/// `integrity:` refusal, never a silent lie).
+struct Journal {
+    fingerprint: String,
+    sh: std::collections::BTreeMap<String, JournalCall>,
+    fetch: std::collections::BTreeMap<String, JournalCall>,
+}
+
+fn journal_fingerprint_ok(journal: &serde_json::Value, source: &str) -> Result<Journal, String> {
+    if journal.get("cybsh").and_then(|v| v.as_u64()) != Some(1) {
+        return Err("invalid: replay journal is not a cybsh v1 journal".to_string());
+    }
+    let fingerprint = journal
+        .get("fingerprint")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if fingerprint != crate::script::fingerprint(source) {
+        return Err(
+            "integrity: replay journal fingerprint mismatch — the script changed since `--record` (re-record, don't replay stale inputs)".to_string(),
+        );
+    }
+    let mut out = Journal {
+        fingerprint: fingerprint.to_string(),
+        sh: std::collections::BTreeMap::new(),
+        fetch: std::collections::BTreeMap::new(),
+    };
+    let empty = serde_json::Map::new();
+    for (table, dest) in [
+        ("sh", &mut out.sh),
+        ("fetch", &mut out.fetch),
+    ] {
+        let calls = journal
+            .get("calls")
+            .and_then(|c| c.get(table))
+            .and_then(|t| t.as_object())
+            .unwrap_or(&empty);
+        for (k, v) in calls {
+            dest.insert(
+                k.clone(),
+                JournalCall {
+                    ok: v.get("ok").and_then(|o| o.as_bool()).unwrap_or(false),
+                    output: v
+                        .get("output")
+                        .and_then(|o| o.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                },
+            );
+        }
+    }
+    Ok(out)
+}
+
+fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, String> {
+    let dry = args.iter().any(|a| a == "--dry" || a == "--check");
+    if args.iter().any(|a| a == "--help" || a == "-h") || args.is_empty() {
+        return Err(
+            "usage: run <file.cybsh> [--dry] [--json] [--record <journal.json>] [--replay <journal.json>]"
+                .to_string(),
+        );
+    }
+    // Value flags consume the next arg, so positionals skip both.
+    let mut record: Option<String> = None;
+    let mut replay: Option<String> = None;
+    let mut positional: Vec<&String> = Vec::new();
+    let mut skip_next = false;
+    for arg in args {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if arg == "--record" || arg == "--replay" {
+            skip_next = true;
+            continue;
+        }
+        if !arg.starts_with('-') {
+            positional.push(arg);
+        }
+    }
+    let mut flag_values = args.iter();
+    while let Some(arg) = flag_values.next() {
+        if arg == "--record" {
+            record = Some(
+                flag_values
+                    .next()
+                    .filter(|v| !v.starts_with('-'))
+                    .ok_or_else(|| "usage: run <file.cybsh> [--record <journal.json>]".to_string())?
+                    .clone(),
+            );
+        } else if arg == "--replay" {
+            replay = Some(
+                flag_values
+                    .next()
+                    .filter(|v| !v.starts_with('-'))
+                    .ok_or_else(|| "usage: run <file.cybsh> [--replay <journal.json>]".to_string())?
+                    .clone(),
+            );
+        }
+    }
+    if record.is_some() && replay.is_some() {
+        return Err("invalid: `--record` and `--replay` are exclusive".to_string());
+    }
+    let path_arg = positional
+        .first()
+        .ok_or_else(|| "usage: run <file.cybsh> [--dry] [--json]".to_string())?;
+    let path = absolute(path_arg);
+    if !path.to_lowercase().ends_with(crate::script::SCRIPT_EXT) {
+        return Err(format!(
+            "invalid: `run` needs a {} file (got `{path_arg}`) — scripts are interpreted, no build step",
+            crate::script::SCRIPT_EXT
+        ));
+    }
+    let data = read_file_bytes(&path)?;
+    if data.len() > crate::script::MAX_SOURCE_BYTES {
+        return Err(format!(
+            "too_large: script is {} bytes, limit is {}",
+            data.len(),
+            crate::script::MAX_SOURCE_BYTES
+        ));
+    }
+    let source =
+        String::from_utf8(data).map_err(|_| "invalid: script is not UTF-8 text".to_string())?;
+    if dry {
+        let report = crate::script::dry_run(&source)?;
+        return Ok(format!("{path}: {report}"));
+    }
+    {
+        let mut depth = lock(run_depth());
+        if *depth >= 4 {
+            return Err("too_large: `run` nesting exceeds 4 (script calling script calling …)".to_string());
+        }
+        *depth += 1;
+    }
+    // Replay journal first: same source fingerprint or an `integrity:` refusal.
+    let journal = if let Some(replay_arg) = &replay {
+        let raw = read_file_bytes(&absolute(replay_arg)).map_err(|_| {
+            format!("not_found: no replay journal at `{replay_arg}` (`--record` one first)")
+        })?;
+        let parsed: serde_json::Value = serde_json::from_slice(&raw)
+            .map_err(|_| format!("invalid: `{replay_arg}` is not a replay journal"))?;
+        Some(journal_fingerprint_ok(&parsed, &source)?)
+    } else {
+        None
+    };
+    let recording = record.is_some();
+    let log_sh = std::cell::RefCell::new(std::collections::BTreeMap::new());
+    let log_fetch = std::cell::RefCell::new(std::collections::BTreeMap::new());
+    let exec_wrap = |line: &str| -> Result<String, String> {
+        if let Some(journal) = journal.as_ref() {
+            return journal.sh.get(line).cloned().map_or_else(
+                || Err(format!("not_found: replay journal has no `sh \"{line}\"` (re-record with `--record`)")),
+                |rec| {
+                    if rec.ok {
+                        Ok(rec.output)
+                    } else {
+                        Err(rec.output)
+                    }
+                },
+            );
+        }
+        let result = execute(line, db);
+        if recording {
+            let rec = match &result {
+                Ok(text) => JournalCall { ok: true, output: text.clone() },
+                Err(message) => JournalCall { ok: false, output: message.clone() },
+            };
+            log_sh.borrow_mut().insert(line.to_string(), rec);
+        }
+        result
+    };
+    // Native shell has no HTTP client: replay journals serve `fetch`
+    // deterministically; anything else stays the honest `unsupported:`.
+    let fetch_wrap = |url: &str| -> Result<String, String> {
+        if let Some(journal) = journal.as_ref() {
+            return journal.fetch.get(url).cloned().map_or_else(
+                || Err(format!("not_found: replay journal has no `fetch {url}` (re-record with `--record`)")),
+                |rec| {
+                    if rec.ok {
+                        Ok(rec.output)
+                    } else {
+                        Err(rec.output)
+                    }
+                },
+            );
+        }
+        Err(format!(
+            "unsupported: `fetch {url}` needs the browser/static transport (this shell has no HTTP client) — run the same `.cybsh` on Pages, replay a journal (`--replay`), or serve it via `POST /api/os/exec` on the dashboard worker"
+        ))
+    };
+    let host = crate::script::Host {
+        exec: &exec_wrap,
+        fetch: Some(&fetch_wrap),
+    };
+    let result = crate::script::run_source(&source, &host);
+    // Decrement through a short-lived guard (std Mutex is not reentrant —
+    // never hold two guards on `run_depth` in one statement).
+    let depth = lock(run_depth()).saturating_sub(1);
+    *lock(run_depth()) = depth;
+    let output = result?;
+    if recording {
+        let record_arg = record.as_ref().expect("recording");
+        let journal_doc = serde_json::json!({
+            "cybsh": 1,
+            "fingerprint": crate::script::fingerprint(&source),
+            "script": path,
+            "calls": {
+                "sh": log_sh.borrow().iter().map(|(k, v)| (k, serde_json::json!({ "ok": v.ok, "output": v.output }))).collect::<serde_json::Map<String, serde_json::Value>>(),
+                "fetch": log_fetch.borrow().iter().map(|(k, v)| (k, serde_json::json!({ "ok": v.ok, "output": v.output }))).collect::<serde_json::Map<String, serde_json::Value>>(),
+            },
+        });
+        let body = serde_json::to_string_pretty(&journal_doc).map_err(|e| e.to_string())?;
+        let record_path = absolute(record_arg);
+        let kernel = Kernel::global();
+        let fd = kernel.open(&record_path, OpenFlags::create())?;
+        kernel.write(fd, body.as_bytes())?;
+        kernel.close(fd)?;
+    }
+    if json {
+        return serde_json::to_string(&serde_json::json!({
+            "path": path,
+            "vars": output.vars,
+            "effects": output.effects.iter().map(|e| serde_json::json!({ "kind": e.kind, "detail": e.detail })).collect::<Vec<_>>(),
+            "caps": output.caps.map(|c| serde_json::json!({ "active": c.active, "net": c.net, "read": c.read, "write": c.write, "deny": c.deny })),
+            "calls": { "sh": output.sh_calls, "fetch": output.fetch_calls },
+            "journal": replay.map(|_| "replay").or_else(|| record.map(|_| "record")),
+            "output": output.text,
+        }))
+        .map_err(|e| e.to_string());
+    }
+    Ok(output.text)
+}
+
+/// Theme ids shared with `src/ui/tokens.ts` (`THEME_IDS` + legacy aliases).
+const THEME_IDS: &[&str] = &[
+    "mac-light",
+    "mac-dark",
+    "mac-graphite-light",
+    "mac-graphite-dark",
+    "mac-midnight",
+];
+
+fn canonical_theme(id: &str) -> Option<&'static str> {
+    match id {
+        "mac-light" => Some("mac-light"),
+        "mac-dark" => Some("mac-dark"),
+        "mac-graphite-light" => Some("mac-graphite-light"),
+        "mac-graphite-dark" => Some("mac-graphite-dark"),
+        "mac-midnight" => Some("mac-midnight"),
+        "midnight" => Some("mac-midnight"),
+        "nebula" => Some("mac-dark"),
+        "ember" => Some("mac-dark"),
+        "daylight" => Some("mac-light"),
+        "ghostline" => Some("mac-dark"),
+        _ => None,
+    }
+}
+
+/// Volume mirror of the live theme settings (`cybermanju_theme_v1` in the
+/// browser, `.cybermanju/theme.json` on the volume) — scripts and every
+/// transport converge on this file.
+const THEME_FILE: &str = "/.cybermanju/theme.json";
+
+fn load_theme() -> (String, Option<String>) {
+    let data = read_file_bytes(THEME_FILE).unwrap_or_default();
+    if data.is_empty() {
+        return ("mac-light".to_string(), None);
+    }
+    let value: serde_json::Value = serde_json::from_slice(&data).unwrap_or(serde_json::Value::Null);
+    let theme = value
+        .get("theme")
+        .and_then(|v| v.as_str())
+        .filter(|t| canonical_theme(t).is_some())
+        .unwrap_or("mac-light")
+        .to_string();
+    let accent = value
+        .get("accent")
+        .and_then(|v| v.as_str())
+        .filter(|a| valid_accent(a))
+        .map(str::to_string);
+    (theme, accent)
+}
+
+fn save_theme(theme: &str, accent: Option<&str>) -> Result<(), String> {
+    let kernel = Kernel::global();
+    let body = serde_json::to_string(&serde_json::json!({ "theme": theme, "accent": accent }))
+        .map_err(|e| e.to_string())?;
+    let fd = kernel.open(THEME_FILE, OpenFlags::create())?;
+    kernel.write(fd, body.as_bytes())?;
+    kernel.close(fd)?;
+    Ok(())
+}
+
+fn valid_accent(raw: &str) -> bool {
+    if raw.is_empty() {
+        return false;
+    }
+    let hex = raw.strip_prefix('#').unwrap_or(raw);
+    (hex.len() == 3 || hex.len() == 6) && hex.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+fn theme_line(theme: &str, accent: Option<&str>) -> String {
+    match accent {
+        Some(a) => format!("theme: {theme} · accent: {a}"),
+        None => format!("theme: {theme} · accent: system"),
+    }
+}
+
+/// `theme [<id>|get] [--json]` — read or switch the OS theme.
+fn theme_cmd(args: &[String], json: bool) -> Result<String, String> {
+    let want: Option<&String> = args.iter().find(|a| !a.starts_with('-'));
+    let (theme, accent) = load_theme();
+    let Some(id) = want.filter(|w| *w != "get") else {
+        if json {
+            return serde_json::to_string(&serde_json::json!({ "theme": theme, "accent": accent }))
+                .map_err(|e| e.to_string());
+        }
+        return Ok(format!("{}\nui: theme={theme}", theme_line(&theme, accent.as_deref())));
+    };
+    let canonical = canonical_theme(&id.to_lowercase())
+        .ok_or_else(|| format!("invalid: unknown theme '{id}' (try: {})", THEME_IDS.join(", ")))?;
+    save_theme(canonical, accent.as_deref())?;
+    if json {
+        return serde_json::to_string(&serde_json::json!({ "theme": canonical, "accent": accent }))
+            .map_err(|e| e.to_string());
+    }
+    Ok(format!(
+        "{}\nui: theme={canonical}",
+        theme_line(canonical, accent.as_deref())
+    ))
+}
+
+/// `ui theme|accent|get` — the script-facing half of the OS interface
+/// (colours live here; providers stay with `providers/quota/sync/disk`).
+/// Every mutation prints a machine `ui:` line the Terminal panel applies
+/// via `useTheme()`, so colours change on all three transports.
+fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
+    let sub = args.first().map(String::as_str).unwrap_or("get");
+    let (theme, accent) = load_theme();
+    match sub {
+        "get" => {
+            if json {
+                return serde_json::to_string(&serde_json::json!({ "theme": theme, "accent": accent }))
+                    .map_err(|e| e.to_string());
+            }
+            Ok(format!(
+                "{}\nui: theme={theme}",
+                theme_line(&theme, accent.as_deref())
+            ))
+        }
+        "theme" => {
+            let id = args
+                .get(1)
+                .ok_or_else(|| format!("usage: ui theme <id> (try: {})", THEME_IDS.join(", ")))?;
+            let canonical = canonical_theme(&id.to_lowercase()).ok_or_else(|| {
+                format!("invalid: unknown theme '{id}' (try: {})", THEME_IDS.join(", "))
+            })?;
+            save_theme(canonical, accent.as_deref())?;
+            if json {
+                return serde_json::to_string(&serde_json::json!({ "theme": canonical, "accent": accent }))
+                    .map_err(|e| e.to_string());
+            }
+            Ok(format!(
+                "{}\nui: theme={canonical}",
+                theme_line(canonical, accent.as_deref())
+            ))
+        }
+        "accent" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| "usage: ui accent <#rrggbb|#rgb|default>".to_string())?;
+            let next: Option<String> = if raw == "default" || raw == "system" || raw == "none" {
+                None
+            } else {
+                let hex = if raw.starts_with('#') {
+                    raw.clone()
+                } else {
+                    format!("#{raw}")
+                };
+                if !valid_accent(&hex) {
+                    return Err(format!(
+                        "invalid: bad accent '{raw}' (use #rrggbb, #rgb, or `default`)"
+                    ));
+                }
+                Some(hex)
+            };
+            save_theme(&theme, next.as_deref())?;
+            let shown = next.clone().unwrap_or_else(|| "system".to_string());
+            if json {
+                return serde_json::to_string(&serde_json::json!({ "theme": theme, "accent": next }))
+                    .map_err(|e| e.to_string());
+            }
+            Ok(format!(
+                "{}\nui: accent={shown}",
+                theme_line(&theme, next.as_deref())
+            ))
+        }
+        other => Err(format!(
+            "usage: ui theme <id>|accent <#hex|default>|get (got `{other}`)"
+        )),
+    }
+}
+
+// ─── compress / decompress (portable envelope with the static layer) ───────
+
+/// Envelope shared with `src/utils/staticCybsh.ts`: `{"alg":"lz4"|"brotli","data":b64}`.
+fn compress_cmd(args: &[String], json: bool) -> Result<String, String> {
+    if args.is_empty() {
+        return Err("usage: compress <path> [lz4|brotli]".to_string());
+    }
+    let layer = args.get(1).map(|s| s.to_lowercase()).unwrap_or_else(|| "lz4".to_string());
+    if layer != "lz4" && layer != "brotli" {
+        return Err(format!("unsupported: compress layer '{layer}' (lz4|brotli only)"));
+    }
+    let src = absolute(&args[0]);
+    let data = read_file_bytes(&src)?;
+    let press = cybermanju_compression::TripleCompressor::new();
+    let raw = if layer == "lz4" {
+        press.compress_lz4(&data).map_err(|e| format!("integrity: compression failed ({e})"))?
+    } else {
+        press
+            .compress_brotli(&data)
+            .map_err(|e| format!("integrity: compression failed ({e})"))?
+    };
+    let ext = if layer == "lz4" { ".lz4" } else { ".br" };
+    let out_path = format!("{src}{ext}");
+    let stored = serde_json::json!({
+        "alg": layer,
+        "data": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &raw),
+    })
+    .to_string();
+    let kernel = Kernel::global();
+    let fd = kernel.open(&out_path, OpenFlags::create())?;
+    kernel.write(fd, stored.as_bytes())?;
+    kernel.close(fd)?;
+    if json {
+        return serde_json::to_string(&serde_json::json!({
+            "source": src, "output": out_path, "alg": layer,
+            "inputBytes": data.len(), "outputBytes": raw.len(),
+        }))
+        .map_err(|e| e.to_string());
+    }
+    let ratio = if data.is_empty() {
+        "—".to_string()
+    } else {
+        format!("{}%", (raw.len() as f64 / data.len() as f64 * 100.0).round() as u64)
+    };
+    Ok(format!(
+        "{src} → {out_path} ({}B → {}B, {ratio}, {layer})",
+        data.len(),
+        raw.len()
+    ))
+}
+
+fn decompress_cmd(args: &[String], json: bool) -> Result<String, String> {
+    let path = args.first().ok_or("usage: decompress <path.(lz4|br)>")?;
+    let src = absolute(path);
+    let data = read_file_bytes(&src)?;
+    let text =
+        String::from_utf8(data).map_err(|_| "invalid: compressed file is not text".to_string())?;
+    let env: serde_json::Value =
+        serde_json::from_str(&text).map_err(|_| "invalid: not a cybsh compressed file".to_string())?;
+    let alg = env.get("alg").and_then(|a| a.as_str()).unwrap_or("");
+    let b64 = env.get("data").and_then(|d| d.as_str()).unwrap_or("");
+    if (alg != "lz4" && alg != "brotli") || b64.is_empty() {
+        return Err("invalid: not a cybsh compressed file".to_string());
+    }
+    let raw = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64)
+        .map_err(|_| "integrity: compressed bytes failed to decode — tampered file".to_string())?;
+    let press = cybermanju_compression::TripleCompressor::new();
+    let plain = if alg == "lz4" {
+        press
+            .decompress_lz4(&raw)
+            .map_err(|_| "integrity: compressed bytes failed to decode — tampered file".to_string())?
+    } else {
+        press
+            .decompress_brotli(&raw)
+            .map_err(|_| "integrity: compressed bytes failed to decode — tampered file".to_string())?
+    };
+    let out_path = if src.ends_with(".lz4") || src.ends_with(".br") {
+        src.rsplit_once('.').map(|(b, _)| b.to_string()).unwrap_or_else(|| format!("{src}.plain"))
+    } else {
+        format!("{src}.plain")
+    };
+    let kernel = Kernel::global();
+    let fd = kernel.open(&out_path, OpenFlags::create())?;
+    kernel.write(fd, &plain)?;
+    kernel.close(fd)?;
+    if json {
+        return serde_json::to_string(&serde_json::json!({
+            "source": src, "output": out_path, "bytes": plain.len(),
+        }))
+        .map_err(|e| e.to_string());
+    }
+    Ok(format!("{src} → {out_path} ({} bytes)", plain.len()))
+}
+
 // ─── formatting helpers ─────────────────────────────────────────────────
 
 /// Human byte size: `1.5G`, `4.0k`, `12B`.
@@ -2299,6 +3414,77 @@ mod tests {
         assert!(hits.iter().any(|c| c == "disk create"));
         let hits = completions("");
         assert!(hits.len() >= command_table().len());
+    }
+
+    #[test]
+    fn text_verbs_work_end_to_end() {
+        crate::testutil::volume_dir();
+        execute("mkdir -p /text-demo", None).expect("mkdir");
+        execute("write /text-demo/notes.txt hello brave new world", None).expect("write");
+        let out = execute("cat /text-demo/notes.txt", None).expect("cat");
+        assert_eq!(out, "hello brave new world");
+
+        let out = execute("grep brave /text-demo/notes.txt", None).expect("grep");
+        assert!(out.contains("brave"), "got {out}");
+        let out = execute("grep -i BRAVE /text-demo/notes.txt", None).expect("grep -i");
+        assert!(out.contains("brave"), "got {out}");
+        let out = execute("grep -n brave /text-demo/notes.txt", None).expect("grep -n");
+        assert!(out.contains("1:"), "got {out}");
+        let out = execute("echo hello pipe | grep hello", None).expect("pipe grep");
+        assert_eq!(out, "hello pipe");
+
+        let out = execute("find /text-demo notes*", None).expect("find");
+        assert!(out.contains("notes.txt"), "got {out}");
+
+        let out = execute("head -n 1 /text-demo/notes.txt", None).expect("head");
+        assert!(out.contains("hello"), "got {out}");
+        let out = execute("tail -n 1 /text-demo/notes.txt", None).expect("tail");
+        assert!(out.contains("world"), "got {out}");
+
+        let out = execute("wc /text-demo/notes.txt --json", None).expect("wc");
+        let wc: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert_eq!(wc["files"][0]["words"], 4);
+
+        execute("edit /text-demo/notes.txt brave fearless", None).expect("edit");
+        let out = execute("cat /text-demo/notes.txt", None).expect("cat");
+        assert!(out.contains("fearless"), "got {out}");
+        let err = execute("edit /text-demo/notes.txt zzzqqq yyy", None).expect_err("missing");
+        assert!(err.starts_with("not_found:"), "got {err}");
+
+        // compress round-trips through the portable envelope.
+        execute("compress /text-demo/notes.txt lz4", None).expect("compress");
+        let out = execute("ls /text-demo", None).expect("ls");
+        assert!(out.contains(".lz4"), "got {out}");
+        execute("rm /text-demo/notes.txt", None).expect("rm orig");
+        execute("decompress /text-demo/notes.txt.lz4", None).expect("decompress");
+        let out = execute("cat /text-demo/notes.txt", None).expect("cat back");
+        assert!(out.contains("fearless"), "got {out}");
+        execute("rm -r /text-demo", None).expect("rm -r");
+    }
+
+    #[test]
+    fn parity_verbs_answer_without_a_db() {
+        // `oauth status` / `sync list` need the database; without one they
+        // refuse honestly instead of faking a provider list.
+        let err = execute("oauth status", None).expect_err("no db");
+        assert!(err.starts_with("unsupported:"), "got {err}");
+        let err = execute("oauth start github", None).expect_err("no dashboard");
+        assert!(
+            err.starts_with("auth:") || err.starts_with("unsupported:"),
+            "got {err}"
+        );
+        let err = execute("sync list", None).expect_err("no db");
+        assert!(err.starts_with("unsupported:"), "got {err}");
+        // New verbs are in the table + completions + help.
+        assert!(command_table().contains(&"grep"));
+        assert!(command_table().contains(&"oauth"));
+        assert!(command_table().contains(&"compress"));
+        assert!(command_table().contains(&"write"));
+        assert!(command_table().contains(&"edit"));
+        assert!(completions("o").iter().any(|c| c == "oauth"));
+        let out = execute("help", None).expect("help");
+        assert!(out.contains("grep"), "got {out}");
+        assert!(out.contains("oauth"), "got {out}");
     }
 
     #[test]

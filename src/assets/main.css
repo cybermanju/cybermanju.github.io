@@ -1,4 +1,5 @@
 /* CyberManju OS — global foundation.
+   macOS-inspired: SF-first type, quiet neutrals, one restrained accent.
    All values come from the `--ui-*` tokens published by useTheme(). */
 
 *,
@@ -15,13 +16,14 @@ body,
   height: 100%;
   width: 100%;
   overflow: hidden;
-  font-family: var(--ui-font, 'Inter', system-ui, sans-serif);
+  font-family: var(--ui-font, -apple-system, system-ui, sans-serif);
   font-size: 13px;
   line-height: 1.5;
   color: var(--ui-text);
   background: var(--ui-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 button,
@@ -43,7 +45,6 @@ button {
 a {
   color: var(--ui-accent);
   text-decoration: none;
-  transition: color var(--ui-dur-fast) var(--ui-ease-out);
 }
 
 a:hover {
@@ -60,7 +61,7 @@ canvas {
   display: block;
 }
 
-/* ── legacy design-system classes (used across all panels) ─────────────── */
+/* ── base primitives (used across all panels) ─────────────────────────── */
 
 .bw-card {
   background: var(--ui-glass);
@@ -74,7 +75,6 @@ canvas {
   transition:
     border-color var(--ui-dur) var(--ui-ease-out),
     background-color var(--ui-dur) var(--ui-ease-out),
-    transform var(--ui-dur) var(--ui-ease-out),
     box-shadow var(--ui-dur) var(--ui-ease-out);
 }
 
@@ -89,37 +89,31 @@ canvas {
   gap: 6px;
   min-height: var(--ui-control-h);
   padding: 0 14px;
-  background: var(--ui-glass);
+  background: var(--ui-surface-2);
   border: 1px solid var(--ui-border-strong);
   border-radius: var(--ui-radius-sm);
-  color: var(--ui-text-2);
+  color: var(--ui-text);
   cursor: pointer;
   font-family: var(--ui-font);
   font-size: var(--ui-fs-sm);
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 500;
   user-select: none;
   white-space: nowrap;
-  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   transition:
     background-color var(--ui-dur-fast) var(--ui-ease-out),
     border-color var(--ui-dur-fast) var(--ui-ease-out),
-    color var(--ui-dur-fast) var(--ui-ease-out),
-    box-shadow var(--ui-dur) var(--ui-ease-out),
-    transform var(--ui-dur-fast) var(--ui-ease-out);
+    box-shadow var(--ui-dur-fast) var(--ui-ease-out);
 }
 
 .bw-btn:hover {
   background: var(--ui-surface-3);
   border-color: var(--ui-border-hover);
   color: var(--ui-text);
-  box-shadow: var(--ui-glow-soft);
 }
 
 .bw-btn:active {
-  transform: translateY(1px) scale(0.99);
+  background: color-mix(in srgb, var(--ui-text) 8%, var(--ui-surface-2));
 }
 
 .bw-btn:disabled {
@@ -128,30 +122,27 @@ canvas {
 }
 
 .bw-btn:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ui-accent) 70%, transparent);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--ui-glow-soft);
+  border-color: var(--ui-accent);
 }
 
 .bw-btn-inverse {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--ui-accent) 92%, white) 0%,
-    var(--ui-accent) 100%
-  );
+  background: var(--ui-accent);
   color: var(--ui-on-accent);
-  border-color: color-mix(in srgb, var(--ui-accent) 65%, transparent);
-  box-shadow: var(--ui-glow-soft);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .bw-btn-inverse:hover {
   background: var(--ui-accent-strong);
-  border-color: var(--ui-accent);
+  border-color: transparent;
   color: var(--ui-on-accent);
-  box-shadow: var(--ui-glow);
+  box-shadow: none;
 }
 
 .bw-input {
-  background: color-mix(in srgb, var(--ui-surface) 80%, transparent);
+  background: var(--ui-surface-2);
   border: 1px solid var(--ui-border-strong);
   border-radius: var(--ui-radius-sm);
   min-height: var(--ui-control-h);
@@ -159,10 +150,10 @@ canvas {
   color: var(--ui-text);
   font-family: var(--ui-font);
   font-size: var(--ui-fs-sm);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
   transition:
     border-color var(--ui-dur) var(--ui-ease-out),
-    box-shadow var(--ui-dur) var(--ui-ease-out),
-    background-color var(--ui-dur) var(--ui-ease-out);
+    box-shadow var(--ui-dur) var(--ui-ease-out);
 }
 
 .bw-input::placeholder {
@@ -170,8 +161,8 @@ canvas {
 }
 
 .bw-input:focus {
-  border-color: color-mix(in srgb, var(--ui-accent) 70%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 16%, transparent);
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-glow-soft);
 }
 
 .bw-badge {
@@ -179,21 +170,19 @@ canvas {
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  font-family: var(--ui-font-mono);
+  font-family: var(--ui-font);
   font-size: var(--ui-fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  border: 1px solid var(--ui-border-strong);
+  font-weight: 600;
+  border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-full);
-  background: color-mix(in srgb, var(--ui-surface-2) 85%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 5%, var(--ui-surface-2));
   color: var(--ui-text-2);
 }
 
 .bw-badge-inverse {
-  background: var(--ui-accent-softer);
+  background: var(--ui-accent-soft);
   color: var(--ui-accent);
-  border-color: color-mix(in srgb, var(--ui-accent) 35%, transparent);
+  border-color: transparent;
 }
 
 .bw-hr {
@@ -207,17 +196,16 @@ canvas {
   width: 8px;
   height: 8px;
   display: inline-block;
-  border: 2px solid var(--ui-text-faint);
+  border: 1px solid var(--ui-text-faint);
   background: transparent;
   border-radius: 50%;
   flex-shrink: 0;
-  transition: all var(--ui-dur) var(--ui-ease-out);
+  transition: background-color var(--ui-dur) var(--ui-ease-out);
 }
 
 .bw-dot-on {
   background: var(--ui-accent);
   border-color: var(--ui-accent);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--ui-accent) 60%, transparent);
 }
 
 /* ── utilities ────────────────────────────────────────────────────────── */
@@ -244,13 +232,15 @@ canvas {
   color: var(--ui-text);
 }
 
+/* Legacy coloured-text helpers: neutralised to plain text so old markup
+   inherits the quiet system palette instead of neon colours. */
 .text-neon,
 .text-gold,
 .text-cyan,
 .text-pink,
 .text-purple,
 .text-orange {
-  color: var(--ui-text);
+  color: var(--ui-text-2);
 }
 
 .badge,
@@ -264,19 +254,17 @@ canvas {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 1px 7px;
-  font-family: var(--ui-font-mono);
+  padding: 1px 8px;
+  font-family: var(--ui-font);
   font-size: var(--ui-fs-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-weight: 600;
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-full);
-  background: color-mix(in srgb, var(--ui-surface-2) 85%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 5%, var(--ui-surface-2));
   color: var(--ui-text-2);
 }
 
-/* ── context menu (glass) ─────────────────────────────────────────────── */
+/* ── context menu (macOS menu) ────────────────────────────────────────── */
 
 .context-menu {
   position: fixed;
@@ -285,34 +273,30 @@ canvas {
   background: var(--ui-glass-2);
   backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
   -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  border: 1px solid var(--ui-border-strong);
+  border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-md);
-  padding: 5px;
-  box-shadow: var(--ui-shadow-3);
-  animation: ui-pop var(--ui-dur) var(--ui-ease-spring) both;
+  padding: 4px;
+  box-shadow: var(--ui-shadow-2);
+  animation: ui-pop var(--ui-dur) var(--ui-ease-out) both;
 }
 
 .context-menu-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 12px;
+  padding: 6px 10px;
   cursor: pointer;
   font-family: var(--ui-font);
   font-size: var(--ui-fs-sm);
-  color: var(--ui-text-2);
+  color: var(--ui-text);
   background: transparent;
   border-radius: var(--ui-radius-sm);
-  transition:
-    background-color var(--ui-dur-fast) var(--ui-ease-out),
-    color var(--ui-dur-fast) var(--ui-ease-out),
-    transform var(--ui-dur-fast) var(--ui-ease-out);
+  transition: background-color var(--ui-dur-fast) var(--ui-ease-out);
 }
 
 .context-menu-item:hover {
-  background: var(--ui-accent-softer);
-  color: var(--ui-text);
-  transform: translateX(2px);
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
 }
 
 .context-menu-item.danger {
@@ -320,7 +304,8 @@ canvas {
 }
 
 .context-menu-item.danger:hover {
-  background: color-mix(in srgb, var(--ui-danger) 14%, transparent);
+  background: var(--ui-danger);
+  color: #fff;
 }
 
 .context-menu-divider {
@@ -329,50 +314,20 @@ canvas {
   margin: 4px 6px;
 }
 
-/* ── scanline overlay (matrix aesthetic, tokenised) ───────────────────── */
+/* ── legacy scanline hook: kept as a no-op so old markup doesn't break ── */
 
 .scanline-overlay::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    color-mix(in srgb, var(--ui-accent) 4%, transparent) 2px,
-    color-mix(in srgb, var(--ui-accent) 4%, transparent) 4px
-  );
-  z-index: 999;
+  content: none;
 }
 
-/* ── keyframes ────────────────────────────────────────────────────────── */
+/* ── keyframes (calm, no glitch/flicker) ──────────────────────────────── */
 
-@keyframes bw-glitch {
-  0% { transform: translate(0); }
-  20% { transform: translate(-1px, 1px); }
-  40% { transform: translate(1px, -1px); }
-  60% { transform: translate(-1px, -1px); }
-  80% { transform: translate(1px, 1px); }
-  100% { transform: translate(0); }
-}
-
-@keyframes bw-flicker {
+@keyframes bw-pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.8; }
-}
-
-@keyframes bw-scan {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100vh); }
+  50% { opacity: 0.55; }
 }
 
 @keyframes bw-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
-}
-
-@keyframes bw-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
 }

@@ -236,4 +236,24 @@ watch(
   transform: translateY(14px) scale(0.97);
   opacity: 0;
 }
+
+/* phones: bottom sheet instead of a floating dialog */
+@media (max-width: 560px) {
+  .ui-modal-layer {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .ui-modal {
+    max-width: 100%;
+    max-height: calc(100dvh - 40px);
+    border-radius: var(--ui-radius-lg) var(--ui-radius-lg) 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+  .ui-modal__footer {
+    flex-wrap: wrap;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+}
 </style>

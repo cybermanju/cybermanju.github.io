@@ -68,10 +68,8 @@ withDefaults(
 }
 
 .ui-spinner__label {
-  font-family: var(--ui-font-mono);
+  font-family: var(--ui-font);
   font-size: var(--ui-fs-xs);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--ui-text-3);
 }
 </style>

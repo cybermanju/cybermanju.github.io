@@ -102,9 +102,13 @@ describe('toolStateFromResult', () => {
 describe('titles and salient arguments', () => {
   it('leads with the target a human cares about', () => {
     expect(salientArg({ path: '/src/app.ts' })).toBe('/src/app.ts')
+    expect(salientArg({ repo: 'owner/repo' })).toBe('owner/repo')
+    expect(salientArg({ name: 'my-skill' })).toBe('my-skill')
     expect(toolTitle('read', { path: '/src/app.ts' })).toBe('Reading /src/app.ts')
     expect(toolTitle('grep', { pattern: 'TODO', path: '/src' })).toContain('TODO')
     expect(toolTitle('question', { question: 'Which DB?' })).toContain('Which DB?')
+    expect(toolTitle('self_research', { query: 'how MCP works' })).toContain('how MCP works')
+    expect(toolTitle('repo_analyze', { repo: 'owner/repo' })).toContain('owner/repo')
   })
 })
 

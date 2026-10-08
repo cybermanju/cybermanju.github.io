@@ -11,7 +11,7 @@
       </div>
       <div class="am-top-actions">
         <span v-if="dbBackend" class="am-chip" :class="dbBackend === 'memory' ? 'is-warn' : 'is-ok'">
-          <AppIcon name="solar:database-bold" :size="12" /> {{ dbBackend === 'memory' ? 'SESSION DB' : dbBackend.toUpperCase() + ' DB' }}
+          <AppIcon name="solar:database-bold" :size="12" /> {{ dbBackend === 'memory' ? 'Session database' : dbBackend + ' database' }}
         </span>
         <button class="am-btn" type="button" :disabled="refreshing" @click="refresh">
           <AppIcon name="solar:restart-bold" :size="13" /> {{ refreshing ? 'Refreshing…' : 'Refresh' }}
@@ -74,7 +74,7 @@
               <strong>{{ identity.name }}</strong>
               <span class="muted">{{ identity.email || identity.provider }}</span>
             </div>
-            <span class="am-status is-ok"><ProviderLogo :provider="identity.provider" :size="18" /> {{ identity.provider.toUpperCase() }}</span>
+            <span class="am-status is-ok"><ProviderLogo :provider="identity.provider" :size="18" /> {{ identity.provider }}</span>
             <button class="am-btn sm" type="button" :disabled="signingOut" @click="signOut">{{ signingOut ? '…' : 'Sign out' }}</button>
           </div>
           <p class="am-hint">Signed in via the broker — no password stored. This unlocks one-click OAuth below.</p>
@@ -102,7 +102,7 @@
               <span class="muted">{{ acc.email || acc.provider }}</span>
             </div>
             <span class="am-status sm" :class="providerBadgeTone(acc)">{{ providerBadge(acc) }}</span>
-            <span class="am-status sm" :class="acc.id === identity?.id ? 'is-ok' : ''">{{ acc.id === identity?.id ? 'ACTIVE' : acc.provider.toUpperCase() }}</span>
+            <span class="am-status sm" :class="acc.id === identity?.id ? 'is-ok' : ''">{{ acc.id === identity?.id ? 'Active' : acc.provider }}</span>
             <button v-if="needsProviderFor(acc.provider)" class="am-btn xs primary" type="button" :disabled="!!signInBusy || ensuringProvider" :title="`Create a ${backendLabel(backendForOAuth(acc.provider as OAuthBackend))} provider connection for this login`" @click="connectAccountToProvider(acc)">{{ ensuringProvider ? '…' : 'Connect' }}</button>
             <button v-else-if="configsForBackendSafe(acc.provider).length" class="am-btn xs danger" type="button" :title="`Delete the ${providerBackendLabel(acc.provider)} provider connection(s) — keeps this login remembered`" @click="disconnectAccountProvider(acc)">Disconnect</button>
             <button v-if="acc.id !== identity?.id" class="am-btn xs" type="button" :disabled="!!signInBusy" @click="switchAccount(acc)">Switch</button>
@@ -480,6 +480,9 @@
                   <input v-model.number="newDiskMb[selectedCfg.id]" class="am-slider" type="range" min="64" max="8192" step="64" :aria-label="`New disk size for ${selectedCfg.name || selectedCfg.backendType}`" />
                   <input v-model="newDiskPass[selectedCfg.id]" class="am-input" type="password" placeholder="Passphrase (also unlocks)" autocomplete="off" :aria-label="`Passphrase for new disk on ${selectedCfg.name || selectedCfg.backendType}`" />
                   <button class="am-btn sm primary" type="button" :disabled="diskBusy === selectedCfg.id" @click="createDisk(selectedCfg!.id)">{{ diskBusy === selectedCfg.id ? 'Creating…' : disksFor(selectedCfg.id).length === 0 ? 'Provision system disk' : 'Create & attach' }}</button>
+                  <p v-if="diskMsg[selectedCfg.id]" class="am-note" role="status">{{ diskMsg[selectedCfg.id] }}</p>
+                  <p v-else-if="selectedCfg.backendType === 'googleDrive'" class="am-hint">Also creates a <code class="am-code">cybermanju-disks/&lt;disk&gt;</code> Drive folder with its <code class="am-code">.cybermanju</code> files.</p>
+                  <p v-else-if="selectedCfg.backendType === 'github' || selectedCfg.backendType === 'gitlab'" class="am-hint">Missing repo? A private one is created first, then seeded with the disk's <code class="am-code">.cybermanju</code> files.</p>
                 </div>
               </div>
             </article>
@@ -793,6 +796,8 @@ const importInput = ref<HTMLInputElement | null>(null)
 const newDiskMb = ref<Record<string, number>>({})
 const newDiskPass = ref<Record<string, string>>({})
 const resizeMb = ref<Record<string, number>>({})
+/** Per-provider outcome of the last disk provisioning (remote folder/repo + file). */
+const diskMsg = ref<Record<string, string>>({})
 
 // ── private vault repo provisioning (github/gitlab) ──────────────
 const vaultRepoName = ref('cybermanju-vault')
@@ -854,8 +859,8 @@ function needsProviderFor(provider: string): boolean {
 
 function providerBadge(acc: ConnectedAccount): string {
   const b = backendForAccountProvider(acc.provider)
-  if (!b) return acc.provider.toUpperCase()
-  return store.syncConfigs.some(c => c.backendType === b) ? 'LINKED' : 'NO PROVIDER'
+  if (!b) return acc.provider
+  return store.syncConfigs.some(c => c.backendType === b) ? 'Linked' : 'No provider'
 }
 
 function providerBadgeTone(acc: ConnectedAccount): string {
@@ -1508,7 +1513,7 @@ function configsForBackendSafe(provider: string): SyncConfig[] {
 /** Template-safe backend display name for a remembered login. */
 function providerBackendLabel(provider: string): string {
   const b = backendForAccountProvider(provider)
-  return b ? backendLabel(b) : provider.toUpperCase()
+  return b ? backendLabel(b) : provider
 }
 
 /**
@@ -1645,6 +1650,7 @@ function purgeProviderUiState(id: string) {
   delete quotaMsg.value[id]
   delete showTokens.value[id]
   delete localPickMsg.value[id]
+  delete diskMsg.value[id]
   if (selectedId.value === id) selectedId.value = null
 }
 
@@ -1975,10 +1981,43 @@ async function applyResize(diskId: string) {
 
 async function createDisk(configId: string) {
   if (diskBusy.value) return
+  const cfg = store.syncConfigs.find(c => c.id === configId)
+  if (!cfg) return
   diskBusy.value = configId
+  diskMsg.value[configId] = ''
   try {
     const mb = clampDiskMb(newDiskMb.value[configId], 512)
-    await store.createDisk(configId, mb * 1024 * 1024, newDiskPass.value[configId] ?? '')
+    const pass = newDiskPass.value[configId] ?? ''
+    if (cfg.backendType === 'local') {
+      await store.createDisk(configId, mb * 1024 * 1024, pass)
+      newDiskPass.value[configId] = ''
+      return
+    }
+    // Cloud disk: local sealed container first, then the provider-visible
+    // side — Drive folder + `.cybermanju` files, or a private repo (created
+    // when missing) + the same seed. The disk survives a remote failure.
+    const token = await resolveProviderToken(cfg)
+    let vaultBytes: Uint8Array | null = null
+    try {
+      const { wasmExportDisk } = await import('@/composables/useWasmBackend')
+      const out = await wasmExportDisk(pass || undefined).catch(() => null) as { bytes?: Uint8Array } | null
+      if (out?.bytes && out.bytes.length > 0 && out.bytes.length <= 5 * 1024 * 1024) vaultBytes = out.bytes
+    } catch {
+      vaultBytes = null
+    }
+    const out = await store.createDiskWithRemote(cfg, {
+      sizeMb: mb,
+      passphrase: pass,
+      token,
+      vaultBytes,
+    })
+    if (out?.remote) {
+      diskMsg.value[configId] = cfg.backendType === 'googleDrive'
+        ? `Drive folder \`${out.remote.remoteDir}\` holds this disk's .cybermanju files.`
+        : `Private repo \`${out.remote.config.repoName}\` holds this disk's .cybermanju files.`
+    } else if (out?.remoteWarning) {
+      diskMsg.value[configId] = `Disk created, but the remote seed failed: ${out.remoteWarning}`
+    }
     newDiskPass.value[configId] = ''
   } finally {
     diskBusy.value = null
@@ -2252,89 +2291,87 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 12px 14px 10px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--ui-border);
 }
-.am-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.am-brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .am-brand-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--ui-accent) 16%, transparent);
-  color: var(--ui-accent);
-  border: 1px solid color-mix(in srgb, var(--ui-accent) 40%, transparent);
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ui-text) 6%, transparent);
+  color: var(--ui-text-2);
+  border: 1px solid var(--ui-border);
 }
-.am-title { margin: 0; font-size: 15px; letter-spacing: 0.4px; }
-.am-subtitle { margin: 1px 0 0; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.am-title { margin: 0; font-size: 13px; font-weight: 600; }
+.am-subtitle { margin: 0; font-size: 11px; color: var(--ui-text-3); }
 .am-top-actions { display: flex; align-items: center; gap: 8px; }
 .am-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 10px;
-  letter-spacing: 0.6px;
+  font-size: 11px;
+  font-weight: 500;
   border: 1px solid var(--ui-border);
   border-radius: 20px;
-  padding: 3px 9px;
-  color: color-mix(in srgb, var(--ui-text) 65%, transparent);
+  padding: 2px 9px;
+  color: var(--ui-text-2);
 }
-.am-chip.is-ok { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
-.am-chip.is-warn { color: var(--ui-warning); border-color: color-mix(in srgb, var(--ui-warning) 60%, transparent); }
+.am-chip.is-ok { color: var(--ui-success); }
+.am-chip.is-warn { color: var(--ui-warning); }
 
-/* hero */
+/* hero: single quiet storage summary */
 .am-hero {
-  margin: 12px 14px 0;
+  margin: 10px 12px 0;
   border: 1px solid var(--ui-border);
-  border-radius: 12px;
-  padding: 12px 14px;
-  background: color-mix(in srgb, var(--ui-text) 3%, transparent);
+  border-radius: var(--ui-radius-md);
+  padding: 10px 12px;
+  background: var(--ui-surface-2);
 }
 .am-hero-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
 .am-hero-stat { display: flex; flex-direction: column; gap: 2px; }
 .am-hero-stat.right { text-align: right; }
-.am-hero-label { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
-.am-hero-value { font-size: 18px; }
-.am-hero-value span { font-size: 12px; font-weight: 400; color: color-mix(in srgb, var(--ui-text) 60%, transparent); }
-.am-bar { height: 10px; border-radius: 6px; margin-top: 10px; background: color-mix(in srgb, var(--ui-text) 10%, transparent); overflow: hidden; }
-.am-bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--ui-accent), var(--ui-info)); transition: width 0.3s ease; }
-.am-hero-legend { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 60%, transparent); }
+.am-hero-label { font-size: 11px; font-weight: 600; color: var(--ui-text-3); }
+.am-hero-value { font-size: 16px; font-weight: 600; }
+.am-hero-value span { font-size: 12px; font-weight: 400; color: var(--ui-text-3); }
+.am-bar { height: 6px; border-radius: 4px; margin-top: 8px; background: color-mix(in srgb, var(--ui-text) 10%, transparent); overflow: hidden; }
+.am-bar-fill { height: 100%; border-radius: 4px; background: var(--ui-accent); transition: width 0.3s ease; }
+.am-hero-legend { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: 11px; color: var(--ui-text-3); }
 
-/* tabs */
+/* tabs: quiet segmented row */
 .am-tabs {
   display: flex;
-  gap: 6px;
-  padding: 12px 14px 0;
+  gap: 4px;
+  padding: 10px 12px 0;
   overflow-x: auto;
   scrollbar-width: thin;
 }
 .am-tab {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   background: transparent;
-  border: 1px solid var(--ui-border);
-  border-radius: 9px;
-  color: color-mix(in srgb, var(--ui-text) 70%, transparent);
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-text-3);
   font-family: inherit;
   font-size: 12px;
-  font-weight: 600;
-  padding: 7px 12px;
+  font-weight: 500;
+  padding: 6px 10px;
   cursor: pointer;
   transition:
     color var(--ui-dur-fast) var(--ui-ease-out),
-    border-color var(--ui-dur-fast) var(--ui-ease-out),
-    background-color var(--ui-dur-fast) var(--ui-ease-out),
-    box-shadow var(--ui-dur-fast) var(--ui-ease-out);
+    background-color var(--ui-dur-fast) var(--ui-ease-out);
   flex-shrink: 0;
 }
-.am-tab:hover { color: var(--ui-text); border-color: var(--ui-border-strong); }
-.am-tab.active { color: var(--ui-text); background: color-mix(in srgb, var(--ui-accent) 14%, transparent); border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
+.am-tab:hover { color: var(--ui-text); background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
+.am-tab.active { color: var(--ui-text); background: color-mix(in srgb, var(--ui-text) 9%, transparent); font-weight: 600; }
 .am-tab:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ui-accent) 75%, transparent);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--ui-glow-soft);
 }
 .am-tab-count {
   font-size: 10px;
@@ -2478,7 +2515,7 @@ onBeforeUnmount(() => {
 .am-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; }
 .am-field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; min-width: 0; }
 .am-field.grow { grid-column: 1 / -1; }
-.am-field-label { font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.am-field-label { font-size: 11px; font-weight: 600; color: var(--ui-text-2); }
 .am-field-hint { font-size: 10.5px; color: color-mix(in srgb, var(--ui-text) 50%, transparent); line-height: 1.4; }
 .am-input {
   background: var(--ui-surface);
@@ -2557,10 +2594,9 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 10px;
   margin: 4px 0 2px;
-  font-size: 10px;
-  letter-spacing: 1.4px;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--ui-text) 50%, transparent);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ui-text-3);
 }
 .am-section-divider::before, .am-section-divider::after {
   content: '';
@@ -2572,12 +2608,10 @@ onBeforeUnmount(() => {
 .am-connect { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .am-connect-meta { display: flex; flex-direction: column; gap: 2px; flex: 1 1 140px; min-width: 0; }
 .am-method {
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: var(--ui-info);
-  border: 1px solid color-mix(in srgb, var(--ui-info) 45%, transparent);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ui-text-2);
+  border: 1px solid var(--ui-border);
   border-radius: 12px;
   padding: 2px 8px;
 }
@@ -2592,7 +2626,7 @@ onBeforeUnmount(() => {
   height: 100%;
   width: 40%;
   border-radius: 4px;
-  background: linear-gradient(90deg, var(--ui-accent), var(--ui-info));
+  background: var(--ui-accent);
   animation: am-slide 1.2s ease-in-out infinite alternate;
 }
 @keyframes am-slide { from { margin-left: -10%; } to { margin-left: 70%; } }
@@ -2657,7 +2691,7 @@ onBeforeUnmount(() => {
 .am-switch.on { background: var(--ui-accent); border-color: var(--ui-accent); }
 .am-detail-col { min-width: 0; }
 .am-step { border-top: 1px dashed var(--ui-border); padding-top: 12px; margin-top: 12px; }
-.am-step-title { margin: 0 0 8px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text) 60%, transparent); display: flex; align-items: center; gap: 8px; }
+.am-step-title { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--ui-text); display: flex; align-items: center; gap: 8px; }
 .am-step-n {
   display: inline-flex;
   align-items: center;
@@ -2719,7 +2753,7 @@ onBeforeUnmount(() => {
   max-height: 168px;
   overflow-y: auto;
 }
-.am-warnings-head { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text) 65%, transparent); }
+.am-warnings-head { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--ui-text-2); }
 .am-warnings-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .am-warning { display: flex; align-items: flex-start; gap: 8px; font-size: 11.5px; line-height: 1.45; }
 .am-warning.is-error { color: var(--ui-danger); }

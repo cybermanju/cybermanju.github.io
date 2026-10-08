@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MOBILE_SETUP_STEPS,
+  MOBILE_SETUP_STEP_LABELS,
   blankPartitionDraft,
   mobileSetupStepIndex,
   nextMobileSetupStep,
@@ -30,6 +31,10 @@ describe('mobile setup flow', () => {
     expect(nextMobileSetupStep('done')).toBe('done')
     expect(prevMobileSetupStep('welcome')).toBe('welcome')
     expect(mobileSetupStepIndex('vaults')).toBe(3)
+  })
+
+  it('names repos as an explicit repos + disks substep', () => {
+    expect(MOBILE_SETUP_STEP_LABELS.repos).toContain('disks')
   })
 
   it('clamps partition sizes into 64–8192 MB and trims names', () => {

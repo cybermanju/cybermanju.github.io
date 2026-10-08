@@ -6,12 +6,27 @@
 // verbs) and appended to the target field. Interim results are exposed
 // for a live "hearing…" hint. Unsupported browsers get `isSupported=false`
 // so mic buttons hide instead of failing.
+//
+// Languages: `en-US` + `pt-BR`. The default comes from the browser
+// (`navigator.language` → pt-* ⇒ pt-BR) and the user's pick persists in
+// localStorage, so a Brazilian user dictates in Portuguese on every visit
+// without re-selecting. Switching `lang` re-targets both the STT engine
+// (reactive `useSpeechRecognition` lang) and the correction tables.
 
 import { computed, ref, watch, type Ref } from 'vue'
 import { useSpeechRecognition } from '@vueuse/core'
-import { correctShellLine, normalizeSpoken, type VoiceMode } from '../utils/speechCorrect'
+import {
+  correctShellLine,
+  detectVoiceLang,
+  isPtLang,
+  normalizeSpoken,
+  VOICE_LANG_STORAGE_KEY,
+  type VoiceLang,
+  type VoiceMode,
+} from '../utils/speechCorrect'
 
-export type { VoiceMode }
+export type { VoiceLang, VoiceMode }
+export { VOICE_LANG_STORAGE_KEY, detectVoiceLang, isPtLang }
 
 export interface VoiceInsert {
   /** Text after the mode pipeline (what was actually inserted). */
@@ -20,8 +35,19 @@ export interface VoiceInsert {
   fixes: string[]
 }
 
-export function useVoiceInput(mode: VoiceMode = 'prose') {
-  const rec = useSpeechRecognition({ lang: 'en-US', continuous: true })
+function loadStoredLang(): VoiceLang | null {
+  try {
+    const raw = localStorage.getItem(VOICE_LANG_STORAGE_KEY)
+    if (raw === 'pt-BR' || raw === 'en-US') return raw
+  } catch {
+    /* private mode / SSR */
+  }
+  return null
+}
+
+export function useVoiceInput(mode: VoiceMode = 'prose', initialLang?: VoiceLang) {
+  const lang = ref<VoiceLang>(initialLang ?? loadStoredLang() ?? detectVoiceLang())
+  const rec = useSpeechRecognition({ lang, continuous: true })
   const activeMode = ref<VoiceMode>(mode)
   const lastInsert = ref<VoiceInsert | null>(null)
   const lastError = ref('')
@@ -36,12 +62,40 @@ export function useVoiceInput(mode: VoiceMode = 'prose') {
     },
   )
 
+  watch(lang, (v) => {
+    try {
+      localStorage.setItem(VOICE_LANG_STORAGE_KEY, v)
+    } catch {
+      /* private mode — lang still applies for this session */
+    }
+  })
+
+  function setLang(next: VoiceLang): void {
+    if (lang.value === next) return
+    const wasListening = rec.isListening.value
+    // VueUse only applies `lang` to the engine while idle, so restart.
+    if (wasListening) {
+      try {
+        rec.stop()
+      } catch {
+        /* already stopped */
+      }
+    }
+    lang.value = next
+  }
+
+  function toggleLang(): VoiceLang {
+    const next: VoiceLang = lang.value === 'pt-BR' ? 'en-US' : 'pt-BR'
+    setLang(next)
+    return next
+  }
+
   function transform(raw: string): VoiceInsert {
     if (activeMode.value === 'shell') {
-      const fixed = correctShellLine(normalizeSpoken(raw, 'shell'))
+      const fixed = correctShellLine(normalizeSpoken(raw, 'shell', lang.value))
       return { text: fixed.line, fixes: fixed.fixes }
     }
-    return { text: normalizeSpoken(raw, activeMode.value), fixes: [] }
+    return { text: normalizeSpoken(raw, activeMode.value, lang.value), fixes: [] }
   }
 
   /**
@@ -93,6 +147,9 @@ export function useVoiceInput(mode: VoiceMode = 'prose') {
     lastInsert,
     lastError,
     mode: activeMode,
+    lang,
+    setLang,
+    toggleLang,
     transform,
     dictateInto,
     toggle,

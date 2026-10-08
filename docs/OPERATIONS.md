@@ -104,11 +104,15 @@ first; chained lines and unknown verbs fall through to the wasm dispatcher
 - `quota` — shell volume + browser storage + live per-provider probes (same
   endpoints as `crates/sync/src/quota.rs`); provider push still needs `:3456`.
 - `providers`, `oauth status|start`, `disk`, `sync status|list`, `mount`.
-- `encrypt|decrypt|keygen` (ChaCha20-Poly1305, vault keys), `compress|decompress` (lz4/brotli).
+- `encrypt|decrypt|keygen` (ChaCha20-Poly1305, vault keys), `compress|decompress` (lz4/brotli, same `{alg,data:b64}` envelope as the native shell).
 - `cp|mv|rm|mkdir` across the merged namespace: plain paths hit the shell
   volume, `/providers/<mountId>/…` hits that mount (same-provider renames,
   cross-provider and provider↔local moves, `-r` for trees, `.keep` markers
   for empty dirs — git mounts cannot hold those natively).
+- `grep|find|head|tail|wc|edit` across the merged namespace too (single files
+  via provider reads, `find` lists provider dirs one level, `edit` is
+  exact-once with `conflict:` on ambiguity).
+- `write` runs in the wasm dispatcher (editor save path, 1 MiB cap).
 - `scrub` (BLAKE3 snapshot vs `cache:cybsh:scrub`), `repair` (prunes the
   record), `gc` (dry-run default, `--apply` deletes), `lease`, `echo`, `kill`, `ai`.
 

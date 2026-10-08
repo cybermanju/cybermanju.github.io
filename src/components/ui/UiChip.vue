@@ -49,39 +49,34 @@ const emit = defineEmits<{ click: [event: MouseEvent]; remove: [event: MouseEven
   gap: 6px;
   min-height: calc(var(--ui-control-h) * 0.78);
   padding: 0 11px;
-  background: var(--ui-glass);
+  background: color-mix(in srgb, var(--ui-text) 6%, var(--ui-surface-2));
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-full);
   color: var(--ui-text-2);
   font-family: var(--ui-font);
   font-size: var(--ui-fs-xs);
-  font-weight: 600;
-  letter-spacing: 0.03em;
+  font-weight: 500;
   cursor: pointer;
   user-select: none;
-  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
   transition:
     background-color var(--ui-dur-fast) var(--ui-ease-out),
     border-color var(--ui-dur-fast) var(--ui-ease-out),
-    color var(--ui-dur-fast) var(--ui-ease-out),
-    box-shadow var(--ui-dur) var(--ui-ease-out),
-    transform var(--ui-dur-fast) var(--ui-ease-spring);
+    color var(--ui-dur-fast) var(--ui-ease-out);
 }
 
 .ui-chip:hover {
   border-color: var(--ui-border-hover);
   color: var(--ui-text);
-  transform: translateY(-1px);
 }
 
 .ui-chip:active {
-  transform: translateY(0) scale(0.97);
+  transform: scale(0.98);
 }
 
 .ui-chip:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ui-accent) 75%, transparent);
-  outline-offset: 2px;
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-glow-soft);
 }
 
 .ui-chip--square {
@@ -89,25 +84,24 @@ const emit = defineEmits<{ click: [event: MouseEvent]; remove: [event: MouseEven
 }
 
 .ui-chip--active {
-  background: var(--ui-accent-softer);
-  border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent);
-  color: var(--ui-accent);
-  box-shadow: var(--ui-glow-soft);
+  background: var(--ui-accent);
+  border-color: transparent;
+  color: var(--ui-on-accent);
 }
 
 .ui-chip__count {
-  font-family: var(--ui-font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
+  font-family: var(--ui-font);
+  font-size: 11px;
+  font-weight: 600;
   padding: 1px 5px;
   border-radius: var(--ui-radius-full);
   background: color-mix(in srgb, var(--ui-text) 12%, transparent);
-  color: var(--ui-text-3);
+  color: inherit;
 }
 
 .ui-chip--active .ui-chip__count {
-  background: color-mix(in srgb, var(--ui-accent) 22%, transparent);
-  color: var(--ui-accent);
+  background: rgba(255, 255, 255, 0.25);
+  color: inherit;
 }
 
 .ui-chip__remove {

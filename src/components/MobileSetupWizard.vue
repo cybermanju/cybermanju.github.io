@@ -151,14 +151,14 @@
         </div>
       </section>
 
-      <!-- repos -->
+      <!-- repos + disks -->
       <section v-if="step === 'repos'" class="msw-section">
-        <h3 class="msw-h">Private vault repos</h3>
-        <p class="msw-hint">GitHub / GitLab only: create 1–8 private repos at once, each seeded with your encrypted vault + its own disk.</p>
+        <h3 class="msw-h">Private vault repos + disks</h3>
+        <p class="msw-hint">GitHub / GitLab: create 1–8 private repos at once, each seeded with your encrypted vault + its own disk (substep 2 below attaches every disk). Drive: a <code>cybermanju-disks/&lt;disk&gt;</code> folder with its <code>.cybermanju</code> files plus the disk.</p>
         <label class="msw-field"><span>Provider</span>
           <select v-model="repoConfigId" class="msw-input">
             <option value="">Pick a saved provider…</option>
-            <option v-for="c in gitConfigs" :key="c.id" :value="c.id">{{ c.name || c.backendType }}</option>
+            <option v-for="c in repoCapableConfigs" :key="c.id" :value="c.id">{{ c.name || c.backendType }} ({{ c.backendType }})</option>
           </select>
         </label>
         <label class="msw-field"><span>Base repo name</span>
@@ -192,7 +192,7 @@
       <!-- agent -->
       <section v-if="step === 'agent'" class="msw-section">
         <h3 class="msw-h">Agent AI <em class="muted">(optional)</em></h3>
-        <p class="msw-hint">Pick a provider and seal a key — or skip and do it later in Agent. Needs the desktop app or Docker server.</p>
+        <p class="msw-hint">{{ isStatic ? 'Saved locally in this browser — key held in memory only (re-enter after reload).' : 'Pick a provider and seal a key — or skip and do it later in Agent.' }}</p>
         <label class="msw-field"><span>Assistant name</span>
           <input v-model="agentName" class="msw-input" placeholder="My assistant" />
         </label>
@@ -234,6 +234,7 @@
 import AppIcon from '@/components/AppIcon.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { isStaticHost } from '@/composables/useTauri'
 import {
   MOBILE_SETUP_STEPS,
   MOBILE_SETUP_STEP_LABELS,
@@ -247,11 +248,12 @@ import {
 } from '@/utils/setupWizard'
 import { syncConfigDefaults } from '@/utils/providers'
 import { agentPermissionPreset, defaultMcpServers } from '@/types'
-import type { SyncConfig } from '@/types'
+import type { AgentConfig, SyncConfig } from '@/types'
 
 const emit = defineEmits<{ close: [] }>()
 const store = useAppStore()
 const step = ref<MobileSetupStep>('welcome')
+const isStatic = isStaticHost()
 
 function tap() {
   try {
@@ -334,12 +336,30 @@ async function createPartition(i: number) {
       vaultMsg.value = `“${norm.name}” ready on local disk (${norm.sizeMb} MB budget).`
       vaultOk.value = true
     } else {
-      const disk = await store.createDisk(norm.configId, norm.sizeMb * 1024 * 1024, norm.passphrase)
-      if (disk) {
-        await store.attachDisk(disk.id, norm.passphrase).catch(() => {})
+      const target = store.syncConfigs.find(c => c.id === norm.configId)
+      if (!target) {
+        partitionStatus.value[i] = 'draft'
+        vaultMsg.value = `Provider is gone — pick another for “${norm.name}”.`
+        vaultOk.value = false
+        return
+      }
+      // Provider partition: sealed container + the provider-visible side
+      // (Drive folder + `.cybermanju` files, or a private repo + seed for
+      // git configs missing one). The disk survives a remote failure.
+      const out = await store.createDiskWithRemote(target, {
+        sizeMb: norm.sizeMb,
+        passphrase: norm.passphrase,
+        diskName: norm.name,
+        token: typeof target.token === 'string' ? target.token : '',
+      })
+      if (out?.disk) {
         partitionStatus.value[i] = 'done'
-        vaultMsg.value = `“${norm.name}” created on provider (${norm.sizeMb} MB).`
-        vaultOk.value = true
+        vaultMsg.value = out.remote
+          ? `“${norm.name}” created on provider (${norm.sizeMb} MB) + remote files seeded.`
+          : out.remoteWarning
+            ? `“${norm.name}” created (${norm.sizeMb} MB), but the remote seed failed: ${out.remoteWarning}`
+            : `“${norm.name}” created on provider (${norm.sizeMb} MB).`
+        vaultOk.value = !out.remoteWarning
       } else {
         partitionStatus.value[i] = 'draft'
         vaultMsg.value = `Could not create “${norm.name}” — retry.`
@@ -402,8 +422,11 @@ async function saveProvider() {
   }
 }
 
-// ── repos ──
-const gitConfigs = computed(() => store.syncConfigs.filter(c => c.backendType === 'github' || c.backendType === 'gitlab'))
+// ── repos + disks ──
+// GitHub/GitLab keep the full repo-set flow (private repos + vault seed +
+// a disk each). Drive has no repos: the same substep provisions a folder +
+// `.cybermanju` files + the disk through the shared helper.
+const repoCapableConfigs = computed(() => store.syncConfigs.filter(c => c.backendType === 'github' || c.backendType === 'gitlab' || c.backendType === 'googleDrive'))
 const repoConfigId = ref('')
 const repoName = ref('cybermanju-vault')
 const repoCount = ref(1)
@@ -418,8 +441,40 @@ const reposCreated = ref(0)
 async function createRepos() {
   const cfg = store.syncConfigs.find(c => c.id === repoConfigId.value)
   if (!cfg) {
-    repoMsg.value = 'Pick a saved GitHub/GitLab provider first.'
+    repoMsg.value = 'Pick a saved provider first.'
     repoOk.value = false
+    return
+  }
+  if (cfg.backendType !== 'github' && cfg.backendType !== 'gitlab' && cfg.backendType !== 'googleDrive') {
+    repoMsg.value = 'Repos + disks need a GitHub, GitLab or Drive provider.'
+    repoOk.value = false
+    return
+  }
+  // Drive substep: no repos to create — one folder + `.cybermanju` files +
+  // one attached disk through the shared provisioning helper.
+  if (cfg.backendType === 'googleDrive') {
+    repoBusy.value = true
+    repoSteps.value = [`creating Drive folder + disk…`]
+    try {
+      const out = await store.createDiskWithRemote(cfg, {
+        sizeMb: repoDiskMb.value,
+        passphrase: '',
+        diskName: repoName.value.trim() || 'cybermanju-vault',
+        token: typeof cfg.token === 'string' ? cfg.token : '',
+      })
+      if (!out?.disk) throw new Error('Disk creation failed — retry.')
+      reposCreated.value++
+      repoSteps.value.push(`ok: ${out.remote?.remoteDir ?? out.disk.id} (folder + .cybermanju files + disk)`)
+      repoMsg.value = out.remote
+        ? 'Drive folder + .cybermanju files live, disk attached.'
+        : `Disk attached, but the Drive seed failed: ${out.remoteWarning}`
+      repoOk.value = !out.remoteWarning
+    } catch (e) {
+      repoMsg.value = e instanceof Error ? e.message : String(e)
+      repoOk.value = false
+    } finally {
+      repoBusy.value = false
+    }
     return
   }
   const n = Math.max(1, Math.min(8, Math.round(repoCount.value) || 1))
@@ -439,12 +494,22 @@ async function createRepos() {
         description: 'CyberManju OS vault',
       })
       if (!repo) throw new Error(`provider refused ${name}`)
-      const disk = await store.createDisk(cfg.id, repoDiskMb.value * 1024 * 1024, '')
-      if (disk) await store.attachDisk(disk.id, '').catch(() => {})
+      // Substep: every fresh repo gets its own attached system disk plus
+      // the disk's remote file seed (private repo + `.cybermanju` files).
+      const out = await store.createDiskWithRemote(
+        { ...cfg, repoName: repo.repoName, branch: repo.branch },
+        {
+          sizeMb: repoDiskMb.value,
+          passphrase: '',
+          diskName: name,
+          token: repoToken.value.trim() || (typeof cfg.token === 'string' ? cfg.token : ''),
+        },
+      )
+      if (!out?.disk) throw new Error(`disk for ${name} failed — repo ${repo.fullName || name} is still live`)
       reposCreated.value++
-      repoSteps.value.push(`ok: ${repo.fullName || name}`)
+      repoSteps.value.push(`ok: ${repo.fullName || name} (repo + file + disk)`)
     }
-    repoMsg.value = n === 1 ? 'Repo live + disk attached.' : `${n} repos live + disks merged.`
+    repoMsg.value = n === 1 ? 'Repo live + file seeded + disk attached.' : `${n} repos live + files seeded + disks merged.`
     repoOk.value = true
   } catch (e) {
     repoMsg.value = e instanceof Error ? e.message : String(e)
@@ -468,6 +533,65 @@ async function saveAgent() {
   agentBusy.value = true
   agentMsg.value = ''
   try {
+    // Static browser build: same localStorage rows as Agent → Setup so the
+    // assistant is ready to chat immediately; the key stays in memory only.
+    if (isStatic) {
+      const { listLocalConfigs, saveLocalConfig, setLocalKey } = await import('@/composables/useAgent')
+      const now = new Date().toISOString()
+      let id: string
+      try {
+        id = `cfg-${crypto.randomUUID().slice(0, 8)}`
+      } catch {
+        id = `cfg-${Date.now().toString(36)}`
+      }
+      const existing = listLocalConfigs()
+      const fallbackPreset = existing[0]
+      const providerId = fallbackPreset?.providerId ?? store.agentProviders[0]?.id ?? 'openrouter'
+      // Static host: store providers are empty (no dashboard), so resolve
+      // the default model from the wasm catalog (same source Agent uses).
+      let catalogModel = ''
+      if (isStatic && !store.agentProviders.length) {
+        try {
+          const { wasmAgentCatalog } = await import('@/composables/useWasmBackend')
+          const presets = (await wasmAgentCatalog()) as Array<{ id?: string; defaultModel?: string }>
+          catalogModel = presets.find(p => p.id === providerId)?.defaultModel ?? presets[0]?.defaultModel ?? ''
+        } catch {
+          catalogModel = ''
+        }
+      }
+      const defaultModel = fallbackPreset?.model
+        ?? store.agentProviders.find(p => p.id === providerId)?.defaultModel
+        ?? catalogModel
+        ?? 'model id'
+      const cfg: AgentConfig = {
+        id,
+        name: agentName.value.trim() || 'My assistant',
+        providerId,
+        model: agentModel.value.trim() || defaultModel,
+        workingDir: '',
+        agentKind: 'build',
+        permission: agentPermissionPreset('balanced'),
+        autoApprove: false,
+        maxTurns: 25,
+        mcpServers: defaultMcpServers(),
+        hasKey: false,
+        createdAt: now,
+        updatedAt: now,
+      }
+      saveLocalConfig(cfg)
+      agentSavedName.value = cfg.name
+      const key = agentKey.value.trim()
+      if (key) {
+        setLocalKey(id, key)
+        agentKey.value = ''
+        agentMsg.value = 'Saved locally — key held in memory, ready to chat in Agent.'
+        agentOk.value = true
+      } else {
+        agentMsg.value = 'Saved locally — paste the key in Agent → Setup (memory-only).'
+        agentOk.value = true
+      }
+      return
+    }
     const saved = await store.saveAgentConfig({
       name: agentName.value.trim() || 'My assistant',
       providerId: store.agentProviders[0]?.id ?? 'openrouter',

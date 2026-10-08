@@ -1,8 +1,8 @@
-<!-- CyberManju OS — mobile launcher (iOS-style home for phones).
+<!-- CyberManju OS — mobile home for phones.
   //
-  // Base layer of the mobile desktop: status bar (clock + net + vault),
-  // search, 4-column neon app grid, and a 4-slot dock. Opening an app slides
-  // a fullscreen sheet over this grid; closing all windows returns here.
+  // Base layer of the mobile desktop: clock + date greeting, search,
+  // 4-column app grid, and a 4-slot dock. Opening an app slides a
+  // fullscreen sheet over this grid; closing all windows returns here.
   // Perf: solid tiles (no backdrop-filter), transform-only press states,
   // content-visibility on the grid. -->
 <template>
@@ -14,19 +14,17 @@
     @touchstart.passive="onTouchStart"
     @touchmove.passive="onTouchMove"
   >
-    <div class="mla-scan" aria-hidden="true" />
-
     <div class="mla-status">
       <span class="mla-clock">{{ clock }}</span>
       <span class="mla-net" :class="{ off: !online }">
-        <span class="mla-dot" />{{ online ? 'ONLINE' : 'OFFLINE' }}
+        <span class="mla-dot" />{{ online ? 'Online' : 'Offline' }}
       </span>
-      <span class="mla-vault">{{ store.disks.length }} VAULT{{ store.disks.length === 1 ? '' : 'S' }}</span>
+      <span class="mla-vault">{{ store.disks.length }} vault{{ store.disks.length === 1 ? '' : 's' }}</span>
     </div>
 
     <div class="mla-hello">
-      <p class="mla-eyebrow">CYBERMANJU OS · {{ dateStr }}</p>
-      <h1 class="mla-title">GHOSTLINE<span class="mla-caret">_</span></h1>
+      <p class="mla-eyebrow">{{ dateStr }}</p>
+      <h1 class="mla-title">{{ greeting }}</h1>
     </div>
 
     <!-- First-run nudge: no vault partitions yet → one tap to create them. -->
@@ -108,13 +106,16 @@ const searchRef = ref<HTMLInputElement | null>(null)
 
 let timer: ReturnType<typeof setInterval> | null = null
 
+const greeting = ref('')
+
 function tickClock() {
   try {
     const now = new Date()
     clock.value = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     dateStr.value = now
-      .toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
-      .toUpperCase()
+      .toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
+    const h = now.getHours()
+    greeting.value = h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
   } catch {
     clock.value = ''
     dateStr.value = ''
@@ -219,60 +220,39 @@ function open(panel: PanelType) {
     calc(150px + env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  background:
-    radial-gradient(60% 34% at 50% -6%, color-mix(in srgb, var(--ui-accent) 14%, transparent), transparent 70%),
-    radial-gradient(50% 30% at 88% 100%, color-mix(in srgb, var(--ui-danger) 10%, transparent), transparent 70%),
-    var(--ui-bg);
+  background: var(--ui-bg);
   overscroll-behavior: contain;
-}
-
-/* scanlines — absolute (never escapes home), one static gradient, GPU-cheap */
-.mla-scan {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    to bottom,
-    transparent 0 3px,
-    rgba(0, 0, 0, 0.22) 3px 4px
-  );
-  opacity: 0.5;
 }
 
 .mla-status {
   display: flex;
   align-items: center;
   gap: 12px;
-  font-family: var(--ui-font-mono);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--ui-text-3);
 }
-.mla-clock { color: var(--ui-text); font-size: 12px; }
-.mla-net { display: inline-flex; align-items: center; gap: 6px; color: var(--ui-accent); }
-.mla-net.off { color: var(--ui-danger); }
-.mla-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+.mla-clock { color: var(--ui-text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.mla-net { display: inline-flex; align-items: center; gap: 6px; }
+.mla-net .mla-dot { background: var(--ui-success); }
+.mla-net.off .mla-dot { background: var(--ui-danger); }
+.mla-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .mla-vault { margin-left: auto; }
 
 .mla-hello { margin-top: 2px; }
 .mla-eyebrow {
   margin: 0;
-  font-family: var(--ui-font-mono);
-  font-size: 10px;
-  letter-spacing: 0.34em;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--ui-text-3);
 }
 .mla-title {
   margin: 0;
-  font-size: 30px;
-  font-weight: 900;
-  letter-spacing: 0.06em;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--ui-text);
-  text-shadow: 0 0 18px color-mix(in srgb, var(--ui-accent) 45%, transparent);
 }
-.mla-caret { color: var(--ui-accent); animation: mla-blink 1.1s steps(1) infinite; }
-@keyframes mla-blink { 50% { opacity: 0; } }
 
 .mla-search {
   display: flex;
@@ -303,14 +283,13 @@ function open(panel: PanelType) {
   min-height: 52px;
   padding: 10px 14px;
   border-radius: 14px;
-  border: 1px dashed color-mix(in srgb, var(--ui-accent) 55%, transparent);
-  background: color-mix(in srgb, var(--ui-accent) 8%, transparent);
-  color: var(--ui-text);
+  border: none;
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
   font-family: inherit;
-  font-size: 13.5px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 0 16px color-mix(in srgb, var(--ui-accent) 14%, transparent);
 }
 .mla-cta:active { transform: scale(0.98); }
 .mla-link {
@@ -351,20 +330,17 @@ function open(panel: PanelType) {
   width: 60px;
   height: 60px;
   border-radius: 16px;
-  color: var(--ui-accent);
-  background: color-mix(in srgb, var(--ui-accent) 10%, var(--ui-surface));
-  border: 1px solid color-mix(in srgb, var(--ui-accent) 40%, transparent);
-  box-shadow: 0 0 14px color-mix(in srgb, var(--ui-accent) 18%, transparent);
+  color: var(--ui-text-2);
+  background: var(--ui-surface-2);
+  border: 1px solid var(--ui-border);
+  box-shadow: var(--ui-shadow-1);
 }
 .mla-tile.danger {
   color: var(--ui-danger);
-  background: color-mix(in srgb, var(--ui-danger) 10%, var(--ui-surface));
-  border-color: color-mix(in srgb, var(--ui-danger) 45%, transparent);
-  box-shadow: 0 0 14px color-mix(in srgb, var(--ui-danger) 20%, transparent);
 }
 .mla-name {
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--ui-text-2);
   max-width: 100%;
   overflow: hidden;
@@ -395,9 +371,7 @@ function open(panel: PanelType) {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--ui-accent);
-  box-shadow: 0 0 10px var(--ui-accent);
-  animation: mla-blink 1.1s steps(1) infinite;
+  background: var(--ui-success);
 }
 .mla-empty { text-align: center; font-size: 12px; color: var(--ui-text-3); }
 
@@ -431,10 +405,9 @@ function open(panel: PanelType) {
   cursor: pointer;
   transition: transform 120ms ease-out;
 }
-.mla-dock-btn:active { transform: scale(0.9); border-color: var(--ui-border-strong); color: var(--ui-accent); }
+.mla-dock-btn:active { transform: scale(0.9); border-color: var(--ui-border-strong); color: var(--ui-text); }
 
 @media (prefers-reduced-motion: reduce) {
-  .mla-caret, .mla-live { animation: none; }
   .mla-app, .mla-dock-btn { transition: none; }
 }
 </style>

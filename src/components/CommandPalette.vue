@@ -232,10 +232,24 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding-top: 120px;
+  padding: 120px 12px 12px;
   z-index: 10000;
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
+}
+
+@media (max-width: 560px) {
+  .cp-overlay {
+    padding: calc(8px + env(safe-area-inset-top, 0px)) 8px 8px;
+  }
+  .cp-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - 120px);
+  }
+  .cp-input {
+    font-size: 16px;
+  }
 }
 
 .cp-modal {width: 480px;

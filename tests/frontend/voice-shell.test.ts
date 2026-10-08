@@ -4,6 +4,9 @@ import {
   correctCodeWords,
   correctShellLine,
   CYBSH_COMMANDS,
+  detectVoiceLang,
+  foldAccents,
+  isPtLang,
   normalizeSpoken,
 } from '../../src/utils/speechCorrect'
 
@@ -87,5 +90,73 @@ describe('normalizeSpoken', () => {
 describe('correctCodeWords', () => {
   it('repairs STT homophones', () => {
     expect(correctCodeWords('funkshun foo cost')).toBe('function foo const')
+  })
+})
+
+describe('voice language (en-US + pt-BR)', () => {
+  it('detects Portuguese browsers as pt-BR', () => {
+    expect(detectVoiceLang('pt-BR')).toBe('pt-BR')
+    expect(detectVoiceLang('pt')).toBe('pt-BR')
+    expect(detectVoiceLang('pt-PT')).toBe('pt-BR')
+    expect(detectVoiceLang('en-US')).toBe('en-US')
+    expect(detectVoiceLang('en')).toBe('en-US')
+    expect(isPtLang('pt-BR')).toBe(true)
+    expect(isPtLang('en-US')).toBe(false)
+  })
+  it('folds accents for matching', () => {
+    expect(foldAccents('CÊ DÊ')).toBe('ce de')
+    expect(foldAccents('vírgula')).toBe('virgula')
+  })
+})
+
+describe('normalizeSpoken pt-BR prose', () => {
+  it('turns Portuguese punctuation words into marks and capitalises', () => {
+    expect(normalizeSpoken('olá mundo vírgula como vai ponto de interrogação', 'prose', 'pt-BR')).toBe(
+      'Olá mundo, como vai?',
+    )
+  })
+  it('handles ponto final / dois pontos / ponto e vírgula', () => {
+    expect(normalizeSpoken('fim ponto final próxima dois pontos vai ponto e vírgula ok', 'prose', 'pt-BR')).toBe(
+      'Fim. Próxima: vai; ok',
+    )
+  })
+  it('keeps dictated line breaks', () => {
+    expect(normalizeSpoken('primeira linha nova linha segunda linha', 'prose', 'pt-BR')).toBe(
+      'Primeira linha\nSegunda linha',
+    )
+  })
+  it('leaves Portuguese words alone in en-US mode', () => {
+    expect(normalizeSpoken('olá mundo vírgula', 'prose', 'en-US')).toBe('Olá mundo vírgula')
+  })
+})
+
+describe('normalizeSpoken pt-BR code', () => {
+  it('turns Portuguese symbol words into symbols', () => {
+    expect(
+      normalizeSpoken('função foo abre parênteses bar fecha parênteses abre chave', 'code', 'pt-BR'),
+    ).toBe('function foo(bar){')
+  })
+  it('still understands English triggers in pt-BR mode', () => {
+    expect(normalizeSpoken('function foo open paren bar close paren', 'code', 'pt-BR')).toBe(
+      'function foo(bar)',
+    )
+  })
+  it('maps Portuguese keywords to code', () => {
+    expect(correctCodeWords('função constante retorna classe', 'pt-BR')).toBe('function const return class')
+    expect(correctCodeWords('função', 'en-US')).toBe('função')
+  })
+})
+
+describe('correctShellLine pt-BR', () => {
+  it('joins Portuguese phonetic splits', () => {
+    expect(correctShellLine('cê dê /tmp').line).toBe('cd /tmp')
+    expect(correctShellLine('CÊ DÊ /tmp').line).toBe('cd /tmp')
+    expect(correctShellLine('ele esse /tmp').line).toBe('ls /tmp')
+    expect(correctShellLine('erre eme arquivo').line).toBe('rm arquivo')
+  })
+  it('expands Portuguese aliases', () => {
+    expect(correctShellLine('ajuda').line).toBe('help')
+    expect(correctShellLine('listar').line).toBe('ls')
+    expect(correctShellLine('histórico').line).toBe('history')
   })
 })

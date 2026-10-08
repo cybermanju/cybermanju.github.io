@@ -1,13 +1,13 @@
 // CyberManju OS — first-run setup wizard state (pure, unit-tested).
 //
 // The wizard itself lives in `SetupWizard.vue` (vault file + local sync +
-// agent AI, every step skippable). This module owns the browser-free parts:
+// cloud + disks + agent AI, every step skippable). This module owns the browser-free parts:
 // the "seen" flag in localStorage and the step order, so both stay honest
 // without a browser.
 
 export const SETUP_SEEN_KEY = 'cybermanju.setupSeen.v1'
 
-export const SETUP_STEPS = ['welcome', 'vault', 'sync', 'cloud', 'agent', 'done'] as const
+export const SETUP_STEPS = ['welcome', 'vault', 'sync', 'cloud', 'disks', 'agent', 'done'] as const
 
 export type SetupStep = (typeof SETUP_STEPS)[number]
 
@@ -16,6 +16,7 @@ export const SETUP_STEP_LABELS: Record<SetupStep, string> = {
   vault: 'Vault',
   sync: 'Local sync',
   cloud: 'Cloud',
+  disks: 'Disks',
   agent: 'Agent (optional)',
   done: 'Done',
 }
@@ -66,7 +67,7 @@ export function setupStepIndex(step: SetupStep): number {
 }
 
 // ── Mobile first-run (Android) ─────────────────────────────────────
-// Desktop keeps the 4-step wizard above (pinned by tests). Mobile gets its
+// Desktop keeps the steps above (pinned by tests). Mobile gets its
 // own 7-step flow: identity → vault partitions → providers → repos, so a
 // phone can create an account, N `.cybermanju` partitions on any provider
 // (or local disk), and N provider repos in one pass. Pure + unit-tested.
@@ -88,7 +89,7 @@ export const MOBILE_SETUP_STEP_LABELS: Record<MobileSetupStep, string> = {
   account: 'Account',
   vaults: 'Vault partitions',
   providers: 'Providers',
-  repos: 'Repos',
+  repos: 'Repos + disks',
   agent: 'Agent AI (optional)',
   done: 'Done',
 }

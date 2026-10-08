@@ -204,16 +204,16 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
 }
 
 .dock-item:hover {
-  background: var(--ui-accent-softer);
-  transform: translateY(-4px) scale(1.06);
+  background: color-mix(in srgb, var(--ui-text) 7%, transparent);
+  transform: translateY(-2px);
 }
 
 .dock-item:active {
-  transform: translateY(-1px) scale(1.01);
+  transform: translateY(0) scale(0.98);
 }
 
 .dock-item.active {
-  background: color-mix(in srgb, var(--ui-accent) 10%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 8%, transparent);
 }
 
 .dock-icon {
@@ -238,22 +238,17 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
 }
 
 .dock-item.active .dock-icon {
-  background: var(--ui-accent-softer);
-  border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent);
-  box-shadow: var(--ui-glow-soft);
+  background: var(--ui-surface-3);
+  border-color: var(--ui-border-strong);
 }
 
 .dock-icon-text {
   color: var(--ui-text-2);
-  transition: color var(--ui-dur) var(--ui-ease-out), transform var(--ui-dur) var(--ui-ease-spring);
-}
-
-.dock-item:hover .dock-icon-text {
-  transform: scale(1.08);
+  transition: color var(--ui-dur) var(--ui-ease-out);
 }
 
 .dock-item.active .dock-icon-text {
-  color: var(--ui-accent);
+  color: var(--ui-text);
 }
 
 .dock-icon.minimized {

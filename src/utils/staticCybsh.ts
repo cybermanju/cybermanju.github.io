@@ -23,6 +23,13 @@
 // composable, so there are no module cycles.
 
 import type { ShellResult } from '@/types'
+import {
+  checkCybshScript,
+  cybshFingerprint,
+  CYBSH_MAX_RUN_DEPTH,
+  CYBSH_SCRIPT_EXT,
+  runCybshScript,
+} from './cybshScript'
 
 /** The 1 MiB single-write cap mirrors `MAX_WRITE_BYTES` in os.rs. */
 export const STATIC_WRITE_LIMIT = 1024 * 1024
@@ -112,6 +119,8 @@ export interface StaticCybshDeps {
   chacha(): Promise<StaticChacha | null>
   codecs(): Promise<StaticCodecs | null>
   blake3(data: string): Promise<string | null>
+  /** Full-transport fallback for inline `sh` lines (wasm dispatcher on Pages). */
+  execFallback?: (line: string) => Promise<string>
 }
 
 export interface ParsedLine {
@@ -124,9 +133,11 @@ export interface ParsedLine {
  *  through to the wasm dispatcher. */
 const HANDLED_VERBS = new Set([
   'echo', 'cp', 'mv', 'rm', 'mkdir', 'kill',
+  'grep', 'find', 'head', 'tail', 'wc', 'edit',
   'quota', 'providers', 'oauth', 'disk', 'sync',
   'encrypt', 'decrypt', 'keygen', 'compress', 'decompress',
   'scrub', 'repair', 'gc', 'lease', 'mount', 'umount', 'ai',
+  'run', 'theme', 'ui',
 ])
 
 export function handlesStaticVerb(verb: string): boolean {
@@ -1434,12 +1445,633 @@ async function handleMkdir(args: string[], deps: StaticCybshDeps): Promise<VerbO
   return shellOk(rest.length === 1 ? `made ${rest[0]}` : `made ${rest.length} directories`)
 }
 
+/** `*`-only glob match (mirrors `glob_match` in shell.rs / `wasm_glob` in os.rs). */
+function staticGlob(pattern: string, text: string): boolean {
+  if (pattern === '*' || pattern === '') return true
+  if (!pattern.includes('*')) return text.includes(pattern)
+  const parts = pattern.split('*')
+  let rest = text
+  let first = true
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (!part) continue
+    const last = i === parts.length - 1
+    if (first && !pattern.startsWith('*')) {
+      if (!rest.startsWith(part)) return false
+      rest = rest.slice(part.length)
+      first = false
+      continue
+    }
+    first = false
+    const pos = rest.indexOf(part)
+    if (pos < 0) return false
+    if (last && !pattern.endsWith('*') && pos + part.length !== rest.length) return false
+    rest = rest.slice(pos + part.length)
+  }
+  return true
+}
+
+/** List every file under a local dir (cap 5000, sorted). */
+function staticLocalWalk(volume: Record<string, string>, dir: string): string[] {
+  const out = Object.keys(volume).filter((k) => {
+    if (dir === '/') return true
+    return k === dir || k.startsWith(`${dir}/`)
+  })
+  out.sort()
+  return out.slice(0, 5000)
+}
+
+async function handleGrep(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  let insensitive = false
+  let showLine = false
+  const rest: string[] = []
+  for (const a of args) {
+    if (a === '-i' || a === '--ignore-case') insensitive = true
+    else if (a === '-n' || a === '--line-number') showLine = true
+    else if (/^-[in]+$/.test(a)) {
+      if (a.includes('i')) insensitive = true
+      if (a.includes('n')) showLine = true
+    } else rest.push(a)
+  }
+  if (rest.length === 0) return shellErr('usage: grep [-i] [-n] <pattern> [paths…]')
+  const pattern = rest[0]
+  const needle = insensitive ? pattern.toLowerCase() : pattern
+  const hitsLine = (line: string): boolean =>
+    insensitive ? line.toLowerCase().includes(needle) : line.includes(needle)
+  const cwd = await deps.getCwd().catch(() => '/')
+  // No paths: grep the whole local volume (no stdin on this transport).
+  const targets = rest.length === 1 ? ['/'] : rest.slice(1)
+  const files: string[] = []
+  for (const raw of targets) {
+    const ep = resolveEndpoint(cwd, raw)
+    const cls = await classifyEndpoint(ep, deps).catch(() => ({ kind: 'missing' }) as const)
+    if (cls.kind === 'missing') return shellErr(`not_found: ${raw}`)
+    if (cls.kind === 'file') {
+      files.push(srcLabel(ep))
+      continue
+    }
+    if (ep.kind === 'local') {
+      files.push(...staticLocalWalk(deps.readVolume(), ep.path).filter((k) => !k.endsWith('/.keep')))
+    } else {
+      const entries = await deps.providerList(ep.mountId, ep.remotePath).catch(() => null)
+      if (!entries) return shellErr(`not_found: ${raw}`)
+      for (const e of entries) {
+        if (!e.isDir) files.push(`${ep.label}/${e.name}`)
+      }
+    }
+  }
+  const uniq = [...new Set(files)].sort()
+  const prefixFile = uniq.length > 1
+  const hits: string[] = []
+  for (const label of uniq) {
+    const ep = label.startsWith('/providers/') ? resolveEndpoint('/', label) : resolveEndpoint(cwd, label)
+    let bytes: Uint8Array
+    try {
+      bytes = await readEndpointFile(ep, deps)
+    } catch {
+      continue
+    }
+    const text = utf8Decode(bytes)
+    const lines = text.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      if (hitsLine(lines[i])) {
+        const body = showLine ? `${i + 1}:${lines[i]}` : lines[i]
+        hits.push(prefixFile ? `${label}:${body}` : body)
+        if (hits.length >= 400) break
+      }
+    }
+    if (hits.length >= 400) break
+  }
+  if (json) return shellOk(JSON.stringify({ pattern, matches: hits }))
+  if (hits.length === 0) return shellOk(`no matches for \`${pattern}\``)
+  return shellOk(hits.join('\n'))
+}
+
+async function handleFind(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  const operands = args.filter((a) => !a.startsWith('-'))
+  const cwd = await deps.getCwd().catch(() => '/')
+  let rootRaw = '/'
+  let pattern: string | undefined
+  if (operands.length === 1) {
+    const ep = resolveEndpoint(cwd, operands[0])
+    const cls = await classifyEndpoint(ep, deps).catch(() => ({ kind: 'missing' }) as const)
+    if (cls.kind === 'dir' || (cls.kind === 'file' && operands[0].endsWith('/'))) {
+      rootRaw = operands[0]
+    } else if (cls.kind === 'file') {
+      const abs = joinVolumePath(cwd, operands[0])
+      if (json) return shellOk(JSON.stringify({ root: abs, pattern: null, matches: [abs] }))
+      return shellOk(abs)
+    } else {
+      pattern = operands[0]
+    }
+  } else if (operands.length >= 2) {
+    rootRaw = operands[0]
+    pattern = operands[1]
+  }
+  const ep = resolveEndpoint(cwd, rootRaw)
+  const cls = await classifyEndpoint(ep, deps).catch(() => ({ kind: 'missing' }) as const)
+  if (cls.kind === 'missing') return shellErr(`not_found: ${rootRaw}`)
+  if (cls.kind === 'file') {
+    const label = srcLabel(ep)
+    if (json) return shellOk(JSON.stringify({ root: label, pattern: pattern ?? null, matches: [label] }))
+    return shellOk(label)
+  }
+  let all: string[] = []
+  if (ep.kind === 'local') {
+    all = staticLocalWalk(deps.readVolume(), ep.path)
+  } else {
+    const entries = await deps.providerList(ep.mountId, ep.remotePath).catch(() => null)
+    if (!entries) return shellErr(`not_found: ${rootRaw}`)
+    all = entries.map((e) => `${ep.label}/${e.name}${e.isDir ? '/' : ''}`)
+  }
+  const hits = all.filter((f) => {
+    if (!pattern) return true
+    const base = f.split('/').filter(Boolean).pop() ?? f
+    return staticGlob(pattern, base) || staticGlob(pattern, f)
+  })
+  if (json) return shellOk(JSON.stringify({ root: srcLabel(ep), pattern: pattern ?? null, matches: hits }))
+  if (hits.length === 0) return shellOk('(no matches)')
+  return shellOk(hits.join('\n'))
+}
+
+async function handleHeadTail(
+  head: boolean,
+  args: string[],
+  deps: StaticCybshDeps,
+): Promise<VerbOut> {
+  let n = 10
+  const rest: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    if ((args[i] === '-n' || args[i] === '--lines') && i + 1 < args.length) {
+      n = Math.max(1, parseInt(args[i + 1], 10) || 10)
+      i++
+      continue
+    }
+    const m = args[i].match(/^-n(\d+)$/)
+    if (m) {
+      n = Math.max(1, parseInt(m[1], 10) || 10)
+      continue
+    }
+    rest.push(args[i])
+  }
+  if (rest.length === 0) return shellErr(`usage: ${head ? 'head' : 'tail'} [-n N] <path>`)
+  const cwd = await deps.getCwd().catch(() => '/')
+  const ep = resolveEndpoint(cwd, rest[0])
+  let bytes: Uint8Array
+  try {
+    bytes = await readEndpointFile(ep, deps)
+  } catch (e) {
+    if (e instanceof Error && e.message === '__missing__') return shellErr(`not_found: ${rest[0]}`)
+    return shellErr(e instanceof Error ? e.message : String(e))
+  }
+  const text = utf8Decode(bytes)
+  const lines = text.split('\n')
+  const picked = head ? lines.slice(0, n) : lines.slice(Math.max(0, lines.length - n))
+  return shellOk(picked.join('\n'))
+}
+
+async function handleWc(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  const operands = args.filter((a) => !a.startsWith('-'))
+  if (operands.length === 0) return shellErr('usage: wc [paths…]')
+  const cwd = await deps.getCwd().catch(() => '/')
+  const rows: Array<{ path: string; lines: number; words: number; bytes: number }> = []
+  for (const raw of operands) {
+    const ep = resolveEndpoint(cwd, raw)
+    let bytes: Uint8Array
+    try {
+      bytes = await readEndpointFile(ep, deps)
+    } catch (e) {
+      if (e instanceof Error && e.message === '__missing__') return shellErr(`not_found: ${raw}`)
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+    const text = utf8Decode(bytes)
+    rows.push({
+      path: srcLabel(ep),
+      lines: text === '' ? 0 : text.split('\n').length,
+      words: text.split(/\s+/).filter(Boolean).length,
+      bytes: bytes.length,
+    })
+  }
+  if (json) {
+    const total = rows.reduce(
+      (t, r) => ({ lines: t.lines + r.lines, words: t.words + r.words, bytes: t.bytes + r.bytes }),
+      { lines: 0, words: 0, bytes: 0 },
+    )
+    return shellOk(JSON.stringify({ files: rows, total }))
+  }
+  const lines = rows.map((r) => `${r.lines} ${r.words} ${r.bytes} ${r.path}`)
+  if (rows.length > 1) {
+    const t = rows.reduce(
+      (a, r) => ({ lines: a.lines + r.lines, words: a.words + r.words, bytes: a.bytes + r.bytes }),
+      { lines: 0, words: 0, bytes: 0 },
+    )
+    lines.push(`${t.lines} ${t.words} ${t.bytes} total`)
+  }
+  return shellOk(lines.join('\n'))
+}
+
+async function handleEdit(args: string[], deps: StaticCybshDeps): Promise<VerbOut> {
+  if (args.length < 3) return shellErr('usage: edit <path> <old> <new>')
+  const [rawPath, oldText, ...newParts] = args
+  const newText = newParts.join(' ')
+  if (!oldText) return shellErr('integrity: refusing empty anchor (old text must be ≥1 char)')
+  const cwd = await deps.getCwd().catch(() => '/')
+  const ep = resolveEndpoint(cwd, rawPath)
+  let bytes: Uint8Array
+  try {
+    bytes = await readEndpointFile(ep, deps)
+  } catch (e) {
+    if (e instanceof Error && e.message === '__missing__') return shellErr(`not_found: ${rawPath}`)
+    return shellErr(e instanceof Error ? e.message : String(e))
+  }
+  const text = utf8DecodeStrict(bytes)
+  if (text === null) return shellErr('invalid: file is not UTF-8 text')
+  const count = text.split(oldText).length - 1
+  if (count === 0) return shellErr(`not_found: anchor occurs 0 times in ${srcLabel(ep)}`)
+  if (count > 1) return shellErr(`conflict: anchor occurs ${count} times in ${srcLabel(ep)} — refine it to exactly one`)
+  const updated = text.replace(oldText, newText)
+  try {
+    await writeEndpointFile(ep, utf8Encode(updated), deps)
+  } catch (e) {
+    return shellErr(e instanceof Error ? e.message : String(e))
+  }
+  return shellOk(`edited ${srcLabel(ep)} (1 replacement, ${updated.length} bytes)`)
+}
+
 /**
  * Run one terminal line against the local vault. Returns `null` when the
  * line is not ours (chained line, unknown verb) so the caller falls through
  * to the wasm dispatcher. Never throws — handler failures become
  * `{ ok: false }` shell answers with the house `prefix: detail` contract.
  */
+// ─── `.cybsh` scripts + `theme`/`ui` (mirrors crates/os/src/script.rs ──────
+// and the `run`/`theme`/`ui` verbs in crates/os/src/shell.rs). The native
+// shell interprets the same grammar; only transport-owned bits differ:
+// `fetch` really runs here (browser fetch, 10 s, 64 KiB), provider verbs
+// stay local-vault answers, and theme writes land in both the volume mirror
+// (`/.cybermanju/theme.json`) and the live store (`cybermanju_theme_v1`).
+
+/** Nesting guard for scripts calling scripts (same 4-deep budget as native). */
+let scriptDepth = 0
+
+const STATIC_THEME_FILE = '/.cybermanju/theme.json'
+const STATIC_THEME_IDS = [
+  'mac-light',
+  'mac-dark',
+  'mac-graphite-light',
+  'mac-graphite-dark',
+  'mac-midnight',
+]
+const STATIC_THEME_ALIASES: Record<string, string> = {
+  midnight: 'mac-midnight',
+  nebula: 'mac-dark',
+  ember: 'mac-dark',
+  daylight: 'mac-light',
+  ghostline: 'mac-dark',
+}
+
+function canonicalStaticTheme(id: string): string | null {
+  const lower = id.toLowerCase()
+  if ((STATIC_THEME_IDS as string[]).includes(lower)) return lower
+  return STATIC_THEME_ALIASES[lower] ?? null
+}
+
+function validStaticAccent(raw: string): boolean {
+  if (!raw) return false
+  const hex = raw.startsWith('#') ? raw.slice(1) : raw
+  return (hex.length === 3 || hex.length === 6) && /^[0-9a-fA-F]+$/.test(hex)
+}
+
+function readStaticTheme(deps: StaticCybshDeps): { theme: string; accent: string | null } {
+  try {
+    const raw = deps.readVolume()[STATIC_THEME_FILE]
+    if (!raw) return { theme: 'mac-light', accent: null }
+    const value = JSON.parse(raw) as { theme?: unknown; accent?: unknown }
+    const theme =
+      typeof value.theme === 'string' && canonicalStaticTheme(value.theme)
+        ? (canonicalStaticTheme(value.theme) as string)
+        : 'mac-light'
+    const accent =
+      typeof value.accent === 'string' && validStaticAccent(value.accent) ? value.accent : null
+    return { theme, accent }
+  } catch {
+    return { theme: 'mac-light', accent: null }
+  }
+}
+
+/** Best-effort live apply: localStorage (survives reload) + document. */
+function applyLiveTheme(theme: string, accent: string | null): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem('cybermanju_theme_v1')
+      const cur = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
+      localStorage.setItem(
+        'cybermanju_theme_v1',
+        JSON.stringify({ ...cur, theme, accent }),
+      )
+    }
+  } catch {
+    // Private mode / quota — the volume mirror still holds the intent.
+  }
+  try {
+    if (typeof document !== 'undefined') {
+      const root = document.documentElement
+      root.dataset.uiTheme = theme
+      if (accent) root.style.setProperty('--ui-accent', accent)
+    }
+  } catch {
+    // Node/test env — no document to restyle.
+  }
+}
+
+async function writeStaticTheme(
+  deps: StaticCybshDeps,
+  theme: string,
+  accent: string | null,
+): Promise<void> {
+  await deps.writeVolumeFile(
+    STATIC_THEME_FILE,
+    JSON.stringify({ theme, accent }),
+  )
+  applyLiveTheme(theme, accent)
+}
+
+function staticThemeLine(theme: string, accent: string | null): string {
+  return accent ? `theme: ${theme} · accent: ${accent}` : `theme: ${theme} · accent: system`
+}
+
+async function handleTheme(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  const want = args.find((a) => !a.startsWith('-'))
+  const { theme, accent } = readStaticTheme(deps)
+  if (!want || want === 'get') {
+    if (json) return shellOk(JSON.stringify({ theme, accent }))
+    return shellOk(`${staticThemeLine(theme, accent)}\nui: theme=${theme}`)
+  }
+  const canonical = canonicalStaticTheme(want)
+  if (!canonical) {
+    return shellErr(`invalid: unknown theme '${want}' (try: ${STATIC_THEME_IDS.join(', ')})`)
+  }
+  await writeStaticTheme(deps, canonical, accent)
+  if (json) return shellOk(JSON.stringify({ theme: canonical, accent }))
+  return shellOk(`${staticThemeLine(canonical, accent)}\nui: theme=${canonical}`)
+}
+
+async function handleUi(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  const sub = args[0] ?? 'get'
+  const { theme, accent } = readStaticTheme(deps)
+  if (sub === 'get') {
+    if (json) return shellOk(JSON.stringify({ theme, accent }))
+    return shellOk(`${staticThemeLine(theme, accent)}\nui: theme=${theme}`)
+  }
+  if (sub === 'theme') {
+    const id = args[1]
+    if (!id) return shellErr(`usage: ui theme <id> (try: ${STATIC_THEME_IDS.join(', ')})`)
+    const canonical = canonicalStaticTheme(id)
+    if (!canonical) {
+      return shellErr(`invalid: unknown theme '${id}' (try: ${STATIC_THEME_IDS.join(', ')})`)
+    }
+    await writeStaticTheme(deps, canonical, accent)
+    if (json) return shellOk(JSON.stringify({ theme: canonical, accent }))
+    return shellOk(`${staticThemeLine(canonical, accent)}\nui: theme=${canonical}`)
+  }
+  if (sub === 'accent') {
+    const raw = args[1]
+    if (!raw) return shellErr('usage: ui accent <#rrggbb|#rgb|default>')
+    const next: string | null =
+      raw === 'default' || raw === 'system' || raw === 'none'
+        ? null
+        : (() => {
+            const hex = raw.startsWith('#') ? raw : `#${raw}`
+            return validStaticAccent(hex) ? hex : null
+          })()
+    if (raw !== 'default' && raw !== 'system' && raw !== 'none' && next === null) {
+      return shellErr(`invalid: bad accent '${raw}' (use #rrggbb, #rgb, or \`default\`)`)
+    }
+    await writeStaticTheme(deps, theme, next)
+    const shown = next ?? 'system'
+    if (json) return shellOk(JSON.stringify({ theme, accent: next }))
+    return shellOk(`${staticThemeLine(theme, next)}\nui: accent=${shown}`)
+  }
+  return shellErr(`usage: ui theme <id>|accent <#hex|default>|get (got \`${sub}\`)`)
+}
+
+/** Inline `sh` for scripts: static verbs first, wasm volume second. */
+async function scriptExecCybsh(line: string, deps: StaticCybshDeps): Promise<string> {
+  const handled = await runStaticCybshLine(line, deps)
+  if (handled) {
+    if (handled.ok) return handled.output
+    throw new Error(handled.output || handled.error || 'command failed')
+  }
+  if (deps.execFallback) return deps.execFallback(line)
+  const verb = line.trim().split(/\s+/, 1)[0] ?? line
+  throw new Error(
+    `unsupported: \`${verb}\` needs the CyberManju dashboard (:3456) on this build — the wasm volume answers single-command lines, provider push stays server-side`,
+  )
+}
+
+async function staticFetchText(url: string): Promise<string> {
+  if (typeof fetch === 'undefined') {
+    throw new Error(
+      `unsupported: \`fetch ${url}\` has no HTTP client in this context — run the same \`.cybsh\` in the browser build`,
+    )
+  }
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 10_000)
+  try {
+    const res = await fetch(url, { signal: ctrl.signal })
+    if (!res.ok) throw new Error(`network: fetch ${url} → HTTP ${res.status}`)
+    return (await res.text()).slice(0, 64 * 1024)
+  } catch (e) {
+    if (e instanceof Error && /abort/i.test(e.message)) {
+      throw new Error(`network: fetch ${url} timed out after 10 s`)
+    }
+    throw e
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+interface ReplayJournal {
+  fingerprint: string
+  sh: Record<string, { ok: boolean; output: string }>
+  fetch: Record<string, { ok: boolean; output: string }>
+}
+
+function parseReplayJournal(raw: string, source: string, arg: string): ReplayJournal {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error(`invalid: \`${arg}\` is not a replay journal`)
+  }
+  const doc = parsed as { cybsh?: unknown; fingerprint?: unknown; calls?: unknown }
+  if (doc.cybsh !== 1) throw new Error('invalid: replay journal is not a cybsh v1 journal')
+  if (doc.fingerprint !== cybshFingerprint(source)) {
+    throw new Error(
+      'integrity: replay journal fingerprint mismatch — the script changed since `--record` (re-record, don\'t replay stale inputs)',
+    )
+  }
+  const calls = (doc.calls ?? {}) as { sh?: unknown; fetch?: unknown }
+  const table = (v: unknown): ReplayJournal['sh'] => {
+    if (!v || typeof v !== 'object') return {}
+    const out: ReplayJournal['sh'] = {}
+    for (const [k, rec] of Object.entries(v as Record<string, unknown>)) {
+      const r = rec as { ok?: unknown; output?: unknown }
+      out[k] = { ok: r.ok === true, output: typeof r.output === 'string' ? r.output : '' }
+    }
+    return out
+  }
+  return {
+    fingerprint: String(doc.fingerprint ?? ''),
+    sh: table(calls.sh),
+    fetch: table(calls.fetch),
+  }
+}
+
+async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  const dry = args.some((a) => a === '--dry' || a === '--check')
+  if (args.some((a) => a === '--help' || a === '-h') || args.length === 0) {
+    return shellErr('usage: run <file.cybsh> [--dry] [--json] [--record <journal.json>] [--replay <journal.json>]')
+  }
+  // Value flags consume the next arg, so positionals skip both.
+  const positional = args.filter((a, i) => {
+    if (a.startsWith('-')) return false
+    const prev = args[i - 1]
+    return prev !== '--record' && prev !== '--replay'
+  })
+  let recordArg: string | null = null
+  let replayArg: string | null = null
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--record' || args[i] === '--replay') {
+      const value = args[i + 1]
+      if (!value || value.startsWith('-')) {
+        return shellErr(`usage: run <file.cybsh> [${args[i]} <journal.json>]`)
+      }
+      if (args[i] === '--record') recordArg = value
+      else replayArg = value
+    }
+  }
+  if (recordArg && replayArg) return shellErr('invalid: `--record` and `--replay` are exclusive')
+  const pathArg = positional[0]
+  if (!pathArg) return shellErr('usage: run <file.cybsh> [--dry] [--json]')
+  if (!pathArg.toLowerCase().endsWith(CYBSH_SCRIPT_EXT)) {
+    return shellErr(
+      `invalid: \`run\` needs a ${CYBSH_SCRIPT_EXT} file (got \`${pathArg}\`) — scripts are interpreted, no build step`,
+    )
+  }
+  const cwd = await deps.getCwd().catch(() => '/')
+  const path = joinVolumePath(cwd, pathArg)
+  if (path.startsWith('/providers/')) {
+    return shellErr(
+      'unsupported: `run` reads scripts from the shell volume (provider mounts are data, not code) — `cp` it locally first',
+    )
+  }
+  const source = deps.readVolume()[path]
+  if (source === undefined) return shellErr(`not_found: no script at ${path}`)
+  if (dry) {
+    try {
+      return shellOk(`${path}: ${checkCybshScript(source)}`)
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+  if (scriptDepth >= CYBSH_MAX_RUN_DEPTH) {
+    return shellErr('too_large: `run` nesting exceeds 4 (script calling script calling …)')
+  }
+  // Replay journal: same source fingerprint or an `integrity:` refusal.
+  let journal: ReplayJournal | null = null
+  if (replayArg) {
+    const journalPath = joinVolumePath(cwd, replayArg)
+    const raw = deps.readVolume()[journalPath]
+    if (raw === undefined) {
+      return shellErr(`not_found: no replay journal at ${journalPath} (\`--record\` one first)`)
+    }
+    try {
+      journal = parseReplayJournal(raw, source, replayArg)
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+  const recording = recordArg !== null
+  const logSh: Record<string, { ok: boolean; output: string }> = {}
+  const logFetch: Record<string, { ok: boolean; output: string }> = {}
+  const execJournal = async (line: string): Promise<string> => {
+    if (journal) {
+      const rec = journal.sh[line]
+      if (!rec) throw new Error(`not_found: replay journal has no \`sh "${line}"\` (re-record with \`--record\`)`)
+      if (!rec.ok) throw new Error(rec.output)
+      return rec.output
+    }
+    try {
+      const text = await scriptExecCybsh(line, deps)
+      if (recording) logSh[line] = { ok: true, output: text }
+      return text
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (recording) logSh[line] = { ok: false, output: msg }
+      throw e
+    }
+  }
+  const fetchJournal = async (url: string): Promise<string> => {
+    if (journal) {
+      const rec = journal.fetch[url]
+      if (!rec) throw new Error(`not_found: replay journal has no \`fetch ${url}\` (re-record with \`--record\`)`)
+      if (!rec.ok) throw new Error(rec.output)
+      return rec.output
+    }
+    try {
+      const body = await staticFetchText(url)
+      if (recording) logFetch[url] = { ok: true, output: body }
+      return body
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (recording) logFetch[url] = { ok: false, output: msg }
+      throw e
+    }
+  }
+  scriptDepth += 1
+  try {
+    const out = await runCybshScript(source, {
+      execCybsh: execJournal,
+      fetchText: fetchJournal,
+    })
+    if (recording) {
+      const recordPath = joinVolumePath(cwd, recordArg as string)
+      await deps.writeVolumeFile(
+        recordPath,
+        JSON.stringify(
+          {
+            cybsh: 1,
+            fingerprint: cybshFingerprint(source),
+            script: path,
+            calls: { sh: logSh, fetch: logFetch },
+          },
+          null,
+          2,
+        ),
+      )
+    }
+    if (json) {
+      return shellOk(
+        JSON.stringify({
+          path,
+          vars: out.vars,
+          effects: out.effects,
+          caps: out.caps,
+          calls: { sh: out.shCalls, fetch: out.fetchCalls },
+          journal: journal ? 'replay' : recording ? 'record' : null,
+          output: out.output,
+        }),
+      )
+    }
+    return shellOk(out.output)
+  } catch (e) {
+    return shellErr(e instanceof Error ? e.message : String(e))
+  } finally {
+    scriptDepth = Math.max(0, scriptDepth - 1)
+  }
+}
+
 export async function runStaticCybshLine(
   line: string,
   deps: StaticCybshDeps,
@@ -1470,6 +2102,18 @@ export async function runStaticCybshLine(
         return done(await handleRm(args, deps))
       case 'mkdir':
         return done(await handleMkdir(args, deps))
+      case 'grep':
+        return done(await handleGrep(args, json, deps))
+      case 'find':
+        return done(await handleFind(args, json, deps))
+      case 'head':
+        return done(await handleHeadTail(true, args, deps))
+      case 'tail':
+        return done(await handleHeadTail(false, args, deps))
+      case 'wc':
+        return done(await handleWc(args, json, deps))
+      case 'edit':
+        return done(await handleEdit(args, deps))
       case 'kill': {
         const id = parseInt(args[0] ?? '', 10)
         if (!Number.isInteger(id)) return done(shellErr('usage: kill <id>'))
@@ -1524,6 +2168,12 @@ export async function runStaticCybshLine(
         return done(
           shellErr('unsupported: `ai ask` needs a detached worker — run it from the Agent panel or POST /api/os/exec on the dashboard; see docs/OPERATIONS.md'),
         )
+      case 'run':
+        return done(await handleRun(args, json, deps))
+      case 'theme':
+        return done(await handleTheme(args, json, deps))
+      case 'ui':
+        return done(await handleUi(args, json, deps))
       default:
         return null
     }

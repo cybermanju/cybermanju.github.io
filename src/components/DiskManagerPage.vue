@@ -466,8 +466,8 @@ onMounted(refresh)
   margin-bottom: 4px;
 }
 .stat-label {
-  font-size: 8px;
-  letter-spacing: 0.5px;
+  font-size: 10px;
+  color: var(--ui-text-3);
 }
 .type-breakdown {
   display: flex;
@@ -542,20 +542,22 @@ onMounted(refresh)
 
 .section-title {
   margin: 0 0 10px;
-  font-size: 11px;
-  letter-spacing: 1.5px;
-  color: color-mix(in srgb, var(--ui-text) 50%, transparent);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ui-text);
 }
 
 .df-bar {
-  height: 18px;
+  height: 8px;
+  border-radius: 5px;
+  overflow: hidden;
   background: color-mix(in srgb, var(--ui-text) 10%, transparent);
-  border: 1px solid var(--ui-border);
+  border: none;
 }
 
 .df-used {
   height: 100%;
-  background: linear-gradient(90deg, var(--ui-accent), var(--ui-info));
+  background: var(--ui-accent);
 }
 
 .df-legend {

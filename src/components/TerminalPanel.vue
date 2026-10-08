@@ -6,6 +6,7 @@ import AppIcon from '@/components/AppIcon.vue'
 // `invoke()` — so the same panel runs in tauri, rest and wasm builds.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useTheme } from '@/composables/useTheme'
 import { useVoiceInput } from '@/composables/useVoiceInput'
 import { correctShellLine, CYBSH_PHRASES } from '@/utils/speechCorrect'
 import {
@@ -203,7 +204,42 @@ async function execAndRender(cmd: string) {
     push(result.ok ? 'out' : 'err', chunk)
   }
   if (!result.ok && result.output === '') push('err', 'command failed')
+  applyCybshUiEffects(result.output)
   return result
+}
+
+/**
+ * `.cybsh` OS-interface effects: `theme`/`ui` verbs (and scripts calling
+ * them) print machine `ui: theme=<id>` / `ui: accent=<hex|system>` lines.
+ * Applying them here makes colours change on every transport — the verbs
+ * already persist the same intent to the volume mirror + localStorage.
+ */
+function applyCybshUiEffects(output: string) {
+  let touched = false
+  try {
+    const { setTheme, setAccent, themes } = useTheme()
+    for (const raw of output.split('\n')) {
+      const line = raw.trim()
+      if (!line.startsWith('ui:')) continue
+      const rest = line.slice(3).trim()
+      const eq = rest.indexOf('=')
+      if (eq < 0) continue
+      const key = rest.slice(0, eq).trim()
+      const value = rest.slice(eq + 1).trim()
+      if (key === 'theme' && value in themes) {
+        setTheme(value as keyof typeof themes)
+        touched = true
+      } else if (key === 'accent') {
+        if (value === 'system' || value === 'default' || value === 'none') setAccent(null)
+        else if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) setAccent(value)
+        else continue
+        touched = true
+      }
+    }
+  } catch {
+    // Theme store unavailable — the persisted intent still applies on reload.
+  }
+  if (touched) push('sys', 'ui updated from shell effect')
 }
 
 async function submit() {
@@ -339,6 +375,14 @@ watch(input, () => {
   }
 })
 
+// Provider sync auto-update: a finished run re-fetches the file manager +
+// volume `df` in the store, and the terminal prints the summary as a `sys`
+// notice so the next `ls`/`df` visibly includes the synced data.
+watch(() => store.lastSyncAt, (at) => {
+  if (!at) return
+  push('sys', store.lastSyncSummary || 'sync finished — file manager + terminal refreshed')
+})
+
 /* ── voice input (shell mode: verbs + symbols, corrected on insert) ── */
 const voice = useVoiceInput('shell')
 let stopVoice: (() => void) | null = null
@@ -369,11 +413,11 @@ onMounted(async () => {
     <div class="panel-header">
       <div class="header-left">
         <span class="icon-terminal"><AppIcon name="solar:file-terminal-bold" /></span>
-        <h2 class="panel-title">CYBSH</h2>
-        <span class="job-badge" :class="{ on: running }">{{ running ? 'BUSY' : 'IDLE' }}</span>
+        <h2 class="panel-title">Terminal</h2>
+        <span class="job-badge" :class="{ on: running }">{{ running ? 'Busy' : 'Idle' }}</span>
       </div>
       <div class="header-right">
-        <button class="ghost-btn" type="button" @click="lines = []">CLEAR</button>
+        <button class="ghost-btn" type="button" @click="lines = []">Clear</button>
       </div>
     </div>
 
@@ -410,13 +454,24 @@ onMounted(async () => {
           @paste="onPaste"
         />
       </div>
+      <select
+        v-if="voice.isSupported.value"
+        class="ghost-select"
+        :value="voice.lang.value"
+        aria-label="Voice language"
+        title="Voice language: English (EN) or Portuguese (PT-BR)"
+        @change="voice.setLang(($event.target as HTMLSelectElement).value as 'en-US' | 'pt-BR')"
+      >
+        <option value="en-US">EN</option>
+        <option value="pt-BR">PT</option>
+      </select>
       <button
         v-if="voice.isSupported.value"
         class="ghost-btn"
         type="button"
         :title="voice.listening.value ? `Listening… ${voice.interim.value}` : 'Voice command (typos auto-fixed)'"
-        @click="toggleVoice"
-      >{{ voice.listening.value ? 'STOP' : 'MIC' }}</button>
+          @click="toggleVoice"
+        >{{ voice.listening.value ? 'Stop' : 'Dictate' }}</button>
     </div>
   </div>
 </template>
@@ -456,14 +511,16 @@ onMounted(async () => {
 .panel-title {
   margin: 0;
   font-size: 13px;
-  letter-spacing: 2px;
+  font-weight: 600;
 }
 
 .job-badge {
-  font-size: 10px;
-  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: var(--ui-radius-full);
   border: 1px solid var(--ui-border);
-  color: color-mix(in srgb, var(--ui-text) 50%, transparent);
+  color: var(--ui-text-3);
 }
 
 .job-badge.on {
@@ -484,6 +541,17 @@ onMounted(async () => {
 .ghost-btn:hover {
   color: var(--ui-text);
   border-color: var(--ui-border-strong);
+}
+
+.ghost-select {
+  background: transparent;
+  border: 1px solid var(--ui-border);
+  color: color-mix(in srgb, var(--ui-text) 70%, transparent);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 6px;
+  cursor: pointer;
 }
 
 .term-scroll {
@@ -599,5 +667,13 @@ onMounted(async () => {
 
 .ghost-show {
   color: color-mix(in srgb, var(--ui-text) 35%, transparent);
+}
+
+@media (max-width: 560px) {
+  .term-input-row { padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); }
+  .term-input { font-size: 16px; }
+  .term-ghost { font-size: 16px; }
+  .ghost-btn { min-height: 44px; padding: 6px 12px; }
+  .term-scroll { padding: 6px 8px; }
 }
 </style>

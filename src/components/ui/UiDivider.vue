@@ -48,11 +48,9 @@ withDefaults(
 }
 
 .ui-divider__label {
-  font-family: var(--ui-font-mono);
-  font-size: var(--ui-fs-xs);
-  font-weight: 700;
-  letter-spacing: var(--ui-tracking-wide);
-  text-transform: uppercase;
+  font-family: var(--ui-font);
+  font-size: 11px;
+  font-weight: 600;
   color: var(--ui-text-3);
   white-space: nowrap;
   flex-shrink: 0;

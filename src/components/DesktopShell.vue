@@ -400,27 +400,22 @@ onUnmounted(() => {
   z-index: 0;
 }
 
-/* Ambient accent glow behind everything — reads the active theme accent. */
+/* Quiet wallpaper depth — neutral light falloff, never a coloured glow. */
 .desktop-aurora {
   position: absolute;
   inset: -20%;
   background:
-    radial-gradient(40% 45% at 18% 22%, color-mix(in srgb, var(--ui-accent) 16%, transparent), transparent 70%),
-    radial-gradient(45% 40% at 82% 78%, color-mix(in srgb, var(--ui-info) 12%, transparent), transparent 70%),
-    radial-gradient(60% 60% at 50% 110%, color-mix(in srgb, var(--ui-accent) 10%, transparent), transparent 70%);
+    radial-gradient(60% 50% at 50% 0%, rgba(255, 255, 255, 0.5), transparent 70%),
+    radial-gradient(70% 60% at 50% 115%, rgba(0, 0, 0, 0.10), transparent 70%);
   opacity: 0;
   transition: opacity 0.8s var(--ui-ease-out);
-  animation: desktop-drift 26s ease-in-out infinite alternate;
 }
 
 .desktop-shell--glow .desktop-aurora {
   opacity: 1;
 }
 
-@keyframes desktop-drift {
-  from { transform: translate3d(-2%, -1%, 0) scale(1); }
-  to { transform: translate3d(2%, 2%, 0) scale(1.06); }
-}
+
 
 .desktop-workspace {
   position: absolute;
@@ -452,20 +447,19 @@ onUnmounted(() => {
   text-align: center;
   transition:
     background-color var(--ui-dur-fast) var(--ui-ease-out),
-    border-color var(--ui-dur-fast) var(--ui-ease-out),
-    transform var(--ui-dur-fast) var(--ui-ease-spring);
+    border-color var(--ui-dur-fast) var(--ui-ease-out);
   animation: ui-rise var(--ui-dur-slow) var(--ui-ease-out) both;
 }
 
 .desktop-shortcut:hover {
-  background: var(--ui-accent-softer);
-  border-color: color-mix(in srgb, var(--ui-accent) 24%, transparent);
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--ui-text) 7%, transparent);
+  border-color: var(--ui-border);
 }
 
 .desktop-shortcut:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ui-accent) 80%, transparent);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-glow-soft);
 }
 
 .shortcut-icon {
@@ -488,24 +482,22 @@ onUnmounted(() => {
 }
 
 .shortcut-icon.selected {
-  color: var(--ui-accent);
-  border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent);
+  color: var(--ui-text);
+  border-color: var(--ui-accent);
   box-shadow: var(--ui-glow-soft);
 }
 
 .desktop-shortcut:hover .shortcut-icon {
-  color: var(--ui-accent);
-  border-color: color-mix(in srgb, var(--ui-accent) 40%, transparent);
-  transform: translateY(-2px);
+  color: var(--ui-text);
+  border-color: var(--ui-border-strong);
 }
 
 .shortcut-label {
   font-family: var(--ui-font);
-  font-size: 10.5px;
-  font-weight: 550;
-  color: var(--ui-text-3);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ui-text-2);
   white-space: nowrap;
-  text-shadow: 0 1px 6px color-mix(in srgb, var(--ui-bg) 90%, transparent);
   transition: color var(--ui-dur) var(--ui-ease-out);
 }
 
@@ -549,9 +541,8 @@ onUnmounted(() => {
 }
 
 .dock-context-item:hover {
-  background: var(--ui-accent-softer);
-  color: var(--ui-text);
-  transform: translateX(2px);
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
 }
 
 /* window open / close transitions */
@@ -604,15 +595,15 @@ onUnmounted(() => {
   width: 10px;
 }
 .desktop-strip::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 24%, transparent);
   border-radius: var(--ui-radius-full);
   border: 3px solid transparent;
   background-clip: content-box;
 }
 .desktop-strip::-webkit-scrollbar-thumb:hover {
-  background: var(--ui-accent);
+  background: color-mix(in srgb, var(--ui-text) 38%, transparent);
   background-clip: content-box;
-  border: 2px solid transparent;
+  border: 3px solid transparent;
 }
 /* Explicit scroll extent behind the absolute tiles (see template). */
 .strip-sizer {
@@ -632,10 +623,9 @@ onUnmounted(() => {
   top: 10px;
   display: inline-block;
   z-index: 5;
-  font-family: var(--ui-font-mono);
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
+  font-family: var(--ui-font);
+  font-size: 11px;
+  font-weight: 500;
   color: var(--ui-text-3);
   background: var(--ui-glass);
   border: 1px solid var(--ui-border);
@@ -672,15 +662,15 @@ onUnmounted(() => {
   width: 10px;
 }
 .desktop-overview::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 24%, transparent);
   border-radius: var(--ui-radius-full);
   border: 3px solid transparent;
   background-clip: content-box;
 }
 .desktop-overview::-webkit-scrollbar-thumb:hover {
-  background: var(--ui-accent);
+  background: color-mix(in srgb, var(--ui-text) 38%, transparent);
   background-clip: content-box;
-  border: 2px solid transparent;
+  border: 3px solid transparent;
 }
 .overview-card {
   display: flex;
@@ -690,24 +680,24 @@ onUnmounted(() => {
   padding: 16px;
   border-radius: var(--ui-radius-lg);
   background: var(--ui-glass-2);
-  border: 1px solid var(--ui-border-strong);
+  border: 1px solid var(--ui-border);
   color: var(--ui-text);
   cursor: pointer;
   text-align: left;
-  transition: transform var(--ui-dur-fast) var(--ui-ease-spring), border-color var(--ui-dur-fast) var(--ui-ease-out);
-  animation: ui-pop var(--ui-dur) var(--ui-ease-spring) both;
+  transition: border-color var(--ui-dur-fast) var(--ui-ease-out), box-shadow var(--ui-dur-fast) var(--ui-ease-out);
+  animation: ui-pop var(--ui-dur) var(--ui-ease-out) both;
 }
 .overview-card:hover {
-  transform: translateY(-2px) scale(1.01);
-  border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent);
+  border-color: var(--ui-border-strong);
+  box-shadow: var(--ui-shadow-2);
 }
 .overview-card.minimized {
   opacity: 0.72;
   border-style: dashed;
 }
-.overview-card-icon { color: var(--ui-accent); }
-.overview-card-title { font-size: 13px; font-weight: 800; letter-spacing: 0.02em; }
-.overview-card-meta { font-family: var(--ui-font-mono); font-size: 9px; letter-spacing: 0.08em; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.overview-card-icon { color: var(--ui-text-2); }
+.overview-card-title { font-size: 13px; font-weight: 600; }
+.overview-card-meta { font-family: var(--ui-font); font-size: 11px; color: var(--ui-text-3); }
 .overview-empty { grid-column: 1 / -1; text-align: center; color: color-mix(in srgb, var(--ui-text) 50%, transparent); font-size: 12px; padding: 40px; }
 
 /* Launcher home lives under the sheets on phones only. `!important` wins

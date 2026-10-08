@@ -221,9 +221,9 @@ providers ─► .cybermanju disks (CYBMJU1 sealed superblock)
 disk create <config> 512M   # sized virtual disk per provider
 disk attach <disk-id>        # volume grows — `df` proves it
 disk resize <disk-id> 10G
-df · du · ls · cat · cp · mv · rm · stat · sync · scrub · repair · gc · lease · ps · top · jobs · compute · keygen · search
-ls --json   # every command speaks JSON too — pipes, &&, ||, ;, history, completion
-```
+ df · du · ls · cat · cp · mv · rm · stat · grep · find · head · tail · wc · write · edit · sync · oauth · compress · decompress · scrub · repair · gc · lease · ps · top · jobs · compute · keygen · search · run · theme · ui
+ ls --json   # every command speaks JSON too — pipes, &&, ||, ;, history, completion
+ ```
 
 - **Admission before upload** — `disk full:` refuses before any byte lands. No partial objects.
 - **Portable blocks** — `GET/PUT /api/volume/block/{lba}` (base64 + ranges) works

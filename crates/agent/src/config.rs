@@ -149,7 +149,8 @@ pub fn match_input(tool: &str, input: &serde_json::Value) -> String {
 /// `bash git status --porcelain`): opencode-style `bash` patterns match the
 /// parsed command, so rules are tried against all three shapes.
 /// `memory_remember` carries its fact in `text`, so content patterns
-/// (`*password*`) match what would actually be stored.
+/// (`*password*`) match what would actually be stored. `repo_analyze` carries
+/// its slug in `repo`, `skill_save`/`mcp_attach` in `name` (+`url`).
 pub fn salient_arg(input: &serde_json::Value) -> &str {
     input
         .get("command")
@@ -158,6 +159,8 @@ pub fn salient_arg(input: &serde_json::Value) -> &str {
         .or_else(|| input.get("glob"))
         .or_else(|| input.get("query"))
         .or_else(|| input.get("url"))
+        .or_else(|| input.get("repo"))
+        .or_else(|| input.get("name"))
         .or_else(|| input.get("text"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
@@ -170,8 +173,10 @@ pub fn decide(
     tool: &str,
     input: &serde_json::Value,
 ) -> PermissionDecision {
-    // Plan persona: read-only, whatever the rules say.
-    if kind == AgentKind::Plan && matches!(tool, "edit" | "write" | "bash") {
+    // Plan persona: read-only, whatever the rules say. `skill_save` writes a
+    // file and `mcp_attach` mutates the config — both are mutations.
+    // `self_research` and `repo_analyze` are read-only and stay available.
+    if kind == AgentKind::Plan && matches!(tool, "edit" | "write" | "bash" | "skill_save" | "mcp_attach") {
         return PermissionDecision::Deny {
             reason: format!("deny: plan agent may not run `{tool}`"),
         };

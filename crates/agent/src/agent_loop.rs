@@ -177,7 +177,7 @@ pub fn system_prompt(
         }
         Sandbox::Browser => {
             "SANDBOX: browser file volume — read/list/grep/glob/write/edit \
-             plus cybsh-subset bash, one bounded read-only task subagent, \
+              plus cybsh-subset bash, one bounded task subagent (full file/shell tools), \
              and attached HTTP MCP servers (mcp__*). Device shell \
              (curl/wget/git/python) and stdio MCP need the dashboard and \
              answer unsupported: there;"
@@ -242,8 +242,27 @@ pub fn system_prompt(
          - write {{path, content}}: full-file create/overwrite (versioned where supported). \
          Prefer edit for small changes.\n\
          {shell_para}\
-         - task {{goal, context?}}: one bounded read-only subagent for delegated exploration.\n\
-         - question {{question}}: ask the human when genuinely blocked — sparingly.\n\
+          - task {{goal, context?, background?}}: one bounded subagent with the full file/shell toolset \
+          (read/edit/write/bash/memory included) for delegated work — spawn as many as the work needs. \
+          Omit background (or false) to wait for the result; pass background:true to detach: you get an id \
+          back immediately, keep working, and the result arrives automatically as a new message.\n\
+          - question {{question}}: ask the human when genuinely blocked — sparingly.\n\
+          - self_research {{query, path?, limit?}}: introspect YOUR OWN source code — \
+          sweep the repo for how something works (agent loop, permissions, MCP, \
+          memory, tools) and get file:line-grounded snippets back. Read-only and \
+          plan-safe. Call it before claiming how this system works; never answer \
+          from memory when you can read the code.\n\
+          - skill_save {{name, description, content}}: persist a reusable skill into \
+          the `.cybermanju` container (`.cybermanju/skills/<name>/SKILL.md`) so it \
+          survives restarts and syncs across devices with provider data. Self-research \
+          first, then save one focused skill per call.\n\
+          - mcp_attach {{name, url, headers?}}: attach a Streamable-HTTP MCP server to \
+          this assistant persistently (verified before saving; works on every device). \
+          stdio servers are refused here — attach those from the desktop UI.\n\
+          - repo_analyze {{repo, branch?}}: analyze any public GitHub repo WITHOUT \
+          cloning (metadata + file tree + README over HTTPS; no git binary needed, so \
+          it works on desktop, Docker, mobile and WASM). Returns layout, languages, \
+          entry files and next reads.\n\
          - memory_recall {{query, top_k?}}: search long-term memory (past sessions, \
          stored facts). Recalled context is bounded and may be stale — verify against \
          the volume before acting on it.\n\
@@ -255,8 +274,11 @@ pub fn system_prompt(
          semantic memory, not the transcript. Store durable facts with \
          memory_remember instead of repeating them every turn; the transcript \
          compacts, memory persists.\n\
-         WORKFLOW: orient (list/glob) → read → act (edit/write) → verify (re-read, \
-         grep, run tests via bash). Small verified steps; never invent file contents.\n\
+          WORKFLOW: orient (list/glob) → read → act (edit/write) → verify (re-read, \
+          grep, run tests via bash). Small verified steps; never invent file contents.\n\
+          SELF-UNDERSTANDING: when asked how YOU work, call self_research first and \
+          cite the files it returns; extend yourself with skill_save (knowledge) and \
+          mcp_attach (HTTP tools), both persisted in `.cybermanju`.\n\
          APPROVALS: some calls pause for human approval (allow/deny). A denial is \
          information — work around it or explain; never retry identically (three \
          identical repeats are auto-denied).\n\
@@ -287,6 +309,27 @@ pub fn repo_overview_snippet(entries: &[String], cap: usize) -> String {
         out.push_str("(empty working root)");
     }
     out
+}
+
+/// Max detached background subagents per run. Each holds a worker thread
+/// plus up to 5 provider calls — the cap bounds fan-out, never the total:
+/// finished slots are reusable, so a run may spawn as many subagents as the
+/// work needs, 8 at a time.
+pub const MAX_BG_SUBAGENTS: usize = 8;
+
+/// Tool result for a detached `task background:true` spawn: the id the
+/// completion will arrive under. Shared verbatim by every transport so the
+/// model learns one shape.
+pub fn bg_started_message(id: &str, goal: &str) -> String {
+    format!(
+        "background subagent {id} started for `{goal}` — keep working; its result arrives automatically as a new message."
+    )
+}
+
+/// Transcript injection when a background subagent finishes. Pushed as a
+/// `user` message so both dialects carry it without tool-id bookkeeping.
+pub fn bg_finished_message(id: &str, summary: &str) -> String {
+    format!("background subagent {id} finished:\n{summary}")
 }
 
 #[cfg(test)]
@@ -387,6 +430,10 @@ mod tests {
             "bash",
             "memory_recall",
             "memory_remember",
+            "self_research",
+            "skill_save",
+            "mcp_attach",
+            "repo_analyze",
         ] {
             assert!(
                 crate::protocol::TOOL_NAMES.contains(&tool),
@@ -395,6 +442,18 @@ mod tests {
         }
         let defs = crate::protocol::tool_definitions();
         assert!(defs.iter().any(|d| d["name"] == "question"));
+    }
+
+    #[test]
+    fn background_messages_carry_stable_ids() {
+        let started = bg_started_message("bg-3", "audit auth");
+        assert!(started.contains("bg-3"));
+        assert!(started.contains("audit auth"));
+        assert!(started.contains("keep working"));
+        let done = bg_finished_message("bg-3", "all clean");
+        assert!(done.starts_with("background subagent bg-3 finished:\n"));
+        assert!(done.ends_with("all clean"));
+        assert_eq!(MAX_BG_SUBAGENTS, 8);
     }
 
     #[test]

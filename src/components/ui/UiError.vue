@@ -94,10 +94,8 @@ const iconSize = computed(() => 16)
 .ui-error__title {
   font-family: var(--ui-font);
   font-size: var(--ui-fs-sm);
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: 600;
   color: var(--ui-text);
-  text-transform: uppercase;
 }
 
 .ui-error__message {

@@ -3,10 +3,10 @@
     <div class="panel-header">
       <div class="header-left">
         <span class="icon-sync"><AppIcon name="solar:refresh-bold" /></span>
-        <h2 class="panel-title">STORAGE SYNC</h2>
+        <h2 class="panel-title">Sync</h2>
       </div>
       <UiButton size="sm" icon="solar:cloud-bold" @click="openProviders">
-        PROVIDERS
+        Providers
       </UiButton>
     </div>
 
@@ -15,24 +15,24 @@
     </div>
 
     <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:settings-minimalistic-bold" :size="13" /> SYNC CONFIGS ({{ syncConfigs.length }})</h3>
+      <h3 class="section-title"><AppIcon name="solar:settings-minimalistic-bold" :size="13" /> Configurations ({{ syncConfigs.length }})</h3>
       <div class="config-list">
         <div v-for="cfg in syncConfigs" :key="cfg.id" class="config-card">
           <div class="cfg-header">
             <span class="cfg-name">{{ cfg.name || cfg.backendType }}</span>
             <span class="cfg-type text-muted">{{ cfg.backendType }}</span>
-            <UiBadge :tone="cfg.enabled ? 'accent' : 'neutral'" size="sm">{{ cfg.enabled ? 'ON' : 'OFF' }}</UiBadge>
+            <UiBadge :tone="cfg.enabled ? 'accent' : 'neutral'" size="sm">{{ cfg.enabled ? 'On' : 'Off' }}</UiBadge>
           </div>
           <div class="cfg-meta text-muted">
-            <span v-if="cfg.basePath">PATH: {{ cfg.basePath }}</span>
-            <span v-if="cfg.repoName">REPO: {{ cfg.repoName }}</span>
+            <span v-if="cfg.basePath">{{ cfg.basePath }}</span>
+            <span v-if="cfg.repoName">{{ cfg.repoName }}</span>
             <span v-if="cfg.placement"> · {{ cfg.placement }}</span>
           </div>
           <div class="cfg-actions">
-            <UiButton size="xs" @click="testCfg(cfg)">TEST</UiButton>
-            <UiButton size="xs" variant="primary" @click="startCfg(cfg)">START</UiButton>
-            <UiButton v-if="isOauthCapable(cfg.backendType)" size="xs" @click="oauthConnectCfg(cfg)">OAUTH</UiButton>
-            <UiButton size="xs" @click="usageCfg(cfg)">QUOTA</UiButton>
+            <UiButton size="xs" @click="testCfg(cfg)">Test</UiButton>
+            <UiButton size="xs" variant="primary" @click="startCfg(cfg)">Start</UiButton>
+            <UiButton v-if="isOauthCapable(cfg.backendType)" size="xs" @click="oauthConnectCfg(cfg)">Connect</UiButton>
+            <UiButton size="xs" @click="usageCfg(cfg)">Quota</UiButton>
           </div>
           <div v-if="quotaMsg[cfg.id]" class="cfg-msg">{{ quotaMsg[cfg.id] }}</div>
         </div>
@@ -45,13 +45,13 @@
         description="Add one in Accounts → Connections, then come back to run it."
       >
         <template #actions>
-          <UiButton size="sm" icon="solar:cloud-bold" @click="openProviders">OPEN ACCOUNTS</UiButton>
+          <UiButton size="sm" icon="solar:cloud-bold" @click="openProviders">Open Accounts</UiButton>
         </template>
       </UiEmpty>
     </div>
 
     <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:play-bold" :size="13" /> START / MONITOR</h3>
+      <h3 class="section-title"><AppIcon name="solar:play-bold" :size="13" /> Start &amp; monitor</h3>
       <div class="w-row">
         <div class="w-field grow">
           <UiSelect
@@ -60,19 +60,19 @@
             @update:model-value="runConfigId = $event"
           />
         </div>
-        <UiButton size="sm" :disabled="!runConfigId || busy" @click="startRun">START</UiButton>
-        <UiButton size="sm" @click="cancelRun">CANCEL</UiButton>
-        <UiButton size="sm" @click="refreshRuns">RUNS</UiButton>
+        <UiButton size="sm" :disabled="!runConfigId || busy" @click="startRun">Start</UiButton>
+        <UiButton size="sm" @click="cancelRun">Cancel</UiButton>
+        <UiButton size="sm" @click="refreshRuns">Refresh</UiButton>
       </div>
       <div v-if="jobMsg" class="w-msg">{{ jobMsg }}</div>
     </div>
 
     <div class="section" v-if="syncProgress">
-      <h3 class="section-title"><AppIcon name="solar:speedometer-max-bold" :size="13" /> SYNC PROGRESS</h3>
+      <h3 class="section-title"><AppIcon name="solar:speedometer-max-bold" :size="13" /> Progress</h3>
       <div class="progress-card">
-        <div class="p-row"><span class="p-key text-muted">STATUS</span><span class="p-value">{{ syncProgress.status }}</span></div>
-        <div class="p-row"><span class="p-key text-muted">FILES</span><span class="p-value">{{ syncProgress.processedFiles }}/{{ syncProgress.totalFiles }}</span></div>
-        <div class="p-row"><span class="p-key text-muted">BYTES</span><span class="p-value">{{ humanBytes(syncProgress.bytesUploaded) }}</span></div>
+        <div class="p-row"><span class="p-key text-muted">Status</span><span class="p-value">{{ syncProgress.status }}</span></div>
+        <div class="p-row"><span class="p-key text-muted">Files</span><span class="p-value">{{ syncProgress.processedFiles }}/{{ syncProgress.totalFiles }}</span></div>
+        <div class="p-row"><span class="p-key text-muted">Sent</span><span class="p-value">{{ humanBytes(syncProgress.bytesUploaded) }}</span></div>
         <div v-if="syncProgress.errors.length" class="p-errors">
           <div v-for="(e, i) in syncProgress.errors.slice(0, 5)" :key="i" class="p-err" :title="hintFor(e)">{{ e }}</div>
         </div>
@@ -80,7 +80,7 @@
     </div>
 
     <div v-if="syncRuns.length" class="section">
-      <h3 class="section-title"><AppIcon name="solar:history-bold" :size="13" /> LAST RUNS ({{ syncRuns.length }})</h3>
+      <h3 class="section-title"><AppIcon name="solar:history-bold" :size="13" /> Recent runs ({{ syncRuns.length }})</h3>
       <div v-for="r in syncRuns.slice(0, 5)" :key="r.runId" class="run-card">
         <span class="text-muted">{{ r.runId.slice(0, 18) }}</span>
         <span>{{ r.status }}</span>
@@ -89,17 +89,17 @@
     </div>
 
     <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:undo-left-round-bold" :size="13" /> DOWNLOAD / DELETE REMOTE</h3>
+      <h3 class="section-title"><AppIcon name="solar:undo-left-round-bold" :size="13" /> Restore</h3>
       <div class="w-field">
-        <UiInput v-model="restoreFileId" placeholder="FILE ID (optional if path given)" aria-label="File id" />
+        <UiInput v-model="restoreFileId" placeholder="File ID (optional if path given)" aria-label="File id" />
       </div>
       <div class="w-field">
-        <UiInput v-model="restoreRemotePath" placeholder="REMOTE PATH" aria-label="Remote path" />
+        <UiInput v-model="restoreRemotePath" placeholder="Remote path" aria-label="Remote path" />
       </div>
       <div class="w-actions">
-        <UiButton size="sm" :disabled="!runConfigId" @click="doRestore">RESTORE</UiButton>
-        <UiButton size="sm" variant="danger" :disabled="!runConfigId || !restoreRemotePath" @click="doRemoteDelete">DELETE REMOTE</UiButton>
-        <UiButton size="sm" :disabled="!runConfigId" @click="browseRemote">BROWSE</UiButton>
+        <UiButton size="sm" :disabled="!runConfigId" @click="doRestore">Restore</UiButton>
+        <UiButton size="sm" variant="danger" :disabled="!runConfigId || !restoreRemotePath" @click="doRemoteDelete">Delete remote</UiButton>
+        <UiButton size="sm" :disabled="!runConfigId" @click="browseRemote">Browse</UiButton>
       </div>
       <div v-if="remoteFiles.length" class="remote-list">
         <div v-for="f in remoteFiles.slice(0, 20)" :key="f.path" class="remote-row">
@@ -250,15 +250,14 @@ async function browseRemote() {
 
 .header-left { display: flex; align-items: center; gap: 8px; }
 .icon-sync { font-size: 16px; }
-.panel-title { font-size: 14px; font-weight: 800; letter-spacing: 1px; margin: 0; }
+.panel-title { font-size: 13px; font-weight: 600; margin: 0; }
 
 .section { margin-bottom: 16px; }
 
 .section-title {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: color-mix(in srgb, var(--ui-text) 60%, transparent);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ui-text);
   margin: 0 0 8px;
 }
 

@@ -608,9 +608,20 @@ export function agentErrorHint(err: string): { prefix: string; hint: string } {
     case 'conflict':
       return { prefix, hint: 'Ambiguous edit anchor — the agent must resend a larger block.' }
     case 'invalid':
-      return { prefix, hint: 'Request rejected before the run — fix the config field named in the message.' }
+      return { prefix, hint: 'Request rejected before the run — check the model id, that the model supports tool calls, and the field named in the message.' }
     case 'network':
       return { prefix, hint: 'Transport failure. Retry once; auth errors are never retried.' }
+    case 'error':
+      return { prefix, hint: 'The provider or a tool failed mid-run — see the transcript detail, fix, then retry.' }
+    case 'timeout':
+      return { prefix, hint: 'The call timed out — narrow the scope or retry; the harness never retries auth failures.' }
+    case 'denied':
+      return { prefix, hint: 'The run was stopped by a rule or repeated refusal — approve it or change course, never retry identically.' }
+    case 'cancelled':
+      return { prefix, hint: 'The run was cancelled — resume with a new prompt when ready.' }
+    case 'disk_full':
+    case 'disk full':
+      return { prefix: 'disk_full', hint: 'Volume is full — attach or resize a disk, then retry.' }
     default:
       return { prefix: prefix || 'unknown', hint: 'See the transcript for the machine-prefixed error.' }
   }
@@ -1009,6 +1020,8 @@ export function agentPermissionPreset(name: 'strict' | 'balanced' | 'yolo'): Per
       read: 'allow',
       list: 'allow',
       grep: 'allow',
+      self_research: 'allow',
+      repo_analyze: 'allow',
       bash: [['*', 'ask'], ['git *', 'allow'], ['curl *', 'allow'], ['wget *', 'allow'], ['rm *', 'deny']],
       mcp__exa__web_search_exa: 'allow',
       mcp__exa__web_fetch_exa: 'allow',

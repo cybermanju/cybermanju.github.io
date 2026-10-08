@@ -353,12 +353,10 @@ onUnmounted(() => {
 }
 
 .app-window.focused {
-  border-color: color-mix(in srgb, var(--ui-accent) 42%, var(--ui-border-strong));
+  border-color: var(--ui-border-strong);
   background: var(--ui-window);
   box-shadow:
     var(--ui-shadow-3),
-    0 0 0 1px color-mix(in srgb, var(--ui-accent) 26%, transparent),
-    0 24px 64px color-mix(in srgb, var(--ui-accent) 12%, transparent),
     inset 0 1px 0 var(--ui-glass-highlight);
 }
 
@@ -367,7 +365,6 @@ onUnmounted(() => {
   box-shadow:
     var(--ui-shadow-1),
     inset 0 1px 0 var(--ui-glass-highlight);
-  filter: saturate(0.85);
 }
 
 .app-window.minimized {
@@ -402,23 +399,7 @@ onUnmounted(() => {
 }
 
 .window-titlebar::after {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--ui-accent) 35%, transparent) 35%,
-    transparent
-  );
-  opacity: 0;
-  transition: opacity var(--ui-dur-slow) var(--ui-ease-out);
-  pointer-events: none;
-}
-
-.app-window.focused .window-titlebar::after {
-  opacity: 1;
+  content: none;
 }
 
 .titlebar-dots {
@@ -447,17 +428,16 @@ onUnmounted(() => {
 }
 
 .dot:hover {
-  transform: scale(1.18);
-  filter: brightness(1.12);
+  filter: brightness(0.94);
 }
 
 .dot:active {
-  transform: scale(0.94);
+  filter: brightness(0.86);
 }
 
 .dot:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ui-accent) 80%, transparent);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--ui-glow-soft);
 }
 
 .dot-glyph {
@@ -489,25 +469,19 @@ onUnmounted(() => {
 .titlebar-icon {
   display: inline-flex;
   align-items: center;
-  color: var(--ui-text-2);
+  color: var(--ui-text-3);
   flex-shrink: 0;
-  transition: color var(--ui-dur) var(--ui-ease-out), transform var(--ui-dur) var(--ui-ease-spring);
 }
 
 .app-window.focused .titlebar-icon {
-  color: var(--ui-accent);
-}
-
-.app-window.focused .titlebar-icon:hover {
-  transform: rotate(-6deg) scale(1.1);
+  color: var(--ui-text-2);
 }
 
 .titlebar-label {
   font-family: var(--ui-font);
   font-size: var(--ui-fs-sm);
-  font-weight: 650;
+  font-weight: 600;
   color: var(--ui-text-2);
-  letter-spacing: 0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -517,7 +491,6 @@ onUnmounted(() => {
 
 .app-window.focused .titlebar-label {
   color: var(--ui-text);
-  text-shadow: 0 0 18px color-mix(in srgb, var(--ui-accent) 35%, transparent);
 }
 
 .titlebar-spacer {
@@ -546,21 +519,18 @@ onUnmounted(() => {
 }
 
 .titlebar-status.active .titlebar-status__dot {
-  background: var(--ui-accent);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--ui-accent) 80%, transparent);
-  animation: bw-pulse 2.4s ease-in-out infinite;
+  background: var(--ui-success);
 }
 
 .titlebar-status__text {
-  font-family: var(--ui-font-mono);
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
+  font-family: var(--ui-font);
+  font-size: 10px;
+  font-weight: 500;
   color: var(--ui-text-3);
 }
 
 .titlebar-status.active .titlebar-status__text {
-  color: var(--ui-accent);
+  color: var(--ui-text-2);
 }
 
 .titlebar-action {
@@ -581,14 +551,14 @@ onUnmounted(() => {
 }
 
 .titlebar-action:hover {
-  background: var(--ui-accent-softer);
-  border-color: color-mix(in srgb, var(--ui-accent) 30%, transparent);
-  color: var(--ui-accent);
+  background: color-mix(in srgb, var(--ui-text) 8%, transparent);
+  border-color: var(--ui-border);
+  color: var(--ui-text);
 }
 
 .titlebar-action:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ui-accent) 80%, transparent);
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: var(--ui-glow-soft);
 }
 
 .window-titlebar--narrow {

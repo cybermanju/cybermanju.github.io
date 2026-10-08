@@ -792,13 +792,13 @@ onMounted(async () => {
 .tf-subtitle { margin: 1px 0 0; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
 .tf-top-actions { display: flex; align-items: center; gap: 8px; }
 .tf-progress { height: 6px; background: color-mix(in srgb, var(--ui-text) 10%, transparent); }
-.tf-progress-fill { height: 100%; background: linear-gradient(90deg, var(--ui-accent), var(--ui-info)); transition: width 0.2s ease; }
+.tf-progress-fill { height: 100%; background: var(--ui-accent); transition: width 0.2s ease; }
 .tf-browser { border-bottom: 1px solid var(--ui-border); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; }
 .tf-brow-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
 .tf-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
 .tf-field.inline { min-width: 160px; }
 .tf-field.grow { flex: 1; min-width: 180px; }
-.tf-field-label { font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.tf-field-label { font-size: 11px; font-weight: 600; color: var(--ui-text-2); }
 .tf-input {
   background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 8px;
   color: var(--ui-text); font-family: inherit; font-size: 12px; padding: 7px 10px; outline: none; min-width: 0;
@@ -915,7 +915,7 @@ onMounted(async () => {
 .tf-edge.st-error { border-color: color-mix(in srgb, var(--ui-danger) 55%, transparent); }
 .tf-edge-route { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .tf-edge-route .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tf-edge-status { font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; }
+.tf-edge-status { font-size: 11px; font-weight: 600; }
 .tf-edge-status.st-done { color: var(--ui-accent); }
 .tf-edge-status.st-error { color: var(--ui-danger); }
 .tf-edge-status.st-running { color: var(--ui-info); }

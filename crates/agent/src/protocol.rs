@@ -12,10 +12,15 @@ use cybermanju_types::agent::{AuthScheme, ChatMessage, ProviderPreset, TokenUsag
 /// The agent's tool surface. Native executes these against the Kernel and
 /// the volume; the browser loop executes the same surface against its
 /// volume map (`bash` runs the cybsh volume subset, `task` runs one
-/// bounded read-only subagent, `mcp__*` runs attached HTTP servers —
+/// bounded subagent with the full file/shell toolset, `mcp__*` runs attached HTTP servers —
 /// device shell + stdio MCP answer `unsupported:` there, never fake success).
-/// Descriptions double as the model's usage guide — keep them imperative
-/// and specific about arguments, limits, and failure modes.
+/// `self_research` is the introspection entry point (a real tool, not prompt
+/// text): it sweeps the agent's own source so the model grounds claims in
+/// files it actually read. `skill_save` / `mcp_attach` persist capabilities
+/// into the `.cybermanju` container; `repo_analyze` fetches a GitHub repo
+/// over plain HTTPS (no `git` binary — the only thing that works on
+/// WASM/mobile). Descriptions double as the model's usage guide — keep them
+/// imperative and specific about arguments, limits, and failure modes.
 pub const TOOL_NAMES: &[&str] = &[
     "read",
     "write",
@@ -28,6 +33,10 @@ pub const TOOL_NAMES: &[&str] = &[
     "question",
     "memory_recall",
     "memory_remember",
+    "self_research",
+    "skill_save",
+    "mcp_attach",
+    "repo_analyze",
 ];
 
 fn tool_def(
@@ -113,10 +122,11 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         ),
         tool_def(
             "task",
-            "Launch one bounded read-only subagent for a delegated exploration goal. One nesting level max.",
+            "Launch one bounded subagent with the full file/shell toolset (read, edit, bash included) for a delegated goal. One nesting level max. By default the call waits for the subagent; pass background:true to detach instead — it returns immediately with an id, you keep working, and its result arrives automatically as a new message (or is waited for at the end). Spawn as many as the work needs; concurrent background subagents are capped (8) with an honest busy: refusal.",
             serde_json::json!({
                 "goal": { "type": "string" },
                 "context": { "type": "string", "description": "Relevant file paths or notes" },
+                "background": { "type": "boolean", "description": "Detach: return immediately with an id and keep working (default false = wait)" },
             }),
             &["goal"],
         ),
@@ -148,6 +158,45 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
                 "text": { "type": "string", "description": "The single fact to remember" },
             }),
             &["text"],
+        ),
+        tool_def(
+            "self_research",
+            "Introspect the agent's OWN source code: sweep this repo for how something works and return file:line-grounded snippets. Read-only and plan-safe. Use it before claiming how the agent, tools, permissions, MCP or memory work — never answer from memory when you can read the code.",
+            serde_json::json!({
+                "query": { "type": "string", "description": "What to understand (e.g. how MCP attach works, how permissions decide)" },
+                "path": { "type": "string", "description": "Subdirectory to sweep, default \"/\" (the working root)" },
+                "limit": { "type": "integer", "description": "Max files to read back, default 8" },
+            }),
+            &["query"],
+        ),
+        tool_def(
+            "skill_save",
+            "Persist a reusable skill into the `.cybermanju` container (.cybermanju/skills/<name>/SKILL.md) so it survives restarts and syncs across devices. Self-research first (what should this skill cover?), then save ONE focused skill per call. Overwrites the same name.",
+            serde_json::json!({
+                "name": { "type": "string", "description": "Skill id: [A-Za-z0-9._-], max 64 chars" },
+                "description": { "type": "string", "description": "One-line what/why (shown to future runs)" },
+                "content": { "type": "string", "description": "Markdown skill body (instructions, examples)" },
+            }),
+            &["name", "description", "content"],
+        ),
+        tool_def(
+            "mcp_attach",
+            "Attach an MCP server to this assistant persistently (saved on the config, survives restarts; HTTP works on every device). Prefer HTTP servers (Streamable HTTP, CORS reachable). stdio servers spawn local processes and are refused here — attach those from the desktop UI instead. Verifies the connection before saving.",
+            serde_json::json!({
+                "name": { "type": "string", "description": "Server id: [A-Za-z0-9_-], max 64 chars" },
+                "url": { "type": "string", "description": "Streamable-HTTP endpoint (http(s)://…)" },
+                "headers": { "type": "object", "description": "Optional extra HTTP headers" },
+            }),
+            &["name", "url"],
+        ),
+        tool_def(
+            "repo_analyze",
+            "Analyze any public GitHub repo WITHOUT cloning: fetches metadata + full file tree + README over plain HTTPS (works on desktop, Docker, mobile and WASM — no git binary needed). Returns layout, language mix, entry files and next reads. Private repos need no token here and answer auth:/not_found: honestly.",
+            serde_json::json!({
+                "repo": { "type": "string", "description": "owner/repo (accepts github.com URLs and .git suffix)" },
+                "branch": { "type": "string", "description": "Branch/ref, default repo default (usually main)" },
+            }),
+            &["repo"],
         ),
     ]
 }
@@ -505,6 +554,34 @@ pub fn anthropic_parse(body: &serde_json::Value) -> Result<ParsedTurn, String> {
 
 // ─── error classification (house prefixes) ────────────────────────────────
 
+/// Pull the human text out of a non-2xx provider body: object
+/// `error.message`, string-form `error` (some gateways send a bare string),
+/// plus `error.code` when present. Falls back to the status so the
+/// classifier never reports a bare mystery the user cannot act on.
+pub fn provider_error_message(value: &serde_json::Value, status: u16) -> String {
+    if let Some(err) = value.get("error") {
+        let msg = err
+            .get("message")
+            .or_else(|| err.pointer("/message"))
+            .and_then(|m| m.as_str())
+            .or_else(|| err.as_str())
+            .unwrap_or("")
+            .trim();
+        let code = err
+            .get("code")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .trim();
+        if !msg.is_empty() && !code.is_empty() {
+            return format!("{msg} [{code}]");
+        }
+        if !msg.is_empty() {
+            return msg.to_string();
+        }
+    }
+    format!("HTTP {status}")
+}
+
 /// Map an HTTP status / provider error onto `auth:`, `rate_limited:` or
 /// `network:`. Used by every transport so the UI hints stay uniform.
 pub fn classify_provider_error(status: Option<u16>, message: &str, code: &str) -> String {
@@ -594,15 +671,7 @@ pub fn post_json(
         .json()
         .map_err(|e| format!("network: unreadable provider reply: {e}"))?;
     if !(200..300).contains(&status) {
-        let msg = value
-            .get("error")
-            .and_then(|e| {
-                e.get("message")
-                    .or_else(|| e.pointer("/message"))
-                    .and_then(|m| m.as_str())
-                    .map(str::to_string)
-            })
-            .unwrap_or_else(|| format!("HTTP {status}"));
+        let msg = provider_error_message(&value, status);
         return Err(classify_provider_error(Some(status), &msg, ""));
     }
     Ok(value)
@@ -680,7 +749,7 @@ mod tests {
     #[test]
     fn tool_schemas_cover_eleven_tools_in_openai_shape() {
         let tools = openai_tools();
-        assert_eq!(tools.as_array().map(|a| a.len()), Some(11));
+        assert_eq!(tools.as_array().map(|a| a.len()), Some(15));
         let first = &tools[0];
         assert_eq!(first["type"], "function");
         assert_eq!(first["function"]["name"], "read");
@@ -714,7 +783,7 @@ mod tests {
         );
         assert_eq!(body["model"], "gpt-5");
         assert_eq!(body["messages"][0]["role"], "system");
-        assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(11));
+        assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(15));
 
         let reply = serde_json::json!({
             "choices": [{
@@ -799,6 +868,22 @@ mod tests {
             classify_provider_error(Some(400), "Provider returned error", "")
                 .starts_with("invalid:")
         );
+    }
+
+    #[test]
+    fn provider_error_message_reads_every_error_shape() {
+        // Object shape (OpenAI/Anthropic).
+        let v = serde_json::json!({ "error": { "message": "bad model", "code": "model_not_found" } });
+        assert_eq!(
+            provider_error_message(&v, 400),
+            "bad model [model_not_found]"
+        );
+        // String-form error (some gateways/proxies).
+        let v = serde_json::json!({ "error": "upstream exploded" });
+        assert_eq!(provider_error_message(&v, 400), "upstream exploded");
+        // No error member at all: status, never silence.
+        let v = serde_json::json!({ "choices": [] });
+        assert_eq!(provider_error_message(&v, 400), "HTTP 400");
     }
 
     #[test]

@@ -325,6 +325,10 @@
         </div>
         <form class="cs-prompt" @submit.prevent="sendPrompt">
           <textarea ref="promptEl" v-model="promptInput" rows="2" :placeholder="ai.jobActive.value ? 'Running — Ctrl+Enter queues next…' : 'Ask the AI… (Ctrl+Enter sends)'" @keydown.ctrl.enter.exact.prevent="sendPrompt" @keydown.meta.enter.exact.prevent="sendPrompt" />
+          <select v-if="voice.isSupported.value" class="cs-select xs" :value="voice.lang.value" aria-label="Dictation language" title="Dictation language: EN or PT-BR (abre parênteses, nova linha, …)" @change="voice.setLang(($event.target as HTMLSelectElement).value as 'en-US' | 'pt-BR')">
+            <option value="en-US">EN</option>
+            <option value="pt-BR">PT</option>
+          </select>
           <button v-if="voice.isSupported.value" class="cs-btn xs" :class="{ on: voice.listening.value }" type="button" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : 'Dictate (code mode: say “open paren”, “dot”, “camel case …”)'" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Mic' }}</button>
           <button class="cs-btn xs primary" type="submit" :disabled="!canSend">{{ ai.jobActive.value ? 'Queue' : 'Send' }}</button>
           <button v-if="ai.jobActive.value" class="cs-btn xs danger" type="button" @click="ai.abort()">Stop</button>
@@ -344,6 +348,7 @@ import type { PropType } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useStudioAgent, type FileCtx } from '@/composables/useStudioAgent'
+import { hasLocalKey as hasSharedKey, localKeyRevision } from '@/composables/useAgent'
 import { invoke } from '@/composables/useTauri'
 import { useTransport } from '@/composables/useTransport'
 import { escapeHtml, renderMarkdown } from '@/utils/markdown'
@@ -555,6 +560,68 @@ async function openWasmPath(path: string, label: string) {
   activate(key, activeGroup.value)
   void reparse(tabs.value[tabs.value.length - 1])
 }
+
+/* ═══════════════ live sync: explorer + open tabs follow agent writes ═══════════════
+   The agent edits files server-side (or in the WASM volume) while the run is
+   active. The explorer used to go stale until a manual refresh, and open tabs
+   kept dead bytes. While a job is active we re-list every 2.5s and refresh
+   clean tabs; on terminal status we do one final pass. Dirty tabs (user has
+   unsaved edits) keep their content — only the label follows a rename. */
+
+let explorerSyncTimer = 0
+let syncingAgentFiles = false
+async function syncOpenTabsWithDisk() {
+  for (const tab of tabs.value) {
+    try {
+      if (tab.kind === 'managed') {
+        const node = store.files.find(f => f.id === tab.fileId)
+        if (node && node.name !== tab.label) tab.label = node.name
+        if (!node || tab.dirty) continue
+        const res = await invoke<{ content: string }>('read_file_content', { fileId: tab.fileId })
+        const latest = typeof res?.content === 'string' ? res.content : null
+        if (latest !== null && latest !== tab.savedContent) {
+          tab.content = latest
+          tab.savedContent = latest
+          tab.dirty = false
+          void reparse(tab)
+        }
+      } else {
+        if (tab.dirty) continue
+        const res = await invoke<{ ok: boolean; output: string }>('os_exec', { line: `cat "${tab.path.replace(/"/g, '\\"')}"` }).catch(() => null)
+        if (!res || !res.ok) continue
+        if (res.output !== tab.savedContent) {
+          tab.content = res.output
+          tab.savedContent = res.output
+          tab.dirty = false
+          void reparse(tab)
+        }
+      }
+    } catch { /* best-effort per tab — next poll heals */ }
+  }
+}
+async function syncExplorerAndTabs() {
+  if (syncingAgentFiles) return
+  syncingAgentFiles = true
+  try {
+    await refreshExplorer()
+    await syncOpenTabsWithDisk()
+  } finally {
+    syncingAgentFiles = false
+  }
+}
+watch(() => ai.jobActive.value, (active, was) => {
+  if (active && !explorerSyncTimer) {
+    explorerSyncTimer = window.setInterval(() => void syncExplorerAndTabs(), 2500)
+    void syncExplorerAndTabs()
+  } else if (!active && was) {
+    if (explorerSyncTimer) { window.clearInterval(explorerSyncTimer); explorerSyncTimer = 0 }
+    void syncExplorerAndTabs()
+  }
+})
+// A new tool row usually means a write/edit/rename just landed — sync between polls.
+watch(() => ai.threadRows.value.length, (n, prev) => {
+  if (n !== prev && ai.jobActive.value) void syncExplorerAndTabs()
+})
 
 /* ═══════════════ search ═══════════════ */
 
@@ -899,9 +966,37 @@ const openRows = ref<Set<string>>(new Set())
 const attachFile = ref(true)
 const attachSel = ref(false)
 const keyInput = ref('')
-const hasLocalKey = computed(() => !!(ai.chatConfigId.value && ai.localKeys.value[ai.chatConfigId.value]))
+const hasLocalKey = computed(() => {
+  // localKeyRevision makes this re-evaluate when the Agent panel seals a key
+  // into the shared in-memory vault (a non-reactive Map).
+  void localKeyRevision.value
+  if (!ai.chatConfigId.value) return false
+  if (ai.localKeys.value[ai.chatConfigId.value]) return true
+  return hasSharedKey(ai.chatConfigId.value)
+})
 
-watch(() => ai.threadRows.value.length, () => nextTick(() => { const el = threadRef.value; if (el) el.scrollTop = el.scrollHeight }))
+function scrollThreadToBottom() {
+  void nextTick(() => {
+    const el = threadRef.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}
+
+/** Row count + last-row content length: catches new messages AND a running
+ * turn appending to the current row, so the newest message stays in view. */
+const aiThreadSignature = computed(() => {
+  const rows = ai.threadRows.value
+  const last = rows[rows.length - 1]
+  const lastLen = last
+    ? last.kind === 'message'
+      ? (last.message.content ?? '').length
+      : JSON.stringify(last).length
+    : 0
+  return [rows.length, lastLen, ai.jobActive.value ? 1 : 0] as const
+})
+
+watch(aiThreadSignature, () => scrollThreadToBottom())
+watch(() => ai.viewing.value?.id, () => scrollThreadToBottom())
 watch(() => ai.configs.value.length, n => {
   if (n && !ai.chatConfigId.value) ai.chatConfigId.value = ai.configs.value[0].id
 })
@@ -930,6 +1025,7 @@ async function sendPrompt() {
   if (!canSend.value) return
   const v = promptInput.value
   promptInput.value = ''
+  scrollThreadToBottom()
   await ai.send(v, activeFileCtx())
 }
 function quick(kind: 'explain' | 'review') {
@@ -1023,7 +1119,6 @@ const EditorPane = defineComponent({
   emits: ['cursor', 'edit'],
   setup(props, { emit }) {
     const lines = computed(() => props.tab.content.split('\n').length)
-    const gutter = computed(() => Array.from({ length: lines.value }, (_, i) => String(i + 1)).join('\n'))
     // Highlight is O(n) regex over the whole file per keystroke — past this
     // size render plain escaped text so big logs don't freeze the pane.
     // `:key="tab.key"` on each EditorPane instance guarantees this view state
@@ -1063,9 +1158,13 @@ const EditorPane = defineComponent({
       emit('edit')
       cursor(ta)
     }
+    // One div per line guarantees a 1:1 line-number mapping even when the
+    // highlight layer wraps or the font metrics shift — a single
+    // newline-joined text node collapses/misaligns in those cases.
+    const gutterRows = computed(() => Array.from({ length: lines.value }, (_, i) => i + 1))
     return () =>
       h('div', { class: 'cs-pane', 'data-g': props.group }, [
-        h('div', { class: 'cs-gutter', ref: guRef }, gutter.value),
+        h('div', { class: 'cs-gutter', ref: guRef }, gutterRows.value.map(n => h('div', { class: 'cs-gln', key: n }, String(n)))),
         h('div', { class: 'cs-code' }, [
           h('pre', { class: 'cs-hl', ref: hlRef, 'aria-hidden': 'true' }, [h('code', { innerHTML: html.value })]),
           h('textarea', {
@@ -1091,44 +1190,39 @@ onMounted(() => {
   void refreshExplorer()
   void ai.ensureCatalog()
 })
-onBeforeUnmount(() => { window.clearTimeout(reparseTimer); stopVoice?.() })
+onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer) window.clearInterval(explorerSyncTimer); stopVoice?.() })
 </script>
 
 <style scoped>
 .cs { position: relative; display: flex; flex-direction: column; height: 100%; overflow: hidden; outline: none;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-surface-2) 45%, transparent), color-mix(in srgb, var(--ui-content) 96%, transparent));
+  background: var(--ui-surface);
   color: var(--ui-text); font-size: 12px; }
-.cs-aurora { position: absolute; inset: -20%; pointer-events: none; z-index: 0;
-  background: radial-gradient(36% 30% at 85% 0%, color-mix(in srgb, var(--ui-accent) 12%, transparent), transparent 70%),
-    radial-gradient(40% 36% at 8% 100%, color-mix(in srgb, var(--ui-info) 9%, transparent), transparent 70%);
-  animation: cs-drift 26s ease-in-out infinite alternate; }
-@keyframes cs-drift { from { transform: translate3d(1%, 1%, 0); } to { transform: translate3d(-1.5%, -1%, 0) scale(1.03); } }
-.cs > *:not(.cs-aurora) { position: relative; z-index: 1; }
+.cs-aurora { display: none; }
 
 /* top */
 .cs-top { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--ui-glass);
   border-bottom: 1px solid var(--ui-hairline); backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate)); }
-.cs-logo { display: flex; align-items: center; gap: 6px; color: var(--ui-accent); font-size: 12px; letter-spacing: .1em; }
-.cs-transport, .cs-engine { font-size: 9px; font-weight: 800; letter-spacing: .08em; color: var(--ui-text-3);
+.cs-logo { display: flex; align-items: center; gap: 6px; color: var(--ui-text-2); font-size: 12px; font-weight: 600; }
+.cs-transport, .cs-engine { font-size: 10px; font-weight: 500; color: var(--ui-text-3);
   border: 1px solid var(--ui-hairline); padding: 2px 7px; border-radius: 99px; }
-.cs-engine.ts { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent); }
 .cs-spacer { flex: 1; }
 .cs-btn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border-radius: 9px; cursor: pointer;
   font-size: 11px; font-weight: 700; color: var(--ui-text-2); background: color-mix(in srgb, var(--ui-text) 5%, transparent);
   border: 1px solid var(--ui-hairline); white-space: nowrap; }
-.cs-btn:hover:not(:disabled) { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 40%, transparent); }
-.cs-btn:disabled { opacity: .4; } .cs-btn.on { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent); }
+.cs-btn:hover:not(:disabled) { color: var(--ui-text); border-color: var(--ui-border-strong); }
+.cs-btn:disabled { opacity: .4; } .cs-btn.on { color: var(--ui-text); border-color: var(--ui-border-strong); background: color-mix(in srgb, var(--ui-text) 8%, transparent); }
 .cs-btn.xs { padding: 3px 9px; font-size: 10px; }
-.cs-btn.primary { background: var(--ui-accent-softer); color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent); }
+.cs-btn.primary { background: var(--ui-accent); color: var(--ui-on-accent); border-color: transparent; }
 .cs-btn.danger { color: var(--ui-danger); border-color: color-mix(in srgb, var(--ui-danger) 45%, transparent); }
 .cs-ibtn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 7px;
   border: 1px solid transparent; background: transparent; color: var(--ui-text-3); cursor: pointer; flex-shrink: 0; }
-.cs-ibtn:hover:not(:disabled) { color: var(--ui-accent); background: var(--ui-accent-softer); }
+.cs-ibtn:hover:not(:disabled) { color: var(--ui-text); background: color-mix(in srgb, var(--ui-text) 7%, transparent); }
 .cs-ibtn:disabled { opacity: .3; }
 .cs-input, .cs-select { background: color-mix(in srgb, var(--ui-text) 4%, transparent); border: 1px solid var(--ui-hairline);
   color: var(--ui-text); font-size: 11.5px; padding: 5px 8px; border-radius: 8px; outline: none; min-width: 0; }
-.cs-input:focus, .cs-select:focus { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
+.cs-input:focus, .cs-select:focus { border-color: var(--ui-accent); box-shadow: var(--ui-glow-soft); }
 .cs-input.sm { width: 64px; }
+.cs-select.xs { padding: 3px 6px; font-size: 10px; font-weight: 700; }
 .cs-link { background: none; border: none; color: var(--ui-accent); cursor: pointer; font-weight: 700; }
 
 /* mid */
@@ -1137,38 +1231,38 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); stopVoice?.() })
   border-right: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-surface) 60%, transparent); }
 .cs-activity button { display: flex; width: 34px; height: 34px; align-items: center; justify-content: center; border-radius: 10px;
   background: transparent; border: none; border-left: 2px solid transparent; color: var(--ui-text-3); cursor: pointer; }
-.cs-activity button:hover { color: var(--ui-text); background: var(--ui-accent-softer); }
-.cs-activity button.active { color: var(--ui-accent); border-left-color: var(--ui-accent); background: var(--ui-accent-softer); }
+.cs-activity button:hover { color: var(--ui-text); background: color-mix(in srgb, var(--ui-text) 7%, transparent); }
+.cs-activity button.active { color: var(--ui-text); border-left-color: var(--ui-accent); background: color-mix(in srgb, var(--ui-text) 9%, transparent); }
 
 /* sidebar */
 .cs-side { width: 232px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px;
   border-right: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-surface) 55%, transparent); min-height: 0; }
-.cs-side-h { display: flex; align-items: center; font-size: 9.5px; font-weight: 800; letter-spacing: .12em; color: var(--ui-text-3); padding: 2px 4px; }
+.cs-side-h { display: flex; align-items: center; font-size: 10px; font-weight: 600; color: var(--ui-text-3); padding: 2px 4px; }
 .cs-tree { flex: 1; overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; }
 .cs-searchwrap { flex: 1; overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; }
 .cs-searchwrap :deep(.panel-search) { padding: 4px 0; }
 .cs-trow { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 6px; border-radius: 8px; cursor: pointer;
   background: transparent; border: none; color: var(--ui-text-2); font-size: 12px; text-align: left; }
-.cs-trow:hover { background: var(--ui-accent-softer); color: var(--ui-text); }
-.cs-trow.active { background: var(--ui-accent-softer); color: var(--ui-accent); }
-.cs-trow.dir { color: var(--ui-text-2); font-weight: 700; }
+.cs-trow:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); color: var(--ui-text); }
+.cs-trow.active { background: color-mix(in srgb, var(--ui-text) 10%, transparent); color: var(--ui-text); }
+.cs-trow.dir { color: var(--ui-text-2); font-weight: 600; }
 .cs-trow.col { flex-direction: column; align-items: flex-start; gap: 1px; }
 .cs-tbranch { display: flex; flex-direction: column; }
 .cs-caret { width: 10px; color: var(--ui-text-3); font-size: 9px; flex-shrink: 0; }
 .cs-ticon { flex-shrink: 0; }
-.cs-kind { font-size: 8.5px; font-weight: 800; color: var(--ui-text-3); min-width: 52px; text-transform: uppercase; }
+.cs-kind { font-size: 10px; font-weight: 500; color: var(--ui-text-3); min-width: 52px; }
 .cs-snip { font-size: 10px; }
 .cs-empty { padding: 10px; font-size: 11px; text-align: center; }
 .cs-pathrow { display: flex; align-items: center; gap: 6px; }
 .cs-intel-src { display: flex; gap: 4px; }
-.cs-intel-src button { flex: 1; padding: 4px 0; font-size: 9.5px; font-weight: 800; letter-spacing: .08em;
+.cs-intel-src button { flex: 1; padding: 4px 0; font-size: 11px; font-weight: 500;
   background: transparent; border: 1px solid var(--ui-hairline); color: var(--ui-text-3); border-radius: 8px; cursor: pointer; }
-.cs-intel-src button.on { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent); background: var(--ui-accent-softer); }
+.cs-intel-src button.on { color: var(--ui-text); border-color: var(--ui-border-strong); background: color-mix(in srgb, var(--ui-text) 8%, transparent); }
 .cs-intel-meta { display: flex; flex-direction: column; gap: 2px; font-size: 9.5px; padding: 2px 4px; }
 .cs-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.cs-chips button { font-size: 9px; font-weight: 800; padding: 2px 8px; border-radius: 99px; cursor: pointer;
+.cs-chips button { font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 99px; cursor: pointer;
   border: 1px solid var(--ui-hairline); background: transparent; color: var(--ui-text-3); }
-.cs-chips button.on { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent); background: var(--ui-accent-softer); }
+.cs-chips button.on { color: var(--ui-on-accent); border-color: transparent; background: var(--ui-accent); }
 .cs-intel-paste { resize: vertical; min-height: 90px; font-family: var(--ui-font-mono); font-size: 11px; }
 .cs-intel-preview { border: 1px solid var(--ui-hairline); border-radius: 8px; max-height: 220px; overflow-y: auto;
   overscroll-behavior: contain; font-family: var(--ui-font-mono); font-size: 10.5px; line-height: 1.5; }
@@ -1189,7 +1283,7 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); stopVoice?.() })
   border-bottom: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-surface) 65%, transparent); flex-shrink: 0; }
 .cs-tab { display: flex; align-items: center; gap: 6px; padding: 7px 8px 7px 12px; font-size: 11.5px; cursor: pointer; white-space: nowrap;
   color: var(--ui-text-3); border-right: 1px solid var(--ui-hairline); max-width: 190px; }
-.cs-tab.active { color: var(--ui-text); background: var(--ui-accent-softer); box-shadow: inset 0 2px 0 var(--ui-accent); }
+.cs-tab.active { color: var(--ui-text); background: color-mix(in srgb, var(--ui-text) 8%, transparent); box-shadow: inset 0 2px 0 var(--ui-accent); }
 .cs-dot { color: var(--ui-warning); font-size: 8px; }
 .cs-x { display: inline-flex; background: none; border: none; color: inherit; opacity: .5; cursor: pointer; padding: 2px; }
 .cs-x:hover { opacity: 1; color: var(--ui-danger); }
@@ -1197,7 +1291,8 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); stopVoice?.() })
 .cs-welcome p { font-weight: 800; color: var(--ui-text-2); margin: 0; }
 .cs-pane { flex: 1; display: flex; min-height: 0; }
 .cs-gutter { width: 46px; flex-shrink: 0; padding: 10px 6px 10px 0; text-align: right; color: color-mix(in srgb, var(--ui-text) 30%, transparent);
-  font-family: var(--ui-font-mono); font-size: 12px; line-height: 1.6; overflow: hidden; white-space: pre; user-select: none; }
+  font-family: var(--ui-font-mono); font-size: 12px; line-height: 1.6; overflow: hidden; user-select: none; }
+.cs-gln { height: calc(12px * 1.6); line-height: 1.6; white-space: nowrap; }
 .cs-code { flex: 1; position: relative; min-width: 0; }
 .cs-hl, .cs-input2 { margin: 0; padding: 10px 12px; font-family: var(--ui-font-mono); font-size: 12px; line-height: 1.6; white-space: pre; tab-size: 2; }
 .cs-hl { position: absolute; inset: 0; overflow: hidden; pointer-events: none; color: var(--ui-text); }
@@ -1210,11 +1305,11 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); stopVoice?.() })
 .cs-find .cs-input { width: 150px; }
 
 /* bottom */
-.cs-bottom { height: 190px; flex-shrink: 0; display: flex; flex-direction: column; border-top: 1px solid color-mix(in srgb, var(--ui-accent) 30%, transparent); background: rgba(0,0,0,.45); }
+.cs-bottom { height: 190px; flex-shrink: 0; display: flex; flex-direction: column; border-top: 1px solid var(--ui-border); background: var(--ui-surface); }
 .cs-btabs { display: flex; gap: 2px; padding: 4px 8px 0; }
-.cs-btabs button { padding: 5px 12px; font-size: 9.5px; font-weight: 800; letter-spacing: .08em; background: transparent; border: none;
+.cs-btabs button { padding: 5px 12px; font-size: 11px; font-weight: 500; background: transparent; border: none;
   border-bottom: 2px solid transparent; color: var(--ui-text-3); cursor: pointer; }
-.cs-btabs button.active { color: var(--ui-accent); border-bottom-color: var(--ui-accent); }
+.cs-btabs button.active { color: var(--ui-text); border-bottom-color: var(--ui-accent); }
 .cs-termwrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .cs-term { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-x pan-y;
   scrollbar-gutter: stable; padding: 6px 10px; font-family: var(--ui-font-mono); font-size: 10.5px; }
@@ -1262,10 +1357,10 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); stopVoice?.() })
   padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .cs-msg { padding: 7px 9px; border-radius: 11px; border: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-text) 2.5%, transparent); }
 .cs-msg.r-user { background: var(--ui-accent-softer); border-color: color-mix(in srgb, var(--ui-accent) 30%, transparent); }
-.cs-role { font-size: 8.5px; font-weight: 800; letter-spacing: .1em; margin-bottom: 3px; }
+.cs-role { font-size: 10px; font-weight: 600; color: var(--ui-text-3); margin-bottom: 3px; }
 .cs-body { font-size: 11.5px; white-space: pre-wrap; word-break: break-word; }
 .cs-md { font-size: 11.5px; word-break: break-word; }
-.cs-md :deep(pre) { background: rgba(0,0,0,.4); border: 1px solid var(--ui-hairline); border-radius: 8px; padding: 7px; overflow-x: auto; font-size: 10.5px; }
+.cs-md :deep(pre) { background: color-mix(in srgb, var(--ui-text) 5%, transparent); border: 1px solid var(--ui-hairline); border-radius: 8px; padding: 7px; overflow-x: auto; font-size: 10.5px; }
 .cs-md :deep(code) { font-family: var(--ui-font-mono); font-size: 10.5px; }
 .cs-md :deep(p) { margin: 4px 0; } .cs-md :deep(ul) { margin: 4px 0; padding-left: 16px; }
 .cs-toolblock { font-family: var(--ui-font-mono); font-size: 10px; color: var(--ui-text-3); }
@@ -1273,21 +1368,21 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); stopVoice?.() })
 .cs-trow2 { border: 1px solid var(--ui-hairline); border-radius: 9px; overflow: hidden; }
 .cs-thead { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 8px; background: transparent; border: none;
   color: var(--ui-text-2); cursor: pointer; font-size: 11px; text-align: left; }
-.cs-thead:hover { background: var(--ui-accent-softer); }
-.cs-tstate { margin-left: auto; font-size: 8.5px; font-weight: 800; text-transform: uppercase; color: var(--ui-text-3); }
+.cs-thead:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
+.cs-tstate { margin-left: auto; font-size: 10px; font-weight: 500; color: var(--ui-text-3); }
 .is-running .cs-tstate { color: var(--ui-accent); } .is-error .cs-tstate, .is-denied .cs-tstate { color: var(--ui-danger); }
 .cs-tdetail { padding: 4px 8px 8px; } .cs-tdetail pre { font-size: 10px; white-space: pre-wrap; word-break: break-word; margin: 4px 0; color: var(--ui-text-2); }
 .cs-tdetail pre.res { color: var(--ui-text-3); max-height: 160px; overflow-y: auto; }
 .cs-approval { margin: 0 10px; padding: 9px 10px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--ui-warning) 50%, transparent);
   background: color-mix(in srgb, var(--ui-warning) 7%, transparent); display: flex; flex-direction: column; gap: 6px; }
-.cs-apph { font-size: 10px; font-weight: 800; display: flex; gap: 5px; align-items: center; color: var(--ui-warning); }
+.cs-apph { font-size: 11px; font-weight: 600; display: flex; gap: 5px; align-items: center; color: var(--ui-text); }
 .cs-apptext { font-size: 11px; } .cs-appinput { font-size: 10px; max-height: 90px; overflow-y: auto; margin: 0; color: var(--ui-text-2); }
 .cs-approw { display: flex; gap: 6px; }
 .cs-quick { display: flex; gap: 4px; padding: 6px 10px 0; flex-wrap: wrap; }
-.cs-quick button { font-size: 9.5px; font-weight: 800; padding: 3px 9px; border-radius: 99px; cursor: pointer;
+.cs-quick button { font-size: 10px; font-weight: 500; padding: 3px 9px; border-radius: 99px; cursor: pointer;
   border: 1px solid var(--ui-hairline); background: transparent; color: var(--ui-text-3); }
-.cs-quick button.on { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent); background: var(--ui-accent-softer); }
-.cs-quick button:hover:not(:disabled) { color: var(--ui-accent); } .cs-quick button:disabled { opacity: .4; }
+.cs-quick button.on { color: var(--ui-on-accent); border-color: transparent; background: var(--ui-accent); }
+.cs-quick button:hover:not(:disabled) { color: var(--ui-text); } .cs-quick button:disabled { opacity: .4; }
 .cs-queue { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px 0; }
 .cs-qitem { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--ui-text-3);
   border: 1px dashed var(--ui-border-strong); border-radius: 8px; padding: 3px 4px 3px 9px; }
@@ -1295,8 +1390,8 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); stopVoice?.() })
 .cs-prompt { display: flex; gap: 6px; padding: 8px 10px; align-items: flex-end; }
 .cs-prompt textarea { flex: 1; background: color-mix(in srgb, var(--ui-text) 4%, transparent); border: 1px solid var(--ui-hairline);
   border-radius: 10px; color: var(--ui-text); font-size: 11.5px; padding: 7px 9px; outline: none; resize: none; }
-.cs-prompt textarea:focus { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
-.cs-jobline { padding: 0 10px 4px; font-size: 9.5px; }
+.cs-prompt textarea:focus { border-color: var(--ui-accent); box-shadow: var(--ui-glow-soft); }
+.cs-jobline { padding: 0 10px 4px; font-size: 10px; color: var(--ui-text-3); }
 .cs-err { margin: 0 10px 8px; font-size: 10px; color: var(--ui-danger); }
 
 @media (max-width: 1100px) { .cs-ai { width: 270px; } .cs-side { width: 190px; } }

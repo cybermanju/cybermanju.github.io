@@ -24,13 +24,6 @@
         </p>
       </div>
       <div class="agent-header-meta">
-        <span
-          class="agent-ctx"
-          :title="`Estimated context ${fmtTokens(contextTokens)} of ${fmtTokens(contextWindow)}`"
-        >
-          <span class="agent-ctx-bar"><span class="agent-ctx-fill" :class="ctxTone" :style="{ width: contextPct + '%' }" /></span>
-          <span class="agent-ctx-label">{{ contextPct }}%</span>
-        </span>
         <UiButton
           size="sm"
           :icon="yoloOn ? 'solar:fire-bold' : 'solar:shield-check-bold'"
@@ -159,42 +152,53 @@
 
       <!-- ── Main column ── -->
       <main class="agent-main">
-        <!-- Capability strip: plain-language summary, not a wall of chips -->
-        <section v-if="capVisible" class="agent-caps" aria-label="What this assistant can do">
-          <span class="agent-cap" :title="caps.personaHint">
-            <AppIcon name="solar:cpu-bold" :size="12" /> {{ caps.model }} · {{ caps.persona }}
-          </span>
-          <span class="agent-cap" :title="'Working directory inside your volume'">
-            <AppIcon name="solar:folder-bold" :size="12" /> {{ caps.workingDir }}
-          </span>
-          <span v-if="!wasmMode" class="agent-cap" :title="'Which shell the bash tool runs'">
-            <AppIcon name="solar:file-terminal-bold" :size="12" /> {{ caps.shell }}
-          </span>
-          <span class="agent-cap" :title="'Permission ruleset: ' + caps.permission">
-            <AppIcon name="solar:shield-check-bold" :size="12" /> {{ caps.permission }}
-          </span>
-          <span class="agent-cap" :class="{ warn: !caps.hasKey }" :title="caps.keyHint">
-            <AppIcon :name="caps.hasKey ? 'solar:key-bold' : 'solar:lock-bold'" :size="12" />
-            {{ caps.hasKey ? 'Key ready' : 'No key' }}
-          </span>
-          <button type="button" class="agent-cap-link" @click="activeTab = 'controls'">
-            Details
+        <!-- Context line: one quiet summary row, details expand on demand -->
+        <section v-if="capVisible" class="agent-caps" :class="{ open: capsOpen }" aria-label="What this assistant can do">
+          <button type="button" class="agent-caps-summary" :aria-expanded="capsOpen" @click="capsOpen = !capsOpen">
+            <span class="agent-caps-dot" :class="{ warn: !caps.hasKey }" aria-hidden="true" />
+            <span class="agent-caps-text">{{ caps.model }} · {{ caps.persona }} · {{ caps.permission }}</span>
+            <span v-if="!caps.hasKey" class="agent-caps-key">No key</span>
+            <AppIcon :name="capsOpen ? 'solar:alt-arrow-up-bold' : 'solar:alt-arrow-down-bold'" :size="12" />
           </button>
-          <div class="agent-cap-tools" role="list" aria-label="Per-tool defaults">
-            <span v-for="t in toolPerms" :key="t.tool" class="agent-cap-tool" :class="`act-${t.action}`" role="listitem" :title="toolHelp(t)">
-              <AppIcon :name="toolMeta(t.tool).icon" :size="11" />
-              {{ t.tool }} · {{ t.unsupported ? 'n/a' : t.action }}
+          <div v-if="capsOpen" class="agent-caps-detail">
+            <span class="agent-cap" :title="caps.personaHint">
+              <AppIcon name="solar:cpu-bold" :size="12" /> {{ caps.model }} · {{ caps.persona }}
             </span>
+            <span class="agent-cap" :title="'Working directory inside your volume'">
+              <AppIcon name="solar:folder-bold" :size="12" /> {{ caps.workingDir }}
+            </span>
+            <span v-if="!wasmMode" class="agent-cap" :title="'Which shell the bash tool runs'">
+              <AppIcon name="solar:file-terminal-bold" :size="12" /> {{ caps.shell }}
+            </span>
+            <span class="agent-cap" :title="'Permission ruleset: ' + caps.permission">
+              <AppIcon name="solar:shield-check-bold" :size="12" /> {{ caps.permission }}
+            </span>
+            <span class="agent-cap" :class="{ warn: !caps.hasKey }" :title="caps.keyHint">
+              <AppIcon :name="caps.hasKey ? 'solar:key-bold' : 'solar:lock-bold'" :size="12" />
+              {{ caps.hasKey ? 'Key ready' : 'No key' }}
+            </span>
+            <button type="button" class="agent-cap-link" @click="activeTab = 'controls'">
+              Open Controls
+            </button>
+            <div class="agent-cap-tools" role="list" aria-label="Per-tool defaults">
+              <span v-for="t in toolPerms" :key="t.tool" class="agent-cap-tool" :class="`act-${t.action}`" role="listitem" :title="toolHelp(t)">
+                <AppIcon :name="toolMeta(t.tool).icon" :size="11" />
+                {{ t.tool }} · {{ t.unsupported ? 'n/a' : t.action }}
+              </span>
+            </div>
+            <p v-if="wasmMode" class="agent-note">Browser volume — cybsh-subset shell, depth-1 subagents, HTTP MCP. Device shell + stdio MCP need the dashboard and answer <span class="mono">unsupported:</span> there.</p>
           </div>
-          <p v-if="wasmMode" class="agent-note">Browser volume — cybsh-subset shell, depth-1 subagents, HTTP MCP. Device shell + stdio MCP need the dashboard and answer <span class="mono">unsupported:</span> there.</p>
         </section>
 
         <!-- Setup tab: guided, 3 steps instead of one long form -->
         <section v-if="activeTab === 'setup'" class="agent-card" aria-label="Assistant setup">
-          <h3 class="agent-card-title"><AppIcon name="solar:add-bold" :size="13" /> 1 · Pick a provider ({{ allPresets.length }})</h3>
+          <h3 class="agent-card-title"><AppIcon name="solar:add-bold" :size="13" /> 1 · Pick a provider ({{ filteredPresets.length }}/{{ allPresets.length }})</h3>
+          <div class="preset-search">
+            <UiInput v-model="providerSearch" placeholder="Search providers or models…" aria-label="Search providers" clearable />
+          </div>
           <div class="preset-grid">
             <button
-              v-for="p in allPresets"
+              v-for="p in filteredPresets"
               :key="p.id"
               class="preset-card"
               :class="{ on: form.providerId === p.id }"
@@ -205,6 +209,7 @@
               <span class="preset-meta">{{ p.family }} · {{ p.defaultModel }}</span>
               <span v-if="p.keyless" class="preset-free">No key needed</span>
             </button>
+            <p v-if="!filteredPresets.length" class="agent-note">No provider matches “{{ providerSearch }}”.</p>
           </div>
 
           <h3 class="agent-card-title"><AppIcon name="solar:key-bold" :size="13" /> 2 · Model &amp; key</h3>
@@ -344,8 +349,12 @@
 
         <!-- Controls tab: MCP servers + per-tool permissions -->
         <section v-if="activeTab === 'controls'" class="agent-controls" aria-label="Agent controls">
-          <div v-if="chatConfig" class="agent-card">
-            <h3 class="agent-card-title"><AppIcon name="solar:plug-circle-bold" :size="13" /> Connected tools for {{ chatConfig.name }} ({{ mcpEntries.length }})</h3>
+          <div v-if="chatConfig" class="agent-card" :class="{ open: controlsOpen === 'tools' }">
+            <button type="button" class="agent-card-toggle" :aria-expanded="controlsOpen === 'tools'" @click="controlsOpen = controlsOpen === 'tools' ? 'perms' : 'tools'">
+              <AppIcon name="solar:plug-circle-bold" :size="13" /> Connected tools · {{ mcpEntries.length }}
+              <AppIcon :name="controlsOpen === 'tools' ? 'solar:alt-arrow-up-bold' : 'solar:alt-arrow-down-bold'" :size="12" />
+            </button>
+            <div v-show="controlsOpen === 'tools'" class="agent-card-fold">
             <div class="config-list">
               <div v-for="m in mcpEntries" :key="m.name" class="config-card">
                 <div class="cfg-header">
@@ -396,10 +405,15 @@
             </div>
             <div v-if="mcpMsg" class="w-msg">{{ mcpMsg }}</div>
             <p class="agent-note">Connecting tools needs admin (local commands spawn processes). Tools appear as <span class="mono">mcp__server__tool</span> and follow the same ask / deny rules.</p>
+            </div>
           </div>
 
-          <div v-if="chatConfig" class="agent-card">
-            <h3 class="agent-card-title"><AppIcon name="solar:refresh-bold" :size="13" /> Fallback route for {{ chatConfig.name }} ({{ fallbackList.length }})</h3>
+          <div v-if="chatConfig" class="agent-card" :class="{ open: controlsOpen === 'fallback' }">
+            <button type="button" class="agent-card-toggle" :aria-expanded="controlsOpen === 'fallback'" @click="controlsOpen = controlsOpen === 'fallback' ? 'perms' : 'fallback'">
+              <AppIcon name="solar:refresh-bold" :size="13" /> Fallback route · {{ fallbackList.length }}
+              <AppIcon :name="controlsOpen === 'fallback' ? 'solar:alt-arrow-up-bold' : 'solar:alt-arrow-down-bold'" :size="12" />
+            </button>
+            <div v-show="controlsOpen === 'fallback'" class="agent-card-fold">
             <div v-if="fallbackList.length" class="config-list">
               <div v-for="(fid, i) in fallbackList" :key="fid" class="config-card">
                 <div class="cfg-header">
@@ -428,11 +442,16 @@
               <UiButton size="sm" variant="ghost" @click="activeTab = 'chat'">Back to chat</UiButton>
             </div>
             <div v-if="fallbackMsg" class="w-msg">{{ fallbackMsg }}</div>
-            <p class="agent-note">When {{ chatConfig.name }}'s provider call fails (dead key, throttling, empty credits, offline), the run continues on each fallback in order — same transcript, no retype. Same-provider entries act as extra accounts/keys; other providers act as full fallbacks. Max 4 (5 routes total).</p>
+            <p class="agent-note">When {{ chatConfig.name }}'s provider call fails, the run continues on each fallback in order — same transcript, no retype. Max 4 (5 routes total).</p>
+            </div>
           </div>
 
-          <div v-if="chatConfig" class="agent-card">
-            <h3 class="agent-card-title"><AppIcon name="solar:shield-check-bold" :size="13" /> What {{ chatConfig.name }} may do</h3>
+          <div v-if="chatConfig" class="agent-card" :class="{ open: controlsOpen === 'perms' }">
+            <button type="button" class="agent-card-toggle" :aria-expanded="controlsOpen === 'perms'" @click="controlsOpen = controlsOpen === 'perms' ? 'fallback' : 'perms'">
+              <AppIcon name="solar:shield-check-bold" :size="13" /> Permissions
+              <AppIcon :name="controlsOpen === 'perms' ? 'solar:alt-arrow-up-bold' : 'solar:alt-arrow-down-bold'" :size="12" />
+            </button>
+            <div v-show="controlsOpen === 'perms'" class="agent-card-fold">
             <div class="perm-grid">
               <div v-for="t in permEditorTools" :key="t.tool" class="perm-row">
                 <AppIcon :name="toolMeta(t.tool).icon" :size="12" />
@@ -455,6 +474,7 @@
             </div>
             <div v-if="permMsg" class="w-msg">{{ permMsg }}</div>
             <p class="agent-note">Denied tools are also hidden from the assistant, so it stops trying them instead of failing.</p>
+            </div>
           </div>
           <UiEmpty
             v-if="!chatConfig"
@@ -497,20 +517,16 @@
           </div>
 
           <template v-else>
-            <div class="agent-thread-head">
+            <div class="agent-thread-head" :title="`Context ${fmtTokens(contextTokens)} / ${fmtTokens(contextWindow)} · In ${fmtTokens(viewing.usage.inputTokens)} · Out ${fmtTokens(viewing.usage.outputTokens)}${costUsd != null ? ` · ~$${costLabel}` : ''}`">
               <div class="agent-thread-title">
                 <strong>{{ viewing.title }}</strong>
                 <span class="dim">{{ viewing.model }} · {{ viewing.agentKind === 'plan' ? 'Plan' : 'Build' }}</span>
               </div>
-              <div class="w-actions thread-actions">
-                <UiButton size="xs" :disabled="!viewing.messages.length || jobActive" title="Summarize into a fresh conversation (keeps this one)" @click="compactThread">Summarize</UiButton>
-                <span class="meter" title="Estimated transcript size vs the model window — estimate, not billed usage">
-                  <span class="meter-label">Context {{ fmtTokens(contextTokens) }} / {{ fmtTokens(contextWindow) }} ({{ contextPct }}%)</span>
-                  <span class="ctx-bar"><span class="ctx-fill" :class="ctxTone" :style="{ width: contextPct + '%' }" /></span>
-                </span>
-                <span class="meter-label" title="Provider-reported cumulative tokens">In {{ fmtTokens(viewing.usage.inputTokens) }} · Out {{ fmtTokens(viewing.usage.outputTokens) }}</span>
-                <span v-if="costUsd != null" class="meter-label" title="Approximate list price — estimate">~${{ costLabel }}</span>
-              </div>
+              <span class="meter" aria-hidden="true">
+                <span class="ctx-bar"><span class="ctx-fill" :class="ctxTone" :style="{ width: contextPct + '%' }" /></span>
+                <span class="meter-label">{{ contextPct }}%</span>
+              </span>
+              <UiButton size="xs" :disabled="!viewing.messages.length || jobActive" title="Summarize into a fresh conversation (keeps this one)" @click="compactThread">Summarize</UiButton>
             </div>
 
             <div ref="messagesEl" class="agent-messages">
@@ -684,6 +700,10 @@
                   {{ charCount ? `${charCount} chars` : 'Enter ↵ send' }} · / commands
                 </span>
                 <span class="composer-spacer" />
+                <select v-if="voice.isSupported.value" class="voice-lang" :value="voice.lang.value" aria-label="Dictation language" title="Dictation language: English (EN) or Portuguese (PT-BR)" @change="voice.setLang(($event.target as HTMLSelectElement).value as 'en-US' | 'pt-BR')">
+                  <option value="en-US">EN</option>
+                  <option value="pt-BR">PT</option>
+                </select>
                 <UiButton v-if="voice.isSupported.value" size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : 'Dictate your message'" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Dictate' }}</UiButton>
                 <UiButton v-if="jobActive" size="sm" variant="danger" icon="solar:stop-bold" @click="abortJob">Stop</UiButton>
                 <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend" :title="!chatConfigId ? 'Select an assistant first' : ''" @click="sendPrompt">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
@@ -717,11 +737,23 @@ import {
   listLocalConfigs,
   saveLocalConfig,
   deleteLocalConfig,
+  getLocalKey,
+  setLocalKey,
+  forgetLocalKey,
+  hasLocalKey,
   listLocalSessions,
   saveLocalSession,
   deleteLocalSession,
   abortLocalRun,
   recallBlockLocal,
+  readChatConfigId,
+  writeChatConfigId,
+  CHAT_CONFIG_EVENT,
+  CHAT_CONFIG_ID_KEY,
+  LOCAL_CONFIGS_KEY,
+  AGENT_CONFIGS_EVENT,
+  AGENT_KEYS_EVENT,
+  localKeyRevision,
   type LocalFailoverRoute,
 } from '@/composables/useAgent'
 import { agentPermissionPreset, agentErrorHint, defaultMcpServers } from '@/types'
@@ -759,7 +791,6 @@ const wasmMode = computed(() => {
     return false
   }
 })
-const transportLabel = computed(() => (wasmMode.value ? 'WASM LOCAL' : 'DESKTOP / REST'))
 
 // ── data sources (server store vs browser-local) ──
 const localPresets = ref<ProviderPreset[]>([])
@@ -777,7 +808,6 @@ const viewing = computed(() => (wasmMode.value ? localViewing.value : serverView
 const serverViewing = ref<AgentSession | null>(null)
 const activeJob = computed(() => (wasmMode.value ? localJob.value : store.activeAgentJob))
 
-const showSetup = ref(false)
 const busy = ref(false)
 const keyBusy = ref(false)
 const modelBusy = ref(false)
@@ -802,13 +832,48 @@ const form = reactive({
   maxTurns: 25,
 })
 
-const chatConfigId = ref('')
+// Shared with CodeStudio via localStorage — picking an assistant here switches
+// it there too (and vice versa), so the sealed key is never asked for twice.
+const chatConfigId = ref(readChatConfigId())
 const promptInput = ref('')
+
+function adoptSharedChatConfig(id: string) {
+  if (!id || chatConfigId.value === id) return
+  const ids = wasmMode.value
+    ? new Set(localConfigs.value.map(c => c.id))
+    : new Set(configs.value.map(c => c.id))
+  if (ids.size && !ids.has(id)) return
+  chatConfigId.value = id
+}
+function onSharedChatConfig(e: Event) {
+  adoptSharedChatConfig((e as CustomEvent<string>).detail ?? '')
+}
+function onSharedStorage(e: StorageEvent) {
+  if (e.key === CHAT_CONFIG_ID_KEY && e.newValue) adoptSharedChatConfig(e.newValue)
+  if (e.key === LOCAL_CONFIGS_KEY) refreshLocal()
+}
+function onSharedConfigs() { refreshLocal() }
+function onSharedKeys() { refreshLocal() }
+if (typeof window !== 'undefined') {
+  window.addEventListener(CHAT_CONFIG_EVENT, onSharedChatConfig)
+  window.addEventListener('storage', onSharedStorage)
+  window.addEventListener(AGENT_CONFIGS_EVENT, onSharedConfigs)
+  window.addEventListener(AGENT_KEYS_EVENT, onSharedKeys)
+}
+watch(chatConfigId, id => {
+  if (id && readChatConfigId() !== id) writeChatConfigId(id)
+})
 
 /* ── modern UX state (progressive disclosure, no behaviour change) ── */
 const activeTab = ref<'chat' | 'setup' | 'controls'>('chat')
 const sidebarOpen = ref(true)
 const sessionSearch = ref('')
+/** Capability strip starts collapsed — one summary line, details on demand. */
+const capsOpen = ref(false)
+/** Setup provider picker search. */
+const providerSearch = ref('')
+/** Controls accordion: only one section open at a time. */
+const controlsOpen = ref<'tools' | 'fallback' | 'perms'>('perms')
 const composerFocused = ref(false)
 const copiedKey = ref('')
 const slashOpen = ref(false)
@@ -848,11 +913,8 @@ function onComposerKey(e: KeyboardEvent) {
   else if (e.key === 'Escape') slashOpen.value = false
 }
 function openSetup() {
-  showSetup.value = true
   activeTab.value = 'setup'
 }
-watch(activeTab, t => { showSetup.value = t === 'setup' })
-watch(showSetup, v => { if (v) activeTab.value = 'setup' })
 
 /* ── voice dictation (prose mode: punctuation words → marks) ── */
 const voice = useVoiceInput('prose')
@@ -873,30 +935,16 @@ const chatConfig = computed(() => configs.value.find(c => c.id === chatConfigId.
 
 // ─── capability surface: what the agent may do, before it does it ───
 const capVisible = computed(() => !!chatConfig.value || !!viewing.value)
-const capModel = computed(() => chatConfig.value?.model || viewing.value?.model || '—')
-const capKind = computed(() =>
-  (chatConfig.value?.agentKind ?? viewing.value?.agentKind ?? 'build') === 'plan' ? 'PLAN (READ-ONLY)' : 'BUILD (FULL ACCESS)',
-)
-const capWorkingDir = computed(() => chatConfig.value?.workingDir || viewing.value?.workingDir || '/')
-const capShell = computed(() => {
-  const mode = chatConfig.value?.shellMode ?? 'auto'
-  return mode === 'cybsh' ? 'SHELL: CYBSH' : mode === 'device' ? 'SHELL: DEVICE' : 'SHELL: AUTO'
-})
-const capHasKey = computed(() => {
-  const cfg = chatConfig.value
-  if (!cfg) return false
-  return cfg.hasKey || isKeyless(cfg)
-})
 
-const BROWSER_TOOLS = ['read', 'write', 'edit', 'list', 'grep', 'glob', 'bash', 'task', 'question', 'memory_recall', 'memory_remember']
-const NATIVE_TOOLS = ['read', 'write', 'edit', 'list', 'grep', 'glob', 'bash', 'task', 'question', 'memory_recall', 'memory_remember']
+// One tool list for both transports (native parity: the same 11 tools;
+// wasm-only limits surface per-tool via `unsupported`, not a second list).
+const AGENT_TOOLS = ['read', 'write', 'edit', 'list', 'grep', 'glob', 'bash', 'task', 'question', 'memory_recall', 'memory_remember']
 
 /** Per-tool default action, evaluated through the same `decide` as the loop. */
 const toolPerms = computed(() => {
   const cfg = chatConfig.value
   if (!cfg) return []
-  const tools = wasmMode.value ? BROWSER_TOOLS : NATIVE_TOOLS
-  const base = toolPermissions(cfg.permission, cfg.agentKind, tools).map(p => ({
+  const base = toolPermissions(cfg.permission, cfg.agentKind, AGENT_TOOLS).map(p => ({
     ...p,
     unsupported: false,
   }))
@@ -1033,8 +1081,112 @@ async function refreshMcpTools() {
 
 async function compactThread() {
   if (!viewing.value || !viewing.value.messages.length || jobActive.value) return
+  // Browser build: same one-no-tools-turn shape as the native
+  // `compact_session` (summary → fresh "(compacted)" session, old kept for
+  // revert, handoff stored to local memory best-effort).
+  if (wasmMode.value) {
+    await compactThreadLocal()
+    return
+  }
   const compacted = await store.compactAgentSession(viewing.value.configId, viewing.value.id)
   if (compacted) setViewing(compacted)
+}
+
+/** Local compaction: summarize via one provider turn, then start a fresh
+ * session seeded with the handoff (native `compact_session_for` parity). */
+async function compactThreadLocal() {
+  const session = viewing.value
+  if (!session || !session.messages.length || jobActive.value) return
+  const cfg = localConfigs.value.find(c => c.id === session.configId)
+  if (!cfg) {
+    store.notifyError('No local config', 'save one in SETUP first')
+    return
+  }
+  const preset = localPresetFor(cfg)
+  const base = (cfg.baseUrlOverride || preset?.baseUrl || '').replace(/\/$/, '')
+  if (!base) {
+    store.notifyError('No endpoint', 'set an endpoint override or pick a preset with one')
+    return
+  }
+  const key = localKeys.value[cfg.id] ?? getLocalKey(cfg.id) ?? ''
+  if (!key && !(preset?.keyless ?? false)) {
+    store.notifyError('No API key', 'paste the key in SETUP (kept in memory only)')
+    return
+  }
+  const dialect = (cfg.dialectOverride ?? preset?.dialect ?? 'openAi') as 'openAi' | 'anthropic'
+  const auth = (cfg.authSchemeOverride ?? preset?.auth ?? 'bearer') as 'bearer' | 'header' | 'query' | 'none'
+  const headers: Array<[string, string]> = [...(preset?.extraHeaders ?? [])]
+  if (auth === 'bearer' && key) headers.push(['Authorization', `Bearer ${key}`])
+  else if (auth === 'header') headers.push([cfg.authNameOverride || preset?.authName || 'x-api-key', key])
+  const url =
+    auth === 'query'
+      ? `${base}${dialect === 'anthropic' ? '/v1/messages' : '/chat/completions'}?${encodeURIComponent(cfg.authNameOverride || preset?.authName || 'key')}=${encodeURIComponent(key)}`
+      : dialect === 'anthropic' ? `${base}/v1/messages` : `${base}/chat/completions`
+  // Native handoff shape: newest-first, 1 KiB/msg, 80 KiB total cap.
+  const handoff = [...session.messages]
+    .reverse()
+    .map(m => `${m.role}: ${(m.content ?? '').slice(0, 1024)}`)
+    .join('\n\n')
+    .slice(0, 80 * 1024)
+  if (!handoff.trim()) return
+  busy.value = true
+  try {
+    const { wasmAgentPrompt } = await import('@/composables/useWasmBackend')
+    const res = await wasmAgentPrompt({
+      url,
+      dialect,
+      model: cfg.model,
+      headers,
+      system: 'You compress session transcripts into actionable handoffs. Output the summary only.',
+      messages: [{
+        role: 'user',
+        content: `Summarize this coding session into a handoff for a fresh agent: decisions made, files changed, errors seen, and the next concrete step. Be specific with file paths and tool results.\n\nTRANSCRIPT:\n${handoff}`,
+      }],
+      tools: false,
+    })
+    if (!res.ok || !res.turn?.content?.trim()) {
+      store.notifyError('Compaction failed', res.error ?? 'integrity: compaction produced an empty summary')
+      return
+    }
+    const summary = res.turn.content.trim()
+    const now = localNow()
+    const inTokens = res.turn.usage?.inputTokens ?? 0
+    const outTokens = res.turn.usage?.outputTokens ?? 0
+    const compacted: AgentSession = {
+      id: newLocalId('ses'),
+      title: `${session.title.slice(0, 48)} (compacted)`,
+      configId: session.configId,
+      providerId: session.providerId,
+      model: session.model,
+      agentKind: session.agentKind,
+      workingDir: session.workingDir,
+      messages: [{
+        role: 'user',
+        content: `Previous session summary (compacted at ${now}):\n${summary}`,
+      }],
+      usage: {
+        inputTokens: session.usage.inputTokens + inTokens,
+        outputTokens: session.usage.outputTokens + outTokens,
+      },
+      createdAt: now,
+      updatedAt: now,
+    }
+    saveLocalSession(compacted)
+    // Handoff doubles as long-term memory (best-effort, never breaks compact).
+    try {
+      const { localMemories } = await import('@/composables/useAgent')
+      localMemories.remember(cfg.id, summary, 'compactHandoff')
+    } catch {
+      // Memory must never break compaction.
+    }
+    refreshLocal()
+    setViewing(compacted)
+    store.notifySuccess('Session compacted — old transcript kept for revert')
+  } catch (e) {
+    store.notifyError('Compaction failed', e)
+  } finally {
+    busy.value = false
+  }
 }
 
 // ─── granular permission editor (P2.3): per-tool selects writing the
@@ -1044,9 +1196,8 @@ const permMsg = ref('')
 const permDraft = ref<Record<string, 'allow' | 'ask' | 'deny'>>({})
 
 const permEditorTools = computed(() => {
-  const tools = wasmMode.value ? BROWSER_TOOLS : NATIVE_TOOLS
   const cfg = chatConfig.value
-  return tools.map(tool => {
+  return AGENT_TOOLS.map(tool => {
     const draft = permDraft.value[tool]
     if (draft) return { tool, action: draft }
     const rule = cfg?.permission.rules[tool]
@@ -1169,6 +1320,22 @@ watch(chatConfigId, () => {
   fallbackMsg.value = ''
 })
 
+// Server-mode configs live in Pinia: adopt the selection CodeStudio persisted
+// and drop it when the config is deleted elsewhere.
+watch(() => store.agentConfigs.map(c => c.id).join(','), () => {
+  if (wasmMode.value) return
+  const ids = new Set(store.agentConfigs.map(c => c.id))
+  if (chatConfigId.value && !ids.has(chatConfigId.value)) {
+    const shared = readChatConfigId()
+    chatConfigId.value = shared && ids.has(shared) ? shared : (store.agentConfigs[0]?.id ?? '')
+  }
+  if (!chatConfigId.value) {
+    const shared = readChatConfigId()
+    if (shared && ids.has(shared)) chatConfigId.value = shared
+    else if (store.agentConfigs.length) chatConfigId.value = store.agentConfigs[0].id
+  }
+})
+
 // ─── auto-compaction (P3): meter ≥85 % with an idle thread compacts once
 // per session instead of failing the next turn with `context:` ───
 const autoCompactedFor = ref('')
@@ -1213,11 +1380,25 @@ function localNow(): string {
 }
 
 function refreshLocal() {
+  // Touch the revision so hasKey badges re-evaluate when CodeStudio seals a
+  // key into the shared in-memory vault (a non-reactive Map).
+  void localKeyRevision.value
   localConfigs.value = listLocalConfigs().map(c => ({
     ...c,
-    hasKey: !!localKeys.value[c.id] || c.hasKey,
+    hasKey: !!localKeys.value[c.id] || hasLocalKey(c.id) || c.hasKey,
   }))
   localSessions.value = listLocalSessions()
+  if (wasmMode.value) {
+    if (chatConfigId.value && !localConfigs.value.some(c => c.id === chatConfigId.value)) {
+      const shared = readChatConfigId()
+      chatConfigId.value = localConfigs.value.some(c => c.id === shared) ? shared : ''
+    }
+    if (!chatConfigId.value) {
+      const shared = readChatConfigId()
+      if (shared && localConfigs.value.some(c => c.id === shared)) chatConfigId.value = shared
+      else if (localConfigs.value.length) chatConfigId.value = localConfigs.value[0].id
+    }
+  }
 }
 
 function localPresetFor(config: AgentConfig): ProviderPreset | null {
@@ -1228,22 +1409,6 @@ function localPresetFor(config: AgentConfig): ProviderPreset | null {
   )
 }
 
-function buildLocalHeaders(
-  preset: ProviderPreset | null,
-  key: string,
-): Array<[string, string]> {
-  const headers: Array<[string, string]> = [...(preset?.extraHeaders ?? [])]
-  const auth = preset?.auth ?? 'bearer'
-  if (auth === 'bearer' && key) headers.push(['Authorization', `Bearer ${key}`])
-  else if (auth === 'header') headers.push([preset?.authName ?? 'x-api-key', key])
-  return headers
-}
-
-function localChatUrl(baseUrl: string, dialect: string): string {
-  const base = baseUrl.replace(/\/$/, '')
-  return dialect === 'anthropic' ? `${base}/v1/messages` : `${base}/chat/completions`
-}
-
 function localSystemPrompt(config: AgentConfig): string {
   const root = config.workingDir ? `/${config.workingDir}` : '/'
   return (
@@ -1251,7 +1416,7 @@ function localSystemPrompt(config: AgentConfig): string {
     `Working root: ${root}\n` +
     `Agent mode: ${config.agentKind} (plan = read-only, never edit).\n` +
     `SANDBOX: browser file volume — read/list/grep/glob/write/edit plus cybsh-subset bash, ` +
-    `one bounded read-only subagent (task), and HTTP MCP servers (mcp__*). Device shell ` +
+    `one bounded subagent (task) with the full file/shell toolset, and HTTP MCP servers (mcp__*). Device shell ` +
     `(curl/wget/git/python) and stdio MCP need the dashboard and answer unsupported: there.\n` +
     `TOOLS — paths: leading / = volume root, else working-dir-relative.\n` +
     `- read {path}: always read a file before editing it; the output ends with a ` +
@@ -1265,14 +1430,21 @@ function localSystemPrompt(config: AgentConfig): string {
     `you read so a concurrent writer cannot slip through.\n` +
     `- write {path, content}: full-file create/overwrite; prefer edit for small changes.\n` +
     `- bash {command}: cybsh volume commands (ls/cat/cp/mv/rm/mkdir/ls/search/compute); device verbs answer unsupported:.\n` +
-    `- task {goal, context?}: one bounded read-only subagent (read/list/grep/glob only, 5 turns).\n` +
+    `- task {goal, context?}: one bounded subagent with the full file/shell toolset (read/edit/write/bash, 5 turns).\n` +
+    `- self_research {query, path?, limit?}: introspect YOUR OWN source — sweep this repo for how something works, get file:line snippets back. Read-only, plan-safe. Call it before claiming how the agent works.\n` +
+    `- skill_save {name, description, content}: persist a reusable skill into the \`.cybermanju\` container (.cybermanju/skills/<name>/SKILL.md) — survives restarts, syncs across devices.\n` +
+    `- mcp_attach {name, url}: attach an HTTP MCP server to this assistant persistently (verified before saving; stdio refused here).\n` +
+    `- repo_analyze {repo, branch?}: analyze any public GitHub repo WITHOUT cloning (metadata + tree + README over HTTPS; no git needed, works everywhere).\n` +
     `- mcp__server__tool: attached HTTP MCP servers only; stdio servers answer unsupported:.\n` +
     `- memory_recall {query, top_k?}: search long-term memory (past sessions, stored facts). ` +
     `Bounded and possibly stale — verify before acting.\n` +
     `- memory_remember {text}: store ONE durable fact for future sessions; one fact per call, ` +
     `never secrets or whole files.\n` +
-    `STANDING ORDERS: AGENTS.md, SKILL.md and .cybermanju/rules.md define your instructions, ` +
+    `STANDING ORDERS: AGENTS.md, SKILL.md, .cybermanju/rules.md and persisted skills ` +
+    `(.cybermanju/skills/*/SKILL.md) define your instructions, ` +
     `so writing one always asks for approval — AUTO APPROVE never covers them.\n` +
+    `SELF-UNDERSTANDING: when asked how YOU work, call self_research first and cite the files it returns; ` +
+    `extend yourself with skill_save (knowledge) and mcp_attach (HTTP tools).\n` +
     `WORKFLOW: orient (list/glob) → read → act → verify. Small verified steps; ` +
     `never invent file contents. Denials are information — work around them, never ` +
     `retry identically. Report errors with their machine prefix. Answer concisely; ` +
@@ -1294,6 +1466,16 @@ const customPreset: ProviderPreset = {
   extraHeaders: [],
 }
 const allPresets = computed(() => [...providers.value, ...(providers.value.some(p => p.id === 'custom') ? [] : [customPreset])])
+const filteredPresets = computed(() => {
+  const q = providerSearch.value.trim().toLowerCase()
+  if (!q) return allPresets.value
+  return allPresets.value.filter(
+    p =>
+      p.label.toLowerCase().includes(q) ||
+      p.id.toLowerCase().includes(q) ||
+      (p.defaultModel ?? '').toLowerCase().includes(q),
+  )
+})
 
 function pickPreset(p: ProviderPreset) {
   form.providerId = p.id
@@ -1387,6 +1569,7 @@ async function saveKey() {
   if (!targetId || !key) return
   if (wasmMode.value) {
     localKeys.value[targetId] = key
+    setLocalKey(targetId, key)
     keyInput.value = ''
     // Keep the wizard + sidebar pointing at the config that just got its key.
     savedConfigId.value = targetId
@@ -1411,11 +1594,13 @@ async function removeCfg(id: string) {
   if (wasmMode.value) {
     deleteLocalConfig(id)
     delete localKeys.value[id]
+    forgetLocalKey(id)
     refreshLocal()
   } else {
     await store.deleteAgentConfig(id)
   }
   if (chatConfigId.value === id) chatConfigId.value = ''
+  if (readChatConfigId() === id) writeChatConfigId('')
 }
 
 async function refreshModels() {
@@ -1434,7 +1619,7 @@ async function refreshModels() {
     modelBusy.value = true
     try {
       const headers: Record<string, string> = {}
-      const key = localKeys.value[cfg?.id ?? ''] ?? ''
+      const key = localKeys.value[cfg?.id ?? ''] ?? getLocalKey(cfg?.id ?? '') ?? ''
       const auth = preset?.auth ?? 'bearer'
       if (auth === 'bearer' && key) headers['Authorization'] = `Bearer ${key}`
       else if (auth === 'header') headers[preset?.authName ?? 'x-api-key'] = key
@@ -1626,6 +1811,36 @@ let liveTimer = 0
 
 const threadRows = computed(() => buildThread(viewing.value?.messages ?? [], jobActive.value))
 
+/** Keep the newest message in view: the transcript only grows downward,
+ * so every content change pins the scroller to the bottom. */
+function scrollToBottom() {
+  void nextTick(() => {
+    const el = messagesEl.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}
+
+/** Row count + last-row content length: catches new messages AND a running
+ * turn appending to the current row (tool output, approval text). */
+const threadSignature = computed(() => {
+  const rows = threadRows.value
+  const last = rows[rows.length - 1]
+  const lastLen = last
+    ? last.kind === 'message'
+      ? (last.message.content ?? '').length
+      : JSON.stringify(last.rows ?? last).length
+    : 0
+  return [rows.length, lastLen, jobActive.value ? 1 : 0, viewing.value?.id ?? ''] as const
+})
+
+watch(threadSignature, () => scrollToBottom())
+
+// Returning to the chat tab (or opening the panel) re-pins to the newest
+// message — the thread only grows downward.
+watch(activeTab, t => {
+  if (t === 'chat') scrollToBottom()
+})
+
 const lastAssistantKey = computed(() => {
   const rows = threadRows.value
   for (let i = rows.length - 1; i >= 0; i--) {
@@ -1710,6 +1925,7 @@ async function sendPrompt() {
   if (jobActive.value) {
     queue.value.push(promptInput.value.trim())
     promptInput.value = ''
+    scrollToBottom()
     return
   }
   if (wasmMode.value) {
@@ -1718,6 +1934,7 @@ async function sendPrompt() {
   }
   const prompt = promptInput.value.trim()
   promptInput.value = ''
+  scrollToBottom()
   // Ensure a session exists for this config; the job returns transcript via polling.
   let sessionId = viewing.value && viewing.value.configId === chatConfigId.value ? viewing.value.id : undefined
   if (!sessionId) {
@@ -1750,7 +1967,7 @@ async function sendPromptLocal() {
     store.notifyError('No endpoint', 'set an endpoint override or pick a preset with one')
     return
   }
-  const key = localKeys.value[cfg.id] ?? ''
+  const key = localKeys.value[cfg.id] ?? getLocalKey(cfg.id) ?? ''
   // Fallback routes: same transcript continues on the next usable assistant
   // (extra account/key or another provider) when this one's call dies.
   const fallbackRoutes: LocalFailoverRoute[] = []
@@ -1764,7 +1981,7 @@ async function sendPromptLocal() {
       const fp = localPresetFor(fc)
       const fbase = (fc.baseUrlOverride || fp?.baseUrl || '').replace(/\/$/, '')
       if (!fbase) continue
-      const fkey = localKeys.value[fc.id] ?? ''
+      const fkey = localKeys.value[fc.id] ?? getLocalKey(fc.id) ?? ''
       if (!fkey && !(fp?.keyless ?? false)) continue
       const fdialect = (fc.dialectOverride ?? fp?.dialect ?? 'openAi') as 'openAi' | 'anthropic'
       const fauth = (fc.authSchemeOverride ?? fp?.auth ?? 'bearer') as 'bearer' | 'header' | 'query' | 'none'
@@ -1816,6 +2033,7 @@ async function sendPromptLocal() {
   saveLocalSession(session)
   refreshLocal()
   setViewing({ ...session })
+  scrollToBottom()
 
   localJob.value = {
     jobId: newLocalId('job'),
@@ -2032,6 +2250,12 @@ onBeforeUnmount(() => {
   stopVoice?.()
   if (tickTimer) window.clearInterval(tickTimer)
   if (liveTimer) window.clearInterval(liveTimer)
+  if (typeof window !== 'undefined') {
+    window.removeEventListener(CHAT_CONFIG_EVENT, onSharedChatConfig)
+    window.removeEventListener('storage', onSharedStorage)
+    window.removeEventListener(AGENT_CONFIGS_EVENT, onSharedConfigs)
+    window.removeEventListener(AGENT_KEYS_EVENT, onSharedKeys)
+  }
 })
 
 /** Offline fallback when the wasm bundle (or its catalog) is unavailable —
@@ -2069,6 +2293,11 @@ onMounted(async () => {
     return
   }
   await Promise.allSettled([store.fetchAgentProviders(), store.fetchAgentConfigs(), store.fetchAgentSessions()])
+  if (!chatConfigId.value) {
+    const shared = readChatConfigId()
+    if (shared && store.agentConfigs.some(c => c.id === shared)) chatConfigId.value = shared
+    else if (store.agentConfigs.length) chatConfigId.value = store.agentConfigs[0].id
+  }
   if (!form.model) {
     const medium = providers.value.find(p => p.id === 'openrouter')
     if (medium) pickPreset(medium)
@@ -2092,20 +2321,15 @@ onMounted(async () => {
   overflow: hidden;
 }
 
-/* ── header ── */
+/* ── header: single quiet toolbar row ── */
 .agent-header {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   min-width: 0;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: 8px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--ui-border);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--ui-surface-2) 92%, transparent),
-    color-mix(in srgb, var(--ui-surface) 75%, transparent)
-  );
+  background: var(--ui-surface);
   flex-shrink: 0;
 }
 .agent-nav-toggle {
@@ -2143,16 +2367,10 @@ onMounted(async () => {
 }
 @keyframes agent-pulse { 0%,100% { opacity: .2; transform: scale(.94);} 50% { opacity: 1; transform: scale(1.04);} }
 .agent-title { min-width: 0; flex: 1; }
-.agent-title h2 { margin: 0; font-size: 14px; font-weight: 750; letter-spacing: .01em; }
-.agent-subtitle { margin: 1px 0 0; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agent-title h2 { margin: 0; font-size: 13px; font-weight: 600; }
+.agent-subtitle { margin: 0; font-size: 11px; color: var(--ui-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .agent-subtitle-sep { margin: 0 4px; opacity: .5; }
-.agent-header-meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.agent-ctx { display: inline-flex; align-items: center; gap: 6px; }
-.agent-ctx-label { font-size: 10px; font-weight: 700; color: color-mix(in srgb, var(--ui-text) 60%, transparent); }
-.agent-ctx-bar { display: inline-block; width: 72px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--ui-text) 14%, transparent); overflow: hidden; }
-.agent-ctx-fill { display: block; height: 100%; background: var(--ui-accent); transition: width var(--ui-dur) var(--ui-ease-out); }
-.agent-ctx-fill.warn { background: var(--ui-warning); }
-.agent-ctx-fill.bad { background: var(--ui-danger); }
+.agent-header-meta { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .agent-tabs { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-md); background: color-mix(in srgb, var(--ui-surface) 70%, transparent); }
 .agent-tabs button {
   display: inline-flex; align-items: center; gap: 5px;
@@ -2175,32 +2393,46 @@ onMounted(async () => {
 .agent--sidebar-closed .agent-sidebar { display: none; }
 .agent-side-section { display: flex; flex-direction: column; gap: 8px; }
 .agent-side-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.agent-side-head h3 { margin: 0; font-size: 11px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text) 60%, transparent); display: flex; align-items: center; gap: 6px; }
+.agent-side-head h3 { margin: 0; font-size: 11px; font-weight: 600; color: var(--ui-text-3); display: flex; align-items: center; gap: 6px; }
 .agent-side-actions { display: flex; gap: 4px; }
-.agent-side-list { display: flex; flex-direction: column; gap: 6px; }
+.agent-side-list { display: flex; flex-direction: column; gap: 4px; max-height: 42%; overflow-y: auto; min-height: 0; }
 .agent-side-item {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
-  padding: 8px 10px; cursor: pointer; background: color-mix(in srgb, var(--ui-glass) 55%, transparent);
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid transparent; border-radius: var(--ui-radius-sm);
+  padding: 6px 8px; cursor: pointer; background: transparent;
   color: var(--ui-text); font: inherit; text-align: left; width: 100%;
 }
-.agent-side-item:hover { border-color: var(--ui-border-hover); }
-.agent-side-item.on { border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent); background: var(--ui-accent-softer); }
-.agent-side-item-title { font-size: 12px; font-weight: 650; flex: 1 1 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-side-item-meta { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
-.agent-side-item-btns { display: flex; gap: 4px; margin-left: auto; }
+.agent-side-item:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
+.agent-side-item:hover .agent-side-item-btns { opacity: 1; }
+.agent-side-item.on { background: var(--ui-accent-soft); }
+.agent-side-item.on .agent-side-item-btns { opacity: 1; }
+.agent-side-item-title { font-size: 12px; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-side-item-meta { font-size: 10px; color: var(--ui-text-3); flex-shrink: 0; }
+.agent-side-item-btns { display: flex; gap: 2px; margin-left: auto; opacity: 0; transition: opacity var(--ui-dur-fast) var(--ui-ease-out); }
+.agent-side-item-btns:focus-within { opacity: 1; }
 .agent-side-row { display: flex; gap: 8px; }
 .agent-side-row > * { flex: 1; min-width: 0; }
 
 .agent-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 
-/* capability strip */
+/* context line: one quiet row, details expand below */
 .agent-caps {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-  padding: 10px 14px; border-bottom: 1px solid var(--ui-hairline);
-  background: color-mix(in srgb, var(--ui-surface) 85%, transparent);
+  padding: 0 12px; border-bottom: 1px solid var(--ui-hairline);
+  background: var(--ui-surface);
   flex-shrink: 0;
 }
+.agent-caps.open { padding-bottom: 8px; }
+.agent-caps-summary {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  border: 0; background: none; color: var(--ui-text-3);
+  font: inherit; font-size: 11px; padding: 6px 0; cursor: pointer; text-align: left;
+}
+.agent-caps-summary:hover { color: var(--ui-text-2); }
+.agent-caps-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ui-success); flex-shrink: 0; }
+.agent-caps-dot.warn { background: var(--ui-warning); }
+.agent-caps-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-caps-key { font-weight: 600; color: var(--ui-warning); }
+.agent-caps-detail { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 2px; }
 .agent-cap {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 11px; font-weight: 600;
@@ -2222,11 +2454,22 @@ onMounted(async () => {
 
 /* cards (setup / controls) */
 .agent-card {
-  margin: 12px 14px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
-  padding: 12px; background: color-mix(in srgb, var(--ui-glass) 55%, transparent);
+  margin: 10px 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
+  padding: 10px 12px; background: var(--ui-surface-2);
 }
-.agent-card-title { font-size: 12px; font-weight: 750; margin: 12px 0 8px; display: flex; align-items: center; gap: 6px; }
+.agent-card-title { font-size: 12px; font-weight: 600; margin: 12px 0 8px; display: flex; align-items: center; gap: 6px; color: var(--ui-text); }
 .agent-card-title:first-child { margin-top: 0; }
+/* accordion toggle for Controls sections */
+.agent-card-toggle {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  border: 0; background: none; color: var(--ui-text);
+  font: inherit; font-size: 12px; font-weight: 600;
+  padding: 2px 0; cursor: pointer; text-align: left;
+}
+.agent-card-toggle:hover { color: var(--ui-accent); }
+.agent-card-toggle > :last-child { margin-left: auto; color: var(--ui-text-3); }
+.agent-card-fold { padding-top: 8px; }
+.preset-search { margin-bottom: 8px; }
 /* Setup tab is a direct child of the fixed-height main column: it must own
    its scroll instead of growing past the window (out-of-screen content). */
 .agent-main > .agent-card {
@@ -2256,7 +2499,7 @@ onMounted(async () => {
 .dim { color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
 
 /* legacy form helpers kept (script unchanged) */
-.preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: 10px; }
+.preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: 10px; max-height: 240px; overflow-y: auto; padding-right: 2px; }
 .preset-card {
   background: color-mix(in srgb, var(--ui-surface) 55%, transparent);
   border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-sm);
@@ -2315,13 +2558,12 @@ onMounted(async () => {
 .agent-quick-label { font-size: 12px; font-weight: 700; }
 .agent-quick-hint { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
 
-.agent-thread-head { padding: 10px 14px 6px; flex-shrink: 0; min-width: 0; overflow-x: hidden; }
-.agent-thread-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; min-width: 0; max-width: 100%; }
-.agent-thread-title strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-thread-title .dim { font-size: 10px; }
-.thread-actions { margin-bottom: 4px; }
-.meter { display: inline-flex; align-items: center; gap: 6px; }
-.meter-label { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 60%, transparent); }
+.agent-thread-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px 6px; flex-shrink: 0; min-width: 0; }
+.agent-thread-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; }
+.agent-thread-title strong { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-thread-title .dim { font-size: 10px; white-space: nowrap; }
+.meter { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.meter-label { font-size: 10px; color: var(--ui-text-3); font-variant-numeric: tabular-nums; }
 .ctx-bar { display: inline-block; width: 72px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--ui-text) 14%, transparent); overflow: hidden; }
 .ctx-fill { display: block; height: 100%; background: var(--ui-accent); transition: width var(--ui-dur) var(--ui-ease-out); }
 .ctx-fill.warn { background: var(--ui-warning); }
@@ -2345,7 +2587,7 @@ onMounted(async () => {
 }
 .role-user .msg-main { background: var(--ui-accent-softer); border-color: color-mix(in srgb, var(--ui-accent) 30%, transparent); }
 .role-tool .msg-main { background: color-mix(in srgb, var(--ui-text) 5%, transparent); }
-.msg-role { font-size: 10px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text) 55%, transparent); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+.msg-role { font-size: 11px; font-weight: 600; color: var(--ui-text-3); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
 .msg-copy { border: 0; background: none; color: inherit; opacity: .55; cursor: pointer; padding: 2px; display: inline-flex; }
 .msg-copy:hover { opacity: 1; }
 .msg-body { font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
@@ -2403,8 +2645,7 @@ onMounted(async () => {
 .diff-del { color: var(--ui-danger); background: color-mix(in srgb, var(--ui-danger) 8%, transparent); }
 .diff-add { color: var(--ui-success); background: color-mix(in srgb, var(--ui-success) 8%, transparent); }
 .diff-ctx { opacity: .75; }
-.approval.attention { animation: approval-pulse 1.6s ease-in-out infinite; }
-@keyframes approval-pulse { 0%,100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-warning) 35%, transparent); } }
+.approval.attention { box-shadow: var(--ui-shadow-2); }
 
 /* queue */
 .queue { display: flex; flex-direction: column; gap: 4px; margin: 0 14px 8px; flex-shrink: 0; min-width: 0; max-height: 25%; overflow-y: auto; overflow-x: hidden; }
@@ -2428,6 +2669,11 @@ onMounted(async () => {
   max-height: 40vh; overflow-y: auto; box-sizing: border-box;
 }
 .composer-bar { display: flex; align-items: center; gap: 8px; padding: 4px 8px 8px; }
+.voice-lang {
+  font-size: 11px; font-weight: 700; padding: 4px 6px; border-radius: 8px;
+  border: 1px solid var(--ui-border); background: var(--ui-glass); color: var(--ui-text);
+  cursor: pointer;
+}
 .composer-hint { font-size: 10px; }
 .composer-spacer { flex: 1; }
 .composer-slash {
@@ -2451,8 +2697,25 @@ onMounted(async () => {
   .tool-group { margin-left: 0; }
 }
 
+/* narrow phones: tighter chrome, wrapping thread head, full-width composer */
+@media (max-width: 560px) {
+  .agent-header { padding: 6px 8px; gap: 6px; }
+  .agent-title h2 { font-size: 12px; }
+  .agent-subtitle { font-size: 10px; }
+  .agent-caps { padding: 0 8px; }
+  .agent-thread-head { flex-wrap: wrap; padding: 6px 8px 4px; }
+  .agent-messages { padding: 4px 8px 8px; }
+  .composer { margin: 0 8px 6px; }
+  .composer-box { font-size: 16px; }
+  .agent-card { margin: 8px; padding: 10px; }
+  .preset-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); max-height: 200px; }
+  .w-row { flex-direction: column; align-items: stretch; }
+  .approval { margin: 0 8px 8px; max-height: 55%; }
+  .queue { margin: 0 8px 6px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .approval.attention, .agent-avatar-pulse { animation: none; }
+  .agent-avatar-pulse { animation: none; }
 }
 
 </style>

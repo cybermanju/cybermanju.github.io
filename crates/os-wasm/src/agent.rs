@@ -145,15 +145,9 @@ async fn agent_prompt_inner(req_json: &str) -> Result<String, String> {
     let value: serde_json::Value =
         serde_json::from_str(&text).unwrap_or(serde_json::json!({ "raw": text }));
     if !(200..300).contains(&status) {
-        let msg = value
-            .get("error")
-            .and_then(|e| {
-                e.get("message")
-                    .or_else(|| e.pointer("/message"))
-                    .and_then(|m| m.as_str())
-                    .map(str::to_string)
-            })
-            .unwrap_or_else(|| format!("HTTP {status}"));
+        // Same extraction as the native transport (object message,
+        // string-form error, code) so a 400 names the real complaint.
+        let msg = cybermanju_agent::protocol::provider_error_message(&value, status);
         return Err(cybermanju_agent::protocol::classify_provider_error(
             Some(status),
             &msg,

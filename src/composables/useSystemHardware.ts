@@ -37,7 +37,8 @@
 // | multi-screen                | window.getScreenDetails (native)          |
 // | app badge / persist quota   | navigator.setAppBadge / storage (native)  |
 
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { detectVoiceLang, VOICE_LANG_STORAGE_KEY, type VoiceLang } from '@/utils/speechCorrect'
 import {
   useDevicesList,
   useBattery,
@@ -143,6 +144,30 @@ const screens = ref<ScreenInfo[]>([])
 const nfcMessage = ref('')
 let listenersAttached = false
 
+function loadStoredSpeechLang(): VoiceLang | null {
+  try {
+    if (typeof localStorage === 'undefined') return null
+    const raw = localStorage.getItem(VOICE_LANG_STORAGE_KEY)
+    if (raw === 'pt-BR' || raw === 'en-US') return raw
+  } catch {
+    /* private mode / SSR */
+  }
+  return null
+}
+
+// Shared STT/TTS language (en-US + pt-BR): browser default (pt-* ⇒ pt-BR),
+// user pick persists so Devices voice + Speak follow the mic selectors.
+const speechLang = ref<VoiceLang>(loadStoredSpeechLang() ?? detectVoiceLang())
+if (typeof window !== 'undefined') {
+  watch(speechLang, (v) => {
+    try {
+      localStorage.setItem(VOICE_LANG_STORAGE_KEY, v)
+    } catch {
+      /* private mode — still applies for this session */
+    }
+  })
+}
+
 /** Unified "everything plugged in" list for the Devices panel / StatusBar. */
 export function useSystemHardware() {
   // VueUse — reactive, permission-aware, auto-updating where the spec allows.
@@ -176,9 +201,28 @@ export function useSystemHardware() {
   // Always default to video so Start camera works out of the box.
   const userMedia = useUserMedia({ enabled: false, constraints: { video: true, audio: false } })
   const displayMedia = useDisplayMedia({ enabled: false, video: true })
-  const speechRecognition = useSpeechRecognition({ lang: 'en-US' })
+  const speechRecognition = useSpeechRecognition({ lang: speechLang })
   const speechText = ref('CyberManju OS ready')
-  const speechSynthesis = useSpeechSynthesis(speechText, { lang: 'en-US' })
+  const speechSynthesis = useSpeechSynthesis(speechText, { lang: speechLang })
+
+  function setSpeechLang(next: VoiceLang): void {
+    if (speechLang.value === next) return
+    const wasListening = speechRecognition.isListening.value
+    if (wasListening) {
+      try {
+        speechRecognition.stop()
+      } catch {
+        /* already stopped */
+      }
+    }
+    speechLang.value = next
+  }
+
+  function toggleSpeechLang(): VoiceLang {
+    const next: VoiceLang = speechLang.value === 'pt-BR' ? 'en-US' : 'pt-BR'
+    setSpeechLang(next)
+    return next
+  }
 
   // Local files without Tauri: File System Access API + classic picker.
   const fsAccess = useFileSystemAccess({ dataType: 'Text' })
@@ -487,6 +531,7 @@ export function useSystemHardware() {
     support,
     // media capture
     userMedia, displayMedia, speechRecognition, speechSynthesis,
+    speechLang, setSpeechLang, toggleSpeechLang,
     startCamera, stopCamera, startScreenShare, stopScreenShare, speak,
     // local files
     fsAccess, fileDialog, openLocalFile, saveLocalFile, pickFiles, copyRichHtml,

@@ -397,27 +397,20 @@ onUnmounted(() => {
 
 .logo-brand {
   font-family: var(--ui-font);
-  font-size: 11.5px;
-  font-weight: 800;
-  letter-spacing: 1.6px;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--ui-text);
-  transition: color var(--ui-dur);
-}
-
-.app-logo:hover .logo-brand {
-  color: var(--ui-accent);
 }
 
 .logo-drive {
-  font-family: var(--ui-font-mono);
+  font-family: var(--ui-font);
   font-size: 10px;
-  font-weight: 700;
-  color: var(--ui-accent);
-  letter-spacing: 0.8px;
+  font-weight: 600;
+  color: var(--ui-text-3);
   padding: 1px 5px;
   border-radius: var(--ui-radius-xs);
-  background: var(--ui-accent-softer);
-  border: 1px solid color-mix(in srgb, var(--ui-accent) 30%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 7%, transparent);
+  border: 1px solid var(--ui-border);
 }
 
 .menu-items {
@@ -444,20 +437,19 @@ onUnmounted(() => {
 
 .menu-item:hover,
 .menu-item.open {
-  background: var(--ui-accent-softer);
+  background: color-mix(in srgb, var(--ui-text) 7%, transparent);
 }
 
 .menu-item:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ui-accent) 80%, transparent);
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: var(--ui-glow-soft);
 }
 
 .menu-label {
   font-family: var(--ui-font);
   font-size: var(--ui-fs-sm);
   color: var(--ui-text-2);
-  letter-spacing: 0.02em;
-  font-weight: 550;
+  font-weight: 500;
   transition: color var(--ui-dur-fast) var(--ui-ease-out);
 }
 
@@ -482,13 +474,7 @@ onUnmounted(() => {
 }
 
 .menu-dropdown::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--ui-glass-highlight) 30%, transparent);
-  border-radius: var(--ui-radius-md) var(--ui-radius-md) 0 0;
-  pointer-events: none;
+  content: none;
 }
 
 .menu-dropdown-item {
@@ -511,9 +497,8 @@ onUnmounted(() => {
 }
 
 .menu-dropdown-item:hover {
-  background: var(--ui-accent-softer);
-  color: var(--ui-text);
-  transform: translateX(3px);
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
 }
 
 .mdi-icon {
@@ -525,7 +510,7 @@ onUnmounted(() => {
 }
 
 .menu-dropdown-item:hover .mdi-icon {
-  color: var(--ui-accent);
+  color: inherit;
 }
 
 .mdi-label {
@@ -543,8 +528,11 @@ onUnmounted(() => {
 }
 
 .mdi-check {
-  color: var(--ui-accent);
+  color: inherit;
   display: inline-flex;
+}
+.menu-dropdown-item:hover .mdi-check {
+  color: inherit;
 }
 
 .menu-divider {

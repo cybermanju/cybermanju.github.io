@@ -64,12 +64,10 @@ defineExpose({ el: selectRef })
 }
 
 .ui-select__label {
-  font-family: var(--ui-font-mono);
+  font-family: var(--ui-font);
   font-size: var(--ui-fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ui-text-3);
+  font-weight: 600;
+  color: var(--ui-text-2);
 }
 
 .ui-select__control {
@@ -92,8 +90,8 @@ defineExpose({ el: selectRef })
 }
 
 .ui-select__control:focus-within {
-  border-color: color-mix(in srgb, var(--ui-accent) 70%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 15%, transparent);
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-glow-soft);
 }
 
 .ui-select__native {

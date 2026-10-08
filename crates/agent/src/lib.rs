@@ -20,6 +20,7 @@ pub mod memory;
 pub mod protocol;
 pub mod providers;
 pub mod redact;
+pub mod self_research;
 pub mod stream;
 
 pub use config::{decide, match_wildcard, PermissionDecision};

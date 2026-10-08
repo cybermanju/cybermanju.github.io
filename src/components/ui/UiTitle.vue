@@ -109,22 +109,20 @@ const compact = computed(() => win.isNarrow.value || win.compact.value)
 }
 
 .ui-title__badge {
-  font-family: var(--ui-font-mono);
-  font-size: var(--ui-fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-family: var(--ui-font);
+  font-size: 11px;
+  font-weight: 600;
   padding: 1px 8px;
   border-radius: var(--ui-radius-full);
-  color: var(--ui-accent);
-  background: var(--ui-accent-softer);
-  border: 1px solid color-mix(in srgb, var(--ui-accent) 32%, transparent);
+  color: var(--ui-text-2);
+  background: color-mix(in srgb, var(--ui-text) 7%, transparent);
+  border: 1px solid var(--ui-border);
 }
 
 .ui-title__subtitle {
-  font-family: var(--ui-font-mono);
+  font-family: var(--ui-font);
   font-size: var(--ui-fs-xs);
   color: var(--ui-text-3);
-  letter-spacing: 0.04em;
   margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;

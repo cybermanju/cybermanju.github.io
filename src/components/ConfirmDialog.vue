@@ -97,11 +97,9 @@ function handleCancel() { emit('cancel'); emit('update:visible', false) }
 
 .confirm-header {
   font-size: var(--ui-fs-md);
-  font-weight: 800;
+  font-weight: 600;
   color: var(--ui-text);
   margin-bottom: 8px;
-  letter-spacing: var(--ui-tracking-wide);
-  text-transform: uppercase;
 }
 
 .confirm-body {

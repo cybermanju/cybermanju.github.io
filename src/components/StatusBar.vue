@@ -231,7 +231,7 @@ const agentTip = computed(() => {
   height: 100%;
   width: 40%;
   border-radius: inherit;
-  background: linear-gradient(90deg, transparent, var(--ui-accent), transparent);
+  background: var(--ui-accent);
   animation: sb-progress 1.2s ease-in-out infinite;
 }
 
@@ -252,7 +252,6 @@ const agentTip = computed(() => {
   white-space: nowrap;
   color: var(--ui-text-3);
   font-size: var(--ui-fs-xs);
-  letter-spacing: 0.04em;
 }
 
 .sb-div {
@@ -261,18 +260,17 @@ const agentTip = computed(() => {
 }
 
 .sb-badge {
-  font-weight: 700;
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  color: var(--ui-accent);
-  background: var(--ui-accent-softer);
-  border: 1px solid color-mix(in srgb, var(--ui-accent) 34%, transparent);
+  font-weight: 600;
+  font-size: 10px;
+  color: var(--ui-text-2);
+  background: color-mix(in srgb, var(--ui-text) 7%, transparent);
+  border: 1px solid var(--ui-border);
   padding: 1px 6px;
   border-radius: var(--ui-radius-full);
 }
 
 .sb-hash {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--ui-text-3);
 }
 
@@ -283,10 +281,8 @@ const agentTip = computed(() => {
 }
 
 .sb-tech {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--ui-text-faint);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   padding-left: 8px;
 }
 
@@ -294,17 +290,15 @@ const agentTip = computed(() => {
  * the bar keeps its height; absolute Pages URLs so they resolve from the
  * desktop and Docker builds too, not just the static host. */
 .sb-legal {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--ui-text-faint);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   padding: 2px 2px 2px 8px;
   text-decoration: none;
   white-space: nowrap;
 }
 
 .sb-legal:hover {
-  color: var(--ui-accent);
+  color: var(--ui-text-2);
   text-decoration: underline;
 }
 

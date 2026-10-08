@@ -33,6 +33,9 @@ pub use task::{
 /// `cybsh` — the system terminal: tokenizer, parser and the command table.
 pub mod shell;
 
+/// `.cybsh` scripts — interpreted automation over the same shell (`run`).
+pub mod script;
+
 pub use shell::{
     command_table, completions, execute, parse_ai_command, parse_sync_start, run, AiCommand,
     SyncStart,

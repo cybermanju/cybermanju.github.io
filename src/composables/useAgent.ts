@@ -10,8 +10,11 @@
 // (last-match-wins wildcards, plan denies mutations, deny beats auto).
 // Cross-device parity: `bash` runs the cybsh volume subset locally
 // (`wasmOsDispatch('exec')`); device-only verbs proxy to the dashboard when
-// reachable, else answer `unsupported:`. `task` runs one bounded read-only
-// subagent inline (depth-1, 5 turns). `mcp__*` runs Streamable-HTTP servers
+// reachable, else answer `unsupported:`. `task` runs one bounded subagent
+// (depth-1, 5 turns, full file/shell toolset) — foreground waits inline,
+// `background:true` detaches (id now, results injected as new messages
+// while the parent keeps working, waited for at the end; 8 concurrent max,
+// totals unbounded). `mcp__*` runs Streamable-HTTP servers
 // over `fetch`; `stdio` servers need desktop/Docker and answer `unsupported:`.
 
 import { ref } from 'vue'
@@ -35,16 +38,115 @@ import type {
 } from '@/types'
 
 const SESSIONS_KEY = 'cybermanju.agent.sessions.v1'
-const CONFIGS_KEY = 'cybermanju.agent.configs.v1'
+export const LOCAL_CONFIGS_KEY = 'cybermanju.agent.configs.v1'
+const CONFIGS_KEY = LOCAL_CONFIGS_KEY
 const MEMORIES_KEY = 'cybermanju.agent.memories.v1'
+
+/** Shared "active assistant" selection — AgentPanel + CodeStudio read/write
+ *  the same id so switching configs in one panel follows in the other. */
+export const CHAT_CONFIG_ID_KEY = 'cybermanju.agent.chatConfigId.v1'
+export const CHAT_CONFIG_EVENT = 'cybermanju:agent-chatconfig-changed'
+export const AGENT_CONFIGS_EVENT = 'cybermanju:agent-configs-changed'
+export const AGENT_KEYS_EVENT = 'cybermanju:agent-keys-changed'
+
+export function readChatConfigId(): string {
+  try {
+    return localStorage.getItem(CHAT_CONFIG_ID_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function writeChatConfigId(id: string): void {
+  try {
+    if (id) localStorage.setItem(CHAT_CONFIG_ID_KEY, id)
+    else localStorage.removeItem(CHAT_CONFIG_ID_KEY)
+  } catch {
+    // Private mode — selection simply doesn't persist.
+  }
+  try {
+    window.dispatchEvent(new CustomEvent<string>(CHAT_CONFIG_EVENT, { detail: id }))
+  } catch {
+    // Non-DOM test env.
+  }
+}
+
+function emitAgentEvent(name: string): void {
+  try {
+    window.dispatchEvent(new CustomEvent(name))
+  } catch {
+    // Non-DOM test env.
+  }
+}
+
+/** Bumped whenever an in-memory provider key is sealed/forgotten so panels
+ *  whose `hasKey` badges depend on the non-reactive vault can refresh. */
+export const localKeyRevision = ref(0)
 
 /** Native parity: one nesting level, five turns, 64KiB tool cap. */
 export const BROWSER_TASK_MAX_DEPTH = 1
 export const BROWSER_SUBAGENT_MAX_TURNS = 5
 const TOOL_OUTPUT_CAP = 65536
 const SUBAGENT_SUMMARY_CAP = 4000
-/** Subagent toolset: read-only investigation (glob included for volume use). */
-const SUBAGENT_TOOLS = new Set(['read', 'list', 'grep', 'glob'])
+/** Subagent toolset: full file/shell tools plus memory recall/remember (available, never required). Never nested task, questions, or MCP. */
+const SUBAGENT_TOOLS = new Set(['read', 'list', 'grep', 'glob', 'self_research', 'repo_analyze', 'edit', 'write', 'bash', 'memory_recall', 'memory_remember'])
+
+/** Max detached background subagents per run (native `MAX_BG_SUBAGENTS` parity).
+ *  Only *concurrent* workers are capped — finished slots are reusable, so a
+ *  run may fan out as widely as the work needs. */
+export const MAX_BG_SUBAGENTS = 8
+
+/** Tool result for a detached `task background:true` spawn — the id the
+ *  completion arrives under. Byte-identical wording to native
+ *  `agent_loop::bg_started_message` so the model learns one shape. */
+export function bgStartedMessage(id: string, goal: string): string {
+  return `background subagent ${id} started for \`${goal}\` — keep working; its result arrives automatically as a new message.`
+}
+
+/** Transcript injection for a finished background subagent (native
+ *  `agent_loop::bg_finished_message` parity). */
+export function bgFinishedMessage(id: string, result: string): string {
+  return `background subagent ${id} finished:\n${result}`
+}
+
+/** One detached background subagent: the promise plus its id. Totals are
+ *  unbounded — only *concurrent* workers are capped (native `BgSubagent`
+ *  parity); finished slots are reusable so the parent may fan out as widely
+ *  as the work needs. */
+export type BgEntry = {
+  id: string
+  goal: string
+  promise: Promise<string>
+  result: string | null
+  settled: boolean
+}
+
+/** Honest refusal when all background slots are busy (native `run_task` parity). */
+export function bgBusyMessage(running: number): string {
+  return `busy: ${running} background subagents already running (cap ${MAX_BG_SUBAGENTS}) — wait for results to arrive, or use a foreground task`
+}
+
+/** Finished workers, harvested without blocking. */
+export function sweepBgTasks(pending: BgEntry[]): Array<{ id: string; result: string }> {
+  const done: Array<{ id: string; result: string }> = []
+  for (let i = pending.length - 1; i >= 0; i--) {
+    if (pending[i].settled) {
+      const entry = pending.splice(i, 1)[0]
+      done.push({ id: entry.id, result: entry.result ?? '(subagent produced no text)' })
+    }
+  }
+  // Preserve spawn order for stable transcript injection.
+  return done.reverse()
+}
+
+/** Wait until every entry settles (or the run aborts). Waiting itself never
+ *  ends a run — the caller injects the results and keeps looping. */
+async function waitBgSettled(pending: BgEntry[]): Promise<void> {
+  while (pending.some(p => !p.settled)) {
+    if (abortRequested) return
+    await new Promise(r => setTimeout(r, 200))
+  }
+}
 
 /** Shell-style wildcard: `*` spans any run, `?` exactly one char. */
 export function matchWildcard(pattern: string, input: string): boolean {
@@ -123,6 +225,8 @@ function salientArg(input: Record<string, unknown>): string {
     (input.glob as string) ??
     (input.query as string) ??
     (input.url as string) ??
+    (input.repo as string) ??
+    (input.name as string) ??
     (input.text as string) ??
     ''
   )
@@ -137,7 +241,10 @@ export function decideLocalTool(
   tool: string,
   input: Record<string, unknown>,
 ): LocalDecision {
-  if (agentKind === 'plan' && (tool === 'edit' || tool === 'write' || tool === 'bash')) {
+  // Plan persona: read-only. skill_save writes a file, mcp_attach mutates
+  // the config — both denied like edit/write/bash. self_research and
+  // repo_analyze are read-only and stay available.
+  if (agentKind === 'plan' && (tool === 'edit' || tool === 'write' || tool === 'bash' || tool === 'skill_save' || tool === 'mcp_attach')) {
     return { kind: 'deny', reason: `deny: plan agent may not run \`${tool}\`` }
   }
   const rule = rules.rules[tool]
@@ -265,6 +372,16 @@ async function wasmList(path: string): Promise<string> {
   if (Array.isArray(res)) return res.join('\n')
   if (!res.ok) throw new Error(res.output || `not_found: ${path}`)
   return res.output
+}
+
+/** The dispatcher's empty-directory sentence is for humans, never a filename. */
+export const EMPTY_DIR_NOTE = '(empty directory)'
+
+export function splitVolumeListing(output: string): string[] {
+  return output
+    .split('\n')
+    .map(s => s.trim())
+    .filter(s => s && s !== EMPTY_DIR_NOTE)
 }
 
 /** Cap tool output like native `TOOL_OUTPUT_CAP` (char-boundary safe). */
@@ -615,7 +732,7 @@ async function execLocalTool(
   call: { name: string; input: Record<string, unknown> },
   cwd: string,
   configId = '',
-  ctx: { depth: number; opts?: LocalRunOpts } = { depth: 0 },
+  ctx: { depth: number; opts?: LocalRunOpts; spawnBackground?: (goal: string, context: string) => string } = { depth: 0 },
 ): Promise<string> {
   const join = (p: string) => {
     const raw = String(p || '')
@@ -683,7 +800,7 @@ async function execLocalTool(
       const { test } = compileGrep(rawPattern)
       const start = base ? join(base) : cwd
       const listing = await wasmList(start)
-      const names = listing.split('\n').map(s => s.trim()).filter(s => s && !s.endsWith('/'))
+      const names = splitVolumeListing(listing).filter(s => !s.endsWith('/'))
       const matches: string[] = []
       for (const name of names.slice(0, 200)) {
         const full = start === '/' ? `/${name}` : `${start}/${name}`
@@ -713,7 +830,7 @@ async function execLocalTool(
         const dir = stack.pop()!
         let names: string[]
         try {
-          names = (await wasmList(dir)).split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('.'))
+          names = splitVolumeListing(await wasmList(dir)).filter(s => !s.startsWith('.'))
         } catch {
           continue
         }
@@ -769,6 +886,13 @@ async function execLocalTool(
       }
       if (!ctx.opts) throw new Error('unsupported: subagent needs the parent run context — retry from the Agent panel')
       const context = String(call.input.context ?? '').trim()
+      // Detached spawn: id now, results injected as new messages while the
+      // parent keeps working. Totals are unbounded (concurrent cap only).
+      // Root-level only — deeper levels fall through to the foreground
+      // depth gate (native `run_task` parity).
+      if (call.input.background === true && ctx.depth === 0 && ctx.spawnBackground) {
+        return ctx.spawnBackground(goal, context)
+      }
       return runLocalSubagent(goal, context, ctx.opts, configId, ctx.depth)
     }
     case 'question':
@@ -784,12 +908,226 @@ async function execLocalTool(
     case 'memory_remember': {
       const text = String(call.input.text ?? '').trim().slice(0, MEMORY_TEXT_CAP_CHARS)
       if (!text) throw new Error('invalid: nothing memorable after cleaning')
-      if (ctx.depth > 0) {
-        throw new Error('deny: subagents cannot store memories — report findings to the parent run')
-      }
+      // Available at every depth (parent config scope) — never required.
       const row = localMemories.remember(configId || 'browser', text)
       if (!row) throw new Error('invalid: nothing memorable after cleaning')
       return `remembered ${row.id} (${row.text.length} chars, keyword-only: no embeddings on this transport)`
+    }
+    case 'self_research': {
+      // Introspection entry point (a real tool, not prompt text): sweep the
+      // agent's own volume for how something works, read the top hits,
+      // return file:line-grounded snippets. Read-only, plan-safe.
+      const query = String(call.input.query ?? '').trim()
+      if (!query) throw new Error('invalid: query is required')
+      const limit = Math.min(12, Math.max(1, Number(call.input.limit ?? 8) || 8))
+      const sub = String(call.input.path ?? '').trim()
+      const start = sub ? join(sub) : cwd
+      const want = query.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 2)
+      if (!want.length) throw new Error('invalid: query has no searchable terms')
+      const isSource = (n: string) =>
+        /\.(rs|ts|vue|md|toml|json)$/i.test(n) || n === 'Dockerfile' || n === 'AGENTS.md' || n === 'SKILL.md'
+      const all: string[] = []
+      const stack = [start]
+      let seen = 0
+      while (stack.length && seen < 2000 && all.length < 2000) {
+        const dir = stack.pop()!
+        let names: string[]
+        try {
+          names = splitVolumeListing(await wasmList(dir)).filter(s => !s.startsWith('.'))
+        } catch {
+          continue
+        }
+        for (const name of names) {
+          if (name.endsWith('/')) {
+            const base = name.slice(0, -1)
+            if (['node_modules', 'target', 'dist', 'dist-wasm', 'build', '.git'].includes(base)) continue
+            stack.push(dir === '/' ? `/${base}` : `${dir}/${base}`)
+            continue
+          }
+          if (!isSource(name)) continue
+          seen++
+          const full = dir === '/' ? `/${name}` : `${dir}/${name}`
+          const rel = full === start ? name : full.startsWith(`${start}/`) ? full.slice(start.length + 1) : full.replace(/^\//, '')
+          all.push(rel)
+        }
+      }
+      const scored = all
+        .map(p => {
+          const lower = p.toLowerCase()
+          let score = 0
+          for (const w of want) if (lower.includes(w)) score++
+          if (score > 0 && /\.(rs|ts|vue|md)$/i.test(p)) score++
+          return { p, score }
+        })
+        .filter(r => r.score > 0)
+        .sort((a, b) => b.score - a.score || (a.p < b.p ? -1 : 1))
+        .slice(0, limit)
+      if (!scored.length) return `self_research: no files match \`${query}\` — try broader terms or list/glob first`
+      let re: RegExp | null = null
+      try {
+        re = new RegExp(query)
+      } catch {
+        re = null
+      }
+      let out = `self_research: \`${query}\` (${scored.length} files)\n`
+      for (const { p } of scored) {
+        const full = p.startsWith('/') ? p : start === '/' ? `/${p}` : `${start}/${p}`
+        let text = ''
+        try {
+          text = await wasmRead(full)
+        } catch {
+          continue
+        }
+        out += `\n=== ${p} ===\n`
+        let shown = 0
+        text.split('\n').forEach((line, i) => {
+          if (shown >= 12) return
+          const hit = re ? (() => { try { return re!.test(line) } catch { return false } })() : line.toLowerCase().includes(query.toLowerCase())
+          if (hit) {
+            out += `  L${i + 1}: ${line.trim().slice(0, 240)}\n`
+            shown++
+          }
+        })
+        if (!shown) out += `  (no query lines; head)\n${text.slice(0, 800)}\n`
+        if (out.length > 32768) break
+      }
+      out += '\nRead full files with `read` for exact code; cite file:line.'
+      return out.length > 32768 ? `${out.slice(0, 32768)}\n… truncated at 32 KiB` : out
+    }
+    case 'skill_save': {
+      // Persist into the `.cybermanju` container so skills survive restarts
+      // and sync across devices with provider data (native parity).
+      const name = String(call.input.name ?? '').trim()
+      if (!/^[A-Za-z0-9._-]{1,64}$/.test(name)) {
+        throw new Error('invalid: skill name must be 1-64 chars of [A-Za-z0-9._-]')
+      }
+      const description = String(call.input.description ?? '').trim().slice(0, 500)
+      if (!description) throw new Error('invalid: description is required')
+      const content = String(call.input.content ?? '').trim()
+      if (!content) throw new Error('invalid: content is required')
+      if (content.length > 8192) throw new Error(`too_large: skill content is ${content.length} bytes, cap is 8192`)
+      const rel = `.cybermanju/skills/${name}/SKILL.md`
+      const path = cwd === '/' ? `/${rel}` : rel.startsWith('/') ? rel : `/${rel}`
+      const file = `---\nname: ${name}\ndescription: ${description}\nversion: 1\ntools: [read, list, grep, glob]\n---\n${content}\n`
+      await wasmWrite(path, file)
+      return `saved skill '${name}' → ${rel} (${file.length} bytes; folded into future prompts, syncs with provider data)`
+    }
+    case 'mcp_attach': {
+      // Verify-then-persist an HTTP MCP server on this config. stdio is
+      // refused (needs the desktop app or Docker server).
+      const name = String(call.input.name ?? '').trim()
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) {
+        throw new Error('invalid: MCP server name must be 1-64 chars of [A-Za-z0-9_-]')
+      }
+      const url = String(call.input.url ?? '').trim()
+      if (!/^https?:\/\//.test(url)) {
+        throw new Error('invalid: mcp_attach needs an http(s) url (stdio servers spawn processes — attach those from the desktop UI)')
+      }
+      const idBase = Math.floor(Math.random() * 1000000)
+      const init = await mcpHttpRoundtrip(url, [], 'initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: {} },
+        clientInfo: { name: 'cybermanju', version: '0.1.1' },
+      }, idBase + 1)
+      unwrapMcpResponse(init.value)
+      const listed = await mcpHttpRoundtrip(url, [], 'tools/list', {}, idBase + 2)
+      const result = unwrapMcpResponse(listed.value) as Record<string, unknown>
+      const tools = Array.isArray(result.tools) ? result.tools : []
+      try {
+        const raw = localStorage.getItem(CONFIGS_KEY) ?? '[]'
+        const all = JSON.parse(raw) as AgentConfig[]
+        const i = all.findIndex(c => c.id === configId)
+        if (i < 0) throw new Error(`not_found: config is not on this device`)
+        const cfg = all[i]
+        cfg.mcpServers = cfg.mcpServers ?? {}
+        cfg.mcpServers[name] = { transport: 'http', args: [], env: {}, headers: [], enabled: true, url } as McpServerConfig
+        localStorage.setItem(CONFIGS_KEY, JSON.stringify(all))
+      } catch (e) {
+        if (e instanceof Error && /not_found|config/.test(e.message)) throw e
+        throw new Error(`not_found: cannot persist MCP server (${e instanceof Error ? e.message : String(e)})`)
+      }
+      return `attached MCP '${name}' (${url}) — ${tools.length} tools verified; takes effect on the next run (mcp__${name}__*)`
+    }
+    case 'repo_analyze': {
+      // Git-free GitHub analysis over plain HTTPS: metadata + recursive tree
+      // + README. No git binary, so it works on WASM/mobile too.
+      const slugRaw = String(call.input.repo ?? call.input.url ?? '').trim()
+      const slug = slugRaw
+        .replace(/^https?:\/\/github\.com\//, '')
+        .replace(/^github\.com\//, '')
+        .replace(/\.git$/, '')
+        .replace(/^\/+|\/+$/g, '')
+      const parts = slug.split('/').filter(Boolean)
+      if (parts.length < 2) throw new Error(`invalid: '${slugRaw}' is not owner/repo — try \`owner/repo\``)
+      const [owner, repo] = parts
+      if (!/^[A-Za-z0-9._-]{1,100}$/.test(owner) || !/^[A-Za-z0-9._-]{1,100}$/.test(repo)) {
+        throw new Error(`invalid: bad repo slug '${owner}/${repo}'`)
+      }
+      const gh = async (url: string) => {
+        const ctrl = new AbortController()
+        const timer = setTimeout(() => ctrl.abort(), 30000)
+        try {
+          const r = await fetch(url, {
+            headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'cybermanju-os' },
+            signal: ctrl.signal,
+          })
+          if (r.status === 404) throw new Error(`not_found: repo '${owner}/${repo}' not found or private`)
+          if (r.status === 403 || r.status === 429) throw new Error(`rate_limited: GitHub API throttled the request (HTTP ${r.status})`)
+          if (!r.ok) throw new Error(`network: GitHub API HTTP ${r.status}`)
+          return (await r.json()) as Record<string, unknown>
+        } catch (e) {
+          if (e instanceof Error && /^(not_found|rate_limited|network):/.test(e.message)) throw e
+          throw new Error(`network: GitHub request failed (${e instanceof Error ? e.message : String(e)})`)
+        } finally {
+          clearTimeout(timer)
+        }
+      }
+      const meta = await gh(`https://api.github.com/repos/${owner}/${repo}`)
+      const branch = String(call.input.branch ?? '').trim() || String(meta.default_branch ?? 'main')
+      const tree = await gh(`https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`)
+      let readmeHead = ''
+      try {
+        const rm = await gh(`https://api.github.com/repos/${owner}/${repo}/readme`)
+        const b64 = String(rm.content ?? '').replace(/\s+/g, '')
+        if (b64) {
+          const bin = atob(b64)
+          const bytes = Uint8Array.from(bin, c => c.charCodeAt(0))
+          readmeHead = new TextDecoder().decode(bytes).slice(0, 1500)
+        }
+      } catch {
+        // Missing docs never fail the analysis.
+      }
+      const blobs = (Array.isArray(tree.tree) ? tree.tree : [])
+        .filter((e: unknown) => (e as Record<string, unknown>).type === 'blob')
+        .map((e: unknown) => String((e as Record<string, unknown>).path ?? ''))
+        .filter(Boolean)
+        .slice(0, 500)
+      const exts = new Map<string, number>()
+      for (const p of blobs) {
+        const dot = p.lastIndexOf('.')
+        const slash = p.lastIndexOf('/')
+        if (dot > slash + 1 && p.length - dot <= 9) {
+          const e = p.slice(dot + 1).toLowerCase()
+          exts.set(e, (exts.get(e) ?? 0) + 1)
+        }
+      }
+      const topExts = [...exts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([e, n]) => `${e}×${n}`).join(' ') || '(none)'
+      const entryFiles = ['README.md', 'ARCHITECTURE.md', 'AGENTS.md', 'Cargo.toml', 'package.json', 'go.mod', 'pyproject.toml', 'Dockerfile', 'docker-compose.yml']
+        .filter(n => blobs.some(p => p === n || p.endsWith(`/${n}`)))
+      const top = new Map<string, number>()
+      for (const p of blobs) {
+        const first = p.split('/')[0]
+        top.set(first, (top.get(first) ?? 0) + 1)
+      }
+      const layout = [...top.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([d, n]) => `  ${d}/ (${n})`).join('\n')
+      let out =
+        `repo: ${owner}/${repo} (branch ${branch}, ★${String(meta.stargazers_count ?? 0)}, primary ${String(meta.language ?? '?')})\n` +
+        `desc: ${String(meta.description ?? '(no description)')}\n` +
+        `files: ${blobs.length} blobs | exts: ${topExts}\n` +
+        `start here: ${entryFiles.length ? entryFiles.join(', ') : '(no standard entry files)'}\nlayout:\n${layout}\n`
+      if (readmeHead.trim()) out += `readme:\n${readmeHead}\n`
+      out += 'next: read entry files above, then glob/grep the layout dirs.'
+      return out.length > 32768 ? `${out.slice(0, 32768)}\n… truncated at 32 KiB` : out
     }
     default: {
       if (call.name.startsWith('mcp__')) {
@@ -925,8 +1263,8 @@ export async function runLocalAgent(
 
 /**
  * Bounded inline subagent (native `run_subagent` parity): same provider,
- * read-only tool subset, isolated transcript, no approval parking, no
- * nested subagents, no memory writes. Returns the parent-facing summary.
+ * full file/shell toolset plus memory tools, isolated transcript, no
+ * approval parking, no nested subagents. Returns the parent-facing summary.
  */
 async function runLocalSubagent(
   goal: string,
@@ -939,7 +1277,7 @@ async function runLocalSubagent(
     ...parentOpts,
     maxTurns: Math.min(BROWSER_SUBAGENT_MAX_TURNS, Math.max(1, parentOpts.maxTurns)),
     agentKind: 'build',
-    system: `${parentOpts.system}\nSUBAGENT TOOLSET: this run has \`read\`, \`list\`, \`grep\` and \`glob\` only — no edit, write, bash, task, question or memory writes. Investigate and report; the parent acts on it.`,
+    system: `${parentOpts.system}\nSUBAGENT TOOLSET: this run has \`read\`, \`list\`, \`grep\`, \`glob\`, \`self_research\`, \`repo_analyze\`, \`edit\`, \`write\`, \`bash\` and the memory tools (\`memory_recall\`, \`memory_remember\` — use them when past context or a durable lesson helps) — no task or question. Investigate, edit and verify; the parent reviews it.`,
     configId,
   }
   const subMessages: ChatMessage[] = [
@@ -979,8 +1317,8 @@ async function runLoopInternal(
   // Refusal breaker (Hermes parity): three `no`s on one tool stop the loop
   // from parking on the human for the same call a fourth time.
   const breaker = new DenialBreaker()
-  // Parent runs advertise discovered HTTP MCP tools; subagents stay
-  // read-only with no MCP (native parity).
+  // Parent runs advertise discovered HTTP MCP tools; subagents run the
+  // full file/shell subset with no MCP and no nesting (native parity).
   let extraTools: Array<Record<string, unknown>> = []
   if (isRoot && opts.configId) {
     try {
@@ -989,6 +1327,53 @@ async function runLoopInternal(
     } catch {
       extraTools = []
     }
+  }
+  // Detached background subagents (`task background:true`): spawned by the
+  // `task` branch via `spawnBackground` below, harvested without blocking
+  // after every batch, waited for when the model would otherwise stop.
+  // Totals are unbounded — only concurrent workers are capped (native
+  // `MAX_BG_SUBAGENTS` parity) and finished slots are reusable.
+  const bgPending: BgEntry[] = []
+  let bgNext = 0
+  // Spawn one detached subagent: id now, result injected as a new message
+  // while the parent keeps working. Root-level only — subagents never nest.
+  const spawnBackground = isRoot
+    ? (goal: string, context: string): string => {
+      const runningCount = bgPending.filter(p => !p.settled).length
+      if (runningCount >= MAX_BG_SUBAGENTS) return bgBusyMessage(runningCount)
+      bgNext += 1
+      const id = `bg-${bgNext}`
+      const entry: BgEntry = { id, goal, promise: Promise.resolve(''), result: null, settled: false }
+      // Detach: the subagent runs with the parent provider route and an
+      // isolated transcript; completion lands in `entry` via settled flag
+      // so the parent loop never blocks on it mid-run.
+      entry.promise = runLocalSubagent(goal, context, opts, opts.configId ?? '', depth).then(
+        result => {
+          entry.result = result
+          entry.settled = true
+          return result
+        },
+        e => {
+          const detail = e instanceof Error ? e.message : String(e)
+          entry.result = `subagent failed: ${detail}`
+          entry.settled = true
+          return entry.result
+        },
+      )
+      bgPending.push(entry)
+      return bgStartedMessage(id, goal)
+    }
+    : undefined
+  /** Harvest finished workers into the transcript as new user messages. */
+  const injectSettledBg = (): boolean => {
+    if (!bgPending.length) return false
+    const done = sweepBgTasks(bgPending)
+    if (!done.length) return false
+    for (const { id, result } of done) {
+      messages.push({ role: 'user', content: bgFinishedMessage(id, result) })
+    }
+    onUpdate?.()
+    return true
   }
   // Active provider route: the primary first, then fallbacks on terminal
   // errors. The transcript is provider-neutral, so the same thread
@@ -1064,6 +1449,17 @@ async function runLoopInternal(
       if (!turnData.tool_calls.length) {
         messages.push({ role: 'assistant', content: turnData.content })
         onUpdate?.()
+        // The model stopped calling tools — but background subagents may
+        // still be running. Wait for them and feed their results back as
+        // new messages instead of ending mid-flight (native `drain_bg_tasks`
+        // parity). Waiting never ends the run; the loop continues.
+        if (isRoot && bgPending.length) {
+          localActivity.value = `waiting for ${bgPending.filter(p => !p.settled).length || bgPending.length} background subagent(s)`
+          onUpdate?.()
+          await waitBgSettled(bgPending)
+          if (abortRequested) return { stopped: 'aborted' as const }
+          if (injectSettledBg()) continue
+        }
         return { stopped: 'done' }
       }
       messages.push({
@@ -1117,8 +1513,9 @@ async function runLoopInternal(
           continue
         }
         localActivity.value = activityLine(call.name, input)
-        // Subagents never park on approvals and never mutate: read-only
-        // subset enforced here (runtime gate mirrors native `run_subagent`).
+        // Subagents never park on approvals and never nest/ask/remember: the
+        // full file/shell subset is enforced here (runtime gate mirrors
+        // native `run_subagent`).
         if (depth > 0) {
           if (!SUBAGENT_TOOLS.has(call.name)) {
             messages.push({
@@ -1209,7 +1606,7 @@ async function runLoopInternal(
         }
         if (decision.kind === 'allow') breaker.record(call.name, false)
         try {
-          const output = await execLocalTool(call, '/', opts.configId ?? '', { depth, opts })
+          const output = await execLocalTool(call, '/', opts.configId ?? '', { depth, opts, spawnBackground })
           // Native `clean_output` parity: secrets never reach the transcript.
           messages.push({ role: 'tool', content: cleanToolOutput(output), toolCallId: call.id, toolName: call.name })
         } catch (e) {
@@ -1221,6 +1618,21 @@ async function runLoopInternal(
         }
         onUpdate?.()
       }
+      // Harvest finished background subagents without blocking: their
+      // results arrive as new user messages so the next turn sees them
+      // while the parent kept working meanwhile (native `sweep_bg_tasks`
+      // parity).
+      if (isRoot) injectSettledBg()
+    }
+    // Turn budget is spent, but background results must not be lost: wait
+    // for them and save them to the transcript before stopping (native
+    // `LimitReached` drain parity) — the next run continues from saved state.
+    if (isRoot && bgPending.length) {
+      localActivity.value = `waiting for ${bgPending.filter(p => !p.settled).length || bgPending.length} background subagent(s)`
+      onUpdate?.()
+      await waitBgSettled(bgPending)
+      if (!abortRequested) injectSettledBg()
+      else return { stopped: 'aborted' as const }
     }
     return { stopped: 'limit' }
   } finally {
@@ -1245,6 +1657,33 @@ function activityLine(name: string, input: Record<string, unknown>): string {
 }
 
 // ─── local configs + sessions (localStorage; keys never persisted) ──
+// Provider keys live in memory only — this module-level vault is the single
+// shared holder so the setup wizards and the Agent panel see the same keys
+// within one page load (a reload clears them by design).
+
+const localKeyVault = new Map<string, string>()
+
+export function setLocalKey(configId: string, key: string): void {
+  if (!configId) return
+  if (key) localKeyVault.set(configId, key)
+  else localKeyVault.delete(configId)
+  localKeyRevision.value++
+  emitAgentEvent(AGENT_KEYS_EVENT)
+}
+
+export function getLocalKey(configId: string): string {
+  return localKeyVault.get(configId) ?? ''
+}
+
+export function hasLocalKey(configId: string): boolean {
+  return localKeyVault.has(configId)
+}
+
+export function forgetLocalKey(configId: string): void {
+  localKeyVault.delete(configId)
+  localKeyRevision.value++
+  emitAgentEvent(AGENT_KEYS_EVENT)
+}
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -1272,6 +1711,7 @@ export function saveLocalConfig(config: AgentConfig): void {
   const all = listLocalConfigs().filter(c => c.id !== config.id)
   all.push({ ...config, hasKey: false })
   writeJson(CONFIGS_KEY, all)
+  emitAgentEvent(AGENT_CONFIGS_EVENT)
 }
 
 export function deleteLocalConfig(id: string): void {
@@ -1279,6 +1719,7 @@ export function deleteLocalConfig(id: string): void {
     CONFIGS_KEY,
     listLocalConfigs().filter(c => c.id !== id),
   )
+  emitAgentEvent(AGENT_CONFIGS_EVENT)
 }
 
 export function listLocalSessions(): AgentSession[] {
@@ -1337,6 +1778,10 @@ export function useAgent() {
     listLocalConfigs,
     saveLocalConfig,
     deleteLocalConfig,
+    setLocalKey,
+    getLocalKey,
+    hasLocalKey,
+    forgetLocalKey,
     listLocalSessions,
     saveLocalSession,
     deleteLocalSession,

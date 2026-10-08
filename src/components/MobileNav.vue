@@ -91,9 +91,10 @@ function go(t: Tab) {
   right: 0;
   min-height: 60px;
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  background: var(--ui-surface);
-  border-top: 1px solid var(--ui-border-strong);
-  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.55), 0 -1px 0 color-mix(in srgb, var(--ui-accent) 25%, transparent);
+  background: var(--ui-glass-2);
+  backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
+  border-top: 1px solid var(--ui-border);
   z-index: 100;
   font-family: var(--ui-font);
 }
@@ -103,33 +104,30 @@ function go(t: Tab) {
   min-width: 0;
   background: transparent;
   border: none;
-  color: color-mix(in srgb, var(--ui-text) 45%, transparent);
+  color: var(--ui-text-3);
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-height: 60px;
+  min-height: 56px;
   padding: 6px 2px calc(6px + env(safe-area-inset-bottom, 0px));
   border-radius: 0;
-  transition: transform 120ms ease-out, color 120ms ease-out;
+  transition: color 120ms ease-out;
 }
 .mn-btn:active {
-  transform: scale(0.92);
-  color: var(--ui-accent);
+  color: var(--ui-text-2);
 }
 
 .mn-label {
-  font-size: 9.5px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
+  font-size: 10px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .mn-btn.active {
   color: var(--ui-accent);
-  text-shadow: 0 0 10px color-mix(in srgb, var(--ui-accent) 60%, transparent);
 }
 
 @media (max-width: 768px) {

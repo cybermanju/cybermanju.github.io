@@ -1,11 +1,12 @@
 <!-- CyberManju OS — first-run setup wizard.
-  //
-  // Six one-job steps, every one skippable: welcome → vault (bind a
-  // `.cybermanju` file via the OS picker) → local sync (folder picker, no
-  // typed paths) → cloud (broker + one-click sign-in) → agent AI (optional)
-  // → done summary. Shown once on first launch; Help → "Setup wizard"
-  // re-opens it any time. Closing via ✕ or Escape leaves the "seen" flag
-  // unset, so the wizard returns next launch until finish/skip. -->
+//
+// Seven one-job steps, every one skippable: welcome → vault (bind a
+// `.cybermanju` file via the OS picker) → local sync (folder picker, no
+// typed paths) → cloud (broker + one-click sign-in) → disks (one system
+// disk per provider, with its cloud folder + files) → agent AI (optional)
+// → done summary. Shown once on first launch; Help → "Setup wizard"
+// re-opens it any time. Closing via ✕ or Escape leaves the "seen" flag
+// unset, so the wizard returns next launch until finish/skip. -->
 <template>
   <div class="sw-overlay" role="presentation" @keydown.esc="close">
     <div
@@ -45,10 +46,11 @@
       <main class="sw-body">
         <!-- ── 1 · welcome ── -->
         <section v-if="step === 'welcome'" class="sw-section">
-          <p class="sw-lead">3 quick things. Skip anything.</p>
+          <p class="sw-lead">4 quick things. Skip anything.</p>
           <ul class="sw-list">
             <li><AppIcon name="solar:diskette-bold" :size="16" /><span><strong>Vault</strong> — where your files live.</span></li>
             <li><AppIcon name="solar:folder-bold" :size="16" /><span><strong>Sync</strong> — mirror a folder, add cloud later.</span></li>
+            <li><AppIcon name="solar:hard-drive-bold" :size="16" /><span><strong>Disks</strong> — a system disk per provider, with its cloud folder + files.</span></li>
             <li><AppIcon name="solar:bot-bold" :size="16" /><span><strong>Agent</strong> <em class="sw-opt">optional</em> — chat + automation.</span></li>
           </ul>
           <div class="sw-actions">
@@ -167,21 +169,62 @@
 
           <div class="sw-actions">
             <button class="sw-btn" type="button" @click="go('sync')">Back</button>
+            <button class="sw-btn primary" type="button" @click="go('disks')">Next</button>
+            <button class="sw-link" type="button" @click="go('disks')">Skip</button>
+          </div>
+        </section>
+
+        <!-- ── 5 · disks (substep: one system disk per provider) ── -->
+        <section v-if="step === 'disks'" class="sw-section">
+          <div v-if="store.disks.length" class="sw-status ok">
+            <AppIcon name="solar:check-circle-bold" :size="16" />
+            <span>{{ store.disks.length }} disk{{ store.disks.length === 1 ? '' : 's' }} attached</span>
+          </div>
+          <p v-else class="sw-hint">No system disk yet — pick a provider below. Drive gets a <code>cybermanju-disks/&lt;disk&gt;</code> folder with its <code>.cybermanju</code> files; GitHub/GitLab get a private repo (created when missing) with the same seed.</p>
+
+          <label class="sw-field">
+            <span class="sw-label">Provider</span>
+            <select v-model="diskConfigId" class="sw-input">
+              <option value="">Pick a connected provider…</option>
+              <option v-for="c in store.syncConfigs" :key="c.id" :value="c.id">{{ c.name || c.backendType }} ({{ c.backendType }})</option>
+            </select>
+          </label>
+
+          <div class="sw-row">
+            <label class="sw-field">
+              <span class="sw-label">Size (MB)</span>
+              <input v-model.number="diskSizeMb" class="sw-input" type="number" min="64" max="8192" step="64" />
+            </label>
+            <label class="sw-field grow">
+              <span class="sw-label">Passphrase (encrypts the disk)</span>
+              <input v-model="diskPassphrase" class="sw-input" type="password" placeholder="leave empty for now" autocomplete="new-password" />
+            </label>
+          </div>
+
+          <div class="sw-row">
+            <button class="sw-btn primary" type="button" :disabled="diskBusy || !diskConfigId" @click="createDiskStep">
+              {{ diskBusy ? 'Creating…' : 'Create & attach disk' }}
+            </button>
+          </div>
+          <p v-if="diskMsg" class="sw-note" :class="diskOk === false ? 'err' : diskOk ? 'ok' : ''">{{ diskMsg }}</p>
+
+          <div class="sw-actions">
+            <button class="sw-btn" type="button" @click="go('cloud')">Back</button>
             <button class="sw-btn primary" type="button" @click="go('agent')">Next</button>
             <button class="sw-link" type="button" @click="go('agent')">Skip</button>
           </div>
         </section>
 
-        <!-- ── 5 · agent (optional) ── -->
+        <!-- ── 6 · agent (optional) ── -->
         <section v-if="step === 'agent'" class="sw-section">
-          <div v-if="!canAgent" class="sw-banner info">
+          <div v-if="isStatic" class="sw-banner info">
             <AppIcon name="solar:info-circle-bold" :size="15" />
-            <span>Needs the desktop app or Docker server. Skip — set it up later in Agent.</span>
+            <span>Browser build — saved locally in this browser, key held in memory only (re-enter after reload).</span>
           </div>
-          <template v-else>
-            <div v-if="store.agentProviders.length" class="sw-presets" role="radiogroup" aria-label="Model provider">
+          <template v-if="canAgent">
+            <div v-if="agentProviderList.length" class="sw-presets" role="radiogroup" aria-label="Model provider">
               <button
-                v-for="p in store.agentProviders"
+                v-for="p in agentProviderList"
                 :key="p.id"
                 type="button"
                 role="radio"
@@ -217,13 +260,13 @@
             <p v-if="agentMsg" class="sw-note" :class="agentOk === false ? 'err' : ''">{{ agentMsg }}</p>
           </template>
           <div class="sw-actions">
-            <button class="sw-btn" type="button" @click="go('cloud')">Back</button>
+            <button class="sw-btn" type="button" @click="go('disks')">Back</button>
             <button class="sw-btn primary" type="button" @click="go('done')">Next</button>
             <button class="sw-link" type="button" @click="go('done')">Skip</button>
           </div>
         </section>
 
-        <!-- ── 6 · done ── -->
+        <!-- ── 7 · done ── -->
         <section v-if="step === 'done'" class="sw-section">
           <ul class="sw-summary">
             <li>
@@ -237,6 +280,10 @@
             <li>
               <AppIcon :name="oauthIdentity ? 'solar:check-circle-bold' : 'solar:minus-circle-bold'" :size="15" />
               <span>Cloud: <strong>{{ oauthIdentity ? `${oauthIdentity.provider} signed in` : 'skipped' }}</strong></span>
+            </li>
+            <li>
+              <AppIcon :name="store.disks.length ? 'solar:check-circle-bold' : 'solar:minus-circle-bold'" :size="15" />
+              <span>Disks: <strong>{{ store.disks.length ? `${store.disks.length} attached` : 'skipped' }}</strong></span>
             </li>
             <li>
               <AppIcon :name="savedAgentName ? 'solar:check-circle-bold' : 'solar:minus-circle-bold'" :size="15" />
@@ -278,7 +325,7 @@ import {
 } from '@/composables/useCyberManjuFile'
 import { syncConfigDefaults } from '@/utils/providers'
 import { agentPermissionPreset, defaultMcpServers } from '@/types'
-import type { SyncConfig } from '@/types'
+import type { AgentConfig, ProviderPreset, SyncConfig } from '@/types'
 import { humanBytes } from '@/utils/format'
 import {
   SETUP_STEPS,
@@ -295,9 +342,15 @@ const cardRef = ref<HTMLElement | null>(null)
 
 const step = ref<SetupStep>('welcome')
 
-/** Static web builds have no server to seal keys with — agent step is read-only there. */
-const canAgent = !isStaticHost()
+/** The browser (WASM/Pages) build runs the agent locally — same setup form,
+// configs in localStorage, provider catalog from the wasm bundle, keys in
+// memory only. Nothing here needs the desktop app or Docker server. */
+const canAgent = true
 const isStatic = isStaticHost()
+const wasmPresets = ref<ProviderPreset[]>([])
+const agentProviderList = computed(() =>
+  isStatic ? wasmPresets.value : store.agentProviders,
+)
 
 /** Export/Import fallback only matters where the OS picker may be missing. */
 const showVaultFallback = computed(() => isStatic || !disk.supported)
@@ -519,6 +572,73 @@ async function saveLocalSync() {
   }
 }
 
+// ── disks step: one system disk per provider (explicit substep) ──
+const diskConfigId = ref('')
+const diskSizeMb = ref(512)
+const diskPassphrase = ref('')
+const diskBusy = ref(false)
+const diskMsg = ref('')
+const diskOk = ref<boolean | null>(null)
+
+/** Saved secret first, live OAuth session second (same precedence as Accounts). */
+async function diskTokenFor(cfg: SyncConfig): Promise<string> {
+  if (typeof cfg.token === 'string' && cfg.token.trim()) return cfg.token.trim()
+  try {
+    const session = await supabaseSession()
+    const prov = session ? supabaseSessionProvider(session) : null
+    const { supabaseProviderFor } = await import('@/composables/useSupabase')
+    if (prov && supabaseProviderFor(cfg.backendType) === prov) {
+      return session?.provider_token ?? ''
+    }
+  } catch {
+    // Session unreadable — the disk still gets created, remote warns.
+  }
+  return ''
+}
+
+async function createDiskStep() {
+  const cfg = store.syncConfigs.find(c => c.id === diskConfigId.value)
+  if (!cfg || diskBusy.value) {
+    if (!cfg) {
+      diskMsg.value = 'Pick a connected provider first (or add one in Accounts).'
+      diskOk.value = false
+    }
+    return
+  }
+  diskBusy.value = true
+  diskMsg.value = ''
+  diskOk.value = null
+  try {
+    const out = await store.createDiskWithRemote(cfg, {
+      sizeMb: Math.min(8192, Math.max(64, Math.round(diskSizeMb.value) || 512)),
+      passphrase: diskPassphrase.value,
+      diskName: cfg.name || cfg.backendType,
+      token: await diskTokenFor(cfg),
+    })
+    if (!out?.disk) {
+      diskMsg.value = 'Could not create the disk — retry.'
+      diskOk.value = false
+      return
+    }
+    diskPassphrase.value = ''
+    if (out.remote) {
+      const where = cfg.backendType === 'googleDrive'
+        ? `Drive folder \`${out.remote.remoteDir}\``
+        : `private repo \`${out.remote.config.repoName}\``
+      diskMsg.value = `Disk attached — ${where} holds its .cybermanju files. Add another, or continue.`
+      diskOk.value = true
+    } else if (out.remoteWarning) {
+      diskMsg.value = `Disk attached, but the remote seed failed: ${out.remoteWarning}`
+      diskOk.value = false
+    } else {
+      diskMsg.value = 'Disk attached.'
+      diskOk.value = true
+    }
+  } finally {
+    diskBusy.value = false
+  }
+}
+
 // ── agent step ──
 const providerId = ref('openrouter')
 const agentName = ref('')
@@ -531,15 +651,23 @@ const savedAgentId = ref('')
 const savedAgentName = ref('')
 const agentKeySealed = ref(false)
 
-const preset = computed(() => store.agentProviders.find(p => p.id === providerId.value) ?? null)
+const preset = computed(() => agentProviderList.value.find(p => p.id === providerId.value) ?? null)
 const presetDefault = computed(() => preset.value?.defaultModel ?? 'model id')
 const presetKeyless = computed(() => preset.value?.keyless ?? false)
 const canSaveAgent = computed(() => providerId.value !== '' && (model.value.trim() !== '' || presetDefault.value !== 'model id'))
 
 function pickPreset(id: string) {
   providerId.value = id
-  const p = store.agentProviders.find(x => x.id === id)
+  const p = agentProviderList.value.find(x => x.id === id)
   if (p) model.value = p.defaultModel
+}
+
+function newWizardId(prefix: string): string {
+  try {
+    return `${prefix}-${crypto.randomUUID().slice(0, 8)}`
+  } catch {
+    return `${prefix}-${Date.now().toString(36)}`
+  }
 }
 
 async function saveAssistant() {
@@ -548,6 +676,45 @@ async function saveAssistant() {
   agentMsg.value = ''
   agentOk.value = null
   try {
+    // Browser build: same shapes as Agent → Setup, kept in localStorage;
+    // the key is shared in-memory so Agent can chat immediately.
+    if (isStatic) {
+      const { saveLocalConfig, setLocalKey } = await import('@/composables/useAgent')
+      const now = new Date().toISOString()
+      const id = savedAgentId.value || newWizardId('cfg')
+      const cfg: AgentConfig = {
+        id,
+        name: agentName.value.trim() || 'My assistant',
+        providerId: providerId.value,
+        model: model.value.trim() || presetDefault.value,
+        workingDir: '',
+        agentKind: 'build',
+        permission: agentPermissionPreset('balanced'),
+        autoApprove: false,
+        maxTurns: 25,
+        mcpServers: defaultMcpServers(),
+        hasKey: false,
+        createdAt: now,
+        updatedAt: now,
+      }
+      saveLocalConfig(cfg)
+      savedAgentId.value = id
+      savedAgentName.value = cfg.name
+      const key = agentKey.value.trim()
+      if (key && !presetKeyless.value) {
+        setLocalKey(id, key)
+        agentKey.value = ''
+        agentKeySealed.value = true
+        agentMsg.value = 'Saved locally — key held in memory, ready to chat in Agent.'
+        agentOk.value = true
+      } else {
+        agentMsg.value = presetKeyless.value
+          ? 'Saved locally — ready to chat in Agent.'
+          : 'Saved locally — paste the key in Agent → Setup (memory-only).'
+        agentOk.value = true
+      }
+      return
+    }
     const saved = await store.saveAgentConfig({
       name: agentName.value.trim() || 'My assistant',
       providerId: providerId.value,
@@ -615,15 +782,38 @@ onMounted(async () => {
     if (brokerOk.value && !sbMsg.value) sbMsg.value = 'Connected.'
   }
   await refreshIdentity().catch(() => {})
-  await Promise.allSettled([store.fetchSyncConfigs(), store.fetchAgentConfigs()])
-  if (canAgent) {
-    await store.fetchAgentProviders().catch(() => {})
-    if (store.agentProviders.length && !store.agentProviders.some(p => p.id === providerId.value)) {
-      pickPreset(store.agentProviders[0].id)
-    } else {
-      const p = store.agentProviders.find(x => x.id === providerId.value)
-      if (p && !model.value) model.value = p.defaultModel
+  await Promise.allSettled([store.fetchSyncConfigs(), store.fetchDisks(), store.fetchAgentConfigs()])
+  if (isStatic) {
+    try {
+      const { wasmAgentCatalog } = await import('@/composables/useWasmBackend')
+      const presets = (await wasmAgentCatalog()) as ProviderPreset[]
+      if (presets.length) wasmPresets.value = presets
+    } catch {
+      wasmPresets.value = []
     }
+    // Prefer an existing local assistant so re-opening the wizard edits it.
+    try {
+      const { listLocalConfigs } = await import('@/composables/useAgent')
+      const existing = listLocalConfigs()
+      if (existing.length && !existing.some(c => c.id === savedAgentId.value)) {
+        const first = existing[0]
+        savedAgentId.value = first.id
+        savedAgentName.value = first.name
+        providerId.value = first.providerId
+        model.value = first.model
+        agentName.value = first.name
+      }
+    } catch {
+      // localStorage unavailable — presets still render.
+    }
+  } else {
+    await store.fetchAgentProviders().catch(() => {})
+  }
+  if (agentProviderList.value.length && !agentProviderList.value.some(p => p.id === providerId.value)) {
+    pickPreset(agentProviderList.value[0].id)
+  } else {
+    const p = agentProviderList.value.find(x => x.id === providerId.value)
+    if (p && !model.value) model.value = p.defaultModel
   }
 })
 </script>

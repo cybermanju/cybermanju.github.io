@@ -45,14 +45,12 @@ withDefaults(
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-family: var(--ui-font-mono);
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  font-family: var(--ui-font);
+  font-weight: 600;
   white-space: nowrap;
-  border: 1px solid transparent;
+  border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-full);
-  background: var(--ui-surface-2);
+  background: color-mix(in srgb, var(--ui-text) 5%, var(--ui-surface-2));
   color: var(--ui-text-2);
   transition:
     background-color var(--ui-dur) var(--ui-ease-out),
@@ -60,7 +58,7 @@ withDefaults(
     color var(--ui-dur) var(--ui-ease-out);
 }
 
-.ui-badge--sm { font-size: 9.5px; padding: 2px 8px; }
+.ui-badge--sm { font-size: 11px; padding: 2px 8px; }
 .ui-badge--md { font-size: var(--ui-fs-xs); padding: 3px 10px; }
 
 .ui-badge:not(.ui-badge--pill) { border-radius: var(--ui-radius-xs); }
@@ -85,33 +83,33 @@ withDefaults(
 }
 
 .ui-badge--accent {
-  background: var(--ui-accent-softer);
-  color: var(--ui-accent);
-  border-color: color-mix(in srgb, var(--ui-accent) 35%, transparent);
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+  border-color: transparent;
 }
 
 .ui-badge--success {
-  background: color-mix(in srgb, var(--ui-success) 14%, transparent);
+  background: color-mix(in srgb, var(--ui-success) 13%, transparent);
   color: var(--ui-success);
-  border-color: color-mix(in srgb, var(--ui-success) 35%, transparent);
+  border-color: transparent;
 }
 
 .ui-badge--warning {
   background: color-mix(in srgb, var(--ui-warning) 14%, transparent);
   color: var(--ui-warning);
-  border-color: color-mix(in srgb, var(--ui-warning) 35%, transparent);
+  border-color: transparent;
 }
 
 .ui-badge--danger {
-  background: color-mix(in srgb, var(--ui-danger) 14%, transparent);
+  background: color-mix(in srgb, var(--ui-danger) 12%, transparent);
   color: var(--ui-danger);
-  border-color: color-mix(in srgb, var(--ui-danger) 38%, transparent);
+  border-color: transparent;
 }
 
 .ui-badge--info {
-  background: color-mix(in srgb, var(--ui-info) 14%, transparent);
+  background: color-mix(in srgb, var(--ui-info) 13%, transparent);
   color: var(--ui-info);
-  border-color: color-mix(in srgb, var(--ui-info) 35%, transparent);
+  border-color: transparent;
 }
 
 .ui-badge--outline {

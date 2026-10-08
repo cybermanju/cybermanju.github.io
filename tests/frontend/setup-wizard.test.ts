@@ -3,6 +3,7 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import {
   SETUP_SEEN_KEY,
+  SETUP_STEP_LABELS,
   SETUP_STEPS,
   clearSetupSeen,
   markSetupSeen,
@@ -36,7 +37,7 @@ describe('setup wizard state', () => {
   })
 
   it('walks forward and clamps on done', () => {
-    const order: SetupStep[] = ['welcome', 'vault', 'sync', 'cloud', 'agent', 'done']
+    const order: SetupStep[] = ['welcome', 'vault', 'sync', 'cloud', 'disks', 'agent', 'done']
     expect([...SETUP_STEPS]).toEqual(order)
     let s: SetupStep = 'welcome'
     for (const expected of order.slice(1)) {
@@ -48,6 +49,8 @@ describe('setup wizard state', () => {
 
   it('walks back and clamps on welcome', () => {
     expect(prevSetupStep('done')).toBe('agent')
+    expect(prevSetupStep('agent')).toBe('disks')
+    expect(prevSetupStep('disks')).toBe('cloud')
     expect(prevSetupStep('cloud')).toBe('sync')
     expect(prevSetupStep('sync')).toBe('vault')
     expect(prevSetupStep('vault')).toBe('welcome')
@@ -59,7 +62,14 @@ describe('setup wizard state', () => {
     expect(setupStepIndex('vault')).toBe(2)
     expect(setupStepIndex('sync')).toBe(3)
     expect(setupStepIndex('cloud')).toBe(4)
-    expect(setupStepIndex('agent')).toBe(5)
-    expect(setupStepIndex('done')).toBe(6)
+    expect(setupStepIndex('disks')).toBe(5)
+    expect(setupStepIndex('agent')).toBe(6)
+    expect(setupStepIndex('done')).toBe(7)
+  })
+
+  it('exposes a disks substep between cloud and agent', () => {
+    expect(SETUP_STEPS[SETUP_STEPS.indexOf('cloud') + 1]).toBe('disks')
+    expect(SETUP_STEPS[SETUP_STEPS.indexOf('disks') + 1]).toBe('agent')
+    expect(SETUP_STEP_LABELS.disks).toBe('Disks')
   })
 })

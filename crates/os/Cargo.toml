@@ -6,6 +6,7 @@ description = "CyberManju OS layer: cybsh terminal, task table, compute fan-out,
 
 [dependencies]
 anyhow = "1"
+base64 = "0.22"
 blake3 = "1"
 # RFC3339 timestamps for task rows and shell history (same 0.4 as cybermanju-sync).
 chrono = { version = "0.4", features = ["serde"] }

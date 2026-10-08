@@ -20,6 +20,7 @@ import type {
   SyncBackendType,
 } from '@/types'
 import { MODULE_METADATA, oauthSlugForBackend, describeSyncError, agentErrorHint } from '@/types'
+import { isSyncSuccess, isSyncTerminal, firstSyncError, refreshAfterSync as fanOutSyncRefresh, syncSummaryLine } from '@/utils/syncRefresh'
 import { parseStarIds, serializeStarIds } from '@/utils/stars'
 import { setAuthToken, getAuthToken, isWebMode, isStaticHost } from '@/composables/useTauri'
 
@@ -76,6 +77,10 @@ export const useAppStore = defineStore('cybermanju', () => {
   const syncJobs = ref<SyncJob[]>([])
   const syncRuns = ref<SyncRunRecord[]>([])
   const syncStatus = ref<{ syncEnabled: boolean; status: string; lastSync?: string | null; provider?: string | null } | null>(null)
+  /** Last terminal sync-run timestamp — file manager + terminal watch this to auto-update. */
+  const lastSyncAt = ref(0)
+  /** Summary of the last finished run (toast text + terminal `sys` notice). */
+  const lastSyncSummary = ref('')
 
   // ── Durability State (AGENT-7) ──────────────────────────────
   const repairStatus = ref<RepairStatus | null>(null)
@@ -1099,18 +1104,44 @@ export const useAppStore = defineStore('cybermanju', () => {
     try {
       syncProgress.value = await invoke<SyncProgress>('get_sync_progress')
       const status = syncProgress.value?.status
-      const terminal =
-        status === 'idle' ||
-        status === 'done' ||
-        status === 'error' ||
-        status === 'completed' ||
-        status === 'cancelled'
-      if (syncProgress.value && !terminal) {
-        setTimeout(() => pollSyncProgress(), 1000)
+      if (isSyncTerminal(status)) {
+        // Terminal state: the provider data landed (or the run died), so
+        // every view that renders provider data refreshes now — file
+        // manager, volume `df`, sync status/runs — instead of going stale
+        // until a manual refresh. `lastSyncAt` is what the terminal panel
+        // watches to print its `sys` notice.
+        if (isSyncSuccess(status)) {
+          await refreshAfterSync(syncSummaryLine(syncProgress.value))
+        } else if (status === 'error') {
+          notifyError('Sync failed', firstSyncError(syncProgress.value) || 'see the sync panel for details')
+        }
+        return
       }
+      setTimeout(() => pollSyncProgress(), 1000)
     } catch (e) {
       notifyError('Failed to get sync progress', e)
     }
+  }
+
+  /**
+   * Re-fetch everything a finished provider run can change (file manager
+   * listing, volume `df`, sync status/runs) and tell sibling tabs via the
+   * `cybermanju-os` bus. Records `lastSyncAt`/`lastSyncSummary` for the
+   * terminal's auto-update notice.
+   */
+  async function refreshAfterSync(summary: string) {
+    await fanOutSyncRefresh({
+      fetchFiles: () => fetchFiles(),
+      fetchOsDf: () => fetchOsDf(),
+      fetchSyncStatus: () => fetchSyncStatus(),
+      fetchSyncRuns: () => fetchSyncRuns(),
+      postBroadcast: (message) => {
+        new BroadcastChannel('cybermanju-os').postMessage(message)
+      },
+    })
+    lastSyncSummary.value = summary
+    lastSyncAt.value = Date.now()
+    if (summary) notifySuccess(summary)
   }
 
   async function getSyncProgress() {
@@ -1181,6 +1212,9 @@ export const useAppStore = defineStore('cybermanju', () => {
     try {
       const out = await invoke<RestoreOutcome>('restore_sync_file', { configId, fileId, remotePath, destPath })
       notifySuccess(`Restored ${out.bytes} bytes to ${out.path}${out.verified ? ' (verified)' : ''}`)
+      // A restore writes local files from the provider — same auto-update
+      // as a finished run so the file manager + terminal show it at once.
+      await refreshAfterSync(`restored ${out.path} · views refreshed`)
       return out
     } catch (e) {
       notifyError('Restore failed', e)
@@ -1273,6 +1307,86 @@ export const useAppStore = defineStore('cybermanju', () => {
       notifyError('Repo seed failed', e)
       return null
     }
+  }
+
+  /** Write one file to a provider remote path (Drive folders are created server-side). */
+  async function uploadRemoteFile(config: SyncConfig, remotePath: string, contentBase64: string) {
+    try {
+      return await invoke<string>('upload_remote_file', { config, remotePath, contentBase64 })
+    } catch (e) {
+      notifyError('Remote upload failed', e)
+      return null
+    }
+  }
+
+  /**
+   * Create a disk AND land its `.cybermanju` files on the provider: Drive
+   * gets a `cybermanju-disks/<disk>` folder with manifest + vault file,
+   * GitHub/GitLab gets a private repo (created when missing) with the same
+   * seed. The disk row always survives a remote failure — it comes back as
+   * `remoteWarning` instead of a throw.
+   */
+  async function createDiskWithRemote(
+    config: SyncConfig,
+    opts: { sizeMb?: number; passphrase?: string; diskName?: string; token?: string; vaultBytes?: Uint8Array | null },
+  ) {
+    const { provisionDiskWithRemote } = await import('@/utils/diskProvision')
+    const token = opts.token?.trim() || (typeof config.token === 'string' ? config.token.trim() : '')
+    const out = await provisionDiskWithRemote({
+      config,
+      sizeMb: opts.sizeMb ?? 512,
+      passphrase: opts.passphrase ?? '',
+      diskName: opts.diskName,
+      token,
+      vaultBytes: opts.vaultBytes,
+      useDirectSeed: isStaticHost(),
+      createDisk: async (configId, sizeBytes, pass) => {
+        try {
+          const row = await invoke<DiskRow>('create_disk', { configId, sizeBytes, passphrase: pass })
+          return row ? { id: (row as DiskRow).id, name: (row as DiskRow).name } : null
+        } catch (e) {
+          notifyError('Failed to create disk', e)
+          return null
+        }
+      },
+      attachDisk: async (diskId, pass) => {
+        try {
+          await invoke('attach_disk', { id: diskId, passphrase: pass })
+        } catch {
+          // Attach is best-effort here; the disk card offers Attach.
+        }
+      },
+      provisionDeps: {
+        uploadFile: async (cfg, remotePath, contentBase64) =>
+          invoke<string>('upload_remote_file', { config: cfg, remotePath, contentBase64 }),
+        seedFiles: async (cfg, files) =>
+          invoke<string[]>('seed_repo_files', { config: cfg, files }),
+        createRepo: async (input) => createProviderRepo({
+          backendType: input.backendType,
+          token: input.token || undefined,
+          name: input.name,
+          private: input.privateRepo,
+          description: input.description,
+          branch: input.branch,
+          basePath: input.instanceUrl,
+        }),
+        saveConfig: async (c) => saveSyncConfig(c),
+        driveWriteDirect: async (input) => {
+          const { driveWriteDirect } = await import('@/utils/gitProvision')
+          return driveWriteDirect(input)
+        },
+      },
+    })
+    await Promise.allSettled([fetchDisks(), fetchOsDf(), fetchSyncConfigs()])
+    if (out.remote) {
+      const where = config.backendType === 'googleDrive'
+        ? `Drive folder \`${out.remote.remoteDir}\``
+        : `private repo \`${out.remote.config.repoName}\``
+      notifySuccess(`Disk created — ${where} holds its .cybermanju files`)
+    } else if (out.remoteWarning) {
+      notifyError('Disk created, but the remote seed failed', out.remoteWarning)
+    }
+    return out
   }
 
   async function logout() {
@@ -2153,7 +2267,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     osPs, osTop, osWorkers, osJobs, osDf, disks, shellBusy,
     trashItems, showTrashPanel, auditLog, fileVersions, dashboardStatus, shareLinks,
     searchQuery, searchTotalResults, isSearching, isLoading, lastError, wasmGapCount, matrixRainEnabled,
-    commandPaletteOpen,
+    commandPaletteOpen, lastSyncAt, lastSyncSummary,
     showShortcutsHelp, createFolderPromptOpen,
     selectedFileIds, isMultiSelect, users, autoRefreshInterval, sortBy,
     // Computed
@@ -2170,9 +2284,9 @@ export const useAppStore = defineStore('cybermanju', () => {
     parseFileCode, parseCodeText, fetchLooseGroups, createLooseGroup, addFileToLooseGroup,
     readManagedContent, saveManagedContent, readWasmFile, saveWasmFile, listWasmDir,
     fetchSyncConfigs, createSyncConfig, saveSyncConfig, probeSyncConnection, deleteSyncConfig, startSync,
-    getSyncProgress, testSyncConnection, cancelSync, listRemoteFiles,
+    getSyncProgress, testSyncConnection, cancelSync, listRemoteFiles, refreshAfterSync,
     getSyncJob, fetchSyncRuns, fetchSyncStatus, restoreSyncFile, deleteRemoteFile,
-    fetchSyncUsage, oauthStart, createProviderRepo, seedRepoFiles,
+    fetchSyncUsage, oauthStart, createProviderRepo, seedRepoFiles, uploadRemoteFile,
     fetchRepairStatus, runRepair, runRebuild, runGc, runScrub, fetchScrubRuns,
     fetchRepairTasks, fetchRepairHealth,
     acquireLease, releaseLease, fetchLeaseStatus,
@@ -2186,7 +2300,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     startAgentRun, pollAgentJob, subscribeAgentJob, abortAgentJob, approveAgentJob, initAgentRun,
     compactAgentSession, mcpAddServer, mcpRemoveServer, mcpListTools,
     agentMemories, fetchAgentMemories, storeAgentMemory, recallAgentMemories, deleteAgentMemory,
-    fetchDisks, createDisk, attachDisk, detachDisk, resizeDisk, checkDisk,
+    fetchDisks, createDisk, createDiskWithRemote, attachDisk, detachDisk, resizeDisk, checkDisk,
     // User Management
     fetchUsers, createUser, deleteUser, updateUserRole,
     // Trash

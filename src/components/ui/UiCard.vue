@@ -118,55 +118,45 @@ const onClick = (e: MouseEvent) => {
 }
 
 .ui-card--interactive:hover {
-  transform: translateY(-2px);
   border-color: var(--ui-border-hover);
-  box-shadow: var(--ui-shadow-2), var(--ui-glow-soft);
+  box-shadow: var(--ui-shadow-2);
 }
 
 .ui-card--interactive:active {
-  transform: translateY(0) scale(0.99);
+  transform: scale(0.995);
 }
 
 .ui-card--interactive:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ui-accent) 75%, transparent);
-  outline-offset: 2px;
-}
-
-.ui-card--selected {
-  border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent);
-  background: color-mix(in srgb, var(--ui-accent) 8%, var(--ui-glass));
+  outline: none;
+  border-color: var(--ui-accent);
   box-shadow: var(--ui-glow-soft);
 }
 
+.ui-card--selected {
+  border-color: var(--ui-accent);
+  background: color-mix(in srgb, var(--ui-accent) 7%, var(--ui-glass));
+}
+
 .ui-card--accent {
-  border-color: color-mix(in srgb, var(--ui-accent) 35%, transparent);
+  border-color: var(--ui-border-strong);
 }
 
 .ui-card--danger {
-  border-color: color-mix(in srgb, var(--ui-danger) 40%, transparent);
+  border-color: color-mix(in srgb, var(--ui-danger) 35%, var(--ui-border));
 }
 
+/* Quiet 2px selection edge — no glow. */
 .ui-card__rail {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
-  width: 3px;
-  background: linear-gradient(
-    180deg,
-    var(--ui-accent),
-    color-mix(in srgb, var(--ui-accent) 10%, transparent)
-  );
-  box-shadow: 0 0 12px color-mix(in srgb, var(--ui-accent) 55%, transparent);
+  width: 2px;
+  background: var(--ui-accent);
 }
 
 .ui-card--danger .ui-card__rail {
-  background: linear-gradient(
-    180deg,
-    var(--ui-danger),
-    color-mix(in srgb, var(--ui-danger) 10%, transparent)
-  );
-  box-shadow: 0 0 12px color-mix(in srgb, var(--ui-danger) 55%, transparent);
+  background: var(--ui-danger);
 }
 
 .ui-card__header {
@@ -194,9 +184,7 @@ const onClick = (e: MouseEvent) => {
 .ui-card__title {
   font-family: var(--ui-font);
   font-size: var(--ui-fs-sm);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--ui-text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -204,7 +192,7 @@ const onClick = (e: MouseEvent) => {
 }
 
 .ui-card__meta {
-  font-family: var(--ui-font-mono);
+  font-family: var(--ui-font);
   font-size: var(--ui-fs-xs);
   color: var(--ui-text-3);
   white-space: nowrap;

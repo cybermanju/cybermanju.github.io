@@ -33,6 +33,10 @@ export const AGENT_TOOL_META: Record<string, ToolMeta> = {
   question: { name: 'question', verb: 'Asking', done: 'Asked', icon: 'solar:question-circle-bold' },
   memory_recall: { name: 'memory_recall', verb: 'Recalling', done: 'Recalled', icon: 'solar:history-bold' },
   memory_remember: { name: 'memory_remember', verb: 'Remembering', done: 'Remembered', icon: 'solar:bookmark-bold' },
+  self_research: { name: 'self_research', verb: 'Researching', done: 'Researched', icon: 'solar:telescope-bold' },
+  skill_save: { name: 'skill_save', verb: 'Saving skill', done: 'Saved skill', icon: 'solar:backpack-bold' },
+  mcp_attach: { name: 'mcp_attach', verb: 'Attaching MCP', done: 'Attached MCP', icon: 'solar:plug-circle-bold' },
+  repo_analyze: { name: 'repo_analyze', verb: 'Analyzing repo', done: 'Analyzed repo', icon: 'solar:git-branch-bold' },
 }
 
 export function toolMeta(name: string): ToolMeta {
@@ -57,6 +61,8 @@ export function salientArg(input: unknown): string {
     pick('glob') ||
     pick('query') ||
     pick('url') ||
+    pick('repo') ||
+    pick('name') ||
     pick('goal') ||
     pick('question') ||
     pick('text') ||

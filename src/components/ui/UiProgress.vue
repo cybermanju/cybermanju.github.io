@@ -49,22 +49,21 @@ const clamped = computed(() => Math.max(0, Math.min(100, Math.round(props.value)
 }
 
 .ui-progress__label {
-  font-family: var(--ui-font-mono);
+  font-family: var(--ui-font);
   font-size: var(--ui-fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ui-text-3);
+  font-weight: 600;
+  color: var(--ui-text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .ui-progress__value {
-  font-family: var(--ui-font-mono);
+  font-family: var(--ui-font);
   font-size: var(--ui-fs-xs);
-  font-weight: 700;
-  color: var(--ui-accent);
+  font-weight: 600;
+  color: var(--ui-text-2);
+  font-variant-numeric: tabular-nums;
 }
 
 .ui-progress__track {

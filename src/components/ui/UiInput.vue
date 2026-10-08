@@ -124,12 +124,10 @@ defineExpose({ focus: () => inputRef.value?.focus(), el: inputRef })
 }
 
 .ui-field__label {
-  font-family: var(--ui-font-mono);
+  font-family: var(--ui-font);
   font-size: var(--ui-fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ui-text-3);
+  font-weight: 600;
+  color: var(--ui-text-2);
 }
 
 .ui-field__required {
@@ -162,9 +160,9 @@ defineExpose({ focus: () => inputRef.value?.focus(), el: inputRef })
 }
 
 .ui-field__control--focused {
-  border-color: color-mix(in srgb, var(--ui-accent) 70%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 15%, transparent);
-  background: color-mix(in srgb, var(--ui-surface-2) 80%, transparent);
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-glow-soft);
+  background: var(--ui-surface-2);
 }
 
 .ui-field--error .ui-field__control {

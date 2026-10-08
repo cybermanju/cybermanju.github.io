@@ -1,6 +1,7 @@
 import { computed, reactive, watch, type ComputedRef } from 'vue'
 import {
   DEFAULT_SETTINGS,
+  LEGACY_THEME_ALIASES,
   THEMES,
   buildCssVars,
   type GlassLevel,
@@ -27,9 +28,13 @@ function loadSettings(): ThemeSettings {
       return { ...DEFAULT_SETTINGS }
     }
     const parsed = JSON.parse(raw) as Partial<ThemeSettings>
+    const rawTheme = parsed.theme as string | undefined
+    const aliased = rawTheme && !THEMES[rawTheme as ThemeId] ? LEGACY_THEME_ALIASES[rawTheme] : undefined
     const theme =
-      parsed.theme && parsed.theme in THEMES ? parsed.theme : DEFAULT_SETTINGS.theme
-    return { ...DEFAULT_SETTINGS, ...parsed, theme: theme as ThemeId }
+      rawTheme && rawTheme in THEMES
+        ? (rawTheme as ThemeId)
+        : aliased ?? DEFAULT_SETTINGS.theme
+    return { ...DEFAULT_SETTINGS, ...parsed, theme }
   } catch {
     return { ...DEFAULT_SETTINGS }
   }

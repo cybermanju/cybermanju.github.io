@@ -681,26 +681,26 @@ async function handleRefresh() {
   align-items: center;
   justify-content: space-between;
   gap: 8px 10px;
-  padding: 12px 14px 10px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--ui-border);
   flex-shrink: 0;
 }
-.st-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.st-brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .st-brand-text { min-width: 0; }
 .st-brand-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--ui-accent) 16%, transparent);
-  color: var(--ui-accent);
-  border: 1px solid color-mix(in srgb, var(--ui-accent) 40%, transparent);
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ui-text) 6%, transparent);
+  color: var(--ui-text-2);
+  border: 1px solid var(--ui-border);
   flex-shrink: 0;
 }
-.st-title { margin: 0; font-size: 15px; letter-spacing: 0.4px; }
-.st-subtitle { margin: 1px 0 0; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.st-title { margin: 0; font-size: 13px; font-weight: 600; }
+.st-subtitle { margin: 0; font-size: 11px; color: var(--ui-text-3); }
 .st-top-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 /* status strip — connection · broker · endpoint on one wrapping line */
@@ -718,10 +718,9 @@ async function handleRefresh() {
   font-size: 12px;
 }
 .st-strip-k {
-  font-size: 10px;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--ui-text) 50%, transparent);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ui-text-3);
 }
 .st-strip-v { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .st-strip-url { margin-left: auto; }
@@ -739,30 +738,28 @@ async function handleRefresh() {
 .st-jump {
   appearance: none;
   flex: 0 0 auto;
-  border: 1px solid var(--ui-border);
+  border: 1px solid transparent;
   background: transparent;
-  color: color-mix(in srgb, var(--ui-text) 62%, transparent);
+  color: var(--ui-text-3);
   font: inherit;
-  font-size: 10px;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 500;
   padding: 5px 9px;
-  border-radius: 999px;
+  border-radius: var(--ui-radius-sm);
   cursor: pointer;
   white-space: nowrap;
   transition:
     color 0.15s var(--ui-ease-out),
-    background 0.15s var(--ui-ease-out),
-    border-color 0.15s var(--ui-ease-out);
+    background 0.15s var(--ui-ease-out);
 }
 .st-jump:hover {
   color: var(--ui-text);
-  border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 6%, transparent);
 }
 .st-jump.is-active {
-  background: color-mix(in srgb, var(--ui-accent) 16%, transparent);
-  border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent);
-  color: var(--ui-accent);
+  background: color-mix(in srgb, var(--ui-text) 9%, transparent);
+  color: var(--ui-text);
+  font-weight: 600;
 }
 
 /* body — BLOCK flow (cards are never flex children, so they can never be
@@ -900,9 +897,17 @@ async function handleRefresh() {
   gap: 10px;
   font-size: 11px;
 }
-.st-info-row dt { color: color-mix(in srgb, var(--ui-text) 55%, transparent); text-transform: uppercase; letter-spacing: 0.8px; font-size: 10px; }
+.st-info-row dt { color: var(--ui-text-3); font-size: 11px; font-weight: 500; }
 .st-info-row dd { margin: 0; font-weight: 700; }
 .st-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+@media (max-width: 560px) {
+  .st-top { padding: 6px 8px; }
+  .st-strip { margin: 8px 8px 0; }
+  .st-jumps { padding: 8px 8px 0; }
+  .st-body { padding: 8px 8px 20px; }
+  .st-brand-mark { width: 28px; height: 28px; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .st-jump { transition: none; }

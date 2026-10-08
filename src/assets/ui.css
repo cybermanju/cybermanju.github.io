@@ -1,5 +1,5 @@
 /**
- * CyberManju OS — glass & motion layer.
+ * CyberManju OS — vibrancy & motion layer.
  *
  * Utilities shared by every window, panel and overlay. Values come from the
  * `--ui-*` custom properties published by `useTheme()`, so this whole file
@@ -32,10 +32,9 @@
   box-shadow: var(--ui-shadow-2);
 }
 
-/* Specular top edge that sells the glass look on floating layers. */
+/* Faint top edge that reads as a window highlight, not a neon shine. */
 .ui-shine {
   position: relative;
-  overflow: hidden;
 }
 
 .ui-shine::before {
@@ -43,13 +42,7 @@
   position: absolute;
   inset: 0 0 auto 0;
   height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--ui-glass-highlight) 20%,
-    var(--ui-glass-highlight) 80%,
-    transparent
-  );
+  background: var(--ui-glass-highlight);
   pointer-events: none;
 }
 
@@ -57,59 +50,38 @@
 
 .ui-press {
   transition:
-    transform var(--ui-dur-fast) var(--ui-ease-out),
     background-color var(--ui-dur-fast) var(--ui-ease-out),
     border-color var(--ui-dur-fast) var(--ui-ease-out),
-    box-shadow var(--ui-dur) var(--ui-ease-out);
-}
-
-.ui-press:hover {
-  transform: translateY(-1px);
+    box-shadow var(--ui-dur-fast) var(--ui-ease-out);
 }
 
 .ui-press:active {
-  transform: translateY(0) scale(0.985);
+  transform: scale(0.99);
 }
 
 .ui-focus-ring:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ui-accent) 70%, transparent);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--ui-glow-soft);
+  border-color: var(--ui-accent);
 }
 
-/* Accent sweep that runs once when an interactive surface is hovered. */
+/* Legacy sweep hook: neutralised (no cursor-tracking glow). */
 .ui-sweep {
   position: relative;
-  overflow: hidden;
   isolation: isolate;
 }
 
 .ui-sweep::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(
-    160px circle at var(--ui-sweep-x, 50%) var(--ui-sweep-y, 50%),
-    color-mix(in srgb, var(--ui-accent) 22%, transparent),
-    transparent 70%
-  );
-  opacity: 0;
-  transition: opacity var(--ui-dur) var(--ui-ease-out);
-  pointer-events: none;
-  z-index: -1;
-}
-
-.ui-sweep:hover::after {
-  opacity: 1;
+  content: none;
 }
 
 /* ── typography helpers ───────────────────────────────────────────────── */
 
 .ui-overline {
-  font-family: var(--ui-font-mono);
-  font-size: var(--ui-fs-xs);
-  font-weight: 700;
+  font-family: var(--ui-font);
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: var(--ui-tracking-wide);
-  text-transform: uppercase;
   color: var(--ui-text-3);
 }
 
@@ -118,16 +90,10 @@
   font-variant-ligatures: none;
 }
 
+/* Legacy gradient-text hook: plain semibold text for compatibility. */
 .ui-gradient-text {
-  background: linear-gradient(
-    120deg,
-    var(--ui-text) 0%,
-    var(--ui-accent) 55%,
-    var(--ui-text) 110%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--ui-text);
+  font-weight: 600;
 }
 
 .ui-accent-text {
@@ -148,20 +114,20 @@
 @keyframes ui-rise {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.985);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
 @keyframes ui-pop {
-  0% {
+  from {
     opacity: 0;
-    transform: scale(0.92);
+    transform: scale(0.97);
   }
-  100% {
+  to {
     opacity: 1;
     transform: scale(1);
   }
@@ -170,7 +136,7 @@
 @keyframes ui-slide-in-right {
   from {
     opacity: 0;
-    transform: translateX(24px);
+    transform: translateX(12px);
   }
   to {
     opacity: 1;
@@ -196,20 +162,18 @@
 @keyframes ui-pulse-glow {
   0%,
   100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ui-accent) 40%, transparent);
+    opacity: 1;
   }
   50% {
-    box-shadow: 0 0 0 6px color-mix(in srgb, var(--ui-accent) 0%, transparent);
+    opacity: 0.6;
   }
 }
 
 @keyframes ui-sweep-in {
   from {
-    transform: scaleX(0);
     opacity: 0;
   }
   to {
-    transform: scaleX(1);
     opacity: 1;
   }
 }
@@ -223,7 +187,7 @@
 }
 
 .ui-anim-pop {
-  animation: ui-pop var(--ui-dur) var(--ui-ease-spring) both;
+  animation: ui-pop var(--ui-dur) var(--ui-ease-out) both;
 }
 
 .ui-anim-stagger > * {
@@ -231,13 +195,13 @@
 }
 
 .ui-anim-stagger > *:nth-child(1) { animation-delay: 0ms; }
-.ui-anim-stagger > *:nth-child(2) { animation-delay: 35ms; }
-.ui-anim-stagger > *:nth-child(3) { animation-delay: 70ms; }
-.ui-anim-stagger > *:nth-child(4) { animation-delay: 105ms; }
-.ui-anim-stagger > *:nth-child(5) { animation-delay: 140ms; }
-.ui-anim-stagger > *:nth-child(6) { animation-delay: 175ms; }
-.ui-anim-stagger > *:nth-child(7) { animation-delay: 210ms; }
-.ui-anim-stagger > *:nth-child(8) { animation-delay: 245ms; }
+.ui-anim-stagger > *:nth-child(2) { animation-delay: 25ms; }
+.ui-anim-stagger > *:nth-child(3) { animation-delay: 50ms; }
+.ui-anim-stagger > *:nth-child(4) { animation-delay: 75ms; }
+.ui-anim-stagger > *:nth-child(5) { animation-delay: 100ms; }
+.ui-anim-stagger > *:nth-child(6) { animation-delay: 125ms; }
+.ui-anim-stagger > *:nth-child(7) { animation-delay: 150ms; }
+.ui-anim-stagger > *:nth-child(8) { animation-delay: 175ms; }
 
 /* ── reduced motion (theme `motion: reduced` or OS preference) ────────── */
 
@@ -251,20 +215,17 @@
 }
 
 /* ── scrollbars / selection ─────────────────────────────────────────────
-   Single stylized system: thin translucent track, glass thumb that warms
-   to the accent on hover. Firefox uses `scrollbar-*`; Chromium uses the
-   `::-webkit-scrollbar` family. Every scroll container also gets native
-   touch panning + contained overscroll so nested panels never scroll the
-   desktop behind them. */
+   Quiet macOS-style system: slim neutral thumb, no accent flash. Firefox
+   uses `scrollbar-*`; Chromium uses the `::-webkit-scrollbar` family. */
 
 ::selection {
-  background: color-mix(in srgb, var(--ui-accent) 35%, transparent);
+  background: color-mix(in srgb, var(--ui-accent) 24%, transparent);
   color: var(--ui-text);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--ui-text) 22%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--ui-text) 24%, transparent) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -277,7 +238,7 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ui-text) 22%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 24%, transparent);
   border-radius: var(--ui-radius-full);
   border: 3px solid transparent;
   background-clip: content-box;
@@ -285,15 +246,15 @@
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--ui-accent) 65%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 38%, transparent);
   background-clip: content-box;
-  border: 2px solid transparent;
+  border: 3px solid transparent;
 }
 
 ::-webkit-scrollbar-thumb:active {
-  background: var(--ui-accent);
+  background: color-mix(in srgb, var(--ui-text) 48%, transparent);
   background-clip: content-box;
-  border: 2px solid transparent;
+  border: 3px solid transparent;
 }
 
 ::-webkit-scrollbar-corner {
@@ -368,8 +329,8 @@ body.cybermanju-offline .server-only {
    last 56px + safe-area. All form controls hit 44px targets and 16px type
    so the WebView never auto-zooms. */
 @media (max-width: 768px) {
-  /* Perf: phones get zero backdrop-blur (GPU killer) — ghostline surfaces
-     are near-opaque, so solid tints look identical and scroll at 60fps. */
+  /* Perf: phones get zero backdrop-blur (GPU killer) — vibrancy surfaces
+     fall back to near-opaque tints, so solid fills look identical. */
   * {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -384,7 +345,7 @@ body.cybermanju-offline .server-only {
     display: none !important;
   }
 
-  /* Slim hacker status bar: brand + tray only, menus + search live in the
+  /* Slim status bar: brand + tray only, menus + search live in the
      launcher grid and the command palette. */
   .top-menu-bar {
     min-height: 44px;
@@ -456,7 +417,9 @@ body.cybermanju-offline .server-only {
   }
 
   .am-tab,
-  .dm-tabs button {
+  .dm-tabs button,
+  .org-tabs button,
+  .sh-tabs button {
     min-height: 44px;
     flex-shrink: 0;
   }
@@ -481,4 +444,117 @@ body.cybermanju-offline .server-only {
   .stats-grid {
     grid-template-columns: repeat(2, 1fr) !important;
   }
+
+  /* Tab strips that crush at phone widths become horizontal scrollers. */
+  .org-tabs,
+  .sh-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .org-tabs button,
+  .sh-tabs button {
+    flex: 1 0 auto;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  /* Process table + transfer canvas scroll inside the sheet, never widen it. */
+  .task-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tf-canvas {
+    min-width: 440px;
+    min-height: 360px;
+  }
+  .tf-node { width: 170px; }
+  .tf-node.prov { width: 190px; }
+
+  /* Long locator strings wrap instead of pushing the sheet sideways. */
+  .api-row { flex-wrap: wrap; }
+  .api-path {
+    flex: 1 1 160px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .perm-row { flex-wrap: wrap; }
+  .dv-row { flex-wrap: wrap; }
+  .sh-shield .nist-viz { flex-wrap: wrap; }
+  .sh-shield .status-meta { flex-wrap: wrap; }
+  .panel-header { flex-wrap: wrap; row-gap: 8px; }
+}
+
+/* ── narrow windows on any viewport (≤560px live window width) ──────────
+   `@media` sees the viewport, not the floating window: a 420px window on a
+   1400px monitor never trips it. `AppWindow` mirrors the same breakpoint as
+   `.app-window--narrow` (via ResizeObserver + useWindowUi), so this block
+   re-applies the collapse rules per-window. Keep it in sync with the blocks
+   above: tab scroll, single-column grids, hidden side rails. */
+.app-window--narrow .fm-main,
+.app-window--narrow .fm-main.no-side,
+.app-window--narrow .fm-main.no-insp {
+  grid-template-columns: 1fr;
+}
+.app-window--narrow .fm-side,
+.app-window--narrow .fm-insp,
+.app-window--narrow .hide-sm {
+  display: none;
+}
+.app-window--narrow .fm-top {
+  flex-wrap: wrap;
+}
+.app-window--narrow .fm-crumbs {
+  order: 5;
+  flex-basis: 100%;
+}
+.app-window--narrow .fm-topactions .fm-pill span {
+  display: none;
+}
+.app-window--narrow .cs-ai,
+.app-window--narrow .cs-side,
+.app-window--narrow .hide-mid {
+  display: none;
+}
+.app-window--narrow .am-tabs,
+.app-window--narrow .dm-tabs,
+.app-window--narrow .org-tabs,
+.app-window--narrow .sh-tabs {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.app-window--narrow .org-tabs button,
+.app-window--narrow .sh-tabs button {
+  flex: 1 0 auto;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.app-window--narrow .stats-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+.app-window--narrow .disk-panel .cards {
+  grid-template-columns: 1fr;
+}
+.app-window--narrow .task-table {
+  display: block;
+  overflow-x: auto;
+}
+.app-window--narrow .tf-canvas {
+  min-width: 440px;
+  min-height: 360px;
+}
+.app-window--narrow .tf-node { width: 170px; }
+.app-window--narrow .tf-node.prov { width: 190px; }
+.app-window--narrow .api-row { flex-wrap: wrap; }
+.app-window--narrow .api-path {
+  flex: 1 1 160px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.app-window--narrow .perm-row,
+.app-window--narrow .dv-row,
+.app-window--narrow .panel-header,
+.app-window--narrow .sh-shield .nist-viz,
+.app-window--narrow .sh-shield .status-meta {
+  flex-wrap: wrap;
 }
