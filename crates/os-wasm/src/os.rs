@@ -2406,7 +2406,7 @@ fn script_call_func(
         .first()
         .map(|l| l.indent as isize - 1)
         .unwrap_or(-1);
-    let mut result = script_block(ip, &def.body.clone(), 0, parent).map(|_| SValue::Null);
+    let mut result = script_block(ip, &def.body, 0, parent).map(|_| SValue::Null);
     let returned = ip.flow.take().unwrap_or(SValue::Null);
     if result.is_ok() {
         result = Ok(returned);

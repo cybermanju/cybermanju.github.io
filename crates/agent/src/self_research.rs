@@ -203,7 +203,7 @@ pub fn summarize_repo_tree(
         }
     }
     let mut top_exts: Vec<(String, usize)> = exts.into_iter().collect();
-    top_exts.sort_by(|a, b| b.1.cmp(&a.1));
+    top_exts.sort_by_key(|a| std::cmp::Reverse(a.1));
     top_exts.truncate(8);
     let top_exts = top_exts
         .iter()
@@ -266,7 +266,7 @@ pub fn summarize_repo_tree(
         *top.entry(first.to_string()).or_insert(0) += 1;
     }
     let mut top_vec: Vec<(String, usize)> = top.into_iter().collect();
-    top_vec.sort_by(|a, b| b.1.cmp(&a.1));
+    top_vec.sort_by_key(|a| std::cmp::Reverse(a.1));
     top_vec.truncate(20);
     out.push_str("layout:\n");
     for (dir, n) in &top_vec {

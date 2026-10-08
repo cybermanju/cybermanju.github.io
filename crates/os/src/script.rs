@@ -1235,7 +1235,7 @@ fn call_func(ip: &mut Interp, name: &str, args: &[Value], lineno: usize) -> Resu
         .first()
         .map(|l| l.indent as isize - 1)
         .unwrap_or(-1);
-    let mut result = run_block(ip, &def.body.clone(), 0, parent).map(|_| Value::Null);
+    let mut result = run_block(ip, &def.body, 0, parent).map(|_| Value::Null);
     let returned = ip.flow.take().unwrap_or(Value::Null);
     if result.is_ok() {
         result = Ok(returned);
