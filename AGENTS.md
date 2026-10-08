@@ -141,6 +141,10 @@ Secrets mirror GitHub (`TAURI_SIGNING_PRIVATE_KEY`, `ANDROID_KEYSTORE_*`).
   (1 MiB cap, versioned saves).
 - **Auth:** fail-closed, 404-before-401 on unknown routes, `Claims{role}`
   RBAC, bootstrap-only register, sealed secrets, JWT secret 0600.
+  Agent transcripts are owner-bound (`owner_id`, admin-or-owner reads;
+  legacy unowned rows stay readable); jobs were already owner-bound.
+  Approval `remember` persists an allow-rule on admin REST calls only.
+  The device shell spawns scrubbed (`env_clear`, PATH/locale only).
 - **cybsh:** server-side shell via `POST /api/os/exec` (`--json`, pipes,
   history, completion); same shell on desktop/web/Pages (WASM dispatcher).
 - **Memory:** transcripts in `agent_sessions` + semantic rows in

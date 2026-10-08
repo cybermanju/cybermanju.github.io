@@ -463,3 +463,95 @@ fn mcp_dead_servers_fail_loudly_not_silently() {
         "names the dead server: {resp}"
     );
 }
+
+#[test]
+fn session_transcripts_are_owner_isolated() {
+    use crate::web::{bearer, body_of, call, login_session, mk_dashboard, status_of};
+    let (_dir, d) = mk_dashboard(3456);
+    // The auth-gated test helper only mints one id per role, so provision
+    // two ordinary users through an admin and log them both in.
+    let admin = bearer(&crate::web::mint(
+        &d,
+        "admin",
+        crate::web::now_secs() + 3_600,
+        "jti-sess-owner-admin",
+    ));
+    for user in ["alice", "bob"] {
+        let create = call(
+            &d,
+            "POST",
+            "/api/users",
+            &format!(
+                r#"{{"username":"{user}","password":"correct horse battery","role":"user"}}"#
+            ),
+            Some(admin.as_str()),
+        );
+        assert_eq!(status_of(&create), 201, "{create}");
+    }
+    let alice = bearer(&login_session(&d, "alice", "correct horse battery"));
+    let bob = bearer(&login_session(&d, "bob", "correct horse battery"));
+
+    // Alice creates a session on a shared (global) config.
+    let admin_cfg = call(
+        &d,
+        "POST",
+        "/api/agent/configs",
+        r#"{"config":{"id":"","name":"Shared","providerId":"ollama","model":"llama3.1:8b",
+            "workingDir":"","agentKind":"build","permission":{"default":"ask","rules":{}},
+            "autoApprove":false,"maxTurns":5}}"#,
+        Some(admin.as_str()),
+    );
+    assert_eq!(status_of(&admin_cfg), 200, "{admin_cfg}");
+    let cfg: serde_json::Value = serde_json::from_str(body_of(&admin_cfg)).expect("json");
+    let cid = cfg["id"].as_str().expect("config id");
+    let created = call(
+        &d,
+        "POST",
+        "/api/agent/sessions",
+        &format!(r#"{{"configId":"{cid}","title":"Alice notes"}}"#),
+        Some(alice.as_str()),
+    );
+    assert_eq!(status_of(&created), 200, "{created}");
+    let session: serde_json::Value = serde_json::from_str(body_of(&created)).expect("json");
+    let sid = session["id"].as_str().expect("session id").to_string();
+
+    // Bob sees neither the row nor its contents, and cannot delete it.
+    let list = call(&d, "GET", "/api/agent/sessions", "", Some(bob.as_str()));
+    assert_eq!(status_of(&list), 200, "{list}");
+    assert!(!body_of(&list).contains(&sid), "bob lists alice's session");
+    let get = call(
+        &d,
+        "GET",
+        &format!("/api/agent/sessions/{sid}"),
+        "",
+        Some(bob.as_str()),
+    );
+    assert_eq!(status_of(&get), 400, "{get}");
+    assert!(body_of(&get).contains("another user"), "{get}");
+    let delete = call(
+        &d,
+        "DELETE",
+        &format!("/api/agent/sessions/{sid}"),
+        "",
+        Some(bob.as_str()),
+    );
+    assert_eq!(status_of(&delete), 400, "{delete}");
+
+    // Alice still owns her transcript end to end.
+    let get = call(
+        &d,
+        "GET",
+        &format!("/api/agent/sessions/{sid}"),
+        "",
+        Some(alice.as_str()),
+    );
+    assert_eq!(status_of(&get), 200, "{get}");
+    let delete = call(
+        &d,
+        "DELETE",
+        &format!("/api/agent/sessions/{sid}"),
+        "",
+        Some(alice.as_str()),
+    );
+    assert_eq!(status_of(&delete), 200, "{delete}");
+}

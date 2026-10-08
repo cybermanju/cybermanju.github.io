@@ -1145,8 +1145,15 @@ fn route_request(
                 config_id: String,
             }
             let req: CompactBody = json_body!(body, origin);
+            let (owner_id, is_admin) = claims_owner(&claims);
             return api_response(
-                api::agent_api::compact_session(db, &req.config_id, session_id),
+                api::agent_api::compact_session_for(
+                    db,
+                    &req.config_id,
+                    session_id,
+                    &owner_id,
+                    is_admin,
+                ),
                 origin,
             );
         }
@@ -1929,7 +1936,11 @@ fn route_request(
             api_response(api::agent_api::mcp_remove(db, id, name), origin)
         }
         ["api", "agent", "sessions"] if method == "GET" => {
-            api_response(api::agent_api::list_sessions(db), origin)
+            let (owner_id, is_admin) = claims_owner(&claims);
+            api_response(
+                api::agent_api::list_sessions_for(db, &owner_id, is_admin),
+                origin,
+            )
         }
         ["api", "agent", "sessions"] if method == "POST" => {
             #[derive(Deserialize)]
@@ -1940,16 +1951,25 @@ fn route_request(
                 title: Option<String>,
             }
             let req: NewSessionBody = json_body!(body, origin);
+            let (owner_id, _) = claims_owner(&claims);
             api_response(
-                api::agent_api::create_session(db, &req.config_id, req.title),
+                api::agent_api::create_session_as(db, &req.config_id, req.title, &owner_id),
                 origin,
             )
         }
         ["api", "agent", "sessions", id] if method == "GET" => {
-            api_response(api::agent_api::get_session(db, id), origin)
+            let (owner_id, is_admin) = claims_owner(&claims);
+            api_response(
+                api::agent_api::get_session_for(db, id, &owner_id, is_admin),
+                origin,
+            )
         }
         ["api", "agent", "sessions", id] if method == "DELETE" => {
-            api_response(api::agent_api::delete_session(db, id), origin)
+            let (owner_id, is_admin) = claims_owner(&claims);
+            api_response(
+                api::agent_api::delete_session_for(db, id, &owner_id, is_admin),
+                origin,
+            )
         }
         ["api", "agent", "sessions", "import"] if method == "POST" => {
             #[derive(Deserialize)]
@@ -1957,7 +1977,11 @@ fn route_request(
                 session: cybermanju_types::agent::AgentSession,
             }
             let req: ImportBody = json_body!(body, origin);
-            api_response(api::agent_api::import_session(db, req.session), origin)
+            let (owner_id, _) = claims_owner(&claims);
+            api_response(
+                api::agent_api::import_session_as(db, req.session, &owner_id),
+                origin,
+            )
         }
 
         // ─── Location endpoints ───────────────────────────────────

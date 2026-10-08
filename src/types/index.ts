@@ -908,6 +908,8 @@ export interface TokenUsage {
 
 export interface AgentSession {
   id: string
+  /** Transcript owner (JWT user_id, "local" on desktop); absent on legacy rows. */
+  ownerId?: string
   title: string
   configId: string
   providerId: string

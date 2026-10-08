@@ -245,6 +245,11 @@ pub struct AgentSession {
     pub usage: TokenUsage,
     pub created_at: String,
     pub updated_at: String,
+    /// JWT `user_id` that owns the transcript (`"local"` on the trusted
+    /// Tauri path, `""` on rows predating ownership). Read/write/delete of a
+    /// session requires the owner (or admin) — transcripts can hold secrets.
+    #[serde(default)]
+    pub owner_id: String,
 }
 
 /// Where a long-term memory came from.

@@ -408,7 +408,19 @@ fn save_session_row(db: &Database, session: &AgentSession) -> Result<(), String>
 }
 
 /// Newest-first session list (capped — transcripts can be large).
+/// Trusted-local entry point (Tauri IPC, cybsh): no owner filter.
 pub fn list_sessions(db: &Database) -> Result<Vec<AgentSession>, String> {
+    list_sessions_for(db, "", true)
+}
+
+/// Owner-bound session list for the REST transport: callers see their own
+/// transcripts plus unowned legacy rows; admins see everything. Transcripts
+/// can hold secrets and file contents, so they are never world-readable.
+pub fn list_sessions_for(
+    db: &Database,
+    requester: &str,
+    is_admin: bool,
+) -> Result<Vec<AgentSession>, String> {
     let tx = db.begin_read().map_err(|e| e.to_string())?;
     let table = tx
         .open_table(Database::get_agent_sessions_table())
@@ -416,14 +428,41 @@ pub fn list_sessions(db: &Database) -> Result<Vec<AgentSession>, String> {
     let mut rows = Vec::new();
     for entry in table.iter().map_err(|e| e.to_string())? {
         let (_, value) = entry.map_err(|e| e.to_string())?;
-        rows.push(serde_json::from_str::<AgentSession>(value.value()).map_err(|e| e.to_string())?);
+        let session: AgentSession =
+            serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+        if requester.is_empty()
+            || is_admin
+            || session.owner_id.is_empty()
+            || session.owner_id == requester
+        {
+            rows.push(session);
+        }
     }
     rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     rows.truncate(100);
     Ok(rows)
 }
 
+/// Ownership check shared by the per-session entry points. Empty requester
+/// means the trusted local path (allowed through like an admin); legacy rows
+/// without an owner stay readable so old transcripts never vanish.
+fn check_session_owner(
+    session: &AgentSession,
+    requester: &str,
+    is_admin: bool,
+) -> Result<(), String> {
+    if requester.is_empty()
+        || is_admin
+        || session.owner_id.is_empty()
+        || session.owner_id == requester
+    {
+        return Ok(());
+    }
+    Err("auth: agent session belongs to another user".to_string())
+}
+
 /// Load one session (export-compatible JSON).
+/// Trusted-local entry point (Tauri IPC, workers, cybsh): no owner check.
 pub fn get_session(db: &Database, session_id: &str) -> Result<AgentSession, String> {
     crate::security::validate_id(session_id)?;
     let tx = db.begin_read().map_err(|e| e.to_string())?;
@@ -437,7 +476,20 @@ pub fn get_session(db: &Database, session_id: &str) -> Result<AgentSession, Stri
     serde_json::from_str(value.value()).map_err(|e| e.to_string())
 }
 
+/// Owner-bound session load for the REST transport.
+pub fn get_session_for(
+    db: &Database,
+    session_id: &str,
+    requester: &str,
+    is_admin: bool,
+) -> Result<AgentSession, String> {
+    let session = get_session(db, session_id)?;
+    check_session_owner(&session, requester, is_admin)?;
+    Ok(session)
+}
+
 /// Delete a session and its transcript.
+/// Trusted-local entry point (Tauri IPC): no owner check.
 pub fn delete_session(db: &Database, session_id: &str) -> Result<bool, String> {
     crate::security::validate_id(session_id)?;
     let tx = db.begin_write().map_err(|e| e.to_string())?;
@@ -457,11 +509,33 @@ pub fn delete_session(db: &Database, session_id: &str) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Owner-bound session delete for the REST transport.
+pub fn delete_session_for(
+    db: &Database,
+    session_id: &str,
+    requester: &str,
+    is_admin: bool,
+) -> Result<bool, String> {
+    get_session_for(db, session_id, requester, is_admin)?;
+    delete_session(db, session_id)
+}
+
 /// Create a session bound to a config snapshot.
+/// Trusted-local entry point (Tauri IPC): owned by `"local"`.
 pub fn create_session(
     db: &Database,
     config_id: &str,
     title: Option<String>,
+) -> Result<AgentSession, String> {
+    create_session_as(db, config_id, title, "local")
+}
+
+/// Owner-bound session create: the transcript is attributed at birth.
+pub fn create_session_as(
+    db: &Database,
+    config_id: &str,
+    title: Option<String>,
+    owner: &str,
 ) -> Result<AgentSession, String> {
     let config = get_config(db, config_id)?;
     let now = chrono::Utc::now().to_rfc3339();
@@ -479,18 +553,30 @@ pub fn create_session(
         usage: TokenUsage::default(),
         created_at: now.clone(),
         updated_at: now,
+        owner_id: owner.to_string(),
     };
     save_session_row(db, &session)?;
     Ok(session)
 }
 
 /// Import a session transcript (always re-keyed — never trust a client id).
-pub fn import_session(db: &Database, mut session: AgentSession) -> Result<AgentSession, String> {
+/// Trusted-local entry point (Tauri IPC): owned by `"local"`.
+pub fn import_session(db: &Database, session: AgentSession) -> Result<AgentSession, String> {
+    import_session_as(db, session, "local")
+}
+
+/// Owner-bound session import: id and owner are both server-assigned.
+pub fn import_session_as(
+    db: &Database,
+    mut session: AgentSession,
+    owner: &str,
+) -> Result<AgentSession, String> {
     if session.messages.len() > 2000 {
         return Err("invalid: session transcript is too large".to_string());
     }
     let now = chrono::Utc::now().to_rfc3339();
     session.id = uuid::Uuid::new_v4().to_string();
+    session.owner_id = owner.to_string();
     session.updated_at = now.clone();
     if session.created_at.is_empty() {
         session.created_at = now;
@@ -2096,7 +2182,18 @@ pub fn start_job_as(
         match session_id {
             Some(id) => {
                 crate::security::validate_id(&id)?;
-                get_session(&guard, &id)?
+                let session = get_session(&guard, &id)?;
+                // A job must not run on another user's transcript: owners
+                // match, legacy unowned rows stay usable, `"local"` is the
+                // trusted Tauri path.
+                if !session.owner_id.is_empty()
+                    && !owner_id.is_empty()
+                    && owner_id != "local"
+                    && session.owner_id != owner_id
+                {
+                    return Err("auth: agent session belongs to another user".to_string());
+                }
+                session
             }
             None => {
                 drop(guard);
@@ -2109,7 +2206,7 @@ pub fn start_job_as(
                     .split_whitespace()
                     .collect::<Vec<_>>()
                     .join(" ");
-                create_session(&guard, config_id, Some(title))?
+                create_session_as(&guard, config_id, Some(title), owner_id)?
             }
         }
     };
@@ -2592,7 +2689,7 @@ fn run_agent_job(
         &prompt,
         &job.cancel,
     ));
-    let mut headers = endpoint_headers(&endpoint, &active_key);
+    let headers = endpoint_headers(&endpoint, &active_key);
     let mut model = routes[0].model.clone();
 
     // Connect MCP servers up front: a run with a dead tool server fails
@@ -2659,7 +2756,7 @@ fn run_agent_job(
             });
             break;
         }
-        let (mut url, headers, mut body) = turn.build_request(
+        let (mut url, mut headers, mut body) = turn.build_request(
             &endpoint.base_url,
             endpoint.dialect,
             &model,
@@ -3525,11 +3622,24 @@ pub fn compact_session(
     config_id: &str,
     session_id: &str,
 ) -> Result<AgentSession, String> {
+    compact_session_for(db, config_id, session_id, "", true)
+}
+
+/// Owner-bound compaction for the REST transport: only the transcript owner
+/// (or an admin) may summarize someone else's session.
+pub fn compact_session_for(
+    db: &Arc<RwLock<Database>>,
+    config_id: &str,
+    session_id: &str,
+    requester: &str,
+    is_admin: bool,
+) -> Result<AgentSession, String> {
     let (config, key, session) = {
         let guard = db.read().map_err(|e| e.to_string())?;
         let config = get_config(&guard, config_id)?;
         let key = load_key(&guard, config_id)?;
         let session = get_session(&guard, session_id)?;
+        check_session_owner(&session, requester, is_admin)?;
         (config, key, session)
     };
     if session.messages.is_empty() {
@@ -3605,6 +3715,7 @@ pub fn compact_session(
         model: session.model.clone(),
         agent_kind: session.agent_kind,
         working_dir: session.working_dir.clone(),
+        owner_id: session.owner_id.clone(),
         messages: vec![ChatMessage {
             role: "user".into(),
             content: format!("Previous session summary (compacted at {now}):\n{summary}"),
