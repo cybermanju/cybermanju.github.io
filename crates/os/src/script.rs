@@ -777,7 +777,11 @@ fn run_statement(ip: &mut Interp, lines: &[Line], idx: usize) -> Result<usize, S
                 .iter()
                 .map(|name| {
                     let v = &ip.vars[*name];
-                    format!("{name}: {} = {}", v.type_name(), truncate_str(&v.display(), 120))
+                    format!(
+                        "{name}: {} = {}",
+                        v.type_name(),
+                        truncate_str(&v.display(), 120)
+                    )
                 })
                 .collect();
             for row in &rows {

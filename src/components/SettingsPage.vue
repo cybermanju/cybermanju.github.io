@@ -367,7 +367,7 @@ import {
 import { ShortcutsKey } from '@/composables/shortcutsKey'
 import { useTouchConfig, type GestureType, type TouchAction } from '@/composables/useTouchConfig'
 import { useTheme } from '@/composables/useTheme'
-import { ACCENT_CHOICES, THEME_GROUPS, type ThemeId } from '@/ui/tokens'
+import { ACCENT_CHOICES, THEME_GROUPS } from '@/ui/tokens'
 
 /**
  * Active transport: tauri IPC, REST dashboard, or local WASM (GitHub Pages).
@@ -392,10 +392,6 @@ const store = useAppStore()
 const theme = useTheme()
 const themeGroups = THEME_GROUPS
 const accentOptions = ACCENT_CHOICES.map((c) => ({ label: c.label, value: c.value }))
-
-function setThemeId(id: string) {
-  theme.setTheme(id as ThemeId)
-}
 const shortcuts = inject(ShortcutsKey, null)
 const isBrowserKeys = computed(() => !isTauri())
 const touchConfig = useTouchConfig()
@@ -922,6 +918,45 @@ async function handleRefresh() {
 }
 
 .st-grid-2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+
+/* theme picker — grouped swatches, accent dot shows the real palette */
+.st-theme-group { display: flex; flex-direction: column; gap: 6px; }
+.st-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 6px;
+}
+.st-theme-swatch {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm);
+  background: color-mix(in srgb, var(--ui-surface) 70%, transparent);
+  color: var(--ui-text);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    border-color var(--ui-dur) var(--ui-ease-out),
+    box-shadow var(--ui-dur) var(--ui-ease-out);
+}
+.st-theme-swatch:hover { border-color: var(--ui-border-hover); }
+.st-theme-swatch.is-active {
+  border-color: color-mix(in srgb, var(--ui-accent) 65%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 14%, transparent);
+}
+.st-theme-dot {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid var(--ui-accent);
+}
+.st-theme-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* tables: rows wrap instead of relying on viewport media queries (which never
    fire inside a windowed panel — windows resize, not the browser viewport). */

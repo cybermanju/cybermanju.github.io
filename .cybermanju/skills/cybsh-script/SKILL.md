@@ -200,9 +200,11 @@ refusal, never a silent lie; a missing call is `not_found:`.
 
 ```bash
 ui get                                 # show theme + accent
-ui theme mac-dark                      # mac-light|mac-dark|mac-graphite-light|mac-graphite-dark|mac-midnight
+ui theme mac-dark                      # system: mac-light|mac-dark|mac-graphite-light|mac-graphite-dark|mac-midnight
+                                       # color light: ocean-light|sunset-light|forest-light|lavender-light|rose-light
+                                       # color night: ocean-night|forest-night|ember-night|nebula-night|cyber-night
 ui accent #ff2d55                      # #rrggbb|#rgb, or `default` for system
-theme mac-midnight                     # short form (theme only)
+theme nebula-night                     # short form (theme only)
 ```
 
 Every mutation prints a machine `ui: theme=…` / `ui: accent=…` line: the
