@@ -2566,7 +2566,7 @@ fn resolve_routes(
 ) -> Vec<FailoverRoute> {
     use cybermanju_agent::config::plan_failover_chain;
     let mut routes = Vec::new();
-    let mut push = |routes: &mut Vec<FailoverRoute>, cfg: &AgentConfig, key: String| {
+    let push = |routes: &mut Vec<FailoverRoute>, cfg: &AgentConfig, key: String| {
         let endpoint = match providers::resolve(cfg) {
             Ok(e) => e,
             Err(_) => return,
@@ -2688,7 +2688,7 @@ fn run_agent_job(
         &prompt,
         &job.cancel,
     ));
-    let headers = endpoint_headers(&endpoint, &active_key);
+    let mut headers = endpoint_headers(&endpoint, &active_key);
     let mut model = routes[0].model.clone();
 
     // Connect MCP servers up front: a run with a dead tool server fails
@@ -2755,7 +2755,7 @@ fn run_agent_job(
             });
             break;
         }
-        let (mut url, mut headers, mut body) = turn.build_request(
+        let (mut url, req_headers, mut body) = turn.build_request(
             &endpoint.base_url,
             endpoint.dialect,
             &model,
@@ -2781,7 +2781,7 @@ fn run_agent_job(
         set_state(job, |s| {
             s.activity = Some(format!("thinking · {model}"));
         });
-        let reply = match post_with_retry(&job.cancel, &url, &headers, &body) {
+        let reply = match post_with_retry(&job.cancel, &url, &req_headers, &body) {
             Ok(reply) => reply,
             Err(e) if e == "cancelled" => {
                 set_state(job, |s| {
