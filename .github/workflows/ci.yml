@@ -485,6 +485,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # ort-sys `download-binaries` (via cybermanju-faces default `onnx-face`)
+      # extracts the ONNX Runtime into a host cache dir OUTSIDE `target/`.
+      # `rust-cache` restores the build-script output (which points at that
+      # dir) but never the dir itself — warm cache + cold dir = `could not
+      # find native static library onnxruntime` at link time (CI 2026-10-07).
+      # Pin the dir here (also required by AGENTS.md §2) and persist it below.
+      - name: Pin ONNX Runtime download cache
+        run: echo "ORT_CACHE_DIR=$HOME/.cache/ort" >> "$GITHUB_ENV"
+
       - name: Setup Java
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
@@ -539,6 +548,33 @@ jobs:
         with:
           workspaces: "."
           cache-on-failure: true
+
+      # The `ORT_CACHE_DIR` above (`dfbin/<target>/<hash>/libonnxruntime.a`)
+      # survives here; without it a warm rust-cache (valid build-script
+      # output pointing at the dir) plus a cold dir fails the link.
+      - name: Cache ONNX Runtime prebuilt binaries
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ort
+          # Stable across lock churn on purpose: the dfbin layout is keyed
+          # by target triple + dist hash internally, so old entries are
+          # harmless. Bump the suffix if the ort version ever changes.
+          key: ort-dfbin-${{ runner.os }}-aarch64-v1
+          restore-keys: |
+            ort-dfbin-${{ runner.os }}-aarch64-
+
+      # Self-healing warm-cache poison: if the static lib is absent the
+      # build script MUST run, but a warm rust-cache would skip it — drop
+      # its cached state in that case only, so `download-binaries`
+      # re-downloads. Cheap `test -d` no-op once the cache above is warm.
+      - name: Force ort-sys rebuild when its binaries are missing
+        run: |
+          if ! ls "$HOME/.cache/ort/dfbin/aarch64-linux-android/"*/libonnxruntime.a >/dev/null 2>&1; then
+            echo "onnxruntime.a absent — cleaning ort-sys so download-binaries re-runs"
+            cargo clean -p ort-sys
+          else
+            echo "onnxruntime.a present — incremental build is safe"
+          fi
 
       - name: Initialize Android project
         run: npm run tauri android init
