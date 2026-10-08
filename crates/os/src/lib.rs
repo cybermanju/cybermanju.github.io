@@ -33,6 +33,11 @@ pub use task::{
 /// `cybsh` — the system terminal: tokenizer, parser and the command table.
 pub mod shell;
 
+/// Outside-container files: the `/providers/<mount-or-config>/…` namespace
+/// every Google Drive folder and GitHub/GitLab repo is browsable through.
+/// The shell's file verbs branch here; nothing else touches a provider.
+pub mod provider_fs;
+
 /// `.cybsh` scripts — interpreted automation over the same shell (`run`).
 pub mod script;
 

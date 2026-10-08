@@ -361,8 +361,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: var(--ui-window);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-lg);
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent);
+  border-radius: var(--ui-radius-xl);
   overflow: hidden;
   backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
   -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
@@ -379,7 +379,7 @@ onUnmounted(() => {
 }
 
 .app-window.focused {
-  border-color: var(--ui-border-strong);
+  border-color: color-mix(in srgb, var(--ui-text) 18%, transparent);
   background: var(--ui-window);
   box-shadow:
     var(--ui-shadow-3),
@@ -388,9 +388,11 @@ onUnmounted(() => {
 
 .app-window.blurred {
   background: var(--ui-window-idle);
+  border-color: color-mix(in srgb, var(--ui-text) 7%, transparent);
   box-shadow:
     var(--ui-shadow-1),
     inset 0 1px 0 var(--ui-glass-highlight);
+  filter: saturate(0.92);
 }
 
 .app-window.minimized {
@@ -410,14 +412,14 @@ onUnmounted(() => {
   align-items: center;
   height: var(--ui-titlebar-h);
   min-height: 30px;
-  padding: 0 10px;
+  padding: 0 12px;
   gap: 8px;
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--ui-surface-2) 92%, transparent),
-    color-mix(in srgb, var(--ui-surface) 75%, transparent)
+    color-mix(in srgb, var(--ui-glass-2) 92%, transparent),
+    color-mix(in srgb, var(--ui-glass) 80%, transparent)
   );
-  border-bottom: 1px solid var(--ui-hairline);
+  border-bottom: 1px solid color-mix(in srgb, var(--ui-text) 7%, transparent);
   cursor: default;
   user-select: none;
   flex-shrink: 0;
@@ -439,7 +441,7 @@ onUnmounted(() => {
   width: 12px;
   height: 12px;
   padding: 0;
-  border: none;
+  border: 1px solid rgba(0, 0, 0, 0.14);
   border-radius: 50%;
   cursor: pointer;
   display: inline-flex;
@@ -450,11 +452,12 @@ onUnmounted(() => {
     transform var(--ui-dur-fast) var(--ui-ease-spring),
     box-shadow var(--ui-dur) var(--ui-ease-out),
     filter var(--ui-dur-fast) var(--ui-ease-out);
-  box-shadow: inset 0 -1px 2px rgba(0, 0, 0, 0.25);
+  box-shadow: inset 0 -1px 2px rgba(0, 0, 0, 0.22), inset 0 1px 1px rgba(255, 255, 255, 0.35);
 }
 
 .dot:hover {
-  filter: brightness(0.94);
+  filter: brightness(1.06);
+  transform: scale(1.08);
 }
 
 .dot:active {

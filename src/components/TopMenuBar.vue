@@ -339,13 +339,13 @@ onUnmounted(() => {
 .top-menu-bar {
   display: flex;
   align-items: center;
-  height: 36px;
-  padding: 0 8px;
-  background: var(--ui-glass);
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  border-bottom: 1px solid var(--ui-border);
-  box-shadow: 0 1px 0 var(--ui-glass-highlight), var(--ui-shadow-1);
+  height: 38px;
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--ui-glass-2) 82%, transparent);
+  backdrop-filter: blur(var(--ui-blur-strong)) saturate(170%);
+  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(170%);
+  border-bottom: 1px solid color-mix(in srgb, var(--ui-text) 9%, transparent);
+  box-shadow: 0 1px 0 var(--ui-glass-highlight);
   z-index: 100;
   position: relative;
   gap: 8px;
@@ -464,13 +464,15 @@ onUnmounted(() => {
   left: 0;
   min-width: 248px;
   background: var(--ui-glass-2);
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  border: 1px solid var(--ui-border-strong);
-  border-radius: var(--ui-radius-md);
+  backdrop-filter: blur(var(--ui-blur-strong)) saturate(170%);
+  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(170%);
+  border: 1px solid color-mix(in srgb, var(--ui-text) 13%, transparent);
+  border-radius: var(--ui-radius-lg);
   padding: 5px;
   box-shadow: var(--ui-shadow-3);
   z-index: 200;
+  animation: ui-pop var(--ui-dur) var(--ui-ease-out) both;
+  transform-origin: top left;
 }
 
 .menu-dropdown::before {

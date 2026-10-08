@@ -228,14 +228,14 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
 .cp-overlay {
   position: fixed;
   inset: 0;
-  background: color-mix(in srgb, var(--ui-bg-deep) 62%, transparent);
+  background: color-mix(in srgb, var(--ui-bg-deep) 45%, transparent);
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: 120px 12px 12px;
   z-index: 10000;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(14px) saturate(130%);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
 }
 
 @media (max-width: 560px) {
@@ -252,27 +252,28 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
   }
 }
 
-.cp-modal {width: 480px;
+.cp-modal {width: 520px;
   max-width: 90vw;
-  max-height: 400px;
+  max-height: 440px;
   background: var(--ui-glass-2);
-  border: 1px solid var(--ui-border);
-  box-shadow: var(--ui-shadow-2);
+  border: 1px solid color-mix(in srgb, var(--ui-text) 13%, transparent);
+  box-shadow: var(--ui-shadow-3), inset 0 1px 0 var(--ui-glass-highlight);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: var(--ui-radius-lg);
-  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  border-radius: var(--ui-radius-xl);
+  backdrop-filter: blur(var(--ui-blur-strong)) saturate(170%);
+  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(170%);
+  animation: ui-pop var(--ui-dur) var(--ui-ease-out) both;
 }
 
 .cp-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--ui-border);
-  background: var(--ui-surface);
+  padding: 12px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ui-text) 8%, transparent);
+  background: var(--ui-glass);
 }
 
 .cp-prompt {

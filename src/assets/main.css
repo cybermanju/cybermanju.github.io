@@ -65,11 +65,11 @@ canvas {
 
 .bw-card {
   background: var(--ui-glass);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-md);
+  border: 1px solid color-mix(in srgb, var(--ui-text) 8%, transparent);
+  border-radius: var(--ui-radius-lg);
   padding: calc(12px * var(--ui-unit, 1));
   color: var(--ui-text-2);
-  box-shadow: var(--ui-shadow-1);
+  box-shadow: var(--ui-shadow-1), inset 0 1px 0 var(--ui-glass-highlight);
   backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
   -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
   transition:
@@ -80,6 +80,7 @@ canvas {
 
 .bw-card:hover {
   border-color: var(--ui-border-hover);
+  box-shadow: var(--ui-shadow-2), inset 0 1px 0 var(--ui-glass-highlight);
 }
 
 .bw-btn {
@@ -271,13 +272,14 @@ canvas {
   z-index: 9999;
   min-width: 200px;
   background: var(--ui-glass-2);
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-md);
-  padding: 4px;
-  box-shadow: var(--ui-shadow-2);
+  backdrop-filter: blur(var(--ui-blur-strong)) saturate(170%);
+  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(170%);
+  border: 1px solid color-mix(in srgb, var(--ui-text) 13%, transparent);
+  border-radius: var(--ui-radius-lg);
+  padding: 5px;
+  box-shadow: var(--ui-shadow-3), inset 0 1px 0 var(--ui-glass-highlight);
   animation: ui-pop var(--ui-dur) var(--ui-ease-out) both;
+  transform-origin: top left;
 }
 
 .context-menu-item {

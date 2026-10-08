@@ -2514,6 +2514,80 @@ impl StorageBackend for GoogleDriveBackend {
         Ok(files)
     }
 
+    /// Immediate subfolders of `prefix` (one level): Drive has no paths,
+    /// only parent ids, so the file listing above can never synthesize
+    /// folders — this folder-mime query is what makes `ls` descend.
+    /// Returned `path`s are human `prefix/name` joins (reads resolve them
+    /// back to ids through `resolve_id`, same as file paths).
+    fn list_dirs(&self, prefix: &str) -> Result<Vec<RemoteFile>, String> {
+        let _permit = rate_limit::acquire(&SyncBackendType::GoogleDrive)?;
+        let dir = prefix.trim().trim_matches('/');
+        let Some(ids) = self.folder_chain(dir, false)? else {
+            return Ok(Vec::new());
+        };
+        let parent = ids.last().cloned().unwrap_or_else(|| self.root_parent());
+        let client = http_client()?;
+        let query = format!(
+            "'{}' in parents and mimeType='{}' and trashed=false",
+            parent, DRIVE_FOLDER_MIME
+        );
+        let mut page_token: Option<String> = None;
+        let mut dirs = Vec::new();
+        let mut pages = 0;
+        loop {
+            pages += 1;
+            if pages > MAX_PAGES {
+                return Err(format!(
+                    "{}: Drive folder listing holds more than {} entries",
+                    retry::TOO_LARGE,
+                    MAX_PAGES * 1000
+                ));
+            }
+            let mut url = format!(
+                "{}?q={}&fields=files(id,name,modifiedTime),nextPageToken&pageSize=1000",
+                DRIVE_FILES_URL,
+                urlencoding(&query)
+            );
+            if let Some(token) = &page_token {
+                url.push_str(&format!("&pageToken={}", urlencoding(token)));
+            }
+            let resp = send_classified("Google Drive", "list", &[], || {
+                Ok(client
+                    .get(&url)
+                    .header("Authorization", self.auth.bearer()?))
+            })?;
+            let json = parse_json(resp, "Google Drive", "list")?;
+            for item in json["files"]
+                .as_array()
+                .map(|entries| entries.as_slice())
+                .unwrap_or(&[])
+            {
+                let name = item["name"].as_str().unwrap_or_default();
+                let id = item["id"].as_str().unwrap_or_default();
+                if name.is_empty() || id.is_empty() {
+                    continue;
+                }
+                let path = if dir.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{}/{}", dir, name)
+                };
+                dirs.push(RemoteFile {
+                    name: name.to_string(),
+                    path,
+                    size_bytes: 0,
+                    modified_at: item["modifiedTime"].as_str().unwrap_or("").to_string(),
+                    url: format!("https://drive.google.com/drive/folders/{}", id),
+                });
+            }
+            match json["nextPageToken"].as_str() {
+                Some(token) => page_token = Some(token.to_string()),
+                None => break,
+            }
+        }
+        Ok(dirs)
+    }
+
     fn get_file_url(&self, remote_path: &str) -> Result<String, String> {
         let _permit = rate_limit::acquire(&SyncBackendType::GoogleDrive)?;
         let id = self.resolve_id(remote_path)?;

@@ -55,6 +55,36 @@ Encrypt-before-upload (`compress → encrypt CYBE1`, keystore handle in `sync_fi
 
 Unified-disk placement: single-copy home is the default — a file lives on ONE provider (`sync_files.home_config_id`); `SyncConfig.mirror=true` opts a provider back into duplicate-everywhere. `POST /api/sync/move {fileId, fromConfigId, toConfigId}` (Tauri `move_sync_file`, `cybsh sync move <file> <from> <to>`, Sync panel Move form) relocates verified — download A → upload B → BLAKE3 verify → delete A → retarget record; `mv /providers/<a>/x /providers/<b>/y` moves namespace bytes the same way. Vault/secret paths (`*.cybermanju`, `cybermanju-up-*.cyb3`, `master.passphrase`, `keystore.json`) are never synced or moved. One-folder setup keeps `<picked>/vault.cybermanju` beside `<picked>/files/` (the `local` root). Key holder: one provider/disk unwraps the others (`SyncConfig.keyHolder`, `DiskRow.holdsKeys`, `POST /api/disk/key-holder`, single-holder invariant enforced server-side).
 
+## 4a. Provider namespace (`/providers/…` in cybsh)
+
+Outside-container files — every Google Drive folder and GitHub/GitLab repo
+behind a connected sync config — are addressable from the terminal as
+`/providers/<mount|config>[/path]` (`<head>` is a VFS mount id or a sync
+config id directly, so it works before any mount exists; `ls /providers`
+lists mounts plus enabled-but-unmounted configs). Same namespace on desktop,
+Docker, and Pages (the static shell serves it through the provider canal).
+
+```bash
+ls /providers                          # every mount/config
+ls /providers/<id>/docs                # files + folders, folders first
+cat /providers/<id>/README.md          # 1 MiB print cap (cp to read fully)
+cp /providers/<a>/f.md /notes.md       # provider → vault
+cp /notes.md /providers/<b>/f.md       # vault → provider (verified)
+mv /providers/<a>/f /providers/<b>/g   # copy → BLAKE3 verify → delete source
+rm /providers/<id>/old.md / rm -r /providers/<id>/dir
+mkdir -p /providers/<id>/new/dir       # `.keep` marker (git has no empty dirs)
+stat /providers/<id>/f.md [--json]
+cd /providers/<id>/docs                # relative paths keep working after
+```
+
+`du|find|grep|head|tail|wc|write|edit|encrypt|decrypt|compress|decompress`
+stay volume-only and refuse provider operands with `unsupported:` (cp the
+file locally first). `local`-backend configs refuse too (a host path, not a
+remote). Drive listings merge files + an explicit folder query (its file
+listing hides folders); git listings synthesize one level from the
+recursive tree. A volume directory literally named `providers` is shadowed by
+this namespace.
+
 ## 4b. Agent runs (same async contract)
 
 `POST /api/agent/prompt {configId, sessionId?, prompt} → 202 {jobId}`, poll
@@ -111,6 +141,10 @@ first; chained lines and unknown verbs fall through to the wasm dispatcher
   volume, `/providers/<mountId>/…` hits that mount (same-provider renames,
   cross-provider and provider↔local moves, `-r` for trees, `.keep` markers
   for empty dirs — git mounts cannot hold those natively).
+- `ls|cat` for `/providers/…` paths too (`ls /providers` lists mounts plus
+  unmounted configs; local operands still fall through to the wasm volume).
+  `cd` into providers stays absolute-path only here (the wasm volume owns
+  `cwd`); the native shell supports `cd /providers/…` fully.
 - `grep|find|head|tail|wc|edit` across the merged namespace too (single files
   via provider reads, `find` lists provider dirs one level, `edit` is
   exact-once with `conflict:` on ambiguity).

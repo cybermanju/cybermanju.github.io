@@ -346,6 +346,9 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
+  // Provider fallback row synthesis lives in `utils/providerBrowse`
+  // (pure + unit-tested); this store only orchestrates mounts + canal.
+
   function readStarCache(): string[] {
     try {
       const raw = localStorage.getItem(STAR_LS_KEY)
@@ -511,9 +514,17 @@ export const useAppStore = defineStore('cybermanju', () => {
         const canal = await import('@/composables/useProviderCanal')
         const parsed = canal.parseProviderPath(String(path))
         if (!parsed) {
-          const mounts = await canal.listVfsMounts()
+          // Root shows EVERY mount plus every enabled-but-unmounted config,
+          // so all Google Drive / GitHub / GitLab repos are visible even
+          // before their VFS mount row exists (clicking mounts on demand).
+          let mounts: Awaited<ReturnType<typeof canal.listVfsMounts>> = []
+          try {
+            mounts = await canal.listVfsMounts()
+          } catch {
+            mounts = []
+          }
           const now = new Date().toISOString()
-          files.value = mounts.map(m => ({
+          const rows = mounts.map(m => ({
             id: `providers/${m.id}`,
             name: m.name,
             fileType: 'folder',
@@ -525,20 +536,60 @@ export const useAppStore = defineStore('cybermanju', () => {
             createdAt: m.createdAt || now,
             modifiedAt: m.updatedAt || now,
           }) as FileNode)
+          try {
+            const { pendingMountId } = await import('@/utils/providerBrowse')
+            const mounted = new Set(mounts.map(m => m.configId))
+            for (const c of syncConfigs.value.filter(c => c.enabled && !mounted.has(c.id))) {
+              const label = `${c.backendType} · ${(c.repoName || c.basePath || c.name || c.id).slice(0, 32)} (mount…)`
+              const pend = pendingMountId(c.id)
+              rows.push({
+                id: `providers/${pend}`,
+                name: label,
+                fileType: 'folder',
+                parentId: '/providers',
+                path: `/providers/${pend}`,
+                sizeBytes: 0,
+                encrypted: false,
+                compressionLayers: [],
+                createdAt: now,
+                modifiedAt: now,
+              } as FileNode)
+            }
+          } catch {
+            // Config list unavailable — mounts alone still render.
+          }
+          files.value = rows
+        } else if (parsed.mountId.startsWith('pending-')) {
+          // Placeholder row: no bytes to list until the mount exists.
+          files.value = []
         } else {
-          const entries = await canal.listVfsDir(parsed.mountId, parsed.remotePath)
-          files.value = entries.map(e => ({
-            id: `providers/${parsed.mountId}/${e.locator || e.path}`,
-            name: e.name,
-            fileType: e.isDir ? 'folder' : 'file',
-            parentId: String(path),
-            path: canal.providerPathFor(parsed.mountId, e.path),
-            sizeBytes: Number(e.sizeBytes ?? 0),
-            encrypted: false,
-            compressionLayers: [],
-            createdAt: String(e.modifiedAt || new Date().toISOString()),
-            modifiedAt: String(e.modifiedAt || new Date().toISOString()),
-          }) as FileNode)
+          // Canal first (folders + files, one level); REST fallback when
+          // the wasm bundle is unavailable (desktop without wasm build).
+          // The fallback synthesizes folder rows from recursive paths so
+          // GitHub/GitLab/Drive folders stay navigable on every transport.
+          try {
+            const entries = await canal.listVfsDir(parsed.mountId, parsed.remotePath)
+            files.value = entries.map(e => ({
+              id: `providers/${parsed.mountId}/${e.locator || e.path}`,
+              name: e.name,
+              fileType: e.isDir ? 'folder' : 'file',
+              parentId: String(path),
+              path: canal.providerPathFor(parsed.mountId, e.path),
+              sizeBytes: Number(e.sizeBytes ?? 0),
+              encrypted: false,
+              compressionLayers: [],
+              createdAt: String(e.modifiedAt || new Date().toISOString()),
+              modifiedAt: String(e.modifiedAt || new Date().toISOString()),
+            }) as FileNode)
+          } catch (canalErr) {
+            const mounts = await canal.listVfsMounts().catch(() => [])
+            const mount = mounts.find(m => m.id === parsed.mountId)
+            const cfg = mount && syncConfigs.value.find(c => c.id === mount.configId)
+            if (!cfg) throw canalErr
+            const remote = await invoke<RemoteFile[]>('list_remote_files', { config: cfg, prefix: parsed.remotePath })
+            const { remoteFilesToProviderNodes } = await import('@/utils/providerBrowse')
+            files.value = remoteFilesToProviderNodes(remote, parsed.mountId, String(path), canal.providerPathFor)
+          }
         }
         applyStars()
         return

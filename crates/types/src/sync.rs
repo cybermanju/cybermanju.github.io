@@ -386,4 +386,14 @@ pub trait StorageBackend: Send + Sync {
     fn upload_file_chunked(&self, _local_path: &str, _remote_path: &str) -> Result<String, String> {
         Err("unsupported: chunked upload is not implemented for this backend".to_string())
     }
+
+    /// Immediate subdirectories of `prefix` (one level, no recursion).
+    /// Returned rows carry the human `name` plus the provider-relative
+    /// `path` a sibling `list_files` entry would use. The default is empty:
+    /// git-backed listings synthesize folders from recursive blob paths, so
+    /// only backends whose file listing hides folders (Google Drive)
+    /// override this.
+    fn list_dirs(&self, _prefix: &str) -> Result<Vec<RemoteFile>, String> {
+        Ok(Vec::new())
+    }
 }

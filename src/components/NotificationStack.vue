@@ -51,12 +51,12 @@ const ICONS: Record<NotificationType, string> = {
   gap: 9px;
   padding: 9px 12px;
   background: var(--ui-glass-2);
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  border: 1px solid var(--ui-border);
+  backdrop-filter: blur(var(--ui-blur-strong)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(160%);
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent);
   border-left: 3px solid var(--ui-info);
-  border-radius: var(--ui-radius-md);
-  box-shadow: var(--ui-shadow-3);
+  border-radius: var(--ui-radius-lg);
+  box-shadow: var(--ui-shadow-3), inset 0 1px 0 var(--ui-glass-highlight);
   color: var(--ui-text);
   font-family: var(--ui-font);
   font-size: var(--ui-fs-sm);

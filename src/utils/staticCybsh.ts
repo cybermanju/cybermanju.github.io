@@ -159,9 +159,11 @@ export interface ParsedLine {
 }
 
 /** Verbs answered here. Everything else (and every chained line) falls
- *  through to the wasm dispatcher. */
+ *  through to the wasm dispatcher. `ls`/`cat` only intercept provider
+ *  operands (`/providers/…`) — local paths fall through to the wasm volume
+ *  so its listing format stays the single source of truth. */
 const HANDLED_VERBS = new Set([
-  'echo', 'cp', 'mv', 'rm', 'mkdir', 'kill',
+  'echo', 'ls', 'cat', 'cp', 'mv', 'rm', 'mkdir', 'kill',
   'grep', 'find', 'head', 'tail', 'wc', 'edit',
   'quota', 'providers', 'oauth', 'disk', 'sync',
   'encrypt', 'decrypt', 'keygen', 'compress', 'decompress',
@@ -1347,6 +1349,108 @@ function srcLabel(ep: Endpoint): string {
   return ep.kind === 'local' ? ep.path : ep.label
 }
 
+/**
+ * `ls` for outside-container repos. Returns `null` when no operand touches
+ * `/providers/…` so the wasm volume keeps serving local listings.
+ * `/providers` itself lists every mount plus enabled-but-unmounted configs.
+ */
+async function handleLs(args: string[], deps: StaticCybshDeps): Promise<VerbOut | null> {
+  let flags: Set<string>
+  let rest: string[]
+  try {
+    ;({ flags, rest } = splitFlags(args, 'l'))
+  } catch (e) {
+    return shellErr(e instanceof Error ? e.message : String(e))
+  }
+  const long = flags.has('l')
+  const cwd = await deps.getCwd().catch(() => '/')
+  const targets = rest.length ? rest : ['.']
+  const eps = targets.map((t) => resolveEndpoint(cwd, t))
+  if (!eps.some((ep) => ep.kind === 'provider' || srcLabel(ep) === '/providers')) {
+    const bare = joinVolumePath(cwd, targets[0])
+    if (bare !== '/providers') return null
+  }
+  const blocks: string[] = []
+  for (const ep of eps) {
+    if (ep.kind === 'local') {
+      const bare = ep.path.replace(/\/+$/, '') || '/'
+      if (bare !== '/providers') return null
+      const [mounts, configs] = await Promise.all([
+        deps.listMounts().catch((): StaticMount[] => []),
+        deps.listSyncConfigs().catch((): StaticSyncConfig[] => []),
+      ])
+      const mounted = new Set(mounts.map((m) => m.configId))
+      const rows = [
+        ...mounts.map((m) => `${m.id}/`),
+        ...configs
+          .filter((c) => c.enabled && !mounted.has(c.id))
+          .map((c) => `${c.backendType} · ${(c.repoName || c.basePath || c.id).slice(0, 32)} (mount…)/`),
+      ].sort()
+      blocks.push(rows.join(long ? '\n' : '  ') || '(no providers connected)')
+      continue
+    }
+    if (!ep.remotePath) {
+      // Mount roots list through the canal; a config id without a mount
+      // names nothing listable yet (mounts come from the provider cards).
+      const mounts = await deps.listMounts().catch((): StaticMount[] => [])
+      if (!mounts.some((m) => m.id === ep.mountId)) {
+        return shellErr(`not_found: no provider mount ${ep.mountId} — mount it from its provider card first (ls /providers shows mounts)`)
+      }
+    }
+    let entries: StaticVfsEntry[]
+    try {
+      entries = await deps.providerList(ep.mountId, ep.remotePath)
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+    if (!entries.length) {
+      blocks.push('(empty)')
+      continue
+    }
+    blocks.push(
+      entries
+        .map((e) => (e.isDir ? `${e.name}/` : long ? `${String(e.sizeBytes ?? 0).padStart(10)} ${e.name}` : e.name))
+        .join(long ? '\n' : '  '),
+    )
+  }
+  return shellOk(blocks.join('\n'))
+}
+
+/**
+ * `cat` for outside-container files. Returns `null` when no operand touches
+ * `/providers/…` so the wasm volume keeps serving local reads.
+ */
+async function handleCat(args: string[], deps: StaticCybshDeps): Promise<VerbOut | null> {
+  if (!args.length) return null
+  const cwd = await deps.getCwd().catch(() => '/')
+  const eps = args.map((t) => resolveEndpoint(cwd, t))
+  if (!eps.some((ep) => ep.kind === 'provider')) return null
+  const parts: string[] = []
+  for (let i = 0; i < eps.length; i++) {
+    const ep = eps[i]
+    try {
+      if (ep.kind === 'local') {
+        const text = deps.readVolume()[ep.path]
+        if (text === undefined) return shellErr(`not_found: ${args[i]}`)
+        parts.push(text)
+        continue
+      }
+      if (!ep.remotePath) return shellErr(`is a directory: ${args[i]}`)
+      const bytes = await deps.providerRead(ep.mountId, ep.remotePath)
+      const text = utf8DecodeStrict(bytes)
+      if (text === null) {
+        return shellErr(`unsupported: ${args[i]} is binary — cp it to the volume first`)
+      }
+      parts.push(text)
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e)
+      if (/not_found|404|does not exist|no such/i.test(detail)) return shellErr(`not_found: ${args[i]}`)
+      return shellErr(detail)
+    }
+  }
+  return shellOk(parts.join(''))
+}
+
 async function deleteTree(ep: Endpoint, recursive: boolean, deps: StaticCybshDeps): Promise<{ files: number; bytes: number }> {
   const cls = await classifyEndpoint(ep, deps)
   if (cls.kind === 'missing') throw new Error('__missing__')
@@ -2307,6 +2411,18 @@ export async function runStaticCybshLine(
     switch (verb) {
       case 'echo':
         return done(shellOk(args.join(' ')))
+      case 'ls': {
+        const out = await handleLs(args, deps)
+        // `null` = no provider operand — the wasm volume owns this listing.
+        if (out === null) return null
+        return done(out)
+      }
+      case 'cat': {
+        const out = await handleCat(args, deps)
+        // `null` = no provider operand — the wasm volume owns this read.
+        if (out === null) return null
+        return done(out)
+      }
       case 'cp':
       case 'mv':
         return done(await handleFileOp(verb, args, deps))

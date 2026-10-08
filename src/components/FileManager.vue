@@ -76,8 +76,8 @@
         :key="p.id"
         class="fm-pchip"
         :class="{ off: !p.enabled }"
-        :title="`${p.label} — ${p.enabled ? 'enabled' : 'disabled'}${p.detail ? ' · ' + p.detail : ''}`"
-        @click="openSync(p.id)"
+        :title="`${p.label} — ${p.enabled ? 'enabled' : 'disabled'}${p.detail ? ' · ' + p.detail : ''} — click: browse files`"
+        @click="openProvider(p.id)"
       >
         <i :style="{ background: p.color }" />
         {{ p.short }}
@@ -111,6 +111,27 @@
             <span class="m mono">{{ Math.round(diskPct(d.usedBytes, d.capacityBytes)) }}%</span>
           </button>
           <div v-if="!store.disks.length" class="fm-sempty">No disks — create one in Disks.</div>
+        </div>
+        <div class="fm-side-sec">
+          <div class="fm-side-h">PROVIDERS · {{ store.syncConfigs.length }}</div>
+          <button
+            v-for="c in store.syncConfigs"
+            :key="c.id"
+            class="fm-srow"
+            :class="{ active: providerMountFor(c.id) && store.currentPath.startsWith(`/providers/${providerMountFor(c.id)}`) }"
+            :title="`${backendLabel(c.backendType)} · ${c.repoName || c.basePath || c.name || c.id} — click: browse Google Drive / GitHub / GitLab files`"
+            @click="openProvider(c.id)"
+            @contextmenu.prevent.stop="providerMenu($event, c.id)"
+          >
+            <i class="fm-pdot" :style="{ background: backendColor(c.backendType) }" />
+            <span class="t truncate">{{ providerShortName(c) }}</span>
+            <span class="m mono">{{ c.enabled ? (providerMountFor(c.id) ? 'mounted' : 'mount…') : 'off' }}</span>
+          </button>
+          <div v-if="!store.syncConfigs.length" class="fm-sempty">No providers — add Google Drive / GitHub / GitLab in Accounts → Connections.</div>
+          <button v-else-if="vfsMounts.length < store.syncConfigs.length" class="fm-srow" title="Mount every provider so all repos/files/folders show here" @click="mountAllProviders">
+            <AppIcon name="solar:cloud-bold" :size="14" />
+            <span class="t">Show all providers</span>
+          </button>
         </div>
         <div class="fm-side-sec">
           <div class="fm-side-h">FOLDERS</div>
@@ -187,6 +208,21 @@
           <span class="fm-spacer" />
           <button class="fm-pill xs" title="Open this disk in Disks & Volume" @click="diskScope && manageDisk(diskScope)">Manage disk</button>
           <button class="fm-pill xs ghost" title="Clear disk filter" @click="clearDiskScope()">✕</button>
+        </div>
+
+        <!-- PROVIDER SCOPE: Google Drive / GitHub / GitLab files live here.
+             Every connected repo/folder is browsable; files move into the
+             vault (.cybermanju) or straight between providers. -->
+        <div v-if="isProviderPath" class="fm-diskscope provider" role="status">
+          <AppIcon name="solar:cloud-bold" :size="13" />
+          <span class="fm-diskscope-t truncate" :title="store.currentPath">
+            <b>{{ providerScopeLabel }}</b>
+            <span class="dim">· provider files — not vault yet</span>
+          </span>
+          <span class="fm-spacer" />
+          <button class="fm-pill xs" title="Save selected provider files into the vault (.cybermanju)" :disabled="!selCount && !active" @click="saveProviderSelToVault">↓ Vault</button>
+          <button class="fm-pill xs ghost" title="Move/copy a provider file to another provider" :disabled="!active && !selCount" @click="openProviderMove(active)">⇄ Move</button>
+          <button class="fm-pill xs ghost" title="Back to vault root (.cybermanju home)" @click="goHomeVault">Vault ⌂</button>
         </div>
 
         <div v-if="selCount > 0" class="fm-bulk" role="toolbar" aria-label="Bulk actions">
@@ -587,6 +623,22 @@
           <div class="fm-mrow"><button class="fm-pill ghost" @click="dlgSync = null">Cancel</button><button class="fm-pill ghost" @click="wm.open('sync')">Sync panel</button></div>
         </div>
       </div>
+      <div v-if="dlgProvMove" class="fm-ov" @click.self="dlgProvMove = null">
+        <div class="fm-modal">
+          <h3>{{ dlgProvMove.op === 'move' ? 'Move' : 'Copy' }} “{{ dlgProvMove.name }}” to…</h3>
+          <label class="fm-dlg-label" for="fm-provdest">Destination provider</label>
+          <select id="fm-provdest" v-model="dlgProvDestMount" class="fm-select wide" aria-label="Destination provider">
+            <option v-for="m in vfsMounts" :key="m.id" :value="m.id">{{ m.name }} · {{ m.backendType }}</option>
+          </select>
+          <label class="fm-dlg-label" for="fm-provpath">Destination folder (optional)</label>
+          <input id="fm-provpath" v-model="dlgProvDestDir" placeholder="folder/subfolder (blank = same folder)" aria-label="Destination folder" @keyup.enter="doProviderMove" />
+          <div class="fm-mrow left">
+            <button class="fm-chipbtn" :class="{ on: dlgProvOp === 'copy' }" @click="dlgProvOp = 'copy'">copy</button>
+            <button class="fm-chipbtn" :class="{ on: dlgProvOp === 'move' }" @click="dlgProvOp = 'move'">move</button>
+          </div>
+          <div class="fm-mrow"><button class="fm-pill ghost" @click="dlgProvMove = null">Cancel</button><button class="fm-pill" :disabled="!dlgProvDestMount || provMoving" @click="doProviderMove">{{ provMoving ? 'Working…' : (dlgProvOp === 'move' ? 'Move' : 'Copy') }}</button></div>
+        </div>
+      </div>
       <input ref="filePickRef" type="file" multiple hidden @change="onFilesPicked" />
     </Teleport>
   </div>
@@ -750,7 +802,90 @@ const providerChips = computed(() => store.syncConfigs.map(c => ({
   enabled: c.enabled,
   detail: c.repoName || c.basePath || '',
 })))
-function openSync(_id: string) { wm.open('sync') }
+
+// ── providers in the file manager ─────────────────────────────
+// Every connected Google Drive / GitHub / GitLab repo is browsable
+// here (not only in Sync/Transfer). Mounts are the canal's VFS rows
+// (`providers/<mountId>/…`, carried inside `.cybermanju`); one mount
+// per sync config is ensured on demand so all repos/files/folders show.
+interface ProvMount { id: string; configId: string; name: string; backendType: string; basePath?: string }
+const vfsMounts = ref<ProvMount[]>([])
+async function refreshVfsMounts() {
+  try {
+    const { listVfsMounts } = await import('@/composables/useProviderCanal')
+    vfsMounts.value = (await listVfsMounts()) as ProvMount[]
+  } catch { /* canal unavailable — sidebar still lists sync configs */ }
+}
+function providerMountFor(configId: string): string | null {
+  return vfsMounts.value.find(m => m.configId === configId)?.id ?? null
+}
+function providerShortName(c: { backendType: string; name?: string; repoName?: string; basePath?: string }): string {
+  const repo = (c.repoName || '').split('/').pop() || c.basePath || c.name || backendLabel(c.backendType)
+  return `${backendLabel(c.backendType).split(' ')[0]} · ${String(repo).slice(0, 22)}`
+}
+async function ensureMountForConfig(configId: string): Promise<string> {
+  const hit = providerMountFor(configId)
+  if (hit) return hit
+  const cfg = store.syncConfigs.find(c => c.id === configId)
+  if (!cfg) throw new Error('not_found: provider was deleted in Accounts — pick another one')
+  const { saveVfsMount } = await import('@/composables/useProviderCanal')
+  const mount = await saveVfsMount({
+    configId: cfg.id,
+    name: `${backendLabel(cfg.backendType)} · ${(cfg.repoName || cfg.basePath || cfg.name || cfg.id).slice(0, 32)}`,
+    backendType: cfg.backendType,
+    basePath: cfg.basePath || '',
+  })
+  await refreshVfsMounts()
+  return mount.id
+}
+async function mountAllProviders() {
+  for (const c of store.syncConfigs) {
+    try { await ensureMountForConfig(c.id) } catch (e) { store.notifyError(`Mount failed: ${backendLabel(c.backendType)}`, e) }
+  }
+  await refreshVfsMounts()
+  store.notifySuccess(`Providers mounted (${vfsMounts.value.length}/${store.syncConfigs.length})`)
+}
+/** Browse a provider's files/folders straight from the file manager. */
+async function openProvider(configId: string) {
+  clearDiskScope(true)
+  try {
+    const mountId = await ensureMountForConfig(configId)
+    store.selectFile(null)
+    await navTo(`/providers/${mountId}`)
+  } catch (e) { store.notifyError('Cannot open provider', e) }
+}
+function openMount(mountId: string) {
+  clearDiskScope(true)
+  store.selectFile(null)
+  void navTo(`/providers/${mountId}`)
+}
+function providerMenu(e: MouseEvent, configId: string) {
+  ctx.replaceEntries('fm_provider_row', [
+    { id: 'open', label: 'BROWSE FILES', icon: 'solar:folder-open-bold', action: () => void openProvider(configId) },
+    { id: 'sync', label: 'SYNC PANEL', icon: 'solar:refresh-bold', action: () => wm.open('sync') },
+    { id: 'conn', label: 'CONNECTIONS', icon: 'solar:cloud-bold', action: () => wm.open('accounts', { tab: 'connections' }) },
+  ])
+  ctx.open(e, 'fm_provider_row')
+}
+/** Local `providers/<mount>/<remote…>` split (no import needed). */
+function splitProviderId(fileId: string): { mountId: string; remotePath: string } | null {
+  const segs = String(fileId || '').replace(/\\/g, '/').replace(/^\/+/, '').split('/').filter(Boolean)
+  if (segs.length < 2 || segs[0] !== 'providers') return null
+  return { mountId: segs[1], remotePath: segs.slice(2).join('/') }
+}
+function splitProviderPath(path: string): { mountId: string; remotePath: string } | null {
+  return splitProviderId(path)
+}
+const isProviderPath = computed(() => store.currentPath.replace(/\\/g, '/').startsWith('/providers'))
+const isProviderFile = (f: FileNode) => String(f.id || '').replace(/\\/g, '/').startsWith('providers/') || splitProviderPath(store.currentPath) !== null
+const providerScopeLabel = computed(() => {
+  const split = splitProviderPath(store.currentPath)
+  if (!split) return 'Providers'
+  const mount = vfsMounts.value.find(m => m.id === split.mountId)
+  const cfg = mount ? store.syncConfigs.find(c => c.id === mount.configId) : undefined
+  const who = mount?.name || (cfg ? `${backendLabel(cfg.backendType)} · ${(cfg.repoName || cfg.basePath || '').slice(0, 28)}` : split.mountId)
+  return split.remotePath ? `${who} / ${split.remotePath}` : who
+})
 
 // ── disk scope: click a disk → its ratio + proportional files share ──
 // Disks hold block ranges of the merged volume (no per-file owner), so the
@@ -873,6 +1008,10 @@ function toggleBulk(id: string) {
 function selectAll() { store.selectedFileIds = sortedFiles.value.map(f => f.id); store.isMultiSelect = true }
 function clearSel() { store.selectedFileIds = []; store.isMultiSelect = false }
 function openFolder(f: FileNode) {
+  // Unmounted provider placeholder (`pending-<configId>`): mount first so
+  // every connected repo/folder actually opens instead of showing empty.
+  const pend = /pending-([^/]+)/.exec(String(f.id || f.path || ''))
+  if (pend) { void openProvider(pend[1]); return }
   store.selectFile(f.id)
   const p = f.path || (store.currentPath.replace(/\/+$/, '') + '/' + f.name)
   void navTo(p)
@@ -903,6 +1042,20 @@ function onDrag(e: DragEvent, f: FileNode) { e.dataTransfer?.setData('text/plain
 
 // ── context menus (reuse registered contexts) ──
 function fileMenu(e: MouseEvent, f: FileNode) {
+  if (splitProviderId(f.id)) {
+    ctx.replaceEntries('file_grid_item', [
+      { id: 'open', label: 'OPEN', icon: 'solar:folder-open-bold', action: () => openFile(f) },
+      { id: 'save', label: 'SAVE TO VAULT ↓', icon: 'solar:download-bold', action: () => void saveProviderFileToVault(f) },
+      { id: 'move', label: 'MOVE / COPY TO PROVIDER ⇄', icon: 'solar:transfer-horizontal-bold', action: () => openProviderMove(f) },
+      { id: 'div0', label: '', divider: true },
+      { id: 'star', label: f.isStarred ? 'UNSTAR' : 'STAR', icon: 'solar:star-bold', action: () => store.toggleStar(f.id) },
+      { id: 'copyd', label: 'COPY PATH', icon: 'solar:copy-bold', action: () => copyPath(f) },
+      { id: 'div1', label: '', divider: true },
+      { id: 'delete', label: 'DELETE FROM PROVIDER', icon: 'solar:trash-bin-trash-bold', action: () => void deleteProviderFile(f) },
+    ])
+    ctx.open(e, 'file_grid_item')
+    return
+  }
   ctx.replaceEntries('file_grid_item', [
     { id: 'open', label: 'OPEN', icon: 'solar:folder-open-bold', action: () => openFile(f) },
     { id: 'terminal', label: 'OPEN IN TERMINAL', icon: 'solar:file-terminal-bold', action: () => openFolderInTerm(f) },
@@ -1025,10 +1178,24 @@ async function doSyncTo(configId: string) {
 
 // ── upload / new file ──
 function onUploadClick() { filePickRef.value?.click() }
-// OS file drops anywhere on the manager (VueUse useDropZone): same pipeline
-// as the picker, so dragging from the host OS just works.
+// In a provider folder uploads go straight to that Google Drive /
+// GitHub / GitLab path via the canal; in the vault they use upload_file.
 async function uploadDroppedFiles(files: File[] | null) {
   if (!files?.length) return
+  const prov = splitProviderPath(store.currentPath)
+  if (prov && prov.mountId && !prov.mountId.startsWith('pending-')) {
+    const { writeVfsFile } = await import('@/composables/useProviderCanal')
+    for (const f of files) {
+      try {
+        const buf = new Uint8Array(await f.arrayBuffer())
+        const dest = prov.remotePath ? `${prov.remotePath.replace(/\/+$/, '')}/${f.name}` : f.name
+        await writeVfsFile(prov.mountId, dest, buf)
+      } catch (err) { store.notifyError(`Upload failed: ${f.name}`, err) }
+    }
+    await store.fetchFiles(store.currentPath)
+    store.notifySuccess(`Upload complete (${files.length})`)
+    return
+  }
   for (const f of files) {
     try {
       const buf = new Uint8Array(await f.arrayBuffer())
@@ -1043,11 +1210,25 @@ async function onFilesPicked(e: Event) {
   const input = e.target as HTMLInputElement
   const list = input.files
   if (!list?.length) return
-  for (const f of Array.from(list)) {
-    try {
-      const buf = new Uint8Array(await f.arrayBuffer())
-      await invoke('upload_file', { fileName: f.name, fileData: Array.from(buf), parentPath: store.currentPath })
-    } catch (err) { store.notifyError(`Upload failed: ${f.name}`, err) }
+  // Same routing as drag-drop: provider folders go to that Google Drive /
+  // GitHub / GitLab path via the canal, vault folders use upload_file.
+  const prov = splitProviderPath(store.currentPath)
+  if (prov && prov.mountId && !prov.mountId.startsWith('pending-')) {
+    const { writeVfsFile } = await import('@/composables/useProviderCanal')
+    for (const f of Array.from(list)) {
+      try {
+        const buf = new Uint8Array(await f.arrayBuffer())
+        const dest = prov.remotePath ? `${prov.remotePath.replace(/\/+$/, '')}/${f.name}` : f.name
+        await writeVfsFile(prov.mountId, dest, buf)
+      } catch (err) { store.notifyError(`Upload failed: ${f.name}`, err) }
+    }
+  } else {
+    for (const f of Array.from(list)) {
+      try {
+        const buf = new Uint8Array(await f.arrayBuffer())
+        await invoke('upload_file', { fileName: f.name, fileData: Array.from(buf), parentPath: store.currentPath })
+      } catch (err) { store.notifyError(`Upload failed: ${f.name}`, err) }
+    }
   }
   input.value = ''
   await store.fetchFiles(store.currentPath)
@@ -1095,6 +1276,137 @@ async function restoreToVault() {
   const cfg = store.syncConfigs.find(c => c.enabled)
   if (!cfg) { wm.open('sync'); return }
   await store.restoreSyncFile(cfg.id, active.value.id)
+}
+
+// ── provider → vault (.cybermanju) + provider ⇄ provider ──────
+// Provider rows have no vault file id — moves go through the canal:
+// read bytes → write destination → verify → delete source on move.
+const provMoving = ref(false)
+const dlgProvMove = ref<{ mountId: string; remotePath: string; locator: string; name: string; op: 'copy' | 'move' } | null>(null)
+const dlgProvDestMount = ref('')
+const dlgProvDestDir = ref('')
+const dlgProvOp = ref<'copy' | 'move'>('move')
+function locatorOf(f: FileNode): string {
+  const split = splitProviderId(f.id)
+  const rel = split?.remotePath || f.path?.split('/').slice(3).join('/') || f.name
+  return rel
+}
+// Vault write: `upload_file` on Tauri (byte-exact); `os_write` text
+// fallback on web/static where the Tauri-only upload has no REST twin.
+// Binary bytes cannot ride a text volume write — those refuse honestly.
+async function vaultWriteBytes(fileName: string, bytes: Uint8Array) {
+  try {
+    await invoke('upload_file', { fileName, fileData: Array.from(bytes), parentPath: '/' })
+    return
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (!/Web Mode|WASM Mode|not supported|dashboard/i.test(msg)) throw e
+  }
+  let text: string | null = null
+  try {
+    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    text = decoded.indexOf(String.fromCharCode(0)) >= 0 ? null : decoded
+  } catch { text = null }
+  if (text === null) {
+    throw new Error('[Web Mode] binary files need the desktop app or dashboard server to enter the vault (.cybermanju) — text files work here via os_write')
+  }
+  const safe = String(fileName || 'provider-file').replace(/[\\/]+/g, '_')
+  await invoke('os_write', { path: `/${safe}`, content: text })
+}
+async function saveProviderFileToVault(f: FileNode) {
+  const split = splitProviderId(f.id) ?? splitProviderPath(store.currentPath + '/' + f.name)
+  if (!split || !split.remotePath) { store.notifyError('Nothing to save', 'open a provider file first'); return }
+  if (f.fileType === 'folder') {
+    // Folders are prefixes on blob stores — import every file beneath.
+    const { listVfsDir, readVfsFile } = await import('@/composables/useProviderCanal')
+    const stack = [split.remotePath]
+    let n = 0
+    while (stack.length) {
+      const dir = stack.pop() as string
+      const kids = await listVfsDir(split.mountId, dir).catch((e) => { throw e })
+      for (const k of kids) {
+        const src = [dir, k.name].filter(Boolean).join('/').replace(/^\/+/, '')
+        if (k.isDir) { stack.push(src); continue }
+        const got = await readVfsFile(split.mountId, src, { locator: k.locator || src })
+        await vaultWriteBytes(src.split('/').pop() || k.name, got.bytes)
+        n++
+      }
+    }
+    await store.fetchFiles(isProviderPath.value ? store.currentPath : '/')
+    store.notifySuccess(`Saved ${n} file(s) to vault (.cybermanju)`)
+    return
+  }
+  const { readVfsFile } = await import('@/composables/useProviderCanal')
+  const got = await readVfsFile(split.mountId, split.remotePath, { locator: locatorOf(f) })
+  await vaultWriteBytes(f.name, got.bytes)
+  await store.fetchFiles(isProviderPath.value ? store.currentPath : '/')
+  store.notifySuccess(`Saved '${f.name}' to vault (.cybermanju)`)
+}
+async function saveProviderSelToVault() {
+  const ids = store.selectedFileIds.length ? [...store.selectedFileIds] : (active.value ? [active.value.id] : [])
+  if (!ids.length) { store.notifyError('Nothing to save', 'select a provider file first'); return }
+  let n = 0
+  for (const id of ids) {
+    const f = store.files.find(x => x.id === id)
+    if (!f) continue
+    try { await saveProviderFileToVault(f); n++ } catch (e) { store.notifyError(`Save failed: ${f.name}`, e) }
+  }
+  clearSel()
+  if (n) void navTo('/')
+}
+function openProviderMove(f: FileNode | null) {
+  const file = f ?? active.value
+  if (!file) { store.notifyError('Nothing to move', 'select a provider file first'); return }
+  const split = splitProviderId(file.id)
+  if (!split || !split.remotePath) { store.notifyError('Vault files move differently', 'use Sync to provider, or open a provider file to move it'); return }
+  if (file.fileType === 'folder') { store.notifyError('Folders move file-by-file', 'open the folder and move its files (blob stores have no folder move)'); return }
+  dlgProvOp.value = 'move'
+  dlgProvDestDir.value = ''
+  dlgProvDestMount.value = vfsMounts.value.find(m => m.id !== split.mountId)?.id ?? ''
+  dlgProvMove.value = { mountId: split.mountId, remotePath: split.remotePath, locator: locatorOf(file), name: file.name, op: 'move' }
+}
+async function doProviderMove() {
+  const src = dlgProvMove.value
+  if (!src || !dlgProvDestMount.value || provMoving.value) return
+  if (dlgProvDestMount.value === src.mountId && !dlgProvDestDir.value.trim()) {
+    store.notifyError('Same place', 'pick another provider or a different folder')
+    return
+  }
+  provMoving.value = true
+  try {
+    const { readVfsFile, writeVfsFile, deleteVfsFile } = await import('@/composables/useProviderCanal')
+    const got = await readVfsFile(src.mountId, src.remotePath, { locator: src.locator })
+    const destDir = dlgProvDestDir.value.trim().replace(/^\/+|\/+$/g, '')
+    const dest = destDir ? `${destDir}/${src.name}` : src.name
+    await writeVfsFile(dlgProvDestMount.value, dest, got.bytes)
+    if (dlgProvOp.value === 'move') {
+      // Verify-before-delete, same as the transfer board.
+      const back = await readVfsFile(dlgProvDestMount.value, dest)
+      const a = got.bytes
+      const b = back.bytes
+      const same = a.length === b.length && a.every((v, i) => v === b[i])
+      if (!same) throw new Error(`integrity: '${dest}' differs after write — source kept`)
+      await deleteVfsFile(src.mountId, src.remotePath, { locator: src.locator })
+    }
+    dlgProvMove.value = null
+    await store.fetchFiles(store.currentPath)
+    store.notifySuccess(dlgProvOp.value === 'move' ? `Moved '${src.name}' between providers (verified)` : `Copied '${src.name}' between providers`)
+  } catch (e) {
+    store.notifyError(dlgProvOp.value === 'move' ? 'Move failed' : 'Copy failed', e)
+  } finally {
+    provMoving.value = false
+  }
+}
+async function deleteProviderFile(f: FileNode) {
+  const split = splitProviderId(f.id)
+  if (!split || !split.remotePath) return
+  if (!window.confirm(`Delete '${f.name}' from this provider?`)) return
+  try {
+    const { deleteVfsFile } = await import('@/composables/useProviderCanal')
+    await deleteVfsFile(split.mountId, split.remotePath, { locator: locatorOf(f) })
+    await store.fetchFiles(store.currentPath)
+    store.notifySuccess(`Deleted '${f.name}' from provider`)
+  } catch (e) { store.notifyError('Remote delete failed', e) }
 }
 function onTab(t: string) {
   if (!active.value) return
@@ -1217,7 +1529,18 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 onMounted(() => {
-  void Promise.all([store.fetchOsDf(), store.fetchSyncConfigs(), store.fetchDisks(), store.fetchCollections()]).catch(() => {})
+  void Promise.all([store.fetchOsDf(), store.fetchSyncConfigs(), store.fetchDisks(), store.fetchCollections()])
+    .then(async () => {
+      // Every connected Google Drive / GitHub / GitLab repo is browsable
+      // here: refresh mounts, then mount any enabled-but-unmounted config
+      // so "all providers" is the default view, not a manual step.
+      await refreshVfsMounts().catch(() => {})
+      for (const c of store.syncConfigs.filter(c => c.enabled && !providerMountFor(c.id))) {
+        try { await ensureMountForConfig(c.id) } catch { /* per-config toast already shown on open */ }
+      }
+      await refreshVfsMounts().catch(() => {})
+    })
+    .catch(() => {})
   void store.fetchFiles(store.currentPath)
   applyWindowProps()
 })
@@ -1290,14 +1613,16 @@ onMounted(() => {
 .fm-main.no-side { grid-template-columns: 0 1fr 300px; }
 .fm-main.no-insp { grid-template-columns: 212px 1fr 0; }
 .fm-main.no-side.no-insp { grid-template-columns: 0 1fr 0; }
-.fm-side { border-right: 1px solid var(--ui-hairline); overflow-y: auto; padding: 8px; background: color-mix(in srgb, var(--ui-surface) 55%, transparent); backdrop-filter: blur(8px); }
+.fm-side { border-right: 1px solid var(--ui-hairline); overflow-y: auto; padding: 8px;
+  background: color-mix(in srgb, var(--ui-glass) 70%, transparent); backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate)); }
 .fm-main.no-side .fm-side { display: none; }
 .fm-side-sec { margin-bottom: 12px; }
-.fm-side-h { font-size: 10px; font-weight: 600; color: var(--ui-text-3); padding: 4px 6px; }
+.fm-side-h { font-size: 10px; font-weight: 700; letter-spacing: var(--ui-tracking-wide); color: var(--ui-text-3); padding: 4px 6px; }
 .fm-srow { display: flex; align-items: center; gap: 7px; width: 100%; padding: 6px 8px; border-radius: 9px; cursor: pointer;
   background: transparent; border: 1px solid transparent; color: var(--ui-text-2); font-size: 11.5px; text-align: left; }
 .fm-srow:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); color: var(--ui-text); }
-.fm-srow.active { background: color-mix(in srgb, var(--ui-text) 10%, transparent); color: var(--ui-text); }
+.fm-srow.active { background: var(--ui-accent-soft); color: var(--ui-text); box-shadow: inset 2px 0 0 var(--ui-accent); }
 .fm-srow.wide { border: 1px solid var(--ui-hairline); margin-bottom: 6px; }
 .fm-srow .t { flex: 1; min-width: 0; font-weight: 600; } .fm-srow .m { font-size: 9.5px; color: var(--ui-text-3); }
 .fm-sempty { font-size: 10.5px; color: var(--ui-text-3); padding: 6px 8px; }
@@ -1348,12 +1673,15 @@ onMounted(() => {
 .fm-grid.masonry { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .fm-grid.compact { gap: 6px; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
 .fm-card { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 14px 8px 10px;
-  border-radius: 16px; cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 132px;
-  background: var(--ui-glass); border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg); cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 132px;
+  background: var(--ui-glass); border: 1px solid color-mix(in srgb, var(--ui-text) 8%, transparent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), inset 0 1px 0 var(--ui-glass-highlight);
   backdrop-filter: blur(var(--ui-blur)); -webkit-backdrop-filter: blur(var(--ui-blur));
   transition: transform var(--ui-dur-fast) var(--ui-ease-spring), border-color var(--ui-dur-fast), box-shadow var(--ui-dur-fast); }
-.fm-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent); box-shadow: var(--ui-glow-soft); }
-.fm-card.sel { border-color: color-mix(in srgb, var(--ui-accent) 65%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-accent) 45%, transparent), var(--ui-glow-soft); }
+.fm-card:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent);
+  box-shadow: var(--ui-shadow-2), inset 0 1px 0 var(--ui-glass-highlight); }
+.fm-card.sel { border-color: color-mix(in srgb, var(--ui-accent) 65%, transparent); background: color-mix(in srgb, var(--ui-accent) 7%, var(--ui-glass));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-accent) 45%, transparent), var(--ui-glow-soft); }
 .fm-card.bulk { border-style: dashed; }
 .fm-check { position: absolute; top: 7px; left: 7px; width: 16px; height: 16px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
   font-size: 10px; font-weight: 800; border: 1px solid var(--ui-border-strong); color: transparent; background: transparent; cursor: pointer; }

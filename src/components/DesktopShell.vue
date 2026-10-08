@@ -400,15 +400,19 @@ onUnmounted(() => {
   z-index: 0;
 }
 
-/* Quiet wallpaper depth — neutral light falloff, never a coloured glow. */
+/* Wallpaper depth — accent-tinted glows that give the frosted panels
+   something colourful to refract, like macOS Big Sur wallpapers. */
 .desktop-aurora {
   position: absolute;
   inset: -20%;
   background:
     radial-gradient(60% 50% at 50% 0%, var(--ui-aurora-a, rgba(255, 255, 255, 0.5)), transparent 70%),
-    radial-gradient(70% 60% at 50% 115%, var(--ui-aurora-b, rgba(0, 0, 0, 0.10)), transparent 70%);
+    radial-gradient(70% 60% at 50% 115%, var(--ui-aurora-b, rgba(0, 0, 0, 0.10)), transparent 70%),
+    radial-gradient(45% 40% at 18% 78%, var(--ui-aurora-a, transparent), transparent 72%),
+    radial-gradient(40% 36% at 84% 22%, var(--ui-aurora-b, transparent), transparent 72%);
   opacity: 0;
   transition: opacity 0.8s var(--ui-ease-out);
+  filter: blur(2px);
 }
 
 .desktop-shell--glow .desktop-aurora {
@@ -678,18 +682,22 @@ onUnmounted(() => {
   align-items: flex-start;
   gap: 6px;
   padding: 16px;
-  border-radius: var(--ui-radius-lg);
+  border-radius: var(--ui-radius-xl);
   background: var(--ui-glass-2);
-  border: 1px solid var(--ui-border);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  border: 1px solid color-mix(in srgb, var(--ui-text) 12%, transparent);
+  box-shadow: var(--ui-shadow-2), inset 0 1px 0 var(--ui-glass-highlight);
   color: var(--ui-text);
   cursor: pointer;
   text-align: left;
-  transition: border-color var(--ui-dur-fast) var(--ui-ease-out), box-shadow var(--ui-dur-fast) var(--ui-ease-out);
+  transition: border-color var(--ui-dur-fast) var(--ui-ease-out), box-shadow var(--ui-dur-fast) var(--ui-ease-out), transform var(--ui-dur-fast) var(--ui-ease-out);
   animation: ui-pop var(--ui-dur) var(--ui-ease-out) both;
 }
 .overview-card:hover {
-  border-color: var(--ui-border-strong);
-  box-shadow: var(--ui-shadow-2);
+  border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  box-shadow: var(--ui-shadow-3);
+  transform: translateY(-2px);
 }
 .overview-card.minimized {
   opacity: 0.72;

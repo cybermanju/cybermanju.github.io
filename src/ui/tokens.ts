@@ -730,7 +730,7 @@ export const DENSITY_SCALE: Record<Density, { unit: number; control: number; fs:
 }
 
 export const DEFAULT_SETTINGS: ThemeSettings = {
-  theme: 'mac-light',
+  theme: 'mac-dark',
   accent: null,
   accents: {},
   density: 'comfortable',
@@ -772,7 +772,7 @@ export function mix(hex: string, target: string, amount: number): string {
  * panels only ever read the variables.
  */
 export function buildCssVars(s: ThemeSettings): Record<string, string> {
-  const theme = THEMES[s.theme] ?? THEMES['mac-light']
+  const theme = THEMES[s.theme] ?? THEMES['mac-dark']
   const p = theme.palette
   const hexOk = (v: unknown): v is string =>
     typeof v === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)
@@ -788,8 +788,8 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
 
   // Vibrancy strength: 0 disables blur (solid fills), higher levels trade
   // contrast for depth the way macOS materials do.
-  const glassAlpha = [1, 0.82, 0.66, 0.54][s.glass] ?? 0.66
-  const blur = [0, 12, 20, 30][s.glass] ?? 20
+  const glassAlpha = [1, 0.8, 0.62, 0.48][s.glass] ?? 0.62
+  const blur = [0, 16, 28, 44][s.glass] ?? 28
   const onAccentLuma = (() => {
     const [r, g, b] = hexToRgb(accent)
     return (r * 299 + g * 587 + b * 114) / 1000 > 145 ? '#1d1d1f' : '#ffffff'
@@ -806,12 +806,14 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
 
   // Elevation character: flat themes barely lift, neon themes bleed accent
   // light into the ambient shadow + focus rings, soft themes stay neutral.
+  // Layered long-tail shadows give the frosted-glass "floating panel" depth
+  // macOS Big Sur+ uses instead of a single hard drop shadow.
   const elevation = theme.design.elevation
   const shadow = {
     soft: {
-      s1: `0 1px 2px rgba(${shadowColor}, 0.08), 0 2px 6px rgba(${shadowColor}, 0.06)`,
-      s2: `0 4px 12px rgba(${shadowColor}, 0.10), 0 1px 3px rgba(${shadowColor}, 0.08)`,
-      s3: `0 12px 32px rgba(${shadowColor}, 0.16), 0 4px 12px rgba(${shadowColor}, 0.10)`,
+      s1: `0 1px 2px rgba(${shadowColor}, 0.07), 0 2px 8px rgba(${shadowColor}, 0.07)`,
+      s2: `0 2px 6px rgba(${shadowColor}, 0.08), 0 8px 24px rgba(${shadowColor}, 0.12)`,
+      s3: `0 4px 12px rgba(${shadowColor}, 0.10), 0 16px 48px rgba(${shadowColor}, 0.20), 0 1px 2px rgba(${shadowColor}, 0.08)`,
       glow: `0 0 0 3px rgba(${accentRgb}, 0.25)`,
       glowSoft: `0 0 0 3px rgba(${accentRgb}, 0.12)`,
     },
@@ -823,9 +825,9 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
       glowSoft: `0 0 0 3px rgba(${accentRgb}, 0.12)`,
     },
     neon: {
-      s1: `0 1px 2px rgba(${shadowColor}, 0.10), 0 2px 14px rgba(${accentRgb}, 0.14)`,
-      s2: `0 4px 12px rgba(${shadowColor}, 0.14), 0 2px 26px rgba(${accentRgb}, 0.18)`,
-      s3: `0 12px 32px rgba(${shadowColor}, 0.20), 0 0 36px rgba(${accentRgb}, 0.24)`,
+      s1: `0 1px 2px rgba(${shadowColor}, 0.10), 0 2px 14px rgba(${accentRgb}, 0.16)`,
+      s2: `0 4px 12px rgba(${shadowColor}, 0.14), 0 8px 32px rgba(${accentRgb}, 0.20)`,
+      s3: `0 6px 16px rgba(${shadowColor}, 0.20), 0 24px 64px rgba(${accentRgb}, 0.28), 0 0 40px rgba(${accentRgb}, 0.24)`,
       glow: `0 0 0 3px rgba(${accentRgb}, 0.38), 0 0 18px rgba(${accentRgb}, 0.25)`,
       glowSoft: `0 0 0 3px rgba(${accentRgb}, 0.22), 0 0 12px rgba(${accentRgb}, 0.14)`,
     },
@@ -850,7 +852,10 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-glass': surfaceGlass(p.glassBase, glassAlpha * 0.92),
     '--ui-glass-2': surfaceGlass(p.glassBase, Math.min(1, glassAlpha + 0.1)),
     '--ui-glass-border': theme.mode === 'light' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.1)',
-    '--ui-glass-highlight': theme.mode === 'light' ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.06)',
+    '--ui-glass-highlight': theme.mode === 'light' ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.09)',
+    '--ui-glass-sheen': theme.mode === 'light'
+      ? 'linear-gradient(180deg, rgba(255, 255, 255, 0.30) 0%, rgba(255, 255, 255, 0.06) 42%, transparent 100%)'
+      : 'linear-gradient(180deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.03) 42%, transparent 100%)',
     '--ui-blur': `${blur}px`,
     '--ui-blur-strong': `${Math.round(blur * 1.5)}px`,
     '--ui-saturate': s.glass === 0 ? '100%' : '120%',

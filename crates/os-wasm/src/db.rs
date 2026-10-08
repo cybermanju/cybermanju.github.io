@@ -646,8 +646,13 @@ pub fn db_dispatch(op: &str, args_json: &str) -> String {
                 map.remove("token");
             }
             write_one(DbDefs::get_sync_configs_table(), &id, &cfg.to_string())?;
+            // Secret semantics mirror the server (`save_config`): an absent
+            // token leaves the stored secret untouched (rename-only saves),
+            // an explicit empty token clears it (OAuth revoke).
             if let Some(token) = incoming_token {
-                if !token.trim().is_empty() {
+                if token.trim().is_empty() {
+                    let _ = delete_one(DbDefs::get_sync_secrets_table(), &id);
+                } else {
                     write_one(DbDefs::get_sync_secrets_table(), &id, token.trim())?;
                 }
             }

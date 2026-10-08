@@ -348,6 +348,97 @@ export async function supabaseSignOut(): Promise<void> {
 }
 
 /**
+ * Best-effort provider-side OAuth grant revocation from the browser.
+ *
+ * Google exposes a CORS-open revoke endpoint, so the grant actually dies
+ * provider-side. GitHub / GitLab app grants need `client_secret` (server
+ * only), so there is no browser-safe revoke — those clear locally here and
+ * the caller still drops every local copy (session, stash, saved secret), so
+ * autologin and token reuse from this browser stop either way.
+ */
+export interface RevokeGrantResult {
+  revokedAtProvider: boolean
+  detail: string
+}
+
+export async function revokeProviderGrant(
+  provider: OAuthBackend | string,
+  token: string,
+): Promise<RevokeGrantResult> {
+  if (!token.trim()) return { revokedAtProvider: false, detail: 'no token to revoke' }
+  if (provider === 'google') {
+    try {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 10_000)
+      try {
+        const res = await fetch(
+          `https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token.trim())}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            signal: ctrl.signal,
+          },
+        )
+        if (res.ok) return { revokedAtProvider: true, detail: 'Google grant revoked' }
+        return { revokedAtProvider: false, detail: `Google revoke refused (${res.status}) — cleared locally` }
+      } finally {
+        clearTimeout(timer)
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return { revokedAtProvider: false, detail: `Google revoke unreachable (${msg}) — cleared locally` }
+    }
+  }
+  return {
+    revokedAtProvider: false,
+    detail: 'provider has no browser-safe revoke — cleared locally (re-create the grant at the provider to fully revoke)',
+  }
+}
+
+/** Drop the one-shot provider-token stash without consuming its freshness check. */
+export function clearProviderTokenStash(): void {
+  writeLS(TOKEN_STASH_KEY, '')
+}
+
+/**
+ * Revoke the active OAuth session: provider-side grant (best-effort) +
+ * Supabase session (global scope so refresh/autologin dies server-side) +
+ * local stash/pending state. Callers also forget the remembered account and
+ * clear saved provider secrets to fully stop autologin.
+ */
+export async function revokeIdentitySession(): Promise<RevokeGrantResult> {
+  let provider: OAuthBackend | string = ''
+  let token = ''
+  try {
+    const session = await supabaseSession()
+    provider = supabaseSessionProvider(session) ?? ''
+    token = session?.provider_token ?? ''
+  } catch {
+    // No session to read — still sign out below.
+  }
+  const grant = token
+    ? await revokeProviderGrant(provider || 'github', token)
+    : { revokedAtProvider: false, detail: 'no active provider token' }
+  try {
+    const sb = await getSupabaseClient()
+    if (sb) {
+      try {
+        await sb.auth.signOut({ scope: 'global' } as Parameters<typeof sb.auth.signOut>[0])
+      } catch {
+        await sb.auth.signOut()
+      }
+    }
+  } catch {
+    // Sign-out is best-effort — local state below still clears.
+  }
+  client = null
+  identity.value = null
+  clearProviderTokenStash()
+  setPendingOAuthConfig(null)
+  return grant
+}
+
+/**
  * Called once at app boot (and on the popup fast-path). If this page load
  * IS an OAuth return (`?code=`, `?error=`, or the `?oauth=popup` marker with
  * a live opener), the client auto-exchanges it (`detectSessionInUrl`) — here

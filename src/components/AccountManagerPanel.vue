@@ -63,8 +63,58 @@
     </nav>
 
     <main class="am-body">
-      <!-- ══ CONNECTIONS (identity + providers, merged) ══ -->
-      <section v-if="activeTab === 'connections'" id="am-panel-connections" class="am-section" role="tabpanel" aria-labelledby="am-tab-connections" tabindex="0">
+      <!-- ══ CONNECTIONS — icon rail (session) + provider workspace ══ -->
+      <section v-if="activeTab === 'connections'" id="am-panel-connections" class="am-section am-conn-section" role="tabpanel" aria-labelledby="am-tab-connections" tabindex="0">
+        <div class="am-conn" :class="{ 'rail-pinned': railPinned }">
+          <!-- ── left icon rail: identity + OAuth logins ── -->
+          <aside class="am-rail" aria-label="Session and sign-in">
+            <button
+              class="am-rail-btn avatar"
+              type="button"
+              :title="identity ? `${identity.name} — open session` : 'Signed out — open sign-in'"
+              :aria-expanded="railPinned"
+              @click="railPinned = !railPinned"
+            >
+              <img v-if="identity?.avatarUrl" class="am-rail-avatar" :src="identity.avatarUrl" alt="" />
+              <ProviderLogo v-else-if="identity" :provider="identity.provider" :size="26" />
+              <AppIcon v-else name="solar:user-circle-bold" :size="26" />
+              <span class="am-rail-dot" :class="identity ? 'is-ok' : ''" aria-hidden="true"></span>
+            </button>
+            <span class="am-rail-sep" aria-hidden="true"></span>
+            <button
+              v-for="p in LOGIN_CARDS"
+              :key="p.id"
+              class="am-rail-btn"
+              type="button"
+              :disabled="signInBusy === p.id"
+              :title="railHint(p)"
+              :aria-label="railHint(p)"
+              @click="railProviderClick(p)"
+            >
+              <ProviderLogo :provider="p.logo" :size="26" />
+              <span class="am-rail-dot" :class="railTone(p)" aria-hidden="true"></span>
+            </button>
+            <span style="flex:1" aria-hidden="true"></span>
+            <button
+              class="am-rail-btn pin"
+              type="button"
+              :title="railPinned ? 'Unpin session panel' : 'Pin session panel open'"
+              :aria-pressed="railPinned"
+              @click="railPinned = !railPinned"
+            >
+              <AppIcon name="solar:alt-arrow-down-bold" :size="16" class="am-rail-pin-icon" :class="{ open: railPinned }" />
+            </button>
+          </aside>
+          <!-- ── session flyout: opens on rail hover, stays when pinned ── -->
+          <div class="am-flyout" role="dialog" aria-label="Session">
+            <div class="am-flyout-head">
+              <strong>Session</strong>
+              <span class="muted small">{{ identity ? identity.name : 'Signed out' }}</span>
+              <button class="am-icon-btn" type="button" title="Close session panel" aria-label="Close session panel" @click="railPinned = false">
+                <AppIcon name="solar:close-bold" :size="14" />
+              </button>
+            </div>
+            <div class="am-flyout-scroll">
         <!-- ── who you are ── -->
         <div v-if="identity" class="am-card am-identity">
           <div class="am-identity-row">
@@ -75,7 +125,14 @@
               <span class="muted">{{ identity.email || identity.provider }}</span>
             </div>
             <span class="am-status is-ok"><ProviderLogo :provider="identity.provider" :size="18" /> {{ identity.provider }}</span>
-            <button class="am-btn sm" type="button" :disabled="signingOut" @click="signOut">{{ signingOut ? '…' : 'Sign out' }}</button>
+            <button class="am-btn sm" type="button" :disabled="signingOut || revoking" @click="signOut">{{ signingOut ? '…' : 'Sign out' }}</button>
+            <button
+              class="am-btn sm danger"
+              type="button"
+              :disabled="signingOut || revoking"
+              title="Revoke the provider OAuth grant + sign out + forget this login so it cannot auto-login again"
+              @click="revokeSession"
+            >{{ revoking ? '…' : 'Revoke' }}</button>
           </div>
           <p class="am-hint">Signed in via the broker — no password stored. This unlocks one-click OAuth below.</p>
         </div>
@@ -105,7 +162,8 @@
             <span class="am-status sm" :class="acc.id === identity?.id ? 'is-ok' : ''">{{ acc.id === identity?.id ? 'Active' : acc.provider }}</span>
             <button v-if="needsProviderFor(acc.provider)" class="am-btn xs primary" type="button" :disabled="!!signInBusy || ensuringProvider" :title="`Create a ${backendLabel(backendForOAuth(acc.provider as OAuthBackend))} provider connection for this login`" @click="connectAccountToProvider(acc)">{{ ensuringProvider ? '…' : 'Connect' }}</button>
             <button v-else-if="configsForBackendSafe(acc.provider).length" class="am-btn xs danger" type="button" :title="`Delete the ${providerBackendLabel(acc.provider)} provider connection(s) — keeps this login remembered`" @click="disconnectAccountProvider(acc)">Disconnect</button>
-            <button v-if="acc.id !== identity?.id" class="am-btn xs" type="button" :disabled="!!signInBusy" @click="switchAccount(acc)">Switch</button>
+            <button v-if="acc.id !== identity?.id" class="am-btn xs" type="button" :disabled="!!signInBusy || revoking" @click="switchAccount(acc)">Switch</button>
+            <button class="am-btn xs danger" type="button" :disabled="revoking" :title="`Revoke OAuth grant + forget ${acc.name} (stops auto-login)`" @click="revokeAccount(acc)">Revoke</button>
             <button class="am-btn xs" type="button" :title="`Forget ${acc.name}`" @click="forgetAccount(acc.id)">Forget</button>
           </div>
           <div v-if="missingProviderBackends.length" class="am-banner info">
@@ -142,19 +200,27 @@
           </div>
         </div>
 
-        <div class="am-section-divider" aria-hidden="true"><span>Provider connections</span></div>
+            </div><!-- /flyout scroll -->
+          </div><!-- /flyout -->
 
-      <!-- ── what is connected ── -->
-      <div class="am-providers-wrap">
-        <div class="am-providers">
-          <!-- list -->
-          <div class="am-list-col">
-            <div class="am-list-head">
-              <span class="muted small">{{ filteredConfigs.length }} of {{ store.syncConfigs.length }}</span>
+          <!-- ── provider workspace: connections + detail, full width ── -->
+          <div class="am-work">
+            <header class="am-work-head">
+              <div class="am-work-titles">
+                <h3 class="am-work-title">Provider connections
+                  <span v-if="store.syncConfigs.length" class="am-tab-count">{{ store.syncConfigs.length }}</span>
+                </h3>
+                <p class="am-hint">{{ selectedCfg ? `Selected: ${selectedCfg.name || backendLabel(selectedCfg.backendType)}` : 'Each connection syncs one backend into the merged volume' }}</p>
+              </div>
               <button class="am-btn sm primary" type="button" @click="wizOpen = !wizOpen">
                 <AppIcon name="solar:add-bold" :size="12" /> {{ wizOpen ? 'Close' : 'Add' }}
               </button>
-            </div>
+            </header>
+            <!-- list -->
+            <div class="am-list-col">
+              <div class="am-list-head">
+                <span class="muted small">{{ filteredConfigs.length }} of {{ store.syncConfigs.length }}</span>
+              </div>
             <label v-if="store.syncConfigs.length > 3" class="am-search">
               <AppIcon name="solar:magnifier-bold" :size="13" />
               <input v-model="provFilter" class="am-search-input" type="search" placeholder="Filter providers…" aria-label="Filter providers" />
@@ -294,6 +360,14 @@
                     @click="connectWithOAuth(selectedCfg!)"
                   >{{ connectCta(selectedCfg) }}</button>
                   <button v-else class="am-btn sm" type="button" @click="cancelConnect">Cancel</button>
+                  <button
+                    v-if="connectBusy !== selectedCfg.id"
+                    class="am-btn sm danger"
+                    type="button"
+                    :disabled="revokingCfg === selectedCfg.id || revoking"
+                    :title="`Revoke the ${shortName(selectedCfg.backendType)} OAuth token + clear the saved secret so auto-login stops`"
+                    @click="revokeProviderToken(selectedCfg!)"
+                  >{{ revokingCfg === selectedCfg.id ? 'Revoking…' : 'Revoke' }}</button>
                 </div>
                 <div v-if="connectBusy === selectedCfg.id" class="am-progress" role="status" aria-live="polite"><div class="am-progress-fill"></div></div>
                 <p v-if="connectMsg[selectedCfg.id]" class="am-note" :class="authState[selectedCfg.id]?.ok === false ? 'err' : ''">{{ connectMsg[selectedCfg.id] }}</p>
@@ -486,9 +560,9 @@
                 </div>
               </div>
             </article>
-          </div>
-        </div>
-      </div>
+          </div><!-- /detail -->
+          </div><!-- /work -->
+        </div><!-- /conn -->
       </section>
 
       <!-- ══ VAULT FILE (local .cybermanju file — cloud disks live per-provider in Connections) ══ -->
@@ -630,6 +704,8 @@ import {
   getPendingOAuthConfig,
   identity,
   refreshIdentity,
+  revokeIdentitySession,
+  revokeProviderGrant,
   setPendingOAuthConfig,
   signInWithPopup,
   signOutIdentity,
@@ -788,6 +864,16 @@ const LOGIN_CARDS: Array<{ id: OAuthBackend; label: string; logo: string; sub: s
 const signInBusy = ref<OAuthBackend | null>(null)
 const signInMsg = ref('')
 const signingOut = ref(false)
+/** Left icon rail: hover peeks the session flyout, pin keeps it open. */
+const railPinned = ref(false)
+/**
+ * OAuth revoke state: `revoking` covers the identity card + remembered
+ * accounts (session-wide), `revokingCfg` the per-provider "Revoke" button
+ * in step 1. Revoke = provider-side grant (best-effort) + session sign-out
+ * + saved-secret clear, so auto-login cannot reuse the token afterwards.
+ */
+const revoking = ref(false)
+const revokingCfg = ref<string | null>(null)
 /** Collapse the switch/add-account cards once signed in (compact Connections). */
 const accountsOpen = ref(false)
 const diskPassphrase = ref('')
@@ -1446,6 +1532,54 @@ async function signIn(provider: OAuthBackend) {
   }
 }
 
+/**
+ * Rail status dot per OAuth login: green when its backend is connected (or
+ * the live session belongs to it), amber when a connection exists but is
+ * untested/failing, none when signed out with nothing stored.
+ */
+function railTone(p: { id: OAuthBackend }): string {
+  const backend = backendForOAuth(p.id)
+  const cfg = store.syncConfigs.find(c => c.backendType === backend)
+  if (cfg) {
+    const s = authState.value[cfg.id]
+    if (s?.ok) return 'is-ok'
+    return 'is-warn'
+  }
+  if (identity.value?.provider === p.id) return 'is-ok'
+  return ''
+}
+
+function railHint(p: { id: OAuthBackend; label: string }): string {
+  if (signInBusy.value) return 'Working…'
+  if (!identity.value) return `Sign in with ${p.label}`
+  const backend = backendForOAuth(p.id)
+  const cfg = store.syncConfigs.find(c => c.backendType === backend)
+  if (cfg) return `Open ${cfg.name || backendLabel(backend)} connection`
+  return `${p.label} — open session to connect`
+}
+
+/**
+ * Rail icon click: signed out → straight into sign-in; signed in with a
+ * matching connection → select it in the workspace; signed in without one
+ * → pin the session flyout open where Connect/Create lives (no surprise
+ * OAuth popup from an exploratory click).
+ */
+async function railProviderClick(p: { id: OAuthBackend }): Promise<void> {
+  if (signInBusy.value) return
+  if (!identity.value) {
+    await signIn(p.id)
+    return
+  }
+  const backend = backendForOAuth(p.id)
+  const cfg = store.syncConfigs.find(c => c.backendType === backend)
+  if (cfg) {
+    wizOpen.value = false
+    selectedId.value = cfg.id
+  } else {
+    railPinned.value = true
+  }
+}
+
 async function signOut() {
   signingOut.value = true
   try {
@@ -1453,6 +1587,100 @@ async function signOut() {
     store.notifySuccess('Signed out')
   } finally {
     signingOut.value = false
+  }
+}
+
+/**
+ * Clear every saved provider secret for one backend (sealed secret table:
+ * an explicit empty token clears, an absent one leaves it untouched).
+ * Keeps the connection rows so a fresh OAuth run can reuse them.
+ */
+async function clearSavedSecretsForBackend(backend: SyncBackendType): Promise<void> {
+  for (const c of configsForBackend(backend)) {
+    const d = drafts[c.id]
+    if (d) d.token = ''
+    await store.saveSyncConfig({ ...c, token: '' } as SyncConfig).catch(() => null)
+    authState.value[c.id] = { ok: null, detail: 'token revoked — reconnect with OAuth or paste a token' }
+  }
+}
+
+/**
+ * Identity-level revoke: provider grant (best-effort) + global sign-out +
+ * forget the remembered login + clear saved provider secrets, so the OAuth
+ * token cannot auto-login again from this browser.
+ */
+async function revokeSession(): Promise<void> {
+  if (revoking.value || signingOut.value) return
+  const who = identity.value
+  const label = who ? `${who.name} (${who.provider})` : 'the current session'
+  if (!window.confirm(`Revoke the OAuth grant for "${label}", sign out, and forget this login so it cannot auto-login again?`)) return
+  revoking.value = true
+  try {
+    const backend = who ? backendForAccountProvider(who.provider) : null
+    const accountId = who?.id ?? null
+    const grant = await revokeIdentitySession().catch(() => ({ revokedAtProvider: false, detail: 'revoke failed — cleared locally' }))
+    if (accountId) forgetConnectedAccount(accountId)
+    if (backend) await clearSavedSecretsForBackend(backend)
+    signInMsg.value = `${grant.detail} — signed out, login forgotten.`
+    store.notifySuccess?.('OAuth revoked — signed out')
+  } finally {
+    revoking.value = false
+  }
+}
+
+/**
+ * Per-account revoke: the active login gets the full provider-side revoke;
+ * remembered (inactive) logins hold no live token, so revoke forgets them
+ * and — when they were the last login on their backend — clears that
+ * backend's saved secrets too.
+ */
+async function revokeAccount(acc: ConnectedAccount): Promise<void> {
+  if (revoking.value) return
+  if (identity.value && acc.id === identity.value.id) {
+    await revokeSession()
+    return
+  }
+  const backend = backendForAccountProvider(acc.provider)
+  const othersRemain = backend
+    ? connectedAccounts.value.some(a => a.id !== acc.id && backendForAccountProvider(a.provider) === backend)
+    : true
+  if (!window.confirm(`Revoke "${acc.name}"? This forgets the login so it cannot auto-login again${backend && !othersRemain ? ` and clears the saved ${backendLabel(backend)} token` : ''}. No live provider token exists for remembered logins — rotate the grant at the provider if it may have leaked.`)) return
+  revoking.value = true
+  try {
+    forgetConnectedAccount(acc.id)
+    if (backend && !othersRemain) await clearSavedSecretsForBackend(backend)
+    ensureMsg.value = `"${acc.name}" revoked — login forgotten, auto-login stopped.`
+    ensureOk.value = true
+    store.notifySuccess?.('Account revoked — auto-login stopped')
+  } finally {
+    revoking.value = false
+  }
+}
+
+/**
+ * Per-provider revoke (step 1): best-effort provider-side revocation of
+ * whatever token is in play (typed draft → saved secret → live session),
+ * then clear the saved secret so probes/autologin stop using it.
+ */
+async function revokeProviderToken(cfg: SyncConfig): Promise<void> {
+  if (revokingCfg.value || revoking.value) return
+  const label = cfg.name || backendLabel(cfg.backendType)
+  if (!window.confirm(`Revoke the OAuth token for "${label}" and clear its saved secret? Auto-login with this token stops.`)) return
+  revokingCfg.value = cfg.id
+  try {
+    const token = await resolveProviderToken(cfg)
+    const slug = supabaseProviderFor(cfg.backendType) ?? cfg.backendType
+    const grant = token
+      ? await revokeProviderGrant(slug, token).catch(() => ({ revokedAtProvider: false, detail: 'revoke failed — cleared locally' }))
+      : { revokedAtProvider: false, detail: 'no token stored' }
+    const d = drafts[cfg.id]
+    if (d) d.token = ''
+    await store.saveSyncConfig({ ...cfg, token: '' } as SyncConfig).catch(() => null)
+    authState.value[cfg.id] = { ok: null, detail: 'token revoked — reconnect with OAuth or paste a token' }
+    connectMsg.value[cfg.id] = `${grant.detail} — saved secret cleared.`
+    store.notifySuccess?.(`"${label}" token revoked`)
+  } finally {
+    revokingCfg.value = null
   }
 }
 
@@ -1651,6 +1879,7 @@ function purgeProviderUiState(id: string) {
   delete showTokens.value[id]
   delete localPickMsg.value[id]
   delete diskMsg.value[id]
+  if (revokingCfg.value === id) revokingCfg.value = null
   if (selectedId.value === id) selectedId.value = null
 }
 
@@ -2328,7 +2557,7 @@ onBeforeUnmount(() => {
   margin: 10px 12px 0;
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-md);
-  padding: 10px 12px;
+  padding: 8px 12px;
   background: var(--ui-surface-2);
 }
 .am-hero-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
@@ -2588,23 +2817,114 @@ onBeforeUnmount(() => {
 .am-note.err { color: var(--ui-danger); }
 .am-note.ok { color: var(--ui-accent); }
 
-/* providers split */
-.am-section-divider {
+/* connections layout: icon rail + session flyout + provider workspace */
+.am-conn-section { position: relative; }
+.am-conn { position: relative; display: flex; align-items: stretch; gap: 0; min-height: 100%; }
+/* slim icon rail — always visible, hover peeks the flyout */
+.am-rail {
+  width: 60px;
+  flex-shrink: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  border-right: 1px solid var(--ui-border);
+  background: color-mix(in srgb, var(--ui-text) 3%, transparent);
+  border-radius: 12px 0 0 12px;
+  position: sticky;
+  top: 0;
+  max-height: 100%;
+  z-index: 6;
+}
+.am-rail-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  cursor: pointer;
+  transition: border-color var(--ui-dur-fast) var(--ui-ease-out), transform 0.08s ease;
+}
+.am-rail-btn:hover:not(:disabled) { border-color: var(--ui-accent); transform: translateY(-1px); }
+.am-rail-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.am-rail-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ui-accent) 75%, transparent);
+  outline-offset: 2px;
+}
+.am-rail-btn.avatar { border-radius: 50%; overflow: visible; }
+.am-rail-avatar { width: 26px; height: 26px; border-radius: 50%; }
+.am-rail-sep { width: 24px; height: 1px; background: var(--ui-border); }
+.am-rail-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--ui-surface);
+  background: color-mix(in srgb, var(--ui-text) 30%, transparent);
+}
+.am-rail-dot.is-ok { background: var(--ui-accent); }
+.am-rail-dot.is-warn { background: var(--ui-warning); }
+.am-rail-btn.pin { margin-top: 2px; width: 32px; height: 32px; border-radius: 9px; }
+.am-rail-pin-icon { transform: rotate(-90deg); transition: transform 0.15s ease; }
+.am-rail-pin-icon.open { transform: rotate(90deg); color: var(--ui-accent); }
+/* session flyout — slides out right of the rail on hover, locks when pinned */
+.am-flyout {
+  position: absolute;
+  left: 68px;
+  top: 0;
+  bottom: 0;
+  width: min(330px, calc(100% - 76px));
+  max-height: 100%;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--ui-surface-2, var(--ui-surface));
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.35);
+  opacity: 0;
+  transform: translateX(-10px);
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.am-rail:hover ~ .am-flyout,
+.am-flyout:hover,
+.am-conn.rail-pinned .am-flyout {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.am-flyout-head {
   display: flex;
   align-items: center;
+  gap: 8px;
+  padding: 10px 8px 10px 12px;
+  border-bottom: 1px solid var(--ui-border);
+  font-size: 12px;
+}
+.am-flyout-head .muted { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.am-flyout-scroll {
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  margin: 4px 0 2px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--ui-text-3);
 }
-.am-section-divider::before, .am-section-divider::after {
-  content: '';
-  height: 1px;
-  flex: 1;
-  background: var(--ui-border);
-}
-.am-providers-wrap { min-width: 0; }
+/* provider workspace — the rest of the page */
+.am-work { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding-left: 12px; }
+.am-work-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.am-work-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.am-work-title { margin: 0; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.am-work-title .am-hint { margin: 0; }
 .am-connect { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .am-connect-meta { display: flex; flex-direction: column; gap: 2px; flex: 1 1 140px; min-width: 0; }
 .am-method {
@@ -2630,13 +2950,7 @@ onBeforeUnmount(() => {
   animation: am-slide 1.2s ease-in-out infinite alternate;
 }
 @keyframes am-slide { from { margin-left: -10%; } to { margin-left: 70%; } }
-.am-providers { display: grid; grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); gap: 10px; align-items: start; }
-/* Half-screen windows (≈50% of a 1400px desktop) stack list over detail. */
-@media (max-width: 900px) { .am-providers { grid-template-columns: 1fr; } }
 .am-list-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-@media (max-width: 900px) {
-  .am-list-col { max-height: 240px; overflow-y: auto; border: 1px solid var(--ui-border); border-radius: 10px; padding: 8px; }
-}
 .am-list-head { display: flex; align-items: center; justify-content: space-between; }
 .am-prov-row {
   display: flex;
@@ -2763,7 +3077,7 @@ onBeforeUnmount(() => {
 
 /* motion + density polish: respect reduced motion, keep narrow windows usable */
 @media (prefers-reduced-motion: reduce) {
-  .am-bar-fill, .am-tab, .am-login, .am-prov, .am-btn, .am-logo-pick, .am-progress-fill { transition: none; animation: none; }
+  .am-bar-fill, .am-tab, .am-login, .am-prov, .am-btn, .am-logo-pick, .am-progress-fill, .am-flyout, .am-rail-btn, .am-rail-pin-icon { transition: none; animation: none; }
 }
 @media (max-width: 560px) {
   .am-top { flex-wrap: wrap; }
@@ -2779,5 +3093,7 @@ onBeforeUnmount(() => {
   .am-login-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
   .am-hero { margin: 10px 10px 0; }
   .am-tabs { padding: 10px 10px 0; }
+  .am-work { padding-left: 8px; }
+  .am-flyout { left: 62px; width: min(300px, calc(100% - 70px)); }
 }
 </style>

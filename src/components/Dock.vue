@@ -129,16 +129,19 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
 .dock {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  background: var(--ui-glass-2);
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  border: 1px solid var(--ui-border-strong);
-  border-radius: 18px;
+  gap: 5px;
+  padding: 7px 11px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--ui-glass-2) 88%, transparent), color-mix(in srgb, var(--ui-glass-2) 100%, transparent)),
+    var(--ui-glass-2);
+  backdrop-filter: blur(var(--ui-blur-strong)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(160%);
+  border: 1px solid color-mix(in srgb, var(--ui-text) 12%, transparent);
+  border-radius: 22px;
   box-shadow:
     var(--ui-shadow-3),
-    inset 0 1px 0 var(--ui-glass-highlight);
+    inset 0 1px 0 var(--ui-glass-highlight),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
   pointer-events: auto;
   position: relative;
   max-width: 100%;
@@ -170,20 +173,7 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
 }
 
 .dock::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  border-radius: 18px 18px 0 0;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--ui-accent) 45%, transparent) 30%,
-    color-mix(in srgb, var(--ui-accent) 45%, transparent) 70%,
-    transparent
-  );
-  opacity: 0.7;
-  pointer-events: none;
+  content: none;
 }
 
 .dock-item {
@@ -193,38 +183,40 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
   gap: 2px;
   padding: 4px 6px;
   cursor: pointer;
-  border-radius: 10px;
+  border-radius: 12px;
   transition:
     background-color var(--ui-dur-fast) var(--ui-ease-out),
     transform var(--ui-dur) var(--ui-ease-spring);
   position: relative;
-  min-width: 44px;
+  min-width: 46px;
   background: transparent;
   border: none;
 }
 
 .dock-item:hover {
-  background: color-mix(in srgb, var(--ui-text) 7%, transparent);
-  transform: translateY(-2px);
+  transform: translateY(-4px) scale(1.06);
 }
 
 .dock-item:active {
-  transform: translateY(0) scale(0.98);
+  transform: translateY(-1px) scale(1.02);
 }
 
 .dock-item.active {
-  background: color-mix(in srgb, var(--ui-text) 8%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 6%, transparent);
 }
 
 .dock-icon {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--ui-glass);
-  border: 1px solid var(--ui-border);
-  border-radius: 10px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-text) 10%, transparent), color-mix(in srgb, var(--ui-text) 4%, transparent));
+  border: 1px solid color-mix(in srgb, var(--ui-text) 14%, transparent);
+  border-radius: 12px;
+  box-shadow:
+    inset 0 1px 0 var(--ui-glass-highlight),
+    0 1px 3px rgba(0, 0, 0, 0.14);
   transition:
     background-color var(--ui-dur) var(--ui-ease-out),
     border-color var(--ui-dur) var(--ui-ease-out),
@@ -233,20 +225,25 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
 }
 
 .dock-item:hover .dock-icon {
-  background: var(--ui-surface-3);
-  border-color: var(--ui-border-hover);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-accent) 22%, var(--ui-glass)), var(--ui-glass-2));
+  border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--ui-glass-highlight),
+    0 6px 16px color-mix(in srgb, var(--ui-accent) 25%, transparent);
 }
 
 .dock-item.active .dock-icon {
-  background: var(--ui-surface-3);
-  border-color: var(--ui-border-strong);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-accent) 30%, var(--ui-glass)), var(--ui-glass-2));
+  border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent);
 }
 
 .dock-icon-text {
   color: var(--ui-text-2);
   transition: color var(--ui-dur) var(--ui-ease-out);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
 }
 
+.dock-item:hover .dock-icon-text,
 .dock-item.active .dock-icon-text {
   color: var(--ui-text);
 }

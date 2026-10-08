@@ -545,6 +545,62 @@ describe('merged cp/mv/rm/mkdir', () => {
   })
 })
 
+describe('provider ls/cat (outside-container reads)', () => {
+  it('lists /providers mounts plus unmounted configs', async () => {
+    const { deps } = fakeDeps({
+      configs: [{ id: 'c9', backendType: 'github', enabled: true, name: 'vault' }],
+    })
+    const res = await runStaticCybshLine('ls /providers', deps)
+    expect(res?.ok).toBe(true)
+    expect(res?.output).toContain('m1/')
+    expect(res?.output).toContain('(mount…)')
+  })
+
+  it('lists mount dirs with trailing slashes, files bare', async () => {
+    const { deps } = fakeDeps()
+    const res = await runStaticCybshLine('ls /providers/m1/docs', deps)
+    expect(res?.ok).toBe(true)
+    expect(res?.output).toContain('a.md')
+    expect(res?.output).toContain('b.md')
+    const root = await runStaticCybshLine('ls /providers/m1', deps)
+    expect(root?.ok).toBe(true)
+    expect(root?.output).toContain('docs/')
+  })
+
+  it('refuses unknown mounts honestly', async () => {
+    const { deps } = fakeDeps()
+    const res = await runStaticCybshLine('ls /providers/nope', deps)
+    expect(res?.ok).toBe(false)
+    expect(res?.output).toMatch(/not_found: no provider mount/)
+  })
+
+  it('falls through to the wasm volume for local listings', async () => {
+    const { deps } = fakeDeps()
+    expect(await runStaticCybshLine('ls /notes.txt', deps)).toBeNull()
+    expect(await runStaticCybshLine('ls', deps)).toBeNull()
+  })
+
+  it('cats provider files, refuses dirs and binaries honestly', async () => {
+    const { deps } = fakeDeps({
+      providers: { m1: { 'a.md': enc('# readme'), 'bin.dat': new Uint8Array([0xff, 0xfe]) } },
+    })
+    const ok = await runStaticCybshLine('cat /providers/m1/a.md', deps)
+    expect(ok?.ok).toBe(true)
+    expect(ok?.output).toBe('# readme')
+    const missing = await runStaticCybshLine('cat /providers/m1/nope.md', deps)
+    expect(missing?.ok).toBe(false)
+    expect(missing?.output).toMatch(/^not_found:/)
+    const binary = await runStaticCybshLine('cat /providers/m1/bin.dat', deps)
+    expect(binary?.ok).toBe(false)
+    expect(binary?.output).toMatch(/^unsupported: .*binary/)
+  })
+
+  it('falls through to the wasm volume for local reads', async () => {
+    const { deps } = fakeDeps()
+    expect(await runStaticCybshLine('cat /notes.txt', deps)).toBeNull()
+  })
+})
+
 describe('vault verbs', () => {
   const gh: StaticSyncConfig = { id: 'gh', backendType: 'github', enabled: true, name: 'code' }
 

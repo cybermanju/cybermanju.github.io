@@ -621,7 +621,7 @@ fn dispatch(
         "echo" => Ok(merge_args(args)),
         "history" => history_cmd(args, db, json),
         "pwd" => Ok(current_dir()),
-        "cd" => cd_cmd(args),
+        "cd" => cd_cmd(args, db),
         "ls" => ls_cmd(args, db, json),
         "cat" => cat_cmd(args, stdin, db),
         "cp" => cp_cmd(args, db),
@@ -717,6 +717,8 @@ fn help_text(json: bool) -> String {
                 "quota",
                 "oauth status|start",
                 "sync start|status|list|cancel|move <file> <from> <to>",
+                "ls|cat|stat /providers/<mount|config>[/path] (outside-container repos)",
+                "cp|mv /providers/<a>/f <dst> (vault or another provider)",
                 "mv <src> <dst> (namespace bytes; synced copies: sync move)",
             ],
         ),
@@ -920,7 +922,7 @@ fn record_history(line: &str, db: Option<&Database>) {
     }
 }
 
-fn cd_cmd(args: &[String]) -> Result<String, String> {
+fn cd_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
     let kernel = Kernel::global();
     let target = if args.is_empty() {
         "/".to_string()
@@ -933,6 +935,33 @@ fn cd_cmd(args: &[String]) -> Result<String, String> {
             format!("{}/{}", base.trim_end_matches('/'), arg)
         }
     };
+    // Outside-container repos: `/providers` and
+    // `/providers/<mount|config>/…` validate against the live provider
+    // instead of the volume.
+    if crate::provider_fs::is_provider_path(&target) || provider_display(&target) == "/providers" {
+        let db = db.ok_or_else(|| {
+            "unsupported: cd /providers/… needs the database".to_string()
+        })?;
+        let display = provider_display(&target);
+        if display == "/providers" {
+            set_dir(display);
+            return Ok(String::new());
+        }
+        let (head, rest) = crate::provider_fs::split_provider_path(&display)
+            .ok_or_else(|| format!("not a directory: {target}"))?;
+        match crate::provider_fs::classify(db, &head, &rest)? {
+            crate::provider_fs::ProvKind::Dir => {
+                set_dir(display);
+                return Ok(String::new());
+            }
+            crate::provider_fs::ProvKind::File => {
+                return Err(format!("not a directory: {target}"));
+            }
+            crate::provider_fs::ProvKind::Missing => {
+                return Err(format!("not_found: {target}"));
+            }
+        }
+    }
     let host = kernel.resolve(&target)?;
     if !host.is_dir() {
         return Err(format!("not a directory: {target}"));
@@ -940,6 +969,105 @@ fn cd_cmd(args: &[String]) -> Result<String, String> {
     let display = kernel.display(&host);
     set_dir(display.clone());
     Ok(String::new())
+}
+
+/// Canonical `/providers/<head>[/<rest>]` form (duplicate slashes out).
+fn provider_display(target: &str) -> String {
+    let clean = format!("/{}", target.trim_matches('/'));
+    let mut out = String::with_capacity(clean.len());
+    let mut last_slash = false;
+    for ch in clean.chars() {
+        if ch == '/' {
+            if last_slash {
+                continue;
+            }
+            last_slash = true;
+        } else {
+            last_slash = false;
+        }
+        out.push(ch);
+    }
+    if out.len() > 1 {
+        out = out.trim_end_matches('/').to_string();
+    }
+    out
+}
+
+/// The database every provider verb needs (bare `execute` has none).
+fn need_db(db: Option<&Database>, verb: &str) -> Result<&Database, String> {
+    db.ok_or_else(|| format!("unsupported: {verb} on /providers/… needs the database"))
+}
+
+/// Honest refusal for verbs that stay volume-only on provider paths.
+fn refuse_provider(verb: &str) -> String {
+    format!(
+        "unsupported: '{verb}' cannot read /providers/… yet — cp it to the volume first \
+         (ls/cat/cp/mv/rm/mkdir/stat work there)"
+    )
+}
+
+/// `readdir` for the provider namespace: `/providers` lists mounts, deeper
+/// paths list that repo/folder (files + folders, folders first).
+fn provider_readdir(db: &Database, display: &str) -> Result<Vec<crate::api::DirEntry>, String> {
+    use crate::provider_fs as prov;
+    if display == "/providers" {
+        // Mount ids are the names (`cd` into them); `providers` shows labels.
+        return Ok(prov::list_mounts(db)?
+            .into_iter()
+            .map(|(id, _)| crate::api::DirEntry {
+                name: id,
+                kind: "dir".to_string(),
+                size_bytes: 0,
+                modified_ms: 0,
+                is_dir: true,
+            })
+            .collect());
+    }
+    let (head, rest) = prov::split_provider_path(display)
+        .ok_or_else(|| format!("not_found: {display}"))?;
+    Ok(prov::list_dir(db, &head, &rest)?
+        .into_iter()
+        .map(|e| crate::api::DirEntry {
+            name: e.name.clone(),
+            kind: if e.is_dir { "dir".to_string() } else { "file".to_string() },
+            size_bytes: e.size_bytes,
+            modified_ms: rfc3339_ms(&e.modified_at),
+            is_dir: e.is_dir,
+        })
+        .collect())
+}
+
+/// RFC3339 → epoch millis for `ls -l`/`stat` rows (0 when unparseable).
+fn rfc3339_ms(raw: &str) -> u64 {
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .map(|dt| dt.timestamp_millis().max(0) as u64)
+        .unwrap_or(0)
+}
+
+/// Read every byte of a volume file.
+fn read_volume_bytes(path: &str) -> Result<Vec<u8>, String> {
+    let kernel = Kernel::global();
+    let fd = kernel.open(path, OpenFlags::read_only())?;
+    let mut data = Vec::new();
+    loop {
+        let chunk = kernel.read(fd, 64 * 1024)?;
+        if chunk.is_empty() {
+            break;
+        }
+        data.extend_from_slice(&chunk);
+    }
+    kernel.close(fd)?;
+    Ok(data)
+}
+
+/// Write bytes to a volume path (creating parents is the caller's job —
+/// every caller here passes an explicit destination file).
+fn write_volume_bytes(path: &str, data: &[u8]) -> Result<(), String> {
+    let kernel = Kernel::global();
+    let fd = kernel.open(path, OpenFlags::create())?;
+    kernel.write(fd, data)?;
+    kernel.close(fd)?;
+    Ok(())
 }
 
 fn absolute(arg: &str) -> String {
@@ -960,6 +1088,49 @@ fn ls_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, 
         .first()
         .map(|p| absolute(p))
         .unwrap_or_else(current_dir);
+
+    // Outside-container repos list from the provider, not the volume.
+    if crate::provider_fs::is_provider_path(&target) || provider_display(&target) == "/providers" {
+        let db = need_db(db, "ls")?;
+        let display = provider_display(&target);
+        let entries = provider_readdir(db, &display)?;
+        if json {
+            return serde_json::to_string(&serde_json::json!({
+                "path": display,
+                "entries": entries,
+            }))
+            .map_err(|e| e.to_string());
+        }
+        if entries.is_empty() {
+            return Ok(String::new());
+        }
+        let mut out = String::new();
+        for entry in &entries {
+            let colour = if entry.is_dir { BLUE } else { RESET };
+            let name = if entry.is_dir {
+                format!("{}/", entry.name)
+            } else {
+                entry.name.clone()
+            };
+            if long {
+                let kind = if entry.is_dir { "d" } else { "-" };
+                out.push_str(&format!(
+                    "{} {:>10} {} {}{name}{}\n",
+                    kind,
+                    human(entry.size_bytes),
+                    stamp(entry.modified_ms),
+                    colour,
+                    RESET
+                ));
+            } else {
+                out.push_str(&format!("{colour}{name}{RESET}  "));
+            }
+        }
+        if !long {
+            out.push('\n');
+        }
+        return Ok(truncate(out.trim_end().to_string()));
+    }
 
     if json {
         let entries = kernel.readdir(&target)?;
@@ -1011,6 +1182,35 @@ fn cat_cmd(args: &[String], stdin: &str, db: Option<&Database>) -> Result<String
     let mut out = String::new();
     for arg in args {
         let path = absolute(arg);
+        // Outside-container repos print through the provider backend.
+        if crate::provider_fs::is_provider_path(&path) {
+            let db = need_db(db, "cat")?;
+            let display = provider_display(&path);
+            let (head, rest) = crate::provider_fs::split_provider_path(&display)
+                .ok_or_else(|| format!("not_found: {arg}"))?;
+            match crate::provider_fs::classify(db, &head, &rest)? {
+                crate::provider_fs::ProvKind::Dir => {
+                    return Err(format!("is a directory: {display}"));
+                }
+                crate::provider_fs::ProvKind::Missing => {
+                    return Err(format!("not_found: {arg}"));
+                }
+                crate::provider_fs::ProvKind::File { .. } => {}
+            }
+            let bytes = crate::provider_fs::read_file(db, &head, &rest)?;
+            if bytes.len() > crate::provider_fs::CAT_LIMIT_BYTES {
+                out.push_str(&String::from_utf8_lossy(
+                    &bytes[..crate::provider_fs::CAT_LIMIT_BYTES],
+                ));
+                out.push_str(&format!(
+                    "\n… [truncated at {} — cp it to the volume to read fully]",
+                    human(crate::provider_fs::CAT_LIMIT_BYTES as u64)
+                ));
+            } else {
+                out.push_str(&String::from_utf8_lossy(&bytes));
+            }
+            continue;
+        }
         let fd = kernel.open(&path, OpenFlags::read_only())?;
         let mut buf = Vec::new();
         loop {
@@ -1023,7 +1223,6 @@ fn cat_cmd(args: &[String], stdin: &str, db: Option<&Database>) -> Result<String
         kernel.close(fd)?;
         out.push_str(&String::from_utf8_lossy(&buf));
     }
-    let _ = db;
     Ok(out)
 }
 
@@ -1034,25 +1233,106 @@ fn cp_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
     let kernel = Kernel::global();
     let src = absolute(&args[0]);
     let dst = absolute(&args[1]);
+    // Any `/providers/…` side goes through the provider backend (verified
+    // on provider↔provider; plain copies elsewhere).
+    if crate::provider_fs::is_provider_path(&src) || crate::provider_fs::is_provider_path(&dst) {
+        let db = need_db(db, "cp")?;
+        copy_across(db, &src, &dst)?;
+        return Ok(format!("{} → {}", provider_show(&src), provider_show(&dst)));
+    }
     let meta = kernel.stat(&src)?;
     if meta.is_dir {
         return Err("unsupported: cp of a directory (use `mv`)".to_string());
     }
-    let from = kernel.open(&src, OpenFlags::read_only())?;
-    let mut data = Vec::new();
-    loop {
-        let chunk = kernel.read(from, 64 * 1024)?;
-        if chunk.is_empty() {
-            break;
-        }
-        data.extend_from_slice(&chunk);
-    }
-    kernel.close(from)?;
-    let to = kernel.open(&dst, OpenFlags::create())?;
-    kernel.write(to, &data)?;
-    kernel.close(to)?;
-    let _ = db;
+    let data = read_volume_bytes(&src)?;
+    write_volume_bytes(&dst, &data)?;
     Ok(format!("{} → {}", src, dst))
+}
+
+/// Copy bytes between any two endpoints (volume ↔ provider, provider ↔
+/// provider). Provider destinations verify by reading back + BLAKE3.
+fn copy_across(db: &Database, src: &str, dst: &str) -> Result<(), String> {
+    use crate::provider_fs as prov;
+    let src_prov = prov::split_provider_path(&provider_display(src));
+    let dst_prov = prov::split_provider_path(&provider_display(dst));
+    match (src_prov, dst_prov) {
+        (None, None) => unreachable!("caller guarantees a provider side"),
+        (Some((head, rest)), None) => {
+            if rest.is_empty() {
+                return Err("unsupported: cp of a provider mount (copy files)".to_string());
+            }
+            match prov::classify(db, &head, &rest)? {
+                prov::ProvKind::Dir => {
+                    return Err("unsupported: cp of a provider directory (copy files)".to_string());
+                }
+                prov::ProvKind::Missing => {
+                    return Err(format!("not_found: {src}"));
+                }
+                prov::ProvKind::File { .. } => {}
+            }
+            let data = prov::read_file(db, &head, &rest)?;
+            write_volume_bytes(dst, &data)?;
+            Ok(())
+        }
+        (None, Some((head, rest))) => {
+            if rest.is_empty() {
+                return Err("invalid: cannot overwrite the provider root".to_string());
+            }
+            let meta = Kernel::global().stat(src)?;
+            if meta.is_dir {
+                return Err("unsupported: cp of a directory (copy files)".to_string());
+            }
+            let data = read_volume_bytes(src)?;
+            prov::write_file(db, &head, &rest, &data)?;
+            verify_provider_bytes(db, &head, &rest, &data)?;
+            Ok(())
+        }
+        (Some((s_head, s_rest)), Some((d_head, d_rest))) => {
+            if s_rest.is_empty() || d_rest.is_empty() {
+                return Err("unsupported: cp of a provider mount (copy files)".to_string());
+            }
+            match prov::classify(db, &s_head, &s_rest)? {
+                prov::ProvKind::Dir => {
+                    return Err("unsupported: cp of a provider directory (copy files)".to_string());
+                }
+                prov::ProvKind::Missing => {
+                    return Err(format!("not_found: {src}"));
+                }
+                prov::ProvKind::File { .. } => {}
+            }
+            let data = prov::read_file(db, &s_head, &s_rest)?;
+            prov::write_file(db, &d_head, &d_rest, &data)?;
+            verify_provider_bytes(db, &d_head, &d_rest, &data)?;
+            Ok(())
+        }
+    }
+}
+
+/// Re-read a provider destination and compare BLAKE3 (move/copy integrity).
+fn verify_provider_bytes(
+    db: &Database,
+    head: &str,
+    rest: &str,
+    expected: &[u8],
+) -> Result<(), String> {
+    let back = crate::provider_fs::read_file(db, head, rest)?;
+    let a = cybermanju_sync::blake3_hex(expected);
+    let b = cybermanju_sync::blake3_hex(&back);
+    if a != b {
+        return Err(format!(
+            "integrity: provider copy BLAKE3 mismatch at '{rest}' — retry"
+        ));
+    }
+    Ok(())
+}
+
+/// Display form that keeps `/providers/…` readable next to volume paths.
+fn provider_show(path: &str) -> String {
+    if crate::provider_fs::is_provider_path(path) {
+        provider_display(path)
+    } else {
+        path.to_string()
+    }
 }
 
 fn mv_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
@@ -1062,8 +1342,52 @@ fn mv_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
     let kernel = Kernel::global();
     let src = absolute(&args[0]);
     let dst = absolute(&args[1]);
+    // Cross-endpoint moves are copy → verify → delete-source (same rule as
+    // `sync move`: the source only goes once the destination checks out).
+    if crate::provider_fs::is_provider_path(&src) || crate::provider_fs::is_provider_path(&dst) {
+        let db = need_db(db, "mv")?;
+        use crate::provider_fs as prov;
+        let src_prov = prov::split_provider_path(&provider_display(&src));
+        let dst_prov = prov::split_provider_path(&provider_display(&dst));
+        match (&src_prov, &dst_prov) {
+            (None, None) => unreachable!("caller guarantees a provider side"),
+            (Some((head, rest)), _) if rest.is_empty() => {
+                let _ = head;
+                return Err(
+                    "unsupported: mv of a provider mount (move files)".to_string(),
+                );
+            }
+            (_, Some((head, rest))) if rest.is_empty() => {
+                let _ = head;
+                return Err("invalid: cannot overwrite the provider root".to_string());
+            }
+            (Some((head, rest)), _) => match prov::classify(db, &head, &rest)? {
+                prov::ProvKind::Dir => {
+                    return Err(
+                        "unsupported: mv of a provider directory (move files)".to_string(),
+                    );
+                }
+                prov::ProvKind::Missing => {
+                    return Err(format!("not_found: {}", args[0]));
+                }
+                prov::ProvKind::File { .. } => {}
+            },
+            _ => {}
+        }
+        copy_across(db, &src, &dst)?;
+        match src_prov {
+            Some((head, rest)) => prov::delete_file(db, head.as_str(), rest.as_str())?,
+            None => {
+                kernel.unlink(&src)?;
+            }
+        }
+        return Ok(format!(
+            "{} → {}",
+            provider_show(&src),
+            provider_show(&dst)
+        ));
+    }
     kernel.rename(&src, &dst)?;
-    let _ = db;
     Ok(format!("{src} → {dst}"))
 }
 
@@ -1077,6 +1401,40 @@ fn rm_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
     let mut out = Vec::new();
     for arg in paths {
         let path = absolute(arg);
+        // Outside-container deletes go to the provider backend.
+        if crate::provider_fs::is_provider_path(&path) {
+            let db = need_db(db, "rm")?;
+            let display = provider_display(&path);
+            let (head, rest) = crate::provider_fs::split_provider_path(&display)
+                .ok_or_else(|| format!("not_found: {arg}"))?;
+            if rest.is_empty() {
+                return Err(
+                    "invalid: cannot remove a provider mount — delete its config instead"
+                        .to_string(),
+                );
+            }
+            match crate::provider_fs::classify(db, &head, &rest)? {
+                crate::provider_fs::ProvKind::File => {
+                    crate::provider_fs::delete_file(db, &head, &rest)?;
+                    out.push(format!("{display} removed"));
+                }
+                crate::provider_fs::ProvKind::Dir => {
+                    if !recursive {
+                        return Err(format!("is a directory: {display} (use -r)"));
+                    }
+                    let (files, bytes) =
+                        crate::provider_fs::remove_tree(db, &head, &rest)?;
+                    out.push(format!(
+                        "{display} removed ({files} files, {} freed)",
+                        human(bytes)
+                    ));
+                }
+                crate::provider_fs::ProvKind::Missing => {
+                    return Err(format!("not_found: {arg}"));
+                }
+            }
+            continue;
+        }
         if recursive {
             let freed = kernel.remove_tree(&path)?;
             out.push(format!("{path} removed ({} freed)", human(freed)));
@@ -1085,7 +1443,6 @@ fn rm_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
             out.push(format!("{path} removed"));
         }
     }
-    let _ = db;
     Ok(out.join("\n"))
 }
 
@@ -1098,6 +1455,31 @@ fn mkdir_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
     let kernel = Kernel::global();
     for arg in &paths {
         let path = absolute(arg);
+        // Provider folders: a `.keep` file materializes the prefix (git
+        // trees cannot hold empty directories; Drive builds the chain on
+        // upload). One write covers nested paths on every backend.
+        if crate::provider_fs::is_provider_path(&path) {
+            let db = need_db(db, "mkdir")?;
+            let display = provider_display(&path);
+            let (head, rest) = crate::provider_fs::split_provider_path(&display)
+                .ok_or_else(|| format!("invalid: {arg}"))?;
+            if rest.is_empty() {
+                return Err("invalid: provider mounts already exist".to_string());
+            }
+            match crate::provider_fs::classify(db, &head, &rest)? {
+                crate::provider_fs::ProvKind::Dir if parents => continue,
+                crate::provider_fs::ProvKind::Dir => {
+                    return Err(format!("already exists: {display}"));
+                }
+                crate::provider_fs::ProvKind::File => {
+                    return Err(format!("already exists: {display}"));
+                }
+                crate::provider_fs::ProvKind::Missing => {}
+            }
+            let keep = format!("{rest}/.keep");
+            crate::provider_fs::write_file(db, &head, &keep, b"")?;
+            continue;
+        }
         if !parents {
             kernel.mkdir(&path)?;
             continue;
@@ -1116,7 +1498,6 @@ fn mkdir_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
             kernel.mkdir(&acc)?;
         }
     }
-    let _ = db;
     Ok(paths
         .iter()
         .map(|p| p.as_str())
@@ -1131,6 +1512,23 @@ fn touch_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
     let kernel = Kernel::global();
     for arg in args {
         let path = absolute(arg);
+        // Zero-byte provider file (no-op when anything exists there).
+        if crate::provider_fs::is_provider_path(&path) {
+            let db = need_db(db, "touch")?;
+            let display = provider_display(&path);
+            let (head, rest) = crate::provider_fs::split_provider_path(&display)
+                .ok_or_else(|| format!("invalid: {arg}"))?;
+            if rest.is_empty() {
+                continue;
+            }
+            match crate::provider_fs::classify(db, &head, &rest)? {
+                crate::provider_fs::ProvKind::Missing => {
+                    crate::provider_fs::write_file(db, &head, &rest, b"")?;
+                }
+                _ => {}
+            }
+            continue;
+        }
         if kernel.stat(&path).is_ok() {
             continue;
         }
@@ -1154,8 +1552,65 @@ fn stat_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String
     }
     let kernel = Kernel::global();
     let path = absolute(&args[0]);
+    // Provider files/folders stat through the backend, not the volume.
+    if crate::provider_fs::is_provider_path(&path) || provider_display(&path) == "/providers" {
+        let db = need_db(db, "stat")?;
+        let display = provider_display(&path);
+        if display == "/providers" {
+            let stat = crate::api::Stat {
+                path: display.clone(),
+                name: "providers".to_string(),
+                kind: "dir".to_string(),
+                size_bytes: 0,
+                modified_ms: 0,
+                is_dir: true,
+            };
+            if json {
+                return serde_json::to_string(&stat).map_err(|e| e.to_string());
+            }
+            return Ok(format!("{BOLD}{}{RESET}\n  type: dir\n  size: 0 bytes", stat.path));
+        }
+        let (head, rest) = crate::provider_fs::split_provider_path(&display)
+            .ok_or_else(|| format!("not_found: {}", args[0]))?;
+        let name = rest
+            .rsplit('/')
+            .next()
+            .filter(|n| !n.is_empty())
+            .unwrap_or(head.as_str())
+            .to_string();
+        let stat = match crate::provider_fs::classify(db, &head, &rest)? {
+            crate::provider_fs::ProvKind::File { size_bytes, modified_at } => crate::api::Stat {
+                path: display.clone(),
+                name,
+                kind: "file".to_string(),
+                size_bytes,
+                modified_ms: rfc3339_ms(&modified_at),
+                is_dir: false,
+            },
+            crate::provider_fs::ProvKind::Dir => crate::api::Stat {
+                path: display.clone(),
+                name,
+                kind: "dir".to_string(),
+                size_bytes: 0,
+                modified_ms: 0,
+                is_dir: true,
+            },
+            crate::provider_fs::ProvKind::Missing => {
+                return Err(format!("not_found: {}", args[0]));
+            }
+        };
+        if json {
+            return serde_json::to_string(&stat).map_err(|e| e.to_string());
+        }
+        return Ok(format!(
+            "{BOLD}{}{RESET}\n  type: {}\n  size: {} bytes\n  modified: {}",
+            stat.path,
+            stat.kind,
+            stat.size_bytes,
+            stamp(stat.modified_ms)
+        ));
+    }
     let stat = kernel.stat(&path)?;
-    let _ = db;
     if json {
         return serde_json::to_string(&stat).map_err(|e| e.to_string());
     }
@@ -1174,6 +1629,9 @@ fn du_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, 
         .first()
         .map(|a| absolute(a))
         .unwrap_or_else(current_dir);
+    if crate::provider_fs::is_provider_path(&target) {
+        return Err(refuse_provider("du"));
+    }
     let (bytes, files) = kernel.du(&target)?;
     let _ = db;
     if json {
@@ -2166,6 +2624,9 @@ fn encrypt_cmd(args: &[String], json: bool) -> Result<String, String> {
     let path = args.first().ok_or("usage: encrypt <path>")?;
     let kernel = Kernel::global();
     let src = absolute(path);
+    if crate::provider_fs::is_provider_path(&src) {
+        return Err(refuse_provider("encrypt"));
+    }
     let fd = kernel.open(&src, OpenFlags::read_only())?;
     let mut data = Vec::new();
     loop {
@@ -2202,6 +2663,9 @@ fn decrypt_cmd(args: &[String], json: bool) -> Result<String, String> {
     let path = args.first().ok_or("usage: decrypt <path.sealed>")?;
     let kernel = Kernel::global();
     let src = absolute(path);
+    if crate::provider_fs::is_provider_path(&src) {
+        return Err(refuse_provider("decrypt"));
+    }
     let fd = kernel.open(&src, OpenFlags::read_only())?;
     let mut data = Vec::new();
     loop {
@@ -2390,6 +2854,9 @@ fn grep_cmd(args: &[String], stdin: &str, json: bool) -> Result<String, String> 
             line.contains(&needle)
         }
     };
+    if rest[1..].iter().any(|t| crate::provider_fs::is_provider_path(&absolute(t))) {
+        return Err(refuse_provider("grep"));
+    }
     // No paths: grep stdin (pipe) or report usage.
     if rest.len() == 1 {
         if !stdin.is_empty() {
@@ -2472,6 +2939,9 @@ fn grep_cmd(args: &[String], stdin: &str, json: bool) -> Result<String, String> 
 
 fn find_cmd(args: &[String], json: bool) -> Result<String, String> {
     let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    if paths.iter().any(|p| crate::provider_fs::is_provider_path(&absolute(p))) {
+        return Err(refuse_provider("find"));
+    }
     let (root_arg, pattern) = match paths.len() {
         0 => ("/", None),
         1 => {
@@ -2543,6 +3013,9 @@ fn parse_head_tail_n(args: &[String]) -> (usize, Vec<&String>) {
 
 fn head_cmd(args: &[String], stdin: &str) -> Result<String, String> {
     let (n, rest) = parse_head_tail_n(args);
+    if rest.iter().any(|p| crate::provider_fs::is_provider_path(&absolute(p))) {
+        return Err(refuse_provider("head"));
+    }
     let text = if rest.is_empty() {
         if stdin.is_empty() {
             return Err("usage: head [-n N] <path>".to_string());
@@ -2557,6 +3030,9 @@ fn head_cmd(args: &[String], stdin: &str) -> Result<String, String> {
 
 fn tail_cmd(args: &[String], stdin: &str) -> Result<String, String> {
     let (n, rest) = parse_head_tail_n(args);
+    if rest.iter().any(|p| crate::provider_fs::is_provider_path(&absolute(p))) {
+        return Err(refuse_provider("tail"));
+    }
     let text = if rest.is_empty() {
         if stdin.is_empty() {
             return Err("usage: tail [-n N] <path>".to_string());
@@ -2573,6 +3049,9 @@ fn tail_cmd(args: &[String], stdin: &str) -> Result<String, String> {
 
 fn wc_cmd(args: &[String], stdin: &str, json: bool) -> Result<String, String> {
     let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    if paths.iter().any(|p| crate::provider_fs::is_provider_path(&absolute(p))) {
+        return Err(refuse_provider("wc"));
+    }
     let mut totals = (0u64, 0u64, 0u64);
     let mut rows: Vec<serde_json::Value> = Vec::new();
     let count = |data: &[u8]| -> (u64, u64, u64) {
@@ -2631,6 +3110,9 @@ fn write_cmd(args: &[String], stdin: &str) -> Result<String, String> {
         return Err("usage: write <path> <content…>".to_string());
     }
     let path = absolute(&args[0]);
+    if crate::provider_fs::is_provider_path(&path) {
+        return Err(refuse_provider("write"));
+    }
     let content = if args.len() > 1 {
         args[1..].join(" ")
     } else {
@@ -2658,6 +3140,9 @@ fn edit_cmd(args: &[String], json: bool) -> Result<String, String> {
         return Err("integrity: refusing empty anchor (old text must be ≥1 char)".to_string());
     }
     let path = absolute(&args[0]);
+    if crate::provider_fs::is_provider_path(&path) {
+        return Err(refuse_provider("edit"));
+    }
     let data = read_file_bytes(&path)?;
     let text =
         String::from_utf8(data).map_err(|_| "invalid: file is not UTF-8 text".to_string())?;
@@ -3391,6 +3876,9 @@ fn compress_cmd(args: &[String], json: bool) -> Result<String, String> {
         ));
     }
     let src = absolute(&args[0]);
+    if crate::provider_fs::is_provider_path(&src) {
+        return Err(refuse_provider("compress"));
+    }
     let data = read_file_bytes(&src)?;
     let press = cybermanju_compression::TripleCompressor::new();
     let raw = if layer == "lz4" {
@@ -3438,6 +3926,9 @@ fn compress_cmd(args: &[String], json: bool) -> Result<String, String> {
 fn decompress_cmd(args: &[String], json: bool) -> Result<String, String> {
     let path = args.first().ok_or("usage: decompress <path.(lz4|br)>")?;
     let src = absolute(path);
+    if crate::provider_fs::is_provider_path(&src) {
+        return Err(refuse_provider("decompress"));
+    }
     let data = read_file_bytes(&src)?;
     let text =
         String::from_utf8(data).map_err(|_| "invalid: compressed file is not text".to_string())?;
