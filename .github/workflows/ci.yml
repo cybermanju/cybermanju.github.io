@@ -597,10 +597,12 @@ jobs:
 
       # Without this Gradle emits `*-release-unsigned.apk`, which Android
       # refuses to install. The keystore only exists as a repo secret.
+      # PRs from forks/dependabot have no secret access, so an unsigned APK
+      # is expected there — only require signing on push (main has secrets).
       - name: Configure Android release signing
         run: bash scripts/android-signing.sh prepare
         env:
-          REQUIRE_SIGNING: "1"
+          REQUIRE_SIGNING: ${{ github.event_name == 'push' && '1' || '0' }}
           ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -617,7 +619,7 @@ jobs:
       - name: Verify Android APK signature
         run: bash scripts/android-signing.sh verify
         env:
-          REQUIRE_SIGNING: "1"
+          REQUIRE_SIGNING: ${{ github.event_name == 'push' && '1' || '0' }}
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

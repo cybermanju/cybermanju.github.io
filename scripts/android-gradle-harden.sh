@@ -120,6 +120,14 @@ echo "wrote $INIT_DIR/cybermanju-repos.gradle"
 # ─── 4. Retry flaky Maven fetches instead of failing the build ───────────
 GRADLE_PROPS="$ANDROID_DIR/gradle.properties"
 touch "$GRADLE_PROPS"
+# The Tauri-generated gradle.properties may lack a trailing newline, so the
+# first appended prop would concatenate onto the last line, e.g.
+# android.nonFinalResIds=falseorg.gradle.internal.network.retry... which
+# Gradle rejects with "Cannot parse project property ... as boolean" (CI
+# 2026-10-08). Guarantee the newline before appending.
+if [ -s "$GRADLE_PROPS" ] && [ -n "$(tail -c 1 "$GRADLE_PROPS")" ]; then
+  printf '\n' >> "$GRADLE_PROPS"
+fi
 for prop in "org.gradle.internal.network.retry.maxAttempts=5" "org.gradle.internal.repository.max.tentatives=5"; do
   key="${prop%%=*}"
   if ! grep -q "^$key=" "$GRADLE_PROPS"; then
