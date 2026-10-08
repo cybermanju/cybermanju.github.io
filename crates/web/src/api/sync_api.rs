@@ -1102,7 +1102,7 @@ pub fn move_file_on_db(db: &Database, req: MoveRequest) -> Result<MoveOutcome, S
         });
     }
     // Delegate bytes to the shared verified core; map its outcome back.
-    return relocate_into_move_outcome(db, req);
+    relocate_into_move_outcome(db, req)
 }
 
 /// Shared verified relocation (`cybermanju_sync::relocate`) mapped onto the
