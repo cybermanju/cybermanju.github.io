@@ -671,6 +671,11 @@ pub fn default_secret_dir() -> Option<PathBuf> {
             return Some(base.join("cybermanju-os"));
         }
     }
+    // On Android the block above always returns (env dir or the hardcoded
+    // app-private files dir), so no tail expression may follow there —
+    // otherwise `cargo build --target aarch64-linux-android` warns
+    // `unreachable expression`. Every other platform can fall through.
+    #[cfg(not(target_os = "android"))]
     None
 }
 

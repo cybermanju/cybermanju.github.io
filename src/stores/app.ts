@@ -1578,6 +1578,12 @@ export const useAppStore = defineStore('cybermanju', () => {
     try {
       const count = await invoke<number>('batch_delete', { fileIds })
       await fetchFiles()
+      // Mirror deleteFile: drop the deleted ids from every selection so the
+      // inspector and bulk bar never act on ghosts.
+      const gone = new Set(fileIds)
+      if (selectedFileId.value && gone.has(selectedFileId.value)) selectedFileId.value = null
+      selectedFileIds.value = selectedFileIds.value.filter(id => !gone.has(id))
+      if (selectedFileIds.value.length === 0) isMultiSelect.value = false
       notifySuccess(`Batch deleted ${count} files`)
     } catch (e) {
       notifyError('Batch delete failed', e)

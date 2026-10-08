@@ -330,7 +330,7 @@
             <span class="w-label">{{ wasmMode ? 'API key (kept in memory, cleared on reload)' : 'API key (sealed server-side, never shown back)' }}</span>
             <div class="model-row">
               <UiInput v-model="keyInput" type="password" placeholder="Paste key" aria-label="API key" autocomplete="off" />
-              <UiButton size="sm" :disabled="!savedConfigId || !keyInput || keyBusy" :loading="keyBusy" @click="saveKey">Save key</UiButton>
+              <UiButton size="sm" :disabled="!effectiveKeyConfigId || !keyInput.trim() || keyBusy" :loading="keyBusy" :title="!effectiveKeyConfigId ? 'Save the assistant first, or pick one in the sidebar' : ''" @click="saveKey">Save key</UiButton>
             </div>
           </div>
           <div class="w-actions">
@@ -617,7 +617,10 @@
                 />
               </span>
             </div>
+          </template>
 
+            <!-- Composer stays visible even with no session yet: sending
+              auto-creates one (same as desktop). Hidden only on setup/controls tabs. -->
             <div class="composer" :class="{ focused: composerFocused }">
               <div v-if="slashHints.length && slashOpen" class="composer-slash" role="listbox" aria-label="Slash commands">
                 <button
@@ -634,7 +637,7 @@
               <textarea
                 v-model="promptInput"
                 class="composer-box"
-                :placeholder="jobActive ? 'Working… type on, Enter queues your follow-up…' : 'Ask anything… (Enter to send, / for commands)'"
+                :placeholder="!chatConfigId ? 'Pick an assistant in the sidebar, then ask anything…' : jobActive ? 'Working… type on, Enter queues your follow-up…' : viewing ? 'Ask anything… (Enter to send, / for commands)' : 'Ask anything — sending starts a new conversation… (Enter to send, / for commands)'"
                 rows="2"
                 aria-label="Message the assistant"
                 @focus="composerFocused = true"
@@ -649,13 +652,13 @@
                 <span class="composer-spacer" />
                 <UiButton v-if="voice.isSupported.value" size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : 'Dictate your message'" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Dictate' }}</UiButton>
                 <UiButton v-if="jobActive" size="sm" variant="danger" icon="solar:stop-bold" @click="abortJob">Stop</UiButton>
-                <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend" @click="sendPrompt">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
+                <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend" :title="!chatConfigId ? 'Select an assistant first' : ''" @click="sendPrompt">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
               </div>
             </div>
             <div v-if="jobLine" class="w-msg job-line"><AppIcon name="solar:clock-circle-bold" :size="11" /> {{ jobLine }}</div>
             <div v-if="jobError" class="w-msg err" :title="jobHint">{{ jobError }}</div>
             <div v-if="jobHint && jobError" class="w-msg"><AppIcon name="solar:info-circle-bold" :size="11" /> {{ jobHint }}</div>
-          </template>
+            <div v-if="activeTab === 'chat' && !viewing && !chatConfigId && configs.length" class="w-msg">Select an assistant in the sidebar first — or create one in Setup.</div>
         </section>
       </main>
     </div>
@@ -1062,6 +1065,10 @@ const preset = computed(() => providers.value.find(p => p.id === form.providerId
 const presetBase = computed(() => preset.value?.baseUrl ?? 'https://…')
 const isCustom = computed(() => form.providerId === 'custom')
 const canSave = computed(() => form.name.trim() !== '' && form.model.trim() !== '' && form.providerId !== '')
+/** Saving a key targets the sidebar selection first, else the just-saved wizard
+ *  row — so a reload (savedConfigId reset) or picking an existing assistant
+ *  still enables SAVE KEY, and switching assistants keys the right one. */
+const effectiveKeyConfigId = computed(() => chatConfigId.value || savedConfigId.value || '')
 
 // ─── browser-local mode (static host): same shapes, localStorage rows ──
 
@@ -1236,18 +1243,24 @@ async function saveConfig() {
 }
 
 async function saveKey() {
-  if (!savedConfigId.value || !keyInput.value) return
+  const targetId = effectiveKeyConfigId.value
+  const key = keyInput.value.trim()
+  if (!targetId || !key) return
   if (wasmMode.value) {
-    localKeys.value[savedConfigId.value] = keyInput.value
+    localKeys.value[targetId] = key
     keyInput.value = ''
+    // Keep the wizard + sidebar pointing at the config that just got its key.
+    savedConfigId.value = targetId
+    chatConfigId.value = targetId
     refreshLocal()
     setupMsg.value = 'Key held in memory for this page only — never stored.'
     return
   }
   keyBusy.value = true
   try {
-    if (await store.saveAgentKey(savedConfigId.value, keyInput.value)) {
+    if (await store.saveAgentKey(targetId, key)) {
       keyInput.value = ''
+      savedConfigId.value = targetId
       setupMsg.value = 'Key sealed — never shown back.'
     }
   } finally {
@@ -1303,13 +1316,13 @@ async function refreshModels() {
     }
     return
   }
-  if (!savedConfigId.value) {
+  if (!effectiveKeyConfigId.value) {
     setupMsg.value = 'Save the config first, then refresh.'
     return
   }
   modelBusy.value = true
   try {
-    const list = await store.refreshAgentModels(savedConfigId.value)
+    const list = await store.refreshAgentModels(effectiveKeyConfigId.value)
     if (list) {
       models.value = list
       setupMsg.value = `${list.length} models listed.`
@@ -1651,45 +1664,54 @@ async function sendPromptLocal() {
     maxTurns: cfg.maxTurns,
     usage: { ...session.usage },
   }
-  const outcome = await runLocalAgent(
-    {
-      baseUrl: base,
-      dialect,
-      model: cfg.model,
-      headers,
-      system: localSystemPrompt(cfg),
-      maxTurns: cfg.maxTurns,
-      permission: cfg.permission,
-      autoApprove: cfg.autoApprove,
-      agentKind: cfg.agentKind,
-      // "Allow always" must survive the run, not just this turn.
-      onRemember: (tool: string) => {
-        const updated: AgentConfig = {
-          ...cfg,
-          permission: { default: cfg.permission.default, rules: { ...cfg.permission.rules, [tool]: 'allow' } },
-          updatedAt: localNow(),
-        }
-        saveLocalConfig(updated)
-        refreshLocal()
-        store.notifySuccess(`Agent rule written: rules["${tool}"] = allow`)
+  let outcome: { stopped: 'done' | 'limit' | 'aborted' | 'error'; error?: string }
+  try {
+    outcome = await runLocalAgent(
+      {
+        baseUrl: base,
+        dialect,
+        model: cfg.model,
+        headers,
+        system: localSystemPrompt(cfg),
+        maxTurns: cfg.maxTurns,
+        permission: cfg.permission,
+        autoApprove: cfg.autoApprove,
+        agentKind: cfg.agentKind,
+        // "Allow always" must survive the run, not just this turn.
+        onRemember: (tool: string) => {
+          const updated: AgentConfig = {
+            ...cfg,
+            permission: { default: cfg.permission.default, rules: { ...cfg.permission.rules, [tool]: 'allow' } },
+            updatedAt: localNow(),
+          }
+          saveLocalConfig(updated)
+          refreshLocal()
+          store.notifySuccess(`Agent rule written: rules["${tool}"] = allow`)
+        },
       },
-    },
-    session.messages,
-    session.usage,
-    () => {
-      session!.updatedAt = localNow()
-      saveLocalSession(session!)
-      if (localJob.value) {
-        localJob.value = {
-          ...localJob.value,
-          status: 'running',
-          usage: { ...session!.usage },
-          activity: agent.localActivity.value || null,
+      session.messages,
+      session.usage,
+      () => {
+        session!.updatedAt = localNow()
+        saveLocalSession(session!)
+        if (localJob.value) {
+          localJob.value = {
+            ...localJob.value,
+            status: 'running',
+            usage: { ...session!.usage },
+            activity: agent.localActivity.value || null,
+          }
         }
-      }
-      setViewing({ ...session! })
-    },
-  )
+        setViewing({ ...session! })
+      },
+    )
+  } catch (e) {
+    // runLocalAgent is not supposed to throw (turn errors return {stopped:'error'}),
+    // but a transport-level throw (e.g. missing wasm bundle) must not become an
+    // unhandled rejection — surface it as a failed job with a house prefix.
+    const detail = e instanceof Error ? e.message : String(e)
+    outcome = { stopped: 'error', error: detail.includes(':') ? detail : `network: ${detail}` }
+  }
   const finished: AgentJob = {
     ...(localJob.value ?? {
       jobId: newLocalId('job'),
@@ -1760,7 +1782,11 @@ async function answerApproval(approved: boolean, remember = false) {
 async function initRepo() {
   if (!chatConfigId.value || jobActive.value) return
   if (wasmMode.value) {
-    store.notifyError('Repo-init needs a worker', 'use a desktop/Docker config — the browser loop cannot run detached jobs')
+    // No detached worker in the browser sandbox — run the same analysis as an
+    // attached browser-loop turn instead of refusing. It lists/reads via the
+    // volume tools and proposes AGENTS.md through the normal approval card.
+    promptInput.value = 'Analyze this repository (list the top-level layout, read key configs) and draft AGENTS.md standing orders: build/test commands, conventions, and what an agent must never do. Write it to AGENTS.md only after my approval.'
+    await sendPromptLocal()
     return
   }
   await store.initAgentRun(chatConfigId.value)
@@ -1844,13 +1870,32 @@ onBeforeUnmount(() => {
   if (liveTimer) window.clearInterval(liveTimer)
 })
 
+/** Offline fallback when the wasm bundle (or its catalog) is unavailable —
+ *  mirrors `crates/agent/src/providers.rs` so Setup still offers real
+ *  endpoints instead of Custom-only. The loop then reports the missing
+ *  engine per-turn instead of failing the whole panel. */
+const FALLBACK_PRESETS: ProviderPreset[] = [
+  { id: 'openrouter', label: 'OpenRouter', family: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', defaultModel: 'anthropic/claude-sonnet-4-5', dialect: 'openAi', auth: 'bearer', authName: null, keyEnv: 'OPENROUTER_API_KEY', keyless: false, extraHeaders: [['HTTP-Referer', 'https://cybermanju.github.io/'], ['X-Title', 'CyberManju OS']] },
+  { id: 'openai', label: 'OpenAI', family: 'gpt', baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5', dialect: 'openAi', auth: 'bearer', authName: null, keyEnv: 'OPENAI_API_KEY', keyless: false, extraHeaders: [] },
+  { id: 'anthropic', label: 'Anthropic', family: 'claude', baseUrl: 'https://api.anthropic.com', defaultModel: 'claude-sonnet-4-5', dialect: 'anthropic', auth: 'header', authName: 'x-api-key', keyEnv: 'ANTHROPIC_API_KEY', keyless: false, extraHeaders: [['anthropic-version', '2023-06-01']] },
+  { id: 'ollama', label: 'Ollama (local)', family: 'ollama', baseUrl: 'http://localhost:11434/v1', defaultModel: 'llama3.1:8b', dialect: 'openAi', auth: 'none', authName: null, keyEnv: '', keyless: true, extraHeaders: [] },
+  { id: 'google', label: 'Google Gemini', family: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/', defaultModel: 'gemini-2.5-flash', dialect: 'openAi', auth: 'bearer', authName: null, keyEnv: 'GEMINI_API_KEY', keyless: false, extraHeaders: [] },
+  { id: 'groq', label: 'Groq', family: 'groq', baseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'llama-3.3-70b-versatile', dialect: 'openAi', auth: 'bearer', authName: null, keyEnv: 'GROQ_API_KEY', keyless: false, extraHeaders: [] },
+  { id: 'mistral', label: 'Mistral', family: 'mistral', baseUrl: 'https://api.mistral.ai/v1', defaultModel: 'mistral-large-latest', dialect: 'openAi', auth: 'bearer', authName: null, keyEnv: 'MISTRAL_API_KEY', keyless: false, extraHeaders: [] },
+  { id: 'deepseek', label: 'DeepSeek', family: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat', dialect: 'openAi', auth: 'bearer', authName: null, keyEnv: 'DEEPSEEK_API_KEY', keyless: false, extraHeaders: [] },
+  { id: 'xai', label: 'xAI Grok', family: 'grok', baseUrl: 'https://api.x.ai/v1', defaultModel: 'grok-4', dialect: 'openAi', auth: 'bearer', authName: null, keyEnv: 'XAI_API_KEY', keyless: false, extraHeaders: [] },
+  { id: 'cerebras', label: 'Cerebras', family: 'cerebras', baseUrl: 'https://api.cerebras.ai/v1', defaultModel: 'llama-3.3-70b', dialect: 'openAi', auth: 'bearer', authName: null, keyEnv: 'CEREBRAS_API_KEY', keyless: false, extraHeaders: [] },
+]
+
 onMounted(async () => {
   if (wasmMode.value) {
     try {
       const presets = (await agent.wasmAgentCatalog()) as ProviderPreset[]
-      if (presets.length) localPresets.value = presets
-    } catch {
-      localPresets.value = []
+      localPresets.value = presets.length ? presets : [...FALLBACK_PRESETS]
+      if (!presets.length) setupMsg.value = 'Browser engine unavailable — provider list is offline fallback.'
+    } catch (e) {
+      localPresets.value = [...FALLBACK_PRESETS]
+      setupMsg.value = `Browser engine unavailable (${e instanceof Error ? e.message : String(e)}) — provider list is offline fallback.`
     }
     refreshLocal()
     if (!form.model) {

@@ -93,7 +93,7 @@
 
         <div v-if="connectedAccounts.length && (!identity || accountsOpen)" class="am-card">
           <h3 class="am-card-title">Connected accounts ({{ connectedAccounts.length }})</h3>
-          <p class="am-hint">Supabase holds one active session — the rest stay remembered here, so you can switch back in one click, including a second account on the same provider. Each sign-in also creates its provider connection below, so the two lists stay in sync.</p>
+          <p class="am-hint">Supabase holds one active session — the rest stay remembered here, so you can switch back in one click, including a second account on the same provider. Each sign-in also creates its provider connection below, so the two lists stay in sync. Forgetting the last account on a provider offers to delete its now-orphan connection(s); Disconnect deletes the connection(s) without forgetting the login.</p>
           <div v-for="acc in connectedAccounts" :key="acc.id" class="am-identity-row">
             <img v-if="acc.avatarUrl" class="am-avatar" :src="acc.avatarUrl" alt="" />
             <ProviderLogo v-else :provider="acc.provider" :size="32" />
@@ -104,6 +104,7 @@
             <span class="am-status sm" :class="providerBadgeTone(acc)">{{ providerBadge(acc) }}</span>
             <span class="am-status sm" :class="acc.id === identity?.id ? 'is-ok' : ''">{{ acc.id === identity?.id ? 'ACTIVE' : acc.provider.toUpperCase() }}</span>
             <button v-if="needsProviderFor(acc.provider)" class="am-btn xs primary" type="button" :disabled="!!signInBusy || ensuringProvider" :title="`Create a ${backendLabel(backendForOAuth(acc.provider as OAuthBackend))} provider connection for this login`" @click="connectAccountToProvider(acc)">{{ ensuringProvider ? '…' : 'Connect' }}</button>
+            <button v-else-if="configsForBackendSafe(acc.provider).length" class="am-btn xs danger" type="button" :title="`Delete the ${providerBackendLabel(acc.provider)} provider connection(s) — keeps this login remembered`" @click="disconnectAccountProvider(acc)">Disconnect</button>
             <button v-if="acc.id !== identity?.id" class="am-btn xs" type="button" :disabled="!!signInBusy" @click="switchAccount(acc)">Switch</button>
             <button class="am-btn xs" type="button" :title="`Forget ${acc.name}`" @click="forgetAccount(acc.id)">Forget</button>
           </div>
@@ -158,22 +159,37 @@
               <AppIcon name="solar:magnifier-bold" :size="13" />
               <input v-model="provFilter" class="am-search-input" type="search" placeholder="Filter providers…" aria-label="Filter providers" />
             </label>
-            <button
+            <div
               v-for="cfg in filteredConfigs"
               :key="cfg.id"
-              type="button"
-              class="am-prov"
+              class="am-prov-row"
               :class="{ active: selectedId === cfg.id }"
-              @click="selectedId = cfg.id"
             >
-              <ProviderLogo :provider="logoKindFor(cfg.backendType)" :size="34" />
-              <span class="am-prov-meta">
-                <strong class="am-prov-name">{{ cfg.name || backendLabel(cfg.backendType) }}<span v-if="isDraftDirty(cfg)" class="am-unsaved" title="Unsaved edits" aria-label="Unsaved edits">●</span></strong>
-                <span class="muted small">{{ backendLabel(cfg.backendType) }} · {{ disksFor(cfg.id).length }} disks</span>
-              </span>
-              <span class="am-status sm" :class="statusTone(cfg.id)">{{ authLabel(cfg.id) }}</span>
-              <span class="am-switch" :class="{ on: cfg.enabled }" :title="cfg.enabled ? 'Enabled' : 'Disabled'"></span>
-            </button>
+              <button
+                type="button"
+                class="am-prov"
+                :class="{ active: selectedId === cfg.id }"
+                :aria-label="`Select ${cfg.name || backendLabel(cfg.backendType)}`"
+                @click="selectedId = cfg.id"
+              >
+                <ProviderLogo :provider="logoKindFor(cfg.backendType)" :size="34" />
+                <span class="am-prov-meta">
+                  <strong class="am-prov-name">{{ cfg.name || backendLabel(cfg.backendType) }}<span v-if="isDraftDirty(cfg)" class="am-unsaved" title="Unsaved edits" aria-label="Unsaved edits">●</span></strong>
+                  <span class="muted small">{{ backendLabel(cfg.backendType) }} · {{ disksFor(cfg.id).length }} disks</span>
+                </span>
+                <span class="am-status sm" :class="statusTone(cfg.id)">{{ authLabel(cfg.id) }}</span>
+                <span class="am-switch" :class="{ on: cfg.enabled }" :title="cfg.enabled ? 'Enabled' : 'Disabled'"></span>
+              </button>
+              <button
+                class="am-prov-del"
+                type="button"
+                :title="`Delete ${cfg.name || backendLabel(cfg.backendType)} connection`"
+                :aria-label="`Delete ${cfg.name || backendLabel(cfg.backendType)} provider connection`"
+                @click="removeProvider(cfg.id)"
+              >
+                <AppIcon name="solar:trash-bin-trash-bold" :size="13" />
+              </button>
+            </div>
             <p v-if="store.syncConfigs.length && !filteredConfigs.length" class="am-hint">No providers match “{{ provFilter }}”. <button class="am-link" type="button" @click="provFilter = ''">Clear filter</button></p>
             <div v-if="!store.syncConfigs.length && !wizOpen" class="am-card">
               <UiEmpty
@@ -1443,7 +1459,76 @@ async function switchAccount(acc: ConnectedAccount) {
 }
 
 function forgetAccount(id: string) {
+  const acc = connectedAccounts.value.find(a => a.id === id)
+  const backend = acc ? backendForAccountProvider(acc.provider) : null
+  // Orphan check BEFORE forgetting: remaining accounts on the same backend
+  // (excluding the one being forgotten). Only the last login on a backend
+  // can orphan provider rows, so only then do we offer the cascade.
+  const othersRemain = backend
+    ? connectedAccounts.value.some(a => a.id !== id && backendForAccountProvider(a.provider) === backend)
+    : true
+  const orphans = backend && !othersRemain ? configsForBackend(backend) : []
+  if (acc && orphans.length) {
+    const names = orphans.map(c => c.name || backendLabel(c.backendType)).join(', ')
+    if (!window.confirm(
+      `Forget "${acc.name}"? This is also the last ${backendLabel(backend!)} login — OK also deletes ${orphans.length} now-orphan provider connection(s) (${names}); Cancel keeps the provider(s).`,
+    )) return
+  } else if (acc) {
+    if (!window.confirm(`Forget "${acc.name}"? You can sign in again any time.`)) return
+  }
   forgetConnectedAccount(id)
+  // Cascade second half: the account is gone, so its orphaned provider
+  // rows go too (disks stay in the catalog — same guarantee as Delete).
+  if (orphans.length) {
+    void (async () => {
+      for (const c of orphans) {
+        purgeProviderUiState(c.id)
+        await store.deleteSyncConfig(c.id)
+      }
+      ensureMsg.value = `${backendLabel(backend!)} login forgotten — its provider connection(s) were deleted too.`
+      ensureOk.value = true
+      store.notifySuccess?.('Account forgotten — orphan provider connection(s) deleted')
+    })()
+  }
+}
+
+/** All provider rows for one backend (vault sets create several per backend). */
+function configsForBackend(backend: SyncBackendType): SyncConfig[] {
+  return store.syncConfigs.filter(c => c.backendType === backend)
+}
+
+/** Template-safe: provider rows behind a remembered login's provider string. */
+function configsForBackendSafe(provider: string): SyncConfig[] {
+  const b = backendForAccountProvider(provider)
+  return b ? configsForBackend(b) : []
+}
+
+/** Template-safe backend display name for a remembered login. */
+function providerBackendLabel(provider: string): string {
+  const b = backendForAccountProvider(provider)
+  return b ? backendLabel(b) : provider.toUpperCase()
+}
+
+/**
+ * Delete the provider connection(s) behind a remembered login, keeping the
+ * login itself. This is the Sign-in-side mirror of the Connections-list
+ * Delete button — the sync the panel was missing.
+ */
+async function disconnectAccountProvider(acc: ConnectedAccount): Promise<void> {
+  const backend = backendForAccountProvider(acc.provider)
+  if (!backend) return
+  const targets = configsForBackend(backend)
+  if (!targets.length) return
+  const names = targets.map(c => c.name || backendLabel(c.backendType)).join(', ')
+  if (!window.confirm(
+    `Delete ${targets.length} ${backendLabel(backend)} provider connection(s) (${names}) for "${acc.name}"? The login stays remembered — disks stay in the catalog.`,
+  )) return
+  for (const c of targets) {
+    purgeProviderUiState(c.id)
+    await store.deleteSyncConfig(c.id)
+  }
+  ensureMsg.value = `${backendLabel(backend)} connection(s) deleted — press Connect on "${acc.name}" to recreate.`
+  ensureOk.value = true
 }
 
 function timeOf(ts: number): string {
@@ -1538,12 +1623,33 @@ async function probe(cfg: SyncConfig) {
   }
 }
 
-async function removeProvider(id: string) {
-  if (!window.confirm('Delete this provider connection? Its disks stay in the catalog.')) return
+/** Drop every per-config UI cache entry so a deleted provider leaves no ghost state. */
+function purgeProviderUiState(id: string) {
   delete drafts[id]
   delete authState.value[id]
+  delete connectMsg.value[id]
+  delete connectUrl.value[id]
+  delete quotaMsg.value[id]
+  delete showTokens.value[id]
+  delete localPickMsg.value[id]
   if (selectedId.value === id) selectedId.value = null
+}
+
+async function removeProvider(id: string) {
+  const cfg = store.syncConfigs.find(c => c.id === id)
+  const label = cfg?.name || (cfg ? backendLabel(cfg.backendType) : 'this provider')
+  const diskCount = disksFor(id).length
+  const linkedAccounts = cfg
+    ? connectedAccounts.value.filter(a => backendForAccountProvider(a.provider) === cfg.backendType)
+    : []
+  const linkedNote = linkedAccounts.length
+    ? ` ${linkedAccounts.length} remembered login(s) (${linkedAccounts.map(a => a.name).join(', ')}) stay signed in — recreate the connection with one click if needed.`
+    : ''
+  const diskNote = diskCount ? ` Its ${diskCount} disk(s) stay in the catalog.` : ' Its disks stay in the catalog.'
+  if (!window.confirm(`Delete "${label}" provider connection?${diskNote}${linkedNote}`)) return
+  purgeProviderUiState(id)
   await store.deleteSyncConfig(id)
+  if (cfg) store.notifySuccess?.(`"${label}" provider deleted`)
 }
 
 async function saveCreds(cfg: SyncConfig) {
@@ -2420,11 +2526,19 @@ onBeforeUnmount(() => {
 @media (max-width: 720px) { .am-providers { grid-template-columns: 1fr; } }
 .am-list-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .am-list-head { display: flex; align-items: center; justify-content: space-between; }
+.am-prov-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+.am-prov-row.active .am-prov { border-color: color-mix(in srgb, var(--ui-accent) 60%, transparent); background: color-mix(in srgb, var(--ui-accent) 8%, transparent); }
 .am-prov {
   display: flex;
   align-items: center;
   gap: 9px;
   width: 100%;
+  min-width: 0;
+  flex: 1;
   text-align: left;
   padding: 9px 10px;
   border-radius: 10px;
@@ -2433,6 +2547,25 @@ onBeforeUnmount(() => {
   color: var(--ui-text);
   font-family: inherit;
   cursor: pointer;
+}
+.am-prov-del {
+  flex-shrink: 0;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--ui-text) 45%, transparent);
+  cursor: pointer;
+}
+.am-prov-del:hover { color: var(--ui-danger); border-color: color-mix(in srgb, var(--ui-danger) 55%, transparent); background: color-mix(in srgb, var(--ui-danger) 8%, transparent); }
+.am-prov-del:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ui-danger) 75%, transparent);
+  outline-offset: 2px;
 }
 .am-prov:hover { border-color: var(--ui-border-strong); }
 .am-prov:focus-visible {

@@ -117,7 +117,7 @@ import UiButton from '@/components/ui/UiButton.vue'
 import UiEmpty from '@/components/ui/UiEmpty.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { describeSyncError, isOauthCapable } from '@/types'
@@ -148,14 +148,36 @@ const runConfigOptions = computed(() => [
   ...syncConfigs.value.map(c => ({ label: c.name || c.backendType, value: c.id })),
 ])
 
+// A provider deleted in Accounts → Connections must not linger here as a
+// selected run target (or as quota/remote state): START would fire against a
+// dead id. Reset + prune the moment the config list loses the id.
+watch(
+  () => syncConfigs.value.map(c => c.id).join(','),
+  () => {
+    const live = new Set(syncConfigs.value.map(c => c.id))
+    if (runConfigId.value && !live.has(runConfigId.value)) {
+      runConfigId.value = ''
+      remoteFiles.value = []
+      jobMsg.value = 'Selected provider was deleted in Accounts — pick another config.'
+    }
+    for (const id of Object.keys(quotaMsg.value)) {
+      if (!live.has(id)) delete quotaMsg.value[id]
+    }
+  },
+)
+
 function hintFor(e: string) {
   const d = describeSyncError(e)
   return `${d.prefix}: ${d.hint}`
 }
 
 async function oauthConnectCfg(cfg: SyncConfig) {
+  // Single verified OAuth path: Accounts → Connections owns the popup, the
+  // provider-token match check, the save and the CONNECTED probe. Firing
+  // oauth_start from here used to open a bare tab with no verification.
   runConfigId.value = cfg.id
-  await store.oauthStart(cfg.backendType, cfg.id)
+  store.notifySuccess('Opening Accounts → Connections — finish OAuth on that card')
+  openProviders()
 }
 
 async function testCfg(cfg: SyncConfig) {

@@ -274,7 +274,7 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useContextMenu } from '@/composables/useContextMenu'
@@ -386,12 +386,18 @@ async function addVfsMount() {
   if (!vfsNewConfig.value) return
   try {
     const cfg = store.syncConfigs.find(c => c.id === vfsNewConfig.value)
+    if (!cfg) {
+      // Stale pick: the config was deleted after the dropdown rendered.
+      vfsError.value = 'That sync config no longer exists (deleted in Accounts) — pick another one.'
+      vfsNewConfig.value = ''
+      return
+    }
     const { saveVfsMount } = await import('@/composables/useProviderCanal')
     await saveVfsMount({
       configId: vfsNewConfig.value,
-      name: cfg ? `${cfg.backendType}` : vfsNewConfig.value,
-      backendType: cfg?.backendType ?? 'github',
-      basePath: (cfg?.basePath as string | undefined) ?? '',
+      name: `${cfg.backendType}`,
+      backendType: cfg.backendType,
+      basePath: (cfg.basePath as string | undefined) ?? '',
     })
     vfsNewConfig.value = ''
     await refreshVfsMounts()
@@ -418,6 +424,18 @@ const ctx = useContextMenu()
 
 const store = useAppStore()
 const wm = useWindowManager()
+
+// A provider deleted in Accounts must not stay staged in the mount picker —
+// mounting it would create a mount pointing at a dead config id.
+watch(
+  () => store.syncConfigs.map(c => c.id).join(','),
+  () => {
+    if (vfsNewConfig.value && !store.syncConfigs.some(c => c.id === vfsNewConfig.value)) {
+      vfsNewConfig.value = ''
+      vfsError.value = 'Selected sync config was deleted in Accounts — pick another one.'
+    }
+  },
+)
 
 const dashboardUrl = computed(() => {
   if (typeof window !== 'undefined' && window.location?.port === '3456') {

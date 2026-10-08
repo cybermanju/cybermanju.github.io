@@ -25,6 +25,25 @@ const resizeMb = ref(512)
 const busyId = ref<string | null>(null)
 const note = ref('')
 
+// A provider deleted in Accounts must not stay selected here — CREATE would
+// fire against a dead config id. Fall back to empty the moment it vanishes.
+watch(
+  () => store.syncConfigs.map(c => c.id).join(','),
+  () => {
+    if (configId.value && !store.syncConfigs.some(c => c.id === configId.value)) {
+      configId.value = ''
+      note.value = 'Selected provider was deleted in Accounts — pick another configuration.'
+    }
+  },
+)
+
+/** Provider ids still alive — disks whose config was deleted stay in the
+ * catalog by design, so mark them instead of showing a raw dead id. */
+const liveConfigIds = computed(() => new Set(store.syncConfigs.map(c => c.id)))
+function isOrphanDisk(diskConfigId: string): boolean {
+  return !!diskConfigId && !liveConfigIds.value.has(diskConfigId)
+}
+
 const MIN_MB = 64
 const MAX_MB = 8192
 
@@ -277,7 +296,7 @@ onMounted(refresh)
 
           <dl class="card-meta">
             <div><dt class="text-muted">STATE</dt><dd>{{ disk.state }}</dd></div>
-            <div><dt class="text-muted">CONFIG</dt><dd class="truncate">{{ disk.configId }}</dd></div>
+            <div><dt class="text-muted">CONFIG</dt><dd class="truncate" :title="disk.configId">{{ isOrphanDisk(disk.configId) ? `${disk.configId} (provider deleted)` : disk.configId }}</dd></div>
             <div><dt class="text-muted">PATH</dt><dd class="truncate" :title="disk.containerPath">{{ disk.containerPath }}</dd></div>
           </dl>
 

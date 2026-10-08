@@ -611,15 +611,26 @@ export async function runLocalAgent(
       if (wire.pruned > 0) {
         localActivity.value = `compacting · pruned ${wire.pruned} tool result(s)`
       }
-      const res = await wasmAgentPrompt({
-        url: opts.dialect === 'anthropic' ? `${opts.baseUrl.replace(/\/$/, '')}/v1/messages` : `${opts.baseUrl.replace(/\/$/, '')}/chat/completions`,
-        dialect: opts.dialect,
-        model: opts.model,
-        headers: opts.headers,
-        system: opts.system,
-        messages: wire.messages as unknown as Array<Record<string, unknown>>,
-        tools: true,
-      })
+      let res: Awaited<ReturnType<typeof wasmAgentPrompt>>
+      try {
+        res = await wasmAgentPrompt({
+          url: opts.dialect === 'anthropic' ? `${opts.baseUrl.replace(/\/$/, '')}/v1/messages` : `${opts.baseUrl.replace(/\/$/, '')}/chat/completions`,
+          dialect: opts.dialect,
+          model: opts.model,
+          headers: opts.headers,
+          system: opts.system,
+          messages: wire.messages as unknown as Array<Record<string, unknown>>,
+          tools: true,
+        })
+      } catch (e) {
+        const detail = e instanceof Error ? e.message : String(e)
+        // The vite stub (no wasm-pack pkg) throws `not bundled` — translate to
+        // an actionable house-prefixed error instead of an unhandled rejection.
+        if (detail.includes('not bundled') || detail.includes('wasm backend unavailable')) {
+          return { stopped: 'error', error: 'network: browser engine not bundled — use desktop/Docker, or rebuild the Pages pack with wasm-pack' }
+        }
+        return { stopped: 'error', error: `network: provider call failed — ${detail}` }
+      }
       if (!res.ok) {
         return { stopped: 'error', error: res.error ?? 'network: provider call failed' }
       }
@@ -733,7 +744,10 @@ export async function runLocalAgent(
           messages.push({ role: 'tool', content: output, toolCallId: call.id, toolName: call.name })
         } catch (e) {
           const detail = e instanceof Error ? e.message : String(e)
-          messages.push({ role: 'tool', content: `error: ${detail}`, toolCallId: call.id, toolName: call.name })
+          const mapped = detail.includes('not bundled') || detail.includes('wasm backend unavailable')
+            ? 'unsupported: browser volume unavailable in this build — use desktop/Docker, or rebuild the Pages pack with wasm-pack'
+            : detail
+          messages.push({ role: 'tool', content: mapped.startsWith('unsupported:') || mapped.startsWith('error:') ? mapped : `error: ${mapped}`, toolCallId: call.id, toolName: call.name })
         }
         onUpdate?.()
       }

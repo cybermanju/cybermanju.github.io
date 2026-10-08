@@ -53,15 +53,6 @@ tauri-plugin-log = "2"
 tauri-plugin-os = "2"
 tauri-plugin-process = "2"
 
-# ONNX face embeddings only where `ort` ships a usable prebuilt runtime
-# (desktop OSs). Android/iOS builds must not link ort-sys: its
-# `download-binaries` dist has no reliable mobile artifact and the link
-# fails with `could not find native static library 'onnxruntime'`.
-# Without the feature the honest fallback applies (empty detections,
-# never fabricated — AUDIT F7), same as a desktop with no model file.
-[target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
-cybermanju-faces = { path = "../crates/faces", features = ["onnx-face"] }
-
 # General
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -108,3 +99,19 @@ tree-sitter-javascript = { version = "0.23", optional = true }
 tree-sitter-typescript = { version = "0.23", optional = true }
 tree-sitter-go = { version = "0.23", optional = true }
 tree-sitter-bash = { version = "0.23", optional = true }
+
+# ─── Platform-gated extras (LAST table in this file) ────────────────
+# This `[target.*.dependencies]` table MUST stay after every
+# `[dependencies]` key above. TOML has no "close table" marker: any
+# `[dependencies]` key written below a `[target...]` header silently
+# becomes platform-only, which breaks the Android build with hundreds of
+# `unresolved import` errors (CI 2026-10-08: serde/anyhow/chrono/redb/…).
+#
+# ONNX face embeddings only where `ort` ships a usable prebuilt runtime
+# (desktop OSs). Android/iOS builds must not link ort-sys: its
+# `download-binaries` dist has no reliable mobile artifact and the link
+# fails with `could not find native static library 'onnxruntime'`.
+# Without the feature the honest fallback applies (empty detections,
+# never fabricated — AUDIT F7), same as a desktop with no model file.
+[target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
+cybermanju-faces = { path = "../crates/faces", features = ["onnx-face"] }
