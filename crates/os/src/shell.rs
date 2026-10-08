@@ -2814,7 +2814,8 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
     };
     let recording = record.is_some();
     let log_sh = std::cell::RefCell::new(std::collections::BTreeMap::new());
-    let log_fetch = std::cell::RefCell::new(std::collections::BTreeMap::new());
+    let log_fetch: std::cell::RefCell<std::collections::BTreeMap<String, JournalCall>> =
+        std::cell::RefCell::new(std::collections::BTreeMap::new());
     let exec_wrap = |line: &str| -> Result<String, String> {
         if let Some(journal) = journal.as_ref() {
             return journal.sh.get(line).cloned().map_or_else(

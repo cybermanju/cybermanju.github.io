@@ -1270,7 +1270,7 @@ fn run_script_file(args: &[String]) -> String {
     };
     let recording = record_arg.is_some();
     let log_sh = RefCell::new(BTreeMap::new());
-    let log_fetch = RefCell::new(BTreeMap::new());
+    let log_fetch: RefCell<BTreeMap<String, (bool, String)>> = RefCell::new(BTreeMap::new());
     let exec_wrap = |line: &str| -> Result<String, String> {
         if let Some(journal) = journal.as_ref() {
             return match journal.sh.get(line) {
@@ -1568,7 +1568,7 @@ fn ui_cmd(args: &[String]) -> String {
                 Some(r) => r,
                 None => return err("usage: ui accent <#rrggbb|#rgb|default>".to_string()),
             };
-            let next: Option<String> = if raw == "default" || raw == "system" || raw == "none" {
+            let next: Option<String> = if raw.as_str() == "default" || raw.as_str() == "system" || raw.as_str() == "none" {
                 None
             } else {
                 let hex = if raw.starts_with('#') {
@@ -2444,7 +2444,7 @@ fn script_interpolate(vars: &BTreeMap<String, SValue>, src: &str) -> String {
         out.push(chars[i]);
         i += 1;
     }
-    Ok(out)
+    out
 }
 
 fn script_unquote(s: &str, lineno: usize) -> Result<Option<String>, String> {
@@ -2564,7 +2564,8 @@ fn script_statement(ip: &mut ScriptInterp, lines: &[SLine], idx: usize) -> Resul
         } else {
             let parts = script_top_commas(&arg);
             if parts.len() == 1 {
-                script_emit(ip, &script_eval(ip, arg.trim(), lineno)?.display());
+                let text = script_eval(ip, arg.trim(), lineno)?.display();
+                script_emit(ip, &text);
             } else {
                 let mut out = Vec::new();
                 for p in parts {
@@ -2667,7 +2668,7 @@ fn script_statement(ip: &mut ScriptInterp, lines: &[SLine], idx: usize) -> Resul
                 return Ok(j);
             }
             Err(e) => {
-                let mut j = body_end;
+                let j = body_end;
                 if j < lines.len() && lines[j].indent as isize == parent {
                     let t = lines[j].text.clone();
                     let lj = lines[j].lineno;
@@ -3069,9 +3070,6 @@ impl<'b, 'x> ScriptExpr<'b, 'x> {
             if self.pos < self.chars.len()
                 && (self.chars[self.pos] == '+' || self.chars[self.pos] == '-')
             {
-                if self.chars[self.pos] == '-' && self.chars.get(self.pos + 1) == Some(&'=') {
-                    break;
-                }
                 let op = self.chars[self.pos];
                 self.pos += 1;
                 let right = self.parse_mul()?;
@@ -3412,8 +3410,7 @@ impl<'b, 'x> ScriptExpr<'b, 'x> {
             return script_call_func(interp, name, &args, lineno);
         }
         let lineno = self.lineno;
-        let interp = &mut *self.interp;
-        script_builtin(name, &args, interp, lineno)
+        script_builtin(name, &args, lineno)
     }
 }
 
@@ -3579,12 +3576,7 @@ fn script_arith(left: &SValue, op: char, right: &SValue, lineno: usize) -> Resul
     }
 }
 
-fn script_builtin(
-    name: &str,
-    args: &[SValue],
-    ip: &mut ScriptInterp,
-    lineno: usize,
-) -> Result<SValue, String> {
+fn script_builtin(name: &str, args: &[SValue], lineno: usize) -> Result<SValue, String> {
     // Arity is checked per arm below (`call` already caps at 8 args).
     match name {
         "len" => {

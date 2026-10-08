@@ -830,7 +830,7 @@ fn run_statement(ip: &mut Interp, lines: &[Line], idx: usize) -> Result<usize, S
                 return Ok(j);
             }
             Err(e) => {
-                let mut j = body_end;
+                let j = body_end;
                 if j < lines.len() && lines[j].indent as isize == parent {
                     let t = lines[j].text.clone();
                     let lj = lines[j].lineno;
@@ -1609,10 +1609,6 @@ impl<'b, 'a> ExprParser<'b, 'a> {
             if self.pos < self.chars.len()
                 && (self.chars[self.pos] == '+' || self.chars[self.pos] == '-')
             {
-                // A `-` directly followed by `=` is assignment, not maths.
-                if self.chars[self.pos] == '-' && self.chars.get(self.pos + 1) == Some(&'=') {
-                    break;
-                }
                 let op = self.chars[self.pos];
                 self.pos += 1;
                 let right = self.parse_mul()?;
