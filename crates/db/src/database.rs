@@ -99,7 +99,7 @@ pub const SYNC_RUN_HISTORY_LIMIT: usize = 20;
 /// request `RwLock` — same lock-free discipline as the sync pipeline.
 #[derive(Clone)]
 pub struct Database {
-    db: RedbDatabase,
+    db: std::sync::Arc<RedbDatabase>,
 }
 
 impl Database {
@@ -164,7 +164,7 @@ impl Database {
             }
         }
         write_txn.commit()?;
-        Ok(Self { db })
+        Ok(Self { db: std::sync::Arc::new(db) })
     }
 
     pub fn begin_read(&self) -> Result<ReadTransaction> {

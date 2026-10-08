@@ -77,8 +77,7 @@ fn list_groups(db: &Database) -> Result<Vec<(String, FaceGroup)>, String> {
     let mut out = Vec::new();
     for entry in table.iter().map_err(|e| e.to_string())? {
         let (key, value) = entry.map_err(|e| e.to_string())?;
-        let group: FaceGroup =
-            serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+        let group: FaceGroup = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
         out.push((key.value().to_string(), group));
     }
     Ok(out)
@@ -116,8 +115,7 @@ fn cluster_engine(members: &[String], file_engines: &HashMap<String, String>) ->
 /// Detect faces on one file and assign to groups (cosine-threshold match).
 pub fn detect(db: &Database, file_id: &str) -> Result<FaceDetectionResponse, String> {
     let mut node = read_node(db, file_id)?;
-    let (embeddings, engine) =
-        cybermanju_faces::detect_faces_auto(&node, &|| load_rgb(&node));
+    let (embeddings, engine) = cybermanju_faces::detect_faces_auto(&node, &|| load_rgb(&node));
     let engine = engine.to_string();
     let now = chrono::Utc::now().to_rfc3339();
 
@@ -233,8 +231,7 @@ pub fn detect_batch(db: &Database) -> Result<BatchResponse, String> {
     let mut images: Vec<FileNode> = Vec::new();
     for entry in table.iter().map_err(|e| e.to_string())? {
         let (_, value) = entry.map_err(|e| e.to_string())?;
-        let node: FileNode =
-            serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+        let node: FileNode = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
         if node.file_type == "file" {
             if let Some(ref mime) = node.mime_type {
                 if mime.starts_with("image/") {
@@ -248,8 +245,7 @@ pub fn detect_batch(db: &Database) -> Result<BatchResponse, String> {
     let mut pairs: Vec<(String, Vec<f32>)> = Vec::new();
     let mut file_engines: HashMap<String, String> = HashMap::new();
     for node in &images {
-        let (embeddings, engine) =
-            cybermanju_faces::detect_faces_auto(node, &|| load_rgb(node));
+        let (embeddings, engine) = cybermanju_faces::detect_faces_auto(node, &|| load_rgb(node));
         if embeddings.is_empty() {
             continue;
         }
@@ -310,18 +306,14 @@ pub fn detect_batch(db: &Database) -> Result<BatchResponse, String> {
             fg.insert(id.as_str(), raw.as_str())
                 .map_err(|e| e.to_string())?;
             for fid in &cluster.members {
-                if let Some(value) = ft
-                    .get(fid.as_str())
-                    .map_err(|e| e.to_string())?
-                {
+                if let Some(value) = ft.get(fid.as_str()).map_err(|e| e.to_string())? {
                     let mut node: FileNode = serde_json::from_str(value.value())
                         .map_err(|e| e.to_string())?;
                     if !node.face_group_ids.contains(&id) {
                         node.face_group_ids.push(id.clone());
                     }
                     seen_files.insert(fid.clone());
-                    let raw =
-                        serde_json::to_string(&node).map_err(|e| e.to_string())?;
+                    let raw = serde_json::to_string(&node).map_err(|e| e.to_string())?;
                     ft.insert(fid.as_str(), raw.as_str())
                         .map_err(|e| e.to_string())?;
                 }
@@ -332,16 +324,12 @@ pub fn detect_batch(db: &Database) -> Result<BatchResponse, String> {
             if node.face_group_ids.is_empty() || seen_files.contains(&node.id) {
                 continue;
             }
-            if let Some(value) = ft
-                .get(node.id.as_str())
-                .map_err(|e| e.to_string())?
-            {
+            if let Some(value) = ft.get(node.id.as_str()).map_err(|e| e.to_string())? {
                 let mut fresh: FileNode = serde_json::from_str(value.value())
                     .map_err(|e| e.to_string())?;
                 if !fresh.face_group_ids.is_empty() {
                     fresh.face_group_ids.clear();
-                    let raw =
-                        serde_json::to_string(&fresh).map_err(|e| e.to_string())?;
+                    let raw = serde_json::to_string(&fresh).map_err(|e| e.to_string())?;
                     ft.insert(node.id.as_str(), raw.as_str())
                         .map_err(|e| e.to_string())?;
                 }

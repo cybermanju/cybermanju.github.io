@@ -199,8 +199,7 @@ pub fn detect_faces_heuristic_rgb(rgb: &[u8], width: u32, height: u32) -> Vec<He
             continue;
         };
         let size_prior = (area_frac / 0.08).clamp(0.0, 1.0);
-        let mut confidence =
-            0.30 + 0.50 * fill * (0.4 + 0.6 * size_prior) + features.bonus;
+        let mut confidence = 0.30 + 0.50 * fill * (0.4 + 0.6 * size_prior) + features.bonus;
         confidence = confidence.clamp(0.0, 0.95);
         let embedding = crop_embedding(rgb, width, height, x, y, w, h);
         out.push(HeuristicFace {
@@ -216,13 +215,7 @@ pub fn detect_faces_heuristic_rgb(rgb: &[u8], width: u32, height: u32) -> Vec<He
 }
 
 /// Box-sampled working grid (RGB triples) plus per-cell luma.
-fn sample_grid(
-    rgb: &[u8],
-    width: u32,
-    height: u32,
-    gw: u32,
-    gh: u32,
-) -> (Vec<[u32; 3]>, Vec<u32>) {
+fn sample_grid(rgb: &[u8], width: u32, height: u32, gw: u32, gh: u32) -> (Vec<[u32; 3]>, Vec<u32>) {
     let mut grid = vec![[0u32; 3]; (gw as usize) * (gh as usize)];
     let mut lumas = vec![0u32; (gw as usize) * (gh as usize)];
     for gy in 0..gh {
@@ -291,10 +284,7 @@ fn compensate_white_patch(mut grid: Vec<[u32; 3]>, lumas: &[u32]) -> Vec<[u32; 3
         gains[i] = 255 * 256 / mean;
     }
     let [gr, gg, gb] = gains;
-    if ![gr, gg, gb]
-        .iter()
-        .all(|g| (GAIN_LO..=GAIN_HI).contains(g))
-    {
+    if ![gr, gg, gb].iter().all(|g| (GAIN_LO..=GAIN_HI).contains(g)) {
         return grid;
     }
     for px in grid.iter_mut() {
@@ -580,7 +570,14 @@ fn verify_features(
             }
         }
         let axis = blob.min_x as f32 + bw as f32 / 2.0;
-        has_mouth = connected_blobs_strided(&mouth_mask, gw, blob.min_x, mouth_y0, bw, blob.max_y - mouth_y0 + 1)
+        has_mouth = connected_blobs_strided(
+            &mouth_mask,
+            gw,
+            blob.min_x,
+            mouth_y0,
+            bw,
+            blob.max_y - mouth_y0 + 1,
+        )
             .into_iter()
             .any(|b| {
                 let area_frac = b.pixels as f32 / bbox_area;

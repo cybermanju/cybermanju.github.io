@@ -278,7 +278,8 @@ pub fn detect_faces_batch_cmd(state: State<'_, AppState>) -> Result<ReclusterRes
 
     // Collect all embeddings with file IDs (+ engine per file for groups).
     let mut all_embeddings: Vec<(String, Vec<f32>)> = Vec::new();
-    let mut file_engines: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut file_engines: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     for (file_id, embeddings, engine) in &results {
         file_engines
             .entry(file_id.clone())
@@ -457,7 +458,8 @@ pub fn recluster_faces(
 
     // Re-detect faces for each file to get actual per-face embeddings
     let mut all_embeddings: Vec<(String, Vec<f32>)> = Vec::new();
-    let mut file_engines: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut file_engines: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     for file_node in &file_nodes {
         let (embeddings, engine) = crate::faces::detect_faces_in_file_with_engine(file_node);
         if embeddings.is_empty() {
