@@ -193,18 +193,22 @@ const serverLabel = computed(() => {
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: radial-gradient(1200px 600px at 50% -10%, rgb(120 80 255 / 0.14), transparent),
-    rgb(0 0 0 / 0.72);
+  background:
+    radial-gradient(1200px 600px at 50% -10%, var(--ui-aurora-a), transparent),
+    color-mix(in srgb, var(--ui-bg-deep) 78%, transparent);
   backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 .auth-card {
   width: min(430px, 100%);
-  border: 1px solid rgb(255 255 255 / 0.12);
-  border-radius: 14px;
-  background: linear-gradient(180deg, #14101f 0%, #0b0b10 100%);
-  color: #f2efff;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-glass-2);
+  backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
+  box-shadow: var(--ui-shadow-3), inset 0 1px 0 var(--ui-glass-highlight);
+  color: var(--ui-text);
   padding: 22px 22px 16px;
-  box-shadow: 0 24px 80px rgb(0 0 0 / 0.6);
 }
 .auth-brand {
   display: flex;
@@ -216,24 +220,24 @@ const serverLabel = computed(() => {
   width: 40px;
   height: 40px;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: var(--ui-radius-md);
   flex-shrink: 0;
 }
 .auth-title {
   font-size: 17px;
   margin: 0;
-  letter-spacing: 0.02em;
+  letter-spacing: var(--ui-tracking-wide);
 }
 .auth-sub {
   margin: 2px 0 0;
   font-size: 12px;
-  opacity: 0.65;
-  font-family: ui-monospace, monospace;
+  color: var(--ui-text-3);
+  font-family: var(--ui-font-mono);
 }
 .auth-hint {
   font-size: 12.5px;
   line-height: 1.5;
-  opacity: 0.8;
+  color: var(--ui-text-2);
   margin: 8px 0 14px;
 }
 .auth-form {
@@ -251,26 +255,28 @@ const serverLabel = computed(() => {
   opacity: 1;
 }
 .auth-field > span {
-  opacity: 0.65;
+  color: var(--ui-text-3);
 }
 .auth-input {
-  border: 1px solid rgb(255 255 255 / 0.14);
-  border-radius: 9px;
-  background: rgb(255 255 255 / 0.05);
-  color: inherit;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  background: color-mix(in srgb, var(--ui-text) 5%, transparent);
+  color: var(--ui-text);
   padding: 10px 12px;
   font-size: 14px;
+  font-family: var(--ui-font);
   text-transform: none;
   letter-spacing: normal;
   outline: none;
+  transition: border-color var(--ui-dur-fast) var(--ui-ease-out), box-shadow var(--ui-dur-fast) var(--ui-ease-out);
 }
 .auth-input:focus {
-  border-color: #8b7bff;
-  box-shadow: 0 0 0 2px rgb(139 123 255 / 0.3);
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-glow-soft);
 }
 .auth-error {
   font-size: 12.5px;
-  color: #ff9d9d;
+  color: var(--ui-danger);
   margin: 0;
   word-break: break-word;
 }
@@ -281,13 +287,22 @@ const serverLabel = computed(() => {
   gap: 8px;
   margin-top: 4px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--ui-radius-md);
   padding: 11px 14px;
   font-size: 14px;
   font-weight: 650;
+  font-family: var(--ui-font);
   cursor: pointer;
-  color: #0b0b10;
-  background: linear-gradient(180deg, #cfc6ff, #9d8cff);
+  color: var(--ui-on-accent);
+  background: var(--ui-accent);
+  box-shadow: var(--ui-shadow-1);
+  transition:
+    filter var(--ui-dur-fast) var(--ui-ease-out),
+    box-shadow var(--ui-dur-fast) var(--ui-ease-out);
+}
+.auth-submit:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: var(--ui-shadow-2);
 }
 .auth-submit:disabled {
   opacity: 0.5;
@@ -305,23 +320,24 @@ const serverLabel = computed(() => {
   background: none;
   border: none;
   padding: 0;
-  color: #bdb2ff;
+  color: var(--ui-accent);
   font-size: 12.5px;
+  font-family: var(--ui-font);
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 .auth-link.muted {
-  color: rgb(255 255 255 / 0.5);
+  color: var(--ui-text-3);
 }
 .auth-foot {
   margin: 14px 0 0;
   font-size: 11.5px;
   line-height: 1.5;
-  opacity: 0.55;
+  color: var(--ui-text-3);
 }
 .auth-foot code {
-  font-family: ui-monospace, monospace;
+  font-family: var(--ui-font-mono);
   font-size: 11px;
 }
 </style>

@@ -193,6 +193,25 @@ pub fn seed_repo_files(
     })
 }
 
+/// Relocate one file's single copy from provider A to provider B:
+/// download A → upload B → verify B → delete A → retarget record.
+#[tauri::command]
+pub fn move_sync_file(
+    file_id: String,
+    from_config_id: String,
+    to_config_id: String,
+    state: State<'_, AppState>,
+) -> Result<cybermanju_web::api::sync_api::MoveOutcome, String> {
+    cybermanju_web::api::sync_api::move_file(
+        &state.db,
+        cybermanju_web::api::sync_api::MoveRequest {
+            file_id,
+            from_config_id,
+            to_config_id,
+        },
+    )
+}
+
 /// Write one file's bytes (base64) to a provider remote path — the VFS
 /// write-through, so provider mounts are read-write on desktop too.
 #[tauri::command]

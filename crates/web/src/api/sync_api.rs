@@ -84,6 +84,28 @@ pub struct RemoteDeleteRequest {
     pub remote_path: String,
 }
 
+/// `POST /api/sync/move` body: relocate one file's single copy from
+/// provider A to provider B (unified-disk move, not copy+orphan).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveRequest {
+    pub file_id: String,
+    pub from_config_id: String,
+    pub to_config_id: String,
+}
+
+/// Successful `POST /api/sync/move` response.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveOutcome {
+    pub file_id: String,
+    pub from_config_id: String,
+    pub to_config_id: String,
+    pub remote_path: String,
+    pub bytes: u64,
+    pub noop: bool,
+}
+
 /// `202` body of `POST /api/sync/start` and payload of `GET /api/sync/jobs/{id}`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -171,6 +193,32 @@ pub fn save_config(db: &Database, config: SyncConfig) -> Result<SyncConfig, Stri
     if let Some(token) = incoming_token {
         db.put_sync_secret(&config_id, &token)
             .map_err(|e| e.to_string())?;
+    }
+
+    // Single key-holder invariant: designating this provider clears the flag
+    // on every other provider (best-effort, never fails the save itself).
+    if config.key_holder {
+        if let Ok(all) = list_configs(db) {
+            for other in all.into_iter().filter(|c| c.id != config_id && c.key_holder) {
+                let mut cleared = other.clone();
+                cleared.key_holder = false;
+                cleared.updated_at = Some(chrono::Utc::now().to_rfc3339());
+                if let Ok(serialized) = serde_json::to_string(&cleared) {
+                    if let Ok(tx) = db.begin_write() {
+                        let done = (|| {
+                            let mut table = tx
+                                .open_table(Database::get_sync_configs_table())
+                                .map_err(|e| e.to_string())?;
+                            table
+                                .insert(cleared.id.as_str(), serialized.as_str())
+                                .map_err(|e| e.to_string())?;
+                            tx.commit().map_err(|e| e.to_string())
+                        })();
+                        let _ = done;
+                    }
+                }
+            }
+        }
     }
 
     Ok(config)
@@ -1006,6 +1054,69 @@ pub fn delete_remote(db: &RwLock<Database>, req: RemoteDeleteRequest) -> Result<
         }
     }
     Ok(true)
+}
+
+// ─── Unified-disk move A→B (single-copy relocation) ────────────────
+
+/// Move one file's single copy from provider A to provider B.
+///
+/// Bytes travel as-is (the sealed `.cyb3` artifact is backend-agnostic —
+/// no recompress, no re-encrypt), verified by artifact BLAKE3 on the way
+/// back. Order: download A → upload B → verify B → delete A → retarget
+/// the `sync_files` record (`config_id` + `home_config_id`). A failed
+/// upload leaves A untouched; a failed record update compensates by
+/// removing the orphaned B copy.
+pub fn move_file(db: &RwLock<Database>, req: MoveRequest) -> Result<MoveOutcome, String> {
+    // Clone the handle under a short read, then run lock-free: the verified
+    // transfer does network I/O and must never hold the request lock.
+    let owned = db.read().map_err(|e| e.to_string())?.clone();
+    move_file_on_db(&owned, req)
+}
+
+/// `&Database` core so `cybsh sync move` (which holds no request lock)
+/// shares the exact verified relocation as the REST/Tauri path.
+pub fn move_file_on_db(db: &Database, req: MoveRequest) -> Result<MoveOutcome, String> {
+    // Validate before touching the shared core (same `validate_id` contract).
+    crate::security::validate_id(&req.file_id)?;
+    crate::security::validate_id(&req.from_config_id)?;
+    crate::security::validate_id(&req.to_config_id)?;
+    if req.from_config_id == req.to_config_id {
+        let remote = {
+            db.get_sync_file(&req.file_id, &req.from_config_id)
+                .map_err(|e| e.to_string())?
+                .and_then(|r| r.remote_path.clone())
+                .unwrap_or_default()
+        };
+        return Ok(MoveOutcome {
+            file_id: req.file_id,
+            from_config_id: req.from_config_id,
+            to_config_id: req.to_config_id,
+            remote_path: remote,
+            bytes: 0,
+            noop: true,
+        });
+    }
+    // Delegate bytes to the shared verified core; map its outcome back.
+    return relocate_into_move_outcome(db, req);
+}
+
+/// Shared verified relocation (`cybermanju_sync::relocate`) mapped onto the
+/// REST wire shape. The duplicate noop above keeps the id contract local.
+fn relocate_into_move_outcome(db: &Database, req: MoveRequest) -> Result<MoveOutcome, String> {
+    let out = cybermanju_sync::relocate(
+        db,
+        &req.file_id,
+        &req.from_config_id,
+        &req.to_config_id,
+    )?;
+    Ok(MoveOutcome {
+        file_id: out.file_id,
+        from_config_id: out.from_config_id,
+        to_config_id: out.to_config_id,
+        remote_path: out.remote_path,
+        bytes: out.bytes,
+        noop: out.noop,
+    })
 }
 
 /// Provider quota/usage for a config (wraps AGENT-1's `quota::usage`).

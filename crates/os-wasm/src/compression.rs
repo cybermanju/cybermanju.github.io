@@ -45,3 +45,25 @@ pub fn compress_lz4_probe_ratio(data: &[u8]) -> f64 {
         compressed.len() as f64 / data.len() as f64
     }
 }
+
+// ─── zstd (decode only) ─────────────────────────────────────────────
+// The encoder lives in `cybermanju-compression` (`zstd-sys`, C via `cc`)
+// and can never build for wasm32-unknown-unknown, so browser-side zstd
+// *encoding* goes through `@dweb-browser/zstd-wasm` (`src/utils/zstd.ts`,
+// same standard frames). Decoding is pure Rust (`ruzstd`), so it lives
+// here: single-layer zstd blobs and the middle leg of the triple chain
+// open without any JS dependency — the same decoder `artifact.rs` uses
+// to unwrap desktop artifacts.
+
+#[wasm_bindgen]
+pub fn decompress_zstd(data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    use std::io::Read;
+
+    let mut decoder = ruzstd::decoding::StreamingDecoder::new(std::io::Cursor::new(data))
+        .map_err(|_| JsValue::from_str("integrity: not a valid zstd frame"))?;
+    let mut out = Vec::new();
+    decoder
+        .read_to_end(&mut out)
+        .map_err(|_| JsValue::from_str("integrity: zstd frame truncated"))?;
+    Ok(out)
+}

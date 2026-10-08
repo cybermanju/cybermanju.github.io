@@ -135,7 +135,9 @@ Secrets mirror GitHub (`TAURI_SIGNING_PRIVATE_KEY`, `ANDROID_KEYSTORE_*`).
   `integrity:` refusal, `conflict:` on ambiguity. Our trailer strips only
   when it verifies (round-trip hash, or pre-edit bytes on edit/write) —
   foreign anchor-shaped lines are content and stay.
-- **Honest limits:** ONNX faces return empty (never fabricated); code parse
+- **Honest limits:** faces are engine-labeled (`onnx` / `heuristic-v2` /
+  `none`) — ONNX silence stays silence, no-ONNX falls back to the labeled
+  skin-segmentation heuristic, never fabricated; code parse
   reports `"engine"`; WASM `sync`
   needs the dashboard; `encrypted:/binary:/too_large:` refusals on content API
   (1 MiB cap, versioned saves).

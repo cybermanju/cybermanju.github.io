@@ -89,6 +89,31 @@
     </div>
 
     <div class="section">
+      <h3 class="section-title"><AppIcon name="solar:transfer-horizontal-bold" :size="13" /> Move (single-copy home A→B)</h3>
+      <div class="w-field">
+        <UiInput v-model="moveFileId" placeholder="File ID" aria-label="Move file id" />
+      </div>
+      <div class="w-row">
+        <div class="w-field grow">
+          <UiSelect
+            :model-value="moveFromId"
+            :options="runConfigOptions"
+            @update:model-value="moveFromId = $event"
+          />
+        </div>
+        <div class="w-field grow">
+          <UiSelect
+            :model-value="moveToId"
+            :options="runConfigOptions"
+            @update:model-value="moveToId = $event"
+          />
+        </div>
+        <UiButton size="sm" variant="primary" :disabled="!moveFileId || !moveFromId || !moveToId || busy" @click="doMove">Move</UiButton>
+      </div>
+      <div v-if="moveMsg" class="w-msg">{{ moveMsg }}</div>
+    </div>
+
+    <div class="section">
       <h3 class="section-title"><AppIcon name="solar:undo-left-round-bold" :size="13" /> Restore</h3>
       <div class="w-field">
         <UiInput v-model="restoreFileId" placeholder="File ID (optional if path given)" aria-label="File id" />
@@ -137,6 +162,10 @@ const runConfigId = ref('')
 const restoreFileId = ref('')
 const restoreRemotePath = ref('')
 const remoteFiles = ref<{ name: string; path: string; sizeBytes: number }[]>([])
+const moveFileId = ref('')
+const moveFromId = ref('')
+const moveToId = ref('')
+const moveMsg = ref('')
 
 /** Provider connections live in Accounts now — this panel runs them. */
 function openProviders() {
@@ -219,6 +248,15 @@ async function doRestore() {
 async function doRemoteDelete() {
   if (!runConfigId.value || !restoreRemotePath.value) return
   await store.deleteRemoteFile(runConfigId.value, restoreRemotePath.value)
+}
+
+async function doMove() {
+  if (!moveFileId.value || !moveFromId.value || !moveToId.value) return
+  busy.value = true
+  moveMsg.value = 'Moving… (download A → upload B → verify → delete A)'
+  const out = await store.moveSyncFile(moveFileId.value.trim(), moveFromId.value, moveToId.value)
+  moveMsg.value = out ? (out.noop ? 'Already home — nothing moved.' : `Moved ${out.bytes} bytes, verified. Home is now ${moveToId.value}.`) : ''
+  busy.value = false
 }
 
 async function browseRemote() {

@@ -56,8 +56,10 @@
                 type="button"
                 class="st-theme-swatch"
                 :class="{ 'is-active': theme.settings.theme === id }"
-                :title="theme.themes[id].label"
+                :title="`${theme.themes[id].label} — ${theme.themes[id].blurb}`"
                 :aria-pressed="theme.settings.theme === id"
+                :aria-label="`${theme.themes[id].label} — ${theme.themes[id].blurb}`"
+                :style="{ borderRadius: swatchRadius(id) }"
                 @click="theme.setTheme(id)"
               >
                 <span
@@ -367,7 +369,7 @@ import {
 import { ShortcutsKey } from '@/composables/shortcutsKey'
 import { useTouchConfig, type GestureType, type TouchAction } from '@/composables/useTouchConfig'
 import { useTheme } from '@/composables/useTheme'
-import { ACCENT_CHOICES, THEME_GROUPS } from '@/ui/tokens'
+import { ACCENT_CHOICES, SHAPE_RADII, THEME_GROUPS, type ThemeId } from '@/ui/tokens'
 
 /**
  * Active transport: tauri IPC, REST dashboard, or local WASM (GitHub Pages).
@@ -391,6 +393,10 @@ const transportTone = computed<'neutral' | 'accent' | 'success' | 'warning' | 'd
 const store = useAppStore()
 const theme = useTheme()
 const themeGroups = THEME_GROUPS
+/** Swatch corners preview each theme's own shape language (soft/round/sharp). */
+function swatchRadius(id: ThemeId): string {
+  return SHAPE_RADII[theme.themes[id].design.shape].md
+}
 const accentOptions = ACCENT_CHOICES.map((c) => ({ label: c.label, value: c.value }))
 const shortcuts = inject(ShortcutsKey, null)
 const isBrowserKeys = computed(() => !isTauri())

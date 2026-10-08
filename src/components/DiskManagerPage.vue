@@ -12,9 +12,19 @@ import { humanBytes, diskPct } from '@/utils/format'
 const store = useAppStore()
 
 // Merged storage window: `storage` opens here on the overview tab.
-const props = defineProps<{ tab?: string }>()
+// `wm.open('disks', { tab: 'disks', diskId })` focuses one card — FileManager
+// "Manage disk" steers here so the right disk is highlighted + scrolled to.
+const props = defineProps<{ tab?: string; diskId?: string; highlightId?: string }>()
 const view = ref<'overview' | 'disks'>(props.tab === 'overview' ? 'overview' : 'disks')
 watch(() => props.tab, (t) => { if (t === 'overview' || t === 'disks') view.value = t })
+const focusDiskId = computed(() => props.highlightId || props.diskId || '')
+watch(focusDiskId, (id) => {
+  if (!id) return
+  view.value = 'disks'
+  requestAnimationFrame(() => {
+    document.getElementById(`disk-card-${id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  })
+})
 
 const configId = ref('')
 const createSizeMb = ref(512)
@@ -99,6 +109,12 @@ async function check(diskId: string) {
   busyId.value = null
 }
 
+async function makeKeyHolder(diskId: string) {
+  busyId.value = diskId
+  await store.setDiskKeyHolder(diskId)
+  busyId.value = null
+}
+
 /* ── overview stats (merged storage dashboard) ── */
 const trashCount = computed(() => store.trashItems.length)
 const totalSize = computed(() => store.files.reduce((s, f) => s + f.sizeBytes, 0))
@@ -133,7 +149,15 @@ const byType = computed(() => {
   return entries
 })
 
-onMounted(refresh)
+onMounted(async () => {
+  await refresh()
+  if (focusDiskId.value) {
+    view.value = 'disks'
+    requestAnimationFrame(() => {
+      document.getElementById(`disk-card-${focusDiskId.value}`)?.scrollIntoView({ block: 'nearest' })
+    })
+  }
+})
 </script>
 
 <template>
@@ -277,7 +301,7 @@ onMounted(refresh)
       <h3 class="section-title"><AppIcon name="solar:ssd-square-bold" :size="13" /> PER-PROVIDER DISKS ({{ store.disks.length }})</h3>
 
       <div v-if="store.disks.length" class="cards">
-        <article v-for="disk in store.disks" :key="disk.id" class="card">
+        <article v-for="disk in store.disks" :key="disk.id" :id="`disk-card-${disk.id}`" class="card" :class="{ flash: focusDiskId === disk.id }">
           <header class="card-head">
             <div>
               <span class="card-name">{{ disk.name || disk.id }}</span>
@@ -298,6 +322,7 @@ onMounted(refresh)
             <div><dt class="text-muted">STATE</dt><dd>{{ disk.state }}</dd></div>
             <div><dt class="text-muted">CONFIG</dt><dd class="truncate" :title="disk.configId">{{ isOrphanDisk(disk.configId) ? `${disk.configId} (provider deleted)` : disk.configId }}</dd></div>
             <div><dt class="text-muted">PATH</dt><dd class="truncate" :title="disk.containerPath">{{ disk.containerPath }}</dd></div>
+            <div v-if="disk.holdsKeys"><dt class="text-muted">KEYS</dt><dd>🔑 holder — unwraps the others</dd></div>
           </dl>
 
           <div class="card-actions">
@@ -317,6 +342,14 @@ onMounted(refresh)
             >DETACH</button>
             <button class="ghost-btn" type="button" @click="beginResize(disk.id, disk.capacityBytes)">RESIZE</button>
             <button class="ghost-btn" type="button" :disabled="busyId === disk.id" @click="check(disk.id)">CHECK</button>
+            <button
+              v-if="!disk.holdsKeys"
+              class="ghost-btn primary"
+              type="button"
+              :disabled="busyId === disk.id"
+              title="This disk's passphrase unwraps the other disks"
+              @click="makeKeyHolder(disk.id)"
+            >KEY HOLDER</button>
           </div>
 
           <div v-if="resizeTarget === disk.id" class="resize-row">
@@ -645,6 +678,11 @@ onMounted(refresh)
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.card.flash {
+  border-color: color-mix(in srgb, var(--ui-accent) 65%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-accent) 45%, transparent);
 }
 
 .card-head {

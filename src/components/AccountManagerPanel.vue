@@ -1136,8 +1136,8 @@ async function pickLocalDir(cfg: SyncConfig): Promise<void> {
     draft(cfg).basePath = `/${name}`
     localPickMsg.value[cfg.id] = `Picked “${name}” — path auto-filled. Save & verify to keep it.`
     try {
-      const { idbSet } = await import('@/utils/idb')
-      await idbSet(`cybermanju.localDir:${cfg.id}`, dir as unknown as string)
+      const { rememberLocalDir, localDirKey } = await import('@/utils/localDir')
+      await rememberLocalDir(localDirKey(cfg.id), dir)
     } catch {
       // Handle persistence is best-effort; the path is what sync uses.
     }

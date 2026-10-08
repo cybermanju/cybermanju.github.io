@@ -96,6 +96,35 @@ export interface StaticCodecs {
   decompressLz4(data: Uint8Array): Uint8Array
   compressBrotli(data: Uint8Array): Uint8Array
   decompressBrotli(data: Uint8Array): Uint8Array
+  /**
+   * zstd via `@dweb-browser/zstd-wasm` (same standard frames as the desktop
+   * `zstd` crate). Optional so older bundles / test fakes without it keep
+   * answering lz4+brotli — handlers refuse `zstd` honestly when absent.
+   * Sync or async return both work (handlers `await` either way).
+   */
+  compressZstd?(data: Uint8Array, level?: number): Promise<Uint8Array> | Uint8Array
+  decompressZstd?(data: Uint8Array): Promise<Uint8Array> | Uint8Array
+  /** Triple chain LZ4 → ZSTD → Brotli (the desktop `.cyb3` order). */
+  compressTriple?(data: Uint8Array): Promise<Uint8Array> | Uint8Array
+  decompressTriple?(data: Uint8Array): Promise<Uint8Array> | Uint8Array
+}
+
+export type CompressLayer = 'lz4' | 'zstd' | 'brotli' | 'triple'
+
+/** Envelope algorithm names the shell reads (legacy `zstd` files included). */
+export const COMPRESS_ALGORITHMS: CompressLayer[] = ['lz4', 'zstd', 'brotli', 'triple']
+
+export function compressExtension(layer: CompressLayer): string {
+  switch (layer) {
+    case 'lz4':
+      return '.lz4'
+    case 'zstd':
+      return '.zst'
+    case 'brotli':
+      return '.br'
+    case 'triple':
+      return '.cyb3'
+  }
 }
 
 export interface StaticCybshDeps {
@@ -807,7 +836,18 @@ async function handleSync(args: string[], json: boolean, deps: StaticCybshDeps):
       `unsupported: \`sync ${sub}\` runs detached 202 jobs on the server — this static build answers \`sync status\` locally; seed/browse providers offline, push from the desktop app, Docker image or dashboard server`,
     )
   }
-  return shellErr(`usage: sync [status|list|start|cancel] (only status|list answer locally — the rest need the dashboard)`)
+  if (sub === 'move') {
+    // Static hosts hold no sync-record table — bytes move via `mv`, which
+    // already copies across mounts (`/providers/<a>/x` → `/providers/<b>/y`)
+    // then deletes the source. Record-aware home moves run on the dashboard.
+    if (args.length === 4) {
+      return shellOk(
+        `move ${args[1]} ${args[2]} → ${args[3]} via bytes: run \`mv /providers/<from-mount>/${args[1]} /providers/<to-mount>/${args[1]}\` here, or \`sync move ${args[1]} ${args[2]} ${args[3]}\` on the dashboard for a verified record-aware move`,
+      )
+    }
+    return shellErr('usage: sync move <fileId> <fromConfig> <toConfig> (bytes: mv /providers/<a>/x /providers/<b>/y)')
+  }
+  return shellErr(`usage: sync [status|list|start|cancel|move] (only status|list answer locally — the rest need the dashboard)`)
 }
 
 async function handleMount(args: string[], _json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
@@ -923,12 +963,20 @@ async function handleKeygen(args: string[], deps: StaticCybshDeps): Promise<Verb
 
 async function handleCompress(args: string[], deps: StaticCybshDeps, layer: 'lz4' | 'brotli'): Promise<VerbOut> {
   const [rawPath, layerArg] = args
-  const want = (layerArg ?? layer).toLowerCase()
-  if (!rawPath) return shellErr(`usage: compress <path> [lz4|brotli] (decompress: decompress <path.(lz4|br)>)`)
-  if (want !== 'lz4' && want !== 'brotli') return shellErr(`unsupported: compress layer '${layerArg}' (lz4|brotli only on this build)`)
+  const want = (layerArg ?? layer).toLowerCase() as CompressLayer
+  if (!rawPath) return shellErr(`usage: compress <path> [lz4|zstd|brotli|triple] (decompress: decompress <path.(lz4|zst|br|cyb3)>)`)
+  if (want !== 'lz4' && want !== 'zstd' && want !== 'brotli' && want !== 'triple') {
+    return shellErr(`unsupported: compress layer '${layerArg}' (lz4|zstd|brotli|triple)`)
+  }
   const codecs = await deps.codecs().catch(() => null)
   if (!codecs) {
     return shellErr('unsupported: compress needs the rebuilt wasm bundle — reconnect after the next Pages deploy')
+  }
+  if (want === 'zstd' && !codecs.compressZstd) {
+    return shellErr('unsupported: zstd needs the rebuilt wasm bundle with @dweb-browser/zstd-wasm — reconnect after the next Pages deploy')
+  }
+  if (want === 'triple' && !codecs.compressTriple) {
+    return shellErr('unsupported: triple needs the rebuilt wasm bundle with @dweb-browser/zstd-wasm — reconnect after the next Pages deploy')
   }
   const cwd = await deps.getCwd().catch(() => '/')
   const path = joinVolumePath(cwd, rawPath)
@@ -938,11 +986,18 @@ async function handleCompress(args: string[], deps: StaticCybshDeps, layer: 'lz4
   const input = utf8Encode(text)
   let out: Uint8Array
   try {
-    out = want === 'lz4' ? codecs.compressLz4(input) : codecs.compressBrotli(input)
+    if (want === 'lz4') out = await codecs.compressLz4(input)
+    else if (want === 'brotli') out = await codecs.compressBrotli(input)
+    else if (want === 'zstd') out = await codecs.compressZstd!(input)
+    else out = await codecs.compressTriple!(input)
   } catch (e) {
-    return shellErr(`integrity: compression failed (${e instanceof Error ? e.message : String(e)})`)
+    const detail = e instanceof Error ? e.message : String(e)
+    // A missing zstd module stays `unsupported:` (stale bundle) — only a
+    // leg that actually ran and failed is an integrity problem.
+    if (/^unsupported:/.test(detail)) return shellErr(detail)
+    return shellErr(`integrity: compression failed (${detail})`)
   }
-  const ext = want === 'lz4' ? '.lz4' : '.br'
+  const ext = compressExtension(want)
   const stored = JSON.stringify({ alg: want, data: b64Encode(out) })
   if (stored.length > STATIC_WRITE_LIMIT) {
     return shellErr(`too_large: compressed output is ${stored.length} bytes, wasm write limit is ${STATIC_WRITE_LIMIT}`)
@@ -954,7 +1009,7 @@ async function handleCompress(args: string[], deps: StaticCybshDeps, layer: 'lz4
 
 async function handleDecompress(args: string[], deps: StaticCybshDeps): Promise<VerbOut> {
   const [rawPath] = args
-  if (!rawPath) return shellErr('usage: decompress <path.(lz4|br)>')
+  if (!rawPath) return shellErr('usage: decompress <path.(lz4|zst|br|cyb3)>')
   const codecs = await deps.codecs().catch(() => null)
   if (!codecs) {
     return shellErr('unsupported: decompress needs the rebuilt wasm bundle — reconnect after the next Pages deploy')
@@ -970,17 +1025,28 @@ async function handleDecompress(args: string[], deps: StaticCybshDeps): Promise<
   } catch {
     return shellErr(`invalid: ${rawPath} is not a cybsh compressed file`)
   }
-  if ((env.alg !== 'lz4' && env.alg !== 'brotli') || !env.data) {
+  if (!env.data || (env.alg !== 'lz4' && env.alg !== 'zstd' && env.alg !== 'brotli' && env.alg !== 'triple')) {
     return shellErr(`invalid: ${rawPath} is not a cybsh compressed file`)
+  }
+  if (env.alg === 'zstd' && !codecs.decompressZstd) {
+    return shellErr('unsupported: zstd needs the rebuilt wasm bundle with @dweb-browser/zstd-wasm — reconnect after the next Pages deploy')
+  }
+  if (env.alg === 'triple' && !codecs.decompressTriple) {
+    return shellErr('unsupported: triple needs the rebuilt wasm bundle with @dweb-browser/zstd-wasm — reconnect after the next Pages deploy')
   }
   let plain: Uint8Array
   try {
-    plain = env.alg === 'lz4' ? codecs.decompressLz4(b64Decode(env.data)) : codecs.decompressBrotli(b64Decode(env.data))
-  } catch {
+    if (env.alg === 'lz4') plain = await codecs.decompressLz4(b64Decode(env.data))
+    else if (env.alg === 'brotli') plain = await codecs.decompressBrotli(b64Decode(env.data))
+    else if (env.alg === 'zstd') plain = await codecs.decompressZstd!(b64Decode(env.data))
+    else plain = await codecs.decompressTriple!(b64Decode(env.data))
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e)
+    if (/^unsupported:/.test(detail)) return shellErr(detail)
     return shellErr('integrity: compressed bytes failed to decode — tampered file')
   }
   const text = utf8Decode(plain)
-  const outPath = path.replace(/\.(lz4|br)$/, '') || `${path}.plain`
+  const outPath = path.replace(/\.(lz4|zst|br|cyb3)$/, '') || `${path}.plain`
   if (text.length > STATIC_WRITE_LIMIT) {
     return shellErr(`too_large: plaintext is ${text.length} bytes, wasm write limit is ${STATIC_WRITE_LIMIT}`)
   }
@@ -1731,6 +1797,8 @@ const STATIC_THEME_IDS = [
   'ember-night',
   'nebula-night',
   'cyber-night',
+  'matrix-night',
+  'cyberpunk-night',
 ]
 const STATIC_THEME_ALIASES: Record<string, string> = {
   midnight: 'mac-midnight',
@@ -1752,33 +1820,75 @@ function validStaticAccent(raw: string): boolean {
   return (hex.length === 3 || hex.length === 6) && /^[0-9a-fA-F]+$/.test(hex)
 }
 
-function readStaticTheme(deps: StaticCybshDeps): { theme: string; accent: string | null } {
+/** Full interface settings mirror (`/.cybermanju/theme.json`) — every `ui`
+ *  verb reads/writes this shape on all three transports, so the terminal
+ *  customizes the whole interface, not just the palette. */
+export interface StaticUiSettings {
+  theme: string
+  accent: string | null
+  accents: Record<string, string>
+  density: 'compact' | 'comfortable'
+  glass: 0 | 1 | 2 | 3
+  motion: 'auto' | 'full' | 'reduced'
+  glow: boolean
+}
+
+const STATIC_UI_DEFAULTS: StaticUiSettings = {
+  theme: 'mac-light',
+  accent: null,
+  accents: {},
+  density: 'comfortable',
+  glass: 2,
+  motion: 'auto',
+  glow: true,
+}
+
+const STATIC_GLASS_NAMES: Record<string, 0 | 1 | 2 | 3> = {
+  '0': 0, solid: 0,
+  '1': 1, light: 1,
+  '2': 2, default: 2,
+  '3': 3, rich: 3,
+}
+
+function readStaticUi(deps: StaticCybshDeps): StaticUiSettings {
   try {
     const raw = deps.readVolume()[STATIC_THEME_FILE]
-    if (!raw) return { theme: 'mac-light', accent: null }
-    const value = JSON.parse(raw) as { theme?: unknown; accent?: unknown }
+    if (!raw) return { ...STATIC_UI_DEFAULTS, accents: {} }
+    const value = JSON.parse(raw) as Record<string, unknown>
     const theme =
       typeof value.theme === 'string' && canonicalStaticTheme(value.theme)
         ? (canonicalStaticTheme(value.theme) as string)
-        : 'mac-light'
+        : STATIC_UI_DEFAULTS.theme
     const accent =
       typeof value.accent === 'string' && validStaticAccent(value.accent) ? value.accent : null
-    return { theme, accent }
+    const accents: Record<string, string> = {}
+    if (value.accents && typeof value.accents === 'object') {
+      for (const [k, v] of Object.entries(value.accents as Record<string, unknown>)) {
+        if (canonicalStaticTheme(k) && typeof v === 'string' && validStaticAccent(v)) accents[k] = v
+      }
+    }
+    const density = value.density === 'compact' ? 'compact' : 'comfortable'
+    const glassRaw = value.glass
+    const glass: 0 | 1 | 2 | 3 =
+      glassRaw === 0 || glassRaw === 1 || glassRaw === 2 || glassRaw === 3 ? glassRaw : 2
+    const motion =
+      value.motion === 'full' || value.motion === 'reduced' ? value.motion : 'auto'
+    const glow = typeof value.glow === 'boolean' ? value.glow : true
+    return { theme, accent, accents, density, glass, motion, glow }
   } catch {
-    return { theme: 'mac-light', accent: null }
+    return { ...STATIC_UI_DEFAULTS, accents: {} }
   }
 }
 
-/** Best-effort live apply: localStorage (survives reload) + document. */
-function applyLiveTheme(theme: string, accent: string | null): void {
+/** Best-effort live apply: localStorage (survives reload) + document. The
+ *  Terminal panel applies the same intent reactively from the `ui:` effect
+ *  lines every verb prints, so all transports converge live. */
+function applyLiveUi(s: StaticUiSettings): void {
   try {
     if (typeof localStorage !== 'undefined') {
       const raw = localStorage.getItem('cybermanju_theme_v1')
       const cur = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
-      localStorage.setItem(
-        'cybermanju_theme_v1',
-        JSON.stringify({ ...cur, theme, accent }),
-      )
+      localStorage.setItem('cybermanju_theme_v1', JSON.stringify({ ...cur, ...s }))
     }
   } catch {
     // Private mode / quota — the volume mirror still holds the intent.
@@ -1786,67 +1896,84 @@ function applyLiveTheme(theme: string, accent: string | null): void {
   try {
     if (typeof document !== 'undefined') {
       const root = document.documentElement
-      root.dataset.uiTheme = theme
-      if (accent) root.style.setProperty('--ui-accent', accent)
+      root.dataset.uiTheme = s.theme
+      if (s.accent) root.style.setProperty('--ui-accent', s.accent)
+      else root.style.removeProperty('--ui-accent')
     }
   } catch {
     // Node/test env — no document to restyle.
   }
 }
 
-async function writeStaticTheme(
-  deps: StaticCybshDeps,
-  theme: string,
-  accent: string | null,
-): Promise<void> {
-  await deps.writeVolumeFile(
-    STATIC_THEME_FILE,
-    JSON.stringify({ theme, accent }),
-  )
-  applyLiveTheme(theme, accent)
+async function writeStaticUi(deps: StaticCybshDeps, s: StaticUiSettings): Promise<void> {
+  await deps.writeVolumeFile(STATIC_THEME_FILE, JSON.stringify(s))
+  applyLiveUi(s)
 }
 
-function staticThemeLine(theme: string, accent: string | null): string {
-  return accent ? `theme: ${theme} · accent: ${accent}` : `theme: ${theme} · accent: system`
+function staticUiLine(s: StaticUiSettings): string {
+  const accent = s.accent ?? 'system'
+  const perTheme = Object.entries(s.accents)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(' ')
+  const head = `theme: ${s.theme} · accent: ${accent}`
+  const body =
+    `density: ${s.density} · glass: ${s.glass} · motion: ${s.motion} · glow: ${s.glow ? 'on' : 'off'}` +
+    (perTheme ? `\naccents: ${perTheme}` : '')
+  const effects =
+    `ui: theme=${s.theme}\nui: accent=${s.accent ?? 'system'}\n` +
+    `ui: density=${s.density}\nui: glass=${s.glass}\nui: motion=${s.motion}\nui: glow=${s.glow ? 'on' : 'off'}` +
+    Object.entries(s.accents)
+      .map(([k, v]) => `\nui: accent-for=${k}:${v}`)
+      .join('')
+  return `${head}\n${body}\n${effects}`
 }
 
 async function handleTheme(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
   const want = args.find((a) => !a.startsWith('-'))
-  const { theme, accent } = readStaticTheme(deps)
+  const s = readStaticUi(deps)
   if (!want || want === 'get') {
-    if (json) return shellOk(JSON.stringify({ theme, accent }))
-    return shellOk(`${staticThemeLine(theme, accent)}\nui: theme=${theme}`)
+    if (json) return shellOk(JSON.stringify(s))
+    return shellOk(staticUiLine(s))
   }
   const canonical = canonicalStaticTheme(want)
   if (!canonical) {
     return shellErr(`invalid: unknown theme '${want}' (try: ${STATIC_THEME_IDS.join(', ')})`)
   }
-  await writeStaticTheme(deps, canonical, accent)
-  if (json) return shellOk(JSON.stringify({ theme: canonical, accent }))
-  return shellOk(`${staticThemeLine(canonical, accent)}\nui: theme=${canonical}`)
+  const next = { ...s, theme: canonical }
+  await writeStaticUi(deps, next)
+  if (json) return shellOk(JSON.stringify(next))
+  return shellOk(staticUiLine(next))
 }
 
 async function handleUi(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
   const sub = args[0] ?? 'get'
-  const { theme, accent } = readStaticTheme(deps)
+  const rest = args.slice(1).filter((a) => !a.startsWith('-'))
+  const s = readStaticUi(deps)
   if (sub === 'get') {
-    if (json) return shellOk(JSON.stringify({ theme, accent }))
-    return shellOk(`${staticThemeLine(theme, accent)}\nui: theme=${theme}`)
+    if (json) return shellOk(JSON.stringify(s))
+    return shellOk(staticUiLine(s))
   }
   if (sub === 'theme') {
-    const id = args[1]
+    const id = rest[0]
     if (!id) return shellErr(`usage: ui theme <id> (try: ${STATIC_THEME_IDS.join(', ')})`)
     const canonical = canonicalStaticTheme(id)
     if (!canonical) {
       return shellErr(`invalid: unknown theme '${id}' (try: ${STATIC_THEME_IDS.join(', ')})`)
     }
-    await writeStaticTheme(deps, canonical, accent)
-    if (json) return shellOk(JSON.stringify({ theme: canonical, accent }))
-    return shellOk(`${staticThemeLine(canonical, accent)}\nui: theme=${canonical}`)
+    const next = { ...s, theme: canonical }
+    await writeStaticUi(deps, next)
+    if (json) return shellOk(JSON.stringify(next))
+    return shellOk(staticUiLine(next))
   }
   if (sub === 'accent') {
-    const raw = args[1]
-    if (!raw) return shellErr('usage: ui accent <#rrggbb|#rgb|default>')
+    const raw = rest[0]
+    if (!raw) return shellErr('usage: ui accent <#rrggbb|#rgb|default> [--for <theme>]')
+    const flagArgs = args.slice(1)
+    const forIdx = flagArgs.findIndex((a) => a === '--for' || a === '-for')
+    const forTheme = forIdx >= 0 ? flagArgs[forIdx + 1] : undefined
+    if (forIdx >= 0 && (!forTheme || !canonicalStaticTheme(forTheme))) {
+      return shellErr(`invalid: unknown theme '${forTheme ?? ''}' (try: ${STATIC_THEME_IDS.join(', ')})`)
+    }
     const next: string | null =
       raw === 'default' || raw === 'system' || raw === 'none'
         ? null
@@ -1857,12 +1984,87 @@ async function handleUi(args: string[], json: boolean, deps: StaticCybshDeps): P
     if (raw !== 'default' && raw !== 'system' && raw !== 'none' && next === null) {
       return shellErr(`invalid: bad accent '${raw}' (use #rrggbb, #rgb, or \`default\`)`)
     }
-    await writeStaticTheme(deps, theme, next)
-    const shown = next ?? 'system'
-    if (json) return shellOk(JSON.stringify({ theme, accent: next }))
-    return shellOk(`${staticThemeLine(theme, next)}\nui: accent=${shown}`)
+    if (forTheme) {
+      const canonical = canonicalStaticTheme(forTheme) as string
+      const accents = { ...s.accents }
+      if (next) accents[canonical] = next
+      else delete accents[canonical]
+      const updated = { ...s, accents }
+      await writeStaticUi(deps, updated)
+      const shown = next ?? 'system'
+      if (json) return shellOk(JSON.stringify(updated))
+      return shellOk(`accent: ${canonical} → ${shown}\nui: accent-for=${canonical}:${shown}`)
+    }
+    const updated = { ...s, accent: next }
+    await writeStaticUi(deps, updated)
+    if (json) return shellOk(JSON.stringify(updated))
+    return shellOk(staticUiLine(updated))
   }
-  return shellErr(`usage: ui theme <id>|accent <#hex|default>|get (got \`${sub}\`)`)
+  if (sub === 'density') {
+    const want = rest[0]
+    if (!want || want === 'get') {
+      if (json) return shellOk(JSON.stringify({ density: s.density }))
+      return shellOk(`density: ${s.density}\nui: density=${s.density}`)
+    }
+    if (want !== 'compact' && want !== 'comfortable') {
+      return shellErr(`invalid: bad density '${want}' (use compact|comfortable)`)
+    }
+    // Validated above — the `as` keeps the literal type `writeStaticUi` needs.
+    const updated = { ...s, density: want as 'compact' | 'comfortable' }
+    await writeStaticUi(deps, updated)
+    if (json) return shellOk(JSON.stringify({ density: want }))
+    return shellOk(`density: ${want}\nui: density=${want}`)
+  }
+  if (sub === 'glass') {
+    const want = rest[0]
+    if (!want || want === 'get') {
+      if (json) return shellOk(JSON.stringify({ glass: s.glass }))
+      return shellOk(`glass: ${s.glass}\nui: glass=${s.glass}`)
+    }
+    const level = STATIC_GLASS_NAMES[want.toLowerCase()]
+    if (level === undefined) {
+      return shellErr(`invalid: bad glass '${want}' (use 0|solid, 1|light, 2|default, 3|rich)`)
+    }
+    const updated = { ...s, glass: level }
+    await writeStaticUi(deps, updated)
+    if (json) return shellOk(JSON.stringify({ glass: level }))
+    return shellOk(`glass: ${level}\nui: glass=${level}`)
+  }
+  if (sub === 'motion') {
+    const want = rest[0]
+    if (!want || want === 'get') {
+      if (json) return shellOk(JSON.stringify({ motion: s.motion }))
+      return shellOk(`motion: ${s.motion}\nui: motion=${s.motion}`)
+    }
+    if (want !== 'auto' && want !== 'full' && want !== 'reduced') {
+      return shellErr(`invalid: bad motion '${want}' (use auto|full|reduced)`)
+    }
+    // Validated above — the `as` keeps the literal type `writeStaticUi` needs.
+    const updated = { ...s, motion: want as 'auto' | 'full' | 'reduced' }
+    await writeStaticUi(deps, updated)
+    if (json) return shellOk(JSON.stringify({ motion: want }))
+    return shellOk(`motion: ${want}\nui: motion=${want}`)
+  }
+  if (sub === 'glow') {
+    const want = rest[0]
+    if (!want || want === 'get') {
+      if (json) return shellOk(JSON.stringify({ glow: s.glow }))
+      return shellOk(`glow: ${s.glow ? 'on' : 'off'}\nui: glow=${s.glow ? 'on' : 'off'}`)
+    }
+    const lower = want.toLowerCase()
+    if (!['on', 'off', 'true', 'false', '1', '0'].includes(lower)) {
+      return shellErr(`invalid: bad glow '${want}' (use on|off)`)
+    }
+    const on = lower === 'on' || lower === 'true' || lower === '1'
+    const updated = { ...s, glow: on }
+    await writeStaticUi(deps, updated)
+    if (json) return shellOk(JSON.stringify({ glow: on }))
+    return shellOk(`glow: ${on ? 'on' : 'off'}\nui: glow=${on ? 'on' : 'off'}`)
+  }
+  return shellErr(
+    'usage: ui theme <id>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|1|light|2|default|3|rich>|motion <auto|full|reduced>|glow <on|off>|get ' +
+      `(got \`${sub}\`)`,
+  )
 }
 
 /** Inline `sh` for scripts: static verbs first, wasm volume second. */

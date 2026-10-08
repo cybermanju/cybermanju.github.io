@@ -195,6 +195,39 @@ describe('static cybsh: theme + ui verbs', () => {
     expect(accent?.output).toContain('ui: accent=#ff2d55')
     expect((await runStaticCybshLine('ui accent bogus', deps))?.output).toMatch(/invalid:/)
     expect((await runStaticCybshLine('ui theme nosuch', deps))?.output).toMatch(/invalid:/)
+    const matrix = await runStaticCybshLine('ui theme matrix-night', deps)
+    expect(matrix?.output).toContain('ui: theme=matrix-night')
+    const punk = await runStaticCybshLine('ui theme cyberpunk-night', deps)
+    expect(punk?.output).toContain('ui: theme=cyberpunk-night')
+  })
+  it('drives the whole interface: density, glass, motion, glow, per-theme accents', async () => {
+    const deps = staticDeps({}, async (line) => line)
+    const get = await runStaticCybshLine('ui get', deps)
+    expect(get?.output).toContain('density: comfortable')
+    expect(get?.output).toContain('ui: density=comfortable')
+    const getJson = JSON.parse((await runStaticCybshLine('ui get --json', deps))?.output ?? '{}') as Record<string, unknown>
+    expect(getJson).toMatchObject({ theme: 'mac-light', accent: null, density: 'comfortable', glass: 2, motion: 'auto', glow: true })
+
+    expect((await runStaticCybshLine('ui density compact', deps))?.output).toContain('ui: density=compact')
+    expect((await runStaticCybshLine('ui density bogus', deps))?.output).toMatch(/invalid:/)
+    expect((await runStaticCybshLine('ui glass rich', deps))?.output).toContain('ui: glass=3')
+    expect((await runStaticCybshLine('ui glass 9', deps))?.output).toMatch(/invalid:/)
+    expect((await runStaticCybshLine('ui motion reduced', deps))?.output).toContain('ui: motion=reduced')
+    expect((await runStaticCybshLine('ui glow off', deps))?.output).toContain('ui: glow=off')
+
+    const themed = await runStaticCybshLine('ui accent #ff2d78 --for cyberpunk-night', deps)
+    expect(themed?.output).toContain('ui: accent-for=cyberpunk-night:#ff2d78')
+    expect((await runStaticCybshLine('ui accent #ff2d78 --for nosuch', deps))?.output).toMatch(/invalid:/)
+    const after = JSON.parse((await runStaticCybshLine('ui get --json', deps))?.output ?? '{}') as Record<string, unknown>
+    expect(after).toMatchObject({
+      density: 'compact',
+      glass: 3,
+      motion: 'reduced',
+      glow: false,
+      accents: { 'cyberpunk-night': '#ff2d78' },
+    })
+    const cleared = await runStaticCybshLine('ui accent default --for cyberpunk-night', deps)
+    expect(cleared?.output).toContain('ui: accent-for=cyberpunk-night:system')
   })
 })
 

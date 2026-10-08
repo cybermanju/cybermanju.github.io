@@ -161,7 +161,7 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         ),
         tool_def(
             "self_research",
-            "Introspect the agent's OWN source code: sweep this repo for how something works and return file:line-grounded snippets. Read-only and plan-safe. Use it before claiming how the agent, tools, permissions, MCP or memory work — never answer from memory when you can read the code.",
+            "Introspect the agent's OWN source code: sweep this repo for how something works and return file:line-grounded snippets. Read-only and plan-safe. Use it before claiming how the agent, tools, permissions, MCP, memory, interface themes or cybsh verbs work — never answer from memory when you can read the code.",
             serde_json::json!({
                 "query": { "type": "string", "description": "What to understand (e.g. how MCP attach works, how permissions decide)" },
                 "path": { "type": "string", "description": "Subdirectory to sweep, default \"/\" (the working root)" },

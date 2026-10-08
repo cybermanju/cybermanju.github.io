@@ -449,6 +449,7 @@ pub fn run() {
             sync_cmd::create_provider_repo,
             sync_cmd::seed_repo_files,
             sync_cmd::upload_remote_file,
+            sync_cmd::move_sync_file,
             // Native AI agent (configs/sessions/detached jobs)
             commands::agent::list_agent_providers,
             commands::agent::list_agent_configs,
@@ -511,6 +512,7 @@ pub fn run() {
             commands::disk::list_disks,
             commands::disk::volume_df,
             commands::disk::check_disk,
+            commands::disk::set_disk_key_holder,
         ])
         .run(tauri::generate_context!())
         .expect("Fatal error while running CyberManju OS — see logs above");

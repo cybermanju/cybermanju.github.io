@@ -326,6 +326,21 @@ impl SyncPipeline {
             .unwrap_or(&file_node.name)
             .to_string();
 
+        // One-folder loop guard: the vault container + secret sidecars are
+        // never sync sources. Skip quietly — the vault re-hashes every save,
+        // so erroring here would spam every auto-sync tick forever.
+        if crate::backends::is_protected_remote_path(&original_path)
+            || original_path
+                .rsplit('/')
+                .next()
+                .unwrap_or(&original_path)
+                .to_lowercase()
+                .ends_with(".cybermanju")
+        {
+            info!("{} is a vault/secret path — skipping sync", original_path);
+            return Ok((0, 0));
+        }
+
         // A `deleteRawAfterSync` original that is already gone is the
         // *intended* end state, not a failure: the verified remote copy is
         // the live one and restore brings the bytes back. Skip quietly —
@@ -491,6 +506,7 @@ impl SyncPipeline {
         let record = SyncFile {
             id: file_id.to_string(),
             config_id: Some(self.config.id.clone()),
+            home_config_id: Some(self.config.id.clone()),
             original_path: original_path.clone(),
             compressed_path: keep_local_artifact.then(|| artifact.path.clone()),
             preview_path,
@@ -872,6 +888,7 @@ impl SyncPipeline {
         let record = SyncFile {
             id: file_id.to_string(),
             config_id: Some(self.config.id.clone()),
+            home_config_id: Some(self.config.id.clone()),
             original_path: original_path.to_string(),
             // No sidecar artifact exists in striped mode: chunk temps are
             // removed after upload, and restore reassembles from providers.

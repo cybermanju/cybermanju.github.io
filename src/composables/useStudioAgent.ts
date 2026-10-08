@@ -87,6 +87,12 @@ function localSystemPrompt(config: AgentConfig): string {
     `Bounded and possibly stale — verify before acting.\n` +
     `- memory_remember {text}: store ONE durable fact for future sessions; one fact per call, ` +
     `never secrets or whole files.\n` +
+    `INTERFACE: the Terminal panel runs cybsh — the same shell as your bash tool. Its ` +
+    `\`theme\`/\`ui\` verbs customize the whole interface and persist to the volume mirror: ` +
+    `\`ui theme <id>\`, \`ui accent <#hex|default> [--for <theme>]\`, \`ui density|glass|motion|glow\`, ` +
+    `and inspect with \`ui get\`, \`ui vars [filter]\`, \`ui palette [theme]\`. When asked about ` +
+    `the interface or cybsh verbs, call self_research first (topics: themes, cybsh verbs) ` +
+    `and cite file:line — never invent verb names.\n` +
     `STANDING ORDERS: AGENTS.md, SKILL.md, .cybermanju/rules.md and persisted skills ` +
     `(.cybermanju/skills/*/SKILL.md) define your instructions, ` +
     `so writing one always asks for approval — AUTO APPROVE never covers them.\n` +

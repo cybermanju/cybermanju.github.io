@@ -53,6 +53,8 @@ Error prefixes (AGENT-1 contract) → UI hints (`describeSyncError`): `auth: / r
 
 Encrypt-before-upload (`compress → encrypt CYBE1`, keystore handle in `sync_files`) is default-on; striped placement (`whole|striped`, `parity:1` = one replica, RS `k+m` under the hood) needs ≥2 enabled configs.
 
+Unified-disk placement: single-copy home is the default — a file lives on ONE provider (`sync_files.home_config_id`); `SyncConfig.mirror=true` opts a provider back into duplicate-everywhere. `POST /api/sync/move {fileId, fromConfigId, toConfigId}` (Tauri `move_sync_file`, `cybsh sync move <file> <from> <to>`, Sync panel Move form) relocates verified — download A → upload B → BLAKE3 verify → delete A → retarget record; `mv /providers/<a>/x /providers/<b>/y` moves namespace bytes the same way. Vault/secret paths (`*.cybermanju`, `cybermanju-up-*.cyb3`, `master.passphrase`, `keystore.json`) are never synced or moved. One-folder setup keeps `<picked>/vault.cybermanju` beside `<picked>/files/` (the `local` root). Key holder: one provider/disk unwraps the others (`SyncConfig.keyHolder`, `DiskRow.holdsKeys`, `POST /api/disk/key-holder`, single-holder invariant enforced server-side).
+
 ## 4b. Agent runs (same async contract)
 
 `POST /api/agent/prompt {configId, sessionId?, prompt} → 202 {jobId}`, poll
@@ -104,7 +106,7 @@ first; chained lines and unknown verbs fall through to the wasm dispatcher
 - `quota` — shell volume + browser storage + live per-provider probes (same
   endpoints as `crates/sync/src/quota.rs`); provider push still needs `:3456`.
 - `providers`, `oauth status|start`, `disk`, `sync status|list`, `mount`.
-- `encrypt|decrypt|keygen` (ChaCha20-Poly1305, vault keys), `compress|decompress` (lz4/brotli, same `{alg,data:b64}` envelope as the native shell).
+- `encrypt|decrypt|keygen` (ChaCha20-Poly1305, vault keys), `compress|decompress` (lz4/zstd/brotli/triple, same `{alg,data:b64}` envelope as the native shell).
 - `cp|mv|rm|mkdir` across the merged namespace: plain paths hit the shell
   volume, `/providers/<mountId>/…` hits that mount (same-provider renames,
   cross-provider and provider↔local moves, `-r` for trees, `.keep` markers
@@ -118,6 +120,32 @@ first; chained lines and unknown verbs fall through to the wasm dispatcher
 
 `sync start|cancel`, the OAuth redirect dance and provider push refuse with
 `unsupported:` pointing at the desktop app / Docker image / dashboard server.
+
+## 4d. Interface verbs (cybsh customizes the whole UI)
+
+`theme [<id>|get]` and `ui …` read/write the full interface settings mirror
+(`/.cybermanju/theme.json` on the volume, `cybermanju_theme_v1` in the
+browser) identically on desktop, Docker, and Pages — 17 themes
+(`THEME_IDS` in `src/ui/tokens.ts`, mirrored in `crates/os/src/shell.rs`,
+`crates/os-wasm/src/os.rs`, `src/utils/staticCybsh.ts`):
+
+- `ui theme <id>` — switch theme (shape, typeface, elevation + palette).
+- `ui accent <#hex|default> [--for <theme>]` — recolor everything, or one
+  theme (`ui accent #ff2d78 --for cyberpunk-night`); general wins when set.
+- `ui density <compact|comfortable>`, `ui glass <0|solid|1|light|2|default|3|rich>`,
+  `ui motion <auto|full|reduced>`, `ui glow <on|off>` — every Settings knob.
+- `ui get [--json]` — full interface state (also the drift-healer: its
+  `ui:` lines re-converge the live UI to the mirror).
+- `ui vars [filter] [--json]` — live computed `--ui-*` token values from the
+  DOM (live-terminal only; scripts use `ui get`).
+- `ui palette [theme] [--json]` — a theme's color table + design language.
+
+Every mutation prints machine `ui: key=value` effect lines
+(`ui: theme=…`, `ui: accent=…`, `ui: density|glass|motion|glow=…`,
+`ui: accent-for=<theme>:<hex|system>`); the Terminal panel applies them via
+`useTheme()`, and `.cybsh` scripts harvest the same keys as structured
+effects. Implementations: `ui_cmd`/`theme_cmd` per shell, live application in
+`TerminalPanel.applyCybshUiEffects`, tokens in `src/ui/tokens.ts`.
 
 ## 5. Durability: scrub / repair / gc / leases
 
@@ -158,9 +186,11 @@ first; chained lines and unknown verbs fall through to the wasm dispatcher
 
 ## 9. Honest limits (browser + crypto)
 
-- **WASM caps:** the Pages pack compresses `lz4` + `brotli` only — `zstd` and
-  therefore `triple` stay desktop-only; the dashboard build has no
-  compression endpoint at all. Editor + `write` op cap at 1 MiB.
+- **WASM caps:** the Pages pack runs `lz4` + `brotli` natively plus `zstd` and
+  `triple` (LZ4→ZSTD→Brotli, the desktop `.cyb3` order) through the bundled
+  `@dweb-browser/zstd-wasm` module — same standard frames as the desktop, so
+  artifacts open both ways; the dashboard build has no compression endpoint
+  at all. Editor + `write` op cap at 1 MiB.
 - **ML-KEM label:** the wasm bundle ships X25519 + ML-DSA-65 + ChaCha20-Poly1305
   and no ML-KEM. Keygen for `kyber*`/`hybrid`/`frodokem*` mints X25519 material
   and file encryption is ChaCha20-Poly1305; the panel prints
@@ -169,6 +199,19 @@ first; chained lines and unknown verbs fall through to the wasm dispatcher
 - **CORS:** provider canals only claim `github`, `gitlab`, `googleDrive`
   (anything else is refused up front with `unsupported:`) — live sync for
   remote providers needs the desktop app, Docker image, or dashboard server.
+- **Faces:** every detection is engine-labeled (`onnx` / `heuristic-v2` /
+  `none`) on all transports — desktop runs SCRFD+ArcFace where `ort` links
+  (win/mac/linux + model files) and the labeled skin-segmentation heuristic
+  everywhere else (incl. Android); Docker serves `POST /api/faces/detect*`;
+  Pages runs the same heuristic in-browser with kv-backed groups. The
+  heuristic needs eyes (a pair, or one eye plus a mouth — a bare skin blob
+  is a hand, not a face) and says `HEURISTIC` in the panel; ONNX silence
+  stays silence.
+- **Folder attach:** Chromium remembers picked folders in IndexedDB and
+  re-opens them with one click after reload (permission lapses are
+  re-granted, never re-picked); desktop uses native dialogs (no permission
+  model) and Docker/server paths persist in the DB. Plain-HTTP LAN has no
+  File System Access API at all — the vault then lives on the server.
 - **tree-sitter:** desktop `parse_text` runs real grammars
   (rust/python/js/ts/go/bash) and reports `"engine": "tree-sitter"`; every other
   language — and the whole Pages build — uses the heuristic parser and reports

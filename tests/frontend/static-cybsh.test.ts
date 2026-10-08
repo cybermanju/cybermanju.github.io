@@ -613,6 +613,26 @@ describe('vault verbs', () => {
     expect(mount?.output).toContain('m1')
   })
 
+  it('sync move guides to mv bytes or dashboard verified move', async () => {
+    const { deps } = fakeDeps()
+    const bare = await runStaticCybshLine('sync move', deps)
+    expect(bare?.output).toMatch(/usage: sync move/)
+    const full = await runStaticCybshLine('sync move f1 c1 c2', deps)
+    expect(full?.ok).toBe(true)
+    expect(full?.output).toContain('mv /providers/')
+  })
+
+  it('mv moves bytes across provider mounts (same op as sync move bytes)', async () => {
+    const { deps, state } = fakeDeps({
+      providers: { m1: { 'a.md': 'hello-bytes' }, m2: {} },
+    })
+    const out = await runStaticCybshLine('mv /providers/m1/a.md /providers/m2/a.md', deps)
+    expect(out?.ok).toBe(true)
+    expect(out?.output).toContain('moved')
+    expect(state.providers.m2['a.md']).toBeDefined()
+    expect(state.providers.m1['a.md']).toBeUndefined()
+  })
+
   it('encrypts and decrypts through the vault key', async () => {
     const { deps, state } = fakeDeps()
     const kg = await runStaticCybshLine('keygen box', deps)
@@ -987,8 +1007,11 @@ describe('codec edge cases', () => {
     const { deps } = fakeDeps()
     deps.writeVolumeFile('/junk.lz4', 'not json')
     expect((await runStaticCybshLine('decompress /junk.lz4', deps))?.output).toContain('not a cybsh compressed file')
-    deps.writeVolumeFile('/bad.lz4', JSON.stringify({ alg: 'zstd', data: 'eA==' }))
+    deps.writeVolumeFile('/bad.lz4', JSON.stringify({ alg: 'snappy', data: 'eA==' }))
     expect((await runStaticCybshLine('decompress /bad.lz4', deps))?.output).toContain('not a cybsh compressed file')
+    // A known layer the bundle cannot decode refuses honestly (not "invalid").
+    deps.writeVolumeFile('/nozstd.lz4', JSON.stringify({ alg: 'zstd', data: 'eA==' }))
+    expect((await runStaticCybshLine('decompress /nozstd.lz4', deps))?.output).toMatch(/^unsupported:/)
     const failing = fakeDeps()
     failing.deps.codecs = async () => ({
       compressLz4: (d) => d,

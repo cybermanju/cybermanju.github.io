@@ -147,6 +147,9 @@ impl OAuthCredentials {
 pub struct SyncFile {
     pub id: String,
     pub config_id: Option<String>,
+    /// Preferred home provider for single-copy placement (`sync_configs.id`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_config_id: Option<String>,
     pub original_path: String,
     pub compressed_path: Option<String>,
     pub preview_path: Option<String>,
@@ -248,6 +251,15 @@ pub struct SyncConfig {
     // in the local `sync_files` record for restore. Defaults off.
     #[serde(default)]
     pub obfuscate_names: bool,
+    // Unified-disk placement: `mirror` opts a provider back into the legacy
+    // duplicate-everywhere behaviour. Default false = single-copy home: a
+    // file lives on its home provider only, moves are explicit relocations.
+    #[serde(default)]
+    pub mirror: bool,
+    // User-chosen key holder: this provider's `.cybermanju` unwraps the keys
+    // for the other disks. Display + policy only — crypto still verifies.
+    #[serde(default)]
+    pub key_holder: bool,
     // <<< AGENT-3 CONTRACT: filled/refreshed by the OAuth flow. Secrets
     // inside `OAuthCredentials` are individually `skip_serializing`. >>>
     #[serde(default, skip_serializing_if = "Option::is_none")]

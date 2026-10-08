@@ -94,6 +94,10 @@ const KV_TABLE: TableDefinition<'static, &'static str, &'static str> = TableDefi
 /// the prune scan stays trivial.
 pub const SYNC_RUN_HISTORY_LIMIT: usize = 20;
 
+/// Clone shares the underlying redb handle (its own internal locking), so a
+/// short-lived clone lets long I/O (verified moves) run without holding the
+/// request `RwLock` — same lock-free discipline as the sync pipeline.
+#[derive(Clone)]
 pub struct Database {
     db: RedbDatabase,
 }

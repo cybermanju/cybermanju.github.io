@@ -1420,6 +1420,7 @@ pub(crate) mod fixtures {
             let record = SyncFile {
                 id: format!("{}-file", tag),
                 config_id: Some(configs[0].id.clone()),
+                home_config_id: Some(configs[0].id.clone()),
                 original_path: "/pool/volume/test.bin".to_string(),
                 compressed_path: None,
                 preview_path: None,

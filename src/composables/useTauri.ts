@@ -387,6 +387,19 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     buildPath: () => '/api/face-groups',
   },
 
+  detect_faces: {
+    method: 'POST',
+    buildPath: () => '/api/faces/detect',
+    transformRequest: (args) => ({
+      fileId: args.fileId,
+    }),
+  },
+
+  detect_faces_batch_cmd: {
+    method: 'POST',
+    buildPath: () => '/api/faces/detect-batch',
+  },
+
   // ── Loose groups ──────────────────────────────────────────
   list_loose_groups: {
     method: 'GET',
@@ -811,6 +824,17 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     transformRequest: (args) => ({ configId: args.configId, remotePath: args.remotePath }),
   },
 
+  move_sync_file: {
+    method: 'POST',
+    buildPath: () => '/api/sync/move',
+    transformRequest: (args) => ({
+      fileId: args.fileId,
+      fromConfigId: args.fromConfigId,
+      toConfigId: args.toConfigId,
+    }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
   create_provider_repo: {
     method: 'POST',
     buildPath: () => '/api/sync/create-repo',
@@ -1185,15 +1209,22 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     buildPath: () => '/api/disk/check',
     transformRequest: (args) => ({ id: args.id }),
   },
+  set_disk_key_holder: {
+    method: 'POST',
+    buildPath: () => '/api/disk/key-holder',
+    transformRequest: (args) => ({ id: args.id ?? args.diskId }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
   volume_df: { method: 'GET', buildPath: () => '/api/volume/df' },
 }
 
 // Commands that exist in Tauri but have NO REST equivalent yet
-// (native dialogs, ONNX face models, local file system, desktop-only controls).
+// (native dialogs, local file system, desktop-only controls).
+// `detect_faces` / `detect_faces_batch_cmd` left this set once
+// `POST /api/faces/detect*` landed — the rest stays desktop-only.
 export const WRITE_ONLY_COMMANDS = new Set([
-  // Face detection — ONNX runtime + model files stay desktop-only
-  'detect_faces',
-  'detect_faces_batch_cmd',
+  // Face grouping admin ops — heuristic detect runs everywhere, but
+  // regrouping/renaming/merging stays on the desktop command layer.
   'recluster_faces',
   'rename_face_group',
   'merge_face_groups',
@@ -1230,12 +1261,12 @@ export const REST_FIRST = new Set([
   'os_exec', 'os_complete', 'os_stat', 'os_ls', 'os_du', 'os_df', 'os_ps',
   'os_top', 'os_workers', 'os_jobs', 'os_write',
   'list_disks', 'get_disk', 'create_disk', 'attach_disk', 'detach_disk',
-  'resize_disk', 'destroy_disk', 'check_disk', 'volume_df',
+  'resize_disk', 'destroy_disk', 'check_disk', 'set_disk_key_holder', 'volume_df',
   'list_sync_configs', 'create_sync_config', 'delete_sync_config',
   'start_sync', 'cancel_sync', 'get_sync_progress', 'test_sync_connection',
   'list_remote_files', 'get_sync_job', 'list_sync_runs', 'get_sync_status',
   'restore_sync_file', 'delete_remote_file', 'create_provider_repo',
-  'seed_repo_files', 'upload_remote_file', 'get_sync_usage', 'oauth_start',
+  'seed_repo_files', 'upload_remote_file', 'move_sync_file', 'get_sync_usage', 'oauth_start',
   'repair_status', 'repair_tasks', 'repair_health', 'repair_run',
   'repair_rebuild', 'repair_gc', 'scrub_run', 'scrub_runs',
   'lease_acquire', 'lease_release', 'lease_status',
@@ -1321,6 +1352,7 @@ const DB_WASM_ROUTES: Record<string, DbWasmRoute> = {
   detach_disk: { op: 'disks.detach', args: (a) => ({ id: a.id ?? a.diskId }) },
   resize_disk: { op: 'disks.resize', args: (a) => ({ id: a.id ?? a.diskId, sizeBytes: a.sizeBytes }) },
   check_disk: { op: 'disks.check', args: (a) => ({ id: a.id ?? a.diskId }) },
+  set_disk_key_holder: { op: 'disks.key-holder', args: (a) => ({ id: a.id ?? a.diskId }) },
   list_files: {
     op: 'files.list',
     args: () => ({}),
@@ -1468,6 +1500,220 @@ async function writeStaticLooseGroups(groups: StaticLooseGroup[]): Promise<void>
   await wasmDbDispatch('kv.set', { key: LOOSE_INDEX_KEY, value: JSON.stringify(groups.map((g) => g.id)) })
 }
 
+// ── Static face groups (kv-backed mirror of the desktop face_groups table)
+// The browser runs the same `heuristic-v2` detector (`src/utils/
+// faceHeuristic.ts`, the TS twin of `crates/faces/src/heuristic.rs`) over
+// each file's own bytes, so grouping works with no ONNX model anywhere.
+// Rows ride inside the `.cybermanju` container under `faceGroup:<id>` with
+// an index at `faceGroup:index`, and file nodes carry `faceGroupIds` like
+// every other transport.
+interface StaticFaceGroup {
+  id: string
+  name: string
+  fileIds: string[]
+  centroidEmbedding: number[]
+  cohesion: number
+  embeddingCount: number
+  algorithm: string
+  detectionEngine: string
+  createdAt: string
+}
+
+const FACE_INDEX_KEY = 'faceGroup:index'
+const faceKey = (id: string) => `faceGroup:${id}`
+
+async function readStaticFaceGroups(): Promise<StaticFaceGroup[]> {
+  const idx = (await wasmDbDispatch('kv.get', { key: FACE_INDEX_KEY }).catch(() => null)) as {
+    value?: unknown
+  } | null
+  let ids: string[] = []
+  if (typeof idx?.value === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(idx.value)
+      if (Array.isArray(parsed)) ids = parsed.filter((v): v is string => typeof v === 'string')
+    } catch { ids = [] }
+  }
+  const groups: StaticFaceGroup[] = []
+  for (const id of ids) {
+    const row = (await wasmDbDispatch('kv.get', { key: faceKey(id) }).catch(() => null)) as {
+      value?: unknown
+    } | null
+    if (typeof row?.value !== 'string') continue
+    try {
+      const g = JSON.parse(row.value) as Partial<StaticFaceGroup>
+      if (typeof g.id === 'string' && Array.isArray(g.fileIds)) {
+        groups.push({
+          id: g.id,
+          name: typeof g.name === 'string' ? g.name : g.id,
+          fileIds: g.fileIds.filter((v): v is string => typeof v === 'string'),
+          centroidEmbedding: Array.isArray(g.centroidEmbedding)
+            ? (g.centroidEmbedding as unknown[]).filter((v): v is number => typeof v === 'number')
+            : [],
+          cohesion: typeof g.cohesion === 'number' ? g.cohesion : 0,
+          embeddingCount: typeof g.embeddingCount === 'number' ? g.embeddingCount : 0,
+          algorithm: typeof g.algorithm === 'string' ? g.algorithm : 'cosine_threshold',
+          detectionEngine: typeof g.detectionEngine === 'string' ? g.detectionEngine : 'unknown',
+          createdAt: typeof g.createdAt === 'string' ? g.createdAt : new Date().toISOString(),
+        })
+      }
+    } catch { /* A damaged row drops out; the index is rewritten below. */ }
+  }
+  return groups
+}
+
+async function writeStaticFaceGroups(groups: StaticFaceGroup[]): Promise<void> {
+  for (const g of groups) {
+    await wasmDbDispatch('kv.set', { key: faceKey(g.id), value: JSON.stringify(g) })
+  }
+  await wasmDbDispatch('kv.set', { key: FACE_INDEX_KEY, value: JSON.stringify(groups.map((g) => g.id)) })
+}
+
+function staticFaceGroupId(): string {
+  return `face-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function isImageName(name: string, mime?: string): boolean {
+  if (mime && mime.toLowerCase().startsWith('image/')) return true
+  return /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(name)
+}
+
+/**
+ * Detect faces on one static file: its own bytes (decrypted + decompressed
+ * through the vault pipeline) → platform decoder → `heuristic-v2` →
+ * cosine-threshold assignment. Encrypted/undecodable files report engine
+ * `none` with zero faces — silence, never a guess.
+ */
+async function staticDetectFaces(fileId: string): Promise<{
+  fileId: string
+  facesDetected: number
+  faceGroupIds: string[]
+  strategyUsed: string
+  engine: string
+}> {
+  const fail = (engine: string) => ({
+    fileId, facesDetected: 0, faceGroupIds: [] as string[], strategyUsed: 'cosine_threshold', engine,
+  })
+  if (!fileId) throw new Error('invalid: fileId is required')
+  const node = (await wasmDbDispatch('files.get', { fileId }).catch(() => null)) as {
+    name?: string
+    mimeType?: string
+    fileType?: string
+  } | null
+  if (!node) throw new Error(`not_found: ${fileId}`)
+  const name = String(node.name ?? fileId)
+  if (node.fileType === 'folder' || !isImageName(name, node.mimeType)) return fail('none')
+  let bytes: Uint8Array
+  try {
+    const { readOriginalBytes } = await import('./useWasmCrypto')
+    bytes = await readOriginalBytes(fileId)
+  } catch {
+    return fail('none')
+  }
+  const { decodeImageBytes, detectFacesHeuristic, assignFaceGroups, FACE_HEURISTIC_ENGINE } =
+    await import('@/utils/faceHeuristic')
+  const frame = await decodeImageBytes(bytes)
+  if (!frame) return fail('none')
+  const hits = detectFacesHeuristic(frame)
+  if (hits.length === 0) return fail(FACE_HEURISTIC_ENGINE)
+  const groups = await readStaticFaceGroups()
+  const drafts = groups.map((g) => ({
+    id: g.id,
+    name: g.name,
+    fileIds: [...g.fileIds],
+    centroidEmbedding: [...g.centroidEmbedding],
+    cohesion: g.cohesion,
+    embeddingCount: g.embeddingCount,
+    detectionEngine: g.detectionEngine,
+  }))
+  const assigned = assignFaceGroups(
+    hits.map((h) => h.embedding),
+    fileId,
+    drafts,
+  )
+  const now = new Date().toISOString()
+  const next: StaticFaceGroup[] = assigned.groups.map((d) => {
+    const prev = groups.find((g) => g.id === d.id)
+    return {
+      id: d.id,
+      name: d.name,
+      fileIds: d.fileIds,
+      centroidEmbedding: d.centroidEmbedding,
+      cohesion: prev?.cohesion ?? 0,
+      embeddingCount: d.embeddingCount,
+      algorithm: 'cosine_threshold',
+      detectionEngine: d.detectionEngine,
+      createdAt: prev?.createdAt ?? now,
+    }
+  })
+  await writeStaticFaceGroups(next)
+  try {
+    await wasmDbDispatch('files.patch', {
+      fileId,
+      patch: { faceGroupIds: assigned.groupIds },
+    })
+  } catch {
+    // Group rows landed; the node backlink is best-effort (the inspector
+    // also resolves names through the groups themselves).
+  }
+  return {
+    fileId,
+    facesDetected: hits.length,
+    faceGroupIds: assigned.groupIds,
+    strategyUsed: 'cosine_threshold',
+    engine: assigned.engine,
+  }
+}
+
+/** Batch detect over every image node, then rebuild groups from scratch. */
+async function staticDetectFacesBatch(): Promise<{
+  clustersCreated: number
+  totalFaces: number
+  noiseFaces: number
+  avgCohesion: number
+  strategyUsed: string
+  detectionEngines: string[]
+}> {
+  const empty = {
+    clustersCreated: 0, totalFaces: 0, noiseFaces: 0, avgCohesion: 0,
+    strategyUsed: 'cosine_threshold', detectionEngines: [] as string[],
+  }
+  const raw = (await wasmDbDispatch('files.list', {}).catch(() => [])) as Array<
+    Record<string, unknown>
+  >
+  if (!Array.isArray(raw)) return empty
+  // Fresh slate first (mirror of the desktop batch command).
+  await writeStaticFaceGroups([])
+  let totalFaces = 0
+  const engines = new Set<string>()
+  for (const row of raw) {
+    const id = String(row.id ?? '')
+    if (!id || row.fileType === 'folder') continue
+    const name = String(row.name ?? '')
+    const mime = typeof row.mimeType === 'string' ? row.mimeType : undefined
+    if (!isImageName(name, mime)) continue
+    try {
+      const res = await staticDetectFaces(id)
+      if (res.facesDetected > 0) {
+        totalFaces += res.facesDetected
+        engines.add(res.engine)
+      }
+    } catch {
+      // One unreadable file never fails the batch.
+    }
+  }
+  const groups = await readStaticFaceGroups()
+  return {
+    clustersCreated: groups.length,
+    totalFaces,
+    noiseFaces: 0,
+    avgCohesion: 0,
+    // Incremental cosine-threshold assignment in file order (the static
+    // build keeps no embedding table for a global recluster pass).
+    strategyUsed: 'cosine_threshold',
+    detectionEngines: [...engines].sort(),
+  }
+}
+
 // ── Static-host cybsh deps (real browser implementations) ─────────────
 // The terminal's vault-aware verbs (`quota`, `providers`, `oauth`, `disk`,
 // `sync status`, `encrypt`, `compress`, cross-mount `cp`/`mv`/`rm`/`mkdir`)
@@ -1521,6 +1767,8 @@ interface WasmCryptoExports {
   decompress_lz4(data: Uint8Array): Uint8Array
   compress_brotli(data: Uint8Array, quality: number): Uint8Array
   decompress_brotli(data: Uint8Array): Uint8Array
+  /** Present once the deployed pkg includes the ruzstd decode export. */
+  decompress_zstd?(data: Uint8Array): Uint8Array
   blake3_hash(data: Uint8Array): string
 }
 
@@ -1688,11 +1936,39 @@ const STATIC_CYBSH_DEPS: StaticCybshDeps = {
   codecs: async (): Promise<StaticCodecs | null> => {
     const mod = await staticCryptoExports()
     if (!mod) return null
+    const lz4brotli = {
+      compressLz4: (d: Uint8Array) => mod.compress_lz4(d),
+      decompressLz4: (d: Uint8Array) => mod.decompress_lz4(d),
+      compressBrotli: (d: Uint8Array) => mod.compress_brotli(d, 11),
+      decompressBrotli: (d: Uint8Array) => mod.decompress_brotli(d),
+    }
+    // zstd encode + the triple chain come from `@dweb-browser/zstd-wasm`
+    // (see `src/utils/zstd.ts`): the Rust crate cannot link its C encoder
+    // for wasm32, but emits byte-identical standard frames. Loaded lazily
+    // so lz4/brotli keep working even when zstd fails to initialise.
+    // Decode prefers the crate's `ruzstd` export when the deployed pkg has
+    // it — no JS init needed for the read path.
+    const rustDecompressZstd =
+      typeof mod.decompress_zstd === 'function' ? (d: Uint8Array) => mod.decompress_zstd!(d) : null
     return {
-      compressLz4: (d) => mod.compress_lz4(d),
-      decompressLz4: (d) => mod.decompress_lz4(d),
-      compressBrotli: (d) => mod.compress_brotli(d, 11),
-      decompressBrotli: (d) => mod.decompress_brotli(d),
+      ...lz4brotli,
+      compressZstd: async (d, level) => {
+        const { compressZstd } = await import('@/utils/zstd')
+        return compressZstd(d, level)
+      },
+      decompressZstd: async (d) => {
+        if (rustDecompressZstd) return rustDecompressZstd(d)
+        const { decompressZstd } = await import('@/utils/zstd')
+        return decompressZstd(d)
+      },
+      compressTriple: async (d) => {
+        const { compressTriple } = await import('@/utils/zstd')
+        return (await compressTriple(lz4brotli, d)).bytes
+      },
+      decompressTriple: async (d) => {
+        const { decompressTriple } = await import('@/utils/zstd')
+        return decompressTriple(lz4brotli, d)
+      },
     }
   },
   blake3: async (data) => {
@@ -1774,7 +2050,7 @@ const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
     return { ok: true }
   },
 
-  // ── Compression (lz4 + brotli in wasm; zstd stays desktop-only) ──
+  // ── Compression (lz4 + brotli from the wasm crate, zstd + triple via @dweb-browser/zstd-wasm) ──
   compress_file: async (args) =>
     compressFile(String(args.fileId ?? ''), String(args.layer ?? 'lz4')),
   decompress_file: async (args) => decompressFile(String(args.fileId ?? '')),
@@ -1854,16 +2130,74 @@ const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
   // ── Static-host reads with honest local answers (no dashboard) ──
   // These panels polled their REST twins on every boot and each miss logged
   // a `[WASM parity gap]` error. None of them needs the network:
-  // collections/faces/trash/audit/sync-runs have no rows in a fresh static
-  // vault (wasm deletes are hard-deletes; faces need the ONNX model which
-  // honestly returns empty everywhere), sync status is idle without a sync
+  // collections/trash/audit/sync-runs have no rows in a fresh static vault
+  // (wasm deletes are hard-deletes), faces run the local `heuristic-v2`
+  // detector with kv-backed groups, sync status is idle without a sync
   // engine, and geo filters the local file nodes that already carry
-  // gpsLat/gpsLon. Empty states render; write ops on these domains keep
-  // their accurate "needs the dashboard" refusal until they get local
+  // gpsLat/gpsLon. Empty states render; write ops on the remaining domains
+  // keep their accurate "needs the dashboard" refusal until they get local
   // handlers too.
   list_collections: async () => [],
   get_collection_items: async () => [],
-  list_face_groups: async () => [],
+  // Faces run locally now (`heuristic-v2` over each file's own bytes, kv
+  // groups) — the only honest-empty row left is listed below.
+  list_face_groups: async () => readStaticFaceGroups(),
+  detect_faces: async (args) => staticDetectFaces(String(args.fileId ?? '')),
+  detect_faces_batch_cmd: async () => staticDetectFacesBatch(),
+  recluster_faces: async () => staticDetectFacesBatch(),
+  rename_face_group: async (args) => {
+    const groupId = String(args.groupId ?? '')
+    const name = String(args.newName ?? args.name ?? '').trim()
+    if (!groupId || !name) throw new Error('invalid: groupId and newName are required')
+    const groups = await readStaticFaceGroups()
+    const g = groups.find((x) => x.id === groupId)
+    if (!g) throw new Error(`not_found: face group ${groupId}`)
+    g.name = name.slice(0, 64)
+    await writeStaticFaceGroups(groups)
+    return { ok: true }
+  },
+  merge_face_groups: async (args) => {
+    const ids = (Array.isArray(args.groupIds) ? args.groupIds : [args.sourceId, args.targetId])
+      .filter((v): v is string => typeof v === 'string' && v.length > 0)
+    const target = String(args.targetId ?? ids[0] ?? '')
+    if (!target || ids.length < 2) throw new Error('invalid: merge needs at least two group ids')
+    const groups = await readStaticFaceGroups()
+    const into = groups.find((x) => x.id === target)
+    if (!into) throw new Error(`not_found: face group ${target}`)
+    for (const id of ids) {
+      if (id === target) continue
+      const src = groups.find((x) => x.id === id)
+      if (!src) continue
+      for (const fid of src.fileIds) {
+        if (!into.fileIds.includes(fid)) into.fileIds.push(fid)
+      }
+      if (src.detectionEngine !== into.detectionEngine) into.detectionEngine = 'mixed'
+    }
+    const kept = groups.filter((x) => x.id === target || !ids.includes(x.id))
+    await writeStaticFaceGroups(kept)
+    return { ok: true, groupId: target }
+  },
+  delete_face_group: async (args) => {
+    const groupId = String(args.groupId ?? '')
+    if (!groupId) throw new Error('invalid: groupId is required')
+    const groups = await readStaticFaceGroups()
+    await writeStaticFaceGroups(groups.filter((x) => x.id !== groupId))
+    return { ok: true }
+  },
+  find_similar_faces: async (args) => {
+    const groupId = String(args.groupId ?? '')
+    const threshold = Math.max(0, Math.min(1, Number(args.threshold ?? 0.55) || 0.55))
+    if (!groupId) throw new Error('invalid: groupId is required')
+    const { embeddingDistance } = await import('@/utils/faceHeuristic')
+    const groups = await readStaticFaceGroups()
+    const src = groups.find((x) => x.id === groupId)
+    if (!src) throw new Error(`not_found: face group ${groupId}`)
+    if (src.centroidEmbedding.length === 0) return []
+    return groups.filter((g) => {
+      if (g.id === groupId || g.centroidEmbedding.length === 0) return false
+      return embeddingDistance(src.centroidEmbedding, g.centroidEmbedding) < threshold
+    })
+  },
   get_geo_files: async () => {
     const raw = (await wasmDbDispatch('files.list', {}).catch(() => [])) as Array<
       Record<string, unknown>
@@ -2092,6 +2426,15 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
         return { ok: true } as T
     }
   }
+  // ── Live interface inspection (`ui vars` / `ui palette`): answered from
+  // the running DOM + token table instead of any backend, so they report
+  // the ACTUAL rendered interface identically on desktop, web, and Pages
+  // (the terminal always runs in a DOM, Tauri webview included).
+  if (cmd === 'os_exec' && typeof args?.line === 'string') {
+    const { tryLiveUiLine } = await import('@/utils/liveUiVerbs')
+    const live = tryLiveUiLine(args.line)
+    if (live) return live as T
+  }
   // ── Static-host vault repo provisioning: direct provider fetch (CORS-OK),
   // no dashboard behind the page. Desktop/Docker fall through to Tauri/REST.
   if (isStaticHost() && (cmd === 'create_provider_repo' || cmd === 'seed_repo_files')) {
@@ -2228,7 +2571,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     }
     const handler = STATIC_COMMAND_HANDLERS[cmd]
     if (handler) return (await handler(args ?? {})) as T
-    // Anything else (provider network sync, encryption, faces, …) still
+    // Anything else (provider network sync, encryption, …) still
     // needs the server — one clear error, no fetch spam.
     throw new Error(
       `[WASM Mode] "${cmd}" needs the CyberManju dashboard (REST API on port 3456). ` +

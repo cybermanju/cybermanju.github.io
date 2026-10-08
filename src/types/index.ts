@@ -97,6 +97,8 @@ export interface FaceGroup {
   cohesion?: number
   embeddingCount: number
   algorithm?: string
+  /** Which detector filled the group (`onnx` / `heuristic-v2` / `mixed`); absent = written before engine reporting. */
+  detectionEngine?: string
   createdAt: string
 }
 
@@ -345,7 +347,7 @@ export const ENCRYPTION_INFO: Record<EncryptionAlgo, { name: string; nistLevel: 
 export const COMPRESSION_INFO: Record<CompressionType, { name: string; description: string; color: string; speed: string }> = {
   none: { name: 'None', description: 'Uncompressed raw data', color: '#FFFFFF', speed: 'Instant' },
   lz4: { name: 'LZ4 (lz4_flex)', description: 'Ultra-fast pure Rust compression (~400 MB/s). Real-time previews and streaming.', color: '#FFFFFF', speed: 'Ultra-Fast' },
-  brotli: { name: 'Brotli-11', description: 'Google\'s format, quality 11 — the best ratio the browser wasm pack can run (no zstd here).', color: '#FFFFFF', speed: 'Medium' },
+  brotli: { name: 'Brotli-11', description: 'Google\'s format, quality 11 — runs natively in the browser wasm pack.', color: '#FFFFFF', speed: 'Medium' },
   zstd: { name: 'Zstandard (zstd)', description: 'Facebook\'s algorithm. Excellent ratio/speed balance, configurable levels 1-22.', color: '#FFFFFF', speed: 'Fast' },
   triple: { name: 'Triple-Layer', description: 'LZ4 -> ZSTD-15 -> Brotli-11 cascading. Maximum compression for archival.', color: '#FFFFFF', speed: 'Slow' },
 }
@@ -388,6 +390,14 @@ export interface SyncConfig {
   requireEncryption?: boolean
   /** Hash basenames into remote locators so providers never see real names. */
   obfuscateNames?: boolean
+  /**
+   * Duplicate-everywhere opt-in. Default false = single-copy home: the file
+   * lives on its `homeConfigId` provider only; `true` restores the legacy
+   * batch-copy behaviour for this provider (mirror target).
+   */
+  mirror?: boolean
+  /** This provider's `.cybermanju` holds the keys that unlock other disks (user-chosen). */
+  keyHolder?: boolean
   createdAt?: string
   updatedAt?: string
 }
@@ -398,6 +408,11 @@ export interface SyncFile {
   compressedPath?: string
   previewPath?: string
   remoteUrl?: string
+  /** Which provider currently holds the single copy (unified-disk home). */
+  configId?: string
+  /** Preferred home provider chosen by the user (`sync_configs.id`). */
+  homeConfigId?: string
+  remotePath?: string
   sizeBytes: number
   compressedSizeBytes?: number
   hashBlake3?: string
@@ -776,6 +791,8 @@ export interface DiskRow {
   health: string
   containerPath: string
   blocksWrittenSinceCheckpoint: number
+  /** User-chosen key holder: this disk's passphrase unwraps other disks. */
+  holdsKeys?: boolean
   createdAt: string
   updatedAt: string
 }

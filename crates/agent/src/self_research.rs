@@ -107,11 +107,35 @@ pub fn cap_research_output(text: &str) -> String {
     out
 }
 
+/// Filename-stem aliases so interface/cybsh questions reach the files that
+/// implement them: a query like "change the theme" carries none of the
+/// implementors' path stems (`shell.rs`, `staticCybsh.ts`, `tokens.ts`), so
+/// without this bridge path-overlap ranking misses them entirely.
+fn research_aliases(word: &str) -> &'static [&'static str] {
+    match word {
+        "theme" => &["tokens", "shell", "staticcybsh"],
+        "accent" => &["tokens", "theme", "shell"],
+        "ui" => &["tokens", "theme", "panel", "shell", "staticcybsh"],
+        "interface" => &["ui", "tokens", "theme", "panel"],
+        "appearance" => &["tokens", "theme"],
+        "cybsh" => &["shell", "staticcybsh"],
+        "shell" => &["cybsh", "staticcybsh"],
+        "terminal" => &["terminal", "shell", "cybsh"],
+        "verb" => &["shell", "cybsh", "staticcybsh"],
+        "command" => &["shell", "cybsh"],
+        "glass" | "density" | "motion" | "glow" | "palette" => &["tokens", "theme"],
+        "color" | "colour" => &["tokens", "theme", "palette"],
+        "font" | "radius" | "shadow" => &["tokens", "theme"],
+        _ => &[],
+    }
+}
+
 /// Rank candidate files for a `self_research` query: keyword overlap over
-/// the path (name 1.0, extension bonus for source files). Deterministic
-/// (score desc, path asc). No overlap → `[]`.
+/// the path (name 1.0, extension bonus for source files), expanded through
+/// [`research_aliases`] so UI/cybsh questions bridge to implementor paths.
+/// Deterministic (score desc, path asc). No overlap → `[]`.
 pub fn rank_research_files(paths: &[String], query: &str, limit: usize) -> Vec<String> {
-    let want: Vec<String> = query
+    let mut want: Vec<String> = query
         .to_lowercase()
         .split(|c: char| !c.is_ascii_alphanumeric())
         .filter(|w| w.len() >= 2)
@@ -119,6 +143,13 @@ pub fn rank_research_files(paths: &[String], query: &str, limit: usize) -> Vec<S
         .collect();
     if want.is_empty() {
         return Vec::new();
+    }
+    for i in 0..want.len() {
+        for alias in research_aliases(&want[i]) {
+            if !want.iter().any(|w| w == alias) {
+                want.push(alias.to_string());
+            }
+        }
     }
     let mut scored: Vec<(&String, i64)> = paths
         .iter()
@@ -347,6 +378,27 @@ mod tests {
         assert!(!ranked.contains(&"logo.png".to_string()));
         assert!(rank_research_files(&paths, "", 5).is_empty());
         assert!(rank_research_files(&paths, "zzzqqq", 5).is_empty());
+    }
+
+    #[test]
+    fn research_aliases_bridge_ui_questions_to_implementors() {
+        let paths = vec![
+            "crates/os/src/shell.rs".to_string(),
+            "src/utils/staticCybsh.ts".to_string(),
+            "src/ui/tokens.ts".to_string(),
+            "src/composables/useTheme.ts".to_string(),
+            "docs/OPERATIONS.md".to_string(),
+            "src/components/TerminalPanel.vue".to_string(),
+        ];
+        let themed = rank_research_files(&paths, "change the interface theme", 6);
+        assert!(themed.contains(&"src/ui/tokens.ts".to_string()));
+        assert!(themed.contains(&"crates/os/src/shell.rs".to_string()));
+        assert!(themed.contains(&"src/composables/useTheme.ts".to_string()));
+        let verbs = rank_research_files(&paths, "cybsh ui verbs", 6);
+        assert!(verbs.contains(&"src/utils/staticCybsh.ts".to_string()));
+        assert!(verbs.contains(&"crates/os/src/shell.rs".to_string()));
+        let accent = rank_research_files(&paths, "per theme accent color", 6);
+        assert!(accent.contains(&"src/ui/tokens.ts".to_string()));
     }
 
     #[test]

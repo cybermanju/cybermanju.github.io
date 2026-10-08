@@ -141,11 +141,18 @@ pub fn completions(prefix: &str) -> Vec<String> {
         "sync status",
         "sync list",
         "sync cancel",
+        "sync move",
         "compute run",
         "lease status",
         "history clear",
         "ui theme",
         "ui accent",
+        "ui density",
+        "ui glass",
+        "ui motion",
+        "ui glow",
+        "ui vars",
+        "ui palette",
         "ui get",
         "theme get",
     ];
@@ -709,7 +716,8 @@ fn help_text(json: bool) -> String {
                 "providers",
                 "quota",
                 "oauth status|start",
-                "sync start|status|list|cancel",
+                "sync start|status|list|cancel|move <file> <from> <to>",
+                "mv <src> <dst> (namespace bytes; synced copies: sync move)",
             ],
         ),
         ("durability", &["scrub", "repair", "gc", "lease status"]),
@@ -741,7 +749,7 @@ fn help_text(json: bool) -> String {
                 "run <file.cybsh> [--dry] [--json] [--record j.json] [--replay j.json]",
                 "def/print/let/if/try-catch/fetch/ui in `.cybsh` (see SKILL.md)",
                 "theme <id>|get",
-                "ui theme <id>|accent <#hex|default>|get",
+                "ui theme <id>|accent <#hex|default> [--for <theme>]|density|glass|motion|glow|get",
             ],
         ),
     ];
@@ -1747,10 +1755,39 @@ fn sync_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String
             }
             Ok(out.trim_end().to_string())
         }
+        "move" => {
+            let db = db.ok_or_else(|| "unsupported: sync move needs the database".to_string())?;
+            if rest.len() != 3 {
+                return Err("usage: sync move <fileId> <fromConfig> <toConfig>".to_string());
+            }
+            // Same verified core as `POST /api/sync/move`: download A →
+            // upload B → verify B → delete A → retarget record. `mv` moves
+            // namespace bytes; `sync move` moves a synced copy's home.
+            let out = cybermanju_sync::relocate(db, &rest[0], &rest[1], &rest[2])?;
+            if json {
+                return serde_json::to_string(&serde_json::json!({
+                    "fileId": out.file_id,
+                    "from": out.from_config_id,
+                    "to": out.to_config_id,
+                    "remotePath": out.remote_path,
+                    "bytes": out.bytes,
+                    "noop": out.noop,
+                }))
+                .map_err(|e| e.to_string());
+            }
+            Ok(if out.noop {
+                format!("{} already home on {}", out.file_id, out.to_config_id)
+            } else {
+                format!(
+                    "{} moved {} → {} ({} bytes, verified)",
+                    out.file_id, out.from_config_id, out.to_config_id, out.bytes
+                )
+            })
+        }
         other => Err(did_you_mean(
             "unknown sync subcommand",
             other,
-            &["start", "status", "list", "cancel"],
+            &["start", "status", "list", "cancel", "move"],
         )),
     }
 }
@@ -2924,6 +2961,8 @@ const THEME_IDS: &[&str] = &[
     "ember-night",
     "nebula-night",
     "cyber-night",
+    "matrix-night",
+    "cyberpunk-night",
 ];
 
 fn canonical_theme(id: &str) -> Option<&'static str> {
@@ -2943,6 +2982,8 @@ fn canonical_theme(id: &str) -> Option<&'static str> {
         "ember-night" => Some("ember-night"),
         "nebula-night" => Some("nebula-night"),
         "cyber-night" => Some("cyber-night"),
+        "matrix-night" => Some("matrix-night"),
+        "cyberpunk-night" => Some("cyberpunk-night"),
         "midnight" => Some("mac-midnight"),
         "nebula" => Some("mac-dark"),
         "ember" => Some("mac-dark"),
@@ -2952,15 +2993,55 @@ fn canonical_theme(id: &str) -> Option<&'static str> {
     }
 }
 
-/// Volume mirror of the live theme settings (`cybermanju_theme_v1` in the
-/// browser, `.cybermanju/theme.json` on the volume) — scripts and every
-/// transport converge on this file.
-const THEME_FILE: &str = "/.cybermanju/theme.json";
+/// Full interface settings mirror (`cybermanju_theme_v1` in the browser,
+/// `.cybermanju/theme.json` on the volume) — every `ui` verb reads/writes
+/// this shape on all transports, so the terminal customizes the whole
+/// interface, not just the palette.
+#[derive(Clone, Debug)]
+struct UiSettings {
+    theme: String,
+    accent: Option<String>,
+    accents: Vec<(String, String)>,
+    density: String,
+    glass: u8,
+    motion: String,
+    glow: bool,
+}
 
-fn load_theme() -> (String, Option<String>) {
+impl UiSettings {
+    fn defaults() -> Self {
+        Self {
+            theme: "mac-light".to_string(),
+            accent: None,
+            accents: Vec::new(),
+            density: "comfortable".to_string(),
+            glass: 2,
+            motion: "auto".to_string(),
+            glow: true,
+        }
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        let mut accents = serde_json::Map::new();
+        for (k, v) in &self.accents {
+            accents.insert(k.clone(), serde_json::Value::String(v.clone()));
+        }
+        serde_json::json!({
+            "theme": self.theme,
+            "accent": self.accent,
+            "accents": accents,
+            "density": self.density,
+            "glass": self.glass,
+            "motion": self.motion,
+            "glow": self.glow,
+        })
+    }
+}
+
+fn load_ui() -> UiSettings {
     let data = read_file_bytes(THEME_FILE).unwrap_or_default();
     if data.is_empty() {
-        return ("mac-light".to_string(), None);
+        return UiSettings::defaults();
     }
     let value: serde_json::Value = serde_json::from_slice(&data).unwrap_or(serde_json::Value::Null);
     let theme = value
@@ -2974,13 +3055,44 @@ fn load_theme() -> (String, Option<String>) {
         .and_then(|v| v.as_str())
         .filter(|a| valid_accent(a))
         .map(str::to_string);
-    (theme, accent)
+    let mut accents = Vec::new();
+    if let Some(map) = value.get("accents").and_then(|v| v.as_object()) {
+        for (k, v) in map {
+            if let Some(hex) = v.as_str() {
+                if canonical_theme(k).is_some() && valid_accent(hex) {
+                    accents.push((k.clone(), hex.to_string()));
+                }
+            }
+        }
+    }
+    let density = value
+        .get("density")
+        .and_then(|v| v.as_str())
+        .filter(|d| *d == "compact" || *d == "comfortable")
+        .unwrap_or("comfortable")
+        .to_string();
+    let glass = value.get("glass").and_then(|v| v.as_u64()).unwrap_or(2).min(3) as u8;
+    let motion = value
+        .get("motion")
+        .and_then(|v| v.as_str())
+        .filter(|m| *m == "auto" || *m == "full" || *m == "reduced")
+        .unwrap_or("auto")
+        .to_string();
+    let glow = value.get("glow").and_then(|v| v.as_bool()).unwrap_or(true);
+    UiSettings {
+        theme,
+        accent,
+        accents,
+        density,
+        glass,
+        motion,
+        glow,
+    }
 }
 
-fn save_theme(theme: &str, accent: Option<&str>) -> Result<(), String> {
+fn save_ui(s: &UiSettings) -> Result<(), String> {
     let kernel = Kernel::global();
-    let body = serde_json::to_string(&serde_json::json!({ "theme": theme, "accent": accent }))
-        .map_err(|e| e.to_string())?;
+    let body = serde_json::to_string(&s.to_json()).map_err(|e| e.to_string())?;
     let fd = kernel.open(THEME_FILE, OpenFlags::create())?;
     kernel.write(fd, body.as_bytes())?;
     kernel.close(fd)?;
@@ -2995,26 +3107,53 @@ fn valid_accent(raw: &str) -> bool {
     (hex.len() == 3 || hex.len() == 6) && hex.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-fn theme_line(theme: &str, accent: Option<&str>) -> String {
-    match accent {
-        Some(a) => format!("theme: {theme} · accent: {a}"),
-        None => format!("theme: {theme} · accent: system"),
+/// Human summary + the machine `ui:` effect lines the Terminal panel
+/// applies via `useTheme()`, so colours change on all three transports.
+fn ui_line(s: &UiSettings) -> String {
+    let accent = s.accent.as_deref().unwrap_or("system");
+    let mut out = format!(
+        "theme: {} · accent: {accent}\ndensity: {} · glass: {} · motion: {} · glow: {}",
+        s.theme,
+        s.density,
+        s.glass,
+        s.motion,
+        if s.glow { "on" } else { "off" }
+    );
+    if !s.accents.is_empty() {
+        let per: Vec<String> = s.accents.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        out.push_str(&format!("\naccents: {}", per.join(" ")));
+    }
+    out.push_str(&format!("\nui: theme={}", s.theme));
+    out.push_str(&format!("\nui: accent={accent}"));
+    out.push_str(&format!("\nui: density={}", s.density));
+    out.push_str(&format!("\nui: glass={}", s.glass));
+    out.push_str(&format!("\nui: motion={}", s.motion));
+    out.push_str(&format!("\nui: glow={}", if s.glow { "on" } else { "off" }));
+    for (k, v) in &s.accents {
+        out.push_str(&format!("\nui: accent-for={k}:{v}"));
+    }
+    out
+}
+
+fn parse_glass(raw: &str) -> Option<u8> {
+    match raw.to_lowercase().as_str() {
+        "0" | "solid" => Some(0),
+        "1" | "light" => Some(1),
+        "2" | "default" => Some(2),
+        "3" | "rich" => Some(3),
+        _ => None,
     }
 }
 
 /// `theme [<id>|get] [--json]` — read or switch the OS theme.
 fn theme_cmd(args: &[String], json: bool) -> Result<String, String> {
     let want: Option<&String> = args.iter().find(|a| !a.starts_with('-'));
-    let (theme, accent) = load_theme();
+    let s = load_ui();
     let Some(id) = want.filter(|w| *w != "get") else {
         if json {
-            return serde_json::to_string(&serde_json::json!({ "theme": theme, "accent": accent }))
-                .map_err(|e| e.to_string());
+            return serde_json::to_string(&s.to_json()).map_err(|e| e.to_string());
         }
-        return Ok(format!(
-            "{}\nui: theme={theme}",
-            theme_line(&theme, accent.as_deref())
-        ));
+        return Ok(ui_line(&s));
     };
     let canonical = canonical_theme(&id.to_lowercase()).ok_or_else(|| {
         format!(
@@ -3022,39 +3161,35 @@ fn theme_cmd(args: &[String], json: bool) -> Result<String, String> {
             THEME_IDS.join(", ")
         )
     })?;
-    save_theme(canonical, accent.as_deref())?;
+    let mut next = s.clone();
+    next.theme = canonical.to_string();
+    save_ui(&next)?;
     if json {
-        return serde_json::to_string(&serde_json::json!({ "theme": canonical, "accent": accent }))
-            .map_err(|e| e.to_string());
+        return serde_json::to_string(&next.to_json()).map_err(|e| e.to_string());
     }
-    Ok(format!(
-        "{}\nui: theme={canonical}",
-        theme_line(canonical, accent.as_deref())
-    ))
+    Ok(ui_line(&next))
+}
 }
 
-/// `ui theme|accent|get` — the script-facing half of the OS interface
-/// (colours live here; providers stay with `providers/quota/sync/disk`).
-/// Every mutation prints a machine `ui:` line the Terminal panel applies
-/// via `useTheme()`, so colours change on all three transports.
+/// `ui theme|accent|density|glass|motion|glow|get` — the script-facing half
+/// of the OS interface (the whole interface lives here; providers stay with
+/// `providers/quota/sync/disk`). Every mutation prints machine `ui:` lines
+/// the Terminal panel applies via `useTheme()`, so the interface changes on
+/// all three transports.
 fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
+    const USAGE: &str = "usage: ui theme <id>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|1|light|2|default|3|rich>|motion <auto|full|reduced>|glow <on|off>|get";
     let sub = args.first().map(String::as_str).unwrap_or("get");
-    let (theme, accent) = load_theme();
+    let plain: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    let s = load_ui();
     match sub {
         "get" => {
             if json {
-                return serde_json::to_string(
-                    &serde_json::json!({ "theme": theme, "accent": accent }),
-                )
-                .map_err(|e| e.to_string());
+                return serde_json::to_string(&s.to_json()).map_err(|e| e.to_string());
             }
-            Ok(format!(
-                "{}\nui: theme={theme}",
-                theme_line(&theme, accent.as_deref())
-            ))
+            Ok(ui_line(&s))
         }
         "theme" => {
-            let id = args
+            let id = plain
                 .get(1)
                 .ok_or_else(|| format!("usage: ui theme <id> (try: {})", THEME_IDS.join(", ")))?;
             let canonical = canonical_theme(&id.to_lowercase()).ok_or_else(|| {
@@ -3063,27 +3198,46 @@ fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
                     THEME_IDS.join(", ")
                 )
             })?;
-            save_theme(canonical, accent.as_deref())?;
+            let mut next = s.clone();
+            next.theme = canonical.to_string();
+            save_ui(&next)?;
             if json {
-                return serde_json::to_string(
-                    &serde_json::json!({ "theme": canonical, "accent": accent }),
-                )
-                .map_err(|e| e.to_string());
+                return serde_json::to_string(&next.to_json()).map_err(|e| e.to_string());
             }
-            Ok(format!(
-                "{}\nui: theme={canonical}",
-                theme_line(canonical, accent.as_deref())
-            ))
+            Ok(ui_line(&next))
         }
         "accent" => {
-            let raw = args
+            let raw = plain
                 .get(1)
-                .ok_or_else(|| "usage: ui accent <#rrggbb|#rgb|default>".to_string())?;
+                .ok_or_else(|| "usage: ui accent <#rrggbb|#rgb|default> [--for <theme>]".to_string())?;
+            let for_theme: Option<&str> = match args
+                .iter()
+                .position(|a| a == "--for" || a == "-for")
+            {
+                Some(i) => match args.get(i + 1).filter(|t| !t.starts_with('-')) {
+                    Some(t) => {
+                        canonical_theme(&t.to_lowercase()).ok_or_else(|| {
+                            format!(
+                                "invalid: unknown theme '{t}' (try: {})",
+                                THEME_IDS.join(", ")
+                            )
+                        })?;
+                        Some(t.as_str())
+                    }
+                    None => {
+                        return Err(format!(
+                            "invalid: --for needs a theme (try: {})",
+                            THEME_IDS.join(", ")
+                        ))
+                    }
+                },
+                None => None,
+            };
             let next: Option<String> = if raw == "default" || raw == "system" || raw == "none" {
                 None
             } else {
                 let hex = if raw.starts_with('#') {
-                    raw.clone()
+                    raw.to_string()
                 } else {
                     format!("#{raw}")
                 };
@@ -3094,22 +3248,124 @@ fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
                 }
                 Some(hex)
             };
-            save_theme(&theme, next.as_deref())?;
-            let shown = next.clone().unwrap_or_else(|| "system".to_string());
-            if json {
-                return serde_json::to_string(
-                    &serde_json::json!({ "theme": theme, "accent": next }),
-                )
-                .map_err(|e| e.to_string());
+            let mut updated = s.clone();
+            if let Some(t) = for_theme {
+                let canonical = canonical_theme(&t.to_lowercase()).unwrap_or("mac-light");
+                updated.accents.retain(|(k, _)| k != canonical);
+                if let Some(hex) = next.clone() {
+                    updated.accents.push((canonical.to_string(), hex));
+                }
+                save_ui(&updated)?;
+                let shown = next.clone().unwrap_or_else(|| "system".to_string());
+                if json {
+                    return serde_json::to_string(&updated.to_json()).map_err(|e| e.to_string());
+                }
+                return Ok(format!(
+                    "accent: {canonical} → {shown}\nui: accent-for={canonical}:{shown}"
+                ));
             }
-            Ok(format!(
-                "{}\nui: accent={shown}",
-                theme_line(&theme, next.as_deref())
-            ))
+            updated.accent = next;
+            save_ui(&updated)?;
+            if json {
+                return serde_json::to_string(&updated.to_json()).map_err(|e| e.to_string());
+            }
+            Ok(ui_line(&updated))
         }
-        other => Err(format!(
-            "usage: ui theme <id>|accent <#hex|default>|get (got `{other}`)"
-        )),
+        "density" => {
+            let want = plain.get(1).map(String::as_str).unwrap_or("get");
+            if want == "get" {
+                if json {
+                    return serde_json::to_string(&serde_json::json!({ "density": s.density }))
+                        .map_err(|e| e.to_string());
+                }
+                return Ok(format!("density: {}\nui: density={}", s.density, s.density));
+            }
+            if want != "compact" && want != "comfortable" {
+                return Err(format!(
+                    "invalid: bad density '{want}' (use compact|comfortable)"
+                ));
+            }
+            let mut updated = s.clone();
+            updated.density = want.to_string();
+            save_ui(&updated)?;
+            if json {
+                return serde_json::to_string(&serde_json::json!({ "density": want }))
+                    .map_err(|e| e.to_string());
+            }
+            Ok(format!("density: {want}\nui: density={want}"))
+        }
+        "glass" => {
+            let want = plain.get(1).map(String::as_str).unwrap_or("get");
+            if want == "get" {
+                if json {
+                    return serde_json::to_string(&serde_json::json!({ "glass": s.glass }))
+                        .map_err(|e| e.to_string());
+                }
+                return Ok(format!("glass: {}\nui: glass={}", s.glass, s.glass));
+            }
+            let level = parse_glass(want).ok_or_else(|| {
+                format!("invalid: bad glass '{want}' (use 0|solid, 1|light, 2|default, 3|rich)")
+            })?;
+            let mut updated = s.clone();
+            updated.glass = level;
+            save_ui(&updated)?;
+            if json {
+                return serde_json::to_string(&serde_json::json!({ "glass": level }))
+                    .map_err(|e| e.to_string());
+            }
+            Ok(format!("glass: {level}\nui: glass={level}"))
+        }
+        "motion" => {
+            let want = plain.get(1).map(String::as_str).unwrap_or("get");
+            if want == "get" {
+                if json {
+                    return serde_json::to_string(&serde_json::json!({ "motion": s.motion }))
+                        .map_err(|e| e.to_string());
+                }
+                return Ok(format!("motion: {}\nui: motion={}", s.motion, s.motion));
+            }
+            if want != "auto" && want != "full" && want != "reduced" {
+                return Err(format!(
+                    "invalid: bad motion '{want}' (use auto|full|reduced)"
+                ));
+            }
+            let mut updated = s.clone();
+            updated.motion = want.to_string();
+            save_ui(&updated)?;
+            if json {
+                return serde_json::to_string(&serde_json::json!({ "motion": want }))
+                    .map_err(|e| e.to_string());
+            }
+            Ok(format!("motion: {want}\nui: motion={want}"))
+        }
+        "glow" => {
+            let want = plain.get(1).map(String::as_str).unwrap_or("get");
+            if want == "get" {
+                let shown = if s.glow { "on" } else { "off" };
+                if json {
+                    return serde_json::to_string(&serde_json::json!({ "glow": s.glow }))
+                        .map_err(|e| e.to_string());
+                }
+                return Ok(format!("glow: {shown}\nui: glow={shown}"));
+            }
+            let on = match want.to_lowercase().as_str() {
+                "on" | "true" | "1" => true,
+                "off" | "false" | "0" => false,
+                _ => {
+                    return Err(format!("invalid: bad glow '{want}' (use on|off)"));
+                }
+            };
+            let mut updated = s.clone();
+            updated.glow = on;
+            save_ui(&updated)?;
+            let shown = if on { "on" } else { "off" };
+            if json {
+                return serde_json::to_string(&serde_json::json!({ "glow": on }))
+                    .map_err(|e| e.to_string());
+            }
+            Ok(format!("glow: {shown}\nui: glow={shown}"))
+        }
+        other => Err(format!("{USAGE} (got `{other}`)")),
     }
 }
 

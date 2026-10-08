@@ -34,6 +34,8 @@ pub fn local_config(id: &str, base_path: &str) -> SyncConfig {
         parity: 1,
         require_encryption: false,
         obfuscate_names: false,
+        mirror: false,
+        key_holder: false,
         oauth_credentials: None,
         created_at: None,
         updated_at: None,

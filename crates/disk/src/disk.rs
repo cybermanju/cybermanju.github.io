@@ -190,6 +190,7 @@ fn create_inner(
         health: "ok".to_string(),
         container_path: container.to_string_lossy().to_string(),
         blocks_written_since_checkpoint: 0,
+        holds_keys: false,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -632,6 +633,11 @@ pub fn get(db: &Database, disk_id: &str) -> Result<Option<DiskRow>, String> {
 
 pub fn list(db: &Database) -> Result<Vec<DiskRow>, String> {
     catalog::list_disks(db)
+}
+
+/// Designate the single key-holder disk (clears the flag on all others).
+pub fn set_key_holder(db: &Database, disk_id: &str) -> Result<DiskRow, String> {
+    catalog::set_key_holder(db, disk_id)
 }
 
 fn not_found(disk_id: &str) -> String {

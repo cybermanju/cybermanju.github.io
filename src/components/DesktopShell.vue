@@ -405,8 +405,8 @@ onUnmounted(() => {
   position: absolute;
   inset: -20%;
   background:
-    radial-gradient(60% 50% at 50% 0%, rgba(255, 255, 255, 0.5), transparent 70%),
-    radial-gradient(70% 60% at 50% 115%, rgba(0, 0, 0, 0.10), transparent 70%);
+    radial-gradient(60% 50% at 50% 0%, var(--ui-aurora-a, rgba(255, 255, 255, 0.5)), transparent 70%),
+    radial-gradient(70% 60% at 50% 115%, var(--ui-aurora-b, rgba(0, 0, 0, 0.10)), transparent 70%);
   opacity: 0;
   transition: opacity 0.8s var(--ui-ease-out);
 }

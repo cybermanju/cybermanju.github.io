@@ -343,7 +343,7 @@ class Runner {
       if (eq < 0) continue
       const k = rest.slice(0, eq).trim()
       const val = rest.slice(eq + 1).trim()
-      if (k === 'theme' || k === 'accent') this.effects.push({ kind: k, detail: val })
+      if (k === 'theme' || k === 'accent' || k === 'density' || k === 'glass' || k === 'motion' || k === 'glow' || k === 'accent-for') this.effects.push({ kind: k, detail: val })
     }
   }
 

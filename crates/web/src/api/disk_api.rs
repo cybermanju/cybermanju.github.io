@@ -179,6 +179,11 @@ pub fn route(
             Err(err) => bad_request(err, origin),
         },
 
+        ["api", "disk", "key-holder"] if method == "POST" => match parse::<IdRequest>(body) {
+            Ok(request) => respond(disk::set_key_holder(db, &request.id), origin),
+            Err(err) => bad_request(err, origin),
+        },
+
         // `GET /api/disk/{id}` — ids are `disk-<uuid>`, so they can never
         // collide with the `list` arm above.
         ["api", "disk", id] if method == "GET" && *id != "list" => respond(get_one(db, id), origin),

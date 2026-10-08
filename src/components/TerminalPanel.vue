@@ -210,14 +210,15 @@ async function execAndRender(cmd: string) {
 
 /**
  * `.cybsh` OS-interface effects: `theme`/`ui` verbs (and scripts calling
- * them) print machine `ui: theme=<id>` / `ui: accent=<hex|system>` lines.
- * Applying them here makes colours change on every transport — the verbs
- * already persist the same intent to the volume mirror + localStorage.
+ * them) print machine `ui: theme=<id>` / `ui: accent=<hex|system>` /
+ * `ui: density|glass|motion|glow|accent-for=…` lines. Applying them here
+ * makes the whole interface change on every transport — the verbs already
+ * persist the same intent to the volume mirror + localStorage.
  */
 function applyCybshUiEffects(output: string) {
   let touched = false
   try {
-    const { setTheme, setAccent, themes } = useTheme()
+    const { setTheme, setAccent, setAccentFor, setDensity, setGlass, setMotion, setGlow, themes } = useTheme()
     for (const raw of output.split('\n')) {
       const line = raw.trim()
       if (!line.startsWith('ui:')) continue
@@ -232,6 +233,31 @@ function applyCybshUiEffects(output: string) {
       } else if (key === 'accent') {
         if (value === 'system' || value === 'default' || value === 'none') setAccent(null)
         else if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) setAccent(value)
+        else continue
+        touched = true
+      } else if (key === 'accent-for') {
+        // Per-theme accent: `<theme-id>:<#hex|system>`.
+        const sep = value.indexOf(':')
+        if (sep < 0) continue
+        const themeId = value.slice(0, sep).trim()
+        const hex = value.slice(sep + 1).trim()
+        if (!(themeId in themes)) continue
+        if (hex === 'system' || hex === 'default' || hex === 'none') setAccentFor(themeId, null)
+        else if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex)) setAccentFor(themeId, hex)
+        else continue
+        touched = true
+      } else if (key === 'density' && (value === 'compact' || value === 'comfortable')) {
+        setDensity(value)
+        touched = true
+      } else if (key === 'glass' && (value === '0' || value === '1' || value === '2' || value === '3')) {
+        setGlass(Number(value) as 0 | 1 | 2 | 3)
+        touched = true
+      } else if (key === 'motion' && (value === 'auto' || value === 'full' || value === 'reduced')) {
+        setMotion(value)
+        touched = true
+      } else if (key === 'glow') {
+        if (value === 'on' || value === 'true' || value === '1') setGlow(true)
+        else if (value === 'off' || value === 'false' || value === '0') setGlow(false)
         else continue
         touched = true
       }

@@ -63,8 +63,31 @@ export async function idbSet(key: string, value: unknown): Promise<boolean> {
   }
 }
 
-export async function idbDel(key: string): Promise<void> {
+/** All stored keys (lets boot restore every remembered directory handle). */
+export async function idbKeys(): Promise<string[]> {
   try {
+    const db = await openDb()
+    try {
+      return await new Promise<string[]>((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readonly')
+        const req = tx.objectStore(STORE).getAllKeys()
+        req.onsuccess = () => {
+          const keys = (req.result as unknown[] ?? []).filter(
+            (k): k is string => typeof k === 'string',
+          )
+          resolve(keys)
+        }
+        req.onerror = () => reject(req.error ?? new Error('IndexedDB keys failed'))
+      })
+    } finally {
+      db.close()
+    }
+  } catch {
+    return []
+  }
+}
+
+export async function idbDel(key: string): Promise<void> {  try {
     const db = await openDb()
     try {
       await new Promise<void>((resolve, reject) => {

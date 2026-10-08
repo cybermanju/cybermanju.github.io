@@ -4,8 +4,10 @@
 // PIPELINE: detect → embed → index → cluster → store
 //
 // ARCHITECTURE OVERVIEW:
-//   Layer 1 — Detection:    BLAKE3 pseudo-embeddings (current) / SCRFD ONNX (future)
-//   Layer 2 — Embedding:    128-d deterministic (current) / ArcFace 512-d (future)
+//   Layer 1 — Detection:    ONNX SCRFD (where linked) / heuristic-v2 skin +
+//                           eyes verification (everywhere else — engine-labeled)
+//   Layer 2 — Embedding:    ArcFace 512-d (ONNX) / 512-d crop statistics
+//                           (heuristic — same layout, same grouping pipeline)
 //   Layer 3 — Index:        SimHash pre-computed projections for O(1) Hamming filtering
 //   Layer 4 — Clustering:   4 algorithms — BruteForce, SimHash, Chinese Whispers, HDBSCAN
 //   Layer 5 — Centroids:    Medoid (actual data point) not mean centroid
@@ -40,7 +42,8 @@
 // ONNX INTEGRATION (active, feature = "onnx-face"):
 //   Detection: SCRFD-2.5G (0.67M params, 4.2ms CPU, WIDER 94/92/78)
 //   Embedding: MobileFaceNet (4MB, 512-d, 99.55% LFW) or EdgeFace-XXS (4.9MB, 99.57%)
-//   detect_faces_in_file: tries ONNX first → falls back to BLAKE3 pseudo-embeddings
+//   detect_faces_in_file: ONNX first → heuristic-v2 skin segmentation → empty.
+//   Every result is engine-labeled (`onnx` / `heuristic-v2` / `none`).
 //   Model paths: ~/.cache/cybermanju/scrfd_2.5g.onnx, arcface_mfacenet.onnx
 
 use anyhow::Result;
@@ -52,6 +55,12 @@ use cybermanju_types::schema::FileNode;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
+
+/// Heuristic skin-segmentation detector — the no-ONNX path (mobile builds,
+/// desktops with no model, offline machines). Pure Rust, byte-in, and every
+/// result carries the `heuristic-v2` engine label so it is never confused
+/// with the SCRFD+ArcFace path.
+pub mod heuristic;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Constants — Tuned for performance/accuracy tradeoff
@@ -1478,48 +1487,127 @@ fn collect_clusters_from_labels(
 //   Implementation status:
 //   1. ✅ Cargo.toml: ort = "2.0", features = ["onnx-face"] (optional)
 //   2. ✅ ensure_model: auto-downloads models on first inference
-//   3. ✅ detect_faces_in_file: tries ONNX first, falls back to BLAKE3
-//   4. ✅ EMBEDDING_DIM = 512 (both ONNX and BLAKE3 paths)
+//   3. ✅ detect_faces_in_file: ONNX first → heuristic-v2 → empty,
+//      engine-labeled (`detect_faces_in_file_with_engine`)
+//   4. ✅ EMBEDDING_DIM = 512 (ONNX and heuristic paths share it)
 
 /// Detect faces in a file and return one embedding per face.
 ///
-/// ONNX path: SCRFD detection → ArcFace 512-d embedding (requires ort + model files).
-/// Honest fallback: when ONNX is unavailable, fails, or finds zero faces,
-/// return an empty set — never fabricate pseudo-faces. Fabricated embeddings
-/// cluster as if they were real detections and corrupt person groups (AUDIT F7).
-pub fn detect_faces_in_file(_file_node: &FileNode) -> Result<Vec<Vec<f32>>> {
+/// Funnel: ONNX SCRFD+ArcFace first (feature-gated); when it is absent or
+/// errors, the file's own bytes go through the `heuristic-v2`
+/// skin-segmentation detector; when those are unreadable the result is an
+/// empty set — never fabricated pseudo-faces (AUDIT F7). An ONNX run that
+/// succeeds with zero faces stays empty: the expert looked and found none.
+pub fn detect_faces_in_file(file_node: &FileNode) -> Result<Vec<Vec<f32>>> {
+    Ok(detect_faces_in_file_with_engine(file_node).0)
+}
+
+/// [`detect_faces_in_file`] plus the engine that produced the result:
+/// `"onnx"`, `"heuristic-v2"`, or `"none"` (no bytes to inspect).
+/// Callers record it on the groups they fill (`FaceGroup.detection_engine`)
+/// so the UI can say which detector ran.
+pub fn detect_faces_in_file_with_engine(file_node: &FileNode) -> (Vec<Vec<f32>>, &'static str) {
     #[cfg(feature = "onnx-face")]
-    {
-        match fn_onnx_detect_faces(_file_node) {
-            Ok(embeddings) if !embeddings.is_empty() => {
+    match fn_onnx_detect_faces(file_node) {
+        Ok(embeddings) => {
+            if embeddings.is_empty() {
+                log::info!(
+                    "ONNX detected no faces in {} — returning empty set",
+                    file_node.name
+                );
+            } else {
                 log::info!(
                     "ONNX face detection: {} faces from {}",
                     embeddings.len(),
-                    _file_node.name
+                    file_node.name
                 );
-                Ok(embeddings)
             }
-            Ok(_) => {
-                log::info!(
-                    "ONNX detected no faces in {} — returning empty set",
-                    _file_node.name
-                );
-                Ok(Vec::new())
-            }
-            Err(e) => {
-                log::warn!(
-                    "ONNX face detection failed for {}: {}. Returning empty set (no fabrication).",
-                    _file_node.name,
-                    e
-                );
-                Ok(Vec::new())
-            }
+            return (embeddings, "onnx");
+        }
+        Err(e) => {
+            log::warn!(
+                "ONNX face detection failed for {}: {e}. Falling back to heuristic-v2.",
+                file_node.name
+            );
         }
     }
-    #[cfg(not(feature = "onnx-face"))]
-    // No ONNX feature: honest empty result. The legacy BLAKE3 pseudo-embedding
-    // helper is retained for tests only (see `blake3_pseudo_embedding_for_tests`).
-    Ok(Vec::new())
+    detect_faces_heuristic_for_node(file_node)
+}
+
+/// Heuristic leg over the file's own bytes (`thumbnail_path`, else `name`
+/// as a filesystem path — the same source the ONNX path reads).
+fn detect_faces_heuristic_for_node(file_node: &FileNode) -> (Vec<Vec<f32>>, &'static str) {
+    let rgb = file_node
+        .thumbnail_path
+        .as_ref()
+        .or(Some(&file_node.name))
+        .and_then(|p| image::open(p).ok())
+        .map(|img| img.to_rgb8())
+        .and_then(|buf| {
+            let (w, h) = (buf.width(), buf.height());
+            if w == 0 || h == 0 {
+                None
+            } else {
+                Some((buf.into_raw(), w, h))
+            }
+        });
+    match rgb {
+        Some((bytes, width, height)) => heuristic_from_rgb(file_node, &bytes, width, height),
+        None => (Vec::new(), "none"),
+    }
+}
+
+/// Detect faces with the best engine available, honestly labeled.
+///
+/// Hierarchy (expert silence is silence, no expert is a labeled opinion):
+///   1. ONNX SCRFD+ArcFace when the feature is on and inference succeeds —
+///      even an empty set returns as `"onnx"` (the expert looked).
+///   2. `heuristic-v2` skin-segmentation over `load_rgb()` bytes when ONNX is
+///      absent or errored — real pixel signal with per-face confidence.
+///   3. `("none", empty)` when there are no bytes to inspect.
+///
+/// Returns `(embeddings, engine)` — one 512-d vector per face. Callers
+/// record the engine on the groups they fill (`FaceGroup.algorithm`).
+pub fn detect_faces_auto(
+    file_node: &FileNode,
+    load_rgb: &dyn Fn() -> Option<(Vec<u8>, u32, u32)>,
+) -> (Vec<Vec<f32>>, &'static str) {
+    #[cfg(feature = "onnx-face")]
+    match fn_onnx_detect_faces(file_node) {
+        Ok(embeddings) => return (embeddings, "onnx"),
+        Err(e) => log::warn!(
+            "ONNX face detection failed for {}: {e}. Falling back to heuristic-v2.",
+            file_node.name
+        ),
+    }
+    match load_rgb() {
+        Some((rgb, width, height)) => heuristic_from_rgb(file_node, &rgb, width, height),
+        None => (Vec::new(), "none"),
+    }
+}
+
+/// Shared tail of the heuristic leg: raw RGB → labeled embeddings.
+fn heuristic_from_rgb(
+    file_node: &FileNode,
+    rgb: &[u8],
+    width: u32,
+    height: u32,
+) -> (Vec<Vec<f32>>, &'static str) {
+    let faces = heuristic::detect_faces_heuristic_rgb(rgb, width, height);
+    if faces.is_empty() {
+        log::info!(
+            "heuristic-v2 found no faces in {} — returning empty set",
+            file_node.name
+        );
+    } else {
+        log::info!(
+            "heuristic-v2 face detection: {} faces from {}",
+            faces.len(),
+            file_node.name
+        );
+    }
+    let embeddings = faces.into_iter().map(|f| f.embedding).collect();
+    (embeddings, heuristic::HEURISTIC_ENGINE)
 }
 
 /// BLAKE3-based deterministic pseudo-embedding generator.
@@ -1603,6 +1691,17 @@ fn seed_to_embedding(seed: &str) -> Vec<f32> {
 /// Detect faces in multiple files in parallel.
 /// Returns (file_id, embeddings) pairs.
 pub fn detect_faces_batch(file_nodes: &[FileNode]) -> Vec<(String, Vec<Vec<f32>>)> {
+    detect_faces_batch_with_engines(file_nodes)
+        .into_iter()
+        .map(|(id, embeddings, _)| (id, embeddings))
+        .collect()
+}
+
+/// [`detect_faces_batch`] plus the engine per file: `(file_id, embeddings,
+/// engine)`. Grouping commands use it to label groups honestly.
+pub fn detect_faces_batch_with_engines(
+    file_nodes: &[FileNode],
+) -> Vec<(String, Vec<Vec<f32>>, &'static str)> {
     file_nodes
         .par_iter()
         .with_min_len(PAR_BATCH_SIZE)
@@ -1610,11 +1709,11 @@ pub fn detect_faces_batch(file_nodes: &[FileNode]) -> Vec<(String, Vec<Vec<f32>>
             if node.file_type == "folder" {
                 return None;
             }
-            let embeddings = detect_faces_in_file(node).ok()?;
+            let (embeddings, engine) = detect_faces_in_file_with_engine(node);
             if embeddings.is_empty() {
                 return None;
             }
-            Some((node.id.clone(), embeddings))
+            Some((node.id.clone(), embeddings, engine))
         })
         .collect()
 }

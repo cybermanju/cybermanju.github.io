@@ -382,6 +382,43 @@ fn canonical_base(base: &str) -> Result<std::path::PathBuf, String> {
     })
 }
 
+/// Paths the sync engine must never upload: the vault container itself
+/// (`*.cybermanju`), in-flight `cybermanju-up-*.cyb3` temps, and the local
+/// secret sidecars. Quiet skip at the pipeline layer, hard refusal here —
+/// the vault changes hash on every save, so syncing it would loop forever.
+pub fn is_protected_remote_path(remote: &str) -> bool {
+    let lower = remote.trim().replace('\\', "/").to_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+    let base = lower.rsplit('/').next().unwrap_or(&lower);
+    if base.ends_with(".cybermanju") {
+        return true;
+    }
+    if base.starts_with("cybermanju-up-") && base.ends_with(".cyb3") {
+        return true;
+    }
+    if base == "master.passphrase" || base == "keystore.json" {
+        return true;
+    }
+    lower.contains("/.cybermanju/")
+}
+
+#[cfg(test)]
+mod protected_path_tests {
+    use super::is_protected_remote_path;
+
+    #[test]
+    fn vault_and_secrets_are_protected() {
+        assert!(is_protected_remote_path("vault.cybermanju"));
+        assert!(is_protected_remote_path("cybermanju-disks/d.cybermanju"));
+        assert!(is_protected_remote_path("cybermanju-up-1-2.cyb3"));
+        assert!(is_protected_remote_path("master.passphrase"));
+        assert!(!is_protected_remote_path("notes.txt"));
+        assert!(!is_protected_remote_path("notes.txt.cyb3"));
+    }
+}
+
 /// Join a remote path onto a canonical base without ever escaping it.
 ///
 /// Rejects `..`/absolute/NUL-style escapes lexically, then canonicalizes:
@@ -522,6 +559,12 @@ impl StorageBackend for LocalBackend {
 
     fn upload_file(&self, local_path: &str, remote_path: &str) -> Result<String, String> {
         let _permit = rate_limit::acquire(&SyncBackendType::Local)?;
+        if is_protected_remote_path(local_path) || is_protected_remote_path(remote_path) {
+            return Err(format!(
+                "integrity: '{}' is a vault/secret path and is never synced",
+                remote_path
+            ));
+        }
         transfer::local_size(local_path)?;
         let dest = safe_join(&self.base_path, remote_path)?;
         self.copy_verified(local_path, &dest, remote_path)?;

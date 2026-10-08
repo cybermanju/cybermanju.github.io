@@ -92,7 +92,7 @@
       <aside v-if="sideOpen" class="fm-side">
         <div class="fm-side-sec">
           <div class="fm-side-h">VOLUME</div>
-          <button class="fm-srow" :class="{ active: !scopeFolder }" @click="goHome">
+          <button class="fm-srow" :class="{ active: !scopeFolder && !diskScopeId }" @click="goHomeVault">
             <AppIcon name="solar:ssd-square-bold" :size="14" />
             <span class="t">Vault root</span>
             <span class="m mono">{{ humanBytes(df?.totalBytes) }}</span>
@@ -101,8 +101,10 @@
             v-for="d in store.disks"
             :key="d.id"
             class="fm-srow"
-            :title="`${d.name} · ${d.provider} · ${humanBytes(d.usedBytes)} / ${humanBytes(d.capacityBytes)} · ${d.state}`"
-            @click="wm.open('disks')"
+            :class="{ active: diskScopeId === d.id }"
+            :title="`${d.name} · ${d.provider} · ${humanBytes(d.usedBytes)} / ${humanBytes(d.capacityBytes)} · ${d.state} — click: files share · right-click: manage`"
+            @click="openDiskFiles(d)"
+            @contextmenu.prevent.stop="diskMenu($event, d)"
           >
             <i class="fm-pdot" :class="d.state" />
             <span class="t truncate">{{ d.name }}</span>
@@ -170,6 +172,23 @@
           <button class="fm-pill xs ghost" title="Open current folder in cybsh" @click="openFolderInTerm()"><AppIcon name="solar:file-terminal-bold" :size="11" /> cd here</button>
         </div>
 
+        <!-- DISK SCOPE: per-disk share of the merged volume.
+             Files are striped at the block level, so there is no per-file
+             disk owner — this banner shows the disk's ratio (used/capacity
+             + share of the volume) with a proportional file-size estimate. -->
+        <div v-if="diskScope" class="fm-diskscope" role="status">
+          <AppIcon name="solar:ssd-square-bold" :size="13" />
+          <span class="fm-diskscope-t truncate" :title="diskScope.containerPath || diskScope.name">
+            <b>{{ diskScope.name }}</b>
+            <span class="dim">· {{ diskScope.provider }} · {{ diskScope.state }} · {{ Math.round(diskPct(diskScope.usedBytes, diskScope.capacityBytes)) }}% used</span>
+          </span>
+          <span class="fm-diskscope-bar" :title="`${humanBytes(diskScope.usedBytes)} / ${humanBytes(diskScope.capacityBytes)}`"><i :style="{ width: diskPct(diskScope.usedBytes, diskScope.capacityBytes) + '%' }" /></span>
+          <span class="mono dim hide-sm" :title="`Share of merged volume by used bytes`">≈{{ (diskShare * 100).toFixed(1) }}% vol · ~{{ humanBytes(diskFileBytes) }} files</span>
+          <span class="fm-spacer" />
+          <button class="fm-pill xs" title="Open this disk in Disks & Volume" @click="diskScope && manageDisk(diskScope)">Manage disk</button>
+          <button class="fm-pill xs ghost" title="Clear disk filter" @click="clearDiskScope()">✕</button>
+        </div>
+
         <div v-if="selCount > 0" class="fm-bulk" role="toolbar" aria-label="Bulk actions">
           <span class="fm-bulk-n">{{ selCount }} selected · {{ humanBytes(selBytes) }}</span>
           <button title="Encrypt" @click="bulkEncrypt"><AppIcon name="solar:lock-bold" :size="12" /></button>
@@ -221,8 +240,8 @@
           </button>
           <div v-if="!renderFiles.length && !store.isLoading" class="fm-empty">
             <AppIcon name="solar:folder-open-bold" :size="30" />
-            <p>Empty folder</p>
-            <span>Drop files, paste, upload — or create something new.</span>
+            <p>{{ filterQuery ? 'No files match' : (store.currentPath === '/' ? 'Vault is empty' : 'Empty folder') }}</p>
+            <span>{{ filterQuery ? 'Try a different filter, or ⏎ for global search.' : (store.currentPath === '/' ? 'This home shows everything merged across your disks — create your first folder to begin.' : 'Drop files, paste, upload — or create something new.') }}</span>
           </div>
           <div v-if="store.isLoading" class="fm-empty"><span class="fm-spin" /> Loading…</div>
           <button v-if="renderLimit < sortedFiles.length" class="fm-more" @click="renderLimit += 300">Show more ({{ sortedFiles.length - renderLimit }} left)</button>
@@ -275,7 +294,7 @@
                 <AppIcon v-if="f.isStarred" name="solar:star-bold" :size="11" title="Starred" />
               </span>
             </div>
-            <div v-if="!renderFiles.length && !store.isLoading" class="fm-empty"><p>No files match.</p></div>
+            <div v-if="!renderFiles.length && !store.isLoading" class="fm-empty"><p>{{ filterQuery ? 'No files match.' : (store.currentPath === '/' ? 'Vault is empty — this home shows everything merged across your disks.' : 'Empty folder.') }}</p></div>
             <button v-if="renderLimit < sortedFiles.length" class="fm-more" @click="renderLimit += 300">Show more ({{ sortedFiles.length - renderLimit }} left)</button>
           </div>
         </div>
@@ -477,10 +496,18 @@
               </div>
               <div v-if="probing" class="dim mono">probing remotes…</div>
               <div class="fm-side-h">DISKS HOLDING THE VOLUME</div>
-              <div v-for="d in store.disks" :key="d.id" class="fm-kv small">
+              <button
+                v-for="d in store.disks"
+                :key="d.id"
+                class="fm-kv small as-row"
+                :class="{ active: diskScopeId === d.id }"
+                :title="`${d.name} — click: files share · right-click: manage`"
+                @click="openDiskFiles(d)"
+                @contextmenu.prevent.stop="diskMenu($event, d)"
+              >
                 <span class="truncate" :title="d.containerPath || d.name">{{ d.name }} · {{ d.provider }}</span>
                 <b class="mono">{{ Math.round(diskPct(d.usedBytes, d.capacityBytes)) }}%</b>
-              </div>
+              </button>
               <div class="fm-btnrow">
                 <button class="fm-pill xs ghost" @click="wm.open('sync')">Sync panel</button>
                 <button class="fm-pill xs ghost" @click="wm.open('disks')">Disks</button>
@@ -576,7 +603,7 @@ import { invoke } from '@/composables/useTauri'
 import { humanBytes, diskPct } from '@/utils/format'
 import { trackShellCwd } from '@/utils/shellCwd'
 import { ENCRYPTION_INFO, COMPRESSION_INFO, SYNC_BACKEND_INFO } from '@/types'
-import type { FileNode, SyncBackendType } from '@/types'
+import type { DiskRow, FileNode, SyncBackendType } from '@/types'
 
 const store = useAppStore()
 const wm = useWindowManager()
@@ -647,6 +674,7 @@ function goUp() {
   navTo(p.split('/').slice(0, -1).join('/') || '/')
 }
 function goHome() { store.selectFile(null); void navTo('/') }
+function goHomeVault() { clearDiskScope(true); goHome() }
 function refresh() { void Promise.all([store.fetchFiles(store.currentPath), store.fetchOsDf(), store.fetchSyncConfigs(), store.fetchDisks()]) }
 function jumpCrumb(p: string) { store.selectFile(null); void navTo(p) }
 const crumbs = computed(() => {
@@ -695,6 +723,10 @@ function onScroll(e: Event) {
   if (el.scrollHeight - el.scrollTop - el.clientHeight < 600 && renderLimit.value < sortedFiles.value.length) renderLimit.value += 300
 }
 watch([filterQuery, sortField, sortDir, showHidden, onlyMedia], () => { renderLimit.value = 240 })
+// A scoped disk deleted/detached away must not leave a stale banner.
+watch(() => store.disks.map(d => d.id).join(','), () => {
+  if (diskScopeId.value && !store.disks.some(d => d.id === diskScopeId.value)) diskScopeId.value = null
+})
 
 const folderBytes = computed(() => sortedFiles.value.reduce((s, f) => s + (f.sizeBytes || 0), 0))
 const selCount = computed(() => store.selectedFileIds.length)
@@ -719,6 +751,59 @@ const providerChips = computed(() => store.syncConfigs.map(c => ({
   detail: c.repoName || c.basePath || '',
 })))
 function openSync(_id: string) { wm.open('sync') }
+
+// ── disk scope: click a disk → its ratio + proportional files share ──
+// Disks hold block ranges of the merged volume (no per-file owner), so the
+// scope shows the disk's used/capacity ratio and its share of the volume
+// with a clearly-labelled proportional file-size estimate.
+const diskScopeId = ref<string | null>(null)
+const diskScope = computed(() => store.disks.find(d => d.id === diskScopeId.value) ?? null)
+const diskTotalUsed = computed(() => store.disks.reduce((s, d) => s + (d.usedBytes || 0), 0))
+/** This disk's share of the merged volume (by used bytes, capacity fallback). */
+const diskShare = computed(() => {
+  const d = diskScope.value
+  if (!d) return 0
+  if (diskTotalUsed.value > 0) return Math.min(1, (d.usedBytes || 0) / diskTotalUsed.value)
+  const cap = store.disks.reduce((s, x) => s + (x.capacityBytes || 0), 0)
+  if (cap > 0) return Math.min(1, (d.capacityBytes || 0) / cap)
+  return 0
+})
+/** Proportional file-size estimate for the banner (never a placement claim). */
+const diskFileBytes = computed(() => Math.round(folderBytes.value * diskShare.value))
+function openDiskFiles(d: DiskRow) {
+  diskScopeId.value = d.id
+  store.selectFile(null)
+  colPreview.value = null
+  renderLimit.value = 240
+  inspectorOpen.value = true
+  inspTab.value = 'distro'
+  onTab('distro')
+}
+function clearDiskScope(silent = false) {
+  diskScopeId.value = null
+  if (!silent) renderLimit.value = 240
+}
+function manageDisk(d: DiskRow) {
+  wm.open('disks', { tab: 'disks', diskId: d.id, highlightId: d.id })
+}
+function diskMenu(e: MouseEvent, d: DiskRow) {
+  const attached = d.state === 'attached'
+  ctx.replaceEntries('fm_disk_row', [
+    { id: 'open', label: 'OPEN FILES SHARE', icon: 'solar:folder-open-bold', action: () => openDiskFiles(d) },
+    { id: 'manage', label: 'MANAGE DISK', icon: 'solar:ssd-square-bold', action: () => manageDisk(d) },
+    { id: 'div0', label: '', divider: true },
+    attached
+      ? { id: 'detach', label: 'DETACH DISK', icon: 'solar:minus-circle-bold', action: () => store.detachDisk(d.id) }
+      : { id: 'attach', label: 'ATTACH DISK', icon: 'solar:plug-circle-bold', action: () => store.attachDisk(d.id, '') },
+    { id: 'check', label: 'CHECK DISK', icon: 'solar:shield-check-bold', action: () => store.checkDisk(d.id) },
+    { id: 'div1', label: '', divider: true },
+    { id: 'copy', label: 'COPY DISK ID', icon: 'solar:copy-bold', action: () => copyText(d.id) },
+    ...(diskScopeId.value === d.id
+      ? [{ id: 'clear', label: 'CLEAR FILTER', icon: 'solar:close-bold', action: () => clearDiskScope() }]
+      : []),
+  ])
+  ctx.open(e, 'fm_disk_row')
+}
 
 // ── icons / labels ──
 function iconFor(f: FileNode): string {
@@ -1234,6 +1319,18 @@ onMounted(() => {
 .fm-chipbtn.on { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent); background: var(--ui-accent-softer); }
 .fm-bulk { display: flex; align-items: center; gap: 4px; padding: 5px 10px; background: color-mix(in srgb, var(--ui-accent) 10%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--ui-accent) 30%, transparent); }
+/* disk scope banner: per-disk ratio + volume share (block-level, estimate labelled) */
+.fm-diskscope { display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 10.5px;
+  background: color-mix(in srgb, var(--ui-accent) 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--ui-accent) 25%, transparent); color: var(--ui-text-2); }
+.fm-diskscope-t { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; max-width: 40%; }
+.fm-diskscope-t b { color: var(--ui-text); }
+.fm-diskscope-bar { width: 110px; height: 6px; border-radius: 99px; flex-shrink: 0;
+  background: color-mix(in srgb, var(--ui-text) 10%, transparent); overflow: hidden; }
+.fm-diskscope-bar i { display: block; height: 100%; border-radius: 99px; background: var(--ui-accent); }
+.fm-kv.as-row { width: 100%; cursor: pointer; background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 4px 6px; color: inherit; font: inherit; text-align: left; }
+.fm-kv.as-row:hover { background: color-mix(in srgb, var(--ui-text) 5%, transparent); }
+.fm-kv.as-row.active { border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent); background: var(--ui-accent-softer); }
 .fm-bulk-n { font-size: 10.5px; font-weight: 800; color: var(--ui-accent); margin-right: 6px; }
 .fm-bulk button { display: inline-flex; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--ui-hairline);
   background: var(--ui-glass); color: var(--ui-text-2); cursor: pointer; }

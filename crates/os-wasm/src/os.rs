@@ -303,6 +303,12 @@ fn complete_subs() -> &'static [&'static str] {
         "oauth start",
         "ui theme",
         "ui accent",
+        "ui density",
+        "ui glass",
+        "ui motion",
+        "ui glow",
+        "ui vars",
+        "ui palette",
         "ui get",
         "theme get",
     ]
@@ -708,7 +714,7 @@ fn dispatch(cmd: &str, args: &[String]) -> String {
             .join(" · "),
             [
                 "quota", "providers", "oauth", "disk", "sync status",
-                "sync list", "lease", "mount", "scrub", "repair", "gc",
+                "sync list", "sync move", "lease", "mount", "scrub", "repair", "gc",
                 "keygen", "encrypt", "decrypt", "compress", "decompress",
             ]
             .join(" · "),
@@ -1426,6 +1432,8 @@ fn theme_ids() -> &'static [&'static str] {
         "ember-night",
         "nebula-night",
         "cyber-night",
+        "matrix-night",
+        "cyberpunk-night",
     ]
 }
 
@@ -1446,6 +1454,8 @@ fn canonical_theme(id: &str) -> Option<&'static str> {
         "ember-night" => Some("ember-night"),
         "nebula-night" => Some("nebula-night"),
         "cyber-night" => Some("cyber-night"),
+        "matrix-night" => Some("matrix-night"),
+        "cyberpunk-night" => Some("cyberpunk-night"),
         "midnight" => Some("mac-midnight"),
         "nebula" => Some("mac-dark"),
         "ember" => Some("mac-dark"),
@@ -1460,10 +1470,54 @@ fn valid_accent(raw: &str) -> bool {
     (hex.len() == 3 || hex.len() == 6) && hex.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-fn load_theme() -> (String, Option<String>) {
+/// Full interface settings mirror (`/.cybermanju/theme.json`) — every `ui`
+/// verb reads/writes this shape on all transports, so the terminal
+/// customizes the whole interface, not just the palette.
+#[derive(Clone, Debug)]
+struct UiSettings {
+    theme: String,
+    accent: Option<String>,
+    accents: Vec<(String, String)>,
+    density: String,
+    glass: u8,
+    motion: String,
+    glow: bool,
+}
+
+impl UiSettings {
+    fn defaults() -> Self {
+        Self {
+            theme: "mac-light".to_string(),
+            accent: None,
+            accents: Vec::new(),
+            density: "comfortable".to_string(),
+            glass: 2,
+            motion: "auto".to_string(),
+            glow: true,
+        }
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        let mut accents = serde_json::Map::new();
+        for (k, v) in &self.accents {
+            accents.insert(k.clone(), serde_json::Value::String(v.clone()));
+        }
+        serde_json::json!({
+            "theme": self.theme,
+            "accent": self.accent,
+            "accents": accents,
+            "density": self.density,
+            "glass": self.glass,
+            "motion": self.motion,
+            "glow": self.glow,
+        })
+    }
+}
+
+fn load_ui() -> UiSettings {
     let data = load_volume().get(THEME_FILE).cloned().unwrap_or_default();
     if data.is_empty() {
-        return ("mac-light".to_string(), None);
+        return UiSettings::defaults();
     }
     let value: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::Value::Null);
     let theme = value
@@ -1477,47 +1531,101 @@ fn load_theme() -> (String, Option<String>) {
         .and_then(|v| v.as_str())
         .filter(|a| valid_accent(a))
         .map(str::to_string);
-    (theme, accent)
+    let mut accents = Vec::new();
+    if let Some(map) = value.get("accents").and_then(|v| v.as_object()) {
+        for (k, v) in map {
+            if let Some(hex) = v.as_str() {
+                if canonical_theme(k).is_some() && valid_accent(hex) {
+                    accents.push((k.clone(), hex.to_string()));
+                }
+            }
+        }
+    }
+    let density = value
+        .get("density")
+        .and_then(|v| v.as_str())
+        .filter(|d| *d == "compact" || *d == "comfortable")
+        .unwrap_or("comfortable")
+        .to_string();
+    let glass = value.get("glass").and_then(|v| v.as_u64()).unwrap_or(2).min(3) as u8;
+    let motion = value
+        .get("motion")
+        .and_then(|v| v.as_str())
+        .filter(|m| *m == "auto" || *m == "full" || *m == "reduced")
+        .unwrap_or("auto")
+        .to_string();
+    let glow = value.get("glow").and_then(|v| v.as_bool()).unwrap_or(true);
+    UiSettings {
+        theme,
+        accent,
+        accents,
+        density,
+        glass,
+        motion,
+        glow,
+    }
 }
 
-fn save_theme(theme: &str, accent: Option<&str>) {
+fn save_ui(s: &UiSettings) {
     let mut volume = load_volume();
-    volume.insert(
-        THEME_FILE.to_string(),
-        serde_json::json!({ "theme": theme, "accent": accent }).to_string(),
-    );
+    volume.insert(THEME_FILE.to_string(), s.to_json().to_string());
     save_volume(&volume);
 }
 
-fn theme_line(theme: &str, accent: Option<&str>) -> String {
-    match accent {
-        Some(a) => format!("theme: {theme} · accent: {a}"),
-        None => format!("theme: {theme} · accent: system"),
+/// Human summary + the machine `ui:` effect lines the Terminal panel
+/// applies via `useTheme()`, so the interface changes on all transports.
+fn ui_line(s: &UiSettings) -> String {
+    let accent = s.accent.as_deref().unwrap_or("system");
+    let mut out = format!(
+        "theme: {} · accent: {accent}\ndensity: {} · glass: {} · motion: {} · glow: {}",
+        s.theme,
+        s.density,
+        s.glass,
+        s.motion,
+        if s.glow { "on" } else { "off" }
+    );
+    if !s.accents.is_empty() {
+        let per: Vec<String> = s.accents.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        out.push_str(&format!("\naccents: {}", per.join(" ")));
+    }
+    out.push_str(&format!("\nui: theme={}", s.theme));
+    out.push_str(&format!("\nui: accent={accent}"));
+    out.push_str(&format!("\nui: density={}", s.density));
+    out.push_str(&format!("\nui: glass={}", s.glass));
+    out.push_str(&format!("\nui: motion={}", s.motion));
+    out.push_str(&format!("\nui: glow={}", if s.glow { "on" } else { "off" }));
+    for (k, v) in &s.accents {
+        out.push_str(&format!("\nui: accent-for={k}:{v}"));
+    }
+    out
+}
+
+fn parse_glass(raw: &str) -> Option<u8> {
+    match raw.to_lowercase().as_str() {
+        "0" | "solid" => Some(0),
+        "1" | "light" => Some(1),
+        "2" | "default" => Some(2),
+        "3" | "rich" => Some(3),
+        _ => None,
     }
 }
 
 fn theme_cmd(args: &[String]) -> String {
     let json = args.iter().any(|a| a == "--json");
     let want = args.iter().find(|a| !a.starts_with('-')).cloned();
-    let (theme, accent) = load_theme();
+    let s = load_ui();
     let id = match want {
         None => {
             if json {
-                return ok(serde_json::json!({ "theme": theme, "accent": accent }).to_string());
+                return ok(s.to_json().to_string());
             }
-            return ok(format!(
-                "{}\nui: theme={theme}",
-                theme_line(&theme, accent.as_deref())
-            ));
+            return ok(ui_line(&s));
         }
         Some(w) if w == "get" => {
             if json {
-                return ok(serde_json::json!({ "theme": theme, "accent": accent }).to_string());
+                return ok(s.to_json().to_string());
             }
-            return ok(format!(
-                "{}\nui: theme={theme}",
-                theme_line(&theme, accent.as_deref())
-            ));
+            return ok(ui_line(&s));
         }
         Some(w) => w,
     };
@@ -1530,30 +1638,26 @@ fn theme_cmd(args: &[String]) -> String {
             ))
         }
     };
-    save_theme(canonical, accent.as_deref());
+    let mut next = s.clone();
+    next.theme = canonical.to_string();
+    save_ui(&next);
     if json {
-        return ok(serde_json::json!({ "theme": canonical, "accent": accent }).to_string());
+        return ok(next.to_json().to_string());
     }
-    ok(format!(
-        "{}\nui: theme={canonical}",
-        theme_line(canonical, accent.as_deref())
-    ))
+    ok(ui_line(&next))
 }
 
 fn ui_cmd(args: &[String]) -> String {
     let json = args.iter().any(|a| a == "--json");
     let plain: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
     let sub = plain.first().map(|s| s.as_str()).unwrap_or("get");
-    let (theme, accent) = load_theme();
+    let s = load_ui();
     match sub {
         "get" => {
             if json {
-                return ok(serde_json::json!({ "theme": theme, "accent": accent }).to_string());
+                return ok(s.to_json().to_string());
             }
-            ok(format!(
-                "{}\nui: theme={theme}",
-                theme_line(&theme, accent.as_deref())
-            ))
+            ok(ui_line(&s))
         }
         "theme" => {
             let id = match plain.get(1) {
@@ -1574,19 +1678,45 @@ fn ui_cmd(args: &[String]) -> String {
                     ))
                 }
             };
-            save_theme(canonical, accent.as_deref());
+            let mut next = s.clone();
+            next.theme = canonical.to_string();
+            save_ui(&next);
             if json {
-                return ok(serde_json::json!({ "theme": canonical, "accent": accent }).to_string());
+                return ok(next.to_json().to_string());
             }
-            ok(format!(
-                "{}\nui: theme={canonical}",
-                theme_line(canonical, accent.as_deref())
-            ))
+            ok(ui_line(&next))
         }
         "accent" => {
             let raw = match plain.get(1) {
                 Some(r) => r,
-                None => return err("usage: ui accent <#rrggbb|#rgb|default>".to_string()),
+                None => {
+                    return err(
+                        "usage: ui accent <#rrggbb|#rgb|default> [--for <theme>]".to_string(),
+                    )
+                }
+            };
+            let for_theme: Option<&str> = match args
+                .iter()
+                .position(|a| a == "--for" || a == "-for")
+            {
+                Some(i) => match args.get(i + 1).filter(|t| !t.starts_with('-')) {
+                    Some(t) => {
+                        if canonical_theme(t).is_none() {
+                            return err(format!(
+                                "invalid: unknown theme '{t}' (try: {})",
+                                theme_ids().join(", ")
+                            ));
+                        }
+                        Some(t.as_str())
+                    }
+                    None => {
+                        return err(format!(
+                            "invalid: --for needs a theme (try: {})",
+                            theme_ids().join(", ")
+                        ))
+                    }
+                },
+                None => None,
             };
             let next: Option<String> = if raw.as_str() == "default"
                 || raw.as_str() == "system"
@@ -1606,18 +1736,122 @@ fn ui_cmd(args: &[String]) -> String {
                 }
                 Some(hex)
             };
-            save_theme(&theme, next.as_deref());
-            let shown = next.clone().unwrap_or_else(|| "system".to_string());
-            if json {
-                return ok(serde_json::json!({ "theme": theme, "accent": next }).to_string());
+            let mut updated = s.clone();
+            if let Some(t) = for_theme {
+                let canonical = canonical_theme(t).unwrap_or("mac-light");
+                updated.accents.retain(|(k, _)| k != canonical);
+                if let Some(hex) = next.clone() {
+                    updated.accents.push((canonical.to_string(), hex));
+                }
+                save_ui(&updated);
+                let shown = next.clone().unwrap_or_else(|| "system".to_string());
+                if json {
+                    return ok(updated.to_json().to_string());
+                }
+                return ok(format!(
+                    "accent: {canonical} → {shown}\nui: accent-for={canonical}:{shown}"
+                ));
             }
-            ok(format!(
-                "{}\nui: accent={shown}",
-                theme_line(&theme, next.as_deref())
-            ))
+            updated.accent = next;
+            save_ui(&updated);
+            if json {
+                return ok(updated.to_json().to_string());
+            }
+            ok(ui_line(&updated))
+        }
+        "density" => {
+            let want = plain.get(1).map(|v| v.as_str()).unwrap_or("get");
+            if want == "get" {
+                if json {
+                    return ok(serde_json::json!({ "density": s.density }).to_string());
+                }
+                return ok(format!("density: {}\nui: density={}", s.density, s.density));
+            }
+            if want != "compact" && want != "comfortable" {
+                return err(format!(
+                    "invalid: bad density '{want}' (use compact|comfortable)"
+                ));
+            }
+            let mut updated = s.clone();
+            updated.density = want.to_string();
+            save_ui(&updated);
+            if json {
+                return ok(serde_json::json!({ "density": want }).to_string());
+            }
+            ok(format!("density: {want}\nui: density={want}"))
+        }
+        "glass" => {
+            let want = plain.get(1).map(|v| v.as_str()).unwrap_or("get");
+            if want == "get" {
+                if json {
+                    return ok(serde_json::json!({ "glass": s.glass }).to_string());
+                }
+                return ok(format!("glass: {}\nui: glass={}", s.glass, s.glass));
+            }
+            let level = match parse_glass(want) {
+                Some(l) => l,
+                None => {
+                    return err(format!(
+                        "invalid: bad glass '{want}' (use 0|solid, 1|light, 2|default, 3|rich)"
+                    ))
+                }
+            };
+            let mut updated = s.clone();
+            updated.glass = level;
+            save_ui(&updated);
+            if json {
+                return ok(serde_json::json!({ "glass": level }).to_string());
+            }
+            ok(format!("glass: {level}\nui: glass={level}"))
+        }
+        "motion" => {
+            let want = plain.get(1).map(|v| v.as_str()).unwrap_or("get");
+            if want == "get" {
+                if json {
+                    return ok(serde_json::json!({ "motion": s.motion }).to_string());
+                }
+                return ok(format!("motion: {}\nui: motion={}", s.motion, s.motion));
+            }
+            if want != "auto" && want != "full" && want != "reduced" {
+                return err(format!(
+                    "invalid: bad motion '{want}' (use auto|full|reduced)"
+                ));
+            }
+            let mut updated = s.clone();
+            updated.motion = want.to_string();
+            save_ui(&updated);
+            if json {
+                return ok(serde_json::json!({ "motion": want }).to_string());
+            }
+            ok(format!("motion: {want}\nui: motion={want}"))
+        }
+        "glow" => {
+            let want = plain.get(1).map(|v| v.as_str()).unwrap_or("get");
+            if want == "get" {
+                let shown = if s.glow { "on" } else { "off" };
+                if json {
+                    return ok(serde_json::json!({ "glow": s.glow }).to_string());
+                }
+                return ok(format!("glow: {shown}\nui: glow={shown}"));
+            }
+            let on = match want.to_lowercase().as_str() {
+                "on" | "true" | "1" => true,
+                "off" | "false" | "0" => false,
+                _ => {
+                    return err(format!("invalid: bad glow '{want}' (use on|off)"));
+                }
+            };
+            let mut updated = s.clone();
+            updated.glow = on;
+            save_ui(&updated);
+            let shown = if on { "on" } else { "off" };
+            if json {
+                return ok(serde_json::json!({ "glow": on }).to_string());
+            }
+            ok(format!("glow: {shown}\nui: glow={shown}"))
         }
         other => err(format!(
-            "usage: ui theme <id>|accent <#hex|default>|get (got `{other}`)"
+            "usage: ui theme <id>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|1|light|2|default|3|rich>|motion <auto|full|reduced>|glow <on|off>|get (got `{other}`)"
         )),
     }
 }
@@ -4137,6 +4371,62 @@ mod tests {
         assert!(out.contains("ui: theme=mac-light"), "{out}");
         let out = dispatch("ui", &["accent".to_string(), "default".to_string()]);
         assert!(out.contains("ui: accent=system"), "{out}");
+    }
+
+    #[test]
+    fn ui_drives_the_whole_interface() {
+        let out = dispatch("ui", &["density".to_string(), "compact".to_string()]);
+        assert!(out.contains("ui: density=compact"), "{out}");
+        let out = dispatch("ui", &["density".to_string(), "bogus".to_string()]);
+        assert!(out.contains("invalid:"), "{out}");
+        let out = dispatch("ui", &["glass".to_string(), "rich".to_string()]);
+        assert!(out.contains("ui: glass=3"), "{out}");
+        let out = dispatch("ui", &["motion".to_string(), "reduced".to_string()]);
+        assert!(out.contains("ui: motion=reduced"), "{out}");
+        let out = dispatch("ui", &["glow".to_string(), "off".to_string()]);
+        assert!(out.contains("ui: glow=off"), "{out}");
+        let out = dispatch(
+            "ui",
+            &[
+                "accent".to_string(),
+                "#ff2d78".to_string(),
+                "--for".to_string(),
+                "cyberpunk-night".to_string(),
+            ],
+        );
+        assert!(
+            out.contains("ui: accent-for=cyberpunk-night:#ff2d78"),
+            "{out}"
+        );
+        let out = dispatch("ui", &["get".to_string(), "--json".to_string()]);
+        assert!(out.contains(r#""density":"compact""#), "{out}");
+        assert!(out.contains(r#""glass":3"#), "{out}");
+        assert!(out.contains(r#""motion":"reduced""#), "{out}");
+        assert!(out.contains(r#""glow":false"#), "{out}");
+        assert!(out.contains(r#""cyberpunk-night":"#ff2d78""#), "{out}");
+        // Restore defaults for other tests.
+        for args in [
+            vec!["density".to_string(), "comfortable".to_string()],
+            vec!["glass".to_string(), "2".to_string()],
+            vec!["motion".to_string(), "auto".to_string()],
+            vec!["glow".to_string(), "on".to_string()],
+        ] {
+            let out = dispatch("ui", &args);
+            assert!(out.contains(r#""ok":true"#), "{out}");
+        }
+        let out = dispatch(
+            "ui",
+            &[
+                "accent".to_string(),
+                "default".to_string(),
+                "--for".to_string(),
+                "cyberpunk-night".to_string(),
+            ],
+        );
+        assert!(
+            out.contains("ui: accent-for=cyberpunk-night:system"),
+            "{out}"
+        );
     }
 
     #[test]

@@ -2,156 +2,195 @@
   <div class="shield-panel">
     <div class="panel-header">
       <div class="header-left">
-        <span class="icon-shield"><AppIcon name="solar:shield-check-bold" /></span>
-        <h2 class="panel-title">Security</h2>
+        <span class="header-icon"><AppIcon name="solar:shield-check-bold" :size="16" /></span>
+        <div class="header-text">
+          <h2 class="panel-title">Security</h2>
+          <p class="panel-subtitle">Quantum-resistant encryption · cascade compression</p>
+        </div>
       </div>
-      <button class="close-btn" @click="$emit('close')" aria-label="Close"><AppIcon name="solar:close-bold" :size="13" /></button>
+      <UiButton size="sm" variant="ghost" icon="solar:close-bold" icon-only title="Close" aria-label="Close" @click="$emit('close')" />
     </div>
 
     <div class="sh-tabs" role="tablist" aria-label="Shield views">
-      <button role="tab" :aria-selected="activeTab === 'shield'" :class="{ on: activeTab === 'shield' }" type="button" @click="activeTab = 'shield'">Shield</button>
-      <button role="tab" :aria-selected="activeTab === 'compress'" :class="{ on: activeTab === 'compress' }" type="button" @click="activeTab = 'compress'">Compress</button>
+      <button role="tab" :aria-selected="activeTab === 'shield'" :class="{ on: activeTab === 'shield' }" type="button" @click="activeTab = 'shield'">
+        <AppIcon name="solar:shield-check-bold" :size="13" /> Shield
+      </button>
+      <button role="tab" :aria-selected="activeTab === 'compress'" :class="{ on: activeTab === 'compress' }" type="button" @click="activeTab = 'compress'">
+        <AppIcon name="solar:archive-bold" :size="13" /> Compress
+      </button>
     </div>
 
     <!-- ══ SHIELD (merged encryption panel) ══ -->
     <div v-if="activeTab === 'shield'" class="sh-shield">
-      <div class="status-card" :class="{ protected: encryptionStatus?.isEncrypted }">
+      <div class="status-hero" :class="{ 'is-protected': encryptionStatus?.isEncrypted }">
         <div class="status-top">
-          <span class="status-badge" :class="encryptionStatus?.isEncrypted ? 'badge-protected' : 'badge-unprotected'">
+          <UiBadge
+            :tone="encryptionStatus?.isEncrypted ? 'success' : 'warning'"
+            :icon="encryptionStatus?.isEncrypted ? 'solar:shield-check-bold' : 'solar:shield-warning-bold'"
+            pulse
+          >
             {{ encryptionStatus?.isEncrypted ? 'Protected' : 'Not protected' }}
-          </span>
+          </UiBadge>
+          <span v-if="encryptionStatus?.isEncrypted" class="status-algo">{{ encryptionStatus.algorithm || 'Unknown' }}</span>
         </div>
 
-        <div class="status-details" v-if="encryptionStatus?.isEncrypted">
-          <div class="algo-name">
-            <span>{{ encryptionStatus.algorithm || 'Unknown' }}</span>
-            <span class="nist-stars">
-              <span v-for="n in (encryptionStatus.nistLevel || 0)" :key="n" class="star filled">*</span>
-              <span v-for="n in 5 - (encryptionStatus.nistLevel || 0)" :key="'e' + n" class="star empty">o</span>
-            </span>
-          </div>
-          <div class="status-meta">
+        <div v-if="encryptionStatus?.isEncrypted" class="status-meta">
+          <div class="meta-row">
             <span class="meta-label">Key</span>
-            <span class="mono">{{ encryptionStatus.keyId || '--' }}</span>
+            <span class="mono meta-value">{{ encryptionStatus.keyId || '—' }}</span>
           </div>
-          <div class="status-meta" v-if="encryptionStatus.encryptedAt">
-            <span class="meta-label">Encrypted</span>
-            <span class="mono">{{ formatDate(encryptionStatus.encryptedAt) }}</span>
+          <div v-if="encryptionStatus.encryptedAt" class="meta-row">
+            <span class="meta-label">Sealed</span>
+            <span class="meta-value">{{ formatDate(encryptionStatus.encryptedAt) }}</span>
           </div>
         </div>
-        <div class="status-details" v-else>
-          <p class="unprotected-msg">No encryption active yet. Generate a key below to protect your files.</p>
-        </div>
+        <p v-else class="unprotected-msg">No encryption active yet. Generate a key below to protect your files.</p>
 
-        <div class="nist-viz">
-          <span class="nist-label">Strength</span>
-          <div class="nist-circles">
-            <div v-for="n in 5" :key="n" class="nist-circle" :class="{ filled: n <= (encryptionStatus?.nistLevel || 0) }">
-              <span class="circle-num">{{ n }}</span>
-            </div>
+        <div class="nist-meter" :title="`NIST strength level ${encryptionStatus?.nistLevel || 0} of 5`">
+          <span class="nist-label">NIST strength</span>
+          <div class="nist-segs" aria-hidden="true">
+            <span v-for="n in 5" :key="n" class="nist-seg" :class="{ filled: n <= (encryptionStatus?.nistLevel || 0) }" />
           </div>
+          <span class="nist-num mono">{{ encryptionStatus?.nistLevel || 0 }}/5</span>
         </div>
       </div>
 
-      <div class="web-note" :class="{ info: !webLocked }">{{ cryptoNote }}</div>
+      <p class="sh-note" :class="webLocked ? 'is-warn' : 'is-info'">
+        <AppIcon :name="webLocked ? 'solar:danger-circle-bold' : 'solar:info-circle-bold'" :size="13" />
+        <span>{{ cryptoNote }}</span>
+      </p>
 
-      <div class="section">
+      <section class="sh-section" aria-label="Generate a key">
         <h3 class="section-title"><AppIcon name="solar:key-bold" :size="13" /> New key</h3>
-        <div class="algo-buttons">
-          <button v-for="(info, algo) in ENCRYPTION_INFO" :key="algo" class="algo-btn" :disabled="webLocked" :title="webLocked ? 'Needs the desktop app or offline build' : 'Generate ' + info.name" @click="handleGenerate(algo as EncryptionAlgo)">
-            <div class="algo-top">
-              <span class="nist-badge">L{{ info.nistLevel }}</span>
+        <div class="algo-grid">
+          <div v-for="(info, algo) in ENCRYPTION_INFO" :key="algo" class="algo-card">
+            <div class="algo-card-top">
+              <span class="algo-card-name">{{ info.name }}</span>
+              <UiBadge tone="accent" size="sm">L{{ info.nistLevel }}</UiBadge>
             </div>
-            <span class="algo-name">{{ info.name }}</span>
-            <span class="algo-desc text-muted">{{ info.description }}</span>
-          </button>
+            <p class="algo-card-desc">{{ info.description }}</p>
+            <UiButton
+              size="sm"
+              variant="secondary"
+              icon="solar:key-bold"
+              block
+              :disabled="webLocked"
+              :title="webLocked ? 'Needs the desktop app or offline build' : `Generate ${info.name} keypair`"
+              @click="handleGenerate(algo as EncryptionAlgo)"
+            >Generate</UiButton>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div class="section" v-if="encryptionKeys.length > 0">
+      <section v-if="encryptionKeys.length > 0" class="sh-section" aria-label="Stored keys">
         <h3 class="section-title"><AppIcon name="solar:key-bold" :size="13" /> Keys ({{ encryptionKeys.length }})</h3>
         <div class="keys-list">
           <div v-for="key in encryptionKeys" :key="key.id" class="key-card">
             <div class="key-header">
               <span class="key-algo">{{ key.algorithmDisplay }}</span>
-              <span class="nist-badge small">L{{ key.nistLevel }}</span>
+              <UiBadge tone="neutral" size="sm">L{{ key.nistLevel }}</UiBadge>
             </div>
-            <div class="key-pub-preview mono">{{ key.publicKeyPreview.slice(0, 16) }}..</div>
-            <div class="key-date text-muted">{{ formatDate(key.createdAt) }}</div>
+            <div class="key-pub mono">{{ key.publicKeyPreview.slice(0, 24) }}…</div>
+            <div class="key-date">{{ formatDate(key.createdAt) }}</div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="section" v-if="selectedFile">
+      <section v-if="selectedFile" class="sh-section" aria-label="Encrypt selected file">
         <h3 class="section-title"><AppIcon name="solar:lock-bold" :size="13" /> Encrypt selected file</h3>
-        <p class="selected-file-name">{{ selectedFile.name }}</p>
-        <div class="encrypt-actions">
-          <select v-model="encAlgo" class="encrypt-select">
-            <option v-for="(info, algo) in ENCRYPTION_INFO" :key="algo" :value="algo">{{ info.name }} (L{{ info.nistLevel }})</option>
-          </select>
-          <button class="encrypt-btn" :disabled="webLocked" :title="webLocked ? 'Needs the desktop app or offline build' : 'Encrypt file'" @click="handleEncrypt"><AppIcon name="solar:lock-bold" :size="14" /></button>
+        <p class="file-chip"><AppIcon name="solar:file-bold" :size="12" /> {{ selectedFile.name }}</p>
+        <div class="action-row">
+          <label class="field">
+            <span class="field-label">Algorithm</span>
+            <select v-model="encAlgo" class="sh-select" aria-label="Encryption algorithm">
+              <option v-for="(info, algo) in ENCRYPTION_INFO" :key="algo" :value="algo">{{ info.name }} (L{{ info.nistLevel }})</option>
+            </select>
+          </label>
+          <UiButton
+            variant="primary"
+            icon="solar:lock-bold"
+            :disabled="webLocked"
+            :title="webLocked ? 'Needs the desktop app or offline build' : 'Encrypt file'"
+            @click="handleEncrypt"
+          >Encrypt</UiButton>
         </div>
-      </div>
+      </section>
     </div>
 
     <!-- ══ COMPRESS (merged compression panel) ══ -->
     <div v-else class="sh-compress">
-      <div class="section">
+      <section class="sh-section" aria-label="Compression algorithm">
         <h3 class="section-title"><AppIcon name="solar:archive-bold" :size="13" /> Algorithm</h3>
-        <div class="algo-list">
+        <div class="algo-grid">
           <button
             v-for="(info, type) in COMPRESSION_INFO"
             :key="type"
-            class="algo-btn"
+            type="button"
+            class="algo-pick"
             :class="{ selected: cmpAlgo === type }"
             :disabled="webLocked || !layerCapable(type as CompressionType)"
+            :aria-pressed="cmpAlgo === type"
             :title="webLocked || !layerCapable(type as CompressionType) ? 'Not available in this build' : `Compress with ${info.name}`"
             @click="cmpAlgo = type as CompressionType"
           >
-            <div class="algo-header">
-              <span class="algo-name">{{ info.name }}</span>
-              <span class="algo-speed">{{ info.speed }}</span>
-            </div>
-            <span class="algo-desc text-muted">{{ info.description }}</span>
+            <span class="algo-pick-check"><AppIcon name="solar:check-bold" :size="12" /></span>
+            <span class="algo-pick-name">{{ info.name }}</span>
+            <span class="algo-pick-speed">{{ info.speed }}</span>
+            <span class="algo-pick-desc">{{ info.description }}</span>
           </button>
         </div>
-      </div>
+      </section>
 
-      <div class="web-note" :class="{ info: !webLocked }">{{ compressNote }}</div>
+      <p class="sh-note" :class="webLocked ? 'is-warn' : 'is-info'">
+        <AppIcon :name="webLocked ? 'solar:danger-circle-bold' : 'solar:info-circle-bold'" :size="13" />
+        <span>{{ compressNote }}</span>
+      </p>
 
-      <div class="section" v-if="selectedFile">
+      <section v-if="selectedFile" class="sh-section" aria-label="Compress selected file">
         <h3 class="section-title"><AppIcon name="solar:file-bold" :size="13" /> Selected file</h3>
-        <p class="selected-file-name">{{ selectedFile.name }}</p>
-        <button class="compress-btn" :disabled="webLocked" :title="webLocked ? 'Needs the desktop app or offline build' : 'Compress file'" @click="handleCompress"><AppIcon name="solar:archive-bold" :size="14" /> Compress</button>
-      </div>
+        <p class="file-chip"><AppIcon name="solar:file-bold" :size="12" /> {{ selectedFile.name }}</p>
+        <UiButton
+          variant="primary"
+          icon="solar:archive-bold"
+          block
+          :disabled="webLocked"
+          :title="webLocked ? 'Needs the desktop app or offline build' : 'Compress file'"
+          @click="handleCompress"
+        >Compress with {{ algoName(cmpAlgo) }}</UiButton>
+      </section>
 
-      <div class="section" v-if="compressionStats">
+      <section v-if="compressionStats" class="sh-section" aria-label="Compression result">
         <h3 class="section-title"><AppIcon name="solar:chart-bold" :size="13" /> Result</h3>
         <div class="stats-card">
           <div class="stat-row">
-            <span class="stat-key text-muted">Original</span>
+            <span class="stat-key">Original</span>
             <span class="stat-value">{{ humanBytes(compressionStats.originalSize) }}</span>
           </div>
           <div class="stat-row">
-            <span class="stat-key text-muted">Compressed</span>
+            <span class="stat-key">Compressed</span>
             <span class="stat-value">{{ humanBytes(compressionStats.compressedSize) }}</span>
           </div>
           <div class="stat-row">
-            <span class="stat-key text-muted">Ratio</span>
+            <span class="stat-key">Ratio</span>
             <span class="stat-value">{{ (compressionStats.ratio * 100).toFixed(1) }}%</span>
           </div>
+          <div class="ratio-bar" aria-hidden="true">
+            <span class="ratio-fill" :style="{ width: `${Math.max(2, Math.min(100, compressionStats.ratio * 100))}%` }" />
+          </div>
           <div class="stat-row">
-            <span class="stat-key text-muted">Time</span>
+            <span class="stat-key">Time</span>
             <span class="stat-value">{{ compressionStats.durationMs }}ms</span>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
+import UiBadge from '@/components/ui/UiBadge.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import { ref, computed, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { humanBytes } from '@/utils/format'
@@ -173,22 +212,27 @@ watch(() => props.tab, (t) => { if (t === 'shield' || t === 'compress') activeTa
 const staticWasm = isStaticHost()
 const webLocked = computed(() => !staticWasm)
 const cryptoNote = computed(() =>
-  webLocked
-    ? 'ENCRYPTION OPS NEED THE TAURI DESKTOP APP OR THE OFFLINE BROWSER BUILD — THIS DASHBOARD BUILD SERVES NO CRYPTO ENDPOINT. STATUS + KEY LIST ABOVE ARE LIVE.'
-    : 'KEYS AND PER-FILE METADATA LIVE INSIDE .CYBERMANJU. BYTES ARE SEALED WITH CHACHA20-POLY1305 (HKDF-DERIVED FROM YOUR KEYPAIR); THE ML-KEM / FRODO / AES SLOTS USE THE NEAREST WASM CIPHER AND SAY SO.'
+  webLocked.value
+    ? 'Encryption needs the desktop app or the offline browser build — this dashboard build serves no crypto endpoint. Status and key list above are live.'
+    : 'Keys and per-file metadata live inside .cybermanju. Bytes are sealed with ChaCha20-Poly1305 (HKDF-derived from your keypair); the ML-KEM / Frodo / AES slots use the nearest WASM cipher and say so.',
 )
 
-// The wasm pack ships lz4 + brotli; zstd (and therefore triple) stays in the
-// desktop app. The dashboard build has no compression endpoint at all.
+// The wasm pack runs lz4 + brotli natively plus zstd/triple through the
+// bundled `@dweb-browser/zstd-wasm` module (same standard frames as the
+// desktop). The dashboard build has no compression endpoint at all.
 const compressNote = computed(() => {
-  if (webLocked) {
-    return 'COMPRESSION NEEDS THE TAURI DESKTOP APP OR THE OFFLINE BROWSER BUILD — THIS DASHBOARD BUILD SERVES NO COMPRESSION ENDPOINT.'
+  if (webLocked.value) {
+    return 'Compression needs the desktop app or the offline browser build — this dashboard build serves no compression endpoint.'
   }
-  return 'LZ4 + BROTLI RUN IN THE WASM PACK AND WRITE INTO .CYBERMANJU. ZSTD / TRIPLE NEED THE DESKTOP APP (THE WASM PACK HAS NO ZSTD).'
+  return 'LZ4 + ZSTD + Brotli + Triple (LZ4 → ZSTD → Brotli, the desktop .cyb3 order) all run in the offline browser build and write into .cybermanju.'
 })
 
 function layerCapable(type: CompressionType): boolean {
   return !staticWasm || compressionCapable(type)
+}
+
+function algoName(type: CompressionType): string {
+  return COMPRESSION_INFO[type]?.name ?? String(type)
 }
 
 const encryptionStatus = computed(() => store.encryptionStatus)
@@ -200,7 +244,7 @@ const encAlgo = ref<EncryptionAlgo>('kyber1024')
 const cmpAlgo = ref<CompressionType>(staticWasm ? 'lz4' : 'zstd')
 
 function formatDate(iso: string): string {
-  if (!iso) return '--'
+  if (!iso) return '—'
   const d = new Date(iso)
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
@@ -223,8 +267,10 @@ async function handleCompress() {
 <style scoped>
 .shield-panel {
   width: 100%;
-  height: 100%;
+  min-height: 100%;
   background: var(--ui-surface);
+  color: var(--ui-text);
+  font-family: var(--ui-font);
   overflow-y: auto;
   overscroll-behavior: contain;
   touch-action: pan-x pan-y;
@@ -232,143 +278,371 @@ async function handleCompress() {
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  font-family: var(--ui-font);
-  color: var(--ui-text);
+  gap: 14px;
 }
 .shield-panel::-webkit-scrollbar { width: 10px; }
 .shield-panel::-webkit-scrollbar-track { background: transparent; }
-.shield-panel::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
-  border-radius: var(--ui-radius-full); border: 3px solid transparent; background-clip: content-box; }
-.shield-panel::-webkit-scrollbar-thumb:hover { background: var(--ui-accent); background-clip: content-box; border: 2px solid transparent; }
+.shield-panel::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  border-radius: var(--ui-radius-full);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.shield-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--ui-accent);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
 
+/* ── header ── */
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--ui-border);
 }
-.header-left { display: flex; align-items: center; gap: 8px; }
-.icon-shield { font-size: 16px; }
-.panel-title { font-size: 13px; font-weight: 600; margin: 0; }
-.close-btn {
-  background: none; border: 1px solid var(--ui-border); color: var(--ui-text);
-  cursor: pointer; width: 24px; height: 24px; display: flex; align-items: center;
-  justify-content: center; font-size: 11px; font-weight: 700;
+.header-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.header-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent);
 }
-.close-btn:hover { background: var(--ui-glass-2); }
+.header-text { min-width: 0; }
+.panel-title { font-size: 13px; font-weight: 700; margin: 0; letter-spacing: var(--ui-tracking-wide); }
+.panel-subtitle {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--ui-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-.sh-tabs { display: flex; gap: 4px; }
+/* ── segmented tabs ── */
+.sh-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--ui-radius-full);
+  background: color-mix(in srgb, var(--ui-text) 6%, transparent);
+  border: 1px solid var(--ui-border);
+}
 .sh-tabs button {
-  flex: 1; padding: 6px 0; font-size: 12px; font-weight: 500;
-  background: transparent; border: 1px solid transparent; border-radius: 8px;
-  color: var(--ui-text-3); cursor: pointer;
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 0;
+  font-family: var(--ui-font);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ui-text-3);
+  background: transparent;
+  border: none;
+  border-radius: var(--ui-radius-full);
+  cursor: pointer;
+  transition:
+    background-color var(--ui-dur-fast) var(--ui-ease-out),
+    color var(--ui-dur-fast) var(--ui-ease-out),
+    box-shadow var(--ui-dur) var(--ui-ease-out);
 }
 .sh-tabs button.on {
   color: var(--ui-text);
-  background: color-mix(in srgb, var(--ui-text) 8%, transparent);
-  font-weight: 600;
+  background: var(--ui-surface-3);
+  box-shadow: var(--ui-shadow-1);
+}
+.sh-tabs button:focus-visible {
+  outline: none;
+  box-shadow: var(--ui-glow-soft);
 }
 
-.sh-shield, .sh-compress { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+.sh-shield, .sh-compress { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
 
-.web-note {
-  border: 1px dashed var(--ui-warning);
-  color: var(--ui-warning);
-  font-size: 9px;
-  line-height: 1.5;
-  padding: 8px 10px;
-  letter-spacing: 0.3px;
+/* ── status hero ── */
+.status-hero {
+  border-radius: var(--ui-radius-lg);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-glass);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  box-shadow: var(--ui-shadow-1), inset 0 1px 0 var(--ui-glass-highlight);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-.web-note.info {
-  border-color: color-mix(in srgb, var(--ui-accent) 60%, transparent);
-  color: var(--ui-accent);
+.status-hero.is-protected {
+  border-color: color-mix(in srgb, var(--ui-success) 45%, transparent);
+  box-shadow: var(--ui-shadow-2), 0 0 24px color-mix(in srgb, var(--ui-success) 14%, transparent);
+}
+.status-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.status-algo { font-size: 12px; font-weight: 700; }
+.status-meta { display: flex; flex-direction: column; gap: 4px; }
+.meta-row { display: flex; align-items: baseline; gap: 8px; font-size: 11px; }
+.meta-label {
+  min-width: 52px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--ui-tracking-wide);
+  text-transform: uppercase;
+  color: var(--ui-text-3);
+}
+.meta-value { min-width: 0; overflow-wrap: anywhere; }
+.unprotected-msg { font-size: 12px; line-height: 1.5; color: var(--ui-text-2); margin: 0; }
+
+/* ── NIST meter ── */
+.nist-meter { display: flex; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid var(--ui-hairline); }
+.nist-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--ui-tracking-wide);
+  text-transform: uppercase;
+  color: var(--ui-text-3);
+  white-space: nowrap;
+}
+.nist-segs { flex: 1; display: flex; gap: 4px; }
+.nist-seg {
+  flex: 1;
+  height: 6px;
+  border-radius: var(--ui-radius-full);
+  background: color-mix(in srgb, var(--ui-text) 10%, transparent);
+}
+.nist-seg.filled {
+  background: linear-gradient(90deg, var(--ui-accent), var(--ui-accent-strong));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ui-accent) 45%, transparent);
+}
+.nist-num { font-size: 10px; font-weight: 700; color: var(--ui-text-3); }
+
+/* ── inline notes ── */
+.sh-note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--ui-radius-md);
+  font-size: 11.5px;
+  line-height: 1.55;
+  border: 1px solid var(--ui-border);
+  background: color-mix(in srgb, var(--ui-text) 4%, transparent);
+  color: var(--ui-text-2);
+}
+.sh-note :deep(svg), .sh-note > :first-child { flex-shrink: 0; margin-top: 1px; }
+.sh-note.is-warn {
+  border-color: color-mix(in srgb, var(--ui-warning) 40%, transparent);
+  background: color-mix(in srgb, var(--ui-warning) 8%, transparent);
+  color: var(--ui-text-2);
+}
+.sh-note.is-info {
+  border-color: color-mix(in srgb, var(--ui-accent) 35%, transparent);
+  background: var(--ui-accent-softer);
 }
 
-.section { display: flex; flex-direction: column; gap: 10px; }
+/* ── sections ── */
+.sh-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .section-title {
-  font-size: 12px; font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: var(--ui-tracking-wide);
+  text-transform: uppercase;
+  color: var(--ui-text-2);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--ui-hairline);
+}
+
+/* ── keygen cards ── */
+.algo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.algo-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--ui-radius-md);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-glass);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  box-shadow: var(--ui-shadow-1);
+  transition: border-color var(--ui-dur-fast) var(--ui-ease-out), transform var(--ui-dur-fast) var(--ui-ease-out);
+}
+.algo-card:hover { border-color: var(--ui-border-hover); }
+.algo-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.algo-card-name { font-size: 12px; font-weight: 700; }
+.algo-card-desc { font-size: 11px; line-height: 1.45; color: var(--ui-text-3); margin: 0; flex: 1; }
+
+/* ── stored keys ── */
+.keys-list { display: flex; flex-direction: column; gap: 8px; }
+.key-card {
+  border-radius: var(--ui-radius-md);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-glass);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.key-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.key-algo { font-size: 12px; font-weight: 700; }
+.key-pub {
+  font-size: 10.5px;
+  color: var(--ui-text-3);
+  background: color-mix(in srgb, var(--ui-text) 6%, transparent);
+  border-radius: var(--ui-radius-sm);
+  padding: 4px 8px;
+  word-break: break-all;
+}
+.key-date { font-size: 10.5px; color: var(--ui-text-3); }
+
+/* ── file chip + action rows ── */
+.file-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--ui-radius-md);
+  border: 1px solid var(--ui-hairline);
+  background: color-mix(in srgb, var(--ui-text) 5%, transparent);
+  overflow-wrap: anywhere;
+}
+.action-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.field { flex: 1 1 160px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--ui-tracking-wide);
+  text-transform: uppercase;
+  color: var(--ui-text-3);
+}
+.sh-select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  min-height: var(--ui-control-h);
+  padding: 6px 28px 6px 10px;
+  font-family: var(--ui-font);
+  font-size: 12px;
   color: var(--ui-text);
-  margin: 0; display: flex; align-items: center; gap: 6px;
-  padding-bottom: 4px; border-bottom: 1px solid var(--ui-hairline);
+  background-color: var(--ui-surface-2);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--ui-text-3) 50%),
+    linear-gradient(135deg, var(--ui-text-3) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 55%, calc(100% - 9px) 55%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  cursor: pointer;
 }
+.sh-select:hover { border-color: var(--ui-border-hover); }
+.sh-select:focus-visible { outline: none; border-color: var(--ui-accent); box-shadow: var(--ui-glow-soft); }
 
-/* ── shield tab ── */
-.sh-shield .status-card { border: 1px solid var(--ui-border); padding: 12px; background: var(--ui-surface); }
-.sh-shield .status-card.protected { border-width: 3px; }
-.sh-shield .status-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.sh-shield .status-badge { font-size: 10px; font-weight: 800; letter-spacing: 1px; padding: 3px 8px; border: 1px solid var(--ui-border); }
-.sh-shield .badge-protected { background: var(--ui-glass-2); }
-.sh-shield .status-details { display: flex; flex-direction: column; gap: 4px; }
-.sh-shield .algo-name { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 12px; }
-.sh-shield .nist-stars { font-size: 11px; }
-.sh-shield .star.filled { color: var(--ui-text); }
-.sh-shield .star.empty { color: color-mix(in srgb, var(--ui-text) 35%, transparent); }
-.sh-shield .status-meta { font-size: 10px; display: flex; gap: 4px; color: color-mix(in srgb, var(--ui-text) 70%, transparent); }
-.sh-shield .meta-label { color: color-mix(in srgb, var(--ui-text) 50%, transparent); min-width: 50px; }
-.sh-shield .unprotected-msg { font-size: 11px; color: color-mix(in srgb, var(--ui-text) 70%, transparent); margin: 0; }
-.sh-shield .nist-viz { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--ui-hairline); display: flex; align-items: center; gap: 10px; }
-.sh-shield .nist-label { font-size: 9px; letter-spacing: 1px; color: color-mix(in srgb, var(--ui-text) 50%, transparent); white-space: nowrap; }
-.sh-shield .nist-circles { display: flex; gap: 4px; }
-.sh-shield .nist-circle { width: 24px; height: 24px; border: 1px solid var(--ui-hairline); background: var(--ui-surface); display: flex; align-items: center; justify-content: center; }
-.sh-shield .nist-circle.filled { border-color: var(--ui-border-strong); background: var(--ui-glass-2); }
-.sh-shield .circle-num { font-size: 10px; font-weight: 700; color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
-.sh-shield .nist-circle.filled .circle-num { color: var(--ui-text); }
-.sh-shield .algo-buttons { display: flex; flex-direction: column; gap: 6px; }
-.sh-shield .algo-btn {
-  background: var(--ui-surface); border: 1px solid var(--ui-border); padding: 8px 10px;
-  cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 3px;
-  color: var(--ui-text); font-family: var(--ui-font);
+/* ── compress picker cards ── */
+.algo-pick {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 12px 12px 34px;
+  text-align: left;
+  font-family: var(--ui-font);
+  color: var(--ui-text);
+  border-radius: var(--ui-radius-md);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-glass);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  box-shadow: var(--ui-shadow-1);
+  cursor: pointer;
+  transition:
+    border-color var(--ui-dur-fast) var(--ui-ease-out),
+    box-shadow var(--ui-dur) var(--ui-ease-out),
+    transform var(--ui-dur-fast) var(--ui-ease-out);
 }
-.sh-shield .algo-btn:hover { background: var(--ui-glass-2); }
-.sh-shield .algo-btn:hover .algo-desc { color: var(--ui-text) !important; }
-.sh-shield .algo-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-.sh-shield .algo-top { display: flex; align-items: center; gap: 6px; }
-.sh-shield .nist-badge { font-size: 9px; font-weight: 800; padding: 1px 4px; border: 1px solid var(--ui-border-strong); }
-.sh-shield .nist-badge.small { font-size: 8px; }
-.sh-shield .algo-name { font-size: 11px; font-weight: 700; }
-.sh-shield .algo-desc { font-size: 10px; line-height: 1.3; }
-.sh-shield .keys-list { display: flex; flex-direction: column; gap: 6px; }
-.sh-shield .key-card { border: 1px solid var(--ui-border); padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; background: var(--ui-surface); }
-.sh-shield .key-header { display: flex; align-items: center; gap: 6px; }
-.sh-shield .key-algo { font-size: 11px; font-weight: 700; }
-.sh-shield .key-pub-preview { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 50%, transparent); background: color-mix(in srgb, var(--ui-text) 6%, transparent); padding: 3px 6px; word-break: break-all; }
-.sh-shield .key-date { font-size: 10px; }
-.sh-shield .selected-file-name { font-size: 11px; background: color-mix(in srgb, var(--ui-text) 6%, transparent); padding: 4px 8px; border: 1px solid var(--ui-hairline); word-break: break-all; margin: 0; }
-.sh-shield .encrypt-actions { display: flex; gap: 6px; }
-.sh-shield .encrypt-select { flex: 1; background: var(--ui-surface); color: var(--ui-text); border: 1px solid var(--ui-border); padding: 6px 8px; font-size: 10px; cursor: pointer; }
-.sh-shield .encrypt-btn { background: var(--ui-glass-2); color: var(--ui-text); border: 1px solid var(--ui-border); padding: 6px 12px; font-size: 10px; font-weight: 800; cursor: pointer; }
-.sh-shield .encrypt-btn:hover { background: var(--ui-surface); }
-.sh-shield .encrypt-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.algo-pick:hover:not(:disabled) { border-color: var(--ui-border-hover); transform: translateY(-1px); }
+.algo-pick.selected {
+  border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent);
+  box-shadow: var(--ui-shadow-1), var(--ui-glow-soft);
+}
+.algo-pick:disabled { opacity: 0.45; cursor: not-allowed; }
+.algo-pick-check {
+  position: absolute;
+  left: 10px;
+  top: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--ui-radius-full);
+  border: 1px solid var(--ui-border-strong);
+  color: transparent;
+  transition:
+    background-color var(--ui-dur-fast) var(--ui-ease-out),
+    color var(--ui-dur-fast) var(--ui-ease-out),
+    border-color var(--ui-dur-fast) var(--ui-ease-out);
+}
+.algo-pick.selected .algo-pick-check {
+  background: var(--ui-accent);
+  border-color: var(--ui-accent);
+  color: var(--ui-on-accent);
+}
+.algo-pick-name { font-size: 12px; font-weight: 700; }
+.algo-pick-speed { font-size: 10px; font-weight: 600; color: var(--ui-accent); }
+.algo-pick-desc { font-size: 11px; line-height: 1.45; color: var(--ui-text-3); }
 
-/* ── compress tab ── */
-.sh-compress .algo-list { display: flex; flex-direction: column; gap: 6px; }
-.sh-compress .algo-btn {
-  background: var(--ui-surface); border: 1px solid var(--ui-border); padding: 8px 10px;
-  cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 3px;
-  color: var(--ui-text); font-family: var(--ui-font);
+/* ── result card ── */
+.stats-card {
+  border-radius: var(--ui-radius-md);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-glass);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  box-shadow: var(--ui-shadow-1);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.sh-compress .algo-btn:hover { background: var(--ui-glass-2); }
-.sh-compress .algo-btn.selected { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
-.sh-compress .algo-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-.sh-compress .algo-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.sh-compress .algo-name { font-size: 11px; font-weight: 700; }
-.sh-compress .algo-speed { font-size: 9px; color: color-mix(in srgb, var(--ui-text) 60%, transparent); }
-.sh-compress .algo-desc { font-size: 10px; line-height: 1.3; }
-.sh-compress .selected-file-name { font-size: 11px; background: color-mix(in srgb, var(--ui-text) 6%, transparent); padding: 4px 8px; border: 1px solid var(--ui-hairline); word-break: break-all; margin: 0; }
-.sh-compress .compress-btn {
-  background: var(--ui-glass-2); color: var(--ui-text); border: 1px solid var(--ui-border);
-  padding: 8px 12px; font-size: 10px; font-weight: 800; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 6px;
+.stat-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; }
+.stat-key { color: var(--ui-text-3); }
+.stat-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+.ratio-bar {
+  height: 8px;
+  border-radius: var(--ui-radius-full);
+  background: color-mix(in srgb, var(--ui-text) 10%, transparent);
+  overflow: hidden;
 }
-.sh-compress .compress-btn:hover:not(:disabled) { background: var(--ui-surface); }
-.sh-compress .compress-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-.sh-compress .stats-card { border: 1px solid var(--ui-border); padding: 10px; display: flex; flex-direction: column; gap: 4px; }
-.sh-compress .stat-row { display: flex; justify-content: space-between; font-size: 10px; }
-.sh-compress .stat-key { color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
-.sh-compress .stat-value { font-weight: 700; }
+.ratio-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--ui-radius-full);
+  background: linear-gradient(90deg, var(--ui-success), var(--ui-accent));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  transition: width var(--ui-dur-slow) var(--ui-ease-out);
+}
 
 .mono { font-family: var(--ui-font-mono); }
-.text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
+
+@media (max-width: 560px) {
+  .shield-panel { padding: 12px; }
+  .action-row .ui-btn { flex: 1; }
+}
 </style>

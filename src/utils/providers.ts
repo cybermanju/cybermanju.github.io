@@ -92,6 +92,8 @@ export function syncConfigDefaults(): Omit<
     parity: 1,
     requireEncryption: false,
     obfuscateNames: false,
+    mirror: false,
+    keyHolder: false,
   }
 }
 

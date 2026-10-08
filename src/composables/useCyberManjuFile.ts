@@ -254,6 +254,42 @@ export async function openCyberManjuFile(): Promise<boolean> {
   }
 }
 
+/**
+ * One-folder setup: create/open `vault.cybermanju` inside an already-picked
+ * directory handle (`showDirectoryPicker`). The `files/` sync root lives
+ * beside it and is never a sync source itself (see `vaultFolder.ts`).
+ */
+export async function createCyberManjuFileInDirectory(
+  dir: FileSystemDirectoryHandle,
+  filename = 'vault.cybermanju',
+  passphrase = '',
+): Promise<{ fileHandle: FileSystemFileHandle; dirName: string } | null> {
+  if (!dir || typeof dir.getFileHandle !== 'function') return null
+  try {
+    const handle = await dir.getFileHandle(filename, { create: true })
+    if (!handle) return null
+    disk.busy = true
+    // Existing file → open its bytes; fresh file → keep live DB, save into it.
+    let bytes: Uint8Array | null = null
+    try {
+      const f = await handle.getFile()
+      if (f.size > 0) bytes = new Uint8Array(await f.arrayBuffer())
+    } catch {
+      bytes = null
+    }
+    await attach(handle, handle.name, bytes, passphrase)
+    if (!bytes) await saveCyberManjuFile()
+    const dirName = (dir as FileSystemDirectoryHandle & { name?: string }).name ?? ''
+    return { fileHandle: handle, dirName }
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return null
+    fail(e)
+    return null
+  } finally {
+    disk.busy = false
+  }
+}
+
 export async function createCyberManjuFile(passphrase = ''): Promise<boolean> {
   if (!diskSupported()) {
     disk.supported = false

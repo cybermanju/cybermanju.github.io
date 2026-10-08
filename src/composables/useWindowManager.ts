@@ -1,4 +1,4 @@
-import { ref, computed, markRaw, defineAsyncComponent, type Component } from 'vue'
+import { ref, computed, markRaw, defineAsyncComponent, defineComponent, h, type Component } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 import type { PanelType } from '@/types'
 import { MODULE_METADATA } from '@/types'
@@ -24,24 +24,78 @@ import AccountManagerPanel from '@/components/AccountManagerPanel.vue'
 import TransferGraph from '@/components/TransferGraph.vue'
 import WindowContent from '@/components/WindowContent.vue'
 
+// Async panels render through AppWindow's error boundary, but a failed chunk
+// import (stale hashed asset after a Pages redeploy, offline, flaky net)
+// otherwise leaves an empty window with only a console error. The shared
+// loader/error pair below shows a retryable state instead — and retries a
+// chunk fetch once, since a single retry covers transient fetch failures
+// (a stale index.html still needs a hard refresh, which the error text says).
+const PanelLoading = defineComponent({
+  name: 'PanelLoading',
+  setup() {
+    return () => h('div', { class: 'panel-async-state' }, 'Loading…')
+  },
+})
+
+const PanelLoadError = defineComponent({
+  name: 'PanelLoadError',
+  props: { error: { type: null, required: false, default: null } },
+  setup(props) {
+    const message = (() => {
+      const e = props.error as unknown
+      const text = e instanceof Error ? e.message : String(e ?? '')
+      if (/dynamically imported module|Failed to fetch|Loading chunk/i.test(text)) {
+        return 'Panel chunk failed to load — the site likely redeployed since this tab opened. Hard-refresh (Ctrl+Shift+R) to fetch the current bundle, then reopen the window.'
+      }
+      return text || 'Panel failed to load.'
+    })()
+    return () =>
+      h('div', { class: 'panel-async-state is-error' }, [
+        h('p', { class: 'panel-async-title' }, 'Could not open this window'),
+        h('p', { class: 'panel-async-msg' }, message),
+        h(
+          'button',
+          {
+            class: 'panel-async-retry',
+            type: 'button',
+            onClick: () => window.location.reload(),
+          },
+          'Reload app',
+        ),
+      ])
+  },
+})
+
+function asyncPanel(loader: () => Promise<Component>) {
+  return defineAsyncComponent({
+    loader,
+    loadingComponent: PanelLoading,
+    errorComponent: PanelLoadError,
+    delay: 200,
+    timeout: 30000,
+    suspensible: false,
+    onError(error, retry, fail, attempts) {
+      // One automatic retry for chunk fetches; anything else (or a second
+      // failure, i.e. a stale hashed file that no longer exists) surfaces
+      // PanelLoadError instead of looping.
+      if (attempts <= 1) retry()
+      else fail()
+    },
+  })
+}
+
 // AGENT-8: the terminal is the heaviest new panel (a few thousand scrollback
 // lines), so it is the first panel in the shell to be code-split — it is
 // fetched the first time someone opens it, not on boot.
-const TerminalPanel = defineAsyncComponent(
-  () => import('@/components/TerminalPanel.vue')
-)
+const TerminalPanel = asyncPanel(() => import('@/components/TerminalPanel.vue'))
 
 // The agent panel is as heavy as the terminal (thread + approvals), so it
 // is code-split the same way — fetched on first open, not on boot.
-const AgentPanel = defineAsyncComponent(
-  () => import('@/components/AgentPanel.vue')
-)
+const AgentPanel = asyncPanel(() => import('@/components/AgentPanel.vue'))
 
 // The code studio (editor + AI sidecar) is as heavy as the terminal, so it
 // is code-split like the terminal — fetched on first open, not on boot.
-const CodeStudio = defineAsyncComponent(
-  () => import('@/components/CodeStudio.vue')
-)
+const CodeStudio = asyncPanel(() => import('@/components/CodeStudio.vue'))
 
 export interface WindowState {
   id: string
@@ -349,8 +403,13 @@ export function useWindowManager() {
   function updatePosition(id: string, x: number, y: number) {
     const win = windows.value.find(w => w.id === id)
     if (win) {
-      win.x = x
-      win.y = y
+      // The workspace sits BELOW TopMenuBar, so y < 0 slides the titlebar
+      // under (behind) the header where it can't be grabbed. Clamp the top
+      // (and left) edge here so every mover — mouse drag, resize, nudge,
+      // shortcuts — respects it. Only lower bounds: strip mode needs
+      // unbounded +x for its infinite columns.
+      win.x = Math.max(0, x)
+      win.y = Math.max(0, y)
     }
   }
 

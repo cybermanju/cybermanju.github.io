@@ -965,7 +965,8 @@ fn run_inline(ip: &mut Interp, cmdline: &str, lineno: usize, idx: usize) -> Resu
 }
 
 /// `ui:` effect lines the `ui`/`theme` verbs print become structured
-/// effects for the REST/TS layers (`ui: theme=mac-dark`, …).
+/// effects for the REST/TS layers (`ui: theme=mac-dark`,
+/// `ui: density=compact`, `ui: accent-for=cyber-night:#ff2d78`, …).
 fn harvest_effects(ip: &mut Interp, text: &str) {
     for raw in text.lines() {
         let line = raw.trim();
@@ -976,7 +977,14 @@ fn harvest_effects(ip: &mut Interp, text: &str) {
         if let Some((k, v)) = rest.split_once('=') {
             let k = k.trim().to_string();
             let v = v.trim().to_string();
-            if k == "theme" || k == "accent" {
+            if k == "theme"
+                || k == "accent"
+                || k == "density"
+                || k == "glass"
+                || k == "motion"
+                || k == "glow"
+                || k == "accent-for"
+            {
                 ip.effects.push(Effect {
                     kind: k,
                     detail: serde_json::Value::String(v),

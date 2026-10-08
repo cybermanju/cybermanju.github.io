@@ -233,7 +233,7 @@
         <div class="section-body">
           <p class="text-muted" style="font-size:10px;padding:8px 0;">WEB DASHBOARD ON PORT 3456</p>
           <div class="bw-card" style="padding:6px;margin-bottom:6px;">
-            <code style="font-size:10px;color:#000;">{{ dashboardUrl }}</code>
+            <code style="font-size:10px;color:var(--ui-text);overflow-wrap:anywhere;">{{ dashboardUrl }}</code>
           </div>
           <button class="bw-btn" style="width:100%;font-size:10px;" @click="wm.open('dashboard')"><AppIcon name="solar:square-arrow-right-up-bold" :size="12" /> DASHBOARD</button>
         </div>
@@ -809,7 +809,7 @@ function showTreeContextMenu(e: MouseEvent) {
 
 .vfs-error {
   font-size: 9px;
-  color: #b00020;
+  color: var(--ui-danger);
   padding: 4px 8px;
   word-break: break-word;
 }

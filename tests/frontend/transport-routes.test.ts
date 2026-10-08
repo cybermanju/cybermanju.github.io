@@ -85,6 +85,22 @@ describe('REST route coverage', () => {
       expect(REST_ROUTES[cmd]).toBeTruthy()
     }
   })
+
+  it('routes face detection to the server faces endpoints (heuristic everywhere)', () => {
+    const single = REST_ROUTES.detect_faces
+    expect(single.method).toBe('POST')
+    expect(single.buildPath({ fileId: 'f1' })).toBe('/api/faces/detect')
+    expect(single.transformRequest!({ fileId: 'f1' })).toEqual({ fileId: 'f1' })
+    const batch = REST_ROUTES.detect_faces_batch_cmd
+    expect(batch.method).toBe('POST')
+    expect(batch.buildPath({})).toBe('/api/faces/detect-batch')
+    expect(WRITE_ONLY_COMMANDS.has('detect_faces')).toBe(false)
+    expect(WRITE_ONLY_COMMANDS.has('detect_faces_batch_cmd')).toBe(false)
+    // Grouping admin ops stay desktop-only.
+    for (const cmd of ['recluster_faces', 'rename_face_group', 'merge_face_groups', 'delete_face_group', 'find_similar_faces']) {
+      expect(WRITE_ONLY_COMMANDS.has(cmd)).toBe(true)
+    }
+  })
 })
 
 describe('REST response transforms', () => {

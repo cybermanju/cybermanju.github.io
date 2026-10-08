@@ -804,8 +804,13 @@ const localKeys = ref<Record<string, string>>({})
 const providers = computed(() => (wasmMode.value ? localPresets.value : store.agentProviders))
 const configs = computed(() => (wasmMode.value ? localConfigs.value : store.agentConfigs))
 const sessions = computed(() => (wasmMode.value ? localSessions.value : store.agentSessions))
-const viewing = computed(() => (wasmMode.value ? localViewing.value : serverViewing.value))
+// NOTE: serverViewing must be declared before `viewing` — the auto-compaction
+// watcher below evaluates its getter eagerly during setup, and a forward
+// reference here (or to contextPct/jobActive) throws
+// `ReferenceError: Cannot access ... before initialization`, leaving the
+// whole Agent window empty.
 const serverViewing = ref<AgentSession | null>(null)
+const viewing = computed(() => (wasmMode.value ? localViewing.value : serverViewing.value))
 const activeJob = computed(() => (wasmMode.value ? localJob.value : store.activeAgentJob))
 
 const busy = ref(false)
@@ -1337,18 +1342,12 @@ watch(() => store.agentConfigs.map(c => c.id).join(','), () => {
 })
 
 // ─── auto-compaction (P3): meter ≥85 % with an idle thread compacts once
-// per session instead of failing the next turn with `context:` ───
+// per session instead of failing the next turn with `context:`.
+// NOTE: the watcher lives next to contextPct/jobActive below — `watch`
+// evaluates its getter eagerly during setup, so registering it here (before
+// those consts are initialized) threw TDZ `Cannot access ... before
+// initialization` and blanked the whole Agent window.
 const autoCompactedFor = ref('')
-watch(
-  () => [contextPct.value, jobActive.value, viewing.value?.id] as const,
-  ([pct, active, sessionId]) => {
-    if (pct < 85 || active || !sessionId || !viewing.value?.messages.length) return
-    if (autoCompactedFor.value === sessionId) return
-    autoCompactedFor.value = sessionId
-    store.notifySuccess('Context ≥85% — auto-compacting (old transcript kept)')
-    void compactThread()
-  },
-)
 
 /** Mode-aware viewer setter (server viewing lives in a ref, local in state). */
 function setViewing(s: AgentSession | null) {
@@ -1440,6 +1439,12 @@ function localSystemPrompt(config: AgentConfig): string {
     `Bounded and possibly stale — verify before acting.\n` +
     `- memory_remember {text}: store ONE durable fact for future sessions; one fact per call, ` +
     `never secrets or whole files.\n` +
+    `INTERFACE: the Terminal panel runs cybsh — the same shell as your bash tool. Its ` +
+    `\`theme\`/\`ui\` verbs customize the whole interface and persist to the volume mirror: ` +
+    `\`ui theme <id>\`, \`ui accent <#hex|default> [--for <theme>]\`, \`ui density|glass|motion|glow\`, ` +
+    `and inspect with \`ui get\`, \`ui vars [filter]\`, \`ui palette [theme]\`. When asked about ` +
+    `the interface or cybsh verbs, call self_research first (topics: themes, cybsh verbs) ` +
+    `and cite file:line — never invent verb names.\n` +
     `STANDING ORDERS: AGENTS.md, SKILL.md, .cybermanju/rules.md and persisted skills ` +
     `(.cybermanju/skills/*/SKILL.md) define your instructions, ` +
     `so writing one always asks for approval — AUTO APPROVE never covers them.\n` +
@@ -1857,6 +1862,20 @@ const contextPct = computed(() => {
   return Math.max(0, Math.min(100, Math.round((contextTokens.value / w) * 100)))
 })
 const ctxTone = computed(() => (contextPct.value >= 85 ? 'bad' : contextPct.value >= 60 ? 'warn' : 'ok'))
+
+// Auto-compaction watcher: registered HERE (after contextPct + jobActive are
+// initialized) because `watch` runs its getter once at registration —
+// registering earlier threw a TDZ ReferenceError and blanked the panel.
+watch(
+  () => [contextPct.value, jobActive.value, viewing.value?.id] as const,
+  ([pct, active, sessionId]) => {
+    if (pct < 85 || active || !sessionId || !viewing.value?.messages.length) return
+    if (autoCompactedFor.value === sessionId) return
+    autoCompactedFor.value = sessionId
+    store.notifySuccess('Context ≥85% — auto-compacting (old transcript kept)')
+    void compactThread()
+  },
+)
 const costUsd = computed(() => {
   const v = viewing.value
   return v ? estimateCost(v.model, v.usage) : null

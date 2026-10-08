@@ -16,6 +16,9 @@ cybermanju-search = { path = "../search" }
 cybermanju-sync = { path = "../sync" }
 cybermanju-disk = { path = "../disk" }
 cybermanju-os = { path = "../os" }
+cybermanju-faces = { path = "../faces", default-features = false }
+# Pure-Rust decoders only (jpeg/png) — no C, so musl + mobile stays link-safe.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 cybermanju-types = { path = "../types" }
 cybermanju-agent = { path = "../agent", features = ["native"] }
 jsonwebtoken = "9"

@@ -1,8 +1,11 @@
 /**
  * Single source of truth for the CyberManju OS design language.
  *
- * macOS-inspired system theme: quiet neutral surfaces, one restrained blue
- * accent, SF-first typography, subtle elevation. Components never hardcode
+ * Fifteen themes in three families — System neutrals, Pastel brights,
+ * Neon nights — and each theme is a FULL design language, not a palette
+ * swap: `design.shape` drives the whole corner-radius scale, `design.font`
+ * drives the OS typeface + label tracking, `design.elevation` drives the
+ * shadow/glow character and wallpaper ambience. Components never hardcode
  * colours — they reference the `--ui-*` variables published by
  * `useTheme()`, so switching a theme restyles the whole virtual OS at once.
  */
@@ -23,10 +26,32 @@ export type ThemeId =
   | 'ember-night'
   | 'nebula-night'
   | 'cyber-night'
+  | 'matrix-night'
+  | 'cyberpunk-night'
 export type Density = 'compact' | 'comfortable'
 export type MotionPref = 'auto' | 'full' | 'reduced'
 /** 0 = solid (no blur) · 1 = light vibrancy · 2 = default vibrancy · 3 = rich vibrancy */
 export type GlassLevel = 0 | 1 | 2 | 3
+/**
+ * Shape language — the corner-radius scale of the whole OS. `soft` is the
+ * macOS look (small, consistent), `round` is friendly/pill-forward,
+ * `sharp` is the terminal/brutalist look (near-square).
+ */
+export type ThemeShape = 'soft' | 'round' | 'sharp'
+/** Typographic personality of the whole OS chrome. */
+export type ThemeFont = 'system' | 'rounded' | 'mono'
+/**
+ * Elevation character — how windows lift off the wallpaper. `soft` is the
+ * neutral macOS drop shadow, `flat` is near-shadowless (graphite/minimal),
+ * `neon` tints the ambient shadow + focus rings with the accent colour.
+ */
+export type ThemeElevation = 'soft' | 'flat' | 'neon'
+
+export interface ThemeDesign {
+  shape: ThemeShape
+  font: ThemeFont
+  elevation: ThemeElevation
+}
 
 export interface ThemePalette {
   /** App background behind everything. */
@@ -65,14 +90,24 @@ export interface ThemePalette {
 export interface ThemeDefinition {
   id: ThemeId
   label: string
+  /** One-line personality shown in the Settings picker tooltip. */
+  blurb: string
   mode: 'dark' | 'light'
   palette: ThemePalette
+  design: ThemeDesign
 }
 
 export interface ThemeSettings {
   theme: ThemeId
   /** Accent override — any hex colour, defaults to the theme accent. */
   accent: string | null
+  /**
+   * Per-theme accent overrides (`{ [themeId]: '#hex' }`) — set from cybsh
+   * via `ui accent <#hex> --for <theme>`. The general `accent` above wins
+   * when set; otherwise the active theme's entry wins; otherwise the
+   * theme's built-in accent.
+   */
+  accents: Record<string, string>
   density: Density
   glass: GlassLevel
   motion: MotionPref
@@ -91,11 +126,11 @@ export const LEGACY_THEME_ALIASES: Record<string, ThemeId> = {
   ghostline: 'mac-dark',
 }
 
-/** Picker grouping — system neutrals first, then the colorful families. */
+/** Picker grouping — system neutrals first, then the pastel brights, then the neon nights. */
 export const THEME_GROUPS: { id: string; label: string; ids: ThemeId[] }[] = [
   { id: 'system', label: 'System', ids: ['mac-light', 'mac-dark', 'mac-graphite-light', 'mac-graphite-dark', 'mac-midnight'] },
-  { id: 'color-light', label: 'Color · Light', ids: ['ocean-light', 'sunset-light', 'forest-light', 'lavender-light', 'rose-light'] },
-  { id: 'color-night', label: 'Color · Night', ids: ['ocean-night', 'forest-night', 'ember-night', 'nebula-night', 'cyber-night'] },
+  { id: 'pastel-light', label: 'Pastel · Light', ids: ['ocean-light', 'sunset-light', 'forest-light', 'lavender-light', 'rose-light'] },
+  { id: 'neon-night', label: 'Neon · Night', ids: ['ocean-night', 'forest-night', 'ember-night', 'nebula-night', 'cyber-night', 'matrix-night', 'cyberpunk-night'] },
 ]
 
 export const THEME_IDS: ThemeId[] = [
@@ -114,13 +149,45 @@ export const THEME_IDS: ThemeId[] = [
   'ember-night',
   'nebula-night',
   'cyber-night',
+  'matrix-night',
+  'cyberpunk-night',
 ]
+
+/**
+ * Corner-radius scales per shape language. Every component reads the
+ * `--ui-radius-*` variables, so switching shape restyles all windows,
+ * cards, buttons, inputs and badges at once.
+ */
+export const SHAPE_RADII: Record<ThemeShape, { xs: string; sm: string; md: string; lg: string; xl: string; x2: string; full: string }> = {
+  soft: { xs: '4px', sm: '6px', md: '8px', lg: '10px', xl: '14px', x2: '20px', full: '999px' },
+  round: { xs: '6px', sm: '10px', md: '14px', lg: '18px', xl: '24px', x2: '30px', full: '999px' },
+  sharp: { xs: '1px', sm: '2px', md: '3px', lg: '4px', xl: '6px', x2: '8px', full: '4px' },
+}
+
+/** UI typeface stacks per typographic personality (system fonts only — no webfont dependency). */
+export const FONT_STACKS: Record<ThemeFont, string> = {
+  system:
+    "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+  rounded:
+    "'ui-rounded', 'SF Pro Rounded', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+  mono:
+    "'SF Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace",
+}
+
+/** Label/title letter-spacing per personality — mono chrome tracks wide. */
+export const FONT_TRACKING_WIDE: Record<ThemeFont, string> = {
+  system: '0.02em',
+  rounded: '0.03em',
+  mono: '0.09em',
+}
 
 export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'mac-light': {
     id: 'mac-light',
     label: 'Light',
+    blurb: 'macOS light · soft shapes · quiet depth',
     mode: 'light',
+    design: { shape: 'soft', font: 'system', elevation: 'soft' },
     palette: {
       bg: '#e9ebef',
       bgDeep: '#dfe3e9',
@@ -149,7 +216,9 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'mac-dark': {
     id: 'mac-dark',
     label: 'Dark',
+    blurb: 'macOS dark · soft shapes · quiet depth',
     mode: 'dark',
+    design: { shape: 'soft', font: 'system', elevation: 'soft' },
     palette: {
       bg: '#1e1e21',
       bgDeep: '#17171a',
@@ -178,7 +247,9 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'mac-graphite-light': {
     id: 'mac-graphite-light',
     label: 'Graphite Light',
+    blurb: 'Monochrome light · flat, shadowless chrome',
     mode: 'light',
+    design: { shape: 'soft', font: 'system', elevation: 'flat' },
     palette: {
       bg: '#e8e8ea',
       bgDeep: '#dcdce0',
@@ -207,7 +278,9 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'mac-graphite-dark': {
     id: 'mac-graphite-dark',
     label: 'Graphite Dark',
+    blurb: 'Monochrome dark · flat, shadowless chrome',
     mode: 'dark',
+    design: { shape: 'soft', font: 'system', elevation: 'flat' },
     palette: {
       bg: '#1d1d1f',
       bgDeep: '#161617',
@@ -236,7 +309,9 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'mac-midnight': {
     id: 'mac-midnight',
     label: 'Midnight',
+    blurb: 'True-black OLED · round shapes · deep float',
     mode: 'dark',
+    design: { shape: 'round', font: 'system', elevation: 'soft' },
     palette: {
       bg: '#000000',
       bgDeep: '#0a0a0c',
@@ -265,7 +340,9 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'ocean-light': {
     id: 'ocean-light',
     label: 'Ocean Light',
+    blurb: 'Pastel blue · round shapes · rounded type',
     mode: 'light',
+    design: { shape: 'round', font: 'rounded', elevation: 'soft' },
     palette: {
       bg: '#d7e9f7',
       bgDeep: '#bcd8f0',
@@ -294,7 +371,9 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'sunset-light': {
     id: 'sunset-light',
     label: 'Sunset Light',
+    blurb: 'Pastel ember · round shapes · rounded type',
     mode: 'light',
+    design: { shape: 'round', font: 'rounded', elevation: 'soft' },
     palette: {
       bg: '#fde3cf',
       bgDeep: '#f7cba6',
@@ -323,7 +402,9 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'forest-light': {
     id: 'forest-light',
     label: 'Forest Light',
+    blurb: 'Pastel green · round shapes · rounded type',
     mode: 'light',
+    design: { shape: 'round', font: 'rounded', elevation: 'soft' },
     palette: {
       bg: '#d3eddb',
       bgDeep: '#b3dfc0',
@@ -352,7 +433,9 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'lavender-light': {
     id: 'lavender-light',
     label: 'Lavender Light',
+    blurb: 'Pastel violet · round shapes · rounded type',
     mode: 'light',
+    design: { shape: 'round', font: 'rounded', elevation: 'soft' },
     palette: {
       bg: '#e1dcfa',
       bgDeep: '#c9c1f2',
@@ -381,7 +464,9 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'rose-light': {
     id: 'rose-light',
     label: 'Rose Light',
+    blurb: 'Pastel rose · round shapes · rounded type',
     mode: 'light',
+    design: { shape: 'round', font: 'rounded', elevation: 'soft' },
     palette: {
       bg: '#fad8e0',
       bgDeep: '#f2b7c5',
@@ -410,7 +495,9 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'ocean-night': {
     id: 'ocean-night',
     label: 'Ocean Night',
+    blurb: 'Abyssal blue · neon glow · deep float',
     mode: 'dark',
+    design: { shape: 'round', font: 'system', elevation: 'neon' },
     palette: {
       bg: '#081a30',
       bgDeep: '#040e1c',
@@ -439,7 +526,9 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'forest-night': {
     id: 'forest-night',
     label: 'Forest Night',
+    blurb: 'Phosphor green · neon glow · soft shapes',
     mode: 'dark',
+    design: { shape: 'soft', font: 'system', elevation: 'neon' },
     palette: {
       bg: '#07231a',
       bgDeep: '#04120d',
@@ -468,7 +557,9 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'ember-night': {
     id: 'ember-night',
     label: 'Ember Night',
+    blurb: 'Furnace orange · neon glow · round shapes',
     mode: 'dark',
+    design: { shape: 'round', font: 'system', elevation: 'neon' },
     palette: {
       bg: '#28100a',
       bgDeep: '#150803',
@@ -497,7 +588,9 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'nebula-night': {
     id: 'nebula-night',
     label: 'Nebula Night',
+    blurb: 'Ultraviolet · neon glow · round shapes',
     mode: 'dark',
+    design: { shape: 'round', font: 'system', elevation: 'neon' },
     palette: {
       bg: '#160d2e',
       bgDeep: '#0d0719',
@@ -526,7 +619,9 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   'cyber-night': {
     id: 'cyber-night',
     label: 'Cyber Night',
+    blurb: 'Terminal deck · sharp chrome · mono type · neon',
     mode: 'dark',
+    design: { shape: 'sharp', font: 'mono', elevation: 'neon' },
     palette: {
       bg: '#12041f',
       bgDeep: '#08020f',
@@ -552,6 +647,68 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
       glassBase: '58, 18, 84',
     },
   },
+  'matrix-night': {
+    id: 'matrix-night',
+    label: 'Matrix',
+    blurb: 'Phosphor terminal · sharp chrome · mono · neon',
+    mode: 'dark',
+    design: { shape: 'sharp', font: 'mono', elevation: 'neon' },
+    palette: {
+      bg: '#04140a',
+      bgDeep: '#020b05',
+      surface: 'rgba(10, 46, 26, 0.72)',
+      surface2: 'rgba(14, 60, 34, 0.80)',
+      surface3: 'rgba(20, 78, 44, 0.88)',
+      window: 'rgba(4, 18, 10, 0.80)',
+      windowIdle: 'rgba(4, 18, 10, 0.68)',
+      border: 'rgba(0, 255, 128, 0.16)',
+      borderStrong: 'rgba(0, 255, 128, 0.28)',
+      borderHover: 'rgba(0, 255, 128, 0.44)',
+      hairline: 'rgba(0, 255, 128, 0.10)',
+      text: '#d8ffe6',
+      text2: '#93cfa8',
+      text3: '#5d9070',
+      textFaint: '#33573f',
+      accent: '#00ff80',
+      onAccent: '#02120a',
+      success: '#00ff80',
+      warning: '#ffd60a',
+      danger: '#ff5d5d',
+      info: '#4ade80',
+      glassBase: '10, 46, 26',
+    },
+  },
+  'cyberpunk-night': {
+    id: 'cyberpunk-night',
+    label: 'Cyberpunk',
+    blurb: 'AMOLED black · purple-red neon glass · high contrast',
+    mode: 'dark',
+    design: { shape: 'sharp', font: 'mono', elevation: 'neon' },
+    palette: {
+      bg: '#000000',
+      bgDeep: '#0d0209',
+      surface: 'rgba(52, 8, 60, 0.66)',
+      surface2: 'rgba(66, 10, 76, 0.74)',
+      surface3: 'rgba(84, 14, 96, 0.82)',
+      window: 'rgba(0, 0, 0, 0.82)',
+      windowIdle: 'rgba(0, 0, 0, 0.72)',
+      border: 'rgba(255, 45, 120, 0.26)',
+      borderStrong: 'rgba(255, 45, 120, 0.40)',
+      borderHover: 'rgba(191, 90, 242, 0.60)',
+      hairline: 'rgba(255, 45, 120, 0.14)',
+      text: '#ffffff',
+      text2: '#f3dcff',
+      text3: '#c49ad9',
+      textFaint: '#7d5c8c',
+      accent: '#ff2d78',
+      onAccent: '#1c020c',
+      success: '#00ffa3',
+      warning: '#ffd60a',
+      danger: '#ff3b30',
+      info: '#bf5af2',
+      glassBase: '52, 8, 60',
+    },
+  },
 }
 
 export const ACCENT_CHOICES: { id: string; label: string; value: string }[] = [
@@ -575,6 +732,7 @@ export const DENSITY_SCALE: Record<Density, { unit: number; control: number; fs:
 export const DEFAULT_SETTINGS: ThemeSettings = {
   theme: 'mac-light',
   accent: null,
+  accents: {},
   density: 'comfortable',
   glass: 2,
   motion: 'auto',
@@ -616,7 +774,14 @@ export function mix(hex: string, target: string, amount: number): string {
 export function buildCssVars(s: ThemeSettings): Record<string, string> {
   const theme = THEMES[s.theme] ?? THEMES['mac-light']
   const p = theme.palette
-  const accent = s.accent && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(s.accent) ? s.accent : p.accent
+  const hexOk = (v: unknown): v is string =>
+    typeof v === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)
+  // General accent wins, then the active theme's per-theme entry, then the
+  // theme's built-in accent — so cybsh can recolor one theme or everything.
+  const generalAccent = hexOk(s.accent) ? s.accent : null
+  const themeAccent = hexOk(s.accents?.[s.theme]) ? (s.accents[s.theme] as string) : null
+  const accent = generalAccent ?? themeAccent ?? p.accent
+  const customAccent = generalAccent ?? themeAccent
   const [ar, ag, ab] = hexToRgb(accent)
   const accentRgb = `${ar}, ${ag}, ${ab}`
   const density = DENSITY_SCALE[s.density]
@@ -637,6 +802,39 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
   }
 
   const shadowColor = theme.mode === 'light' ? '0, 0, 0' : '0, 0, 0'
+  const radii = SHAPE_RADII[theme.design.shape]
+
+  // Elevation character: flat themes barely lift, neon themes bleed accent
+  // light into the ambient shadow + focus rings, soft themes stay neutral.
+  const elevation = theme.design.elevation
+  const shadow = {
+    soft: {
+      s1: `0 1px 2px rgba(${shadowColor}, 0.08), 0 2px 6px rgba(${shadowColor}, 0.06)`,
+      s2: `0 4px 12px rgba(${shadowColor}, 0.10), 0 1px 3px rgba(${shadowColor}, 0.08)`,
+      s3: `0 12px 32px rgba(${shadowColor}, 0.16), 0 4px 12px rgba(${shadowColor}, 0.10)`,
+      glow: `0 0 0 3px rgba(${accentRgb}, 0.25)`,
+      glowSoft: `0 0 0 3px rgba(${accentRgb}, 0.12)`,
+    },
+    flat: {
+      s1: `0 1px 2px rgba(${shadowColor}, 0.06)`,
+      s2: `0 2px 6px rgba(${shadowColor}, 0.07)`,
+      s3: `0 6px 16px rgba(${shadowColor}, 0.10)`,
+      glow: `0 0 0 3px rgba(${accentRgb}, 0.25)`,
+      glowSoft: `0 0 0 3px rgba(${accentRgb}, 0.12)`,
+    },
+    neon: {
+      s1: `0 1px 2px rgba(${shadowColor}, 0.10), 0 2px 14px rgba(${accentRgb}, 0.14)`,
+      s2: `0 4px 12px rgba(${shadowColor}, 0.14), 0 2px 26px rgba(${accentRgb}, 0.18)`,
+      s3: `0 12px 32px rgba(${shadowColor}, 0.20), 0 0 36px rgba(${accentRgb}, 0.24)`,
+      glow: `0 0 0 3px rgba(${accentRgb}, 0.38), 0 0 18px rgba(${accentRgb}, 0.25)`,
+      glowSoft: `0 0 0 3px rgba(${accentRgb}, 0.22), 0 0 12px rgba(${accentRgb}, 0.14)`,
+    },
+  }[elevation]
+
+  // Wallpaper ambience follows the theme: neon nights tint the aurora with
+  // accent light, flat themes stay pure, soft themes get a whisper of tint.
+  const auroraAlpha: [number, number] =
+    elevation === 'neon' ? [0.20, 0.12] : elevation === 'flat' ? [0, 0] : [0.07, 0.05]
 
   return {
     // surfaces
@@ -672,7 +870,7 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-accent-soft': `rgba(${accentRgb}, 0.12)`,
     '--ui-accent-softer': `rgba(${accentRgb}, 0.08)`,
     '--ui-accent-strong': mix(accent, theme.mode === 'light' ? '#ffffff' : '#000000', 0.12),
-    '--ui-on-accent': s.accent ? onAccentLuma : p.onAccent,
+    '--ui-on-accent': customAccent ? onAccentLuma : p.onAccent,
     '--ui-success': p.success,
     '--ui-success-rgb': hexToRgb(p.success).join(', '),
     '--ui-warning': p.warning,
@@ -681,23 +879,25 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-danger-rgb': hexToRgb(p.danger).join(', '),
     '--ui-info': p.info,
     '--ui-info-rgb': hexToRgb(p.info).join(', '),
-    // radius (macOS: small, consistent, never pill-everything)
-    '--ui-radius-xs': '4px',
-    '--ui-radius-sm': '6px',
-    '--ui-radius-md': '8px',
-    '--ui-radius-lg': '10px',
-    '--ui-radius-xl': '14px',
-    '--ui-radius-2xl': '20px',
-    '--ui-radius-full': '999px',
-    // elevation (soft, neutral — no coloured glows)
-    '--ui-shadow-1': `0 1px 2px rgba(${shadowColor}, 0.08), 0 2px 6px rgba(${shadowColor}, 0.06)`,
-    '--ui-shadow-2': `0 4px 12px rgba(${shadowColor}, 0.10), 0 1px 3px rgba(${shadowColor}, 0.08)`,
-    '--ui-shadow-3': `0 12px 32px rgba(${shadowColor}, 0.16), 0 4px 12px rgba(${shadowColor}, 0.10)`,
-    '--ui-glow': `0 0 0 3px rgba(${accentRgb}, 0.25)`,
-    '--ui-glow-soft': `0 0 0 3px rgba(${accentRgb}, 0.12)`,
-    // typography (SF first, system fallbacks)
-    '--ui-font':
-      "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+    // radius (shape language per theme — soft macOS, round pastel, sharp terminal)
+    '--ui-radius-xs': radii.xs,
+    '--ui-radius-sm': radii.sm,
+    '--ui-radius-md': radii.md,
+    '--ui-radius-lg': radii.lg,
+    '--ui-radius-xl': radii.xl,
+    '--ui-radius-2xl': radii.x2,
+    '--ui-radius-full': radii.full,
+    // elevation (shadow + glow character per theme)
+    '--ui-shadow-1': shadow.s1,
+    '--ui-shadow-2': shadow.s2,
+    '--ui-shadow-3': shadow.s3,
+    '--ui-glow': shadow.glow,
+    '--ui-glow-soft': shadow.glowSoft,
+    // wallpaper ambience (accent-tinted aurora washes)
+    '--ui-aurora-a': `rgba(${accentRgb}, ${auroraAlpha[0]})`,
+    '--ui-aurora-b': `rgba(${accentRgb}, ${auroraAlpha[1]})`,
+    // typography (typeface personality per theme + density-scaled sizes)
+    '--ui-font': FONT_STACKS[theme.design.font],
     '--ui-font-mono':
       "'SF Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace",
     '--ui-fs-xs': `${(11 * density.fs).toFixed(1)}px`,
@@ -707,8 +907,8 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-fs-xl': `${(17 * density.fs).toFixed(1)}px`,
     '--ui-fs-2xl': `${(21 * density.fs).toFixed(1)}px`,
     '--ui-fs-3xl': `${(28 * density.fs).toFixed(1)}px`,
-    '--ui-tracking': '0',
-    '--ui-tracking-wide': '0.02em',
+    '--ui-tracking': theme.design.font === 'mono' ? '0.02em' : '0',
+    '--ui-tracking-wide': FONT_TRACKING_WIDE[theme.design.font],
     // spacing / sizing
     '--ui-unit': `${density.unit}`,
     '--ui-space': `${(8 * density.unit).toFixed(2)}px`,
@@ -739,13 +939,13 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--danger': p.danger,
     '--warning': p.warning,
     '--success': p.success,
-    '--radius-sm': '6px',
-    '--radius-md': '8px',
-    '--radius-lg': '10px',
-    '--radius-xl': '14px',
-    '--shadow-window': `0 12px 32px rgba(${shadowColor}, 0.16), 0 4px 12px rgba(${shadowColor}, 0.10)`,
-    '--shadow-dropdown': `0 12px 32px rgba(${shadowColor}, 0.16)`,
-    '--shadow-card': `0 4px 12px rgba(${shadowColor}, 0.10)`,
+    '--radius-sm': radii.sm,
+    '--radius-md': radii.md,
+    '--radius-lg': radii.lg,
+    '--radius-xl': radii.xl,
+    '--shadow-window': shadow.s3,
+    '--shadow-dropdown': shadow.s2,
+    '--shadow-card': shadow.s1,
     '--scrollbar-track': 'transparent',
     '--scrollbar-thumb': p.borderStrong,
     '--scrollbar-thumb-hover': p.borderHover,

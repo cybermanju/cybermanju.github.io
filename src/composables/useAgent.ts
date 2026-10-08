@@ -21,6 +21,7 @@ import { ref } from 'vue'
 import { wasmAgentCatalog, wasmAgentPrompt, type WasmAgentTurn } from './useWasmBackend'
 import { wasmModuleExports, wasmOsDispatch } from './useWasmBackend'
 import { prepareWireMessages } from '@/utils/agentUi'
+import { rankResearchPaths } from '@/utils/researchRank'
 import { cleanToolOutput } from '@/utils/redact'
 import { LocalMemoryStore, MEMORY_TEXT_CAP_CHARS, renderRecallBlock, type MemoryStorage } from '@/utils/memory'
 import type {
@@ -951,17 +952,7 @@ async function execLocalTool(
           all.push(rel)
         }
       }
-      const scored = all
-        .map(p => {
-          const lower = p.toLowerCase()
-          let score = 0
-          for (const w of want) if (lower.includes(w)) score++
-          if (score > 0 && /\.(rs|ts|vue|md)$/i.test(p)) score++
-          return { p, score }
-        })
-        .filter(r => r.score > 0)
-        .sort((a, b) => b.score - a.score || (a.p < b.p ? -1 : 1))
-        .slice(0, limit)
+      const scored = rankResearchPaths(all, query, limit)
       if (!scored.length) return `self_research: no files match \`${query}\` — try broader terms or list/glob first`
       let re: RegExp | null = null
       try {
@@ -970,7 +961,7 @@ async function execLocalTool(
         re = null
       }
       let out = `self_research: \`${query}\` (${scored.length} files)\n`
-      for (const { p } of scored) {
+      for (const p of scored) {
         const full = p.startsWith('/') ? p : start === '/' ? `/${p}` : `${start}/${p}`
         let text = ''
         try {

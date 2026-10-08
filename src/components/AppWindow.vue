@@ -74,7 +74,13 @@
     </div>
 
     <div class="window-content" ref="contentRef">
-      <component :is="win.component" v-bind="win.props" @close="onClose" />
+      <div v-if="panelError" class="panel-async-state is-error">
+        <p class="panel-async-title">This window crashed</p>
+        <p class="panel-async-msg">{{ panelError }}</p>
+        <p class="panel-async-hint">Close and reopen the window — if it persists, hard-refresh (Ctrl+Shift+R) to load the current build.</p>
+        <button class="panel-async-retry" type="button" @click="onClose">Close window</button>
+      </div>
+      <component v-else :is="win.component" v-bind="win.props" @close="onClose" />
     </div>
 
     <div class="resize-handle n" @mousedown.prevent.stop="startResize('n', $event)"></div>
@@ -90,7 +96,7 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onErrorCaptured } from 'vue'
 import type { WindowState } from '@/composables/useWindowManager'
 import { createWindowUi, provideWindowUi } from '@/composables/useWindowUi'
 
@@ -131,6 +137,14 @@ const winUi = provideWindowUi(
 )
 
 const isNarrow = computed(() => winUi.isNarrow.value)
+
+/** Setup/render crashes in the hosted panel (e.g. a TDZ in a panel's
+ * setup()) otherwise leave a blank window with only a console error. */
+const panelError = ref('')
+onErrorCaptured((err) => {
+  panelError.value = err instanceof Error ? err.message : String(err ?? 'Unknown error')
+  return false
+})
 
 const windowStyle = computed(() => {
   if (props.win.minimized) {
@@ -227,11 +241,23 @@ function onResize(e: MouseEvent) {
   if (resizeDir.includes('w')) {
     newW = Math.max(320, resizeOrigW - dx)
     newX = resizeOrigX + (resizeOrigW - newW)
+    // West edge hit the workspace border (below TopMenuBar): pin it and
+    // shrink the growth instead of pushing the window off-screen.
+    if (newX < 0) {
+      newX = 0
+      newW = resizeOrigX + resizeOrigW
+    }
   }
   if (resizeDir.includes('s')) newH = Math.max(240, resizeOrigH + dy)
   if (resizeDir.includes('n')) {
     newH = Math.max(240, resizeOrigH - dy)
     newY = resizeOrigY + (resizeOrigH - newH)
+    // North edge hit the workspace top (directly below TopMenuBar): pin it
+    // instead of sliding the titlebar up under (behind) the header.
+    if (newY < 0) {
+      newY = 0
+      newH = resizeOrigY + resizeOrigH
+    }
   }
 
   if (newX !== resizeOrigX || newY !== resizeOrigY) {
@@ -621,4 +647,43 @@ onUnmounted(() => {
 .resize-handle.nw { top: -4px; left: -4px; width: 10px; height: 10px; cursor: nw-resize; }
 .resize-handle.se { bottom: -4px; right: -4px; width: 10px; height: 10px; cursor: se-resize; }
 .resize-handle.sw { bottom: -4px; left: -4px; width: 10px; height: 10px; cursor: sw-resize; }
+</style>
+
+<style>
+/* Shared async-panel states: used by AppWindow's crash fallback AND the
+ * PanelLoading/PanelLoadError components in useWindowManager (unscoped so
+ * both trees match). */
+.panel-async-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 20px;
+  font-family: var(--ui-font);
+  font-size: 13px;
+  color: var(--ui-text-2);
+}
+.panel-async-state.is-error { color: var(--ui-text); }
+.panel-async-title { margin: 0; font-weight: 700; }
+.panel-async-msg {
+  margin: 0;
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  color: var(--ui-text-2);
+  overflow-wrap: anywhere;
+}
+.panel-async-hint { margin: 0; font-size: 12px; color: var(--ui-text-3); }
+.panel-async-retry {
+  margin-top: 4px;
+  padding: 6px 14px;
+  border-radius: var(--ui-radius-full);
+  border: 1px solid var(--ui-border-strong);
+  background: var(--ui-surface-2);
+  color: var(--ui-text);
+  font-family: var(--ui-font);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.panel-async-retry:hover { border-color: var(--ui-accent); }
 </style>

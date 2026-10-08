@@ -34,7 +34,14 @@ function loadSettings(): ThemeSettings {
       rawTheme && rawTheme in THEMES
         ? (rawTheme as ThemeId)
         : aliased ?? DEFAULT_SETTINGS.theme
-    return { ...DEFAULT_SETTINGS, ...parsed, theme }
+    // Per-theme accents survive only with valid hex values.
+    const accents: Record<string, string> = {}
+    if (parsed.accents && typeof parsed.accents === 'object') {
+      for (const [k, v] of Object.entries(parsed.accents)) {
+        if (typeof v === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)) accents[k] = v
+      }
+    }
+    return { ...DEFAULT_SETTINGS, ...parsed, theme, accents }
   } catch {
     return { ...DEFAULT_SETTINGS }
   }
@@ -104,6 +111,21 @@ export function useTheme() {
   function setAccent(value: string | null) {
     state.accent = value || null
   }
+  /**
+   * Per-theme accent (`ui accent <#hex> --for <theme>`): recolors one theme
+   * without touching the general override. Pass null to clear it back to
+   * the theme's built-in accent.
+   */
+  function setAccentFor(themeId: string, value: string | null) {
+    if (!(themeId in THEMES)) return
+    if (value && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) {
+      state.accents = { ...state.accents, [themeId]: value }
+    } else {
+      const next = { ...state.accents }
+      delete next[themeId]
+      state.accents = next
+    }
+  }
   function setDensity(value: Density) {
     state.density = value
   }
@@ -145,6 +167,7 @@ export function useTheme() {
     glassStyle,
     setTheme,
     setAccent,
+    setAccentFor,
     setDensity,
     setGlass,
     setMotion,

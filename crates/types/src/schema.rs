@@ -72,6 +72,11 @@ pub struct FaceGroup {
     pub cohesion: Option<f32>,
     pub embedding_count: u32,
     pub algorithm: Option<String>,
+    /// Which detector filled the group (`onnx` / `heuristic-v2` / mixed).
+    /// `None` on rows written before engine reporting existed — readers
+    /// must treat absence as "unknown", never assume ONNX.
+    #[serde(default)]
+    pub detection_engine: Option<String>,
     pub created_at: String,
 }
 

@@ -64,6 +64,9 @@ pub struct DiskRow {
     pub container_path: String,
     /// Block writes since the container was last sealed.
     pub blocks_written_since_checkpoint: u32,
+    /// User-chosen key holder: this disk unwraps the other disks' keys.
+    #[serde(default)]
+    pub holds_keys: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -162,6 +165,23 @@ pub fn disk_for_config(db: &Database, config_id: &str) -> Result<Option<DiskRow>
     Ok(list_disks(db)?
         .into_iter()
         .find(|row| row.config_id == config_id && row.attached()))
+}
+
+/// Designate the single key-holder disk: sets `holds_keys` on `id` and
+/// clears it on every other disk. The holder's passphrase unwraps the other
+/// disks — enforced at policy level, verified by crypto on attach.
+pub fn set_key_holder(db: &Database, id: &str) -> Result<DiskRow, String> {
+    let mut rows = list_disks(db)?;
+    if !rows.iter().any(|r| r.id == id) {
+        return Err(format!("not_found: disk '{}' not found", id));
+    }
+    let now = now_rfc3339();
+    for row in rows.iter_mut() {
+        row.holds_keys = row.id == id;
+        row.updated_at = now.clone();
+        put_disk(db, row)?;
+    }
+    get_disk(db, id)?.ok_or_else(|| format!("not_found: disk '{}' not found", id))
 }
 
 // ─── block_map ───────────────────────────────────────────────────────────────
@@ -500,6 +520,7 @@ mod tests {
             health: "ok".to_string(),
             container_path: "/tmp/x.cybermanju".to_string(),
             blocks_written_since_checkpoint: 0,
+            holds_keys: false,
             created_at: now_rfc3339(),
             updated_at: now_rfc3339(),
         }

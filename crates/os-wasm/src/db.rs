@@ -876,6 +876,26 @@ pub fn db_dispatch(op: &str, args_json: &str) -> String {
                 "detail": "demo check: catalog row present and well-formed",
             }))
         }
+        "disks.key-holder" => {
+            let id = arg(&args, "id")?.to_string();
+            let rows = read_all(DbDefs::get_disks_table())?;
+            if !rows.iter().any(|(k, _)| k == &id) {
+                return Err(format!("not_found: disk '{id}' not found"));
+            }
+            let mut holder: Option<serde_json::Value> = None;
+            for (key, value) in rows {
+                if let Ok(mut disk) = serde_json::from_str::<serde_json::Value>(&value) {
+                    let is_holder = key == id;
+                    disk["holdsKeys"] = serde_json::Value::Bool(is_holder);
+                    disk["updatedAt"] = serde_json::Value::String(now.to_string());
+                    write_one(DbDefs::get_disks_table(), &key, &disk.to_string())?;
+                    if is_holder {
+                        holder = Some(disk);
+                    }
+                }
+            }
+            holder.ok_or_else(|| format!("not_found: disk '{id}' not found"))
+        }
         "volume.df" => {
             let mut total = 0u64;
             let mut used = 0u64;

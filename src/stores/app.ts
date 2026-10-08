@@ -545,6 +545,29 @@ export const useAppStore = defineStore('cybermanju', () => {
       }
       const result = await invoke<FileNode[]>('list_files', { parentPath: path })
       files.value = result
+      // Vault root (`/`) is the merged home of every top-level entry across
+      // all disks. Folders made by older builds were indexed under `''`
+      // instead of `/`, so no root listing would ever show them — sweep the
+      // legacy key and merge those orphans back into the home view.
+      // Transport-uniform: Tauri answers the `''` key with exactly those
+      // rows; REST/WASM answer with the full table, so keep only true
+      // orphans (`parentId` unset). Trash can never leak in — trashed rows
+      // leave the files table entirely.
+      if ((path || '/') === '/') {
+        try {
+          const legacy = await invoke<FileNode[]>('list_files', { parentPath: '' })
+          const known = new Set(files.value.map(f => f.id))
+          for (const o of legacy) {
+            if (!o || known.has(o.id)) continue
+            if (!o.parentId) {
+              files.value.push(o)
+              known.add(o.id)
+            }
+          }
+        } catch {
+          // Best-effort heal — the primary root listing already loaded.
+        }
+      }
       // Re-apply persisted stars — no backend ships a star column.
       applyStars()
     } catch (e) {
@@ -563,10 +586,30 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
+  // The parent index is keyed by VAULT PATH (the same key `fetchFiles`
+  // lists by: `/`, `/photos`, …) — never by node id. Callers historically
+  // passed a selected folder's id or `''`, which indexed the new folder
+  // under a key no listing ever queries, so it silently never showed.
+  // Normalize here so every entry point lands where the user is looking.
   async function createFolder(name: string, parentId: string) {
     try {
-      await invoke('create_folder', { name, parentId })
+      const clean = (name || '').trim()
+      if (!clean) {
+        notifyError('Folder name is required', 'type a name first')
+        return
+      }
+      let key = (parentId || '').trim()
+      if (!key.startsWith('/')) key = currentPath.value || '/'
+      key = key.replace(/\/+$/, '') || '/'
+      // `/providers/…` is a read-only canal browse of remote mounts —
+      // writing a vault node there would vanish from that view.
+      if (key.startsWith('/providers')) {
+        notifyError('Providers are read-only', 'create the folder in the vault instead')
+        return
+      }
+      await invoke('create_folder', { name: clean, parentId: key })
       await fetchFiles()
+      notifySuccess(`Folder '${clean}' created`)
     } catch (e) {
       notifyError('Failed to create folder', e)
     }
@@ -787,7 +830,7 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function detectFacesBatch() {
     try {
-      const result = await invoke<{ clustersCreated: number; totalFaces: number; noiseFaces: number; avgCohesion: number; strategyUsed: string }>('detect_faces_batch_cmd')
+      const result = await invoke<{ clustersCreated: number; totalFaces: number; noiseFaces: number; avgCohesion: number; strategyUsed: string; detectionEngines?: string[] }>('detect_faces_batch_cmd')
       await fetchFaceGroups()
       return result
     } catch (e) {
@@ -798,7 +841,7 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function reclusterFaces(strategy?: string) {
     try {
-      const result = await invoke<{ clustersCreated: number; totalFaces: number; noiseFaces: number; avgCohesion: number; strategyUsed: string }>('recluster_faces', { strategy })
+      const result = await invoke<{ clustersCreated: number; totalFaces: number; noiseFaces: number; avgCohesion: number; strategyUsed: string; detectionEngines?: string[] }>('recluster_faces', { strategy })
       await fetchFaceGroups()
       return result
     } catch (e) {
@@ -1230,6 +1273,24 @@ export const useAppStore = defineStore('cybermanju', () => {
     } catch (e) {
       notifyError('Remote delete failed', e)
       return false
+    }
+  }
+
+  /** Unified-disk move: relocate one file's single copy A→B (verified, no recompress). */
+  async function moveSyncFile(fileId: string, fromConfigId: string, toConfigId: string) {
+    try {
+      const out = await invoke<{ remotePath: string; bytes: number; noop: boolean }>('move_sync_file', {
+        fileId,
+        fromConfigId,
+        toConfigId,
+      })
+      if (out?.noop) notifySuccess('Already home — nothing moved')
+      else notifySuccess(`Moved to ${toConfigId} (${out?.bytes ?? 0} bytes, verified)`)
+      await Promise.allSettled([fetchSyncRuns(), fetchSyncConfigs(), fetchDisks(), fetchOsDf()])
+      return out
+    } catch (e) {
+      notifyError('Move failed', e)
+      return null
     }
   }
 
@@ -2257,6 +2318,18 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
+  async function setDiskKeyHolder(diskId: string) {
+    try {
+      await invoke('set_disk_key_holder', { id: diskId })
+      await fetchDisks()
+      notifySuccess('Key holder set — this disk unwraps the others')
+      return true
+    } catch (e) {
+      notifyError('Failed to set key holder', e)
+      return false
+    }
+  }
+
   return {
     // State
     currentPath, currentPanel, viewMode, selectedFileId, sidebarSection, sidebarCollapsed,
@@ -2285,7 +2358,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     readManagedContent, saveManagedContent, readWasmFile, saveWasmFile, listWasmDir,
     fetchSyncConfigs, createSyncConfig, saveSyncConfig, probeSyncConnection, deleteSyncConfig, startSync,
     getSyncProgress, testSyncConnection, cancelSync, listRemoteFiles, refreshAfterSync,
-    getSyncJob, fetchSyncRuns, fetchSyncStatus, restoreSyncFile, deleteRemoteFile,
+    getSyncJob, fetchSyncRuns, fetchSyncStatus, restoreSyncFile, deleteRemoteFile, moveSyncFile,
     fetchSyncUsage, oauthStart, createProviderRepo, seedRepoFiles, uploadRemoteFile,
     fetchRepairStatus, runRepair, runRebuild, runGc, runScrub, fetchScrubRuns,
     fetchRepairTasks, fetchRepairHealth,
@@ -2300,7 +2373,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     startAgentRun, pollAgentJob, subscribeAgentJob, abortAgentJob, approveAgentJob, initAgentRun,
     compactAgentSession, mcpAddServer, mcpRemoveServer, mcpListTools,
     agentMemories, fetchAgentMemories, storeAgentMemory, recallAgentMemories, deleteAgentMemory,
-    fetchDisks, createDisk, createDiskWithRemote, attachDisk, detachDisk, resizeDisk, checkDisk,
+    fetchDisks, createDisk, createDiskWithRemote, attachDisk, detachDisk, resizeDisk, checkDisk, setDiskKeyHolder,
     // User Management
     fetchUsers, createUser, deleteUser, updateUserRole,
     // Trash

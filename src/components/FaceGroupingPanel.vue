@@ -108,7 +108,7 @@
               </span>
               <span class="spot-row__body">
                 <span class="spot-row__name truncate" v-html="highlight(g.name)" />
-                <span class="spot-row__sub text-muted">{{ g.fileIds.length }} FILES{{ g.algorithm ? ` · ${g.algorithm.toUpperCase()}` : '' }}</span>
+                <span class="spot-row__sub text-muted">{{ g.fileIds.length }} FILES{{ g.algorithm ? ` · ${g.algorithm.toUpperCase()}` : '' }}{{ engineTag(g) }}</span>
               </span>
               <span class="spot-row__enter" aria-hidden="true">⏎</span>
             </div>
@@ -152,7 +152,7 @@
               </span>
               <span class="spot-row__body">
                 <span class="spot-row__name truncate">{{ g.name }}</span>
-                <span class="spot-row__sub text-muted">{{ g.fileIds.length }} FILES{{ g.algorithm ? ` · ${g.algorithm.toUpperCase()}` : '' }}</span>
+                <span class="spot-row__sub text-muted">{{ g.fileIds.length }} FILES{{ g.algorithm ? ` · ${g.algorithm.toUpperCase()}` : '' }}{{ engineTag(g) }}</span>
               </span>
               <span class="spot-row__enter" aria-hidden="true">⏎</span>
             </div>
@@ -264,7 +264,7 @@
           @click="store.showShortcutsHelp = true"
         />
         <span v-if="lastResult" class="spot-foot__stats text-muted">
-          {{ lastResult.clustersCreated }} clusters · {{ lastResult.totalFaces }} faces · {{ lastResult.avgCohesion.toFixed(2) }} cohesion
+          {{ lastResult.clustersCreated }} clusters · {{ lastResult.totalFaces }} faces · {{ lastResult.avgCohesion.toFixed(2) }} cohesion<span v-if="lastResult.detectionEngines.length"> · via {{ lastResult.detectionEngines.join('+').toUpperCase() }}</span>
         </span>
         <span class="spot-foot__keys text-muted" title="Up/Down moves, Enter opens, Esc clears search">↑↓ navigate · ⏎ open · Esc clear</span>
       </div>
@@ -305,6 +305,7 @@ const lastResult = ref<{
   totalFaces: number
   avgCohesion: number
   strategyUsed: string
+  detectionEngines: string[]
 } | null>(null)
 
 const q = computed(() => query.value.trim().toLowerCase())
@@ -472,6 +473,7 @@ async function runDetect() {
         totalFaces: result.totalFaces,
         avgCohesion: result.avgCohesion,
         strategyUsed: result.strategyUsed,
+        detectionEngines: Array.isArray(result.detectionEngines) ? result.detectionEngines : [],
       }
     }
   } finally {
@@ -499,6 +501,16 @@ function avatarStyle(g: FaceGroup): Record<string, string> {
     }
   }
   return {}
+}
+
+/** Short detector tag (`heuristic-*` → `HEURISTIC`, `onnx` → `ONNX`) so a
+ *  group row says which engine filled it — approximate groups stay labeled. */
+function engineTag(g: FaceGroup): string {
+  const e = (g.detectionEngine ?? '').trim().toLowerCase()
+  if (!e || e === 'unknown') return ''
+  if (e.startsWith('heuristic')) return ' · HEURISTIC'
+  if (e === 'mixed') return ' · MIXED ENGINES'
+  return ` · ${e.toUpperCase()}`
 }
 
 function escapeHtml(s: string): string {

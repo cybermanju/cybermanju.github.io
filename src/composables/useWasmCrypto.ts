@@ -44,6 +44,8 @@ interface WasmCrypto {
   decompress_lz4(data: Uint8Array): Uint8Array
   compress_brotli(data: Uint8Array, quality: number): Uint8Array
   decompress_brotli(data: Uint8Array): Uint8Array
+  /** Present once the deployed pkg includes the ruzstd decode export. */
+  decompress_zstd?(data: Uint8Array): Uint8Array
 }
 
 let wasmCrypto: WasmCrypto | null = null
@@ -259,7 +261,7 @@ async function decodeStored(
   }
 
   if (meta.comp?.layers.length) {
-    bytes = decompressBytes(w, bytes, meta.comp.layers)
+    bytes = await decompressBytes(w, bytes, meta.comp.layers)
   }
   return { bytes, meta }
 }
@@ -269,13 +271,16 @@ async function encodeStored(
   fileId: string,
   bytes: Uint8Array,
   meta: FileMeta,
-): Promise<{ stored: string; byteLength: number; final: Uint8Array }> {
+): Promise<{ stored: string; byteLength: number; final: Uint8Array; compDetails: LayerDetail[] }> {
   const w = await wasm()
   let out = bytes
+  const compDetails: LayerDetail[] = []
 
   if (meta.comp?.layers.length) {
     for (const layer of meta.comp.layers) {
-      out = compressBytes(w, out, layer).bytes
+      const step = await compressBytes(w, out, layer)
+      out = step.bytes
+      compDetails.push(...step.details)
     }
     // The pipeline always re-runs from plaintext, so this is the size the
     // stats compare against after an edit.
@@ -314,53 +319,158 @@ async function encodeStored(
     encryptionAlgorithm: meta.enc?.display ?? null,
     compressionLayers: meta.comp?.layers ?? [],
   })
-  return { stored, byteLength: out.length, final: out }
+  return { stored, byteLength: out.length, final: out, compDetails }
 }
 
 // ── compression ───────────────────────────────────────────────────────
 
+// zstd + triple run in the browser through `@dweb-browser/zstd-wasm`
+// (`src/utils/zstd.ts`, same standard frames as the desktop `zstd` crate) —
+// composed with the wasm crate's lz4/brotli in the desktop order
+// (LZ4 → ZSTD → Brotli), so a `.cyb3` written here opens on the desktop.
+
 export function compressionCapable(layer: string): boolean {
-  return layer === 'none' || layer === 'lz4' || layer === 'brotli'
+  return (
+    layer === 'none' ||
+    layer === 'all' ||
+    layer === 'lz4' ||
+    layer === 'zstd' ||
+    layer === 'brotli' ||
+    layer === 'triple'
+  )
 }
 
-function compressBytes(w: WasmCrypto, bytes: Uint8Array, layer: string): {
+function tripleCodecs(w: WasmCrypto): {
+  compressLz4(data: Uint8Array): Uint8Array
+  decompressLz4(data: Uint8Array): Uint8Array
+  compressBrotli(data: Uint8Array): Uint8Array
+  decompressBrotli(data: Uint8Array): Uint8Array
+} {
+  return {
+    compressLz4: (d) => w.compress_lz4(d),
+    decompressLz4: (d) => w.decompress_lz4(d),
+    compressBrotli: (d) => w.compress_brotli(d, 11),
+    decompressBrotli: (d) => w.decompress_brotli(d),
+  }
+}
+
+/** Per-layer stat rows in the desktop palette (`triple.rs` colors kept). */
+function zstdDetail(inputSize: number, outputSize: number): LayerDetail {
+  return {
+    name: 'Layer 2: Zstandard',
+    algorithm: 'zstd level 15',
+    inputSize,
+    outputSize,
+    ratio: inputSize ? outputSize / inputSize : 1,
+    color: '#00FF41',
+  }
+}
+
+async function compressBytes(w: WasmCrypto, bytes: Uint8Array, layer: string): Promise<{
   bytes: Uint8Array
   details: LayerDetail[]
-} {
+}> {
   if (layer === 'none') return { bytes, details: [] }
-  if (layer === 'zstd' || layer === 'triple') {
-    throw new Error(
-      `${layer} needs zstd, which is not in the browser wasm pack — use lz4 or brotli here (the desktop app does zstd)`,
-    )
+  if (layer === 'lz4' || layer === 'brotli') {
+    const out = layer === 'lz4' ? w.compress_lz4(bytes) : w.compress_brotli(bytes, 11)
+    return {
+      bytes: out,
+      details: [
+        {
+          name: layer === 'lz4' ? 'LZ4 (lz4_flex)' : 'Brotli-11',
+          algorithm: layer,
+          inputSize: bytes.length,
+          outputSize: out.length,
+          ratio: bytes.length ? out.length / bytes.length : 1,
+          color: '#FFFFFF',
+        },
+      ],
+    }
   }
-  const out = layer === 'lz4' ? w.compress_lz4(bytes) : w.compress_brotli(bytes, 11)
-  return {
-    bytes: out,
-    details: [
-      {
-        name: layer === 'lz4' ? 'LZ4 (lz4_flex)' : 'Brotli-11',
-        algorithm: layer,
-        inputSize: bytes.length,
-        outputSize: out.length,
-        ratio: bytes.length ? out.length / bytes.length : 1,
-        color: layer === 'lz4' ? '#FFFFFF' : '#FFFFFF',
-      },
-    ],
+  if (layer === 'zstd') {
+    try {
+      const { compressZstd } = await import('@/utils/zstd')
+      const out = await compressZstd(bytes)
+      return {
+        bytes: out,
+        details: [zstdDetail(bytes.length, out.length)],
+      }
+    } catch (e) {
+      throw withIntegrityPrefix(e, 'zstd compression failed')
+    }
   }
+  if (layer === 'triple') {
+    try {
+      const { compressTriple } = await import('@/utils/zstd')
+      const { bytes: out, sizes } = await compressTriple(tripleCodecs(w), bytes)
+      return {
+        bytes: out,
+        details: [
+          {
+            name: 'Layer 1: LZ4',
+            algorithm: 'lz4_flex',
+            inputSize: bytes.length,
+            outputSize: sizes.lz4,
+            ratio: bytes.length ? sizes.lz4 / bytes.length : 1,
+            color: '#00D4FF',
+          },
+          zstdDetail(sizes.lz4, sizes.zstd),
+          {
+            name: 'Layer 3: Brotli',
+            algorithm: 'brotli level 11',
+            inputSize: sizes.zstd,
+            outputSize: sizes.brotli,
+            ratio: sizes.zstd ? sizes.brotli / sizes.zstd : 1,
+            color: '#FFB800',
+          },
+        ],
+      }
+    } catch (e) {
+      throw withIntegrityPrefix(e, 'triple compression failed')
+    }
+  }
+  throw new Error(`unsupported: compress layer '${layer}' (none|lz4|zstd|brotli|triple)`)
 }
 
-function decompressBytes(w: WasmCrypto, bytes: Uint8Array, layers: string[]): Uint8Array {
+async function decompressBytes(w: WasmCrypto, bytes: Uint8Array, layers: string[]): Promise<Uint8Array> {
+  // Applied left→right, so unwind right→left. A stored `triple` marker is
+  // one Brotli → ZSTD → LZ4 chain; anything else unwinds layer by layer.
   let out = bytes
-  // Applied left→right, so unwind right→left.
   for (let i = layers.length - 1; i >= 0; i--) {
     const layer = layers[i]
-    if (layer === 'lz4') out = w.decompress_lz4(out)
-    else if (layer === 'brotli') out = w.decompress_brotli(out)
-    else if (layer === 'zstd' || layer === 'triple') {
-      throw new Error(`${layer} content can only be decompressed by the desktop app (zstd)`)
+    try {
+      if (layer === 'lz4') out = w.decompress_lz4(out)
+      else if (layer === 'brotli') out = w.decompress_brotli(out)
+      else if (layer === 'zstd') out = await decodeZstd(w, out)
+      else if (layer === 'triple') {
+        const { decompressTriple } = await import('@/utils/zstd')
+        out = await decompressTriple(tripleCodecs(w), out)
+      } else {
+        throw new Error(`unsupported: decompress layer '${layer}' (none|lz4|zstd|brotli|triple)`)
+      }
+    } catch (e) {
+      throw withIntegrityPrefix(e, `${layer} decompression failed`)
     }
   }
   return out
+}
+
+/**
+ * Raw codec failures carry no house prefix — stamp them `integrity:` so the
+ * UI hints match. An `unsupported:` (missing zstd module) passes through
+ * untouched: a stale bundle is not a tampered file.
+ */
+function withIntegrityPrefix(e: unknown, what: string): Error {
+  const detail = e instanceof Error ? e.message : String(e)
+  if (/^unsupported:/.test(detail)) return e instanceof Error ? e : new Error(detail)
+  return new Error(`integrity: ${what} (${detail})`)
+}
+
+/** Prefer the crate's `ruzstd` export when deployed; else the JS module. */
+async function decodeZstd(w: WasmCrypto, data: Uint8Array): Promise<Uint8Array> {
+  if (typeof w.decompress_zstd === 'function') return w.decompress_zstd(data)
+  const { decompressZstd } = await import('@/utils/zstd')
+  return decompressZstd(data)
 }
 
 // ── public file operations (wired to the panel commands) ──────────────
@@ -432,9 +542,7 @@ export async function compressFile(fileId: string, layer: string): Promise<Compr
 
   const effective = layer === 'all' ? 'brotli' : layer
   if (!compressionCapable(effective)) {
-    throw new Error(
-      `${layer} needs zstd, which is not in the browser wasm pack — use lz4 or brotli here (the desktop app does zstd)`,
-    )
+    throw new Error(`unsupported: compress layer '${layer}' (none|lz4|zstd|brotli|triple)`)
   }
 
   if (effective === 'none') {
@@ -451,23 +559,16 @@ export async function compressFile(fileId: string, layer: string): Promise<Compr
   }
 
   meta.comp = { layers: [effective], originalSize: bytes.length, at: new Date().toISOString() }
-  // `encodeStored` re-runs the pipeline (compress → encrypt) from plaintext,
-  // so the input stays untouched and the stats describe what actually landed.
-  const { final } = await encodeStored(fileId, bytes, meta)
-  const detail: LayerDetail = {
-    name: effective === 'lz4' ? 'LZ4 (lz4_flex)' : 'Brotli-11',
-    algorithm: effective,
-    inputSize: bytes.length,
-    outputSize: final.length,
-    ratio: bytes.length ? final.length / bytes.length : 1,
-    color: '#FFFFFF',
-  }
+  // `encodeStored` runs the pipeline (compress → encrypt) from plaintext, so
+  // the input stays untouched — and its per-layer details describe the exact
+  // bytes that landed (one run, no re-compress for stats).
+  const { final, compDetails: layerDetails } = await encodeStored(fileId, bytes, meta)
   return {
     originalSize: bytes.length,
     compressedSize: final.length,
     ratio: bytes.length ? final.length / bytes.length : 1,
     layer,
-    layerDetails: [detail],
+    layerDetails,
     blake3Hash: w.blake3_hash(final),
     durationMs: Math.max(1, Math.round(performance.now() - started)),
   }
@@ -510,4 +611,15 @@ export async function writeContentText(fileId: string, text: string): Promise<st
   const meta = await readMeta(fileId)
   const { stored } = await encodeStored(fileId, utf8(text), meta)
   return stored
+}
+
+/**
+ * Plaintext bytes for non-text consumers (face detection, hashing).
+ * Runs the full decrypt → decompress pipeline; throws the same honest
+ * errors the editor paths surface (missing key, damaged body).
+ */
+export async function readOriginalBytes(fileId: string): Promise<Uint8Array> {
+  const raw = (await vaultGet(contentKey(fileId))) ?? ''
+  const { bytes } = await decodeStored(fileId, raw)
+  return bytes
 }

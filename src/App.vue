@@ -652,6 +652,14 @@ onMounted(() => {
       await migrateVaultFromLocalStorage()
       await hydrateSupabaseConfig()
       await bootCyberManjuDisk()
+      // Remembered folders (setup sync root + provider local dirs): restore
+      // without prompting — lapsed permissions park as one-click re-grants.
+      try {
+        const { bootLocalDirs } = await import('@/utils/localDir')
+        await bootLocalDirs()
+      } catch {
+        // Best-effort — folders simply re-pick when needed.
+      }
       await replayVolumeFromVault(disk.attached)
       if (disk.attached) store.notifySuccess(`${disk.name} opened — vault is on disk`)
     } catch (e) {

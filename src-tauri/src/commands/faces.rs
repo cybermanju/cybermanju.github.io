@@ -6,10 +6,53 @@ use tauri::State;
 
 use crate::db::schema::{FaceGroup, FileNode};
 use crate::faces::{
-    detect_faces_batch, embedding_distance, recluster_all, to_binary_hash,
+    detect_faces_batch_with_engines, embedding_distance, recluster_all, to_binary_hash,
     update_medoid_incremental, ClusteringStrategy, DEFAULT_MATCH_THRESHOLD,
 };
 use crate::AppState;
+
+/// Majority detection engine over a cluster's member file ids — unanimous
+/// keeps the engine, anything else is honestly `mixed`.
+fn cluster_engine(
+    members: &[String],
+    file_engines: &std::collections::HashMap<String, String>,
+) -> String {
+    let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for m in members {
+        if let Some(e) = file_engines.get(m) {
+            *counts.entry(e.as_str()).or_default() += 1;
+        }
+    }
+    let mut best: Option<(&str, usize)> = None;
+    let mut tied = false;
+    for (engine, n) in counts {
+        match best {
+            None => {
+                best = Some((engine, n));
+            }
+            Some((_, top)) if n > top => {
+                best = Some((engine, n));
+                tied = false;
+            }
+            Some((_, top)) if n == top => {
+                tied = true;
+            }
+            _ => {}
+        }
+    }
+    match best {
+        Some((engine, _)) if !tied => engine.to_string(),
+        _ => "mixed".to_string(),
+    }
+}
+
+/// Sorted unique engine list for batch responses.
+fn sorted_engines(file_engines: &std::collections::HashMap<String, String>) -> Vec<String> {
+    let mut out: Vec<String> = file_engines.values().cloned().collect();
+    out.sort();
+    out.dedup();
+    out
+}
 
 /// Result of face detection for a single file.
 #[derive(Debug, Serialize, Deserialize)]
@@ -19,6 +62,8 @@ pub struct FaceDetectionResult {
     pub faces_detected: usize,
     pub face_group_ids: Vec<String>,
     pub strategy_used: String,
+    /// Which detector ran: `onnx`, `heuristic-v1`, or `none` (no bytes).
+    pub engine: String,
 }
 
 /// Cluster info returned by recluster command.
@@ -30,6 +75,10 @@ pub struct ReclusterResult {
     pub noise_faces: usize,
     pub avg_cohesion: f32,
     pub strategy_used: String,
+    /// Distinct detection engines behind the clusters (`onnx` /
+    /// `heuristic-v1` / `none`), sorted — the UI prints them verbatim.
+    #[serde(default)]
+    pub detection_engines: Vec<String>,
 }
 
 /// Detect faces on a single file and assign to groups.
@@ -53,9 +102,10 @@ pub fn detect_faces(
         serde_json::from_str(file_value.value()).map_err(|e| e.to_string())?;
     drop(tx_read);
 
-    // Delegate to faces module for detection + embedding
-    let detected_faces =
-        crate::faces::detect_faces_in_file(&file_node).map_err(|e| e.to_string())?;
+    // Delegate to faces module for detection + embedding. The engine label
+    // travels with the result so groups (and the UI) say which detector ran.
+    let (detected_faces, engine) = crate::faces::detect_faces_in_file_with_engine(&file_node);
+    let engine = engine.to_string();
 
     let now = Utc::now().to_rfc3339();
 
@@ -101,6 +151,11 @@ pub fn detect_faces(
                 group.file_ids.push(file_id.clone());
             }
 
+            // A group matched across engines is honestly `mixed`.
+            if group.detection_engine.as_deref() != Some(engine.as_str()) {
+                group.detection_engine = Some("mixed".to_string());
+            }
+
             // Incremental medoid update
             if let Some(ref current_medoid) = group.centroid_embedding {
                 group.centroid_embedding =
@@ -131,6 +186,7 @@ pub fn detect_faces(
                 cohesion: Some(0.0),
                 embedding_count: 1,
                 algorithm: Some("cosine_threshold".to_string()),
+                detection_engine: Some(engine.clone()),
                 created_at: now.clone(),
             };
 
@@ -188,6 +244,7 @@ pub fn detect_faces(
         faces_detected: detected_faces.len(),
         face_group_ids,
         strategy_used: "cosine_threshold".to_string(),
+        engine,
     })
 }
 
@@ -216,12 +273,16 @@ pub fn detect_faces_batch_cmd(state: State<'_, AppState>) -> Result<ReclusterRes
     }
     drop(tx_read);
 
-    // Detect faces in parallel
-    let results = detect_faces_batch(&image_files);
+    // Detect faces in parallel (engines travel alongside for labeling).
+    let results = detect_faces_batch_with_engines(&image_files);
 
-    // Collect all embeddings with file IDs
+    // Collect all embeddings with file IDs (+ engine per file for groups).
     let mut all_embeddings: Vec<(String, Vec<f32>)> = Vec::new();
-    for (file_id, embeddings) in &results {
+    let mut file_engines: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for (file_id, embeddings, engine) in &results {
+        file_engines
+            .entry(file_id.clone())
+            .or_insert_with(|| engine.to_string());
         for emb in embeddings {
             all_embeddings.push((file_id.clone(), emb.clone()));
         }
@@ -308,6 +369,7 @@ pub fn detect_faces_batch_cmd(state: State<'_, AppState>) -> Result<ReclusterRes
                 cohesion: Some(cluster.cohesion),
                 embedding_count: cluster.members.len() as u32,
                 algorithm: Some("hdbscan_adaptive".to_string()),
+                detection_engine: Some(cluster_engine(&cluster.members, &file_engines)),
                 created_at: now.clone(),
             };
 
@@ -351,6 +413,7 @@ pub fn detect_faces_batch_cmd(state: State<'_, AppState>) -> Result<ReclusterRes
         noise_faces,
         avg_cohesion,
         strategy_used: "adaptive".to_string(),
+        detection_engines: sorted_engines(&file_engines),
     })
 }
 
@@ -394,11 +457,17 @@ pub fn recluster_faces(
 
     // Re-detect faces for each file to get actual per-face embeddings
     let mut all_embeddings: Vec<(String, Vec<f32>)> = Vec::new();
+    let mut file_engines: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for file_node in &file_nodes {
-        if let Ok(embeddings) = crate::faces::detect_faces_in_file(file_node) {
-            for emb in embeddings {
-                all_embeddings.push((file_node.id.clone(), emb));
-            }
+        let (embeddings, engine) = crate::faces::detect_faces_in_file_with_engine(file_node);
+        if embeddings.is_empty() {
+            continue;
+        }
+        file_engines
+            .entry(file_node.id.clone())
+            .or_insert_with(|| engine.to_string());
+        for emb in embeddings {
+            all_embeddings.push((file_node.id.clone(), emb));
         }
     }
 
@@ -491,6 +560,7 @@ pub fn recluster_faces(
                     "{:?}",
                     strat.unwrap_or(ClusteringStrategy::HDBSCAN)
                 )),
+                detection_engine: Some(cluster_engine(&cluster.members, &file_engines)),
                 created_at: now.clone(),
             };
 
@@ -534,6 +604,7 @@ pub fn recluster_faces(
         noise_faces,
         avg_cohesion,
         strategy_used: format!("{:?}", strat.unwrap_or(ClusteringStrategy::HDBSCAN)),
+        detection_engines: sorted_engines(&file_engines),
     })
 }
 

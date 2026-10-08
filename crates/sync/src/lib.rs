@@ -16,6 +16,7 @@ pub mod pipeline;
 // <<< AGENT-1 MODS: transport reliability >>>
 pub mod quota;
 pub mod rate_limit;
+pub mod relocate;
 pub mod retry;
 // <<< AGENT-2 MODS: auto-sync scheduler >>>
 pub mod scheduler;
@@ -35,5 +36,6 @@ pub use pipeline::SyncPipeline;
 pub use state::SyncState;
 // <<< AGENT-1 RE-EXPORTS: the contract other agents consume >>>
 pub use quota::{usage as quota_usage, QuotaUsage};
+pub use relocate::{relocate, RelocateOutcome};
 pub use retry::{classify as classify_error, ErrorClass, RetryPolicy};
 pub use transfer::{blake3_hex, verify_blake3};

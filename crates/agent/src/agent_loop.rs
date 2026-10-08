@@ -249,7 +249,7 @@ pub fn system_prompt(
           - question {{question}}: ask the human when genuinely blocked — sparingly.\n\
           - self_research {{query, path?, limit?}}: introspect YOUR OWN source code — \
           sweep the repo for how something works (agent loop, permissions, MCP, \
-          memory, tools) and get file:line-grounded snippets back. Read-only and \
+          memory, tools, interface themes, cybsh verbs) and get file:line-grounded snippets back. Read-only and \
           plan-safe. Call it before claiming how this system works; never answer \
           from memory when you can read the code.\n\
           - skill_save {{name, description, content}}: persist a reusable skill into \
@@ -270,6 +270,14 @@ pub fn system_prompt(
          (a decision, preference, environment quirk, lesson learned). One fact per \
          call; check memory_recall first so facts are not stored twice; never store \
          secrets or whole files.\n\
+         INTERFACE: the Terminal panel runs cybsh — the same shell as your bash \
+         tool. Its `theme`/`ui` verbs customize the whole interface on every \
+         transport and persist to the volume mirror: `ui theme <id>`, \
+         `ui accent <#hex|default> [--for <theme>]`, \
+         `ui density|glass|motion|glow`, and inspect with `ui get`, \
+         `ui vars [filter]`, `ui palette [theme]`. When asked about the \
+         interface or cybsh verbs, call self_research first (topics: themes, \
+         cybsh verbs) and cite file:line — never invent verb names.\n\
          MEMORY: recalled memories arrive bounded in the system prompt — that is \
          semantic memory, not the transcript. Store durable facts with \
          memory_remember instead of repeating them every turn; the transcript \
@@ -417,6 +425,9 @@ mod tests {
         assert!(browser.contains("cybsh-subset"));
         assert!(browser.contains("read-only"));
         assert!(browser.contains("unsupported:"));
+        assert!(native.contains("ui palette"));
+        assert!(native.contains("--for <theme>"));
+        assert!(browser.contains("ui palette"));
     }
 
     #[test]

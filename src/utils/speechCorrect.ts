@@ -288,7 +288,7 @@ export const CYBSH_COMMANDS = [
 
 const CYBSH_SUBCOMMANDS: Record<string, readonly string[]> = {
   disk: ['create', 'attach', 'detach', 'resize', 'check', 'destroy', 'list', 'status', 'df'],
-  sync: ['start', 'status', 'list', 'runs', 'cancel', 'restore'],
+  sync: ['start', 'status', 'list', 'runs', 'cancel', 'restore', 'move'],
   compute: ['run'],
   lease: ['acquire', 'release', 'status'],
   repair: ['run', 'rebuild', 'gc', 'status'],

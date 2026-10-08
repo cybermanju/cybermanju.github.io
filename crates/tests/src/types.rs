@@ -129,14 +129,20 @@ fn test_face_group_serde() {
         cohesion: Some(0.95),
         embedding_count: 10,
         algorithm: Some("chinese_whispers".into()),
+        detection_engine: Some("heuristic-v2".into()),
         created_at: "2026-06-13".into(),
     };
     let json = serde_json::to_string(&fg).unwrap();
     assert!(json.contains("\"centroidEmbedding\""));
     assert!(json.contains("\"binaryHash\""));
     assert!(json.contains("\"embeddingCount\""));
+    assert!(json.contains("\"detectionEngine\""));
     let back: FaceGroup = serde_json::from_str(&json).unwrap();
     assert_eq!(fg, back);
+    // Pre-engine rows (no `detectionEngine` key) still read as `None`.
+    let legacy = r#"{"id":"fg0","name":"Old","fileIds":[],"centroidEmbedding":null,"binaryHash":null,"cohesion":null,"embeddingCount":0,"algorithm":null,"createdAt":"2026-06-13"}"#;
+    let old: FaceGroup = serde_json::from_str(legacy).unwrap();
+    assert_eq!(old.detection_engine, None);
 }
 
 #[test]
@@ -330,6 +336,8 @@ fn test_sync_config_serde() {
         parity: 1,
         require_encryption: false,
         obfuscate_names: false,
+        mirror: false,
+        key_holder: false,
         oauth_credentials: None,
         created_at: None,
         updated_at: None,

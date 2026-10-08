@@ -118,7 +118,7 @@ The frontend composable `useTauri.ts` auto-detects the environment via `window._
 | **crypto/** | `src-tauri/src/crypto/` | Post-quantum cryptography: ChaCha20Poly1305 AEAD + rustpq ML-KEM/ML-DSA key management |
 | **compression/** | `src-tauri/src/compression/` | Triple-layer cascading compression (LZ4 -> ZSTD-15 -> Brotli-11) |
 | **search/** | `src-tauri/src/search/` | Tantivy full-text search with BM25 ranking, faceted filtering, term dictionary autocomplete |
-| **faces/** | `src-tauri/src/faces/` | Face detection embeddings and DBSCAN clustering via connected components |
+| **faces/** | `src-tauri/src/faces/` | Face detection (ONNX SCRFD+ArcFace where linked, `heuristic-v2` skin segmentation everywhere else — every result engine-labeled) and DBSCAN clustering via connected components |
 | **tree_sitter/** | `src-tauri/src/tree_sitter/` | Code intelligence: real tree-sitter grammars (rust/python/js/ts/go/bash) + heuristic fallback for the rest; `"engine"` reports which ran |
 | **preview/** | `src-tauri/src/preview/` | Lanczos3 thumbnail generation, media metadata extraction |
 | **sync/** | `src-tauri/src/sync/` | Storage backend trait + 3 implementations (Local, GitHub, Google Drive) |
@@ -872,7 +872,7 @@ providers → .cybermanju disks (CYBMJU1 sealed superblock, choosable capacity)
 - **Code:** `POST /api/code/parse {fileName, content}` (shared heuristic core, 1 MiB cap, 413 over); desktop Tauri `parse_text` runs the real grammars.
 - **Editor:** `GET|PUT /api/files/{id}/content` (1 MiB cap; version snapshot before overwrite; honest `encrypted:`/`binary:`/`too_large:` refusals); desktop Tauri twins; Pages edits the WASM volume (`write` op, localStorage).
 - **Auth:** fail-closed `Authenticated` default, `is_known_route` 404-before-401, `Claims{role}` RBAC, bootstrap-only register, sealed secrets.
-- **Known honest limits:** faces empty without ONNX; code parse heuristic for unbundled languages; WASM `sync` needs the dashboard.
+- **Known honest limits:** faces fall back to the labeled `heuristic-v2` detector without ONNX; code parse heuristic for unbundled languages; WASM `sync` needs the dashboard.
 
 ### CI/CD Pipeline
 

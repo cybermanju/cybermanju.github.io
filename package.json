@@ -32,6 +32,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@dweb-browser/zstd-wasm": "^1.2.1",
     "@iconify/vue": "^5.0.3",
     "@supabase/supabase-js": "^2.109.0",
     "@tauri-apps/api": "^2.5.0",

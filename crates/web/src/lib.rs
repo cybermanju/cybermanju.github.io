@@ -1031,6 +1031,15 @@ fn route_request(
                 Err(e) => api_response::<()>(Err(e), origin),
             };
         }
+        ["api", "sync", "move"] if method == "POST" => {
+            let req: api::sync_api::MoveRequest = json_body!(body, origin);
+            return match api::sync_api::move_file(db, req) {
+                Ok(value) => json_ok(&value, origin),
+                Err(e) if e.starts_with("conflict:") => json_error(409, &e, origin),
+                Err(e) if e.starts_with("unsupported:") => json_error(501, &e, origin),
+                Err(e) => api_response::<()>(Err(e), origin),
+            };
+        }
         _ => {}
     }
     // <<< /AGENT-2 ROUTES >>>
@@ -1768,6 +1777,21 @@ fn route_request(
         // ─── Face group endpoints ─────────────────────────────────
         ["api", "face-groups"] if method == "GET" => {
             list_all_json(db, Database::get_face_groups_table(), origin)
+        }
+        ["api", "faces", "detect"] if method == "POST" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct DetectFacesBody {
+                file_id: String,
+            }
+            let req: DetectFacesBody = json_body!(body, origin);
+            if let Some(denied) = deny_file(db, &claims, &req.file_id, "read", origin) {
+                return denied;
+            }
+            api_response(api::faces_api::detect(db, &req.file_id), origin)
+        }
+        ["api", "faces", "detect-batch"] if method == "POST" => {
+            api_response(api::faces_api::detect_batch(db), origin)
         }
 
         // ─── Loose group endpoints ────────────────────────────────
