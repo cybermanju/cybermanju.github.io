@@ -506,8 +506,10 @@ jobs:
         run: npm ci
 
       - name: Install Rust targets
+        # Release ships arm64-v8a only (ort-sys prebuilts); x86_64 is kept
+        # for the emulator smoke test. armv7/i686 are not built — skip them.
         run: |
-          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+          rustup target add aarch64-linux-android x86_64-linux-android
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
@@ -540,7 +542,7 @@ jobs:
             # expands, so `rm -rf "dir/ort-sys-*"` silently removes nothing
             # (CI 2026-10-08: self-heal no-op → stale build-script output →
             # `could not find native static library onnxruntime`).
-            for triple in aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android; do
+            for triple in aarch64-linux-android x86_64-linux-android; do
               rm -rf target/"$triple"/release/build/ort-sys-* target/"$triple"/release/.fingerprint/ort-sys-*
             done
             rm -rf target/release/build/ort-sys-* target/release/.fingerprint/ort-sys-*
@@ -555,6 +557,11 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+
+      # In-tree Android settings `tauri android init` does not generate:
+      # versionCode audit, manifest permissions/cleartext/backup/intents.
+      - name: Configure Android project
+        run: bash scripts/android-configure.sh
 
       # `:buildSrc` kotlin-dsl artifacts resolve through pluginManagement
       # (plugin portal only in the generated project) — harden to
@@ -576,7 +583,9 @@ jobs:
       - name: Build Android APK
         # ort-sys ships prebuilt ONNX Runtime only for aarch64-linux-android on
         # Android; the other Rust ABIs have no dist entry, so build arm64-v8a.
-        run: npm run tauri android build -- --target aarch64
+        # --apk --aab: Play upload bundle alongside the direct-install APK;
+        # --split-per-abi keeps the arm64-only payload explicit in the name.
+        run: npx tauri android build --target aarch64 --apk --aab --split-per-abi
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
@@ -586,11 +595,18 @@ jobs:
         env:
           REQUIRE_SIGNING: "1"
 
+      # Shred keystore + signing properties before archiving so runner
+      # images / debug bundles never retain plaintext signing secrets.
+      - name: Shred Android signing secrets
+        run: bash scripts/android-signing.sh cleanup
+
       - name: Upload Android artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-android
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: |
+            src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+            src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
           retention-days: 30
           if-no-files-found: error
 
@@ -698,7 +714,7 @@ jobs:
           check release-flatpak  "*.flatpak"
           check release-arch     "*.AppImage"
           check release-macos    "*.dmg"
-          check release-android  "*.apk"
+          check release-android  "*.apk" "*.aab"
           check dist-wasm        "index.html"
           exit $missing
 
@@ -730,7 +746,7 @@ jobs:
           echo "| Linux (Flatpak) | \`.flatpak\` (Universal Linux) |" >> release_notes.md
           echo "| Linux (Arch) | \`*-arch.deb\` / \`*-arch.AppImage\` built on Arch |" >> release_notes.md
           echo "| macOS | \`.dmg\` (app inside) |" >> release_notes.md
-          echo "| Android | signed \`.apk\` (arm64-v8a) |" >> release_notes.md
+          echo "| Android | signed \`.apk\` (arm64-v8a) + \`.aab\` (Play upload) |" >> release_notes.md
           echo "| Web (WASM) | \`dist-wasm.zip\` (static files for any web server) |" >> release_notes.md
           echo "| Docker | \`docker pull ${IMAGE}:latest\` |" >> release_notes.md
           echo "" >> release_notes.md
@@ -789,7 +805,7 @@ jobs:
           copy_files artifacts/release-flatpak "" '*.flatpak'
           copy_files artifacts/release-arch "-arch" '*.deb' '*.AppImage'
           copy_files artifacts/release-macos "" '*.dmg'
-          copy_files artifacts/release-android "" '*.apk'
+          copy_files artifacts/release-android "" '*.apk' '*.aab'
 
           # Web stays a zip: it is a directory tree (index.html + assets),
           # not a single installable file.

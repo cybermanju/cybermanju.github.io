@@ -9,6 +9,7 @@
 #
 #   scripts/android-signing.sh prepare   # after `tauri android init`, before the build
 #   scripts/android-signing.sh verify    # after the build
+#   scripts/android-signing.sh cleanup   # shred keystore + properties (before artifact upload)
 #
 # `prepare` appends a signing block to the generated app/build.gradle.kts and
 # drops `release-signing.properties` next to it. Values are read from that
@@ -198,10 +199,23 @@ EOF
 
 verify() {
   local apk_dir="$APP_DIR/build/outputs/apk"
+  local bundle_dir="$APP_DIR/build/outputs/bundle"
   # Signing was configured (or forced) if a signed APK must exist.
   local signing_expected=0
   if [ -f "$EXPECTED_MARKER" ] || require_signing; then
     signing_expected=1
+  fi
+
+  local version=""
+  if command -v node > /dev/null; then
+    version="$(node -p "require('./package.json').version" 2>/dev/null || echo "")"
+  fi
+
+  # AABs (Play upload) are listed for the artifact; signature lives in the
+  # APKs verified below (same keystore). Never fail on AAB absence: older
+  # Tauri templates may emit APK-only.
+  if [ -d "$bundle_dir" ]; then
+    find "$bundle_dir" -name '*.aab' 2>/dev/null || true
   fi
 
   local apk
@@ -213,7 +227,20 @@ verify() {
       find "$apk_dir" -name '*.apk' 2>/dev/null || true
       exit 1
     fi
-    echo "::warning::APK is unsigned (keystore secrets unavailable)" >&2
+    # Signing parity (P2-8): an unsigned artifact must SAY unsigned — never
+    # ship `app-universal-release-unsigned.apk` under a neutral name.
+    local unsigned
+    unsigned="$(find "$apk_dir" -name '*-unsigned.apk' 2>/dev/null | head -1 || true)"
+    if [ -n "$unsigned" ] && [ -n "$version" ]; then
+      local renamed
+      renamed="$(dirname "$unsigned")/CyberManju-OS-$version-arm64-v8a-unsigned.apk"
+      if [ "$unsigned" != "$renamed" ]; then
+        mv "$unsigned" "$renamed"
+        echo "::warning::APK is UNSIGNED (keystore secrets unavailable): $renamed" >&2
+      fi
+    else
+      echo "::warning::APK is unsigned (keystore secrets unavailable)" >&2
+    fi
     return 0
   fi
 
@@ -230,26 +257,47 @@ verify() {
 
   # Gradle's `app-universal-release.apk` tells nobody which device it fits;
   # the build only contains arm64-v8a (ort-sys ships no other Android ABI).
-  if command -v node > /dev/null; then
-    local version friendly
-    version="$(node -p "require('./package.json').version" 2>/dev/null || echo "")"
-    if [ -n "$version" ]; then
-      friendly="$(dirname "$apk")/CyberManju-OS-$version-arm64-v8a.apk"
-      if [ "$apk" != "$friendly" ]; then
-        mv "$apk" "$friendly"
-        apk="$friendly"
-      fi
+  if [ -n "$version" ]; then
+    local friendly
+    friendly="$(dirname "$apk")/CyberManju-OS-$version-arm64-v8a.apk"
+    if [ "$apk" != "$friendly" ]; then
+      mv "$apk" "$friendly"
+      apk="$friendly"
     fi
   fi
 
   echo "verified signed APK: $apk"
 }
 
+# Secret hygiene: shred the keystore + signing properties before artifact
+# upload so self-hosted runners / debug archives never retain plaintext
+# signing secrets. Ephemeral GitHub runners mitigate this, but cleanup is
+# cheap and fail-safe (missing files are fine).
+cleanup() {
+  local removed=0
+  for f in "$APP_DIR/cybermanju-release.keystore" "$APP_DIR/release-signing.properties" "$EXPECTED_MARKER"; do
+    if [ -f "$f" ]; then
+      if command -v shred > /dev/null; then
+        shred -u "$f" || rm -f "$f"
+      else
+        rm -f "$f"
+      fi
+      removed=1
+    fi
+  done
+  if [ "$removed" = "1" ]; then
+    echo "signing secrets shredded"
+  else
+    echo "no signing secrets to shred"
+  fi
+}
+
 case "${1:-}" in
   prepare) prepare ;;
   verify) verify ;;
+  cleanup) cleanup ;;
   *)
-    echo "usage: $0 {prepare|verify}" >&2
+    echo "usage: $0 {prepare|verify|cleanup}" >&2
     exit 2
     ;;
 esac

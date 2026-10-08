@@ -646,7 +646,18 @@ pub fn default_secret_dir() -> Option<PathBuf> {
             return Some(PathBuf::from(h).join("Library/Application Support/CyberManjuOS"));
         }
     }
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(target_os = "android")]
+    {
+        // App-private files dir: always writable under scoped storage, no
+        // permission needed. External dirs are intentionally NOT used.
+        if let Ok(d) = std::env::var("CYBERMANJU_ANDROID_FILES_DIR") {
+            if !d.trim().is_empty() {
+                return Some(PathBuf::from(d));
+            }
+        }
+        return Some(PathBuf::from("/data/data/com.cybermanju.os/files"));
+    }
+    #[cfg(all(unix, not(target_os = "macos"), not(target_os = "android"))]
     {
         let base = std::env::var("XDG_DATA_HOME")
             .ok()

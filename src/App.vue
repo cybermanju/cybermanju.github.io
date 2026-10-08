@@ -553,6 +553,36 @@ function openAgent(event: KeyboardEvent) {
 const openAccountsWindow = () => wm.open('accounts')
 const refreshAuthGate = () => void store.checkAuthStatus()
 
+function isAndroidWebView(): boolean {
+  try {
+    return /android/i.test(navigator.userAgent)
+  } catch {
+    return false
+  }
+}
+
+// Android system back: close transient UI first, else step back in path
+// history (same as desktop `go_back`). Re-push state so every press is
+// observable instead of exiting the WebView.
+function handleAndroidBack() {
+  if (store.commandPaletteOpen) {
+    store.commandPaletteOpen = false
+  } else if (store.showShortcutsHelp) {
+    store.showShortcutsHelp = false
+  } else {
+    navigateInHistory(-1)
+  }
+  try {
+    if (isAndroidWebView()) window.history.pushState({ cybermanju: true }, '')
+  } catch {}
+}
+
+function handleOnlineStatus() {
+  try {
+    document.body.classList.toggle('cybermanju-offline', !navigator.onLine)
+  } catch {}
+}
+
 // OAuth popup fast-path: this window is the login popup our app opened
 // (Supabase redirected back into it). It must NEVER render the full app —
 // just exchange the code, notify the opener and close itself.
@@ -617,6 +647,20 @@ onMounted(() => {
   window.addEventListener('keydown', openEditor)
   window.addEventListener('keydown', openAgent)
   window.addEventListener('pagehide', () => void flushVolumeMirror())
+  // ── Android: system back button + offline state ────────────────
+  // The WebView has no Esc key: map the platform back gesture to the same
+  // history action as the desktop `go_back` shortcut (dialogs first, then
+  // path history). `navigator.onLine` flips `body.cybermanju-offline` so
+  // server-only controls visibly disable instead of hanging (P3-3).
+  window.addEventListener('popstate', handleAndroidBack)
+  window.addEventListener('online', handleOnlineStatus)
+  window.addEventListener('offline', handleOnlineStatus)
+  handleOnlineStatus()
+  // Push one history entry so the first back press fires popstate instead
+  // of leaving the WebView.
+  try {
+    if (isAndroidWebView()) window.history.pushState({ cybermanju: true }, '')
+  } catch {}
 })
 
 onBeforeUnmount(() => {
@@ -625,6 +669,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', openAgent)
   window.removeEventListener('cybermanju:open-accounts', openAccountsWindow)
   window.removeEventListener('cybermanju:open-login', refreshAuthGate)
+  window.removeEventListener('popstate', handleAndroidBack)
+  window.removeEventListener('online', handleOnlineStatus)
+  window.removeEventListener('offline', handleOnlineStatus)
 })
 </script>
 

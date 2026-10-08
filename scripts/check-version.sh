@@ -9,10 +9,6 @@
 #                                            # (tag must be `v` + package.json version)
 #
 # Explicitly NOT carriers — do not add them here:
-#   - Android `versionCode` — generated Gradle sources live in gitignored
-#     `src-tauri/gen/` (created by `tauri android init`; no Android target is
-#     wired yet), so there is nothing to pin in-tree. The store version is
-#     assigned at signing/publish time.
 #   - iOS — no iOS target (`tauri ios init` never run): no Info.plist version.
 #   - Flatpak `src-tauri/flatpak/com.cybermanju.os.yml` — carries only the
 #     Freedesktop `runtime-version` (e.g. '47'), not the app version; app
@@ -78,6 +74,22 @@ check "README.md" "$(sed -n 's/^[[:space:]]*\(\*\*\)\{0,1\}Version:\(\*\*\)\{0,1
 for manifest in crates/*/Cargo.toml; do
   check "$manifest" "$(toml_version "$manifest")"
 done
+
+# Android versionCode: pinned in tauri.conf.json as
+# major*1000000 + minor*1000 + patch (Tauri auto-derives the same formula,
+# pinning makes upgrades auditable + Play-compatible). scripts/android-configure.sh
+# re-audits it post-`tauri android init` since gen/ itself is gitignored.
+expected_code="$(node -e "
+const v = require('./package.json').version.split('.').map(Number);
+process.stdout.write(String(v[0]*1000000 + v[1]*1000 + v[2]));
+")"
+actual_code="$(node -e "process.stdout.write(String(require('./src-tauri/tauri.conf.json').bundle.android.versionCode))")"
+if [ "$actual_code" = "$expected_code" ]; then
+  printf 'ok   %-34s %s\n' "android versionCode" "$actual_code"
+else
+  printf 'FAIL %-34s %s (expected %s, major*1000000+minor*1000+patch)\n' "android versionCode" "${actual_code:-<missing>}" "$expected_code"
+  fail=1
+fi
 
 if [ -n "$tag" ]; then
   case "$tag" in

@@ -107,10 +107,7 @@ impl Database {
         if let Some(parent) = p.parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent).map_err(|e| {
-                    anyhow::anyhow!(
-                        "cannot create database directory {}: {e}",
-                        parent.display()
-                    )
+                    anyhow::anyhow!("cannot create database directory {}: {e}", parent.display())
                 })?;
             }
         }

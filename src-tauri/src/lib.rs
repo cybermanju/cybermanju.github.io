@@ -32,6 +32,21 @@ pub struct AppState {
 
 // WebDashboard now handles its own shutdown (Drop impl with signal channel + thread join).
 
+/// Fail startup with a loud message. On desktop this exits the process;
+/// on mobile (`cfg(mobile)`, i.e. the Android build) it panics so the crash
+/// lands in logcat with a backtrace instead of a silent process death.
+fn fatal(msg: &str) -> ! {
+    tracing::error!("{}", msg);
+    #[cfg(mobile)]
+    {
+        panic!("{}", msg);
+    }
+    #[cfg(not(mobile))]
+    {
+        std::process::exit(1);
+    }
+}
+
 /// Resolve the desktop database path without depending on the process CWD.
 ///
 /// Order: `DB_PATH` env (Docker/server convention) → shared platform data
@@ -39,16 +54,32 @@ pub struct AppState {
 /// `cybermanju_web::security::default_secret_dir`) → process CWD fallback.
 /// AppImage/Flatpak launches must never write into the read-only bundle
 /// mount, so a relative path is only the last resort.
+///
+/// Android: there is no CWD and scoped storage limits writes to the
+/// app-private files dir. Order there is `DB_PATH` → `CYBERMANJU_DATA_DIR`
+/// → `default_secret_dir()` (which knows the Android private dir, see
+/// `crates/web/src/security.rs`) → `/data/data/com.cybermanju.os/files`
+/// hard fallback. The CWD fallback is never used on Android.
 fn resolve_desktop_db_path() -> std::path::PathBuf {
     if let Ok(p) = std::env::var("DB_PATH") {
         if !p.trim().is_empty() {
             return std::path::PathBuf::from(p);
         }
     }
-    let dir = cybermanju_web::security::default_secret_dir().unwrap_or_else(|| {
-        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-    });
-    dir.join("cybermanju.db")
+    #[cfg(target_os = "android")]
+    {
+        if let Some(dir) = cybermanju_web::security::default_secret_dir() {
+            return dir.join("cybermanju.db");
+        }
+        return std::path::PathBuf::from("/data/data/com.cybermanju.os/files/cybermanju.db");
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let dir = cybermanju_web::security::default_secret_dir().unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        });
+        dir.join("cybermanju.db")
+    }
 }
 
 /// The Tantivy index lives next to the database so one backup covers both
@@ -78,35 +109,32 @@ pub fn run() {
     let db_path = resolve_desktop_db_path();
     if let Some(parent) = db_path.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
-            tracing::error!(
+            fatal(&format!(
                 "Failed to create database directory {}: {}",
                 parent.display(),
                 e
-            );
-            std::process::exit(1);
+            ));
         }
     }
     tracing::info!("Using database at {}", db_path.display());
     let db_path_str = db_path.to_string_lossy();
     let db = match Database::new(&db_path_str) {
         Ok(d) => Arc::new(RwLock::new(d)),
-        Err(e) => {
-            tracing::error!("Failed to initialize redb database: {}", e);
-            std::process::exit(1);
-        }
+        Err(e) => fatal(&format!("Failed to initialize redb database: {}", e)),
     };
     tracing::info!("redb database initialized");
 
-    // Initialize Tantivy full-text search index
+    // Initialize Tantivy full-text search index.
+    // Mobile note: the index is mmap'd next to the database and grows with
+    // the corpus — on Android this lives in the app-private files dir (no
+    // scoped-storage permission needed) but counts against the app quota;
+    // large restores should run on Wi-Fi/charger (see docs/ANDROID.md §ABI).
     let index_path = resolve_desktop_index_path(&db_path);
     tracing::info!("Using search index at {}", index_path.display());
     let index_path_str = index_path.to_string_lossy();
     let tantivy_index = match search::SearchIndex::new(&index_path_str) {
         Ok(i) => i,
-        Err(e) => {
-            tracing::error!("Failed to initialize Tantivy: {}", e);
-            std::process::exit(1);
-        }
+        Err(e) => fatal(&format!("Failed to initialize Tantivy: {}", e)),
     };
     tracing::info!("Tantivy search index ready");
 
@@ -133,20 +161,42 @@ pub fn run() {
     let sync_state = Arc::new(sync_cmd::SyncState::new());
 
     // ─── Start Web Dashboard (localhost-only, JWT-authenticated) ────────
+    // Desktop/server only. On mobile the dashboard is NOT started: binding a
+    // localhost HTTP server on a phone wastes battery, trips Play policy
+    // review, and no LAN peer expects it — the Android app is a local vault
+    // (Tauri IPC), not a server. Dashboard commands stay registered so the
+    // frontend's transport switch keeps working; they report "unavailable".
+    #[cfg(mobile)]
+    let dashboard = {
+        let mut dashboard = web_dashboard::WebDashboard::new_shared(
+            web_dashboard::DEFAULT_PORT,
+            Arc::clone(&db),
+        );
+        dashboard.sync_state = Arc::clone(&sync_state);
+        dashboard.set_search_index(Arc::clone(&state.tantivy_index));
+        tracing::info!("Web Dashboard disabled on mobile (local-vault mode)");
+        Arc::new(dashboard)
+    };
     // It borrows the application's database handle instead of opening the
     // redb file a second time (which would fail on the exclusive file lock).
-    let mut dashboard =
-        web_dashboard::WebDashboard::new_shared(web_dashboard::DEFAULT_PORT, Arc::clone(&db));
-    dashboard.sync_state = Arc::clone(&sync_state);
-    dashboard.set_search_index(Arc::clone(&state.tantivy_index));
-    let dashboard = Arc::new(dashboard);
-    match dashboard.start() {
-        Ok(()) => tracing::info!(
-            "Web Dashboard started on port {} (localhost only, JWT auth)",
-            web_dashboard::DEFAULT_PORT
-        ),
-        Err(e) => tracing::error!("Failed to start Web Dashboard: {}", e),
-    }
+    #[cfg(not(mobile))]
+    let dashboard = {
+        let mut dashboard = web_dashboard::WebDashboard::new_shared(
+            web_dashboard::DEFAULT_PORT,
+            Arc::clone(&db),
+        );
+        dashboard.sync_state = Arc::clone(&sync_state);
+        dashboard.set_search_index(Arc::clone(&state.tantivy_index));
+        let dashboard = Arc::new(dashboard);
+        match dashboard.start() {
+            Ok(()) => tracing::info!(
+                "Web Dashboard started on port {} (localhost only, JWT auth)",
+                web_dashboard::DEFAULT_PORT
+            ),
+            Err(e) => tracing::error!("Failed to start Web Dashboard: {}", e),
+        }
+        dashboard
+    };
     // dashboard.stop() is called explicitly below after Tauri exits,
     // ensuring the accept thread is joined from the MAIN thread (not from
     // the accept thread's own Drop, which would self-deadlock).
@@ -323,6 +373,9 @@ pub fn run() {
         .expect("Fatal error while running CyberManju OS — see logs above");
 
     // ─── Clean shutdown: stop the dashboard before dropping the Arc ──
+    // Mobile never started it; stop() is a no-op there (same Drop path).
+    #[cfg(not(mobile))]
     dashboard.stop();
+    #[cfg(not(mobile))]
     log::info!("Web Dashboard shut down cleanly");
 }

@@ -340,3 +340,24 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ── mobile safe-area + viewport ────────────────────────────────────
+   Android WebView with viewport-fit=cover draws under the status/nav bars:
+   pad the shell by the system insets and use dynamic viewport units so the
+   1400×900 desktop layout degrades to a full-height column on phones.
+   `100dvh` falls back to `100vh` where unsupported. */
+.cybermanju-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Offline state: set on <body> by App.vue (online/offline events). Panels
+   can key off it to disable server-only actions instead of hanging. */
+body.cybermanju-offline .server-only {
+  opacity: 0.55;
+  pointer-events: none;
+}

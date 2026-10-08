@@ -843,8 +843,7 @@ fn auth_status_reports_bootstrap_state_without_credentials() {
     let _token = bootstrap_session(&d, "first", "correct horse battery");
     let closed = call(&d, "GET", "/api/auth/status", "", None);
     assert_eq!(status_of(&closed), 200, "{closed}");
-    let payload: serde_json::Value =
-        serde_json::from_str(body_of(&closed)).expect("status json");
+    let payload: serde_json::Value = serde_json::from_str(body_of(&closed)).expect("status json");
     assert_eq!(payload["registrationOpen"], false, "{payload}");
 }
 

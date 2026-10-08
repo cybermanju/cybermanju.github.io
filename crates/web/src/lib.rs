@@ -1356,15 +1356,10 @@ fn route_request(
         // `GET /api/auth/status → 200 { registrationOpen }` on every
         // device, no token needed. The Docker/web login gate uses it to
         // decide between "create the first account" and "sign in".
-        ["api", "auth", "status"] if method == "GET" => {
-            match api::users::registration_open(db) {
-                Ok(open) => json_ok(
-                    &serde_json::json!({ "registrationOpen": open }),
-                    origin,
-                ),
-                Err(e) => json_error(500, &e, origin),
-            }
-        }
+        ["api", "auth", "status"] if method == "GET" => match api::users::registration_open(db) {
+            Ok(open) => json_ok(&serde_json::json!({ "registrationOpen": open }), origin),
+            Err(e) => json_error(500, &e, origin),
+        },
 
         // ─── User registration ────────────────────────────────────
         // Public, but bootstrap-only inside the handler and the granted

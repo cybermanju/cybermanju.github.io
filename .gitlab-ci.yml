@@ -201,7 +201,7 @@ android-build:
     - apt-get install -y nodejs
     - curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
     - export PATH="$HOME/.cargo/bin:$PATH"
-    - rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+    - rustup target add aarch64-linux-android x86_64-linux-android
     - mkdir -p /opt/android-sdk/cmdline-tools
     - curl -sSfL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdtools.zip
     - unzip -q /tmp/cmdtools.zip -d /opt/android-sdk/cmdline-tools
@@ -220,11 +220,14 @@ android-build:
     - |
       export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
       export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+      bash scripts/android-configure.sh
       REQUIRE_SIGNING=1 bash scripts/android-signing.sh prepare
-      npm run tauri android build -- --target aarch64
+      npx tauri android build --target aarch64 --apk --aab --split-per-abi
       REQUIRE_SIGNING=1 bash scripts/android-signing.sh verify
-    - mkdir -p ship/android && find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -exec cp {} ship/android/ \;
-    - ls ship/android/*.apk
+      bash scripts/android-smoke.sh || echo "smoke skipped/failed (non-blocking)"
+      bash scripts/android-signing.sh cleanup
+    - mkdir -p ship/android && find src-tauri/gen/android/app/build/outputs \( -name '*.apk' -o -name '*.aab' \) -exec cp {} ship/android/ \;
+    - ls ship/android/
   artifacts:
     paths: [ship/android/]
     expire_in: 1 week
@@ -407,7 +410,7 @@ release:
     - cp ship/rpm/*.rpm release/release-rpm/
     - cp ship/flatpak/*.flatpak release/release-flatpak/
     - cp ship/arch/* release/release-arch/ 2>/dev/null || true
-    - cp ship/android/*.apk release/release-android/
+    - cp ship/android/*.apk ship/android/*.aab release/release-android/ 2>/dev/null || cp ship/android/*.apk release/release-android/
     - cp ship/windows/* release/release-windows/ 2>/dev/null || true
     - cp ship/macos/* release/release-macos/ 2>/dev/null || true
     # A job can go green while producing nothing: fail here instead of
@@ -434,7 +437,7 @@ release:
       check release-rpm "*.rpm"
       check release-flatpak "*.flatpak"
       check release-arch "*.AppImage"
-      check release-android "*.apk"
+      check release-android "*.apk" "*.aab"
       test -f dist-wasm/index.html || { echo "ERROR: dist-wasm/index.html missing"; missing=1; }
       OPTIONAL=1 check release-windows "*.exe" "*.msi"
       OPTIONAL=1 check release-macos "*.dmg"
@@ -468,7 +471,7 @@ release:
         echo "| Linux (Flatpak) | \`dist-flatpak.zip\` (Universal Linux) |"
         echo "| Linux (Arch) | \`dist-arch.zip\` (deb + AppImage on Arch) |"
         echo "| macOS | \`dist-macos.zip\` (DMG) |"
-        echo "| Android | \`dist-android.zip\` (signed APK, arm64-v8a) |"
+        echo "| Android | \`dist-android.zip\` (signed APK + AAB, arm64-v8a) |"
         echo "| Web (WASM) | \`dist-wasm.zip\` (static files for any web server) |"
         echo "| Docker | \`docker pull $CI_REGISTRY_IMAGE:latest\` |"
         echo ""

@@ -270,3 +270,16 @@ Stage Summary:
 - Docs: `OPERATIONS.md` §6 first-run + multi-account note, `ARCHITECTURE.md`
   endpoint rows for `auth/status` + `auth/logout`.
 - Verified here: `check-version.sh` green, `vue-tsc --noEmit` clean, `vitest` 29 files / 372 pass. Rust `fmt/clippy/test` left to CI per repo rules.
+
+## 2026-10-08 — Android full fix (16 items): packaging, signing, runtime, mobile UX
+
+- Packaging: CI/release build `--apk --aab --split-per-abi` (Play bundle alongside APK); Rust targets trimmed to `aarch64+x86_64` (armv7/i686 were never built); `versionCode` pinned in `tauri.conf.json` (`1001` = major*1e6+minor*1e3+patch), enforced by `check-version.sh` + new `scripts/android-configure.sh` (versionCode audit, manifest patch, ABI policy).
+- Manifest (`android-configure.sh`, idempotent): INTERNET/ACCESS_NETWORK_STATE/LOCATION/CAMERA/RECORD_AUDIO/POST_NOTIFICATIONS, `usesCleartextTraffic` (http LAN dashboard), `allowBackup=false` fail-closed + manual export path, `cybermanju://` deep link + `.cyb3` VIEW intents.
+- Signing parity (P2-8 closed): unsigned PR artifacts renamed `CyberManju-OS-<ver>-arm64-v8a-unsigned.apk` (never neutral); `android-signing.sh cleanup` shreds keystore+properties pre-upload; AABs listed + shipped in artifacts/release packages.
+- On-device verification: new `scripts/android-smoke.sh` (adb install + am start + logcat crash grep, graceful skip without arm64 emulator), wired `continue-on-error` in CI, non-blocking in GitLab.
+- Runtime: Android DB path branch (app-private files dir, never CWD), `default_secret_dir()` Android branch, WebDashboard NOT started on mobile (`#[cfg(mobile)]`), `fatal()` panics on mobile (logcat) vs exit on desktop, Tantivy battery note.
+- Capabilities: new `src-tauri/capabilities/mobile.json` (`platforms: ["android"]`, scoped-storage comment).
+- Frontend: `viewport-fit=cover` + theme-color + mobile-capable metas, safe-area/`100dvh` shell CSS, `body.cybermanju-offline` dimming, Android back-gesture (`popstate` → close transient / history back) + online/offline listeners in `App.vue`.
+- CSP covers both WebView asset schemes (`http://asset.localhost` added).
+- Docs: new `docs/ANDROID.md` runbook (§§ packaging/signing/manifest/storage/runtime/frontend/updates/verification); `TASKS.md` P2-8 ticked, P2-16 narrowed to iOS; `AGENTS.md` android lines updated.
+- Not run here: `cargo fmt/clippy/test`, device builds — CI must prove Rust/mobile.

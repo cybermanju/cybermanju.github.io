@@ -97,7 +97,7 @@ CI jobs (`ci.yml`, concurrency `CI-<ref>`, cancel-in-progress):
 → `build:wasm:frontend` → `dist-wasm/`) · `windows-build` · `linux-build`
 (deb+AppImage+rpm) · `rpm-build` + `flatpak-build` (from linux artifacts) ·
 `arch-build` (Arch container, `NO_STRIP`/`APPIMAGE_EXTRACT_AND_RUN`) ·
-`android-build` (NDK `28.2.13676358`, aarch64 only, signed APK) ·
+`android-build` (NDK `28.2.13676358`, arm64-v8a release, APK+AAB `--split-per-abi`, signed; unsigned PR artifacts say `-unsigned`) ·
 `macos-build` · `deploy-pages` (needs `wasm-build`, push-to-main only).
 
 Release (`release.yml`, on `v*` tags): same gates + Docker→GHCR +
@@ -113,8 +113,10 @@ Secrets mirror GitHub (`TAURI_SIGNING_PRIVATE_KEY`, `ANDROID_KEYSTORE_*`).
 
 - Watch until all jobs green; fix and re-push on failure.
 - Do not cancel or re-run unrelated queued dependabot runs.
-- Android signing: `scripts/android-signing.sh prepare|verify`; release
-  requires `REQUIRE_SIGNING=1` + keystore secrets.
+- Android signing: `scripts/android-signing.sh prepare|verify|cleanup`
+  (+ `android-configure.sh` manifest/versionCode, `android-smoke.sh`
+  on-device best-effort); release requires `REQUIRE_SIGNING=1` + keystore
+  secrets. Full runbook: `docs/ANDROID.md`.
 
 ## 5. Contracts agents must not break
 
