@@ -1699,6 +1699,9 @@ impl SValue {
     }
 }
 
+/// Inline shell + fetch as values: the host surface a script may touch.
+type ScriptShellFn<'a> = &'a dyn Fn(&str) -> Result<String, String>;
+
 /// JSON-quote a string for dict display (minimal escaping, deterministic).
 fn script_json_quote(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
@@ -1747,7 +1750,6 @@ impl SCaps {
             return Ok(());
         }
         let verb = line
-            .trim()
             .split_whitespace()
             .next()
             .unwrap_or("")
@@ -1882,8 +1884,8 @@ fn script_fingerprint(source: &str) -> String {
 }
 
 struct ScriptInterp<'a> {
-    exec: &'a dyn Fn(&str) -> Result<String, String>,
-    fetch: Option<&'a dyn Fn(&str) -> Result<String, String>>,
+    exec: ScriptShellFn<'a>,
+    fetch: Option<ScriptShellFn<'a>>,
     caps: SCaps,
     vars: BTreeMap<String, SValue>,
     funcs: BTreeMap<String, SFuncDef>,
@@ -2226,10 +2228,9 @@ fn script_rest<'b>(text: &'b str, kw: &str, lineno: usize) -> Result<&'b str, St
 
 fn script_colon(s: &str, lineno: usize) -> Result<String, String> {
     let t = s.trim();
-    if t.ends_with(':') {
-        Ok(t[..t.len() - 1].trim().to_string())
-    } else {
-        Err(format!("syntax: line {lineno}: block opener needs a trailing `:` (`if …:`, `for …:`, `while …:`, `else:`)"))
+    match t.strip_suffix(':') {
+        Some(inner) => Ok(inner.trim().to_string()),
+        None => Err(format!("syntax: line {lineno}: block opener needs a trailing `:` (`if …:`, `for …:`, `while …:`, `else:`)")),
     }
 }
 
@@ -2899,8 +2900,8 @@ fn script_assign_rhs(ip: &mut ScriptInterp, src: &str, lineno: usize) -> Result<
         let expanded = script_interpolate(&ip.vars, &cmdline);
         return script_inline_value(ip, &expanded, lineno);
     }
-    if t.starts_with("js:") {
-        let normalized = script_normalize_js(t["js:".len()..].trim());
+    if let Some(rest) = t.strip_prefix("js:") {
+        let normalized = script_normalize_js(rest.trim());
         return script_eval(ip, &normalized, lineno);
     }
     if script_is_kw(t, "fetch") {
@@ -3560,7 +3561,12 @@ fn script_arith(left: &SValue, op: char, right: &SValue, lineno: usize) -> Resul
             _ => (left, right),
         };
         if let (SValue::Str(s), SValue::Num(n)) = pair {
-            let times = (*n).max(0.0).min(256.0) as usize;
+            // Capped; NaN/non-positive → empty, never a `clamp` panic.
+            let times = if !n.is_finite() || *n <= 0.0 {
+                0
+            } else {
+                n.min(256.0) as usize
+            };
             if s.len() * times > SCRIPT_MAX_STR {
                 return Err(format!(
                     "too_large: line {lineno}: repeat exceeds {SCRIPT_MAX_STR} bytes"

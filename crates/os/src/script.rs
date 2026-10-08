@@ -210,7 +210,6 @@ impl Caps {
             return Ok(());
         }
         let verb = line
-            .trim()
             .split_whitespace()
             .next()
             .unwrap_or("")
@@ -341,12 +340,15 @@ fn json_quote(s: &str) -> String {
     out
 }
 
-/// What the host offers a script: inline shell + optional fetch.
+/// Inline shell + fetch as values: the host surface a script may touch.
 /// `fetch: None` (native shell, no HTTP client) keeps the honest
 /// `unsupported:`; replay journals inject a serving fetch everywhere.
+pub type ShellFn<'a> = &'a dyn Fn(&str) -> Result<String, String>;
+
+/// What the host offers a script: inline shell + optional fetch.
 pub struct Host<'a> {
-    pub exec: &'a dyn Fn(&str) -> Result<String, String>,
-    pub fetch: Option<&'a dyn Fn(&str) -> Result<String, String>>,
+    pub exec: ShellFn<'a>,
+    pub fetch: Option<ShellFn<'a>>,
 }
 
 struct Interp<'a> {
@@ -1017,10 +1019,9 @@ fn expect_rest<'b>(text: &'b str, kw: &str, lineno: usize) -> Result<&'b str, St
 
 fn strip_suffix_colon(s: &str, lineno: usize) -> Result<String, String> {
     let t = s.trim();
-    if t.ends_with(':') {
-        Ok(t[..t.len() - 1].trim().to_string())
-    } else {
-        Err(format!("syntax: line {lineno}: block opener needs a trailing `:` (`if …:`, `for …:`, `while …:`, `else:`)"))
+    match t.strip_suffix(':') {
+        Some(inner) => Ok(inner.trim().to_string()),
+        None => Err(format!("syntax: line {lineno}: block opener needs a trailing `:` (`if …:`, `for …:`, `while …:`, `else:`)")),
     }
 }
 
@@ -1306,8 +1307,8 @@ fn eval_assign_rhs(ip: &mut Interp, src: &str, lineno: usize) -> Result<Value, S
         let expanded = interpolate(ip, &cmdline, lineno)?;
         return inline_value(ip, &expanded, lineno);
     }
-    if t.starts_with("js:") {
-        let expr_src = normalize_js(t["js:".len()..].trim());
+    if let Some(rest) = t.strip_prefix("js:") {
+        let expr_src = normalize_js(rest.trim());
         return eval_expr(ip, &expr_src, lineno);
     }
     if is_kw(t, "fetch") {
@@ -1421,7 +1422,7 @@ fn unquote(s: &str, lineno: usize) -> Result<Option<String>, String> {
     {
         return Ok(Some(t[1..t.len() - 1].to_string()));
     }
-    if (t.starts_with('"') || t.starts_with('\'')) && t.len() >= 1 {
+    if (t.starts_with('"') || t.starts_with('\'')) && !t.is_empty() {
         return Err(format!("syntax: line {lineno}: unclosed quote in `{t}`"));
     }
     Ok(None)
@@ -2066,10 +2067,15 @@ fn arith(left: &Value, op: char, right: &Value, lineno: usize) -> Result<Value, 
         }
         return Ok(Value::Str(s));
     }
-    // `*` repeats a string: `"ab" * 3` (capped).
+    // `*` repeats a string: `"ab" * 3` (capped; NaN/non-positive → empty,
+    // never a `clamp` panic on hostile numbers).
     if op == '*' {
         if let (Value::Str(s), Value::Num(n)) | (Value::Num(n), Value::Str(s)) = (left, right) {
-            let times = (*n).max(0.0).min(256.0) as usize;
+            let times = if !n.is_finite() || *n <= 0.0 {
+                0
+            } else {
+                n.min(256.0) as usize
+            };
             if s.len() * times > MAX_STR {
                 return Err(format!(
                     "too_large: line {lineno}: repeat exceeds {MAX_STR} bytes"

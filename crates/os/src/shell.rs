@@ -2617,7 +2617,7 @@ fn edit_cmd(args: &[String], json: bool) -> Result<String, String> {
     if args.len() < 3 {
         return Err("usage: edit <path> <old> <new>".to_string());
     }
-    if args[1].len() < 1 {
+    if args[1].is_empty() {
         return Err("integrity: refusing empty anchor (old text must be ≥1 char)".to_string());
     }
     let path = absolute(&args[0]);
