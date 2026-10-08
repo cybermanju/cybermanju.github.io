@@ -57,7 +57,9 @@ if grep -q "$MARK" "$MANIFEST"; then
   echo "AndroidManifest already configured — leaving it alone"
 else
   python3 - "$MANIFEST" "$MARK" <<'PYEOF'
+import re
 import sys
+import xml.dom.minidom
 
 path, mark = sys.argv[1], sys.argv[2]
 src = open(path).read()
@@ -85,15 +87,29 @@ src = src.replace(anchor, perms + "    " + anchor, 1)
 
 # 2b. application attributes: cleartext for http://nas:3456 LAN servers +
 # explicit backup policy (fail-closed; manual export is the backup path).
-old_app = "<application"
-new_app = (
+# The Tauri template pins android:usesCleartextTraffic="${usesCleartextTraffic}"
+# (a manifestPlaceholder); prepending ours without removing it yields a
+# duplicate attribute — not well-formed XML — and manifest merging fails.
+# Strip any template-set copies first, then set ours exactly once.
+m = re.search(r"<application\b[^>]*>", src)
+assert m, "no <application> tag in AndroidManifest"
+tag = m.group(0)
+for attr in ("android:usesCleartextTraffic", "android:allowBackup", "android:fullBackupOnly"):
+    tag = re.sub(r'\s+' + attr + r'="[^"]*"', "", tag)
+tag = tag.replace(
+    "<application",
     "<application "
     'android:usesCleartextTraffic="true" '
     'android:allowBackup="false" '
-    'android:fullBackupOnly="false" '
+    'android:fullBackupOnly="false"',
+    1,
 )
-assert old_app in src
-src = src.replace(old_app, "<!-- %s: cleartext=LAN http dashboard, allowBackup=false (manual export only) -->\n    " % mark + new_app, 1)
+src = (
+    src[: m.start()]
+    + "<!-- %s: cleartext=LAN http dashboard, allowBackup=false (manual export only) -->\n    " % mark
+    + tag
+    + src[m.end():]
+)
 
 # 2c. Deep link + .cyb3 association inside the main activity.
 intent = """
@@ -107,13 +123,20 @@ intent = """
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="content" android:mimeType="*/*" android:pathPattern=".*\\\\.cyb3" />
-                <data android:scheme="file" android:mimeType="*/*" android:pathPattern=".*\\\\.cyb3" />
+                <data android:scheme="content" android:mimeType="*/*" android:pathPattern=".*\\.cyb3" />
+                <data android:scheme="file" android:mimeType="*/*" android:pathPattern=".*\\.cyb3" />
             </intent-filter>
 """ % mark
 close = "</activity>"
 assert close in src, "no </activity> in AndroidManifest"
 src = src.replace(close, intent + "        " + close, 1)
+
+# Fail fast: the merger's "Error parsing" surfaces after minutes of Gradle.
+# Well-formedness here keeps a broken patch from ever reaching the build.
+try:
+    xml.dom.minidom.parseString(src)
+except Exception as e:
+    sys.exit("AndroidManifest.xml is not well-formed after patching: %s" % e)
 
 open(path, "w").write(src)
 print("patched " + path)

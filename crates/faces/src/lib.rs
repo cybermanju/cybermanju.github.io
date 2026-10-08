@@ -43,7 +43,7 @@
 //   detect_faces_in_file: tries ONNX first → falls back to BLAKE3 pseudo-embeddings
 //   Model paths: ~/.cache/cybermanju/scrfd_2.5g.onnx, arcface_mfacenet.onnx
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use cybermanju_types::schema::FileNode;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -1483,29 +1483,29 @@ fn collect_clusters_from_labels(
 /// Honest fallback: when ONNX is unavailable, fails, or finds zero faces,
 /// return an empty set — never fabricate pseudo-faces. Fabricated embeddings
 /// cluster as if they were real detections and corrupt person groups (AUDIT F7).
-pub fn detect_faces_in_file(file_node: &FileNode) -> Result<Vec<Vec<f32>>> {
+pub fn detect_faces_in_file(_file_node: &FileNode) -> Result<Vec<Vec<f32>>> {
     #[cfg(feature = "onnx-face")]
     {
-        match fn_onnx_detect_faces(file_node) {
+        match fn_onnx_detect_faces(_file_node) {
             Ok(embeddings) if !embeddings.is_empty() => {
                 log::info!(
                     "ONNX face detection: {} faces from {}",
                     embeddings.len(),
-                    file_node.name
+                    _file_node.name
                 );
                 Ok(embeddings)
             }
             Ok(_) => {
                 log::info!(
                     "ONNX detected no faces in {} — returning empty set",
-                    file_node.name
+                    _file_node.name
                 );
                 Ok(Vec::new())
             }
             Err(e) => {
                 log::warn!(
                     "ONNX face detection failed for {}: {}. Returning empty set (no fabrication).",
-                    file_node.name,
+                    _file_node.name,
                     e
                 );
                 Ok(Vec::new())
@@ -1860,6 +1860,7 @@ struct ScoredBox {
     keypoints: [[f32; 2]; 5],
 }
 
+#[cfg(feature = "onnx-face")]
 type FaceBox = ([f32; 4], [[f32; 2]; 5]);
 
 #[cfg(feature = "onnx-face")]
