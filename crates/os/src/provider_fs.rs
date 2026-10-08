@@ -15,7 +15,6 @@
 
 use cybermanju_db::Database;
 use cybermanju_types::sync::{SyncBackendType, SyncConfig};
-use redb::ReadableTable;
 
 /// Cap for one `cat` print (files can be gigabytes; `cp` them to read fully).
 pub const CAT_LIMIT_BYTES: usize = 1024 * 1024;
@@ -138,12 +137,16 @@ pub fn list_mounts(db: &Database) -> Result<Vec<(String, String)>, String> {
                 .get("configId")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
-            let name = json.get("name").and_then(|v| v.as_str()).unwrap_or(&id);
+            let name = json
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or(id)
+                .to_string();
             if config_id.is_empty() {
                 continue;
             }
             mounted.insert(config_id.to_string());
-            rows.push((id, name.to_string()));
+            rows.push((id, name));
         }
     }
     let configs = db.list_sync_configs().map_err(|e| e.to_string())?;

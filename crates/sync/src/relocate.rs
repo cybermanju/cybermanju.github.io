@@ -154,9 +154,8 @@ pub fn relocate(
     }
     let remote_url = to_backend
         .upload_file(&staging_str, &remote_path)
-        .map_err(|e| {
+        .inspect_err(|_| {
             let _ = std::fs::remove_file(&staging);
-            e
         })?;
 
     let verify_path = format!("{}.verify", staging_str);

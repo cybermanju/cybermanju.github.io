@@ -952,7 +952,7 @@ fn cd_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
                 set_dir(display);
                 return Ok(String::new());
             }
-            crate::provider_fs::ProvKind::File => {
+            crate::provider_fs::ProvKind::File { .. } => {
                 return Err(format!("not a directory: {target}"));
             }
             crate::provider_fs::ProvKind::Missing => {
@@ -992,7 +992,7 @@ fn provider_display(target: &str) -> String {
 }
 
 /// The database every provider verb needs (bare `execute` has none).
-fn need_db(db: Option<&Database>, verb: &str) -> Result<&Database, String> {
+fn need_db<'a>(db: Option<&'a Database>, verb: &str) -> Result<&'a Database, String> {
     db.ok_or_else(|| format!("unsupported: {verb} on /providers/… needs the database"))
 }
 
@@ -1408,7 +1408,7 @@ fn rm_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
                 );
             }
             match crate::provider_fs::classify(db, &head, &rest)? {
-                crate::provider_fs::ProvKind::File => {
+                crate::provider_fs::ProvKind::File { .. } => {
                     crate::provider_fs::delete_file(db, &head, &rest)?;
                     out.push(format!("{display} removed"));
                 }
@@ -1464,7 +1464,7 @@ fn mkdir_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
                 crate::provider_fs::ProvKind::Dir => {
                     return Err(format!("already exists: {display}"));
                 }
-                crate::provider_fs::ProvKind::File => {
+                crate::provider_fs::ProvKind::File { .. } => {
                     return Err(format!("already exists: {display}"));
                 }
                 crate::provider_fs::ProvKind::Missing => {}
