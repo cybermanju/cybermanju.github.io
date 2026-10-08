@@ -1860,7 +1860,22 @@ const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
  */
 async function probeStaticConnection(args: Record<string, unknown>): Promise<boolean> {
   const cfg = (args.config ?? {}) as Record<string, unknown>
-  const token = typeof cfg.token === 'string' ? cfg.token : ''
+  const configId = typeof cfg.id === 'string' ? cfg.id : ''
+  let token = typeof cfg.token === 'string' ? cfg.token : ''
+  // The token never rides on the stored row: `sync.save` seals it into
+  // `sync.secret` and strips it (mirroring the server's `skip_serializing`),
+  // so a probe built from a re-fetched row + an empty draft carries no
+  // token. Fall back to the sealed secret before calling the token absent —
+  // otherwise every Test after an OAuth connect reports "provider answered
+  // false" even though the OAuth token is saved and valid.
+  if (!token && configId) {
+    try {
+      const s = await wasmDbDispatch('sync.secret', { configId }).catch(() => null)
+      if (typeof s === 'string' && s) token = s
+    } catch {
+      // No sealed secret — the auth error below names the fix.
+    }
+  }
   const backend = String(cfg.backendType ?? '')
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 10000)
@@ -1868,12 +1883,16 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
     new Error(
       `network: ${who} is not reachable from this browser (offline, or the provider sends no CORS headers) — the token is still saved locally; live sync needs the desktop app, Docker image or dashboard server`
     )
+  const needToken = (): Error =>
+    new Error(
+      `auth: ${configId || backend || 'provider'} has no token — paste a PAT on its provider card or connect OAuth, then retry`
+    )
   try {
     switch (backend) {
       case 'local':
         return true
       case 'github': {
-        if (!token) return false
+        if (!token) throw needToken()
         let res: Response
         try {
           res = await fetch('https://api.github.com/user', {
@@ -1883,15 +1902,41 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
         } catch {
           throw blocked('api.github.com')
         }
-        return res.ok
+        if (res.ok) return true
+        if (res.status === 401 || res.status === 403) {
+          throw new Error(
+            `auth: GitHub rejected the token (HTTP ${res.status}) — the OAuth grant may lack the 'repo' scope or the PAT expired; reconnect OAuth or paste a PAT with repo scope, then retry`
+          )
+        }
+        throw new Error(`network: GitHub connection test failed (HTTP ${res.status})`)
       }
       case 'gitlab': {
-        if (!token) return false
+        if (!token) throw needToken()
         const project = String(cfg.repoName ?? '')
-        if (!project) return false
         const base = typeof cfg.basePath === 'string' && /^https?:\/\//.test(cfg.basePath)
           ? cfg.basePath.replace(/\/+$/, '')
           : 'https://gitlab.com'
+        // No project set yet (fresh OAuth connect before the repo step):
+        // verify the TOKEN against /user instead of failing the valid
+        // OAuth grant as "provider answered false".
+        if (!project) {
+          let res: Response
+          try {
+            res = await fetch(`${base}/api/v4/user`, {
+              headers: { 'PRIVATE-TOKEN': token },
+              signal: ctrl.signal,
+            })
+          } catch {
+            throw blocked(base)
+          }
+          if (res.ok) return true
+          if (res.status === 401 || res.status === 403) {
+            throw new Error(
+              `auth: GitLab rejected the token (HTTP ${res.status}) — the OAuth grant may lack the 'api' scope; reconnect OAuth or paste a PAT with api scope, then retry`
+            )
+          }
+          throw new Error(`network: GitLab connection test failed (HTTP ${res.status})`)
+        }
         let res: Response
         try {
           res = await fetch(
@@ -1901,10 +1946,16 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
         } catch {
           throw blocked(base)
         }
-        return res.ok
+        if (res.ok) return true
+        if (res.status === 401 || res.status === 403) {
+          throw new Error(
+            `auth: GitLab rejected the token (HTTP ${res.status}) — reconnect OAuth (api scope) or paste a PAT with api scope, then retry`
+          )
+        }
+        throw new Error(`network: GitLab connection test failed (HTTP ${res.status})`)
       }
       case 'googleDrive': {
-        if (!token) return false
+        if (!token) throw needToken()
         let res: Response
         try {
           res = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
@@ -1914,7 +1965,13 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
         } catch {
           throw blocked('www.googleapis.com')
         }
-        return res.ok
+        if (res.ok) return true
+        if (res.status === 401 || res.status === 403) {
+          throw new Error(
+            `auth: Google rejected the token (HTTP ${res.status}) — sessions minted before the 'drive.file' scope grant cannot touch Drive; sign out + sign in again (or reconnect OAuth on the card), then retry`
+          )
+        }
+        throw new Error(`network: Google Drive connection test failed (HTTP ${res.status})`)
       }
       default:
         throw new Error(
