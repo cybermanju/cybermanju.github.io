@@ -481,9 +481,7 @@ fn session_transcripts_are_owner_isolated() {
             &d,
             "POST",
             "/api/users",
-            &format!(
-                r#"{{"username":"{user}","password":"correct horse battery","role":"user"}}"#
-            ),
+            &format!(r#"{{"username":"{user}","password":"correct horse battery","role":"user"}}"#),
             Some(admin.as_str()),
         );
         assert_eq!(status_of(&create), 201, "{create}");

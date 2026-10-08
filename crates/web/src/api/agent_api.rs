@@ -189,8 +189,7 @@ fn validate_fallback_routes(db: &Database, config: &AgentConfig) -> Result<(), S
         if !seen.insert(id.clone()) {
             return Err(format!("invalid: duplicate fallback '{id}'"));
         }
-        get_config(db, id)
-            .map_err(|_| format!("invalid: fallback assistant not found: '{id}'"))?;
+        get_config(db, id).map_err(|_| format!("invalid: fallback assistant not found: '{id}'"))?;
     }
     Ok(())
 }
@@ -2796,8 +2795,7 @@ fn run_agent_job(
                 // continue the same transcript on the next route instead of
                 // failing the run. Anything else would fail identically
                 // everywhere, so it stops here.
-                if cybermanju_agent::config::is_failover_worthy(&e)
-                    && route_idx + 1 < routes.len()
+                if cybermanju_agent::config::is_failover_worthy(&e) && route_idx + 1 < routes.len()
                 {
                     route_idx += 1;
                     let next = &routes[route_idx];
@@ -2806,8 +2804,7 @@ fn run_agent_job(
                     headers = endpoint_headers(&endpoint, &active_key);
                     model = next.model.clone();
                     set_state(job, |s| {
-                        s.activity =
-                            Some(format!("failover → {} · {}", next.name, next.model));
+                        s.activity = Some(format!("failover → {} · {}", next.name, next.model));
                     });
                     continue;
                 }

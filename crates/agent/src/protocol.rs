@@ -795,8 +795,10 @@ mod tests {
         );
         assert!(bare["messages"][0]["tool_call_id"].is_string());
         // A non-context 400 classifies as invalid (fix-the-request), not network.
-        assert!(classify_provider_error(Some(400), "Provider returned error", "")
-            .starts_with("invalid:"));
+        assert!(
+            classify_provider_error(Some(400), "Provider returned error", "")
+                .starts_with("invalid:")
+        );
     }
 
     #[test]
