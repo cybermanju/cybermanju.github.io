@@ -430,6 +430,21 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     buildPath: () => '/api/users',
   },
 
+  // Public first-run probe (no token needed): tells every device whether
+  // bootstrap registration is still open. Used by the Docker/web login gate
+  // to pick "create the first account" vs "sign in".
+  auth_status: {
+    method: 'GET',
+    buildPath: () => '/api/auth/status',
+  },
+
+  // Session revocation (best-effort on logout; expiry revokes the rest).
+  logout_user: {
+    method: 'POST',
+    buildPath: () => '/api/auth/logout',
+    transformRequest: () => ({}),
+  },
+
   authenticate_user: {
     method: 'POST',
     buildPath: () => '/api/users/login',

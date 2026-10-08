@@ -129,6 +129,17 @@ first; chained lines and unknown verbs fall through to the wasm dispatcher
 ## 6. Auth & TLS
 
 - Register is bootstrap-only; role never self-`admin`. Every mutating route checks `Claims{role}` (default `Authenticated`, fail-closed; unknown route without creds → `401`, with creds but unknown → `404` via `is_known_route`).
+- First run on Docker/web (every device): open `http://<nas-ip>:3456` — the
+  login gate offers **Create the first account** while
+  `GET /api/auth/status → { "registrationOpen": true }`, then plain sign-in
+  afterwards. Each browser signs in once (JWT in its own localStorage); a 401
+  anywhere re-opens the gate instead of spamming fetches.
+- Multiple accounts: dashboard users are created by an `admin` in
+  Accounts → Users (`POST /api/users`; headless: provision via
+  `CYBERMANJU_ADMIN_USERNAME/_PASSWORD` or open registration temporarily
+  with `CYBERMANJU_ALLOW_REGISTRATION=1`). Provider OAuth accounts
+  (Google/GitHub/GitLab, Connections tab) are a separate system and
+  unlimited — including several accounts on the same provider.
 - `GET /api/sync/configs` never serializes `token` (absent, not null). Private keys sealed (Argon2id + ChaCha20Poly1305, `sealed:v1:`).
 - No TLS in-app (hand-rolled HTTP/1.1). Terminate at Caddy/nginx (HSTS there, not in-app). See `docs/SECURITY.md` for threat model, rotation, OAuth PKCE, rate limits (100 req/60s), parser caps, `security_headers`.
 

@@ -831,6 +831,24 @@ fn rest_register_then_login_issues_a_usable_token() {
 }
 
 #[test]
+fn auth_status_reports_bootstrap_state_without_credentials() {
+    let (_dir, d) = mk_dashboard(3456);
+    // Empty database → registration open, no token needed.
+    let open = call(&d, "GET", "/api/auth/status", "", None);
+    assert_eq!(status_of(&open), 200, "{open}");
+    let payload: serde_json::Value = serde_json::from_str(body_of(&open)).expect("status json");
+    assert_eq!(payload["registrationOpen"], true, "{payload}");
+
+    // After the first account exists → registration closed.
+    let _token = bootstrap_session(&d, "first", "correct horse battery");
+    let closed = call(&d, "GET", "/api/auth/status", "", None);
+    assert_eq!(status_of(&closed), 200, "{closed}");
+    let payload: serde_json::Value =
+        serde_json::from_str(body_of(&closed)).expect("status json");
+    assert_eq!(payload["registrationOpen"], false, "{payload}");
+}
+
+#[test]
 fn rest_bootstrap_registration_never_grants_admin() {
     let (_dir, d) = mk_dashboard(3456);
     let resp = call(

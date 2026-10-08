@@ -32,6 +32,40 @@ pub struct AppState {
 
 // WebDashboard now handles its own shutdown (Drop impl with signal channel + thread join).
 
+/// Resolve the desktop database path without depending on the process CWD.
+///
+/// Order: `DB_PATH` env (Docker/server convention) → shared platform data
+/// dir (`CYBERMANJU_DATA_DIR` → XDG/`~/.local/share/cybermanju-os`, see
+/// `cybermanju_web::security::default_secret_dir`) → process CWD fallback.
+/// AppImage/Flatpak launches must never write into the read-only bundle
+/// mount, so a relative path is only the last resort.
+fn resolve_desktop_db_path() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("DB_PATH") {
+        if !p.trim().is_empty() {
+            return std::path::PathBuf::from(p);
+        }
+    }
+    let dir = cybermanju_web::security::default_secret_dir().unwrap_or_else(|| {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+    });
+    dir.join("cybermanju.db")
+}
+
+/// The Tantivy index lives next to the database so one backup covers both
+/// (same convention as `docker/server`: `SEARCH_INDEX_PATH` env or
+/// `<db parent>/tantivy_index`).
+fn resolve_desktop_index_path(db_path: &std::path::Path) -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("SEARCH_INDEX_PATH") {
+        if !p.trim().is_empty() {
+            return std::path::PathBuf::from(p);
+        }
+    }
+    db_path
+        .parent()
+        .map(|p| p.join("tantivy_index"))
+        .unwrap_or_else(|| std::path::PathBuf::from("tantivy_index"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize tracing subscriber (replaces env_logger)
@@ -41,7 +75,20 @@ pub fn run() {
     tracing::info!("CyberManju OS starting...");
 
     // Initialize redb database (opened exactly once — shared with the web dashboard)
-    let db = match Database::new("cybermanju.db") {
+    let db_path = resolve_desktop_db_path();
+    if let Some(parent) = db_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::error!(
+                "Failed to create database directory {}: {}",
+                parent.display(),
+                e
+            );
+            std::process::exit(1);
+        }
+    }
+    tracing::info!("Using database at {}", db_path.display());
+    let db_path_str = db_path.to_string_lossy();
+    let db = match Database::new(&db_path_str) {
         Ok(d) => Arc::new(RwLock::new(d)),
         Err(e) => {
             tracing::error!("Failed to initialize redb database: {}", e);
@@ -51,7 +98,10 @@ pub fn run() {
     tracing::info!("redb database initialized");
 
     // Initialize Tantivy full-text search index
-    let tantivy_index = match search::SearchIndex::new("tantivy_index") {
+    let index_path = resolve_desktop_index_path(&db_path);
+    tracing::info!("Using search index at {}", index_path.display());
+    let index_path_str = index_path.to_string_lossy();
+    let tantivy_index = match search::SearchIndex::new(&index_path_str) {
         Ok(i) => i,
         Err(e) => {
             tracing::error!("Failed to initialize Tantivy: {}", e);

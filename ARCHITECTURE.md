@@ -767,8 +767,10 @@ Login via `POST /api/users/login` with `{ "username": "...", "password": "..." }
 | `GET` | `/api/locations` | List all locations |
 | **Users** | | |
 | `GET` | `/api/users` | List users (password hashes redacted) |
-| `POST` | `/api/users/register` | Register a new user |
+| `POST` | `/api/users/register` | Register a new user (bootstrap-only: open while the user table is empty or `CYBERMANJU_ALLOW_REGISTRATION=1`; never grants `admin`) |
 | `POST` | `/api/users/login` | Authenticate and receive a token |
+| `GET` | `/api/auth/status` | Public first-run probe → `{ "registrationOpen": bool }` (drives the Docker/web login gate on every device) |
+| `POST` | `/api/auth/logout` | Revoke the calling session |
 | **Permissions** | | |
 | `GET` | `/api/permissions/{fileId}` | Get permissions for a file |
 | `POST` | `/api/permissions` | Grant a file permission |

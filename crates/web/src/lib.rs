@@ -1352,6 +1352,20 @@ fn route_request(
             login_user(db, body, dashboard, origin)
         }
 
+        // ─── Auth status (public first-run probe) ───────────────
+        // `GET /api/auth/status → 200 { registrationOpen }` on every
+        // device, no token needed. The Docker/web login gate uses it to
+        // decide between "create the first account" and "sign in".
+        ["api", "auth", "status"] if method == "GET" => {
+            match api::users::registration_open(db) {
+                Ok(open) => json_ok(
+                    &serde_json::json!({ "registrationOpen": open }),
+                    origin,
+                ),
+                Err(e) => json_error(500, &e, origin),
+            }
+        }
+
         // ─── User registration ────────────────────────────────────
         // Public, but bootstrap-only inside the handler and the granted
         // role can never be `admin` (see P0-1).

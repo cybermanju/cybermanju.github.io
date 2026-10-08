@@ -93,7 +93,7 @@
 
         <div v-if="connectedAccounts.length && (!identity || accountsOpen)" class="am-card">
           <h3 class="am-card-title">Connected accounts ({{ connectedAccounts.length }})</h3>
-          <p class="am-hint">Supabase holds one active session — the rest stay remembered here, so you can switch back in one click, including a second account on the same provider.</p>
+          <p class="am-hint">Supabase holds one active session — the rest stay remembered here, so you can switch back in one click, including a second account on the same provider. Each sign-in also creates its provider connection below, so the two lists stay in sync.</p>
           <div v-for="acc in connectedAccounts" :key="acc.id" class="am-identity-row">
             <img v-if="acc.avatarUrl" class="am-avatar" :src="acc.avatarUrl" alt="" />
             <ProviderLogo v-else :provider="acc.provider" :size="32" />
@@ -101,10 +101,18 @@
               <strong>{{ acc.name }}</strong>
               <span class="muted">{{ acc.email || acc.provider }}</span>
             </div>
+            <span class="am-status sm" :class="providerBadgeTone(acc)">{{ providerBadge(acc) }}</span>
             <span class="am-status sm" :class="acc.id === identity?.id ? 'is-ok' : ''">{{ acc.id === identity?.id ? 'ACTIVE' : acc.provider.toUpperCase() }}</span>
-            <button v-if="acc.id !== identity?.id" class="am-btn xs primary" type="button" :disabled="!!signInBusy" @click="switchAccount(acc)">Switch</button>
+            <button v-if="needsProviderFor(acc.provider)" class="am-btn xs primary" type="button" :disabled="!!signInBusy || ensuringProvider" :title="`Create a ${backendLabel(backendForOAuth(acc.provider as OAuthBackend))} provider connection for this login`" @click="connectAccountToProvider(acc)">{{ ensuringProvider ? '…' : 'Connect' }}</button>
+            <button v-if="acc.id !== identity?.id" class="am-btn xs" type="button" :disabled="!!signInBusy" @click="switchAccount(acc)">Switch</button>
             <button class="am-btn xs" type="button" :title="`Forget ${acc.name}`" @click="forgetAccount(acc.id)">Forget</button>
           </div>
+          <div v-if="missingProviderBackends.length" class="am-banner info">
+            <AppIcon name="solar:link-bold" :size="15" />
+            <span>Signed in with {{ missingProviderBackends.map(backendLabel).join(', ') }} but no provider connection exists yet — one click creates {{ missingProviderBackends.length > 1 ? 'them' : 'it' }} below.</span>
+            <button class="am-btn sm primary" type="button" :disabled="ensuringProvider" @click="ensureMissingFromAccounts()">{{ ensuringProvider ? 'Creating…' : `Create ${missingProviderBackends.length} connection${missingProviderBackends.length > 1 ? 's' : ''}` }}</button>
+          </div>
+          <p v-if="ensureMsg" class="am-note" :class="ensureOk === false ? 'err' : ensureOk === true ? 'ok' : ''">{{ ensureMsg }}</p>
         </div>
 
         <div v-if="!identity || accountsOpen" class="am-card">
@@ -210,6 +218,10 @@
                     <input v-model="(wiz as any)[f.key]" class="am-input" :type="showWizToken ? 'text' : 'password'" :placeholder="f.placeholder" autocomplete="off" />
                     <button class="am-icon-btn" type="button" @click="showWizToken = !showWizToken" :title="showWizToken ? 'Hide' : 'Show'"><AppIcon :name="showWizToken ? 'solar:eye-closed-bold' : 'solar:eye-bold'" :size="14" /></button>
                   </span>
+                  <span class="am-input-wrap" v-else-if="f.key === 'basePath' && wiz.backendType === 'local'">
+                    <input v-model="(wiz as any)[f.key]" class="am-input" :placeholder="f.placeholder" autocomplete="off" />
+                    <button v-if="localDirSupported" class="am-btn xs" type="button" title="Pick a folder with the browser" @click="pickWizLocalDir()">Browse…</button>
+                  </span>
                   <input v-else v-model="(wiz as any)[f.key]" class="am-input" :placeholder="f.placeholder" autocomplete="off" />
                   <span v-if="f.hint" class="am-field-hint">{{ f.hint }}</span>
                 </label>
@@ -292,11 +304,56 @@
                       <input v-model="(draft(selectedCfg!) as any)[f.key]" class="am-input" :type="showTokens[selectedCfg.id] ? 'text' : 'password'" :placeholder="f.placeholder" autocomplete="off" />
                       <button class="am-icon-btn" type="button" @click="showTokens[selectedCfg.id] = !showTokens[selectedCfg.id]" :title="showTokens[selectedCfg.id] ? 'Hide' : 'Show'"><AppIcon :name="showTokens[selectedCfg.id] ? 'solar:eye-closed-bold' : 'solar:eye-bold'" :size="14" /></button>
                     </span>
+                    <span class="am-input-wrap" v-else-if="f.key === 'basePath' && selectedCfg.backendType === 'local'">
+                      <input v-model="(draft(selectedCfg!) as any)[f.key]" class="am-input" :placeholder="f.placeholder" autocomplete="off" />
+                      <button v-if="localDirSupported" class="am-btn xs" type="button" title="Pick a folder with the browser — fills the path automatically" @click="pickLocalDir(selectedCfg!)">Browse…</button>
+                    </span>
                     <input v-else v-model="(draft(selectedCfg!) as any)[f.key]" class="am-input" :placeholder="f.placeholder" autocomplete="off" />
                     <span v-if="f.hint" class="am-field-hint">{{ f.hint }}</span>
+                    <span v-if="f.key === 'basePath' && selectedCfg.backendType === 'local'" class="am-field-hint">{{ localDirSupported ? 'Browse… fills this automatically (browser folder picker).' : 'No browser folder picker here — type the absolute path (desktop app).' }}</span>
                   </label>
                 </div>
+                <p v-if="localPickMsg[selectedCfg.id]" class="am-note">{{ localPickMsg[selectedCfg.id] }}</p>
                 <p class="am-hint">{{ authGuidance(selectedCfg.backendType) }}</p>
+
+                <!-- git vault repo: pick an existing repo, or create one in step 5 -->
+                <div v-if="selectedCfg.backendType === 'github' || selectedCfg.backendType === 'gitlab'" class="am-picker">
+                  <div class="am-row between">
+                    <strong class="small">Existing {{ selectedCfg.backendType === 'github' ? 'repos' : 'projects' }} ({{ repoChoices.length }})</strong>
+                    <span class="am-row">
+                      <button class="am-btn xs" type="button" :disabled="repoLoading" @click="loadRepoChoices(selectedCfg!)">{{ repoLoading ? 'Loading…' : repoChoices.length ? 'Refresh' : 'List mine' }}</button>
+                      <button class="am-btn xs primary" type="button" :disabled="repoLoading || !repoSelected" @click="useRepoChoice(selectedCfg!)">Use selected</button>
+                    </span>
+                  </div>
+                  <p class="am-hint">Select a vault repo instead of typing it — lists what your token/OAuth can see. Nothing yet? Create one in step 5.</p>
+                  <select v-if="repoChoices.length" v-model="repoSelected" class="am-input" :aria-label="`Existing ${selectedCfg.backendType} repos`">
+                    <option value="" disabled>Pick a repo…</option>
+                    <option v-for="r in repoChoices" :key="r.value" :value="r.value">{{ r.label }}{{ r.isPrivate ? ' (private)' : '' }}</option>
+                  </select>
+                  <p v-if="repoMsg" class="am-note" :class="repoChoices.length ? '' : 'err'">{{ repoMsg }}</p>
+                </div>
+
+                <!-- drive folder: pick or create -->
+                <div v-if="selectedCfg.backendType === 'googleDrive'" class="am-picker">
+                  <div class="am-row between">
+                    <strong class="small">Drive folders ({{ driveFolders.length }})</strong>
+                    <span class="am-row">
+                      <button class="am-btn xs" type="button" :disabled="driveLoading" @click="loadDriveFolders(selectedCfg!)">{{ driveLoading ? 'Loading…' : driveFolders.length ? 'Refresh' : 'List folders' }}</button>
+                      <button class="am-btn xs primary" type="button" :disabled="driveLoading" @click="useDriveFolder(selectedCfg!, '')">Use app root</button>
+                      <button class="am-btn xs primary" type="button" :disabled="driveLoading || !driveSelected" @click="useDriveFolder(selectedCfg!, driveSelected)">Use selected</button>
+                    </span>
+                  </div>
+                  <p class="am-hint">Pick the folder this vault syncs into — or create one. Empty folder ID = app root.</p>
+                  <select v-if="driveFolders.length" v-model="driveSelected" class="am-input" aria-label="Existing Drive folders">
+                    <option value="" disabled>Pick a folder…</option>
+                    <option v-for="f in driveFolders" :key="f.id" :value="f.id">{{ f.name }}</option>
+                  </select>
+                  <div class="am-row">
+                    <input v-model="driveNewName" class="am-input" placeholder="New folder name" aria-label="New Drive folder name" style="max-width:220px;" />
+                    <button class="am-btn xs" type="button" :disabled="driveLoading || !driveNewName.trim()" @click="createDriveFolderFlow(selectedCfg!)">{{ driveLoading ? '…' : 'Create folder' }}</button>
+                  </div>
+                  <p v-if="driveMsg" class="am-note" :class="driveFolders.length ? '' : 'err'">{{ driveMsg }}</p>
+                </div>
               </div>
 
               <!-- sync behavior (encrypt / compress / placement) -->
@@ -737,6 +794,359 @@ const vaultSteps = ref<string[]>([])
 
 const drafts = reactive<Record<string, CredentialDraft>>({})
 
+// ── OAuth sign-in → provider-connection sync ────────────────────
+// Signing in at the top used to leave "Provider connections" at 0: the
+// identity list (who you are) and the sync-config list (what is connected)
+// were separate stores. Every sign-in now ensures its matching provider
+// row exists, and each remembered account offers a one-click Connect.
+const ensuringProvider = ref(false)
+const ensureMsg = ref('')
+const ensureOk = ref<boolean | null>(null)
+
+function backendForOAuth(p: OAuthBackend | string): SyncBackendType {
+  if (p === 'google') return 'googleDrive'
+  if (p === 'gitlab') return 'gitlab'
+  return 'github'
+}
+
+function backendForAccountProvider(p: string): SyncBackendType | null {
+  if (p === 'google' || p === 'googleDrive') return 'googleDrive'
+  if (p === 'github') return 'github'
+  if (p === 'gitlab') return 'gitlab'
+  return null
+}
+
+const missingProviderBackends = computed<SyncBackendType[]>(() => {
+  const have = new Set(store.syncConfigs.map(c => c.backendType))
+  const missing = new Set<SyncBackendType>()
+  for (const acc of connectedAccounts.value) {
+    const b = backendForAccountProvider(acc.provider)
+    if (b && !have.has(b)) missing.add(b)
+  }
+  if (identity.value) {
+    const b = backendForAccountProvider(identity.value.provider)
+    if (b && !have.has(b)) missing.add(b)
+  }
+  return [...missing]
+})
+
+function needsProviderFor(provider: string): boolean {
+  const b = backendForAccountProvider(provider)
+  if (!b) return false
+  return !store.syncConfigs.some(c => c.backendType === b)
+}
+
+function providerBadge(acc: ConnectedAccount): string {
+  const b = backendForAccountProvider(acc.provider)
+  if (!b) return acc.provider.toUpperCase()
+  return store.syncConfigs.some(c => c.backendType === b) ? 'LINKED' : 'NO PROVIDER'
+}
+
+function providerBadgeTone(acc: ConnectedAccount): string {
+  const b = backendForAccountProvider(acc.provider)
+  if (!b) return ''
+  return store.syncConfigs.some(c => c.backendType === b) ? 'is-ok' : 'is-warn'
+}
+
+async function ensureProviderForBackend(
+  backend: SyncBackendType,
+  opts: { token?: string; displayName?: string } = {},
+): Promise<SyncConfig | null> {
+  const existing = store.syncConfigs.find(c => c.backendType === backend)
+  if (existing) {
+    selectedId.value = existing.id
+    // Top-up a missing secret: an OAuth token that arrives after the row
+    // was created (sign-in first, connect later) should not be dropped.
+    const token = (opts.token ?? '').trim()
+    if (token && !(existing as SyncConfig).token) {
+      const topped = await store.saveSyncConfig({ ...existing, token })
+      if (topped) {
+        const r = await store.probeSyncConnection({ ...topped, token })
+        authState.value[topped.id] = { ok: r.ok, detail: r.detail }
+        return topped
+      }
+    }
+    return existing
+  }
+  const saved = await store.saveSyncConfig({
+    ...syncConfigDefaults(),
+    id: '',
+    backendType: backend,
+    name: opts.displayName || `${backendLabel(backend)} (${new Date().toLocaleDateString()})`,
+    token: (opts.token ?? '').trim() || undefined,
+  } as SyncConfig)
+  if (!saved) {
+    ensureMsg.value = 'Could not create the provider connection — retry.'
+    ensureOk.value = false
+    return null
+  }
+  selectedId.value = saved.id
+  authState.value[saved.id] = { ok: null, detail: '' }
+  const probeCfg = (opts.token ?? '').trim() ? { ...saved, token: opts.token!.trim() } : saved
+  try {
+    const r = await store.probeSyncConnection(probeCfg)
+    authState.value[saved.id] = { ok: r.ok, detail: r.detail }
+  } catch {
+    // Probe failure must not delete the row — the token may still be fine
+    // on a CORS-blocked static host; the card shows UNREACHABLE instead.
+  }
+  await store.fetchSyncConfigs().catch(() => {})
+  return saved
+}
+
+/** Best-effort provider token for `backend` from the live Supabase session. */
+async function sessionTokenFor(backend: SyncBackendType): Promise<string> {
+  try {
+    const session = await supabaseSession()
+    if (!session?.provider_token) return ''
+    const prov = supabaseSessionProvider(session)
+    if (!prov) return ''
+    return backendForOAuth(prov) === backend ? (session.provider_token ?? '') : ''
+  } catch {
+    return ''
+  }
+}
+
+async function ensureFromSignIn(provider: OAuthBackend, whoName: string): Promise<void> {
+  ensuringProvider.value = true
+  ensureMsg.value = ''
+  ensureOk.value = null
+  try {
+    const backend = backendForOAuth(provider)
+    const token = await sessionTokenFor(backend)
+    const saved = await ensureProviderForBackend(backend, {
+      token,
+      displayName: `${backendLabel(backend)} — ${whoName}`,
+    })
+    if (saved) {
+      ensureMsg.value = token
+        ? `${backendLabel(backend)} connection ready — verified below.`
+        : `${backendLabel(backend)} connection created — press Connect on its card to finish OAuth.`
+      ensureOk.value = true
+    }
+  } finally {
+    ensuringProvider.value = false
+  }
+}
+
+async function connectAccountToProvider(acc: ConnectedAccount): Promise<void> {
+  const b = backendForAccountProvider(acc.provider)
+  if (!b) return
+  ensuringProvider.value = true
+  ensureMsg.value = ''
+  ensureOk.value = null
+  try {
+    const token = await sessionTokenFor(b)
+    const saved = await ensureProviderForBackend(b, { token, displayName: `${backendLabel(b)} — ${acc.name}` })
+    if (saved) {
+      ensureMsg.value = `${backendLabel(b)} connection ready for ${acc.name}.`
+      ensureOk.value = true
+      store.notifySuccess?.(`${backendLabel(b)} connection ready`)
+    }
+  } finally {
+    ensuringProvider.value = false
+  }
+}
+
+async function ensureMissingFromAccounts(): Promise<void> {
+  if (!missingProviderBackends.value.length) return
+  ensuringProvider.value = true
+  ensureMsg.value = ''
+  ensureOk.value = null
+  try {
+    for (const b of missingProviderBackends.value) {
+      const token = await sessionTokenFor(b)
+      await ensureProviderForBackend(b, { token, displayName: backendLabel(b) })
+    }
+    ensureMsg.value = 'Provider connections created — finish OAuth on each card if needed.'
+    ensureOk.value = true
+  } finally {
+    ensuringProvider.value = false
+  }
+}
+
+// ── repo / folder pickers + local dir picker ────────────────────
+const repoChoices = ref<Array<{ value: string; label: string; url: string; isPrivate: boolean }>>([])
+const repoLoading = ref(false)
+const repoMsg = ref('')
+const repoSelected = ref('')
+const driveFolders = ref<Array<{ id: string; name: string }>>([])
+const driveLoading = ref(false)
+const driveMsg = ref('')
+const driveSelected = ref('')
+const driveNewName = ref('cybermanju-vault')
+const localPickMsg = ref<Record<string, string>>({})
+
+const localDirSupported = computed(() => {
+  try {
+    return typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function'
+  } catch {
+    return false
+  }
+})
+
+/** Token precedence for browsing: typed draft → saved row → live session. */
+async function resolveProviderToken(cfg: SyncConfig): Promise<string> {
+  const d = drafts[cfg.id]
+  if (d?.token.trim()) return d.token.trim()
+  const saved = (cfg as SyncConfig).token
+  if (typeof saved === 'string' && saved.trim()) return saved.trim()
+  return sessionTokenFor(cfg.backendType)
+}
+
+async function loadRepoChoices(cfg: SyncConfig): Promise<void> {
+  repoLoading.value = true
+  repoMsg.value = ''
+  try {
+    const token = await resolveProviderToken(cfg)
+    if (!token) {
+      repoMsg.value = 'Connect with OAuth (step 1) or paste a token first — the list needs it.'
+      repoChoices.value = []
+      return
+    }
+    const { listGithubRepos, listGitlabProjects } = await import('@/utils/gitProvision')
+    const instanceUrl = drafts[cfg.id]?.basePath.trim() || cfg.basePath || undefined
+    const list = cfg.backendType === 'gitlab'
+      ? await listGitlabProjects(token, instanceUrl)
+      : await listGithubRepos(token)
+    repoChoices.value = list
+    const current = drafts[cfg.id]?.repoName.trim() || cfg.repoName || ''
+    repoSelected.value = list.some(r => r.value === current) ? current : (list[0]?.value ?? '')
+    repoMsg.value = list.length
+      ? `${list.length} found — pick one and press Use selected.`
+      : 'No repos visible to this token — check scopes (GitHub: repo, GitLab: api), or create one in step 5.'
+  } catch (e) {
+    repoMsg.value = e instanceof Error ? e.message : String(e)
+    repoChoices.value = []
+  } finally {
+    repoLoading.value = false
+  }
+}
+
+async function useRepoChoice(cfg: SyncConfig): Promise<void> {
+  if (!repoSelected.value) return
+  draft(cfg).repoName = repoSelected.value
+  draft(cfg).branch = draft(cfg).branch || cfg.branch || 'main'
+  await saveCreds(cfg)
+  repoMsg.value = `Using ${repoSelected.value} — saved + verified.`
+}
+
+async function loadDriveFolders(cfg: SyncConfig): Promise<void> {
+  driveLoading.value = true
+  driveMsg.value = ''
+  try {
+    const token = await resolveProviderToken(cfg)
+    if (!token) {
+      driveMsg.value = 'Connect with OAuth (step 1) first — Drive lists need it.'
+      driveFolders.value = []
+      return
+    }
+    const { listDriveFolders } = await import('@/utils/gitProvision')
+    const folders = await listDriveFolders(token)
+    driveFolders.value = folders
+    const current = drafts[cfg.id]?.folderId.trim() || cfg.folderId || ''
+    driveSelected.value = folders.some(f => f.id === current) ? current : ''
+    driveMsg.value = folders.length
+      ? `${folders.length} folders — pick one, or create a new one below.`
+      : 'No folders yet — create one below, or use the app root.'
+  } catch (e) {
+    driveMsg.value = e instanceof Error ? e.message : String(e)
+    driveFolders.value = []
+  } finally {
+    driveLoading.value = false
+  }
+}
+
+async function useDriveFolder(cfg: SyncConfig, folderId: string): Promise<void> {
+  draft(cfg).folderId = folderId.trim()
+  if (folderId.trim()) {
+    const hit = driveFolders.value.find(f => f.id === folderId.trim())
+    if (hit) driveSelected.value = hit.id
+  } else {
+    driveSelected.value = ''
+  }
+  await saveCreds(cfg)
+  driveMsg.value = folderId.trim()
+    ? `Using Drive folder ${driveFolders.value.find(f => f.id === folderId.trim())?.name ?? folderId.trim()} — saved + verified.`
+    : 'Using the Drive app root — saved + verified.'
+}
+
+async function createDriveFolderFlow(cfg: SyncConfig): Promise<void> {
+  const name = driveNewName.value.trim()
+  if (!name) return
+  driveLoading.value = true
+  driveMsg.value = ''
+  try {
+    const token = await resolveProviderToken(cfg)
+    if (!token) {
+      driveMsg.value = 'Connect with OAuth (step 1) first — creation needs it.'
+      return
+    }
+    const { createDriveFolder } = await import('@/utils/gitProvision')
+    const created = await createDriveFolder(token, name, driveSelected.value || undefined)
+    await loadDriveFolders(cfg)
+    driveSelected.value = created.id
+    await useDriveFolder(cfg, created.id)
+  } catch (e) {
+    driveMsg.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    driveLoading.value = false
+  }
+}
+
+/**
+ * Browser folder picker for `local` providers: fills the path from the
+ * File System Access API (`showDirectoryPicker`) where available. Browsers
+ * never reveal the absolute disk path, so we store `/<name>` plus the
+ * directory handle (IndexedDB) for future reads — and say so in the note.
+ */
+async function pickLocalDir(cfg: SyncConfig): Promise<void> {
+  const w = window as unknown as { showDirectoryPicker?: () => Promise<{ name: string }> }
+  if (typeof w.showDirectoryPicker !== 'function') {
+    localPickMsg.value[cfg.id] = 'No browser folder picker here — type the absolute path (desktop app).'
+    return
+  }
+  try {
+    const dir = await w.showDirectoryPicker()
+    const name = String(dir?.name ?? '').trim()
+    if (!name) return
+    draft(cfg).basePath = `/${name}`
+    localPickMsg.value[cfg.id] = `Picked “${name}” — path auto-filled. Save & verify to keep it.`
+    try {
+      const { idbSet } = await import('@/utils/idb')
+      await idbSet(`cybermanju.localDir:${cfg.id}`, dir as unknown as string)
+    } catch {
+      // Handle persistence is best-effort; the path is what sync uses.
+    }
+    await saveCreds(cfg)
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return
+    localPickMsg.value[cfg.id] = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function pickWizLocalDir(): Promise<void> {
+  const w = window as unknown as { showDirectoryPicker?: () => Promise<{ name: string }> }
+  if (typeof w.showDirectoryPicker !== 'function') {
+    wizMsg.value = 'No browser folder picker here — type the absolute path (desktop app).'
+    wizOk.value = false
+    return
+  }
+  try {
+    const dir = await w.showDirectoryPicker()
+    const name = String(dir?.name ?? '').trim()
+    if (name) {
+      wiz.basePath = `/${name}`
+      wizMsg.value = `Picked “${name}” — path auto-filled.`
+      wizOk.value = null
+    }
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return
+    wizMsg.value = e instanceof Error ? e.message : String(e)
+    wizOk.value = false
+  }
+}
+
 // ── local users (merged user management: Argon2 username+password, roles) ──
 const newUsername = ref('')
 const newPassword = ref('')
@@ -851,6 +1261,17 @@ watch(
     }
   },
 )
+
+// Switching providers resets the pickers — stale repo/folder lists from
+// another backend must never leak into the new card.
+watch(selectedId, () => {
+  repoChoices.value = []
+  repoMsg.value = ''
+  repoSelected.value = ''
+  driveFolders.value = []
+  driveMsg.value = ''
+  driveSelected.value = ''
+})
 
 // ── dynamic per-backend setup/config schema ───────────────────
 interface FieldDef {
@@ -992,6 +1413,9 @@ async function signIn(provider: OAuthBackend) {
   try {
     const who = await signInWithPopup(provider)
     store.notifySuccess(`Signed in as ${who.name}`)
+    // Keep the two lists in sync: a fresh login provisions its provider
+    // row (with the session token when scopes allow) so Connections > 0.
+    await ensureFromSignIn(provider, who.name).catch(() => {})
   } catch (e) {
     signInMsg.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -1591,6 +2015,20 @@ onMounted(() => {
   void refreshIdentity()
   void (async () => {
     await refresh()
+    // Heal the "signed in but 0 connections" state on every open: any
+    // remembered account whose backend has no row gets one (token topped
+    // up from the live session when available). Silent — the banner only
+    // speaks when the user presses Create.
+    if (!store.syncConfigs.length && connectedAccounts.value.length) {
+      for (const acc of connectedAccounts.value) {
+        const b = backendForAccountProvider(acc.provider)
+        if (b && !store.syncConfigs.some(c => c.backendType === b)) {
+          const token = await sessionTokenFor(b)
+          await ensureProviderForBackend(b, { token, displayName: `${backendLabel(b)} — ${acc.name}` })
+        }
+      }
+      await refresh().catch(() => {})
+    }
     if (!staticHost) return
     void wasmDbBackend().then((b) => {
       dbBackend.value = b
@@ -2045,6 +2483,16 @@ onBeforeUnmount(() => {
 }
 .am-logo-pick.active { border-color: color-mix(in srgb, var(--ui-accent) 60%, transparent); color: var(--ui-text); background: color-mix(in srgb, var(--ui-accent) 8%, transparent); }
 .am-wiz { margin-top: 4px; }
+.am-picker {
+  margin-top: 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: color-mix(in srgb, var(--ui-text) 2%, transparent);
+}
 
 /* disks */
 .am-disk { border: 1px solid var(--ui-border); border-radius: 10px; padding: 10px; margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }

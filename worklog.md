@@ -249,3 +249,24 @@ Stage Summary:
   of marking the whole mirror push FAILED. AGENTS.md §3 documents the flow.
 - Verified here: `vue-tsc --noEmit` clean, `vitest` 28 files / 362 pass,
   `push.sh --dry-run` prints the new fetch/rebase/tag flow.
+## 2026-10-08 — Docker 401 fan-out: dashboard login gate + public auth probe
+
+- Root cause: the Docker/web frontend had no sign-in — `authenticate_user`/
+  `register_user` existed but no UI called them, so every `/api` call 401'd;
+  the 401 hint wrongly pointed at provider OAuth (Google/GitHub/GitLab), whose
+  tokens open provider sync but never authenticate `/api`. `initialize()` fired
+  the whole fetch fan-out with no token (the reported console spam).
+- Backend (`crates/web`): new public `GET /api/auth/status →
+  { registrationOpen }` (RBAC Public + route arm via `registration_open`);
+  unit test extends `public_routes_need_no_role`; integration test covers
+  open→bootstrap→closed. Bootstrap semantics unchanged (closes after the first
+  account, never mints admin — extra dashboard users come from an admin in
+  Accounts → Users; provider OAuth accounts stay unlimited incl. same-provider).
+- Frontend: `auth_status` + `logout_user` REST mappings; store gains
+  `needsAuth/needsSetup` gate, `login/register/checkAuthStatus`, user persist
+  per browser, `initialize()` early-return + auto-refresh guard (no 401 spam),
+  corrected 401 message → `cybermanju:open-login`; new `ServerAuthPanel.vue`
+  gate rendered from `App.vue` on every device without a JWT.
+- Docs: `OPERATIONS.md` §6 first-run + multi-account note, `ARCHITECTURE.md`
+  endpoint rows for `auth/status` + `auth/logout`.
+- Verified here: `check-version.sh` green, `vue-tsc --noEmit` clean, `vitest` 29 files / 372 pass. Rust `fmt/clippy/test` left to CI per repo rules.

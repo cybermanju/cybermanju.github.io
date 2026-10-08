@@ -104,6 +104,13 @@ impl SearchIndex {
 
         let schema = schema_builder.build();
 
+        // Tantivy neither opens nor creates a missing index DIRECTORY:
+        // `open_in_dir` fails on it and so does `create_in_dir`. Create it
+        // first so a fresh install (desktop AppImage/Flatpak, Docker)
+        // starts instead of exiting with `DoesNotExist`.
+        std::fs::create_dir_all(path)
+            .map_err(|e| anyhow::anyhow!("cannot create search index directory {path}: {e}"))?;
+
         // Create index if it doesn't exist, open if it does
         let index = match Index::open_in_dir(path) {
             Ok(idx) => idx,

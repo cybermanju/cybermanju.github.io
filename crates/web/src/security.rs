@@ -189,6 +189,9 @@ pub fn required_role(method: &str, segments: &[&str]) -> RequiredRole {
         // <<< AGENT-4 OPS: probes are unauthenticated by design >>>
         ["api", "readyz"] | ["api", "metrics"] => RequiredRole::Public,
         ["api", "auth", "login"] | ["api", "users", "login"] => RequiredRole::Public,
+        // First-run probe for the Docker/web login gate: tells any device
+        // whether bootstrap registration is open without sending credentials.
+        ["api", "auth", "status"] => RequiredRole::Public,
         // Bootstrap registration — the *handler* additionally enforces the
         // zero-users / env-flag gate and forces a non-admin role.
         ["api", "users", "register"] => RequiredRole::Public,
@@ -869,6 +872,7 @@ mod tests {
         for (m, s) in [
             ("GET", segs(&["api", "health"])),
             ("POST", segs(&["api", "auth", "login"])),
+            ("GET", segs(&["api", "auth", "status"])),
             ("POST", segs(&["api", "users", "register"])),
             ("GET", segs(&["api", "shared", "tok"])),
             ("GET", segs(&["api", "shared", "tok", "content"])),

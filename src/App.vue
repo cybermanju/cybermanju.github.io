@@ -26,6 +26,7 @@ import KeyboardShortcutsHelp from '@/components/KeyboardShortcutsHelp.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import FileUploadDialog from '@/components/FileUploadDialog.vue'
+import ServerAuthPanel from '@/components/ServerAuthPanel.vue'
 import MobileNav from '@/components/MobileNav.vue'
 import ContextMenu from '@/components/ContextMenu.vue'
 import type { PanelType } from '@/types'
@@ -550,6 +551,7 @@ function openAgent(event: KeyboardEvent) {
 }
 
 const openAccountsWindow = () => wm.open('accounts')
+const refreshAuthGate = () => void store.checkAuthStatus()
 
 // OAuth popup fast-path: this window is the login popup our app opened
 // (Supabase redirected back into it). It must NEVER render the full app —
@@ -579,7 +581,10 @@ onMounted(() => {
     return
   }
   store.currentPanel = 'landing'
-  store.initialize()
+  // Docker/web transport: probe the login gate first so a missing/expired
+  // JWT shows the sign-in screen instead of a fan-out of 401 fetches. The
+  // probe is public and fast; initialize() re-checks cheaply.
+  void store.checkAuthStatus().finally(() => store.initialize())
   // OAuth return (Supabase PKCE popup or full-redirect): exchange ?code=,
   // stash the provider token, close popup returns.
   void finishSupabaseReturn().then(async (handled) => {
@@ -605,6 +610,9 @@ onMounted(() => {
   })()
   window.addEventListener('cybermanju:upload', handleUpload)
   window.addEventListener('cybermanju:open-accounts', openAccountsWindow)
+  // A 401 anywhere raises this (see the store): re-probe setup state so the
+  // gate offers the right form. The gate itself is reactive on needsAuth.
+  window.addEventListener('cybermanju:open-login', refreshAuthGate)
   window.addEventListener('keydown', toggleTerminal)
   window.addEventListener('keydown', openEditor)
   window.addEventListener('keydown', openAgent)
@@ -616,6 +624,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', openEditor)
   window.removeEventListener('keydown', openAgent)
   window.removeEventListener('cybermanju:open-accounts', openAccountsWindow)
+  window.removeEventListener('cybermanju:open-login', refreshAuthGate)
 })
 </script>
 
@@ -668,6 +677,9 @@ onBeforeUnmount(() => {
     </Teleport>
 
     <NotificationStack />
+    <!-- Docker/web login gate: covers every device without a JWT. Fixed
+         overlay, so it works over landing and desktop alike. -->
+    <ServerAuthPanel v-if="store.needsAuth && !isPopupMode" />
     <CommandPalette />
     <KeyboardShortcutsHelp />
     <ConfirmDialog

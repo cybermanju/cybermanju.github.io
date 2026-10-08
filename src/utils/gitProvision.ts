@@ -602,6 +602,131 @@ export async function driveDeleteDirect(input: {
   }
 }
 
+export interface ProviderRepoChoice {
+  /** Value to store in `SyncConfig.repoName` (owner/repo for GitHub, project id for GitLab). */
+  value: string
+  /** Human label (`owner/repo` or `namespace / name`). */
+  label: string
+  url: string
+  isPrivate: boolean
+}
+
+export interface DriveFolderChoice {
+  id: string
+  name: string
+}
+
+function withTimeout(ms = 20000): { ctrl: AbortController; done: () => void } {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), ms)
+  return { ctrl, done: () => clearTimeout(timer) }
+}
+
+/**
+ * List the token owner's repos (GitHub) — used by the Accounts picker so an
+ * OAuth/token login can *select* an existing vault repo instead of only
+ * creating one. Direct browser fetch (CORS-OK); desktop goes through the
+ * same token via the Rust probe path.
+ */
+export async function listGithubRepos(token: string): Promise<ProviderRepoChoice[]> {
+  const t = token.trim()
+  if (!t) throw new Error('auth: paste a token or connect with OAuth first')
+  const { ctrl, done } = withTimeout()
+  try {
+    const res = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
+      headers: { Authorization: `token ${t}`, Accept: 'application/vnd.github+json' },
+      signal: ctrl.signal,
+    }).catch(() => {
+      throw new Error('network: api.github.com is not reachable from this browser (offline or blocked)')
+    })
+    if (res.status === 401 || res.status === 403) throw new Error('auth: GitHub rejected the token — check scopes (repo) or reconnect with OAuth')
+    if (res.status === 429) throw new Error('rate_limited: GitHub throttled the repo list — wait a minute and retry')
+    if (!res.ok) throw new Error(`network: GitHub repo list failed (HTTP ${res.status})`)
+    const json = (await res.json().catch(() => [])) as Array<Record<string, unknown>>
+    if (!Array.isArray(json)) return []
+    return json
+      .filter((r) => typeof r.full_name === 'string' && r.full_name)
+      .map((r) => ({
+        value: String(r.full_name),
+        label: String(r.full_name),
+        url: typeof r.html_url === 'string' ? r.html_url : `https://github.com/${r.full_name}`,
+        isPrivate: r.private === true,
+      }))
+      .slice(0, 100)
+  } finally {
+    done()
+  }
+}
+
+/** List GitLab projects the token is a member of (id + path shown). */
+export async function listGitlabProjects(token: string, instanceUrl?: string): Promise<ProviderRepoChoice[]> {
+  const t = token.trim()
+  if (!t) throw new Error('auth: paste a token or connect with OAuth first')
+  const base = gitlabBase(instanceUrl)
+  const { ctrl, done } = withTimeout()
+  try {
+    const res = await fetch(`${base}/api/v4/projects?membership=true&per_page=100&order_by=last_activity_at`, {
+      headers: { 'PRIVATE-TOKEN': t },
+      signal: ctrl.signal,
+    }).catch(() => {
+      throw new Error(`network: ${base} is not reachable from this browser (offline or blocked)`)
+    })
+    if (res.status === 401 || res.status === 403) throw new Error('auth: GitLab rejected the token — check scopes (api) or reconnect with OAuth')
+    if (res.status === 429) throw new Error('rate_limited: GitLab throttled the project list — wait a minute and retry')
+    if (!res.ok) throw new Error(`network: GitLab project list failed (HTTP ${res.status})`)
+    const json = (await res.json().catch(() => [])) as Array<Record<string, unknown>>
+    if (!Array.isArray(json)) return []
+    return json
+      .map((p) => ({
+        value: typeof p.id === 'number' ? String(p.id) : typeof p.id === 'string' ? p.id : '',
+        label: typeof p.path_with_namespace === 'string' && p.path_with_namespace ? p.path_with_namespace : String(p.name ?? p.id ?? ''),
+        url: typeof p.web_url === 'string' ? p.web_url : base,
+        isPrivate: String((p as Record<string, unknown>).visibility ?? 'private') !== 'public',
+      }))
+      .filter((p) => p.value)
+      .slice(0, 100)
+  } finally {
+    done()
+  }
+}
+
+/** List Drive folders (root or under `parentId`) for the folder picker. */
+export async function listDriveFolders(token: string, parentId?: string): Promise<DriveFolderChoice[]> {
+  const t = token.trim()
+  if (!t) throw new Error('auth: Drive needs a token — connect with OAuth first')
+  const parent = parentId?.trim() || 'root'
+  const q = `'${parent.replace(/'/g, "\\'")}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`
+  const { status, json } = await driveJson(
+    t,
+    `${DRIVE_FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id,name)&orderBy=name&pageSize=100`,
+  )
+  if (status === 401 || status === 403) throw new Error('auth: Google rejected the token — reconnect with OAuth')
+  if (status !== 200) throw new Error(`network: Drive folder list failed (HTTP ${status})`)
+  const files = Array.isArray(json.files) ? json.files : []
+  return (files as Array<{ id?: unknown; name?: unknown }>)
+    .filter((f) => typeof f.id === 'string' && f.id && typeof f.name === 'string')
+    .map((f) => ({ id: String(f.id), name: String(f.name) }))
+}
+
+/** Create one Drive folder (under `parentId` or root) and return it. */
+export async function createDriveFolder(token: string, name: string, parentId?: string): Promise<DriveFolderChoice> {
+  const t = token.trim()
+  if (!t) throw new Error('auth: Drive needs a token — connect with OAuth first')
+  const clean = name.trim()
+  if (!clean) throw new Error('Give the folder a name — e.g. cybermanju-vault.')
+  const parent = parentId?.trim() || 'root'
+  const { status, json } = await driveJson(t, DRIVE_FILES_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: clean, mimeType: DRIVE_FOLDER_MIME, parents: [parent] }),
+  })
+  const id = json.id
+  if (status !== 200 || typeof id !== 'string' || !id) {
+    throw new Error(`network: Drive folder create failed (HTTP ${status})`)
+  }
+  return { id, name: clean }
+}
+
 /**
  * Full synced-system provisioning after the repo exists:
  * save provider config → seed README/manifest (+ vault bytes when given) →

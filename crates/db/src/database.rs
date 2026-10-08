@@ -100,6 +100,20 @@ pub struct Database {
 
 impl Database {
     pub fn new(path: &str) -> Result<Self> {
+        // redb creates the FILE but never its parent directories. Create them
+        // so callers can pass `<data-dir>/cybermanju.db` on a fresh install
+        // (desktop AppImage/Flatpak, Docker) instead of failing with ENOENT.
+        let p = std::path::Path::new(path);
+        if let Some(parent) = p.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    anyhow::anyhow!(
+                        "cannot create database directory {}: {e}",
+                        parent.display()
+                    )
+                })?;
+            }
+        }
         let db = RedbDatabase::create(path)?;
         let write_txn = db.begin_write()?;
         {

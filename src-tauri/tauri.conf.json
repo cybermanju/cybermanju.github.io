@@ -50,10 +50,7 @@
   },
   "plugins": {
     "fs": {
-      "scope": {
-        "allow": ["**"],
-        "deny": []
-      }
+      "requireLiteralLeadingDot": false
     },
     "shell": {
       "open": true

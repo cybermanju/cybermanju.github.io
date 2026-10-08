@@ -97,9 +97,56 @@ export const useAppStore = defineStore('cybermanju', () => {
   const parseResult = ref<ParseResult | null>(null)
 
   // ── Auth State ────────────────────────────────────────────
+  // Two separate systems (do not conflate):
+  // - Dashboard sign-in: username + password → JWT (`authenticate_user`),
+  //   required for EVERY /api call in Docker/web mode. One session per
+  //   browser (token in localStorage); each new device signs in again.
+  // - Provider OAuth (Google/GitHub/GitLab): per-provider sync tokens in the
+  //   Connections tab, unlimited accounts incl. same-provider repeats.
+  const AUTH_USER_KEY = 'cybermanju.authUser'
   const currentUser = ref<AuthResult | null>(null)
   const authToken = ref(getAuthToken())
   const isAuthenticated = computed(() => !!currentUser.value)
+  /** True while the Docker/web login gate must be shown instead of data. */
+  const needsAuth = ref(false)
+  /** True when no dashboard account exists yet (public register is open). */
+  const needsSetup = ref(false)
+  const authChecked = ref(false)
+  const authBusy = ref(false)
+  const authError = ref<string | null>(null)
+
+  function readStoredUser(): AuthResult | null {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_USER_KEY) : null
+      if (!raw) return null
+      const parsed = JSON.parse(raw) as Partial<AuthResult>
+      if (typeof parsed?.username === 'string' && typeof parsed?.userId === 'string') {
+        return {
+          userId: parsed.userId,
+          username: parsed.username,
+          role: typeof parsed.role === 'string' ? parsed.role : 'user',
+          displayName: typeof parsed.displayName === 'string' ? parsed.displayName : undefined,
+          token: '',
+        }
+      }
+    } catch {
+      // Corrupt cache — treated as signed out.
+    }
+    return null
+  }
+
+  function persistUser(user: AuthResult | null) {
+    try {
+      if (user) {
+        const { token: _t, ...rest } = user
+        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(rest))
+      } else {
+        localStorage.removeItem(AUTH_USER_KEY)
+      }
+    } catch {
+      // Private mode — session still works for this page load.
+    }
+  }
 
   /** Persist the JWT (store + localStorage) so REST calls stay authenticated. */
   function setSessionToken(token: string) {
@@ -107,17 +154,117 @@ export const useAppStore = defineStore('cybermanju', () => {
     setAuthToken(token)
   }
 
-  // Web mode: a 401 means the session is missing or expired. There is no
-  // password login any more — OAuth is the only way back in, so point at the
-  // Accounts window instead of opening a login form that no longer exists.
+  /** True when this page talks to a dashboard that demands a JWT. */
+  function requiresServerAuth(): boolean {
+    try {
+      return isWebMode() && !isStaticHost()
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Probe the server without credentials: are we in first-run setup?
+   * Public endpoint, safe on every device.
+   */
+  async function checkAuthStatus(): Promise<void> {
+    if (!requiresServerAuth()) {
+      needsAuth.value = false
+      authChecked.value = true
+      return
+    }
+    try {
+      const status = await invoke<{ registrationOpen?: boolean }>('auth_status')
+      needsSetup.value = status?.registrationOpen === true
+    } catch {
+      // Server unreachable — leave the previous guess; the probe inside
+      // initialize() will surface the network error once.
+    }
+    if (getAuthToken()) {
+      try {
+        await invoke('dashboard_status')
+        needsAuth.value = false
+        if (!currentUser.value) {
+          const stored = readStoredUser()
+          if (stored) currentUser.value = { ...stored, token: getAuthToken() }
+        }
+      } catch {
+        // Token invalid/expired/revoked (or rotated secret) — drop it and
+        // show the gate instead of spamming 401s on every fetch.
+        setSessionToken('')
+        persistUser(null)
+        currentUser.value = null
+        needsAuth.value = true
+      }
+    } else {
+      if (!currentUser.value) {
+        const stored = readStoredUser()
+        if (stored && getAuthToken()) currentUser.value = { ...stored, token: getAuthToken() }
+      }
+      needsAuth.value = !currentUser.value
+    }
+    authChecked.value = true
+  }
+
+  /** Sign in with a dashboard username + password (any device). */
+  async function login(username: string, password: string): Promise<boolean> {
+    authBusy.value = true
+    authError.value = null
+    try {
+      const res = await invoke<AuthResult>('authenticate_user', { username, password })
+      setSessionToken(res.token)
+      currentUser.value = res
+      persistUser(res)
+      needsAuth.value = false
+      needsSetup.value = false
+      notifySuccess(`Signed in — ${res.username}`)
+      await initialize()
+      return true
+    } catch (e) {
+      authError.value = e instanceof Error ? e.message : String(e)
+      notifyError('Sign-in failed', e)
+      return false
+    } finally {
+      authBusy.value = false
+    }
+  }
+
+  /**
+   * Create the FIRST dashboard account (bootstrap-only: the server closes
+   * public registration once a user exists). Further accounts are created
+   * by an admin in Accounts → Users — that path accepts any number of
+   * accounts. Provider OAuth accounts are separate and unlimited (including
+   * several on the same provider).
+   */
+  async function register(username: string, password: string, displayName?: string): Promise<boolean> {
+    authBusy.value = true
+    authError.value = null
+    try {
+      await invoke('register_user', { username, password, displayName })
+      // Bootstrap register returns the user, not a token — sign in after.
+      return await login(username, password)
+    } catch (e) {
+      authError.value = e instanceof Error ? e.message : String(e)
+      notifyError('Registration failed', e)
+      return false
+    } finally {
+      authBusy.value = false
+    }
+  }
+
+  // Web mode: a 401 means the dashboard JWT is missing or expired. Offer the
+  // dashboard sign-in gate — NOT provider OAuth (those tokens open provider
+  // sync, they never authenticate /api calls).
   if (typeof window !== 'undefined') {
     window.addEventListener('cybermanju:unauthorized', () => {
-      if (isWebMode()) {
+      if (requiresServerAuth()) {
+        needsAuth.value = true
+        currentUser.value = null
         notifyError(
           'Session expired',
-          'Reconnect with Google, GitHub or GitLab in Accounts (OAuth sign-in)'
+          'Sign in again with your dashboard username + password'
         )
-        window.dispatchEvent(new CustomEvent('cybermanju:open-accounts'))
+        window.dispatchEvent(new CustomEvent('cybermanju:open-login'))
       }
     })
   }
@@ -280,6 +427,16 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   // ── Actions: Init ─────────────────────────────────────────
   async function initialize() {
+    // Docker/web transport without a JWT: every /api call would 401, so show
+    // the login gate instead of firing the whole fetch fan-out (the console
+    // spam in the bug report). Each device signs in once; the token persists
+    // per browser after that.
+    if (requiresServerAuth() && !getAuthToken()) {
+      await checkAuthStatus()
+      needsAuth.value = true
+      isLoading.value = false
+      return
+    }
     isLoading.value = true
     clearError()
     try {
@@ -304,6 +461,8 @@ export const useAppStore = defineStore('cybermanju', () => {
     if (autoRefreshTimer) clearInterval(autoRefreshTimer)
     if (autoRefreshInterval.value > 0) {
       autoRefreshTimer = setInterval(async () => {
+        // Never poll behind the login gate — each tick would 401.
+        if (needsAuth.value) return
         await Promise.allSettled([
           fetchFiles(),
           fetchAccounts(),
@@ -1116,9 +1275,16 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
-  function logout() {
+  async function logout() {
+    try {
+      if (getAuthToken()) await invoke('logout_user')
+    } catch {
+      // Revocation is best-effort — expiry revokes the rest.
+    }
     currentUser.value = null
+    persistUser(null)
     setSessionToken('')
+    if (requiresServerAuth()) needsAuth.value = true
     notifySuccess('Logged out')
   }
 
@@ -2032,7 +2198,8 @@ export const useAppStore = defineStore('cybermanju', () => {
     // URL Import
     importFromUrl,
     // Auth
-    setSessionToken, logout,
+    setSessionToken, logout, login, register, checkAuthStatus, requiresServerAuth,
+    needsAuth, needsSetup, authChecked, authBusy, authError, authToken, isAuthenticated,
     // Utility
     rebuildParentIndex,
     notifySuccess,
