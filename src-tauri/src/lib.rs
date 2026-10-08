@@ -90,7 +90,10 @@ fn probe_android_files_dir() -> std::path::PathBuf {
         if dir_is_writable(c) {
             return c.clone();
         }
-        tracing::warn!("Android files-dir candidate not writable, skipping: {}", c.display());
+        tracing::warn!(
+            "Android files-dir candidate not writable, skipping: {}",
+            c.display()
+        );
     }
     tracing::error!(
         "no writable Android files dir found; falling back to the canonical path (startup may fail)"
