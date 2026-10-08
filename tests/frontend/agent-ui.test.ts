@@ -23,6 +23,7 @@ import { renderMarkdown } from '../../src/utils/markdown'
 import {
   anchorTrailerHex,
   decideLocalTool,
+  isFailoverWorthy,
   normalizeAnchorLocal,
   rememberAllowLocal,
   stripAnchorLocal,
@@ -384,5 +385,33 @@ describe('anchor normalization (browser mirror of Rust `edit::normalize_anchor`)
     expect(normalizeAnchorLocal('')).toBe('')
     expect(normalizeAnchorLocal('   ')).toBe('')
     expect(normalizeAnchorLocal('[blake3:]')).toBe('')
+  })
+})
+
+describe('failover worthiness (browser mirror of Rust `is_failover_worthy`)', () => {
+  it('fails over on dead keys, throttles, transport failures and empty credits', () => {
+    for (const err of [
+      'auth: bad key',
+      'rate_limited: slow down',
+      'network: timeout',
+      'limit: provider credits exhausted',
+    ]) {
+      expect(isFailoverWorthy(err)).toBe(true)
+    }
+  })
+
+  it('stops on errors that would fail identically everywhere', () => {
+    for (const err of [
+      'invalid: bad request',
+      'context: too large',
+      'integrity: moved',
+      'conflict: ambiguous',
+      'unsupported: no shell',
+      'too_large: 1 MiB cap',
+      'cancelled',
+      '',
+    ]) {
+      expect(isFailoverWorthy(err)).toBe(false)
+    }
   })
 })

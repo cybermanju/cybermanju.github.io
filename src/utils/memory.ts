@@ -10,6 +10,7 @@
 // wired in `useAgent.ts`); tests drive it with an in-memory Map.
 
 import type { AgentMemory, MemoryHit, MemoryOrigin } from '@/types'
+import { redactText } from '@/utils/redact'
 
 /** Recalled-context budget per prompt (Hermes `memory_char_limit` parity). */
 export const MEMORY_RECALL_BUDGET_CHARS = 2200
@@ -196,7 +197,9 @@ export class LocalMemoryStore {
   }
 
   remember(configId: string, text: string, origin: MemoryOrigin = 'remember'): AgentMemory | null {
-    const cleaned = (text ?? '').trim().slice(0, MEMORY_TEXT_CAP_CHARS)
+    // Native `sanitize_text` parity: secret-redact before the row persists
+    // (memories sync and outlive the run — a leaked key there is permanent).
+    const cleaned = redactText(text ?? '').text.trim().slice(0, MEMORY_TEXT_CAP_CHARS)
     if (!cleaned || !configId) return null
     const now = new Date().toISOString()
     const row: AgentMemory = {

@@ -31,10 +31,14 @@ const MARKERS: &[&str] = &[
     "api_key=",
     "apiKey=",
     "apikey=",
+    "key=",
     "password=",
     "passwd=",
+    "passphrase=",
     "secret=",
     "token=",
+    "jwt_secret",
+    "ya29.",
 ];
 
 /// Characters that may continue a secret token.
@@ -191,6 +195,28 @@ mod tests {
 
         let (out, _) = redact("-----BEGIN PRIVATE KEY-----\nMIIEvgIBADAN");
         assert!(!out.contains("MIIEvg"), "{out}");
+    }
+
+    #[test]
+    fn server_secret_shapes_are_covered() {
+        // `?key=` query auth, env-dumped master passphrase / jwt secret,
+        // Google OAuth access tokens.
+        let (out, n) = redact("url?key=AIzaSyD-abc123XYZ_ ok");
+        assert_eq!(n, 1, "{out}");
+        assert!(!out.contains("AIzaSyD"), "{out}");
+
+        let (out, n) = redact("CYBERMANJU_MASTER_PASSPHRASE=hunter2-hunter2\nother=1");
+        assert_eq!(n, 1, "{out}");
+        assert!(!out.contains("hunter2"));
+        assert!(out.contains("other=1"));
+
+        let (out, n) = redact("jwt_secret=hunter2");
+        assert_eq!(n, 1, "{out}");
+        assert!(!out.contains("hunter2"));
+
+        let (out, n) = redact("token ya29.a0AfH6SMBx1234567890 ok");
+        assert_eq!(n, 1, "{out}");
+        assert!(!out.contains("AfH6SMB"));
     }
 
     #[test]

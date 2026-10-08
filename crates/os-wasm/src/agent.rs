@@ -28,7 +28,10 @@ pub fn agent_catalog() -> String {
 /// One provider turn: POST the prebuilt body, parse the reply.
 ///
 /// `req_json`: `{url, dialect: "openai"|"anthropic", model, headers:
-/// [[name, value]], system, messages: ChatMessage[], tools: bool}`.
+/// [[name, value]], system, messages: ChatMessage[], tools: bool,
+/// extra_tools?: [{name, description, input_schema}]}`.
+/// `extra_tools` carries browser-discovered MCP defs (canonical Anthropic
+/// shape); they are merged per-dialect like the native `merge_mcp_tools`.
 /// Returns `{"ok":true,"turn":{content,tool_calls,usage,finish}}` or
 /// `{"ok":false,"error":"prefix: detail"}`. CORS rejections surface as
 /// `network:` with a hint (Anthropic direct, for example, blocks browsers —
@@ -59,6 +62,8 @@ struct PromptRequest {
     messages: Vec<cybermanju_types::agent::ChatMessage>,
     #[serde(default)]
     tools: bool,
+    #[serde(default)]
+    extra_tools: Vec<serde_json::Value>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -69,7 +74,7 @@ async fn agent_prompt_inner(req_json: &str) -> Result<String, String> {
         return Err("invalid: url is required".to_string());
     }
     let openai = req.dialect != "anthropic";
-    let body = if openai {
+    let mut body = if openai {
         cybermanju_agent::protocol::openai_request(
             &req.model,
             &req.system,
@@ -84,6 +89,18 @@ async fn agent_prompt_inner(req_json: &str) -> Result<String, String> {
             req.tools,
         )
     };
+    // Merge browser-discovered MCP defs (canonical shape) per dialect.
+    if req.tools && !req.extra_tools.is_empty() {
+        if let Some(tools) = body.get_mut("tools").and_then(|t| t.as_array_mut()) {
+            for def in &req.extra_tools {
+                if openai {
+                    tools.push(cybermanju_agent::protocol::as_openai_tool(def));
+                } else {
+                    tools.push(def.clone());
+                }
+            }
+        }
+    }
     let body_str =
         serde_json::to_string(&body).map_err(|e| format!("invalid: cannot encode body: {e}"))?;
 

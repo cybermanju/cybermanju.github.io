@@ -106,7 +106,7 @@ audit:
   # Advisory until the tree is clean (mirrors continue-on-error).
   allow_failure: true
   before_script:
-    - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    - curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
     - apt-get install -y nodejs
   script:
     # Prebuilt binary; `cargo install cargo-audit --locked` compiles ~300
@@ -135,7 +135,7 @@ wasm-build:
       prefix: cargo-wasm
     paths: [target/, $HOME/.cargo/registry/, $HOME/.cargo/git/, $HOME/.npm/]
   before_script:
-    - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    - curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
     - apt-get install -y nodejs
     - rustup target add wasm32-unknown-unknown
     - curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
@@ -166,7 +166,7 @@ linux-build:
       prefix: cargo-linux
     paths: [target/, $HOME/.cargo/registry/, $HOME/.cargo/git/, $HOME/.npm/]
   before_script:
-    - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    - curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
     - apt-get update && apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev
       libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev
       libjavascriptcoregtk-4.1-dev pkg-config build-essential libssl-dev nodejs
@@ -197,7 +197,7 @@ android-build:
     paths: [target/, $HOME/.cargo/registry/, $HOME/.cargo/git/, $HOME/.npm/, $HOME/.gradle/]
   before_script:
     - apt-get update && apt-get install -y curl unzip zip pkg-config build-essential libssl-dev
-    - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    - curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
     - apt-get install -y nodejs
     - curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
     - export PATH="$HOME/.cargo/bin:$PATH"

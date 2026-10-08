@@ -146,6 +146,10 @@ Secrets mirror GitHub (`TAURI_SIGNING_PRIVATE_KEY`, `ANDROID_KEYSTORE_*`).
 - **Memory:** transcripts in `agent_sessions` + semantic rows in
   `agent_memories` (2200-char recall budget); `memory_remember` goes through
   the permission gate; compaction hands off + auto-stores.
+- **Failover:** `AgentConfig.fallbackIds` (max 4, validated on save) chains
+  assistants as extra accounts/keys or providers; terminal `auth:/rate_limited:/
+  network:/limit:` (incl. empty credits) continues the same transcript on the
+  next route, others stop; all-failed errors append `(tried: …)`.
 
 ## 6. Docs map
 

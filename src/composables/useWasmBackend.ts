@@ -56,6 +56,8 @@ export async function wasmAgentPrompt(req: {
   system: string
   messages: Array<Record<string, unknown>>
   tools: boolean
+  /** Canonical MCP defs merged per-dialect by the wasm bridge. */
+  extraTools?: Array<Record<string, unknown>>
 }): Promise<WasmAgentTurn> {
   const mod = await loadWasm()
   if (!mod) throw new Error('wasm backend unavailable')

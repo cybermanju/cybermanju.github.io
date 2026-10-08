@@ -171,6 +171,12 @@ pub struct AgentConfig {
     /// A key is stored server-side (never echoed back).
     #[serde(default)]
     pub has_key: bool,
+    /// Failover route: config ids tried in order when this config's provider
+    /// call fails terminally (dead key, throttling, transport failure, empty
+    /// credits). Same-provider ids act as extra accounts/keys; other-provider
+    /// ids act as provider fallbacks. Missing on old rows = no fallback.
+    #[serde(default)]
+    pub fallback_ids: Vec<String>,
     /// Embedding model for semantic memory (`{base}/embeddings`,
     /// OpenAI dialect). Defaults to `text-embedding-3-small`; Ollama serves
     /// any `-embed` model here. Unset = provider default.

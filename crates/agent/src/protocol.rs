@@ -10,8 +10,10 @@ use cybermanju_types::agent::{AuthScheme, ChatMessage, ProviderPreset, TokenUsag
 // ─── tool schemas (one set, every transport) ──────────────────────────────
 
 /// The agent's tool surface. Native executes these against the Kernel and
-/// the volume; WASM executes the file subset against its volume map
-/// (`bash`/`task` answer `unsupported:` there — no fake success).
+/// the volume; the browser loop executes the same surface against its
+/// volume map (`bash` runs the cybsh volume subset, `task` runs one
+/// bounded read-only subagent, `mcp__*` runs attached HTTP servers —
+/// device shell + stdio MCP answer `unsupported:` there, never fake success).
 /// Descriptions double as the model's usage guide — keep them imperative
 /// and specific about arguments, limits, and failure modes.
 pub const TOOL_NAMES: &[&str] = &[
@@ -102,7 +104,7 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         ),
         tool_def(
             "bash",
-            "Run a command with a timeout (native transports only). cybsh FIRST for volume work: ls/cd/pwd/cat/cp/mv/rm/mkdir/touch/stat/du/df/disk/mount/search/sync/scrub/repair/gc/lease/ps/compute/keygen/encrypt/decrypt/ai (same shell as the Terminal; pass explicit paths). curl/wget for raw network fetch. Prefer mcp__exa__web_search_exa for web search and mcp__exa__web_fetch_exa for pages. The system prompt states the config's shell_mode (auto/cybsh-only/device-only) — obey it. Never run interactive commands; destructive commands pause for approval.",
+            "Run a command with a timeout. cybsh FIRST for volume work: ls/cd/pwd/cat/cp/mv/rm/mkdir/touch/stat/du/df/disk/mount/search/sync/scrub/repair/gc/lease/ps/compute/keygen/encrypt/decrypt/ai (same shell as the Terminal; pass explicit paths). curl/wget for raw network fetch on native transports (the browser runs the cybsh volume subset there — device verbs answer unsupported:). Prefer mcp__exa__web_search_exa for web search and mcp__exa__web_fetch_exa for pages. The system prompt states the config's shell_mode (auto/cybsh-only/device-only) — obey it. Never run interactive commands; destructive commands pause for approval.",
             serde_json::json!({
                 "command": { "type": "string" },
                 "timeout_secs": { "type": "integer", "description": "Default 120, clamped 5-600 (shell fallback only)" },
@@ -261,15 +263,43 @@ pub fn openai_request(
         match m.role.as_str() {
             "tool" => wire.push(serde_json::json!({
                 "role": "tool",
-                "tool_call_id": m.tool_call_id,
+                // A null id 400s strict providers — fall back to "" (a missing
+                // id is a bug upstream, but the wire must stay a string).
+                "tool_call_id": m.tool_call_id.clone().unwrap_or_default(),
                 "content": m.content,
             })),
             "assistant_tool" => {
-                let calls = m.tool_input.clone().unwrap_or(serde_json::Value::Null);
+                // The transcript stores the neutral {id,name,input} rows; the
+                // wire needs OpenAI-spec tool_calls. Echoing the neutral rows
+                // verbatim 400s strict providers on the follow-up turn —
+                // i.e. right after the first tool result lands.
+                let spec_calls: Vec<serde_json::Value> = m
+                    .tool_input
+                    .as_ref()
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .map(|c| {
+                                let args = c
+                                    .get("input")
+                                    .map(|v| v.to_string())
+                                    .unwrap_or_else(|| "{}".to_string());
+                                serde_json::json!({
+                                    "id": c.get("id").and_then(|v| v.as_str()).unwrap_or("call-0"),
+                                    "type": "function",
+                                    "function": {
+                                        "name": c.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+                                        "arguments": args,
+                                    },
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 wire.push(serde_json::json!({
                     "role": "assistant",
                     "content": m.content,
-                    "tool_calls": calls,
+                    "tool_calls": spec_calls,
                 }));
             }
             role => wire.push(serde_json::json!({ "role": role, "content": m.content })),
@@ -286,9 +316,11 @@ pub fn openai_request(
 /// Parse an OpenAI chat response (or error envelope) into a turn.
 pub fn openai_parse(body: &serde_json::Value) -> Result<ParsedTurn, String> {
     if let Some(err) = body.get("error") {
+        // Some gateways send `"error": "<string>"` instead of the object shape.
         let msg = err
             .get("message")
             .and_then(|m| m.as_str())
+            .or_else(|| err.as_str())
             .unwrap_or("unknown provider error");
         let code = err.get("code").and_then(|c| c.as_str()).unwrap_or_default();
         return Err(classify_provider_error(None, msg, code));
@@ -359,7 +391,7 @@ pub fn anthropic_request(
                 "role": "user",
                 "content": [{
                     "type": "tool_result",
-                    "tool_use_id": m.tool_call_id,
+                    "tool_use_id": m.tool_call_id.clone().unwrap_or_default(),
                     "content": m.content,
                 }],
             })),
@@ -490,6 +522,17 @@ pub fn classify_provider_error(status: Option<u16>, message: &str, code: &str) -
     if status == Some(401) || status == Some(403) || authy.iter().any(|s| haystack.contains(s)) {
         return format!("auth: provider rejected credentials: {message}");
     }
+    // Empty credits are a billing state, not a throttle: backing off and
+    // retrying the same key cannot help, but a fallback key/route can.
+    if status == Some(402)
+        || haystack.contains("insufficient")
+        || haystack.contains("out of credits")
+        || haystack.contains("credit balance")
+        || haystack.contains("billing")
+        || haystack.contains("payment required")
+    {
+        return format!("limit: provider credits exhausted: {message} — top up, or add a fallback assistant with another key");
+    }
     if status == Some(429)
         || haystack.contains("rate limit")
         || haystack.contains("rate_limit")
@@ -511,6 +554,12 @@ pub fn classify_provider_error(status: Option<u16>, message: &str, code: &str) -
         || haystack.contains("reduce the length")
     {
         return format!("context: transcript exceeds the model's context window: {message}");
+    }
+    // A 400 that is not auth/rate-limit/context is a malformed request, not a
+    // transport blip — retrying it identically cannot work. Point at the
+    // usual suspects (wrong model id, model without tool support).
+    if status == Some(400) {
+        return format!("invalid: provider rejected the request (HTTP 400): {message} — check the model id and that it supports tool calls");
     }
     if let Some(status) = status {
         return format!("network: provider HTTP {status}: {message}");
@@ -694,6 +743,60 @@ mod tests {
 
         let err = serde_json::json!({ "error": { "message": "Incorrect API key", "code": "invalid_api_key" } });
         assert!(openai_parse(&err).expect_err("auth").starts_with("auth:"));
+    }
+
+    #[test]
+    fn openai_tool_echo_is_spec_shaped() {
+        // Regression: the neutral {id,name,input} rows were echoed verbatim
+        // into `tool_calls`, which 400s strict providers on the follow-up
+        // turn (right after the first tool result). The wire must carry
+        // {id,type,function:{name,arguments}} with string ids throughout.
+        let body = openai_request(
+            "m",
+            "",
+            &[
+                ChatMessage {
+                    role: "assistant_tool".into(),
+                    content: "looking".into(),
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_input: Some(serde_json::json!([
+                        {"id": "call_1", "name": "list", "input": {"path": "/"}}
+                    ])),
+                },
+                ChatMessage {
+                    role: "tool".into(),
+                    content: "a\nb".into(),
+                    tool_call_id: Some("call_1".into()),
+                    tool_name: Some("list".into()),
+                    tool_input: None,
+                },
+            ],
+            true,
+        );
+        let tc = &body["messages"][0]["tool_calls"][0];
+        assert_eq!(tc["id"], "call_1");
+        assert_eq!(tc["type"], "function");
+        assert_eq!(tc["function"]["name"], "list");
+        assert_eq!(tc["function"]["arguments"], "{\"path\":\"/\"}");
+        assert_eq!(body["messages"][1]["tool_call_id"], "call_1");
+        // …and a missing id still serializes as a string, never null.
+        let bare = openai_request(
+            "m",
+            "",
+            &[ChatMessage {
+                role: "tool".into(),
+                content: "x".into(),
+                tool_call_id: None,
+                tool_name: None,
+                tool_input: None,
+            }],
+            false,
+        );
+        assert!(bare["messages"][0]["tool_call_id"].is_string());
+        // A non-context 400 classifies as invalid (fix-the-request), not network.
+        assert!(classify_provider_error(Some(400), "Provider returned error", "")
+            .starts_with("invalid:"));
     }
 
     #[test]

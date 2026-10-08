@@ -284,6 +284,40 @@ pub fn strip_denied_tools(
     removed
 }
 
+/// Max provider routes tried per run: the primary plus this many fallbacks
+/// minus one. Bounds worst-case latency (each route gets its own backoff).
+pub const MAX_FAILOVER_ROUTES: usize = 5;
+
+/// Ordered, de-duplicated route plan: the primary first, then fallbacks (no
+/// self-references, no repeats, capped). Pure so every transport shares the
+/// same rule; callers resolve each id to an endpoint + key afterwards.
+pub fn plan_failover_chain(primary_id: &str, fallback_ids: &[String]) -> Vec<String> {
+    let mut chain = Vec::with_capacity(MAX_FAILOVER_ROUTES);
+    chain.push(primary_id.to_string());
+    for id in fallback_ids {
+        let id = id.trim();
+        if id.is_empty() || id == primary_id || chain.iter().any(|c| c == id) {
+            continue;
+        }
+        if chain.len() >= MAX_FAILOVER_ROUTES {
+            break;
+        }
+        chain.push(id.to_string());
+    }
+    chain
+}
+
+/// Terminal provider errors worth trying the next route on: dead keys,
+/// throttling, transport failures and empty credits fail over. Malformed
+/// requests, overflows and integrity refusals would fail identically on
+/// every route, so they stop the run instead.
+pub fn is_failover_worthy(error: &str) -> bool {
+    matches!(
+        error.split(':').next().map(str::trim),
+        Some("auth") | Some("rate_limited") | Some("network") | Some("limit")
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,6 +331,48 @@ mod tests {
                 .into_iter()
                 .map(|(k, v)| (k.to_string(), v))
                 .collect::<BTreeMap<_, _>>(),
+        }
+    }
+
+    #[test]
+    fn failover_chain_dedupes_caps_and_drops_self() {
+        let chain = plan_failover_chain(
+            "a",
+            &[
+                "b".into(),
+                "".into(),
+                "a".into(),
+                "b".into(),
+                "c".into(),
+                "d".into(),
+                "e".into(),
+                "f".into(),
+            ],
+        );
+        assert_eq!(chain, vec!["a", "b", "c", "d", "e"]);
+    }
+
+    #[test]
+    fn failover_worthy_prefixes() {
+        for ok in [
+            "auth: bad key",
+            "rate_limited: slow down",
+            "network: timeout",
+            "limit: credits exhausted",
+        ] {
+            assert!(is_failover_worthy(ok), "{ok}");
+        }
+        for stop in [
+            "invalid: bad request",
+            "context: too large",
+            "integrity: moved",
+            "conflict: ambiguous",
+            "unsupported: no shell",
+            "too_large: 1 MiB cap",
+            "cancelled",
+            "",
+        ] {
+            assert!(!is_failover_worthy(stop), "{stop}");
         }
     }
 

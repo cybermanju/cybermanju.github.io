@@ -60,7 +60,7 @@
 git clone https://github.com/cybermanju/cybermanju.github.io.git
 cd cybermanju.github.io
 
-# 2 — frontend deps (Node 20+)
+# 2 — frontend deps (Node 24+)
 npm install
 
 # 3 — desktop + HMR (web dashboard rides along on :3456)

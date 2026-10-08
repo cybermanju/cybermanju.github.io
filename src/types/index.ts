@@ -596,11 +596,11 @@ export function agentErrorHint(err: string): { prefix: string; hint: string } {
     case 'context':
       return { prefix, hint: 'Transcript too large for this model — run COMPACT, then continue.' }
     case 'limit':
-      return { prefix, hint: 'Turn budget exhausted — raise MAX TURNS or COMPACT, then continue.' }
+      return { prefix, hint: 'Budget hit — turn budget exhausted (raise MAX TURNS) or provider credits empty (top up, or add a fallback assistant).' }
     case 'not_found':
       return { prefix, hint: 'Path or config is gone — re-check WORKING DIR and the file tree.' }
     case 'unsupported':
-      return { prefix, hint: 'This transport cannot run that tool (browser sandbox has no shell).' }
+      return { prefix, hint: 'That tool needs a different transport (device shell / stdio MCP need desktop or dashboard).' }
     case 'too_large':
       return { prefix, hint: 'Input exceeds the tool size cap — narrow the scope or split the file.' }
     case 'integrity':
@@ -868,6 +868,8 @@ export interface AgentConfig {
   autoApprove: boolean
   maxTurns: number
   hasKey: boolean
+  /** Failover route: config ids tried in order when this config's provider call fails. Same-provider ids = extra accounts/keys. */
+  fallbackIds?: string[]
   /** Embedding model for semantic memory (`{base}/embeddings`); unset = provider default. */
   embeddingModel?: string | null
   mcpServers?: Record<string, McpServerConfig>

@@ -186,7 +186,7 @@
               {{ t.tool }} · {{ t.unsupported ? 'n/a' : t.action }}
             </span>
           </div>
-          <p v-if="wasmMode" class="agent-note">Browser sandbox — no shell, no subagents, no MCP. Those tools answer <span class="mono">unsupported:</span> instead of failing silently.</p>
+          <p v-if="wasmMode" class="agent-note">Browser volume — cybsh-subset shell, depth-1 subagents, HTTP MCP. Device shell + stdio MCP need the dashboard and answer <span class="mono">unsupported:</span> there.</p>
         </section>
 
         <!-- Setup tab: guided, 3 steps instead of one long form -->
@@ -339,6 +339,7 @@
           </div>
           <div v-if="setupMsg" class="w-msg">{{ setupMsg }}</div>
           <p class="agent-note">Custom provider: pick the Custom preset, set endpoint + dialect + auth. Model-list refresh needs a saved key (Anthropic has no list API — enter the model by hand).</p>
+          <p class="agent-note">Second account or spare key? Save another assistant on the same provider, then chain it under Controls → Fallback route — throttled/empty/dead keys fail over automatically, in order.</p>
         </section>
 
         <!-- Controls tab: MCP servers + per-tool permissions -->
@@ -395,6 +396,39 @@
             </div>
             <div v-if="mcpMsg" class="w-msg">{{ mcpMsg }}</div>
             <p class="agent-note">Connecting tools needs admin (local commands spawn processes). Tools appear as <span class="mono">mcp__server__tool</span> and follow the same ask / deny rules.</p>
+          </div>
+
+          <div v-if="chatConfig" class="agent-card">
+            <h3 class="agent-card-title"><AppIcon name="solar:refresh-bold" :size="13" /> Fallback route for {{ chatConfig.name }} ({{ fallbackList.length }})</h3>
+            <div v-if="fallbackList.length" class="config-list">
+              <div v-for="(fid, i) in fallbackList" :key="fid" class="config-card">
+                <div class="cfg-header">
+                  <span class="cfg-name">{{ i + 1 }} · {{ fallbackName(fid) }}</span>
+                  <UiBadge :tone="fallbackReady(fid) ? 'accent' : 'neutral'" size="sm">{{ fallbackReady(fid) ? 'Ready' : 'No key' }}</UiBadge>
+                </div>
+                <div class="cfg-actions">
+                  <UiButton size="xs" :disabled="i === 0" @click="moveFallback(i, -1)">Up</UiButton>
+                  <UiButton size="xs" :disabled="i === fallbackList.length - 1" @click="moveFallback(i, 1)">Down</UiButton>
+                  <UiButton size="xs" variant="danger" @click="removeFallback(i)">Remove</UiButton>
+                </div>
+              </div>
+            </div>
+            <div class="w-row">
+              <div class="w-field grow">
+                <UiSelect
+                  :model-value="fallbackPick"
+                  :options="fallbackOptions"
+                  @update:model-value="fallbackPick = $event"
+                />
+              </div>
+              <UiButton size="sm" :disabled="fallbackBusy || !fallbackPick" @click="addFallback">Add</UiButton>
+            </div>
+            <div class="w-actions">
+              <UiButton size="sm" variant="primary" :disabled="fallbackBusy" :loading="fallbackBusy" @click="saveFallbacks">Save route</UiButton>
+              <UiButton size="sm" variant="ghost" @click="activeTab = 'chat'">Back to chat</UiButton>
+            </div>
+            <div v-if="fallbackMsg" class="w-msg">{{ fallbackMsg }}</div>
+            <p class="agent-note">When {{ chatConfig.name }}'s provider call fails (dead key, throttling, empty credits, offline), the run continues on each fallback in order — same transcript, no retype. Same-provider entries act as extra accounts/keys; other providers act as full fallbacks. Max 4 (5 routes total).</p>
           </div>
 
           <div v-if="chatConfig" class="agent-card">
@@ -687,6 +721,8 @@ import {
   saveLocalSession,
   deleteLocalSession,
   abortLocalRun,
+  recallBlockLocal,
+  type LocalFailoverRoute,
 } from '@/composables/useAgent'
 import { agentPermissionPreset, agentErrorHint, defaultMcpServers } from '@/types'
 import {
@@ -852,22 +888,35 @@ const capHasKey = computed(() => {
   return cfg.hasKey || isKeyless(cfg)
 })
 
-const BROWSER_TOOLS = ['read', 'write', 'edit', 'list', 'grep', 'glob', 'question']
-const NATIVE_TOOLS = ['read', 'write', 'edit', 'list', 'grep', 'glob', 'bash', 'task', 'question']
+const BROWSER_TOOLS = ['read', 'write', 'edit', 'list', 'grep', 'glob', 'bash', 'task', 'question', 'memory_recall', 'memory_remember']
+const NATIVE_TOOLS = ['read', 'write', 'edit', 'list', 'grep', 'glob', 'bash', 'task', 'question', 'memory_recall', 'memory_remember']
 
 /** Per-tool default action, evaluated through the same `decide` as the loop. */
 const toolPerms = computed(() => {
   const cfg = chatConfig.value
   if (!cfg) return []
   const tools = wasmMode.value ? BROWSER_TOOLS : NATIVE_TOOLS
-  return toolPermissions(cfg.permission, cfg.agentKind, tools).map(p => ({
+  const base = toolPermissions(cfg.permission, cfg.agentKind, tools).map(p => ({
     ...p,
-    unsupported: wasmMode.value && (p.tool === 'bash' || p.tool === 'task'),
+    unsupported: false,
   }))
+  // Attached MCP servers are dynamic tools — surface each one so the model
+  // permission for `mcp__server__tool` is visible next to the statics.
+  for (const [name, server] of Object.entries(cfg.mcpServers ?? {})) {
+    if (server.enabled === false) continue
+    const probe = toolPermissions(cfg.permission, cfg.agentKind, [`mcp__${name}__probe`])
+    const action = probe[0]?.action ?? 'ask'
+    base.push({
+      tool: `mcp__${name}__*`,
+      action: action as 'allow' | 'ask' | 'deny',
+      unsupported: (server.transport ?? 'http') !== 'http' && wasmMode.value,
+    })
+  }
+  return base
 })
 
 function toolHelp(t: { tool: string; action: string; unsupported?: boolean }): string {
-  if (t.unsupported) return `${t.tool} cannot run in the browser sandbox — it answers unsupported:`
+  if (t.unsupported) return `${t.tool} needs the dashboard on this transport — it answers unsupported:`
   if (t.action === 'deny') return `${t.tool} is denied by the ruleset`
   if (t.action === 'allow') return `${t.tool} runs without asking`
   return `${t.tool} opens the approval card before it runs`
@@ -1041,6 +1090,85 @@ async function savePermRules() {
   }
 }
 
+// ─── fallback route editor: ordered assistant ids tried when the primary
+// provider call dies (dead key, throttle, empty credits, offline) ───
+const fallbackDraft = ref<string[] | null>(null)
+const fallbackPick = ref('')
+const fallbackBusy = ref(false)
+const fallbackMsg = ref('')
+const fallbackList = computed(() => fallbackDraft.value ?? chatConfig.value?.fallbackIds ?? [])
+const fallbackOptions = computed(() => [
+  { label: 'SELECT ASSISTANT', value: '' },
+  ...configs.value
+    .filter(c => c.id !== chatConfigId.value && !fallbackList.value.includes(c.id))
+    .map(c => ({ label: `${c.name} (${c.providerId} · ${c.model})`, value: c.id })),
+])
+
+function fallbackName(id: string): string {
+  const c = configs.value.find(c => c.id === id)
+  return c ? `${c.name} (${c.providerId} · ${c.model})` : `${id.slice(0, 8)}… (deleted)`
+}
+
+function fallbackReady(id: string): boolean {
+  const c = configs.value.find(c => c.id === id)
+  return c ? (c.hasKey || isKeyless(c)) : false
+}
+
+function addFallback() {
+  if (!fallbackPick.value) return
+  if (fallbackList.value.length >= 4) {
+    fallbackMsg.value = 'Max 4 fallbacks (5 routes total).'
+    return
+  }
+  fallbackDraft.value = [...fallbackList.value, fallbackPick.value]
+  fallbackPick.value = ''
+  fallbackMsg.value = ''
+}
+
+function removeFallback(i: number) {
+  fallbackDraft.value = fallbackList.value.filter((_, j) => j !== i)
+}
+
+function moveFallback(i: number, d: number) {
+  const arr = [...fallbackList.value]
+  const j = i + d
+  if (j < 0 || j >= arr.length) return
+  ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  fallbackDraft.value = arr
+}
+
+async function saveFallbacks() {
+  const cfg = chatConfig.value
+  if (!cfg || fallbackBusy.value) return
+  const updated: AgentConfig = {
+    ...cfg,
+    fallbackIds: [...fallbackList.value],
+    updatedAt: new Date().toISOString(),
+  }
+  fallbackBusy.value = true
+  try {
+    if (wasmMode.value) {
+      saveLocalConfig(updated)
+      refreshLocal()
+    } else {
+      const saved = await store.saveAgentConfig(updated)
+      if (!saved) return
+    }
+    fallbackDraft.value = null
+    fallbackMsg.value = (updated.fallbackIds ?? []).length
+      ? `Saved — ${(updated.fallbackIds ?? []).length} fallback(s) in route.`
+      : 'Saved — no fallbacks.'
+  } finally {
+    fallbackBusy.value = false
+  }
+}
+
+watch(chatConfigId, () => {
+  fallbackDraft.value = null
+  fallbackPick.value = ''
+  fallbackMsg.value = ''
+})
+
 // ─── auto-compaction (P3): meter ≥85 % with an idle thread compacts once
 // per session instead of failing the next turn with `context:` ───
 const autoCompactedFor = ref('')
@@ -1122,8 +1250,9 @@ function localSystemPrompt(config: AgentConfig): string {
     `You are CyberManju, an AI coding agent running fully in the browser over a local file volume.\n` +
     `Working root: ${root}\n` +
     `Agent mode: ${config.agentKind} (plan = read-only, never edit).\n` +
-    `SANDBOX: browser file volume — read/list/grep/glob/write/edit only. There is NO bash, ` +
-    `NO subagents, NO MCP servers here; those tools answer unsupported:, so never call them.\n` +
+    `SANDBOX: browser file volume — read/list/grep/glob/write/edit plus cybsh-subset bash, ` +
+    `one bounded read-only subagent (task), and HTTP MCP servers (mcp__*). Device shell ` +
+    `(curl/wget/git/python) and stdio MCP need the dashboard and answer unsupported: there.\n` +
     `TOOLS — paths: leading / = volume root, else working-dir-relative.\n` +
     `- read {path}: always read a file before editing it; the output ends with a ` +
     `\`[blake3:<hex>]\` line — pass it as expected_hash on edit, and never write it back ` +
@@ -1135,6 +1264,13 @@ function localSystemPrompt(config: AgentConfig): string {
     `ambiguous → conflict:, then re-read and send a larger block. expected_hash pins the file ` +
     `you read so a concurrent writer cannot slip through.\n` +
     `- write {path, content}: full-file create/overwrite; prefer edit for small changes.\n` +
+    `- bash {command}: cybsh volume commands (ls/cat/cp/mv/rm/mkdir/ls/search/compute); device verbs answer unsupported:.\n` +
+    `- task {goal, context?}: one bounded read-only subagent (read/list/grep/glob only, 5 turns).\n` +
+    `- mcp__server__tool: attached HTTP MCP servers only; stdio servers answer unsupported:.\n` +
+    `- memory_recall {query, top_k?}: search long-term memory (past sessions, stored facts). ` +
+    `Bounded and possibly stale — verify before acting.\n` +
+    `- memory_remember {text}: store ONE durable fact for future sessions; one fact per call, ` +
+    `never secrets or whole files.\n` +
     `STANDING ORDERS: AGENTS.md, SKILL.md and .cybermanju/rules.md define your instructions, ` +
     `so writing one always asks for approval — AUTO APPROVE never covers them.\n` +
     `WORKFLOW: orient (list/glob) → read → act → verify. Small verified steps; ` +
@@ -1194,6 +1330,7 @@ function localConfigFromForm(): AgentConfig {
     autoApprove: form.autoApprove,
     maxTurns: Math.min(50, Math.max(1, form.maxTurns || 25)),
     hasKey: false,
+    fallbackIds: [],
     createdAt: now,
     updatedAt: now,
     mcpServers: defaultMcpServers(),
@@ -1207,7 +1344,8 @@ async function saveConfig() {
     if (wasmMode.value) {
       const cfg = localConfigFromForm()
       const prev = listLocalConfigs().find(c => c.id === cfg.id)
-      saveLocalConfig({ ...cfg, createdAt: prev?.createdAt ?? cfg.createdAt })
+      // Re-saving the wizard row must not wipe the fallback route set in Controls.
+      saveLocalConfig({ ...cfg, fallbackIds: prev?.fallbackIds ?? [], createdAt: prev?.createdAt ?? cfg.createdAt })
       refreshLocal()
       savedConfigId.value = cfg.id
       chatConfigId.value = cfg.id
@@ -1228,6 +1366,7 @@ async function saveConfig() {
       permission: agentPermissionPreset(permPreset.value),
       autoApprove: form.autoApprove,
       maxTurns: Math.min(50, Math.max(1, form.maxTurns || 25)),
+      fallbackIds: [],
       mcpServers: defaultMcpServers(),
     })
     if (saved) {
@@ -1612,7 +1751,30 @@ async function sendPromptLocal() {
     return
   }
   const key = localKeys.value[cfg.id] ?? ''
-  if (!key && !(preset?.keyless ?? false)) {
+  // Fallback routes: same transcript continues on the next usable assistant
+  // (extra account/key or another provider) when this one's call dies.
+  const fallbackRoutes: LocalFailoverRoute[] = []
+  {
+    const seen = new Set([cfg.id])
+    for (const fid of cfg.fallbackIds ?? []) {
+      if (seen.has(fid) || fallbackRoutes.length >= 4) continue
+      seen.add(fid)
+      const fc = localConfigs.value.find(c => c.id === fid)
+      if (!fc) continue
+      const fp = localPresetFor(fc)
+      const fbase = (fc.baseUrlOverride || fp?.baseUrl || '').replace(/\/$/, '')
+      if (!fbase) continue
+      const fkey = localKeys.value[fc.id] ?? ''
+      if (!fkey && !(fp?.keyless ?? false)) continue
+      const fdialect = (fc.dialectOverride ?? fp?.dialect ?? 'openAi') as 'openAi' | 'anthropic'
+      const fauth = (fc.authSchemeOverride ?? fp?.auth ?? 'bearer') as 'bearer' | 'header' | 'query' | 'none'
+      const fheaders: Array<[string, string]> = [...(fp?.extraHeaders ?? [])]
+      if (fauth === 'bearer' && fkey) fheaders.push(['Authorization', `Bearer ${fkey}`])
+      else if (fauth === 'header') fheaders.push([fc.authNameOverride || fp?.authName || 'x-api-key', fkey])
+      fallbackRoutes.push({ label: `${fc.name} · ${fc.model}`, baseUrl: fbase, dialect: fdialect, model: fc.model, headers: fheaders })
+    }
+  }
+  if (!key && !(preset?.keyless ?? false) && !fallbackRoutes.length) {
     store.notifyError('No API key', 'paste the key in SETUP (kept in memory only)')
     return
   }
@@ -1672,11 +1834,13 @@ async function sendPromptLocal() {
         dialect,
         model: cfg.model,
         headers,
-        system: localSystemPrompt(cfg),
+        system: localSystemPrompt(cfg) + recallBlockLocal(cfg.id, prompt),
         maxTurns: cfg.maxTurns,
         permission: cfg.permission,
         autoApprove: cfg.autoApprove,
         agentKind: cfg.agentKind,
+        configId: cfg.id,
+        fallbacks: fallbackRoutes,
         // "Allow always" must survive the run, not just this turn.
         onRemember: (tool: string) => {
           const updated: AgentConfig = {

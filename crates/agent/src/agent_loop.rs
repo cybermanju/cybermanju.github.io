@@ -146,13 +146,14 @@ pub fn assistant_tool_wire(calls: &[ToolCall]) -> serde_json::Value {
 }
 
 /// Which sandbox the agent runs in. The metaprompt below is honest about
-/// capabilities per transport — a browser agent must never be told it has
-/// a shell.
+/// capabilities per transport — a browser agent has the cybsh volume
+/// subset, depth-1 subagents and HTTP MCP (device shell + stdio MCP stay
+/// native and answer `unsupported:` there).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sandbox {
     /// Desktop/server: bash, task subagents, MCP servers.
     Native,
-    /// Browser volume: file tools only.
+    /// Browser volume: file tools + cybsh-subset bash + depth-1 task + HTTP MCP.
     Browser,
 }
 
@@ -176,15 +177,18 @@ pub fn system_prompt(
         }
         Sandbox::Browser => {
             "SANDBOX: browser file volume — read/list/grep/glob/write/edit \
-             only. There is NO bash, NO subagents, NO MCP servers here; those \
-             tools answer unsupported:, so never call them and never promise \
-             their results;"
+             plus cybsh-subset bash, one bounded read-only task subagent, \
+             and attached HTTP MCP servers (mcp__*). Device shell \
+             (curl/wget/git/python) and stdio MCP need the dashboard and \
+             answer unsupported: there;"
         }
     };
     let shell_para: &str = match (sandbox, shell_mode) {
         (Sandbox::Browser, _) => {
-            "- bash: NOT AVAILABLE in this browser sandbox — the tool answers \
-             unsupported:, so never call it and never promise its results.\n"
+            "- bash {{command, timeout_secs?}}: cybsh volume subset in this \
+             browser sandbox (ls/cat/cp/mv/rm/mkdir/search/compute, same \
+             shell as the Terminal panel; pass explicit paths). Device verbs \
+             answer unsupported: — never promise their results.\n"
         }
         (_, ShellMode::Cybsh) => {
             "- bash {{command, timeout_secs?}}: cybsh ONLY — the same shell as \

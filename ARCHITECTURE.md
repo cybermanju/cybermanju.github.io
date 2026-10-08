@@ -696,7 +696,7 @@ services:
 ```
 ┌─────────────────────┐   ┌──────────────────────────┐   ┌──────────────────┐
 │  Stage 1: Frontend  │   │  Stage 2: Rust Backend   │   │  Stage 3: Runtime│
-│  node:20-alpine     │   │  rust:1.85-alpine        │   │  alpine:3.21     │
+│  node:24-alpine     │   │  rust:1.85-alpine        │   │  alpine:3.21     │
 │                     │   │                          │   │                  │
 │  npm install        │   │  cargo build --release   │   │  ca-certificates │
 │  npm run build:wasm │──►│  (web_dashboard only)    │──►│  wget            │
@@ -820,7 +820,7 @@ npm run tauri:build
 **Output:** Platform-specific installer (`.dmg`, `.msi`, `.deb`, `.AppImage`)
 
 **Requirements:**
-- Node.js 20+
+- Node.js 24+
 - Rust 1.85+
 - Platform-specific: GTK3/WebKit2GTK (Linux), WebView2 (Windows), nothing extra (macOS)
 

@@ -165,6 +165,51 @@ fn validate_config(config: &AgentConfig) -> Result<(), String> {
     Ok(())
 }
 
+/// Fallback-route validation (save path): ids must exist, must not point at
+/// the config itself, no repeats, and the chain stays within
+/// `MAX_FAILOVER_ROUTES`. Unknown ids are 4xx here, not runs that fail over
+/// onto nothing.
+fn validate_fallback_routes(db: &Database, config: &AgentConfig) -> Result<(), String> {
+    use cybermanju_agent::config::MAX_FAILOVER_ROUTES;
+    if config.fallback_ids.len() > MAX_FAILOVER_ROUTES - 1 {
+        return Err(format!(
+            "invalid: at most {} fallback assistants (primary + {} routes max)",
+            MAX_FAILOVER_ROUTES - 1,
+            MAX_FAILOVER_ROUTES
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for id in &config.fallback_ids {
+        if id.trim().is_empty() {
+            return Err("invalid: fallback id is empty".to_string());
+        }
+        if id == &config.id {
+            return Err("invalid: an assistant cannot fall back onto itself".to_string());
+        }
+        if !seen.insert(id.clone()) {
+            return Err(format!("invalid: duplicate fallback '{id}'"));
+        }
+        get_config(db, id)
+            .map_err(|_| format!("invalid: fallback assistant not found: '{id}'"))?;
+    }
+    Ok(())
+}
+
+/// A route can serve a run when its endpoint resolves and it either needs
+/// no key (keyless runtimes like Ollama) or has one sealed.
+fn route_usable(db: &Database, config: &AgentConfig) -> bool {
+    let endpoint = match providers::resolve(config) {
+        Ok(e) => e,
+        Err(_) => return false,
+    };
+    if endpoint.keyless {
+        return true;
+    }
+    load_key(db, &config.id)
+        .map(|k| !k.is_empty())
+        .unwrap_or(false)
+}
+
 /// P0-8: does this config need an admin to save it?
 ///
 /// Returns the reason when privileged material is present:
@@ -245,6 +290,7 @@ fn save_config_unchecked(db: &Database, config: &mut AgentConfig) -> Result<Agen
     cybermanju_types::agent::ensure_default_mcp_servers(&mut config.mcp_servers);
     cybermanju_types::agent::ensure_default_agent_permissions(&mut config.permission);
     validate_config(config)?;
+    validate_fallback_routes(db, config)?;
     config.max_turns = config.max_turns.clamp(1, agent_loop::MAX_TURNS_HARD_CAP);
     let now = chrono::Utc::now().to_rfc3339();
     if config.created_at.is_empty() {
@@ -1287,13 +1333,32 @@ fn tool_bash(
         }
     }
     let timeout = timeout_secs.clamp(5, 600);
-    let mut child = Command::new("sh")
-        .arg("-c")
+    // The device shell must not inherit the server's environment: provider
+    // keys, `CYBERMANJU_*` secrets and OAuth material live in process env,
+    // and `env|printenv` output flows back into the transcript (then to the
+    // provider). Start from a scrubbed slate — PATH (inherited, not secret)
+    // plus locale only.
+    let mut cmd = Command::new("sh");
+    cmd.arg("-c")
         .arg(command)
         .current_dir(root)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("LANG", "C.UTF-8")
+        .env("LC_ALL", "C.UTF-8");
+    #[cfg(windows)]
+    {
+        // git-bash/MSYS `sh` refuses to start without these.
+        for key in ["SystemRoot", "SystemDrive", "TEMP", "TMP"] {
+            if let Some(v) = std::env::var_os(key) {
+                cmd.env(key, v);
+            }
+        }
+    }
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("error: cannot spawn shell: {e}"))?;
     // Drain both pipes on threads: a chatty child would otherwise block on
@@ -2013,11 +2078,16 @@ pub fn start_job_as(
     let key = {
         let guard = db.read().map_err(|e| e.to_string())?;
         let key = load_key(&guard, config_id)?;
-        if key.is_empty() && !config.provider_id.is_empty() {
-            let endpoint = providers::resolve(&config)?;
-            if !endpoint.keyless {
-                return Err("auth: no API key saved for this config — add one first".to_string());
-            }
+        // The run may start as long as SOME route in the chain is usable —
+        // the worker fails over onto it when the primary's call dies.
+        let primary_ok = route_usable(&guard, &config);
+        let fallback_ok = config.fallback_ids.iter().any(|id| {
+            get_config(&guard, id)
+                .map(|c| route_usable(&guard, &c))
+                .unwrap_or(false)
+        });
+        if !primary_ok && !fallback_ok {
+            return Err("auth: no API key saved for this config — add one first (or add a fallback assistant with a key)".to_string());
         }
         key
     };
@@ -2235,7 +2305,13 @@ pub fn approve_job_for(
         pending.insert(job_id.to_string(), ApprovalAnswer { approved, answer });
     }
     if approved && remember {
-        if let Some(tool) = tool {
+        // Persistent widening ("allow always") is a config write: on the
+        // REST transport it needs admin, like `save_config_as`. A non-admin
+        // approval still works once — only the permanent rule is skipped.
+        // (Tauri IPC passes `is_admin=true`, so desktop behavior is unchanged.)
+        if !is_admin {
+            log::debug!("remember-allow skipped: non-admin approval approves once only");
+        } else if let Some(tool) = tool {
             // Best effort: the approval itself is already recorded above.
             // A failure here must not turn an approval into an error.
             if let Ok(guard) = db.read() {
@@ -2376,6 +2452,58 @@ fn persist_turn(db: &Arc<RwLock<Database>>, session: &AgentSession) {
     }
 }
 
+/// One resolved provider route for a run: the primary first, then fallbacks.
+struct FailoverRoute {
+    name: String,
+    model: String,
+    endpoint: providers::ResolvedEndpoint,
+    api_key: String,
+}
+
+/// Resolve the run's route plan: primary + usable fallbacks. Unknown,
+/// unresolvable or key-missing entries are skipped — save-time validation
+/// keeps those rare, and a run must never die on a stale fallback id.
+fn resolve_routes(
+    db: &Arc<RwLock<Database>>,
+    config: &AgentConfig,
+    api_key: &str,
+) -> Vec<FailoverRoute> {
+    use cybermanju_agent::config::plan_failover_chain;
+    let mut routes = Vec::new();
+    let mut push = |routes: &mut Vec<FailoverRoute>, cfg: &AgentConfig, key: String| {
+        let endpoint = match providers::resolve(cfg) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        if !endpoint.keyless && key.is_empty() {
+            return;
+        }
+        routes.push(FailoverRoute {
+            name: cfg.name.clone(),
+            model: cfg.model.clone(),
+            endpoint,
+            api_key: key,
+        });
+    };
+    push(&mut routes, config, api_key.to_string());
+    let guard = match db.read() {
+        Ok(g) => g,
+        Err(_) => return routes,
+    };
+    for id in plan_failover_chain(&config.id, &config.fallback_ids)
+        .into_iter()
+        .skip(1)
+    {
+        let cfg = match get_config(&guard, &id) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let key = load_key(&guard, &id).unwrap_or_default();
+        push(&mut routes, &cfg, key);
+    }
+    routes
+}
+
 /// The blocking agent loop. Every provider call, tool run and approval wait
 /// funnels through cancel checks; the transcript persists after each turn.
 fn run_agent_job(
@@ -2395,13 +2523,20 @@ fn run_agent_job(
         });
     };
 
-    let endpoint = match providers::resolve(&config) {
-        Ok(endpoint) => endpoint,
-        Err(e) => {
-            fail(job, e);
-            return;
-        }
-    };
+    let routes = resolve_routes(db, &config, &api_key);
+    if routes.is_empty() {
+        fail(
+            job,
+            "auth: no usable provider route — save a key on this assistant or on one of its fallbacks"
+                .to_string(),
+        );
+        return;
+    }
+    // Embeddings/recall stay on the primary route; chat turns fail over.
+    let mem_endpoint = routes[0].endpoint.clone();
+    let mut endpoint = routes[0].endpoint.clone();
+    let mut active_key = routes[0].api_key.clone();
+    let mut route_idx = 0;
     let vol = volume_root();
     let root = match working_root(&config) {
         Ok(root) => root,
@@ -2451,14 +2586,14 @@ fn run_agent_job(
     // what past sessions learned instead of re-discovering it.
     system.push_str(&recall_block_for_run(
         db,
-        &endpoint,
+        &mem_endpoint,
         &api_key,
         &config,
         &prompt,
         &job.cancel,
     ));
-    let headers = endpoint_headers(&endpoint, &api_key);
-    let model = config.model.clone();
+    let mut headers = endpoint_headers(&endpoint, &active_key);
+    let mut model = routes[0].model.clone();
 
     // Connect MCP servers up front: a run with a dead tool server fails
     // loudly here instead of hallucinating around missing tools mid-run.
@@ -2504,8 +2639,10 @@ fn run_agent_job(
 
     // Memory context for the run's tools: recall reads, remember stores
     // (gated by the same `decide` every other tool goes through).
+    // Embeddings stay on the primary route even after a chat failover —
+    // sealing that would need per-route embedding keys.
     let mem_ctx = MemoryCtx {
-        endpoint: &endpoint,
+        endpoint: &mem_endpoint,
         api_key: &api_key,
         cancel: &job.cancel,
         config_id: &config.id,
@@ -2541,7 +2678,7 @@ fn run_agent_job(
         }
         if endpoint.auth == cybermanju_types::agent::AuthScheme::Query {
             let name = endpoint.auth_name.as_deref().unwrap_or("key");
-            url = protocol::with_query_key(&url, name, &api_key);
+            url = protocol::with_query_key(&url, name, &active_key);
         }
         // Tell the poller what is happening: a provider round trip can take
         // minutes, and "RUNNING TURN 3/25" alone reads as a hang.
@@ -2558,7 +2695,35 @@ fn run_agent_job(
                 break;
             }
             Err(e) => {
-                fail(job, e);
+                // Dead key, throttling, transport failure or empty credits:
+                // continue the same transcript on the next route instead of
+                // failing the run. Anything else would fail identically
+                // everywhere, so it stops here.
+                if cybermanju_agent::config::is_failover_worthy(&e)
+                    && route_idx + 1 < routes.len()
+                {
+                    route_idx += 1;
+                    let next = &routes[route_idx];
+                    endpoint = next.endpoint.clone();
+                    active_key = next.api_key.clone();
+                    headers = endpoint_headers(&endpoint, &active_key);
+                    model = next.model.clone();
+                    set_state(job, |s| {
+                        s.activity =
+                            Some(format!("failover → {} · {}", next.name, next.model));
+                    });
+                    continue;
+                }
+                if route_idx > 0 {
+                    let tried: Vec<String> = routes
+                        .iter()
+                        .take(route_idx + 1)
+                        .map(|r| r.name.clone())
+                        .collect();
+                    fail(job, format!("{e} (tried: {})", tried.join(" → ")));
+                } else {
+                    fail(job, e);
+                }
                 break;
             }
         };

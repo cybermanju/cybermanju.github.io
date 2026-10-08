@@ -42,7 +42,7 @@ export function useAgentHarness() {
   const isLocal = computed(() => transport.value === 'wasm')
 
   const transportLabel = computed(() =>
-    isLocal.value ? 'On-device · browser sandbox' : 'Desktop · full tools',
+    isLocal.value ? 'On-device · browser volume + cybsh-subset' : 'Desktop · full tools',
   )
 
   return {
@@ -90,7 +90,7 @@ export function capabilitySummary(
     workingDir: cfg?.workingDir || viewing?.workingDir || '/',
     shell: (() => {
       const mode = cfg?.shellMode ?? 'auto'
-      if (wasmMode) return 'Browser volume (no shell)'
+      if (wasmMode) return 'Browser volume + cybsh-subset (device shell via dashboard)'
       if (mode === 'cybsh') return 'cybsh volume shell'
       if (mode === 'device') return 'Device shell'
       return 'Auto (cybsh, device fallback)'
