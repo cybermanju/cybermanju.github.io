@@ -43,7 +43,11 @@
 //   detect_faces_in_file: tries ONNX first → falls back to BLAKE3 pseudo-embeddings
 //   Model paths: ~/.cache/cybermanju/scrfd_2.5g.onnx, arcface_mfacenet.onnx
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
+// `.context()` is only used by the ONNX path below; without the feature the
+// trait import is unused and trips `-D warnings` (android/desktop default).
+#[cfg(feature = "onnx-face")]
+use anyhow::Context as _;
 use cybermanju_types::schema::FileNode;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
