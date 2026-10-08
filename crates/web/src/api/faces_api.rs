@@ -307,8 +307,8 @@ pub fn detect_batch(db: &Database) -> Result<BatchResponse, String> {
                 .map_err(|e| e.to_string())?;
             for fid in &cluster.members {
                 if let Some(value) = ft.get(fid.as_str()).map_err(|e| e.to_string())? {
-                    let mut node: FileNode = serde_json::from_str(value.value())
-                        .map_err(|e| e.to_string())?;
+                    let mut node: FileNode =
+                        serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
                     if !node.face_group_ids.contains(&id) {
                         node.face_group_ids.push(id.clone());
                     }

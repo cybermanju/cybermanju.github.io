@@ -2965,6 +2965,10 @@ const THEME_IDS: &[&str] = &[
     "cyberpunk-night",
 ];
 
+/// Volume mirror of the live theme settings (`cybermanju_theme_v1` in the
+/// browser, `.cybermanju/theme.json` on the volume).
+const THEME_FILE: &str = "/.cybermanju/theme.json";
+
 fn canonical_theme(id: &str) -> Option<&'static str> {
     match id {
         "mac-light" => Some("mac-light"),
@@ -3190,6 +3194,7 @@ fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
         "theme" => {
             let id = plain
                 .get(1)
+                .copied()
                 .ok_or_else(|| format!("usage: ui theme <id> (try: {})", THEME_IDS.join(", ")))?;
             let canonical = canonical_theme(&id.to_lowercase()).ok_or_else(|| {
                 format!(
@@ -3208,6 +3213,7 @@ fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
         "accent" => {
             let raw = plain
                 .get(1)
+                .copied()
                 .ok_or_else(|| "usage: ui accent <#rrggbb|#rgb|default> [--for <theme>]".to_string())?;
             let for_theme: Option<&str> = match args
                 .iter()
@@ -3271,7 +3277,7 @@ fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
             Ok(ui_line(&updated))
         }
         "density" => {
-            let want = plain.get(1).map(String::as_str).unwrap_or("get");
+            let want = plain.get(1).map(|s| s.as_str()).unwrap_or("get");
             if want == "get" {
                 if json {
                     return serde_json::to_string(&serde_json::json!({ "density": s.density }))
@@ -3294,7 +3300,7 @@ fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
             Ok(format!("density: {want}\nui: density={want}"))
         }
         "glass" => {
-            let want = plain.get(1).map(String::as_str).unwrap_or("get");
+            let want = plain.get(1).map(|s| s.as_str()).unwrap_or("get");
             if want == "get" {
                 if json {
                     return serde_json::to_string(&serde_json::json!({ "glass": s.glass }))
@@ -3315,7 +3321,7 @@ fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
             Ok(format!("glass: {level}\nui: glass={level}"))
         }
         "motion" => {
-            let want = plain.get(1).map(String::as_str).unwrap_or("get");
+            let want = plain.get(1).map(|s| s.as_str()).unwrap_or("get");
             if want == "get" {
                 if json {
                     return serde_json::to_string(&serde_json::json!({ "motion": s.motion }))
@@ -3338,7 +3344,7 @@ fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
             Ok(format!("motion: {want}\nui: motion={want}"))
         }
         "glow" => {
-            let want = plain.get(1).map(String::as_str).unwrap_or("get");
+            let want = plain.get(1).map(|s| s.as_str()).unwrap_or("get");
             if want == "get" {
                 let shown = if s.glow { "on" } else { "off" };
                 if json {

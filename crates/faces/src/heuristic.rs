@@ -567,16 +567,16 @@ fn verify_features(grid: &[[u32; 3]], lumas: &[u32], gw: u32, blob: &Blob) -> Op
             bw,
             blob.max_y - mouth_y0 + 1,
         )
-            .into_iter()
-            .any(|b| {
-                let area_frac = b.pixels as f32 / bbox_area;
-                let bw_b = b.width() as f32;
-                let bh_b = b.height().max(1) as f32;
-                let mid = (b.min_x + b.max_x) as f32 / 2.0;
-                (MOUTH_MIN_AREA_FRAC..=MOUTH_MAX_AREA_FRAC).contains(&area_frac)
-                    && bw_b >= MOUTH_W_OVER_H * bh_b
-                    && (mid - axis).abs() <= MOUTH_MID_TOL * bw as f32
-            });
+        .into_iter()
+        .any(|b| {
+            let area_frac = b.pixels as f32 / bbox_area;
+            let bw_b = b.width() as f32;
+            let bh_b = b.height().max(1) as f32;
+            let mid = (b.min_x + b.max_x) as f32 / 2.0;
+            (MOUTH_MIN_AREA_FRAC..=MOUTH_MAX_AREA_FRAC).contains(&area_frac)
+                && bw_b >= MOUTH_W_OVER_H * bh_b
+                && (mid - axis).abs() <= MOUTH_MID_TOL * bw as f32
+        });
     }
 
     if paired {
@@ -593,15 +593,7 @@ fn verify_features(grid: &[[u32; 3]], lumas: &[u32], gw: u32, blob: &Blob) -> Op
 /// 512-d embedding from the face crop: 16×16 gray levels + 16×16 local
 /// contrast, L2-normalized. Same crop → same vector; different crops stay
 /// apart — the property grouping needs, with no learned weights anywhere.
-fn crop_embedding(
-    rgb: &[u8],
-    width: u32,
-    height: u32,
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
-) -> Vec<f32> {
+fn crop_embedding(rgb: &[u8], width: u32, height: u32, x: f32, y: f32, w: f32, h: f32) -> Vec<f32> {
     // Marginated crop in source pixels, clamped to the frame.
     let mx = (w * CROP_MARGIN_FRAC * width as f32) as i32;
     let my = (h * CROP_MARGIN_FRAC * height as f32) as i32;
