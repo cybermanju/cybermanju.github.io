@@ -29,8 +29,15 @@
 
     <!-- ── section jump bar (always visible, works in small windows) ─ -->
     <nav class="st-jumps" aria-label="Settings sections">
+      <input
+        v-model="sectionQuery"
+        class="st-jump-search"
+        type="search"
+        placeholder="Search settings…"
+        aria-label="Search settings sections"
+      />
       <button
-        v-for="s in SECTIONS"
+        v-for="s in filteredSections"
         :key="s.id"
         type="button"
         class="st-jump"
@@ -45,43 +52,71 @@
     <main ref="bodyEl" class="st-body" @scroll.passive="onBodyScroll">
       <!-- ── appearance ── -->
       <UiCard id="st-sec-appearance" title="Appearance" icon="solar:monitor-bold" meta="View">
-        <div class="st-stack">
-          <UiText as="span" variant="label" tone="muted">Theme · {{ themeGroups.flatMap(g => g.ids).length }} themes</UiText>
-          <div v-for="group in themeGroups" :key="group.id" class="st-theme-group">
-            <UiText as="span" variant="small" tone="muted">{{ group.label }}</UiText>
-            <div class="st-theme-grid">
-              <button
-                v-for="id in group.ids"
-                :key="id"
-                type="button"
-                class="st-theme-swatch"
-                :class="{ 'is-active': theme.settings.theme === id }"
-                :title="`${theme.themes[id].label} — ${theme.themes[id].blurb}`"
-                :aria-pressed="theme.settings.theme === id"
-                :aria-label="`${theme.themes[id].label} — ${theme.themes[id].blurb}`"
-                :style="{ borderRadius: swatchRadius(id) }"
-                @click="theme.setTheme(id)"
-              >
-                <span
-                  class="st-theme-dot"
-                  :style="{
-                    background: `linear-gradient(135deg, ${theme.themes[id].palette.bgDeep} 0%, ${theme.themes[id].palette.bg} 55%, ${theme.themes[id].palette.accent} 140%)`,
-                    borderColor: theme.themes[id].palette.accent,
-                  }"
-                />
-                <span class="st-theme-name">{{ theme.themes[id].label }}</span>
-              </button>
-            </div>
-          </div>
+        <div class="st-row">
+          <UiText as="span" variant="label" tone="muted">Appearance</UiText>
+          <UiSegmented
+            :model-value="theme.settings.followSystem ? 'auto' : theme.settings.theme"
+            :options="[
+              { label: 'Light', value: 'os-light' },
+              { label: 'Dark', value: 'os-dark' },
+              { label: 'Graphite', value: 'os-graphite' },
+              { label: 'Plasma light', value: 'plasma-light' },
+              { label: 'Plasma dark', value: 'plasma-dark' },
+              { label: 'Auto', value: 'auto' },
+            ]"
+            aria-label="Appearance"
+            @update:model-value="theme.setAppearance($event as 'auto' | 'os-dark' | 'os-light' | 'os-graphite' | 'plasma-dark' | 'plasma-light')"
+          />
+        </div>
+        <div class="st-row">
+          <UiText as="span" variant="label" tone="muted">Shell style</UiText>
+          <UiSegmented
+            :model-value="theme.shellStyle.value"
+            :options="[
+              { label: 'macOS', value: 'macos' },
+              { label: 'Plasma', value: 'plasma' },
+            ]"
+            aria-label="Shell style"
+            @update:model-value="theme.setShellStyle($event as ShellStyle)"
+          />
+        </div>
+        <div class="st-row">
+          <UiText as="span" variant="label" tone="muted">Wallpaper</UiText>
+          <UiSelect
+            :model-value="theme.settings.wallpaper"
+            :options="wallpaperOptions"
+            aria-label="Wallpaper"
+            @update:model-value="theme.setWallpaper($event)"
+          />
+        </div>
+        <div class="st-row">
+          <UiText as="span" variant="label" tone="muted">Panel position</UiText>
+          <UiSegmented
+            :model-value="panelDocked === '1' ? 'docked' : 'floating'"
+            :options="[
+              { label: 'Floating', value: 'floating' },
+              { label: 'Docked', value: 'docked' },
+            ]"
+            aria-label="Panel position (plasma)"
+            @update:model-value="setPanelDocked($event === 'docked' ? '1' : '0')"
+          />
         </div>
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Accent</UiText>
-          <UiSelect
-            :model-value="theme.settings.accent ?? ''"
-            :options="accentOptions"
-            aria-label="Accent colour"
-            @update:model-value="theme.setAccent($event || null)"
-          />
+          <div class="st-accents" role="group" aria-label="Accent colour">
+            <button
+              v-for="c in accentSwatches"
+              :key="c.id"
+              type="button"
+              class="st-accent-dot"
+              :class="{ 'is-active': (theme.settings.accent ?? '') === c.value }"
+              :style="{ background: c.value || theme.themes[theme.settings.theme].palette.accent }"
+              :title="c.label"
+              :aria-label="c.label"
+              :aria-pressed="(theme.settings.accent ?? '') === c.value"
+              @click="theme.setAccent(c.value || null)"
+            />
+          </div>
         </div>
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Density</UiText>
@@ -93,17 +128,15 @@
           />
         </div>
         <div class="st-row">
-          <UiText as="span" variant="label" tone="muted">Vibrancy</UiText>
-          <UiSelect
-            :model-value="String(theme.settings.glass)"
+          <UiText as="span" variant="label" tone="muted">Chrome</UiText>
+          <UiSegmented
+            :model-value="theme.settings.glass === 0 ? 'solid' : 'translucent'"
             :options="[
-              { label: 'Solid', value: '0' },
-              { label: 'Light', value: '1' },
-              { label: 'Default', value: '2' },
-              { label: 'Rich', value: '3' },
+              { label: 'Translucent', value: 'translucent' },
+              { label: 'Solid', value: 'solid' },
             ]"
-            aria-label="Vibrancy"
-            @update:model-value="theme.setGlass(Number($event) as 0 | 1 | 2 | 3)"
+            aria-label="Window chrome"
+            @update:model-value="theme.setGlass($event === 'solid' ? 0 : 2)"
           />
         </div>
         <div class="st-row">
@@ -116,8 +149,8 @@
           />
         </div>
         <div class="st-row">
-          <UiText as="span" variant="label" tone="muted">Wallpaper glow</UiText>
-          <UiToggle :model-value="theme.settings.glow" aria-label="Wallpaper glow" @update:model-value="theme.setGlow($event)" />
+          <UiText as="span" variant="label" tone="muted">Wallpaper effects</UiText>
+          <UiToggle v-model="store.matrixRainEnabled" aria-label="Wallpaper effects (opt-in canvas)" />
         </div>
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Default view</UiText>
@@ -369,7 +402,7 @@ import {
 import { ShortcutsKey } from '@/composables/shortcutsKey'
 import { useTouchConfig, type GestureType, type TouchAction } from '@/composables/useTouchConfig'
 import { useTheme } from '@/composables/useTheme'
-import { ACCENT_CHOICES, SHAPE_RADII, THEME_GROUPS, type ThemeId } from '@/ui/tokens'
+import { ACCENT_CHOICES, WALLPAPERS, type ShellStyle } from '@/ui/tokens'
 
 /**
  * Active transport: tauri IPC, REST dashboard, or local WASM (GitHub Pages).
@@ -392,12 +425,20 @@ const transportTone = computed<'neutral' | 'accent' | 'success' | 'warning' | 'd
 
 const store = useAppStore()
 const theme = useTheme()
-const themeGroups = THEME_GROUPS
-/** Swatch corners preview each theme's own shape language (soft/round/sharp). */
-function swatchRadius(id: ThemeId): string {
-  return SHAPE_RADII[theme.themes[id].design.shape].md
+const accentSwatches = ACCENT_CHOICES
+const wallpaperOptions = WALLPAPERS.map((w) => ({ label: w.label, value: w.id }))
+const panelDocked = ref('0')
+try {
+  panelDocked.value = localStorage.getItem('cybermanju_panel_docked') || '0'
+} catch {
+  panelDocked.value = '0'
 }
-const accentOptions = ACCENT_CHOICES.map((c) => ({ label: c.label, value: c.value }))
+function setPanelDocked(v: string | number) {
+  panelDocked.value = String(v)
+  try {
+    localStorage.setItem('cybermanju_panel_docked', panelDocked.value)
+  } catch { /* session-only */ }
+}
 const shortcuts = inject(ShortcutsKey, null)
 const isBrowserKeys = computed(() => !isTauri())
 const touchConfig = useTouchConfig()
@@ -496,6 +537,13 @@ const SECTIONS: Section[] = [
 
 const bodyEl = ref<HTMLElement | null>(null)
 const activeSection = ref<string>('appearance')
+/** System-Settings style category filter for the jump bar. */
+const sectionQuery = ref('')
+const filteredSections = computed(() => {
+  const q = sectionQuery.value.trim().toLowerCase()
+  if (!q) return SECTIONS
+  return SECTIONS.filter((s) => s.label.toLowerCase().includes(q))
+})
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -808,15 +856,36 @@ async function handleRefresh() {
 .st-strip-v { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .st-strip-url { margin-left: auto; }
 
-/* jump bar — one chip per card, always visible above the scroller.
-   Wraps to a second row instead of relying on a hidden horizontal scroll
-   (seven uppercase chips overflow a default 560px window otherwise). */
+/* jump bar — search plus one chip per card, always visible above the
+   scroller. Wraps to a second row instead of relying on a hidden
+   horizontal scroll (the chips overflow a default 560px window otherwise). */
 .st-jumps {
   flex-shrink: 0;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   padding: 10px 14px 0;
+}
+.st-jump-search {
+  flex: 1 1 140px;
+  min-width: 120px;
+  max-width: 220px;
+  min-height: var(--ui-control-h);
+  padding: 0 10px;
+  background: var(--ui-surface-2);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-text);
+  font-size: 13px;
+  outline: none;
+}
+.st-jump-search:focus {
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-focus-ring);
+}
+.st-jump-search::placeholder {
+  color: var(--ui-text-3);
 }
 .st-jump {
   appearance: none;
@@ -846,7 +915,9 @@ async function handleRefresh() {
 }
 
 /* body — BLOCK flow (cards are never flex children, so they can never be
-   shrunk to slivers: their contents used to spill over every other card). */
+   shrunk to slivers: their contents used to spill over every other card).
+   Wraps to a second row instead of relying on a hidden horizontal scroll
+   (the category chips overflow a default 560px window otherwise). */
 .st-body {
   flex: 1;
   min-height: 0;
@@ -902,67 +973,45 @@ async function handleRefresh() {
 .st-legal { color: var(--ui-accent); text-decoration: none; }
 .st-legal:hover { text-decoration: underline; }
 
-/* Accounts → Configure points here: scroll + glow the broker card. */
+/* Accounts → Configure points here: scroll + flash the broker card. */
 #oauth-broker-card.is-target {
-  border-color: color-mix(in srgb, var(--ui-accent) 65%, transparent);
-  animation: st-card-target 2.4s var(--ui-ease-out) 1;
+  border-color: var(--ui-accent);
+  animation: st-card-target 2.4s ease-out 1;
 }
 @keyframes st-card-target {
   0% {
-    box-shadow:
-      0 0 0 2px color-mix(in srgb, var(--ui-accent) 75%, transparent),
-      var(--ui-glow-soft);
-    transform: translateY(-2px);
+    box-shadow: var(--ui-focus-ring);
   }
   70% {
-    box-shadow:
-      0 0 0 2px color-mix(in srgb, var(--ui-accent) 45%, transparent),
-      var(--ui-glow-soft);
-    transform: translateY(0);
+    box-shadow: var(--ui-focus-ring);
   }
-  100% { box-shadow: var(--ui-shadow-1); }
+  100% { box-shadow: none; }
 }
 
 .st-grid-2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
 
-/* theme picker — grouped swatches, accent dot shows the real palette */
-.st-theme-group { display: flex; flex-direction: column; gap: 6px; }
-.st-theme-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
-  gap: 6px;
-}
-.st-theme-swatch {
-  appearance: none;
+/* accent swatches — flat colour dots, active gets a focus ring */
+.st-accents {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 8px;
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-sm);
-  background: color-mix(in srgb, var(--ui-surface) 70%, transparent);
-  color: var(--ui-text);
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 500;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.st-accent-dot {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.15);
   cursor: pointer;
-  transition:
-    border-color var(--ui-dur) var(--ui-ease-out),
-    box-shadow var(--ui-dur) var(--ui-ease-out);
+  transition: box-shadow var(--ui-dur-fast) ease-out;
 }
-.st-theme-swatch:hover { border-color: var(--ui-border-hover); }
-.st-theme-swatch.is-active {
-  border-color: color-mix(in srgb, var(--ui-accent) 65%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 14%, transparent);
+.st-accent-dot:hover {
+  box-shadow: var(--ui-focus-ring);
 }
-.st-theme-dot {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  border: 2px solid var(--ui-accent);
+.st-accent-dot.is-active {
+  box-shadow: var(--ui-focus-ring);
 }
-.st-theme-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* tables: rows wrap instead of relying on viewport media queries (which never
    fire inside a windowed panel — windows resize, not the browser viewport). */

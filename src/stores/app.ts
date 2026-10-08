@@ -286,7 +286,9 @@ export const useAppStore = defineStore('cybermanju', () => {
   const isSearching = ref(false)
   const isLoading = ref(false)
   const lastError = ref<string | null>(null)
-  const matrixRainEnabled = ref(true)
+  // Wallpaper effects (MatrixRain canvas) are opt-in — the default
+  // wallpaper is a static gradient (see DesktopShell).
+  const matrixRainEnabled = ref(false)
   const commandPaletteOpen = ref(false)
   const showShortcutsHelp = ref(false)
   const createFolderPromptOpen = ref(false)

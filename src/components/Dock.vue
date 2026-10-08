@@ -2,36 +2,53 @@
   <div class="dock-container">
     <div class="dock">
       <div
-        v-for="app in dockApps"
+        v-for="app in pinnedApps"
         :key="app.panelType"
         class="dock-item"
         :class="{ active: isAppActive(app.panelType), open: wm.isOpen(app.panelType) }"
         @click="handleDockClick(app.panelType)"
         @contextmenu.prevent="handleDockContext($event, app.panelType)"
-        :title="app.label"
       >
+        <span class="dock-tip" aria-hidden="true">{{ app.label }}</span>
         <div class="dock-icon">
-          <AppIcon class="dock-icon-text" :name="app.icon" :size="16" />
+          <AppIcon class="dock-icon-text" :name="app.icon" :size="20" />
         </div>
-        <div class="dock-indicator" v-if="wm.isOpen(app.panelType)">
-          <div class="indicator-dot" :class="{ active: isAppActive(app.panelType) }" />
+        <div class="dock-indicator">
+          <div v-if="wm.isOpen(app.panelType)" class="indicator-dot" :class="{ active: isAppActive(app.panelType) }" />
+        </div>
+      </div>
+
+      <div v-if="openUnpinned.length > 0" class="dock-divider" />
+
+      <div
+        v-for="win in openUnpinned"
+        :key="win.id"
+        class="dock-item"
+        :class="{ active: isWindowActive(win.id), 'minimized-item': win.minimized }"
+        @click="handleOpenWindowClick(win.id)"
+      >
+        <span class="dock-tip" aria-hidden="true">{{ win.title }}</span>
+        <div class="dock-icon" :class="{ minimized: win.minimized }">
+          <AppIcon class="dock-icon-text" :name="win.icon" :size="20" />
+        </div>
+        <div class="dock-indicator">
+          <div class="indicator-dot" :class="{ active: isWindowActive(win.id), muted: win.minimized }" />
         </div>
       </div>
 
       <div class="dock-divider" />
 
       <div
-        v-for="win in minimizedWindows"
-        :key="win.id"
-        class="dock-item minimized-item"
-        @click="wm.restore(win.id)"
-        :title="win.title + ' (minimized)'"
+        class="dock-item"
+        :class="{ active: isAppActive('trash') }"
+        @click="handleDockClick('trash')"
       >
-        <div class="dock-icon minimized">
-          <AppIcon class="dock-icon-text" :name="win.icon" :size="16" />
+        <span class="dock-tip" aria-hidden="true">Trash</span>
+        <div class="dock-icon">
+          <AppIcon class="dock-icon-text" name="solar:trash-bin-trash-bold" :size="20" />
         </div>
         <div class="dock-indicator">
-          <div class="indicator-dot muted" />
+          <div v-if="wm.isOpen('trash')" class="indicator-dot" :class="{ active: isAppActive('trash') }" />
         </div>
       </div>
     </div>
@@ -73,14 +90,29 @@ const dockApps = computed<DockApp[]>(() => [
   { panelType: 'accounts', label: 'Accounts & Users', icon: 'solar:user-circle-bold', category: 'system' },
 ])
 
-const minimizedWindows = computed(() =>
-  wm.windows.value.filter(w => w.minimized)
-)
+const pinnedApps = computed(() => dockApps.value.filter((a) => a.panelType !== 'trash'))
+
+/** Open windows whose app is not pinned (or minimized copies): live section. */
+const openUnpinned = computed(() => {
+  const pinned = new Set(pinnedApps.value.map((a) => a.panelType))
+  return wm.windows.value.filter((w) => !pinned.has(w.panelType) || w.minimized)
+})
 
 function isAppActive(panelType: PanelType): boolean {
   return wm.windows.value.some(
     w => w.panelType === panelType && !w.minimized
   )
+}
+
+function isWindowActive(id: string): boolean {
+  return wm.activeWindow.value?.id === id
+}
+
+function handleOpenWindowClick(id: string) {
+  const win = wm.windows.value.find((w) => w.id === id)
+  if (!win) return
+  if (win.minimized) wm.restore(id)
+  else wm.focus(id)
 }
 
 function handleDockClick(panelType: PanelType) {
@@ -128,20 +160,15 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
 
 .dock {
   display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 7px 11px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--ui-glass-2) 88%, transparent), color-mix(in srgb, var(--ui-glass-2) 100%, transparent)),
-    var(--ui-glass-2);
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(160%);
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(160%);
-  border: 1px solid color-mix(in srgb, var(--ui-text) 12%, transparent);
-  border-radius: 22px;
-  box-shadow:
-    var(--ui-shadow-3),
-    inset 0 1px 0 var(--ui-glass-highlight),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+  align-items: flex-end;
+  gap: 4px;
+  padding: 6px 10px 8px;
+  background: var(--ui-glass-2);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  border: 1px solid var(--ui-border);
+  border-radius: 14px;
+  box-shadow: var(--ui-shadow-menu);
   pointer-events: auto;
   position: relative;
   max-width: 100%;
@@ -164,12 +191,12 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
   border-radius: var(--ui-radius-full);
 }
 .dock:hover::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ui-accent) 50%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 30%, transparent);
   border: 1px solid transparent;
   background-clip: content-box;
 }
 .dock:hover {
-  scrollbar-color: color-mix(in srgb, var(--ui-accent) 50%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--ui-text) 30%, transparent) transparent;
 }
 
 .dock::before {
@@ -180,72 +207,78 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 4px 6px;
+  gap: 3px;
+  padding: 2px 3px;
   cursor: pointer;
-  border-radius: 12px;
-  transition:
-    background-color var(--ui-dur-fast) var(--ui-ease-out),
-    transform var(--ui-dur) var(--ui-ease-spring);
+  border-radius: 10px;
+  transition: background-color var(--ui-dur-fast) ease-out;
   position: relative;
-  min-width: 46px;
+  min-width: 44px;
   background: transparent;
   border: none;
 }
 
 .dock-item:hover {
-  transform: translateY(-4px) scale(1.06);
+  background: color-mix(in srgb, var(--ui-text) 7%, transparent);
 }
 
-.dock-item:active {
-  transform: translateY(-1px) scale(1.02);
-}
-
-.dock-item.active {
-  background: color-mix(in srgb, var(--ui-text) 6%, transparent);
-}
-
+/* Magnification: the hovered icon grows while neighbours stay put. */
 .dock-icon {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-text) 10%, transparent), color-mix(in srgb, var(--ui-text) 4%, transparent));
-  border: 1px solid color-mix(in srgb, var(--ui-text) 14%, transparent);
-  border-radius: 12px;
-  box-shadow:
-    inset 0 1px 0 var(--ui-glass-highlight),
-    0 1px 3px rgba(0, 0, 0, 0.14);
-  transition:
-    background-color var(--ui-dur) var(--ui-ease-out),
-    border-color var(--ui-dur) var(--ui-ease-out),
-    box-shadow var(--ui-dur) var(--ui-ease-out),
-    transform var(--ui-dur) var(--ui-ease-spring);
+  background: color-mix(in srgb, var(--ui-text) 7%, var(--ui-surface-2));
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+  transition: transform var(--ui-dur-fast) ease-out;
 }
 
 .dock-item:hover .dock-icon {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-accent) 22%, var(--ui-glass)), var(--ui-glass-2));
-  border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent);
-  box-shadow:
-    inset 0 1px 0 var(--ui-glass-highlight),
-    0 6px 16px color-mix(in srgb, var(--ui-accent) 25%, transparent);
+  transform: scale(1.18) translateY(-3px);
 }
 
-.dock-item.active .dock-icon {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-accent) 30%, var(--ui-glass)), var(--ui-glass-2));
-  border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent);
+.dock-item:active .dock-icon {
+  transform: scale(1.05);
 }
 
 .dock-icon-text {
   color: var(--ui-text-2);
-  transition: color var(--ui-dur) var(--ui-ease-out);
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
+  transition: color var(--ui-dur-fast) ease-out;
 }
 
 .dock-item:hover .dock-icon-text,
 .dock-item.active .dock-icon-text {
   color: var(--ui-text);
+}
+
+/* Hover label above the icon. */
+.dock-tip {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%) translateY(2px);
+  padding: 2px 8px;
+  font-family: var(--ui-font);
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--ui-text);
+  background: var(--ui-glass-2);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm);
+  box-shadow: var(--ui-shadow-menu);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--ui-dur-fast) ease-out,
+    transform var(--ui-dur-fast) ease-out;
+}
+
+.dock-item:hover .dock-tip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .dock-icon.minimized {
@@ -264,17 +297,11 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
   height: 4px;
   border-radius: 50%;
   background: var(--ui-text-faint);
-  transition:
-    width var(--ui-dur) var(--ui-ease-spring),
-    background-color var(--ui-dur) var(--ui-ease-out),
-    box-shadow var(--ui-dur) var(--ui-ease-out);
+  transition: background-color var(--ui-dur-fast) ease-out;
 }
 
 .indicator-dot.active {
-  background: var(--ui-accent);
-  width: 16px;
-  border-radius: var(--ui-radius-full);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--ui-accent) 75%, transparent);
+  background: var(--ui-text-2);
 }
 
 .indicator-dot.muted {
@@ -287,8 +314,8 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
 
 .dock-divider {
   width: 1px;
-  height: 28px;
-  background: var(--ui-border-strong);
-  margin: 0 4px;
+  align-self: stretch;
+  margin: 6px 4px 12px;
+  background: var(--ui-separator);
 }
 </style>

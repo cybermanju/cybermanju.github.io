@@ -3,8 +3,7 @@
     <div class="tmb-left">
       <button class="app-logo" type="button" @click="store.currentPanel = 'landing'">
         <span class="logo-mark"><img src="/bhumisparsha.png" alt="Bhumisparsha" width="22" height="22" /></span>
-        <span class="logo-brand">CYBERMANJU</span>
-        <span class="logo-drive">DRIVE</span>
+        <span class="logo-brand">CyberManju</span>
       </button>
 
       <nav class="menu-items" ref="menuRef">
@@ -24,7 +23,7 @@
         >
           <span class="menu-label">{{ item.label }}</span>
           <Transition name="menu">
-            <div v-if="openMenu === item.id" class="menu-dropdown ui-shine">
+            <div v-if="openMenu === item.id" class="menu-dropdown">
               <template v-for="sub in item.children" :key="sub.id">
                 <div v-if="sub.divider" class="menu-divider" />
                 <button
@@ -242,15 +241,15 @@ const menuStructure = computed<MenuGroup[]>(() => [
       { id: 'loose-groups', label: 'Loose Groups', icon: 'solar:users-group-two-rounded-bold', action: () => { wm.open('loose-groups') } },
       { id: 'style', label: 'Style Tags', icon: 'solar:tag-bold', action: () => { wm.open('style') } },
       { id: 'overlay', label: 'Remote Dashboard', icon: 'solar:kanban-square-bold', action: () => { wm.open('dashboard') } },
-      { id: 'div2', divider: true },
-      { id: 'minimize-all', label: 'Minimize All', icon: 'solar:minimize-square-bold', action: () => wm.minimizeAll() },
-      { id: 'close-all', label: 'Close All Windows', icon: 'solar:close-circle-bold', action: () => wm.closeAll() },
     ],
   },
   {
-    id: 'tools',
-    label: 'Tools',
+    id: 'window',
+    label: 'Window',
     children: [
+      { id: 'minimize-all', label: 'Minimize All', icon: 'solar:minimize-square-bold', action: () => wm.minimizeAll() },
+      { id: 'close-all', label: 'Close All Windows', icon: 'solar:close-circle-bold', action: () => wm.closeAll() },
+      { id: 'div1', divider: true },
       { id: 'trash', label: 'Trash', icon: 'solar:trash-bin-trash-bold', action: () => { wm.open('trash'); store.fetchTrashItems() } },
       { id: 'activity', label: 'Activity Log', icon: 'solar:chart-bold', action: () => { wm.open('activity'); store.fetchAuditLog() } },
       { id: 'favorites', label: 'Favorites', icon: 'solar:star-bold', action: () => { wm.open('favorites') } },
@@ -339,13 +338,12 @@ onUnmounted(() => {
 .top-menu-bar {
   display: flex;
   align-items: center;
-  height: 38px;
+  height: 24px;
   padding: 0 10px;
-  background: color-mix(in srgb, var(--ui-glass-2) 82%, transparent);
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(170%);
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(170%);
-  border-bottom: 1px solid color-mix(in srgb, var(--ui-text) 9%, transparent);
-  box-shadow: 0 1px 0 var(--ui-glass-highlight);
+  background: var(--ui-glass);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  border-bottom: 1px solid var(--ui-separator);
   z-index: 100;
   position: relative;
   gap: 8px;
@@ -367,19 +365,17 @@ onUnmounted(() => {
 .app-logo {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 9px;
-  height: 26px;
+  gap: 5px;
+  padding: 0 6px;
+  height: 22px;
   cursor: pointer;
-  border-right: 1px solid var(--ui-border);
-  margin-right: 4px;
   border-radius: var(--ui-radius-sm);
   background: transparent;
-  transition: background-color var(--ui-dur-fast) var(--ui-ease-out);
+  transition: background-color var(--ui-dur-fast) ease-out;
 }
 
 .app-logo:hover {
-  background: var(--ui-accent-softer);
+  background: color-mix(in srgb, var(--ui-text) 8%, transparent);
 }
 
 .logo-mark {
@@ -389,28 +385,19 @@ onUnmounted(() => {
 }
 .logo-mark img {
   display: block;
-  width: 22px;
-  height: 22px;
+  width: 15px;
+  height: 15px;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: 4px;
 }
 
 .logo-brand {
   font-family: var(--ui-font);
   font-size: 13px;
   font-weight: 700;
+  letter-spacing: 0;
   color: var(--ui-text);
-}
-
-.logo-drive {
-  font-family: var(--ui-font);
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--ui-text-3);
-  padding: 1px 5px;
-  border-radius: var(--ui-radius-xs);
-  background: color-mix(in srgb, var(--ui-text) 7%, transparent);
-  border: 1px solid var(--ui-border);
+  white-space: nowrap;
 }
 
 .menu-items {
@@ -429,10 +416,10 @@ onUnmounted(() => {
 
 .menu-item {
   position: relative;
-  padding: 5px 10px;
+  padding: 2px 8px;
   cursor: pointer;
   border-radius: var(--ui-radius-sm);
-  transition: background-color var(--ui-dur-fast) var(--ui-ease-out);
+  transition: background-color var(--ui-dur-fast) ease-out;
 }
 
 .menu-item:hover,
@@ -442,15 +429,16 @@ onUnmounted(() => {
 
 .menu-item:focus-visible {
   outline: none;
-  box-shadow: var(--ui-glow-soft);
+  box-shadow: var(--ui-focus-ring);
 }
 
 .menu-label {
   font-family: var(--ui-font);
-  font-size: var(--ui-fs-sm);
-  color: var(--ui-text-2);
-  font-weight: 500;
-  transition: color var(--ui-dur-fast) var(--ui-ease-out);
+  font-size: 13px;
+  color: var(--ui-text);
+  font-weight: 400;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .menu-item:hover .menu-label,
@@ -464,38 +452,33 @@ onUnmounted(() => {
   left: 0;
   min-width: 248px;
   background: var(--ui-glass-2);
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(170%);
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(170%);
-  border: 1px solid color-mix(in srgb, var(--ui-text) 13%, transparent);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-lg);
-  padding: 5px;
-  box-shadow: var(--ui-shadow-3);
+  padding: 4px;
+  box-shadow: var(--ui-shadow-menu);
   z-index: 200;
-  animation: ui-pop var(--ui-dur) var(--ui-ease-out) both;
+  animation: ui-fade-in var(--ui-dur) ease-out both;
   transform-origin: top left;
-}
-
-.menu-dropdown::before {
-  content: none;
 }
 
 .menu-dropdown-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
-  padding: 7px 10px;
+  min-height: 22px;
+  padding: 3px 8px;
   font-family: var(--ui-font);
-  font-size: var(--ui-fs-sm);
-  color: var(--ui-text-2);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ui-text);
   cursor: pointer;
   border-radius: var(--ui-radius-sm);
   background: transparent;
   text-align: left;
-  transition:
-    background-color var(--ui-dur-fast) var(--ui-ease-out),
-    color var(--ui-dur-fast) var(--ui-ease-out),
-    transform var(--ui-dur-fast) var(--ui-ease-out);
+  transition: background-color var(--ui-dur-fast) ease-out;
 }
 
 .menu-dropdown-item:hover {
@@ -520,13 +503,15 @@ onUnmounted(() => {
 }
 
 .mdi-shortcut {
-  font-family: var(--ui-font-mono);
-  font-size: 9.5px;
-  color: var(--ui-text-faint);
+  font-family: var(--ui-font);
+  font-size: 12px;
+  color: var(--ui-text-3);
   margin-left: auto;
-  padding: 1px 5px;
-  border-radius: var(--ui-radius-xs);
-  background: color-mix(in srgb, var(--ui-text) 7%, transparent);
+  flex-shrink: 0;
+}
+
+.menu-dropdown-item:hover .mdi-shortcut {
+  color: var(--ui-on-accent);
 }
 
 .mdi-check {
@@ -572,16 +557,15 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   width: 100%;
-  background: color-mix(in srgb, var(--ui-surface) 75%, transparent);
+  background: var(--ui-surface-2);
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-full);
-  padding: 0 12px;
-  height: 25px;
-  gap: 7px;
+  border-radius: var(--ui-radius-sm);
+  padding: 0 8px;
+  height: 20px;
+  gap: 6px;
   transition:
-    border-color var(--ui-dur) var(--ui-ease-out),
-    box-shadow var(--ui-dur) var(--ui-ease-out),
-    background-color var(--ui-dur) var(--ui-ease-out);
+    border-color var(--ui-dur) ease-out,
+    box-shadow var(--ui-dur) ease-out;
 }
 
 .search-wrap:hover {
@@ -590,9 +574,9 @@ onUnmounted(() => {
 
 .search-wrap.focused,
 .search-wrap.searching {
-  border-color: color-mix(in srgb, var(--ui-accent) 65%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 14%, transparent);
-  background: color-mix(in srgb, var(--ui-surface-2) 85%, transparent);
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-focus-ring);
+  background: var(--ui-surface-2);
 }
 
 .search-icon {
@@ -623,14 +607,10 @@ onUnmounted(() => {
 }
 
 .search-hint {
-  font-family: var(--ui-font-mono);
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: var(--ui-text-faint);
-  padding: 1px 5px;
-  border-radius: var(--ui-radius-xs);
-  border: 1px solid var(--ui-border);
+  font-family: var(--ui-font);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--ui-text-3);
   flex-shrink: 0;
 }
 
@@ -676,37 +656,33 @@ onUnmounted(() => {
   border-radius: var(--ui-radius-full);
 }
 .sys-tray:hover::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ui-accent) 50%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 30%, transparent);
   border: 1px solid transparent;
   background-clip: content-box;
 }
 .sys-tray:hover {
-  scrollbar-color: color-mix(in srgb, var(--ui-accent) 50%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--ui-text) 30%, transparent) transparent;
 }
 
 .tray-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 27px;
-  height: 24px;
-  color: var(--ui-text-3);
+  width: 24px;
+  height: 20px;
+  color: var(--ui-text-2);
   cursor: pointer;
   border-radius: var(--ui-radius-sm);
   background: transparent;
   border: 1px solid transparent;
   transition:
-    color var(--ui-dur-fast) var(--ui-ease-out),
-    background-color var(--ui-dur-fast) var(--ui-ease-out),
-    border-color var(--ui-dur-fast) var(--ui-ease-out),
-    transform var(--ui-dur-fast) var(--ui-ease-spring);
+    color var(--ui-dur-fast) ease-out,
+    background-color var(--ui-dur-fast) ease-out;
 }
 
 .tray-icon:hover {
   color: var(--ui-text);
-  background: var(--ui-accent-softer);
-  border-color: color-mix(in srgb, var(--ui-accent) 26%, transparent);
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--ui-text) 8%, transparent);
 }
 
 .tray-icon.active {
@@ -722,36 +698,33 @@ onUnmounted(() => {
 
 .clock {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  padding: 2px 8px;
+  align-items: baseline;
+  gap: 6px;
+  padding: 1px 6px;
   cursor: pointer;
   border-radius: var(--ui-radius-sm);
   background: transparent;
   border: 1px solid transparent;
-  transition:
-    background-color var(--ui-dur-fast) var(--ui-ease-out),
-    border-color var(--ui-dur-fast) var(--ui-ease-out);
+  white-space: nowrap;
+  transition: background-color var(--ui-dur-fast) ease-out;
 }
 
 .clock:hover {
-  background: var(--ui-accent-softer);
-  border-color: color-mix(in srgb, var(--ui-accent) 26%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 8%, transparent);
 }
 
 .clock-time {
-  font-family: var(--ui-font-mono);
-  font-size: 11px;
-  font-weight: 700;
+  font-family: var(--ui-font);
+  font-size: 12px;
+  font-weight: 600;
   color: var(--ui-text);
-  line-height: 1.2;
 }
 
 .clock-date {
-  font-family: var(--ui-font-mono);
-  font-size: 8.5px;
-  color: var(--ui-text-3);
-  line-height: 1.2;
+  font-family: var(--ui-font);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ui-text-2);
 }
 
 @media (max-width: 960px) {

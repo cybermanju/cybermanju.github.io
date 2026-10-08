@@ -7,7 +7,7 @@
         class="ctx-menu"
         :style="menuStyle"
         role="menu"
-        :aria-label="'CONTEXT MENU'"
+        :aria-label="'Context menu'"
         @click.stop
         @contextmenu.prevent
         @keydown="handleKeydown"
@@ -190,42 +190,47 @@ onUnmounted(() => {
   z-index: 9999;
   background: var(--ui-glass-2);
   border: 1px solid var(--ui-border);
-  min-width: 180px;
+  min-width: 200px;
   max-width: 300px;
-  padding: 4px 0;
+  padding: 4px;
   font-family: var(--ui-font);
-  font-size: 10px;
+  font-size: 13px;
   color: var(--ui-text);
-  box-shadow: var(--ui-shadow-2);
+  box-shadow: var(--ui-shadow-menu);
   outline: none;
   backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
   -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
-  border-radius: var(--ui-radius-md);
+  border-radius: var(--ui-radius-lg);
 }
 
 .ctx-submenu {position: fixed;
   z-index: 10000;
-  border-radius: var(--ui-radius-md);
+  border-radius: var(--ui-radius-lg);
 }
 
 .ctx-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  margin: 1px 4px;
+  gap: 8px;
+  min-height: 22px;
+  padding: 3px 8px;
   border-radius: var(--ui-radius-sm);
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
-  color: var(--ui-text-2);
-  transition: background-color var(--ui-dur-fast) var(--ui-ease-out), color var(--ui-dur-fast) var(--ui-ease-out);
+  color: var(--ui-text);
+  transition: background-color var(--ui-dur-fast) ease-out;
 }
 
 .ctx-item:hover,
 .ctx-focused {
-  background: var(--ui-accent-softer);
-  color: var(--ui-text);
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+}
+
+.ctx-item:hover .ctx-shortcut,
+.ctx-focused .ctx-shortcut {
+  color: var(--ui-on-accent);
 }
 
 .ctx-disabled {
@@ -237,18 +242,32 @@ onUnmounted(() => {
 .ctx-icon {
   width: 16px;
   flex-shrink: 0;
-  font-size: 9px;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--ui-text-2);
+}
+
+.ctx-item:hover .ctx-icon,
+.ctx-focused .ctx-icon {
+  color: inherit;
 }
 
 .ctx-label {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Legacy labels are registered UPPERCASE — render sentence case. */
+  text-transform: lowercase;
+}
+
+.ctx-label::first-letter {
+  text-transform: uppercase;
 }
 
 .ctx-shortcut {
   flex-shrink: 0;
-  font-size: 9px;
+  font-size: 12px;
+  color: var(--ui-text-3);
   margin-left: 12px;
 }
 
@@ -260,8 +279,8 @@ onUnmounted(() => {
 
 .ctx-divider {
   height: 1px;
-  background: color-mix(in srgb, var(--ui-text) 20%, transparent);
-  margin: 2px 8px;
+  background: var(--ui-separator);
+  margin: 4px 8px;
 }
 
 .ctx-fade-enter-active,

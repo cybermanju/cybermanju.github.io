@@ -6,6 +6,8 @@ export type NotificationType = 'success' | 'error' | 'warning' | 'info'
 export interface Notification {
   id: string
   type: NotificationType
+  /** Banner title (defaults to the type label when omitted). */
+  title?: string
   message: string
   duration: number
   createdAt: number
@@ -25,9 +27,9 @@ export function useNotifications() {
     if (web.isSupported.value && web.permissionGranted.value) showWeb = web.show as (opts: object) => void
   } catch { showWeb = null }
 
-  function notify(type: NotificationType, message: string, duration = 4000) {
+  function notify(type: NotificationType, message: string, duration = 4000, title?: string) {
     const id = `notify-${++counter}`
-    const n: Notification = { id, type, message, duration, createdAt: Date.now() }
+    const n: Notification = { id, type, title, message, duration, createdAt: Date.now() }
     notifications.value.push(n)
     if (type === 'error' || type === 'warning') {
       try { showWeb?.({ body: message, tag: id }) } catch { /* in-app toast is enough */ }

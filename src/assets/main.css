@@ -1,5 +1,5 @@
 /* CyberManju OS — global foundation.
-   macOS-inspired: SF-first type, quiet neutrals, one restrained accent.
+   macOS-style flat: SF stack, 13px/1.4, sentence case, single system blue.
    All values come from the `--ui-*` tokens published by useTheme(). */
 
 *,
@@ -18,7 +18,7 @@ body,
   overflow: hidden;
   font-family: var(--ui-font, -apple-system, system-ui, sans-serif);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.4;
   color: var(--ui-text);
   background: var(--ui-bg);
   -webkit-font-smoothing: antialiased;
@@ -320,6 +320,221 @@ canvas {
 
 .scanline-overlay::after {
   content: none;
+}
+
+/* ── native form controls (single themed system) ──────────────────────
+   Every bare <select>, checkbox, radio and slider in the app inherits this
+   baseline, so all of them follow the active theme + shell automatically
+   (colors, radius, focus ring). Denser component classes (UiSelect,
+   .fm-select, .am-input, …) layer on top without re-declaring the basics. */
+
+/* Native popups, arrows and pickers follow the theme mode. */
+[data-ui-mode='dark'] {
+  color-scheme: dark;
+}
+
+[data-ui-mode='light'] {
+  color-scheme: light;
+}
+
+/* Dropdown selects: themed box; the arrow + popup tint come from
+   color-scheme above, the list rows from the option rules below. */
+select {
+  background: var(--ui-surface-2);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-text);
+  font: inherit;
+  padding: 4px 8px;
+  max-width: 100%;
+  outline: none;
+  cursor: pointer;
+  transition:
+    border-color var(--ui-dur-fast) ease-out,
+    box-shadow var(--ui-dur-fast) ease-out;
+}
+
+select:hover:not(:disabled) {
+  border-color: var(--ui-border-hover);
+}
+
+select:focus-visible {
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-focus-ring);
+}
+
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+select option,
+select optgroup {
+  background: var(--ui-surface-2);
+  color: var(--ui-text);
+}
+
+/* Checkboxes + radios: flat custom boxes, accent fill when on. */
+input[type='checkbox'],
+input[type='radio'] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  background: var(--ui-surface-2);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-xs);
+  display: inline-grid;
+  place-content: center;
+  cursor: pointer;
+  vertical-align: middle;
+  transition:
+    background-color var(--ui-dur-fast) ease-out,
+    border-color var(--ui-dur-fast) ease-out;
+}
+
+input[type='radio'] {
+  border-radius: 50%;
+}
+
+input[type='checkbox']:hover:not(:disabled),
+input[type='radio']:hover:not(:disabled) {
+  border-color: var(--ui-border-hover);
+}
+
+input[type='checkbox']:checked,
+input[type='radio']:checked {
+  background: var(--ui-accent);
+  border-color: transparent;
+}
+
+input[type='checkbox']:checked {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.5l3 3 5-7' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-size: 72%;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* plasma-dark pairs its breeze-blue fill with dark on-accent text, so the
+   check glyph follows it (white everywhere else). */
+[data-ui-theme='plasma-dark'] input[type='checkbox']:checked {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.5l3 3 5-7' fill='none' stroke='%23232629' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+input[type='radio']:checked {
+  background-image: radial-gradient(circle, var(--ui-on-accent) 0 32%, transparent 38%);
+}
+
+input[type='checkbox']:focus-visible,
+input[type='radio']:focus-visible {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-focus-ring);
+}
+
+input[type='checkbox']:disabled,
+input[type='radio']:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Sliders: 4px groove with accent fill up to --p (set inline per slider),
+   14px round thumb. Firefox uses range-progress natively. */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 20px;
+  min-width: 60px;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  --p: 50%;
+  --track: color-mix(in srgb, var(--ui-text) 14%, transparent);
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--ui-accent) 0 var(--p), var(--track) var(--p) 100%);
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--ui-text);
+  border: 1px solid var(--ui-border-strong);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+input[type='range']::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--track);
+}
+
+input[type='range']::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--ui-accent);
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--ui-text);
+  border: 1px solid var(--ui-border-strong);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+input[type='range']:focus-visible {
+  outline: none;
+}
+
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--ui-focus-ring);
+}
+
+input[type='range']:focus-visible::-moz-range-thumb {
+  box-shadow: var(--ui-focus-ring);
+}
+
+input[type='range']:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Placeholder text everywhere (components may refine per field). */
+::placeholder {
+  color: var(--ui-text-faint);
+}
+
+/* Coarse pointers: bigger hit targets for checks and slider thumbs. */
+@media (pointer: coarse) {
+  input[type='checkbox'],
+  input[type='radio'] {
+    width: 20px;
+    height: 20px;
+  }
+
+  input[type='range']::-webkit-slider-thumb {
+    width: 20px;
+    height: 20px;
+    margin-top: -8px;
+  }
+
+  input[type='range']::-moz-range-thumb {
+    width: 19px;
+    height: 19px;
+  }
 }
 
 /* ── keyframes (calm, no glitch/flicker) ──────────────────────────────── */

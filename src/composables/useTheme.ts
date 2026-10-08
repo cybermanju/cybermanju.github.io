@@ -1,4 +1,4 @@
-import { computed, reactive, watch, type ComputedRef } from 'vue'
+import { computed, reactive, ref, watch, type ComputedRef } from 'vue'
 import {
   DEFAULT_SETTINGS,
   LEGACY_THEME_ALIASES,
@@ -7,41 +7,71 @@ import {
   type GlassLevel,
   type Density,
   type MotionPref,
+  type ShellStyle,
   type ThemeId,
   type ThemeSettings,
 } from '@/ui/tokens'
 
 const STORAGE_KEY = 'cybermanju_theme_v1'
+const SHELL_KEY = 'cybermanju_shell_style'
+
+function loadShell(): ShellStyle {
+  try {
+    const raw = localStorage.getItem(SHELL_KEY)
+    if (raw === 'plasma' || raw === 'macos') return raw
+  } catch { /* default stands */ }
+  return 'macos'
+}
+
+function systemTheme(): ThemeId {
+  const plasma = loadShell() === 'plasma'
+  try {
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches) {
+      return plasma ? 'plasma-light' : 'os-light'
+    }
+  } catch { /* default stands */ }
+  return plasma ? 'plasma-dark' : 'os-dark'
+}
 
 function loadSettings(): ThemeSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) {
-      // First run: honour the host OS preference (mirrors VueUse
-      // usePreferredDark/usePreferredColorScheme without a setup scope).
-      try {
-        if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches) {
-          const light = (Object.keys(THEMES) as ThemeId[]).find((id) => THEMES[id].mode === 'light')
-          if (light) return { ...DEFAULT_SETTINGS, theme: light }
-        }
-      } catch { /* default theme stands */ }
-      return { ...DEFAULT_SETTINGS }
+      // First run: follow the host OS preference (auto appearance).
+      return { ...DEFAULT_SETTINGS, theme: systemTheme(), followSystem: true }
     }
-    const parsed = JSON.parse(raw) as Partial<ThemeSettings>
+    const parsed = JSON.parse(raw) as Partial<ThemeSettings> & { theme?: string }
     const rawTheme = parsed.theme as string | undefined
-    const aliased = rawTheme && !THEMES[rawTheme as ThemeId] ? LEGACY_THEME_ALIASES[rawTheme] : undefined
-    const theme =
-      rawTheme && rawTheme in THEMES
-        ? (rawTheme as ThemeId)
-        : aliased ?? DEFAULT_SETTINGS.theme
-    // Per-theme accents survive only with valid hex values.
+    // Migrate any pre-remake id (17 themes) onto os-dark / os-light by mode.
+    // Unknown ids fall back to the OS preference, not a fixed theme.
+    let theme: ThemeId
+    if (rawTheme && rawTheme in THEMES) {
+      theme = rawTheme as ThemeId
+    } else if (rawTheme && LEGACY_THEME_ALIASES[rawTheme]) {
+      theme = LEGACY_THEME_ALIASES[rawTheme]
+    } else {
+      theme = systemTheme()
+    }
+    // Per-theme accents survive only with valid hex values on live ids.
     const accents: Record<string, string> = {}
     if (parsed.accents && typeof parsed.accents === 'object') {
       for (const [k, v] of Object.entries(parsed.accents)) {
         if (typeof v === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)) accents[k] = v
       }
     }
-    return { ...DEFAULT_SETTINGS, ...parsed, theme, accents }
+    // Collapse legacy glass levels 1/3 onto translucent (2); 0 stays solid.
+    let glass = parsed.glass
+    if (glass === 1 || glass === 3) glass = 2
+    if (glass !== 0 && glass !== 2) glass = DEFAULT_SETTINGS.glass
+    const followSystem = parsed.followSystem ?? false
+    return {
+      ...DEFAULT_SETTINGS,
+      ...parsed,
+      theme: followSystem ? systemTheme() : theme,
+      accents,
+      glass,
+      followSystem,
+    }
   } catch {
     return { ...DEFAULT_SETTINGS }
   }
@@ -54,11 +84,18 @@ function loadSettings(): ThemeSettings {
  */
 const state = reactive<ThemeSettings>(loadSettings())
 
+/**
+ * Shell style singleton: `macos` (menu bar + floating Dock) or `plasma`
+ * (bottom panel + Kickoff). Persisted separately so theme migrations never
+ * clobber it; default is macOS (non-breaking).
+ */
+const shellState = ref<ShellStyle>(loadShell())
+
 let applyScheduled = false
 
 function applyNow() {
   if (typeof document === 'undefined') return
-  const vars = buildCssVars({ ...state })
+  const vars = buildCssVars({ ...state, shell: shellState.value })
   const root = document.documentElement
   for (const [key, value] of Object.entries(vars)) {
     root.style.setProperty(key, value)
@@ -66,11 +103,13 @@ function applyNow() {
   root.dataset.uiTheme = state.theme
   root.dataset.uiMode = THEMES[state.theme].mode
   root.dataset.uiDensity = state.density
+  root.dataset.uiShell = shellState.value
 }
 
 function persist() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state }))
+    localStorage.setItem(SHELL_KEY, shellState.value)
   } catch {
     /* private mode / quota — the theme still applies for this session */
   }
@@ -87,7 +126,7 @@ function scheduleApply() {
 }
 
 watch(
-  () => [state.theme, state.accent, state.density, state.glass, state.motion, state.glow],
+  () => [state.theme, state.accent, state.density, state.glass, state.motion, state.glow, state.followSystem, shellState.value],
   () => scheduleApply(),
   { deep: true }
 )
@@ -96,6 +135,22 @@ watch(
 // default theme before Vue mounts.
 if (typeof document !== 'undefined') applyNow()
 
+// Auto appearance: track the OS scheme while followSystem is on.
+if (typeof window !== 'undefined' && window.matchMedia) {
+  try {
+    const mq = window.matchMedia('(prefers-color-scheme: light)')
+    const onChange = (e: MediaQueryListEvent) => {
+      if (state.followSystem) {
+        const plasma = shellState.value === 'plasma'
+        state.theme = e.matches
+          ? (plasma ? 'plasma-light' : 'os-light')
+          : (plasma ? 'plasma-dark' : 'os-dark')
+      }
+    }
+    mq.addEventListener?.('change', onChange)
+  } catch { /* older browsers — stored theme stands */ }
+}
+
 export function useTheme() {
   const themeId = computed(() => state.theme)
   const mode = computed(() => THEMES[state.theme].mode)
@@ -103,10 +158,34 @@ export function useTheme() {
   const glass = computed(() => state.glass)
   const accent = computed(() => state.accent)
   const motion = computed(() => state.motion)
-  const cssVars: ComputedRef<Record<string, string>> = computed(() => buildCssVars({ ...state }))
+  const cssVars: ComputedRef<Record<string, string>> = computed(() => buildCssVars({ ...state, shell: shellState.value }))
+  const shellStyle = computed(() => shellState.value)
 
   function setTheme(id: ThemeId) {
     state.theme = id
+    state.followSystem = false
+  }
+  /**
+   * Shell style: `macos` (menu bar + floating Dock) or `plasma`
+   * (bottom panel + Kickoff). When following the system appearance the
+   * theme re-resolves into the new shell's pair so light/dark keeps meaning.
+   */
+  function setShellStyle(style: ShellStyle) {
+    if (style !== 'macos' && style !== 'plasma') return
+    shellState.value = style
+    if (state.followSystem) {
+      state.theme = systemTheme()
+    }
+  }
+  /** Appearance: Light / Dark / Graphite / Auto (follow OS). */
+  function setAppearance(mode: 'auto' | ThemeId) {
+    if (mode === 'auto') {
+      state.followSystem = true
+      state.theme = systemTheme()
+    } else {
+      state.followSystem = false
+      state.theme = mode
+    }
   }
   function setAccent(value: string | null) {
     state.accent = value || null
@@ -130,13 +209,17 @@ export function useTheme() {
     state.density = value
   }
   function setGlass(value: GlassLevel) {
-    state.glass = value
+    // Collapse legacy levels: solid (0) or translucent (everything else).
+    state.glass = value === 0 ? 0 : 2
   }
   function setMotion(value: MotionPref) {
     state.motion = value
   }
   function setGlow(value: boolean) {
     state.glow = value
+  }
+  function setWallpaper(id: string) {
+    state.wallpaper = id
   }
   function cycleTheme() {
     const ids = Object.keys(THEMES) as ThemeId[]
@@ -146,13 +229,13 @@ export function useTheme() {
     Object.assign(state, DEFAULT_SETTINGS)
   }
 
-  /** Inline style carrying the glass treatment — for teleported overlay layers. */
+  /** Inline style carrying the chrome glass — teleported overlays only. */
   const glassStyle = computed(() => ({
     background: 'var(--ui-glass-2)',
     backdropFilter: 'blur(var(--ui-blur-strong)) saturate(var(--ui-saturate))',
     WebkitBackdropFilter: 'blur(var(--ui-blur-strong)) saturate(var(--ui-saturate))',
     border: '1px solid var(--ui-border)',
-    boxShadow: 'var(--ui-shadow-3)',
+    boxShadow: 'var(--ui-shadow-menu)',
   }))
 
   return {
@@ -165,13 +248,17 @@ export function useTheme() {
     motion,
     cssVars,
     glassStyle,
+    shellStyle,
     setTheme,
+    setAppearance,
+    setShellStyle,
     setAccent,
     setAccentFor,
     setDensity,
     setGlass,
     setMotion,
     setGlow,
+    setWallpaper,
     cycleTheme,
     reset,
     themes: THEMES,

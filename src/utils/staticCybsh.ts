@@ -1886,30 +1886,41 @@ let scriptDepth = 0
 
 const STATIC_THEME_FILE = '/.cybermanju/theme.json'
 const STATIC_THEME_IDS = [
-  'mac-light',
-  'mac-dark',
-  'mac-graphite-light',
-  'mac-graphite-dark',
-  'mac-midnight',
-  'ocean-light',
-  'sunset-light',
-  'forest-light',
-  'lavender-light',
-  'rose-light',
-  'ocean-night',
-  'forest-night',
-  'ember-night',
-  'nebula-night',
-  'cyber-night',
-  'matrix-night',
-  'cyberpunk-night',
+  'os-dark',
+  'os-light',
+  'os-graphite',
+  'plasma-dark',
+  'plasma-light',
 ]
 const STATIC_THEME_ALIASES: Record<string, string> = {
-  midnight: 'mac-midnight',
-  nebula: 'mac-dark',
-  ember: 'mac-dark',
-  daylight: 'mac-light',
-  ghostline: 'mac-dark',
+  // Pre-remake 17-theme ids migrate by mode.
+  'mac-light': 'os-light',
+  'mac-graphite-light': 'os-light',
+  'ocean-light': 'os-light',
+  'sunset-light': 'os-light',
+  'forest-light': 'os-light',
+  'lavender-light': 'os-light',
+  'rose-light': 'os-light',
+  daylight: 'os-light',
+  'mac-dark': 'os-dark',
+  'mac-graphite-dark': 'os-graphite',
+  'mac-midnight': 'os-dark',
+  'ocean-night': 'os-dark',
+  'forest-night': 'os-dark',
+  'ember-night': 'os-dark',
+  'nebula-night': 'os-dark',
+  'cyber-night': 'os-dark',
+  'matrix-night': 'os-dark',
+  'cyberpunk-night': 'os-dark',
+  midnight: 'os-dark',
+  nebula: 'os-dark',
+  ember: 'os-dark',
+  ghostline: 'os-dark',
+  dark: 'os-dark',
+  light: 'os-light',
+  graphite: 'os-graphite',
+  plasma: 'plasma-dark',
+  auto: 'os-dark',
 }
 
 function canonicalStaticTheme(id: string): string | null {
@@ -1938,20 +1949,21 @@ export interface StaticUiSettings {
 }
 
 const STATIC_UI_DEFAULTS: StaticUiSettings = {
-  theme: 'mac-light',
+  theme: 'os-dark',
   accent: null,
   accents: {},
   density: 'comfortable',
   glass: 2,
   motion: 'auto',
-  glow: true,
+  glow: false,
 }
 
 const STATIC_GLASS_NAMES: Record<string, 0 | 1 | 2 | 3> = {
-  '0': 0, solid: 0,
-  '1': 1, light: 1,
-  '2': 2, default: 2,
-  '3': 3, rich: 3,
+  // Flat remake: solid (0) or translucent (everything else → 2).
+  '0': 0, solid: 0, off: 0,
+  '1': 2, light: 2,
+  '2': 2, default: 2, translucent: 2, on: 2,
+  '3': 2, rich: 2,
 }
 
 function readStaticUi(deps: StaticCybshDeps): StaticUiSettings {
@@ -1973,11 +1985,12 @@ function readStaticUi(deps: StaticCybshDeps): StaticUiSettings {
     }
     const density = value.density === 'compact' ? 'compact' : 'comfortable'
     const glassRaw = value.glass
+    // Collapse legacy vibrancy levels onto solid (0) / translucent (2).
     const glass: 0 | 1 | 2 | 3 =
-      glassRaw === 0 || glassRaw === 1 || glassRaw === 2 || glassRaw === 3 ? glassRaw : 2
+      glassRaw === 0 ? 0 : 2
     const motion =
       value.motion === 'full' || value.motion === 'reduced' ? value.motion : 'auto'
-    const glow = typeof value.glow === 'boolean' ? value.glow : true
+    const glow = typeof value.glow === 'boolean' ? value.glow : false
     return { theme, accent, accents, density, glass, motion, glow }
   } catch {
     return { ...STATIC_UI_DEFAULTS, accents: {} }
@@ -2127,7 +2140,7 @@ async function handleUi(args: string[], json: boolean, deps: StaticCybshDeps): P
     }
     const level = STATIC_GLASS_NAMES[want.toLowerCase()]
     if (level === undefined) {
-      return shellErr(`invalid: bad glass '${want}' (use 0|solid, 1|light, 2|default, 3|rich)`)
+      return shellErr(`invalid: bad glass '${want}' (use 0|solid|off, 2|translucent|default|on)`)
     }
     const updated = { ...s, glass: level }
     await writeStaticUi(deps, updated)
@@ -2166,7 +2179,7 @@ async function handleUi(args: string[], json: boolean, deps: StaticCybshDeps): P
     return shellOk(`glow: ${on ? 'on' : 'off'}\nui: glow=${on ? 'on' : 'off'}`)
   }
   return shellErr(
-    'usage: ui theme <id>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|1|light|2|default|3|rich>|motion <auto|full|reduced>|glow <on|off>|get ' +
+    'usage: ui theme <os-dark|os-light|os-graphite|plasma-dark|plasma-light>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|2|translucent>|motion <auto|full|reduced>|glow <on|off>|get ' +
       `(got \`${sub}\`)`,
   )
 }

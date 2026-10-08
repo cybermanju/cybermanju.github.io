@@ -3443,24 +3443,13 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
 }
 
 /// Theme ids shared with `src/ui/tokens.ts` (`THEME_IDS` + legacy aliases).
+/// Flat AMOLED set plus the Breeze-like plasma pair.
 const THEME_IDS: &[&str] = &[
-    "mac-light",
-    "mac-dark",
-    "mac-graphite-light",
-    "mac-graphite-dark",
-    "mac-midnight",
-    "ocean-light",
-    "sunset-light",
-    "forest-light",
-    "lavender-light",
-    "rose-light",
-    "ocean-night",
-    "forest-night",
-    "ember-night",
-    "nebula-night",
-    "cyber-night",
-    "matrix-night",
-    "cyberpunk-night",
+    "os-dark",
+    "os-light",
+    "os-graphite",
+    "plasma-dark",
+    "plasma-light",
 ];
 
 /// Volume mirror of the live theme settings (`cybermanju_theme_v1` in the
@@ -3469,28 +3458,23 @@ const THEME_FILE: &str = "/.cybermanju/theme.json";
 
 fn canonical_theme(id: &str) -> Option<&'static str> {
     match id {
-        "mac-light" => Some("mac-light"),
-        "mac-dark" => Some("mac-dark"),
-        "mac-graphite-light" => Some("mac-graphite-light"),
-        "mac-graphite-dark" => Some("mac-graphite-dark"),
-        "mac-midnight" => Some("mac-midnight"),
-        "ocean-light" => Some("ocean-light"),
-        "sunset-light" => Some("sunset-light"),
-        "forest-light" => Some("forest-light"),
-        "lavender-light" => Some("lavender-light"),
-        "rose-light" => Some("rose-light"),
-        "ocean-night" => Some("ocean-night"),
-        "forest-night" => Some("forest-night"),
-        "ember-night" => Some("ember-night"),
-        "nebula-night" => Some("nebula-night"),
-        "cyber-night" => Some("cyber-night"),
-        "matrix-night" => Some("matrix-night"),
-        "cyberpunk-night" => Some("cyberpunk-night"),
-        "midnight" => Some("mac-midnight"),
-        "nebula" => Some("mac-dark"),
-        "ember" => Some("mac-dark"),
-        "daylight" => Some("mac-light"),
-        "ghostline" => Some("mac-dark"),
+        "os-dark" => Some("os-dark"),
+        "os-light" => Some("os-light"),
+        "os-graphite" => Some("os-graphite"),
+        "plasma-dark" => Some("plasma-dark"),
+        "plasma-light" => Some("plasma-light"),
+        "dark" => Some("os-dark"),
+        "light" => Some("os-light"),
+        "graphite" => Some("os-graphite"),
+        "plasma" => Some("plasma-dark"),
+        "auto" => Some("os-dark"),
+        // Pre-remake 17-theme ids migrate by mode.
+        "mac-light" | "mac-graphite-light" | "ocean-light" | "sunset-light" | "forest-light"
+        | "lavender-light" | "rose-light" | "daylight" => Some("os-light"),
+        "mac-dark" | "mac-midnight" | "ocean-night" | "forest-night" | "ember-night"
+        | "nebula-night" | "cyber-night" | "matrix-night" | "cyberpunk-night" | "midnight"
+        | "nebula" | "ember" | "ghostline" => Some("os-dark"),
+        "mac-graphite-dark" => Some("os-graphite"),
         _ => None,
     }
 }
@@ -3513,13 +3497,13 @@ struct UiSettings {
 impl UiSettings {
     fn defaults() -> Self {
         Self {
-            theme: "mac-light".to_string(),
+            theme: "os-dark".to_string(),
             accent: None,
             accents: Vec::new(),
             density: "comfortable".to_string(),
             glass: 2,
             motion: "auto".to_string(),
-            glow: true,
+            glow: false,
         }
     }
 
@@ -3550,7 +3534,7 @@ fn load_ui() -> UiSettings {
         .get("theme")
         .and_then(|v| v.as_str())
         .filter(|t| canonical_theme(t).is_some())
-        .unwrap_or("mac-light")
+        .unwrap_or("os-dark")
         .to_string();
     let accent = value
         .get("accent")
@@ -3573,18 +3557,18 @@ fn load_ui() -> UiSettings {
         .filter(|d| *d == "compact" || *d == "comfortable")
         .unwrap_or("comfortable")
         .to_string();
-    let glass = value
-        .get("glass")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(2)
-        .min(3) as u8;
+    // Flat remake: solid (0) or translucent (everything else collapses to 2).
+    let glass = match value.get("glass").and_then(|v| v.as_u64()).unwrap_or(2) {
+        0 => 0,
+        _ => 2,
+    };
     let motion = value
         .get("motion")
         .and_then(|v| v.as_str())
         .filter(|m| *m == "auto" || *m == "full" || *m == "reduced")
         .unwrap_or("auto")
         .to_string();
-    let glow = value.get("glow").and_then(|v| v.as_bool()).unwrap_or(true);
+    let glow = value.get("glow").and_then(|v| v.as_bool()).unwrap_or(false);
     UiSettings {
         theme,
         accent,
@@ -3642,11 +3626,10 @@ fn ui_line(s: &UiSettings) -> String {
 }
 
 fn parse_glass(raw: &str) -> Option<u8> {
+    // Flat remake: solid (0) or translucent (legacy levels collapse to 2).
     match raw.to_lowercase().as_str() {
-        "0" | "solid" => Some(0),
-        "1" | "light" => Some(1),
-        "2" | "default" => Some(2),
-        "3" | "rich" => Some(3),
+        "0" | "solid" | "off" => Some(0),
+        "1" | "light" | "2" | "default" | "translucent" | "on" | "3" | "rich" => Some(2),
         _ => None,
     }
 }
@@ -3682,7 +3665,7 @@ fn theme_cmd(args: &[String], json: bool) -> Result<String, String> {
 /// the Terminal panel applies via `useTheme()`, so the interface changes on
 /// all three transports.
 fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
-    const USAGE: &str = "usage: ui theme <id>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|1|light|2|default|3|rich>|motion <auto|full|reduced>|glow <on|off>|get";
+    const USAGE: &str = "usage: ui theme <os-dark|os-light|os-graphite|plasma-dark|plasma-light>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|2|translucent>|motion <auto|full|reduced>|glow <on|off>|get";
     let sub = args.first().map(String::as_str).unwrap_or("get");
     let plain: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
     let s = load_ui();
@@ -3754,7 +3737,7 @@ fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
             };
             let mut updated = s.clone();
             if let Some(t) = for_theme {
-                let canonical = canonical_theme(&t.to_lowercase()).unwrap_or("mac-light");
+                let canonical = canonical_theme(&t.to_lowercase()).unwrap_or("os-dark");
                 updated.accents.retain(|(k, _)| k != canonical);
                 if let Some(hex) = next.clone() {
                     updated.accents.push((canonical.to_string(), hex));
@@ -3808,7 +3791,7 @@ fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
                 return Ok(format!("glass: {}\nui: glass={}", s.glass, s.glass));
             }
             let level = parse_glass(want).ok_or_else(|| {
-                format!("invalid: bad glass '{want}' (use 0|solid, 1|light, 2|default, 3|rich)")
+                format!("invalid: bad glass '{want}' (use 0|solid|off, 2|translucent|default|on)")
             })?;
             let mut updated = s.clone();
             updated.glass = level;

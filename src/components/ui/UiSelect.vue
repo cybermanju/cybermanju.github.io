@@ -75,11 +75,9 @@ defineExpose({ el: selectRef })
   display: flex;
   align-items: center;
   min-width: 0;
-  background: color-mix(in srgb, var(--ui-surface) 70%, transparent);
+  background: var(--ui-surface-2);
   border: 1px solid var(--ui-border-strong);
   border-radius: var(--ui-radius-sm);
-  backdrop-filter: blur(calc(var(--ui-blur) * 0.5));
-  -webkit-backdrop-filter: blur(calc(var(--ui-blur) * 0.5));
   transition:
     border-color var(--ui-dur) var(--ui-ease-out),
     box-shadow var(--ui-dur) var(--ui-ease-out);
@@ -91,7 +89,7 @@ defineExpose({ el: selectRef })
 
 .ui-select__control:focus-within {
   border-color: var(--ui-accent);
-  box-shadow: var(--ui-glow-soft);
+  box-shadow: var(--ui-focus-ring);
 }
 
 .ui-select__native {

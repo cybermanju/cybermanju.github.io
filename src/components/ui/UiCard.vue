@@ -99,18 +99,7 @@ const onClick = (e: MouseEvent) => {
 }
 
 .ui-card::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--ui-glass-highlight) 25%,
-    var(--ui-glass-highlight) 75%,
-    transparent
-  );
-  pointer-events: none;
+  content: none;
 }
 
 .ui-card--interactive {
@@ -129,7 +118,7 @@ const onClick = (e: MouseEvent) => {
 .ui-card--interactive:focus-visible {
   outline: none;
   border-color: var(--ui-accent);
-  box-shadow: var(--ui-glow-soft);
+  box-shadow: var(--ui-focus-ring);
 }
 
 .ui-card--selected {

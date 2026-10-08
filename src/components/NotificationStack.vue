@@ -9,9 +9,12 @@
           :class="'notif-' + n.type"
           @click="dismiss(n.id)"
         >
-          <span class="notif-icon"><AppIcon :name="ICONS[n.type]" :size="14" /></span>
-          <span class="notif-msg">{{ n.message }}</span>
-          <button class="notif-close" @click.stop="dismiss(n.id)" aria-label="CLOSE"><AppIcon name="solar:close-bold" :size="13" /></button>
+          <span class="notif-icon"><AppIcon :name="ICONS[n.type]" :size="16" /></span>
+          <span class="notif-body">
+            <span class="notif-title">{{ n.title || TITLES[n.type] }}</span>
+            <span class="notif-msg">{{ n.message }}</span>
+          </span>
+          <button class="notif-close" @click.stop="dismiss(n.id)" aria-label="Dismiss"><AppIcon name="solar:close-bold" :size="12" /></button>
         </div>
       </TransitionGroup>
     </div>
@@ -30,37 +33,42 @@ const ICONS: Record<NotificationType, string> = {
   warning: 'solar:danger-triangle-bold',
   info: 'solar:info-circle-bold',
 }
+
+const TITLES: Record<NotificationType, string> = {
+  success: 'CyberManju OS',
+  error: 'CyberManju OS',
+  warning: 'CyberManju OS',
+  info: 'CyberManju OS',
+}
 </script>
 
 <style scoped>
 .notification-stack {
   position: fixed;
-  bottom: 36px;
+  top: calc(24px + 10px);
   right: 12px;
   z-index: 10000;
   display: flex;
-  flex-direction: column-reverse;
+  flex-direction: column;
   gap: 8px;
   pointer-events: none;
-  max-width: 380px;
+  width: 340px;
+  max-width: calc(100vw - 24px);
 }
 
 .notification-item {
   display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 9px 12px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
   background: var(--ui-glass-2);
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(160%);
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(160%);
-  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent);
-  border-left: 3px solid var(--ui-info);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-lg);
-  box-shadow: var(--ui-shadow-3), inset 0 1px 0 var(--ui-glass-highlight);
+  box-shadow: var(--ui-shadow-menu);
   color: var(--ui-text);
   font-family: var(--ui-font);
-  font-size: var(--ui-fs-sm);
-  font-weight: 600;
   cursor: pointer;
   pointer-events: auto;
   overflow: hidden;
@@ -95,14 +103,32 @@ const ICONS: Record<NotificationType, string> = {
 }
 
 .notif-icon {
-  font-size: 14px;
   flex-shrink: 0;
   display: flex;
+  margin-top: 1px;
+}
+
+.notif-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.notif-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--ui-text);
 }
 
 .notif-msg {
-  flex: 1;
-  line-height: 1.35;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--ui-text-2);
+  overflow-wrap: anywhere;
 }
 
 .notif-close {
@@ -140,5 +166,17 @@ const ICONS: Record<NotificationType, string> = {
 .nstack-leave-to {
   opacity: 0;
   transform: translateX(40px);
+}
+
+/* Plasma: bottom-right popups above the panel, 360px wide. */
+[data-ui-shell='plasma'] .notification-stack {
+  top: auto;
+  bottom: calc(var(--ui-panel-h, 44px) + 10px);
+  width: 360px;
+}
+
+[data-ui-shell='plasma'] .notification-item {
+  border-radius: var(--ui-radius-lg);
+  box-shadow: var(--ui-shadow-popup);
 }
 </style>

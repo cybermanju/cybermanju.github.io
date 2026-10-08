@@ -240,7 +240,17 @@ function workspaceSize(): { w: number; h: number } {
   if (typeof window === 'undefined') return { w: 1280, h: 800 }
   const el = document.querySelector('.desktop-workspace') as HTMLElement | null
   if (el && el.clientWidth > 0) return { w: el.clientWidth, h: el.clientHeight }
-  return { w: window.innerWidth, h: Math.max(400, window.innerHeight - 120) }
+  // Fallback: viewport minus the shell insets (menu bar on top in macOS,
+  // 44px panel at the bottom in plasma) so tiled/strip/overview math never
+  // slides windows under the chrome when the workspace box is unmeasurable.
+  try {
+    const cs = getComputedStyle(document.documentElement)
+    const top = parseFloat(cs.getPropertyValue('--ui-menubar-h')) || 0
+    const bottom = parseFloat(cs.getPropertyValue('--ui-panel-h')) || 0
+    return { w: window.innerWidth, h: Math.max(400, window.innerHeight - top - bottom) }
+  } catch {
+    return { w: window.innerWidth, h: Math.max(400, window.innerHeight - 120) }
+  }
 }
 
 export function useWindowManager() {

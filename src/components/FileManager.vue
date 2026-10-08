@@ -1,5 +1,5 @@
 <template>
-  <div ref="rootRef" class="fm" :class="{ 'fm-drop': isOverDropZone }" tabindex="0" @keydown="onKeydown">
+  <div ref="rootRef" class="fm" :class="{ 'fm-drop': isOverDropZone }" :style="{ '--fm-zoom': zoom }" tabindex="0" @keydown="onKeydown">
     <div class="fm-aurora" aria-hidden="true" />
     <div class="fm-grain" aria-hidden="true" />
 
@@ -13,21 +13,35 @@
         <button class="fm-ibtn" title="Refresh" aria-label="Refresh" @click="refresh"><AppIcon name="solar:refresh-bold" :size="15" /></button>
       </div>
 
-      <nav class="fm-crumbs" aria-label="Breadcrumb">
-        <button
-          v-for="(c, i) in crumbs"
-          :key="i"
-          class="fm-crumb"
-          :class="{ active: i === crumbs.length - 1 }"
-          :title="c.path"
-          @click="jumpCrumb(c.path)"
-        >
-          <AppIcon v-if="i === 0" name="solar:ssd-square-bold" :size="12" />
-          <AppIcon v-else-if="i === crumbs.length - 1" name="solar:folder-open-bold" :size="12" />
-          <AppIcon v-else name="solar:folder-bold" :size="12" />
-          <span>{{ c.label }}</span>
-          <span v-if="i < crumbs.length - 1" class="fm-crumb-sep">/</span>
-        </button>
+      <nav class="fm-crumbs" aria-label="Breadcrumb" title="Click a crumb to jump · click the path to edit (Alt+L)">
+        <template v-if="crumbEdit">
+          <input
+            ref="crumbInputRef"
+            v-model="crumbDraft"
+            class="fm-locedit mono"
+            aria-label="Location (type a path, Enter to go)"
+            spellcheck="false"
+            @keydown.enter="commitCrumbEdit"
+            @keydown.esc.stop="crumbEdit = false"
+            @blur="crumbEdit = false"
+          />
+        </template>
+        <template v-else>
+          <button
+            v-for="(c, i) in crumbs"
+            :key="i"
+            class="fm-crumb"
+            :class="{ active: i === crumbs.length - 1 }"
+            :title="c.path"
+            @click="i === crumbs.length - 1 ? startCrumbEdit() : jumpCrumb(c.path)"
+          >
+            <AppIcon v-if="i === 0" name="solar:ssd-square-bold" :size="12" />
+            <AppIcon v-else-if="i === crumbs.length - 1" name="solar:folder-open-bold" :size="12" />
+            <AppIcon v-else name="solar:folder-bold" :size="12" />
+            <span>{{ c.label }}</span>
+            <span v-if="i < crumbs.length - 1" class="fm-crumb-sep">/</span>
+          </button>
+        </template>
       </nav>
 
       <div class="fm-search">
@@ -90,6 +104,26 @@
     <div class="fm-main" :class="{ 'no-side': !sideOpen, 'no-insp': !inspectorOpen }">
       <!-- SIDEBAR -->
       <aside v-if="sideOpen" class="fm-side">
+        <!-- Dolphin Places (plasma): Home, Recent, Trash, Devices. -->
+        <div v-if="isPlasma" class="fm-side-sec">
+          <div class="fm-side-h">Places</div>
+          <button class="fm-srow" @click="goHome">
+            <AppIcon name="solar:house-bold" :size="14" />
+            <span class="t">Home</span>
+          </button>
+          <button class="fm-srow" @click="wm.open('recent')">
+            <AppIcon name="solar:history-bold" :size="14" />
+            <span class="t">Recent</span>
+          </button>
+          <button class="fm-srow" @click="openTrash">
+            <AppIcon name="solar:trash-bin-trash-bold" :size="14" />
+            <span class="t">Trash</span>
+          </button>
+          <button class="fm-srow" @click="wm.open('devices')">
+            <AppIcon name="solar:plug-circle-bold" :size="14" />
+            <span class="t">Devices</span>
+          </button>
+        </div>
         <div class="fm-side-sec">
           <div class="fm-side-h">VOLUME</div>
           <button class="fm-srow" :class="{ active: !scopeFolder && !diskScopeId }" @click="goHomeVault">
@@ -368,7 +402,7 @@
           </div>
         </div>
 
-        <!-- STATUS BAR -->
+        <!-- STATUS BAR: path + selection + zoom + free space -->
         <footer class="fm-status">
           <span class="mono truncate" :title="store.currentPath">{{ store.currentPath }}</span>
           <span class="fm-dot" />
@@ -378,6 +412,11 @@
           <span v-if="active?.encrypted" class="fm-sbadge lock">🔒 {{ (active.encryptionAlgorithm || 'enc').toUpperCase() }}</span>
           <span v-if="active && encLayer(active) !== 'none'" class="fm-sbadge zip">🗜 {{ encLayer(active).toUpperCase() }}</span>
           <span v-if="clipboard.ids.length" class="fm-sbadge clip">📋 {{ clipboard.ids.length }} {{ clipboard.mode }}</span>
+          <span v-if="df" class="mono dim hide-sm">{{ humanBytes((df.totalBytes || 0) - (df.usedBytes || 0)) }} free</span>
+          <label v-if="view === 'grid' || view === 'masonry'" class="fm-zoom" title="Icon size">
+            <AppIcon name="solar:gallery-bold" :size="12" />
+            <input v-model.number="zoom" type="range" min="0.75" max="1.5" step="0.05" aria-label="Icon size" :style="{ '--p': (((zoom - 0.75) / 0.75) * 100).toFixed(1) + '%' }" />
+          </label>
           <span class="mono dim hide-sm">{{ renderFiles.length }}/{{ sortedFiles.length }}</span>
         </footer>
 
@@ -650,6 +689,7 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useDropZone } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
+import { useTheme } from '@/composables/useTheme'
 import { useContextMenu } from '@/composables/useContextMenu'
 import { invoke } from '@/composables/useTauri'
 import { humanBytes, diskPct } from '@/utils/format'
@@ -660,6 +700,27 @@ import type { DiskRow, FileNode, SyncBackendType } from '@/types'
 const store = useAppStore()
 const wm = useWindowManager()
 const ctx = useContextMenu()
+const isPlasma = computed(() => useTheme().shellStyle.value === 'plasma')
+
+/* Dolphin extras: editable location bar (Alt+L), icon zoom, Places. */
+const crumbEdit = ref(false)
+const crumbDraft = ref('')
+const crumbInputRef = ref<HTMLInputElement | null>(null)
+const zoom = ref(1)
+function startCrumbEdit() {
+  crumbDraft.value = store.currentPath || '/'
+  crumbEdit.value = true
+  nextTick(() => crumbInputRef.value?.select())
+}
+function commitCrumbEdit() {
+  crumbEdit.value = false
+  const p = crumbDraft.value.trim() || '/'
+  jumpCrumb(p)
+}
+function openTrash() {
+  wm.open('trash')
+  store.fetchTrashItems()
+}
 
 type ViewId = 'grid' | 'list' | 'columns' | 'details' | 'masonry'
 const viewModes: { id: ViewId; icon: string; hint: string }[] = [
@@ -1518,6 +1579,8 @@ function onKeydown(e: KeyboardEvent) {
   else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x') cutSel()
   else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') void pasteHere()
   else if (e.key === 'Enter' && active.value) openFile(active.value)
+  else if (e.key === 'F11') { e.preventDefault(); inspectorOpen.value = !inspectorOpen.value }
+  else if (e.altKey && e.key.toLowerCase() === 'l') { e.preventDefault(); startCrumbEdit() }
   else if (e.key === 'Escape') { clearSel(); termOpen.value = false }
   else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault()
@@ -1576,7 +1639,7 @@ onMounted(() => {
 .fm-crumb-sep { opacity: .4; margin-left: 5px; }
 .fm-search { display: flex; align-items: center; gap: 6px; min-width: 170px; max-width: 250px; padding: 0 9px; height: 30px;
   border-radius: 10px; border: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-text) 4%, transparent); color: var(--ui-text-3); }
-.fm-search:focus-within { border-color: var(--ui-accent); box-shadow: var(--ui-glow-soft); color: var(--ui-text); }
+.fm-search:focus-within { border-color: var(--ui-accent); box-shadow: var(--ui-focus-ring); color: var(--ui-text); }
 .fm-search input { flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: var(--ui-text); font-size: 12px; }
 .fm-x { background: none; border: none; color: var(--ui-text-3); cursor: pointer; display: flex; }
 .fm-viewswitch { display: flex; gap: 2px; padding: 2px; border-radius: 10px; border: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-text) 3%, transparent); }
@@ -1613,16 +1676,21 @@ onMounted(() => {
 .fm-main.no-side { grid-template-columns: 0 1fr 300px; }
 .fm-main.no-insp { grid-template-columns: 212px 1fr 0; }
 .fm-main.no-side.no-insp { grid-template-columns: 0 1fr 0; }
-.fm-side { border-right: 1px solid var(--ui-hairline); overflow-y: auto; padding: 8px;
-  background: color-mix(in srgb, var(--ui-glass) 70%, transparent); backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+.fm-side { border-right: 1px solid var(--ui-separator); overflow-y: auto; padding: 8px;
+  background: var(--ui-sidebar); backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
   -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate)); }
 .fm-main.no-side .fm-side { display: none; }
 .fm-side-sec { margin-bottom: 12px; }
-.fm-side-h { font-size: 10px; font-weight: 700; letter-spacing: var(--ui-tracking-wide); color: var(--ui-text-3); padding: 4px 6px; }
-.fm-srow { display: flex; align-items: center; gap: 7px; width: 100%; padding: 6px 8px; border-radius: 9px; cursor: pointer;
-  background: transparent; border: 1px solid transparent; color: var(--ui-text-2); font-size: 11.5px; text-align: left; }
+.fm-side-h { font-size: 11px; font-weight: 600; letter-spacing: 0; color: var(--ui-text-2); padding: 4px 6px;
+  text-transform: lowercase; }
+.fm-side-h::first-letter { text-transform: uppercase; }
+.fm-srow { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 28px; padding: 0 8px; border-radius: var(--ui-radius-sm); cursor: pointer;
+  background: transparent; border: none; color: var(--ui-text-2); font-size: 13px; font-weight: 400; text-align: left;
+  transition: background-color var(--ui-dur-fast) ease-out; }
 .fm-srow:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); color: var(--ui-text); }
-.fm-srow.active { background: var(--ui-accent-soft); color: var(--ui-text); box-shadow: inset 2px 0 0 var(--ui-accent); }
+/* Selected = accent fill + white text (focused window), grey fill when blurred. */
+.fm-srow.active { background: var(--ui-accent); color: var(--ui-on-accent); font-weight: 500; }
+.blurred .fm-srow.active { background: color-mix(in srgb, var(--ui-text) 14%, transparent); color: var(--ui-text); }
 .fm-srow.wide { border: 1px solid var(--ui-hairline); margin-bottom: 6px; }
 .fm-srow .t { flex: 1; min-width: 0; font-weight: 600; } .fm-srow .m { font-size: 9.5px; color: var(--ui-text-3); }
 .fm-sempty { font-size: 10.5px; color: var(--ui-text-3); padding: 6px 8px; }
@@ -1665,32 +1733,35 @@ onMounted(() => {
 /* grid — perf: containment + content-visibility */
 .fm-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-x pan-y;
   scrollbar-gutter: stable; padding: 12px; display: grid; gap: 10px; align-content: start;
-  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); }
-.fm-grid::-webkit-scrollbar { width: 10px; }
-.fm-grid::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
-  border-radius: var(--ui-radius-full); border: 3px solid transparent; background-clip: content-box; }
-.fm-grid::-webkit-scrollbar-thumb:hover { background: var(--ui-accent); background-clip: content-box; border: 2px solid transparent; }
+  grid-template-columns: repeat(auto-fill, minmax(calc(128px * var(--fm-zoom, 1)), 1fr)); }
+.fm-locedit { flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: var(--ui-text);
+  font-size: 12px; padding: 3px 7px; }
+.fm-zoom { display: inline-flex; align-items: center; gap: 6px; color: var(--ui-text-3); }
+.fm-zoom input[type='range'] { width: 90px; }
+.fm-grid::-webkit-scrollbar { width: 8px; }
+.fm-grid::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ui-text) 28%, transparent);
+  border-radius: var(--ui-radius-full); border: 2px solid transparent; background-clip: content-box; }
+.fm-grid::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ui-text) 42%, transparent); background-clip: content-box; border: 2px solid transparent; }
 .fm-grid.masonry { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .fm-grid.compact { gap: 6px; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
 .fm-card { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 14px 8px 10px;
-  border-radius: var(--ui-radius-lg); cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 132px;
-  background: var(--ui-glass); border: 1px solid color-mix(in srgb, var(--ui-text) 8%, transparent);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), inset 0 1px 0 var(--ui-glass-highlight);
-  backdrop-filter: blur(var(--ui-blur)); -webkit-backdrop-filter: blur(var(--ui-blur));
-  transition: transform var(--ui-dur-fast) var(--ui-ease-spring), border-color var(--ui-dur-fast), box-shadow var(--ui-dur-fast); }
-.fm-card:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent);
-  box-shadow: var(--ui-shadow-2), inset 0 1px 0 var(--ui-glass-highlight); }
-.fm-card.sel { border-color: color-mix(in srgb, var(--ui-accent) 65%, transparent); background: color-mix(in srgb, var(--ui-accent) 7%, var(--ui-glass));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-accent) 45%, transparent), var(--ui-glow-soft); }
+  border-radius: var(--ui-radius-md); cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 132px;
+  background: transparent; border: 1px solid transparent;
+  transition: background-color var(--ui-dur-fast) ease-out; }
+.fm-card:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
+/* Icon-view selection = accent fill with white text. */
+.fm-card.sel { background: var(--ui-accent); border-color: transparent; }
+.fm-card.sel .fm-cname, .fm-card.sel .fm-cmeta, .fm-card.sel .fm-thumb, .fm-card.sel .fm-flags { color: var(--ui-on-accent); }
+.blurred .fm-card.sel { background: color-mix(in srgb, var(--ui-text) 14%, transparent); }
+.blurred .fm-card.sel .fm-cname, .blurred .fm-card.sel .fm-cmeta, .blurred .fm-card.sel .fm-thumb, .blurred .fm-card.sel .fm-flags { color: var(--ui-text); }
 .fm-card.bulk { border-style: dashed; }
 .fm-check { position: absolute; top: 7px; left: 7px; width: 16px; height: 16px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
   font-size: 10px; font-weight: 800; border: 1px solid var(--ui-border-strong); color: transparent; background: transparent; cursor: pointer; }
 .fm-check.on, .fm-card:hover .fm-check { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
 .fm-check.on { background: var(--ui-accent-softer); }
 .fm-check.sm { position: static; width: 14px; height: 14px; }
-.fm-thumb { height: 44px; display: flex; align-items: center; justify-content: center; color: var(--ui-text-2); }
-.fm-thumb img { max-width: 64px; max-height: 44px; border-radius: 8px; object-fit: cover; }
-.fm-card.sel .fm-thumb { color: var(--ui-accent); }
+.fm-thumb { height: calc(60px * var(--fm-zoom, 1)); display: flex; align-items: center; justify-content: center; color: var(--ui-text-2); }
+.fm-thumb img { max-width: calc(64px * var(--fm-zoom, 1)); max-height: calc(60px * var(--fm-zoom, 1)); border-radius: 8px; object-fit: cover; }
 .fm-cname { font-size: 11px; font-weight: 650; width: 100%; text-align: center; }
 .fm-cmeta { font-size: 9.5px; color: var(--ui-text-3); }
 .fm-flags { position: absolute; top: 8px; right: 8px; display: flex; gap: 3px; color: var(--ui-text-3); }
@@ -1710,21 +1781,27 @@ onMounted(() => {
 /* list */
 .fm-listwrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .fm-lhead, .fm-lrow { display: grid; grid-template-columns: 30px minmax(0, 3fr) 90px 130px 120px 110px 60px; align-items: center; gap: 6px; padding: 0 10px; }
-.fm-lhead { height: 30px; flex-shrink: 0; font-size: 10px; font-weight: 600; color: var(--ui-text-3);
-  border-bottom: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-surface) 70%, transparent); }
+.fm-lhead { height: 30px; flex-shrink: 0; font-size: 11px; font-weight: 600; letter-spacing: 0; color: var(--ui-text-2);
+  border-bottom: 1px solid var(--ui-separator); background: var(--ui-surface); }
 .fm-lhead.compact { height: 26px; }
 .fm-lhead span { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fm-lhead span:hover { color: var(--ui-text); }
 .fm-lbody { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-x pan-y; }
-.fm-lbody::-webkit-scrollbar { width: 10px; }
-.fm-lbody::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
-  border-radius: var(--ui-radius-full); border: 3px solid transparent; background-clip: content-box; }
-.fm-lbody::-webkit-scrollbar-thumb:hover { background: var(--ui-accent); background-clip: content-box; border: 2px solid transparent; }
-.fm-lrow { height: 34px; border-bottom: 1px solid var(--ui-hairline); cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 34px; font-size: 11.5px; }
+.fm-lbody::-webkit-scrollbar { width: 8px; }
+.fm-lbody::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ui-text) 28%, transparent);
+  border-radius: var(--ui-radius-full); border: 2px solid transparent; background-clip: content-box; }
+.fm-lbody::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ui-text) 42%, transparent); background-clip: content-box; border: 2px solid transparent; }
+.fm-lrow { height: 34px; border-bottom: 1px solid var(--ui-hairline); cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 34px; font-size: 12px; }
 .fm-lrow.compact { height: 28px; }
-.fm-lrow:hover { background: color-mix(in srgb, var(--ui-text) 4%, transparent); }
-.fm-lrow.sel { background: var(--ui-accent-softer); box-shadow: inset 2px 0 0 var(--ui-accent); }
-.fm-lrow.bulk { background: color-mix(in srgb, var(--ui-accent) 7%, transparent); }
+/* Zebra rows. */
+.fm-lbody .fm-lrow:nth-child(even):not(.sel) { background: color-mix(in srgb, var(--ui-text) 3%, transparent); }
+.fm-lrow:hover:not(.sel) { background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
+/* List selection = full accent fill, white text; grey when blurred. */
+.fm-lrow.sel { background: var(--ui-accent); color: var(--ui-on-accent); }
+.fm-lrow.sel .dim, .fm-lrow.sel .fm-ficon { color: var(--ui-on-accent); }
+.blurred .fm-lrow.sel { background: color-mix(in srgb, var(--ui-text) 14%, transparent); color: var(--ui-text); }
+.blurred .fm-lrow.sel .dim, .blurred .fm-lrow.sel .fm-ficon { color: var(--ui-text-2); }
+.fm-lrow.bulk:not(.sel) { background: color-mix(in srgb, var(--ui-accent) 7%, transparent); }
 .fm-lrow .c1 { display: flex; align-items: center; gap: 7px; min-width: 0; font-weight: 600; }
 .fm-ficon { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; color: var(--ui-text-2); flex-shrink: 0; }
 .fm-ficon img { max-width: 22px; max-height: 22px; border-radius: 5px; }
@@ -1735,8 +1812,8 @@ onMounted(() => {
 /* columns */
 .fm-cols { flex: 1; display: grid; grid-template-columns: 1fr 240px; min-height: 0; }
 .fm-col { overflow-y: auto; border-right: 1px solid var(--ui-hairline); }
-.fm-col-h { position: sticky; top: 0; padding: 7px 10px; font-size: 9px; font-weight: 800; letter-spacing: .12em; color: var(--ui-text-3);
-  background: color-mix(in srgb, var(--ui-surface) 85%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--ui-hairline); }
+.fm-col-h { position: sticky; top: 0; padding: 7px 10px; font-size: 11px; font-weight: 600; letter-spacing: 0; color: var(--ui-text-2);
+  background: var(--ui-surface); border-bottom: 1px solid var(--ui-separator); }
 .fm-colrow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; background: transparent; border: none;
   border-bottom: 1px solid var(--ui-hairline); color: var(--ui-text-2); cursor: pointer; font-size: 12px; text-align: left; }
 .fm-colrow:hover { background: var(--ui-accent-softer); }
@@ -1756,10 +1833,10 @@ onMounted(() => {
 .fm-term-h { display: flex; align-items: center; gap: 7px; padding: 5px 10px; color: var(--ui-text-2); border-bottom: 1px solid var(--ui-hairline); font-size: 10.5px; }
 .fm-term-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-x pan-y;
   scrollbar-gutter: stable; padding: 6px 10px; font-family: var(--ui-font-mono); font-size: 10.5px; }
-.fm-term-body::-webkit-scrollbar { width: 10px; }
-.fm-term-body::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
-  border-radius: var(--ui-radius-full); border: 3px solid transparent; background-clip: content-box; }
-.fm-term-body::-webkit-scrollbar-thumb:hover { background: var(--ui-accent); background-clip: content-box; border: 2px solid transparent; }
+.fm-term-body::-webkit-scrollbar { width: 8px; }
+.fm-term-body::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ui-text) 28%, transparent);
+  border-radius: var(--ui-radius-full); border: 2px solid transparent; background-clip: content-box; }
+.fm-term-body::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ui-text) 42%, transparent); background-clip: content-box; border: 2px solid transparent; }
 .fm-term-l.in { color: var(--ui-accent); font-weight: 700; }
 .fm-term-l.out { color: var(--ui-text-2); white-space: pre-wrap; word-break: break-word; }
 .fm-term-l.err { color: var(--ui-danger); white-space: pre-wrap; }

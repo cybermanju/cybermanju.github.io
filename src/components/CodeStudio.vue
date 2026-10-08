@@ -12,6 +12,14 @@
       <span class="cs-spacer" />
       <button class="cs-btn" :disabled="!focusTab || saving" title="Save (Ctrl+S)" @click="saveTab(focusTab)"><AppIcon name="solar:diskette-bold" :size="13" /> {{ saving ? 'Saving…' : 'Save' }}</button>
       <button class="cs-btn" :disabled="!focusTab" title="Split editor right" @click="splitRight"><AppIcon name="solar:columns-3-bold" :size="13" /> Split</button>
+      <div v-if="voice.isSupported.value" class="cs-voice-group">
+        <div class="cs-voice-pop" role="group" aria-label="Voice-code language">
+          <button type="button" class="cs-voice-opt" :class="{ on: voice.langPref.value === 'auto' }" :aria-pressed="voice.langPref.value === 'auto'" title="Auto-detect from your browser language" @click="voice.setLang('auto')">Auto · {{ voice.lang.value === 'pt-BR' ? 'PT' : 'EN' }}</button>
+          <button type="button" class="cs-voice-opt" :class="{ on: voice.langPref.value === 'en-US' }" :aria-pressed="voice.langPref.value === 'en-US'" title="Dictate code in English" @click="voice.setLang('en-US')">EN</button>
+          <button type="button" class="cs-voice-opt" :class="{ on: voice.langPref.value === 'pt-BR' }" :aria-pressed="voice.langPref.value === 'pt-BR'" title="Dictate code in Portuguese (PT-BR)" @click="voice.setLang('pt-BR')">PT</button>
+        </div>
+        <button class="cs-btn" :class="{ on: voiceCoding }" :disabled="!focusTab" type="button" :title="voiceCoding ? `Listening… ${voice.interim.value || 'speak code'}` : 'Voice-code: dictate code at the cursor (“open paren”, “camel case …”, “nova linha”) — parsed live. Hover for EN/PT.'" @click="toggleVoiceCode"><AppIcon name="solar:microphone-bold" :size="13" /> {{ voiceCoding ? 'Stop' : 'Voice' }}</button>
+      </div>
       <button class="cs-btn" :class="{ on: aiOpen }" title="Toggle AI panel (Ctrl+G)" @click="aiOpen = !aiOpen"><AppIcon name="solar:bot-bold" :size="13" /> AI</button>
       <button class="cs-btn" :class="{ on: bottomOpen }" title="Toggle panel (Ctrl+`)" @click="bottomOpen = !bottomOpen"><AppIcon name="solar:file-terminal-bold" :size="13" /> Panel</button>
     </header>
@@ -167,7 +175,7 @@
                 <button class="cs-x" title="Close" @click.stop="closeTab(t.key)"><AppIcon name="solar:close-bold" :size="10" /></button>
               </div>
             </div>
-            <EditorPane v-if="tabA" :key="'a:' + tabA.key" :tab="tabA" group="a" @cursor="onCursor" @edit="onEdit(tabA)" />
+            <EditorPane v-if="tabA" :key="'a:' + tabA.key" :tab="tabA" group="a" @cursor="onCursor" @edit="onEdit(tabA)" @jump="(ln: number) => onGutterJump(ln, 'a')" @selline="(ln: number) => onGutterSelect(ln, 'a')" />
             <div v-else class="cs-welcome">
               <AppIcon name="solar:file-code-bold" :size="34" />
               <p>Open a file from the Explorer</p>
@@ -184,7 +192,7 @@
                 <button class="cs-x" title="Close split" @click="groupBKey = null"><AppIcon name="solar:close-bold" :size="10" /></button>
               </div>
             </div>
-            <EditorPane v-if="tabB" :key="'b:' + tabB.key" :tab="tabB" group="b" @cursor="onCursor" @edit="onEdit(tabB!)" />
+            <EditorPane v-if="tabB" :key="'b:' + tabB.key" :tab="tabB" group="b" @cursor="onCursor" @edit="onEdit(tabB!)" @jump="(ln: number) => onGutterJump(ln, 'b')" @selline="(ln: number) => onGutterSelect(ln, 'b')" />
           </div>
         </div>
 
@@ -237,6 +245,7 @@
           <span class="cs-spacer" />
           <span v-if="focusTab" :class="focusTab.dirty ? 'cs-warn' : 'dim'">{{ focusTab.dirty ? '● unsaved' : 'saved ✓' }}</span>
           <span class="dim">{{ focusTab?.content.length ?? 0 }} B</span>
+          <span v-if="voiceCoding" class="cs-voicestat" :title="voice.interim.value || 'Listening — speak code'"><AppIcon name="solar:microphone-bold" :size="11" /> {{ voice.interim.value || 'listening…' }}</span>
           <span class="cs-aistat" :class="{ run: ai.jobActive.value }" :title="ai.jobLine.value || 'AI idle'">
             <AppIcon name="solar:bot-bold" :size="11" /> {{ ai.jobActive.value ? ai.jobLine.value : 'AI ready' }}
           </span>
@@ -325,11 +334,14 @@
         </div>
         <form class="cs-prompt" @submit.prevent="sendPrompt">
           <textarea ref="promptEl" v-model="promptInput" rows="2" :placeholder="ai.jobActive.value ? 'Running — Ctrl+Enter queues next…' : 'Ask the AI… (Ctrl+Enter sends)'" @keydown.ctrl.enter.exact.prevent="sendPrompt" @keydown.meta.enter.exact.prevent="sendPrompt" />
-          <select v-if="voice.isSupported.value" class="cs-select xs" :value="voice.lang.value" aria-label="Dictation language" title="Dictation language: EN or PT-BR (abre parênteses, nova linha, …)" @change="voice.setLang(($event.target as HTMLSelectElement).value as 'en-US' | 'pt-BR')">
-            <option value="en-US">EN</option>
-            <option value="pt-BR">PT</option>
-          </select>
-          <button v-if="voice.isSupported.value" class="cs-btn xs" :class="{ on: voice.listening.value }" type="button" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : 'Dictate (code mode: say “open paren”, “dot”, “camel case …”)'" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Mic' }}</button>
+          <div v-if="voice.isSupported.value" class="cs-voice-group">
+            <div class="cs-voice-pop" role="group" aria-label="Dictation language">
+              <button type="button" class="cs-voice-opt" :class="{ on: voice.langPref.value === 'auto' }" :aria-pressed="voice.langPref.value === 'auto'" title="Auto-detect from your browser language" @click="voice.setLang('auto')">Auto · {{ voice.lang.value === 'pt-BR' ? 'PT' : 'EN' }}</button>
+              <button type="button" class="cs-voice-opt" :class="{ on: voice.langPref.value === 'en-US' }" :aria-pressed="voice.langPref.value === 'en-US'" title="Dictate in English" @click="voice.setLang('en-US')">EN</button>
+              <button type="button" class="cs-voice-opt" :class="{ on: voice.langPref.value === 'pt-BR' }" :aria-pressed="voice.langPref.value === 'pt-BR'" title="Dictate in Portuguese (PT-BR)" @click="voice.setLang('pt-BR')">PT</button>
+            </div>
+            <button class="cs-btn xs" :class="{ on: voice.listening.value }" type="button" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : voice.langPref.value === 'auto' ? `Dictate — auto (${voice.lang.value === 'pt-BR' ? 'Portuguese' : 'English'}), hover to pick EN/PT` : 'Dictate (code mode: say “open paren”, “dot”, “camel case …” — hover to change language)'" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Mic' }}</button>
+          </div>
           <button class="cs-btn xs primary" type="submit" :disabled="!canSend">{{ ai.jobActive.value ? 'Queue' : 'Send' }}</button>
           <button v-if="ai.jobActive.value" class="cs-btn xs danger" type="button" @click="ai.abort()">Stop</button>
         </form>
@@ -690,16 +702,42 @@ const crumbPath = computed(() => {
   walk(tab.parse.symbols)
   return chain.join(' › ')
 })
-function jumpToLine(line: number) {
-  const el = document.querySelector<HTMLTextAreaElement>(`.cs-pane[data-g="${activeGroup.value}"] textarea`)
-  const tab = focusTab.value
+function jumpToLine(line: number, group: 'a' | 'b' = activeGroup.value) {
+  const el = document.querySelector<HTMLTextAreaElement>(`.cs-pane[data-g="${group}"] textarea`)
+  const tab = group === 'b' ? tabB.value ?? tabA.value : tabA.value
   if (!el || !tab || !line) return
   const lines = tab.content.split('\n')
   const idx = Math.max(0, Math.min(line - 1, lines.length - 1))
   const pos = lines.slice(0, idx).join('\n').length + (idx > 0 ? 1 : 0)
   el.focus()
   el.selectionStart = el.selectionEnd = pos
+  // Keep the highlight/gutter layers aligned when jumping from a distance.
+  el.scrollTop = Math.max(0, (idx - 2) * 19.2)
   updateCursorFromDom()
+}
+/** Select a whole line (1-based) — gutter double-click. */
+function selectLineAt(line: number, group: 'a' | 'b' = activeGroup.value) {
+  const el = document.querySelector<HTMLTextAreaElement>(`.cs-pane[data-g="${group}"] textarea`)
+  const tab = group === 'b' ? tabB.value ?? tabA.value : tabA.value
+  if (!el || !tab || !line) return
+  const lines = tab.content.split('\n')
+  const idx = Math.max(0, Math.min(line - 1, lines.length - 1))
+  const start = lines.slice(0, idx).join('\n').length + (idx > 0 ? 1 : 0)
+  el.focus()
+  el.selectionStart = start
+  el.selectionEnd = start + lines[idx].length
+  el.scrollTop = Math.max(0, (idx - 2) * 19.2)
+  updateCursorFromDom()
+}
+/** Gutter click: focus that pane's tab and jump the cursor to the line. */
+function onGutterJump(line: number, group: 'a' | 'b') {
+  activate(group === 'b' ? groupBKey.value ?? groupAKey.value : groupAKey.value, group)
+  nextTick(() => jumpToLine(line, group))
+}
+/** Gutter double-click: select the whole line for immediate editing. */
+function onGutterSelect(line: number, group: 'a' | 'b') {
+  activate(group === 'b' ? groupBKey.value ?? groupAKey.value : groupAKey.value, group)
+  nextTick(() => selectLineAt(line, group))
 }
 
 /* ═══════════════ code intel (merged tree-sitter panel) ═══════════════
@@ -1006,13 +1044,62 @@ const canSend = computed(() => promptInput.value.trim() !== '' && ai.chatConfigI
 /* ── voice dictation (code mode: symbols + camel/snake phrases) ── */
 const voice = useVoiceInput('code')
 let stopVoice: (() => void) | null = null
+/** Which surface owns the live mic: the AI prompt or the editor buffer. */
+const voiceTarget = ref<'prompt' | 'code' | null>(null)
+const voiceCoding = computed(() => voice.listening.value && voiceTarget.value === 'code')
+function stopVoiceAll() {
+  stopVoice?.()
+  stopVoice = null
+  voiceTarget.value = null
+}
 function toggleVoice() {
   if (voice.listening.value) {
-    stopVoice?.()
-    stopVoice = null
+    stopVoiceAll()
     return
   }
+  voiceTarget.value = 'prompt'
   stopVoice = voice.dictateInto(promptInput)
+}
+/**
+ * Voice-code: dictate code syntax straight into the open file at the
+ * cursor. Spoken symbols ("open paren", "camel case …", "nova linha")
+ * run through the code-mode tables, the buffer updates + re-highlights,
+ * and tree-sitter reparses (outline / intel / problems follow).
+ */
+function toggleVoiceCode() {
+  if (voice.listening.value) {
+    const wasCoding = voiceTarget.value === 'code'
+    const tab = focusTab.value
+    stopVoiceAll()
+    // Stopping the editor mic parses immediately so intel/problems settle.
+    if (wasCoding && tab) void reparse(tab)
+    return
+  }
+  const tab = focusTab.value
+  if (!tab) {
+    store.notifyError('No file open', 'open a file first, then dictate')
+    return
+  }
+  voiceTarget.value = 'code'
+  const el = document.querySelector<HTMLTextAreaElement>(`.cs-pane[data-g="${activeGroup.value}"] textarea`)
+  el?.focus()
+  stopVoice = voice.dictateWith((ins) => insertVoiceCode(tab, ins.text))
+}
+/** Splice a voice transcript into `tab` at the live cursor/selection. */
+function insertVoiceCode(tab: Tab, text: string) {
+  const el = document.querySelector<HTMLTextAreaElement>(`.cs-pane[data-g="${activeGroup.value}"] textarea`)
+  const s = el?.selectionStart ?? tab.content.length
+  const en = el?.selectionEnd ?? s
+  const chunk = (s > 0 && !/\s$/.test(tab.content.slice(0, s)) ? ' ' : '') + text
+  tab.content = tab.content.slice(0, s) + chunk + tab.content.slice(en)
+  const pos = s + chunk.length
+  onEdit(tab)
+  nextTick(() => {
+    if (!el) return
+    el.focus()
+    el.selectionStart = el.selectionEnd = pos
+    updateCursorFromDom()
+  })
 }
 function activeFileCtx(): FileCtx[] {
   const tab = focusTab.value
@@ -1116,7 +1203,7 @@ const EditorPane = defineComponent({
     tab: { type: Object as PropType<Tab>, required: true },
     group: { type: String, required: true },
   },
-  emits: ['cursor', 'edit'],
+  emits: ['cursor', 'edit', 'jump', 'selline'],
   setup(props, { emit }) {
     const lines = computed(() => props.tab.content.split('\n').length)
     // Highlight is O(n) regex over the whole file per keystroke — past this
@@ -1158,13 +1245,35 @@ const EditorPane = defineComponent({
       emit('edit')
       cursor(ta)
     }
+    // Wheel over the line numbers scrolls the code: the gutter itself is
+    // overflow:hidden (no native scroll), so forward the delta to the
+    // textarea and mirror it back — otherwise that 46px strip feels dead.
+    const onGutterWheel = (e: WheelEvent) => {
+      const ta = taRef.value
+      if (!ta) return
+      e.preventDefault()
+      ta.scrollTop += e.deltaY
+      ta.scrollLeft += e.deltaX
+      onScroll()
+    }
     // One div per line guarantees a 1:1 line-number mapping even when the
     // highlight layer wraps or the font metrics shift — a single
     // newline-joined text node collapses/misaligns in those cases.
     const gutterRows = computed(() => Array.from({ length: lines.value }, (_, i) => i + 1))
     return () =>
       h('div', { class: 'cs-pane', 'data-g': props.group }, [
-        h('div', { class: 'cs-gutter', ref: guRef }, gutterRows.value.map(n => h('div', { class: 'cs-gln', key: n }, String(n)))),
+        h('div', {
+          class: 'cs-gutter',
+          ref: guRef,
+          title: 'Scroll to move · click a line to jump · double-click to select it',
+          onWheel: onGutterWheel,
+        }, gutterRows.value.map(n => h('div', {
+          class: 'cs-gln',
+          key: n,
+          title: `Line ${n} — click to jump, double-click to select`,
+          onClick: () => emit('jump', n),
+          onDblclick: () => emit('selline', n),
+        }, String(n)))),
         h('div', { class: 'cs-code' }, [
           h('pre', { class: 'cs-hl', ref: hlRef, 'aria-hidden': 'true' }, [h('code', { innerHTML: html.value })]),
           h('textarea', {
@@ -1178,6 +1287,13 @@ const EditorPane = defineComponent({
             onKeydown: onKey,
             onKeyup: (e: KeyboardEvent) => cursor(e.target as HTMLTextAreaElement),
             onClick: (e: MouseEvent) => cursor(e.target as HTMLTextAreaElement),
+            // Double-click word-selects natively; re-emit so the status bar
+            // and @sel attach track the selected word immediately.
+            onDblclick: (e: MouseEvent) => {
+              const ta = e.target as HTMLTextAreaElement
+              ta.focus()
+              nextTick(() => cursor(ta))
+            },
           }),
         ]),
       ])
@@ -1204,25 +1320,43 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer
   border-bottom: 1px solid var(--ui-hairline); backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate)); }
 .cs-logo { display: flex; align-items: center; gap: 6px; color: var(--ui-text-2); font-size: 12px; font-weight: 600; }
 .cs-transport, .cs-engine { font-size: 10px; font-weight: 500; color: var(--ui-text-3);
-  border: 1px solid var(--ui-hairline); padding: 2px 7px; border-radius: 99px; }
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); padding: 2px 7px; border-radius: 99px; }
 .cs-spacer { flex: 1; }
 .cs-btn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border-radius: 9px; cursor: pointer;
   font-size: 11px; font-weight: 700; color: var(--ui-text-2); background: color-mix(in srgb, var(--ui-text) 5%, transparent);
-  border: 1px solid var(--ui-hairline); white-space: nowrap; }
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); white-space: nowrap; }
 .cs-btn:hover:not(:disabled) { color: var(--ui-text); border-color: var(--ui-border-strong); }
 .cs-btn:disabled { opacity: .4; } .cs-btn.on { color: var(--ui-text); border-color: var(--ui-border-strong); background: color-mix(in srgb, var(--ui-text) 8%, transparent); }
 .cs-btn.xs { padding: 3px 9px; font-size: 10px; }
 .cs-btn.primary { background: var(--ui-accent); color: var(--ui-on-accent); border-color: transparent; }
 .cs-btn.danger { color: var(--ui-danger); border-color: color-mix(in srgb, var(--ui-danger) 45%, transparent); }
 .cs-ibtn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 7px;
-  border: 1px solid transparent; background: transparent; color: var(--ui-text-3); cursor: pointer; flex-shrink: 0; }
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); background: transparent; color: var(--ui-text-3); cursor: pointer; flex-shrink: 0; }
 .cs-ibtn:hover:not(:disabled) { color: var(--ui-text); background: color-mix(in srgb, var(--ui-text) 7%, transparent); }
 .cs-ibtn:disabled { opacity: .3; }
-.cs-input, .cs-select { background: color-mix(in srgb, var(--ui-text) 4%, transparent); border: 1px solid var(--ui-hairline);
+.cs-input, .cs-select { background: color-mix(in srgb, var(--ui-text) 4%, transparent); border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent);
   color: var(--ui-text); font-size: 11.5px; padding: 5px 8px; border-radius: 8px; outline: none; min-width: 0; }
-.cs-input:focus, .cs-select:focus { border-color: var(--ui-accent); box-shadow: var(--ui-glow-soft); }
+.cs-input:focus, .cs-select:focus { border-color: var(--ui-accent); box-shadow: var(--ui-focus-ring); }
 .cs-input.sm { width: 64px; }
 .cs-select.xs { padding: 3px 6px; font-size: 10px; font-weight: 700; }
+.cs-voice-group { position: relative; display: inline-flex; flex-shrink: 0; }
+.cs-voice-pop {
+  position: absolute; bottom: calc(100% + 6px); right: 0;
+  display: flex; gap: 4px; padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: 9px;
+  background: color-mix(in srgb, var(--ui-glass) 92%, transparent);
+  box-shadow: var(--ui-shadow-2); z-index: 6; white-space: nowrap;
+  opacity: 0; visibility: hidden; transform: translateY(4px); pointer-events: none;
+  transition: opacity var(--ui-dur-fast) var(--ui-ease-out), transform var(--ui-dur-fast) var(--ui-ease-out), visibility var(--ui-dur-fast);
+}
+.cs-voice-group:hover .cs-voice-pop, .cs-voice-group:focus-within .cs-voice-pop { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
+.cs-voice-opt {
+  font: inherit; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 7px;
+  border: 1px solid transparent; background: transparent; color: color-mix(in srgb, var(--ui-text) 70%, transparent);
+  cursor: pointer; white-space: nowrap;
+}
+.cs-voice-opt:hover { color: var(--ui-text); background: color-mix(in srgb, var(--ui-text) 7%, transparent); }
+.cs-voice-opt.on { color: var(--ui-accent); background: var(--ui-accent-softer); border-color: color-mix(in srgb, var(--ui-accent) 40%, transparent); }
 .cs-link { background: none; border: none; color: var(--ui-accent); cursor: pointer; font-weight: 700; }
 
 /* mid */
@@ -1244,7 +1378,8 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer
 .cs-trow { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 6px; border-radius: 8px; cursor: pointer;
   background: transparent; border: none; color: var(--ui-text-2); font-size: 12px; text-align: left; }
 .cs-trow:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); color: var(--ui-text); }
-.cs-trow.active { background: color-mix(in srgb, var(--ui-text) 10%, transparent); color: var(--ui-text); }
+.cs-trow.active { background: var(--ui-accent); color: var(--ui-on-accent); }
+.blurred .cs-trow.active { background: color-mix(in srgb, var(--ui-text) 14%, transparent); color: var(--ui-text); }
 .cs-trow.dir { color: var(--ui-text-2); font-weight: 600; }
 .cs-trow.col { flex-direction: column; align-items: flex-start; gap: 1px; }
 .cs-tbranch { display: flex; flex-direction: column; }
@@ -1256,15 +1391,15 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer
 .cs-pathrow { display: flex; align-items: center; gap: 6px; }
 .cs-intel-src { display: flex; gap: 4px; }
 .cs-intel-src button { flex: 1; padding: 4px 0; font-size: 11px; font-weight: 500;
-  background: transparent; border: 1px solid var(--ui-hairline); color: var(--ui-text-3); border-radius: 8px; cursor: pointer; }
+  background: transparent; border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); color: var(--ui-text-3); border-radius: 8px; cursor: pointer; }
 .cs-intel-src button.on { color: var(--ui-text); border-color: var(--ui-border-strong); background: color-mix(in srgb, var(--ui-text) 8%, transparent); }
 .cs-intel-meta { display: flex; flex-direction: column; gap: 2px; font-size: 9.5px; padding: 2px 4px; }
 .cs-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .cs-chips button { font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 99px; cursor: pointer;
-  border: 1px solid var(--ui-hairline); background: transparent; color: var(--ui-text-3); }
+  border: 1px solid color-mix(in srgb, var(--ui-text) 12%, transparent); background: transparent; color: var(--ui-text-3); }
 .cs-chips button.on { color: var(--ui-on-accent); border-color: transparent; background: var(--ui-accent); }
 .cs-intel-paste { resize: vertical; min-height: 90px; font-family: var(--ui-font-mono); font-size: 11px; }
-.cs-intel-preview { border: 1px solid var(--ui-hairline); border-radius: 8px; max-height: 220px; overflow-y: auto;
+.cs-intel-preview { border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-lg); max-height: 220px; overflow-y: auto;
   overscroll-behavior: contain; font-family: var(--ui-font-mono); font-size: 10.5px; line-height: 1.5; }
 .cs-intel-pline { display: flex; gap: 8px; padding: 0 8px; }
 .cs-intel-pline.hit { background: var(--ui-accent-softer); box-shadow: inset 2px 0 0 var(--ui-accent); }
@@ -1283,7 +1418,7 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer
   border-bottom: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-surface) 65%, transparent); flex-shrink: 0; }
 .cs-tab { display: flex; align-items: center; gap: 6px; padding: 7px 8px 7px 12px; font-size: 11.5px; cursor: pointer; white-space: nowrap;
   color: var(--ui-text-3); border-right: 1px solid var(--ui-hairline); max-width: 190px; }
-.cs-tab.active { color: var(--ui-text); background: color-mix(in srgb, var(--ui-text) 8%, transparent); box-shadow: inset 0 2px 0 var(--ui-accent); }
+.cs-tab.active { color: var(--ui-text); background: var(--ui-surface-2); box-shadow: inset 0 2px 0 var(--ui-accent); }
 .cs-dot { color: var(--ui-warning); font-size: 8px; }
 .cs-x { display: inline-flex; background: none; border: none; color: inherit; opacity: .5; cursor: pointer; padding: 2px; }
 .cs-x:hover { opacity: 1; color: var(--ui-danger); }
@@ -1291,21 +1426,27 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer
 .cs-welcome p { font-weight: 800; color: var(--ui-text-2); margin: 0; }
 .cs-pane { flex: 1; display: flex; min-height: 0; }
 .cs-gutter { width: 46px; flex-shrink: 0; padding: 10px 6px 10px 0; text-align: right; color: color-mix(in srgb, var(--ui-text) 30%, transparent);
-  font-family: var(--ui-font-mono); font-size: 12px; line-height: 1.6; overflow: hidden; user-select: none; }
-.cs-gln { height: calc(12px * 1.6); line-height: 1.6; white-space: nowrap; }
+  font-family: var(--ui-font-mono); font-size: 12px; line-height: 1.6; overflow: hidden; user-select: none; cursor: default; }
+.cs-gln { height: calc(12px * 1.6); line-height: 1.6; white-space: nowrap; border-radius: 4px; padding-right: 2px; cursor: pointer; }
+.cs-gln:hover { color: var(--ui-accent); background: color-mix(in srgb, var(--ui-accent) 12%, transparent); }
 .cs-code { flex: 1; position: relative; min-width: 0; }
 .cs-hl, .cs-input2 { margin: 0; padding: 10px 12px; font-family: var(--ui-font-mono); font-size: 12px; line-height: 1.6; white-space: pre; tab-size: 2; }
 .cs-hl { position: absolute; inset: 0; overflow: hidden; pointer-events: none; color: var(--ui-text); }
 .cs-input2 { position: absolute; inset: 0; width: 100%; height: 100%; background: transparent; border: none; outline: none; resize: none;
   color: transparent; caret-color: var(--ui-accent); overflow: auto; }
+/* The text itself is transparent (the highlight layer shows through), so the
+   native selection needs translucency — otherwise a double-clicked word
+   becomes an unreadable solid block instead of visibly selected code. */
+.cs-input2::selection { background: color-mix(in srgb, var(--ui-accent) 32%, transparent); color: transparent; }
+.cs-input2:focus { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-accent) 35%, transparent); }
 
 /* find */
-.cs-find { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--ui-hairline);
-  background: color-mix(in srgb, var(--ui-surface) 80%, transparent); flex-shrink: 0; flex-wrap: wrap; }
+.cs-find { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-top: 1px solid color-mix(in srgb, var(--ui-text) 8%, transparent);
+  background: var(--ui-surface); flex-shrink: 0; flex-wrap: wrap; }
 .cs-find .cs-input { width: 150px; }
 
 /* bottom */
-.cs-bottom { height: 190px; flex-shrink: 0; display: flex; flex-direction: column; border-top: 1px solid var(--ui-border); background: var(--ui-surface); }
+.cs-bottom { height: 190px; flex-shrink: 0; display: flex; flex-direction: column; border-top: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); background: var(--ui-surface); }
 .cs-btabs { display: flex; gap: 2px; padding: 4px 8px 0; }
 .cs-btabs button { padding: 5px 12px; font-size: 11px; font-weight: 500; background: transparent; border: none;
   border-bottom: 2px solid transparent; color: var(--ui-text-3); cursor: pointer; }
@@ -1317,11 +1458,11 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer
 .cs-problems::-webkit-scrollbar, .cs-tabs::-webkit-scrollbar, .cs-input2::-webkit-scrollbar { height: 8px; width: 10px; }
 .cs-term::-webkit-scrollbar-thumb, .cs-thread::-webkit-scrollbar-thumb, .cs-tree::-webkit-scrollbar-thumb,
 .cs-problems::-webkit-scrollbar-thumb, .cs-tabs::-webkit-scrollbar-thumb, .cs-input2::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
-  border-radius: var(--ui-radius-full); border: 3px solid transparent; background-clip: content-box; }
+  background: color-mix(in srgb, var(--ui-text) 28%, transparent);
+  border-radius: var(--ui-radius-full); border: 2px solid transparent; background-clip: content-box; }
 .cs-term::-webkit-scrollbar-thumb:hover, .cs-thread::-webkit-scrollbar-thumb:hover, .cs-tree::-webkit-scrollbar-thumb:hover,
 .cs-problems::-webkit-scrollbar-thumb:hover, .cs-tabs::-webkit-scrollbar-thumb:hover, .cs-input2::-webkit-scrollbar-thumb:hover {
-  background: var(--ui-accent); background-clip: content-box; border: 2px solid transparent; }
+  background: color-mix(in srgb, var(--ui-text) 42%, transparent); background-clip: content-box; border: 2px solid transparent; }
 .cs-terml.in { color: var(--ui-accent); font-weight: 700; } .cs-terml.out { color: var(--ui-text-2); white-space: pre-wrap; } .cs-terml.err { color: var(--ui-danger); white-space: pre-wrap; }
 .cs-termin { display: flex; gap: 7px; padding: 6px 10px; border-top: 1px solid var(--ui-hairline); color: var(--ui-accent); }
 .cs-termin input { flex: 1; background: transparent; border: none; outline: none; color: var(--ui-text); font-size: 11.5px; }
@@ -1335,14 +1476,15 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer
 .cs-status { display: flex; align-items: center; gap: 12px; padding: 4px 10px; font-size: 10px; font-family: var(--ui-font-mono);
   border-top: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-surface) 80%, transparent); flex-shrink: 0; overflow: hidden; white-space: nowrap; }
 .cs-warn { color: var(--ui-warning); font-weight: 700; }
+.cs-voicestat { display: inline-flex; align-items: center; gap: 4px; color: var(--ui-danger); font-weight: 700; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cs-aistat { display: inline-flex; align-items: center; gap: 4px; color: var(--ui-text-3); max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
 .cs-aistat.run { color: var(--ui-accent); font-weight: 700; }
 
 /* AI panel */
 .cs-ai { width: 320px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0;
-  border-left: 1px solid var(--ui-hairline); background: var(--ui-glass);
+  border-left: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); background: var(--ui-glass);
   backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate)); }
-.cs-ai-h { display: flex; align-items: center; gap: 7px; padding: 9px 10px; border-bottom: 1px solid var(--ui-hairline); font-size: 12px; color: var(--ui-accent); }
+.cs-ai-h { display: flex; align-items: center; gap: 7px; padding: 9px 10px; border-bottom: 1px solid color-mix(in srgb, var(--ui-text) 8%, transparent); font-size: 12px; color: var(--ui-accent); }
 .cs-ai-cfg { display: flex; gap: 6px; padding: 8px 10px 4px; }
 .cs-ai-cfg .cs-select { flex: 1; }
 .cs-ai-note { margin: 6px 10px 0; padding: 8px 10px; font-size: 11px; border-radius: 10px; color: var(--ui-text-2);
@@ -1355,17 +1497,17 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer
 .cs-ctxbar i.warn { background: var(--ui-warning); } .cs-ctxbar i.bad { background: var(--ui-danger); }
 .cs-thread { flex: 1; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-x pan-y;
   padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-.cs-msg { padding: 7px 9px; border-radius: 11px; border: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-text) 2.5%, transparent); }
+.cs-msg { padding: 7px 9px; border-radius: 11px; border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); background: color-mix(in srgb, var(--ui-text) 2.5%, transparent); }
 .cs-msg.r-user { background: var(--ui-accent-softer); border-color: color-mix(in srgb, var(--ui-accent) 30%, transparent); }
 .cs-role { font-size: 10px; font-weight: 600; color: var(--ui-text-3); margin-bottom: 3px; }
 .cs-body { font-size: 11.5px; white-space: pre-wrap; word-break: break-word; }
 .cs-md { font-size: 11.5px; word-break: break-word; }
-.cs-md :deep(pre) { background: color-mix(in srgb, var(--ui-text) 5%, transparent); border: 1px solid var(--ui-hairline); border-radius: 8px; padding: 7px; overflow-x: auto; font-size: 10.5px; }
+.cs-md :deep(pre) { background: color-mix(in srgb, var(--ui-text) 5%, transparent); border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-lg); padding: 7px; overflow-x: auto; font-size: 10.5px; }
 .cs-md :deep(code) { font-family: var(--ui-font-mono); font-size: 10.5px; }
 .cs-md :deep(p) { margin: 4px 0; } .cs-md :deep(ul) { margin: 4px 0; padding-left: 16px; }
 .cs-toolblock { font-family: var(--ui-font-mono); font-size: 10px; color: var(--ui-text-3); }
 .cs-tgroup { display: flex; flex-direction: column; gap: 4px; }
-.cs-trow2 { border: 1px solid var(--ui-hairline); border-radius: 9px; overflow: hidden; }
+.cs-trow2 { border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-lg); overflow: hidden; }
 .cs-thead { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 8px; background: transparent; border: none;
   color: var(--ui-text-2); cursor: pointer; font-size: 11px; text-align: left; }
 .cs-thead:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
@@ -1373,14 +1515,14 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer
 .is-running .cs-tstate { color: var(--ui-accent); } .is-error .cs-tstate, .is-denied .cs-tstate { color: var(--ui-danger); }
 .cs-tdetail { padding: 4px 8px 8px; } .cs-tdetail pre { font-size: 10px; white-space: pre-wrap; word-break: break-word; margin: 4px 0; color: var(--ui-text-2); }
 .cs-tdetail pre.res { color: var(--ui-text-3); max-height: 160px; overflow-y: auto; }
-.cs-approval { margin: 0 10px; padding: 9px 10px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--ui-warning) 50%, transparent);
+.cs-approval { margin: 0 10px; padding: 9px 10px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--ui-warning) 35%, transparent);
   background: color-mix(in srgb, var(--ui-warning) 7%, transparent); display: flex; flex-direction: column; gap: 6px; }
 .cs-apph { font-size: 11px; font-weight: 600; display: flex; gap: 5px; align-items: center; color: var(--ui-text); }
 .cs-apptext { font-size: 11px; } .cs-appinput { font-size: 10px; max-height: 90px; overflow-y: auto; margin: 0; color: var(--ui-text-2); }
 .cs-approw { display: flex; gap: 6px; }
 .cs-quick { display: flex; gap: 4px; padding: 6px 10px 0; flex-wrap: wrap; }
 .cs-quick button { font-size: 10px; font-weight: 500; padding: 3px 9px; border-radius: 99px; cursor: pointer;
-  border: 1px solid var(--ui-hairline); background: transparent; color: var(--ui-text-3); }
+  border: 1px solid color-mix(in srgb, var(--ui-text) 12%, transparent); background: transparent; color: var(--ui-text-3); }
 .cs-quick button.on { color: var(--ui-on-accent); border-color: transparent; background: var(--ui-accent); }
 .cs-quick button:hover:not(:disabled) { color: var(--ui-text); } .cs-quick button:disabled { opacity: .4; }
 .cs-queue { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px 0; }
@@ -1388,9 +1530,9 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer
   border: 1px dashed var(--ui-border-strong); border-radius: 8px; padding: 3px 4px 3px 9px; }
 .cs-qitem .truncate { flex: 1; min-width: 0; }
 .cs-prompt { display: flex; gap: 6px; padding: 8px 10px; align-items: flex-end; }
-.cs-prompt textarea { flex: 1; background: color-mix(in srgb, var(--ui-text) 4%, transparent); border: 1px solid var(--ui-hairline);
+.cs-prompt textarea { flex: 1; background: color-mix(in srgb, var(--ui-text) 4%, transparent); border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent);
   border-radius: 10px; color: var(--ui-text); font-size: 11.5px; padding: 7px 9px; outline: none; resize: none; }
-.cs-prompt textarea:focus { border-color: var(--ui-accent); box-shadow: var(--ui-glow-soft); }
+.cs-prompt textarea:focus { border-color: var(--ui-accent); box-shadow: var(--ui-focus-ring); }
 .cs-jobline { padding: 0 10px 4px; font-size: 10px; color: var(--ui-text-3); }
 .cs-err { margin: 0 10px 8px; font-size: 10px; color: var(--ui-danger); }
 

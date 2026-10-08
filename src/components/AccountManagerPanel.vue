@@ -551,7 +551,7 @@
                 </div>
                 <div class="am-newdisk">
                   <label class="small muted">{{ disksFor(selectedCfg.id).length === 0 ? 'Provision system disk' : 'New disk' }} — {{ newDiskMb[selectedCfg.id] ?? 512 }} MB</label>
-                  <input v-model.number="newDiskMb[selectedCfg.id]" class="am-slider" type="range" min="64" max="8192" step="64" :aria-label="`New disk size for ${selectedCfg.name || selectedCfg.backendType}`" />
+                  <input v-model.number="newDiskMb[selectedCfg.id]" class="am-slider" type="range" min="64" max="8192" step="64" :aria-label="`New disk size for ${selectedCfg.name || selectedCfg.backendType}`" :style="{ '--p': (((newDiskMb[selectedCfg.id] ?? 512) - 64) / 8128 * 100).toFixed(1) + '%' }" />
                   <input v-model="newDiskPass[selectedCfg.id]" class="am-input" type="password" placeholder="Passphrase (also unlocks)" autocomplete="off" :aria-label="`Passphrase for new disk on ${selectedCfg.name || selectedCfg.backendType}`" />
                   <button class="am-btn sm primary" type="button" :disabled="diskBusy === selectedCfg.id" @click="createDisk(selectedCfg!.id)">{{ diskBusy === selectedCfg.id ? 'Creating…' : disksFor(selectedCfg.id).length === 0 ? 'Provision system disk' : 'Create & attach' }}</button>
                   <p v-if="diskMsg[selectedCfg.id]" class="am-note" role="status">{{ diskMsg[selectedCfg.id] }}</p>
@@ -2645,6 +2645,12 @@ onBeforeUnmount(() => {
 .am-code { font-family: ui-monospace, monospace; font-size: 11px; color: var(--ui-info); }
 .muted { color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
 .small { font-size: 11px; }
+label.small:has(input[type='checkbox']) {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* login grid */
@@ -2758,7 +2764,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   width: 100%;
 }
-.am-input:focus { border-color: var(--ui-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 15%, transparent); }
+.am-input:focus { border-color: var(--ui-accent); box-shadow: var(--ui-focus-ring); }
 .am-input.xs-num { width: 76px; }
 .am-input-wrap { display: flex; align-items: center; gap: 4px; }
 .am-input-wrap .am-input { flex: 1; }
@@ -2792,7 +2798,7 @@ onBeforeUnmount(() => {
 }
 .am-search-input::placeholder { color: color-mix(in srgb, var(--ui-text) 40%, transparent); }
 .am-search-input::-webkit-search-cancel-button { cursor: pointer; }
-.am-slider { flex: 1; min-width: 140px; accent-color: var(--ui-accent); }
+.am-slider { flex: 1; min-width: 140px; }
 .am-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
 /* banners + notes */

@@ -115,6 +115,16 @@ strip_direction=Alt+D
 close_all_windows=Alt+Shift+W
 minimize_all=Alt+Shift+M
 
+[Plasma]
+kickoff_toggle=Alt+F1
+runner_toggle=Alt+Space
+runner_toggle_alt=Ctrl+Space
+task_switch=Alt+Tab
+snap_left=Meta+Left
+snap_right=Meta+Right
+snap_up=Meta+Up
+snap_down=Meta+Down
+
 [Touch]
 swipe_threshold=50
 long_press_threshold=600

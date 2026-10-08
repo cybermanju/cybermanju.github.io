@@ -1,49 +1,66 @@
 /**
  * Single source of truth for the CyberManju OS design language.
  *
- * Fifteen themes in three families — System neutrals, Pastel brights,
- * Neon nights — and each theme is a FULL design language, not a palette
- * swap: `design.shape` drives the whole corner-radius scale, `design.font`
- * drives the OS typeface + label tracking, `design.elevation` drives the
- * shadow/glow character and wallpaper ambience. Components never hardcode
- * colours — they reference the `--ui-*` variables published by
- * `useTheme()`, so switching a theme restyles the whole virtual OS at once.
+ * macOS-style flat AMOLED glass remake: TWO themes only — `os-dark` (true
+ * AMOLED) and `os-light` — plus an optional monochrome `os-graphite`.
+ * `auto` is resolved in `useTheme()` from the OS `prefers-color-scheme`
+ * media query, not a theme id.
+ *
+ * There is ONE geometry, ONE typeface and NO elevation axis:
+ * - radius: window 12 · menu/popover 10 · control 6 · chip/badge 4
+ * - type: SF system stack, 13px body / 11px caption, 400/500/600,
+ *   sentence case. Mono is reserved for paths, hashes and the terminal.
+ * - depth: flat, no glow. One soft window shadow + a 0.5px outline.
+ *
+ * Glass is allowed ONLY on chrome (menu bar, dock, sidebar, titlebar,
+ * menus, popovers, sheets) — never behind body text. Content surfaces are
+ * flat solids (#000 / #fff).
+ *
+ * Contrast (documented, enforced by tests/frontend/ui-theme.test.ts):
+ * - os-dark: text #F5F5F7 on #000000 ≈ 19.3:1 · text-2 .62 alpha ≈ 7.5:1
+ * - os-light: text #1D1D1F on #FFFFFF ≈ 16.0:1 · text-2 .80 alpha ≈ 5.0:1
+ * - plasma-dark: text #eff0f1 on #232629 ≈ 13.3:1 · text-2 #bdc3c7 ≈ 8.5:1 ·
+ *   accent #3daee9 ≈ 6.1:1 · on-accent #232629 ≈ 6.1:1
+ * - plasma-light: text #232629 on #fcfcfc ≈ 14.8:1 · text-2 #4d5559 ≈ 7.4:1 ·
+ *   accent #178dc2 ≈ 3.6:1 (surface) · on-accent #ffffff ≈ 3.7:1
+ * - accent on bg ≥ 3:1 every theme (large/bold + graphical objects)
+ * - text-3 is decorative/disabled ONLY and is exempt by design.
+ *
+ * Back-compat: the old 17-theme ids, the `design.*` axes and the glow /
+ * aurora / neon variables are kept as DEPRECATED aliases that resolve to
+ * the new system, so existing markup and tests keep compiling while the
+ * visuals collapse to the single design language.
  */
 
 export type ThemeId =
-  | 'mac-light'
-  | 'mac-dark'
-  | 'mac-graphite-light'
-  | 'mac-graphite-dark'
-  | 'mac-midnight'
-  | 'ocean-light'
-  | 'sunset-light'
-  | 'forest-light'
-  | 'lavender-light'
-  | 'rose-light'
-  | 'ocean-night'
-  | 'forest-night'
-  | 'ember-night'
-  | 'nebula-night'
-  | 'cyber-night'
-  | 'matrix-night'
-  | 'cyberpunk-night'
+  | 'os-dark'
+  | 'os-light'
+  | 'os-graphite'
+  | 'plasma-dark'
+  | 'plasma-light'
+
+/**
+ * Shell style — orthogonal to the theme. `macos` is the menu-bar + floating
+ * Dock look; `plasma` is the bottom-panel + Kickoff look (Kubuntu/Breeze).
+ * Structure switches via `[data-ui-shell]`; tokens switch via the theme.
+ */
+export type ShellStyle = 'macos' | 'plasma'
 export type Density = 'compact' | 'comfortable'
 export type MotionPref = 'auto' | 'full' | 'reduced'
-/** 0 = solid (no blur) · 1 = light vibrancy · 2 = default vibrancy · 3 = rich vibrancy */
+/** 0 = solid (no blur) · 2 = translucent (blur 40). Levels 1/3 map to 2. */
 export type GlassLevel = 0 | 1 | 2 | 3
 /**
- * Shape language — the corner-radius scale of the whole OS. `soft` is the
- * macOS look (small, consistent), `round` is friendly/pill-forward,
- * `sharp` is the terminal/brutalist look (near-square).
+ * @deprecated Single geometry now — every theme resolves to `soft`.
+ * Kept so `def.design.shape` type-checks in existing code.
  */
 export type ThemeShape = 'soft' | 'round' | 'sharp'
-/** Typographic personality of the whole OS chrome. */
+/**
+ * @deprecated Single typeface now — every theme resolves to `system`.
+ * `mono` survives only as `--ui-font-mono` for paths/hashes/terminal.
+ */
 export type ThemeFont = 'system' | 'rounded' | 'mono'
 /**
- * Elevation character — how windows lift off the wallpaper. `soft` is the
- * neutral macOS drop shadow, `flat` is near-shadowless (graphite/minimal),
- * `neon` tints the ambient shadow + focus rings with the accent colour.
+ * @deprecated No elevation axis — depth is one flat shadow + 0.5px outline.
  */
 export type ThemeElevation = 'soft' | 'flat' | 'neon'
 
@@ -58,22 +75,33 @@ export interface ThemePalette {
   bg: string
   /** Deeper wells (gradients, wallpaper base). */
   bgDeep: string
-  /** Translucent panel base (toolbars, sidebars). */
+  /** Solid content surface (file grid, panels). */
   surface: string
-  /** Card / row base. */
+  /** Solid inputs / cards. */
   surface2: string
   /** Raised / hovered card base. */
   surface3: string
-  /** Window body background (rgba, lets wallpaper bleed through). */
+  /** Translucent chrome: titlebar + window body (glass). */
   window: string
-  /** Window body background at rest (non-focused windows). */
+  /** Translucent chrome at rest (non-focused windows). */
   windowIdle: string
+  /** Translucent chrome: sidebar / menu bar. */
+  sidebar: string
+  /** Bottom panel surface (plasma shell; macOS themes reuse window). */
+  panel: string
+  /** Hover wash (accent 15%) for rows, tabs and task buttons. */
+  hover: string
+  /** Solid terminal surface (Konsole black in dark modes, paper in light). */
+  terminal: string
   border: string
   borderStrong: string
   borderHover: string
   hairline: string
+  /** 0.5px separator line colour (titlebar bottom, section dividers). */
+  separator: string
   text: string
   text2: string
+  /** Decorative / disabled ONLY — not for readable body text. */
   text3: string
   textFaint: string
   accent: string
@@ -83,7 +111,7 @@ export interface ThemePalette {
   warning: string
   danger: string
   info: string
-  /** Base RGB (no alpha) used for vibrancy tints — typically the surface colour. */
+  /** Base RGB (no alpha) used for vibrancy tints. */
   glassBase: string
 }
 
@@ -94,11 +122,18 @@ export interface ThemeDefinition {
   blurb: string
   mode: 'dark' | 'light'
   palette: ThemePalette
+  /** @deprecated Always the single fixed geometry — kept for compat. */
   design: ThemeDesign
 }
 
 export interface ThemeSettings {
   theme: ThemeId
+  /**
+   * Shell style override consumed by `buildCssVars()` for geometry tokens
+   * (titlebar/panel heights, radius, motion). The live source of truth is
+   * `useTheme().shellStyle` (own storage key); it mirrors here for CSS.
+   */
+  shell?: ShellStyle
   /** Accent override — any hex colour, defaults to the theme accent. */
   accent: string | null
   /**
@@ -111,617 +146,285 @@ export interface ThemeSettings {
   density: Density
   glass: GlassLevel
   motion: MotionPref
-  /** Wallpaper ambience: soft neutral depth behind the desktop. */
+  /**
+   * Follow the OS colour scheme (`prefers-color-scheme`). When true the
+   * stored `theme` is only a fallback — the effective theme tracks the OS.
+   */
+  followSystem: boolean
+  /** Static wallpaper id (`slopes-dark` | `slopes-light` | `dunes`). */
+  wallpaper: string
+  /** Wallpaper ambience — legacy flag, no aurora is rendered anymore. */
   glow: boolean
 }
 
-/** Stored pre-macOS theme ids map onto their closest macOS successor.
- *  Kept for backward compat — the new `*-night`/`*-light` ids never collide
- *  with these keys, so old installs keep resolving exactly as before. */
+/**
+ * Every pre-remake theme id maps onto its closest successor by mode.
+ * Old installs keep resolving exactly as before (dark → os-dark,
+ * light → os-light).
+ */
 export const LEGACY_THEME_ALIASES: Record<string, ThemeId> = {
-  midnight: 'mac-midnight',
-  nebula: 'mac-dark',
-  ember: 'mac-dark',
-  daylight: 'mac-light',
-  ghostline: 'mac-dark',
+  midnight: 'os-dark',
+  nebula: 'os-dark',
+  ember: 'os-dark',
+  daylight: 'os-light',
+  ghostline: 'os-dark',
+  'mac-light': 'os-light',
+  'mac-dark': 'os-dark',
+  'mac-graphite-light': 'os-light',
+  'mac-graphite-dark': 'os-graphite',
+  'mac-midnight': 'os-dark',
+  'ocean-light': 'os-light',
+  'sunset-light': 'os-light',
+  'forest-light': 'os-light',
+  'lavender-light': 'os-light',
+  'rose-light': 'os-light',
+  'ocean-night': 'os-dark',
+  'forest-night': 'os-dark',
+  'ember-night': 'os-dark',
+  'nebula-night': 'os-dark',
+  'cyber-night': 'os-dark',
+  'matrix-night': 'os-dark',
+  'cyberpunk-night': 'os-dark',
 }
 
-/** Picker grouping — system neutrals first, then the pastel brights, then the neon nights. */
+/** Picker grouping — flat macOS set plus the Breeze-like Plasma set. */
 export const THEME_GROUPS: { id: string; label: string; ids: ThemeId[] }[] = [
-  { id: 'system', label: 'System', ids: ['mac-light', 'mac-dark', 'mac-graphite-light', 'mac-graphite-dark', 'mac-midnight'] },
-  { id: 'pastel-light', label: 'Pastel · Light', ids: ['ocean-light', 'sunset-light', 'forest-light', 'lavender-light', 'rose-light'] },
-  { id: 'neon-night', label: 'Neon · Night', ids: ['ocean-night', 'forest-night', 'ember-night', 'nebula-night', 'cyber-night', 'matrix-night', 'cyberpunk-night'] },
+  { id: 'appearance', label: 'Appearance', ids: ['os-dark', 'os-light', 'os-graphite'] },
+  { id: 'plasma', label: 'Plasma', ids: ['plasma-dark', 'plasma-light'] },
 ]
 
 export const THEME_IDS: ThemeId[] = [
-  'mac-light',
-  'mac-dark',
-  'mac-graphite-light',
-  'mac-graphite-dark',
-  'mac-midnight',
-  'ocean-light',
-  'sunset-light',
-  'forest-light',
-  'lavender-light',
-  'rose-light',
-  'ocean-night',
-  'forest-night',
-  'ember-night',
-  'nebula-night',
-  'cyber-night',
-  'matrix-night',
-  'cyberpunk-night',
+  'os-dark',
+  'os-light',
+  'os-graphite',
+  'plasma-dark',
+  'plasma-light',
 ]
 
 /**
- * Corner-radius scales per shape language. Every component reads the
- * `--ui-radius-*` variables, so switching shape restyles all windows,
- * cards, buttons, inputs and badges at once.
+ * Single corner-radius scale for the whole OS. Window 12 · menu/popover 10
+ * · control 6 · chip/badge 4. `full` stays pill-shaped for dots/toggles.
  */
 export const SHAPE_RADII: Record<ThemeShape, { xs: string; sm: string; md: string; lg: string; xl: string; x2: string; full: string }> = {
-  soft: { xs: '4px', sm: '6px', md: '8px', lg: '10px', xl: '14px', x2: '20px', full: '999px' },
-  round: { xs: '6px', sm: '10px', md: '14px', lg: '18px', xl: '24px', x2: '30px', full: '999px' },
-  sharp: { xs: '1px', sm: '2px', md: '3px', lg: '4px', xl: '6px', x2: '8px', full: '4px' },
+  soft: { xs: '4px', sm: '6px', md: '8px', lg: '10px', xl: '12px', x2: '14px', full: '999px' },
+  round: { xs: '4px', sm: '6px', md: '8px', lg: '10px', xl: '12px', x2: '14px', full: '999px' },
+  sharp: { xs: '4px', sm: '6px', md: '8px', lg: '10px', xl: '12px', x2: '14px', full: '999px' },
 }
 
-/** UI typeface stacks per typographic personality (system fonts only — no webfont dependency). */
+/** Single UI typeface stack (SF-first, system fonts only — no webfont dependency). */
+const SYSTEM_STACK =
+  "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+
+/** @deprecated All personalities resolve to the system stack. */
 export const FONT_STACKS: Record<ThemeFont, string> = {
-  system:
-    "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
-  rounded:
-    "'ui-rounded', 'SF Pro Rounded', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
-  mono:
-    "'SF Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace",
+  system: SYSTEM_STACK,
+  rounded: SYSTEM_STACK,
+  mono: SYSTEM_STACK,
 }
 
-/** Label/title letter-spacing per personality — mono chrome tracks wide. */
+/** Sentence case everywhere — no wide tracked labels. */
 export const FONT_TRACKING_WIDE: Record<ThemeFont, string> = {
-  system: '0.02em',
-  rounded: '0.03em',
-  mono: '0.09em',
+  system: '0.01em',
+  rounded: '0.01em',
+  mono: '0.01em',
 }
+
+const SINGLE_DESIGN: ThemeDesign = { shape: 'soft', font: 'system', elevation: 'soft' }
 
 export const THEMES: Record<ThemeId, ThemeDefinition> = {
-  'mac-light': {
-    id: 'mac-light',
-    label: 'Light',
-    blurb: 'macOS light · soft shapes · quiet depth',
-    mode: 'light',
-    design: { shape: 'soft', font: 'system', elevation: 'soft' },
-    palette: {
-      bg: '#e9ebef',
-      bgDeep: '#dfe3e9',
-      surface: 'rgba(246, 246, 248, 0.72)',
-      surface2: 'rgba(255, 255, 255, 0.82)',
-      surface3: 'rgba(255, 255, 255, 0.96)',
-      window: 'rgba(242, 243, 246, 0.78)',
-      windowIdle: 'rgba(242, 243, 246, 0.66)',
-      border: 'rgba(0, 0, 0, 0.08)',
-      borderStrong: 'rgba(0, 0, 0, 0.14)',
-      borderHover: 'rgba(0, 0, 0, 0.22)',
-      hairline: 'rgba(0, 0, 0, 0.06)',
-      text: '#1d1d1f',
-      text2: '#515154',
-      text3: '#6e6e73',
-      textFaint: '#aeaeb2',
-      accent: '#007aff',
-      onAccent: '#ffffff',
-      success: '#248a3d',
-      warning: '#b25000',
-      danger: '#d70015',
-      info: '#0071e3',
-      glassBase: '255, 255, 255',
-    },
-  },
-  'mac-dark': {
-    id: 'mac-dark',
+  'os-dark': {
+    id: 'os-dark',
     label: 'Dark',
-    blurb: 'macOS dark · soft shapes · quiet depth',
+    blurb: 'True AMOLED black · flat glass chrome · system blue',
     mode: 'dark',
-    design: { shape: 'soft', font: 'system', elevation: 'soft' },
-    palette: {
-      bg: '#1e1e21',
-      bgDeep: '#17171a',
-      surface: 'rgba(44, 44, 46, 0.72)',
-      surface2: 'rgba(54, 54, 58, 0.78)',
-      surface3: 'rgba(66, 66, 70, 0.86)',
-      window: 'rgba(30, 30, 33, 0.74)',
-      windowIdle: 'rgba(30, 30, 33, 0.62)',
-      border: 'rgba(255, 255, 255, 0.09)',
-      borderStrong: 'rgba(255, 255, 255, 0.15)',
-      borderHover: 'rgba(255, 255, 255, 0.24)',
-      hairline: 'rgba(255, 255, 255, 0.06)',
-      text: '#f5f5f7',
-      text2: '#c7c7cc',
-      text3: '#98989f',
-      textFaint: '#636366',
-      accent: '#0a84ff',
-      onAccent: '#ffffff',
-      success: '#30d158',
-      warning: '#ff9f0a',
-      danger: '#ff453a',
-      info: '#64d2ff',
-      glassBase: '48, 48, 52',
-    },
-  },
-  'mac-graphite-light': {
-    id: 'mac-graphite-light',
-    label: 'Graphite Light',
-    blurb: 'Monochrome light · flat, shadowless chrome',
-    mode: 'light',
-    design: { shape: 'soft', font: 'system', elevation: 'flat' },
-    palette: {
-      bg: '#e8e8ea',
-      bgDeep: '#dcdce0',
-      surface: 'rgba(244, 244, 246, 0.72)',
-      surface2: 'rgba(255, 255, 255, 0.82)',
-      surface3: 'rgba(255, 255, 255, 0.96)',
-      window: 'rgba(240, 240, 243, 0.78)',
-      windowIdle: 'rgba(240, 240, 243, 0.66)',
-      border: 'rgba(0, 0, 0, 0.08)',
-      borderStrong: 'rgba(0, 0, 0, 0.14)',
-      borderHover: 'rgba(0, 0, 0, 0.22)',
-      hairline: 'rgba(0, 0, 0, 0.06)',
-      text: '#1d1d1f',
-      text2: '#515154',
-      text3: '#6e6e73',
-      textFaint: '#aeaeb2',
-      accent: '#636366',
-      onAccent: '#ffffff',
-      success: '#248a3d',
-      warning: '#b25000',
-      danger: '#d70015',
-      info: '#515154',
-      glassBase: '250, 250, 252',
-    },
-  },
-  'mac-graphite-dark': {
-    id: 'mac-graphite-dark',
-    label: 'Graphite Dark',
-    blurb: 'Monochrome dark · flat, shadowless chrome',
-    mode: 'dark',
-    design: { shape: 'soft', font: 'system', elevation: 'flat' },
-    palette: {
-      bg: '#1d1d1f',
-      bgDeep: '#161617',
-      surface: 'rgba(42, 42, 44, 0.72)',
-      surface2: 'rgba(52, 52, 54, 0.78)',
-      surface3: 'rgba(62, 62, 64, 0.86)',
-      window: 'rgba(29, 29, 31, 0.74)',
-      windowIdle: 'rgba(29, 29, 31, 0.62)',
-      border: 'rgba(255, 255, 255, 0.09)',
-      borderStrong: 'rgba(255, 255, 255, 0.15)',
-      borderHover: 'rgba(255, 255, 255, 0.24)',
-      hairline: 'rgba(255, 255, 255, 0.06)',
-      text: '#f5f5f7',
-      text2: '#c7c7cc',
-      text3: '#98989f',
-      textFaint: '#636366',
-      accent: '#98989f',
-      onAccent: '#1d1d1f',
-      success: '#30d158',
-      warning: '#ff9f0a',
-      danger: '#ff453a',
-      info: '#98989f',
-      glassBase: '46, 46, 48',
-    },
-  },
-  'mac-midnight': {
-    id: 'mac-midnight',
-    label: 'Midnight',
-    blurb: 'True-black OLED · round shapes · deep float',
-    mode: 'dark',
-    design: { shape: 'round', font: 'system', elevation: 'soft' },
+    design: SINGLE_DESIGN,
     palette: {
       bg: '#000000',
-      bgDeep: '#0a0a0c',
-      surface: 'rgba(28, 28, 30, 0.72)',
-      surface2: 'rgba(38, 38, 41, 0.80)',
-      surface3: 'rgba(50, 50, 54, 0.88)',
-      window: 'rgba(16, 16, 18, 0.76)',
-      windowIdle: 'rgba(16, 16, 18, 0.64)',
+      bgDeep: '#000000',
+      surface: '#0B0B0D',
+      surface2: '#161618',
+      surface3: '#1C1C1E',
+      window: 'rgba(28, 28, 30, 0.78)',
+      windowIdle: 'rgba(22, 22, 24, 0.70)',
+      sidebar: 'rgba(30, 30, 32, 0.55)',
+      panel: 'rgba(28, 28, 30, 0.78)',
+      hover: 'rgba(10, 132, 255, 0.15)',
       border: 'rgba(255, 255, 255, 0.10)',
       borderStrong: 'rgba(255, 255, 255, 0.16)',
-      borderHover: 'rgba(255, 255, 255, 0.26)',
-      hairline: 'rgba(255, 255, 255, 0.07)',
-      text: '#f5f5f7',
-      text2: '#c7c7cc',
-      text3: '#98989f',
-      textFaint: '#636366',
-      accent: '#0a84ff',
+      borderHover: 'rgba(255, 255, 255, 0.24)',
+      hairline: 'rgba(255, 255, 255, 0.08)',
+      separator: 'rgba(255, 255, 255, 0.08)',
+      text: '#F5F5F7',
+      text2: 'rgba(235, 235, 245, 0.62)',
+      text3: 'rgba(235, 235, 245, 0.38)',
+      textFaint: 'rgba(235, 235, 245, 0.28)',
+      accent: '#0A84FF',
       onAccent: '#ffffff',
-      success: '#30d158',
-      warning: '#ff9f0a',
-      danger: '#ff453a',
-      info: '#64d2ff',
+      success: '#32D74B',
+      warning: '#FF9F0A',
+      danger: '#FF453A',
+      info: '#64D2FF',
+      terminal: '#000000',
       glassBase: '28, 28, 30',
     },
   },
-  'ocean-light': {
-    id: 'ocean-light',
-    label: 'Ocean Light',
-    blurb: 'Pastel blue · round shapes · rounded type',
+  'os-light': {
+    id: 'os-light',
+    label: 'Light',
+    blurb: 'Paper white · flat glass chrome · system blue',
     mode: 'light',
-    design: { shape: 'round', font: 'rounded', elevation: 'soft' },
+    design: SINGLE_DESIGN,
     palette: {
-      bg: '#d7e9f7',
-      bgDeep: '#bcd8f0',
-      surface: 'rgba(232, 244, 253, 0.74)',
-      surface2: 'rgba(255, 255, 255, 0.86)',
-      surface3: 'rgba(255, 255, 255, 0.97)',
-      window: 'rgba(226, 240, 251, 0.80)',
-      windowIdle: 'rgba(226, 240, 251, 0.68)',
-      border: 'rgba(2, 132, 199, 0.16)',
-      borderStrong: 'rgba(2, 132, 199, 0.28)',
-      borderHover: 'rgba(2, 132, 199, 0.42)',
-      hairline: 'rgba(2, 132, 199, 0.10)',
-      text: '#0c1f33',
-      text2: '#33566f',
-      text3: '#5b7d99',
-      textFaint: '#93aec4',
-      accent: '#0284c7',
+      bg: '#ECECEC',
+      bgDeep: '#E2E2E4',
+      surface: '#FFFFFF',
+      surface2: '#F5F5F7',
+      surface3: '#E8E8EA',
+      window: 'rgba(246, 246, 246, 0.80)',
+      windowIdle: 'rgba(240, 240, 242, 0.72)',
+      sidebar: 'rgba(236, 236, 236, 0.70)',
+      panel: 'rgba(246, 246, 246, 0.80)',
+      hover: 'rgba(0, 122, 255, 0.15)',
+      border: 'rgba(0, 0, 0, 0.12)',
+      borderStrong: 'rgba(0, 0, 0, 0.18)',
+      borderHover: 'rgba(0, 0, 0, 0.26)',
+      hairline: 'rgba(0, 0, 0, 0.08)',
+      separator: 'rgba(0, 0, 0, 0.08)',
+      text: '#1D1D1F',
+      text2: 'rgba(60, 60, 67, 0.80)',
+      text3: 'rgba(60, 60, 67, 0.45)',
+      textFaint: 'rgba(60, 60, 67, 0.30)',
+      accent: '#007AFF',
       onAccent: '#ffffff',
-      success: '#15803d',
-      warning: '#b45309',
-      danger: '#dc2626',
-      info: '#0284c7',
-      glassBase: '214, 235, 250',
+      success: '#248A3D',
+      warning: '#B25000',
+      danger: '#D70015',
+      info: '#0071E3',
+      terminal: '#FFFFFF',
+      glassBase: '246, 246, 246',
     },
   },
-  'sunset-light': {
-    id: 'sunset-light',
-    label: 'Sunset Light',
-    blurb: 'Pastel ember · round shapes · rounded type',
-    mode: 'light',
-    design: { shape: 'round', font: 'rounded', elevation: 'soft' },
-    palette: {
-      bg: '#fde3cf',
-      bgDeep: '#f7cba6',
-      surface: 'rgba(253, 238, 224, 0.74)',
-      surface2: 'rgba(255, 251, 246, 0.86)',
-      surface3: 'rgba(255, 255, 255, 0.97)',
-      window: 'rgba(250, 230, 210, 0.80)',
-      windowIdle: 'rgba(250, 230, 210, 0.68)',
-      border: 'rgba(234, 88, 12, 0.16)',
-      borderStrong: 'rgba(234, 88, 12, 0.28)',
-      borderHover: 'rgba(234, 88, 12, 0.42)',
-      hairline: 'rgba(234, 88, 12, 0.10)',
-      text: '#331505',
-      text2: '#6b3a1e',
-      text3: '#8f5f3d',
-      textFaint: '#b99a80',
-      accent: '#ea580c',
-      onAccent: '#ffffff',
-      success: '#15803d',
-      warning: '#b45309',
-      danger: '#dc2626',
-      info: '#db2777',
-      glassBase: '252, 228, 205',
-    },
-  },
-  'forest-light': {
-    id: 'forest-light',
-    label: 'Forest Light',
-    blurb: 'Pastel green · round shapes · rounded type',
-    mode: 'light',
-    design: { shape: 'round', font: 'rounded', elevation: 'soft' },
-    palette: {
-      bg: '#d3eddb',
-      bgDeep: '#b3dfc0',
-      surface: 'rgba(230, 246, 234, 0.74)',
-      surface2: 'rgba(248, 255, 249, 0.86)',
-      surface3: 'rgba(255, 255, 255, 0.97)',
-      window: 'rgba(221, 240, 227, 0.80)',
-      windowIdle: 'rgba(221, 240, 227, 0.68)',
-      border: 'rgba(21, 128, 61, 0.16)',
-      borderStrong: 'rgba(21, 128, 61, 0.28)',
-      borderHover: 'rgba(21, 128, 61, 0.42)',
-      hairline: 'rgba(21, 128, 61, 0.10)',
-      text: '#0b2b17',
-      text2: '#2e5940',
-      text3: '#54806a',
-      textFaint: '#8fb3a0',
-      accent: '#15803d',
-      onAccent: '#ffffff',
-      success: '#15803d',
-      warning: '#b45309',
-      danger: '#dc2626',
-      info: '#0d9488',
-      glassBase: '211, 237, 219',
-    },
-  },
-  'lavender-light': {
-    id: 'lavender-light',
-    label: 'Lavender Light',
-    blurb: 'Pastel violet · round shapes · rounded type',
-    mode: 'light',
-    design: { shape: 'round', font: 'rounded', elevation: 'soft' },
-    palette: {
-      bg: '#e1dcfa',
-      bgDeep: '#c9c1f2',
-      surface: 'rgba(238, 235, 253, 0.74)',
-      surface2: 'rgba(250, 249, 255, 0.86)',
-      surface3: 'rgba(255, 255, 255, 0.97)',
-      window: 'rgba(230, 226, 250, 0.80)',
-      windowIdle: 'rgba(230, 226, 250, 0.68)',
-      border: 'rgba(124, 58, 237, 0.16)',
-      borderStrong: 'rgba(124, 58, 237, 0.28)',
-      borderHover: 'rgba(124, 58, 237, 0.42)',
-      hairline: 'rgba(124, 58, 237, 0.10)',
-      text: '#221243',
-      text2: '#4c3a72',
-      text3: '#6e5d94',
-      textFaint: '#a193c4',
-      accent: '#7c3aed',
-      onAccent: '#ffffff',
-      success: '#15803d',
-      warning: '#b45309',
-      danger: '#dc2626',
-      info: '#7c3aed',
-      glassBase: '225, 220, 250',
-    },
-  },
-  'rose-light': {
-    id: 'rose-light',
-    label: 'Rose Light',
-    blurb: 'Pastel rose · round shapes · rounded type',
-    mode: 'light',
-    design: { shape: 'round', font: 'rounded', elevation: 'soft' },
-    palette: {
-      bg: '#fad8e0',
-      bgDeep: '#f2b7c5',
-      surface: 'rgba(253, 234, 239, 0.74)',
-      surface2: 'rgba(255, 248, 250, 0.86)',
-      surface3: 'rgba(255, 255, 255, 0.97)',
-      window: 'rgba(248, 222, 230, 0.80)',
-      windowIdle: 'rgba(248, 222, 230, 0.68)',
-      border: 'rgba(225, 29, 72, 0.16)',
-      borderStrong: 'rgba(225, 29, 72, 0.28)',
-      borderHover: 'rgba(225, 29, 72, 0.42)',
-      hairline: 'rgba(225, 29, 72, 0.10)',
-      text: '#3b0a16',
-      text2: '#6e2f3f',
-      text3: '#91586a',
-      textFaint: '#bd93a1',
-      accent: '#e11d48',
-      onAccent: '#ffffff',
-      success: '#15803d',
-      warning: '#b45309',
-      danger: '#dc2626',
-      info: '#e11d48',
-      glassBase: '250, 216, 224',
-    },
-  },
-  'ocean-night': {
-    id: 'ocean-night',
-    label: 'Ocean Night',
-    blurb: 'Abyssal blue · neon glow · deep float',
+  'os-graphite': {
+    id: 'os-graphite',
+    label: 'Graphite',
+    blurb: 'Monochrome dark · flat chrome · grey accent',
     mode: 'dark',
-    design: { shape: 'round', font: 'system', elevation: 'neon' },
-    palette: {
-      bg: '#081a30',
-      bgDeep: '#040e1c',
-      surface: 'rgba(18, 52, 84, 0.72)',
-      surface2: 'rgba(26, 66, 104, 0.80)',
-      surface3: 'rgba(36, 84, 128, 0.88)',
-      window: 'rgba(10, 26, 46, 0.78)',
-      windowIdle: 'rgba(10, 26, 46, 0.66)',
-      border: 'rgba(56, 189, 248, 0.18)',
-      borderStrong: 'rgba(56, 189, 248, 0.30)',
-      borderHover: 'rgba(56, 189, 248, 0.46)',
-      hairline: 'rgba(56, 189, 248, 0.12)',
-      text: '#e6f3fd',
-      text2: '#a9c6de',
-      text3: '#7396b3',
-      textFaint: '#47657f',
-      accent: '#38bdf8',
-      onAccent: '#04121f',
-      success: '#4ade80',
-      warning: '#fbbf24',
-      danger: '#fb7185',
-      info: '#38bdf8',
-      glassBase: '18, 52, 84',
-    },
-  },
-  'forest-night': {
-    id: 'forest-night',
-    label: 'Forest Night',
-    blurb: 'Phosphor green · neon glow · soft shapes',
-    mode: 'dark',
-    design: { shape: 'soft', font: 'system', elevation: 'neon' },
-    palette: {
-      bg: '#07231a',
-      bgDeep: '#04120d',
-      surface: 'rgba(18, 62, 45, 0.72)',
-      surface2: 'rgba(26, 78, 58, 0.80)',
-      surface3: 'rgba(36, 98, 74, 0.88)',
-      window: 'rgba(9, 33, 25, 0.78)',
-      windowIdle: 'rgba(9, 33, 25, 0.66)',
-      border: 'rgba(74, 222, 128, 0.18)',
-      borderStrong: 'rgba(74, 222, 128, 0.30)',
-      borderHover: 'rgba(74, 222, 128, 0.46)',
-      hairline: 'rgba(74, 222, 128, 0.12)',
-      text: '#e2f5e9',
-      text2: '#a9d3bb',
-      text3: '#76a48d',
-      textFaint: '#4a7261',
-      accent: '#4ade80',
-      onAccent: '#052012',
-      success: '#4ade80',
-      warning: '#fbbf24',
-      danger: '#fb7185',
-      info: '#2dd4bf',
-      glassBase: '18, 62, 45',
-    },
-  },
-  'ember-night': {
-    id: 'ember-night',
-    label: 'Ember Night',
-    blurb: 'Furnace orange · neon glow · round shapes',
-    mode: 'dark',
-    design: { shape: 'round', font: 'system', elevation: 'neon' },
-    palette: {
-      bg: '#28100a',
-      bgDeep: '#150803',
-      surface: 'rgba(74, 36, 20, 0.72)',
-      surface2: 'rgba(92, 46, 26, 0.80)',
-      surface3: 'rgba(114, 60, 35, 0.88)',
-      window: 'rgba(38, 17, 10, 0.78)',
-      windowIdle: 'rgba(38, 17, 10, 0.66)',
-      border: 'rgba(251, 146, 60, 0.20)',
-      borderStrong: 'rgba(251, 146, 60, 0.32)',
-      borderHover: 'rgba(251, 146, 60, 0.48)',
-      hairline: 'rgba(251, 146, 60, 0.12)',
-      text: '#fdeee1',
-      text2: '#d9b896',
-      text3: '#a87f5f',
-      textFaint: '#6f5340',
-      accent: '#fb923c',
-      onAccent: '#241005',
-      success: '#4ade80',
-      warning: '#fbbf24',
-      danger: '#fb7185',
-      info: '#f472b6',
-      glassBase: '74, 36, 20',
-    },
-  },
-  'nebula-night': {
-    id: 'nebula-night',
-    label: 'Nebula Night',
-    blurb: 'Ultraviolet · neon glow · round shapes',
-    mode: 'dark',
-    design: { shape: 'round', font: 'system', elevation: 'neon' },
-    palette: {
-      bg: '#160d2e',
-      bgDeep: '#0d0719',
-      surface: 'rgba(55, 36, 108, 0.72)',
-      surface2: 'rgba(68, 46, 130, 0.80)',
-      surface3: 'rgba(84, 60, 154, 0.88)',
-      window: 'rgba(24, 14, 48, 0.78)',
-      windowIdle: 'rgba(24, 14, 48, 0.66)',
-      border: 'rgba(168, 85, 247, 0.22)',
-      borderStrong: 'rgba(168, 85, 247, 0.34)',
-      borderHover: 'rgba(168, 85, 247, 0.50)',
-      hairline: 'rgba(168, 85, 247, 0.12)',
-      text: '#efe7fd',
-      text2: '#c0aee3',
-      text3: '#8f7cb8',
-      textFaint: '#5e5382',
-      accent: '#a855f7',
-      onAccent: '#ffffff',
-      success: '#4ade80',
-      warning: '#fbbf24',
-      danger: '#fb7185',
-      info: '#c084fc',
-      glassBase: '55, 36, 108',
-    },
-  },
-  'cyber-night': {
-    id: 'cyber-night',
-    label: 'Cyber Night',
-    blurb: 'Terminal deck · sharp chrome · mono type · neon',
-    mode: 'dark',
-    design: { shape: 'sharp', font: 'mono', elevation: 'neon' },
-    palette: {
-      bg: '#12041f',
-      bgDeep: '#08020f',
-      surface: 'rgba(58, 18, 84, 0.72)',
-      surface2: 'rgba(72, 24, 104, 0.80)',
-      surface3: 'rgba(90, 32, 128, 0.88)',
-      window: 'rgba(20, 6, 32, 0.80)',
-      windowIdle: 'rgba(20, 6, 32, 0.68)',
-      border: 'rgba(232, 121, 249, 0.22)',
-      borderStrong: 'rgba(232, 121, 249, 0.34)',
-      borderHover: 'rgba(232, 121, 249, 0.50)',
-      hairline: 'rgba(34, 211, 238, 0.14)',
-      text: '#fbe7ff',
-      text2: '#d3aee0',
-      text3: '#9d7bb0',
-      textFaint: '#624a73',
-      accent: '#e879f9',
-      onAccent: '#24052e',
-      success: '#4ade80',
-      warning: '#fde047',
-      danger: '#fb7185',
-      info: '#22d3ee',
-      glassBase: '58, 18, 84',
-    },
-  },
-  'matrix-night': {
-    id: 'matrix-night',
-    label: 'Matrix',
-    blurb: 'Phosphor terminal · sharp chrome · mono · neon',
-    mode: 'dark',
-    design: { shape: 'sharp', font: 'mono', elevation: 'neon' },
-    palette: {
-      bg: '#04140a',
-      bgDeep: '#020b05',
-      surface: 'rgba(10, 46, 26, 0.72)',
-      surface2: 'rgba(14, 60, 34, 0.80)',
-      surface3: 'rgba(20, 78, 44, 0.88)',
-      window: 'rgba(4, 18, 10, 0.80)',
-      windowIdle: 'rgba(4, 18, 10, 0.68)',
-      border: 'rgba(0, 255, 128, 0.16)',
-      borderStrong: 'rgba(0, 255, 128, 0.28)',
-      borderHover: 'rgba(0, 255, 128, 0.44)',
-      hairline: 'rgba(0, 255, 128, 0.10)',
-      text: '#d8ffe6',
-      text2: '#93cfa8',
-      text3: '#5d9070',
-      textFaint: '#33573f',
-      accent: '#00ff80',
-      onAccent: '#02120a',
-      success: '#00ff80',
-      warning: '#ffd60a',
-      danger: '#ff5d5d',
-      info: '#4ade80',
-      glassBase: '10, 46, 26',
-    },
-  },
-  'cyberpunk-night': {
-    id: 'cyberpunk-night',
-    label: 'Cyberpunk',
-    blurb: 'AMOLED black · purple-red neon glass · high contrast',
-    mode: 'dark',
-    design: { shape: 'sharp', font: 'mono', elevation: 'neon' },
+    design: SINGLE_DESIGN,
     palette: {
       bg: '#000000',
-      bgDeep: '#0d0209',
-      surface: 'rgba(52, 8, 60, 0.66)',
-      surface2: 'rgba(66, 10, 76, 0.74)',
-      surface3: 'rgba(84, 14, 96, 0.82)',
-      window: 'rgba(0, 0, 0, 0.82)',
-      windowIdle: 'rgba(0, 0, 0, 0.72)',
-      border: 'rgba(255, 45, 120, 0.26)',
-      borderStrong: 'rgba(255, 45, 120, 0.40)',
-      borderHover: 'rgba(191, 90, 242, 0.60)',
-      hairline: 'rgba(255, 45, 120, 0.14)',
-      text: '#ffffff',
-      text2: '#f3dcff',
-      text3: '#c49ad9',
-      textFaint: '#7d5c8c',
-      accent: '#ff2d78',
-      onAccent: '#1c020c',
-      success: '#00ffa3',
-      warning: '#ffd60a',
-      danger: '#ff3b30',
-      info: '#bf5af2',
-      glassBase: '52, 8, 60',
+      bgDeep: '#0A0A0C',
+      surface: '#101012',
+      surface2: '#17171A',
+      surface3: '#202024',
+      window: 'rgba(24, 24, 26, 0.78)',
+      windowIdle: 'rgba(18, 18, 20, 0.70)',
+      sidebar: 'rgba(26, 26, 28, 0.60)',
+      panel: 'rgba(24, 24, 26, 0.78)',
+      hover: 'rgba(142, 142, 147, 0.15)',
+      border: 'rgba(255, 255, 255, 0.10)',
+      borderStrong: 'rgba(255, 255, 255, 0.16)',
+      borderHover: 'rgba(255, 255, 255, 0.24)',
+      hairline: 'rgba(255, 255, 255, 0.08)',
+      separator: 'rgba(255, 255, 255, 0.08)',
+      text: '#F5F5F7',
+      text2: 'rgba(235, 235, 245, 0.62)',
+      text3: 'rgba(235, 235, 245, 0.38)',
+      textFaint: 'rgba(235, 235, 245, 0.28)',
+      accent: '#8E8E93',
+      onAccent: '#000000',
+      success: '#32D74B',
+      warning: '#FF9F0A',
+      danger: '#FF453A',
+      info: '#8E8E93',
+      terminal: '#000000',
+      glassBase: '24, 24, 26',
+    },
+  },
+  'plasma-dark': {
+    id: 'plasma-dark',
+    label: 'Plasma Dark',
+    blurb: 'Breeze dark · flat panel chrome · breeze blue',
+    mode: 'dark',
+    design: SINGLE_DESIGN,
+    palette: {
+      bg: '#1b1e20',
+      bgDeep: '#14171a',
+      surface: '#232629',
+      surface2: '#2a2e32',
+      surface3: '#31363b',
+      window: '#31363b',
+      windowIdle: '#2a2e32',
+      sidebar: '#2a2e32',
+      panel: 'rgba(35, 38, 41, 0.88)',
+      hover: 'rgba(61, 174, 233, 0.15)',
+      border: '#4d4d4d',
+      borderStrong: '#636363',
+      borderHover: '#7a7a7a',
+      hairline: 'rgba(255, 255, 255, 0.06)',
+      separator: 'rgba(255, 255, 255, 0.08)',
+      text: '#eff0f1',
+      text2: '#bdc3c7',
+      text3: '#7f8c8d',
+      textFaint: '#5c6666',
+      accent: '#3daee9',
+      onAccent: '#232629',
+      success: '#27ae60',
+      warning: '#f67400',
+      danger: '#da4453',
+      info: '#3daee9',
+      terminal: '#000000',
+      glassBase: '49, 54, 59',
+    },
+  },
+  'plasma-light': {
+    id: 'plasma-light',
+    label: 'Plasma Light',
+    blurb: 'Breeze light · flat panel chrome · breeze blue',
+    mode: 'light',
+    design: SINGLE_DESIGN,
+    palette: {
+      bg: '#dcdfe3',
+      bgDeep: '#c9ced4',
+      surface: '#fcfcfc',
+      surface2: '#f4f5f6',
+      surface3: '#e6e8ea',
+      window: '#eff0f1',
+      windowIdle: '#e6e8ea',
+      sidebar: '#e6e8ea',
+      panel: 'rgba(239, 240, 241, 0.90)',
+      hover: 'rgba(23, 141, 194, 0.15)',
+      border: '#bdc3c7',
+      borderStrong: '#a9b2b8',
+      borderHover: '#8d979e',
+      hairline: 'rgba(0, 0, 0, 0.08)',
+      separator: 'rgba(0, 0, 0, 0.08)',
+      text: '#232629',
+      text2: '#4d5559',
+      text3: '#7f8c8d',
+      textFaint: '#a7b1b5',
+      accent: '#178dc2',
+      onAccent: '#ffffff',
+      success: '#1e9e5a',
+      warning: '#c25700',
+      danger: '#b93a46',
+      info: '#1893cc',
+      terminal: '#fcfcfc',
+      glassBase: '239, 240, 241',
     },
   },
 }
 
 export const ACCENT_CHOICES: { id: string; label: string; value: string }[] = [
-  { id: 'default', label: 'System', value: '' },
-  { id: 'blue', label: 'Blue', value: '#007aff' },
-  { id: 'purple', label: 'Purple', value: '#af52de' },
-  { id: 'pink', label: 'Pink', value: '#ff2d55' },
-  { id: 'red', label: 'Red', value: '#ff3b30' },
-  { id: 'orange', label: 'Orange', value: '#ff9500' },
-  { id: 'yellow', label: 'Yellow', value: '#ffcc00' },
-  { id: 'green', label: 'Green', value: '#34c759' },
-  { id: 'teal', label: 'Teal', value: '#5ac8fa' },
-  { id: 'graphite', label: 'Graphite', value: '#8e8e93' },
+  { id: 'default', label: 'System blue', value: '' },
+  { id: 'blue', label: 'Blue', value: '#0A84FF' },
+  { id: 'purple', label: 'Purple', value: '#AF52DE' },
+  { id: 'pink', label: 'Pink', value: '#FF2D55' },
+  { id: 'red', label: 'Red', value: '#FF3B30' },
+  { id: 'orange', label: 'Orange', value: '#FF9F0A' },
+  { id: 'yellow', label: 'Yellow', value: '#FFCC00' },
+  { id: 'green', label: 'Green', value: '#32D74B' },
+  { id: 'teal', label: 'Teal', value: '#5AC8FA' },
+  { id: 'graphite', label: 'Graphite', value: '#8E8E93' },
 ]
 
 export const DENSITY_SCALE: Record<Density, { unit: number; control: number; fs: number }> = {
@@ -730,14 +433,23 @@ export const DENSITY_SCALE: Record<Density, { unit: number; control: number; fs:
 }
 
 export const DEFAULT_SETTINGS: ThemeSettings = {
-  theme: 'mac-dark',
+  theme: 'os-dark',
   accent: null,
   accents: {},
   density: 'comfortable',
   glass: 2,
   motion: 'auto',
-  glow: true,
+  followSystem: true,
+  glow: false,
+  wallpaper: 'slopes-dark',
 }
+
+/** Static wallpaper catalogue — original gradient artwork, no third-party assets. */
+export const WALLPAPERS: { id: string; label: string }[] = [
+  { id: 'slopes-dark', label: 'Dark slopes' },
+  { id: 'slopes-light', label: 'Light slopes' },
+  { id: 'dunes', label: 'Night dunes' },
+]
 
 // ── colour helpers ────────────────────────────────────────────────────────
 
@@ -766,116 +478,142 @@ export function mix(hex: string, target: string, amount: number): string {
   return `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`
 }
 
+/** Parse `#hex` or `rgba()/rgb()` into channels for contrast math. */
+export function parseColor(color: string): [number, number, number, number] {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim())
+  if (hex) {
+    const [r, g, b] = hexToRgb(hex[1].length === 3 ? `#${hex[1]}` : `#${hex[1]}`)
+    return [r, g, b, 1]
+  }
+  const m = /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/.exec(color)
+  if (m) return [+m[1], +m[2], +m[3], m[4] === undefined ? 1 : +m[4]]
+  return [0, 0, 0, 1]
+}
+
+/** Composite a translucent foreground over an opaque background. */
+export function compositeOver(fg: string, bg: string): [number, number, number] {
+  const [fr, fb, fbb, fa] = parseColor(fg)
+  const [br, bgc, bb] = parseColor(bg)
+  return [
+    Math.round(fr * fa + br * (1 - fa)),
+    Math.round(fb * fa + bgc * (1 - fa)),
+    Math.round(fbb * fa + bb * (1 - fa)),
+  ]
+}
+
+function channelLuma(c: number): number {
+  const s = c / 255
+  return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+}
+
+/** WCAG relative luminance of an opaque rgb triple. */
+export function relativeLuminance([r, g, b]: [number, number, number]): number {
+  return 0.2126 * channelLuma(r) + 0.7152 * channelLuma(g) + 0.0722 * channelLuma(b)
+}
+
+/** WCAG contrast ratio between two opaque colours (1–21). */
+export function contrastRatio(a: [number, number, number], b: [number, number, number]): number {
+  const l1 = relativeLuminance(a)
+  const l2 = relativeLuminance(b)
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)
+}
+
 /**
  * Build the full `--ui-*` custom property map for the active settings.
- * Everything the design system consumes is computed here — components and
- * panels only ever read the variables.
+ * Flat single-language output: fixed radius scale, SF stack, one flat
+ * shadow + 0.5px outline, glass ONLY on chrome surfaces.
  */
 export function buildCssVars(s: ThemeSettings): Record<string, string> {
-  const theme = THEMES[s.theme] ?? THEMES['mac-dark']
+  const theme = THEMES[s.theme] ?? THEMES['os-dark']
   const p = theme.palette
   const hexOk = (v: unknown): v is string =>
     typeof v === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)
   // General accent wins, then the active theme's per-theme entry, then the
-  // theme's built-in accent — so cybsh can recolor one theme or everything.
+  // theme's built-in accent.
   const generalAccent = hexOk(s.accent) ? s.accent : null
   const themeAccent = hexOk(s.accents?.[s.theme]) ? (s.accents[s.theme] as string) : null
   const accent = generalAccent ?? themeAccent ?? p.accent
-  const customAccent = generalAccent ?? themeAccent
   const [ar, ag, ab] = hexToRgb(accent)
   const accentRgb = `${ar}, ${ag}, ${ab}`
   const density = DENSITY_SCALE[s.density]
+  const shell: ShellStyle = s.shell ?? 'macos'
+  const plasma = shell === 'plasma'
 
-  // Vibrancy strength: 0 disables blur (solid fills), higher levels trade
-  // contrast for depth the way macOS materials do.
-  const glassAlpha = [1, 0.8, 0.62, 0.48][s.glass] ?? 0.62
-  const blur = [0, 16, 28, 44][s.glass] ?? 28
+  // Glass: solid (0) or translucent chrome. macOS blurs heavy (40px);
+  // plasma keeps it moderate (20px, panel/popups only).
+  const solid = s.glass === 0
+  const blur = solid ? 0 : plasma ? 20 : 40
+  const saturate = solid ? '100%' : plasma ? '140%' : '180%'
   const onAccentLuma = (() => {
     const [r, g, b] = hexToRgb(accent)
     return (r * 299 + g * 587 + b * 114) / 1000 > 145 ? '#1d1d1f' : '#ffffff'
   })()
 
-  const surfaceGlass = (base: string, a: number) => {
-    if (theme.mode === 'light') return `rgba(255, 255, 255, ${a})`
-    const [r, g, b] = base.split(',').map((n) => parseInt(n.trim(), 10))
-    return `rgba(${r}, ${g}, ${b}, ${a})`
-  }
+  // Flat depth: soft window shadow + outline. No glow, no neon.
+  const shadowColor = '0, 0, 0'
+  const shadowAlpha = theme.mode === 'light' ? [0.28, 0.18, 0.22] : [0.55, 0.35, 0.45]
+  const shadowOutline = plasma ? `0 0 0 1px ${p.border}` : `0 0 0 0.5px ${p.border}`
+  const shadowWindow = plasma
+    ? `0 8px 28px rgba(${shadowColor}, 0.45), ${shadowOutline}`
+    : `0 22px 70px rgba(${shadowColor}, ${shadowAlpha[0]}), ${shadowOutline}`
+  const shadowWindowIdle = plasma
+    ? `0 4px 14px rgba(${shadowColor}, 0.30), ${shadowOutline}`
+    : `0 10px 30px rgba(${shadowColor}, ${shadowAlpha[1]}), ${shadowOutline}`
+  const shadowMenu = plasma
+    ? `0 6px 20px rgba(${shadowColor}, 0.40), ${shadowOutline}`
+    : `0 8px 30px rgba(${shadowColor}, ${shadowAlpha[2]}), ${shadowOutline}`
+  const focusRing = plasma
+    ? `0 0 0 2px ${accent}`
+    : `0 0 0 3px color-mix(in srgb, ${accent} 45%, transparent)`
+  // Radius: macOS window 12 / menu 10 / control 6 / chip 4;
+  // plasma window 6 / popup 6 / control 4 / chip 3.
+  const radii = plasma
+    ? { xs: '3px', sm: '4px', md: '6px', lg: '6px', xl: '6px', x2: '8px', full: '999px' }
+    : SHAPE_RADII.soft
 
-  const shadowColor = theme.mode === 'light' ? '0, 0, 0' : '0, 0, 0'
-  const radii = SHAPE_RADII[theme.design.shape]
-
-  // Elevation character: flat themes barely lift, neon themes bleed accent
-  // light into the ambient shadow + focus rings, soft themes stay neutral.
-  // Layered long-tail shadows give the frosted-glass "floating panel" depth
-  // macOS Big Sur+ uses instead of a single hard drop shadow.
-  const elevation = theme.design.elevation
-  const shadow = {
-    soft: {
-      s1: `0 1px 2px rgba(${shadowColor}, 0.07), 0 2px 8px rgba(${shadowColor}, 0.07)`,
-      s2: `0 2px 6px rgba(${shadowColor}, 0.08), 0 8px 24px rgba(${shadowColor}, 0.12)`,
-      s3: `0 4px 12px rgba(${shadowColor}, 0.10), 0 16px 48px rgba(${shadowColor}, 0.20), 0 1px 2px rgba(${shadowColor}, 0.08)`,
-      glow: `0 0 0 3px rgba(${accentRgb}, 0.25)`,
-      glowSoft: `0 0 0 3px rgba(${accentRgb}, 0.12)`,
-    },
-    flat: {
-      s1: `0 1px 2px rgba(${shadowColor}, 0.06)`,
-      s2: `0 2px 6px rgba(${shadowColor}, 0.07)`,
-      s3: `0 6px 16px rgba(${shadowColor}, 0.10)`,
-      glow: `0 0 0 3px rgba(${accentRgb}, 0.25)`,
-      glowSoft: `0 0 0 3px rgba(${accentRgb}, 0.12)`,
-    },
-    neon: {
-      s1: `0 1px 2px rgba(${shadowColor}, 0.10), 0 2px 14px rgba(${accentRgb}, 0.16)`,
-      s2: `0 4px 12px rgba(${shadowColor}, 0.14), 0 8px 32px rgba(${accentRgb}, 0.20)`,
-      s3: `0 6px 16px rgba(${shadowColor}, 0.20), 0 24px 64px rgba(${accentRgb}, 0.28), 0 0 40px rgba(${accentRgb}, 0.24)`,
-      glow: `0 0 0 3px rgba(${accentRgb}, 0.38), 0 0 18px rgba(${accentRgb}, 0.25)`,
-      glowSoft: `0 0 0 3px rgba(${accentRgb}, 0.22), 0 0 12px rgba(${accentRgb}, 0.14)`,
-    },
-  }[elevation]
-
-  // Wallpaper ambience follows the theme: neon nights tint the aurora with
-  // accent light, flat themes stay pure, soft themes get a whisper of tint.
-  const auroraAlpha: [number, number] =
-    elevation === 'neon' ? [0.20, 0.12] : elevation === 'flat' ? [0, 0] : [0.07, 0.05]
+  const chromeBg = (v: string) => (solid ? p.surface : v)
 
   return {
-    // surfaces
+    // surfaces — content is FLAT SOLID, chrome is translucent glass
     '--ui-bg': p.bg,
     '--ui-bg-deep': p.bgDeep,
     '--ui-surface': p.surface,
     '--ui-surface-2': p.surface2,
     '--ui-surface-3': p.surface3,
-    '--ui-window': s.glass === 0 ? (theme.mode === 'light' ? '#f2f3f6' : '#1e1e21') : p.window,
-    '--ui-window-idle': p.windowIdle,
-    '--ui-content': surfaceGlass(p.glassBase, Math.min(0.96, glassAlpha + 0.16)),
-    // glass (macOS vibrancy: modest saturation, strong blur)
-    '--ui-glass': surfaceGlass(p.glassBase, glassAlpha * 0.92),
-    '--ui-glass-2': surfaceGlass(p.glassBase, Math.min(1, glassAlpha + 0.1)),
-    '--ui-glass-border': theme.mode === 'light' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.1)',
-    '--ui-glass-highlight': theme.mode === 'light' ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.09)',
-    '--ui-glass-sheen': theme.mode === 'light'
-      ? 'linear-gradient(180deg, rgba(255, 255, 255, 0.30) 0%, rgba(255, 255, 255, 0.06) 42%, transparent 100%)'
-      : 'linear-gradient(180deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.03) 42%, transparent 100%)',
+    '--ui-window': chromeBg(p.window),
+    '--ui-window-idle': chromeBg(p.windowIdle),
+    '--ui-sidebar': chromeBg(p.sidebar),
+    '--ui-panel': solid ? p.surface : p.panel,
+    '--ui-hover': p.hover,
+    '--ui-terminal': p.terminal,
+    '--ui-content': p.surface,
+    // glass — single class system, chrome only
+    '--ui-glass': chromeBg(p.window),
+    '--ui-glass-2': chromeBg(p.window),
+    '--ui-glass-border': p.border,
+    '--ui-glass-highlight': p.hairline,
+    '--ui-glass-sheen': 'none',
     '--ui-blur': `${blur}px`,
-    '--ui-blur-strong': `${Math.round(blur * 1.5)}px`,
-    '--ui-saturate': s.glass === 0 ? '100%' : '120%',
+    '--ui-blur-strong': `${blur}px`,
+    '--ui-saturate': saturate,
     // borders
     '--ui-border': p.border,
     '--ui-border-strong': p.borderStrong,
     '--ui-border-hover': p.borderHover,
     '--ui-hairline': p.hairline,
-    // text
+    '--ui-separator': p.separator,
+    // text — sentence case, solid, contrast-checked
     '--ui-text': p.text,
     '--ui-text-2': p.text2,
     '--ui-text-3': p.text3,
     '--ui-text-faint': p.textFaint,
-    // accent + status (single restrained accent; quiet focus ring)
+    // accent + status — single system blue
     '--ui-accent': accent,
     '--ui-accent-rgb': accentRgb,
-    '--ui-accent-soft': `rgba(${accentRgb}, 0.12)`,
+    '--ui-accent-soft': `rgba(${accentRgb}, 0.14)`,
     '--ui-accent-softer': `rgba(${accentRgb}, 0.08)`,
     '--ui-accent-strong': mix(accent, theme.mode === 'light' ? '#ffffff' : '#000000', 0.12),
-    '--ui-on-accent': customAccent ? onAccentLuma : p.onAccent,
+    '--ui-on-accent': p.onAccent === '#ffffff' || p.onAccent === '#000000' ? p.onAccent : onAccentLuma,
     '--ui-success': p.success,
     '--ui-success-rgb': hexToRgb(p.success).join(', '),
     '--ui-warning': p.warning,
@@ -884,7 +622,7 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-danger-rgb': hexToRgb(p.danger).join(', '),
     '--ui-info': p.info,
     '--ui-info-rgb': hexToRgb(p.info).join(', '),
-    // radius (shape language per theme — soft macOS, round pastel, sharp terminal)
+    // radius — one fixed scale
     '--ui-radius-xs': radii.xs,
     '--ui-radius-sm': radii.sm,
     '--ui-radius-md': radii.md,
@@ -892,17 +630,23 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-radius-xl': radii.xl,
     '--ui-radius-2xl': radii.x2,
     '--ui-radius-full': radii.full,
-    // elevation (shadow + glow character per theme)
-    '--ui-shadow-1': shadow.s1,
-    '--ui-shadow-2': shadow.s2,
-    '--ui-shadow-3': shadow.s3,
-    '--ui-glow': shadow.glow,
-    '--ui-glow-soft': shadow.glowSoft,
-    // wallpaper ambience (accent-tinted aurora washes)
-    '--ui-aurora-a': `rgba(${accentRgb}, ${auroraAlpha[0]})`,
-    '--ui-aurora-b': `rgba(${accentRgb}, ${auroraAlpha[1]})`,
-    // typography (typeface personality per theme + density-scaled sizes)
-    '--ui-font': FONT_STACKS[theme.design.font],
+    // depth — flat shadows + focus ring (no glow)
+    '--ui-shadow-window': shadowWindow,
+    '--ui-shadow-window-idle': shadowWindowIdle,
+    '--ui-shadow-menu': shadowMenu,
+    '--ui-shadow-popup': shadowMenu,
+    '--ui-focus-ring': focusRing,
+    '--ui-shadow-1': shadowWindowIdle,
+    '--ui-shadow-2': shadowMenu,
+    '--ui-shadow-3': shadowWindow,
+    // deprecated glow/aurora — mapped to flat equivalents so old markup
+    // renders without neon; do not use in new code.
+    '--ui-glow': focusRing,
+    '--ui-glow-soft': focusRing,
+    '--ui-aurora-a': 'transparent',
+    '--ui-aurora-b': 'transparent',
+    // typography — SF stack, sentence case
+    '--ui-font': SYSTEM_STACK,
     '--ui-font-mono':
       "'SF Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace",
     '--ui-fs-xs': `${(11 * density.fs).toFixed(1)}px`,
@@ -912,22 +656,25 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-fs-xl': `${(17 * density.fs).toFixed(1)}px`,
     '--ui-fs-2xl': `${(21 * density.fs).toFixed(1)}px`,
     '--ui-fs-3xl': `${(28 * density.fs).toFixed(1)}px`,
-    '--ui-tracking': theme.design.font === 'mono' ? '0.02em' : '0',
-    '--ui-tracking-wide': FONT_TRACKING_WIDE[theme.design.font],
-    // spacing / sizing
+    '--ui-tracking': '0',
+    '--ui-tracking-wide': '0.01em',
+    // spacing / sizing — titlebar 28 (macOS) / 30 (plasma); the bottom
+    // panel owns 44px in plasma, the menu bar owns 24px in macOS.
     '--ui-unit': `${density.unit}`,
     '--ui-space': `${(8 * density.unit).toFixed(2)}px`,
     '--ui-space-2': `${(16 * density.unit).toFixed(2)}px`,
     '--ui-space-3': `${(24 * density.unit).toFixed(2)}px`,
     '--ui-control-h': `${density.control}px`,
-    '--ui-titlebar-h': `${Math.round(density.control * 1.14)}px`,
-    // motion (calm, macOS-like)
-    '--ui-dur-fast': '100ms',
-    '--ui-dur': '160ms',
-    '--ui-dur-slow': '260ms',
-    '--ui-ease': 'cubic-bezier(0.32, 0.72, 0, 1)',
-    '--ui-ease-out': 'cubic-bezier(0.22, 1, 0.36, 1)',
-    '--ui-ease-spring': 'cubic-bezier(0.3, 1.2, 0.4, 1)',
+    '--ui-titlebar-h': plasma ? '30px' : '28px',
+    '--ui-panel-h': plasma ? '44px' : '0px',
+    '--ui-menubar-h': plasma ? '0px' : '24px',
+    // motion — macOS 120/200, plasma 100/150, ease-out, no spring
+    '--ui-dur-fast': plasma ? '100ms' : '120ms',
+    '--ui-dur': plasma ? '150ms' : '200ms',
+    '--ui-dur-slow': plasma ? '220ms' : '280ms',
+    '--ui-ease': 'ease-out',
+    '--ui-ease-out': 'ease-out',
+    '--ui-ease-spring': 'ease-out',
     // legacy aliases (older markup still reads these)
     '--bg-deep': p.bg,
     '--bg-surface': p.surface,
@@ -940,7 +687,7 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--text-secondary': p.text2,
     '--text-muted': p.text3,
     '--accent': accent,
-    '--accent-dim': `rgba(${accentRgb}, 0.12)`,
+    '--accent-dim': `rgba(${accentRgb}, 0.14)`,
     '--danger': p.danger,
     '--warning': p.warning,
     '--success': p.success,
@@ -948,9 +695,9 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--radius-md': radii.md,
     '--radius-lg': radii.lg,
     '--radius-xl': radii.xl,
-    '--shadow-window': shadow.s3,
-    '--shadow-dropdown': shadow.s2,
-    '--shadow-card': shadow.s1,
+    '--shadow-window': shadowWindow,
+    '--shadow-dropdown': shadowMenu,
+    '--shadow-card': 'none',
     '--scrollbar-track': 'transparent',
     '--scrollbar-thumb': p.borderStrong,
     '--scrollbar-thumb-hover': p.borderHover,

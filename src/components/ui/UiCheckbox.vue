@@ -92,14 +92,10 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 
 .ui-checkbox--on .ui-checkbox__box,
 .ui-checkbox--mixed .ui-checkbox__box {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--ui-accent) 88%, white),
-    var(--ui-accent)
-  );
-  border-color: color-mix(in srgb, var(--ui-accent) 70%, transparent);
+  background: var(--ui-accent);
+  border-color: transparent;
   color: var(--ui-on-accent);
-  box-shadow: var(--ui-glow-soft);
+  box-shadow: none;
 }
 
 .ui-checkbox--on .ui-checkbox__label {

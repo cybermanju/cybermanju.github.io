@@ -9,9 +9,19 @@
 import { computed, onMounted, ref } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { useAppStore } from '@/stores/app'
+import { useTheme } from '@/composables/useTheme'
 import { getServerUrl } from '@/composables/useTauri'
 
 const store = useAppStore()
+const isPlasma = computed(() => useTheme().shellStyle.value === 'plasma')
+
+function powerRestart() {
+  window.location.reload()
+}
+
+function powerSetup() {
+  window.dispatchEvent(new CustomEvent('cybermanju:open-setup'))
+}
 
 const mode = ref<'login' | 'register'>('login')
 const username = ref('')
@@ -80,11 +90,9 @@ const serverLabel = computed(() => {
   <div class="auth-gate" role="dialog" aria-modal="true" aria-labelledby="auth-gate-title">
     <div class="auth-card">
       <div class="auth-brand">
-        <img class="auth-logo" src="/bhumisparsha.png" alt="Bhumisparsha" width="40" height="40" />
-        <div>
-          <h1 id="auth-gate-title" class="auth-title">{{ heading }}</h1>
-          <p class="auth-sub">{{ serverLabel }}</p>
-        </div>
+        <img class="auth-logo" src="/bhumisparsha.png" alt="Bhumisparsha" width="64" height="64" />
+        <h1 id="auth-gate-title" class="auth-title">{{ heading }}</h1>
+        <p class="auth-sub">{{ serverLabel }}</p>
       </div>
 
       <p v-if="mode === 'register'" class="auth-hint">
@@ -181,6 +189,14 @@ const serverLabel = computed(() => {
         then remove them after the first login.
       </p>
     </div>
+    <div v-if="isPlasma" class="auth-power">
+      <button type="button" class="auth-pow" title="Restart" @click="powerRestart">
+        <AppIcon name="solar:restart-bold" :size="15" />
+      </button>
+      <button type="button" class="auth-pow" title="Setup" @click="powerSetup">
+        <AppIcon name="solar:settings-bold" :size="15" />
+      </button>
+    </div>
   </div>
 </template>
 
@@ -193,46 +209,49 @@ const serverLabel = computed(() => {
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background:
-    radial-gradient(1200px 600px at 50% -10%, var(--ui-aurora-a), transparent),
-    color-mix(in srgb, var(--ui-bg-deep) 78%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: rgba(0, 0, 0, 0.45);
+}
+[data-ui-mode='light'] .auth-gate {
+  background: rgba(236, 236, 236, 0.55);
 }
 .auth-card {
-  width: min(430px, 100%);
+  width: min(340px, 100%);
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-lg);
   background: var(--ui-glass-2);
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  box-shadow: var(--ui-shadow-3), inset 0 1px 0 var(--ui-glass-highlight);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  box-shadow: var(--ui-shadow-menu);
   color: var(--ui-text);
-  padding: 22px 22px 16px;
+  padding: 28px 24px 18px;
 }
 .auth-brand {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   align-items: center;
-  margin-bottom: 10px;
+  text-align: center;
+  margin-bottom: 14px;
 }
 .auth-logo {
-  width: 40px;
-  height: 40px;
+  width: 64px;
+  height: 64px;
   object-fit: cover;
-  border-radius: var(--ui-radius-md);
+  border-radius: 50%;
   flex-shrink: 0;
+  border: 1px solid var(--ui-border);
 }
 .auth-title {
-  font-size: 17px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
   margin: 0;
-  letter-spacing: var(--ui-tracking-wide);
 }
 .auth-sub {
-  margin: 2px 0 0;
+  margin: 0;
   font-size: 12px;
-  color: var(--ui-text-3);
-  font-family: var(--ui-font-mono);
+  color: var(--ui-text-2);
+  font-family: var(--ui-font);
 }
 .auth-hint {
   font-size: 12.5px;
@@ -249,30 +268,28 @@ const serverLabel = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  opacity: 1;
+  font-size: 13px;
+  font-weight: 400;
 }
 .auth-field > span {
-  color: var(--ui-text-3);
+  font-size: 12px;
+  color: var(--ui-text-2);
 }
 .auth-input {
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-md);
-  background: color-mix(in srgb, var(--ui-text) 5%, transparent);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-surface-2);
   color: var(--ui-text);
-  padding: 10px 12px;
-  font-size: 14px;
+  padding: 7px 10px;
+  min-height: var(--ui-control-h);
+  font-size: 13px;
   font-family: var(--ui-font);
-  text-transform: none;
-  letter-spacing: normal;
   outline: none;
-  transition: border-color var(--ui-dur-fast) var(--ui-ease-out), box-shadow var(--ui-dur-fast) var(--ui-ease-out);
+  transition: border-color var(--ui-dur-fast) ease-out, box-shadow var(--ui-dur-fast) ease-out;
 }
 .auth-input:focus {
   border-color: var(--ui-accent);
-  box-shadow: var(--ui-glow-soft);
+  box-shadow: var(--ui-focus-ring);
 }
 .auth-error {
   font-size: 12.5px;
@@ -287,22 +304,19 @@ const serverLabel = computed(() => {
   gap: 8px;
   margin-top: 4px;
   border: 1px solid transparent;
-  border-radius: var(--ui-radius-md);
-  padding: 11px 14px;
-  font-size: 14px;
-  font-weight: 650;
+  border-radius: var(--ui-radius-sm);
+  min-height: var(--ui-control-h);
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 500;
   font-family: var(--ui-font);
   cursor: pointer;
   color: var(--ui-on-accent);
   background: var(--ui-accent);
-  box-shadow: var(--ui-shadow-1);
-  transition:
-    filter var(--ui-dur-fast) var(--ui-ease-out),
-    box-shadow var(--ui-dur-fast) var(--ui-ease-out);
+  transition: background-color var(--ui-dur-fast) ease-out;
 }
 .auth-submit:hover:not(:disabled) {
-  filter: brightness(1.06);
-  box-shadow: var(--ui-shadow-2);
+  background: var(--ui-accent-strong);
 }
 .auth-submit:disabled {
   opacity: 0.5;
@@ -339,5 +353,46 @@ const serverLabel = computed(() => {
 .auth-foot code {
   font-family: var(--ui-font-mono);
   font-size: 11px;
+}
+
+.auth-power {
+  display: none;
+}
+
+/* SDDM style in plasma: wallpaper shows through, power buttons bottom-left. */
+[data-ui-shell='plasma'] .auth-gate {
+  background: transparent;
+}
+
+[data-ui-shell='plasma'] .auth-card {
+  background: var(--ui-panel);
+  box-shadow: var(--ui-shadow-popup);
+}
+
+[data-ui-shell='plasma'] .auth-power {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  gap: 6px;
+}
+
+[data-ui-shell='plasma'] .auth-pow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-panel);
+  backdrop-filter: blur(20px) saturate(var(--ui-saturate));
+  border: 1px solid var(--ui-border);
+  color: var(--ui-text-2);
+  cursor: pointer;
+}
+
+[data-ui-shell='plasma'] .auth-pow:hover {
+  background: var(--ui-hover);
+  color: var(--ui-text);
 }
 </style>

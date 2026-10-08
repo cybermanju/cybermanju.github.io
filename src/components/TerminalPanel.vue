@@ -509,7 +509,7 @@ onMounted(async () => {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--ui-surface);
+  background: var(--ui-terminal);
   color: var(--ui-text);
   font-family: var(--ui-font-mono);
   font-size: 13px;
@@ -595,18 +595,18 @@ onMounted(async () => {
 }
 
 .term-scroll::-webkit-scrollbar {
-  width: 10px;
+  width: 8px;
 }
 
 .term-scroll::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ui-text) 28%, transparent);
   border-radius: var(--ui-radius-full);
-  border: 3px solid transparent;
+  border: 2px solid transparent;
   background-clip: content-box;
 }
 
 .term-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--ui-accent);
+  background: color-mix(in srgb, var(--ui-text) 42%, transparent);
   background-clip: content-box;
   border: 2px solid transparent;
 }

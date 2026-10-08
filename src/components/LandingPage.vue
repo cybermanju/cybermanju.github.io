@@ -293,10 +293,10 @@ onUnmounted(() => {
 
         <div class="launch-hint">
           <button class="launch-button" @click="emit('open-app')">
-            [ ENTER CYBERMANJU ]
+            Enter CyberManju
           </button>
           <button class="reboot-button" @click="restartBoot">
-            [ REBOOT ]
+            Reboot
           </button>
         </div>
         <div class="legal-hint">
@@ -333,27 +333,28 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-/* ── Boot Overlay ── */
+/* ── Boot Overlay: black screen, logo, thin progress bar ── */
 .boot-overlay {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--ui-surface);
+  background: #000000;
   z-index: 10;
 }
 
 .boot-terminal {
   width: 92vw;
-  max-width: 780px;
+  max-width: 420px;
   max-height: 70vh;
-  background: var(--ui-bg);
-  border: 1px solid color-mix(in srgb, var(--ui-accent) 15%, transparent);
-  border-radius: 8px;
-  padding: 24px 28px;
-  box-shadow: 0 0 40px color-mix(in srgb, var(--ui-accent) 3%, transparent),
-    inset 0 0 60px color-mix(in srgb, var(--ui-bg-deep) 56%, transparent);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  background: transparent;
+  border: none;
+  padding: 24px;
   overflow: hidden;
 }
 
@@ -361,40 +362,55 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  width: 100%;
+  max-height: 180px;
+  overflow: hidden;
 }
 
 .boot-line {
-  color: var(--ui-accent);
-  font-size: 13px;
+  color: rgba(245, 245, 247, 0.55);
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
   line-height: 1.5;
-  text-shadow: 0 0 4px color-mix(in srgb, var(--ui-accent) 20%, transparent);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
+.boot-line:last-child {
+  color: rgba(245, 245, 247, 0.85);
+}
+
 .boot-progress {
-  margin-top: 16px;
-  padding: 0 4px;
+  width: 220px;
+  max-width: 60vw;
+  padding: 0;
 }
 
 .progress-track {
   width: 100%;
-  height: 3px;
-  background: color-mix(in srgb, var(--ui-accent) 10%, transparent);
+  height: 4px;
+  background: rgba(255, 255, 255, 0.18);
   border-radius: 2px;
   overflow: hidden;
 }
 
 .progress-fill {
   height: 100%;
-  background: var(--ui-accent);
+  background: #ffffff;
+  border-radius: 2px;
   transition: width 0.1s linear;
-  box-shadow: 0 0 8px color-mix(in srgb, var(--ui-accent) 40%, transparent);
+}
+
+.boot-pct {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(245, 245, 247, 0.55);
 }
 
 .cursor-block {
   display: inline-block;
-  color: var(--ui-accent);
+  color: rgba(245, 245, 247, 0.7);
   animation: blink 500ms step-end infinite;
   margin-top: 4px;
 }
@@ -428,9 +444,8 @@ onUnmounted(() => {
   text-align: center;
   font-size: 11px;
   line-height: 1.15;
-  color: var(--ui-accent);
-  text-shadow: 0 0 6px color-mix(in srgb, var(--ui-accent) 25%, transparent);
-  letter-spacing: 1px;
+  color: var(--ui-text-3);
+  letter-spacing: 0;
   transition: opacity 0.05s;
   user-select: none;
 }
@@ -447,7 +462,7 @@ onUnmounted(() => {
 
 .particle {
   position: absolute;
-  color: color-mix(in srgb, var(--ui-accent) 15%, transparent);
+  color: var(--ui-text-faint);
   font-size: 8px;
   animation: float 4s ease-in-out infinite;
 }
@@ -457,19 +472,19 @@ onUnmounted(() => {
   50% { transform: translateY(-20px) scale(1.5); opacity: 0.8; }
 }
 
-/* ── Module report (ready screen — NOT a terminal) ── */
+/* ── Module report (ready screen — flat card, no glow) ── */
 .boot-report {
   position: relative;
   z-index: 2;
   width: 92vw;
-  max-width: 680px;
+  max-width: 560px;
   max-height: 46vh;
   overflow-y: auto;
-  background: color-mix(in srgb, var(--ui-bg-deep) 62%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ui-accent) 25%, transparent);
-  border-radius: 8px;
-  padding: 16px 20px;
-  box-shadow: 0 4px 24px color-mix(in srgb, var(--ui-bg-deep) 42%, transparent);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  padding: 20px 22px;
+  box-shadow: var(--ui-shadow-menu);
 }
 
 .report-brand {
@@ -478,10 +493,11 @@ onUnmounted(() => {
   margin-bottom: 10px;
 }
 .report-brand img {
-  width: 72px;
-  height: 72px;
+  width: 56px;
+  height: 56px;
   object-fit: cover;
-  border-radius: 14px;
+  border-radius: 50%;
+  border: 1px solid var(--ui-border);
 }
 
 .report-head {
@@ -493,21 +509,26 @@ onUnmounted(() => {
 }
 
 .report-title {
-  color: var(--ui-accent);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 1px;
+  color: var(--ui-text);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: lowercase;
+}
+
+.report-title::first-letter {
+  text-transform: uppercase;
 }
 
 .report-counts {
-  color: color-mix(in srgb, var(--ui-accent) 70%, transparent);
+  color: var(--ui-text-2);
   font-size: 11px;
   white-space: nowrap;
 }
 
 .report-quote {
-  color: color-mix(in srgb, var(--ui-accent) 55%, transparent);
-  font-size: 11px;
+  color: var(--ui-text-2);
+  font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
   margin-bottom: 10px;
@@ -523,18 +544,23 @@ onUnmounted(() => {
   display: flex;
   gap: 10px;
   align-items: baseline;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
 .report-name {
-  color: var(--ui-accent);
-  font-weight: 700;
+  color: var(--ui-text);
+  font-weight: 600;
   min-width: 92px;
+  text-transform: lowercase;
+}
+
+.report-name::first-letter {
+  text-transform: uppercase;
 }
 
 .report-detail {
-  color: color-mix(in srgb, var(--ui-text) 75%, transparent);
+  color: var(--ui-text-2);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -543,8 +569,8 @@ onUnmounted(() => {
 }
 
 .report-flag {
-  color: var(--ui-accent);
-  font-weight: 700;
+  color: var(--ui-success);
+  display: inline-flex;
 }
 
 .report-row.warn .report-flag {
@@ -552,21 +578,18 @@ onUnmounted(() => {
 }
 
 .report-row.warn .report-detail {
-  color: color-mix(in srgb, var(--ui-warning) 75%, transparent);
+  color: var(--ui-text-2);
 }
 
 .report-hint {
   margin-top: 10px;
-  color: color-mix(in srgb, var(--ui-accent) 40%, transparent);
-  font-size: 10px;
-  letter-spacing: 0.5px;
+  color: var(--ui-text-3);
+  font-size: 11px;
+  text-transform: lowercase;
 }
 
-.boot-pct {
-  margin-top: 6px;
-  color: color-mix(in srgb, var(--ui-accent) 60%, transparent);
-  font-size: 11px;
-  text-align: right;
+.report-hint::first-letter {
+  text-transform: uppercase;
 }
 
 /* ── Launch Buttons ── */
@@ -574,34 +597,43 @@ onUnmounted(() => {
   position: relative;
   z-index: 2;
   display: flex;
-  gap: 12px;
+  gap: 8px;
 }
 
-.launch-button, .reboot-button {
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--ui-accent) 30%, transparent);
-  border-radius: 6px;
-  color: var(--ui-accent);
+.launch-button {
+  background: var(--ui-accent);
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-on-accent);
   font-family: var(--ui-font);
-  font-size: 12px;
-  font-weight: 700;
-  padding: 10px 24px;
+  font-size: 13px;
+  font-weight: 500;
+  min-height: var(--ui-control-h);
+  padding: 0 20px;
   cursor: pointer;
-  text-shadow: 0 0 4px color-mix(in srgb, var(--ui-accent) 20%, transparent);
-  transition: all 0.15s;
-  letter-spacing: 1px;
+  transition: background-color var(--ui-dur-fast) ease-out;
 }
 
 .launch-button:hover {
-  background: color-mix(in srgb, var(--ui-accent) 10%, transparent);
-  border-color: var(--ui-accent);
-  box-shadow: 0 0 16px color-mix(in srgb, var(--ui-accent) 20%, transparent);
+  background: var(--ui-accent-strong);
+}
+
+.reboot-button {
+  background: var(--ui-surface-2);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-text);
+  font-family: var(--ui-font);
+  font-size: 13px;
+  font-weight: 500;
+  min-height: var(--ui-control-h);
+  padding: 0 20px;
+  cursor: pointer;
+  transition: background-color var(--ui-dur-fast) ease-out;
 }
 
 .reboot-button:hover {
-  background: color-mix(in srgb, var(--ui-danger) 12%, transparent);
-  border-color: var(--ui-danger);
-  color: var(--ui-danger);
+  background: var(--ui-surface-3);
 }
 
 /* Legal links (Google OAuth verification requires them on the homepage). */
@@ -613,17 +645,16 @@ onUnmounted(() => {
   gap: 10px;
   justify-content: center;
   font-size: 11px;
-  letter-spacing: 0.5px;
-  color: color-mix(in srgb, var(--ui-accent) 40%, transparent);
+  color: var(--ui-text-3);
 }
 
 .legal-hint a {
-  color: color-mix(in srgb, var(--ui-accent) 65%, transparent);
+  color: var(--ui-text-2);
   text-decoration: none;
 }
 
 .legal-hint a:hover {
-  color: var(--ui-accent);
+  color: var(--ui-text);
   text-decoration: underline;
 }
 

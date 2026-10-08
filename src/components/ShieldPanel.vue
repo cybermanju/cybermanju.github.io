@@ -316,7 +316,7 @@ async function handleCompress() {
   color: var(--ui-accent);
 }
 .header-text { min-width: 0; }
-.panel-title { font-size: 13px; font-weight: 700; margin: 0; letter-spacing: var(--ui-tracking-wide); }
+.panel-title { font-size: 13px; font-weight: 600; margin: 0; letter-spacing: 0; }
 .panel-subtitle {
   margin: 2px 0 0;
   font-size: 11px;
@@ -362,7 +362,7 @@ async function handleCompress() {
 }
 .sh-tabs button:focus-visible {
   outline: none;
-  box-shadow: var(--ui-glow-soft);
+  box-shadow: var(--ui-focus-ring);
 }
 
 .sh-shield, .sh-compress { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
@@ -371,10 +371,7 @@ async function handleCompress() {
 .status-hero {
   border-radius: var(--ui-radius-lg);
   border: 1px solid var(--ui-border);
-  background: var(--ui-glass);
-  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
-  box-shadow: var(--ui-shadow-1), inset 0 1px 0 var(--ui-glass-highlight);
+  background: var(--ui-surface);
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -382,7 +379,6 @@ async function handleCompress() {
 }
 .status-hero.is-protected {
   border-color: color-mix(in srgb, var(--ui-success) 45%, transparent);
-  box-shadow: var(--ui-shadow-2), 0 0 24px color-mix(in srgb, var(--ui-success) 14%, transparent);
 }
 .status-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .status-algo { font-size: 12px; font-weight: 700; }
@@ -390,11 +386,10 @@ async function handleCompress() {
 .meta-row { display: flex; align-items: baseline; gap: 8px; font-size: 11px; }
 .meta-label {
   min-width: 52px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: var(--ui-tracking-wide);
-  text-transform: uppercase;
-  color: var(--ui-text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--ui-text-2);
 }
 .meta-value { min-width: 0; overflow-wrap: anywhere; }
 .unprotected-msg { font-size: 12px; line-height: 1.5; color: var(--ui-text-2); margin: 0; }
@@ -402,11 +397,10 @@ async function handleCompress() {
 /* ── NIST meter ── */
 .nist-meter { display: flex; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid var(--ui-hairline); }
 .nist-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: var(--ui-tracking-wide);
-  text-transform: uppercase;
-  color: var(--ui-text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--ui-text-2);
   white-space: nowrap;
 }
 .nist-segs { flex: 1; display: flex; gap: 4px; }
@@ -417,8 +411,7 @@ async function handleCompress() {
   background: color-mix(in srgb, var(--ui-text) 10%, transparent);
 }
 .nist-seg.filled {
-  background: linear-gradient(90deg, var(--ui-accent), var(--ui-accent-strong));
-  box-shadow: 0 0 8px color-mix(in srgb, var(--ui-accent) 45%, transparent);
+  background: var(--ui-accent);
 }
 .nist-num { font-size: 10px; font-weight: 700; color: var(--ui-text-3); }
 
@@ -451,9 +444,8 @@ async function handleCompress() {
 .sh-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .section-title {
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: var(--ui-tracking-wide);
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0;
   color: var(--ui-text-2);
   margin: 0;
   display: flex;
@@ -525,11 +517,10 @@ async function handleCompress() {
 .action-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
 .field { flex: 1 1 160px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .field-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: var(--ui-tracking-wide);
-  text-transform: uppercase;
-  color: var(--ui-text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--ui-text-2);
 }
 .sh-select {
   appearance: none;
@@ -552,7 +543,7 @@ async function handleCompress() {
   cursor: pointer;
 }
 .sh-select:hover { border-color: var(--ui-border-hover); }
-.sh-select:focus-visible { outline: none; border-color: var(--ui-accent); box-shadow: var(--ui-glow-soft); }
+.sh-select:focus-visible { outline: none; border-color: var(--ui-accent); box-shadow: var(--ui-focus-ring); }
 
 /* ── compress picker cards ── */
 .algo-pick {
@@ -566,20 +557,14 @@ async function handleCompress() {
   color: var(--ui-text);
   border-radius: var(--ui-radius-md);
   border: 1px solid var(--ui-border);
-  background: var(--ui-glass);
-  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
-  box-shadow: var(--ui-shadow-1);
+  background: var(--ui-surface);
   cursor: pointer;
-  transition:
-    border-color var(--ui-dur-fast) var(--ui-ease-out),
-    box-shadow var(--ui-dur) var(--ui-ease-out),
-    transform var(--ui-dur-fast) var(--ui-ease-out);
+  transition: border-color var(--ui-dur-fast) ease-out;
 }
-.algo-pick:hover:not(:disabled) { border-color: var(--ui-border-hover); transform: translateY(-1px); }
+.algo-pick:hover:not(:disabled) { border-color: var(--ui-border-hover); }
 .algo-pick.selected {
-  border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent);
-  box-shadow: var(--ui-shadow-1), var(--ui-glow-soft);
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-focus-ring);
 }
 .algo-pick:disabled { opacity: 0.45; cursor: not-allowed; }
 .algo-pick-check {

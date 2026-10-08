@@ -24,7 +24,6 @@
       <span v-if="!iconOnly" class="ui-btn__label"><slot /></span>
       <AppIcon v-if="iconRight && !iconOnly" :name="iconRight" :size="iconSize" />
     </span>
-    <span class="ui-btn__glow" aria-hidden="true" />
   </button>
 </template>
 
@@ -43,7 +42,10 @@ const props = withDefaults(
     block?: boolean
     active?: boolean
     type?: 'button' | 'submit' | 'reset'
-    /** Animated press ripple (disabled under reduced motion). */
+    /**
+     * Press ripple — off by default (flat controls). Enable per-button
+     * only where press feedback needs emphasis.
+     */
     ripple?: boolean
   }>(),
   {
@@ -56,7 +58,7 @@ const props = withDefaults(
     block: false,
     active: false,
     type: 'button',
-    ripple: true,
+    ripple: false,
   }
 )
 
@@ -113,7 +115,7 @@ function onClick(event: MouseEvent) {
 
 .ui-btn:focus-visible {
   outline: none;
-  box-shadow: var(--ui-glow-soft);
+  box-shadow: var(--ui-focus-ring);
   border-color: var(--ui-accent);
 }
 
@@ -233,11 +235,7 @@ function onClick(event: MouseEvent) {
   animation: ui-spin 0.8s linear infinite;
 }
 
-.ui-btn__glow {
-  display: none;
-}
-
-/* ripple: quiet neutral press feedback */
+/* ripple: quiet neutral press feedback (opt-in per button) */
 .ui-btn__ripple {
   position: absolute;
   width: 12px;

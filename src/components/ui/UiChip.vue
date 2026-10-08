@@ -1,7 +1,7 @@
 <template>
   <span
     class="ui-chip"
-    :class="{ 'ui-chip--active': active, 'ui-chip--square': square }"
+    :class="{ 'ui-chip--active': active, 'ui-chip--pill': pill }"
     role="button"
     tabindex="0"
     :aria-pressed="active"
@@ -34,9 +34,11 @@ withDefaults(
     count?: number
     active?: boolean
     removable?: boolean
+    /** @deprecated Chips are flat 4px by default now; kept for compat. */
     square?: boolean
+    pill?: boolean
   }>(),
-  { label: '', icon: '', active: false, removable: false, square: false }
+  { label: '', icon: '', active: false, removable: false, square: false, pill: false }
 )
 
 const emit = defineEmits<{ click: [event: MouseEvent]; remove: [event: MouseEvent] }>()
@@ -51,7 +53,7 @@ const emit = defineEmits<{ click: [event: MouseEvent]; remove: [event: MouseEven
   padding: 0 11px;
   background: color-mix(in srgb, var(--ui-text) 6%, var(--ui-surface-2));
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-full);
+  border-radius: var(--ui-radius-xs);
   color: var(--ui-text-2);
   font-family: var(--ui-font);
   font-size: var(--ui-fs-xs);
@@ -76,11 +78,11 @@ const emit = defineEmits<{ click: [event: MouseEvent]; remove: [event: MouseEven
 .ui-chip:focus-visible {
   outline: none;
   border-color: var(--ui-accent);
-  box-shadow: var(--ui-glow-soft);
+  box-shadow: var(--ui-focus-ring);
 }
 
-.ui-chip--square {
-  border-radius: var(--ui-radius-sm);
+.ui-chip--pill {
+  border-radius: var(--ui-radius-full);
 }
 
 .ui-chip--active {

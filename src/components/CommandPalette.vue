@@ -252,35 +252,34 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
   }
 }
 
-.cp-modal {width: 520px;
+.cp-modal {width: 560px;
   max-width: 90vw;
   max-height: 440px;
   background: var(--ui-glass-2);
-  border: 1px solid color-mix(in srgb, var(--ui-text) 13%, transparent);
-  box-shadow: var(--ui-shadow-3), inset 0 1px 0 var(--ui-glass-highlight);
+  border: 1px solid var(--ui-border);
+  box-shadow: var(--ui-shadow-menu);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: var(--ui-radius-xl);
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(170%);
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(170%);
-  animation: ui-pop var(--ui-dur) var(--ui-ease-out) both;
+  border-radius: var(--ui-radius-lg);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  animation: ui-fade-in var(--ui-dur) ease-out both;
 }
 
 .cp-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
-  border-bottom: 1px solid color-mix(in srgb, var(--ui-text) 8%, transparent);
-  background: var(--ui-glass);
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--ui-separator);
 }
 
 .cp-prompt {
-  color: var(--ui-text);
+  color: var(--ui-text-3);
   font-family: var(--ui-font);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 17px;
+  font-weight: 400;
 }
 
 .cp-input {
@@ -289,12 +288,13 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
   border: none;
   color: var(--ui-text);
   font-family: var(--ui-font);
-  font-size: 12px;
+  font-size: 17px;
+  font-weight: 400;
   outline: none;
 }
 
 .cp-input::placeholder {
-  color: color-mix(in srgb, var(--ui-text) 40%, transparent);
+  color: var(--ui-text-3);
 }
 
 .cp-results {
@@ -308,51 +308,50 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
 }
 
 .cp-group-label {
-  padding: 4px 12px;
+  padding: 6px 12px 2px;
   font-family: var(--ui-font);
-  font-size: 9px;
-  font-weight: 700;
-  color: color-mix(in srgb, var(--ui-text) 40%, transparent);
-  letter-spacing: 1px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ui-text-2);
+  letter-spacing: 0;
+  text-transform: lowercase;
+}
+
+.cp-group-label::first-letter {
+  text-transform: uppercase;
 }
 
 .cp-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 12px;
-  margin: 1px 6px;
+  min-height: 22px;
+  padding: 3px 8px;
+  margin: 1px 4px;
   border-radius: var(--ui-radius-sm);
   cursor: pointer;
   font-family: var(--ui-font);
-  font-size: 11px;
-  color: var(--ui-text-2);
-  border: 1px solid transparent;
-  transition:
-    background-color var(--ui-dur-fast) var(--ui-ease-out),
-    border-color var(--ui-dur-fast) var(--ui-ease-out),
-    color var(--ui-dur-fast) var(--ui-ease-out);
+  font-size: 13px;
+  color: var(--ui-text);
+  transition: background-color var(--ui-dur-fast) ease-out;
 }
 
 .cp-item:hover,
 .cp-item.active {
-  background: var(--ui-accent-softer);
-  border-color: color-mix(in srgb, var(--ui-accent) 40%, transparent);
-  color: var(--ui-text);
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
 }
 
 .cp-item-icon {
-  font-size: 11px;
   width: 20px;
   text-align: center;
   flex-shrink: 0;
-  color: var(--ui-text-3);
-  transition: color var(--ui-dur-fast) var(--ui-ease-out);
+  color: var(--ui-text-2);
 }
 
 .cp-item:hover .cp-item-icon,
 .cp-item.active .cp-item-icon {
-  color: var(--ui-accent);
+  color: inherit;
 }
 
 .cp-item-label {
@@ -360,15 +359,15 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
 }
 
 .cp-item-shortcut {
-  font-family: var(--ui-font-mono);
-  font-size: 9px;
-  color: color-mix(in srgb, var(--ui-text) 40%, transparent);
+  font-family: var(--ui-font);
+  font-size: 12px;
+  color: var(--ui-text-3);
   margin-left: 12px;
 }
 
 .cp-item:hover .cp-item-shortcut,
 .cp-item.active .cp-item-shortcut {
-  color: var(--ui-text-3);
+  color: var(--ui-on-accent);
 }
 
 .cp-empty {
@@ -398,12 +397,31 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
 
 .cp-foot {
   padding: 6px 12px;
-  border-top: 1px solid var(--ui-border);
-  font-family: var(--ui-font-mono);
-  font-size: 9px;
-  letter-spacing: 0.06em;
+  border-top: 1px solid var(--ui-separator);
+  font-family: var(--ui-font);
+  font-size: 11px;
+  color: var(--ui-text-3);
   text-align: center;
 }
 
 .text-muted { opacity: 0.5; }
+
+/* KRunner style in plasma: top-center, flat, single input, no heavy border. */
+[data-ui-shell='plasma'] .cp-overlay {
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 12px 12px;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+[data-ui-shell='plasma'] .cp-modal {
+  border: 1px solid var(--ui-border);
+  box-shadow: var(--ui-shadow-popup);
+}
+
+[data-ui-shell='plasma'] .cp-item {
+  border-radius: var(--ui-radius-sm);
+}
 </style>

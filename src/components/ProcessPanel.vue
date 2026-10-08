@@ -67,11 +67,11 @@ onBeforeUnmount(() => {
     <div class="panel-header">
       <div class="header-left">
         <span class="icon-processes"><AppIcon name="solar:cpu-bold" /></span>
-        <h2 class="panel-title">TASKS</h2>
-        <span class="text-muted">{{ counts ? `${counts.running} RUNNING / ${counts.total} TOTAL` : '…' }}</span>
+        <h2 class="panel-title">Tasks</h2>
+        <span class="text-muted">{{ counts ? `${counts.running} running / ${counts.total} total` : '…' }}</span>
       </div>
       <div class="header-right">
-        <button class="ghost-btn" type="button" @click="refresh">REFRESH</button>
+        <button class="ghost-btn" type="button" @click="refresh">Refresh</button>
       </div>
     </div>
 
@@ -103,17 +103,17 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:cpu-bold" :size="13" /> PROCESS TABLE</h3>
+      <h3 class="section-title"><AppIcon name="solar:cpu-bold" :size="13" /> Process table</h3>
       <table v-if="tasks.length" class="task-table">
         <thead>
           <tr>
             <th>PID</th>
-            <th>KIND</th>
-            <th>NAME</th>
-            <th>STATE</th>
-            <th>PROGRESS</th>
-            <th>PROVIDER</th>
-            <th>BYTES</th>
+            <th>Kind</th>
+            <th>Name</th>
+            <th>State</th>
+            <th>Progress</th>
+            <th>Provider</th>
+            <th>Bytes</th>
             <th></th>
           </tr>
         </thead>
@@ -123,7 +123,7 @@ onBeforeUnmount(() => {
             <td>{{ task.kind }}</td>
             <td class="truncate name-cell" :title="task.name">{{ task.name }}</td>
             <td>
-              <span class="state" :class="`state-${task.state}`">{{ task.state.toUpperCase() }}</span>
+              <span class="state" :class="`state-${task.state}`">{{ task.state }}</span>
             </td>
             <td class="progress-cell">
               <span class="bar"><span class="bar-fill" :style="{ width: `${pct(task)}%` }"></span></span>
@@ -138,7 +138,7 @@ onBeforeUnmount(() => {
                 type="button"
                 :aria-label="`Kill task ${task.id}`"
                 @click="kill(task)"
-              >KILL</button>
+              >Kill</button>
               <span v-else class="text-muted">—</span>
             </td>
           </tr>
@@ -148,7 +148,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:server-square-bold" :size="13" /> COMPUTE JOBS</h3>
+      <h3 class="section-title"><AppIcon name="solar:server-square-bold" :size="13" /> Compute jobs</h3>
       <div class="jobs">
         <div v-for="job in store.osJobs" :key="job.name" class="job">
           <div class="job-info">
@@ -161,12 +161,12 @@ onBeforeUnmount(() => {
             :disabled="starting"
             :aria-label="`Run ${job.name}`"
             @click="startJob(job.name)"
-          >RUN</button>
+          >Run</button>
         </div>
         <p v-if="!store.osJobs.length" class="text-muted empty">Catalogue not loaded.</p>
       </div>
       <label class="path-row">
-        <span class="text-muted">PATH</span>
+        <span class="text-muted">Path</span>
         <input v-model="jobPath" class="path-input" type="text" spellcheck="false" aria-label="Job path" />
       </label>
       <p v-if="note" class="note">{{ note }}</p>
@@ -254,9 +254,15 @@ onBeforeUnmount(() => {
 }
 
 .stat-key {
-  font-size: 10px;
-  color: color-mix(in srgb, var(--ui-text) 40%, transparent);
-  letter-spacing: 1px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ui-text-2);
+  letter-spacing: 0;
+  text-transform: lowercase;
+}
+
+.stat-key::first-letter {
+  text-transform: uppercase;
 }
 
 .stat-val {
@@ -270,27 +276,36 @@ onBeforeUnmount(() => {
 .section-title {
   margin: 0 0 8px;
   font-size: 11px;
-  letter-spacing: 1.5px;
-  color: color-mix(in srgb, var(--ui-text) 50%, transparent);
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--ui-text-2);
 }
 
 .task-table {
   width: 100%;
   border-collapse: collapse;
+  font-size: 12px;
 }
 
+/* Activity-Monitor style: 11px/600 secondary headers, zebra rows. */
 .task-table th {
   text-align: left;
-  font-size: 10px;
-  color: color-mix(in srgb, var(--ui-text) 40%, transparent);
-  border-bottom: 1px solid var(--ui-border);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--ui-text-2);
+  border-bottom: 1px solid var(--ui-separator);
   padding: 4px 6px;
 }
 
 .task-table td {
   padding: 5px 6px;
-  border-bottom: 1px solid var(--ui-border);
+  border-bottom: 1px solid var(--ui-hairline);
   vertical-align: middle;
+}
+
+.task-table tbody tr:nth-child(even):not(.sel) {
+  background: color-mix(in srgb, var(--ui-text) 3%, transparent);
 }
 
 .name-cell {

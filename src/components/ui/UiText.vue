@@ -98,9 +98,9 @@ const classes = computed(() => ({
   font-family: var(--ui-font);
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: var(--ui-text-3);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ui-text-2);
 }
 
 .ui-text--label {

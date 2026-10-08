@@ -1415,52 +1415,36 @@ fn script_journal_check(parsed: &serde_json::Value, source: &str) -> Result<Scri
     Ok(journal)
 }
 
+/// Flat AMOLED set plus the Breeze-like plasma pair.
 fn theme_ids() -> &'static [&'static str] {
     &[
-        "mac-light",
-        "mac-dark",
-        "mac-graphite-light",
-        "mac-graphite-dark",
-        "mac-midnight",
-        "ocean-light",
-        "sunset-light",
-        "forest-light",
-        "lavender-light",
-        "rose-light",
-        "ocean-night",
-        "forest-night",
-        "ember-night",
-        "nebula-night",
-        "cyber-night",
-        "matrix-night",
-        "cyberpunk-night",
+        "os-dark",
+        "os-light",
+        "os-graphite",
+        "plasma-dark",
+        "plasma-light",
     ]
 }
 
 fn canonical_theme(id: &str) -> Option<&'static str> {
     match id.to_lowercase().as_str() {
-        "mac-light" => Some("mac-light"),
-        "mac-dark" => Some("mac-dark"),
-        "mac-graphite-light" => Some("mac-graphite-light"),
-        "mac-graphite-dark" => Some("mac-graphite-dark"),
-        "mac-midnight" => Some("mac-midnight"),
-        "ocean-light" => Some("ocean-light"),
-        "sunset-light" => Some("sunset-light"),
-        "forest-light" => Some("forest-light"),
-        "lavender-light" => Some("lavender-light"),
-        "rose-light" => Some("rose-light"),
-        "ocean-night" => Some("ocean-night"),
-        "forest-night" => Some("forest-night"),
-        "ember-night" => Some("ember-night"),
-        "nebula-night" => Some("nebula-night"),
-        "cyber-night" => Some("cyber-night"),
-        "matrix-night" => Some("matrix-night"),
-        "cyberpunk-night" => Some("cyberpunk-night"),
-        "midnight" => Some("mac-midnight"),
-        "nebula" => Some("mac-dark"),
-        "ember" => Some("mac-dark"),
-        "daylight" => Some("mac-light"),
-        "ghostline" => Some("mac-dark"),
+        "os-dark" => Some("os-dark"),
+        "os-light" => Some("os-light"),
+        "os-graphite" => Some("os-graphite"),
+        "plasma-dark" => Some("plasma-dark"),
+        "plasma-light" => Some("plasma-light"),
+        "dark" => Some("os-dark"),
+        "light" => Some("os-light"),
+        "graphite" => Some("os-graphite"),
+        "plasma" => Some("plasma-dark"),
+        "auto" => Some("os-dark"),
+        // Pre-remake 17-theme ids migrate by mode.
+        "mac-light" | "mac-graphite-light" | "ocean-light" | "sunset-light" | "forest-light"
+        | "lavender-light" | "rose-light" | "daylight" => Some("os-light"),
+        "mac-dark" | "mac-midnight" | "ocean-night" | "forest-night" | "ember-night"
+        | "nebula-night" | "cyber-night" | "matrix-night" | "cyberpunk-night" | "midnight"
+        | "nebula" | "ember" | "ghostline" => Some("os-dark"),
+        "mac-graphite-dark" => Some("os-graphite"),
         _ => None,
     }
 }
@@ -1487,13 +1471,13 @@ struct UiSettings {
 impl UiSettings {
     fn defaults() -> Self {
         Self {
-            theme: "mac-light".to_string(),
+            theme: "os-dark".to_string(),
             accent: None,
             accents: Vec::new(),
             density: "comfortable".to_string(),
             glass: 2,
             motion: "auto".to_string(),
-            glow: true,
+            glow: false,
         }
     }
 
@@ -1524,7 +1508,7 @@ fn load_ui() -> UiSettings {
         .get("theme")
         .and_then(|v| v.as_str())
         .filter(|t| canonical_theme(t).is_some())
-        .unwrap_or("mac-light")
+        .unwrap_or("os-dark")
         .to_string();
     let accent = value
         .get("accent")
@@ -1547,18 +1531,18 @@ fn load_ui() -> UiSettings {
         .filter(|d| *d == "compact" || *d == "comfortable")
         .unwrap_or("comfortable")
         .to_string();
-    let glass = value
-        .get("glass")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(2)
-        .min(3) as u8;
+    // Flat remake: solid (0) or translucent (everything else collapses to 2).
+    let glass = match value.get("glass").and_then(|v| v.as_u64()).unwrap_or(2) {
+        0 => 0,
+        _ => 2,
+    };
     let motion = value
         .get("motion")
         .and_then(|v| v.as_str())
         .filter(|m| *m == "auto" || *m == "full" || *m == "reduced")
         .unwrap_or("auto")
         .to_string();
-    let glow = value.get("glow").and_then(|v| v.as_bool()).unwrap_or(true);
+    let glow = value.get("glow").and_then(|v| v.as_bool()).unwrap_or(false);
     UiSettings {
         theme,
         accent,
@@ -1605,11 +1589,10 @@ fn ui_line(s: &UiSettings) -> String {
 }
 
 fn parse_glass(raw: &str) -> Option<u8> {
+    // Flat remake: solid (0) or translucent (legacy levels collapse to 2).
     match raw.to_lowercase().as_str() {
-        "0" | "solid" => Some(0),
-        "1" | "light" => Some(1),
-        "2" | "default" => Some(2),
-        "3" | "rich" => Some(3),
+        "0" | "solid" | "off" => Some(0),
+        "1" | "light" | "2" | "default" | "translucent" | "on" | "3" | "rich" => Some(2),
         _ => None,
     }
 }
@@ -1742,7 +1725,7 @@ fn ui_cmd(args: &[String]) -> String {
             };
             let mut updated = s.clone();
             if let Some(t) = for_theme {
-                let canonical = canonical_theme(t).unwrap_or("mac-light");
+                let canonical = canonical_theme(t).unwrap_or("os-dark");
                 updated.accents.retain(|(k, _)| k != canonical);
                 if let Some(hex) = next.clone() {
                     updated.accents.push((canonical.to_string(), hex));
@@ -1796,7 +1779,7 @@ fn ui_cmd(args: &[String]) -> String {
                 Some(l) => l,
                 None => {
                     return err(format!(
-                        "invalid: bad glass '{want}' (use 0|solid, 1|light, 2|default, 3|rich)"
+                        "invalid: bad glass '{want}' (use 0|solid|off, 2|translucent|default|on)"
                     ))
                 }
             };
@@ -1855,7 +1838,7 @@ fn ui_cmd(args: &[String]) -> String {
             ok(format!("glow: {shown}\nui: glow={shown}"))
         }
         other => err(format!(
-            "usage: ui theme <id>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|1|light|2|default|3|rich>|motion <auto|full|reduced>|glow <on|off>|get (got `{other}`)"
+            "usage: ui theme <os-dark|os-light|os-graphite|plasma-dark|plasma-light>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|2|translucent>|motion <auto|full|reduced>|glow <on|off>|get (got `{other}`)"
         )),
     }
 }
@@ -4052,6 +4035,22 @@ fn cybermanju_os_version() -> u32 {
 mod tests {
     use super::*;
 
+    /// The dispatcher always envelopes (`ok`/`err`): `--json` payloads live
+    /// JSON-encoded INSIDE `output`, so unwrap one layer before asserting on
+    /// inner keys (the TS layer does the same `JSON.parse(inner)` in
+    /// `useTauri.ts`). Asserting on the raw envelope would look for
+    /// `"key"` but see only `\"key\"` and fail on correct output.
+    fn inner(envelope: &str) -> String {
+        serde_json::from_str::<serde_json::Value>(envelope)
+            .ok()
+            .and_then(|v| {
+                v.get("output")
+                    .and_then(|o| o.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| envelope.to_string())
+    }
+
     #[test]
     fn join_clamps_at_the_root() {
         assert_eq!(join("/a/b", "../.."), "/");
@@ -4335,7 +4334,7 @@ mod tests {
             "run",
             &["/run-demo/hello.cybsh".to_string(), "--json".to_string()],
         );
-        assert!(out.contains(r#""vars""#), "{out}");
+        assert!(inner(&out).contains(r#""vars""#), "{out}");
     }
 
     #[test]
@@ -4354,21 +4353,28 @@ mod tests {
 
     #[test]
     fn theme_and_ui_round_trip_with_effect_lines() {
-        let out = dispatch("theme", &["mac-dark".to_string()]);
+        let out = dispatch("theme", &["os-light".to_string()]);
         assert!(out.contains(r#""ok":true"#), "{out}");
-        assert!(out.contains("ui: theme=mac-dark"), "{out}");
+        assert!(out.contains("ui: theme=os-light"), "{out}");
         let out = dispatch("ui", &["accent".to_string(), "#ff2d55".to_string()]);
         assert!(out.contains("ui: accent=#ff2d55"), "{out}");
         let out = dispatch("ui", &["get".to_string()]);
-        assert!(out.contains("mac-dark"), "{out}");
+        assert!(out.contains("os-light"), "{out}");
         assert!(out.contains("#ff2d55"), "{out}");
         let out = dispatch("theme", &["nosuch".to_string()]);
         assert!(out.contains("invalid:"), "{out}");
         let out = dispatch("ui", &["accent".to_string(), "bogus".to_string()]);
         assert!(out.contains("invalid:"), "{out}");
+        // Legacy ids migrate by mode.
+        let out = dispatch("theme", &["matrix-night".to_string()]);
+        assert!(out.contains("ui: theme=os-dark"), "{out}");
+        let out = dispatch("theme", &["plasma-dark".to_string()]);
+        assert!(out.contains("ui: theme=plasma-dark"), "{out}");
+        let out = dispatch("theme", &["plasma-light".to_string()]);
+        assert!(out.contains("ui: theme=plasma-light"), "{out}");
         // Leave the shared volume theme clean for other tests.
-        let out = dispatch("ui", &["theme".to_string(), "mac-light".to_string()]);
-        assert!(out.contains("ui: theme=mac-light"), "{out}");
+        let out = dispatch("ui", &["theme".to_string(), "os-dark".to_string()]);
+        assert!(out.contains("ui: theme=os-dark"), "{out}");
         let out = dispatch("ui", &["accent".to_string(), "default".to_string()]);
         assert!(out.contains("ui: accent=system"), "{out}");
     }
@@ -4379,8 +4385,10 @@ mod tests {
         assert!(out.contains("ui: density=compact"), "{out}");
         let out = dispatch("ui", &["density".to_string(), "bogus".to_string()]);
         assert!(out.contains("invalid:"), "{out}");
+        let out = dispatch("ui", &["glass".to_string(), "translucent".to_string()]);
+        assert!(out.contains("ui: glass=2"), "{out}");
         let out = dispatch("ui", &["glass".to_string(), "rich".to_string()]);
-        assert!(out.contains("ui: glass=3"), "{out}");
+        assert!(out.contains("ui: glass=2"), "{out}");
         let out = dispatch("ui", &["motion".to_string(), "reduced".to_string()]);
         assert!(out.contains("ui: motion=reduced"), "{out}");
         let out = dispatch("ui", &["glow".to_string(), "off".to_string()]);
@@ -4391,25 +4399,26 @@ mod tests {
                 "accent".to_string(),
                 "#ff2d78".to_string(),
                 "--for".to_string(),
-                "cyberpunk-night".to_string(),
+                "os-dark".to_string(),
             ],
         );
         assert!(
-            out.contains("ui: accent-for=cyberpunk-night:#ff2d78"),
+            out.contains("ui: accent-for=os-dark:#ff2d78"),
             "{out}"
         );
         let out = dispatch("ui", &["get".to_string(), "--json".to_string()]);
-        assert!(out.contains(r#""density":"compact""#), "{out}");
-        assert!(out.contains(r#""glass":3"#), "{out}");
-        assert!(out.contains(r#""motion":"reduced""#), "{out}");
-        assert!(out.contains(r#""glow":false"#), "{out}");
-        assert!(out.contains(r##""cyberpunk-night":"#ff2d78""##), "{out}");
+        let body = inner(&out);
+        assert!(body.contains(r#""density":"compact""#), "{out} {body}");
+        assert!(body.contains(r#""glass":2"#), "{out} {body}");
+        assert!(body.contains(r#""motion":"reduced""#), "{out} {body}");
+        assert!(body.contains(r#""glow":false"#), "{out} {body}");
+        assert!(body.contains(r##""os-dark":"#ff2d78""##), "{out} {body}");
         // Restore defaults for other tests.
         for args in [
             vec!["density".to_string(), "comfortable".to_string()],
             vec!["glass".to_string(), "2".to_string()],
             vec!["motion".to_string(), "auto".to_string()],
-            vec!["glow".to_string(), "on".to_string()],
+            vec!["glow".to_string(), "off".to_string()],
         ] {
             let out = dispatch("ui", &args);
             assert!(out.contains(r#""ok":true"#), "{out}");
@@ -4420,11 +4429,11 @@ mod tests {
                 "accent".to_string(),
                 "default".to_string(),
                 "--for".to_string(),
-                "cyberpunk-night".to_string(),
+                "os-dark".to_string(),
             ],
         );
         assert!(
-            out.contains("ui: accent-for=cyberpunk-night:system"),
+            out.contains("ui: accent-for=os-dark:system"),
             "{out}"
         );
     }

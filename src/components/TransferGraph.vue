@@ -803,7 +803,7 @@ onMounted(async () => {
   background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 8px;
   color: var(--ui-text); font-family: inherit; font-size: 12px; padding: 7px 10px; outline: none; min-width: 0;
 }
-.tf-input:focus { border-color: var(--ui-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 15%, transparent); }
+.tf-input:focus { border-color: var(--ui-accent); box-shadow: var(--ui-focus-ring); }
 .tf-input.xs { font-size: 11px; padding: 4px 8px; width: 100%; }
 .tf-crumbs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 12px; padding-bottom: 7px; }
 .tf-link { background: none; border: none; color: var(--ui-info); cursor: pointer; font: inherit; padding: 0; border-radius: 4px; }

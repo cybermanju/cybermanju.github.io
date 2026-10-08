@@ -10,6 +10,7 @@ import { useDrag } from '@/composables/useDrag'
 import { useSwipe } from '@/composables/useSwipe'
 import { useTouchConfig, type TouchAction } from '@/composables/useTouchConfig'
 import { useWindowManager } from '@/composables/useWindowManager'
+import { useKickoff } from '@/composables/useKickoff'
 import { useFullscreen } from '@vueuse/core'
 import { finishSupabaseReturn, hydrateSupabaseConfig, refreshIdentity, isOAuthPopup, closeOAuthPopup } from '@/composables/useSupabase'
 import { migrateVaultFromLocalStorage } from '@/composables/useVault'
@@ -35,6 +36,34 @@ import type { PanelType } from '@/types'
 
 const store = useAppStore()
 const wm = useWindowManager()
+const kickoff = useKickoff()
+
+/**
+ * Meta+Arrow window snap (plasma). Halves/thirds against the measured
+ * workspace box; Up fills, Down centers a 70% window.
+ */
+function snapFocused(dir: 'left' | 'right' | 'up' | 'down') {
+  const a = wm.activeWindow.value
+  if (!a) return
+  const host = document.querySelector('.desktop-workspace') as HTMLElement | null
+  const w = host?.clientWidth || window.innerWidth
+  const h = host?.clientHeight || Math.max(400, window.innerHeight - 120)
+  if (dir === 'left') {
+    wm.updatePosition(a.id, 0, 0)
+    wm.updateSize(a.id, Math.floor(w / 2), h)
+  } else if (dir === 'right') {
+    wm.updatePosition(a.id, Math.ceil(w / 2), 0)
+    wm.updateSize(a.id, Math.floor(w / 2), h)
+  } else if (dir === 'up') {
+    wm.updatePosition(a.id, 0, 0)
+    wm.updateSize(a.id, w, h)
+  } else {
+    const nw = Math.floor(w * 0.7)
+    const nh = Math.floor(h * 0.7)
+    wm.updatePosition(a.id, Math.floor((w - nw) / 2), Math.floor((h - nh) / 2))
+    wm.updateSize(a.id, nw, nh)
+  }
+}
 
 // OS chrome: live tab title + multi-tab refresh bus (VueUse).
 // Title shows job/sync pressure at a glance; any tab that writes files
@@ -166,7 +195,7 @@ watch(() => store.searchResults, (results) => {
 
 const confirmVisible = ref(false)
 const confirmMessage = ref('')
-const confirmTitle = ref('CONFIRM')
+const confirmTitle = ref('Confirm')
 
 const newFolderName = ref('')
 const folderInputRef = ref<{ focus: () => void } | null>(null)
@@ -260,6 +289,17 @@ shortcuts.on('open_editor', () => { wm.open('editor') })
 shortcuts.on('open_agent', () => { wm.open('agent') })
 shortcuts.on('go_back', () => { navigateInHistory(-1) })
 shortcuts.on('go_forward', () => { navigateInHistory(1) })
+// ── Plasma: Kickoff (Alt+F1), KRunner (Alt+Space), task switch (Alt+Tab
+// desktop-only — browsers own it), Meta+Arrow snap. Remappable in
+// keymaps/default.kpl [Plasma].
+shortcuts.on('kickoff_toggle', () => { kickoff.toggle() })
+shortcuts.on('runner_toggle', () => { store.commandPaletteOpen = !store.commandPaletteOpen })
+shortcuts.on('runner_toggle_alt', () => { store.commandPaletteOpen = !store.commandPaletteOpen })
+shortcuts.on('task_switch', () => { wm.focusNext() })
+shortcuts.on('snap_left', () => { snapFocused('left') })
+shortcuts.on('snap_right', () => { snapFocused('right') })
+shortcuts.on('snap_up', () => { snapFocused('up') })
+shortcuts.on('snap_down', () => { snapFocused('down') })
 shortcuts.on('open_trash', () => { wm.open('trash'); store.fetchTrashItems() })
 shortcuts.on('open_activity', () => { wm.open('activity'); store.fetchAuditLog() })
 shortcuts.on('open_collections', () => { wm.open('collections') })
@@ -746,7 +786,7 @@ onBeforeUnmount(() => {
     <Teleport to="body">
       <div v-if="store.createFolderPromptOpen" class="overlay-thin" @click.self="store.createFolderPromptOpen = false">
         <div class="mini-modal">
-          <div class="mini-header">NEW FOLDER</div>
+          <div class="mini-header">New folder</div>
           <UiInput
             ref="folderInputRef"
             v-model="newFolderName"
@@ -810,8 +850,8 @@ onBeforeUnmount(() => {
 
 .oauth-popup-title {
   font-size: var(--ui-fs-md);
-  font-weight: 800;
-  letter-spacing: var(--ui-tracking-wide);
+  font-weight: 600;
+  letter-spacing: 0;
   margin: 0;
 }
 
@@ -935,10 +975,10 @@ onBeforeUnmount(() => {
 
 .mini-header {
   font-size: var(--ui-fs-md);
-  font-weight: 800;
+  font-weight: 600;
   color: var(--ui-text);
   margin-bottom: 12px;
-  letter-spacing: var(--ui-tracking-wide);
+  letter-spacing: 0;
 }
 
 .mini-input {

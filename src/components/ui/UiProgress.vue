@@ -78,33 +78,24 @@ const clamped = computed(() => Math.max(0, Math.min(100, Math.round(props.value)
 .ui-progress__fill {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--ui-accent) 70%, transparent),
-    var(--ui-accent)
-  );
-  box-shadow: 0 0 10px color-mix(in srgb, var(--ui-accent) 55%, transparent);
-  transition: width var(--ui-dur-slow) var(--ui-ease-out);
+  background: var(--ui-accent);
+  transition: width var(--ui-dur-slow) ease-out;
 }
 
 .ui-progress--success .ui-progress__fill {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--ui-success) 70%, transparent), var(--ui-success));
-  box-shadow: 0 0 10px color-mix(in srgb, var(--ui-success) 55%, transparent);
+  background: var(--ui-success);
 }
 
 .ui-progress--warning .ui-progress__fill {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--ui-warning) 70%, transparent), var(--ui-warning));
-  box-shadow: 0 0 10px color-mix(in srgb, var(--ui-warning) 55%, transparent);
+  background: var(--ui-warning);
 }
 
 .ui-progress--danger .ui-progress__fill {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--ui-danger) 70%, transparent), var(--ui-danger));
-  box-shadow: 0 0 10px color-mix(in srgb, var(--ui-danger) 55%, transparent);
+  background: var(--ui-danger);
 }
 
 .ui-progress--info .ui-progress__fill {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--ui-info) 70%, transparent), var(--ui-info));
-  box-shadow: 0 0 10px color-mix(in srgb, var(--ui-info) 55%, transparent);
+  background: var(--ui-info);
 }
 
 .ui-progress--indeterminate .ui-progress__fill {
@@ -118,15 +109,6 @@ const clamped = computed(() => Math.max(0, Math.min(100, Math.round(props.value)
 }
 
 .ui-progress__shine {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--ui-accent) 30%, transparent),
-    transparent
-  );
-  background-size: 200% 100%;
-  animation: ui-shimmer 1.6s linear infinite;
+  display: none;
 }
 </style>

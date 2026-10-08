@@ -9,11 +9,14 @@
       :aria-label="title"
     >
       <div ref="dialogRef" class="confirm-modal">
-        <div class="confirm-header">{{ title }}</div>
-        <div class="confirm-body">{{ message }}</div>
-        <div class="confirm-actions">
-          <button ref="cancelBtnRef" class="confirm-btn cancel" @click="handleCancel"><AppIcon name="solar:close-bold" :size="13" /> {{ cancelText }}</button>
-          <button ref="confirmBtnRef" class="confirm-btn ok" @click="handleConfirm"><AppIcon name="solar:check-bold" :size="13" /> {{ confirmText }}</button>
+        <span v-if="isPlasma" class="confirm-icon"><AppIcon :name="icon || 'solar:info-circle-bold'" :size="28" /></span>
+        <div class="confirm-main">
+          <div class="confirm-header">{{ title }}</div>
+          <div class="confirm-body">{{ message }}</div>
+          <div class="confirm-actions">
+            <button ref="cancelBtnRef" class="confirm-btn cancel" @click="handleCancel"><AppIcon name="solar:close-bold" :size="13" /> {{ cancelText }}</button>
+            <button ref="confirmBtnRef" class="confirm-btn ok" @click="handleConfirm"><AppIcon name="solar:check-bold" :size="13" /> {{ confirmText }}</button>
+          </div>
         </div>
       </div>
     </div>
@@ -21,9 +24,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, toRef } from 'vue'
+import { computed, ref, toRef } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { useFocusTrap } from '@/composables/useFocusTrap'
+import { useTheme } from '@/composables/useTheme'
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -31,12 +35,16 @@ const props = withDefaults(defineProps<{
   message?: string
   confirmText?: string
   cancelText?: string
+  icon?: string
 }>(), {
-  title: 'CONFIRM',
-  message: 'ARE YOU SURE?',
-  confirmText: 'YES',
-  cancelText: 'CANCEL',
+  title: 'Confirm',
+  message: 'Are you sure?',
+  confirmText: 'OK',
+  cancelText: 'Cancel',
+  icon: '',
 })
+
+const isPlasma = computed(() => useTheme().shellStyle.value === 'plasma')
 
 const emit = defineEmits<{
   confirm: []
@@ -71,79 +79,64 @@ function handleCancel() { emit('cancel'); emit('update:visible', false) }
 .confirm-modal {
   position: relative;
   background: var(--ui-glass-2);
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  border: 1px solid var(--ui-border-strong);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-lg);
-  box-shadow: var(--ui-shadow-3), inset 0 1px 0 var(--ui-glass-highlight);
-  padding: 22px;
-  max-width: 380px;
-  width: 90%;
+  box-shadow: var(--ui-shadow-menu);
+  padding: 18px;
+  max-width: 260px;
+  width: calc(100% - 48px);
   font-family: var(--ui-font);
-  animation: ui-pop var(--ui-dur) var(--ui-ease-spring);
-}
-
-.confirm-modal::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 22px;
-  right: 22px;
-  height: 2px;
-  border-radius: 0 0 var(--ui-radius-full) var(--ui-radius-full);
-  background: var(--ui-accent);
-  opacity: 0.85;
+  text-align: center;
+  animation: ui-fade-in var(--ui-dur) ease-out both;
 }
 
 .confirm-header {
-  font-size: var(--ui-fs-md);
+  font-size: 13px;
   font-weight: 600;
+  letter-spacing: 0;
   color: var(--ui-text);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .confirm-body {
-  font-size: var(--ui-fs-sm);
+  font-size: 12px;
   color: var(--ui-text-2);
-  margin-bottom: 18px;
-  line-height: 1.5;
+  margin-bottom: 16px;
+  line-height: 1.4;
 }
 
 .confirm-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 8px;
 }
 
 .confirm-btn {
+  flex: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 7px 16px;
+  min-height: 26px;
+  padding: 4px 12px;
   font-family: var(--ui-font);
-  font-size: var(--ui-fs-sm);
-  font-weight: 700;
-  letter-spacing: var(--ui-tracking);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
   border-radius: var(--ui-radius-sm);
   border: 1px solid var(--ui-border-strong);
-  background: transparent;
-  color: var(--ui-text-2);
+  background: var(--ui-surface-2);
+  color: var(--ui-text);
   transition:
-    background-color var(--ui-dur-fast) var(--ui-ease-out),
-    color var(--ui-dur-fast) var(--ui-ease-out),
-    border-color var(--ui-dur-fast) var(--ui-ease-out),
-    transform var(--ui-dur-fast) var(--ui-ease-out);
+    background-color var(--ui-dur-fast) ease-out,
+    border-color var(--ui-dur-fast) ease-out;
 }
 
 .confirm-btn:hover {
-  color: var(--ui-text);
-  border-color: var(--ui-border-hover);
   background: var(--ui-surface-3);
-}
-
-.confirm-btn:active {
-  transform: translateY(1px);
+  border-color: var(--ui-border-hover);
 }
 
 .confirm-btn.ok {
@@ -155,11 +148,40 @@ function handleCancel() { emit('cancel'); emit('update:visible', false) }
 .confirm-btn.ok:hover {
   background: var(--ui-accent-strong);
   color: var(--ui-on-accent);
-  box-shadow: var(--ui-glow-soft);
 }
 
 .confirm-btn:focus-visible {
   outline: none;
-  box-shadow: var(--ui-focus-ring, 0 0 0 2px color-mix(in srgb, var(--ui-accent) 55%, transparent));
+  box-shadow: var(--ui-focus-ring);
+}
+
+/* Plasma standard dialog: icon left, text right, buttons right-aligned. */
+.confirm-icon {
+  display: none;
+}
+
+[data-ui-shell='plasma'] .confirm-modal {
+  display: flex;
+  gap: 14px;
+  max-width: 380px;
+  text-align: left;
+  border-radius: var(--ui-radius-lg);
+  box-shadow: var(--ui-shadow-popup);
+}
+
+[data-ui-shell='plasma'] .confirm-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--ui-text-2);
+}
+
+[data-ui-shell='plasma'] .confirm-main {
+  flex: 1;
+  min-width: 0;
+}
+
+[data-ui-shell='plasma'] .confirm-actions {
+  justify-content: flex-end;
 }
 </style>

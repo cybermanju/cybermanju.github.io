@@ -159,14 +159,18 @@ first; chained lines and unknown verbs fall through to the wasm dispatcher
 
 `theme [<id>|get]` and `ui …` read/write the full interface settings mirror
 (`/.cybermanju/theme.json` on the volume, `cybermanju_theme_v1` in the
-browser) identically on desktop, Docker, and Pages — 17 themes
+browser) identically on desktop, Docker, and Pages — 5 themes
 (`THEME_IDS` in `src/ui/tokens.ts`, mirrored in `crates/os/src/shell.rs`,
 `crates/os-wasm/src/os.rs`, `src/utils/staticCybsh.ts`):
+`os-dark` / `os-light` / `os-graphite` (flat macOS set) plus
+`plasma-dark` / `plasma-light` (Breeze-like set). Shell style
+(`macos` menu-bar+Dock vs `plasma` bottom-panel+Kickoff) is a separate
+axis (`cybermanju_shell_style`, `data-ui-shell`):
 
-- `ui theme <id>` — switch theme (shape, typeface, elevation + palette).
+- `ui theme <id>` — switch theme (legacy pre-remake ids migrate by mode).
 - `ui accent <#hex|default> [--for <theme>]` — recolor everything, or one
-  theme (`ui accent #ff2d78 --for cyberpunk-night`); general wins when set.
-- `ui density <compact|comfortable>`, `ui glass <0|solid|1|light|2|default|3|rich>`,
+  theme (`ui accent #ff2d78 --for os-dark`); general wins when set.
+- `ui density <compact|comfortable>`, `ui glass <0|solid|2|translucent>`,
   `ui motion <auto|full|reduced>`, `ui glow <on|off>` — every Settings knob.
 - `ui get [--json]` — full interface state (also the drift-healer: its
   `ui:` lines re-converge the live UI to the mirror).

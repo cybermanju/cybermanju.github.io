@@ -1,9 +1,9 @@
 <template>
-  <div class="desktop-shell" :class="{ 'desktop-shell--glow': theme.settings.glow }">
-    <TopMenuBar />
+  <div class="desktop-shell" :class="{ 'desktop-shell--glow': theme.settings.glow, 'desktop-shell--plasma': isPlasma }">
+    <TopMenuBar v-if="chrome.topBar" />
 
     <div class="desktop-area" @click="handleWorkspaceClick">
-      <div class="desktop-wallpaper">
+      <div class="desktop-wallpaper" :class="`wp-${theme.settings.wallpaper || 'slopes-dark'}`">
         <slot name="wallpaper" />
         <div class="desktop-aurora" aria-hidden="true" />
       </div>
@@ -94,10 +94,15 @@
       </div>
     </div>
 
-    <Dock />
+    <Dock v-if="chrome.bottom && !isPlasma" />
 
     <!-- Right-bottom shell dock: shortcuts + tiling, above windows. -->
-    <ShellShortcutDock />
+    <ShellShortcutDock v-if="chrome.shortcutDock" />
+
+    <!-- Plasma bottom panel (launcher, pager, tasks, tray, clock). -->
+    <PlasmaPanel v-if="isPlasma" />
+    <!-- Kickoff launcher popup, anchored to the panel launcher button. -->
+    <KickoffMenu v-if="isPlasma && kickoff.kickoffOpen.value" />
 
     <div
       v-if="dockMenu.visible"
@@ -119,7 +124,7 @@
       </div>
     </div>
 
-    <StatusBar />
+    <StatusBar v-if="!isPlasma" />
 
     <!-- First-run setup wizard (desktop): vault + local sync + agent AI. -->
     <SetupWizard v-if="setupOpen" @close="setupOpen = false" />
@@ -133,9 +138,13 @@ import AppIcon from '@/components/AppIcon.vue'
 import SetupWizard from '@/components/SetupWizard.vue'
 import MobileLauncher from '@/components/MobileLauncher.vue'
 import MobileSetupWizard from '@/components/MobileSetupWizard.vue'
+import PlasmaPanel from '@/components/PlasmaPanel.vue'
+import KickoffMenu from '@/components/KickoffMenu.vue'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
+import { useKickoff } from '@/composables/useKickoff'
+import { SHELL_CHROME } from '@/ui/shells'
 import { isTauri, isAndroidApp } from '@/composables/useTauri'
 import { setupSeen } from '@/utils/setupWizard'
 import { computeStripRects, stripColumnWidth } from '@/utils/shellLayout'
@@ -148,7 +157,11 @@ import type { PanelType } from '@/types'
 
 const wm = useWindowManager()
 const theme = useTheme()
+const kickoff = useKickoff()
 const selectShortcut = ref<PanelType | null>(null)
+/** Chrome comes from the shell registry — TopMenuBar/Dock in macOS, PlasmaPanel in plasma. */
+const chrome = computed(() => SHELL_CHROME[theme.shellStyle.value])
+const isPlasma = computed(() => theme.shellStyle.value === 'plasma')
 
 /** First-run setup wizard (desktop auto-open + Help-menu re-run). */
 const setupOpen = ref(false)
@@ -400,23 +413,40 @@ onUnmounted(() => {
   z-index: 0;
 }
 
-/* Wallpaper depth — accent-tinted glows that give the frosted panels
-   something colourful to refract, like macOS Big Sur wallpapers. */
-.desktop-aurora {
-  position: absolute;
-  inset: -20%;
+/* Static wallpapers — original gradient artwork (no third-party assets).
+   The canvas engine (MatrixRain/PrayerFlags) is opt-in via Settings →
+   Appearance → Wallpaper effects. The aurora overlay is retired. */
+.desktop-wallpaper {
   background:
-    radial-gradient(60% 50% at 50% 0%, var(--ui-aurora-a, rgba(255, 255, 255, 0.5)), transparent 70%),
-    radial-gradient(70% 60% at 50% 115%, var(--ui-aurora-b, rgba(0, 0, 0, 0.10)), transparent 70%),
-    radial-gradient(45% 40% at 18% 78%, var(--ui-aurora-a, transparent), transparent 72%),
-    radial-gradient(40% 36% at 84% 22%, var(--ui-aurora-b, transparent), transparent 72%);
-  opacity: 0;
-  transition: opacity 0.8s var(--ui-ease-out);
-  filter: blur(2px);
+    linear-gradient(180deg, #1a1a1e 0%, #000000 60%, #000000 100%);
 }
 
-.desktop-shell--glow .desktop-aurora {
-  opacity: 1;
+/* Breeze-like dark slopes. */
+.desktop-wallpaper.wp-slopes-dark {
+  background:
+    linear-gradient(115deg, transparent 0%, transparent 46%, rgba(61, 174, 233, 0.16) 47%, transparent 60%),
+    linear-gradient(100deg, transparent 0%, transparent 60%, rgba(61, 174, 233, 0.10) 72%, transparent 85%),
+    linear-gradient(180deg, #2b3136 0%, #1b1e20 55%, #101315 100%);
+}
+
+/* Breeze-like light slopes. */
+.desktop-wallpaper.wp-slopes-light {
+  background:
+    linear-gradient(115deg, transparent 0%, transparent 46%, rgba(24, 141, 194, 0.14) 47%, transparent 60%),
+    linear-gradient(100deg, transparent 0%, transparent 60%, rgba(24, 141, 194, 0.10) 72%, transparent 85%),
+    linear-gradient(180deg, #f4f5f6 0%, #dcdfe3 60%, #c9ced4 100%);
+}
+
+/* Warm night dunes. */
+.desktop-wallpaper.wp-dunes {
+  background:
+    radial-gradient(120% 90% at 80% 110%, rgba(246, 116, 0, 0.22), transparent 55%),
+    radial-gradient(100% 70% at 10% 100%, rgba(61, 174, 233, 0.12), transparent 60%),
+    linear-gradient(180deg, #232629 0%, #1b1e20 55%, #0e1113 100%);
+}
+
+.desktop-aurora {
+  display: none;
 }
 
 
@@ -463,7 +493,7 @@ onUnmounted(() => {
 .desktop-shortcut:focus-visible {
   outline: none;
   border-color: var(--ui-accent);
-  box-shadow: var(--ui-glow-soft);
+  box-shadow: var(--ui-focus-ring);
 }
 
 .shortcut-icon {
@@ -479,16 +509,15 @@ onUnmounted(() => {
   backdrop-filter: blur(var(--ui-blur));
   -webkit-backdrop-filter: blur(var(--ui-blur));
   transition:
-    color var(--ui-dur) var(--ui-ease-out),
-    border-color var(--ui-dur) var(--ui-ease-out),
-    box-shadow var(--ui-dur) var(--ui-ease-out),
-    transform var(--ui-dur) var(--ui-ease-spring);
+    color var(--ui-dur) ease-out,
+    border-color var(--ui-dur) ease-out,
+    box-shadow var(--ui-dur) ease-out;
 }
 
 .shortcut-icon.selected {
   color: var(--ui-text);
   border-color: var(--ui-accent);
-  box-shadow: var(--ui-glow-soft);
+  box-shadow: var(--ui-focus-ring);
 }
 
 .desktop-shortcut:hover .shortcut-icon {
@@ -519,29 +548,27 @@ onUnmounted(() => {
   background: var(--ui-glass-2);
   backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
   -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  border: 1px solid var(--ui-border-strong);
-  border-radius: var(--ui-radius-md);
-  padding: 5px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  padding: 4px;
   min-width: 170px;
-  box-shadow: var(--ui-shadow-3);
-  animation: ui-pop var(--ui-dur) var(--ui-ease-spring) both;
+  box-shadow: var(--ui-shadow-menu);
+  animation: ui-fade-in var(--ui-dur) ease-out both;
 }
 
 .dock-context-item {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 7px 12px;
+  min-height: 22px;
+  padding: 3px 8px;
   font-family: var(--ui-font);
-  font-size: var(--ui-fs-sm);
-  color: var(--ui-text-2);
+  font-size: 13px;
+  color: var(--ui-text);
   cursor: pointer;
   border-radius: var(--ui-radius-sm);
   background: transparent;
-  transition:
-    background-color var(--ui-dur-fast) var(--ui-ease-out),
-    color var(--ui-dur-fast) var(--ui-ease-out),
-    transform var(--ui-dur-fast) var(--ui-ease-out);
+  transition: background-color var(--ui-dur-fast) ease-out;
 }
 
 .dock-context-item:hover {

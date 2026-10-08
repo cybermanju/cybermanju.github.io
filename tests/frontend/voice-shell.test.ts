@@ -8,6 +8,7 @@ import {
   foldAccents,
   isPtLang,
   normalizeSpoken,
+  resolveVoiceLang,
 } from '../../src/utils/speechCorrect'
 
 describe('levenshtein', () => {
@@ -102,6 +103,12 @@ describe('voice language (en-US + pt-BR)', () => {
     expect(detectVoiceLang('en')).toBe('en-US')
     expect(isPtLang('pt-BR')).toBe(true)
     expect(isPtLang('en-US')).toBe(false)
+  })
+  it('resolves explicit picks verbatim and auto via the browser locale', () => {
+    expect(resolveVoiceLang('en-US')).toBe('en-US')
+    expect(resolveVoiceLang('pt-BR')).toBe('pt-BR')
+    expect(resolveVoiceLang('auto', 'pt-BR')).toBe('pt-BR')
+    expect(resolveVoiceLang('auto', 'en-US')).toBe('en-US')
   })
   it('folds accents for matching', () => {
     expect(foldAccents('CÊ DÊ')).toBe('ce de')

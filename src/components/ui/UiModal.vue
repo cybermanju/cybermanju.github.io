@@ -4,8 +4,8 @@
       <div v-if="visible" class="ui-modal-layer" @mousedown.self="onBackdrop">
         <div
           ref="dialogRef"
-          class="ui-modal ui-shine"
-          :class="[`ui-modal--${size}`, { 'ui-modal--danger': danger }]"
+          class="ui-modal"
+          :class="[`ui-modal--${size}`, { 'ui-modal--danger': danger, 'ui-modal--sheet': variant === 'sheet' }]"
           role="dialog"
           aria-modal="true"
           :aria-label="title || undefined"
@@ -61,6 +61,11 @@ const props = withDefaults(
     closable?: boolean
     /** Close when the backdrop is clicked. */
     dismissable?: boolean
+    /**
+     * `dialog` (centered, default) or `sheet` (slides down from the top
+     * edge, macOS-sheet style for auth/setup flows).
+     */
+    variant?: 'dialog' | 'sheet'
   }>(),
   {
     visible: false,
@@ -71,6 +76,7 @@ const props = withDefaults(
     danger: false,
     closable: true,
     dismissable: true,
+    variant: 'dialog',
   }
 )
 
@@ -180,16 +186,16 @@ watch(
 
 .ui-modal__title {
   font-family: var(--ui-font);
-  font-size: var(--ui-fs-lg);
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-size: var(--ui-fs-md);
+  font-weight: 600;
+  letter-spacing: 0;
   color: var(--ui-text);
 }
 
 .ui-modal__subtitle {
-  font-family: var(--ui-font-mono);
-  font-size: var(--ui-fs-xs);
-  color: var(--ui-text-3);
+  font-family: var(--ui-font);
+  font-size: 12px;
+  color: var(--ui-text-2);
   margin-top: 2px;
 }
 
@@ -233,7 +239,25 @@ watch(
 
 .ui-modal-enter-from .ui-modal,
 .ui-modal-leave-to .ui-modal {
-  transform: translateY(14px) scale(0.97);
+  transform: translateY(14px);
+  opacity: 0;
+}
+
+/* sheet variant: slides down from the top edge (macOS sheet style) */
+.ui-modal-layer:has(.ui-modal--sheet) {
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 8vh;
+}
+
+.ui-modal--sheet {
+  max-width: 480px;
+  box-shadow: var(--ui-shadow-menu);
+}
+
+.ui-modal-enter-from .ui-modal--sheet,
+.ui-modal-leave-to .ui-modal--sheet {
+  transform: translateY(-16px);
   opacity: 0;
 }
 

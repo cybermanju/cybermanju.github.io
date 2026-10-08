@@ -87,10 +87,13 @@
               type="button"
               class="agent-side-item"
               :class="{ on: viewing?.id === s.id }"
+              :title="`${s.title} · ${s.messages.length} msgs`"
               @click="loadSession(s.id)"
             >
-              <span class="agent-side-item-title">{{ s.title }}</span>
-              <span class="agent-side-item-meta">{{ s.messages.length }} msgs</span>
+              <span class="agent-side-item-text">
+                <span class="agent-side-item-title">{{ s.title }}</span>
+                <span class="agent-side-item-meta">{{ s.messages.length }} msgs</span>
+              </span>
               <span class="agent-side-item-btns" @click.stop>
                 <UiButton size="xs" icon="solar:download-bold" icon-only title="Export conversation" aria-label="Export conversation" @click="exportSession(s.id)" />
                 <UiButton size="xs" variant="danger" icon="solar:close-bold" icon-only title="Close conversation" aria-label="Close conversation" @click="removeSession(s.id)" />
@@ -128,11 +131,14 @@
               type="button"
               class="agent-side-item"
               :class="{ on: chatConfigId === cfg.id }"
+              :title="`${cfg.name} · ${cfg.providerId} · ${cfg.model}`"
               @click="chatConfigId = cfg.id"
             >
-              <span class="agent-side-item-title">{{ cfg.name }}</span>
-              <span class="agent-side-item-meta">{{ cfg.providerId }} · {{ cfg.model }}</span>
-              <UiBadge :tone="cfg.hasKey || isKeyless(cfg) ? 'accent' : 'neutral'" size="sm">
+              <span class="agent-side-item-text">
+                <span class="agent-side-item-title">{{ cfg.name }}</span>
+                <span class="agent-side-item-meta">{{ cfg.providerId }} · {{ cfg.model }}</span>
+              </span>
+              <UiBadge :tone="cfg.hasKey || isKeyless(cfg) ? 'accent' : 'neutral'" size="sm" class="agent-side-item-badge">
                 {{ cfg.hasKey || isKeyless(cfg) ? 'Ready' : 'No key' }}
               </UiBadge>
               <span class="agent-side-item-btns" @click.stop>
@@ -700,11 +706,35 @@
                   {{ charCount ? `${charCount} chars` : 'Enter ↵ send' }} · / commands
                 </span>
                 <span class="composer-spacer" />
-                <select v-if="voice.isSupported.value" class="voice-lang" :value="voice.lang.value" aria-label="Dictation language" title="Dictation language: English (EN) or Portuguese (PT-BR)" @change="voice.setLang(($event.target as HTMLSelectElement).value as 'en-US' | 'pt-BR')">
-                  <option value="en-US">EN</option>
-                  <option value="pt-BR">PT</option>
-                </select>
-                <UiButton v-if="voice.isSupported.value" size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : 'Dictate your message'" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Dictate' }}</UiButton>
+                <div v-if="voice.isSupported.value" class="voice-group">
+                  <div class="voice-pop" role="group" aria-label="Dictation language">
+                    <button
+                      type="button"
+                      class="voice-opt"
+                      :class="{ on: voice.langPref.value === 'auto' }"
+                      :aria-pressed="voice.langPref.value === 'auto'"
+                      title="Auto-detect from your browser language"
+                      @click="voice.setLang('auto')"
+                    >Auto · {{ voice.lang.value === 'pt-BR' ? 'PT' : 'EN' }}</button>
+                    <button
+                      type="button"
+                      class="voice-opt"
+                      :class="{ on: voice.langPref.value === 'en-US' }"
+                      :aria-pressed="voice.langPref.value === 'en-US'"
+                      title="Dictate in English"
+                      @click="voice.setLang('en-US')"
+                    >EN</button>
+                    <button
+                      type="button"
+                      class="voice-opt"
+                      :class="{ on: voice.langPref.value === 'pt-BR' }"
+                      :aria-pressed="voice.langPref.value === 'pt-BR'"
+                      title="Dictate in Portuguese (PT-BR)"
+                      @click="voice.setLang('pt-BR')"
+                    >PT</button>
+                  </div>
+                  <UiButton size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : voice.langPref.value === 'auto' ? `Dictate your message (auto: ${voice.lang.value === 'pt-BR' ? 'Portuguese' : 'English'} — hover to pick EN/PT)` : `Dictate your message (${voice.langPref.value === 'pt-BR' ? 'Portuguese' : 'English'} — hover to change)`" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Dictate' }}</UiButton>
+                </div>
                 <UiButton v-if="jobActive" size="sm" variant="danger" icon="solar:stop-bold" @click="abortJob">Stop</UiButton>
                 <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend" :title="!chatConfigId ? 'Select an assistant first' : ''" @click="sendPrompt">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
               </div>
@@ -2347,7 +2377,7 @@ onMounted(async () => {
   min-width: 0;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--ui-border);
+  border-bottom: 1px solid var(--ui-separator);
   background: var(--ui-surface);
   flex-shrink: 0;
 }
@@ -2358,12 +2388,13 @@ onMounted(async () => {
   width: 28px;
   height: 28px;
   border-radius: var(--ui-radius-sm);
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent);
   background: transparent;
   color: var(--ui-text-3);
   cursor: pointer;
 }
 .agent-nav-toggle:hover { background: var(--ui-accent-softer); color: var(--ui-accent); }
+
 .agent-avatar {
   position: relative;
   display: inline-flex;
@@ -2390,7 +2421,7 @@ onMounted(async () => {
 .agent-subtitle { margin: 0; font-size: 11px; color: var(--ui-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .agent-subtitle-sep { margin: 0 4px; opacity: .5; }
 .agent-header-meta { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.agent-tabs { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-md); background: color-mix(in srgb, var(--ui-surface) 70%, transparent); }
+.agent-tabs { display: flex; gap: 2px; padding: 2px;  border: 1px solid color-mix(in srgb, var(--ui-text) 9%, transparent); border-radius: var(--ui-radius-lg); background: color-mix(in srgb, var(--ui-glass) 60%, transparent); }
 .agent-tabs button {
   display: inline-flex; align-items: center; gap: 5px;
   border: 0; background: transparent; color: color-mix(in srgb, var(--ui-text) 60%, transparent);
@@ -2405,29 +2436,32 @@ onMounted(async () => {
 .agent-sidebar {
   width: 264px; flex-shrink: 0;
   border-right: 1px solid var(--ui-border);
-  overflow-y: auto; padding: 12px;
+  overflow-y: auto; overflow-x: hidden; padding: 12px;
   display: flex; flex-direction: column; gap: 14px;
   background: color-mix(in srgb, var(--ui-glass) 40%, transparent);
+  min-width: 0;
 }
 .agent--sidebar-closed .agent-sidebar { display: none; }
-.agent-side-section { display: flex; flex-direction: column; gap: 8px; }
+.agent-side-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .agent-side-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.agent-side-head h3 { margin: 0; font-size: 11px; font-weight: 600; color: var(--ui-text-3); display: flex; align-items: center; gap: 6px; }
-.agent-side-actions { display: flex; gap: 4px; }
-.agent-side-list { display: flex; flex-direction: column; gap: 4px; max-height: 42%; overflow-y: auto; min-height: 0; }
+.agent-side-head h3 { margin: 0; font-size: 11px; font-weight: 600; color: var(--ui-text-3); display: flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.agent-side-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.agent-side-list { display: flex; flex-direction: column; gap: 4px; max-height: 42%; overflow-y: auto; overflow-x: hidden; min-height: 0; min-width: 0; }
 .agent-side-item {
-  display: flex; align-items: center; gap: 8px;
-  border: 1px solid transparent; border-radius: var(--ui-radius-sm);
-  padding: 6px 8px; cursor: pointer; background: transparent;
+  display: flex; align-items: flex-start; gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-lg);  padding: 6px 8px; cursor: pointer; background: transparent;
   color: var(--ui-text); font: inherit; text-align: left; width: 100%;
+  min-width: 0; overflow: hidden;
 }
 .agent-side-item:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
 .agent-side-item:hover .agent-side-item-btns { opacity: 1; }
 .agent-side-item.on { background: var(--ui-accent-soft); }
 .agent-side-item.on .agent-side-item-btns { opacity: 1; }
-.agent-side-item-title { font-size: 12px; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-side-item-meta { font-size: 10px; color: var(--ui-text-3); flex-shrink: 0; }
-.agent-side-item-btns { display: flex; gap: 2px; margin-left: auto; opacity: 0; transition: opacity var(--ui-dur-fast) var(--ui-ease-out); }
+.agent-side-item-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.agent-side-item-title { font-size: 12px; font-weight: 500; min-width: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; line-height: 1.35; }
+.agent-side-item-meta { font-size: 10px; color: var(--ui-text-3); min-width: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-all; line-height: 1.35; }
+.agent-side-item-badge { flex-shrink: 0; margin-top: 1px; }
+.agent-side-item-btns { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; opacity: 0; transition: opacity var(--ui-dur-fast) var(--ui-ease-out); }
 .agent-side-item-btns:focus-within { opacity: 1; }
 .agent-side-row { display: flex; gap: 8px; }
 .agent-side-row > * { flex: 1; min-width: 0; }
@@ -2436,8 +2470,8 @@ onMounted(async () => {
 
 /* context line: one quiet row, details expand below */
 .agent-caps {
-  padding: 0 12px; border-bottom: 1px solid var(--ui-hairline);
-  background: var(--ui-surface);
+  padding: 0 12px;  border-bottom: 1px solid color-mix(in srgb, var(--ui-text) 8%, transparent);
+  background: color-mix(in srgb, var(--ui-glass) 70%, transparent);
   flex-shrink: 0;
 }
 .agent-caps.open { padding-bottom: 8px; }
@@ -2455,8 +2489,7 @@ onMounted(async () => {
 .agent-cap {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 11px; font-weight: 600;
-  border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-full);
-  padding: 3px 9px; background: color-mix(in srgb, var(--ui-glass) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ui-text) 12%, transparent); border-radius: var(--ui-radius-xl);  padding: 3px 9px; background: color-mix(in srgb, var(--ui-glass) 60%, transparent);
 }
 .agent-cap.warn { border-color: color-mix(in srgb, var(--ui-warning) 55%, transparent); color: var(--ui-warning); }
 .agent-cap-link { border: 0; background: none; color: var(--ui-accent); font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; padding: 2px 4px; }
@@ -2464,7 +2497,7 @@ onMounted(async () => {
 .agent-cap-tool {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 10px; font-weight: 650;
-  border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-sm);
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-lg);
   padding: 2px 6px; color: color-mix(in srgb, var(--ui-text) 75%, transparent);
 }
 .agent-cap-tool.act-allow { border-color: color-mix(in srgb, var(--ui-success) 45%, transparent); }
@@ -2473,9 +2506,7 @@ onMounted(async () => {
 
 /* cards (setup / controls) */
 .agent-card {
-  margin: 10px 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
-  padding: 10px 12px; background: var(--ui-surface-2);
-}
+  margin: 10px 12px; border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-xl); padding: 12px 14px; background: color-mix(in srgb, var(--ui-glass) 68%, transparent);}
 .agent-card-title { font-size: 12px; font-weight: 600; margin: 12px 0 8px; display: flex; align-items: center; gap: 6px; color: var(--ui-text); }
 .agent-card-title:first-child { margin-top: 0; }
 /* accordion toggle for Controls sections */
@@ -2512,16 +2543,17 @@ onMounted(async () => {
   scrollbar-gutter: stable;
   padding-bottom: 12px;
 }
-.agent-note { font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); margin: 8px 0 0; }
-.agent-link { border: 0; background: none; padding: 0; color: var(--ui-accent); font: inherit; font-weight: 650; cursor: pointer; }
-.mono { font-family: var(--ui-font-mono); border: 1px solid var(--ui-border); padding: 0 4px; border-radius: var(--ui-radius-xs); font-size: .95em; }
+.agent-note { font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent);  margin: 8px 0 0; }
+
+  .agent-link { border: 0; background: none; padding: 0; color: var(--ui-accent); font: inherit; font-weight: 650; cursor: pointer; }
+.mono { font-family: var(--ui-font-mono);  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); padding: 0 4px; border-radius: var(--ui-radius-sm); font-size: .95em; }
 .dim { color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
 
 /* legacy form helpers kept (script unchanged) */
 .preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: 10px; max-height: 240px; overflow-y: auto; padding-right: 2px; }
 .preset-card {
-  background: color-mix(in srgb, var(--ui-surface) 55%, transparent);
-  border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-sm);
+  background: color-mix(in srgb, var(--ui-glass) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-lg);
   color: var(--ui-text); padding: 8px 10px; text-align: left; cursor: pointer; font-family: inherit;
   display: flex; flex-direction: column; gap: 2px;
 }
@@ -2541,7 +2573,7 @@ onMounted(async () => {
 .w-msg.err { color: var(--ui-danger); }
 .model-row { display: flex; gap: 6px; }
 .config-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
-.config-card { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); padding: 8px 10px; background: color-mix(in srgb, var(--ui-glass) 55%, transparent); }
+.config-card {  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-xl); padding: 8px 10px; background: color-mix(in srgb, var(--ui-glass) 68%, transparent); }
 .cfg-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
 .cfg-name { font-size: 12px; font-weight: 700; flex: 1; }
 .cfg-type { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
@@ -2568,7 +2600,7 @@ onMounted(async () => {
 .agent-quick { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; text-align: left; }
 .agent-quick-card {
   display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
-  border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-xl);
   background: color-mix(in srgb, var(--ui-glass) 55%, transparent);
   color: var(--ui-text); font: inherit; padding: 10px 12px; cursor: pointer;
 }
@@ -2594,17 +2626,28 @@ onMounted(async () => {
 .msg-avatar {
   display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; margin-top: 2px;
-  border: 1px solid var(--ui-hairline);
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent);
 }
 .avatar-user { background: color-mix(in srgb, var(--ui-accent) 14%, transparent); color: var(--ui-accent); }
 .avatar-assistant { background: var(--ui-accent-softer); color: var(--ui-accent); }
 .avatar-tool, .avatar-assistant_tool { background: color-mix(in srgb, var(--ui-text) 8%, transparent); color: color-mix(in srgb, var(--ui-text) 65%, transparent); }
 .msg-main {
   flex: 1; min-width: 0;
-  border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
-  padding: 8px 10px; background: color-mix(in srgb, var(--ui-glass) 45%, transparent);
+  border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg);
+  padding: 8px 10px; background: var(--ui-surface-2);
 }
-.role-user .msg-main { background: var(--ui-accent-softer); border-color: color-mix(in srgb, var(--ui-accent) 30%, transparent); }
+/* Flat chat: user = accent fill, assistant = solid surface-2. */
+.role-user .msg-main { background: var(--ui-accent); border-color: transparent; color: var(--ui-on-accent); }
+.role-user .msg-role, .role-user .msg-copy { color: var(--ui-on-accent); }
+
+/* Plasma: user = accent 20% tint on surface-2 (assistant stays surface-2). */
+[data-ui-shell='plasma'] .role-user .msg-main {
+  background: color-mix(in srgb, var(--ui-accent) 20%, var(--ui-surface-2));
+  border-color: color-mix(in srgb, var(--ui-accent) 40%, transparent);
+  color: var(--ui-text);
+}
+[data-ui-shell='plasma'] .role-user .msg-role,
+[data-ui-shell='plasma'] .role-user .msg-copy { color: var(--ui-text-2); }
 .role-tool .msg-main { background: color-mix(in srgb, var(--ui-text) 5%, transparent); }
 .msg-role { font-size: 11px; font-weight: 600; color: var(--ui-text-3); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
 .msg-copy { border: 0; background: none; color: inherit; opacity: .55; cursor: pointer; padding: 2px; display: inline-flex; }
@@ -2615,8 +2658,8 @@ onMounted(async () => {
 .msg-body.md :deep(p:last-child) { margin-bottom: 0; }
 .msg-body.md :deep(h2), .msg-body.md :deep(h3), .msg-body.md :deep(h4) { font-size: 12px; font-weight: 800; margin: 8px 0 4px; }
 .msg-body.md :deep(pre) {
-  margin: 6px 0; padding: 8px; background: color-mix(in srgb, var(--ui-surface) 80%, transparent);
-  border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-xs);
+  margin: 6px 0; padding: 8px; background: color-mix(in srgb, var(--ui-glass) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-sm);
   overflow-x: auto; white-space: pre; font-size: 10px;
 }
 .msg-body.md :deep(code) { font-family: var(--ui-font-mono); font-size: .92em; }
@@ -2631,7 +2674,7 @@ onMounted(async () => {
 /* tool timeline */
 .tool-group { display: flex; flex-direction: column; gap: 4px; margin-left: 34px; }
 .tool-group .lead { padding: 6px 8px; }
-.tool-row { border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-sm); background: color-mix(in srgb, var(--ui-glass) 45%, transparent); overflow: hidden; }
+.tool-row { border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-lg); background: color-mix(in srgb, var(--ui-glass) 45%, transparent); overflow: hidden; }
 .tool-row.is-running { border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent); }
 .tool-row.is-denied { border-color: color-mix(in srgb, var(--ui-danger) 50%, transparent); }
 .tool-row.is-error { border-color: color-mix(in srgb, var(--ui-warning) 50%, transparent); }
@@ -2648,7 +2691,7 @@ onMounted(async () => {
 /* approval */
 .approval {
   flex-shrink: 0; min-width: 0; max-height: 45%; overflow-y: auto; overflow-x: hidden;
-  margin: 0 14px 10px; border: 1px solid color-mix(in srgb, var(--ui-warning) 55%, transparent);
+  margin: 0 14px 10px; border: 1px solid color-mix(in srgb, var(--ui-warning) 45%, transparent);
   border-radius: var(--ui-radius-md); padding: 10px 12px;
   background: color-mix(in srgb, var(--ui-warning) 8%, transparent);
 }
@@ -2659,7 +2702,7 @@ onMounted(async () => {
 .approval-input { max-height: 96px; overflow: auto; margin-bottom: 8px; }
 .approval-diff { margin-bottom: 8px; }
 .diff-head { font-size: 10px; font-weight: 700; margin-bottom: 4px; }
-.diff-body { font-size: 10px; white-space: pre-wrap; word-break: break-word; margin: 0; max-height: 220px; overflow: auto; border: 1px solid var(--ui-hairline); border-radius: var(--ui-radius-sm); padding: 6px 8px; background: color-mix(in srgb, var(--ui-surface) 80%, transparent); }
+.diff-body { font-size: 10px; white-space: pre-wrap; word-break: break-word; margin: 0; max-height: 220px; overflow: auto; border: 1px solid color-mix(in srgb, var(--ui-text) 9%, transparent); border-radius: var(--ui-radius-lg); padding: 6px 8px; background: color-mix(in srgb, var(--ui-glass) 72%, transparent); }
 .diff-line { display: block; }
 .diff-del { color: var(--ui-danger); background: color-mix(in srgb, var(--ui-danger) 8%, transparent); }
 .diff-add { color: var(--ui-success); background: color-mix(in srgb, var(--ui-success) 8%, transparent); }
@@ -2675,8 +2718,8 @@ onMounted(async () => {
 /* composer */
 .composer {
   flex-shrink: 0; min-width: 0;
-  margin: 0 14px 8px; border: 1px solid var(--ui-border-strong);
-  border-radius: var(--ui-radius-md); background: color-mix(in srgb, var(--ui-surface) 70%, transparent);
+  margin: 0 14px 8px; border: 1px solid color-mix(in srgb, var(--ui-border-strong));
+  border-radius: var(--ui-radius-lg); background: color-mix(in srgb, var(--ui-glass) 70%, transparent);
   transition: border-color var(--ui-dur) var(--ui-ease-out), box-shadow var(--ui-dur) var(--ui-ease-out);
   position: relative;
 }
@@ -2688,17 +2731,31 @@ onMounted(async () => {
   max-height: 40vh; overflow-y: auto; box-sizing: border-box;
 }
 .composer-bar { display: flex; align-items: center; gap: 8px; padding: 4px 8px 8px; }
-.voice-lang {
-  font-size: 11px; font-weight: 700; padding: 4px 6px; border-radius: 8px;
-  border: 1px solid var(--ui-border); background: var(--ui-glass); color: var(--ui-text);
-  cursor: pointer;
+/* Dictation language: hidden picker that pops over the Dictate button on
+   hover/focus. Default is Auto (neither EN nor PT picked) → browser-detected. */
+.voice-group { position: relative; display: inline-flex; flex-shrink: 0; }
+.voice-pop {
+  position: absolute; bottom: calc(100% + 6px); right: 0;
+  display: flex; gap: 4px; padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-lg);
+  background: color-mix(in srgb, var(--ui-glass) 92%, transparent);
+  box-shadow: var(--ui-shadow-2); z-index: 6; white-space: nowrap;
+  opacity: 0; visibility: hidden; transform: translateY(4px); pointer-events: none;
+  transition: opacity var(--ui-dur-fast) var(--ui-ease-out), transform var(--ui-dur-fast) var(--ui-ease-out), visibility var(--ui-dur-fast);
 }
+.voice-group:hover .voice-pop, .voice-group:focus-within .voice-pop { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
+.voice-opt {
+  font: inherit; font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 8px;
+  border: 1px solid transparent; background: transparent; color: color-mix(in srgb, var(--ui-text) 70%, transparent);
+  cursor: pointer; white-space: nowrap;
+}
+.voice-opt:hover { color: var(--ui-text); background: color-mix(in srgb, var(--ui-text) 7%, transparent); }
+.voice-opt.on { color: var(--ui-accent); background: var(--ui-accent-softer); border-color: color-mix(in srgb, var(--ui-accent) 40%, transparent); }
 .composer-hint { font-size: 10px; }
 .composer-spacer { flex: 1; }
 .composer-slash {
   position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 6px;
-  border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
-  background: var(--ui-surface-2); box-shadow: var(--ui-shadow-3); overflow: hidden; z-index: 5;
+  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-xl); background: color-mix(in srgb, var(--ui-glass) 68%, transparent); box-shadow: var(--ui-shadow-2); overflow: hidden; z-index: 5;
 }
 .composer-slash-item {
   display: flex; gap: 10px; align-items: baseline; width: 100%;
@@ -2711,7 +2768,7 @@ onMounted(async () => {
 @media (max-width: 760px) {
   .agent-header { flex-wrap: wrap; }
   .agent-header-meta { flex-basis: 100%; justify-content: flex-start; flex-wrap: wrap; }
-  .agent-sidebar { position: absolute; z-index: 10; height: 100%; max-width: 85%; background: var(--ui-surface); box-shadow: var(--ui-shadow-3); }
+  .agent-sidebar { position: absolute; z-index: 10; height: 100%; max-width: 85%; background: color-mix(in srgb, var(--ui-glass) 72%, transparent); box-shadow: var(--ui-shadow-2), inset 0 1px 0 var(--ui-glass-highlight); }
   .agent-body { position: relative; }
   .tool-group { margin-left: 0; }
 }

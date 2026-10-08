@@ -14,63 +14,39 @@
   >
     <div
       class="window-titlebar"
-      :class="{ 'window-titlebar--narrow': isNarrow }"
+      :class="{ 'window-titlebar--narrow': isNarrow, 'window-titlebar--plasma': isPlasma }"
       @mousedown.prevent="startDrag"
       @dblclick="toggleMaximize"
+      @contextmenu.prevent="openWindowMenu($event)"
     >
-      <div class="titlebar-dots" @mousedown.stop>
-        <button
-          class="dot dot-close"
-          type="button"
-          :aria-label="`Close ${win.title}`"
-          title="Close"
-          @click.stop="onClose"
-        >
-          <AppIcon name="solar:close-bold" :size="7" class="dot-glyph" />
-        </button>
-        <button
-          class="dot dot-minimize"
-          type="button"
-          :aria-label="`Minimize ${win.title}`"
-          title="Minimize"
-          @click.stop="onMinimize"
-        >
-          <AppIcon name="solar:minus-bold" :size="7" class="dot-glyph" />
-        </button>
-        <button
-          class="dot dot-maximize"
-          type="button"
-          :aria-label="`Maximize ${win.title}`"
-          :title="isMaximized ? 'Restore' : 'Maximize'"
-          @click.stop="toggleMaximize"
-        >
-          <AppIcon name="solar:maximize-bold" :size="7" class="dot-glyph" />
-        </button>
-      </div>
+      <template v-if="isPlasma">
+        <div class="titlebar-app" aria-hidden="true">
+          <AppIcon :name="win.icon" :size="15" />
+        </div>
+        <div class="titlebar-label titlebar-label--left" :title="win.title">{{ win.title }}</div>
+        <div class="titlebar-spacer" />
+        <UiTitlebarButtons
+          :focused="isFocused"
+          :maximized="isMaximized"
+          @close="onClose"
+          @minimize="onMinimize"
+          @zoom="toggleMaximize"
+        />
+      </template>
+      <template v-else>
+        <UiTrafficLights
+          :focused="isFocused"
+          @close="onClose"
+          @minimize="onMinimize"
+          @zoom="toggleMaximize"
+        />
 
-      <div class="titlebar-icon" aria-hidden="true">
-        <AppIcon :name="win.icon" :size="13" />
-      </div>
+        <div class="titlebar-spacer" />
 
-      <div class="titlebar-label" :title="win.title">{{ win.title }}</div>
+        <div class="titlebar-label" :title="win.title">{{ win.title }}</div>
 
-      <div class="titlebar-spacer" />
-
-      <div class="titlebar-status" :class="{ active: isFocused }" aria-hidden="true">
-        <span class="titlebar-status__dot" />
-        <span v-if="!isNarrow" class="titlebar-status__text">{{ isFocused ? 'FOCUS' : 'IDLE' }}</span>
-      </div>
-
-      <button
-        class="titlebar-action"
-        type="button"
-        :aria-label="isMaximized ? 'Restore window' : 'Maximize window'"
-        :title="isMaximized ? 'Restore' : 'Maximize'"
-        @mousedown.stop
-        @click.stop="toggleMaximize"
-      >
-        <AppIcon :name="isMaximized ? 'solar:minimize-bold' : 'solar:maximize-bold'" :size="11" />
-      </button>
+        <div class="titlebar-spacer" />
+      </template>
     </div>
 
     <div class="window-content" ref="contentRef">
@@ -97,6 +73,9 @@
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
 import { ref, computed, onMounted, onUnmounted, onErrorCaptured } from 'vue'
+import { useTheme } from '@/composables/useTheme'
+import { useWindowManager } from '@/composables/useWindowManager'
+import { useContextMenu } from '@/composables/useContextMenu'
 import type { WindowState } from '@/composables/useWindowManager'
 import { createWindowUi, provideWindowUi } from '@/composables/useWindowUi'
 
@@ -116,8 +95,31 @@ const emit = defineEmits<{
 const contentRef = ref<HTMLElement | null>(null)
 const rootRef = ref<HTMLElement | null>(null)
 const isFocused = computed(() => props.focused)
+const isPlasma = computed(() => useTheme().shellStyle.value === 'plasma')
+const wmShell = useWindowManager()
+const ctx = useContextMenu()
 const isMaximized = ref(false)
+/** Plasma "always on top" pin — renders above tiled siblings. */
+const pinned = ref(false)
 const savedRect = ref({ x: 0, y: 0, width: 0, height: 0 })
+
+ctx.registerContext('window_titlebar', [
+  { id: 'w-max', label: 'Maximize', icon: 'solar:maximize-bold', action: (d) => d?.toggleMax?.() },
+  { id: 'w-min', label: 'Minimize', icon: 'solar:minus-bold', action: (d) => d?.minimize?.() },
+  { id: 'w-pin', label: 'Always on top', icon: 'solar:layers-bold', action: (d) => d?.togglePin?.() },
+  { id: 'div1', label: '', divider: true },
+  { id: 'w-close', label: 'Close', icon: 'solar:close-bold', action: (d) => d?.close?.() },
+])
+
+function openWindowMenu(e: MouseEvent) {
+  ctx.open(e, 'window_titlebar', {
+    toggleMax: () => toggleMaximize(),
+    minimize: () => onMinimize(),
+    close: () => onClose(),
+    togglePin: () => { pinned.value = !pinned.value },
+    pinned: pinned.value,
+  })
+}
 
 /**
  * Window-aware context: everything rendered inside this window (via
@@ -147,6 +149,8 @@ onErrorCaptured((err) => {
 })
 
 const windowStyle = computed(() => {
+  // Plasma pin: stay above tiled siblings without touching manager order.
+  const z = pinned.value ? 9999 : props.win.zIndex
   if (props.win.minimized) {
     return { display: 'none' }
   }
@@ -160,7 +164,7 @@ const windowStyle = computed(() => {
       top: '0px',
       width: '100%',
       height: '100%',
-      zIndex: props.win.zIndex,
+      zIndex: z,
     }
   }
   const style: Record<string, string | number> = {
@@ -168,7 +172,7 @@ const windowStyle = computed(() => {
     top: `${props.win.y}px`,
     width: `${props.win.width}px`,
     height: `${props.win.height}px`,
-    zIndex: props.win.zIndex,
+    zIndex: z,
   }
   return style
 })
@@ -199,10 +203,20 @@ function onDrag(e: MouseEvent) {
   emit('move', props.win.id, newX, newY)
 }
 
-function stopDrag() {
+function stopDrag(e?: MouseEvent) {
   dragging = false
   document.removeEventListener('mousemove', onDrag)
   document.removeEventListener('mouseup', stopDrag)
+  // Plasma snap: drag to the top edge maximizes, to a side edge tiles.
+  if (isPlasma.value && e && !isMaximized.value) {
+    try {
+      if (e.clientY <= 2) {
+        toggleMaximize()
+      } else if (e.clientX <= 2 || e.clientX >= window.innerWidth - 2) {
+        wmShell.setLayoutMode('tiled')
+      }
+    } catch { /* pointer left the viewport — keep the drop position */ }
+  }
 }
 
 let resizing = false
@@ -361,38 +375,31 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: var(--ui-window);
-  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent);
+  border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-xl);
   overflow: hidden;
   backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
   -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  box-shadow:
-    var(--ui-shadow-3),
-    inset 0 1px 0 var(--ui-glass-highlight);
+  box-shadow: var(--ui-shadow-window);
   transition:
-    box-shadow var(--ui-dur-slow) var(--ui-ease-out),
-    border-color var(--ui-dur-slow) var(--ui-ease-out),
-    background-color var(--ui-dur-slow) var(--ui-ease-out);
+    box-shadow var(--ui-dur) ease-out,
+    border-color var(--ui-dur) ease-out,
+    background-color var(--ui-dur) ease-out;
   min-width: 320px;
   min-height: 240px;
   will-change: left, top, width, height;
 }
 
 .app-window.focused {
-  border-color: color-mix(in srgb, var(--ui-text) 18%, transparent);
+  border-color: var(--ui-border);
   background: var(--ui-window);
-  box-shadow:
-    var(--ui-shadow-3),
-    inset 0 1px 0 var(--ui-glass-highlight);
+  box-shadow: var(--ui-shadow-window);
 }
 
 .app-window.blurred {
   background: var(--ui-window-idle);
-  border-color: color-mix(in srgb, var(--ui-text) 7%, transparent);
-  box-shadow:
-    var(--ui-shadow-1),
-    inset 0 1px 0 var(--ui-glass-highlight);
-  filter: saturate(0.92);
+  border-color: var(--ui-border);
+  box-shadow: var(--ui-shadow-window-idle);
 }
 
 .app-window.minimized {
@@ -411,111 +418,30 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   height: var(--ui-titlebar-h);
-  min-height: 30px;
+  min-height: 28px;
   padding: 0 12px;
   gap: 8px;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--ui-glass-2) 92%, transparent),
-    color-mix(in srgb, var(--ui-glass) 80%, transparent)
-  );
-  border-bottom: 1px solid color-mix(in srgb, var(--ui-text) 7%, transparent);
+  background: transparent;
+  border-bottom: 1px solid var(--ui-separator);
   cursor: default;
   user-select: none;
   flex-shrink: 0;
   position: relative;
 }
 
-.window-titlebar::after {
-  content: none;
-}
-
-.titlebar-dots {
-  display: flex;
-  gap: 7px;
-  flex-shrink: 0;
-}
-
-.dot {
-  position: relative;
-  width: 12px;
-  height: 12px;
-  padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.14);
-  border-radius: 50%;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: transparent;
-  transition:
-    transform var(--ui-dur-fast) var(--ui-ease-spring),
-    box-shadow var(--ui-dur) var(--ui-ease-out),
-    filter var(--ui-dur-fast) var(--ui-ease-out);
-  box-shadow: inset 0 -1px 2px rgba(0, 0, 0, 0.22), inset 0 1px 1px rgba(255, 255, 255, 0.35);
-}
-
-.dot:hover {
-  filter: brightness(1.06);
-  transform: scale(1.08);
-}
-
-.dot:active {
-  filter: brightness(0.86);
-}
-
-.dot:focus-visible {
-  outline: none;
-  box-shadow: var(--ui-glow-soft);
-}
-
-.dot-glyph {
-  opacity: 0;
-  transform: scale(0.5);
-  transition:
-    opacity var(--ui-dur-fast) var(--ui-ease-out),
-    transform var(--ui-dur-fast) var(--ui-ease-spring);
-  color: rgba(0, 0, 0, 0.72);
-}
-
-.dot:hover .dot-glyph {
-  opacity: 1;
-  transform: scale(1);
-}
-
-.dot-close {
-  background: var(--ui-danger);
-}
-
-.dot-minimize {
-  background: var(--ui-warning);
-}
-
-.dot-maximize {
-  background: var(--ui-success);
-}
-
-.titlebar-icon {
-  display: inline-flex;
-  align-items: center;
-  color: var(--ui-text-3);
-  flex-shrink: 0;
-}
-
-.app-window.focused .titlebar-icon {
-  color: var(--ui-text-2);
-}
-
+/* Centered 13px/600 title, no icon. Dimmed when the window is inactive. */
 .titlebar-label {
   font-family: var(--ui-font);
-  font-size: var(--ui-fs-sm);
+  font-size: 13px;
   font-weight: 600;
+  letter-spacing: 0;
   color: var(--ui-text-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: center;
   max-width: 46ch;
-  transition: color var(--ui-dur) var(--ui-ease-out);
+  transition: color var(--ui-dur) ease-out;
 }
 
 .app-window.focused .titlebar-label {
@@ -526,68 +452,24 @@ onUnmounted(() => {
   flex: 1;
 }
 
-.titlebar-status {
+/* Plasma titlebar: 30px, app icon + left title, glyph buttons right,
+   rounded top corners, 1px outline, dimmed title when inactive. */
+.window-titlebar--plasma {
+  padding: 0 4px 0 10px;
+  gap: 8px;
+}
+
+.titlebar-app {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 7px;
-  border-radius: var(--ui-radius-full);
-  background: color-mix(in srgb, var(--ui-text) 6%, transparent);
-  border: 1px solid var(--ui-hairline);
-  flex-shrink: 0;
-}
-
-.titlebar-status__dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--ui-text-faint);
-  transition:
-    background-color var(--ui-dur) var(--ui-ease-out),
-    box-shadow var(--ui-dur) var(--ui-ease-out);
-}
-
-.titlebar-status.active .titlebar-status__dot {
-  background: var(--ui-success);
-}
-
-.titlebar-status__text {
-  font-family: var(--ui-font);
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--ui-text-3);
-}
-
-.titlebar-status.active .titlebar-status__text {
   color: var(--ui-text-2);
-}
-
-.titlebar-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 20px;
-  border-radius: var(--ui-radius-xs);
-  color: var(--ui-text-3);
-  background: transparent;
-  border: 1px solid transparent;
   flex-shrink: 0;
-  transition:
-    background-color var(--ui-dur-fast) var(--ui-ease-out),
-    color var(--ui-dur-fast) var(--ui-ease-out),
-    border-color var(--ui-dur-fast) var(--ui-ease-out);
 }
 
-.titlebar-action:hover {
-  background: color-mix(in srgb, var(--ui-text) 8%, transparent);
-  border-color: var(--ui-border);
-  color: var(--ui-text);
-}
-
-.titlebar-action:focus-visible {
-  outline: none;
-  box-shadow: var(--ui-glow-soft);
+.titlebar-label--left {
+  text-align: left;
+  font-weight: 400;
+  max-width: 60ch;
 }
 
 .window-titlebar--narrow {
@@ -607,10 +489,23 @@ onUnmounted(() => {
   min-height: 0;
   overflow: auto;
   position: relative;
-  background: color-mix(in srgb, var(--ui-content) 96%, transparent);
+  background: var(--ui-surface);
   overscroll-behavior: contain;
   touch-action: pan-x pan-y;
   scrollbar-gutter: stable;
+}
+
+/* Mobile sheets: traffic lights hide, title stays centered. */
+@media (max-width: 768px) {
+  .window-titlebar {
+    padding: 0 12px;
+  }
+  .window-titlebar .ui-lights {
+    display: none;
+  }
+  .window-titlebar .titlebar-spacer:first-of-type {
+    display: none;
+  }
 }
 
 .window-content > :deep(*) {

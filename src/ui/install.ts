@@ -10,14 +10,19 @@ import UiError from '@/components/ui/UiError.vue'
 import UiGrid from '@/components/ui/UiGrid.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiListRow from '@/components/ui/UiListRow.vue'
+import UiMenu from '@/components/ui/UiMenu.vue'
 import UiModal from '@/components/ui/UiModal.vue'
 import UiProgress from '@/components/ui/UiProgress.vue'
 import UiSection from '@/components/ui/UiSection.vue'
+import UiSegmented from '@/components/ui/UiSegmented.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
+import UiSidebarItem from '@/components/ui/UiSidebarItem.vue'
+import UiTrafficLights from '@/components/ui/UiTrafficLights.vue'
 import UiSpinner from '@/components/ui/UiSpinner.vue'
 import UiStack from '@/components/ui/UiStack.vue'
 import UiText from '@/components/ui/UiText.vue'
 import UiTitle from '@/components/ui/UiTitle.vue'
+import UiTitlebarButtons from '@/components/ui/UiTitlebarButtons.vue'
 import UiToggle from '@/components/ui/UiToggle.vue'
 import UiToolbar from '@/components/ui/UiToolbar.vue'
 
@@ -38,14 +43,19 @@ export const uiComponents = {
   UiGrid,
   UiInput,
   UiListRow,
+  UiMenu,
   UiModal,
   UiProgress,
   UiSection,
+  UiSegmented,
   UiSelect,
+  UiSidebarItem,
+  UiTrafficLights,
   UiSpinner,
   UiStack,
   UiText,
   UiTitle,
+  UiTitlebarButtons,
   UiToggle,
   UiToolbar,
 } satisfies Record<string, Component>

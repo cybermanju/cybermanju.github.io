@@ -961,8 +961,8 @@ fn run_inline(ip: &mut Interp, cmdline: &str, lineno: usize, idx: usize) -> Resu
 }
 
 /// `ui:` effect lines the `ui`/`theme` verbs print become structured
-/// effects for the REST/TS layers (`ui: theme=mac-dark`,
-/// `ui: density=compact`, `ui: accent-for=cyber-night:#ff2d78`, …).
+/// effects for the REST/TS layers (`ui: theme=os-dark`,
+/// `ui: density=compact`, `ui: accent-for=os-dark:#ff2d78`, …).
 fn harvest_effects(ip: &mut Interp, text: &str) {
     for raw in text.lines() {
         let line = raw.trim();

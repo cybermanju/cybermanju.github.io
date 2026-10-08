@@ -3,9 +3,11 @@
 // Wraps VueUse `useSpeechRecognition` with a mode-aware correction
 // pipeline (src/utils/speechCorrect): final transcripts are normalised
 // (spoken punctuation → marks, code words → symbols, shell homophones →
-// verbs) and appended to the target field. Interim results are exposed
-// for a live "hearing…" hint. Unsupported browsers get `isSupported=false`
-// so mic buttons hide instead of failing.
+// verbs) and delivered via `dictateInto` (append to a field) or
+// `dictateWith` (per-transcript callback — the editor inserts at the
+// cursor). Interim results are exposed for a live "hearing…" hint.
+// Unsupported browsers get `isSupported=false` so mic buttons hide
+// instead of failing.
 //
 // Languages: `en-US` + `pt-BR`. The default comes from the browser
 // (`navigator.language` → pt-* ⇒ pt-BR) and the user's pick persists in
@@ -20,13 +22,15 @@ import {
   detectVoiceLang,
   isPtLang,
   normalizeSpoken,
+  resolveVoiceLang,
   VOICE_LANG_STORAGE_KEY,
   type VoiceLang,
+  type VoiceLangPref,
   type VoiceMode,
 } from '../utils/speechCorrect'
 
-export type { VoiceLang, VoiceMode }
-export { VOICE_LANG_STORAGE_KEY, detectVoiceLang, isPtLang }
+export type { VoiceLang, VoiceLangPref, VoiceMode }
+export { VOICE_LANG_STORAGE_KEY, detectVoiceLang, isPtLang, resolveVoiceLang }
 
 export interface VoiceInsert {
   /** Text after the mode pipeline (what was actually inserted). */
@@ -35,18 +39,22 @@ export interface VoiceInsert {
   fixes: string[]
 }
 
-function loadStoredLang(): VoiceLang | null {
+function loadStoredLangPref(): VoiceLangPref {
   try {
     const raw = localStorage.getItem(VOICE_LANG_STORAGE_KEY)
-    if (raw === 'pt-BR' || raw === 'en-US') return raw
+    if (raw === 'pt-BR' || raw === 'en-US' || raw === 'auto') return raw
   } catch {
     /* private mode / SSR */
   }
-  return null
+  // Default: neither EN nor PT picked → autodetect from the browser locale.
+  return 'auto'
 }
 
-export function useVoiceInput(mode: VoiceMode = 'prose', initialLang?: VoiceLang) {
-  const lang = ref<VoiceLang>(initialLang ?? loadStoredLang() ?? detectVoiceLang())
+export function useVoiceInput(mode: VoiceMode = 'prose', initialLangPref?: VoiceLangPref) {
+  // Explicit pick (EN/PT) or `auto`. Auto re-resolves via detectVoiceLang()
+  // on every dictation start, so it tracks the user's locale without a click.
+  const langPref = ref<VoiceLangPref>(initialLangPref ?? loadStoredLangPref())
+  const lang = ref<VoiceLang>(resolveVoiceLang(langPref.value))
   const rec = useSpeechRecognition({ lang, continuous: true })
   const activeMode = ref<VoiceMode>(mode)
   const lastInsert = ref<VoiceInsert | null>(null)
@@ -62,16 +70,18 @@ export function useVoiceInput(mode: VoiceMode = 'prose', initialLang?: VoiceLang
     },
   )
 
-  watch(lang, (v) => {
+  watch(langPref, (v) => {
     try {
       localStorage.setItem(VOICE_LANG_STORAGE_KEY, v)
     } catch {
       /* private mode — lang still applies for this session */
     }
+    // Keep the engine language in sync; `auto` re-detects right now.
+    lang.value = resolveVoiceLang(v)
   })
 
-  function setLang(next: VoiceLang): void {
-    if (lang.value === next) return
+  function setLang(next: VoiceLangPref): void {
+    if (langPref.value === next) return
     const wasListening = rec.isListening.value
     // VueUse only applies `lang` to the engine while idle, so restart.
     if (wasListening) {
@@ -81,7 +91,7 @@ export function useVoiceInput(mode: VoiceMode = 'prose', initialLang?: VoiceLang
         /* already stopped */
       }
     }
-    lang.value = next
+    langPref.value = next
   }
 
   function toggleLang(): VoiceLang {
@@ -91,19 +101,25 @@ export function useVoiceInput(mode: VoiceMode = 'prose', initialLang?: VoiceLang
   }
 
   function transform(raw: string): VoiceInsert {
+    // In `auto` mode the STT engine follows the browser locale, but the
+    // correction tables use the pt-BR superset (EN triggers + PT twins) so
+    // a Portuguese utterance through an en-US engine still gets its
+    // `vírgula` → `,` / `nova linha` → `\n` fixes.
+    const tableLang: VoiceLang = langPref.value === 'auto' ? 'pt-BR' : lang.value
     if (activeMode.value === 'shell') {
-      const fixed = correctShellLine(normalizeSpoken(raw, 'shell', lang.value))
+      const fixed = correctShellLine(normalizeSpoken(raw, 'shell', tableLang))
       return { text: fixed.line, fixes: fixed.fixes }
     }
-    return { text: normalizeSpoken(raw, activeMode.value, lang.value), fixes: [] }
+    return { text: normalizeSpoken(raw, activeMode.value, tableLang), fixes: [] }
   }
 
   /**
-   * Start dictation into `target`: each FINAL transcript is corrected and
-   * appended (space-joined). Stops automatically appending on `stop()`.
-   * Returns an unsubscribe fn — call it (or `stop()`) on unmount.
+   * Start dictation, calling `handler` with each FINAL corrected transcript.
+   * The editor uses this to insert code at the cursor; `dictateInto` is the
+   * append-to-field specialisation. Returns an unsubscribe fn — call it (or
+   * `stop()`) on unmount or when toggling off.
    */
-  function dictateInto(target: Ref<string>): () => void {
+  function dictateWith(handler: (ins: VoiceInsert, raw: string) => void): () => void {
     let consumed = ''
     const stopWatch = watch(
       () => rec.result.value,
@@ -112,10 +128,13 @@ export function useVoiceInput(mode: VoiceMode = 'prose', initialLang?: VoiceLang
         consumed = text
         const ins = transform(text)
         lastInsert.value = ins
-        target.value = target.value ? `${target.value} ${ins.text}` : ins.text
+        handler(ins, text)
       },
     )
     try {
+      // Auto mode: autodetect on every press, so a locale change (or a
+      // fresh browser default) applies without the user picking EN/PT.
+      if (langPref.value === 'auto') lang.value = detectVoiceLang()
       rec.start()
     } catch (e) {
       lastError.value = e instanceof Error ? e.message : String(e)
@@ -128,6 +147,17 @@ export function useVoiceInput(mode: VoiceMode = 'prose', initialLang?: VoiceLang
         /* already stopped */
       }
     }
+  }
+
+  /**
+   * Start dictation into `target`: each FINAL transcript is corrected and
+   * appended (space-joined). Stops automatically appending on `stop()`.
+   * Returns an unsubscribe fn — call it (or `stop()`) on unmount.
+   */
+  function dictateInto(target: Ref<string>): () => void {
+    return dictateWith((ins) => {
+      target.value = target.value ? `${target.value} ${ins.text}` : ins.text
+    })
   }
 
   function toggle() {
@@ -148,9 +178,11 @@ export function useVoiceInput(mode: VoiceMode = 'prose', initialLang?: VoiceLang
     lastError,
     mode: activeMode,
     lang,
+    langPref,
     setLang,
     toggleLang,
     transform,
+    dictateWith,
     dictateInto,
     toggle,
     start: rec.start,

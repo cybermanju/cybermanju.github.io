@@ -15,6 +15,9 @@ export const VOICE_LANGS: readonly VoiceLang[] = ['en-US', 'pt-BR']
 
 export const VOICE_LANG_STORAGE_KEY = 'cybermanju.voice.lang.v1'
 
+/** User-facing preference: explicit EN/PT-BR, or `auto` (browser-detected). */
+export type VoiceLangPref = 'auto' | VoiceLang
+
 /** True for `pt`, `pt-BR`, `pt-PT`, … — anything the STT engine treats as Portuguese. */
 export function isPtLang(lang: string): boolean {
   return lang.trim().toLowerCase().startsWith('pt')
@@ -30,6 +33,15 @@ export function detectVoiceLang(input?: string): VoiceLang {
     input ??
     (typeof navigator !== 'undefined' ? (navigator.language ?? navigator.languages?.[0] ?? '') : '')
   return isPtLang(raw ?? '') ? 'pt-BR' : 'en-US'
+}
+
+/**
+ * Resolve an effective STT language from a user preference. `auto` (the
+ * default — neither EN nor PT picked) follows the browser locale at call
+ * time, so dictation autodetects the user's language on every use.
+ */
+export function resolveVoiceLang(pref: VoiceLangPref, input?: string): VoiceLang {
+  return pref === 'auto' ? detectVoiceLang(input) : pref
 }
 
 /** Lowercase + strip diacritics so `cê dê` matches `ce de`, `vírgula` matches `virgula`. */

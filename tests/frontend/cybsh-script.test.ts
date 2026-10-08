@@ -99,10 +99,10 @@ describe('cybsh script: memory + errors', () => {
   })
 
   it('harvests ui: effects from inline shell', async () => {
-    const out = await runCybshScript('$ ui theme mac-dark\n', {
-      execCybsh: () => 'theme: mac-dark · accent: system\nui: theme=mac-dark',
+    const out = await runCybshScript('$ ui theme os-dark\n', {
+      execCybsh: () => 'theme: os-dark · accent: system\nui: theme=os-dark',
     })
-    expect(out.effects).toEqual([{ kind: 'theme', detail: 'mac-dark' }])
+    expect(out.effects).toEqual([{ kind: 'theme', detail: 'os-dark' }])
   })
 
   it('errors loudly with line numbers', async () => {
@@ -187,18 +187,25 @@ describe('static cybsh: run verb', () => {
 describe('static cybsh: theme + ui verbs', () => {
   it('gets, sets, and accents with ui: effect lines', async () => {
     const deps = staticDeps({}, async (line) => line)
-    expect((await runStaticCybshLine('theme', deps))?.output).toContain('mac-light')
-    const set = await runStaticCybshLine('ui theme mac-dark', deps)
-    expect(set?.output).toContain('ui: theme=mac-dark')
-    expect((await runStaticCybshLine('theme --json', deps))?.output).toContain('mac-dark')
+    expect((await runStaticCybshLine('theme', deps))?.output).toContain('os-dark')
+    const set = await runStaticCybshLine('ui theme os-light', deps)
+    expect(set?.output).toContain('ui: theme=os-light')
+    expect((await runStaticCybshLine('theme --json', deps))?.output).toContain('os-light')
     const accent = await runStaticCybshLine('ui accent #ff2d55', deps)
     expect(accent?.output).toContain('ui: accent=#ff2d55')
     expect((await runStaticCybshLine('ui accent bogus', deps))?.output).toMatch(/invalid:/)
     expect((await runStaticCybshLine('ui theme nosuch', deps))?.output).toMatch(/invalid:/)
+    // Legacy ids migrate by mode.
     const matrix = await runStaticCybshLine('ui theme matrix-night', deps)
-    expect(matrix?.output).toContain('ui: theme=matrix-night')
+    expect(matrix?.output).toContain('ui: theme=os-dark')
     const punk = await runStaticCybshLine('ui theme cyberpunk-night', deps)
-    expect(punk?.output).toContain('ui: theme=cyberpunk-night')
+    expect(punk?.output).toContain('ui: theme=os-dark')
+    const graphite = await runStaticCybshLine('ui theme os-graphite', deps)
+    expect(graphite?.output).toContain('ui: theme=os-graphite')
+    const plasma = await runStaticCybshLine('ui theme plasma-dark', deps)
+    expect(plasma?.output).toContain('ui: theme=plasma-dark')
+    const plasmaLight = await runStaticCybshLine('ui theme plasma-light', deps)
+    expect(plasmaLight?.output).toContain('ui: theme=plasma-light')
   })
   it('drives the whole interface: density, glass, motion, glow, per-theme accents', async () => {
     const deps = staticDeps({}, async (line) => line)
@@ -206,28 +213,29 @@ describe('static cybsh: theme + ui verbs', () => {
     expect(get?.output).toContain('density: comfortable')
     expect(get?.output).toContain('ui: density=comfortable')
     const getJson = JSON.parse((await runStaticCybshLine('ui get --json', deps))?.output ?? '{}') as Record<string, unknown>
-    expect(getJson).toMatchObject({ theme: 'mac-light', accent: null, density: 'comfortable', glass: 2, motion: 'auto', glow: true })
+    expect(getJson).toMatchObject({ theme: 'os-dark', accent: null, density: 'comfortable', glass: 2, motion: 'auto', glow: false })
 
     expect((await runStaticCybshLine('ui density compact', deps))?.output).toContain('ui: density=compact')
     expect((await runStaticCybshLine('ui density bogus', deps))?.output).toMatch(/invalid:/)
-    expect((await runStaticCybshLine('ui glass rich', deps))?.output).toContain('ui: glass=3')
+    expect((await runStaticCybshLine('ui glass translucent', deps))?.output).toContain('ui: glass=2')
+    expect((await runStaticCybshLine('ui glass solid', deps))?.output).toContain('ui: glass=0')
     expect((await runStaticCybshLine('ui glass 9', deps))?.output).toMatch(/invalid:/)
     expect((await runStaticCybshLine('ui motion reduced', deps))?.output).toContain('ui: motion=reduced')
     expect((await runStaticCybshLine('ui glow off', deps))?.output).toContain('ui: glow=off')
 
-    const themed = await runStaticCybshLine('ui accent #ff2d78 --for cyberpunk-night', deps)
-    expect(themed?.output).toContain('ui: accent-for=cyberpunk-night:#ff2d78')
+    const themed = await runStaticCybshLine('ui accent #ff2d78 --for os-dark', deps)
+    expect(themed?.output).toContain('ui: accent-for=os-dark:#ff2d78')
     expect((await runStaticCybshLine('ui accent #ff2d78 --for nosuch', deps))?.output).toMatch(/invalid:/)
     const after = JSON.parse((await runStaticCybshLine('ui get --json', deps))?.output ?? '{}') as Record<string, unknown>
     expect(after).toMatchObject({
       density: 'compact',
-      glass: 3,
+      glass: 0,
       motion: 'reduced',
       glow: false,
-      accents: { 'cyberpunk-night': '#ff2d78' },
+      accents: { 'os-dark': '#ff2d78' },
     })
-    const cleared = await runStaticCybshLine('ui accent default --for cyberpunk-night', deps)
-    expect(cleared?.output).toContain('ui: accent-for=cyberpunk-night:system')
+    const cleared = await runStaticCybshLine('ui accent default --for os-dark', deps)
+    expect(cleared?.output).toContain('ui: accent-for=os-dark:system')
   })
 })
 

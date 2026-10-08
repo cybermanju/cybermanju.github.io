@@ -10,9 +10,7 @@
     @click="toggle"
   >
     <span class="ui-toggle__track">
-      <span class="ui-toggle__thumb">
-        <AppIcon v-if="modelValue" name="solar:check-bold" :size="9" />
-      </span>
+      <span class="ui-toggle__thumb" />
     </span>
     <span v-if="label || $slots.default" class="ui-toggle__label">
       <slot>{{ label }}</slot>
@@ -21,8 +19,6 @@
 </template>
 
 <script setup lang="ts">
-import AppIcon from '@/components/AppIcon.vue'
-
 const props = withDefaults(
   defineProps<{
     modelValue?: boolean
@@ -61,8 +57,8 @@ function toggle() {
 }
 
 .ui-toggle:focus-visible .ui-toggle__track {
-  outline: 2px solid color-mix(in srgb, var(--ui-accent) 75%, transparent);
-  outline-offset: 2px;
+  box-shadow: var(--ui-focus-ring);
+  border-color: var(--ui-accent);
 }
 
 .ui-toggle__track {
@@ -87,19 +83,15 @@ function toggle() {
 }
 
 .ui-toggle__thumb {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: linear-gradient(180deg, #ffffff, #d8dee2);
-  color: var(--ui-on-accent);
+  /* Fixed white knob: correct on every theme's accent track. */
+  background: #ffffff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
   transform: translateX(0);
-  transition:
-    transform var(--ui-dur) var(--ui-ease-spring),
-    background-color var(--ui-dur) var(--ui-ease-out);
+  transition: transform var(--ui-dur) var(--ui-ease-out);
 }
 
 .ui-toggle--sm .ui-toggle__thumb {
@@ -108,13 +100,9 @@ function toggle() {
 }
 
 .ui-toggle--on .ui-toggle__track {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--ui-accent) 85%, white),
-    var(--ui-accent)
-  );
-  border-color: color-mix(in srgb, var(--ui-accent) 70%, transparent);
-  box-shadow: var(--ui-glow-soft);
+  background: var(--ui-accent);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .ui-toggle--on .ui-toggle__thumb {
