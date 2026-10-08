@@ -371,8 +371,9 @@ mod tests {
         assert!(native.contains("context:"));
         assert!(!native.contains("NO bash"));
         let browser = system_prompt("/vol", "plan", "a.rs", Sandbox::Browser, ShellMode::Auto);
-        assert!(browser.contains("NO bash"));
+        assert!(browser.contains("cybsh-subset"));
         assert!(browser.contains("read-only"));
+        assert!(browser.contains("unsupported:"));
     }
 
     #[test]
