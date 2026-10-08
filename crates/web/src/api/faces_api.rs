@@ -315,8 +315,7 @@ pub fn detect_batch(db: &Database) -> Result<BatchResponse, String> {
                     .get(fid.as_str())
                     .map_err(|e| e.to_string())?
                     .map(|value| {
-                        serde_json::from_str::<FileNode>(value.value())
-                            .map_err(|e| e.to_string())
+                        serde_json::from_str::<FileNode>(value.value()).map_err(|e| e.to_string())
                     })
                     .transpose()?;
                 if let Some(mut node) = stored {
