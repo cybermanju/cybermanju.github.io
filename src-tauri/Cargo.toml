@@ -35,7 +35,7 @@ cybermanju-crypto = { path = "../crates/crypto" }
 cybermanju-compression = { path = "../crates/compression" }
 cybermanju-search = { path = "../crates/search" }
 cybermanju-db = { path = "../crates/db" }
-cybermanju-faces = { path = "../crates/faces" }
+cybermanju-faces = { path = "../crates/faces", default-features = false }
 cybermanju-sync = { path = "../crates/sync" }
 cybermanju-web = { path = "../crates/web" }
 cybermanju-disk = { path = "../crates/disk" }
@@ -52,6 +52,15 @@ tauri-plugin-store = "2"
 tauri-plugin-log = "2"
 tauri-plugin-os = "2"
 tauri-plugin-process = "2"
+
+# ONNX face embeddings only where `ort` ships a usable prebuilt runtime
+# (desktop OSs). Android/iOS builds must not link ort-sys: its
+# `download-binaries` dist has no reliable mobile artifact and the link
+# fails with `could not find native static library 'onnxruntime'`.
+# Without the feature the honest fallback applies (empty detections,
+# never fabricated — AUDIT F7), same as a desktop with no model file.
+[target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
+cybermanju-faces = { path = "../crates/faces", features = ["onnx-face"] }
 
 # General
 serde = { version = "1", features = ["derive"] }
