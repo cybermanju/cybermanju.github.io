@@ -4402,10 +4402,7 @@ mod tests {
                 "os-dark".to_string(),
             ],
         );
-        assert!(
-            out.contains("ui: accent-for=os-dark:#ff2d78"),
-            "{out}"
-        );
+        assert!(out.contains("ui: accent-for=os-dark:#ff2d78"), "{out}");
         let out = dispatch("ui", &["get".to_string(), "--json".to_string()]);
         let body = inner(&out);
         assert!(body.contains(r#""density":"compact""#), "{out} {body}");
@@ -4432,10 +4429,7 @@ mod tests {
                 "os-dark".to_string(),
             ],
         );
-        assert!(
-            out.contains("ui: accent-for=os-dark:system"),
-            "{out}"
-        );
+        assert!(out.contains("ui: accent-for=os-dark:system"), "{out}");
     }
 
     #[test]
