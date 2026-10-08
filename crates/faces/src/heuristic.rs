@@ -681,7 +681,7 @@ mod tests {
     fn face_frame() -> (Vec<u8>, u32, u32) {
         let (w, h) = (200u32, 200u32);
         let mut frame = vec![0u8; (w as usize) * (h as usize) * 3];
-        for chunk in frame.chunks_exact_mut(3) {
+        for chunk in frame.as_chunks_mut::<3>().0 {
             chunk.copy_from_slice(&[40u8, 80u8, 220u8]);
         }
         paint_rect(&mut frame, w, 70, 50, 130, 140, [200, 150, 120]);
@@ -697,7 +697,7 @@ mod tests {
     fn plain_blob_frame() -> (Vec<u8>, u32, u32) {
         let (w, h) = (200u32, 200u32);
         let mut frame = vec![0u8; (w as usize) * (h as usize) * 3];
-        for chunk in frame.chunks_exact_mut(3) {
+        for chunk in frame.as_chunks_mut::<3>().0 {
             chunk.copy_from_slice(&[40u8, 80u8, 220u8]);
         }
         paint_rect(&mut frame, w, 70, 50, 130, 140, [200, 150, 120]);
@@ -755,7 +755,7 @@ mod tests {
     fn pure_blue_finds_nothing() {
         let (w, h) = (160u32, 120u32);
         let mut frame = vec![0u8; (w as usize) * (h as usize) * 3];
-        for chunk in frame.chunks_exact_mut(3) {
+        for chunk in frame.as_chunks_mut::<3>().0 {
             chunk.copy_from_slice(&[40u8, 80u8, 220u8]);
         }
         assert!(detect_faces_heuristic_rgb(&frame, w, h).is_empty());
@@ -777,7 +777,7 @@ mod tests {
         // Very dark skin outside the mid-luma box — the wide rect must catch it.
         let (w, h) = (200u32, 200u32);
         let mut frame = vec![0u8; (w as usize) * (h as usize) * 3];
-        for chunk in frame.chunks_exact_mut(3) {
+        for chunk in frame.as_chunks_mut::<3>().0 {
             chunk.copy_from_slice(&[40u8, 80u8, 220u8]);
         }
         paint_rect(&mut frame, w, 70, 50, 130, 140, [50, 30, 20]);

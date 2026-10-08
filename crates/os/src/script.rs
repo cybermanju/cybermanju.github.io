@@ -2331,8 +2331,8 @@ mod tests {
 
     fn stub_echo() -> impl Fn(&str) -> Result<String, String> {
         |line: &str| {
-            if line.starts_with("echo ") {
-                Ok(line["echo ".len()..].to_string())
+            if let Some(stripped) = line.strip_prefix("echo ") {
+                Ok(stripped.to_string())
             } else if line.starts_with("unknown") {
                 Err("unknown command: 'unknown'".to_string())
             } else {
