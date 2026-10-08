@@ -199,7 +199,10 @@ pub fn save_config(db: &Database, config: SyncConfig) -> Result<SyncConfig, Stri
     // on every other provider (best-effort, never fails the save itself).
     if config.key_holder {
         if let Ok(all) = list_configs(db) {
-            for other in all.into_iter().filter(|c| c.id != config_id && c.key_holder) {
+            for other in all
+                .into_iter()
+                .filter(|c| c.id != config_id && c.key_holder)
+            {
                 let mut cleared = other.clone();
                 cleared.key_holder = false;
                 cleared.updated_at = Some(chrono::Utc::now().to_rfc3339());
@@ -1103,12 +1106,7 @@ pub fn move_file_on_db(db: &Database, req: MoveRequest) -> Result<MoveOutcome, S
 /// Shared verified relocation (`cybermanju_sync::relocate`) mapped onto the
 /// REST wire shape. The duplicate noop above keeps the id contract local.
 fn relocate_into_move_outcome(db: &Database, req: MoveRequest) -> Result<MoveOutcome, String> {
-    let out = cybermanju_sync::relocate(
-        db,
-        &req.file_id,
-        &req.from_config_id,
-        &req.to_config_id,
-    )?;
+    let out = cybermanju_sync::relocate(db, &req.file_id, &req.from_config_id, &req.to_config_id)?;
     Ok(MoveOutcome {
         file_id: out.file_id,
         from_config_id: out.from_config_id,

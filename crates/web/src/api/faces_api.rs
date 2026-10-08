@@ -325,8 +325,8 @@ pub fn detect_batch(db: &Database) -> Result<BatchResponse, String> {
                 continue;
             }
             if let Some(value) = ft.get(node.id.as_str()).map_err(|e| e.to_string())? {
-                let mut fresh: FileNode = serde_json::from_str(value.value())
-                    .map_err(|e| e.to_string())?;
+                let mut fresh: FileNode =
+                    serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
                 if !fresh.face_group_ids.is_empty() {
                     fresh.face_group_ids.clear();
                     let raw = serde_json::to_string(&fresh).map_err(|e| e.to_string())?;

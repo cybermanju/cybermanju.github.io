@@ -3169,7 +3169,6 @@ fn theme_cmd(args: &[String], json: bool) -> Result<String, String> {
     }
     Ok(ui_line(&next))
 }
-}
 
 /// `ui theme|accent|density|glass|motion|glow|get` — the script-facing half
 /// of the OS interface (the whole interface lives here; providers stay with

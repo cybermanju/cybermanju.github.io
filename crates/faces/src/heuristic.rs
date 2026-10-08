@@ -220,10 +220,10 @@ fn sample_grid(rgb: &[u8], width: u32, height: u32, gw: u32, gh: u32) -> (Vec<[u
     let mut lumas = vec![0u32; (gw as usize) * (gh as usize)];
     for gy in 0..gh {
         let y0 = (gy * height / gh) as usize;
-        let y1 = (((gy + 1) * height / gh).max(y0 + 1)) as usize;
+        let y1 = (((gy + 1) * height / gh).max(y0 as u32 + 1)) as usize;
         for gx in 0..gw {
             let x0 = (gx * width / gw) as usize;
-            let x1 = (((gx + 1) * width / gw).max(x0 + 1)) as usize;
+            let x1 = (((gx + 1) * width / gw).max(x0 as u32 + 1)) as usize;
             let (mut sr, mut sg, mut sb, mut n) = (0u32, 0u32, 0u32, 0u32);
             for y in y0..y1.min(height as usize) {
                 for x in x0..x1.min(width as usize) {
@@ -444,12 +444,7 @@ struct FaceFeatures {
 /// Eye/mouth verification: luma valleys for eye candidates with pair
 /// geometry, simplified Hsu mouth map (M = Cr²·(Cr−Cb)) for the mouth.
 /// Accept on an eye pair, or one eye plus a mouth. `None` = not a face.
-fn verify_features(
-    grid: &[[u32; 3]],
-    lumas: &[u32],
-    gw: u32,
-    blob: &Blob,
-) -> Option<FaceFeatures> {
+fn verify_features(grid: &[[u32; 3]], lumas: &[u32], gw: u32, blob: &Blob) -> Option<FaceFeatures> {
     let bw = blob.width();
     let bh = blob.height();
     let bbox_area = (bw as f32) * (bh as f32);
@@ -482,24 +477,18 @@ fn verify_features(
         }
     }
     let eye_top = blob.min_y + (bh * EYE_TOP_NUM / EYE_TOP_DEN);
-    let mut eyes: Vec<Blob> = connected_blobs_strided(
-        &eye_mask,
-        gw,
-        blob.min_x,
-        blob.min_y,
-        bw,
-        bh,
-    )
-    .into_iter()
-    .filter(|b| {
-        let area_frac = b.pixels as f32 / bbox_area;
-        b.max_y < eye_top
-            && (EYE_MIN_AREA_FRAC..=EYE_MAX_AREA_FRAC).contains(&area_frac)
-            && b.width() >= EYE_MIN_SIDE
-            && b.height() >= EYE_MIN_SIDE
-            && (b.width() as f32) <= EYE_MAX_W_FRAC * bw as f32
-    })
-    .collect();
+    let mut eyes: Vec<Blob> =
+        connected_blobs_strided(&eye_mask, gw, blob.min_x, blob.min_y, bw, bh)
+            .into_iter()
+            .filter(|b| {
+                let area_frac = b.pixels as f32 / bbox_area;
+                b.max_y < eye_top
+                    && (EYE_MIN_AREA_FRAC..=EYE_MAX_AREA_FRAC).contains(&area_frac)
+                    && b.width() >= EYE_MIN_SIDE
+                    && b.height() >= EYE_MIN_SIDE
+                    && (b.width() as f32) <= EYE_MAX_W_FRAC * bw as f32
+            })
+            .collect();
     eyes.sort_by(|a, b| b.pixels.cmp(&a.pixels));
 
     // Pair geometry: aligned, separated, symmetric about the face axis.

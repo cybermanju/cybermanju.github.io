@@ -80,10 +80,7 @@ pub fn check_disk(disk_id: String, state: State<'_, AppState>) -> Result<CheckRe
 
 /// Designate the single key-holder disk (clears the flag on all others).
 #[tauri::command]
-pub fn set_disk_key_holder(
-    disk_id: String,
-    state: State<'_, AppState>,
-) -> Result<DiskRow, String> {
+pub fn set_disk_key_holder(disk_id: String, state: State<'_, AppState>) -> Result<DiskRow, String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
     disk::set_key_holder(&db, &disk_id)
 }

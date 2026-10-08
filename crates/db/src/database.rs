@@ -164,7 +164,9 @@ impl Database {
             }
         }
         write_txn.commit()?;
-        Ok(Self { db: std::sync::Arc::new(db) })
+        Ok(Self {
+            db: std::sync::Arc::new(db),
+        })
     }
 
     pub fn begin_read(&self) -> Result<ReadTransaction> {
