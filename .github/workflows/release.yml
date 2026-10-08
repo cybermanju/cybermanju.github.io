@@ -512,11 +512,15 @@ jobs:
             ort-dfbin-${{ runner.os }}-aarch64-
 
       # Same as ci.yml: self-healing warm-cache poison (see comment there).
+      # NB: plain `cargo clean -p` misses the Android target dirs — remove
+      # the fingerprint/output dirs directly.
       - name: Force ort-sys rebuild when its binaries are missing
         run: |
           if ! ls "$HOME/.cache/ort/dfbin/aarch64-linux-android/"*/libonnxruntime.a >/dev/null 2>&1; then
-            echo "onnxruntime.a absent — cleaning ort-sys so download-binaries re-runs"
-            cargo clean -p ort-sys
+            echo "onnxruntime.a absent — dropping cached ort-sys state so download-binaries re-runs"
+            for triple in aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android; do
+              rm -rf "target/$triple/release/build/ort-sys-*" "target/$triple/release/.fingerprint/ort-sys-*"
+            done
           else
             echo "onnxruntime.a present — incremental build is safe"
           fi
