@@ -740,7 +740,7 @@ impl SyncPipeline {
             let guard = db.read().map_err(|e| e.to_string())?;
             let mut others = guard.list_sync_configs().map_err(|e| e.to_string())?;
             others.retain(|c| c.enabled && c.id != self.config.id);
-            others.sort_by(|a, b| a.id.cmp(&b.id));
+            others.sort_by_key(|a| a.id.clone());
             let mut list = vec![self.config.clone()];
             list.extend(others);
             list

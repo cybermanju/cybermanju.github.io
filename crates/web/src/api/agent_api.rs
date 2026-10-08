@@ -124,7 +124,7 @@ pub fn list_configs(db: &Database) -> Result<Vec<AgentConfig>, String> {
         let config: AgentConfig = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
         out.push(with_has_key(db, config)?);
     }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out.sort_by_key(|a| a.name.clone());
     Ok(out)
 }
 

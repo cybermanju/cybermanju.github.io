@@ -693,7 +693,7 @@ pub fn list_disks(db: &Database) -> Result<Vec<DiskRecord>, String> {
             rows.push(rec);
         }
     }
-    rows.sort_by(|a, b| a.id.cmp(&b.id));
+    rows.sort_by_key(|a| a.id.clone());
     Ok(rows)
 }
 

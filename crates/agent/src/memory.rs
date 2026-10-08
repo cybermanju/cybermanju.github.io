@@ -213,7 +213,7 @@ pub fn render_recall_block(hits: &[MemoryHit], budget: usize) -> String {
 /// file is the human-readable, syncable companion.
 pub fn render_export_markdown(memories: &[AgentMemory]) -> String {
     let mut rows: Vec<&AgentMemory> = memories.iter().collect();
-    rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    rows.sort_by_key(|a| std::cmp::Reverse(a.updated_at.clone()));
     let mut out =
         String::from("# Memories\n\nExported from CyberManju semantic memory. Newest first.\n");
     for m in rows {

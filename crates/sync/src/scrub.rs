@@ -231,7 +231,7 @@ pub fn scrub_snapshot(snapshot: &Snapshot) -> ScrubRun {
     }
 
     let mut providers: Vec<ProviderScrub> = per.into_values().collect();
-    providers.sort_by(|a, b| a.config_id.cmp(&b.config_id));
+    providers.sort_by_key(|a| a.config_id.clone());
     run.providers = providers;
     run.duration_ms = started.elapsed().as_millis() as u64;
     run.finished_at = now();

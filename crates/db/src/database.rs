@@ -390,7 +390,7 @@ impl Database {
                 rows.push((key.value().to_string(), stored.finished_at));
             }
             if rows.len() > SYNC_RUN_HISTORY_LIMIT {
-                rows.sort_by(|a, b| a.1.cmp(&b.1));
+                rows.sort_by_key(|a| a.1.clone());
                 for (stale, _) in rows.iter().take(rows.len() - SYNC_RUN_HISTORY_LIMIT) {
                     table.remove(stale.as_str())?;
                 }

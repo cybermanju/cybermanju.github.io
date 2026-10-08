@@ -140,7 +140,7 @@ pub fn list_mounts(db: &Database) -> Result<Vec<(String, String)>, String> {
             let name = json
                 .get("name")
                 .and_then(|v| v.as_str())
-                .unwrap_or(id)
+                .unwrap_or(id.as_str())
                 .to_string();
             if config_id.is_empty() {
                 continue;
@@ -156,7 +156,7 @@ pub fn list_mounts(db: &Database) -> Result<Vec<(String, String)>, String> {
         }
         rows.push((c.id.clone(), mount_label(c)));
     }
-    rows.sort_by(|a, b| a.1.cmp(&b.1));
+    rows.sort_by_key(|a| a.1.clone());
     Ok(rows)
 }
 

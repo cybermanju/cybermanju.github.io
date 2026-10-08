@@ -29,7 +29,7 @@ pub fn list(
         .collect();
 
     // Sort by timestamp descending (most recent first)
-    entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    entries.sort_by_key(|a| std::cmp::Reverse(a.timestamp.clone()));
 
     let limit = limit.unwrap_or(100) as usize;
     entries.truncate(limit);

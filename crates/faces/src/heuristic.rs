@@ -489,7 +489,7 @@ fn verify_features(grid: &[[u32; 3]], lumas: &[u32], gw: u32, blob: &Blob) -> Op
                     && (b.width() as f32) <= EYE_MAX_W_FRAC * bw as f32
             })
             .collect();
-    eyes.sort_by(|a, b| b.pixels.cmp(&a.pixels));
+    eyes.sort_by_key(|a| std::cmp::Reverse(a.pixels));
 
     // Pair geometry: aligned, separated, symmetric about the face axis.
     let mut paired = false;
