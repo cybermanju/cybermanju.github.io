@@ -2147,8 +2147,8 @@ fn script_parse(source: &str) -> Result<usize, String> {
 
 fn script_run(
     source: &str,
-    exec: &dyn Fn(&str) -> Result<String, String>,
-    fetch: Option<&dyn Fn(&str) -> Result<String, String>>,
+    exec: ScriptShellFn<'_>,
+    fetch: Option<ScriptShellFn<'_>>,
 ) -> Result<ScriptOut, String> {
     script_check_version(source)?;
     let lines = script_split(source)?;
@@ -4403,7 +4403,7 @@ mod tests {
         assert!(out.contains(r#""glass":3"#), "{out}");
         assert!(out.contains(r#""motion":"reduced""#), "{out}");
         assert!(out.contains(r#""glow":false"#), "{out}");
-        assert!(out.contains(r#""cyberpunk-night":"#ff2d78""#), "{out}");
+        assert!(out.contains(r##""cyberpunk-night":"#ff2d78""##), "{out}");
         // Restore defaults for other tests.
         for args in [
             vec!["density".to_string(), "comfortable".to_string()],
