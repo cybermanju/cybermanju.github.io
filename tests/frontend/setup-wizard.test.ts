@@ -36,7 +36,7 @@ describe('setup wizard state', () => {
   })
 
   it('walks forward and clamps on done', () => {
-    const order: SetupStep[] = ['welcome', 'storage', 'agent', 'done']
+    const order: SetupStep[] = ['welcome', 'vault', 'sync', 'cloud', 'agent', 'done']
     expect([...SETUP_STEPS]).toEqual(order)
     let s: SetupStep = 'welcome'
     for (const expected of order.slice(1)) {
@@ -48,14 +48,18 @@ describe('setup wizard state', () => {
 
   it('walks back and clamps on welcome', () => {
     expect(prevSetupStep('done')).toBe('agent')
-    expect(prevSetupStep('storage')).toBe('welcome')
+    expect(prevSetupStep('cloud')).toBe('sync')
+    expect(prevSetupStep('sync')).toBe('vault')
+    expect(prevSetupStep('vault')).toBe('welcome')
     expect(prevSetupStep('welcome')).toBe('welcome')
   })
 
   it('numbers steps 1-based for the progress dots', () => {
     expect(setupStepIndex('welcome')).toBe(1)
-    expect(setupStepIndex('storage')).toBe(2)
-    expect(setupStepIndex('agent')).toBe(3)
-    expect(setupStepIndex('done')).toBe(4)
+    expect(setupStepIndex('vault')).toBe(2)
+    expect(setupStepIndex('sync')).toBe(3)
+    expect(setupStepIndex('cloud')).toBe(4)
+    expect(setupStepIndex('agent')).toBe(5)
+    expect(setupStepIndex('done')).toBe(6)
   })
 })

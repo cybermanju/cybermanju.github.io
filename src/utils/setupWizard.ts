@@ -7,14 +7,16 @@
 
 export const SETUP_SEEN_KEY = 'cybermanju.setupSeen.v1'
 
-export const SETUP_STEPS = ['welcome', 'storage', 'agent', 'done'] as const
+export const SETUP_STEPS = ['welcome', 'vault', 'sync', 'cloud', 'agent', 'done'] as const
 
 export type SetupStep = (typeof SETUP_STEPS)[number]
 
 export const SETUP_STEP_LABELS: Record<SetupStep, string> = {
   welcome: 'Welcome',
-  storage: 'Storage & sync',
-  agent: 'Agent AI (optional)',
+  vault: 'Vault',
+  sync: 'Local sync',
+  cloud: 'Cloud',
+  agent: 'Agent (optional)',
   done: 'Done',
 }
 

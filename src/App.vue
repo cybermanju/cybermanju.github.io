@@ -855,6 +855,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   padding: 7px 14px;
+  max-width: min(560px, calc(100vw - 32px));
   background: var(--ui-glass-2);
   backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
   -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
@@ -875,13 +876,22 @@ onBeforeUnmount(() => {
 }
 
 .error-icon { font-size: 12px; flex-shrink: 0; display: flex; }
-.error-text { flex: 1; }
+.error-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
 .error-dismiss {
   font-weight: 700;
   cursor: pointer;
   margin-left: 8px;
   width: 16px;
   height: 16px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;

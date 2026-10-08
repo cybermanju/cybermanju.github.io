@@ -77,7 +77,7 @@
             <span class="am-status is-ok"><ProviderLogo :provider="identity.provider" :size="18" /> {{ identity.provider.toUpperCase() }}</span>
             <button class="am-btn sm" type="button" :disabled="signingOut" @click="signOut">{{ signingOut ? '…' : 'Sign out' }}</button>
           </div>
-          <p class="am-hint">Signed in through the Supabase broker — this app stores no password anywhere. Signing in also unlocks one-click OAuth for the providers below.</p>
+          <p class="am-hint">Signed in via the broker — no password stored. This unlocks one-click OAuth below.</p>
         </div>
 
         <button
@@ -93,7 +93,7 @@
 
         <div v-if="connectedAccounts.length && (!identity || accountsOpen)" class="am-card">
           <h3 class="am-card-title">Connected accounts ({{ connectedAccounts.length }})</h3>
-          <p class="am-hint">Supabase holds one active session — the rest stay remembered here, so you can switch back in one click, including a second account on the same provider. Each sign-in also creates its provider connection below, so the two lists stay in sync. Forgetting the last account on a provider offers to delete its now-orphan connection(s); Disconnect deletes the connection(s) without forgetting the login.</p>
+          <p class="am-hint">One active session — the rest stay remembered for one-click switching. Each sign-in creates its provider connection below.</p>
           <div v-for="acc in connectedAccounts" :key="acc.id" class="am-identity-row">
             <img v-if="acc.avatarUrl" class="am-avatar" :src="acc.avatarUrl" alt="" />
             <ProviderLogo v-else :provider="acc.provider" :size="32" />
@@ -118,7 +118,7 @@
 
         <div v-if="!identity || accountsOpen" class="am-card">
           <h3 class="am-card-title">{{ identity ? 'Add another account' : 'Sign in' }}</h3>
-          <p class="am-hint">Approve at the provider — nothing is typed here. OAuth is the only sign-in; there is no password form. Every login is fresh, so pick any account at the provider — even a second one on the same provider. The same approval connects the matching provider below.</p>
+          <p class="am-hint">Approve at the provider — no password typed here. Each login also creates its provider connection below.</p>
           <div class="am-login-grid">
             <button
               v-for="p in LOGIN_CARDS"
@@ -873,6 +873,8 @@ async function ensureProviderForBackend(
     selectedId.value = existing.id
     // Top-up a missing secret: an OAuth token that arrives after the row
     // was created (sign-in first, connect later) should not be dropped.
+    // All callers here are explicit user actions (sign-in / Connect /
+    // Create), so a fresh session token refreshes the stored secret.
     const token = (opts.token ?? '').trim()
     if (token && !(existing as SyncConfig).token) {
       const topped = await store.saveSyncConfig({ ...existing, token })
@@ -1616,7 +1618,18 @@ async function probe(cfg: SyncConfig) {
   probing.value.add(cfg.id)
   authState.value[cfg.id] = { ok: null, detail: 'probing…' }
   try {
-    const r = await store.probeSyncConnection(overlayDraft(cfg, drafts[cfg.id]))
+    // The stored row never carries the secret (sealed server-side / in the
+    // vault) and the draft may be empty after an OAuth sign-in — so a probe
+    // built from row + draft alone reports "has no token" even though the
+    // live Supabase session holds a valid token. Attach it as a last resort
+    // (probe-only, never saved here).
+    const base = overlayDraft(cfg, drafts[cfg.id])
+    let toProbe = base
+    if (!(base as SyncConfig).token && isOauthCapable(cfg.backendType)) {
+      const sessionToken = await sessionTokenFor(cfg.backendType)
+      if (sessionToken) toProbe = { ...base, token: sessionToken }
+    }
+    const r = await store.probeSyncConnection(toProbe)
     authState.value[cfg.id] = { ok: r.ok, detail: r.detail }
   } finally {
     probing.value.delete(cfg.id)
@@ -1657,15 +1670,45 @@ async function saveCreds(cfg: SyncConfig) {
   const d = draft(cfg)
   saving.value = cfg.id
   try {
+    // NOTE: no session-token injection into the draft here — an absent token
+    // must leave the stored secret untouched (rename-only saves). The probe
+    // below still falls back to the session token so Test-after-sign-in goes
+    // green; persisting happens via Connect or the mount-time heal.
     const saved = await store.saveSyncConfig(draftToSave(cfg, d))
     if (!saved) return
     refreshDraftFromSaved(d, saved)
-    const r = await store.probeSyncConnection(overlayDraft(saved, d))
+    const base = overlayDraft(saved, d)
+    let toProbe = base
+    if (!(base as SyncConfig).token && isOauthCapable(cfg.backendType)) {
+      const sessionToken = await sessionTokenFor(cfg.backendType)
+      if (sessionToken) toProbe = { ...base, token: sessionToken }
+    }
+    const r = await store.probeSyncConnection(toProbe)
     authState.value[cfg.id] = { ok: r.ok, detail: r.detail }
     if (r.ok) store.notifySuccess('Provider verified — credentials work')
   } finally {
     saving.value = null
   }
+}
+
+/**
+ * Sealed secret behind a config (never on the row itself). Empty means the
+ * row is truly tokenless — safe to top up from the live session without
+ * clobbering a pasted PAT.
+ */
+async function sealedSecretFor(configId: string): Promise<string> {
+  try {
+    const { wasmDbDispatch } = await import('@/composables/useWasmBackend')
+    const raw = await wasmDbDispatch('sync.secret', { configId }).catch(() => null)
+    if (typeof raw === 'string') return raw
+    if (raw && typeof raw === 'object') {
+      const token = (raw as Record<string, unknown>).token
+      if (typeof token === 'string') return token
+    }
+  } catch {
+    // Non-static transports have no vault secret table — fall through.
+  }
+  return ''
 }
 
 async function quota(cfg: SyncConfig) {
@@ -2078,8 +2121,14 @@ async function addProvider(verify: boolean) {
   wizMsg.value = ''
   wizOk.value = null
   try {
-    const token = wiz.token.trim()
-    const saved = await store.saveSyncConfig({ ...(wizToConfig() as SyncConfig), id: '' })
+    // A signed-in session already holds a provider token (Google sign-in
+    // mints a Drive-capable one) — use it when the wizard's token field is
+    // empty so "Save & verify" works without a manual PAT paste.
+    const token = wiz.token.trim() || await sessionTokenFor(wiz.backendType)
+    const saved = await store.saveSyncConfig({
+      ...((token ? { ...wizToConfig(), token } : wizToConfig()) as SyncConfig),
+      id: '',
+    })
     if (!saved) {
       wizMsg.value = 'Could not save — check the connection and retry.'
       wizOk.value = false
@@ -2100,7 +2149,9 @@ async function addProvider(verify: boolean) {
       } else {
         // Keep the wizard open so the failure stays visible and editable.
         wizOpen.value = true
-        wizMsg.value = `Saved, but verification failed: ${r.detail}`
+        wizMsg.value = !token && isOauthCapable(wiz.backendType)
+          ? `Saved, but no token yet: sign in at the top, then press Connect on the “${saved.name || backendLabel(saved.backendType)}” card — or paste a token. (${r.detail})`
+          : `Saved, but verification failed: ${r.detail}`
         wizOk.value = false
       }
     } else {
@@ -2121,19 +2172,42 @@ onMounted(() => {
   void refreshIdentity()
   void (async () => {
     await refresh()
-    // Heal the "signed in but 0 connections" state on every open: any
-    // remembered account whose backend has no row gets one (token topped
-    // up from the live session when available). Silent — the banner only
-    // speaks when the user presses Create.
-    if (!store.syncConfigs.length && connectedAccounts.value.length) {
+    // Heal on every open: (a) any remembered account whose backend has no
+    // row gets one; (b) any OAuth-capable row with an empty sealed secret
+    // gets topped up from the live session (Google sign-in mints the token,
+    // but the row may have been created before the session landed). Silent
+    // unless the user presses Create — never overwrites a stored secret.
+    if (connectedAccounts.value.length) {
+      let touched = false
       for (const acc of connectedAccounts.value) {
         const b = backendForAccountProvider(acc.provider)
         if (b && !store.syncConfigs.some(c => c.backendType === b)) {
           const token = await sessionTokenFor(b)
           await ensureProviderForBackend(b, { token, displayName: `${backendLabel(b)} — ${acc.name}` })
+          touched = true
         }
       }
-      await refresh().catch(() => {})
+      // (b) runs on static hosts only: there the sealed secret lives in the
+      // vault (`sync.secret`) so emptiness is knowable — and a silent heal
+      // must never overwrite a pasted PAT. On desktop/REST the secret is
+      // server-side and out of reach here; those rows heal via Connect.
+      if (staticHost) {
+        for (const cfg of [...store.syncConfigs]) {
+          if (!isOauthCapable(cfg.backendType)) continue
+          if (await sealedSecretFor(cfg.id)) continue
+          const draftToken = drafts[cfg.id]?.token.trim()
+          if (draftToken) continue
+          const sessionToken = await sessionTokenFor(cfg.backendType)
+          if (!sessionToken) continue
+          const topped = await store.saveSyncConfig({ ...cfg, token: sessionToken })
+          if (topped) {
+            const r = await store.probeSyncConnection({ ...topped, token: sessionToken })
+            authState.value[topped.id] = { ok: r.ok, detail: r.detail }
+            touched = true
+          }
+        }
+      }
+      if (touched) await refresh().catch(() => {})
     }
     if (!staticHost) return
     void wasmDbBackend().then((b) => {
@@ -2299,8 +2373,8 @@ onBeforeUnmount(() => {
 }
 .am-card.is-attached { border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent); }
 .am-card-title { margin: 0; font-size: 13px; }
-.am-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
-.am-card-head-left { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
+.am-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.am-card-head-left { display: flex; gap: 10px; align-items: flex-start; min-width: 0; flex: 1 1 200px; }
 .am-hint { margin: 6px 0 0; font-size: 11.5px; line-height: 1.5; color: color-mix(in srgb, var(--ui-text) 60%, transparent); }
 .am-code { font-family: ui-monospace, monospace; font-size: 11px; color: var(--ui-info); }
 .muted { color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
@@ -2496,7 +2570,7 @@ onBeforeUnmount(() => {
 }
 .am-providers-wrap { min-width: 0; }
 .am-connect { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.am-connect-meta { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 160px; }
+.am-connect-meta { display: flex; flex-direction: column; gap: 2px; flex: 1 1 140px; min-width: 0; }
 .am-method {
   font-size: 9px;
   font-weight: 600;
@@ -2522,9 +2596,13 @@ onBeforeUnmount(() => {
   animation: am-slide 1.2s ease-in-out infinite alternate;
 }
 @keyframes am-slide { from { margin-left: -10%; } to { margin-left: 70%; } }
-.am-providers { display: grid; grid-template-columns: 250px 1fr; gap: 10px; align-items: start; }
-@media (max-width: 720px) { .am-providers { grid-template-columns: 1fr; } }
+.am-providers { display: grid; grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); gap: 10px; align-items: start; }
+/* Half-screen windows (≈50% of a 1400px desktop) stack list over detail. */
+@media (max-width: 900px) { .am-providers { grid-template-columns: 1fr; } }
 .am-list-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+@media (max-width: 900px) {
+  .am-list-col { max-height: 240px; overflow-y: auto; border: 1px solid var(--ui-border); border-radius: 10px; padding: 8px; }
+}
 .am-list-head { display: flex; align-items: center; justify-content: space-between; }
 .am-prov-row {
   display: flex;
@@ -2659,5 +2737,13 @@ onBeforeUnmount(() => {
   .am-btn-grid { gap: 6px; }
   .am-login-grid { grid-template-columns: 1fr; }
   .am-logo-picker { grid-template-columns: repeat(2, 1fr); }
+}
+/* Half-screen density: tighter cards + login grid that fits ~700px. */
+@media (max-width: 900px) {
+  .am-body { padding: 10px; }
+  .am-card { padding: 10px; }
+  .am-login-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  .am-hero { margin: 10px 10px 0; }
+  .am-tabs { padding: 10px 10px 0; }
 }
 </style>
