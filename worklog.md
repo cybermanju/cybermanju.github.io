@@ -430,3 +430,10 @@ Stage Summary:
 - Root cause: `crates/search` used an 8 MB writer heap on Android, but Tantivy 0.22 rejects anything under 15 MB — so `SearchIndex::new` failed on EVERY launch (fresh installs included; never device-specific), `open_search_index` misread it as a corrupt index, wiped a healthy index, retried, failed, and `fatal()`-panicked before first paint.
 - Fix: Android `WRITER_HEAP_BYTES` 8 MB → 15 MB (the library floor, still 3.3× smaller than desktop's 50 MB); comment cites the floor so nobody "optimizes" it back down. `docs/ANDROID.md` §5 updated. Needs a rebuilt APK + reinstall (uninstall wipes the app-private index dir, so a fresh start is guaranteed).
 - Verified: floor value comes verbatim from the library's runtime error on-device (`>= 15000000`); `check-version.sh` green. `cargo clippy/test` left to CI per repo rules.
+
+## 2026-10-08 — Android instant-close root-caused (2): tauri-plugin-log double logger init
+
+- Reporter's new `grep -A 10` named it: `PluginInitialization("log", "attempted to set a logger after the logging system was already initialized")` panicking at the old `lib.rs:527` (`.expect()` on `tauri::Builder::run()`).
+- Root cause: `run()` installs our own `tracing_subscriber::fmt().try_init()` and then `tauri-plugin-log` calls `log::set_logger` — the two collide, and any second `run()` in the same process (Android activity recreate) re-registers the plugin logger and fails the same way. Either path panicked before first paint.
+- Fix: removed `tauri-plugin-log` everywhere — `.plugin()` line in `lib.rs` (with a comment citing the crash), `src-tauri/Cargo.toml`, `package.json` (+ `package-lock.json` re-synced via `npm install --package-lock-only`), `log:default` from both capability files. The frontend never imported `@tauri-apps/plugin-log`; Rust logs reach logcat via stderr/tracing, so nothing is lost. `docs/ANDROID.md` §5 updated. `Cargo.lock` keeps a stale `tauri-plugin-log` entry until CI's cargo run prunes it (no `--locked` in CI, no local cargo per repo rules).
+- Verified: `check-version.sh` green, `vue-tsc --noEmit` clean, vitest 45 files / 554 tests pass. Rust validation left to CI.

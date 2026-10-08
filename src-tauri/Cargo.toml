@@ -49,7 +49,6 @@ tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-store = "2"
-tauri-plugin-log = "2"
 tauri-plugin-os = "2"
 tauri-plugin-process = "2"
 

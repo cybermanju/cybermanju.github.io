@@ -353,13 +353,21 @@ pub fn run() {
     // ensuring the accept thread is joined from the MAIN thread (not from
     // the accept thread's own Drop, which would self-deadlock).
 
+    // NOTE (2026-10-08): tauri-plugin-log was removed. It calls
+    // `log::set_logger` at run(), which collides with our own
+    // `tracing_subscriber::fmt().try_init()` above AND with a second run()
+    // in the same process (Android activity recreate) — both surfaced as
+    // `PluginInitialization("log", "attempted to set a logger after the
+    // logging system was already initialized")` + `.expect()` panic at the
+    // old lib.rs:527 before first paint. The frontend never imported
+    // `@tauri-apps/plugin-log`; Rust logs go to stderr (logcat) via
+    // tracing, so the plugin bought nothing.
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
         .manage(state)

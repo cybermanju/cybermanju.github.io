@@ -65,6 +65,14 @@ shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
   stderr first so a crash before first paint is never silent.
 * Logging init is re-entry safe (`try_init` + `RUST_LOG` fallback): an
   Android activity recreate never dies on "global subscriber already set".
+  `tauri-plugin-log` was removed entirely (2026-10-08): it calls
+  `log::set_logger` at `run()`, which collides with our own
+  `tracing_subscriber` init AND with a second `run()` in the same process
+  (activity recreate) — both surfaced as
+  `PluginInitialization("log", "attempted to set a logger after the logging
+  system was already initialized")` + `.expect()` panic before first paint.
+  The frontend never imported `@tauri-apps/plugin-log`; Rust logs reach
+  logcat via stderr/tracing.
 * Storage is self-healing, not bricking: a torn `cybermanju.db` is renamed
   to `cybermanju.corrupt-<unix_ts>.bak` beside the DB and recreated fresh;
   a torn `tantivy_index/` is wiped and recreated (fully rebuildable from

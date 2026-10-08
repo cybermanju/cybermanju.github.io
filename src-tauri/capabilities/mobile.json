@@ -21,7 +21,6 @@
     "shell:allow-open",
     "notification:default",
     "store:default",
-    "log:default",
     "os:default",
     "process:default"
   ]
