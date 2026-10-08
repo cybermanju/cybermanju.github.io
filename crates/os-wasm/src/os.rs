@@ -1547,7 +1547,11 @@ fn load_ui() -> UiSettings {
         .filter(|d| *d == "compact" || *d == "comfortable")
         .unwrap_or("comfortable")
         .to_string();
-    let glass = value.get("glass").and_then(|v| v.as_u64()).unwrap_or(2).min(3) as u8;
+    let glass = value
+        .get("glass")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(2)
+        .min(3) as u8;
     let motion = value
         .get("motion")
         .and_then(|v| v.as_str())
@@ -1983,11 +1987,7 @@ impl SCaps {
         if !self.active || self.deny.is_empty() {
             return Ok(());
         }
-        let verb = line
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .to_lowercase();
+        let verb = line.split_whitespace().next().unwrap_or("").to_lowercase();
         if self.deny.iter().any(|d| d.to_lowercase() == verb) {
             return Err(format!(
                 "denied: `{verb}` is refused by this script's capabilities (`# cap: deny=…`)"

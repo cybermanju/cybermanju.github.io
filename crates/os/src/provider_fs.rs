@@ -94,11 +94,7 @@ pub fn one_level(
                 let dir_path = format!("{wanted}{}", &rest[..slash]);
                 if !dirs.iter().any(|seen| seen == &dir_path) {
                     dirs.push(dir_path.clone());
-                    let name = dir_path
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or(&dir_path)
-                        .to_string();
+                    let name = dir_path.rsplit('/').next().unwrap_or(&dir_path).to_string();
                     out.push(ProvEntry {
                         name,
                         path: dir_path,
@@ -134,8 +130,7 @@ pub fn list_mounts(db: &Database) -> Result<Vec<(String, String)>, String> {
         let ids: Vec<String> = serde_json::from_str(&raw).unwrap_or_default();
         for id in ids {
             // One corrupt mount row never hides the other providers.
-            let body = kv_get(db, &format!("vfs:mount:{id}"))
-                .unwrap_or(None);
+            let body = kv_get(db, &format!("vfs:mount:{id}")).unwrap_or(None);
             let Some(body) = body else { continue };
             let json: serde_json::Value =
                 serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
@@ -143,10 +138,7 @@ pub fn list_mounts(db: &Database) -> Result<Vec<(String, String)>, String> {
                 .get("configId")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
-            let name = json
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or(&id);
+            let name = json.get("name").and_then(|v| v.as_str()).unwrap_or(&id);
             if config_id.is_empty() {
                 continue;
             }
@@ -224,7 +216,12 @@ pub fn resolve_config(db: &Database, head: &str) -> Result<SyncConfig, String> {
 
 /// Mount root + listing prefix, one slash, no padding (`""` = provider root).
 fn full_prefix(config: &SyncConfig, rest: &str) -> String {
-    let base = config.base_path.as_deref().unwrap_or("").trim().trim_matches('/');
+    let base = config
+        .base_path
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .trim_matches('/');
     let rel = rest.trim().trim_matches('/');
     match (base.is_empty(), rel.is_empty()) {
         (true, true) => String::new(),
@@ -322,12 +319,7 @@ pub fn read_file(db: &Database, head: &str, rest: &str) -> Result<Vec<u8>, Strin
 }
 
 /// Upload bytes to a provider path. Returns the provider URL.
-pub fn write_file(
-    db: &Database,
-    head: &str,
-    rest: &str,
-    data: &[u8],
-) -> Result<String, String> {
+pub fn write_file(db: &Database, head: &str, rest: &str, data: &[u8]) -> Result<String, String> {
     let clean = rest.trim().trim_matches('/');
     if clean.is_empty() {
         return Err("invalid: cannot overwrite the provider root".to_string());
@@ -357,7 +349,10 @@ pub fn delete_file(db: &Database, head: &str, rest: &str) -> Result<(), String> 
 
 /// File, directory, or missing — files win over same-named folders.
 pub enum ProvKind {
-    File { size_bytes: u64, modified_at: String },
+    File {
+        size_bytes: u64,
+        modified_at: String,
+    },
     Dir,
     Missing,
 }

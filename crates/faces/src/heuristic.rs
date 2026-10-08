@@ -627,7 +627,11 @@ fn crop_embedding(rgb: &[u8], width: u32, height: u32, x: f32, y: f32, w: f32, h
                     }
                 }
             }
-            gray[gy * EMBED_GRID + gx] = if n > 0 { acc as f32 / n as f32 / 255.0 } else { 0.0 };
+            gray[gy * EMBED_GRID + gx] = if n > 0 {
+                acc as f32 / n as f32 / 255.0
+            } else {
+                0.0
+            };
         }
     }
     // Local contrast: |pixel − 3×3 mean|, same grid.
@@ -707,7 +711,11 @@ mod tests {
         assert_eq!(faces.len(), 1, "expected one face, got {faces:?}");
         let f = &faces[0];
         assert!((0.0..=1.0).contains(&f.confidence));
-        assert!(f.confidence > 0.5, "eyes+mouth should clear 0.5, got {}", f.confidence);
+        assert!(
+            f.confidence > 0.5,
+            "eyes+mouth should clear 0.5, got {}",
+            f.confidence
+        );
         assert!(f.bbox[0] > 0.2 && f.bbox[0] < 0.45, "x={}", f.bbox[0]);
         assert!(f.bbox[1] > 0.15 && f.bbox[1] < 0.35, "y={}", f.bbox[1]);
         assert_eq!(f.embedding.len(), EMBEDDING_DIM);
@@ -737,7 +745,10 @@ mod tests {
         paint_rect(&mut frame, w, 106, 78, 118, 88, [200, 150, 120]);
         paint_rect(&mut frame, w, 88, 115, 112, 125, [200, 150, 120]);
         let faces = detect_faces_heuristic_rgb(&frame, w, h);
-        assert!(faces.is_empty(), "a single eye alone must not pass: {faces:?}");
+        assert!(
+            faces.is_empty(),
+            "a single eye alone must not pass: {faces:?}"
+        );
     }
 
     #[test]

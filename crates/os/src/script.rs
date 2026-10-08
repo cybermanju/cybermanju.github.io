@@ -209,11 +209,7 @@ impl Caps {
         if !self.active || self.deny.is_empty() {
             return Ok(());
         }
-        let verb = line
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .to_lowercase();
+        let verb = line.split_whitespace().next().unwrap_or("").to_lowercase();
         if self.deny.iter().any(|d| d.to_lowercase() == verb) {
             return Err(format!(
                 "denied: `{verb}` is refused by this script's capabilities (`# cap: deny=…`)"

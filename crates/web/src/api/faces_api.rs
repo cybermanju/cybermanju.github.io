@@ -145,9 +145,11 @@ pub fn detect(db: &Database, file_id: &str) -> Result<FaceDetectionResponse, Str
                 group.detection_engine = Some("mixed".to_string());
             }
             if let Some(ref medoid) = group.centroid_embedding {
-                group.centroid_embedding = Some(
-                    cybermanju_faces::update_medoid_incremental(medoid, &[], embedding),
-                );
+                group.centroid_embedding = Some(cybermanju_faces::update_medoid_incremental(
+                    medoid,
+                    &[],
+                    embedding,
+                ));
             } else {
                 group.centroid_embedding = Some(embedding.clone());
             }
@@ -293,9 +295,10 @@ pub fn detect_batch(db: &Database) -> Result<BatchResponse, String> {
                 name: format!("Person {}", idx + 1),
                 file_ids: cluster.members.clone(),
                 centroid_embedding: cluster.medoid.clone(),
-                binary_hash: cluster.medoid.as_ref().map(|m| {
-                    cybermanju_faces::to_binary_hash(m)
-                }),
+                binary_hash: cluster
+                    .medoid
+                    .as_ref()
+                    .map(|m| cybermanju_faces::to_binary_hash(m)),
                 cohesion: Some(cluster.cohesion),
                 embedding_count: cluster.members.len() as u32,
                 algorithm: Some("hdbscan_adaptive".to_string()),

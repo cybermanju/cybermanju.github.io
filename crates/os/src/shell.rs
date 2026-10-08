@@ -939,9 +939,7 @@ fn cd_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
     // `/providers/<mount|config>/…` validate against the live provider
     // instead of the volume.
     if crate::provider_fs::is_provider_path(&target) || provider_display(&target) == "/providers" {
-        let db = db.ok_or_else(|| {
-            "unsupported: cd /providers/… needs the database".to_string()
-        })?;
+        let db = db.ok_or_else(|| "unsupported: cd /providers/… needs the database".to_string())?;
         let display = provider_display(&target);
         if display == "/providers" {
             set_dir(display);
@@ -1023,13 +1021,17 @@ fn provider_readdir(db: &Database, display: &str) -> Result<Vec<crate::api::DirE
             })
             .collect());
     }
-    let (head, rest) = prov::split_provider_path(display)
-        .ok_or_else(|| format!("not_found: {display}"))?;
+    let (head, rest) =
+        prov::split_provider_path(display).ok_or_else(|| format!("not_found: {display}"))?;
     Ok(prov::list_dir(db, &head, &rest)?
         .into_iter()
         .map(|e| crate::api::DirEntry {
             name: e.name.clone(),
-            kind: if e.is_dir { "dir".to_string() } else { "file".to_string() },
+            kind: if e.is_dir {
+                "dir".to_string()
+            } else {
+                "file".to_string()
+            },
             size_bytes: e.size_bytes,
             modified_ms: rfc3339_ms(&e.modified_at),
             is_dir: e.is_dir,
@@ -1353,9 +1355,7 @@ fn mv_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
             (None, None) => unreachable!("caller guarantees a provider side"),
             (Some((head, rest)), _) if rest.is_empty() => {
                 let _ = head;
-                return Err(
-                    "unsupported: mv of a provider mount (move files)".to_string(),
-                );
+                return Err("unsupported: mv of a provider mount (move files)".to_string());
             }
             (_, Some((head, rest))) if rest.is_empty() => {
                 let _ = head;
@@ -1363,9 +1363,7 @@ fn mv_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
             }
             (Some((head, rest)), _) => match prov::classify(db, &head, &rest)? {
                 prov::ProvKind::Dir => {
-                    return Err(
-                        "unsupported: mv of a provider directory (move files)".to_string(),
-                    );
+                    return Err("unsupported: mv of a provider directory (move files)".to_string());
                 }
                 prov::ProvKind::Missing => {
                     return Err(format!("not_found: {}", args[0]));
@@ -1381,11 +1379,7 @@ fn mv_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
                 kernel.unlink(&src)?;
             }
         }
-        return Ok(format!(
-            "{} → {}",
-            provider_show(&src),
-            provider_show(&dst)
-        ));
+        return Ok(format!("{} → {}", provider_show(&src), provider_show(&dst)));
     }
     kernel.rename(&src, &dst)?;
     Ok(format!("{src} → {dst}"))
@@ -1422,8 +1416,7 @@ fn rm_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
                     if !recursive {
                         return Err(format!("is a directory: {display} (use -r)"));
                     }
-                    let (files, bytes) =
-                        crate::provider_fs::remove_tree(db, &head, &rest)?;
+                    let (files, bytes) = crate::provider_fs::remove_tree(db, &head, &rest)?;
                     out.push(format!(
                         "{display} removed ({files} files, {} freed)",
                         human(bytes)
@@ -1568,7 +1561,10 @@ fn stat_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String
             if json {
                 return serde_json::to_string(&stat).map_err(|e| e.to_string());
             }
-            return Ok(format!("{BOLD}{}{RESET}\n  type: dir\n  size: 0 bytes", stat.path));
+            return Ok(format!(
+                "{BOLD}{}{RESET}\n  type: dir\n  size: 0 bytes",
+                stat.path
+            ));
         }
         let (head, rest) = crate::provider_fs::split_provider_path(&display)
             .ok_or_else(|| format!("not_found: {}", args[0]))?;
@@ -1579,7 +1575,10 @@ fn stat_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String
             .unwrap_or(head.as_str())
             .to_string();
         let stat = match crate::provider_fs::classify(db, &head, &rest)? {
-            crate::provider_fs::ProvKind::File { size_bytes, modified_at } => crate::api::Stat {
+            crate::provider_fs::ProvKind::File {
+                size_bytes,
+                modified_at,
+            } => crate::api::Stat {
                 path: display.clone(),
                 name,
                 kind: "file".to_string(),
@@ -2854,7 +2853,10 @@ fn grep_cmd(args: &[String], stdin: &str, json: bool) -> Result<String, String> 
             line.contains(&needle)
         }
     };
-    if rest[1..].iter().any(|t| crate::provider_fs::is_provider_path(&absolute(t))) {
+    if rest[1..]
+        .iter()
+        .any(|t| crate::provider_fs::is_provider_path(&absolute(t)))
+    {
         return Err(refuse_provider("grep"));
     }
     // No paths: grep stdin (pipe) or report usage.
@@ -2939,7 +2941,10 @@ fn grep_cmd(args: &[String], stdin: &str, json: bool) -> Result<String, String> 
 
 fn find_cmd(args: &[String], json: bool) -> Result<String, String> {
     let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
-    if paths.iter().any(|p| crate::provider_fs::is_provider_path(&absolute(p))) {
+    if paths
+        .iter()
+        .any(|p| crate::provider_fs::is_provider_path(&absolute(p)))
+    {
         return Err(refuse_provider("find"));
     }
     let (root_arg, pattern) = match paths.len() {
@@ -3013,7 +3018,10 @@ fn parse_head_tail_n(args: &[String]) -> (usize, Vec<&String>) {
 
 fn head_cmd(args: &[String], stdin: &str) -> Result<String, String> {
     let (n, rest) = parse_head_tail_n(args);
-    if rest.iter().any(|p| crate::provider_fs::is_provider_path(&absolute(p))) {
+    if rest
+        .iter()
+        .any(|p| crate::provider_fs::is_provider_path(&absolute(p)))
+    {
         return Err(refuse_provider("head"));
     }
     let text = if rest.is_empty() {
@@ -3030,7 +3038,10 @@ fn head_cmd(args: &[String], stdin: &str) -> Result<String, String> {
 
 fn tail_cmd(args: &[String], stdin: &str) -> Result<String, String> {
     let (n, rest) = parse_head_tail_n(args);
-    if rest.iter().any(|p| crate::provider_fs::is_provider_path(&absolute(p))) {
+    if rest
+        .iter()
+        .any(|p| crate::provider_fs::is_provider_path(&absolute(p)))
+    {
         return Err(refuse_provider("tail"));
     }
     let text = if rest.is_empty() {
@@ -3049,7 +3060,10 @@ fn tail_cmd(args: &[String], stdin: &str) -> Result<String, String> {
 
 fn wc_cmd(args: &[String], stdin: &str, json: bool) -> Result<String, String> {
     let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
-    if paths.iter().any(|p| crate::provider_fs::is_provider_path(&absolute(p))) {
+    if paths
+        .iter()
+        .any(|p| crate::provider_fs::is_provider_path(&absolute(p)))
+    {
         return Err(refuse_provider("wc"));
     }
     let mut totals = (0u64, 0u64, 0u64);
@@ -3560,7 +3574,11 @@ fn load_ui() -> UiSettings {
         .filter(|d| *d == "compact" || *d == "comfortable")
         .unwrap_or("comfortable")
         .to_string();
-    let glass = value.get("glass").and_then(|v| v.as_u64()).unwrap_or(2).min(3) as u8;
+    let glass = value
+        .get("glass")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(2)
+        .min(3) as u8;
     let motion = value
         .get("motion")
         .and_then(|v| v.as_str())
@@ -3696,33 +3714,30 @@ fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
             Ok(ui_line(&next))
         }
         "accent" => {
-            let raw = plain
-                .get(1)
-                .copied()
-                .ok_or_else(|| "usage: ui accent <#rrggbb|#rgb|default> [--for <theme>]".to_string())?;
-            let for_theme: Option<&str> = match args
-                .iter()
-                .position(|a| a == "--for" || a == "-for")
-            {
-                Some(i) => match args.get(i + 1).filter(|t| !t.starts_with('-')) {
-                    Some(t) => {
-                        canonical_theme(&t.to_lowercase()).ok_or_else(|| {
-                            format!(
-                                "invalid: unknown theme '{t}' (try: {})",
+            let raw = plain.get(1).copied().ok_or_else(|| {
+                "usage: ui accent <#rrggbb|#rgb|default> [--for <theme>]".to_string()
+            })?;
+            let for_theme: Option<&str> =
+                match args.iter().position(|a| a == "--for" || a == "-for") {
+                    Some(i) => match args.get(i + 1).filter(|t| !t.starts_with('-')) {
+                        Some(t) => {
+                            canonical_theme(&t.to_lowercase()).ok_or_else(|| {
+                                format!(
+                                    "invalid: unknown theme '{t}' (try: {})",
+                                    THEME_IDS.join(", ")
+                                )
+                            })?;
+                            Some(t.as_str())
+                        }
+                        None => {
+                            return Err(format!(
+                                "invalid: --for needs a theme (try: {})",
                                 THEME_IDS.join(", ")
-                            )
-                        })?;
-                        Some(t.as_str())
-                    }
-                    None => {
-                        return Err(format!(
-                            "invalid: --for needs a theme (try: {})",
-                            THEME_IDS.join(", ")
-                        ))
-                    }
-                },
-                None => None,
-            };
+                            ))
+                        }
+                    },
+                    None => None,
+                };
             let next: Option<String> = if raw == "default" || raw == "system" || raw == "none" {
                 None
             } else {

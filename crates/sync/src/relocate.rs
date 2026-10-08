@@ -96,7 +96,10 @@ pub fn relocate(
         );
     }
     let remote_path = record.remote_path.clone().ok_or_else(|| {
-        format!("not_found: sync record for file '{}' has no remote locator", file_id)
+        format!(
+            "not_found: sync record for file '{}' has no remote locator",
+            file_id
+        )
     })?;
     if is_protected_remote_path(&remote_path) {
         return Err(format!(
@@ -166,7 +169,8 @@ pub fn relocate(
         &std::fs::read(&staging).map_err(|e| format!("integrity: staged read failed: {}", e))?,
     );
     let verify_hash = transfer::blake3_hex(
-        &std::fs::read(&verify_path).map_err(|e| format!("integrity: verify read failed: {}", e))?,
+        &std::fs::read(&verify_path)
+            .map_err(|e| format!("integrity: verify read failed: {}", e))?,
     );
     let _ = std::fs::remove_file(&verify_path);
     let _ = std::fs::remove_file(&staging);
