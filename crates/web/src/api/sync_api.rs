@@ -209,12 +209,14 @@ pub fn save_config(db: &Database, config: SyncConfig) -> Result<SyncConfig, Stri
                 if let Ok(serialized) = serde_json::to_string(&cleared) {
                     if let Ok(tx) = db.begin_write() {
                         let done = (|| {
-                            let mut table = tx
-                                .open_table(Database::get_sync_configs_table())
-                                .map_err(|e| e.to_string())?;
-                            table
-                                .insert(cleared.id.as_str(), serialized.as_str())
-                                .map_err(|e| e.to_string())?;
+                            {
+                                let mut table = tx
+                                    .open_table(Database::get_sync_configs_table())
+                                    .map_err(|e| e.to_string())?;
+                                table
+                                    .insert(cleared.id.as_str(), serialized.as_str())
+                                    .map_err(|e| e.to_string())?;
+                            }
                             tx.commit().map_err(|e| e.to_string())
                         })();
                         let _ = done;

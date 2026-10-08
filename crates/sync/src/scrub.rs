@@ -267,7 +267,7 @@ pub fn list_scrub_runs(db: &Database) -> Result<Vec<ScrubRun>, String> {
             Err(e) => return Err(format!("integrity: scrub run unreadable: {}", e)),
         }
     }
-    runs.sort_by(|a, b| a.started_at.cmp(&b.started_at));
+    runs.sort_by_key(|a| a.started_at.clone());
     Ok(runs)
 }
 

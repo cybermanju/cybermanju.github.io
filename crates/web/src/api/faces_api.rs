@@ -309,9 +309,17 @@ pub fn detect_batch(db: &Database) -> Result<BatchResponse, String> {
             fg.insert(id.as_str(), raw.as_str())
                 .map_err(|e| e.to_string())?;
             for fid in &cluster.members {
-                if let Some(value) = ft.get(fid.as_str()).map_err(|e| e.to_string())? {
-                    let mut node: FileNode =
-                        serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+                // Read the row into an owned value first: the redb read guard
+                // must be dropped before `insert` takes `ft` mutably.
+                let stored: Option<FileNode> = ft
+                    .get(fid.as_str())
+                    .map_err(|e| e.to_string())?
+                    .map(|value| {
+                        serde_json::from_str::<FileNode>(value.value())
+                            .map_err(|e| e.to_string())
+                    })
+                    .transpose()?;
+                if let Some(mut node) = stored {
                     if !node.face_group_ids.contains(&id) {
                         node.face_group_ids.push(id.clone());
                     }
@@ -327,9 +335,15 @@ pub fn detect_batch(db: &Database) -> Result<BatchResponse, String> {
             if node.face_group_ids.is_empty() || seen_files.contains(&node.id) {
                 continue;
             }
-            if let Some(value) = ft.get(node.id.as_str()).map_err(|e| e.to_string())? {
-                let mut fresh: FileNode =
-                    serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+            // Same guard discipline as above: own the row before inserting.
+            let stored: Option<FileNode> = ft
+                .get(node.id.as_str())
+                .map_err(|e| e.to_string())?
+                .map(|value| {
+                    serde_json::from_str::<FileNode>(value.value()).map_err(|e| e.to_string())
+                })
+                .transpose()?;
+            if let Some(mut fresh) = stored {
                 if !fresh.face_group_ids.is_empty() {
                     fresh.face_group_ids.clear();
                     let raw = serde_json::to_string(&fresh).map_err(|e| e.to_string())?;

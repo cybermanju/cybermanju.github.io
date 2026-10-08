@@ -1361,7 +1361,7 @@ fn mv_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
                 let _ = head;
                 return Err("invalid: cannot overwrite the provider root".to_string());
             }
-            (Some((head, rest)), _) => match prov::classify(db, &head, &rest)? {
+            (Some((head, rest)), _) => match prov::classify(db, head, rest)? {
                 prov::ProvKind::Dir => {
                     return Err("unsupported: mv of a provider directory (move files)".to_string());
                 }
@@ -1514,11 +1514,10 @@ fn touch_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
             if rest.is_empty() {
                 continue;
             }
-            match crate::provider_fs::classify(db, &head, &rest)? {
-                crate::provider_fs::ProvKind::Missing => {
-                    crate::provider_fs::write_file(db, &head, &rest, b"")?;
-                }
-                _ => {}
+            if let crate::provider_fs::ProvKind::Missing =
+                crate::provider_fs::classify(db, &head, &rest)?
+            {
+                crate::provider_fs::write_file(db, &head, &rest, b"")?;
             }
             continue;
         }

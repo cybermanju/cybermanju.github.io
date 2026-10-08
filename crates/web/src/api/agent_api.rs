@@ -437,7 +437,7 @@ pub fn list_sessions_for(
             rows.push(session);
         }
     }
-    rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    rows.sort_by_key(|a| std::cmp::Reverse(a.updated_at.clone()));
     rows.truncate(100);
     Ok(rows)
 }
@@ -688,7 +688,7 @@ pub fn list_memories(
         }
         rows.push(m);
     }
-    rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    rows.sort_by_key(|a| std::cmp::Reverse(a.updated_at.clone()));
     rows.truncate(agent_memory::MEMORY_LIST_LIMIT);
     Ok(rows)
 }
@@ -2697,7 +2697,7 @@ pub fn list_jobs_for(requester: &str, is_admin: bool) -> Vec<JobSnapshot> {
         .filter(|job| requester.is_empty() || is_admin || job.owner_id == requester)
         .map(|job| snapshot(job))
         .collect();
-    out.sort_by(|a, b| b.job_id.cmp(&a.job_id));
+    out.sort_by_key(|a| std::cmp::Reverse(a.job_id.clone()));
     out.truncate(50);
     out
 }

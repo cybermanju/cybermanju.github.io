@@ -230,7 +230,7 @@ pub fn all() -> Vec<ProviderHealth> {
         .ok()
         .map(|map| map.values().cloned().collect())
         .unwrap_or_default();
-    rows.sort_by(|a, b| a.config_id.cmp(&b.config_id));
+    rows.sort_by_key(|a| a.config_id.clone());
     rows
 }
 
@@ -298,7 +298,7 @@ pub fn load(db: &Database) -> Result<Vec<ProviderHealth>, String> {
             Err(e) => return Err(format!("integrity: health row unreadable: {}", e)),
         }
     }
-    rows.sort_by(|a, b| a.config_id.cmp(&b.config_id));
+    rows.sort_by_key(|a| a.config_id.clone());
     Ok(rows)
 }
 

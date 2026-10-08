@@ -43,7 +43,7 @@ pub fn split_provider_path(abs: &str) -> Option<(String, String)> {
     if segs.len() < 2 || segs[0] != "providers" {
         return None;
     }
-    if segs[1..].iter().any(|s| *s == "..") {
+    if segs[1..].contains(&"..") {
         return None;
     }
     let rest: Vec<&str> = segs[2..].iter().filter(|s| **s != ".").cloned().collect();
@@ -375,10 +375,11 @@ pub fn classify(db: &Database, head: &str, rest: &str) -> Result<ProvKind, Strin
         Ok(Some(file)) => {
             // A zero-byte Drive row is ambiguous (empty file vs folder) —
             // the directory probe decides, folders winning ties.
-            if config.backend_type == SyncBackendType::GoogleDrive && file.size_bytes == 0 {
-                if dir_exists(db, head, clean)? {
-                    return Ok(ProvKind::Dir);
-                }
+            if config.backend_type == SyncBackendType::GoogleDrive
+                && file.size_bytes == 0
+                && dir_exists(db, head, clean)?
+            {
+                return Ok(ProvKind::Dir);
             }
             return Ok(ProvKind::File {
                 size_bytes: file.size_bytes,

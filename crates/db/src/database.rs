@@ -419,7 +419,7 @@ impl Database {
             let (_, value) = entry?;
             rows.push(serde_json::from_str::<SyncRunRecord>(value.value())?);
         }
-        rows.sort_by(|a, b| b.finished_at.cmp(&a.finished_at));
+        rows.sort_by_key(|a| std::cmp::Reverse(a.finished_at.clone()));
         rows.truncate(limit);
         Ok(rows)
     }
