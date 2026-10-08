@@ -308,25 +308,38 @@ jobs:
     steps:
       - name: Install base dependencies
         run: |
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm \
-            base-devel \
-            git \
-            webkit2gtk-4.1 \
-            gtk3 \
-            libayatana-appindicator \
-            librsvg \
-            libsoup3 \
-            pkg-config \
-            openssl \
-            curl \
-            sudo \
-            xdg-utils \
-            rpm-tools \
-            fuse2 \
-            dpkg \
-            patchelf \
-            desktop-file-utils
+          # Same as ci.yml: retry transient Arch mirror flakes (CI 2026-10-08).
+          ok=""
+          for i in 1 2 3 4 5; do
+            if pacman -Syu --noconfirm; then ok=1; break; fi
+            echo "pacman -Syu failed (attempt $i), retrying in 15s..."
+            sleep 15
+          done
+          [ -n "$ok" ] || { echo "::error::pacman -Syu failed 5 times"; exit 1; }
+          ok=""
+          for i in 1 2 3 4 5; do
+            if pacman -S --noconfirm \
+              base-devel \
+              git \
+              webkit2gtk-4.1 \
+              gtk3 \
+              libayatana-appindicator \
+              librsvg \
+              libsoup3 \
+              pkg-config \
+              openssl \
+              curl \
+              sudo \
+              xdg-utils \
+              rpm-tools \
+              fuse2 \
+              dpkg \
+              patchelf \
+              desktop-file-utils; then ok=1; break; fi
+            echo "pacman -S failed (attempt $i), retrying in 15s..."
+            sleep 15
+          done
+          [ -n "$ok" ] || { echo "::error::pacman -S failed 5 times"; exit 1; }
 
       # See ci.yml: linuxdeploy's gtk plugin dies on the loader directory
       # that gdk-pixbuf2 2.44 stopped shipping while its .pc file still
@@ -513,17 +526,29 @@ jobs:
 
       # Same as ci.yml: self-healing warm-cache poison (see comment there).
       # NB: plain `cargo clean -p` misses the Android target dirs — remove
-      # the fingerprint/output dirs directly.
+      # the fingerprint/output dirs directly. Also drop a partial dfbin dir:
+      # ort-sys skips the download when the dir exists even with the lib
+      # missing, which then fails the link with `could not find native
+      # static library onnxruntime`.
       - name: Force ort-sys rebuild when its binaries are missing
         run: |
-          if ! ls "$HOME/.cache/ort/dfbin/aarch64-linux-android/"*/libonnxruntime.a >/dev/null 2>&1; then
-            echo "onnxruntime.a absent — dropping cached ort-sys state so download-binaries re-runs"
+          ORT_DFBIN="$HOME/.cache/ort/dfbin/aarch64-linux-android"
+          if ! ls "$ORT_DFBIN/"*/libonnxruntime.a >/dev/null 2>&1; then
+            echo "onnxruntime.a absent — dropping cached ort-sys state + partial dfbin so download-binaries re-runs fresh"
+            rm -rf "$ORT_DFBIN"
+            # NB: the trailing `*` must stay UNQUOTED — a quoted glob never
+            # expands, so `rm -rf "dir/ort-sys-*"` silently removes nothing
+            # (CI 2026-10-08: self-heal no-op → stale build-script output →
+            # `could not find native static library onnxruntime`).
             for triple in aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android; do
-              rm -rf "target/$triple/release/build/ort-sys-*" "target/$triple/release/.fingerprint/ort-sys-*"
+              rm -rf target/"$triple"/release/build/ort-sys-* target/"$triple"/release/.fingerprint/ort-sys-*
             done
+            rm -rf target/release/build/ort-sys-* target/release/.fingerprint/ort-sys-*
           else
             echo "onnxruntime.a present — incremental build is safe"
           fi
+          echo "ORT cache contents:"
+          find "$HOME/.cache/ort" -maxdepth 4 2>/dev/null | head -50 || echo "(empty)"
 
       - name: Initialize Android project
         run: npm run tauri android init

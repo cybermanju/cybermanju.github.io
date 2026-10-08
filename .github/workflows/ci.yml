@@ -385,25 +385,40 @@ jobs:
     steps:
       - name: Install base dependencies
         run: |
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm \
-            base-devel \
-            git \
-            webkit2gtk-4.1 \
-            gtk3 \
-            libayatana-appindicator \
-            librsvg \
-            libsoup3 \
-            pkg-config \
-            openssl \
-            curl \
-            sudo \
-            xdg-utils \
-            rpm-tools \
-            fuse2 \
-            dpkg \
-            patchelf \
-            desktop-file-utils
+          # Arch mirrors flake (`failed retrieving file ... from
+          # fastly.mirror.pkgbuild.com`, CI 2026-10-08) — retry instead of
+          # failing the whole 11-minute job on a transient mirror error.
+          ok=""
+          for i in 1 2 3 4 5; do
+            if pacman -Syu --noconfirm; then ok=1; break; fi
+            echo "pacman -Syu failed (attempt $i), retrying in 15s..."
+            sleep 15
+          done
+          [ -n "$ok" ] || { echo "::error::pacman -Syu failed 5 times"; exit 1; }
+          ok=""
+          for i in 1 2 3 4 5; do
+            if pacman -S --noconfirm \
+              base-devel \
+              git \
+              webkit2gtk-4.1 \
+              gtk3 \
+              libayatana-appindicator \
+              librsvg \
+              libsoup3 \
+              pkg-config \
+              openssl \
+              curl \
+              sudo \
+              xdg-utils \
+              rpm-tools \
+              fuse2 \
+              dpkg \
+              patchelf \
+              desktop-file-utils; then ok=1; break; fi
+            echo "pacman -S failed (attempt $i), retrying in 15s..."
+            sleep 15
+          done
+          [ -n "$ok" ] || { echo "::error::pacman -S failed 5 times"; exit 1; }
 
       # gdk-pixbuf2 2.44 on Arch moved image decoding into glycin and no
       # longer ships the legacy loader directory, but gdk-pixbuf-2.0.pc still
@@ -570,16 +585,30 @@ jobs:
       # NB: `cargo clean -p` without `--target` only touches the HOST
       # target dir, leaving the poisoned `target/<android-triple>/`
       # fingerprints behind — remove those fingerprint/output dirs directly.
+      # Also drop the dfbin dir itself: ort-sys skips the download when the
+      # dir exists even if the lib is missing (partial/empty dir from a
+      # killed run), which otherwise links against nothing (CI 2026-10-08:
+      # `could not find native static library onnxruntime` 1s after
+      # `Compiling ort-sys`, i.e. no download attempted).
       - name: Force ort-sys rebuild when its binaries are missing
         run: |
-          if ! ls "$HOME/.cache/ort/dfbin/aarch64-linux-android/"*/libonnxruntime.a >/dev/null 2>&1; then
-            echo "onnxruntime.a absent — dropping cached ort-sys state so download-binaries re-runs"
+          ORT_DFBIN="$HOME/.cache/ort/dfbin/aarch64-linux-android"
+          if ! ls "$ORT_DFBIN/"*/libonnxruntime.a >/dev/null 2>&1; then
+            echo "onnxruntime.a absent — dropping cached ort-sys state + partial dfbin so download-binaries re-runs fresh"
+            rm -rf "$ORT_DFBIN"
+            # NB: the trailing `*` must stay UNQUOTED — a quoted glob never
+            # expands, so `rm -rf "dir/ort-sys-*"` silently removes nothing
+            # (CI 2026-10-08: self-heal no-op → stale build-script output →
+            # `could not find native static library onnxruntime`).
             for triple in aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android; do
-              rm -rf "target/$triple/release/build/ort-sys-*" "target/$triple/release/.fingerprint/ort-sys-*"
+              rm -rf target/"$triple"/release/build/ort-sys-* target/"$triple"/release/.fingerprint/ort-sys-*
             done
+            rm -rf target/release/build/ort-sys-* target/release/.fingerprint/ort-sys-*
           else
             echo "onnxruntime.a present — incremental build is safe"
           fi
+          echo "ORT cache contents:"
+          find "$HOME/.cache/ort" -maxdepth 4 2>/dev/null | head -50 || echo "(empty)"
 
       - name: Initialize Android project
         run: npm run tauri android init
