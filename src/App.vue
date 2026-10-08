@@ -27,6 +27,8 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import FileUploadDialog from '@/components/FileUploadDialog.vue'
 import ServerAuthPanel from '@/components/ServerAuthPanel.vue'
+import SetupWizard from '@/components/SetupWizard.vue'
+import { setupSeen } from '@/utils/setupWizard'
 import MobileNav from '@/components/MobileNav.vue'
 import ContextMenu from '@/components/ContextMenu.vue'
 import type { PanelType } from '@/types'
@@ -169,6 +171,24 @@ const confirmTitle = ref('CONFIRM')
 const newFolderName = ref('')
 const folderInputRef = ref<{ focus: () => void } | null>(null)
 const showUploadDialog = ref(false)
+
+// First-run onboarding over the landing screen too: the wizard used to live
+// only inside DesktopShell, so a fresh static/WASM instance sat on the
+// landing boot report with no OAuth + `.cybermanju` setup path until the
+// user clicked [ ENTER ]. Fresh instances open it right away; entering the
+// app later reuses the same `setupSeen` flag (DesktopShell keeps its own
+// copy for the Help-menu re-run path).
+const setupOpen = ref(false)
+function openSetupFromApp() {
+  setupOpen.value = true
+}
+// Single-wizard handoff: the landing copy owns fresh-instance onboarding;
+// once the user enters the app, DesktopShell mounts its own copy (same
+// `setupSeen` flag) and takes over — drop this one so two overlays never
+// stack.
+watch(() => store.currentPanel, (panel) => {
+  if (panel !== 'landing') setupOpen.value = false
+})
 
 const mainAreaRef = ref<HTMLElement | null>(null)
 
@@ -640,6 +660,16 @@ onMounted(() => {
   })()
   window.addEventListener('cybermanju:upload', handleUpload)
   window.addEventListener('cybermanju:open-accounts', openAccountsWindow)
+  window.addEventListener('cybermanju:open-setup', openSetupFromApp)
+  // Fresh instance (first run, e.g. a new WASM/Pages deploy with empty
+  // site data): offer the OAuth + `.cybermanju` onboarding immediately,
+  // over the landing screen — DesktopShell (and its copy of the wizard) is
+  // not mounted until the user enters the app.
+  try {
+    if (!setupSeen()) setupOpen.value = true
+  } catch {
+    // Storage unavailable — DesktopShell still offers the wizard on entry.
+  }
   // A 401 anywhere raises this (see the store): re-probe setup state so the
   // gate offers the right form. The gate itself is reactive on needsAuth.
   window.addEventListener('cybermanju:open-login', refreshAuthGate)
@@ -668,6 +698,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', openEditor)
   window.removeEventListener('keydown', openAgent)
   window.removeEventListener('cybermanju:open-accounts', openAccountsWindow)
+  window.removeEventListener('cybermanju:open-setup', openSetupFromApp)
   window.removeEventListener('cybermanju:open-login', refreshAuthGate)
   window.removeEventListener('popstate', handleAndroidBack)
   window.removeEventListener('online', handleOnlineStatus)
@@ -745,6 +776,11 @@ onBeforeUnmount(() => {
     <ContextMenu />
 
     </template>
+    <!-- Fresh-instance onboarding (OAuth + `.cybermanju`): lives here so it
+         renders over the landing screen too — DesktopShell is not mounted
+         until the user enters the app. Shares `setupSeen` with the shell
+         copy, so finishing/skipping here stays finished inside. -->
+    <SetupWizard v-if="setupOpen && !isPopupMode" @close="setupOpen = false" />
     </div>
 </template>
 

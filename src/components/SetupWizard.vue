@@ -61,6 +61,16 @@
             <button class="sw-btn" type="button" :disabled="disk.busy" @click="openVault">Open existing</button>
           </div>
           <p v-if="disk.lastError" class="sw-note err">{{ disk.lastError }}</p>
+          <p v-else-if="disk.lastMessage" class="sw-note ok">{{ disk.lastMessage }}</p>
+
+          <template v-if="isStatic">
+            <p class="sw-hint">No file picker in this browser? Move the <code class="sw-code">.cybermanju</code> file with a download / upload instead — same vault, no picker needed.</p>
+            <div class="sw-row">
+              <button class="sw-btn" type="button" :disabled="disk.busy" @click="exportVault">Export (.cybermanju)</button>
+              <button class="sw-btn" type="button" :disabled="disk.busy" @click="triggerImport">Import (.cybermanju)</button>
+              <input ref="importInput" type="file" accept=".cybermanju,application/octet-stream" class="sw-hidden-file" aria-label="Import .cybermanju file" @change="onImportPicked" />
+            </div>
+          </template>
 
           <h3 class="sw-card-title">Local-folder sync <span class="sw-count" v-if="store.syncConfigs.length">{{ store.syncConfigs.length }} configured</span></h3>
           <p class="sw-hint">Mirror a folder on this machine. Cloud providers (GitHub, GitLab, Drive) connect later in <strong>Accounts → Connections</strong> with one-click OAuth.</p>
@@ -79,6 +89,36 @@
             <button class="sw-btn" type="button" @click="openConnections">Connect cloud instead →</button>
           </div>
           <p v-if="localMsg" class="sw-note">{{ localMsg }}</p>
+
+          <template v-if="isStatic">
+            <h3 class="sw-card-title">Cloud OAuth broker <span v-if="brokerOk" class="sw-count">connected</span></h3>
+            <p class="sw-hint">One-click GitHub / Google / Drive sign-in runs through your Supabase project — it holds the client secrets a static page can't. Paste its URL + anon key once; sign-in and every provider card use the same broker.</p>
+            <div class="sw-fields">
+              <label class="sw-field grow">
+                <span class="sw-label">Supabase URL</span>
+                <input v-model="sbUrl" class="sw-input" placeholder="https://xyz.supabase.co" autocomplete="off" />
+              </label>
+              <label class="sw-field grow">
+                <span class="sw-label">Supabase anon key</span>
+                <input v-model="sbKey" class="sw-input" type="password" placeholder="Paste anon key" autocomplete="off" />
+              </label>
+            </div>
+            <div class="sw-row">
+              <button class="sw-btn primary" type="button" @click="saveBroker">Save broker</button>
+              <button class="sw-btn" type="button" @click="openConnections">Connect providers →</button>
+            </div>
+            <p v-if="sbMsg" class="sw-note" :class="brokerOk ? 'ok' : 'err'">{{ sbMsg }}</p>
+
+            <h3 class="sw-card-title">One-click sign-in <span v-if="oauthIdentity" class="sw-count">signed in</span></h3>
+            <p class="sw-hint">Needs the broker above (or a build with <code class="sw-code">VITE_SUPABASE_URL</code> set). Sign-in mints a provider token for GitHub / Drive / GitLab sync — same popup the Accounts panel uses.</p>
+            <div class="sw-row">
+              <button class="sw-btn" type="button" :disabled="!brokerOk || !!oauthBusy" @click="quickSignIn('google')">{{ oauthBusy === 'google' ? '…' : 'Google' }}</button>
+              <button class="sw-btn" type="button" :disabled="!brokerOk || !!oauthBusy" @click="quickSignIn('github')">{{ oauthBusy === 'github' ? '…' : 'GitHub' }}</button>
+              <button class="sw-btn" type="button" :disabled="!brokerOk || !!oauthBusy" @click="quickSignIn('gitlab')">{{ oauthBusy === 'gitlab' ? '…' : 'GitLab' }}</button>
+            </div>
+            <p v-if="oauthIdentity" class="sw-note ok">Signed in as {{ oauthIdentity.name || oauthIdentity.email }} ({{ oauthIdentity.provider }}).</p>
+            <p v-else-if="oauthMsg" class="sw-note" :class="oauthOk === false ? 'err' : ''">{{ oauthMsg }}</p>
+          </template>
 
           <div class="sw-actions">
             <button class="sw-btn" type="button" @click="go('welcome')">Back</button>
@@ -174,8 +214,19 @@ import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { isStaticHost } from '@/composables/useTauri'
 import {
+  getSupabaseConfig,
+  identity as supabaseIdentity,
+  refreshIdentity,
+  setSupabaseConfig,
+  signInWithPopup,
+  supabaseConfigured,
+  type OAuthBackend,
+} from '@/composables/useSupabase'
+import {
   createCyberManjuFile,
   disk,
+  exportCyberManjuFile,
+  importCyberManjuFile,
   openCyberManjuFile,
 } from '@/composables/useCyberManjuFile'
 import { syncConfigDefaults } from '@/utils/providers'
@@ -200,6 +251,83 @@ const step = ref<SetupStep>('welcome')
 
 /** Static web builds have no server to seal keys with — agent step is read-only there. */
 const canAgent = !isStaticHost()
+const isStatic = isStaticHost()
+
+// ── OAuth broker (static only): Supabase URL + anon key so one-click
+// provider OAuth works straight from onboarding. Prefilled from
+// localStorage or the build-time env fallback, if either exists.
+const sbInitial = getSupabaseConfig()
+const sbUrl = ref(sbInitial.url)
+const sbKey = ref(sbInitial.key)
+const brokerOk = ref(sbInitial.url.startsWith('http') && sbInitial.key.length > 0)
+const sbMsg = ref(sbInitial.url || sbInitial.key
+  ? (brokerOk.value ? 'Broker configured — sign in or connect providers.' : 'Broker values found but incomplete — check both fields.')
+  : '')
+
+function saveBroker() {
+  const url = sbUrl.value.trim()
+  const key = sbKey.value.trim()
+  if (!url.startsWith('http') || !key) {
+    brokerOk.value = false
+    sbMsg.value = 'Paste both the Supabase URL (https://…) and the anon key first.'
+    return
+  }
+  setSupabaseConfig(url, key)
+  brokerOk.value = true
+  sbMsg.value = 'Broker saved — sign in above or connect providers in Accounts → Connections.'
+}
+
+// ── OAuth quick sign-in (static onboarding): same popup as Accounts, so a
+// fresh WASM instance can mint its GitHub/Drive/GitLab token from the
+// wizard instead of hunting for the Connections tab.
+const oauthBusy = ref<OAuthBackend | null>(null)
+const oauthMsg = ref('')
+const oauthOk = ref<boolean | null>(null)
+const oauthIdentity = computed(() => supabaseIdentity.value)
+
+async function quickSignIn(provider: OAuthBackend) {
+  if (oauthBusy.value) return
+  if (!supabaseConfigured()) {
+    oauthOk.value = false
+    oauthMsg.value = 'Save the OAuth broker first — sign-in needs its URL + key.'
+    return
+  }
+  oauthBusy.value = provider
+  oauthMsg.value = ''
+  oauthOk.value = null
+  try {
+    const who = await signInWithPopup(provider)
+    oauthOk.value = true
+    oauthMsg.value = `Signed in as ${who.name || who.email} — token ready for providers.`
+  } catch (e) {
+    oauthOk.value = false
+    oauthMsg.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    oauthBusy.value = null
+  }
+}
+
+// ── `.cybermanju` import/export fallback (static hosts without the File
+// System Access API, e.g. Firefox/Safari): download/upload moves the same
+// vault bytes the picker would bind.
+const importInput = ref<HTMLInputElement | null>(null)
+
+async function exportVault() {
+  await exportCyberManjuFile()
+}
+
+function triggerImport() {
+  importInput.value?.click()
+}
+
+async function onImportPicked(e: Event) {
+  const input = e.target as HTMLInputElement | null
+  const file = input?.files?.[0]
+  // Reset so picking the same file twice still fires `change`.
+  if (input) input.value = ''
+  if (!file) return
+  await importCyberManjuFile(file)
+}
 
 // ── storage step ──
 const localName = ref('Local folder')
@@ -336,6 +464,17 @@ function close() {
 onMounted(async () => {
   cardRef.value?.focus()
   await nextTick()
+  // The broker may arrive after this card opens (build-env is sync, but the
+  // vault hydration in App.vue is async) — re-read so a fresh WASM instance
+  // with the broker inside its `.cybermanju` file shows "connected".
+  const hydrated = getSupabaseConfig()
+  if (hydrated.url || hydrated.key) {
+    sbUrl.value = hydrated.url
+    sbKey.value = hydrated.key
+    brokerOk.value = hydrated.url.startsWith('http') && hydrated.key.length > 0
+    if (brokerOk.value && !sbMsg.value) sbMsg.value = 'Broker configured — sign in or connect providers.'
+  }
+  await refreshIdentity().catch(() => {})
   await Promise.allSettled([store.fetchSyncConfigs(), store.fetchAgentConfigs()])
   if (canAgent) {
     await store.fetchAgentProviders().catch(() => {})
@@ -353,7 +492,7 @@ onMounted(async () => {
 .sw-overlay {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: 2000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -457,6 +596,7 @@ onMounted(async () => {
 .sw-btn.primary { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
 .sw-btn.primary:hover:not(:disabled) { background: var(--ui-accent); color: var(--ui-text); }
 .sw-link { background: none; border: none; color: var(--ui-info); cursor: pointer; font: inherit; font-size: 12px; text-decoration: underline; padding: 0; border-radius: 4px; margin-left: auto; }
+.sw-hidden-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .sw-note { margin: 0; font-size: 11.5px; color: var(--ui-info); line-height: 1.5; }
 .sw-note.err { color: var(--ui-danger); }
 .sw-note.ok { color: var(--ui-accent); }

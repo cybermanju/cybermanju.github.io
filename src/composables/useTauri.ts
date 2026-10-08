@@ -1836,6 +1836,40 @@ const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
     }
   },
 
+  // ── Static-host reads with honest local answers (no dashboard) ──
+  // These panels polled their REST twins on every boot and each miss logged
+  // a `[WASM parity gap]` error. None of them needs the network:
+  // collections/faces/trash/audit/sync-runs have no rows in a fresh static
+  // vault (wasm deletes are hard-deletes; faces need the ONNX model which
+  // honestly returns empty everywhere), sync status is idle without a sync
+  // engine, and geo filters the local file nodes that already carry
+  // gpsLat/gpsLon. Empty states render; write ops on these domains keep
+  // their accurate "needs the dashboard" refusal until they get local
+  // handlers too.
+  list_collections: async () => [],
+  get_collection_items: async () => [],
+  list_face_groups: async () => [],
+  get_geo_files: async () => {
+    const raw = (await wasmDbDispatch('files.list', {}).catch(() => [])) as Array<
+      Record<string, unknown>
+    >
+    const nodes = Array.isArray(raw) ? raw : []
+    return nodes
+      .filter((f) => typeof f?.gpsLat === 'number' && typeof f?.gpsLon === 'number')
+      .map((f) => ({
+        id: String(f.id ?? ''),
+        name: String(f.name ?? ''),
+        gpsLat: f.gpsLat as number,
+        gpsLon: f.gpsLon as number,
+      }))
+  },
+  list_sync_runs: async () => [],
+  get_sync_status: async () => ({
+    syncEnabled: false, status: 'idle', lastSync: null, provider: null,
+  }),
+  list_trash: async () => [],
+  get_audit_log: async () => [],
+
   // ── Dashboard (no server behind a static host) ──
   // Pages/WASM has no `:3456` web server, so `dashboard_status` used to
   // throw `needs the CyberManju dashboard` on every boot/poll while the

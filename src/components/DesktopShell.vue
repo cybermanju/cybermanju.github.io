@@ -357,10 +357,13 @@ onMounted(() => {
   window.addEventListener('cybermanju:open-setup', openSetup)
   // First launch: desktop gets the 4-step wizard; Android / phones get the
   // full-screen mobile flow (account + N vaults + providers + repos).
-  // Web/static builds never auto-open (no file picker / no key sealing there).
+  // Static web builds auto-open the desktop wizard too: vault file
+  // create/open and Supabase-brokered OAuth both work there now, so a fresh
+  // Pages instance needs the same onboarding (the old "no file picker / no
+  // key sealing" exclusion is stale).
   if (!setupSeen()) {
     if (isAndroidApp() || (isTauri() && window.innerWidth <= 768)) mobileSetupOpen.value = true
-    else if (isTauri()) setupOpen.value = true
+    else setupOpen.value = true
   }
 })
 
