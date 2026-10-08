@@ -772,14 +772,20 @@ fn run_statement(ip: &mut Interp, lines: &[Line], idx: usize) -> Result<usize, S
         if names.is_empty() {
             ip.emit("(no variables)");
         } else {
-            for name in names {
-                let v = &ip.vars[name];
-                ip.emit(&format!(
-                    "{name}: {} = {}",
-                    v.type_name(),
-                    truncate_str(&v.display(), 120)
-                ));
+            // Rows first (borrow ends here), emits after — one borrow at a time.
+            let rows: Vec<String> = names
+                .iter()
+                .map(|name| {
+                    let v = &ip.vars[*name];
+                    format!("{name}: {} = {}", v.type_name(), truncate_str(&v.display(), 120))
+                })
+                .collect();
+            for row in &rows {
+                ip.emit(row);
             }
+        }
+        return Ok(idx + 1);
+    }
         }
         return Ok(idx + 1);
     }

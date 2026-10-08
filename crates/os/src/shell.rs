@@ -2881,8 +2881,8 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
             "fingerprint": crate::script::fingerprint(&source),
             "script": path,
             "calls": {
-                "sh": log_sh.borrow().iter().map(|(k, v)| (k, serde_json::json!({ "ok": v.ok, "output": v.output }))).collect::<serde_json::Map<String, serde_json::Value>>(),
-                "fetch": log_fetch.borrow().iter().map(|(k, v)| (k, serde_json::json!({ "ok": v.ok, "output": v.output }))).collect::<serde_json::Map<String, serde_json::Value>>(),
+                "sh": log_sh.borrow().iter().map(|(k, v)| (k.clone(), serde_json::json!({ "ok": v.ok, "output": v.output }))).collect::<serde_json::Map<String, serde_json::Value>>(),
+                "fetch": log_fetch.borrow().iter().map(|(k, v)| (k.clone(), serde_json::json!({ "ok": v.ok, "output": v.output }))).collect::<serde_json::Map<String, serde_json::Value>>(),
             },
         });
         let body = serde_json::to_string_pretty(&journal_doc).map_err(|e| e.to_string())?;
