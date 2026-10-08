@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="public/bhumisparsha.png" alt="Bhumisparsha School" width="120" />
+
 # 🛡️ CyberManju OS
 
 ### *Your quantum-proof vault · Your private cloud · Your OS inside an OS*

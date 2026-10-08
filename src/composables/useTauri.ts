@@ -117,8 +117,22 @@ export function isWebMode(): boolean {
  */
 export function isStaticHost(): boolean {
   if (typeof window === 'undefined') return false
+  // Tauri (desktop + Android WebView over asset://localhost) always has the
+  // native Rust backend — never treat it as the static Pages/WASM pack, or
+  // disks/sync/agent would route to the browser worker instead of redb.
+  if (isTauri()) return false
   if (window.location.port === '3456' || _serverUrl) return false
   return true
+}
+
+/** True inside the Android WebView (Tauri mobile build). */
+export function isAndroidApp(): boolean {
+  if (typeof navigator === 'undefined') return false
+  try {
+    return isTauri() && /android/i.test(navigator.userAgent)
+  } catch {
+    return false
+  }
 }
 
 /** Resolve the base URL for REST calls. */

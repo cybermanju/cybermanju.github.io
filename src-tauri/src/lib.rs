@@ -20,6 +20,7 @@ use commands::{
 };
 use db::Database;
 use std::sync::{Arc, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct AppState {
     /// Shared with the web dashboard so the redb file is only opened once.
@@ -47,6 +48,70 @@ fn fatal(msg: &str) -> ! {
     }
 }
 
+/// Android app-private files dir, multi-user safe.
+///
+/// `Context.getFilesDir()` is per-user (`/data/user/<id>/<pkg>/files`) but
+/// native code has no Context, so a hardcoded `/data/data/<pkg>/files`
+/// (a symlink to `/data/user/0/...`) breaks under work profiles / secondary
+/// users with EACCES at first launch — an instant close before first paint.
+/// Every candidate below is proven writable (mkdir + probe file) before it
+/// is returned, so a bad guess is skipped instead of bricking startup.
+#[cfg(target_os = "android")]
+fn probe_android_files_dir() -> std::path::PathBuf {
+    const PKG: &str = "com.cybermanju.os";
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(d) = std::env::var("CYBERMANJU_ANDROID_FILES_DIR") {
+        if !d.trim().is_empty() {
+            candidates.push(std::path::PathBuf::from(d));
+        }
+    }
+    if let Some(dir) = cybermanju_web::security::default_secret_dir() {
+        if !candidates.contains(&dir) {
+            candidates.push(dir);
+        }
+    }
+    // Per-user real dirs (secondary users / work profiles). Listing
+    // /data/user may be denied — then this just contributes nothing.
+    if let Ok(entries) = std::fs::read_dir("/data/user") {
+        let mut ids: Vec<String> = entries
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| !n.is_empty() && n.as_bytes().iter().all(u8::is_ascii_digit))
+            .collect();
+        ids.sort();
+        for id in ids {
+            let p = std::path::PathBuf::from(format!("/data/user/{id}/{PKG}/files"));
+            if !candidates.contains(&p) {
+                candidates.push(p);
+            }
+        }
+    }
+    for c in &candidates {
+        if dir_is_writable(c) {
+            return c.clone();
+        }
+        tracing::warn!("Android files-dir candidate not writable, skipping: {}", c.display());
+    }
+    tracing::error!(
+        "no writable Android files dir found; falling back to the canonical path (startup may fail)"
+    );
+    std::path::PathBuf::from(format!("/data/data/{PKG}/files"))
+}
+
+/// mkdir + write/delete a probe file. Pure check, no state kept.
+#[cfg(target_os = "android")]
+fn dir_is_writable(dir: &std::path::Path) -> bool {
+    if std::fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(".cyb_write_probe");
+    if std::fs::write(&probe, b"ok").is_err() {
+        return false;
+    }
+    let _ = std::fs::remove_file(&probe);
+    true
+}
+
 /// Resolve the desktop database path without depending on the process CWD.
 ///
 /// Order: `DB_PATH` env (Docker/server convention) → shared platform data
@@ -56,10 +121,9 @@ fn fatal(msg: &str) -> ! {
 /// mount, so a relative path is only the last resort.
 ///
 /// Android: there is no CWD and scoped storage limits writes to the
-/// app-private files dir. Order there is `DB_PATH` → `CYBERMANJU_DATA_DIR`
-/// → `default_secret_dir()` (which knows the Android private dir, see
-/// `crates/web/src/security.rs`) → `/data/data/com.cybermanju.os/files`
-/// hard fallback. The CWD fallback is never used on Android.
+/// app-private files dir. The dir is probed for writability
+/// (`probe_android_files_dir`, multi-user safe) instead of trusting one
+/// hardcoded path; `DB_PATH` still wins when set.
 fn resolve_desktop_db_path() -> std::path::PathBuf {
     if let Ok(p) = std::env::var("DB_PATH") {
         if !p.trim().is_empty() {
@@ -68,10 +132,7 @@ fn resolve_desktop_db_path() -> std::path::PathBuf {
     }
     #[cfg(target_os = "android")]
     {
-        if let Some(dir) = cybermanju_web::security::default_secret_dir() {
-            return dir.join("cybermanju.db");
-        }
-        return std::path::PathBuf::from("/data/data/com.cybermanju.os/files/cybermanju.db");
+        return probe_android_files_dir().join("cybermanju.db");
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -97,12 +158,103 @@ fn resolve_desktop_index_path(db_path: &std::path::Path) -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from("tantivy_index"))
 }
 
+/// Open the redb database, quarantining a corrupt file instead of bricking.
+///
+/// A half-written redb file (killed mid-commit, disk full, bad restore)
+/// fails to open on EVERY launch. The old code turned that into `fatal()`
+/// (panic on mobile) before the window ever showed — the permanent
+/// "installs but instantly closes" brick. Now the corrupt file is renamed
+/// to `cybermanju.corrupt-<unix_ts>.bak` beside the DB and a fresh vault
+/// is created; the backup stays on disk for manual recovery.
+fn open_database(db_path: &std::path::Path) -> Database {
+    let db_path_str = db_path.to_string_lossy();
+    match Database::new(&db_path_str) {
+        Ok(d) => d,
+        Err(first) => {
+            tracing::error!(
+                "database open failed at {}: {first} — quarantining the file and recreating",
+                db_path.display()
+            );
+            let stamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let backup = db_path.with_file_name(format!("cybermanju.corrupt-{stamp}.bak"));
+            if let Err(e) = std::fs::rename(db_path, &backup) {
+                fatal(&format!(
+                    "Failed to initialize redb database at {} ({first}); quarantine of the corrupt file also failed: {e}",
+                    db_path.display()
+                ));
+            }
+            tracing::warn!("moved corrupt database to {}", backup.display());
+            match Database::new(&db_path_str) {
+                Ok(d) => d,
+                Err(second) => fatal(&format!(
+                    "Failed to initialize redb database at {} even after quarantining the corrupt file: {second}",
+                    db_path.display()
+                )),
+            }
+        }
+    }
+}
+
+/// Open the Tantivy index, rebuilding a corrupt directory instead of bricking.
+///
+/// Same story as the database: a torn index (killed mid-commit) fails to
+/// open on every launch. The index is fully rebuildable from the DB
+/// (`rebuild_search_index`), so wipe + recreate is safe; the old code
+/// `fatal()`-panicked here before first paint on mobile.
+fn open_search_index(index_path: &std::path::Path) -> search::SearchIndex {
+    let index_path_str = index_path.to_string_lossy();
+    match search::SearchIndex::new(&index_path_str) {
+        Ok(i) => i,
+        Err(first) => {
+            tracing::error!(
+                "search index open failed at {}: {first} — wiping and recreating (rebuildable via rebuild_search_index)",
+                index_path.display()
+            );
+            if let Err(e) = std::fs::remove_dir_all(index_path) {
+                fatal(&format!(
+                    "Failed to initialize Tantivy at {} ({first}); wiping the corrupt index also failed: {e}",
+                    index_path.display()
+                ));
+            }
+            match search::SearchIndex::new(&index_path_str) {
+                Ok(i) => i,
+                Err(second) => fatal(&format!(
+                    "Failed to initialize Tantivy at {} even after wiping the corrupt index: {second}",
+                    index_path.display()
+                )),
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Initialize tracing subscriber (replaces env_logger)
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    // Breadcrumb: on mobile a panic before first paint is otherwise a silent
+    // "auto-close". The payload goes to stderr (visible in `adb logcat`)
+    // before the default hook runs.
+    #[cfg(mobile)]
+    {
+        let default = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            eprintln!("CyberManju OS FATAL (panic): {info}");
+            default(info);
+        }));
+    }
+
+    // Logging must never panic the process: a second run() (Android activity
+    // recreate) or an invalid RUST_LOG value falls back to a sane default.
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    if tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .try_init()
+        .is_err()
+    {
+        eprintln!("CyberManju OS: global tracing subscriber already set; continuing");
+    }
     tracing::info!("CyberManju OS starting...");
 
     // Initialize redb database (opened exactly once — shared with the web dashboard)
@@ -117,11 +269,7 @@ pub fn run() {
         }
     }
     tracing::info!("Using database at {}", db_path.display());
-    let db_path_str = db_path.to_string_lossy();
-    let db = match Database::new(&db_path_str) {
-        Ok(d) => Arc::new(RwLock::new(d)),
-        Err(e) => fatal(&format!("Failed to initialize redb database: {}", e)),
-    };
+    let db = Arc::new(RwLock::new(open_database(&db_path)));
     tracing::info!("redb database initialized");
 
     // Initialize Tantivy full-text search index.
@@ -131,11 +279,7 @@ pub fn run() {
     // large restores should run on Wi-Fi/charger (see docs/ANDROID.md §ABI).
     let index_path = resolve_desktop_index_path(&db_path);
     tracing::info!("Using search index at {}", index_path.display());
-    let index_path_str = index_path.to_string_lossy();
-    let tantivy_index = match search::SearchIndex::new(&index_path_str) {
-        Ok(i) => i,
-        Err(e) => fatal(&format!("Failed to initialize Tantivy: {}", e)),
-    };
+    let tantivy_index = open_search_index(&index_path);
     tracing::info!("Tantivy search index ready");
 
     // Initialize triple-layer compressor

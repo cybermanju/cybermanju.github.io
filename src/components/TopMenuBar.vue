@@ -2,7 +2,7 @@
   <header class="top-menu-bar">
     <div class="tmb-left">
       <button class="app-logo" type="button" @click="store.currentPanel = 'landing'">
-        <span class="logo-mark"><AppIcon name="solar:diskette-bold" :size="14" /></span>
+        <span class="logo-mark"><img src="/bhumisparsha.png" alt="Bhumisparsha" width="22" height="22" /></span>
         <span class="logo-brand">CYBERMANJU</span>
         <span class="logo-drive">DRIVE</span>
       </button>
@@ -384,8 +384,15 @@ onUnmounted(() => {
 
 .logo-mark {
   display: inline-flex;
-  color: var(--ui-accent);
-  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--ui-accent) 65%, transparent));
+  border-radius: 6px;
+  overflow: hidden;
+}
+.logo-mark img {
+  display: block;
+  width: 22px;
+  height: 22px;
+  object-fit: cover;
+  border-radius: 6px;
 }
 
 .logo-brand {

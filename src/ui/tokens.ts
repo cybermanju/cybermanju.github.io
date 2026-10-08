@@ -8,7 +8,7 @@
  * the variables, so switching a theme restyles the whole virtual OS at once.
  */
 
-export type ThemeId = 'midnight' | 'nebula' | 'ember' | 'daylight'
+export type ThemeId = 'midnight' | 'nebula' | 'ember' | 'daylight' | 'ghostline'
 export type Density = 'compact' | 'comfortable'
 export type MotionPref = 'auto' | 'full' | 'reduced'
 /** 0 = solid (no blur) · 1 = light glass · 2 = default glass · 3 = heavy glass */
@@ -66,7 +66,7 @@ export interface ThemeSettings {
   glow: boolean
 }
 
-export const THEME_IDS: ThemeId[] = ['midnight', 'nebula', 'ember', 'daylight']
+export const THEME_IDS: ThemeId[] = ['midnight', 'nebula', 'ember', 'daylight', 'ghostline']
 
 export const THEMES: Record<ThemeId, ThemeDefinition> = {
   midnight: {
@@ -156,6 +156,35 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
       glassBase: '34, 24, 18',
     },
   },
+  ghostline: {
+    id: 'ghostline',
+    label: 'Ghostline',
+    mode: 'dark',
+    palette: {
+      bg: '#000000',
+      bgDeep: '#020604',
+      surface: 'rgba(4, 12, 7, 0.92)',
+      surface2: 'rgba(6, 18, 10, 0.94)',
+      surface3: 'rgba(8, 26, 14, 0.96)',
+      window: 'rgba(2, 8, 5, 0.96)',
+      windowIdle: 'rgba(2, 8, 5, 0.92)',
+      border: 'rgba(0, 255, 65, 0.16)',
+      borderStrong: 'rgba(0, 255, 65, 0.34)',
+      borderHover: 'rgba(0, 255, 65, 0.55)',
+      hairline: 'rgba(0, 255, 65, 0.10)',
+      text: '#d6ffe2',
+      text2: '#8fdba5',
+      text3: '#4d8a60',
+      textFaint: '#2c5238',
+      accent: '#00ff41',
+      onAccent: '#001505',
+      success: '#00ff41',
+      warning: '#ffb000',
+      danger: '#ff1f3d',
+      info: '#00e5a0',
+      glassBase: '3, 10, 6',
+    },
+  },
   daylight: {
     id: 'daylight',
     label: 'Daylight',
@@ -189,6 +218,8 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
 
 export const ACCENT_CHOICES: { id: string; label: string; value: string }[] = [
   { id: 'default', label: 'Theme', value: '' },
+  { id: 'matrix', label: 'Matrix', value: '#00ff41' },
+  { id: 'bloodred', label: 'Bloodred', value: '#ff1f3d' },
   { id: 'jade', label: 'Jade', value: '#00ff88' },
   { id: 'mint', label: 'Mint', value: '#00e5a0' },
   { id: 'cyan', label: 'Cyan', value: '#22d3ee' },
@@ -205,7 +236,7 @@ export const DENSITY_SCALE: Record<Density, { unit: number; control: number; fs:
 }
 
 export const DEFAULT_SETTINGS: ThemeSettings = {
-  theme: 'midnight',
+  theme: 'ghostline',
   accent: null,
   density: 'comfortable',
   glass: 2,

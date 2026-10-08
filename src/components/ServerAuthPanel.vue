@@ -80,7 +80,7 @@ const serverLabel = computed(() => {
   <div class="auth-gate" role="dialog" aria-modal="true" aria-labelledby="auth-gate-title">
     <div class="auth-card">
       <div class="auth-brand">
-        <AppIcon name="solar:shield-keyhole-bold" :size="28" />
+        <img class="auth-logo" src="/bhumisparsha.png" alt="Bhumisparsha" width="40" height="40" />
         <div>
           <h1 id="auth-gate-title" class="auth-title">{{ heading }}</h1>
           <p class="auth-sub">{{ serverLabel }}</p>
@@ -211,6 +211,13 @@ const serverLabel = computed(() => {
   gap: 12px;
   align-items: center;
   margin-bottom: 10px;
+}
+.auth-logo {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 10px;
+  flex-shrink: 0;
 }
 .auth-title {
   font-size: 17px;

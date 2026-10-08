@@ -59,8 +59,23 @@ shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
   no localhost server, no battery drain, no Play-policy localhost-server
   review. Dashboard IPC commands stay registered and report `unsupported:`.
 * Startup failures `panic!` (logcat + backtrace) instead of
-  `process::exit(1)`.
+  `process::exit(1)`, with a `CyberManju OS FATAL (panic): …` breadcrumb on
+  stderr first so a crash before first paint is never silent.
+* Logging init is re-entry safe (`try_init` + `RUST_LOG` fallback): an
+  Android activity recreate never dies on "global subscriber already set".
+* Storage is self-healing, not bricking: a torn `cybermanju.db` is renamed
+  to `cybermanju.corrupt-<unix_ts>.bak` beside the DB and recreated fresh;
+  a torn `tantivy_index/` is wiped and recreated (fully rebuildable from
+  the DB via `rebuild_search_index`). Either event is loud in logcat
+  (`quarantining` / `wiping and recreating`).
+* The app-private files dir is **probed, not hardcoded**: `DB_PATH` /
+  `CYBERMANJU_ANDROID_FILES_DIR` win when set, otherwise every candidate
+  (`/data/data/…` symlink, each `/data/user/<id>/…` real dir) is proven
+  writable (mkdir + probe file) before use — work profiles / secondary
+  users no longer EACCES at first launch.
 * Tantivy index is `mmap`'d — large restores should run on Wi-Fi/charger.
+  The writer arena is 8 MB on Android (50 MB elsewhere) so a low-end phone
+  doesn't take an LMK kill before first paint.
 
 ## 6. Frontend on phones
 
@@ -71,7 +86,9 @@ shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
 * `body.cybermanju-offline` (from `online`/`offline` events) dims
   `.server-only` controls instead of hanging.
 * CSP covers both WebView asset schemes: `asset: http://asset.localhost
-  https://asset.localhost`.
+  https://asset.localhost`, plus an explicit `connect-src` (LAN dashboard
+  over plain http, provider APIs, Supabase) so the WebView is allowed to
+  reach the network it is designed to talk to.
 
 ## 7. Update channel
 
@@ -87,3 +104,28 @@ shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
    an arm64 emulator) → shred secrets → upload APK+AAB.
 3. Manual: `adb install CyberManju-OS-<ver>-arm64-v8a.apk` or
    `bash scripts/android-smoke.sh <apk>`.
+
+## 9. Troubleshooting an instant close (installs, never shows a window)
+
+The smoke test now fails on this (process liveness at 8s/13s + logcat
+markers), but on a physical phone do it by hand:
+
+```bash
+adb logcat -c
+# launch the app, wait ~10s, then:
+adb logcat -d | grep -iE "FATAL EXCEPTION|AndroidRuntime|has died|Force finishing activity|CyberManju OS FATAL|Fatal error while running|quarantining|not writable"
+```
+
+What to look for:
+
+| Symptom in logcat | Meaning | Fix |
+|---|---|---|
+| `CyberManju OS FATAL (panic): …` | Rust panic before first paint; the message names the cause | Read the message — DB/index lines below cover the common ones |
+| `…quarantining the file…` / `moved corrupt database to …` | Torn `cybermanju.db` was quarantined to `cybermanju.corrupt-<ts>.bak` and recreated — app should now open (vault content needs re-import/restore) | Re-import or restore from backup; the `.bak` stays beside the DB for forensics |
+| `…wiping and recreating…` | Torn search index was rebuilt — app opens, search repopulates on next index / `rebuild_search_index` | Nothing (or run Rebuild index from Settings) |
+| `Android files-dir candidate not writable` × N | Scoped-storage path problem (work profile, broken symlink) | Set `DB_PATH`/`CYBERMANJU_ANDROID_FILES_DIR` or reinstall from the same user profile |
+| `FATAL EXCEPTION … UnsatisfiedLinkError` | ABI mismatch (x86/arm APK on the wrong device) | Install the `arm64-v8a` artifact on an arm64 phone |
+| Nothing at all, process just dies | LMK/OOM kill (low RAM + large vault) or ANR | Free RAM, retry on Wi-Fi/charger; file a bug with device model + RAM + Android version |
+
+When reporting, always include: device model, Android version, APK file
+name (signed vs `-unsigned`), and the logcat excerpt above.

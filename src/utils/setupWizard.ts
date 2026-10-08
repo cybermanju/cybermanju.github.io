@@ -62,3 +62,79 @@ export function prevSetupStep(step: SetupStep): SetupStep {
 export function setupStepIndex(step: SetupStep): number {
   return SETUP_STEPS.indexOf(step) + 1
 }
+
+// ── Mobile first-run (Android) ─────────────────────────────────────
+// Desktop keeps the 4-step wizard above (pinned by tests). Mobile gets its
+// own 7-step flow: identity → vault partitions → providers → repos, so a
+// phone can create an account, N `.cybermanju` partitions on any provider
+// (or local disk), and N provider repos in one pass. Pure + unit-tested.
+
+export const MOBILE_SETUP_STEPS = [
+  'welcome',
+  'account',
+  'vaults',
+  'providers',
+  'repos',
+  'agent',
+  'done',
+] as const
+
+export type MobileSetupStep = (typeof MOBILE_SETUP_STEPS)[number]
+
+export const MOBILE_SETUP_STEP_LABELS: Record<MobileSetupStep, string> = {
+  welcome: 'Welcome',
+  account: 'Account',
+  vaults: 'Vault partitions',
+  providers: 'Providers',
+  repos: 'Repos',
+  agent: 'Agent AI (optional)',
+  done: 'Done',
+}
+
+export function mobileSetupStepIndex(step: MobileSetupStep): number {
+  return MOBILE_SETUP_STEPS.indexOf(step) + 1
+}
+
+export function nextMobileSetupStep(step: MobileSetupStep): MobileSetupStep {
+  const i = MOBILE_SETUP_STEPS.indexOf(step)
+  return MOBILE_SETUP_STEPS[Math.min(MOBILE_SETUP_STEPS.length - 1, i + 1)]
+}
+
+export function prevMobileSetupStep(step: MobileSetupStep): MobileSetupStep {
+  const i = MOBILE_SETUP_STEPS.indexOf(step)
+  return MOBILE_SETUP_STEPS[Math.max(0, i - 1)]
+}
+
+export interface VaultPartitionDraft {
+  name: string
+  sizeMb: number
+  passphrase: string
+  /** sync config id, or '' = local app-private vault */
+  configId: string
+}
+
+export const PARTITION_MIN_MB = 64
+export const PARTITION_MAX_MB = 8192
+
+export function blankPartitionDraft(name = ''): VaultPartitionDraft {
+  return { name, sizeMb: 512, passphrase: '', configId: '' }
+}
+
+/** Clamp + sanitize a partition row (pure, so the wizard + tests agree). */
+export function normalizePartitionDraft(d: VaultPartitionDraft): VaultPartitionDraft {
+  const sizeMb = Math.max(
+    PARTITION_MIN_MB,
+    Math.min(PARTITION_MAX_MB, Math.round(Number(d.sizeMb) || 512)),
+  )
+  return {
+    name: d.name.trim().slice(0, 64),
+    sizeMb,
+    passphrase: d.passphrase,
+    configId: d.configId,
+  }
+}
+
+export function partitionDraftValid(d: VaultPartitionDraft): boolean {
+  const n = normalizePartitionDraft(d)
+  return n.name.length >= 2 && n.sizeMb >= PARTITION_MIN_MB && n.sizeMb <= PARTITION_MAX_MB
+}

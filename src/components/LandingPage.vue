@@ -275,6 +275,7 @@ onUnmounted(() => {
         </div>
 
         <div class="boot-report" role="status" aria-label="Module load report">
+          <div class="report-brand"><img src="/bhumisparsha.png" alt="Bhumisparsha School" width="72" height="72" /></div>
           <div class="report-head">
             <span class="report-title">CYBERMANJU OS v0.0.1 — ALL MODULES LOADED</span>
             <span class="report-counts">{{ moduleLines.filter(m => m.ok).length }}/{{ moduleLines.length }} OK</span>
@@ -469,6 +470,18 @@ onUnmounted(() => {
   border-radius: 8px;
   padding: 16px 20px;
   box-shadow: 0 4px 24px color-mix(in srgb, var(--ui-bg-deep) 42%, transparent);
+}
+
+.report-brand {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+.report-brand img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 14px;
 }
 
 .report-head {

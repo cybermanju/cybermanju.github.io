@@ -291,3 +291,18 @@ Stage Summary:
 - Not run here: `cargo fmt/clippy/test` (no local toolchain) — CI must prove Rust.
 - Android red fix (CI main 2026-10-08): `processArm64ReleaseMainManifest` merger failed with "Error parsing AndroidManifest.xml" — `android-configure.sh` prepended `android:usesCleartextTraffic="true"` while the Tauri template pins `="${usesCleartextTraffic}"` (manifestPlaceholder), yielding a duplicate attribute (not well-formed XML). Patch now strips template-set copies of the three application attributes before setting ours exactly once, and validates well-formedness in-script so a broken patch fails fast instead of after minutes of Gradle. Also fixed `.cyb3` `pathPattern` double-backslash (`.*\\.cyb3` never matches; now `.*\.cyb3`). Silenced 3 `cybermanju-faces` warnings (`Context as _`, `_file_node`, cfg-gated `FaceBox` — all safe in onnx/no-onnx builds).
 - Not run here: `cargo fmt/clippy/test`, device builds — CI must prove Rust.
+
+## 2026-10-08 — Android instant-close fix (startup self-heal + probe + smoke)
+
+- Symptom: APK installs but auto-closes without showing anything. Double review found five startup crash vectors, all before first paint (each a `fatal()` panic or silent kill in `run()`):
+  1. torn `cybermanju.db` (killed mid-commit/full disk) failed `Database::new` on EVERY launch → permanent brick;
+  2. torn `tantivy_index/` failed `SearchIndex::new` the same way;
+  3. hardcoded `/data/data/com.cybermanju.os/files` EACCES under work profiles/secondary users (`/data/user/<id>/…`);
+  4. `tracing_subscriber::fmt().init()` panics on re-init (activity recreate) or invalid `RUST_LOG`;
+  5. 50 MB Tantivy writer arena allocated up front on low-end phones (LMK kill, no logcat marker).
+- Fixes (`src-tauri/src/lib.rs`): `open_database()` quarantines a torn DB to `cybermanju.corrupt-<unix_ts>.bak` and recreates (backup kept for forensics); `open_search_index()` wipes + recreates a torn index (rebuildable via `rebuild_search_index`); `probe_android_files_dir()` proves every candidate writable (env override → `default_secret_dir()` → each `/data/user/<id>/…`) before use; logging via `try_from_default_env` + `try_init` (never panics); mobile panic hook prints `CyberManju OS FATAL (panic): …` to stderr first so logcat always names the cause.
+- `crates/search`: writer heap 8 MB on Android, 50 MB elsewhere (`WRITER_HEAP_BYTES`).
+- `tauri.conf.json` CSP: added explicit `connect-src 'self' http: https: ws: wss:` (LAN dashboard at any private IP, provider APIs incl. self-hosted instances, Supabase — an allowlist would regress those; desktop only survived via the `invoke()` IPC fallback), plus `media-src`, `worker-src 'self' blob:`, `object-src 'none'`.
+- `scripts/android-smoke.sh`: now catches the exact symptom — clears logcat pre-launch, asserts the process is alive at 8s AND 13s (`pidof` + `ps` fallback), then greps the fresh window for `FATAL EXCEPTION/has died/Force finishing/CyberManju OS FATAL`. Old script greped the full uncleared logcat and passed a silently-dead process as green.
+- Docs: `docs/ANDROID.md` §5 rewritten (self-heal, probing, 8 MB heap, panic breadcrumb) + new §9 instant-close troubleshooting table with the logcat one-liner.
+- Not run here: `cargo fmt/clippy/test`, device builds — CI must prove Rust.

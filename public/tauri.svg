@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="16" fill="#0a0a0f"/>
-  <text x="64" y="72" font-size="48" text-anchor="middle" fill="#00FF41" font-family="monospace">CM</text>
-  <circle cx="32" cy="100" r="4" fill="#FFB800"/>
-  <circle cx="48" cy="105" r="3" fill="#FF2D6F"/>
-  <circle cx="80" cy="105" r="3" fill="#00D4FF"/>
-  <circle cx="96" cy="100" r="4" fill="#A855F7"/>
-</svg>

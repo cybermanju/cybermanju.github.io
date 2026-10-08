@@ -8,6 +8,9 @@
         <div class="desktop-aurora" aria-hidden="true" />
       </div>
 
+      <!-- Mobile home: iOS-style launcher grid under the fullscreen sheets. -->
+      <MobileLauncher class="mobile-only-launcher" />
+
       <!-- Niri-style infinite strip: columns append right (or down in
            vertical mode) and the viewport scrolls — existing windows keep
            their size. Native scroll + Alt+arrows both drive stripOffset. -->
@@ -120,16 +123,20 @@
 
     <!-- First-run setup wizard (desktop): vault + local sync + agent AI. -->
     <SetupWizard v-if="setupOpen" @close="setupOpen = false" />
+    <!-- Mobile first-run: account + N vault partitions + providers + repos. -->
+    <MobileSetupWizard v-if="mobileSetupOpen" @close="mobileSetupOpen = false" />
   </div>
 </template>
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
 import SetupWizard from '@/components/SetupWizard.vue'
+import MobileLauncher from '@/components/MobileLauncher.vue'
+import MobileSetupWizard from '@/components/MobileSetupWizard.vue'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
-import { isTauri } from '@/composables/useTauri'
+import { isTauri, isAndroidApp } from '@/composables/useTauri'
 import { setupSeen } from '@/utils/setupWizard'
 import { computeStripRects, stripColumnWidth } from '@/utils/shellLayout'
 import TopMenuBar from './TopMenuBar.vue'
@@ -145,8 +152,11 @@ const selectShortcut = ref<PanelType | null>(null)
 
 /** First-run setup wizard (desktop auto-open + Help-menu re-run). */
 const setupOpen = ref(false)
+/** Mobile first-run sheet (Android auto-open; re-runnable the same way). */
+const mobileSetupOpen = ref(false)
 function openSetup() {
-  setupOpen.value = true
+  if (isAndroidApp() || window.innerWidth <= 768) mobileSetupOpen.value = true
+  else setupOpen.value = true
 }
 const stripScrollRef = ref<HTMLElement | null>(null)
 
@@ -345,9 +355,13 @@ onMounted(() => {
   document.addEventListener('contextmenu', () => { dockMenu.value.visible = false })
   window.addEventListener('resize', handleViewportResize)
   window.addEventListener('cybermanju:open-setup', openSetup)
-  // First launch on desktop: offer vault + sync + agent setup once.
+  // First launch: desktop gets the 4-step wizard; Android / phones get the
+  // full-screen mobile flow (account + N vaults + providers + repos).
   // Web/static builds never auto-open (no file picker / no key sealing there).
-  if (isTauri() && !setupSeen()) setupOpen.value = true
+  if (!setupSeen()) {
+    if (isAndroidApp() || (isTauri() && window.innerWidth <= 768)) mobileSetupOpen.value = true
+    else if (isTauri()) setupOpen.value = true
+  }
 })
 
 onUnmounted(() => {
@@ -692,4 +706,12 @@ onUnmounted(() => {
 .overview-card-title { font-size: 13px; font-weight: 800; letter-spacing: 0.02em; }
 .overview-card-meta { font-family: var(--ui-font-mono); font-size: 9px; letter-spacing: 0.08em; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
 .overview-empty { grid-column: 1 / -1; text-align: center; color: color-mix(in srgb, var(--ui-text) 50%, transparent); font-size: 12px; padding: 40px; }
+
+/* Launcher home lives under the sheets on phones only. `!important` wins
+   the specificity tie with the launcher's own `display: flex` regardless of
+   stylesheet order. */
+.mobile-only-launcher { display: none !important; }
+@media (max-width: 768px) {
+  .mobile-only-launcher { display: flex !important; }
+}
 </style>

@@ -19,7 +19,7 @@
     >
       <header class="sw-head">
         <div class="sw-brand">
-          <span class="sw-mark"><AppIcon name="solar:magic-wand-bold" :size="18" /></span>
+          <span class="sw-mark"><img src="/bhumisparsha.png" alt="Bhumisparsha" width="36" height="36" /></span>
           <div>
             <h2 id="sw-title" class="sw-title">Set up CyberManju OS</h2>
             <p class="sw-sub">{{ SETUP_STEP_LABELS[step] }} · step {{ setupStepIndex(step) }} of {{ SETUP_STEPS.length }}</p>
@@ -393,9 +393,16 @@ onMounted(async () => {
   height: 36px;
   border-radius: 10px;
   flex-shrink: 0;
-  background: color-mix(in srgb, var(--ui-accent) 16%, transparent);
-  color: var(--ui-accent);
-  border: 1px solid color-mix(in srgb, var(--ui-accent) 40%, transparent);
+  overflow: hidden;
+  background: #0b0e14;
+  border: 1px solid var(--ui-border);
+}
+.sw-mark img {
+  display: block;
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 10px;
 }
 .sw-title { margin: 0; font-size: 15px; letter-spacing: 0.4px; }
 .sw-sub { margin: 1px 0 0; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }

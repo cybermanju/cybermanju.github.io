@@ -7,7 +7,10 @@
 #   1. `adb install` the APK (arm64 APK needs an arm64 emulator image;
 #      x86_64 images cannot run it — that mismatch skips, not fails).
 #   2. `adb shell am start` the main activity.
-#   3. Greps logcat for the Tauri boot marker / fatal errors.
+#   3. Checks the process is STILL ALIVE at 8s and 13s — the reported
+#      "installs, instantly closes, shows nothing" symptom leaves no FATAL
+#      marker (LMK/ANR kill), so a dead process IS the failure signal.
+#   4. Greps a freshly-cleared logcat window for crash markers.
 #
 # Graceful skip (exit 0) when: no device/emulator attached, wrong ABI,
 # missing platform-tools. CI wires this with `continue-on-error` so KVM-less
@@ -38,10 +41,38 @@ case "$abi" in
 esac
 
 adb install -r "$APK" || fail "adb install failed for $APK"
+# Fresh logcat window so stale crash lines from other apps can't fail us
+# (and our own markers don't drown in hours of radio noise).
+adb logcat -c 2>/dev/null || true
 adb shell am start -n "$ACTIVITY" || fail "am start failed for $ACTIVITY"
+
+# Process pid, `pidof` first with a `ps` fallback (very old images).
+app_pid() {
+  local p
+  p="$(adb shell pidof com.cybermanju.os 2>/dev/null | tr -d '\r' || true)"
+  if [ -n "$p" ]; then echo "$p"; return 0; fi
+  adb shell ps -A 2>/dev/null | grep "com\.cybermanju\.os" | awk '{print $2}' | tr -d '\r' | head -1 || true
+}
+
+dump_markers() {
+  adb logcat -d 2>/dev/null | grep -iE "FATAL EXCEPTION|AndroidRuntime|has died|Force finishing activity|CyberManju OS FATAL|Fatal error while running|not writable|quarantining" | head -20 >&2 || true
+}
+
 sleep 8
-if adb logcat -d 2>/dev/null | grep -qiE "FATAL|AndroidRuntime.*com\.cybermanju\.os|tauri.*panic"; then
-  adb logcat -d 2>/dev/null | grep -iE "FATAL|AndroidRuntime|panic" | head -20 >&2
+# Liveness is the load-bearing check: an instant close (panic before first
+# paint, ANR kill, LMK kill) often leaves NO fatal marker — a dead process
+# after a successful `am start` is itself the failure.
+if [ -z "$(app_pid)" ]; then
+  dump_markers
+  fail "process com.cybermanju.os is not running 8s after launch (instant close — see markers above)"
+fi
+sleep 5
+if [ -z "$(app_pid)" ]; then
+  dump_markers
+  fail "process com.cybermanju.os died between 8s and 13s after launch (ANR/LMK kill — see markers above)"
+fi
+if adb logcat -d 2>/dev/null | grep -qiE "FATAL EXCEPTION.*com\.cybermanju\.os|AndroidRuntime.*com\.cybermanju\.os|CyberManju OS FATAL|Fatal error while running"; then
+  dump_markers
   fail "crash markers in logcat after launch"
 fi
-echo "android smoke: PASS — installed + launched $APK on $abi"
+echo "android smoke: PASS — installed + launched $APK on $abi (alive at 13s)"

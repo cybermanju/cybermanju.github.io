@@ -118,7 +118,15 @@ impl SearchIndex {
         };
 
         // Writer with 50MB heap
-        let writer = RwLock::new(index.writer(50_000_000)?);
+        // Mobile note: the arena is allocated up front. 50 MB is fine on
+        // desktop, but on a low-end phone (WebView + redb + app already
+        // resident) it risks an LMK kill before first paint. 8 MB still
+        // indexes fine; bulk rebuilds just commit in smaller batches.
+        #[cfg(target_os = "android")]
+        const WRITER_HEAP_BYTES: usize = 8_000_000;
+        #[cfg(not(target_os = "android"))]
+        const WRITER_HEAP_BYTES: usize = 50_000_000;
+        let writer = RwLock::new(index.writer(WRITER_HEAP_BYTES)?);
 
         let reader = index
             .reader_builder()
