@@ -78,6 +78,10 @@
       <span class="sb-tech" :title="netTitle">{{ netLabel }}</span>
       <span class="sb-div">|</span>
       <span class="sb-tech">{{ transportShort }} MODE</span>
+      <span class="sb-div">|</span>
+      <a class="sb-legal" href="https://cybermanju.github.io/privacy.html" target="_blank" rel="noopener" title="Privacy policy">PRIVACY</a>
+      <span class="sb-div">|</span>
+      <a class="sb-legal" href="https://cybermanju.github.io/terms.html" target="_blank" rel="noopener" title="Terms of service">TERMS</a>
     </div>
   </footer>
 </template>
@@ -284,6 +288,24 @@ const agentTip = computed(() => {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   padding-left: 8px;
+}
+
+/* Legal links (privacy / terms) — same footprint as the tech readouts so
+ * the bar keeps its height; absolute Pages URLs so they resolve from the
+ * desktop and Docker builds too, not just the static host. */
+.sb-legal {
+  font-size: 9px;
+  color: var(--ui-text-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 2px 2px 8px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.sb-legal:hover {
+  color: var(--ui-accent);
+  text-decoration: underline;
 }
 
 .sb-clickable {

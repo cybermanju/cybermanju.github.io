@@ -137,6 +137,9 @@
             Static-build OAuth broker: GitHub / Google / GitLab login without your own server.
             Enable the providers in Supabase → Authentication → Sign-in, and add this page's URL to redirect URLs.
             <span v-if="supabaseConfiguredNow">Source: {{ supabaseSource }}.</span>
+            See the <a class="st-legal" href="https://cybermanju.github.io/privacy.html" target="_blank" rel="noopener">Privacy policy</a>
+            and <a class="st-legal" href="https://cybermanju.github.io/terms.html" target="_blank" rel="noopener">Terms of service</a>
+            for how provider data is handled.
           </UiText>
           <div v-if="!supabaseConfiguredNow" class="st-banner warn">
             <AppIcon name="solar:info-circle-bold" :size="15" />
@@ -814,6 +817,10 @@ async function handleRefresh() {
 }
 .st-feedback.is-ok { color: var(--ui-success); }
 .st-feedback.is-err { color: var(--ui-danger); }
+
+/* Legal links inside muted UiText (inherits size/tone, accent on hover). */
+.st-legal { color: var(--ui-accent); text-decoration: none; }
+.st-legal:hover { text-decoration: underline; }
 
 /* Accounts → Configure points here: scroll + glow the broker card. */
 #oauth-broker-card.is-target {

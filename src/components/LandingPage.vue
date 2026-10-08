@@ -298,6 +298,11 @@ onUnmounted(() => {
             [ REBOOT ]
           </button>
         </div>
+        <div class="legal-hint">
+          <a href="https://cybermanju.github.io/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>
+          <span>·</span>
+          <a href="https://cybermanju.github.io/terms.html" target="_blank" rel="noopener">Terms of Service</a>
+        </div>
       </div>
     </div>
 
@@ -584,6 +589,29 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--ui-danger) 12%, transparent);
   border-color: var(--ui-danger);
   color: var(--ui-danger);
+}
+
+/* Legal links (Google OAuth verification requires them on the homepage). */
+.legal-hint {
+  position: relative;
+  z-index: 2;
+  margin-top: 14px;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: color-mix(in srgb, var(--ui-accent) 40%, transparent);
+}
+
+.legal-hint a {
+  color: color-mix(in srgb, var(--ui-accent) 65%, transparent);
+  text-decoration: none;
+}
+
+.legal-hint a:hover {
+  color: var(--ui-accent);
+  text-decoration: underline;
 }
 
 @media (max-width: 768px) {
