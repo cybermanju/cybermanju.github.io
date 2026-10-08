@@ -4,6 +4,10 @@
 # Applies every in-tree Android setting that `tauri android init` does NOT
 # generate, so CI never relies on Tauri template defaults silently:
 #
+#   0. launcher icons — NOT here: `scripts/android-icons.sh` (`tauri icon`
+#      from `public/icon-512.png` into `gen/…/res/mipmap-*`; the template's
+#      DEFAULT icons otherwise ship in every APK). Run it BEFORE this script.
+#
 #   1. versionCode audit — `tauri.conf.json > bundle.android.versionCode` must
 #      equal `major*1000000 + minor*1000 + patch` from `package.json`
 #      (Tauri auto-derives the same formula when the key is absent; pinning

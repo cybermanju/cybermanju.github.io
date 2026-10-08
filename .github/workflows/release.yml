@@ -558,6 +558,11 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
 
+      # Same as ci.yml: `tauri android init` stamps the template's DEFAULT
+      # launcher icons — sync the real mark before building the release APK.
+      - name: Sync Android launcher icons
+        run: bash scripts/android-icons.sh
+
       # In-tree Android settings `tauri android init` does not generate:
       # versionCode audit, manifest permissions/cleartext/backup/intents.
       - name: Configure Android project

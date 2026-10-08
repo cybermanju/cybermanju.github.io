@@ -3,7 +3,8 @@
 > `com.cybermanju.os` on Android: local vault (Tauri IPC), arm64-v8a,
 > APK + AAB, `minSdk 24`, `targetSdk 36`. Generated project lives in
 > gitignored `src-tauri/gen/` — everything below is applied by
-> `scripts/android-configure.sh` after `tauri android init`.
+> `scripts/android-configure.sh` (manifest/versionCode) +
+> `scripts/android-icons.sh` (launcher icons) after `tauri android init`.
 
 ## 1. Packaging
 
@@ -14,6 +15,7 @@
 | ABI (smoke) | `x86_64` emulator supported by `scripts/android-smoke.sh` (install skipped on ABI mismatch, never fails the build) |
 | `minSdkVersion` | 24 (pinned in `tauri.conf.json > bundle.android`) |
 | `versionCode` | pinned in `tauri.conf.json > bundle.android.versionCode` = `major*1000000 + minor*1000 + patch` (0.1.1 → 1001). Bump with the release; enforced by `check-version.sh` + `android-configure.sh` |
+| Launcher icon | `public/icon-512.png` (512x512 RGBA) → `gen/…/res/mipmap-*` via `scripts/android-icons.sh` (`tauri icon` per the official flow). `tauri android init` stamps the Tauri template's DEFAULT icons — without the sync step every APK ships the Tauri logo |
 | Play track | manual upload of the `.aab` (internal track first). No auto-publish yet |
 
 ABI debt: `armv7`/`i686` targets are NOT installed in CI (waste) and not
@@ -74,7 +76,9 @@ shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
   writable (mkdir + probe file) before use — work profiles / secondary
   users no longer EACCES at first launch.
 * Tantivy index is `mmap`'d — large restores should run on Wi-Fi/charger.
-  The writer arena is 8 MB on Android (50 MB elsewhere) so a low-end phone
+  The writer arena is 15 MB on Android (50 MB elsewhere) — 15 MB is the
+  smallest heap Tantivy 0.22 accepts (smaller values fail writer creation
+  and bricked every launch pre-2026-10-08) — so a low-end phone
   doesn't take an LMK kill before first paint.
 
 ## 6. Frontend on phones
@@ -99,7 +103,7 @@ shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
 ## 8. Verification
 
 1. `bash scripts/check-version.sh` (versionCode pinned + derived).
-2. CI `android-build`: configure → sign → `--apk --aab --split-per-abi` →
+2. CI `android-build`: init → icons (`android-icons.sh`) → configure → sign → `--apk --aab --split-per-abi` →
    `apksigner verify` → on-device smoke (`continue-on-error`, skips without
    an arm64 emulator) → shred secrets → upload APK+AAB.
 3. Manual: `adb install CyberManju-OS-<ver>-arm64-v8a.apk` or
@@ -112,15 +116,19 @@ markers), but on a physical phone do it by hand:
 
 ```bash
 adb logcat -c
-# launch the app, wait ~10s, then:
-adb logcat -d | grep -iE "FATAL EXCEPTION|AndroidRuntime|has died|Force finishing activity|CyberManju OS FATAL|Fatal error while running|quarantining|not writable"
+# launch the app, wait ~10s, then (the -A 10 matters: the refusal reason
+# is printed on the lines FOLLOWING the marker — a bare grep shows only
+# the `lib.rs:43` breadcrumb with no cause):
+adb logcat -d | grep -A 10 "CyberManju OS FATAL"
+# wider net when the above is empty:
+adb logcat -d | grep -iE "FATAL EXCEPTION|AndroidRuntime|has died|Force finishing activity|Fatal error while running|quarantining|not writable"
 ```
 
 What to look for:
 
 | Symptom in logcat | Meaning | Fix |
 |---|---|---|
-| `CyberManju OS FATAL (panic): …` | Rust panic before first paint; the message names the cause | Read the message — DB/index lines below cover the common ones |
+| `CyberManju OS FATAL (panic): …` | Rust panic before first paint; the message names the cause. Always capture with `grep -A 10` — without context lines you only see the `lib.rs:43` breadcrumb | Read the message — DB/index lines below cover the common ones |
 | `…quarantining the file…` / `moved corrupt database to …` | Torn `cybermanju.db` was quarantined to `cybermanju.corrupt-<ts>.bak` and recreated — app should now open (vault content needs re-import/restore) | Re-import or restore from backup; the `.bak` stays beside the DB for forensics |
 | `…wiping and recreating…` | Torn search index was rebuilt — app opens, search repopulates on next index / `rebuild_search_index` | Nothing (or run Rebuild index from Settings) |
 | `Android files-dir candidate not writable` × N | Scoped-storage path problem (work profile, broken symlink) | Set `DB_PATH`/`CYBERMANJU_ANDROID_FILES_DIR` or reinstall from the same user profile |

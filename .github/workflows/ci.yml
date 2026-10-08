@@ -618,6 +618,15 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
 
+      # `tauri android init` stamps the Tauri template's DEFAULT launcher
+      # icons into gen/android/res — without this step every APK ships the
+      # Tauri logo (2026-10-08). Regenerates from public/icon-512.png into a
+      # temp dir and copies only the android/ subtree into the generated
+      # project's res/ (no tracked desktop icon touched); fails the job when
+      # any mipmap density is missing or mis-sized.
+      - name: Sync Android launcher icons
+        run: bash scripts/android-icons.sh
+
       # In-tree Android settings `tauri android init` does not generate:
       # versionCode audit, manifest permissions/cleartext/backup/intents.
       - name: Configure Android project

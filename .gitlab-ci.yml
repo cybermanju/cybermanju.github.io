@@ -215,6 +215,9 @@ android-build:
     - export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
     - npm ci
     - npm run tauri android init
+    # `tauri android init` stamps the template's DEFAULT launcher icons —
+    # sync the real mark (same as GitHub CI) before configuring + building.
+    - bash scripts/android-icons.sh
     # A release APK must be installable: missing keystore is a hard failure
     # here (REQUIRE_SIGNING), same as GitHub — signing secrets required.
     - |

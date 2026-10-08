@@ -37,7 +37,11 @@ pub struct AppState {
 /// on mobile (`cfg(mobile)`, i.e. the Android build) it panics so the crash
 /// lands in logcat with a backtrace instead of a silent process death.
 fn fatal(msg: &str) -> ! {
-    tracing::error!("{}", msg);
+    // Marker-prefixed AND single-line: the reason must survive a
+    // `grep "CyberManju OS FATAL"` triage window (2026-10-08: a startup
+    // refusal's message landed on following lines and was filtered out,
+    // leaving only the bare `lib.rs:43` breadcrumb).
+    tracing::error!("CyberManju OS FATAL: {}", msg);
     #[cfg(mobile)]
     {
         panic!("{}", msg);
@@ -242,7 +246,12 @@ pub fn run() {
     {
         let default = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
-            eprintln!("CyberManju OS FATAL (panic): {info}");
+            // Flattened to one line so the location + payload survive the
+            // same `grep "CyberManju OS FATAL"` triage window as above.
+            eprintln!(
+                "CyberManju OS FATAL (panic): {}",
+                info.to_string().replace('\n', " | ")
+            );
             default(info);
         }));
     }

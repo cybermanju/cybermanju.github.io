@@ -120,10 +120,14 @@ impl SearchIndex {
         // Writer with 50MB heap
         // Mobile note: the arena is allocated up front. 50 MB is fine on
         // desktop, but on a low-end phone (WebView + redb + app already
-        // resident) it risks an LMK kill before first paint. 8 MB still
-        // indexes fine; bulk rebuilds just commit in smaller batches.
+        // resident) it risks an LMK kill before first paint — so Android
+        // uses the smallest heap Tantivy accepts. That floor is 15 MB
+        // (Tantivy 0.22 rejects anything smaller with "memory arena in bytes
+        // per thread needs to be at least 15000000", which bricked EVERY
+        // Android launch when this was 8 MB — 2026-10-08); bulk rebuilds
+        // just commit in smaller batches.
         #[cfg(target_os = "android")]
-        const WRITER_HEAP_BYTES: usize = 8_000_000;
+        const WRITER_HEAP_BYTES: usize = 15_000_000;
         #[cfg(not(target_os = "android"))]
         const WRITER_HEAP_BYTES: usize = 50_000_000;
         let writer = RwLock::new(index.writer(WRITER_HEAP_BYTES)?);

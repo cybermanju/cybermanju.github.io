@@ -409,3 +409,24 @@ Stage Summary:
 - Removed the hardcoded terminal colors: new `--ui-terminal` token per theme (black in dark modes, paper in light) and radio dots / slider thumbs now use `var(--ui-on-accent)` / `var(--ui-text)`; the checkbox check stays white except plasma-dark (dark glyph override). Remaining `#fff` spots are documented constants that clear 3:1 on every danger/accent fill.
 - Merge: another agent was concurrently rewriting `.vue` files into CSS-only fragments (7 components destroyed incl. TerminalPanel/TransferGraph mid-session) plus real voice-input auto-detect work (`resolveVoiceLang`/`VoiceLangPref` in `speechCorrect`/`useVoiceInput`). Kept their TS work; restored the 7 components from HEAD (fragments held only orphaned classes, no template/script to merge) and re-applied the theme edits on TerminalPanel/TransferGraph.
 - Verified: `npm run typecheck` exit 0; `vitest` 45 files / 554 pass; `npx vite build` succeeds (pre-existing chunk-size warning only).
+
+## 2026-10-08 — Android ships the real launcher icon (Tauri-default logo fix)
+
+- Root cause: `tauri android init` stamps the Tauri template's DEFAULT launcher icons into `gen/android/app/src/main/res/`, and no step ever replaced them — the official flow (`tauri icon <source>` AFTER init, per https://v2.tauri.app/distribute/google-play/#changing-app-icon) was missing from every pipeline, so all APKs/AABs carried the Tauri logo.
+- New `scripts/android-icons.sh` (idempotent): runs `npx tauri icon public/icon-512.png` (512x512 RGBA canonical mark; `bhumisparsha.png` is 250x280 non-square) into a temp dir — never the default `src-tauri/icons` output, so no tracked desktop icon is touched — copies only the `android/` subtree into the generated project's `res/` (copy-not-delete, template files like `strings.xml` survive), then verifies all 15 mipmap PNGs + adaptive-icon XML + background exist and the foreground densities match the documented 108/162/216/324/432.
+- Wired between init and configure in all three pipelines (`.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.gitlab-ci.yml`); `docs/ANDROID.md` §1/§8 + `android-configure.sh` header + `AGENTS.md` updated.
+- Verified: script run against a fake gen dir (17 files land, densities check, template files intact, `git status` shows no tracked churn); `bash -n` clean. `check-version.sh`/`vue-tsc`/`vitest` re-run below.
+- Instant-close report: native side already self-heals (DB quarantine, index rebuild, files-dir probing, re-entry-safe logging, 8 MB Tantivy arena on mobile) with logcat breadcrumbs — needs the reporter's device model + Android version + APK name + `adb logcat` excerpt (`docs/ANDROID.md` §9) to diagnose; no code change made for it in this pass.
+
+## 2026-10-08 — Crash log made un-truncatable (follow-up to instant-close report)
+
+- Reporter's logcat proved the crash site: `CyberManju OS FATAL (panic)` at `src-tauri/src/lib.rs:43` — the `panic!` inside `fatal()`, i.e. a startup gate (DB dir creation, DB open+quarantine, or index open+wipe) refused. But the refusal REASON was lost: it was logged on following lines that a bare `grep "CyberManju OS FATAL"` filters out.
+- `fatal()` now logs `CyberManju OS FATAL: <reason>` (marker-prefixed, single line) and the mobile panic hook flattens location+payload to one line — the cause always survives the triage grep. `docs/ANDROID.md` §9 now prescribes `grep -A 10` and says why.
+- Still needs from the reporter: Android version + exact APK name + `grep -A 10` output to name the actual gate. Rust validation left to CI per repo rules (no local cargo).
+
+## 2026-10-08 — Android instant-close root-caused: Tantivy 15 MB arena floor
+
+- Reporter's `grep -A 10` gave the reason: `Failed to initialize Tantivy at …/tantivy_index even after wiping the corrupt index: … 'The memory arena in bytes per thread needs to be at least 15000000.'`
+- Root cause: `crates/search` used an 8 MB writer heap on Android, but Tantivy 0.22 rejects anything under 15 MB — so `SearchIndex::new` failed on EVERY launch (fresh installs included; never device-specific), `open_search_index` misread it as a corrupt index, wiped a healthy index, retried, failed, and `fatal()`-panicked before first paint.
+- Fix: Android `WRITER_HEAP_BYTES` 8 MB → 15 MB (the library floor, still 3.3× smaller than desktop's 50 MB); comment cites the floor so nobody "optimizes" it back down. `docs/ANDROID.md` §5 updated. Needs a rebuilt APK + reinstall (uninstall wipes the app-private index dir, so a fresh start is guaranteed).
+- Verified: floor value comes verbatim from the library's runtime error on-device (`>= 15000000`); `check-version.sh` green. `cargo clippy/test` left to CI per repo rules.
