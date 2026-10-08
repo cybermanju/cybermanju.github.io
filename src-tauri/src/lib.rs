@@ -168,10 +168,8 @@ pub fn run() {
     // frontend's transport switch keeps working; they report "unavailable".
     #[cfg(mobile)]
     let dashboard = {
-        let mut dashboard = web_dashboard::WebDashboard::new_shared(
-            web_dashboard::DEFAULT_PORT,
-            Arc::clone(&db),
-        );
+        let mut dashboard =
+            web_dashboard::WebDashboard::new_shared(web_dashboard::DEFAULT_PORT, Arc::clone(&db));
         dashboard.sync_state = Arc::clone(&sync_state);
         dashboard.set_search_index(Arc::clone(&state.tantivy_index));
         tracing::info!("Web Dashboard disabled on mobile (local-vault mode)");
@@ -181,10 +179,8 @@ pub fn run() {
     // redb file a second time (which would fail on the exclusive file lock).
     #[cfg(not(mobile))]
     let dashboard = {
-        let mut dashboard = web_dashboard::WebDashboard::new_shared(
-            web_dashboard::DEFAULT_PORT,
-            Arc::clone(&db),
-        );
+        let mut dashboard =
+            web_dashboard::WebDashboard::new_shared(web_dashboard::DEFAULT_PORT, Arc::clone(&db));
         dashboard.sync_state = Arc::clone(&sync_state);
         dashboard.set_search_index(Arc::clone(&state.tantivy_index));
         let dashboard = Arc::new(dashboard);

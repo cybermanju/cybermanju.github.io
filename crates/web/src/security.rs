@@ -657,7 +657,7 @@ pub fn default_secret_dir() -> Option<PathBuf> {
         }
         return Some(PathBuf::from("/data/data/com.cybermanju.os/files"));
     }
-    #[cfg(all(unix, not(target_os = "macos"), not(target_os = "android"))]
+    #[cfg(all(unix, not(target_os = "macos"), not(target_os = "android")))]
     {
         let base = std::env::var("XDG_DATA_HOME")
             .ok()
