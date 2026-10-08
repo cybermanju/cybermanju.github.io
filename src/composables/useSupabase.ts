@@ -28,10 +28,12 @@
 // while Supabase holds the single active session.
 //
 // The provider token is a real provider credential (GitHub honors it as a
-// token; Drive accepts the Bearer). Requested scopes are the minimum the
-// sync backends need. Token expiry: GitHub OAuth tokens don't expire by
-// default; Google access tokens last ~1h (no browser-safe refresh — the
-// panel asks for a reconnect when Google probes fail).
+// token; Drive accepts the Bearer). Both sign-in and per-card Connect request
+// the minimum scopes the sync backends need (Google includes `drive.file`),
+// so a top sign-in token is already Drive-capable. Token expiry: GitHub
+// OAuth tokens don't expire by default; Google access tokens last ~1h (no
+// browser-safe refresh — the panel asks for a reconnect when Google probes
+// fail).
 
 import { ref } from 'vue'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
@@ -191,6 +193,28 @@ export function supabaseScopesFor(backendType: string): string {
       return 'api'
     default:
       return ''
+  }
+}
+
+/**
+ * Scopes the top sign-in buttons request. Sign-in used to ask for identity
+ * only (`openid email profile`), so the session's `provider_token` could not
+ * touch Drive — folder create probed 403 while the user looked logged in.
+ * Sign-in now asks for the same sync scopes as the per-card Connect flow,
+ * so the session token is Drive-capable straight away (Google) / repo-capable
+ * (GitHub) / api-capable (GitLab). Existing sessions minted before this keep
+ * the old narrow grant — sign out + sign in again to pick up the new scopes.
+ */
+export function supabaseSignInScopes(provider: OAuthBackend): string {
+  switch (provider) {
+    case 'google':
+      return supabaseScopesFor('googleDrive')
+    case 'github':
+      return supabaseScopesFor('github')
+    case 'gitlab':
+      return supabaseScopesFor('gitlab')
+    default:
+      return 'openid email profile'
   }
 }
 
@@ -537,7 +561,7 @@ export async function startSupabaseSignIn(provider: OAuthBackend): Promise<{ url
     provider,
     options: {
       redirectTo,
-      scopes: 'openid email profile',
+      scopes: supabaseSignInScopes(provider),
       skipBrowserRedirect: true,
     },
   })
