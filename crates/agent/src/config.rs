@@ -176,7 +176,12 @@ pub fn decide(
     // Plan persona: read-only, whatever the rules say. `skill_save` writes a
     // file and `mcp_attach` mutates the config — both are mutations.
     // `self_research` and `repo_analyze` are read-only and stay available.
-    if kind == AgentKind::Plan && matches!(tool, "edit" | "write" | "bash" | "skill_save" | "mcp_attach") {
+    if kind == AgentKind::Plan
+        && matches!(
+            tool,
+            "edit" | "write" | "bash" | "skill_save" | "mcp_attach"
+        )
+    {
         return PermissionDecision::Deny {
             reason: format!("deny: plan agent may not run `{tool}`"),
         };

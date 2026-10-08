@@ -1522,7 +1522,13 @@ fn tool_bash(
 /// Read-only: safe for plan agents. Skips VCS/build dirs, ranks by query
 /// overlap (`self_research::rank_research_files`), reads the top hits and
 /// returns path + matching lines + head snippet per file.
-fn tool_self_research(root: &Path, vol: &Path, query: &str, sub: &str, limit: usize) -> Result<String, String> {
+fn tool_self_research(
+    root: &Path,
+    vol: &Path,
+    query: &str,
+    sub: &str,
+    limit: usize,
+) -> Result<String, String> {
     use cybermanju_agent::self_research as sr;
     if query.trim().is_empty() {
         return Err("invalid: query is required".to_string());
@@ -1533,7 +1539,14 @@ fn tool_self_research(root: &Path, vol: &Path, query: &str, sub: &str, limit: us
         join_contained(root, vol, sub)?
     };
     const SKIP_DIRS: &[&str] = &[
-        ".git", "node_modules", "target", "dist", "dist-wasm", "build", ".hg", ".svn",
+        ".git",
+        "node_modules",
+        "target",
+        "dist",
+        "dist-wasm",
+        "build",
+        ".hg",
+        ".svn",
     ];
     const MAX_FILES_SEEN: usize = 2000;
     let mut all: Vec<String> = Vec::new();
@@ -1594,10 +1607,18 @@ fn tool_self_research(root: &Path, vol: &Path, query: &str, sub: &str, limit: us
     }
     let picked = sr::rank_research_files(&all, query, limit.clamp(1, sr::SELF_RESEARCH_MAX_FILES));
     if picked.is_empty() {
-        return Ok(format!("self_research: no files match `{}` under `{}` — try broader terms or list/glob first", query.trim(), sub.trim()));
+        return Ok(format!(
+            "self_research: no files match `{}` under `{}` — try broader terms or list/glob first",
+            query.trim(),
+            sub.trim()
+        ));
     }
     let matcher = cybermanju_agent::config::GrepPattern::compile(query);
-    let mut out = format!("self_research: `{}` ({} files)\n", query.trim(), picked.len());
+    let mut out = format!(
+        "self_research: `{}` ({} files)\n",
+        query.trim(),
+        picked.len()
+    );
     for rel in &picked {
         let full = base.join(rel);
         let bytes = match std::fs::read(&full) {
@@ -1636,7 +1657,12 @@ fn tool_self_research(root: &Path, vol: &Path, query: &str, sub: &str, limit: us
 /// `skill_save`: persist one skill into the `.cybermanju` container
 /// (absolute volume path, so it works from any working dir). Overwrites the
 /// same name — one focused skill per call.
-fn tool_skill_save(vol: &Path, name: &str, description: &str, content: &str) -> Result<String, String> {
+fn tool_skill_save(
+    vol: &Path,
+    name: &str,
+    description: &str,
+    content: &str,
+) -> Result<String, String> {
     use cybermanju_agent::self_research as sr;
     let name = name.trim();
     if !sr::valid_skill_name(name) {
@@ -1676,7 +1702,12 @@ fn tool_skill_save(vol: &Path, name: &str, description: &str, content: &str) -> 
 /// `mcp_attach`: verify-then-persist an HTTP MCP server on this config.
 /// stdio is refused (process spawn — desktop UI instead). The new tools go
 /// live on the NEXT run (this run's `McpSet` was connected up front).
-fn tool_mcp_attach(db: &Database, config_id: &str, name: &str, url: &str) -> Result<String, String> {
+fn tool_mcp_attach(
+    db: &Database,
+    config_id: &str,
+    name: &str,
+    url: &str,
+) -> Result<String, String> {
     let name = name.trim();
     if !cybermanju_agent::mcp::valid_server_name(name) {
         return Err("invalid: MCP server name must be 1-64 chars of [A-Za-z0-9_-]".to_string());
@@ -1718,17 +1749,25 @@ fn tool_repo_analyze(slug: &str, branch: &str) -> Result<String, String> {
     let (meta_url, _tree_url, _readme_url) = sr::github_api_urls(&owner, &repo, branch);
     let headers = vec![
         ("User-Agent".to_string(), "cybermanju-os".to_string()),
-        ("Accept".to_string(), "application/vnd.github+json".to_string()),
+        (
+            "Accept".to_string(),
+            "application/vnd.github+json".to_string(),
+        ),
     ];
     let meta = protocol::get_json(&meta_url, &headers).map_err(|e| {
         if e.starts_with("auth:") || e.contains("403") || e.contains("404") {
-            format!("not_found: repo '{full_slug}' not found or private (no token on this tool): {e}")
+            format!(
+                "not_found: repo '{full_slug}' not found or private (no token on this tool): {e}"
+            )
         } else {
             e
         }
     })?;
     let resolved_branch = if branch.trim().is_empty() {
-        meta.get("default_branch").and_then(|v| v.as_str()).unwrap_or("main").to_string()
+        meta.get("default_branch")
+            .and_then(|v| v.as_str())
+            .unwrap_or("main")
+            .to_string()
     } else {
         branch.trim().to_string()
     };
@@ -1753,7 +1792,13 @@ fn tool_repo_analyze(slug: &str, branch: &str) -> Result<String, String> {
                 .and_then(|b| String::from_utf8(b).ok())
         })
         .unwrap_or_default();
-    Ok(sr::summarize_repo_tree(&full_slug, &resolved_branch, &meta, &tree, &readme_head))
+    Ok(sr::summarize_repo_tree(
+        &full_slug,
+        &resolved_branch,
+        &meta,
+        &tree,
+        &readme_head,
+    ))
 }
 
 /// What the memory tools need beyond `db`: embedding endpoint + key,
@@ -3646,7 +3691,12 @@ fn task_prelude(
         .and_then(|c| c.as_str())
         .unwrap_or("")
         .to_string();
-    Ok(SubagentSetup { goal, context, endpoint, api_key })
+    Ok(SubagentSetup {
+        goal,
+        context,
+        endpoint,
+        api_key,
+    })
 }
 
 /// Everything a subagent worker owns. All owned/cloned up front so a
@@ -3755,7 +3805,10 @@ fn run_task(
             .spawn(move || subagent_body(body))
         {
             Ok(handle) => {
-                bg.push(BgSubagent { id: id.clone(), handle });
+                bg.push(BgSubagent {
+                    id: id.clone(),
+                    handle,
+                });
                 ToolOutcome::Continue(agent_loop::bg_started_message(&id, &goal))
             }
             Err(e) => {
@@ -3796,10 +3849,23 @@ fn run_subagent(
 /// The bounded subagent loop, shared by foreground (inline) and background
 /// (worker thread) spawns — same code, same caps, same transcript shape.
 fn subagent_body(params: SubagentBody) -> String {
-    let SubagentBody { db, job, config, root, vol, setup, depth } = params;
+    let SubagentBody {
+        db,
+        job,
+        config,
+        root,
+        vol,
+        setup,
+        depth,
+    } = params;
     let root = root.as_path();
     let vol = vol.as_path();
-    let SubagentSetup { goal, context, endpoint, api_key } = setup;
+    let SubagentSetup {
+        goal,
+        context,
+        endpoint,
+        api_key,
+    } = setup;
     let mut sub = agent_loop::AgentTurn::new(
         vec![cybermanju_types::agent::ChatMessage {
             role: "user".into(),
@@ -3918,17 +3984,8 @@ fn subagent_body(params: SubagentBody) -> String {
                     // Belt and braces: the allowlist schema above plus a
                     // runtime gate — a subagent never nests or asks.
                     let output = match call.name.as_str() {
-                        "read"
-                        | "list"
-                        | "grep"
-                        | "glob"
-                        | "self_research"
-                        | "repo_analyze"
-                        | "edit"
-                        | "write"
-                        | "bash"
-                        | "memory_recall"
-                        | "memory_remember" => {
+                        "read" | "list" | "grep" | "glob" | "self_research" | "repo_analyze"
+                        | "edit" | "write" | "bash" | "memory_recall" | "memory_remember" => {
                             let guard = match db.read() {
                                 Ok(guard) => guard,
                                 Err(e) => {

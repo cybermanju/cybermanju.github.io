@@ -476,8 +476,7 @@ fn wasm_find(volume: &BTreeMap<String, String>, args: &[String]) -> String {
         0 => ("/".to_string(), None),
         1 => {
             let probe = join(&cwd, non_flags[0]);
-            let is_dir = probe == "/"
-                || volume.keys().any(|k| k.starts_with(&format!("{probe}/")));
+            let is_dir = probe == "/" || volume.keys().any(|k| k.starts_with(&format!("{probe}/")));
             if is_dir || volume.contains_key(&probe) && probe.ends_with('/') {
                 (probe, None)
             } else if volume.contains_key(&probe) {
@@ -1375,10 +1374,7 @@ struct ScriptJournal {
     fetch: BTreeMap<String, (bool, String)>,
 }
 
-fn script_journal_check(
-    parsed: &serde_json::Value,
-    source: &str,
-) -> Result<ScriptJournal, String> {
+fn script_journal_check(parsed: &serde_json::Value, source: &str) -> Result<ScriptJournal, String> {
     if parsed.get("cybsh").and_then(|v| v.as_u64()) != Some(1) {
         return Err("invalid: replay journal is not a cybsh v1 journal".to_string());
     }
@@ -1400,7 +1396,10 @@ fn script_journal_check(
                         k.clone(),
                         (
                             v.get("ok").and_then(|o| o.as_bool()).unwrap_or(false),
-                            v.get("output").and_then(|o| o.as_str()).unwrap_or("").to_string(),
+                            v.get("output")
+                                .and_then(|o| o.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                         ),
                     );
                 }
@@ -1484,19 +1483,21 @@ fn theme_cmd(args: &[String]) -> String {
     let id = match want {
         None => {
             if json {
-                return ok(
-                    serde_json::json!({ "theme": theme, "accent": accent }).to_string(),
-                );
+                return ok(serde_json::json!({ "theme": theme, "accent": accent }).to_string());
             }
-            return ok(format!("{}\nui: theme={theme}", theme_line(&theme, accent.as_deref())));
+            return ok(format!(
+                "{}\nui: theme={theme}",
+                theme_line(&theme, accent.as_deref())
+            ));
         }
         Some(w) if w == "get" => {
             if json {
-                return ok(
-                    serde_json::json!({ "theme": theme, "accent": accent }).to_string(),
-                );
+                return ok(serde_json::json!({ "theme": theme, "accent": accent }).to_string());
             }
-            return ok(format!("{}\nui: theme={theme}", theme_line(&theme, accent.as_deref())));
+            return ok(format!(
+                "{}\nui: theme={theme}",
+                theme_line(&theme, accent.as_deref())
+            ));
         }
         Some(w) => w,
     };
@@ -1527,11 +1528,12 @@ fn ui_cmd(args: &[String]) -> String {
     match sub {
         "get" => {
             if json {
-                return ok(
-                    serde_json::json!({ "theme": theme, "accent": accent }).to_string(),
-                );
+                return ok(serde_json::json!({ "theme": theme, "accent": accent }).to_string());
             }
-            ok(format!("{}\nui: theme={theme}", theme_line(&theme, accent.as_deref())))
+            ok(format!(
+                "{}\nui: theme={theme}",
+                theme_line(&theme, accent.as_deref())
+            ))
         }
         "theme" => {
             let id = match plain.get(1) {
@@ -1554,9 +1556,7 @@ fn ui_cmd(args: &[String]) -> String {
             };
             save_theme(canonical, accent.as_deref());
             if json {
-                return ok(
-                    serde_json::json!({ "theme": canonical, "accent": accent }).to_string(),
-                );
+                return ok(serde_json::json!({ "theme": canonical, "accent": accent }).to_string());
             }
             ok(format!(
                 "{}\nui: theme={canonical}",
@@ -1723,7 +1723,12 @@ impl SCaps {
         if !self.active || self.deny.is_empty() {
             return Ok(());
         }
-        let verb = line.trim().split_whitespace().next().unwrap_or("").to_lowercase();
+        let verb = line
+            .trim()
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_lowercase();
         if self.deny.iter().any(|d| d.to_lowercase() == verb) {
             return Err(format!(
                 "denied: `{verb}` is refused by this script's capabilities (`# cap: deny=…`)"
@@ -1742,9 +1747,9 @@ impl SCaps {
             Some(_) => Err(format!(
                 "denied: fetch {url} is outside this script's `net=` allowlist"
             )),
-            None => Err(
-                "denied: fetch needs a `net=<host>` capability (`# cap: net=…`)".to_string(),
-            ),
+            None => {
+                Err("denied: fetch needs a `net=<host>` capability (`# cap: net=…`)".to_string())
+            }
         }
     }
 
@@ -1762,7 +1767,11 @@ impl SCaps {
 fn script_fetch_host(url: &str) -> String {
     let after_scheme = url.split("://").nth(1).unwrap_or(url);
     let host_port = after_scheme.split('/').next().unwrap_or(after_scheme);
-    host_port.split('@').next_back().unwrap_or(host_port).to_lowercase()
+    host_port
+        .split('@')
+        .next_back()
+        .unwrap_or(host_port)
+        .to_lowercase()
 }
 
 fn script_parse_caps(source: &str) -> SCaps {
@@ -1911,7 +1920,11 @@ fn script_run(
         vars: ip.vars.len(),
         sh_calls: ip.sh_calls,
         fetch_calls: ip.fetch_calls,
-        caps: if caps.active { Some(caps.summary()) } else { None },
+        caps: if caps.active {
+            Some(caps.summary())
+        } else {
+            None
+        },
     })
 }
 
@@ -1923,11 +1936,7 @@ fn script_exec_checked(ip: &mut ScriptInterp, line: &str) -> Result<String, Stri
 }
 
 /// Fetch through the capability gate + optional journal hook.
-fn script_fetch_checked(
-    ip: &mut ScriptInterp,
-    url: &str,
-    lineno: usize,
-) -> Result<String, String> {
+fn script_fetch_checked(ip: &mut ScriptInterp, url: &str, lineno: usize) -> Result<String, String> {
     ip.caps.check_fetch(url)?;
     ip.fetch_calls += 1;
     match ip.fetch {
@@ -1954,12 +1963,13 @@ fn script_inline_value(
 ) -> Result<SValue, String> {
     match script_exec_checked(ip, cmdline) {
         Ok(text) => {
-            let v = script_materialize(&text)
-                .unwrap_or_else(|| SValue::Str(if text.len() > SCRIPT_MAX_STR {
+            let v = script_materialize(&text).unwrap_or_else(|| {
+                SValue::Str(if text.len() > SCRIPT_MAX_STR {
                     text[..SCRIPT_MAX_STR].to_string()
                 } else {
                     text
-                }));
+                })
+            });
             script_set(ip, "_", v.clone())?;
             Ok(v)
         }
@@ -1983,7 +1993,11 @@ fn script_json_value(value: &serde_json::Value) -> SValue {
             s.clone()
         }),
         serde_json::Value::Array(items) => SValue::List(
-            items.iter().take(SCRIPT_MAX_LIST).map(script_json_value).collect(),
+            items
+                .iter()
+                .take(SCRIPT_MAX_LIST)
+                .map(script_json_value)
+                .collect(),
         ),
         serde_json::Value::Object(map) => SValue::Dict(
             map.iter()
@@ -2007,9 +2021,26 @@ fn script_valid_name(name: &str) -> bool {
 fn script_is_reserved(name: &str) -> bool {
     matches!(
         name,
-        "len" | "int" | "str" | "json" | "split" | "range" | "sh" | "set" | "push"
-            | "del" | "keys" | "values" | "true" | "false" | "null" | "none" | "nil"
-            | "and" | "or" | "not"
+        "len"
+            | "int"
+            | "str"
+            | "json"
+            | "split"
+            | "range"
+            | "sh"
+            | "set"
+            | "push"
+            | "del"
+            | "keys"
+            | "values"
+            | "true"
+            | "false"
+            | "null"
+            | "none"
+            | "nil"
+            | "and"
+            | "or"
+            | "not"
     )
 }
 
@@ -2042,7 +2073,9 @@ fn script_bump(ip: &mut ScriptInterp) -> Result<(), String> {
 
 fn script_set(ip: &mut ScriptInterp, name: &str, value: SValue) -> Result<(), String> {
     if !script_valid_name(name) {
-        return Err(format!("syntax: bad variable name '{name}' ([A-Za-z_][A-Za-z0-9_]*)"));
+        return Err(format!(
+            "syntax: bad variable name '{name}' ([A-Za-z_][A-Za-z0-9_]*)"
+        ));
     }
     if !ip.vars.contains_key(name) && ip.vars.len() >= SCRIPT_MAX_VARS {
         return Err(format!(
@@ -2138,7 +2171,9 @@ fn script_block(
 fn script_block_indent(lines: &[SLine], start: usize, parent: isize) -> Result<(), String> {
     if start >= lines.len() || lines[start].indent as isize <= parent {
         let at = lines.get(start).map(|l| l.lineno).unwrap_or(0);
-        return Err(format!("syntax: expected an indented block after line {at}"));
+        return Err(format!(
+            "syntax: expected an indented block after line {at}"
+        ));
     }
     Ok(())
 }
@@ -2178,13 +2213,56 @@ fn script_colon(s: &str, lineno: usize) -> Result<String, String> {
 fn script_bare_verb(text: &str) -> bool {
     matches!(
         script_first_word(text),
-        "help" | "history" | "clear" | "version" | "echo" | "ls" | "cd" | "pwd" | "cat"
-            | "cp" | "mv" | "rm" | "mkdir" | "touch" | "stat" | "du" | "df" | "mount"
-            | "umount" | "disk" | "providers" | "quota" | "oauth" | "sync" | "scrub"
-            | "repair" | "gc" | "lease" | "ps" | "top" | "kill" | "jobs" | "compute"
-            | "workers" | "keygen" | "encrypt" | "decrypt" | "compress" | "decompress"
-            | "search" | "grep" | "find" | "head" | "tail" | "wc" | "write" | "edit"
-            | "ai" | "theme" | "ui"
+        "help"
+            | "history"
+            | "clear"
+            | "version"
+            | "echo"
+            | "ls"
+            | "cd"
+            | "pwd"
+            | "cat"
+            | "cp"
+            | "mv"
+            | "rm"
+            | "mkdir"
+            | "touch"
+            | "stat"
+            | "du"
+            | "df"
+            | "mount"
+            | "umount"
+            | "disk"
+            | "providers"
+            | "quota"
+            | "oauth"
+            | "sync"
+            | "scrub"
+            | "repair"
+            | "gc"
+            | "lease"
+            | "ps"
+            | "top"
+            | "kill"
+            | "jobs"
+            | "compute"
+            | "workers"
+            | "keygen"
+            | "encrypt"
+            | "decrypt"
+            | "compress"
+            | "decompress"
+            | "search"
+            | "grep"
+            | "find"
+            | "head"
+            | "tail"
+            | "wc"
+            | "write"
+            | "edit"
+            | "ai"
+            | "theme"
+            | "ui"
     )
 }
 
@@ -2224,9 +2302,9 @@ fn script_catch_binding(text: &str, lineno: usize) -> Result<Option<String>, Str
 }
 
 fn script_split_def(header: &str, lineno: usize) -> Result<(String, Vec<String>), String> {
-    let open = header.find('(').ok_or_else(|| {
-        format!("syntax: line {lineno}: `def` needs `def name(p1, …):`")
-    })?;
+    let open = header
+        .find('(')
+        .ok_or_else(|| format!("syntax: line {lineno}: `def` needs `def name(p1, …):`"))?;
     let name = header[..open].trim().to_string();
     if !script_valid_name(&name) {
         return Err(format!("syntax: line {lineno}: bad function name `{name}`"));
@@ -2238,7 +2316,9 @@ fn script_split_def(header: &str, lineno: usize) -> Result<(String, Vec<String>)
     }
     let rest = header[open + 1..].trim();
     if !rest.ends_with(')') {
-        return Err(format!("syntax: line {lineno}: `def` params need a closing `)`"));
+        return Err(format!(
+            "syntax: line {lineno}: `def` params need a closing `)`"
+        ));
     }
     let mut params = Vec::new();
     for p in rest[..rest.len() - 1].split(',') {
@@ -2252,7 +2332,9 @@ fn script_split_def(header: &str, lineno: usize) -> Result<(String, Vec<String>)
         params.push(p.to_string());
     }
     if params.len() > 8 {
-        return Err(format!("syntax: line {lineno}: `def` takes at most 8 params"));
+        return Err(format!(
+            "syntax: line {lineno}: `def` takes at most 8 params"
+        ));
     }
     Ok((name, params))
 }
@@ -2296,7 +2378,11 @@ fn script_call_func(
         ip.vars.insert(param.clone(), arg.clone());
     }
     ip.call_depth += 1;
-    let parent = def.body.first().map(|l| l.indent as isize - 1).unwrap_or(-1);
+    let parent = def
+        .body
+        .first()
+        .map(|l| l.indent as isize - 1)
+        .unwrap_or(-1);
     let mut result = script_block(ip, &def.body.clone(), 0, parent).map(|_| SValue::Null);
     let returned = ip.flow.take().unwrap_or(SValue::Null);
     if result.is_ok() {
@@ -2374,11 +2460,7 @@ fn script_unquote(s: &str, lineno: usize) -> Result<Option<String>, String> {
     Ok(None)
 }
 
-fn script_statement(
-    ip: &mut ScriptInterp,
-    lines: &[SLine],
-    idx: usize,
-) -> Result<usize, String> {
+fn script_statement(ip: &mut ScriptInterp, lines: &[SLine], idx: usize) -> Result<usize, String> {
     let text = lines[idx].text.clone();
     let lineno = lines[idx].lineno;
     let parent = lines[idx].indent as isize;
@@ -2444,7 +2526,9 @@ fn script_statement(
         let name = parts.next().map(str::trim).unwrap_or("");
         let expr_src = parts.next().map(str::trim).unwrap_or("");
         if !script_valid_name(name) || expr_src.is_empty() {
-            return Err(format!("syntax: line {lineno}: `for` needs `for <name> in <expr>:`"));
+            return Err(format!(
+                "syntax: line {lineno}: `for` needs `for <name> in <expr>:`"
+            ));
         }
         script_block_indent(lines, idx + 1, parent)?;
         let items = script_for_items(ip, expr_src, lineno)?;
@@ -2463,7 +2547,11 @@ fn script_statement(
         return Ok(script_skip(lines, idx + 1, parent));
     }
 
-    if text == "print" || text == "print()" || script_is_kw(&text, "print") || text.starts_with("print(") {
+    if text == "print"
+        || text == "print()"
+        || script_is_kw(&text, "print")
+        || text.starts_with("print(")
+    {
         let arg = if text == "print" || text == "print()" {
             String::new()
         } else if text.starts_with("print(") && text.ends_with(')') {
@@ -2498,7 +2586,10 @@ fn script_statement(
                 return Err(format!("syntax: line {lineno}: bad variable name `{name}`"));
             }
             script_set(ip, &name, SValue::Str(body.clone()))?;
-            script_emit(ip, &format!("fetched {url} ({} bytes → {name})", body.len()));
+            script_emit(
+                ip,
+                &format!("fetched {url} ({} bytes → {name})", body.len()),
+            );
         } else {
             script_set(ip, "_", SValue::Str(body.clone()))?;
             script_emit(ip, &body);
@@ -2616,13 +2707,7 @@ fn script_statement(
                 "too_large: script holds {SCRIPT_MAX_FUNCS} functions already"
             ));
         }
-        ip.funcs.insert(
-            name,
-            SFuncDef {
-                params,
-                body,
-            },
-        );
+        ip.funcs.insert(name, SFuncDef { params, body });
         return Ok(end);
     }
 
@@ -2782,11 +2867,7 @@ fn script_top_eq(text: &str) -> Option<usize> {
     None
 }
 
-fn script_assign_rhs(
-    ip: &mut ScriptInterp,
-    src: &str,
-    lineno: usize,
-) -> Result<SValue, String> {
+fn script_assign_rhs(ip: &mut ScriptInterp, src: &str, lineno: usize) -> Result<SValue, String> {
     let t = src.trim();
     if script_is_kw(t, "sh") {
         let rest = script_rest(t, "sh", lineno)?.trim().to_string();
@@ -3036,7 +3117,10 @@ impl<'b, 'x> ScriptExpr<'b, 'x> {
     fn parse_primary(&mut self) -> Result<SValue, String> {
         self.skip_ws();
         if self.pos >= self.chars.len() {
-            return Err(format!("syntax: line {}: expression ended early", self.lineno));
+            return Err(format!(
+                "syntax: line {}: expression ended early",
+                self.lineno
+            ));
         }
         let c = self.chars[self.pos];
         let mut base = if c == '(' {
@@ -3056,7 +3140,11 @@ impl<'b, 'x> ScriptExpr<'b, 'x> {
             SValue::Str(self.parse_string()?)
         } else if c.is_ascii_digit()
             || (c == '.'
-                && self.chars.get(self.pos + 1).map(|d| d.is_ascii_digit()).unwrap_or(false))
+                && self
+                    .chars
+                    .get(self.pos + 1)
+                    .map(|d| d.is_ascii_digit())
+                    .unwrap_or(false))
         {
             self.parse_number()?
         } else if c.is_ascii_alphabetic() || c == '_' {
@@ -3308,7 +3396,10 @@ impl<'b, 'x> ScriptExpr<'b, 'x> {
         // `sh(<expr>)` runs inline shell with `--json` materialization.
         if name == "sh" {
             if args.len() != 1 {
-                return Err(format!("syntax: line {}: `sh` takes 1 argument", self.lineno));
+                return Err(format!(
+                    "syntax: line {}: `sh` takes 1 argument",
+                    self.lineno
+                ));
             }
             let lineno = self.lineno;
             let cmdline = args[0].display();
@@ -3382,9 +3473,10 @@ fn script_compare(left: &SValue, op: &str, right: &SValue) -> bool {
 /// `d.field` — dict lookup only (use `len(x)` etc. for the rest).
 fn script_index_field(base: &SValue, field: &str, lineno: usize) -> Result<SValue, String> {
     match base {
-        SValue::Dict(map) => map.get(field).cloned().ok_or_else(|| {
-            format!("not_found: dict has no field `{field}` (line {lineno})")
-        }),
+        SValue::Dict(map) => map
+            .get(field)
+            .cloned()
+            .ok_or_else(|| format!("not_found: dict has no field `{field}` (line {lineno})")),
         other => Err(format!(
             "syntax: line {lineno}: `.` indexes dicts — got {} (try `len(x)`)",
             other.type_name()
@@ -3435,7 +3527,9 @@ fn script_arith(left: &SValue, op: char, right: &SValue, lineno: usize) -> Resul
         let mut s = left.display();
         s.push_str(&right.display());
         if s.len() > SCRIPT_MAX_STR {
-            return Err(format!("too_large: line {lineno}: string grew past {SCRIPT_MAX_STR} bytes"));
+            return Err(format!(
+                "too_large: line {lineno}: string grew past {SCRIPT_MAX_STR} bytes"
+            ));
         }
         return Ok(SValue::Str(s));
     }
@@ -3448,7 +3542,9 @@ fn script_arith(left: &SValue, op: char, right: &SValue, lineno: usize) -> Resul
         if let (SValue::Str(s), SValue::Num(n)) = pair {
             let times = (*n).max(0.0).min(256.0) as usize;
             if s.len() * times > SCRIPT_MAX_STR {
-                return Err(format!("too_large: line {lineno}: repeat exceeds {SCRIPT_MAX_STR} bytes"));
+                return Err(format!(
+                    "too_large: line {lineno}: repeat exceeds {SCRIPT_MAX_STR} bytes"
+                ));
             }
             return Ok(SValue::Str(s.repeat(times)));
         }
@@ -3794,21 +3890,35 @@ mod tests {
     fn text_verbs_run_on_the_volume() {
         let out = dispatch(
             "write",
-            &["/wasm-text/note.txt".to_string(), "hello brave new world".to_string()],
+            &[
+                "/wasm-text/note.txt".to_string(),
+                "hello brave new world".to_string(),
+            ],
         );
         assert!(out.contains(r#""ok":true"#), "{out}");
-        let out = dispatch("grep", &["brave".to_string(), "/wasm-text/note.txt".to_string()]);
+        let out = dispatch(
+            "grep",
+            &["brave".to_string(), "/wasm-text/note.txt".to_string()],
+        );
         assert!(out.contains("brave"), "{out}");
         let out = dispatch(
             "grep",
-            &["-n".to_string(), "brave".to_string(), "/wasm-text/note.txt".to_string()],
+            &[
+                "-n".to_string(),
+                "brave".to_string(),
+                "/wasm-text/note.txt".to_string(),
+            ],
         );
         assert!(out.contains("1:"), "{out}");
         let out = dispatch("find", &["/wasm-text".to_string(), "note*".to_string()]);
         assert!(out.contains("note.txt"), "{out}");
         let out = dispatch(
             "head",
-            &["-n".to_string(), "1".to_string(), "/wasm-text/note.txt".to_string()],
+            &[
+                "-n".to_string(),
+                "1".to_string(),
+                "/wasm-text/note.txt".to_string(),
+            ],
         );
         assert!(out.contains("hello"), "{out}");
         let out = dispatch("wc", &["/wasm-text/note.txt".to_string()]);
@@ -3944,7 +4054,10 @@ mod tests {
     #[test]
     fn run_executes_scripts_from_the_volume() {
         let script = "print \"hi\"\nlet x: number = 1\nif x == 1:\n  print \"one\"\nelse:\n  print \"other\"\nfor i in range(2):\n  print i\n$ echo yo\n";
-        let out = dispatch("write", &["/run-demo/hello.cybsh".to_string(), script.to_string()]);
+        let out = dispatch(
+            "write",
+            &["/run-demo/hello.cybsh".to_string(), script.to_string()],
+        );
         assert!(out.contains(r#""ok":true"#), "{out}");
         let out = dispatch("run", &["/run-demo/hello.cybsh".to_string()]);
         assert!(out.contains(r#""ok":true"#), "{out}");
@@ -3954,13 +4067,19 @@ mod tests {
         assert!(out.contains("yo"), "{out}");
         // --dry parses without executing; wrong extensions and missing
         // files refuse with the house prefixes.
-        let out = dispatch("run", &["/run-demo/hello.cybsh".to_string(), "--dry".to_string()]);
+        let out = dispatch(
+            "run",
+            &["/run-demo/hello.cybsh".to_string(), "--dry".to_string()],
+        );
         assert!(out.contains("dry:"), "{out}");
         let out = dispatch("run", &["/run-demo/notes.txt".to_string()]);
         assert!(out.contains("invalid:"), "{out}");
         let out = dispatch("run", &["/run-demo/missing.cybsh".to_string()]);
         assert!(out.contains("not_found:"), "{out}");
-        let out = dispatch("run", &["/run-demo/hello.cybsh".to_string(), "--json".to_string()]);
+        let out = dispatch(
+            "run",
+            &["/run-demo/hello.cybsh".to_string(), "--json".to_string()],
+        );
         assert!(out.contains(r#""vars""#), "{out}");
     }
 
@@ -3968,7 +4087,10 @@ mod tests {
     fn run_refuses_fetch_honestly_in_the_sandbox() {
         let out = dispatch(
             "write",
-            &["/run-demo/net.cybsh".to_string(), "fetch \"https://example.com\"\n".to_string()],
+            &[
+                "/run-demo/net.cybsh".to_string(),
+                "fetch \"https://example.com\"\n".to_string(),
+            ],
         );
         assert!(out.contains(r#""ok":true"#), "{out}");
         let out = dispatch("run", &["/run-demo/net.cybsh".to_string()]);
@@ -4011,7 +4133,10 @@ mod tests {
             "  print \"caught\"\n",
             "print keys(set(d, \"c\", 3))\n",
         );
-        let out = dispatch("write", &["/run-demo/lang.cybsh".to_string(), script.to_string()]);
+        let out = dispatch(
+            "write",
+            &["/run-demo/lang.cybsh".to_string(), script.to_string()],
+        );
         assert!(out.contains(r#""ok":true"#), "{out}");
         let out = dispatch("run", &["/run-demo/lang.cybsh".to_string()]);
         assert!(out.contains(r#""ok":true"#), "{out}");
@@ -4022,7 +4147,10 @@ mod tests {
     fn run_enforces_pins_and_capabilities() {
         let out = dispatch(
             "write",
-            &["/run-demo/future.cybsh".to_string(), "# cybsh: 99\nprint 1\n".to_string()],
+            &[
+                "/run-demo/future.cybsh".to_string(),
+                "# cybsh: 99\nprint 1\n".to_string(),
+            ],
         );
         assert!(out.contains(r#""ok":true"#), "{out}");
         let out = dispatch("run", &["/run-demo/future.cybsh".to_string()]);
@@ -4031,7 +4159,10 @@ mod tests {
 
         let out = dispatch(
             "write",
-            &["/run-demo/capped.cybsh".to_string(), "# cap: deny=rm\n$ rm /x\n".to_string()],
+            &[
+                "/run-demo/capped.cybsh".to_string(),
+                "# cap: deny=rm\n$ rm /x\n".to_string(),
+            ],
         );
         assert!(out.contains(r#""ok":true"#), "{out}");
         let out = dispatch("run", &["/run-demo/capped.cybsh".to_string()]);
@@ -4053,12 +4184,19 @@ mod tests {
     fn run_records_and_replays_journals() {
         let out = dispatch(
             "write",
-            &["/run-demo/rec.cybsh".to_string(), "print sh(\"echo hi\")\n".to_string()],
+            &[
+                "/run-demo/rec.cybsh".to_string(),
+                "print sh(\"echo hi\")\n".to_string(),
+            ],
         );
         assert!(out.contains(r#""ok":true"#), "{out}");
         let out = dispatch(
             "run",
-            &["/run-demo/rec.cybsh".to_string(), "--record".to_string(), "/run-demo/rec.json".to_string()],
+            &[
+                "/run-demo/rec.cybsh".to_string(),
+                "--record".to_string(),
+                "/run-demo/rec.json".to_string(),
+            ],
         );
         assert!(out.contains(r#""ok":true"#), "{out}");
         assert!(out.contains("hi"), "{out}");
@@ -4068,18 +4206,29 @@ mod tests {
         // Replay serves without executing (tamper the script → integrity).
         let out = dispatch(
             "run",
-            &["/run-demo/rec.cybsh".to_string(), "--replay".to_string(), "/run-demo/rec.json".to_string()],
+            &[
+                "/run-demo/rec.cybsh".to_string(),
+                "--replay".to_string(),
+                "/run-demo/rec.json".to_string(),
+            ],
         );
         assert!(out.contains(r#""ok":true"#), "{out}");
         assert!(out.contains("hi"), "{out}");
         let out = dispatch(
             "write",
-            &["/run-demo/rec.cybsh".to_string(), "print sh(\"echo changed\")\n".to_string()],
+            &[
+                "/run-demo/rec.cybsh".to_string(),
+                "print sh(\"echo changed\")\n".to_string(),
+            ],
         );
         assert!(out.contains(r#""ok":true"#), "{out}");
         let out = dispatch(
             "run",
-            &["/run-demo/rec.cybsh".to_string(), "--replay".to_string(), "/run-demo/rec.json".to_string()],
+            &[
+                "/run-demo/rec.cybsh".to_string(),
+                "--replay".to_string(),
+                "/run-demo/rec.json".to_string(),
+            ],
         );
         assert!(out.contains("integrity:"), "{out}");
     }

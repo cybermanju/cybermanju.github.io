@@ -19,9 +19,9 @@ pub const REPO_TREE_CAP: usize = 500;
 pub fn valid_skill_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
-        && name.chars().all(|c| {
-            c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.'
-        })
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
 }
 
 /// Volume-relative path of a persisted skill (inside the `.cybermanju`
@@ -164,8 +164,14 @@ pub fn summarize_repo_tree(
         .get("description")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let language = repo_json.get("language").and_then(|v| v.as_str()).unwrap_or("?");
-    let stars = repo_json.get("stargazers_count").and_then(|v| v.as_u64()).unwrap_or(0);
+    let language = repo_json
+        .get("language")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+    let stars = repo_json
+        .get("stargazers_count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     let default_branch = repo_json
         .get("default_branch")
         .and_then(|v| v.as_str())
@@ -188,7 +194,11 @@ pub fn summarize_repo_tree(
     // Language guess from extensions (no clone, no linguist — heuristic).
     let mut exts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     for p in &paths {
-        if let Some(ext) = p.rsplit('.').next().filter(|e| e.len() <= 8 && *e != p.as_str()) {
+        if let Some(ext) = p
+            .rsplit('.')
+            .next()
+            .filter(|e| e.len() <= 8 && *e != p.as_str())
+        {
             *exts.entry(ext.to_lowercase()).or_insert(0) += 1;
         }
     }
@@ -214,10 +224,18 @@ pub fn summarize_repo_tree(
     ];
     let mut entry_points: Vec<String> = Vec::new();
     for name in interesting {
-        if paths.iter().any(|p| p == name || p.ends_with(&format!("/{name}"))) {
+        if paths
+            .iter()
+            .any(|p| p == name || p.ends_with(&format!("/{name}")))
+        {
             entry_points.push(name.to_string());
         }
     }
+    let entry_list = if entry_points.is_empty() {
+        "(no standard entry files)".to_string()
+    } else {
+        entry_points.join(", ")
+    };
     let mut out = format!(
         "repo: {slug} (branch {default_branch}, ★{stars}, primary {language})\n\
          desc: {}\n\
@@ -239,11 +257,7 @@ pub fn summarize_repo_tree(
         } else {
             &top_exts
         },
-        if entry_points.is_empty() {
-            "(no standard entry files)"
-        } else {
-            &entry_points.join(", ")
-        },
+        entry_list,
     );
     // Top-level layout (first segment) — the orientation an agent needs.
     let mut top: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();

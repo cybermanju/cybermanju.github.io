@@ -50,7 +50,7 @@
           <ul class="sw-list">
             <li><AppIcon name="solar:diskette-bold" :size="16" /><span><strong>Vault</strong> — where your files live.</span></li>
             <li><AppIcon name="solar:folder-bold" :size="16" /><span><strong>Sync</strong> — mirror a folder, add cloud later.</span></li>
-            <li><AppIcon name="solar:hard-drive-bold" :size="16" /><span><strong>Disks</strong> — a system disk per provider, with its cloud folder + files.</span></li>
+<li><AppIcon name="solar:ssd-square-bold" :size="16" /><span><strong>Disks</strong> — a system disk per provider, with its cloud folder + files.</span></li>
             <li><AppIcon name="solar:bot-bold" :size="16" /><span><strong>Agent</strong> <em class="sw-opt">optional</em> — chat + automation.</span></li>
           </ul>
           <div class="sw-actions">

@@ -873,7 +873,8 @@ mod tests {
     #[test]
     fn provider_error_message_reads_every_error_shape() {
         // Object shape (OpenAI/Anthropic).
-        let v = serde_json::json!({ "error": { "message": "bad model", "code": "model_not_found" } });
+        let v =
+            serde_json::json!({ "error": { "message": "bad model", "code": "model_not_found" } });
         assert_eq!(
             provider_error_message(&v, 400),
             "bad model [model_not_found]"

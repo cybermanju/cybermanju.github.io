@@ -209,7 +209,12 @@ impl Caps {
         if !self.active || self.deny.is_empty() {
             return Ok(());
         }
-        let verb = line.trim().split_whitespace().next().unwrap_or("").to_lowercase();
+        let verb = line
+            .trim()
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_lowercase();
         if self.deny.iter().any(|d| d.to_lowercase() == verb) {
             return Err(format!(
                 "denied: `{verb}` is refused by this script's capabilities (`# cap: deny=…`)"
@@ -228,9 +233,9 @@ impl Caps {
             Some(_) => Err(format!(
                 "denied: fetch {url} is outside this script's `net=` allowlist"
             )),
-            None => Err(
-                "denied: fetch needs a `net=<host>` capability (`# cap: net=…`)".to_string(),
-            ),
+            None => {
+                Err("denied: fetch needs a `net=<host>` capability (`# cap: net=…`)".to_string())
+            }
         }
     }
 }
@@ -239,7 +244,11 @@ impl Caps {
 fn fetch_host(url: &str) -> String {
     let after_scheme = url.split("://").nth(1).unwrap_or(url);
     let host_port = after_scheme.split('/').next().unwrap_or(after_scheme);
-    host_port.split('@').next_back().unwrap_or(host_port).to_lowercase()
+    host_port
+        .split('@')
+        .next_back()
+        .unwrap_or(host_port)
+        .to_lowercase()
 }
 
 /// Parse `# cap:` lines (`k=v` tokens: `net/read/write/deny`, comma lists).
@@ -485,9 +494,7 @@ fn valid_name(name: &str) -> bool {
         Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
         _ => return false,
     }
-    name.chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
-        && name.len() <= 64
+    name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && name.len() <= 64
 }
 
 /// Builtins, literals and operators a `def` may not shadow (explicit calls
@@ -495,9 +502,26 @@ fn valid_name(name: &str) -> bool {
 fn is_reserved(name: &str) -> bool {
     matches!(
         name,
-        "len" | "int" | "str" | "json" | "split" | "range" | "sh" | "set" | "push"
-            | "del" | "keys" | "values" | "true" | "false" | "null" | "none" | "nil"
-            | "and" | "or" | "not"
+        "len"
+            | "int"
+            | "str"
+            | "json"
+            | "split"
+            | "range"
+            | "sh"
+            | "set"
+            | "push"
+            | "del"
+            | "keys"
+            | "values"
+            | "true"
+            | "false"
+            | "null"
+            | "none"
+            | "nil"
+            | "and"
+            | "or"
+            | "not"
     )
 }
 
@@ -567,7 +591,12 @@ fn strip_comment(body: &str) -> &str {
 
 /// Run consecutive lines at indent `> parent`; returns lines consumed.
 /// `parent` is `isize` so the top level passes -1 and indent-0 lines run.
-fn run_block(ip: &mut Interp, lines: &[Line], start: usize, parent: isize) -> Result<usize, String> {
+fn run_block(
+    ip: &mut Interp,
+    lines: &[Line],
+    start: usize,
+    parent: isize,
+) -> Result<usize, String> {
     let mut i = start;
     let mut executed = 0usize;
     while i < lines.len() && lines[i].indent as isize > parent {
@@ -593,7 +622,9 @@ fn run_block(ip: &mut Interp, lines: &[Line], start: usize, parent: isize) -> Re
 fn block_indent(lines: &[Line], start: usize, parent: isize) -> Result<usize, String> {
     if start >= lines.len() || lines[start].indent as isize <= parent {
         let at = lines.get(start).map(|l| l.lineno).unwrap_or(0);
-        return Err(format!("syntax: expected an indented block after line {at}"));
+        return Err(format!(
+            "syntax: expected an indented block after line {at}"
+        ));
     }
     Ok(lines[start].indent)
 }
@@ -627,7 +658,10 @@ fn run_statement(ip: &mut Interp, lines: &[Line], idx: usize) -> Result<usize, S
             if j < lines.len() && lines[j].indent as isize == parent {
                 let t = lines[j].text.clone();
                 if is_kw(&t, "elif") {
-                    let c = strip_suffix_colon(expect_rest(&t, "elif", lines[j].lineno)?, lines[j].lineno)?;
+                    let c = strip_suffix_colon(
+                        expect_rest(&t, "elif", lines[j].lineno)?,
+                        lines[j].lineno,
+                    )?;
                     if is_truthy_cond(ip, &c, lines[j].lineno)? {
                         let end = run_block(ip, lines, j + 1, parent)?;
                         return Ok(skip_elif_chain(lines, end, parent));
@@ -644,7 +678,10 @@ fn run_statement(ip: &mut Interp, lines: &[Line], idx: usize) -> Result<usize, S
         }
     }
     if is_kw(&text, "elif") || text == "else:" || text == "else" {
-        return Err(format!("syntax: line {lineno}: `{}` without `if`", first_word(&text)));
+        return Err(format!(
+            "syntax: line {lineno}: `{}` without `if`",
+            first_word(&text)
+        ));
     }
 
     // `while <cond>:` — bounded, like every loop in this shell.
@@ -737,7 +774,11 @@ fn run_statement(ip: &mut Interp, lines: &[Line], idx: usize) -> Result<usize, S
         } else {
             for name in names {
                 let v = &ip.vars[name];
-                ip.emit(&format!("{name}: {} = {}", v.type_name(), truncate_str(&v.display(), 120)));
+                ip.emit(&format!(
+                    "{name}: {} = {}",
+                    v.type_name(),
+                    truncate_str(&v.display(), 120)
+                ));
             }
         }
         return Ok(idx + 1);
@@ -782,9 +823,7 @@ fn run_statement(ip: &mut Interp, lines: &[Line], idx: usize) -> Result<usize, S
             Ok(_) => {
                 // No failure: skip an optional `catch` sibling untouched.
                 let mut j = body_end;
-                if j < lines.len()
-                    && lines[j].indent as isize == parent
-                    && is_catch(&lines[j].text)
+                if j < lines.len() && lines[j].indent as isize == parent && is_catch(&lines[j].text)
                 {
                     j = skip_block(lines, j + 1, parent);
                 }
@@ -829,13 +868,7 @@ fn run_statement(ip: &mut Interp, lines: &[Line], idx: usize) -> Result<usize, S
                 "too_large: script holds {MAX_FUNCS} functions already"
             ));
         }
-        ip.funcs.insert(
-            name,
-            FuncDef {
-                params,
-                body,
-            },
-        );
+        ip.funcs.insert(name, FuncDef { params, body });
         return Ok(end);
     }
 
@@ -1010,7 +1043,9 @@ fn for_items(ip: &mut Interp, expr_src: &str, lineno: usize) -> Result<Vec<Value
             let items = if s.contains('\n') {
                 s.lines().map(|l| Value::Str(l.to_string())).collect()
             } else {
-                s.split_whitespace().map(|w| Value::Str(w.to_string())).collect()
+                s.split_whitespace()
+                    .map(|w| Value::Str(w.to_string()))
+                    .collect()
             };
             Ok(items)
         }
@@ -1090,7 +1125,10 @@ fn top_level_eq(text: &str) -> Option<usize> {
 }
 
 fn text_char_index(text: &str, char_idx: usize) -> usize {
-    text.char_indices().nth(char_idx).map(|(b, _)| b).unwrap_or(text.len())
+    text.char_indices()
+        .nth(char_idx)
+        .map(|(b, _)| b)
+        .unwrap_or(text.len())
 }
 
 /// `catch`, `catch:`, `catch e`, `catch e:` — the `try` sibling.
@@ -1119,9 +1157,9 @@ fn catch_binding(text: &str, lineno: usize) -> Result<Option<String>, String> {
 
 /// `name(p1, p2)` header of a `def` (parens required, names validated).
 fn split_def(header: &str, lineno: usize) -> Result<(String, Vec<String>), String> {
-    let open = header.find('(').ok_or_else(|| {
-        format!("syntax: line {lineno}: `def` needs `def name(p1, …):`")
-    })?;
+    let open = header
+        .find('(')
+        .ok_or_else(|| format!("syntax: line {lineno}: `def` needs `def name(p1, …):`"))?;
     let name = header[..open].trim().to_string();
     if !valid_name(&name) {
         return Err(format!("syntax: line {lineno}: bad function name `{name}`"));
@@ -1133,7 +1171,9 @@ fn split_def(header: &str, lineno: usize) -> Result<(String, Vec<String>), Strin
     }
     let rest = header[open + 1..].trim();
     if !rest.ends_with(')') {
-        return Err(format!("syntax: line {lineno}: `def` params need a closing `)`"));
+        return Err(format!(
+            "syntax: line {lineno}: `def` params need a closing `)`"
+        ));
     }
     let mut params = Vec::new();
     for p in rest[..rest.len() - 1].split(',') {
@@ -1147,19 +1187,16 @@ fn split_def(header: &str, lineno: usize) -> Result<(String, Vec<String>), Strin
         params.push(p.to_string());
     }
     if params.len() > 8 {
-        return Err(format!("syntax: line {lineno}: `def` takes at most 8 params"));
+        return Err(format!(
+            "syntax: line {lineno}: `def` takes at most 8 params"
+        ));
     }
     Ok((name, params))
 }
 
 /// Call a user function: bind params as locals, run the body, restore.
 /// Globals are readable inside; assignments stay local (Starlark rule).
-fn call_func(
-    ip: &mut Interp,
-    name: &str,
-    args: &[Value],
-    lineno: usize,
-) -> Result<Value, String> {
+fn call_func(ip: &mut Interp, name: &str, args: &[Value], lineno: usize) -> Result<Value, String> {
     let def = ip.funcs.get(name).cloned().ok_or_else(|| {
         format!(
             "syntax: line {lineno}: unknown function `{name}` (try `len/int/str/json/split/range/sh/set/push/del/keys/values` or `def` it first)"
@@ -1186,7 +1223,11 @@ fn call_func(
     }
     ip.call_depth += 1;
     // Body lines outdent one step below their first line.
-    let parent = def.body.first().map(|l| l.indent as isize - 1).unwrap_or(-1);
+    let parent = def
+        .body
+        .first()
+        .map(|l| l.indent as isize - 1)
+        .unwrap_or(-1);
     let mut result = run_block(ip, &def.body.clone(), 0, parent).map(|_| Value::Null);
     let returned = ip.flow.take().unwrap_or(Value::Null);
     if result.is_ok() {
@@ -1236,11 +1277,14 @@ fn json_to_value(value: &serde_json::Value) -> Value {
         serde_json::Value::Bool(b) => Value::Bool(*b),
         serde_json::Value::Number(n) => Value::Num(n.as_f64().unwrap_or(0.0)),
         serde_json::Value::String(s) => Value::Str(truncate_owned(s.clone(), MAX_STR)),
-        serde_json::Value::Array(items) => Value::List(
-            items.iter().take(MAX_LIST).map(json_to_value).collect(),
-        ),
+        serde_json::Value::Array(items) => {
+            Value::List(items.iter().take(MAX_LIST).map(json_to_value).collect())
+        }
         serde_json::Value::Object(map) => Value::Dict(
-            map.iter().take(MAX_LIST).map(|(k, v)| (k.clone(), json_to_value(v))).collect(),
+            map.iter()
+                .take(MAX_LIST)
+                .map(|(k, v)| (k.clone(), json_to_value(v)))
+                .collect(),
         ),
     }
 }
@@ -1277,7 +1321,8 @@ fn inline_value(ip: &mut Interp, cmdline: &str, lineno: usize) -> Result<Value, 
     match exec_checked(ip, cmdline) {
         Ok(text) => {
             harvest_effects(ip, &text);
-            let v = materialize_json(&text).unwrap_or_else(|| Value::Str(truncate_owned(text, MAX_STR)));
+            let v = materialize_json(&text)
+                .unwrap_or_else(|| Value::Str(truncate_owned(text, MAX_STR)));
             ip.set_var("_", v.clone())?;
             Ok(v)
         }
@@ -1379,11 +1424,56 @@ fn unquote(s: &str, lineno: usize) -> Result<Option<String>, String> {
 /// shell (same table as `help`, plus the script verbs themselves excluded
 /// to avoid `run`-in-`run` surprises — those still work via `sh "run …"`).
 const BARE_VERBS: &[&str] = &[
-    "help", "history", "clear", "version", "echo", "ls", "cd", "pwd", "cat", "cp", "mv", "rm",
-    "mkdir", "touch", "stat", "du", "df", "mount", "umount", "disk", "providers", "quota",
-    "oauth", "sync", "scrub", "repair", "gc", "lease", "ps", "top", "kill", "jobs", "compute",
-    "workers", "keygen", "encrypt", "decrypt", "compress", "decompress", "search", "grep",
-    "find", "head", "tail", "wc", "write", "edit", "ai", "theme", "ui",
+    "help",
+    "history",
+    "clear",
+    "version",
+    "echo",
+    "ls",
+    "cd",
+    "pwd",
+    "cat",
+    "cp",
+    "mv",
+    "rm",
+    "mkdir",
+    "touch",
+    "stat",
+    "du",
+    "df",
+    "mount",
+    "umount",
+    "disk",
+    "providers",
+    "quota",
+    "oauth",
+    "sync",
+    "scrub",
+    "repair",
+    "gc",
+    "lease",
+    "ps",
+    "top",
+    "kill",
+    "jobs",
+    "compute",
+    "workers",
+    "keygen",
+    "encrypt",
+    "decrypt",
+    "compress",
+    "decompress",
+    "search",
+    "grep",
+    "find",
+    "head",
+    "tail",
+    "wc",
+    "write",
+    "edit",
+    "ai",
+    "theme",
+    "ui",
 ];
 
 fn bare_verb(text: &str) -> Option<&str> {
@@ -1516,7 +1606,9 @@ impl<'b, 'a> ExprParser<'b, 'a> {
         let mut left = self.parse_mul()?;
         loop {
             self.skip_ws();
-            if self.pos < self.chars.len() && (self.chars[self.pos] == '+' || self.chars[self.pos] == '-') {
+            if self.pos < self.chars.len()
+                && (self.chars[self.pos] == '+' || self.chars[self.pos] == '-')
+            {
                 // A `-` directly followed by `=` is assignment, not maths.
                 if self.chars[self.pos] == '-' && self.chars.get(self.pos + 1) == Some(&'=') {
                     break;
@@ -1536,7 +1628,9 @@ impl<'b, 'a> ExprParser<'b, 'a> {
         loop {
             self.skip_ws();
             if self.pos < self.chars.len()
-                && (self.chars[self.pos] == '*' || self.chars[self.pos] == '/' || self.chars[self.pos] == '%')
+                && (self.chars[self.pos] == '*'
+                    || self.chars[self.pos] == '/'
+                    || self.chars[self.pos] == '%')
             {
                 let op = self.chars[self.pos];
                 self.pos += 1;
@@ -1564,7 +1658,10 @@ impl<'b, 'a> ExprParser<'b, 'a> {
     fn parse_primary(&mut self) -> Result<Value, String> {
         self.skip_ws();
         if self.pos >= self.chars.len() {
-            return Err(format!("syntax: line {}: expression ended early", self.lineno));
+            return Err(format!(
+                "syntax: line {}: expression ended early",
+                self.lineno
+            ));
         }
         let c = self.chars[self.pos];
         let mut base = if c == '(' {
@@ -1584,7 +1681,11 @@ impl<'b, 'a> ExprParser<'b, 'a> {
             Value::Str(self.parse_string()?)
         } else if c.is_ascii_digit()
             || (c == '.'
-                && self.chars.get(self.pos + 1).map(|d| d.is_ascii_digit()).unwrap_or(false))
+                && self
+                    .chars
+                    .get(self.pos + 1)
+                    .map(|d| d.is_ascii_digit())
+                    .unwrap_or(false))
         {
             self.parse_number()?
         } else if c.is_ascii_alphabetic() || c == '_' {
@@ -1779,7 +1880,10 @@ impl<'b, 'a> ExprParser<'b, 'a> {
                 return Ok(Value::List(items));
             }
             if items.len() >= MAX_LIST {
-                return Err(format!("syntax: line {}: list exceeds {MAX_LIST} items", self.lineno));
+                return Err(format!(
+                    "syntax: line {}: list exceeds {MAX_LIST} items",
+                    self.lineno
+                ));
             }
             let v = self.parse_or()?;
             items.push(v);
@@ -1793,7 +1897,10 @@ impl<'b, 'a> ExprParser<'b, 'a> {
                 self.pos += 1;
                 return Ok(Value::List(items));
             }
-            return Err(format!("syntax: line {}: expected `,` or `]` in list", self.lineno));
+            return Err(format!(
+                "syntax: line {}: expected `,` or `]` in list",
+                self.lineno
+            ));
         }
     }
 
@@ -1808,7 +1915,10 @@ impl<'b, 'a> ExprParser<'b, 'a> {
                 break;
             }
             if args.len() >= 8 {
-                return Err(format!("syntax: line {}: `{name}` takes at most 8 arguments", self.lineno));
+                return Err(format!(
+                    "syntax: line {}: `{name}` takes at most 8 arguments",
+                    self.lineno
+                ));
             }
             args.push(self.parse_or()?);
             self.skip_ws();
@@ -1821,7 +1931,10 @@ impl<'b, 'a> ExprParser<'b, 'a> {
                 self.pos += 1;
                 break;
             }
-            return Err(format!("syntax: line {}: expected `,` or `)` in `{name}(…)`", self.lineno));
+            return Err(format!(
+                "syntax: line {}: expected `,` or `)` in `{name}(…)`",
+                self.lineno
+            ));
         }
         // User `def`s first (explicit beats builtin), then the builtins.
         if self.ip.funcs.contains_key(name) {
@@ -1889,9 +2002,10 @@ fn compare(left: &Value, op: &str, right: &Value) -> bool {
 /// `d.field` — dict lookup only (use `len(x)` etc. for the rest).
 fn index_field(base: &Value, field: &str, lineno: usize) -> Result<Value, String> {
     match base {
-        Value::Dict(map) => map.get(field).cloned().ok_or_else(|| {
-            format!("not_found: dict has no field `{field}` (line {lineno})")
-        }),
+        Value::Dict(map) => map
+            .get(field)
+            .cloned()
+            .ok_or_else(|| format!("not_found: dict has no field `{field}` (line {lineno})")),
         other => Err(format!(
             "syntax: line {lineno}: `.` indexes dicts — got {} (try `len(x)`)",
             other.type_name()
@@ -1937,12 +2051,15 @@ fn index_value(base: &Value, key: &Value, lineno: usize) -> Result<Value, String
     }
 }
 
-fn arith(left: &Value, op: char, right: &Value, lineno: usize) -> Result<Value, String> {    // `+` concatenates when either side is a string (JS-flavoured, handy).
+fn arith(left: &Value, op: char, right: &Value, lineno: usize) -> Result<Value, String> {
+    // `+` concatenates when either side is a string (JS-flavoured, handy).
     if op == '+' && (matches!(left, Value::Str(_)) || matches!(right, Value::Str(_))) {
         let mut s = left.display();
         s.push_str(&right.display());
         if s.len() > MAX_STR {
-            return Err(format!("too_large: line {lineno}: string grew past {MAX_STR} bytes"));
+            return Err(format!(
+                "too_large: line {lineno}: string grew past {MAX_STR} bytes"
+            ));
         }
         return Ok(Value::Str(s));
     }
@@ -1951,7 +2068,9 @@ fn arith(left: &Value, op: char, right: &Value, lineno: usize) -> Result<Value, 
         if let (Value::Str(s), Value::Num(n)) | (Value::Num(n), Value::Str(s)) = (left, right) {
             let times = (*n).max(0.0).min(256.0) as usize;
             if s.len() * times > MAX_STR {
-                return Err(format!("too_large: line {lineno}: repeat exceeds {MAX_STR} bytes"));
+                return Err(format!(
+                    "too_large: line {lineno}: repeat exceeds {MAX_STR} bytes"
+                ));
             }
             return Ok(Value::Str(s.repeat(times)));
         }
@@ -1991,12 +2110,7 @@ fn arith(left: &Value, op: char, right: &Value, lineno: usize) -> Result<Value, 
 /// (values are owned, so updates return new values — Starlark rule).
 /// `fetch` is intentionally absent — it needs a network client, so it
 /// stays an honest `unsupported:` at the statement level instead.
-fn builtin(
-    name: &str,
-    args: &[Value],
-    ip: &mut Interp,
-    lineno: usize,
-) -> Result<Value, String> {
+fn builtin(name: &str, args: &[Value], ip: &mut Interp, lineno: usize) -> Result<Value, String> {
     let arity = |min: usize, max: usize| -> Result<(), String> {
         if args.len() < min || args.len() > max {
             return Err(format!(
@@ -2292,7 +2406,8 @@ mod tests {
             seen.borrow_mut().push(line.to_string());
             Ok("out".to_string())
         };
-        let out = run_source("let a = 1\n$ echo hi\nvars\ngc\nfree a\n", &host(&exec)).expect("runs");
+        let out =
+            run_source("let a = 1\n$ echo hi\nvars\ngc\nfree a\n", &host(&exec)).expect("runs");
         assert!(out.text.contains("a: number = 1"));
         assert!(out.text.contains("gc:"));
         assert!(out.text.contains("freed a"));
@@ -2308,7 +2423,9 @@ mod tests {
     fn dicts_index_and_update_functionally() {
         let out = run_ok("let d = {\"b\": 2, \"a\": 1}\nprint d\nprint d.a\nprint d[\"b\"]\n");
         assert_eq!(out.text, "{\"a\": 1, \"b\": 2}\n1\n2");
-        let out = run_ok("let d = {a: 1}\nlet e = set(d, \"b\", 2)\nprint keys(e)\nprint len(e)\nprint len(d)\n");
+        let out = run_ok(
+            "let d = {a: 1}\nlet e = set(d, \"b\", 2)\nprint keys(e)\nprint len(e)\nprint len(d)\n",
+        );
         assert_eq!(out.text, "[a, b]\n2\n1");
         let out = run_ok("let l = push([1], 2)\nprint l[1]\nprint del({a: 1, b: 2}, \"a\")\n");
         assert_eq!(out.text, "2\n{\"b\": 2}");
