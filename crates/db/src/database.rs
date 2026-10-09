@@ -484,7 +484,7 @@ impl Database {
     pub fn list_schedules(&self) -> Result<Vec<cybermanju_types::schedule::ScheduleRow>> {
         let tx = self.db.begin_read()?;
         let table = tx.open_table(SCHEDULES_TABLE)?;
-        let mut rows = Vec::new();
+        let mut rows: Vec<cybermanju_types::schedule::ScheduleRow> = Vec::new();
         for entry in table.iter()? {
             let (_, value) = entry?;
             rows.push(serde_json::from_str(value.value())?);
@@ -520,7 +520,8 @@ impl Database {
         let tx = self.db.begin_write()?;
         let removed = {
             let mut table = tx.open_table(SCHEDULES_TABLE)?;
-            table.remove(id)?.is_some()
+            let removed = table.remove(id)?.is_some();
+            removed
         };
         tx.commit()?;
         Ok(removed)

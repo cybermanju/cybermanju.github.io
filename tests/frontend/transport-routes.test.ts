@@ -131,6 +131,43 @@ describe('REST route coverage', () => {
     expect(r.method).toBe('GET')
     expect(r.buildPath({ query: 'vault', limit: 20, offset: 40 })).toContain('/api/search/paginated')
   })
+  it('routes the scheduler family over REST + native IPC (Phase 1)', () => {
+    const cmds = [
+      'cron_list',
+      'cron_save',
+      'cron_delete',
+      'cron_run',
+      'cron_history',
+      'cron_set_enabled',
+      'cron_ensure_started',
+    ] as const
+    for (const cmd of cmds) {
+      expect(REST_ROUTES[cmd], cmd).toBeTruthy()
+      expect(REST_FIRST.has(cmd), cmd).toBe(true)
+      expect(MOBILE_NATIVE_OS_COMMANDS.has(cmd), cmd).toBe(true)
+    }
+    expect(REST_ROUTES.cron_list.buildPath({})).toBe('/api/cron')
+    expect(REST_ROUTES.cron_save.transformRequest!({ row: { path: '/j.cybsh', expr: '@hourly' } })).toMatchObject({
+      path: '/j.cybsh',
+      expr: '@hourly',
+      enabled: true,
+    })
+    expect(REST_ROUTES.cron_delete.buildPath({ id: 'sched-1' })).toBe('/api/cron/sched-1')
+    expect(REST_ROUTES.cron_run.buildPath({ id: 'sched-1' })).toBe('/api/cron/sched-1/run')
+    expect(REST_ROUTES.cron_history.buildPath({ id: 'sched-1' })).toBe('/api/cron/sched-1/runs')
+    expect(REST_ROUTES.cron_set_enabled.buildPath({ id: 'sched-1', enabled: true })).toBe('/api/cron/sched-1/enable')
+    expect(REST_ROUTES.cron_set_enabled.buildPath({ id: 'sched-1', enabled: false })).toBe('/api/cron/sched-1/disable')
+    // Daemon arming is a side effect of the first GET; the client only sees `true`.
+    expect(REST_ROUTES.cron_ensure_started.transformResponse!(null, {})).toBe(true)
+    // Desktop/mobile IPC handlers must stay wired in the Tauri backend.
+    const commands = fs.readFileSync('src-tauri/src/commands/cron.rs', 'utf8')
+    const runtime = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
+    for (const cmd of ['cron_list', 'cron_save', 'cron_delete', 'cron_run', 'cron_history']) {
+      expect(commands).toMatch(new RegExp(`pub fn ${cmd}\\b`))
+      expect(runtime).toContain(`commands::cron::${cmd}`)
+    }
+  })
+
   it('keeps local-only commands in WRITE_ONLY instead of 404ing', () => {
     for (const cmd of ['get_compression_stats', 'get_symbols', 'parse_file', 'upload_file']) {
       expect(WRITE_ONLY_COMMANDS.has(cmd)).toBe(true)

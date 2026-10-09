@@ -701,3 +701,40 @@ Stage Summary:
   best-effort so an old/missing service never fails the button (file clear is
   the source of truth). Button relabeled "Clear all" with tooltip.
 - Verified: `bash -n` clean, `vue-tsc` clean, `launcher.test.ts` 9/9.
+
+## 2026-10-09 — Phase 1: scheduler (cron) end-to-end + Tasks → Schedules tab
+- TS twin of the Rust cron parser (`src/utils/schedule.ts`): `parseSchedule`
+  (5-field cron with `*,-,/`, `every Nm/h/d`, `@hourly/@daily/@weekly`,
+  `invalid:` errors), `nextFire` (UTC, ≤5 years probe), `previewSchedule`,
+  `describeSchedule`, `formatIn`. Fixed block-comment `*/15` parse error by
+  using `//` comments; `*/15` still parses as a step field.
+- Rust fixes blind-paired from the twin's tests: `parse_dow` (`7→0`,
+  sort+dedup — its own `sunday_seven_matches_zero` test would have failed in
+  CI), `describe()` renders full-range fields as `*` via `fmt_field`.
+- `cron_api.rs`: POST upserts when `id` is supplied (`created_at`,
+  `last_fired_at`, `last_run_id` preserved); new `upsert()`.
+- Transport: 7 `cron_*` commands over REST (`GET/POST /api/cron`,
+  `DELETE/POST …/{id}[/run|enable|disable|runs]`), `REST_FIRST`,
+  `MOBILE_NATIVE_OS_COMMANDS`, wasm `cron.list/save/delete/history/runRecord`
+  ops, static handlers (`cron_ensure_started` → true, `cron_set_enabled`,
+  `cron_run` → `runStaticSchedule`), `withScheduleFire` stamps validated
+  `nextFireAt` on every save path.
+- Static cybsh: `cron` verb (ls/add/rm/run/enable/disable/history +
+  did-you-mean) mirroring `crates/os/src/shell.rs::cron_cmd` output;
+  `runStaticSchedule(id, deps)` is the single execution path (verb, store
+  tick, wasm `cron_run`).
+- Store: `schedules` + `fetchSchedules/cronSave/cronDelete/cronRun/
+  cronSetEnabled/cronHistory`, browser tick (`tickSchedules`, 30s +
+  visibilitychange, static transport only — the daemon owns native).
+- UI: ProcessPanel gains `processes|schedules` tabs; Schedules tab is a
+  full CRUD (table mirrors `cron ls`, add/edit modal with live
+  `previewSchedule` validation + presets + run-on-boot, enable toggle,
+  Run-now, History modal). Aliases `cron|automation|schedules` →
+  `processes` + `{tab:'schedules'}`; palette entry "Open Schedules (cron)".
+- Tests: `schedule.test.ts` 19/19; static `cron` verb suite (7 tests:
+  add/list/run/toggle/rm lifecycle, frontmatter `# schedule:`, validation +
+  did-you-mean, failed-run recording, `not_found`); transport-routes cron
+  REST/IPC coverage; panel-aliases scheduler cases. Pre-existing
+  `cybsh-script` red (fetchText signature) fixed.
+- Verified: `check-version.sh` ok; `vue-tsc` clean; `npm test` 671/671.
+  Rust left to CI per AGENTS.md.

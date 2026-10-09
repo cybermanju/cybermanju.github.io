@@ -738,14 +738,8 @@ pub fn db_dispatch(op: &str, args_json: &str) -> String {
             }
             // Newest first (mirror the server's `finished_at` sort).
             out.sort_by(|a, b| {
-                let ka = a
-                    .get("finishedAt")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("");
-                let kb = b
-                    .get("finishedAt")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("");
+                let ka = a.get("finishedAt").and_then(|x| x.as_str()).unwrap_or("");
+                let kb = b.get("finishedAt").and_then(|x| x.as_str()).unwrap_or("");
                 kb.cmp(ka)
             });
             out.truncate(20);
@@ -763,11 +757,7 @@ pub fn db_dispatch(op: &str, args_json: &str) -> String {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let run_id = if run_id.is_empty() {
-                new_id()
-            } else {
-                run_id
-            };
+            let run_id = if run_id.is_empty() { new_id() } else { run_id };
             write_one(DbDefs::get_schedule_runs_table(), &run_id, &run.to_string())?;
             Ok(run)
         }

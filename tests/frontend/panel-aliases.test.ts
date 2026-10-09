@@ -23,6 +23,14 @@ describe('panel aliases', () => {
     expect(resolvePanel('preview')).toBe('files')
   })
 
+  it('routes the scheduler aliases onto the Tasks window (Phase 1)', () => {
+    for (const alias of ['cron', 'automation', 'schedules'] as const) {
+      expect(resolvePanel(alias), `${alias} → processes`).toBe('processes')
+      expect(ALIAS_TAB_PROPS[alias], `${alias} tab props`).toEqual({ tab: 'schedules' })
+      expect(MODULE_METADATA[alias], `${alias} metadata`).toBeDefined()
+    }
+  })
+
   it('has no self-aliases, chains or cycles', () => {
     for (const [alias, target] of Object.entries(PANEL_ALIASES)) {
       expect(target, `${alias} aliases to itself`).not.toBe(alias)

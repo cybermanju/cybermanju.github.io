@@ -1,5 +1,5 @@
 export type ViewMode = 'grid' | 'list' | 'masonry' | 'columns' | 'details'
-export type PanelType = 'landing' | 'files' | 'preview' | 'encryption' | 'compression' | 'collections' | 'faces' | 'map' | 'code' | 'editor' | 'agent' | 'search' | 'style' | 'accounts' | 'loose-groups' | 'sync' | 'transfer' | 'webdash' | 'users' | 'dashboard' | 'settings' | 'trash' | 'activity' | 'favorites' | 'recent' | 'storage' | 'terminal' | 'processes' | 'disks' | 'devices' | 'permissions'
+export type PanelType = 'landing' | 'files' | 'preview' | 'encryption' | 'compression' | 'collections' | 'faces' | 'map' | 'code' | 'editor' | 'agent' | 'search' | 'style' | 'accounts' | 'loose-groups' | 'sync' | 'transfer' | 'webdash' | 'users' | 'dashboard' | 'settings' | 'trash' | 'activity' | 'favorites' | 'recent' | 'storage' | 'terminal' | 'processes' | 'disks' | 'devices' | 'permissions' | 'cron' | 'automation' | 'schedules'
 export type SidebarSection = 'tree' | 'locations' | 'collections' | 'people' | 'styles' | 'loose' | 'users' | 'sync' | 'dashboard' | 'landing' | 'tools'
 
 export interface ModuleInfo {
@@ -671,6 +671,9 @@ export const MODULE_METADATA: Record<PanelType, ModuleInfo> = {
   terminal: { id: 'terminal', label: 'CYBSH', icon: 'solar:file-terminal-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'System terminal — cybsh', requiresAuth: true },
   agent: { id: 'agent', label: 'AGENT', icon: 'solar:bot-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'Native AI coding agent', requiresAuth: true },
   processes: { id: 'processes', label: 'TASKS', icon: 'solar:cpu-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d0d 50%, #000000 100%)', description: 'Process table, top and task control', requiresAuth: true },
+  cron: { id: 'cron', label: 'SCHEDULES', icon: 'solar:alarm-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d0d 50%, #000000 100%)', description: 'Scheduled scripts (alias of tasks)', requiresAuth: true },
+  automation: { id: 'automation', label: 'SCHEDULES', icon: 'solar:clock-circle-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d0d 50%, #000000 100%)', description: 'Automation schedules (alias of tasks)', requiresAuth: true },
+  schedules: { id: 'schedules', label: 'SCHEDULES', icon: 'solar:calendar-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d0d 50%, #000000 100%)', description: 'Cron schedules (alias of tasks)', requiresAuth: true },
   disks: { id: 'disks', label: 'DISKS', icon: 'solar:ssd-square-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000a00 50%, #000000 100%)', description: 'Storage overview, per-provider disks and the merged volume', requiresAuth: true },
   devices: { id: 'devices', label: 'DEVICES', icon: 'solar:plug-circle-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000a0d 50%, #000000 100%)', description: 'Plugged hardware, sensors and browser capabilities', requiresAuth: true },
   permissions: { id: 'permissions', label: 'PERMS', icon: 'solar:key-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0000 50%, #000000 100%)', description: 'Per-file access control', requiresAuth: true },
@@ -774,6 +777,37 @@ export interface OsVolumeDf {
   attachedBytes: number
   scratchBytes: number
   disks: OsDisk[]
+}
+
+/** One recurring schedule — twin of `cybermanju_types::ScheduleRow`
+ * (`GET /api/cron`, `cron_list`). Optional fields are `skip_serializing`
+ * on the Rust side, so a row may simply omit them. */
+export interface ScheduleRow {
+  id: string
+  /** Volume path of the `.cybsh` script. */
+  path: string
+  /** Cron expression (`"30 2 * * *"`) or interval (`"every 10m"`). */
+  expr: string
+  enabled: boolean
+  description?: string | null
+  createdAt: string
+  lastFiredAt?: string | null
+  nextFireAt?: string | null
+  lastRunId?: string | null
+  /** Fire once on daemon start even if the first cron fire is later. */
+  runOnBoot?: boolean
+}
+
+/** One fire of a schedule — twin of `cybermanju_types::ScheduleRun`. */
+export interface ScheduleRun {
+  runId: string
+  scheduleId: string
+  startedAt: string
+  finishedAt: string
+  /** `ok` | `error` | `not_found` — same family as sync statuses. */
+  status: string
+  /** Script output tail, or the AGENT-1-prefixed error. */
+  outputTail?: string | null
 }
 
 /** AGENT-6's disk catalog row (`GET /api/disk/list`). */

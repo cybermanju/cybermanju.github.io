@@ -70,9 +70,13 @@ impl ScheduleSpec {
                 }
                 Some(after + Duration::seconds(secs))
             }
-            ScheduleSpec::Cron { m, h, dom, mon, dow } => {
-                next_cron(m, h, dom, mon, dow, after)
-            }
+            ScheduleSpec::Cron {
+                m,
+                h,
+                dom,
+                mon,
+                dow,
+            } => next_cron(m, h, dom, mon, dow, after),
         }
     }
 
@@ -90,7 +94,13 @@ impl ScheduleSpec {
                 };
                 format!("every {n}{u}")
             }
-            ScheduleSpec::Cron { m, h, dom, mon, dow } => format!(
+            ScheduleSpec::Cron {
+                m,
+                h,
+                dom,
+                mon,
+                dow,
+            } => format!(
                 "{} {} {} {} {}",
                 fmt_field(m, 0, 59),
                 fmt_field(h, 0, 23),
@@ -339,7 +349,7 @@ mod tests {
     fn parses_range_list() {
         let spec = ScheduleSpec::parse("0 9-17 * * 1-5").expect("parse");
         let next = spec.next_after(at(2026, 1, 3, 12, 0)).expect("next"); // Sat
-        // Next weekday (Mon) 09:00 — Jan 5 2026 is a Monday.
+                                                                          // Next weekday (Mon) 09:00 — Jan 5 2026 is a Monday.
         assert_eq!(next, at(2026, 1, 5, 9, 0));
         assert_eq!(next.weekday().num_days_from_sunday(), 1);
     }

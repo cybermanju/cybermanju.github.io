@@ -143,9 +143,7 @@ fn fire(db: &RwLock<Database>, mut row: ScheduleRow, now: DateTime<Utc>) -> Resu
     };
     {
         let guard = db.read().map_err(|e| e.to_string())?;
-        guard
-            .save_schedule_run(&run)
-            .map_err(|e| e.to_string())?;
+        guard.save_schedule_run(&run).map_err(|e| e.to_string())?;
     }
     info!("cron: schedule '{}' fired ({})", row.id, run.status);
     Ok(())

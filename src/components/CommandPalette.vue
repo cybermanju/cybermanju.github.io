@@ -97,6 +97,7 @@ const commands = computed<CommandGroup[]>(() => [
       { id: 'nav-users', label: 'Go to Accounts & Users', icon: 'solar:users-group-rounded-bold', action: () => { wm.open('accounts', { tab: 'users' }) } },
       { id: 'nav-terminal', label: 'Open Terminal (cybsh)', icon: 'solar:file-terminal-bold', shortcut: 'Ctrl+`', action: () => { wm.open('terminal') } },
       { id: 'nav-tasks', label: 'Open Tasks (ps/top)', icon: 'solar:cpu-bold', action: () => { wm.open('processes') } },
+      { id: 'nav-schedules', label: 'Open Schedules (cron)', icon: 'solar:alarm-bold', action: () => { wm.open('cron') } },
       { id: 'nav-disks', label: 'Open Disks & Volume', icon: 'solar:ssd-square-bold', action: () => { wm.open('disks') } },
       { id: 'nav-storage', label: 'Open Storage & Disks', icon: 'solar:database-bold', action: () => { wm.open('disks') } },
       { id: 'nav-settings', label: 'Go to Settings', icon: 'solar:settings-bold', action: () => { wm.open('settings') as PanelType } },

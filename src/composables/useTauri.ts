@@ -2113,6 +2113,25 @@ const STATIC_CYBSH_DEPS: StaticCybshDeps = {
     }
     throw new Error('wasm backend unavailable')
   },
+  // Scheduler (cron) — rows live in the worker db (OPFS redb); execution is
+  // `runStaticSchedule` (see STATIC_COMMAND_HANDLERS.cron_run).
+  listSchedules: async () => {
+    const raw = (await wasmDbDispatch('cron.list', {})) as StaticSchedule[]
+    return Array.isArray(raw) ? raw : []
+  },
+  saveSchedule: async (row) => {
+    return (await wasmDbDispatch('cron.save', { row: withScheduleFire(row) })) as StaticSchedule
+  },
+  deleteSchedule: async (id) => {
+    return Boolean(await wasmDbDispatch('cron.delete', { id }))
+  },
+  scheduleHistory: async (id) => {
+    const raw = (await wasmDbDispatch('cron.history', { id })) as StaticScheduleRun[]
+    return Array.isArray(raw) ? raw : []
+  },
+  recordScheduleRun: async (run) => {
+    return await wasmDbDispatch('cron.runRecord', { run })
+  },
 }
 
 const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {

@@ -1,17 +1,40 @@
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-// CyberManju OS — process table (AGENT-8, item 10)
+import UiCheckbox from '@/components/ui/UiCheckbox.vue'
+import UiInput from '@/components/ui/UiInput.vue'
+import UiModal from '@/components/ui/UiModal.vue'
+// CyberManju OS — process table (AGENT-8, item 10) + Schedules tab (Phase 1)
 //
-// Fed by `GET /api/os/ps` and `GET /api/os/top`; every control goes through
-// the same syscall boundary the terminal uses (`kill <id>`, `compute run …`).
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+// Processes: fed by `GET /api/os/ps` and `GET /api/os/top`; every control
+// goes through the same syscall boundary the terminal uses (`kill <id>`,
+// `compute run …`).
+//
+// Schedules: the cron family — `GET/POST /api/cron` (REST), `cron_*` over
+// IPC on desktop/mobile, and the browser tick on Pages (no daemon thread
+// there; the store fires due rows itself). Next-fire countdowns come from
+// `utils/schedule`, the TypeScript twin of `crates/os/src/schedule.rs`, so
+// the preview agrees with the daemon to the minute.
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { humanBytes } from '@/utils/format'
-import type { OsTask } from '@/types'
+import { formatIn, previewSchedule } from '@/utils/schedule'
+import type { OsTask, ScheduleRow, ScheduleRun } from '@/types'
 
 const store = useAppStore()
 const refreshMs = 2000
 let timer = 0
+
+// Merged window: `wm.open('cron' | 'automation' | 'schedules')` lands here
+// with `{ tab: 'schedules' }` (panels.ts ALIAS_TAB_PROPS).
+const props = defineProps<{ tab?: string }>()
+type ProcessTab = 'processes' | 'schedules'
+const activeTab = ref<ProcessTab>(props.tab === 'schedules' ? 'schedules' : 'processes')
+watch(
+  () => props.tab,
+  t => {
+    if (t === 'schedules' || t === 'processes') activeTab.value = t
+  },
+)
 
 const jobPath = ref('/')
 const starting = ref(false)
@@ -49,12 +72,129 @@ async function refresh() {
   await Promise.all([store.fetchOsPs(), store.fetchOsTop(), store.fetchOsWorkers()])
 }
 
+// ── Schedules (cron) ────────────────────────────────────────
+const nowMs = ref(Date.now())
+const schedNote = ref('')
+
+const editVisible = ref(false)
+const editId = ref('')
+const editPath = ref('')
+const editExpr = ref('')
+const editDesc = ref('')
+const editRunOnBoot = ref(false)
+const editError = ref('')
+
+const historyVisible = ref(false)
+const historyRow = ref<ScheduleRow | null>(null)
+const historyRuns = ref<ScheduleRun[]>([])
+const historyLoading = ref(false)
+
+const schedules = computed<ScheduleRow[]>(() => store.schedules)
+const editPreview = computed(() => previewSchedule(editExpr.value, new Date(nowMs.value)))
+
+const EXPR_PRESETS = [
+  { label: 'every 10m', expr: 'every 10m' },
+  { label: 'hourly', expr: '@hourly' },
+  { label: 'daily 2am', expr: '30 2 * * *' },
+  { label: 'weekly sun', expr: '0 0 * * 0' },
+]
+
+/** Countdown to the next fire (`paused` when disabled, `—` when settled). */
+function nextLabel(row: ScheduleRow): string {
+  if (!row.enabled) return 'paused'
+  if (!row.nextFireAt) return 'pending'
+  return formatIn(new Date(row.nextFireAt).getTime() - nowMs.value)
+}
+
+/** How long ago the last fire happened (`never` before the first one). */
+function agoLabel(iso?: string | null): string {
+  if (!iso) return 'never'
+  const diff = nowMs.value - new Date(iso).getTime()
+  if (diff < 60_000) return 'just now'
+  return `${formatIn(diff).replace(/^in /, '')} ago`
+}
+
+function openCreate() {
+  editId.value = ''
+  editPath.value = ''
+  editExpr.value = 'every 1h'
+  editDesc.value = ''
+  editRunOnBoot.value = false
+  editError.value = ''
+  editVisible.value = true
+}
+
+function openEdit(row: ScheduleRow) {
+  editId.value = row.id
+  editPath.value = row.path
+  editExpr.value = row.expr
+  editDesc.value = row.description ?? ''
+  editRunOnBoot.value = row.runOnBoot ?? false
+  editError.value = ''
+  editVisible.value = true
+}
+
+async function saveSchedule() {
+  editError.value = ''
+  const path = editPath.value.trim()
+  if (!path.toLowerCase().endsWith('.cybsh')) {
+    editError.value = `invalid: schedule path must be a .cybsh script (got \`${path || '∅'}\`)`
+    return
+  }
+  if (!editPreview.value.ok) {
+    editError.value = editPreview.value.error ?? 'invalid: bad schedule expression'
+    return
+  }
+  const saved = await store.cronSave({
+    id: editId.value,
+    path,
+    expr: editExpr.value.trim(),
+    description: editDesc.value.trim() || null,
+    enabled: true,
+    runOnBoot: editRunOnBoot.value,
+  })
+  if (saved) editVisible.value = false
+  else editError.value = store.lastError ?? 'the schedule could not be saved'
+}
+
+function toggleSchedule(row: ScheduleRow) {
+  void store.cronSetEnabled(row.id, !row.enabled)
+}
+
+async function runNow(row: ScheduleRow) {
+  schedNote.value = `Running ${row.path}…`
+  const run = await store.cronRun(row.id)
+  schedNote.value = run
+    ? `${run.scheduleId}: ${run.status} (${run.finishedAt})${run.outputTail ? `\n${run.outputTail}` : ''}`
+    : 'the run failed — see the toast for the reason'
+}
+
+function removeSchedule(row: ScheduleRow) {
+  if (!window.confirm(`Delete schedule ${row.id}? (${row.path} · ${row.expr})`)) return
+  void store.cronDelete(row.id)
+}
+
+async function openHistory(row: ScheduleRow) {
+  historyRow.value = row
+  historyRuns.value = []
+  historyLoading.value = true
+  historyVisible.value = true
+  historyRuns.value = await store.cronHistory(row.id)
+  historyLoading.value = false
+}
+
 onMounted(() => {
   void refresh()
   if (store.osJobs.length === 0) void store.fetchOsJobs()
+  void store.fetchSchedules()
   timer = window.setInterval(() => {
+    nowMs.value = Date.now()
     void refresh()
   }, refreshMs)
+})
+
+watch(activeTab, tab => {
+  if (tab === 'schedules') void store.fetchSchedules()
 })
 
 onBeforeUnmount(() => {
@@ -68,109 +208,277 @@ onBeforeUnmount(() => {
       <div class="header-left">
         <span class="icon-processes"><AppIcon name="solar:cpu-bold" /></span>
         <h2 class="panel-title">Tasks</h2>
-        <span class="text-muted">{{ counts ? `${counts.running} running / ${counts.total} total` : '…' }}</span>
+        <span v-if="activeTab === 'processes'" class="text-muted">
+          {{ counts ? `${counts.running} running / ${counts.total} total` : '…' }}
+        </span>
+        <span v-else class="text-muted">{{ schedules.length }} scheduled</span>
       </div>
       <div class="header-right">
-        <button class="ghost-btn" type="button" @click="refresh">Refresh</button>
+        <button class="ghost-btn" type="button" @click="activeTab === 'schedules' ? store.fetchSchedules() : refresh()">
+          Refresh
+        </button>
       </div>
     </div>
 
-    <div class="stats-row">
-      <div class="stat">
-        <span class="stat-key">LOAD</span>
-        <span class="stat-val">
-          {{ load && load.source === 'proc' ? `${load.load1} ${load.load5} ${load.load15}` : 'n/a' }}
-        </span>
-      </div>
-      <div class="stat">
-        <span class="stat-key">CPU</span>
-        <span class="stat-val">{{ store.osTop ? `${store.osTop.cpuPercent.toFixed(1)}%` : 'n/a' }}</span>
-      </div>
-      <div class="stat">
-        <span class="stat-key">RSS</span>
-        <span class="stat-val">{{ mem ? humanBytes(mem.rssBytes) : '—' }}</span>
-      </div>
-      <div class="stat">
-        <span class="stat-key">UP</span>
-        <span class="stat-val">{{ store.osTop ? clock(store.osTop.uptimeMs) : '—' }}</span>
-      </div>
-      <div class="stat">
-        <span class="stat-key">WORKERS</span>
-        <span class="stat-val">
-          {{ store.osWorkers ? `${store.osWorkers.total} (${store.osWorkers.localThreads} local + ${store.osWorkers.providerSlots} provider)` : '—' }}
-        </span>
-      </div>
+    <div class="proc-tabs" role="tablist" aria-label="Tasks views">
+      <button
+        role="tab"
+        type="button"
+        :aria-selected="activeTab === 'processes'"
+        :class="{ on: activeTab === 'processes' }"
+        @click="activeTab = 'processes'"
+      >Processes</button>
+      <button
+        role="tab"
+        type="button"
+        :aria-selected="activeTab === 'schedules'"
+        :class="{ on: activeTab === 'schedules' }"
+        @click="activeTab = 'schedules'"
+      >Schedules</button>
     </div>
 
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:cpu-bold" :size="13" /> Process table</h3>
-      <table v-if="tasks.length" class="task-table">
-        <thead>
-          <tr>
-            <th>PID</th>
-            <th>Kind</th>
-            <th>Name</th>
-            <th>State</th>
-            <th>Progress</th>
-            <th>Provider</th>
-            <th>Bytes</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="task in tasks" :key="task.id">
-            <td data-label="PID">{{ task.id }}</td>
-            <td data-label="Kind">{{ task.kind }}</td>
-            <td data-label="Name" class="truncate name-cell" :title="task.name">{{ task.name }}</td>
-            <td data-label="State">
-              <span class="state" :class="`state-${task.state}`">{{ task.state }}</span>
-            </td>
-            <td data-label="Progress" class="progress-cell">
-              <span class="bar"><span class="bar-fill" :style="{ width: `${pct(task)}%` }"></span></span>
-              <span class="pct">{{ pct(task) }}%</span>
-            </td>
-            <td data-label="Provider">{{ task.provider }}</td>
-            <td data-label="Bytes">{{ humanBytes(task.bytes) }}</td>
-            <td class="task-action">
-              <button
-                v-if="task.state === 'running' || task.state === 'pending'"
-                class="ghost-btn danger"
-                type="button"
-                :aria-label="`Kill task ${task.id}`"
-                @click="kill(task)"
-              >Kill</button>
-              <span v-else class="text-muted">—</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-else class="text-muted empty">No tasks yet — start one below, or run `compute run …` in cybsh.</p>
-    </div>
-
-    <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:server-square-bold" :size="13" /> Compute jobs</h3>
-      <div class="jobs">
-        <div v-for="job in store.osJobs" :key="job.name" class="job">
-          <div class="job-info">
-            <span class="job-name">{{ job.name }}</span>
-            <span class="text-muted">{{ job.description }}</span>
-          </div>
-          <button
-            class="ghost-btn"
-            type="button"
-            :disabled="starting"
-            :aria-label="`Run ${job.name}`"
-            @click="startJob(job.name)"
-          >Run</button>
+    <template v-if="activeTab === 'processes'">
+      <div class="stats-row">
+        <div class="stat">
+          <span class="stat-key">LOAD</span>
+          <span class="stat-val">
+            {{ load && load.source === 'proc' ? `${load.load1} ${load.load5} ${load.load15}` : 'n/a' }}
+          </span>
         </div>
-        <p v-if="!store.osJobs.length" class="text-muted empty">Catalogue not loaded.</p>
+        <div class="stat">
+          <span class="stat-key">CPU</span>
+          <span class="stat-val">{{ store.osTop ? `${store.osTop.cpuPercent.toFixed(1)}%` : 'n/a' }}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-key">RSS</span>
+          <span class="stat-val">{{ mem ? humanBytes(mem.rssBytes) : '—' }}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-key">UP</span>
+          <span class="stat-val">{{ store.osTop ? clock(store.osTop.uptimeMs) : '—' }}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-key">WORKERS</span>
+          <span class="stat-val">
+            {{ store.osWorkers ? `${store.osWorkers.total} (${store.osWorkers.localThreads} local + ${store.osWorkers.providerSlots} provider)` : '—' }}
+          </span>
+        </div>
       </div>
-      <label class="path-row">
-        <span class="text-muted">Path</span>
-        <input v-model="jobPath" class="path-input" type="text" spellcheck="false" aria-label="Job path" />
-      </label>
-      <p v-if="note" class="note">{{ note }}</p>
-    </div>
+
+      <div class="section">
+        <h3 class="section-title"><AppIcon name="solar:cpu-bold" :size="13" /> Process table</h3>
+        <table v-if="tasks.length" class="task-table">
+          <thead>
+            <tr>
+              <th>PID</th>
+              <th>Kind</th>
+              <th>Name</th>
+              <th>State</th>
+              <th>Progress</th>
+              <th>Provider</th>
+              <th>Bytes</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="task in tasks" :key="task.id">
+              <td data-label="PID">{{ task.id }}</td>
+              <td data-label="Kind">{{ task.kind }}</td>
+              <td data-label="Name" class="truncate name-cell" :title="task.name">{{ task.name }}</td>
+              <td data-label="State">
+                <span class="state" :class="`state-${task.state}`">{{ task.state }}</span>
+              </td>
+              <td data-label="Progress" class="progress-cell">
+                <span class="bar"><span class="bar-fill" :style="{ width: `${pct(task)}%` }"></span></span>
+                <span class="pct">{{ pct(task) }}%</span>
+              </td>
+              <td data-label="Provider">{{ task.provider }}</td>
+              <td data-label="Bytes">{{ humanBytes(task.bytes) }}</td>
+              <td class="task-action">
+                <button
+                  v-if="task.state === 'running' || task.state === 'pending'"
+                  class="ghost-btn danger"
+                  type="button"
+                  :aria-label="`Kill task ${task.id}`"
+                  @click="kill(task)"
+                >Kill</button>
+                <span v-else class="text-muted">—</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else class="text-muted empty">No tasks yet — start one below, or run `compute run …` in cybsh.</p>
+      </div>
+
+      <div class="section">
+        <h3 class="section-title"><AppIcon name="solar:server-square-bold" :size="13" /> Compute jobs</h3>
+        <div class="jobs">
+          <div v-for="job in store.osJobs" :key="job.name" class="job">
+            <div class="job-info">
+              <span class="job-name">{{ job.name }}</span>
+              <span class="text-muted">{{ job.description }}</span>
+            </div>
+            <button
+              class="ghost-btn"
+              type="button"
+              :disabled="starting"
+              :aria-label="`Run ${job.name}`"
+              @click="startJob(job.name)"
+            >Run</button>
+          </div>
+          <p v-if="!store.osJobs.length" class="text-muted empty">Catalogue not loaded.</p>
+        </div>
+        <label class="path-row">
+          <span class="text-muted">Path</span>
+          <input v-model="jobPath" class="path-input" type="text" spellcheck="false" aria-label="Job path" />
+        </label>
+        <p v-if="note" class="note">{{ note }}</p>
+      </div>
+    </template>
+
+    <!-- ══ SCHEDULES (cron) ══ -->
+    <template v-else>
+      <div class="section">
+        <div class="sched-toolbar">
+          <h3 class="section-title"><AppIcon name="solar:alarm-bold" :size="13" /> Scheduled scripts</h3>
+          <button class="ghost-btn" type="button" @click="openCreate">New schedule</button>
+        </div>
+        <p class="text-muted sched-hint">
+          Runs <code>.cybsh</code> scripts on cron or interval expressions (<code>* * * * *</code>,
+          <code>every 10m</code>, <code>@daily</code>). Desktop and Docker fire them from the
+          background daemon; this tab's browser build ticks them while the tab is visible.
+        </p>
+
+        <table v-if="schedules.length" class="task-table sched-table">
+          <thead>
+            <tr>
+              <th>Script</th>
+              <th>Schedule</th>
+              <th>Next</th>
+              <th>State</th>
+              <th>Last fired</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in schedules" :key="row.id">
+              <td data-label="Script" class="truncate name-cell" :title="row.path">
+                {{ row.path }}
+                <span v-if="row.description" class="text-muted sched-desc">{{ row.description }}</span>
+              </td>
+              <td data-label="Schedule"><code>{{ row.expr }}</code></td>
+              <td data-label="Next">{{ nextLabel(row) }}</td>
+              <td data-label="State">
+                <button
+                  class="ghost-btn state-toggle"
+                  type="button"
+                  :class="{ on: row.enabled }"
+                  :aria-label="`${row.enabled ? 'Disable' : 'Enable'} schedule ${row.id}`"
+                  @click="toggleSchedule(row)"
+                >{{ row.enabled ? 'on' : 'off' }}</button>
+              </td>
+              <td data-label="Last fired">{{ agoLabel(row.lastFiredAt) }}</td>
+              <td class="task-action sched-actions">
+                <button class="ghost-btn" type="button" :aria-label="`Run ${row.id} now`" @click="runNow(row)">Run</button>
+                <button class="ghost-btn" type="button" :aria-label="`Edit ${row.id}`" @click="openEdit(row)">Edit</button>
+                <button class="ghost-btn" type="button" :aria-label="`History of ${row.id}`" @click="openHistory(row)">History</button>
+                <button class="ghost-btn danger" type="button" :aria-label="`Delete ${row.id}`" @click="removeSchedule(row)">Delete</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else class="text-muted empty">
+          No schedules yet — add one below, or run <code>cron add /scripts/job.cybsh "30 2 * * *"</code> in cybsh.
+        </p>
+        <p v-if="schedNote" class="note">{{ schedNote }}</p>
+      </div>
+
+      <UiModal
+        v-model:visible="editVisible"
+        :title="editId ? 'Edit schedule' : 'New schedule'"
+        icon="solar:alarm-bold"
+        size="sm"
+      >
+        <div class="sched-form">
+          <UiInput
+            v-model="editPath"
+            label="Script"
+            placeholder="/scripts/backup.cybsh"
+            hint="Path to a .cybsh script inside the vault"
+            spellcheck="false"
+          />
+          <UiInput
+            v-model="editExpr"
+            label="Expression"
+            placeholder="30 2 * * *"
+            hint="5-field cron (m h dom mon dow), `every 10m`, or an alias like @daily"
+            spellcheck="false"
+          />
+          <div class="sched-presets" aria-label="Expression presets">
+            <button
+              v-for="p in EXPR_PRESETS"
+              :key="p.expr"
+              class="ghost-btn"
+              type="button"
+              @click="editExpr = p.expr"
+            >{{ p.label }}</button>
+          </div>
+          <p class="sched-preview" :class="{ bad: !editPreview.ok }">
+            <template v-if="editPreview.ok">
+              {{ editPreview.label }} → next {{ editPreview.in }}
+              <span v-if="editPreview.next" class="text-muted">({{ editPreview.next.toISOString().replace('T', ' ').slice(0, 16) }} UTC)</span>
+            </template>
+            <template v-else>{{ editPreview.error }}</template>
+          </p>
+          <UiInput
+            v-model="editDesc"
+            label="Description (optional)"
+            placeholder="Nightly vault backup"
+          />
+          <UiCheckbox v-model="editRunOnBoot" label="Run once when the daemon starts" />
+          <p v-if="editError" class="note sched-error">{{ editError }}</p>
+        </div>
+        <template #footer>
+          <button class="ghost-btn" type="button" @click="editVisible = false">Cancel</button>
+          <button class="ghost-btn primary" type="button" @click="saveSchedule">Save</button>
+        </template>
+      </UiModal>
+
+      <UiModal
+        v-model:visible="historyVisible"
+        :title="`Run history${historyRow ? ` — ${historyRow.path}` : ''}`"
+        icon="solar:history-bold"
+        size="md"
+      >
+        <p v-if="historyLoading" class="text-muted">Loading runs…</p>
+        <table v-else-if="historyRuns.length" class="task-table hist-table">
+          <thead>
+            <tr>
+              <th>Run</th>
+              <th>Status</th>
+              <th>Finished</th>
+              <th>Output</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="run in historyRuns" :key="run.runId">
+              <td data-label="Run" class="truncate">{{ run.runId }}</td>
+              <td data-label="Status">
+                <span class="state" :class="`state-${run.status === 'ok' ? 'done' : 'failed'}`">{{ run.status }}</span>
+              </td>
+              <td data-label="Finished">{{ run.finishedAt.replace('T', ' ').slice(0, 19) }}</td>
+              <td data-label="Output" class="truncate hist-tail" :title="run.outputTail ?? ''">
+                {{ (run.outputTail ?? '—').split('\n')[0] }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else class="text-muted empty">No runs recorded yet.</p>
+        <template #footer>
+          <button class="ghost-btn" type="button" @click="historyVisible = false">Close</button>
+        </template>
+      </UiModal>
+    </template>
   </div>
 </template>
 
@@ -239,6 +547,42 @@ onBeforeUnmount(() => {
   color: var(--ui-text);
   background: var(--ui-danger);
   border-color: var(--ui-danger);
+}
+
+.ghost-btn.primary {
+  color: var(--ui-text);
+  border-color: color-mix(in srgb, var(--ui-accent) 60%, transparent);
+}
+
+.ghost-btn.primary:hover {
+  background: var(--ui-accent-softer);
+}
+
+.proc-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+}
+
+.proc-tabs button {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  background: transparent;
+  border: 1px solid var(--ui-hairline);
+  border-radius: 8px;
+  color: var(--ui-text-3);
+  cursor: pointer;
+}
+
+.proc-tabs button.on {
+  color: var(--ui-accent);
+  border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent);
+  background: var(--ui-accent-softer);
 }
 
 .stats-row {
@@ -312,6 +656,7 @@ onBeforeUnmount(() => {
 
 .task-action {
   text-align: right;
+  white-space: nowrap;
 }
 
 .name-cell {
@@ -430,6 +775,75 @@ onBeforeUnmount(() => {
   color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important;
 }
 
+/* ── Schedules tab ── */
+.sched-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sched-hint {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.sched-hint code,
+.empty code {
+  padding: 0 3px;
+  border: 1px solid var(--ui-hairline);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ui-text) 5%, transparent);
+  font-size: 10.5px;
+}
+
+.sched-desc {
+  display: block;
+  font-size: 11px;
+}
+
+.state-toggle.on {
+  color: var(--ui-accent);
+  border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent);
+}
+
+.sched-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.sched-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sched-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sched-preview {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ui-accent);
+}
+
+.sched-preview.bad {
+  color: var(--ui-danger);
+}
+
+.sched-error {
+  color: var(--ui-danger);
+}
+
+.hist-tail {
+  max-width: 260px;
+}
+
 @media (max-width: 700px) {
   .process-panel {
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -461,6 +875,10 @@ onBeforeUnmount(() => {
     min-height: 44px;
     padding: 8px 12px;
     border-radius: 12px;
+  }
+
+  .proc-tabs {
+    padding: 10px 16px 0;
   }
 
   .stats-row {
@@ -576,6 +994,7 @@ onBeforeUnmount(() => {
   .task-table .task-action {
     display: flex;
     justify-content: flex-end;
+    flex-wrap: wrap;
     min-height: 44px;
   }
 
@@ -611,6 +1030,14 @@ onBeforeUnmount(() => {
     padding: 10px 12px;
     border-radius: 12px;
     font-size: 16px;
+  }
+
+  .sched-toolbar {
+    align-items: flex-start;
+  }
+
+  .sched-actions {
+    justify-content: flex-start;
   }
 }
 

@@ -22,7 +22,7 @@
 // window). `useTauri.ts` supplies the real deps; nothing here imports a
 // composable, so there are no module cycles.
 
-import type { ShellResult } from '@/types'
+import type { ScheduleRow, ScheduleRun, ShellResult } from '@/types'
 import {
   checkCybshScript,
   cybshFetchKey,
@@ -56,29 +56,11 @@ export interface StaticSyncConfig {
   folderId?: string
 }
 
-/** One scheduler row — camelCase twin of `cybermanju_types::ScheduleRow`. */
-export interface StaticSchedule {
-  id: string
-  path: string
-  expr: string
-  enabled: boolean
-  description?: string | null
-  createdAt: string
-  lastFiredAt?: string | null
-  nextFireAt?: string | null
-  lastRunId?: string | null
-  runOnBoot?: boolean
-}
-
-/** One fire record — twin of `cybermanju_types::ScheduleRun`. */
-export interface StaticScheduleRun {
-  runId: string
-  scheduleId: string
-  startedAt: string
-  finishedAt: string
-  status: string
-  outputTail?: string | null
-}
+/** One scheduler row / fire record — shared shapes live in `@/types`
+ * (`ScheduleRow`/`ScheduleRun`); the aliases keep this module's deps
+ * signatures readable without re-declaring the fields. */
+export type StaticSchedule = ScheduleRow
+export type StaticScheduleRun = ScheduleRun
 
 export interface StaticDiskStatus {
   attached: boolean

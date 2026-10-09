@@ -98,12 +98,7 @@ fn new_row(req: &CreateRequest) -> ScheduleRow {
 /// belong to the schedule, not to the last write of its definition.
 fn upsert(db: &Database, req: &CreateRequest) -> Result<ScheduleRow, String> {
     let mut row = new_row(req);
-    if let Some(id) = req
-        .id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    if let Some(id) = req.id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         if let Some(existing) = scheduler::get(db, id)? {
             row.created_at = existing.created_at;
             row.last_fired_at = existing.last_fired_at;
@@ -132,7 +127,6 @@ pub fn route(
         // NOTE: `POST /api/cron/{id}/run` is handled lockless in lib.rs
         // before the request lock is taken (the script executes
         // synchronously); it never reaches this family.
-
         ["api", "cron", id, "enable"] if method == "POST" => {
             respond(scheduler::set_enabled(db, id, true), origin)
         }
@@ -162,7 +156,8 @@ pub fn route(
 }
 
 fn update(db: &Database, id: &str, req: &UpdateRequest) -> Result<ScheduleRow, String> {
-    let mut row = scheduler::get(db, id)?.ok_or_else(|| format!("not_found: no schedule `{id}`"))?;
+    let mut row =
+        scheduler::get(db, id)?.ok_or_else(|| format!("not_found: no schedule `{id}`"))?;
     if let Some(path) = &req.path {
         if !path.to_lowercase().ends_with(".cybsh") {
             return Err(format!(

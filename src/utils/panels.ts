@@ -18,6 +18,9 @@ export const PANEL_ALIASES: Partial<Record<PanelType, PanelType>> = {
   'loose-groups': 'collections',
   style: 'collections',
   preview: 'files',
+  cron: 'processes',
+  automation: 'processes',
+  schedules: 'processes',
 }
 
 /** Props injected when opening via an alias (usually the initial tab). */
@@ -30,6 +33,9 @@ export const ALIAS_TAB_PROPS: Partial<Record<PanelType, Record<string, unknown>>
   'loose-groups': { tab: 'loose' },
   style: { tab: 'tags' },
   preview: { inspector: true, inspTab: 'info' },
+  cron: { tab: 'schedules' },
+  automation: { tab: 'schedules' },
+  schedules: { tab: 'schedules' },
 }
 
 /** Canonical window id for a panel id (identity when not aliased). */
