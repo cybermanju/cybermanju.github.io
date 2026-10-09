@@ -68,8 +68,7 @@
             class="desktop-shortcut"
             type="button"
             :title="shortcut.label"
-            @dblclick="wm.open(shortcut.panel)"
-            @click="selectShortcut = shortcut.panel"
+            @click="openShortcut(shortcut.panel)"
           >
             <span class="shortcut-icon" :class="{ selected: selectShortcut === shortcut.panel }">
               <AppIcon :name="shortcut.icon" :size="20" />
@@ -171,6 +170,11 @@ const shortcuts: { panel: PanelType; label: string; icon: string }[] = [
   { panel: 'settings', label: 'Settings', icon: 'solar:settings-bold' },
   { panel: 'terminal', label: 'Terminal', icon: 'solar:file-terminal-bold' },
 ]
+
+function openShortcut(panel: PanelType) {
+  selectShortcut.value = panel
+  wm.open(panel)
+}
 
 const visibleWindows = computed(() =>
   wm.windows.value.filter(w => !w.minimized)
@@ -725,5 +729,10 @@ onUnmounted(() => {
 .mobile-only-launcher { display: none !important; }
 @media (max-width: 768px) {
   .mobile-only-launcher { display: flex !important; }
+  /* The empty workspace stacks above the launcher. Let taps pass through it,
+     while keeping the fullscreen app sheets themselves interactive. */
+  .desktop-workspace { pointer-events: none; }
+  .desktop-workspace :deep(.app-window) { pointer-events: auto; }
+  .desktop-icons { display: none; }
 }
 </style>

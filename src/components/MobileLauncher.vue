@@ -5,6 +5,7 @@
     :class="{ 'with-app-nav': hasOpenWindows }"
     role="main"
     aria-label="CyberManju home"
+    @click.stop
     @touchstart.passive="onTouchStart"
     @touchmove.passive="onTouchMove"
   >

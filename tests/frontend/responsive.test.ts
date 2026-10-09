@@ -89,6 +89,16 @@ describe('mobile home + nav wiring', () => {
     }
     expect(nav).toMatch(/env\(safe-area-inset-bottom/)
   })
+
+  it('keeps home apps clickable and opens desktop shortcuts on one click', () => {
+    const shell = fs.readFileSync('src/components/DesktopShell.vue', 'utf8')
+    expect(shell).toContain('@click="openShortcut(shortcut.panel)"')
+    expect(shell).toMatch(/\.desktop-workspace\s*\{\s*pointer-events:\s*none/)
+    expect(shell).toMatch(/\.desktop-workspace\s+:deep\(\.app-window\)\s*\{\s*pointer-events:\s*auto/)
+    expect(shell).toMatch(/\.desktop-icons\s*\{\s*display:\s*none/)
+    const launcher = fs.readFileSync('src/components/MobileLauncher.vue', 'utf8')
+    expect(launcher).toMatch(/class="mla"[\s\S]*?@click\.stop/)
+  })
 })
 
 describe('mobile onboarding surface', () => {

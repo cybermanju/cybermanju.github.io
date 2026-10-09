@@ -1933,8 +1933,10 @@ export const useAppStore = defineStore('cybermanju', () => {
   async function fetchOsTop() {
     try {
       osTop.value = await invoke<OsTop>('os_top')
-    } catch (e) {
-      notifyError('Failed to fetch system stats', e)
+    } catch {
+      // System stats are optional background telemetry. A static/web session
+      // may have no OS endpoint; keep the panel in its n/a state without a toast.
+      osTop.value = null
     }
   }
 
