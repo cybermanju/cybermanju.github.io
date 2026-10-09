@@ -452,7 +452,7 @@ pub fn upload_file(
         .map_err(|e| format!("integrity: cannot store uploaded file: {}", e))?;
 
     let stored_str = stored_path.to_string_lossy().to_string();
-    let imported = import_file(stored_str, parent_path, state)?;
+    let imported = import_file(stored_str, parent_path, state.clone())?;
     // `import_file` names the node after the stored basename (`{id}_{safe}`);
     // restore the real upload name so the vault shows what the user dropped.
     let db = state.db.write().map_err(|e| e.to_string())?;
