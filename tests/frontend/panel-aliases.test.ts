@@ -31,6 +31,19 @@ describe('panel aliases', () => {
     }
   })
 
+  it('routes the vault aliases onto the Secrets window (Phase 3)', () => {
+    for (const alias of ['passwords', 'credentials'] as const) {
+      expect(resolvePanel(alias), `${alias} → secrets`).toBe('secrets')
+      expect(MODULE_METADATA[alias], `${alias} metadata`).toBeDefined()
+    }
+    // `secrets` itself is canonical (not an alias) and has metadata.
+    expect(PANEL_ALIASES.secrets).toBeUndefined()
+    expect(MODULE_METADATA.secrets).toBeDefined()
+    // `vault` is intentionally NOT an alias — AccountManager already uses
+    // "Vault file" as a tab label; aliasing would collide in the palette.
+    expect(PANEL_ALIASES.vault).toBeUndefined()
+  })
+
   it('has no self-aliases, chains or cycles', () => {
     for (const [alias, target] of Object.entries(PANEL_ALIASES)) {
       expect(target, `${alias} aliases to itself`).not.toBe(alias)

@@ -19,7 +19,7 @@
 
 import { ref } from 'vue'
 import { wasmAgentCatalog, wasmAgentPrompt, type WasmAgentTurn } from './useWasmBackend'
-import { wasmModuleExports, wasmOsDispatch } from './useWasmBackend'
+import { wasmDbDispatch, wasmModuleExports, wasmOsDispatch } from './useWasmBackend'
 import { prepareWireMessages } from '@/utils/agentUi'
 import { rankResearchPaths } from '@/utils/researchRank'
 import { cleanToolOutput } from '@/utils/redact'
@@ -245,7 +245,7 @@ export function decideLocalTool(
   // Plan persona: read-only. skill_save writes a file, mcp_attach mutates
   // the config, os_exec runs volume commands — all denied like edit/write/
   // bash. self_research and repo_analyze are read-only and stay available.
-  if (agentKind === 'plan' && (tool === 'edit' || tool === 'write' || tool === 'bash' || tool === 'skill_save' || tool === 'mcp_attach' || tool === 'os_exec')) {
+  if (agentKind === 'plan' && (tool === 'edit' || tool === 'write' || tool === 'bash' || tool === 'skill_save' || tool === 'mcp_attach' || tool === 'os_exec' || tool === 'secret_list' || tool === 'secret_get')) {
     return { kind: 'deny', reason: `deny: plan agent may not run \`${tool}\`` }
   }
   const rule = rules.rules[tool]
@@ -950,6 +950,25 @@ async function execLocalTool(
       const { useNotifications } = await import('@/composables/useNotifications')
       useNotifications().notify(level as 'info' | 'success' | 'warning' | 'error', message)
       return 'ok: notified'
+    }
+    case 'secret_list': {
+      // Metadata only — the wasm op strips `valueSealed` before returning.
+      const rows = (await wasmDbDispatch('secrets.list', {})) as Array<Record<string, unknown>>
+      return JSON.stringify(rows ?? [])
+    }
+    case 'secret_get': {
+      const id = String(call.input.id ?? '').trim()
+      if (!id) throw new Error('invalid: secret id is required')
+      // Plaintext goes to the model (permission gate already asked); the
+      // transcript redactor scrubs provider keys, and the tool description
+      // warns the model to use it sparingly.
+      const { sessionVaultPassphrase } = await import('@/composables/useWasmBackend')
+      const passphrase = sessionVaultPassphrase()
+      if (!passphrase) {
+        throw new Error('unsupported: vault locked — unlock the .cybermanju file first')
+      }
+      const res = (await wasmDbDispatch('secrets.reveal', { id, passphrase })) as { value?: string }
+      return String(res?.value ?? '')
     }
     case 'memory_recall': {
       const query = String(call.input.query ?? '').trim()

@@ -18,6 +18,7 @@ import type {
   DashboardStatus,
   ShellResult, OsPs, OsTop, OsWorkers, OsJob, OsVolumeDf, DiskRow,
   ScheduleRow, ScheduleRun,
+  SecretMeta, SecretInput,
   SyncBackendType,
 } from '@/types'
 import { MODULE_METADATA, oauthSlugForBackend, describeSyncError, agentErrorHint } from '@/types'
@@ -104,6 +105,11 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   // ── Scheduler (cron): recurring `.cybsh` triggers ─────────
   const schedules = ref<ScheduleRow[]>([])
+
+  // ── Secrets keystore (Phase 3): sealed password-manager rows ──
+  // Metadata only — `valueSealed` never reaches this store; reveal is a
+  // one-shot call whose plaintext the panel copies and forgets.
+  const secrets = ref<SecretMeta[]>([])
 
   // ── Code Intelligence State ───────────────────────────────
   const parseResult = ref<ParseResult | null>(null)
@@ -468,6 +474,7 @@ export const useAppStore = defineStore('cybermanju', () => {
         listKeys(),
         fetchSyncConfigs(),
         fetchSchedules(),
+        fetchSecrets(),
       ])
       startAutoRefresh()
       startScheduleTick()
@@ -2133,6 +2140,62 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
+  // ── Actions: Secrets keystore (Phase 3) ───────────────────
+  async function fetchSecrets() {
+    try {
+      secrets.value = await invoke<SecretMeta[]>('secret_list')
+    } catch (e) {
+      notifyError('Failed to fetch vault secrets', e)
+    }
+  }
+
+  /** Create or update a secret. `value` is the plaintext — sealed on
+   *  write and never echoed back (the store only sees metadata). */
+  async function createSecret(input: SecretInput): Promise<SecretMeta | null> {
+    try {
+      const saved = await invoke<SecretMeta>('secret_save', { request: input })
+      await fetchSecrets()
+      return saved
+    } catch (e) {
+      notifyError('Failed to save secret', e)
+      return null
+    }
+  }
+
+  async function updateSecret(id: string, patch: Partial<SecretInput>): Promise<SecretMeta | null> {
+    try {
+      const saved = await invoke<SecretMeta>('secret_update', { id, request: patch })
+      await fetchSecrets()
+      return saved
+    } catch (e) {
+      notifyError('Failed to update secret', e)
+      return null
+    }
+  }
+
+  async function deleteSecret(id: string) {
+    try {
+      await invoke('secret_delete', { id })
+      await fetchSecrets()
+    } catch (e) {
+      notifyError('Failed to delete secret', e)
+    }
+  }
+
+  /** Reveal the plaintext once — the caller copies it and forgets it.
+   *  The server audits the reveal; this never logs the value. */
+  async function revealSecret(id: string): Promise<string | null> {
+    try {
+      const raw = await invoke<string | { value?: string }>('secret_reveal', { id })
+      // REST answers `{ value }`; Tauri answers the bare string.
+      if (typeof raw === 'string') return raw
+      return typeof raw?.value === 'string' ? raw.value : null
+    } catch (e) {
+      notifyError('Failed to reveal secret', e)
+      return null
+    }
+  }
+
   // ── Actions: AI agent ─────────────────────────────────────
   const agentProviders = ref<ProviderPreset[]>([])
   const agentConfigs = ref<AgentConfig[]>([])
@@ -2563,6 +2626,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     syncJobs, syncRuns, syncStatus, repairStatus, scrubRuns, leaseInfo, lastGc,
     osPs, osTop, osWorkers, osJobs, osDf, disks, shellBusy,
     schedules,
+    secrets,
     trashItems, showTrashPanel, auditLog, fileVersions, dashboardStatus, shareLinks,
     searchQuery, searchTotalResults, isSearching, isLoading, lastError, wasmGapCount, matrixRainEnabled,
     commandPaletteOpen, lastSyncAt, lastSyncSummary,
@@ -2594,6 +2658,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     killOsTask, runComputeJob,
     // Scheduler (cron)
     fetchSchedules, cronSave, cronDelete, cronRun, cronSetEnabled, cronHistory,
+    fetchSecrets, createSecret, updateSecret, deleteSecret, revealSecret,
     tickSchedules, startScheduleTick,
     agentProviders, agentConfigs, agentSessions, agentJobs, activeAgentJob,
     fetchAgentProviders, fetchAgentConfigs, saveAgentConfig, deleteAgentConfig,

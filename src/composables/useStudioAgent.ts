@@ -89,6 +89,11 @@ function localSystemPrompt(config: AgentConfig): string {
     `- ui_open_panel {panel, tab?, path?}: open a UI panel for the user (files, terminal, agent, settings, …). ` +
     `Unknown ids answer not_found:; optional tab/path navigate inside the panel. Read-only and always allowed.\n` +
     `- ui_notify {level, message}: show the user a notification (info/success/warning/error). Always allowed; use sparingly.\n` +
+    `- secret_list {}: list vault secret METADATA only (id/title/kind/username/url/tags/hasValue) — ` +
+    `never values. Pair with secret_get only when the user explicitly asked you to use a stored credential.\n` +
+    `- secret_get {id}: reveal ONE stored secret's plaintext. The result carries the plaintext to you — ` +
+    `default permission is ASK (the approval card shows the title, never the value). Only call it when ` +
+    `the user explicitly asked you to use this credential.\n` +
     `- mcp__server__tool: attached HTTP MCP servers only; stdio answers unsupported:.\n` +
     `- memory_recall {query, top_k?}: search long-term memory (past sessions, stored facts). ` +
     `Bounded and possibly stale — verify before acting.\n` +

@@ -1128,6 +1128,7 @@ export function agentPermissionPreset(name: 'strict' | 'balanced' | 'yolo'): Per
       repo_analyze: 'allow',
       ui_open_panel: 'allow',
       ui_notify: 'allow',
+      secret_list: 'allow',
       bash: [['*', 'ask'], ['git *', 'allow'], ['curl *', 'allow'], ['wget *', 'allow'], ['rm *', 'deny']],
       mcp__exa__web_search_exa: 'allow',
       mcp__exa__web_fetch_exa: 'allow',

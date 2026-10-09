@@ -40,6 +40,8 @@ export const AGENT_TOOL_META: Record<string, ToolMeta> = {
   os_exec: { name: 'os_exec', verb: 'Running cybsh', done: 'Ran cybsh', icon: 'solar:command-bold' },
   ui_open_panel: { name: 'ui_open_panel', verb: 'Opening panel', done: 'Opened panel', icon: 'solar:monitor-bold' },
   ui_notify: { name: 'ui_notify', verb: 'Notifying', done: 'Notified', icon: 'solar:bell-bold' },
+  secret_list: { name: 'secret_list', verb: 'Listing vault', done: 'Listed vault', icon: 'solar:wallet-bold' },
+  secret_get: { name: 'secret_get', verb: 'Revealing secret', done: 'Revealed secret', icon: 'solar:key-bold' },
 }
 
 export function toolMeta(name: string): ToolMeta {

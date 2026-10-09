@@ -168,6 +168,43 @@ describe('REST route coverage', () => {
     }
   })
 
+  it('routes the secrets keystore over REST + native IPC + wasm (Phase 3)', () => {
+    const cmds = [
+      'secret_list',
+      'secret_save',
+      'secret_update',
+      'secret_get',
+      'secret_reveal',
+      'secret_delete',
+    ] as const
+    for (const cmd of cmds) {
+      expect(REST_ROUTES[cmd], cmd).toBeTruthy()
+      expect(REST_FIRST.has(cmd), cmd).toBe(true)
+      expect(MOBILE_NATIVE_OS_COMMANDS.has(cmd), cmd).toBe(true)
+    }
+    expect(REST_ROUTES.secret_list.buildPath({})).toBe('/api/secrets')
+    expect(REST_ROUTES.secret_get.buildPath({ id: 's-1' })).toBe('/api/secrets/s-1')
+    expect(REST_ROUTES.secret_reveal.buildPath({ id: 's-1' })).toBe('/api/secrets/s-1/reveal')
+    expect(REST_ROUTES.secret_delete.buildPath({ id: 's-1' })).toBe('/api/secrets/s-1')
+    // Save sends the plaintext `value` (sealed server-side, never echoed).
+    const body = REST_ROUTES.secret_save.transformRequest!({
+      request: { title: 'GitHub', kind: 'login', value: 'hunter2', username: 'octocat' },
+    })
+    expect(body).toMatchObject({ title: 'GitHub', kind: 'login', value: 'hunter2', username: 'octocat' })
+    // Desktop/mobile IPC handlers stay wired in the Tauri backend.
+    const commands = fs.readFileSync('src-tauri/src/commands/secrets.rs', 'utf8')
+    const runtime = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
+    for (const cmd of ['secret_list', 'secret_save', 'secret_get', 'secret_reveal', 'secret_delete']) {
+      expect(commands).toMatch(new RegExp(`pub fn ${cmd}\\b`))
+      expect(runtime).toContain(`commands::secrets::${cmd}`)
+    }
+    // REST segment is registered (404-before-401 gate) and Admin-gated for
+    // mutations/reveal — list stays Authenticated.
+    const security = fs.readFileSync('crates/web/src/security.rs', 'utf8')
+    expect(security).toContain('"secrets"')
+    expect(security).toContain('["api", "secrets", _, "reveal"] => RequiredRole::Admin')
+  })
+
   it('keeps local-only commands in WRITE_ONLY instead of 404ing', () => {
     for (const cmd of ['get_compression_stats', 'get_symbols', 'parse_file', 'upload_file']) {
       expect(WRITE_ONLY_COMMANDS.has(cmd)).toBe(true)

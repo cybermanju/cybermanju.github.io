@@ -7,6 +7,7 @@
 import type { FileNode } from '@/types'
 import {
   notifyOsDispatch,
+  sessionVaultPassphrase,
   wasmDbDispatch,
   wasmDiskStatus,
   wasmModuleExports,
@@ -1005,6 +1006,70 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     transformRequest: () => ({}),
   },
 
+  // ── Secrets keystore (Phase 3) — sealed password-manager rows ──
+  // List/meta never carry values; `secret_reveal` is the only plaintext
+  // path and the server audits it. The `value` field on save is the
+  // plaintext (sealed server-side, never echoed).
+  secret_list: {
+    method: 'GET',
+    buildPath: () => '/api/secrets',
+  },
+
+  secret_save: {
+    method: 'POST',
+    buildPath: () => '/api/secrets',
+    transformRequest: (args) => {
+      const r = (args.request ?? args) as Record<string, unknown>
+      return {
+        id: r.id ?? '',
+        kind: r.kind ?? 'login',
+        title: r.title,
+        username: r.username ?? null,
+        url: r.url ?? null,
+        category: r.category ?? null,
+        tags: r.tags ?? [],
+        notes: r.notes ?? null,
+        favorite: r.favorite ?? false,
+        value: r.value ?? null,
+      }
+    },
+  },
+
+  secret_update: {
+    method: 'PUT',
+    buildPath: (args) => `/api/secrets/${encodeURIComponent(String(args.id ?? ''))}`,
+    transformRequest: (args) => {
+      const r = (args.request ?? args) as Record<string, unknown>
+      return {
+        kind: r.kind ?? null,
+        title: r.title ?? null,
+        username: r.username ?? null,
+        url: r.url ?? null,
+        category: r.category ?? null,
+        tags: r.tags ?? null,
+        notes: r.notes ?? null,
+        favorite: r.favorite ?? null,
+        value: r.value ?? null,
+      }
+    },
+  },
+
+  secret_get: {
+    method: 'GET',
+    buildPath: (args) => `/api/secrets/${encodeURIComponent(String(args.id ?? ''))}`,
+  },
+
+  secret_reveal: {
+    method: 'GET',
+    buildPath: (args) =>
+      `/api/secrets/${encodeURIComponent(String(args.id ?? ''))}/reveal`,
+  },
+
+  secret_delete: {
+    method: 'DELETE',
+    buildPath: (args) => `/api/secrets/${encodeURIComponent(String(args.id ?? ''))}`,
+  },
+
   // Arming the daemon is a server-side no-op from the client's view; the
   // GET also trips `ensure_started` in `web/lib.rs` on the way past.
   cron_ensure_started: {
@@ -1346,6 +1411,8 @@ export const REST_FIRST = new Set([
   'lease_acquire', 'lease_release', 'lease_status',
   'cron_list', 'cron_save', 'cron_delete', 'cron_run', 'cron_history',
   'cron_set_enabled', 'cron_ensure_started',
+  'secret_list', 'secret_save', 'secret_update', 'secret_get',
+  'secret_reveal', 'secret_delete',
   'parse_text', 'read_file_content', 'write_file_content',
   'list_agent_providers', 'list_agent_configs', 'save_agent_config',
   'delete_agent_config', 'save_agent_key', 'list_agent_models',
@@ -1370,6 +1437,8 @@ export const MOBILE_NATIVE_OS_COMMANDS = new Set([
   'get_sync_status', 'get_sync_usage',
   'cron_list', 'cron_save', 'cron_delete', 'cron_run', 'cron_history',
   'cron_set_enabled', 'cron_ensure_started',
+  'secret_list', 'secret_save', 'secret_update', 'secret_get',
+  'secret_reveal', 'secret_delete',
 ])
 
 // Commands the `cybermanju-os-wasm` crate serves on a static host.
@@ -1405,6 +1474,12 @@ interface DbWasmRoute {
   /** May be async — routes that need a second lookup (e.g. the file node). */
   map?: (raw: unknown, a: Record<string, unknown>) => unknown | Promise<unknown>
   probe?: boolean
+}
+
+/** Session vault passphrase for the secrets wasm ops (held after unlock;
+ *  empty when locked — the ops answer `unsupported:` honestly). */
+function sessionVaultPass(): string {
+  return sessionVaultPassphrase()
 }
 
 /**
@@ -1451,6 +1526,47 @@ const DB_WASM_ROUTES: Record<string, DbWasmRoute> = {
   cron_save: { op: 'cron.save', args: (a) => ({ row: withScheduleFire(a.row) }) },
   cron_delete: { op: 'cron.delete', args: (a) => ({ id: a.id }) },
   cron_history: { op: 'cron.history', args: (a) => ({ id: a.id }) },
+  // ── Secrets keystore — sealed at rest; the session vault passphrase is
+  // an argument (held after `.cybermanju` unlock, never stored). ──
+  secret_list: { op: 'secrets.list', args: () => ({}) },
+  secret_get: { op: 'secrets.get', args: (a) => ({ id: a.id }) },
+  secret_save: {
+    op: 'secrets.create',
+    args: (a) => {
+      const r = (a.request ?? a) as Record<string, unknown>
+      return {
+        row: {
+          id: r.id ?? '',
+          kind: r.kind ?? 'login',
+          title: r.title,
+          username: r.username ?? null,
+          url: r.url ?? null,
+          category: r.category ?? null,
+          tags: r.tags ?? [],
+          notes: r.notes ?? null,
+          favorite: r.favorite ?? false,
+        },
+        value: r.value ?? '',
+        passphrase: sessionVaultPass(),
+      }
+    },
+  },
+  secret_update: {
+    op: 'secrets.update',
+    args: (a) => {
+      const r = (a.request ?? a) as Record<string, unknown>
+      return {
+        row: { id: a.id, ...r },
+        value: r.value ?? undefined,
+        passphrase: sessionVaultPass(),
+      }
+    },
+  },
+  secret_reveal: {
+    op: 'secrets.reveal',
+    args: (a) => ({ id: a.id, passphrase: sessionVaultPass() }),
+  },
+  secret_delete: { op: 'secrets.delete', args: (a) => ({ id: a.id }) },
   test_sync_connection: { op: '', args: () => ({}), probe: true },
   list_users: { op: 'users.list', args: () => ({}) },
   register_user: {
