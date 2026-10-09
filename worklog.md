@@ -471,3 +471,11 @@ Stage Summary:
 - Settings → Appearance exposed both “Wallpaper effects” and “Matrix rain” controls for the same `matrixRainEnabled` state. Removed the redundant Matrix rain row, keeping the accessible opt-in canvas control that matches the DesktopShell guidance.
 - Added a regression test ensuring the preference appears once with its accessible label.
 - Verified locally: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, and 51 frontend suites / 579 tests. Changes are isolated to `develop`; Rust validation remains delegated to CI per `AGENTS.md`.
+
+
+## 2026-10-09 — Custom wallpaper via URL or file picker
+
+- Settings → Appearance now accepts HTTP(S) image URLs or a file from the browser/WebView picker (PNG, JPEG, WebP, GIF, AVIF; 20 MiB maximum). The shared frontend works in WASM Pages, Tauri WebView and Docker/web without transport-specific branches. Files are stored in client-side IndexedDB and never uploaded to the server; URL images are fetched directly from their source. Invalid schemes/credentials are rejected, image-load failures fall back to the built-in gradient, and replaced object URLs are revoked.
+- The selector surfaces “Custom image” while active and returns to the prior preset when reset. `/develop/` uses a separate IndexedDB database from the production root. Added coverage for URL/file validation, local save/restore, object-URL cleanup, and preview isolation.
+- Fixed a pre-existing autosave omission in `useTheme()`: built-in wallpaper changes now persist with the other appearance settings.
+- Verified locally: `npm run typecheck`, `npm test` (52 suites / 585 tests), `bash scripts/check-version.sh`, `npm run build`, and Vite frontend builds with `VITE_BASE=/` and `/develop/` (asset prefixes checked). The checked-in WASM package is stale, so local Vite builds used the stub; no local Cargo/wasm-pack run per `AGENTS.md`. CI will rebuild the WASM package.

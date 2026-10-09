@@ -126,7 +126,17 @@ function scheduleApply() {
 }
 
 watch(
-  () => [state.theme, state.accent, state.density, state.glass, state.motion, state.glow, state.followSystem, shellState.value],
+  () => [
+    state.theme,
+    state.accent,
+    state.density,
+    state.glass,
+    state.motion,
+    state.glow,
+    state.followSystem,
+    state.wallpaper,
+    shellState.value,
+  ],
   () => scheduleApply(),
   { deep: true }
 )

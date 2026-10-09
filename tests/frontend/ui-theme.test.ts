@@ -1,7 +1,8 @@
 // Theme registries + accent resolution + WCAG contrast guards.
 // Flat AMOLED remake: 2 themes (os-dark, os-light) + optional os-graphite,
 // one fixed geometry, no neon/glow/aurora. Legacy ids resolve via aliases.
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+import { useTheme } from '@/composables/useTheme'
 import {
   THEMES,
   THEME_IDS,
@@ -99,6 +100,31 @@ describe('theme registries', () => {
     expect(plasma['--ui-shadow-popup']).toBeTruthy()
     expect(plasma['--ui-panel']).toBeTruthy()
     expect(plasma['--ui-hover']).toBeTruthy()
+  })
+})
+
+describe('wallpaper persistence', () => {
+  it('saves preset changes through the shared theme settings watcher', async () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, String(value)) },
+      removeItem: (key: string) => { values.delete(key) },
+    })
+
+    try {
+      const theme = useTheme()
+      const current = theme.settings.wallpaper
+      const next = current === 'dunes' ? 'slopes-light' : 'dunes'
+      theme.setWallpaper(next)
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+      const saved = values.get('cybermanju_theme_v1')
+      expect(saved).toBeDefined()
+      expect(JSON.parse(saved!).wallpaper).toBe(next)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 

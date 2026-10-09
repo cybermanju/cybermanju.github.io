@@ -83,11 +83,69 @@
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Wallpaper</UiText>
           <UiSelect
-            :model-value="theme.settings.wallpaper"
+            :model-value="customWallpaper.kind.value ? 'custom' : theme.settings.wallpaper"
             :options="wallpaperOptions"
             aria-label="Wallpaper"
-            @update:model-value="theme.setWallpaper($event)"
+            :disabled="customWallpaper.busy.value"
+            @update:model-value="setWallpaperChoice($event)"
           />
+        </div>
+        <div class="st-wallpaper-custom">
+          <div class="st-wallpaper-custom__heading">
+            <UiText as="span" variant="label" tone="muted">Custom wallpaper</UiText>
+            <span v-if="customWallpaper.kind.value" class="st-wallpaper-custom__status">
+              {{ customWallpaper.kind.value === 'url' ? 'Using image URL' : 'Using local image' }}
+            </span>
+          </div>
+          <div class="st-field-row">
+            <UiInput
+              v-model="wallpaperUrlDraft"
+              type="url"
+              label="Image URL"
+              placeholder="https://example.com/wallpaper.jpg"
+              autocomplete="url"
+              :disabled="customWallpaper.busy.value"
+              @enter="applyWallpaperUrl"
+            />
+            <div class="st-actions">
+              <UiButton
+                variant="primary"
+                size="sm"
+                :loading="customWallpaper.busy.value"
+                :disabled="customWallpaper.busy.value || !wallpaperUrlDraft.trim()"
+                @click="applyWallpaperUrl"
+              >Use URL</UiButton>
+            </div>
+          </div>
+          <div class="st-wallpaper-actions">
+            <input
+              ref="wallpaperFileInput"
+              type="file"
+              accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+              class="st-hidden"
+              aria-label="Choose custom wallpaper file"
+              @change="handleWallpaperFile"
+            />
+            <UiButton
+              size="sm"
+              icon="solar:upload-bold"
+              :disabled="customWallpaper.busy.value"
+              @click="openWallpaperPicker"
+            >Choose image</UiButton>
+            <UiButton
+              v-if="customWallpaper.kind.value"
+              size="sm"
+              variant="ghost"
+              :disabled="customWallpaper.busy.value"
+              @click="clearCustomWallpaper"
+            >Use preset</UiButton>
+          </div>
+          <p class="st-wallpaper-note">
+            PNG, JPEG, WebP, GIF, or AVIF · up to 20 MiB. Files stay on this device; URL images load directly from their source.
+          </p>
+          <p v-if="customWallpaper.error.value" class="st-wallpaper-error" role="alert" aria-live="polite">
+            {{ customWallpaper.error.value }}
+          </p>
         </div>
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Panel position</UiText>
@@ -443,6 +501,7 @@ import { useAppStore } from '@/stores/app'
 import { isTauri, getServerUrl, setServerUrl } from '@/composables/useTauri'
 import { useTransport } from '@/composables/useTransport'
 import { legalPageUrl } from '@/utils/legalPageUrl'
+import { useCustomWallpaper } from '@/composables/useCustomWallpaper'
 import {
   getSupabaseConfig,
   setSupabaseConfig,
@@ -477,6 +536,9 @@ const transportTone = computed<'neutral' | 'accent' | 'success' | 'warning' | 'd
 
 const store = useAppStore()
 const theme = useTheme()
+const customWallpaper = useCustomWallpaper()
+const wallpaperUrlDraft = ref('')
+const wallpaperFileInput = ref<HTMLInputElement | null>(null)
 const nativeMirrorAvailable = supportsNativeScopedStorage()
 const mirrorPassphrase = ref('')
 const mirrorActionBusy = ref(false)
@@ -520,7 +582,46 @@ function lockMirror() {
   mirrorPassphrase.value = ''
 }
 const accentSwatches = ACCENT_CHOICES
-const wallpaperOptions = WALLPAPERS.map((w) => ({ label: w.label, value: w.id }))
+const wallpaperOptions = computed(() => [
+  ...WALLPAPERS.map((wallpaper) => ({ label: wallpaper.label, value: wallpaper.id })),
+  ...(customWallpaper.kind.value ? [{ label: 'Custom image', value: 'custom' }] : []),
+])
+
+function setWallpaperChoice(value: string) {
+  if (value === 'custom') return
+  theme.setWallpaper(value)
+  if (customWallpaper.kind.value) void customWallpaper.clear()
+}
+
+async function applyWallpaperUrl() {
+  if (customWallpaper.busy.value) return
+  if (await customWallpaper.setUrl(wallpaperUrlDraft.value)) {
+    wallpaperUrlDraft.value = customWallpaper.url.value
+  }
+}
+
+function openWallpaperPicker() {
+  if (!customWallpaper.busy.value) wallpaperFileInput.value?.click()
+}
+
+async function handleWallpaperFile(event: Event) {
+  const input = event.currentTarget as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || customWallpaper.busy.value) {
+    input.value = ''
+    return
+  }
+  try {
+    if (await customWallpaper.setFile(file)) wallpaperUrlDraft.value = ''
+  } finally {
+    input.value = ''
+  }
+}
+
+function clearCustomWallpaper() {
+  void customWallpaper.clear()
+}
+
 const panelDocked = ref('0')
 try {
   panelDocked.value = localStorage.getItem('cybermanju_panel_docked') || '0'
@@ -533,6 +634,14 @@ function setPanelDocked(v: string | number) {
     localStorage.setItem('cybermanju_panel_docked', panelDocked.value)
   } catch { /* session-only */ }
 }
+
+onMounted(async () => {
+  await customWallpaper.load()
+  if (!wallpaperUrlDraft.value && customWallpaper.url.value) {
+    wallpaperUrlDraft.value = customWallpaper.url.value
+  }
+})
+
 const shortcuts = inject(ShortcutsKey, null)
 const isBrowserKeys = computed(() => !isTauri())
 const touchConfig = useTouchConfig()
@@ -1040,6 +1149,25 @@ async function handleRefresh() {
 .st-field-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
 .st-field-row > :first-child { flex: 1 1 220px; min-width: 0; }
 .st-actions { display: flex; flex-wrap: wrap; gap: 6px; flex-shrink: 0; }
+.st-wallpaper-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0 2px;
+  border-top: 1px dashed var(--ui-hairline);
+}
+.st-wallpaper-custom__heading,
+.st-wallpaper-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.st-wallpaper-custom__status,
+.st-wallpaper-note { color: var(--ui-text-3); font-size: 11px; }
+.st-wallpaper-note { margin: 0; line-height: 1.45; }
+.st-wallpaper-error { margin: 0; color: var(--ui-danger); font-size: 12px; line-height: 1.4; }
 
 .st-banner {
   display: flex;
