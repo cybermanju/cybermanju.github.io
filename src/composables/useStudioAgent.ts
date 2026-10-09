@@ -10,6 +10,7 @@
 import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { isStaticHost } from '@/composables/useTauri'
+import { deploymentStorageEventKey } from '@/utils/deploymentScope'
 import {
   useAgent,
   runLocalAgent,
@@ -184,8 +185,9 @@ function createDriver() {
       adoptSharedSelection((e as CustomEvent<string>).detail ?? '')
     })
     window.addEventListener('storage', (e: StorageEvent) => {
-      if (e.key === CHAT_CONFIG_ID_KEY && e.newValue) adoptSharedSelection(e.newValue)
-      if (e.key === LOCAL_CONFIGS_KEY) refreshLocal()
+      const key = deploymentStorageEventKey(e.key)
+      if (key === CHAT_CONFIG_ID_KEY && e.newValue) adoptSharedSelection(e.newValue)
+      if (key === LOCAL_CONFIGS_KEY) refreshLocal()
     })
     window.addEventListener(AGENT_CONFIGS_EVENT, () => refreshLocal())
     window.addEventListener(AGENT_KEYS_EVENT, () => refreshLocal())

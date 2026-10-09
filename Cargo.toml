@@ -16,6 +16,7 @@ members = [
     "crates/erasure",
     "crates/os",
     "crates/agent",
+    "crates/launcher",
     "src-tauri",
     "docker/server",
 ]

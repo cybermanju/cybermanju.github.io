@@ -42,15 +42,9 @@ pub fn create_folder(db: &Database, name: String, parent_id: String) -> Result<F
 /// Soft-delete a file or folder (moves it to the trash).
 pub fn delete(db: &Database, file_id: &str) -> Result<bool, String> {
     let node = read_file(db, file_id)?;
-    let parent_id = node.parent_id.clone();
 
     db.trash_file(file_id, &node, None)
         .map_err(|e| e.to_string())?;
-
-    if let Some(pid) = &parent_id {
-        db.remove_from_parent_index(file_id, pid)
-            .map_err(|e| e.to_string())?;
-    }
 
     db.log_audit("delete", "file", file_id, None, None)
         .map_err(|e| e.to_string())?;

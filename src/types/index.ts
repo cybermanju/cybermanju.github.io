@@ -1045,3 +1045,58 @@ export function agentPermissionPreset(name: 'strict' | 'balanced' | 'yolo'): Per
     },
   }
 }
+
+// ── Android launcher bridge (Gaveta de Apps) ──────────────────────
+// Mirrors `crates/launcher` JSON shapes (camelCase). Overrides live in the
+// launcher store keyed by `android:<package>` or `os:<panel>`.
+
+export interface AndroidApp {
+  packageName: string
+  label: string
+  activityClass: string
+  systemApp: boolean
+  /** True for mail/chat/social packages (WhatsApp, Gmail, Instagram, …). */
+  socialApp: boolean
+  /** `data:image/png;base64,…` 96px raster; "" = render a letter tile. */
+  iconBase64: string
+}
+
+export interface IconPack {
+  packageName: string
+  label: string
+}
+
+export interface LauncherOverride {
+  /** Display alias (rename). Empty = system label. */
+  alias: string
+  /** Explicit order index; -1 = unordered (label sort). */
+  order: number
+  /** Gallery/pack PNG data URL replacing the system icon. */
+  customIcon: string
+  /** Preferred icon-pack package for pack-icon resolution. */
+  iconPack: string
+  hidden: boolean
+}
+
+export function defaultLauncherOverride(): LauncherOverride {
+  return { alias: '', order: -1, customIcon: '', iconPack: '', hidden: false }
+}
+
+// ── Messages hub (stored notification mirror) ───────────────────
+// Mirrors `crates/launcher` JSON shapes (camelCase).
+
+export interface StoredMessage {
+  key: string
+  packageName: string
+  appLabel: string
+  title: string
+  text: string
+  /** Post time, unix millis. */
+  timestamp: number
+  category: string
+}
+
+export interface NotificationState {
+  enabled: boolean
+  detail: string
+}

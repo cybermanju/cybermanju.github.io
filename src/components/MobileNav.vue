@@ -26,6 +26,8 @@
       <AppIcon :name="t.icon" :size="20" />
       <span class="mn-label">{{ t.label }}</span>
     </button>
+    <!-- iPhone-X home indicator pill under the tab bar. -->
+    <span class="mn-home" aria-hidden="true" />
   </nav>
 </template>
 
@@ -80,6 +82,9 @@ function goHome() {
 function go(t: Tab) {
   if (store.currentPanel === 'landing') store.currentPanel = 'files'
   wm.open(t.panel, t.props)
+  try {
+    ;(navigator as Navigator & { vibrate?: (p: number) => boolean }).vibrate?.(5)
+  } catch { /* no haptics */ }
 }
 </script>
 
@@ -94,13 +99,26 @@ function go(t: Tab) {
   min-height: 64px;
   box-sizing: border-box;
   padding: 4px 8px calc(4px + env(safe-area-inset-bottom, 0px));
-  background: color-mix(in srgb, var(--ui-surface) 73%, transparent);
-  backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  border-top: 1px solid color-mix(in srgb, var(--ui-border) 68%, transparent);
+  /* iOS tab bar: hairline top edge + heavy blur, like Cupertino tab bars. */
+  background: color-mix(in srgb, var(--ui-surface) 66%, transparent);
+  backdrop-filter: blur(28px) saturate(1.6);
+  -webkit-backdrop-filter: blur(28px) saturate(1.6);
+  border-top: 0.5px solid color-mix(in srgb, var(--ui-border) 68%, transparent);
   box-shadow: 0 -8px 28px rgba(16, 24, 40, .06);
   z-index: 100;
-  font-family: var(--ui-font);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--ui-font), sans-serif;
+}
+/* iPhone-X home indicator pill. */
+.mn-home {
+  position: absolute;
+  bottom: calc(3px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  width: 134px;
+  height: 5px;
+  transform: translateX(-50%);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ui-text-2) 36%, transparent);
+  pointer-events: none;
 }
 
 .mn-btn {
@@ -118,11 +136,13 @@ function go(t: Tab) {
   min-height: 56px;
   padding: 5px 2px;
   border-radius: 14px;
-  transition: color 120ms ease-out;
+  transition: color 120ms ease-out, transform 150ms cubic-bezier(.34,1.4,.4,1), background 120ms ease-out;
+  -webkit-tap-highlight-color: transparent;
 }
 .mn-btn:active {
   color: var(--ui-text-2);
   background: color-mix(in srgb, var(--ui-accent) 9%, transparent);
+  transform: scale(0.92);
 }
 
 .mn-label {

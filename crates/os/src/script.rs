@@ -8,6 +8,23 @@
 //! TypeScript type annotations (stripped), a `js` expression subset, and
 //! `fetch`/`ui`/`providers` bridges to the CyberManju OS surface.
 //!
+//! v2 additions (same grammar on all three transports):
+//! - `args` + `env()/arg()` (Rails-style inputs): `run f.cybsh -- a b`.
+//! - `match expr:` with `ok(v):/err(e):/else:` arms + `ok()/err()/unwrap()`
+//!   constructors and postfix `?` unwrap (Rust-style `Result`).
+//! - `|>` pipe operator: `x |> split(",") |> len` (Nushell pipelines over
+//!   materialized values; `lhs |> f(a)` is `f(lhs, a)`).
+//! - `import "lib.cybsh" [as ns]` (defs only, `.cybsh` required, depth 4).
+//! - `with [name = expr]:` scoped block (assignments inside don't escape —
+//!   RAII/Vue-scope rule).
+//! - `await <expr> [timeout N]` logical poll until truthy (detached
+//!   `sync start`/`ai ask` jobs: poll `sync status`, never block).
+//! - `fetch <url> [method M] [headers {...}] [as json var | as var]`.
+//! - `# schedule: …` / `# on: …` frontmatter (convention-over-configuration,
+//!   reported by `--dry/--json`, no daemon yet).
+//! - `run --lint` (clippy-style warnings) + `run --fmt` (canonical 2-space
+//!   formatter) + `fingerprint()` builtin.
+//!
 //! Memory model (Rust-flavoured, deliberately boring):
 //! - every value is owned (`Value`); there is no aliasing and no tracing
 //!   GC — budgets below bound every allocation instead.
@@ -48,6 +65,22 @@ pub const MAX_FUNCS: usize = 32;
 pub const MAX_CALL_DEPTH: usize = 32;
 /// Script output cap (truncated with a note, like shell tables).
 pub const MAX_OUTPUT_BYTES: usize = 256 * 1024;
+/// Tries per `await <expr> [timeout N]` (logical polls, no wall-clock sleep —
+/// hermetic so journals stay deterministic; each try re-evaluates the expr).
+pub const MAX_AWAIT_TRIES: usize = 100;
+/// Default `await` tries when no `timeout` is given.
+pub const DEFAULT_AWAIT_TRIES: usize = 10;
+/// `import` nesting depth (same 4-deep budget as `run`-in-`run`).
+pub const MAX_IMPORT_DEPTH: usize = 4;
+
+/// Statement + expression keywords (completion/LSP vocabulary, shared with
+/// the TS twin and the shell `complete` arms).
+pub const SCRIPT_KEYWORDS: &[&str] = &[
+    "print", "let", "const", "if", "elif", "else", "for", "while", "in", "try", "catch",
+    "fail", "def", "return", "match", "ok", "err", "with", "import", "as", "await",
+    "timeout", "fetch", "method", "headers", "json", "and", "or", "not", "true",
+    "false", "null", "args", "env",
+];
 
 /// One UI effect a script produced (also printed as `ui: …` lines, so the
 /// Terminal panel can apply them via `useTheme()` on every transport).
@@ -341,10 +374,219 @@ fn json_quote(s: &str) -> String {
 /// `unsupported:`; replay journals inject a serving fetch everywhere.
 pub type ShellFn<'a> = &'a dyn Fn(&str) -> Result<String, String>;
 
+/// One `fetch` request: URL + method + headers + JSON-want flag.
+/// Journal keys are `METHOD url` (headers don't affect the replay key —
+/// the recorded body replays deterministically).
+#[derive(Debug, Clone)]
+pub struct FetchReq {
+    pub url: String,
+    pub method: String,
+    pub headers: Vec<(String, String)>,
+    pub want_json: bool,
+}
+
+impl FetchReq {
+    /// Replay-journal key (`METHOD url`, upper-cased method).
+    pub fn journal_key(&self) -> String {
+        format!("{} {}", self.method.to_uppercase(), self.url)
+    }
+}
+
+pub type FetchFn<'a> = &'a dyn Fn(&FetchReq) -> Result<String, String>;
+
 /// What the host offers a script: inline shell + optional fetch.
 pub struct Host<'a> {
     pub exec: ShellFn<'a>,
-    pub fetch: Option<ShellFn<'a>>,
+    pub fetch: Option<FetchFn<'a>>,
+}
+
+/// Declared schedule/trigger frontmatter (`# schedule:`, `# on:`,
+/// `# desc:` — convention-over-configuration, reported by `--dry/--json`).
+#[derive(Debug, Clone, Default)]
+pub struct Frontmatter {
+    pub schedule: Option<String>,
+    pub triggers: Vec<String>,
+    pub description: Option<String>,
+}
+
+/// Parse `# schedule: …`, `# on: a, b`, `# desc: …` lines (first 200 lines,
+/// same window as `# cap:`).
+pub fn parse_frontmatter(source: &str) -> Frontmatter {
+    let mut fm = Frontmatter::default();
+    for raw in source.lines().take(200) {
+        let t = raw.trim();
+        let body = match t.strip_prefix('#') {
+            Some(b) => b.trim(),
+            None => continue,
+        };
+        if let Some(v) = body
+            .strip_prefix("schedule:")
+            .or_else(|| body.strip_prefix("schedule "))
+        {
+            if fm.schedule.is_none() {
+                let v = v.trim().trim_start_matches([':', ' ']).trim().to_string();
+                if !v.is_empty() {
+                    fm.schedule = Some(v);
+                }
+            }
+        } else if let Some(v) = body.strip_prefix("on:").or_else(|| body.strip_prefix("on ")) {
+            let v = v.trim().trim_start_matches([':', ' ']).trim();
+            for trg in v.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                if !fm.triggers.iter().any(|t| t == trg) {
+                    fm.triggers.push(trg.to_string());
+                }
+            }
+        } else if let Some(v) = body
+            .strip_prefix("desc:")
+            .or_else(|| body.strip_prefix("description:"))
+        {
+            if fm.description.is_none() {
+                let v = v.trim().to_string();
+                if !v.is_empty() {
+                    fm.description = Some(v);
+                }
+            }
+        }
+    }
+    fm
+}
+
+/// Clippy-style static warnings (backs `run --lint`): never executes.
+pub fn lint_source(source: &str) -> Result<Vec<String>, String> {
+    if source.len() > MAX_SOURCE_BYTES {
+        return Err(format!(
+            "too_large: script is {} bytes, limit is {MAX_SOURCE_BYTES}",
+            source.len()
+        ));
+    }
+    check_version_pin(source)?;
+    let lines = split_lines(source)?;
+    let mut warns = Vec::new();
+    // Version pin present?
+    let pinned = source.lines().any(|l| {
+        let t = l.trim();
+        t.strip_prefix('#')
+            .map(|b| {
+                let d = b.trim();
+                d.starts_with("cybsh:") || d.starts_with("cybsh ")
+            })
+            .unwrap_or(false)
+    });
+    if !pinned {
+        warns.push("hint: no `# cybsh: 1` version pin (add one for reproducibility)".to_string());
+    }
+    let fm = parse_frontmatter(source);
+    if fm.schedule.is_some() && fm.triggers.is_empty() {
+        warns.push("hint: `# schedule:` without `# on:` — triggers default to manual".to_string());
+    }
+    // Unknown bare verbs (same table as the interpreter).
+    for line in &lines {
+        let word = first_word(&line.text);
+        if BARE_VERBS.contains(&word) || is_statement_kw(word) {
+            continue;
+        }
+        // Skip assignments, expressions starting with punctuation/quotes, and
+        // structured lines the interpreter accepts as expressions.
+        if line.text.contains('=') && split_assignment(&line.text).is_some() {
+            continue;
+        }
+        if line.text.starts_with('$')
+            || line.text.starts_with("js")
+            || line.text.starts_with("sh")
+            || line.text.starts_with(|c: char| c == '"' || c == '\'' || c == '[' || c == '{' || c.is_ascii_digit())
+        {
+            continue;
+        }
+        // Try parsing as an expression: silence means "probably code".
+        // (lint must not execute — parse only via a throwaway check is
+        // approximated here by the statement table; anything else warns.)
+        if word.contains('(') || word.contains('.') || word.contains('|') || word.contains('?') {
+            continue;
+        }
+        warns.push(format!(
+            "warn: line {}: unknown verb `{word}` — bare lines must be cybsh verbs (try `sh \"…\"`)",
+            line.lineno
+        ));
+    }
+    // Tab indentation is legal (counts as 4) but fragile across editors.
+    for (idx, raw) in source.lines().enumerate() {
+        if raw.starts_with('\t') {
+            warns.push(format!(
+                "style: line {}: tab indent (works as 4 spaces, prefer 2 spaces)",
+                idx + 1
+            ));
+            break;
+        }
+    }
+    // `deny=` without any `# cap:` while `fetch` is used.
+    let caps = parse_caps(source);
+    if source.lines().any(|l| l.trim_start().starts_with("fetch")) && !caps.active {
+        warns.push("hint: `fetch` without `# cap: net=<host>` — ambient now, pinned later".to_string());
+    }
+    if warns.is_empty() {
+        warns.push("lint: clean — no warnings".to_string());
+    }
+    Ok(warns)
+}
+
+fn is_statement_kw(word: &str) -> bool {
+    matches!(
+        word,
+        "print" | "let" | "const" | "if" | "elif" | "else" | "for" | "while" | "try"
+            | "catch" | "fail" | "def" | "return" | "match" | "ok" | "err" | "with"
+            | "import" | "await" | "fetch" | "js" | "vars" | "free" | "gc"
+    )
+}
+
+/// Canonical formatter (backs `run --fmt`): re-indents block structure with
+/// 2 spaces per level, strips trailing whitespace, keeps semantics.
+/// Idempotent: formatting formatted output is a fixed point.
+pub fn format_source(source: &str) -> Result<String, String> {
+    check_version_pin(source).map_err(|e| e)?;
+    let lines = split_lines(source)?;
+    let mut out = Vec::new();
+    // Stack of indent contexts: each entry is the source indent of a block
+    // child level; the formatter emits depth*2 spaces instead.
+    let mut stack: Vec<isize> = vec![-1];
+    for line in &lines {
+        let text = line.text.as_str();
+        // `elif/else/catch/ok:/err:` arms dedent one level before emitting.
+        let dedent = is_dedent_kw(text);
+        while stack.len() > 1 && line.indent as isize <= *stack.last().unwrap_or(&-1) {
+            stack.pop();
+        }
+        let mut depth = stack.len() as isize - 1;
+        if dedent {
+            depth = depth.saturating_sub(1);
+        }
+        if line.indent == 0 {
+            depth = 0;
+            stack = vec![-1];
+        }
+        out.push(format!("{}{}", "  ".repeat(depth.max(0) as usize), text));
+        if opens_block(text) {
+            stack.push(line.indent as isize);
+        }
+    }
+    Ok(out.join("\n") + "\n")
+}
+
+fn is_dedent_kw(text: &str) -> bool {
+    text == "else:"
+        || text == "else"
+        || text == "catch"
+        || text == "catch:"
+        || is_kw(text, "elif")
+        || is_kw(text, "catch")
+        || is_match_arm(text)
+}
+
+fn opens_block(text: &str) -> bool {
+    (is_kw(text, "if") || is_kw(text, "elif") || text == "else:" || text == "else"
+        || is_kw(text, "for") || is_kw(text, "while") || text == "try:" || text == "try"
+        || is_catch(text) || is_kw(text, "def") || is_kw(text, "match") || is_kw(text, "with")
+        || is_match_arm(text))
+        && (text.ends_with(':') || text == "try" || is_catch(text))
 }
 
 struct Interp<'a> {
@@ -354,6 +596,7 @@ struct Interp<'a> {
     funcs: HashMap<String, FuncDef>,
     flow: Option<Value>,
     call_depth: usize,
+    import_depth: usize,
     out: String,
     effects: Vec<Effect>,
     steps: usize,
@@ -378,8 +621,20 @@ pub fn dry_run(source: &str) -> Result<String, String> {
     } else {
         String::new()
     };
+    let fm = parse_frontmatter(source);
+    let mut extra = String::new();
+    if let Some(s) = &fm.schedule {
+        extra.push_str(&format!(" · schedule: {s}"));
+    }
+    if !fm.triggers.is_empty() {
+        extra.push_str(&format!(" · on: {}", fm.triggers.join(",")));
+    }
+    if let Some(d) = &fm.description {
+        let short = if d.len() > 80 { format!("{}…", &d[..80]) } else { d.clone() };
+        extra.push_str(&format!(" · desc: {short}"));
+    }
     Ok(format!(
-        "dry: {} statement(s) parse{cap_note} — nothing executed (use `run <file.cybsh>` to execute)",
+        "dry: {} statement(s) parse{cap_note}{extra} — nothing executed (use `run <file.cybsh>` to execute)",
         lines.len()
     ))
 }
@@ -400,6 +655,16 @@ fn describe_caps(caps: &Caps) -> String {
 
 /// Parse and execute a script against a [`Host`] (inline shell + fetch).
 pub fn run_source(source: &str, host: &Host) -> Result<RunOutput, String> {
+    run_source_with(source, host, &[])
+}
+
+/// Parse and execute with script arguments (`run f.cybsh -- a b` binds
+/// `args == ["a", "b"]`; `args[i]` indexes, `arg(i, fallback)` reads).
+pub fn run_source_with(
+    source: &str,
+    host: &Host,
+    args: &[String],
+) -> Result<RunOutput, String> {
     if source.len() > MAX_SOURCE_BYTES {
         return Err(format!(
             "too_large: script is {} bytes, limit is {MAX_SOURCE_BYTES}",
@@ -416,6 +681,7 @@ pub fn run_source(source: &str, host: &Host) -> Result<RunOutput, String> {
         funcs: HashMap::new(),
         flow: None,
         call_depth: 0,
+        import_depth: 0,
         out: String::new(),
         effects: Vec::new(),
         steps: 0,
@@ -423,6 +689,11 @@ pub fn run_source(source: &str, host: &Host) -> Result<RunOutput, String> {
         sh_calls: 0,
         fetch_calls: 0,
     };
+    // Rails-style inputs: `args` is always bound (possibly empty).
+    ip.vars.insert(
+        "args".to_string(),
+        Value::List(args.iter().map(|a| Value::Str(a.clone())).collect()),
+    );
     // Top level runs at parent depth -1 so indent-0 lines execute.
     run_block(&mut ip, &lines, 0, -1)?;
     if ip.truncated {
@@ -512,6 +783,14 @@ fn is_reserved(name: &str) -> bool {
             | "del"
             | "keys"
             | "values"
+            | "ok"
+            | "err"
+            | "unwrap"
+            | "is_ok"
+            | "is_err"
+            | "env"
+            | "arg"
+            | "fingerprint"
             | "true"
             | "false"
             | "null"
@@ -522,6 +801,10 @@ fn is_reserved(name: &str) -> bool {
             | "not"
     )
 }
+
+/// New-builtin hint shared by every unknown-function error.
+const BUILTIN_HINT: &str =
+    "len/int/str/json/split/range/sh/set/push/del/keys/values/ok/err/unwrap/is_ok/is_err/env/arg/fingerprint";
 
 /// Strip `#` comments (quote-aware) and blank lines; measure indent.
 /// Tabs count as 4 columns so mixed editors stay comparable.
@@ -742,15 +1025,33 @@ fn run_statement(ip: &mut Interp, lines: &[Line], idx: usize) -> Result<usize, S
         return Ok(idx + 1);
     }
 
-    // `fetch <url> [as <var>]` — through the capability gate to the host
-    // client (real on static/Pages, journal replays everywhere, honest
-    // `unsupported:` where no client exists).
+    // `fetch <url> [method M] [headers {...}] [as json <var> | as <var>]` —
+    // through the capability gate to the host client (real on static/Pages,
+    // journal replays everywhere, honest `unsupported:` where no client).
     if is_kw(&text, "fetch") {
         let rest = expect_rest(&text, "fetch", lineno)?;
-        let (url_src, var) = split_fetch(rest);
-        let url = eval_expr(ip, &url_src, lineno)?.display();
-        let body = fetch_checked(ip, &url, lineno)?;
-        if let Some(name) = var {
+        let spec = split_fetch_full(rest, lineno)?;
+        let url = eval_expr(ip, &spec.url_src, lineno)?.display();
+        let headers = eval_headers(ip, &spec.headers_src, lineno)?;
+        let req = FetchReq {
+            url: url.clone(),
+            method: spec.method.clone(),
+            headers,
+            want_json: spec.want_json,
+        };
+        let body = fetch_checked(ip, &req, lineno)?;
+        if spec.want_json {
+            let v = materialize_json(&body).ok_or_else(|| {
+                format!("invalid: line {lineno}: `fetch {url}` did not return JSON (try plain `as`)")
+            })?;
+            if let Some(name) = spec.var {
+                ip.set_var(&name, v)?;
+                ip.emit(&format!("fetched {url} (json → {name})"));
+            } else {
+                ip.set_var("_", v.clone())?;
+                ip.emit(&v.display());
+            }
+        } else if let Some(name) = spec.var {
             if !valid_name(&name) {
                 return Err(format!("syntax: line {lineno}: bad variable name `{name}`"));
             }
@@ -761,6 +1062,89 @@ fn run_statement(ip: &mut Interp, lines: &[Line], idx: usize) -> Result<usize, S
             ip.emit(&body);
         }
         return Ok(idx + 1);
+    }
+
+    // `import "lib.cybsh" [as ns]` — merge another file's `def`s (defs only;
+    // caps/frontmatter stay with the main file; `.cybsh` required).
+    if is_kw(&text, "import") {
+        let rest = expect_rest(&text, "import", lineno)?.trim().to_string();
+        let (path_src, prefix) = split_import(&rest, lineno)?;
+        let path = eval_expr(ip, &path_src, lineno)?.display();
+        import_defs(ip, &path, prefix.as_deref(), lineno)?;
+        return Ok(idx + 1);
+    }
+
+    // `with [name = expr]:` — scoped block (assignments inside don't escape;
+    // RAII/Vue-scope rule: snapshot vars, run, restore).
+    if text == "with:" || text == "with" || is_kw(&text, "with") {
+        let rest = if text == "with:" || text == "with" {
+            String::new()
+        } else {
+            let r = expect_rest(&text, "with", lineno)?.trim().to_string();
+            strip_suffix_colon(&r, lineno)?
+        };
+        let parent = line.indent as isize;
+        block_indent(lines, idx + 1, parent)?;
+        let end = skip_block(lines, idx + 1, parent);
+        let saved = ip.vars.clone();
+        let saved_flow = ip.flow.take();
+        if !rest.is_empty() {
+            let (name, expr_src) = split_with_binding(&rest, lineno)?;
+            let v = eval_expr(ip, &expr_src, lineno)?;
+            ip.set_var(&name, v)?;
+        }
+        let result = run_block(ip, lines, idx + 1, parent);
+        ip.vars = saved;
+        if let Some(flow) = saved_flow {
+            ip.flow = Some(flow);
+        } else if result.is_ok() {
+            ip.flow = None;
+        }
+        result?;
+        return Ok(end);
+    }
+
+    // `match <expr>:` with `ok(v):/err(e):/else:` arms — Rust-style Result
+    // handling: the target evaluates with errors captured (a failing `sh`
+    // becomes the `err` arm instead of aborting).
+    if is_kw(&text, "match") {
+        let target_src = strip_suffix_colon(expect_rest(&text, "match", lineno)?, lineno)?;
+        let parent = line.indent as isize;
+        block_indent(lines, idx + 1, parent)?;
+        let end = skip_block(lines, idx + 1, parent);
+        return run_match(ip, lines, idx, &target_src, lineno, parent, end);
+    }
+    if text == "ok:" || text == "err:" || is_kw(&text, "ok") || is_kw(&text, "err") {
+        return Err(format!("syntax: line {lineno}: `ok/err` arms need `match`"));
+    }
+
+    // `await <expr> [timeout N]` — logical poll until truthy (detached jobs:
+    // `await len(sh("sync status --json").jobs) == 0 timeout 30`). No sleep —
+    // hermetic, each try re-evaluates (journaled `sh` replays identically).
+    if is_kw(&text, "await") {
+        let rest = expect_rest(&text, "await", lineno)?;
+        let (cond_src, tries) = split_await(rest, lineno)?;
+        let mut last_err: Option<String> = None;
+        let mut last_val = Value::Null;
+        for _ in 0..tries {
+            ip.bump()?;
+            match eval_expr(ip, &cond_src, lineno) {
+                Ok(v) => {
+                    last_val = v.clone();
+                    if v.truthy() {
+                        let _ = ip.set_var("_", v);
+                        return Ok(idx + 1);
+                    }
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                }
+            }
+        }
+        return Err(match last_err {
+            Some(e) => format!("timeout: line {lineno}: `await` still failing after {tries} tries (last: {e})"),
+            None => format!("timeout: line {lineno}: `await` still falsy after {tries} tries"),
+        });
     }
 
     // Memory introspection: `vars`, `free <name>`, `gc [--apply]`.
@@ -932,7 +1316,7 @@ fn run_statement(ip: &mut Interp, lines: &[Line], idx: usize) -> Result<usize, S
     // loudly, just with expression errors attached.
     let v = eval_expr(ip, &text, lineno).map_err(|e| {
         format!(
-            "syntax: line {lineno}: unknown statement `{}` ({e}; try `print`, `let`, `def`, `if/elif/else`, `try/catch`, `for`, `while`, `$ <cybsh>`, `sh \"…\"`, `js …`, `fetch …`, `ui …`, `vars/free/gc`)",
+            "syntax: line {lineno}: unknown statement `{}` ({e}; try `print`, `let`, `def`, `if/elif/else`, `match`, `with`, `import`, `await`, `try/catch`, `for`, `while`, `$ <cybsh>`, `sh \"…\"`, `js …`, `fetch …`, `ui …`, `vars/free/gc`)",
             truncate_str(&text, 60)
         )
     })?;
@@ -1069,16 +1453,481 @@ fn for_items(ip: &mut Interp, expr_src: &str, lineno: usize) -> Result<Vec<Value
     }
 }
 
-fn split_fetch(rest: &str) -> (String, Option<String>) {
-    // `url as name` — the ` as ` split is quote-aware enough for URLs.
-    if let Some(pos) = rest.find(" as ") {
-        let (url, name) = rest.split_at(pos);
-        let name = name[" as ".len()..].trim();
-        if valid_name(name) && !url.trim().is_empty() {
-            return (url.trim().to_string(), Some(name.to_string()));
+/// Full `fetch` spec: `url-expr [method M] [headers expr] [as json var|as var]`.
+struct FetchSpec {
+    url_src: String,
+    method: String,
+    headers_src: Option<String>,
+    want_json: bool,
+    var: Option<String>,
+}
+
+fn split_fetch_full(rest: &str, lineno: usize) -> Result<FetchSpec, String> {
+    // Trailing `as json name` / `as name` first.
+    let (head, want_json, var) = match parse_fetch_as(rest) {
+        Some((h, j, v)) => (h, j, v),
+        None => {
+            return Err(format!("syntax: line {lineno}: bad `fetch … as …` (try `fetch <url> [method M] [headers H] [as json <var> | as <var>]`)"));
+        }
+    };
+    // `headers <expr>` runs to the end when present.
+    let (head, headers_src) = match split_top_kw(&head, "headers") {
+        Some((h, t)) if !h.trim().is_empty() => (h.trim().to_string(), Some(t.trim().to_string())),
+        _ => (head, None),
+    };
+    // `method <M>` inside what remains.
+    let (url_src, method) = match split_top_kw(&head, "method") {
+        Some((h, t)) => {
+            let m = t.trim().split_whitespace().next().unwrap_or("").to_uppercase();
+            if !matches!(m.as_str(), "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD") {
+                return Err(format!("syntax: line {lineno}: bad fetch method `{m}` (GET/POST/PUT/DELETE/PATCH/HEAD)"));
+            }
+            let tail = t.trim().strip_prefix(m.as_str()).unwrap_or("").trim();
+            if !tail.is_empty() {
+                return Err(format!("syntax: line {lineno}: `method` takes one word (`method {m}` before `headers`)"));
+            }
+            (h.trim().to_string(), m)
+        }
+        None => (head.trim().to_string(), "GET".to_string()),
+    };
+    if url_src.is_empty() {
+        return Err(format!("syntax: line {lineno}: `fetch` needs a URL"));
+    }
+    Ok(FetchSpec {
+        url_src,
+        method,
+        headers_src,
+        want_json,
+        var,
+    })
+}
+
+/// Split trailing `as json name` / `as name`. Returns (head, want_json, var).
+fn parse_fetch_as(rest: &str) -> Option<(String, bool, Option<String>)> {
+    let chars: Vec<char> = rest.chars().collect();
+    let mut quote: Option<char> = None;
+    let mut depth = 0usize;
+    let mut last_as: Option<usize> = None;
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            '"' | '\'' => quote = Some(c),
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        if depth == 0 && c == ' ' {
+            let tail = rest[i..].trim_start();
+            if tail.starts_with("as ") || tail == "as" {
+                // ensure `as` is a standalone word
+                let after = &tail[2..];
+                if after.is_empty() || after.starts_with(' ') {
+                    last_as = Some(i);
+                }
+            }
+        }
+        i += 1;
+    }
+    match last_as {
+        None => Some((rest.trim().to_string(), false, None)),
+        Some(pos) => {
+            let head = rest[..pos].trim().to_string();
+            let tail = rest[pos..].trim_start().strip_prefix("as").unwrap_or("").trim().to_string();
+            if tail.is_empty() {
+                return None;
+            }
+            if let Some(name) = tail.strip_prefix("json").map(str::trim) {
+                let name = name.trim();
+                if name.is_empty() {
+                    return None;
+                }
+                if !valid_name(name) {
+                    return None;
+                }
+                Some((head, true, Some(name.to_string())))
+            } else if valid_name(&tail) {
+                Some((head, false, Some(tail)))
+            } else {
+                None
+            }
         }
     }
-    (rest.trim().to_string(), None)
+}
+
+/// Split `head KEYWORD tail` on a top-level keyword (outside quotes/brackets).
+fn split_top_kw(src: &str, kw: &str) -> Option<(String, String)> {
+    let chars: Vec<char> = src.chars().collect();
+    let mut quote: Option<char> = None;
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            '"' | '\'' => {
+                quote = Some(c);
+                i += 1;
+                continue;
+            }
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        if depth == 0 && (c.is_whitespace()) {
+            let tail = src[i..].trim_start();
+            if tail == kw || tail.starts_with(&format!("{kw} ")) {
+                let head = src[..i].trim().to_string();
+                let rest = tail[kw.len()..].trim().to_string();
+                // keyword must be a standalone word (left boundary is ws/start)
+                return Some((head, rest));
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// `import "path" [as prefix]` — path is an expression, prefix is a name.
+fn split_import(rest: &str, lineno: usize) -> Result<(String, Option<String>), String> {
+    match split_top_kw(rest, "as") {
+        Some((h, t)) => {
+            let prefix = t.trim().to_string();
+            if !valid_name(&prefix) {
+                return Err(format!("syntax: line {lineno}: bad import prefix `{prefix}`"));
+            }
+            if is_reserved(&prefix) {
+                return Err(format!("syntax: line {lineno}: `{prefix}` is a builtin — pick another prefix"));
+            }
+            if h.trim().is_empty() {
+                return Err(format!("syntax: line {lineno}: `import` needs `import \"lib.cybsh\" [as ns]`"));
+            }
+            Ok((h.trim().to_string(), Some(prefix)))
+        }
+        None => {
+            if rest.trim().is_empty() {
+                return Err(format!("syntax: line {lineno}: `import` needs `import \"lib.cybsh\" [as ns]`"));
+            }
+            Ok((rest.trim().to_string(), None))
+        }
+    }
+}
+
+/// Load another `.cybsh` file's `def`s via `cat` (defs only).
+fn import_defs(
+    ip: &mut Interp,
+    path: &str,
+    prefix: Option<&str>,
+    lineno: usize,
+) -> Result<(), String> {
+    if !path.to_lowercase().ends_with(SCRIPT_EXT) {
+        return Err(format!(
+            "invalid: line {lineno}: `import` needs a {SCRIPT_EXT} file (got `{path}`)"
+        ));
+    }
+    if ip.import_depth >= MAX_IMPORT_DEPTH {
+        return Err(format!(
+            "too_large: line {lineno}: `import` nesting exceeds {MAX_IMPORT_DEPTH}"
+        ));
+    }
+    let quoted = path.replace('"', "\\\"");
+    let source = (ip.host.exec)(&format!("cat \"{quoted}\""))
+        .map_err(|e| format!("{e} (line {lineno})"))?;
+    if source.len() > MAX_SOURCE_BYTES {
+        return Err(format!("too_large: line {lineno}: imported script exceeds {MAX_SOURCE_BYTES} bytes"));
+    }
+    check_version_pin(&source).map_err(|e| format!("{e} (line {lineno})"))?;
+    let lines = split_lines(&source).map_err(|e| format!("{e} (line {lineno})"))?;
+    ip.import_depth += 1;
+    let mut count = 0usize;
+    let mut i = 0;
+    while i < lines.len() {
+        let t = lines[i].text.clone();
+        if is_kw(&t, "def") {
+            let header = strip_suffix_colon(expect_rest(&t, "def", lines[i].lineno)?, lines[i].lineno)
+                .map_err(|e| format!("{e} (line {lineno})"))?;
+            let (mut name, params) = split_def(&header, lines[i].lineno)
+                .map_err(|e| format!("{e} (line {lineno})"))?;
+            let parent = lines[i].indent as isize;
+            if i + 1 >= lines.len() || lines[i + 1].indent as isize <= parent {
+                ip.import_depth -= 1;
+                return Err(format!("syntax: line {lineno}: imported `def` has no body"));
+            }
+            let end = skip_block(&lines, i + 1, parent);
+            let body: Vec<Line> = lines[i + 1..end].to_vec();
+            if let Some(ns) = prefix {
+                name = format!("{ns}_{name}");
+            }
+            if ip.funcs.len() >= MAX_FUNCS && !ip.funcs.contains_key(&name) {
+                ip.import_depth -= 1;
+                return Err(format!("too_large: line {lineno}: script holds {MAX_FUNCS} functions already"));
+            }
+            ip.funcs.insert(name, FuncDef { params, body });
+            count += 1;
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    ip.import_depth -= 1;
+    if count == 0 {
+        return Err(format!("not_found: line {lineno}: `{path}` defines no `def`s to import"));
+    }
+    Ok(())
+}
+
+/// `with [name = expr]` binding (empty = bare scope).
+fn split_with_binding(rest: &str, lineno: usize) -> Result<(String, String), String> {
+    match top_level_eq(rest) {
+        Some(eq) => {
+            let name = rest[..eq].trim().to_string();
+            let expr = rest[eq + 1..].trim().to_string();
+            if !valid_name(&name) || expr.is_empty() {
+                return Err(format!("syntax: line {lineno}: `with` needs `with [name = expr]:`"));
+            }
+            Ok((name, expr))
+        }
+        None => Err(format!("syntax: line {lineno}: `with` needs `with [name = expr]:`")),
+    }
+}
+
+/// `await <expr> [timeout N]` — N in 1..=MAX_AWAIT_TRIES, default 10.
+fn split_await(rest: &str, lineno: usize) -> Result<(String, usize), String> {
+    match split_top_kw(rest, "timeout") {
+        Some((h, t)) => {
+            let n: usize = t
+                .trim()
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .parse()
+                .map_err(|_| format!("syntax: line {lineno}: `timeout` needs a number 1–{MAX_AWAIT_TRIES}"))?;
+            if n == 0 || n > MAX_AWAIT_TRIES {
+                return Err(format!("syntax: line {lineno}: `timeout` needs a number 1–{MAX_AWAIT_TRIES}"));
+            }
+            let trailing: String = t.trim().split_whitespace().skip(1).collect::<Vec<_>>().join(" ");
+            if !trailing.is_empty() {
+                return Err(format!("syntax: line {lineno}: `await … timeout N` takes nothing after N"));
+            }
+            if h.trim().is_empty() {
+                return Err(format!("syntax: line {lineno}: `await` needs an expression"));
+            }
+            Ok((h.trim().to_string(), n))
+        }
+        None => {
+            if rest.trim().is_empty() {
+                return Err(format!("syntax: line {lineno}: `await` needs an expression"));
+            }
+            Ok((rest.trim().to_string(), DEFAULT_AWAIT_TRIES))
+        }
+    }
+}
+
+/// Evaluate `headers` expr into pairs (None = no headers).
+fn eval_headers(
+    ip: &mut Interp,
+    src: &Option<String>,
+    lineno: usize,
+) -> Result<Vec<(String, String)>, String> {
+    match src {
+        None => Ok(Vec::new()),
+        Some(s) => match eval_expr(ip, s, lineno)? {
+            Value::Dict(map) => Ok(map.into_iter().map(|(k, v)| (k, v.display())).collect()),
+            other => Err(format!(
+                "syntax: line {lineno}: `headers` needs a dict (got {})",
+                other.type_name()
+            )),
+        },
+    }
+}
+
+/// `ok(v):` / `err(e):` / `else:` arm binding (`ok:`/`err:` bare work too).
+fn match_arm_binding(text: &str, lineno: usize) -> Result<(String, Option<String>), String> {
+    let inner = text.trim().trim_end_matches(':').trim().to_string();
+    if inner == "else" {
+        return Ok(("else".to_string(), None));
+    }
+    for kind in ["ok", "err"] {
+        if inner == kind {
+            return Ok((kind.to_string(), None));
+        }
+        if let Some(rest) = inner.strip_prefix(kind) {
+            let r = rest.trim();
+            let name = r.trim_start_matches('(').trim_end_matches(')').trim();
+            if r.is_empty() {
+                return Ok((kind.to_string(), None));
+            }
+            if valid_name(name) && (r.starts_with('(') || r.starts_with(' ')) {
+                return Ok((kind.to_string(), Some(name.to_string())));
+            }
+        }
+    }
+    Err(format!("syntax: line {lineno}: bad `match` arm `{text}` (try `ok(v):`, `err(e):`, `else:`)"))
+}
+
+/// Is this line a `match` arm header at the arm level? Parenthesized
+/// bindings (`ok(v):`, `err(e):`) count — the gate must agree with
+/// `match_arm_binding`, or arms are skipped silently instead of running
+/// (or refusing loudly on bad syntax).
+fn is_match_arm(text: &str) -> bool {
+    text == "else:"
+        || text == "else"
+        || text == "ok:"
+        || text == "err:"
+        || is_kw(text, "ok")
+        || is_kw(text, "err")
+        || text.starts_with("ok(")
+        || text.starts_with("err(")
+}
+
+/// Run `match <expr>:` — target errors are captured into the `err` arm.
+fn run_match(
+    ip: &mut Interp,
+    lines: &[Line],
+    idx: usize,
+    target_src: &str,
+    lineno: usize,
+    _parent: isize,
+    end: usize,
+) -> Result<usize, String> {
+    // Capture, don't propagate: a failing target is err material.
+    let target: Result<Value, String> = eval_match_target(ip, target_src, lineno);
+    let (is_err, bind_value, err_text) = match &target {
+        Err(e) => (true, Value::Null, e.clone()),
+        Ok(v) => match classify_result(v) {
+            (true, _, msg) => (true, Value::Null, msg),
+            (false, val, _) => (false, val, String::new()),
+        },
+    };
+    // Arms live one level below `match`; bodies one below their arm.
+    let arm_parent = lines[idx + 1].indent as isize;
+    let mut ok_arm: Option<(Option<String>, usize, usize)> = None;
+    let mut err_arm: Option<(Option<String>, usize, usize)> = None;
+    let mut else_arm: Option<(usize, usize)> = None;
+    let mut j = idx + 1;
+    while j < end {
+        if lines[j].indent as isize != arm_parent || !is_match_arm(&lines[j].text) {
+            j = skip_block(lines, j + 1, arm_parent);
+            continue;
+        }
+        let (kind, binding) = match_arm_binding(&lines[j].text, lines[j].lineno)?;
+        let body_start = j + 1;
+        let body_end = skip_block(lines, body_start, arm_parent);
+        match kind.as_str() {
+            "ok" if ok_arm.is_none() => ok_arm = Some((binding, body_start, body_end)),
+            "err" if err_arm.is_none() => err_arm = Some((binding, body_start, body_end)),
+            "else" if else_arm.is_none() => else_arm = Some((body_start, body_end)),
+            _ => {
+                return Err(format!(
+                    "syntax: line {}: duplicate `match` arm `{kind}`",
+                    lines[j].lineno
+                ))
+            }
+        }
+        j = body_end;
+    }
+    if is_err {
+        if let Some((binding, s, e)) = err_arm {
+            if let Some(name) = binding {
+                ip.set_var(&name, Value::Str(truncate_owned(err_text, MAX_STR)))?;
+            }
+            run_block(ip, lines, s, arm_parent)?;
+            let _ = ip.set_var("_", Value::Str(truncate_owned(err_text.clone(), MAX_STR)));
+            let _ = e;
+        } else if let Some((s, _)) = else_arm {
+            run_block(ip, lines, s, arm_parent)?;
+        }
+    } else if let Some((binding, s, e)) = ok_arm {
+        if let Some(name) = binding {
+            ip.set_var(&name, bind_value.clone())?;
+        }
+        let _ = ip.set_var("_", bind_value);
+        run_block(ip, lines, s, arm_parent)?;
+        let _ = e;
+    } else if let Some((s, _)) = else_arm {
+        let _ = ip.set_var("_", bind_value);
+        run_block(ip, lines, s, arm_parent)?;
+    } else {
+        let _ = ip.set_var("_", bind_value);
+    }
+    Ok(end)
+}
+
+/// Evaluate a match target, capturing `sh` failures as values.
+/// `sh("…")` calls go through `inline_value` (which runs the shell); plain
+/// expressions evaluate directly. Either way `Err` is returned, not raised.
+fn eval_match_target(ip: &mut Interp, src: &str, lineno: usize) -> Result<Value, String> {
+    // Fast path: a bare `sh "…"` statement form.
+    let t = src.trim();
+    if is_kw(t, "sh") {
+        let rest = expect_rest(t, "sh", lineno)?.trim().to_string();
+        let cmdline = unquote(&rest, lineno)?.unwrap_or(rest);
+        let expanded = interpolate(ip, &cmdline, lineno)?;
+        return match exec_checked(ip, &expanded) {
+            Ok(text) => {
+                harvest_effects(ip, &text);
+                let v = materialize_json(&text)
+                    .unwrap_or_else(|| Value::Str(truncate_owned(text, MAX_STR)));
+                let _ = ip.set_var("_", v.clone());
+                Ok(v)
+            }
+            Err(e) => Err(e),
+        };
+    }
+    eval_expr(ip, src, lineno)
+}
+
+/// Classify a value for `match`: (is_err, ok_value, err_text).
+/// `{ok: true, value: v}` unwraps to `v`; `{ok: false, error: e}` is err.
+fn classify_result(v: &Value) -> (bool, Value, String) {
+    if let Value::Dict(map) = v {
+        match map.get("ok") {
+            Some(Value::Bool(false)) => {
+                let msg = map
+                    .get("error")
+                    .map(|e| e.display())
+                    .unwrap_or_else(|| "error".to_string());
+                return (true, Value::Null, msg);
+            }
+            Some(Value::Bool(true)) => {
+                let val = map.get("value").cloned().unwrap_or(Value::Null);
+                return (false, val, String::new());
+            }
+            _ => {}
+        }
+    }
+    (false, v.clone(), String::new())
+}
+
+/// Postfix `?` unwrap: `{ok:true,value:v}` → `v`; `{ok:false,error:e}` → Err.
+fn unwrap_value(v: Value, lineno: usize) -> Result<Value, String> {
+    match &v {
+        Value::Dict(map) => match map.get("ok") {
+            Some(Value::Bool(false)) => {
+                let msg = map
+                    .get("error")
+                    .map(|e| e.display())
+                    .unwrap_or_else(|| "error".to_string());
+                Err(msg)
+            }
+            Some(Value::Bool(true)) => Ok(map.get("value").cloned().unwrap_or(Value::Null)),
+            _ => Ok(v),
+        },
+        _ => Ok(v),
+    }
 }
 
 /// `let name [: type] = expr` or `name = expr`. Returns `None` when the
@@ -1211,7 +2060,7 @@ fn split_def(header: &str, lineno: usize) -> Result<(String, Vec<String>), Strin
 fn call_func(ip: &mut Interp, name: &str, args: &[Value], lineno: usize) -> Result<Value, String> {
     let def = ip.funcs.get(name).cloned().ok_or_else(|| {
         format!(
-            "syntax: line {lineno}: unknown function `{name}` (try `len/int/str/json/split/range/sh/set/push/del/keys/values` or `def` it first)"
+            "syntax: line {lineno}: unknown function `{name}` (try `{BUILTIN_HINT}` or `def` it first)"
         )
     })?;
     if args.len() != def.params.len() {
@@ -1262,15 +2111,16 @@ fn exec_checked(ip: &mut Interp, line: &str) -> Result<String, String> {
 }
 
 /// Fetch through the capability gate + optional host client.
-fn fetch_checked(ip: &mut Interp, url: &str, lineno: usize) -> Result<String, String> {
-    ip.caps.check_fetch(url)?;
+fn fetch_checked(ip: &mut Interp, req: &FetchReq, lineno: usize) -> Result<String, String> {
+    ip.caps.check_fetch(&req.url)?;
     ip.fetch_calls += 1;
     match ip.host.fetch {
-        Some(fetch) => fetch(url)
+        Some(fetch) => fetch(req)
             .map(|text| truncate_owned(text, MAX_STR))
             .map_err(|e| format!("line {lineno}: {e}")),
         None => Err(format!(
-            "unsupported: `fetch {url}` needs the browser/static transport (this shell has no HTTP client) — run the same `.cybsh` on Pages, replay a journal (`--replay`), or serve it via `POST /api/os/exec` on the dashboard worker"
+            "unsupported: `fetch {}` needs the browser/static transport (this shell has no HTTP client) — run the same `.cybsh` on Pages, replay a journal (`--replay`), or serve it via `POST /api/os/exec` on the dashboard worker",
+            req.url
         )),
     }
 }
@@ -1317,9 +2167,23 @@ fn eval_assign_rhs(ip: &mut Interp, src: &str, lineno: usize) -> Result<Value, S
     }
     if is_kw(t, "fetch") {
         let rest = expect_rest(t, "fetch", lineno)?;
-        let (url_src, _) = split_fetch(rest);
-        let url = eval_expr(ip, &url_src, lineno)?.display();
-        let text = fetch_checked(ip, &url, lineno)?;
+        let spec = split_fetch_full(rest, lineno)?;
+        let url = eval_expr(ip, &spec.url_src, lineno)?.display();
+        let headers = eval_headers(ip, &spec.headers_src, lineno)?;
+        let req = FetchReq {
+            url,
+            method: spec.method,
+            headers,
+            want_json: spec.want_json,
+        };
+        let text = fetch_checked(ip, &req, lineno)?;
+        if spec.want_json {
+            let v = materialize_json(&text).ok_or_else(|| {
+                format!("invalid: line {lineno}: `fetch` did not return JSON")
+            })?;
+            ip.set_var("_", v.clone())?;
+            return Ok(v);
+        }
         let v = Value::Str(text);
         ip.set_var("_", v.clone())?;
         return Ok(v);
@@ -1510,7 +2374,7 @@ fn eval_expr(ip: &mut Interp, src: &str, lineno: usize) -> Result<Value, String>
         ip,
         lineno,
     };
-    let v = p.parse_or()?;
+    let v = p.parse_pipe()?;
     p.skip_ws();
     if p.pos < p.chars.len() {
         return Err(format!(
@@ -1548,6 +2412,81 @@ impl<'b, 'a> ExprParser<'b, 'a> {
             return true;
         }
         false
+    }
+
+    fn parse_pipe(&mut self) -> Result<Value, String> {
+        // `a |> f(b)` is `f(a, b)`; `a |> len` is `len(a)` (Nushell rule over
+        // materialized values — no text re-parsing).
+        let mut left = self.parse_or()?;
+        loop {
+            self.skip_ws();
+            if self.peek_pipe() {
+                self.pos += 2;
+                left = self.apply_pipe(left)?;
+            } else {
+                return Ok(left);
+            }
+        }
+    }
+
+    fn peek_pipe(&self) -> bool {
+        self.pos + 1 < self.chars.len()
+            && self.chars[self.pos] == '|'
+            && self.chars[self.pos + 1] == '>'
+    }
+
+    fn apply_pipe(&mut self, lhs: Value) -> Result<Value, String> {
+        self.skip_ws();
+        let name = self.parse_ident();
+        if name.is_empty() || !valid_name(&name) {
+            return Err(format!(
+                "syntax: line {}: `|>` needs a function (`x |> len`, `x |> split(\",\")`)",
+                self.lineno
+            ));
+        }
+        self.skip_ws();
+        let mut args = vec![lhs];
+        if self.pos < self.chars.len() && self.chars[self.pos] == '(' {
+            self.pos += 1;
+            loop {
+                self.skip_ws();
+                if self.pos < self.chars.len() && self.chars[self.pos] == ')' {
+                    self.pos += 1;
+                    break;
+                }
+                if args.len() >= 9 {
+                    return Err(format!(
+                        "syntax: line {}: `{name}` takes at most 8 arguments",
+                        self.lineno
+                    ));
+                }
+                args.push(self.parse_pipe()?);
+                self.skip_ws();
+                if self.pos < self.chars.len() && self.chars[self.pos] == ',' {
+                    self.pos += 1;
+                    continue;
+                }
+                self.skip_ws();
+                if self.pos < self.chars.len() && self.chars[self.pos] == ')' {
+                    self.pos += 1;
+                    break;
+                }
+                return Err(format!(
+                    "syntax: line {}: expected `,` or `)` in `{name}(…)`",
+                    self.lineno
+                ));
+            }
+        }
+        if self.ip.funcs.contains_key(&name) {
+            let lineno = self.lineno;
+            return call_func(self.ip, &name, &args, lineno);
+        }
+        let lineno = self.lineno;
+        let mut tail = args;
+        tail.remove(0);
+        let mut full = vec![lhs];
+        full.extend(tail);
+        builtin(&name, &full, self.ip, lineno)
     }
 
     fn parse_or(&mut self) -> Result<Value, String> {
@@ -1674,7 +2613,7 @@ impl<'b, 'a> ExprParser<'b, 'a> {
         let c = self.chars[self.pos];
         let mut base = if c == '(' {
             self.pos += 1;
-            let v = self.parse_or()?;
+            let v = self.parse_pipe()?;
             self.skip_ws();
             if self.pos >= self.chars.len() || self.chars[self.pos] != ')' {
                 return Err(format!("syntax: line {}: unclosed `(`", self.lineno));
@@ -1723,7 +2662,7 @@ impl<'b, 'a> ExprParser<'b, 'a> {
                 self.lineno
             ));
         };
-        // Postfix indexing: `d.key`, `d["k"]`, `l[0]`, `s[0]`.
+        // Postfix indexing: `d.key`, `d["k"]`, `l[0]`, `s[0]` + `?` unwrap.
         loop {
             self.skip_ws();
             if self.pos < self.chars.len() && self.chars[self.pos] == '.' {
@@ -1740,7 +2679,7 @@ impl<'b, 'a> ExprParser<'b, 'a> {
             }
             if self.pos < self.chars.len() && self.chars[self.pos] == '[' {
                 self.pos += 1;
-                let key = self.parse_or()?;
+                let key = self.parse_pipe()?;
                 self.skip_ws();
                 if self.pos >= self.chars.len() || self.chars[self.pos] != ']' {
                     return Err(format!(
@@ -1750,6 +2689,14 @@ impl<'b, 'a> ExprParser<'b, 'a> {
                 }
                 self.pos += 1;
                 base = index_value(&base, &key, self.lineno)?;
+                continue;
+            }
+            // Postfix `?` unwrap (Rust-style): `{ok:true,value:v}?` → `v`,
+            // `{ok:false,error:e}?` raises `e`.
+            if self.pos < self.chars.len() && self.chars[self.pos] == '?' {
+                self.pos += 1;
+                let lineno = self.lineno;
+                base = unwrap_value(base, lineno)?;
                 continue;
             }
             return Ok(base);
@@ -1850,7 +2797,7 @@ impl<'b, 'a> ExprParser<'b, 'a> {
                 ));
             }
             self.pos += 1;
-            let value = self.parse_or()?;
+            let value = self.parse_pipe()?;
             if let Value::Str(s) = &value {
                 if s.len() > MAX_STR {
                     return Err(format!(
@@ -1893,7 +2840,7 @@ impl<'b, 'a> ExprParser<'b, 'a> {
                     self.lineno
                 ));
             }
-            let v = self.parse_or()?;
+            let v = self.parse_pipe()?;
             items.push(v);
             self.skip_ws();
             if self.pos < self.chars.len() && self.chars[self.pos] == ',' {
@@ -1928,7 +2875,7 @@ impl<'b, 'a> ExprParser<'b, 'a> {
                     self.lineno
                 ));
             }
-            args.push(self.parse_or()?);
+            args.push(self.parse_pipe()?);
             self.skip_ws();
             if self.pos < self.chars.len() && self.chars[self.pos] == ',' {
                 self.pos += 1;
@@ -2274,8 +3221,73 @@ fn builtin(name: &str, args: &[Value], ip: &mut Interp, lineno: usize) -> Result
             };
             Ok(Value::List(map.values().cloned().collect()))
         }
+        // `ok(v)` / `err(msg)` — Result constructors for `match`/`?`.
+        "ok" => {
+            arity(1, 1)?;
+            let mut map = BTreeMap::new();
+            map.insert("ok".to_string(), Value::Bool(true));
+            map.insert("value".to_string(), args[0].clone());
+            Ok(Value::Dict(map))
+        }
+        "err" => {
+            arity(1, 1)?;
+            let mut map = BTreeMap::new();
+            map.insert("ok".to_string(), Value::Bool(false));
+            map.insert("error".to_string(), Value::Str(args[0].display()));
+            Ok(Value::Dict(map))
+        }
+        // `unwrap(v)` — `{ok:true,value:x}` → `x`; `{ok:false,error:e}` fails.
+        "unwrap" => {
+            arity(1, 1)?;
+            unwrap_value(args[0].clone(), lineno)
+        }
+        "is_ok" => {
+            arity(1, 1)?;
+            Ok(Value::Bool(!classify_result(&args[0]).0))
+        }
+        "is_err" => {
+            arity(1, 1)?;
+            Ok(Value::Bool(classify_result(&args[0]).0))
+        }
+        // `env(name[, fallback])` — host environment (ambient, unjournaled).
+        "env" => {
+            arity(1, 2)?;
+            let name = args[0].display();
+            match std::env::var(&name) {
+                Ok(v) => Ok(Value::Str(truncate_owned(v, MAX_STR))),
+                Err(_) if args.len() == 2 => Ok(args[1].clone()),
+                Err(_) => Err(format!("not_found: no env `{name}` (line {lineno})")),
+            }
+        }
+        // `arg(i[, fallback])` — script argv (`run f.cybsh -- a b`).
+        "arg" => {
+            arity(1, 2)?;
+            let idx = args[0].as_f64().ok_or_else(|| {
+                format!("syntax: line {lineno}: `arg` needs a number index")
+            })? as i64;
+            let list = ip.vars.get("args").cloned().unwrap_or(Value::List(vec![]));
+            match list {
+                Value::List(items) => {
+                    if idx < 0 || idx as usize >= items.len() {
+                        if args.len() == 2 {
+                            Ok(args[1].clone())
+                        } else {
+                            Err(format!("not_found: no arg `{idx}` (line {lineno})"))
+                        }
+                    } else {
+                        Ok(items[idx as usize].clone())
+                    }
+                }
+                _ => Err(format!("syntax: line {lineno}: `args` is not a list")),
+            }
+        }
+        // `fingerprint(text)` — FNV-1a/64 hex (journals, cache keys).
+        "fingerprint" => {
+            arity(1, 1)?;
+            Ok(Value::Str(fingerprint(&args[0].display())))
+        }
         _ => Err(format!(
-            "syntax: line {lineno}: unknown function `{name}` (try `len/int/str/json/split/range/sh/set/push/del/keys/values` or `def` it first)"
+            "syntax: line {lineno}: unknown function `{name}` (try `{BUILTIN_HINT}` or `def` it first)"
         )),
     }
 }
@@ -2396,7 +3408,7 @@ mod tests {
             "fetch \"https://example.com/x\" as body\nprint len(body)\n",
             &Host {
                 exec: &stub,
-                fetch: Some(&|url: &str| Ok(format!("page:{url}"))),
+                fetch: Some(&|req: &FetchReq| Ok(format!("page:{}", req.url))),
             },
         )
         .expect("runs");
@@ -2498,6 +3510,11 @@ mod tests {
     fn capabilities_deny_verbs_and_scope_fetch() {
         let err = run_err("# cap: deny=rm\n$ rm /x\n");
         assert!(err.starts_with("denied:"), "got {err}");
+        // Deny matches the verb, so host (`-os`) variants are covered too.
+        let err = run_err("# cap: deny=rm\n$ rm -os /x\n");
+        assert!(err.starts_with("denied:"), "got {err}");
+        let err = run_err("# cap: deny=ls\nsh \"ls -os /\"\n");
+        assert!(err.starts_with("denied:"), "got {err}");
         let err = run_err("# cap: net=example.com\nfetch \"https://evil.test/x\"\n");
         assert!(err.starts_with("denied:"), "got {err}");
         let out = run_ok("# cap: deny=rm\nprint \"ambient ok\"\n");
@@ -2506,9 +3523,137 @@ mod tests {
     }
 
     #[test]
+    fn os_flag_wrapper_forwards_verbatim_to_the_shell() {
+        // `.cybsh` `sh("… -os …")` / `$ … -os …` must reach `host.exec`
+        // verbatim — no flag stripping, no rewriting — so the shell's
+        // `dispatch` choke point refuses/routes exactly like the pure
+        // terminal command on every transport (native host impl, static +
+        // wasm `unsupported:`). The stub records the line it receives.
+        use std::rc::Rc;
+        let seen: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+        let seen_exec = Rc::clone(&seen);
+        let exec = move |line: &str| {
+            seen_exec.borrow_mut().push(line.to_string());
+            Err("unsupported: 'ls -os' addresses the host filesystem (sdcard on Android) — run it in the desktop app or the native Android build".to_string())
+        };
+        for src in ["$ ls -os /\n", "sh(\"ls -os /\")\nprint \"after\"\n"] {
+            seen.borrow_mut().clear();
+            let err = run_source(src, &host(&exec)).expect_err("refuses");
+            assert!(err.contains("unsupported:"), "got {err}");
+            assert_eq!(seen.borrow().as_slice(), &["ls -os /".to_string()], "got {:?}", seen.borrow());
+        }
+    }
+
+    #[test]
     fn fingerprint_is_stable_hex() {
         assert_eq!(fingerprint("a"), fingerprint("a"));
         assert_ne!(fingerprint("a"), fingerprint("b"));
         assert_eq!(fingerprint("a").len(), 16);
+    }
+
+    #[test]
+    fn args_bind_from_run_with() {
+        let stub = stub_echo();
+        let args = vec!["a".to_string(), "b".to_string()];
+        let out = run_source_with("print len(args)\nprint args[0]\nprint arg(1)\nprint arg(9, \"fb\")\n", &host(&stub), &args)
+            .expect("runs");
+        assert_eq!(out.text, "2\na\nb\nfb");
+        let stub = stub_echo();
+        let err = run_source_with("print arg(3)\n", &host(&stub), &[]).expect_err("fails");
+        assert!(err.starts_with("not_found:"), "got {err}");
+    }
+
+    #[test]
+    fn pipe_operator_prepends_lhs() {
+        let out = run_ok("print \"a,b,c\" |> split(\",\") |> len\nprint [3, 1] |> len\n");
+        assert_eq!(out.text, "3\n2");
+        let out = run_ok("def shout(s):\n  return s + \"!\"\nprint \"hi\" |> shout\n");
+        assert_eq!(out.text, "hi!");
+    }
+
+    #[test]
+    fn ok_err_unwrap_and_postfix() {
+        let out = run_ok("let r = ok(41)\nprint unwrap(r) + 1\nprint is_ok(r)\nprint is_err(err(\"x\"))\n");
+        assert_eq!(out.text, "42\ntrue\ntrue");
+        let out = run_ok("print ok(7)?\n");
+        assert_eq!(out.text, "7");
+        let err = run_err("print err(\"boom\")?\n");
+        assert!(err.contains("boom"), "got {err}");
+    }
+
+    #[test]
+    fn match_captures_shell_failures() {
+        let out = run_ok("match sh(\"unknown boom\"):\n  ok(v):\n    print \"ok\"\n  err(e):\n    print \"caught\"\n");
+        assert_eq!(out.text, "caught");
+        let out = run_ok("match ok(5):\n  ok(v):\n    print v + 1\n  err(e):\n    print \"bad\"\n");
+        assert_eq!(out.text, "6");
+        let out = run_ok("match err(\"nope\"):\n  ok(v):\n    print \"bad\"\n  else:\n    print \"fell\"\n");
+        assert_eq!(out.text, "fell");
+    }
+
+    #[test]
+    fn with_scopes_bindings() {
+        let out = run_ok("let x = 1\nwith y = 2:\n  let x = 99\n  print x + y\nprint x\n");
+        assert_eq!(out.text, "101\n1");
+    }
+
+    #[test]
+    fn await_polls_until_truthy() {
+        let out = run_ok("let n = 0\nawait n == 0\nprint \"fast\"\n");
+        assert_eq!(out.text, "fast");
+        let err = run_err("await false timeout 3\n");
+        assert!(err.starts_with("timeout:"), "got {err}");
+    }
+
+    #[test]
+    fn fetch_method_headers_and_json() {
+        let stub = stub_echo();
+        let seen = RefCell::new(Vec::new());
+        let fetch = |req: &FetchReq| {
+            seen.borrow_mut().push(req.journal_key());
+            Ok("{\"a\": 5}".to_string())
+        };
+        let out = run_source(
+            "fetch \"https://x.test/j\" method GET as json body\nprint body.a\n",
+            &Host { exec: &stub, fetch: Some(&fetch) },
+        )
+        .expect("runs");
+        assert_eq!(out.text, "fetched https://x.test/j (json → body)\n5");
+        assert_eq!(seen.borrow()[0], "GET https://x.test/j");
+    }
+
+    #[test]
+    fn import_merges_defs_with_prefix() {
+        let exec = |line: &str| {
+            if line.starts_with("cat ") {
+                Ok("def greet(name):\n  return \"hi \" + name\n".to_string())
+            } else {
+                Ok(format!("ran:{line}"))
+            }
+        };
+        let out = run_source(
+            "import \"/lib/util.cybsh\" as u\nprint u_greet(\"manju\")\n",
+            &host(&exec),
+        )
+        .expect("runs");
+        assert_eq!(out.text, "hi manju");
+        let err = run_source("import \"/lib/notes.txt\"\n", &host(&exec)).expect_err("fails");
+        assert!(err.starts_with("invalid:"), "got {err}");
+    }
+
+    #[test]
+    fn frontmatter_lint_and_format() {
+        let fm = parse_frontmatter("# schedule: nightly 02:00\n# on: push, manual\nprint 1\n");
+        assert_eq!(fm.schedule.as_deref(), Some("nightly 02:00"));
+        assert_eq!(fm.triggers, vec!["push".to_string(), "manual".to_string()]);
+        let warns = lint_source("print 1\n").expect("lints");
+        assert!(warns.iter().any(|w| w.contains("cybsh: 1")), "got {warns:?}");
+        let clean = lint_source("# cybsh: 1\nprint 1\n").expect("lints");
+        assert!(clean.iter().any(|w| w.contains("clean")), "got {clean:?}");
+        let formatted = format_source("if true:\nprint 1\n").expect("formats");
+        assert_eq!(formatted, "if true:\n  print 1\n");
+        // Idempotent.
+        let twice = format_source(&formatted).expect("reformats");
+        assert_eq!(twice, formatted);
     }
 }

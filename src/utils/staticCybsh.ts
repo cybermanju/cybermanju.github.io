@@ -25,11 +25,17 @@
 import type { ShellResult } from '@/types'
 import {
   checkCybshScript,
+  cybshFetchKey,
   cybshFingerprint,
+  formatCybshScript,
+  lintCybshScript,
+  parseFrontmatter,
   CYBSH_MAX_RUN_DEPTH,
   CYBSH_SCRIPT_EXT,
   runCybshScript,
+  type CybshFetchReq,
 } from './cybshScript'
+import { googleDriveAuthErrorSync } from './gitProvision'
 
 /** The 1 MiB single-write cap mirrors `MAX_WRITE_BYTES` in os.rs. */
 export const STATIC_WRITE_LIMIT = 1024 * 1024
@@ -539,14 +545,23 @@ export async function probeProviderQuotaViaFetch(
         return blocked('www.googleapis.com')
       }
       if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          const body = await safeJson(res)
+          const errJson = body.ok && typeof body.value === 'object' && body.value !== null
+            ? (body.value as Record<string, unknown>)
+            : undefined
+          return {
+            ...base,
+            ok: false,
+            detail: '',
+            error: `${googleDriveAuthErrorSync(res.status, errJson)} (config ${cfg.id})`,
+          }
+        }
         return {
           ...base,
           ok: false,
           detail: '',
-          error:
-            res.status === 401 || res.status === 403
-              ? `auth: Google rejected the token for ${cfg.id} (HTTP ${res.status}) — reconnect OAuth via the dashboard`
-              : `network: Google Drive quota probe failed for ${cfg.id} (HTTP ${res.status})`,
+          error: `network: Google Drive quota probe failed for ${cfg.id} (HTTP ${res.status})`,
         }
       }
       const body = await safeJson(res)
@@ -2198,7 +2213,8 @@ async function scriptExecCybsh(line: string, deps: StaticCybshDeps): Promise<str
   )
 }
 
-async function staticFetchText(url: string): Promise<string> {
+async function staticFetchText(req: CybshFetchReq): Promise<string> {
+  const url = req.url
   if (typeof fetch === 'undefined') {
     throw new Error(
       `unsupported: \`fetch ${url}\` has no HTTP client in this context — run the same \`.cybsh\` in the browser build`,
@@ -2207,7 +2223,7 @@ async function staticFetchText(url: string): Promise<string> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 10_000)
   try {
-    const res = await fetch(url, { signal: ctrl.signal })
+    const res = await fetch(url, { signal: ctrl.signal, method: req.method, headers: req.headers })
     if (!res.ok) throw new Error(`network: fetch ${url} → HTTP ${res.status}`)
     return (await res.text()).slice(0, 64 * 1024)
   } catch (e) {
@@ -2222,22 +2238,32 @@ async function staticFetchText(url: string): Promise<string> {
 
 interface ReplayJournal {
   fingerprint: string
+  args: string[] | null
   sh: Record<string, { ok: boolean; output: string }>
   fetch: Record<string, { ok: boolean; output: string }>
 }
 
-function parseReplayJournal(raw: string, source: string, arg: string): ReplayJournal {
+function parseReplayJournal(raw: string, source: string, arg: string, args: string[]): ReplayJournal {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
   } catch {
     throw new Error(`invalid: \`${arg}\` is not a replay journal`)
   }
-  const doc = parsed as { cybsh?: unknown; fingerprint?: unknown; calls?: unknown }
+  const doc = parsed as { cybsh?: unknown; fingerprint?: unknown; calls?: unknown; args?: unknown }
   if (doc.cybsh !== 1) throw new Error('invalid: replay journal is not a cybsh v1 journal')
   if (doc.fingerprint !== cybshFingerprint(source)) {
     throw new Error(
       'integrity: replay journal fingerprint mismatch — the script changed since `--record` (re-record, don\'t replay stale inputs)',
+    )
+  }
+  // Journals recorded with argv bind them: replaying with different args is
+  // an `integrity:` refusal, never a silent lie. Journals without `args`
+  // (v1) replay regardless of argv (back-compat).
+  const recordedArgs = Array.isArray(doc.args) ? (doc.args as unknown[]).map(String) : null
+  if (recordedArgs && (recordedArgs.length !== args.length || recordedArgs.some((a, i) => a !== args[i]))) {
+    throw new Error(
+      'integrity: replay journal argv mismatch — the script ran with different `--` args since `--record` (re-record, don\'t replay stale inputs)',
     )
   }
   const calls = (doc.calls ?? {}) as { sh?: unknown; fetch?: unknown }
@@ -2252,37 +2278,45 @@ function parseReplayJournal(raw: string, source: string, arg: string): ReplayJou
   }
   return {
     fingerprint: String(doc.fingerprint ?? ''),
+    args: recordedArgs,
     sh: table(calls.sh),
     fetch: table(calls.fetch),
   }
 }
 
 async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
-  const dry = args.some((a) => a === '--dry' || a === '--check')
-  if (args.some((a) => a === '--help' || a === '-h') || args.length === 0) {
-    return shellErr('usage: run <file.cybsh> [--dry] [--json] [--record <journal.json>] [--replay <journal.json>]')
+  // Script argv: everything after a bare `--` belongs to the script
+  // (`run job.cybsh -- /inbox weekly`), bound as `args`.
+  const dash = args.indexOf('--')
+  const scriptArgs = dash >= 0 ? args.slice(dash + 1) : []
+  const flags = dash >= 0 ? args.slice(0, dash) : args
+  const dry = flags.some((a) => a === '--dry' || a === '--check')
+  const lint = flags.some((a) => a === '--lint')
+  const fmt = flags.some((a) => a === '--fmt')
+  if (flags.some((a) => a === '--help' || a === '-h') || flags.length === 0) {
+    return shellErr('usage: run <file.cybsh> [--dry] [--lint] [--fmt] [--json] [--record <journal.json>] [--replay <journal.json>] [-- <args…>]')
   }
   // Value flags consume the next arg, so positionals skip both.
-  const positional = args.filter((a, i) => {
+  const positional = flags.filter((a, i) => {
     if (a.startsWith('-')) return false
-    const prev = args[i - 1]
+    const prev = flags[i - 1]
     return prev !== '--record' && prev !== '--replay'
   })
   let recordArg: string | null = null
   let replayArg: string | null = null
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--record' || args[i] === '--replay') {
-      const value = args[i + 1]
+  for (let i = 0; i < flags.length; i++) {
+    if (flags[i] === '--record' || flags[i] === '--replay') {
+      const value = flags[i + 1]
       if (!value || value.startsWith('-')) {
-        return shellErr(`usage: run <file.cybsh> [${args[i]} <journal.json>]`)
+        return shellErr(`usage: run <file.cybsh> [${flags[i]} <journal.json>]`)
       }
-      if (args[i] === '--record') recordArg = value
+      if (flags[i] === '--record') recordArg = value
       else replayArg = value
     }
   }
   if (recordArg && replayArg) return shellErr('invalid: `--record` and `--replay` are exclusive')
   const pathArg = positional[0]
-  if (!pathArg) return shellErr('usage: run <file.cybsh> [--dry] [--json]')
+  if (!pathArg) return shellErr('usage: run <file.cybsh> [--dry] [--json] [-- <args…>]')
   if (!pathArg.toLowerCase().endsWith(CYBSH_SCRIPT_EXT)) {
     return shellErr(
       `invalid: \`run\` needs a ${CYBSH_SCRIPT_EXT} file (got \`${pathArg}\`) — scripts are interpreted, no build step`,
@@ -2297,6 +2331,20 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
   }
   const source = deps.readVolume()[path]
   if (source === undefined) return shellErr(`not_found: no script at ${path}`)
+  if (lint) {
+    try {
+      return shellOk(lintCybshScript(source).join('\n'))
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+  if (fmt) {
+    try {
+      return shellOk(formatCybshScript(source).trimEnd())
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+  }
   if (dry) {
     try {
       return shellOk(`${path}: ${checkCybshScript(source)}`)
@@ -2307,7 +2355,8 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
   if (scriptDepth >= CYBSH_MAX_RUN_DEPTH) {
     return shellErr('too_large: `run` nesting exceeds 4 (script calling script calling …)')
   }
-  // Replay journal: same source fingerprint or an `integrity:` refusal.
+  // Replay journal: same source fingerprint (and argv, when recorded) or an
+  // `integrity:` refusal.
   let journal: ReplayJournal | null = null
   if (replayArg) {
     const journalPath = joinVolumePath(cwd, replayArg)
@@ -2316,7 +2365,7 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
       return shellErr(`not_found: no replay journal at ${journalPath} (\`--record\` one first)`)
     }
     try {
-      journal = parseReplayJournal(raw, source, replayArg)
+      journal = parseReplayJournal(raw, source, replayArg, scriptArgs)
     } catch (e) {
       return shellErr(e instanceof Error ? e.message : String(e))
     }
@@ -2341,29 +2390,34 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
       throw e
     }
   }
-  const fetchJournal = async (url: string): Promise<string> => {
+  const fetchJournal = async (req: CybshFetchReq): Promise<string> => {
+    const key = cybshFetchKey(req)
     if (journal) {
-      const rec = journal.fetch[url]
-      if (!rec) throw new Error(`not_found: replay journal has no \`fetch ${url}\` (re-record with \`--record\`)`)
+      const rec = journal.fetch[key] ?? journal.fetch[req.url]
+      if (!rec) throw new Error(`not_found: replay journal has no \`fetch ${key}\` (re-record with \`--record\`)`)
       if (!rec.ok) throw new Error(rec.output)
       return rec.output
     }
     try {
-      const body = await staticFetchText(url)
-      if (recording) logFetch[url] = { ok: true, output: body }
+      const body = await staticFetchText(req)
+      if (recording) logFetch[key] = { ok: true, output: body }
       return body
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      if (recording) logFetch[url] = { ok: false, output: msg }
+      if (recording) logFetch[key] = { ok: false, output: msg }
       throw e
     }
   }
   scriptDepth += 1
   try {
-    const out = await runCybshScript(source, {
-      execCybsh: execJournal,
-      fetchText: fetchJournal,
-    })
+    const out = await runCybshScript(
+      source,
+      {
+        execCybsh: execJournal,
+        fetchText: fetchJournal,
+      },
+      scriptArgs,
+    )
     if (recording) {
       const recordPath = joinVolumePath(cwd, recordArg as string)
       await deps.writeVolumeFile(
@@ -2371,8 +2425,10 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
         JSON.stringify(
           {
             cybsh: 1,
+            algo: 'fnv1a64',
             fingerprint: cybshFingerprint(source),
             script: path,
+            args: scriptArgs,
             calls: { sh: logSh, fetch: logFetch },
           },
           null,
@@ -2381,6 +2437,7 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
       )
     }
     if (json) {
+      const fm = parseFrontmatter(source)
       return shellOk(
         JSON.stringify({
           path,
@@ -2389,6 +2446,9 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
           caps: out.caps,
           calls: { sh: out.shCalls, fetch: out.fetchCalls },
           journal: journal ? 'replay' : recording ? 'record' : null,
+          args: scriptArgs,
+          schedule: fm.schedule,
+          triggers: fm.triggers,
           output: out.output,
         }),
       )
@@ -2421,6 +2481,22 @@ export async function runStaticCybshLine(
   })
   try {
     const { verb, args, json } = parsed
+    // Host filesystem (`-os`) only exists in the native shell (desktop app /
+    // Android): this static build has no host paths to transpose onto.
+    // Refuse loudly — the flag would otherwise be swallowed as an unknown
+    // switch and the volume answer would masquerade as a host listing.
+    // (Single-command lines only: chained `&&`/`;` lines return null above
+    // and direct `wasm` dispatch calls never reach this layer — both are
+    // refused by the wasm dispatcher's own `-os` guard with the same shape.
+    // `.cybsh` `sh("… -os …")` lines land here via `scriptExecCybsh`, so the
+    // wrapper agrees with the terminal on every transport.)
+    if (args.some((a) => a === '-os' || a === '--host' || a === '--os')) {
+      return done(
+        shellErr(
+          `unsupported: '${verb} -os' addresses the host filesystem (sdcard on Android) — run it in the desktop app or the native Android build`,
+        ),
+      )
+    }
     switch (verb) {
       case 'echo':
         return done(shellOk(args.join(' ')))

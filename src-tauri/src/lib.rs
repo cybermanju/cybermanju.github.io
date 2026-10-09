@@ -396,6 +396,28 @@ pub fn run() {
             commands::os_metrics::os_workers,
             commands::os_metrics::os_jobs,
             commands::os_metrics::os_df,
+            // cybsh OS layer over IPC (mobile has no dashboard; desktop falls
+            // back here when :3456 is down). Mirrors POST /api/os/* shapes.
+            commands::os_shell::os_exec,
+            commands::os_shell::os_complete,
+            commands::os_shell::os_stat,
+            commands::os_shell::os_ls,
+            commands::os_shell::os_du,
+            commands::os_shell::os_write,
+            commands::os_shell::get_disk,
+            commands::os_shell::destroy_disk,
+            // Android launcher bridge — Gaveta de Apps (device-local IPC;
+            // off-Android the commands refuse with `unsupported:`, never mocks).
+            commands::launcher::launcher_list_apps,
+            commands::launcher::launcher_open_app,
+            commands::launcher::launcher_uninstall_app,
+            commands::launcher::launcher_list_icon_packs,
+            commands::launcher::launcher_pack_icon,
+            commands::launcher::launcher_list_social_apps,
+            commands::launcher::launcher_list_messages,
+            commands::launcher::launcher_clear_messages,
+            commands::launcher::launcher_notification_state,
+            commands::launcher::launcher_open_notification_settings,
             // Point-in-time redb image used by the web-compatible mobile vault mirror
             commands::vault_snapshot::snapshot_native_database,
             commands::vault_snapshot::vault_kv_get,
@@ -472,6 +494,7 @@ pub fn run() {
             sync_cmd::get_sync_progress,
             sync_cmd::get_sync_status,
             sync_cmd::test_sync_connection,
+            sync_cmd::get_sync_usage,
             sync_cmd::cancel_sync,
             sync_cmd::list_remote_files,
             // <<< AGENT-2 SYNC JOBS/RESTORE >>>

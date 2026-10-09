@@ -115,14 +115,12 @@ describe('mobile onboarding surface', () => {
     expect(wizard).toContain('var(--ui-on-accent)')
   })
 
-  it('routes both setup wizards to one OAuth/account surface', () => {
+  it('signs in inline in both setup wizards (Account Manager stays secondary)', () => {
     const desktop = fs.readFileSync('src/components/SetupWizard.vue', 'utf8')
     const mobile = fs.readFileSync('src/components/MobileSetupWizard.vue', 'utf8')
     const accounts = fs.readFileSync('src/components/AccountManagerPanel.vue', 'utf8')
-    expect(desktop).not.toContain('signInWithPopup')
-    expect(desktop).not.toContain('quickSignIn')
-    expect(mobile).not.toContain('signInWithPopup')
-    expect(mobile).not.toContain('saveBroker')
+    expect(desktop).toContain('signInWithPopup')
+    expect(mobile).toContain('signInWithPopup')
     expect(desktop).toContain('cybermanju:open-accounts')
     expect(mobile).toContain('cybermanju:open-accounts')
     expect(accounts).toContain('wizardCanSave')

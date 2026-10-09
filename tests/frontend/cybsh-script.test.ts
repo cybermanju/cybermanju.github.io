@@ -305,6 +305,27 @@ describe('cybsh script: explicit failure handling', () => {
   it('rejects stray catch', async () => {
     await expect(runOk('catch e:\n  print 1\n')).rejects.toThrow(/without `try`/)
   })
+
+  it('runs parenthesized match arms (ok(v)/err(e))', async () => {
+    // Regression: the arm gate once recognized only bare `ok:`/`err:`,
+    // so `ok(v):` bodies were skipped silently (native + wasm + static).
+    expect(await runOk('match ok(5):\n  ok(v):\n    print v + 1\n  err(e):\n    print "bad"\n')).toBe('6')
+    expect(await runOk('match err("nope"):\n  ok(v):\n    print "bad"\n  else:\n    print "fell"\n')).toBe('fell')
+    const out = await runCybshScript(
+      'match sh("echo hi"):\n  ok(v):\n    print "got " + v\n  err(e):\n    print "missed"\n',
+      { execCybsh: echoExec },
+    )
+    expect(out.output).toBe('got hi')
+  })
+
+  it('round-trips sh --json with strings through hoisting', async () => {
+    // Regression: substituted shell output used display form
+    // (`{theme: os-dark}`), which re-parsed bare words as variables.
+    const out = await runCybshScript('let ui = sh("ui get --json")\nprint ui.theme\nprint len(ui)\n', {
+      execCybsh: () => '{"theme": "os-dark", "accent": "system"}',
+    })
+    expect(out.output).toBe('os-dark\n2')
+  })
 })
 
 describe('cybsh script: user functions', () => {
@@ -342,6 +363,8 @@ describe('cybsh script: versions and capabilities', () => {
 
   it('denies verbs and scopes fetch by capability', async () => {
     await expect(runOk('# cap: deny=rm\n$ rm /x\n')).rejects.toThrow(/^denied:/)
+    // Deny matches the verb, so host (`-os`) variants are covered too.
+    await expect(runOk('# cap: deny=rm\n$ rm -os /x\n')).rejects.toThrow(/^denied:/)
     await expect(runOk('# cap: net=example.com\nfetch "https://evil.test/x"\n')).rejects.toThrow(/^denied:/)
     const out = await runCybshScript('# cap: net=example.com deny=rm\nprint "ok"\n', {
       execCybsh: echoExec,

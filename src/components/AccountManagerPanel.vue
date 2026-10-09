@@ -191,7 +191,7 @@
               class="am-login"
               type="button"
               :disabled="signInBusy === p.id || !sbConfigured"
-              :title="sbConfigured ? `Continue with ${p.label}` : 'Set Supabase URL + key first'"
+              :title="sbConfigured ? `Continue with ${p.label}` : 'OAuth broker missing from this build'"
               @click="signIn(p.id)"
             >
               <ProviderLogo :provider="p.logo" :size="36" />
@@ -202,8 +202,7 @@
           <p v-if="signInMsg" class="am-note">{{ signInMsg }}</p>
           <div v-if="!sbConfigured" class="am-banner warn">
             <AppIcon name="solar:key-bold" :size="15" />
-            <span>Broker not configured — set the Supabase URL + key once, and sign-in plus provider OAuth both start working.</span>
-            <button class="am-btn sm primary" type="button" @click="openSettings">Configure</button>
+            <span>OAuth broker missing from this build — sign-in stays off until the app is rebuilt with its broker keys.</span>
           </div>
         </div>
 
@@ -387,7 +386,6 @@
                 <div v-if="!connectAvailable(selectedCfg)" class="am-banner warn">
                   <AppIcon name="solar:key-bold" :size="15" />
                   <span>{{ connectUnavailableReason(selectedCfg) }}</span>
-                  <button class="am-btn sm primary" type="button" @click="openSettings">Configure</button>
                 </div>
                 <p v-else class="am-hint">Prefer a token? Paste it in step 2 instead — OAuth stays optional.</p>
               </div>
@@ -688,7 +686,6 @@
         <AppIcon :name="warnings.some(w => w.level === 'error') ? 'solar:danger-triangle-bold' : warnings.length ? 'solar:info-circle-bold' : 'solar:check-circle-bold'" :size="14" />
         <strong>Warnings</strong>
         <span class="am-tab-count" :class="{ 'is-err': warnings.some(w => w.level === 'error') }">{{ warnings.length }}</span>
-        <button v-if="!sbConfigured" class="am-btn xs" type="button" title="Open Settings → OAuth broker" @click="openSettings">Configure broker</button>
       </div>
       <ul v-if="warnings.length" class="am-warnings-list">
         <li v-for="(w, i) in warnings" :key="i" class="am-warning" :class="`is-${w.level}`">
@@ -760,17 +757,6 @@ import { pollUntilTrue } from '@/utils/poll'
 
 const store = useAppStore()
 const wm = useWindowManager()
-
-/**
- * "Configure" on the broker banners: open Settings *on* the OAuth broker card
- * instead of dumping the user at Appearance — and wait one tick so a freshly
- * opened Settings window has registered its listener before the event fires.
- */
-async function openSettings() {
-  wm.open('settings')
-  await nextTick()
-  window.dispatchEvent(new CustomEvent('cybermanju:settings-focus', { detail: 'oauth-broker' }))
-}
 
 /** Roving-tabindex arrow-key navigation for the tab bar. */
 function onTabsKey(e: KeyboardEvent) {
@@ -1467,7 +1453,7 @@ const warnings = computed<Warning[]>(() => {
   }
   const needsBroker = store.syncConfigs.some(c => isOauthCapable(c.backendType))
   if ((needsBroker || !identity.value) && !sbConfigured.value) {
-    out.push({ level: 'warn', text: 'Supabase broker not configured — set the URL + key in Settings → OAuth to sign in and connect providers with OAuth.' })
+    out.push({ level: 'warn', text: 'OAuth broker missing from this build — sign-in and provider OAuth stay off until the app is rebuilt with its broker keys.' })
   }
   if (staticHost) out.push({ level: 'info', text: 'Offline demo vault — provider network calls need the server; everything else runs locally.' })
   if (!identity.value) out.push({ level: 'info', text: 'Not signed in — pick a provider at the top of the Connections tab.' })
@@ -1982,7 +1968,7 @@ function connectAvailable(cfg: SyncConfig): boolean {
 
 function connectUnavailableReason(cfg: SyncConfig): string {
   if (staticHost && !supabaseConfigured()) {
-    return 'Broker not configured — set the Supabase URL + key once (Settings → OAuth broker), and enable this provider in your Supabase project. Sign-in above uses the same broker.'
+    return 'OAuth broker missing from this build — sign-in stays off until the app is rebuilt with its broker keys.'
   }
   return 'OAuth is not available for this provider — paste a token in step 2.'
 }
@@ -2122,7 +2108,7 @@ async function supabaseConnect(cfg: SyncConfig) {
   cancelConnect()
   if (!supabaseConfigured()) {
     connectMsg.value[cfg.id] =
-      'Broker not configured — set the Supabase URL + key (Settings → OAuth broker), and enable this provider in your Supabase project. The Sign-in buttons above need the same broker.'
+      'OAuth broker missing from this build — provider OAuth stays off until the app is rebuilt with its broker keys.'
     return
   }
   setPendingOAuthConfig(cfg.id)

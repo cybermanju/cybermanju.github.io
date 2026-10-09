@@ -1,6 +1,7 @@
 # cybsh: 1
 # hello.cybsh — the smallest script that proves `run` works.
 # Usage: `run /scripts/hello.cybsh` (any volume path ending in `.cybsh`).
+# See also: tour.cybsh (the full tour).
 
 print "hello from cybsh scripts"
 
@@ -20,4 +21,5 @@ for i in range(3):
 $ echo inline shell still works
 let listing = sh("echo captured")
 print "kept: " + listing
-print "js says " + str(js: 1 + 2 * 3)
+let answer = js: 1 + 2 * 3
+print "js says " + str(answer)

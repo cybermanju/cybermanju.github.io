@@ -821,6 +821,7 @@ import {
   slashCommands,
 } from '@/composables/useAgentHarness'
 import { renderMarkdown } from '@/utils/markdown'
+import { deploymentStorageEventKey } from '@/utils/deploymentScope'
 import { useVoiceInput } from '@/composables/useVoiceInput'
 import { useWindowUi } from '@/composables/useWindowUi'
 import { diffBlocks, editBlocksOf } from '@/utils/agentDiff'
@@ -899,8 +900,9 @@ function onSharedChatConfig(e: Event) {
   adoptSharedChatConfig((e as CustomEvent<string>).detail ?? '')
 }
 function onSharedStorage(e: StorageEvent) {
-  if (e.key === CHAT_CONFIG_ID_KEY && e.newValue) adoptSharedChatConfig(e.newValue)
-  if (e.key === LOCAL_CONFIGS_KEY) refreshLocal()
+  const key = deploymentStorageEventKey(e.key)
+  if (key === CHAT_CONFIG_ID_KEY && e.newValue) adoptSharedChatConfig(e.newValue)
+  if (key === LOCAL_CONFIGS_KEY) refreshLocal()
 }
 function onSharedConfigs() { refreshLocal() }
 function onSharedKeys() { refreshLocal() }

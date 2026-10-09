@@ -1,10 +1,36 @@
 use cybermanju_db::Database;
+use cybermanju_types::FileNode;
 
 fn temp_db() -> (Database, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.redb");
     let db = Database::new(path.to_str().unwrap()).unwrap();
     (db, dir)
+}
+
+fn file_node(id: &str, parent_id: Option<&str>) -> FileNode {
+    FileNode {
+        id: id.to_string(),
+        name: format!("{id}.txt"),
+        file_type: "file".to_string(),
+        parent_id: parent_id.map(str::to_string),
+        size_bytes: 4,
+        mime_type: Some("text/plain".to_string()),
+        hash_blake3: None,
+        encrypted: false,
+        encryption_algorithm: None,
+        compression_layers: vec![],
+        thumbnail_path: None,
+        context_data: None,
+        tags: vec![],
+        collection_ids: vec![],
+        face_group_ids: vec![],
+        loose_group_ids: vec![],
+        gps_lat: None,
+        gps_lon: None,
+        created_at: "2026-10-09T00:00:00Z".to_string(),
+        modified_at: "2026-10-09T00:00:00Z".to_string(),
+    }
 }
 
 #[test]
@@ -122,6 +148,50 @@ fn test_remove_last_from_parent_index() {
 
     let children = db.list_by_parent("parent1").unwrap();
     assert!(children.is_empty());
+}
+
+#[test]
+fn test_trash_and_restore_keeps_parent_index_consistent() {
+    let (db, _dir) = temp_db();
+    let file = file_node("f1", Some("parent1"));
+    let serialized = serde_json::to_string(&file).unwrap();
+    db.insert_file_with_index("f1", &serialized, Some("parent1"))
+        .unwrap();
+    db.insert_file_with_index("f2", "{}", Some("parent1"))
+        .unwrap();
+
+    db.trash_file("f1", &file, None).unwrap();
+    assert_eq!(
+        db.list_by_parent("parent1").unwrap(),
+        vec!["f2".to_string()]
+    );
+    assert!(db.get_file_node("f1").unwrap().is_none());
+
+    let restored = db.restore_from_trash("f1").unwrap().unwrap();
+    assert_eq!(restored.original_file, file);
+    let children = db.list_by_parent("parent1").unwrap();
+    assert_eq!(children.len(), 2);
+    assert!(children.iter().any(|id| id.as_str() == "f1"));
+    assert!(children.iter().any(|id| id.as_str() == "f2"));
+    assert_eq!(children.iter().filter(|id| id.as_str() == "f1").count(), 1);
+    assert!(db.restore_from_trash("f1").unwrap().is_none());
+    assert_eq!(db.list_by_parent("parent1").unwrap().len(), 2);
+}
+
+#[test]
+fn test_trash_and_restore_file_without_parent() {
+    let (db, _dir) = temp_db();
+    let file = file_node("root-file", None);
+    let serialized = serde_json::to_string(&file).unwrap();
+    db.insert_file_with_index(&file.id, &serialized, None)
+        .unwrap();
+
+    db.trash_file(&file.id, &file, None).unwrap();
+    assert!(db.list_by_parent("root").unwrap().is_empty());
+    db.restore_from_trash(&file.id).unwrap().unwrap();
+
+    assert_eq!(db.get_file_node(&file.id).unwrap(), Some(file));
+    assert!(db.list_by_parent("root").unwrap().is_empty());
 }
 
 #[test]

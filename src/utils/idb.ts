@@ -7,7 +7,9 @@
 // ask the user for readwrite again (a user gesture — see
 // `useCyberManjuFile.reattach()`).
 
-const DB_NAME = 'cybermanju'
+import { IS_DEVELOP_PREVIEW } from './deploymentScope'
+
+const DB_NAME = IS_DEVELOP_PREVIEW ? 'cybermanju-develop' : 'cybermanju'
 const STORE = 'handles'
 
 function openDb(): Promise<IDBDatabase> {

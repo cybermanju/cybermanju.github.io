@@ -41,6 +41,7 @@ cybermanju-web = { path = "../crates/web" }
 cybermanju-disk = { path = "../crates/disk" }
 cybermanju-os = { path = "../crates/os" }
 cybermanju-agent = { path = "../crates/agent" }
+cybermanju-launcher = { path = "../crates/launcher" }
 
 # Tauri
 tauri = { version = "2", features = ["tray-icon"] }

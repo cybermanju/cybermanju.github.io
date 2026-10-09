@@ -178,6 +178,25 @@ fn ok(output: String) -> String {
     )
 }
 
+/// `-os`/`--host`/`--os` addresses the host filesystem (sdcard on Android,
+/// process cwd on desktop) — this browser sandbox has no host paths to
+/// transpose onto. Every verb refuses the flag loudly here so a volume
+/// answer never masquerades as a host listing. This mirrors the static
+/// layer's guard (`src/utils/staticCybsh.ts`), which only sees
+/// single-command lines: chained lines (`&&`/`;`) and direct dispatch
+/// calls land here, as does every `.cybsh` `sh("…")`/`$ …` line (scripts
+/// reuse `exec_result` → `dispatch`, the exact same path as the terminal).
+fn has_os_flag(args: &[String]) -> bool {
+    args.iter()
+        .any(|a| a == "-os" || a == "--host" || a == "--os")
+}
+
+fn os_refusal(verb: &str) -> String {
+    err(format!(
+        "unsupported: '{verb} -os' addresses the host filesystem (sdcard on Android) — run it in the desktop app or the native Android build"
+    ))
+}
+
 fn err(message: String) -> String {
     format!(
         r#"{{"ok":false,"line":"","output":{},"error":{},"prompt":"cybsh> "}}"#,
@@ -311,7 +330,22 @@ fn complete_subs() -> &'static [&'static str] {
         "ui palette",
         "ui get",
         "theme get",
+        "run --dry",
+        "run --lint",
+        "run --fmt",
+        "run --json",
+        "run --record",
+        "run --replay",
     ]
+}
+
+/// Script keywords complete too (`.cybsh` authoring from the prompt).
+fn complete_script_keywords(prefix: &str, out: &mut Vec<String>) {
+    for kw in SCRIPT_KEYWORDS {
+        if kw.starts_with(prefix) && !out.iter().any(|o| o == kw) {
+            out.push(kw.to_string());
+        }
+    }
 }
 
 /// BM25-lite over the stored files: term frequency against the collection.
@@ -672,6 +706,16 @@ fn tokenize(line: &str) -> Vec<String> {
 }
 
 fn dispatch(cmd: &str, args: &[String]) -> String {
+    // Host filesystem guard — before any verb arm. The sandbox has no host
+    // filesystem, so `ls -os` must not answer with a volume listing.
+    // `.cybsh` `sh("ls -os …")` lines land here too (via `exec_result`),
+    // which is why the guidance is identical on all three transports:
+    // pure command and script wrapper share this one choke point.
+    // `complete` takes a raw prefix, not flags — its argument is never an
+    // os-flag even when it spells `-os`.
+    if cmd != "complete" && has_os_flag(args) {
+        return os_refusal(cmd);
+    }
     let mut volume = load_volume();
     match cmd {
         // One line from the terminal: history + envelope here, the `&&`/`;`
@@ -695,15 +739,20 @@ fn dispatch(cmd: &str, args: &[String]) -> String {
                     hits.push(sub);
                 }
             }
-            hits.sort();
-            serde_json::to_string(&hits).unwrap_or_else(|_| "[]".to_string())
+            let mut owned: Vec<String> = hits.iter().map(|s| s.to_string()).collect();
+            complete_script_keywords(prefix, &mut owned);
+            owned.sort();
+            owned.dedup();
+            serde_json::to_string(&owned).unwrap_or_else(|_| "[]".to_string())
         }
         "help" => ok(format!(
             "cybsh (wasm transport)\n\
              local volume:\n  {}\n\
              local vault (offline, no dashboard):\n  {}\n\
              dashboard only (desktop app, Docker, :3456):\n  \
-             sync start · sync cancel · provider push · full OAuth dance · provider scrub/repair · ai ask",
+             sync start · sync cancel · provider push · full OAuth dance · provider scrub/repair · ai ask\n\
+             host filesystem: no `-os` here — `… -os` (and `sh(\"… -os …\")` in `.cybsh`) answers \
+             `unsupported:` on this transport; run host paths in the desktop app or the native Android build",
             [
                 "help", "history", "clear", "version", "echo", "pwd", "cd",
                 "ls", "cat", "cp", "mv", "write", "touch", "mkdir", "rm",
@@ -1171,15 +1220,37 @@ const SCRIPT_MAX_LIST: usize = 1024;
 const SCRIPT_MAX_OUTPUT: usize = 256 * 1024;
 const SCRIPT_MAX_FUNCS: usize = 32;
 const SCRIPT_MAX_CALL_DEPTH: usize = 32;
+/// Tries per `await <expr> [timeout N]` (logical polls, no wall-clock sleep).
+const SCRIPT_MAX_AWAIT: usize = 100;
+/// Default `await` tries when no `timeout` is given.
+const SCRIPT_DEFAULT_AWAIT: usize = 10;
+/// `import` nesting depth (same 4-deep budget as `run`-in-`run`).
+const SCRIPT_MAX_IMPORT: usize = 4;
+/// Statement + expression keywords (completion vocabulary, all transports).
+const SCRIPT_KEYWORDS: &[&str] = &[
+    "print", "let", "const", "if", "elif", "else", "for", "while", "in", "try", "catch",
+    "fail", "def", "return", "match", "ok", "err", "with", "import", "as", "await",
+    "timeout", "fetch", "method", "headers", "json", "and", "or", "not", "true",
+    "false", "null", "args", "env",
+];
 /// Language version pinned by `# cybsh: 1`.
 const SCRIPT_VERSION: &str = "1";
 const THEME_FILE: &str = "/.cybermanju/theme.json";
 
 fn run_script_file(args: &[String]) -> String {
-    let dry = args.iter().any(|a| a == "--dry" || a == "--check");
-    if args.iter().any(|a| a == "--help" || a == "-h") || args.is_empty() {
+    // Script argv: everything after a bare `--` binds `args` in the script.
+    let dash = args.iter().position(|a| a == "--");
+    let script_args: Vec<String> = dash.map(|d| args[d + 1..].to_vec()).unwrap_or_default();
+    let flags: &[String] = match dash {
+        Some(d) => &args[..d],
+        None => args,
+    };
+    let dry = flags.iter().any(|a| a == "--dry" || a == "--check");
+    let lint = flags.iter().any(|a| a == "--lint");
+    let fmt = flags.iter().any(|a| a == "--fmt");
+    if flags.iter().any(|a| a == "--help" || a == "-h") || flags.is_empty() {
         return err(
-            "usage: run <file.cybsh> [--dry] [--json] [--record <journal.json>] [--replay <journal.json>]"
+            "usage: run <file.cybsh> [--dry] [--lint] [--fmt] [--json] [--record <journal.json>] [--replay <journal.json>] [-- <args…>]"
                 .to_string(),
         );
     }
@@ -1187,7 +1258,7 @@ fn run_script_file(args: &[String]) -> String {
     let mut replay_arg: Option<String> = None;
     let mut positional: Vec<&String> = Vec::new();
     let mut skip_next = false;
-    for arg in args {
+    for arg in flags {
         if skip_next {
             skip_next = false;
             continue;
@@ -1200,7 +1271,7 @@ fn run_script_file(args: &[String]) -> String {
             positional.push(arg);
         }
     }
-    let mut flag_values = args.iter();
+    let mut flag_values = flags.iter();
     while let Some(arg) = flag_values.next() {
         if arg == "--record" || arg == "--replay" {
             let value = match flag_values.next().filter(|v| !v.starts_with('-')) {
@@ -1221,14 +1292,14 @@ fn run_script_file(args: &[String]) -> String {
     }
     let raw_path = match positional.first() {
         Some(p) => (*p).clone(),
-        None => return err("usage: run <file.cybsh> [--dry] [--json]".to_string()),
+        None => return err("usage: run <file.cybsh> [--dry] [--json] [-- <args…>]".to_string()),
     };
     if !raw_path.to_lowercase().ends_with(SCRIPT_EXT) {
         return err(format!(
             "invalid: `run` needs a {SCRIPT_EXT} file (got `{raw_path}`) — scripts are interpreted, no build step"
         ));
     }
-    let json = args.iter().any(|a| a == "--json");
+    let json = flags.iter().any(|a| a == "--json");
     let cwd = CWD.with(|c| c.borrow().clone());
     let path = join(&cwd, &raw_path);
     let source = match load_volume().get(&path) {
@@ -1241,6 +1312,18 @@ fn run_script_file(args: &[String]) -> String {
             source.len()
         ));
     }
+    if lint {
+        return match script_lint(&source) {
+            Ok(warns) => ok(warns.join("\n")),
+            Err(e) => err(e),
+        };
+    }
+    if fmt {
+        return match script_format(&source) {
+            Ok(text) => ok(text.trim_end().to_string()),
+            Err(e) => err(e),
+        };
+    }
     if dry {
         return match script_dry(&source) {
             Ok(report) => ok(format!("{path}: {report}")),
@@ -1252,7 +1335,7 @@ fn run_script_file(args: &[String]) -> String {
             "too_large: `run` nesting exceeds 4 (script calling script calling …)".to_string(),
         );
     }
-    // Replay journal: same source fingerprint or an `integrity:` refusal.
+    // Replay journal: same source fingerprint (and argv) or `integrity:`.
     let journal = if let Some(replay_name) = &replay_arg {
         let journal_path = join(&cwd, replay_name);
         let raw = match load_volume().get(&journal_path) {
@@ -1267,7 +1350,7 @@ fn run_script_file(args: &[String]) -> String {
             Ok(v) => v,
             Err(_) => return err(format!("invalid: `{replay_name}` is not a replay journal")),
         };
-        match script_journal_check(&parsed, &source) {
+        match script_journal_check(&parsed, &source, &script_args) {
             Ok(journal) => Some(journal),
             Err(e) => return err(e),
         }
@@ -1297,22 +1380,27 @@ fn run_script_file(args: &[String]) -> String {
         }
         result
     };
-    let fetch_wrap = |url: &str| -> Result<String, String> {
+    let fetch_wrap = |url: &str, method: &str| -> Result<String, String> {
+        let key = format!("{} {url}", method.to_uppercase());
         if let Some(journal) = journal.as_ref() {
-            return match journal.fetch.get(url) {
+            return match journal.fetch.get(&key).or_else(|| journal.fetch.get(url)) {
                 Some(rec) if rec.0 => Ok(rec.1.clone()),
                 Some(rec) => Err(rec.1.clone()),
                 None => Err(format!(
-                    "not_found: replay journal has no `fetch {url}` (re-record with `--record`)"
+                    "not_found: replay journal has no `fetch {key}` (re-record with `--record`)"
                 )),
             };
         }
-        Err(format!(
+        let message = format!(
             "unsupported: `fetch {url}` needs the browser/static transport (this sandbox has no HTTP client) — run the same {SCRIPT_EXT} via the Pages build where `fetch` really runs, or replay a journal (`--replay`)"
-        ))
+        );
+        if recording {
+            log_fetch.borrow_mut().insert(key, (false, message.clone()));
+        }
+        Err(message)
     };
     SCRIPT_DEPTH.with(|d| *d.borrow_mut() += 1);
-    let result = script_run(&source, &exec_wrap, Some(&fetch_wrap));
+    let result = script_run_with(&source, &exec_wrap, Some(&fetch_wrap), &script_args);
     SCRIPT_DEPTH.with(|d| {
         let mut v = d.borrow_mut();
         *v = v.saturating_sub(1);
@@ -1337,8 +1425,10 @@ fn run_script_file(args: &[String]) -> String {
             record_path,
             serde_json::json!({
                 "cybsh": 1,
+                "algo": "fnv1a64",
                 "fingerprint": script_fingerprint(&source),
                 "script": path,
+                "args": script_args,
                 "calls": { "sh": sh_map, "fetch": fetch_map },
             })
             .to_string(),
@@ -1346,12 +1436,16 @@ fn run_script_file(args: &[String]) -> String {
         save_volume(&volume);
     }
     if json {
+        let fm = script_parse_frontmatter(&source);
         ok(serde_json::json!({
             "path": path,
             "vars": output.vars,
             "caps": output.caps,
             "calls": { "sh": output.sh_calls, "fetch": output.fetch_calls },
             "journal": if journal.is_some() { "replay" } else if recording { "record" } else { "none" },
+            "args": script_args,
+            "schedule": fm.schedule,
+            "triggers": fm.triggers,
             "output": output.text,
         })
         .to_string())
@@ -1369,8 +1463,16 @@ fn script_dry(source: &str) -> Result<String, String> {
     } else {
         String::new()
     };
+    let fm = script_parse_frontmatter(source);
+    let mut extra = String::new();
+    if let Some(s) = &fm.schedule {
+        extra.push_str(&format!(" · schedule: {s}"));
+    }
+    if !fm.triggers.is_empty() {
+        extra.push_str(&format!(" · on: {}", fm.triggers.join(",")));
+    }
     Ok(format!(
-        "dry: {n} statement(s) parse{cap_note} — nothing executed (use `run <file.cybsh>` to execute)"
+        "dry: {n} statement(s) parse{cap_note}{extra} — nothing executed (use `run <file.cybsh>` to execute)"
     ))
 }
 
@@ -1380,7 +1482,11 @@ struct ScriptJournal {
     fetch: BTreeMap<String, (bool, String)>,
 }
 
-fn script_journal_check(parsed: &serde_json::Value, source: &str) -> Result<ScriptJournal, String> {
+fn script_journal_check(
+    parsed: &serde_json::Value,
+    source: &str,
+    args: &[String],
+) -> Result<ScriptJournal, String> {
     if parsed.get("cybsh").and_then(|v| v.as_u64()) != Some(1) {
         return Err("invalid: replay journal is not a cybsh v1 journal".to_string());
     }
@@ -1389,6 +1495,17 @@ fn script_journal_check(parsed: &serde_json::Value, source: &str) -> Result<Scri
         return Err(
             "integrity: replay journal fingerprint mismatch — the script changed since `--record` (re-record, don't replay stale inputs)".to_string(),
         );
+    }
+    if let Some(recorded) = parsed.get("args").and_then(|v| v.as_array()) {
+        let recorded: Vec<String> = recorded
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        if recorded.as_slice() != args {
+            return Err(
+                "integrity: replay journal argv mismatch — the script ran with different `--` args since `--record` (re-record, don't replay stale inputs)".to_string(),
+            );
+        }
     }
     let mut journal = ScriptJournal {
         sh: BTreeMap::new(),
@@ -1413,6 +1530,186 @@ fn script_journal_check(parsed: &serde_json::Value, source: &str) -> Result<Scri
         }
     }
     Ok(journal)
+}
+
+/// Declared schedule/trigger frontmatter (`# schedule:`, `# on:`, `# desc:`).
+#[derive(Debug, Clone, Default)]
+struct ScriptFrontmatter {
+    schedule: Option<String>,
+    triggers: Vec<String>,
+    description: Option<String>,
+}
+
+fn script_parse_frontmatter(source: &str) -> ScriptFrontmatter {
+    let mut fm = ScriptFrontmatter::default();
+    for raw in source.lines().take(200) {
+        let t = raw.trim();
+        let body = match t.strip_prefix('#') {
+            Some(b) => b.trim(),
+            None => continue,
+        };
+        if fm.schedule.is_none() {
+            let v = body
+                .strip_prefix("schedule:")
+                .or_else(|| body.strip_prefix("schedule "))
+                .map(|v| v.trim().trim_start_matches([':', ' ']).trim().to_string())
+                .filter(|v| !v.is_empty());
+            if let Some(v) = v {
+                fm.schedule = Some(v);
+                continue;
+            }
+        }
+        if let Some(v) = body.strip_prefix("on:").or_else(|| body.strip_prefix("on ")) {
+            let v = v.trim().trim_start_matches([':', ' ']).trim();
+            for trg in v.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                if !fm.triggers.iter().any(|t| t == trg) {
+                    fm.triggers.push(trg.to_string());
+                }
+            }
+            continue;
+        }
+        if fm.description.is_none() {
+            let v = body
+                .strip_prefix("desc:")
+                .or_else(|| body.strip_prefix("description:"))
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty());
+            if let Some(v) = v {
+                fm.description = Some(v);
+            }
+        }
+    }
+    fm
+}
+
+/// Clippy-style static warnings (backs `run --lint`): never executes.
+fn script_lint(source: &str) -> Result<Vec<String>, String> {
+    if source.len() > SCRIPT_MAX_SOURCE {
+        return Err(format!(
+            "too_large: script is {} bytes, limit is {SCRIPT_MAX_SOURCE}",
+            source.len()
+        ));
+    }
+    script_check_version(source)?;
+    let lines = script_split(source)?;
+    let mut warns = Vec::new();
+    let pinned = source.lines().any(|l| {
+        let t = l.trim();
+        t.strip_prefix('#')
+            .map(|b| {
+                let d = b.trim();
+                d.starts_with("cybsh:") || d.starts_with("cybsh ")
+            })
+            .unwrap_or(false)
+    });
+    if !pinned {
+        warns.push("hint: no `# cybsh: 1` version pin (add one for reproducibility)".to_string());
+    }
+    let fm = script_parse_frontmatter(source);
+    if fm.schedule.is_some() && fm.triggers.is_empty() {
+        warns.push("hint: `# schedule:` without `# on:` — triggers default to manual".to_string());
+    }
+    for line in &lines {
+        let word = script_first_word(&line.text);
+        if script_bare_verb(&line.text) || script_statement_kw(word) {
+            continue;
+        }
+        if script_assignment(&line.text).is_some() {
+            continue;
+        }
+        if line.text.starts_with('$')
+            || line.text.starts_with("js")
+            || line.text.starts_with("sh")
+            || line.text.starts_with(|c: char| {
+                c == '"' || c == '\'' || c == '[' || c == '{' || c.is_ascii_digit()
+            })
+        {
+            continue;
+        }
+        if word.contains('(') || word.contains('.') || word.contains('|') || word.contains('?') {
+            continue;
+        }
+        warns.push(format!(
+            "warn: line {}: unknown verb `{word}` — bare lines must be cybsh verbs (try `sh \"…\"`)",
+            line.lineno
+        ));
+    }
+    if source.lines().any(|r| r.starts_with('\t')) {
+        warns.push("style: tab indent (works as 4 spaces, prefer 2 spaces)".to_string());
+    }
+    if source.lines().any(|l| l.trim_start().starts_with("fetch"))
+        && !script_parse_caps(source).active
+    {
+        warns.push("hint: `fetch` without `# cap: net=<host>` — ambient now, pinned later".to_string());
+    }
+    if warns.is_empty() {
+        warns.push("lint: clean — no warnings".to_string());
+    }
+    Ok(warns)
+}
+
+fn script_statement_kw(word: &str) -> bool {
+    matches!(
+        word,
+        "print" | "let" | "const" | "if" | "elif" | "else" | "for" | "while" | "try"
+            | "catch" | "fail" | "def" | "return" | "match" | "ok" | "err" | "with"
+            | "import" | "await" | "fetch" | "js" | "vars" | "free" | "gc"
+    )
+}
+
+/// Canonical formatter (backs `run --fmt`): 2-space re-indent, idempotent.
+fn script_format(source: &str) -> Result<String, String> {
+    script_check_version(source)?;
+    let lines = script_split(source)?;
+    let mut out = Vec::new();
+    let mut stack: Vec<isize> = vec![-1];
+    for line in &lines {
+        let text = line.text.as_str();
+        let dedent = script_is_dedent(text);
+        while stack.len() > 1 && line.indent as isize <= *stack.last().unwrap_or(&-1) {
+            stack.pop();
+        }
+        let mut depth = stack.len() as isize - 1;
+        if dedent {
+            depth = depth.saturating_sub(1);
+        }
+        if line.indent == 0 {
+            depth = 0;
+            stack = vec![-1];
+        }
+        out.push(format!("{}{}", "  ".repeat(depth.max(0) as usize), text));
+        if script_opens_block(text) {
+            stack.push(line.indent as isize);
+        }
+    }
+    Ok(out.join("\n") + "\n")
+}
+
+fn script_is_dedent(text: &str) -> bool {
+    text == "else:"
+        || text == "else"
+        || text == "catch"
+        || text == "catch:"
+        || script_is_kw(text, "elif")
+        || script_is_kw(text, "catch")
+        || script_is_match_arm(text)
+}
+
+fn script_opens_block(text: &str) -> bool {
+    (script_is_kw(text, "if")
+        || script_is_kw(text, "elif")
+        || text == "else:"
+        || text == "else"
+        || script_is_kw(text, "for")
+        || script_is_kw(text, "while")
+        || text == "try:"
+        || text == "try"
+        || script_is_catch(text)
+        || script_is_kw(text, "def")
+        || script_is_kw(text, "match")
+        || script_is_kw(text, "with")
+        || script_is_match_arm(text))
+        && (text.ends_with(':') || text == "try" || script_is_catch(text))
 }
 
 /// Flat AMOLED set plus the Breeze-like plasma pair.
@@ -1922,6 +2219,8 @@ impl SValue {
 
 /// Inline shell + fetch as values: the host surface a script may touch.
 type ScriptShellFn<'a> = &'a dyn Fn(&str) -> Result<String, String>;
+/// Fetch hook: `(url, METHOD)` — journals key on `METHOD url`.
+type ScriptFetchFn<'a> = &'a dyn Fn(&str, &str) -> Result<String, String>;
 
 /// JSON-quote a string for dict display (minimal escaping, deterministic).
 fn script_json_quote(s: &str) -> String {
@@ -2102,12 +2401,13 @@ fn script_fingerprint(source: &str) -> String {
 
 struct ScriptInterp<'a> {
     exec: ScriptShellFn<'a>,
-    fetch: Option<ScriptShellFn<'a>>,
+    fetch: Option<ScriptFetchFn<'a>>,
     caps: SCaps,
     vars: BTreeMap<String, SValue>,
     funcs: BTreeMap<String, SFuncDef>,
     flow: Option<SValue>,
     call_depth: usize,
+    import_depth: usize,
     out: String,
     steps: usize,
     truncated: bool,
@@ -2131,7 +2431,20 @@ fn script_parse(source: &str) -> Result<usize, String> {
 fn script_run(
     source: &str,
     exec: ScriptShellFn<'_>,
-    fetch: Option<ScriptShellFn<'_>>,
+    fetch: Option<ScriptFetchFn<'_>>,
+) -> Result<ScriptOut, String> {
+    script_run_with(source, exec, fetch, &[])
+}
+
+/// New-builtin hint shared by every unknown-function error.
+const SCRIPT_BUILTIN_HINT: &str =
+    "len/int/str/json/split/range/sh/set/push/del/keys/values/ok/err/unwrap/is_ok/is_err/env/arg/fingerprint";
+
+fn script_run_with(
+    source: &str,
+    exec: ScriptShellFn<'_>,
+    fetch: Option<ScriptFetchFn<'_>>,
+    args: &[String],
 ) -> Result<ScriptOut, String> {
     script_check_version(source)?;
     let lines = script_split(source)?;
@@ -2144,6 +2457,17 @@ fn script_run(
         funcs: BTreeMap::new(),
         flow: None,
         call_depth: 0,
+        import_depth: 0,
+        out: String::new(),
+        steps: 0,
+        truncated: false,
+        sh_calls: 0,
+        fetch_calls: 0,
+    };
+    ip.vars.insert(
+        "args".to_string(),
+        SValue::List(args.iter().map(|a| SValue::Str(a.clone())).collect()),
+    );
         out: String::new(),
         steps: 0,
         truncated: false,
@@ -2178,11 +2502,16 @@ fn script_exec_checked(ip: &mut ScriptInterp, line: &str) -> Result<String, Stri
 }
 
 /// Fetch through the capability gate + optional journal hook.
-fn script_fetch_checked(ip: &mut ScriptInterp, url: &str, lineno: usize) -> Result<String, String> {
+fn script_fetch_checked(
+    ip: &mut ScriptInterp,
+    url: &str,
+    method: &str,
+    lineno: usize,
+) -> Result<String, String> {
     ip.caps.check_fetch(url)?;
     ip.fetch_calls += 1;
     match ip.fetch {
-        Some(fetch) => fetch(url)
+        Some(fetch) => fetch(url, method)
             .map(|text| {
                 if text.len() > SCRIPT_MAX_STR {
                     text[..SCRIPT_MAX_STR].to_string()
@@ -2275,6 +2604,14 @@ fn script_is_reserved(name: &str) -> bool {
             | "del"
             | "keys"
             | "values"
+            | "ok"
+            | "err"
+            | "unwrap"
+            | "is_ok"
+            | "is_err"
+            | "env"
+            | "arg"
+            | "fingerprint"
             | "true"
             | "false"
             | "null"
@@ -2580,14 +2917,399 @@ fn script_split_def(header: &str, lineno: usize) -> Result<(String, Vec<String>)
     Ok((name, params))
 }
 
-fn script_split_fetch(rest: &str) -> (String, Option<String>) {
-    if let Some(pos) = rest.find(" as ") {
-        let name = rest[pos + " as ".len()..].trim();
-        if script_valid_name(name) && !rest[..pos].trim().is_empty() {
-            return (rest[..pos].trim().to_string(), Some(name.to_string()));
+/// Full `fetch` spec: `url-expr [method M] [headers expr] [as json var|as var]`.
+struct ScriptFetchSpec {
+    url_src: String,
+    method: String,
+    headers_src: Option<String>,
+    want_json: bool,
+    var: Option<String>,
+}
+
+/// Split `head KEYWORD tail` on a top-level keyword (outside quotes/brackets).
+fn script_split_kw(src: &str, kw: &str) -> Option<(String, String)> {
+    let chars: Vec<char> = src.chars().collect();
+    let mut quote: Option<char> = None;
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            '"' | '\'' => {
+                quote = Some(c);
+                i += 1;
+                continue;
+            }
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        if depth == 0 && c.is_whitespace() {
+            let byte: usize = chars[..i].iter().collect::<String>().len();
+            let tail = src[byte..].trim_start();
+            if tail == kw || tail.starts_with(&format!("{kw} ")) {
+                return Some((src[..byte].trim().to_string(), tail[kw.len()..].trim().to_string()));
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Trailing `as json name` / `as name` (quote/bracket-aware, last wins).
+fn script_fetch_as(rest: &str) -> Option<(String, bool, Option<String>)> {
+    let chars: Vec<char> = rest.chars().collect();
+    let mut quote: Option<char> = None;
+    let mut depth = 0usize;
+    let mut last_as: Option<usize> = None;
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            '"' | '\'' => quote = Some(c),
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        if depth == 0 && c == ' ' {
+            let byte: usize = chars[..i].iter().collect::<String>().len();
+            let tail = rest[byte..].trim_start();
+            if tail == "as" || tail.starts_with("as ") {
+                let after = &tail[2..];
+                if after.is_empty() || after.starts_with(' ') {
+                    last_as = Some(byte);
+                }
+            }
+        }
+        i += 1;
+    }
+    match last_as {
+        None => Some((rest.trim().to_string(), false, None)),
+        Some(pos) => {
+            let head = rest[..pos].trim().to_string();
+            let tail = rest[pos..].trim_start().strip_prefix("as").unwrap_or("").trim().to_string();
+            if tail.is_empty() || tail == "json" {
+                return None;
+            }
+            if let Some(name) = tail.strip_prefix("json").map(str::trim) {
+                if !script_valid_name(name) {
+                    return None;
+                }
+                Some((head, true, Some(name.to_string())))
+            } else if script_valid_name(&tail) {
+                Some((head, false, Some(tail)))
+            } else {
+                None
+            }
         }
     }
-    (rest.trim().to_string(), None)
+}
+
+fn script_split_fetch_full(rest: &str, lineno: usize) -> Result<ScriptFetchSpec, String> {
+    let (head, want_json, var) = match script_fetch_as(rest) {
+        Some(v) => v,
+        None => {
+            return Err(format!("syntax: line {lineno}: bad `fetch … as …` (try `fetch <url> [method M] [headers H] [as json <var> | as <var>]`)"));
+        }
+    };
+    let (head, headers_src) = match script_split_kw(&head, "headers") {
+        Some((h, t)) if !h.trim().is_empty() => (h.trim().to_string(), Some(t.trim().to_string())),
+        _ => (head, None),
+    };
+    let (url_src, method) = match script_split_kw(&head, "method") {
+        Some((h, t)) => {
+            let m = t.split_whitespace().next().unwrap_or("").to_uppercase();
+            if !matches!(m.as_str(), "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD") {
+                return Err(format!("syntax: line {lineno}: bad fetch method `{m}` (GET/POST/PUT/DELETE/PATCH/HEAD)"));
+            }
+            let tail = t.strip_prefix(m.as_str()).unwrap_or("").trim();
+            if !tail.is_empty() {
+                return Err(format!("syntax: line {lineno}: `method` takes one word (`method {m}` before `headers`)"));
+            }
+            (h.trim().to_string(), m)
+        }
+        None => (head.trim().to_string(), "GET".to_string()),
+    };
+    if url_src.is_empty() {
+        return Err(format!("syntax: line {lineno}: `fetch` needs a URL"));
+    }
+    Ok(ScriptFetchSpec {
+        url_src,
+        method,
+        headers_src,
+        want_json,
+        var,
+    })
+}
+
+/// `import "path" [as prefix]` parts (path is an expression source).
+fn script_split_import(rest: &str, lineno: usize) -> Result<(String, Option<String>), String> {
+    match script_split_kw(rest, "as") {
+        Some((h, t)) => {
+            let prefix = t.trim().to_string();
+            if !script_valid_name(&prefix) {
+                return Err(format!("syntax: line {lineno}: bad import prefix `{prefix}`"));
+            }
+            if script_is_reserved(&prefix) {
+                return Err(format!("syntax: line {lineno}: `{prefix}` is a builtin — pick another prefix"));
+            }
+            if h.trim().is_empty() {
+                return Err(format!("syntax: line {lineno}: `import` needs `import \"lib.cybsh\" [as ns]`"));
+            }
+            Ok((h.trim().to_string(), Some(prefix)))
+        }
+        None => {
+            if rest.trim().is_empty() {
+                return Err(format!("syntax: line {lineno}: `import` needs `import \"lib.cybsh\" [as ns]`"));
+            }
+            Ok((rest.trim().to_string(), None))
+        }
+    }
+}
+
+/// Load another `.cybsh` file's `def`s via the volume dispatcher (defs only).
+fn script_import_defs(
+    ip: &mut ScriptInterp,
+    path: &str,
+    prefix: Option<&str>,
+    lineno: usize,
+) -> Result<(), String> {
+    if !path.to_lowercase().ends_with(SCRIPT_EXT) {
+        return Err(format!(
+            "invalid: line {lineno}: `import` needs a {SCRIPT_EXT} file (got `{path}`)"
+        ));
+    }
+    if ip.import_depth >= SCRIPT_MAX_IMPORT {
+        return Err(format!(
+            "too_large: line {lineno}: `import` nesting exceeds {SCRIPT_MAX_IMPORT}"
+        ));
+    }
+    let source = exec_result(&format!("cat \"{}\"", path.replace('"', "\\\"")))
+        .map_err(|e| format!("{e} (line {lineno})"))?;
+    if source.len() > SCRIPT_MAX_SOURCE {
+        return Err(format!("too_large: line {lineno}: imported script exceeds {SCRIPT_MAX_SOURCE} bytes"));
+    }
+    script_check_version(source.as_str()).map_err(|e| format!("{e} (line {lineno})"))?;
+    let lines = script_split(&source).map_err(|e| format!("{e} (line {lineno})"))?;
+    ip.import_depth += 1;
+    let mut count = 0usize;
+    let mut i = 0;
+    while i < lines.len() {
+        let t = lines[i].text.clone();
+        if script_is_kw(&t, "def") {
+            let header = script_colon(script_rest(&t, "def", lines[i].lineno)?, lines[i].lineno)
+                .map_err(|e| format!("{e} (line {lineno})"))?;
+            let (mut name, params) = script_split_def(&header, lines[i].lineno)
+                .map_err(|e| format!("{e} (line {lineno})"))?;
+            let parent = lines[i].indent as isize;
+            if i + 1 >= lines.len() || lines[i + 1].indent as isize <= parent {
+                ip.import_depth -= 1;
+                return Err(format!("syntax: line {lineno}: imported `def` has no body"));
+            }
+            let end = script_skip(&lines, i + 1, parent);
+            let body: Vec<SLine> = lines[i + 1..end].to_vec();
+            if let Some(ns) = prefix {
+                name = format!("{ns}_{name}");
+            }
+            if ip.funcs.len() >= SCRIPT_MAX_FUNCS && !ip.funcs.contains_key(&name) {
+                ip.import_depth -= 1;
+                return Err(format!("too_large: line {lineno}: script holds {SCRIPT_MAX_FUNCS} functions already"));
+            }
+            ip.funcs.insert(name, SFuncDef { params, body });
+            count += 1;
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    ip.import_depth -= 1;
+    if count == 0 {
+        return Err(format!("not_found: line {lineno}: `{path}` defines no `def`s to import"));
+    }
+    Ok(())
+}
+
+/// `await <expr> [timeout N]` parts (N in 1..=MAX, default 10).
+fn script_split_await(rest: &str, lineno: usize) -> Result<(String, usize), String> {
+    match script_split_kw(rest, "timeout") {
+        Some((h, t)) => {
+            let mut words = t.split_whitespace();
+            let n: usize = words.next().unwrap_or("").parse().map_err(|_| {
+                format!("syntax: line {lineno}: `timeout` needs a number 1–{SCRIPT_MAX_AWAIT}")
+            })?;
+            if n == 0 || n > SCRIPT_MAX_AWAIT {
+                return Err(format!("syntax: line {lineno}: `timeout` needs a number 1–{SCRIPT_MAX_AWAIT}"));
+            }
+            if words.next().is_some() {
+                return Err(format!("syntax: line {lineno}: `await … timeout N` takes nothing after N"));
+            }
+            if h.trim().is_empty() {
+                return Err(format!("syntax: line {lineno}: `await` needs an expression"));
+            }
+            Ok((h.trim().to_string(), n))
+        }
+        None => {
+            if rest.trim().is_empty() {
+                return Err(format!("syntax: line {lineno}: `await` needs an expression"));
+            }
+            Ok((rest.trim().to_string(), SCRIPT_DEFAULT_AWAIT))
+        }
+    }
+}
+
+/// Is this line a `match` arm header?
+/// Is this line a `match` arm header? Parenthesized bindings (`ok(v):`,
+/// `err(e):`) count — the gate must agree with `script_match_arm`, or
+/// arms are skipped silently instead of running (or refusing loudly).
+fn script_is_match_arm(text: &str) -> bool {
+    text == "else:"
+        || text == "else"
+        || text == "ok:"
+        || text == "err:"
+        || script_is_kw(text, "ok")
+        || script_is_kw(text, "err")
+        || text.starts_with("ok(")
+        || text.starts_with("err(")
+}
+
+/// `ok(v):` / `err(e):` / `else:` arm binding.
+fn script_match_arm(text: &str, lineno: usize) -> Result<(String, Option<String>), String> {
+    let inner = text.trim().trim_end_matches(':').trim().to_string();
+    if inner == "else" {
+        return Ok(("else".to_string(), None));
+    }
+    for kind in ["ok", "err"] {
+        if inner == kind {
+            return Ok((kind.to_string(), None));
+        }
+        if let Some(rest) = inner.strip_prefix(kind) {
+            let r = rest.trim();
+            let name = r.trim_start_matches('(').trim_end_matches(')').trim();
+            if !r.is_empty() && script_valid_name(name) && (r.starts_with('(') || r.starts_with(' ')) {
+                return Ok((kind.to_string(), Some(name.to_string())));
+            }
+        }
+    }
+    Err(format!("syntax: line {lineno}: bad `match` arm `{text}` (try `ok(v):`, `err(e):`, `else:`)"))
+}
+
+/// Evaluate a match target, capturing failures as err material.
+fn script_match_target(
+    ip: &mut ScriptInterp,
+    src: &str,
+    lineno: usize,
+) -> Result<SValue, String> {
+    let t = src.trim();
+    if script_is_kw(t, "sh") {
+        let rest = script_rest(t, "sh", lineno)?.trim().to_string();
+        let cmdline = script_unquote(&rest, lineno)?.unwrap_or(rest);
+        let expanded = script_interpolate(&ip.vars, &cmdline);
+        return match script_exec_checked(ip, &expanded) {
+            Ok(text) => {
+                let v = script_materialize(&text).unwrap_or_else(|| {
+                    SValue::Str(if text.len() > SCRIPT_MAX_STR {
+                        text[..SCRIPT_MAX_STR].to_string()
+                    } else {
+                        text
+                    })
+                });
+                let _ = script_set(ip, "_", v.clone());
+                Ok(v)
+            }
+            Err(e) => Err(e),
+        };
+    }
+    script_eval(ip, src, lineno)
+}
+
+/// Run `match <expr>:` — target errors become the `err` arm.
+fn script_run_match(
+    ip: &mut ScriptInterp,
+    lines: &[SLine],
+    idx: usize,
+    target_src: &str,
+    lineno: usize,
+    _parent: isize,
+    end: usize,
+) -> Result<usize, String> {
+    let target = script_match_target(ip, target_src, lineno);
+    let (is_err, bind_value, err_text) = match &target {
+        Err(e) => (true, SValue::Null, e.clone()),
+        Ok(v) => script_classify(v),
+    };
+    let arm_parent = lines[idx + 1].indent as isize;
+    let mut ok_arm: Option<(Option<String>, usize, usize)> = None;
+    let mut err_arm: Option<(Option<String>, usize, usize)> = None;
+    let mut else_arm: Option<(usize, usize)> = None;
+    let mut j = idx + 1;
+    while j < end {
+        if lines[j].indent as isize != arm_parent || !script_is_match_arm(&lines[j].text) {
+            j = script_skip(lines, j + 1, arm_parent);
+            continue;
+        }
+        let (kind, binding) = script_match_arm(&lines[j].text, lines[j].lineno)?;
+        let s = j + 1;
+        let e = script_skip(lines, s, arm_parent);
+        match kind.as_str() {
+            "ok" if ok_arm.is_none() => ok_arm = Some((binding, s, e)),
+            "err" if err_arm.is_none() => err_arm = Some((binding, s, e)),
+            "else" if else_arm.is_none() => else_arm = Some((s, e)),
+            _ => {
+                return Err(format!(
+                    "syntax: line {}: duplicate `match` arm `{kind}`",
+                    lines[j].lineno
+                ))
+            }
+        }
+        j = e;
+    }
+    if is_err {
+        if let Some((binding, s, _)) = err_arm {
+            if let Some(name) = binding {
+                let capped = if err_text.len() > SCRIPT_MAX_STR {
+                    err_text[..SCRIPT_MAX_STR].to_string()
+                } else {
+                    err_text.clone()
+                };
+                script_set(ip, &name, SValue::Str(capped))?;
+            }
+            script_block(ip, lines, s, arm_parent)?;
+            let capped = if err_text.len() > SCRIPT_MAX_STR {
+                err_text[..SCRIPT_MAX_STR].to_string()
+            } else {
+                err_text
+            };
+            let _ = script_set(ip, "_", SValue::Str(capped));
+        } else if let Some((s, _)) = else_arm {
+            script_block(ip, lines, s, arm_parent)?;
+        }
+    } else if let Some((binding, s, _)) = ok_arm {
+        if let Some(name) = binding {
+            script_set(ip, &name, bind_value.clone())?;
+        }
+        let _ = script_set(ip, "_", bind_value);
+        script_block(ip, lines, s, arm_parent)?;
+    } else if let Some((s, _)) = else_arm {
+        let _ = script_set(ip, "_", bind_value);
+        script_block(ip, lines, s, arm_parent)?;
+    } else {
+        let _ = script_set(ip, "_", bind_value);
+    }
+    Ok(end)
 }
 
 fn script_call_func(
@@ -2820,10 +3542,34 @@ fn script_statement(ip: &mut ScriptInterp, lines: &[SLine], idx: usize) -> Resul
 
     if script_is_kw(&text, "fetch") {
         let rest = script_rest(&text, "fetch", lineno)?;
-        let (url_src, var) = script_split_fetch(rest);
-        let url = script_eval(ip, &url_src, lineno)?.display();
-        let body = script_fetch_checked(ip, &url, lineno)?;
-        if let Some(name) = var {
+        let spec = script_split_fetch_full(rest, lineno)?;
+        let url = script_eval(ip, &spec.url_src, lineno)?.display();
+        // Headers evaluate but have no HTTP client here: replay journals
+        // serve `fetch` deterministically, anything else stays `unsupported:`.
+        if let Some(hsrc) = &spec.headers_src {
+            match script_eval(ip, hsrc, lineno)? {
+                SValue::Dict(_) => {}
+                other => {
+                    return Err(format!(
+                        "syntax: line {lineno}: `headers` needs a dict (got {})",
+                        other.type_name()
+                    ))
+                }
+            }
+        }
+        let body = script_fetch_checked(ip, &url, &spec.method, lineno)?;
+        if spec.want_json {
+            let v = script_materialize(&body).ok_or_else(|| {
+                format!("invalid: line {lineno}: `fetch {url}` did not return JSON (try plain `as`)")
+            })?;
+            if let Some(name) = spec.var {
+                script_set(ip, &name, v)?;
+                script_emit(ip, &format!("fetched {url} (json → {name})"));
+            } else {
+                script_set(ip, "_", v.clone())?;
+                script_emit(ip, &v.display());
+            }
+        } else if let Some(name) = spec.var {
             if !script_valid_name(&name) {
                 return Err(format!("syntax: line {lineno}: bad variable name `{name}`"));
             }
@@ -2837,6 +3583,85 @@ fn script_statement(ip: &mut ScriptInterp, lines: &[SLine], idx: usize) -> Resul
             script_emit(ip, &body);
         }
         return Ok(idx + 1);
+    }
+
+    // `import "lib.cybsh" [as ns]` — merge another file's `def`s (defs only).
+    if script_is_kw(&text, "import") {
+        let rest = script_rest(&text, "import", lineno)?.trim().to_string();
+        let (path_src, prefix) = script_split_import(&rest, lineno)?;
+        let path = script_eval(ip, &path_src, lineno)?.display();
+        script_import_defs(ip, &path, prefix.as_deref(), lineno)?;
+        return Ok(idx + 1);
+    }
+
+    // `with [name = expr]:` — scoped block (assignments inside don't escape).
+    if text == "with:" || text == "with" || script_is_kw(&text, "with") {
+        let rest = if text == "with:" || text == "with" {
+            String::new()
+        } else {
+            script_colon(script_rest(&text, "with", lineno)?.trim(), lineno)?
+        };
+        script_block_indent(lines, idx + 1, parent)?;
+        let end = script_skip(lines, idx + 1, parent);
+        let saved_vars = ip.vars.clone();
+        let saved_flow = ip.flow.take();
+        if !rest.is_empty() {
+            let eq = script_top_eq(&rest).ok_or_else(|| {
+                format!("syntax: line {lineno}: `with` needs `with [name = expr]:`")
+            })?;
+            let name = rest[..eq].trim().to_string();
+            let expr = rest[eq + 1..].trim().to_string();
+            if !script_valid_name(&name) || expr.is_empty() {
+                return Err(format!("syntax: line {lineno}: `with` needs `with [name = expr]:`"));
+            }
+            let v = script_eval(ip, &expr, lineno)?;
+            script_set(ip, &name, v)?;
+        }
+        let result = script_block(ip, lines, idx + 1, parent);
+        ip.vars = saved_vars;
+        if let Some(flow) = saved_flow {
+            ip.flow = Some(flow);
+        } else if result.is_ok() {
+            ip.flow = None;
+        }
+        result?;
+        return Ok(end);
+    }
+
+    // `match <expr>:` with `ok(v):/err(e):/else:` arms.
+    if script_is_kw(&text, "match") {
+        let target_src = script_colon(script_rest(&text, "match", lineno)?, lineno)?;
+        script_block_indent(lines, idx + 1, parent)?;
+        let end = script_skip(lines, idx + 1, parent);
+        return script_run_match(ip, lines, idx, &target_src, lineno, parent, end);
+    }
+    if text == "ok:" || text == "err:" || script_is_kw(&text, "ok") || script_is_kw(&text, "err") {
+        return Err(format!("syntax: line {lineno}: `ok/err` arms need `match`"));
+    }
+
+    // `await <expr> [timeout N]` — logical poll until truthy.
+    if script_is_kw(&text, "await") {
+        let rest = script_rest(&text, "await", lineno)?;
+        let (cond_src, tries) = script_split_await(rest, lineno)?;
+        let mut last_err: Option<String> = None;
+        for _ in 0..tries {
+            script_bump(ip)?;
+            match script_eval(ip, &cond_src, lineno) {
+                Ok(v) => {
+                    if v.truthy() {
+                        let _ = script_set(ip, "_", v);
+                        return Ok(idx + 1);
+                    }
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                }
+            }
+        }
+        return Err(match last_err {
+            Some(e) => format!("timeout: line {lineno}: `await` still failing after {tries} tries (last: {e})"),
+            None => format!("timeout: line {lineno}: `await` still falsy after {tries} tries"),
+        });
     }
 
     if text == "vars" {
@@ -3017,7 +3842,7 @@ fn script_statement(ip: &mut ScriptInterp, lines: &[SLine], idx: usize) -> Resul
             Ok(idx + 1)
         }
         Err(e) => Err(format!(
-            "syntax: line {lineno}: unknown statement `{}` ({e}; try `print`, `let`, `def`, `if/elif/else`, `try/catch`, `for`, `while`, `$ <cybsh>`, `sh \"…\"`, `js …`, `fetch …`, `ui …`, `vars/free/gc`)",
+            "syntax: line {lineno}: unknown statement `{}` ({e}; try `print`, `let`, `def`, `if/elif/else`, `match`, `with`, `import`, `await`, `try/catch`, `for`, `while`, `$ <cybsh>`, `sh \"…\"`, `js …`, `fetch …`, `ui …`, `vars/free/gc`)",
             if text.len() > 60 {
                 format!("{}…", &text[..60])
             } else {
@@ -3123,9 +3948,16 @@ fn script_assign_rhs(ip: &mut ScriptInterp, src: &str, lineno: usize) -> Result<
     }
     if script_is_kw(t, "fetch") {
         let rest = script_rest(t, "fetch", lineno)?;
-        let (url_src, _) = script_split_fetch(rest);
-        let url = script_eval(ip, &url_src, lineno)?.display();
-        let body = script_fetch_checked(ip, &url, lineno)?;
+        let spec = script_split_fetch_full(rest, lineno)?;
+        let url = script_eval(ip, &spec.url_src, lineno)?.display();
+        let body = script_fetch_checked(ip, &url, &spec.method, lineno)?;
+        if spec.want_json {
+            let v = script_materialize(&body).ok_or_else(|| {
+                format!("invalid: line {lineno}: `fetch` did not return JSON")
+            })?;
+            script_set(ip, "_", v.clone())?;
+            return Ok(v);
+        }
         let v = SValue::Str(body);
         script_set(ip, "_", v.clone())?;
         return Ok(v);
@@ -3187,7 +4019,7 @@ fn script_eval(ip: &mut ScriptInterp, src: &str, lineno: usize) -> Result<SValue
         interp: ip,
         lineno,
     };
-    let v = p.parse_or()?;
+    let v = p.parse_pipe()?;
     p.skip_ws();
     if p.pos < p.chars.len() {
         let rest: String = p.chars[p.pos..].iter().collect();
@@ -3252,6 +4084,86 @@ impl<'b, 'x> ScriptExpr<'b, 'x> {
         }
         self.pos = end;
         true
+    }
+
+    fn parse_pipe(&mut self) -> Result<SValue, String> {
+        // `a |> f(b)` is `f(a, b)`; `a |> len` is `len(a)`.
+        let mut left = self.parse_or()?;
+        loop {
+            self.skip_ws();
+            if self.pos + 1 < self.chars.len()
+                && self.chars[self.pos] == '|'
+                && self.chars[self.pos + 1] == '>'
+            {
+                self.pos += 2;
+                left = self.apply_pipe(left)?;
+            } else {
+                return Ok(left);
+            }
+        }
+    }
+
+    fn apply_pipe(&mut self, lhs: SValue) -> Result<SValue, String> {
+        self.skip_ws();
+        let name = self.parse_ident();
+        if name.is_empty() || !script_valid_name(&name) {
+            return Err(format!(
+                "syntax: line {}: `|>` needs a function (`x |> len`, `x |> split(\",\")`)",
+                self.lineno
+            ));
+        }
+        self.skip_ws();
+        let mut args = vec![lhs];
+        if self.pos < self.chars.len() && self.chars[self.pos] == '(' {
+            self.pos += 1;
+            loop {
+                self.skip_ws();
+                if self.pos < self.chars.len() && self.chars[self.pos] == ')' {
+                    self.pos += 1;
+                    break;
+                }
+                if args.len() >= 9 {
+                    return Err(format!(
+                        "syntax: line {}: `{name}` takes at most 8 arguments",
+                        self.lineno
+                    ));
+                }
+                args.push(self.parse_pipe()?);
+                self.skip_ws();
+                if self.pos < self.chars.len() && self.chars[self.pos] == ',' {
+                    self.pos += 1;
+                    continue;
+                }
+                self.skip_ws();
+                if self.pos < self.chars.len() && self.chars[self.pos] == ')' {
+                    self.pos += 1;
+                    break;
+                }
+                return Err(format!(
+                    "syntax: line {}: expected `,` or `)` in `{name}(…)`",
+                    self.lineno
+                ));
+            }
+        }
+        if name == "sh" {
+            if args.len() != 1 {
+                return Err(format!(
+                    "syntax: line {}: `|>` into `sh` takes no extra args (`cmd |> sh` runs the command)",
+                    self.lineno
+                ));
+            }
+            let lineno = self.lineno;
+            let cmdline = args[0].display();
+            return script_inline_value(self.interp, &cmdline, lineno);
+        }
+        if self.interp.funcs.contains_key(&name) {
+            let lineno = self.lineno;
+            let interp = &mut *self.interp;
+            return script_call_func(interp, &name, &args, lineno);
+        }
+        let lineno = self.lineno;
+        let interp = &*self.interp;
+        script_builtin(&name, &args, interp, lineno)
     }
 
     fn parse_or(&mut self) -> Result<SValue, String> {
@@ -3364,7 +4276,7 @@ impl<'b, 'x> ScriptExpr<'b, 'x> {
         let c = self.chars[self.pos];
         let mut base = if c == '(' {
             self.pos += 1;
-            let v = self.parse_or()?;
+            let v = self.parse_pipe()?;
             self.skip_ws();
             if self.pos >= self.chars.len() || self.chars[self.pos] != ')' {
                 return Err(format!("syntax: line {}: unclosed `(`", self.lineno));
@@ -3413,7 +4325,7 @@ impl<'b, 'x> ScriptExpr<'b, 'x> {
                 self.lineno
             ));
         };
-        // Postfix indexing: `d.key`, `d["k"]`, `l[0]`, `s[0]`.
+        // Postfix indexing (`d.key`, `d["k"]`, `l[0]`, `s[0]`) + `?` unwrap.
         loop {
             self.skip_ws();
             if self.pos < self.chars.len() && self.chars[self.pos] == '.' {
@@ -3430,7 +4342,7 @@ impl<'b, 'x> ScriptExpr<'b, 'x> {
             }
             if self.pos < self.chars.len() && self.chars[self.pos] == '[' {
                 self.pos += 1;
-                let key = self.parse_or()?;
+                let key = self.parse_pipe()?;
                 self.skip_ws();
                 if self.pos >= self.chars.len() || self.chars[self.pos] != ']' {
                     return Err(format!(
@@ -3440,6 +4352,12 @@ impl<'b, 'x> ScriptExpr<'b, 'x> {
                 }
                 self.pos += 1;
                 base = script_index_value(&base, &key, self.lineno)?;
+                continue;
+            }
+            if self.pos < self.chars.len() && self.chars[self.pos] == '?' {
+                self.pos += 1;
+                let lineno = self.lineno;
+                base = script_unwrap(base, lineno)?;
                 continue;
             }
             return Ok(base);
@@ -3517,7 +4435,7 @@ impl<'b, 'x> ScriptExpr<'b, 'x> {
                     self.lineno
                 ));
             }
-            items.push(self.parse_or()?);
+            items.push(self.parse_pipe()?);
             self.skip_ws();
             if self.pos < self.chars.len() && self.chars[self.pos] == ',' {
                 self.pos += 1;
@@ -3574,7 +4492,7 @@ impl<'b, 'x> ScriptExpr<'b, 'x> {
                 ));
             }
             self.pos += 1;
-            let value = self.parse_or()?;
+            let value = self.parse_pipe()?;
             if let SValue::Str(s) = &value {
                 if s.len() > SCRIPT_MAX_STR {
                     return Err(format!(
@@ -3616,7 +4534,7 @@ impl<'b, 'x> ScriptExpr<'b, 'x> {
                     self.lineno
                 ));
             }
-            args.push(self.parse_or()?);
+            args.push(self.parse_pipe()?);
             self.skip_ws();
             if self.pos < self.chars.len() && self.chars[self.pos] == ',' {
                 self.pos += 1;
@@ -3651,7 +4569,8 @@ impl<'b, 'x> ScriptExpr<'b, 'x> {
             return script_call_func(interp, name, &args, lineno);
         }
         let lineno = self.lineno;
-        script_builtin(name, &args, lineno)
+        let interp = &*self.interp;
+        script_builtin(name, &args, interp, lineno)
     }
 }
 
@@ -3822,7 +4741,46 @@ fn script_arith(left: &SValue, op: char, right: &SValue, lineno: usize) -> Resul
     }
 }
 
-fn script_builtin(name: &str, args: &[SValue], lineno: usize) -> Result<SValue, String> {
+/// Classify a value for `match`: (is_err, ok_value, err_text).
+/// `{ok: true, value: v}` unwraps to `v`; `{ok: false, error: e}` is err.
+fn script_classify(v: &SValue) -> (bool, SValue, String) {
+    if let SValue::Dict(map) = v {
+        match map.get("ok") {
+            Some(SValue::Bool(false)) => {
+                let msg = map
+                    .get("error")
+                    .map(|e| e.display())
+                    .unwrap_or_else(|| "error".to_string());
+                return (true, SValue::Null, msg);
+            }
+            Some(SValue::Bool(true)) => {
+                let val = map.get("value").cloned().unwrap_or(SValue::Null);
+                return (false, val, String::new());
+            }
+            _ => {}
+        }
+    }
+    (false, v.clone(), String::new())
+}
+
+/// Postfix `?` unwrap: `{ok:true,value:v}` → `v`; `{ok:false,error:e}` → Err.
+fn script_unwrap(v: SValue, lineno: usize) -> Result<SValue, String> {
+    let (is_err, val, msg) = script_classify(&v);
+    if is_err {
+        if msg.is_empty() {
+            return Err(format!("fail: unwrap of err (line {lineno})"));
+        }
+        return Err(msg);
+    }
+    Ok(val)
+}
+
+fn script_builtin(
+    name: &str,
+    args: &[SValue],
+    ip: &ScriptInterp,
+    lineno: usize,
+) -> Result<SValue, String> {
     // Arity is checked per arm below (`call` already caps at 8 args).
     match name {
         "len" => {
@@ -4003,8 +4961,89 @@ fn script_builtin(name: &str, args: &[SValue], lineno: usize) -> Result<SValue, 
                 )),
             }
         }
+        // `ok(v)` / `err(msg)` — Result constructors for `match`/`?`.
+        "ok" => {
+            if args.len() != 1 {
+                return Err(format!("syntax: line {lineno}: `ok` takes 1 argument"));
+            }
+            let mut map = BTreeMap::new();
+            map.insert("ok".to_string(), SValue::Bool(true));
+            map.insert("value".to_string(), args[0].clone());
+            Ok(SValue::Dict(map))
+        }
+        "err" => {
+            if args.len() != 1 {
+                return Err(format!("syntax: line {lineno}: `err` takes 1 argument"));
+            }
+            let mut map = BTreeMap::new();
+            map.insert("ok".to_string(), SValue::Bool(false));
+            map.insert("error".to_string(), SValue::Str(args[0].display()));
+            Ok(SValue::Dict(map))
+        }
+        "unwrap" => {
+            if args.len() != 1 {
+                return Err(format!("syntax: line {lineno}: `unwrap` takes 1 argument"));
+            }
+            script_unwrap(args[0].clone(), lineno)
+        }
+        "is_ok" => {
+            if args.len() != 1 {
+                return Err(format!("syntax: line {lineno}: `is_ok` takes 1 argument"));
+            }
+            Ok(SValue::Bool(!script_classify(&args[0]).0))
+        }
+        "is_err" => {
+            if args.len() != 1 {
+                return Err(format!("syntax: line {lineno}: `is_err` takes 1 argument"));
+            }
+            Ok(SValue::Bool(script_classify(&args[0]).0))
+        }
+        // `env(name[, fallback])` — no host environment in the sandbox.
+        "env" => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(format!("syntax: line {lineno}: `env` takes 1–2 arguments"));
+            }
+            if args.len() == 2 {
+                Ok(args[1].clone())
+            } else {
+                Err(format!(
+                    "not_found: no env `{}` (line {lineno}; this sandbox has no host environment)",
+                    args[0].display()
+                ))
+            }
+        }
+        // `arg(i[, fallback])` — script argv (`run f.cybsh -- a b`).
+        "arg" => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(format!("syntax: line {lineno}: `arg` takes 1–2 arguments"));
+            }
+            let idx = args[0].as_f64().ok_or_else(|| {
+                format!("syntax: line {lineno}: `arg` needs a number index")
+            })? as i64;
+            match ip.vars.get("args") {
+                Some(SValue::List(items)) => {
+                    if idx < 0 || idx as usize >= items.len() {
+                        if args.len() == 2 {
+                            Ok(args[1].clone())
+                        } else {
+                            Err(format!("not_found: no arg `{idx}` (line {lineno})"))
+                        }
+                    } else {
+                        Ok(items[idx as usize].clone())
+                    }
+                }
+                _ => Err(format!("syntax: line {lineno}: `args` is not a list")),
+            }
+        }
+        // `fingerprint(text)` — FNV-1a/64 hex (journals, cache keys).
+        "fingerprint" => {
+            if args.len() != 1 {
+                return Err(format!("syntax: line {lineno}: `fingerprint` takes 1 argument"));
+            }
+            Ok(SValue::Str(script_fingerprint(&args[0].display())))
+        }
         _ => Err(format!(
-            "syntax: line {lineno}: unknown function `{name}` (try `len/int/str/json/split/range/sh/set/push/del/keys/values` or `def` it first)"
+            "syntax: line {lineno}: unknown function `{name}` (try `{SCRIPT_BUILTIN_HINT}` or `def` it first)"
         )),
     }
 }
@@ -4114,6 +5153,72 @@ mod tests {
         // A real missing path still refuses with the house prefix.
         let out = dispatch("ls", &["/no-such-dir-xyz".to_string()]);
         assert!(out.contains("not found:"), "{out}");
+    }
+
+    #[test]
+    fn os_flag_never_masquerades_as_a_volume_answer() {
+        // The sandbox has no host filesystem: every `-os`/`--host`/`--os`
+        // flag must refuse with `unsupported:` instead of answering with
+        // volume data. Covers pure commands (`ls -os`), direct dispatch
+        // (`dispatch("ls", ["-os"])`), chained lines (`exec`), and the
+        // `.cybsh` `sh("…")` wrapper (scripts reuse `exec_result`).
+        for args in [
+            vec!["-os".to_string()],
+            vec!["--host".to_string()],
+            vec!["--os".to_string()],
+        ] {
+            for verb in ["ls", "cat", "cp", "mv", "rm", "encrypt", "search", "ps"] {
+                let mut full = args.clone();
+                if verb == "cp" {
+                    full.push("/a".to_string());
+                    full.push("/b".to_string());
+                } else if verb != "ls" && verb != "ps" {
+                    full.push("/a".to_string());
+                }
+                let out = dispatch(verb, &full);
+                assert!(out.contains(r#""ok":false"#), "{verb} {full:?}: {out}");
+                assert!(out.contains("unsupported:"), "{verb} {full:?}: {out}");
+                assert!(out.contains("-os") || out.contains("host"), "{verb} {full:?}: {out}");
+            }
+        }
+        // Chained lines refuse on the `-os` chunk instead of listing the volume.
+        let out = dispatch("exec", &["ls -os && echo hi".to_string()]);
+        assert!(out.contains("unsupported:"), "{out}");
+        let out = dispatch("exec", &["ls -os".to_string()]);
+        assert!(out.contains("unsupported:"), "{out}");
+        assert!(!out.contains("(empty directory)"), "volume answer leaked: {out}");
+        // Ordinary flags still work — the guard only fires on the os-flags.
+        let out = dispatch("ls", &["-la".to_string()]);
+        assert!(out.contains(r#""ok":true"#), "{out}");
+    }
+
+    #[test]
+    fn os_flag_script_wrapper_refuses_like_the_terminal() {
+        // `.cybsh` inline shell (`sh("…")` / `$ …`) runs through
+        // `exec_result` → `dispatch`, the same choke point as the terminal —
+        // so `sh("ls -os")` must refuse exactly like `ls -os` on every
+        // transport. Seed one volume file to prove the refusal is not a
+        // volume miss, then run both paths.
+        let out = dispatch("write", &["/os-guard/probe.txt".to_string(), "probe".to_string()]);
+        assert!(out.contains(r#""ok":true"#), "{out}");
+        let out = dispatch("exec", &["ls -os".to_string()]);
+        assert!(out.contains("unsupported:"), "{out}");
+        // A script `sh("ls -os")` line expands through the same `exec_result`
+        // path (see `script_exec_checked`): drive it directly.
+        let script_out = exec_result("ls -os");
+        assert!(script_out.is_err(), "script wrapper must refuse -os");
+        let msg = script_out.expect_err("refusal");
+        assert!(msg.contains("unsupported:"), "{msg}");
+        assert!(msg.contains("-os") || msg.contains("host"), "{msg}");
+        // Full script file: `run` a `.cybsh` whose `sh("ls -os")` must
+        // refuse, not list the volume.
+        let script = "print sh(\"ls -os\")\n";
+        let out = dispatch("write", &["/os-guard/t.cybsh".to_string(), script.to_string()]);
+        assert!(out.contains(r#""ok":true"#), "{out}");
+        let out = dispatch("run", &["/os-guard/t.cybsh".to_string()]);
+        assert!(out.contains("unsupported:"), "{out}");
+        assert!(!out.contains("(empty directory)"), "volume answer leaked: {out}");
+        let _ = dispatch("rm", &["-r".to_string(), "/os-guard".to_string()]);
     }
 
     #[test]
@@ -4294,6 +5399,9 @@ mod tests {
         assert!(out.contains("dashboard only"), "{out}");
         assert!(out.contains("quota"), "{out}");
         assert!(out.contains("sync start"), "{out}");
+        // sh-wrapper guidance: `-os` has no host here on any path.
+        assert!(out.contains("-os"), "{out}");
+        assert!(out.contains("unsupported:"), "{out}");
     }
 
     #[test]
@@ -4455,6 +5563,38 @@ mod tests {
         let out = dispatch("run", &["/run-demo/lang.cybsh".to_string()]);
         assert!(out.contains(r#""ok":true"#), "{out}");
         assert!(out.contains("1\\nhi manju\\ncaught\\n[a, b, c]"), "{out}");
+    }
+
+    #[test]
+    fn run_match_arms_with_bindings_fire() {
+        // Regression: the arm gate once recognized only bare `ok:`/`err:`,
+        // so `ok(v):` bodies were skipped silently on every transport.
+        let script = concat!(
+            "match ok(5):\n",
+            "  ok(v):\n",
+            "    print v + 1\n",
+            "  err(e):\n",
+            "    print \"bad\"\n",
+            "match err(\"nope\"):\n",
+            "  ok(v):\n",
+            "    print \"bad\"\n",
+            "  else:\n",
+            "    print \"fell\"\n",
+            "match sh(\"echo hi\"):\n",
+            "  ok(v):\n",
+            "    print \"got \" + v\n",
+            "  err(e):\n",
+            "    print \"missed\"\n",
+        );
+        let out = dispatch(
+            "write",
+            &["/run-demo/match.cybsh".to_string(), script.to_string()],
+        );
+        assert!(out.contains(r#""ok":true"#), "{out}");
+        let out = dispatch("run", &["/run-demo/match.cybsh".to_string()]);
+        assert!(out.contains(r#""ok":true"#), "{out}");
+        assert!(out.contains("6\\nfell\\ngot hi"), "{out}");
+        let _ = dispatch("rm", &["-r".to_string(), "/run-demo/match.cybsh".to_string()]);
     }
 
     #[test]

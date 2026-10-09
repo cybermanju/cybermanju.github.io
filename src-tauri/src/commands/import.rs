@@ -394,28 +394,71 @@ pub fn scan_directory(
     })
 }
 
-/// Upload a file that the user has selected via the dialog plugin.
-/// Accepts the resolved filesystem path rather than raw bytes to avoid
-/// loading gigabytes through the Tauri IPC bridge.
+/// Upload file bytes into the vault.
+///
+/// Two shapes (both callers are real):
+/// - dialog/deep-link path: `{ filePath, parentPath }` — streams from disk,
+///   never through IPC (the original contract);
+/// - byte upload: `{ fileName, fileData, parentPath }` — drag-drop, file
+///   pickers and provider→vault saves, which only ever have bytes in hand.
+///   Bytes land under `./imports/{id}_{name}` (same layout as URL imports)
+///   and then go through [`import_file`] so hashing, EXIF GPS and search
+///   indexing behave exactly like every other import; the node is renamed
+///   to the real file name afterwards (the stored basename is `{id}_{safe}`).
 #[tauri::command]
 pub fn upload_file(
-    file_path: String,
     parent_path: String,
+    file_path: Option<String>,
+    file_name: Option<String>,
+    file_data: Option<Vec<u8>>,
     state: State<'_, AppState>,
 ) -> Result<UploadResult, String> {
-    let path = std::path::Path::new(&file_path);
-    if !path.exists() {
-        return Err(format!("not_found: file '{}' not found", file_path));
+    if let Some(path) = file_path {
+        if path.trim().is_empty() {
+            return Err("invalid: file_path is required".to_string());
+        }
+        // Delegate to import_file which already streams from disk
+        let file_node = import_file(path, parent_path, state)?;
+        let bytes_written = file_node.size_bytes;
+        return Ok(UploadResult {
+            file_node,
+            bytes_written,
+        });
     }
 
-    let _file_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("upload")
-        .to_string();
+    let name = file_name
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .ok_or_else(|| "invalid: fileName is required".to_string())?;
+    let data = file_data.ok_or_else(|| "invalid: fileData is required".to_string())?;
 
-    // Delegate to import_file which already streams from disk
-    let file_node = import_file(file_path, parent_path, state)?;
+    let safe_name: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let stored_path =
+        std::path::Path::new("imports").join(format!("{}_{}", file_id, safe_name));
+    if let Some(parent) = stored_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("integrity: cannot create imports dir: {}", e))?;
+    }
+    std::fs::write(&stored_path, &data)
+        .map_err(|e| format!("integrity: cannot store uploaded file: {}", e))?;
+
+    let stored_str = stored_path.to_string_lossy().to_string();
+    let imported = import_file(stored_str, parent_path, state)?;
+    // `import_file` names the node after the stored basename (`{id}_{safe}`);
+    // restore the real upload name so the vault shows what the user dropped.
+    let db = state.db.write().map_err(|e| e.to_string())?;
+    let file_node =
+        cybermanju_web::api::files::rename(&db, &imported.id, name).map_err(|e| e.to_string())?;
     let bytes_written = file_node.size_bytes;
     Ok(UploadResult {
         file_node,

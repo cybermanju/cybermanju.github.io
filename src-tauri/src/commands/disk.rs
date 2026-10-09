@@ -37,30 +37,30 @@ pub fn create_disk(
 /// Unlock a disk: verify its sealed container and start counting it in `df`.
 #[tauri::command]
 pub fn attach_disk(
-    disk_id: String,
+    id: String,
     passphrase: String,
     state: State<'_, AppState>,
 ) -> Result<DiskRow, String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
-    disk::attach(&db, &disk_id, &passphrase)
+    disk::attach(&db, &id, &passphrase)
 }
 
 /// Seal a disk's container and take it out of `df`. Idempotent.
 #[tauri::command]
-pub fn detach_disk(disk_id: String, state: State<'_, AppState>) -> Result<DiskRow, String> {
+pub fn detach_disk(id: String, state: State<'_, AppState>) -> Result<DiskRow, String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
-    disk::detach(&db, &disk_id)
+    disk::detach(&db, &id)
 }
 
 /// Grow (or shrink, when the data still fits) a disk's choosable capacity.
 #[tauri::command]
 pub fn resize_disk(
-    disk_id: String,
+    id: String,
     size_bytes: u64,
     state: State<'_, AppState>,
 ) -> Result<DiskRow, String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
-    disk::resize(&db, &disk_id, size_bytes)
+    disk::resize(&db, &id, size_bytes)
 }
 
 /// `df(1)` for the merged volume — the "more providers, more space" number.
@@ -73,14 +73,14 @@ pub fn volume_df(state: State<'_, AppState>) -> Result<VolumeDf, String> {
 /// fsck: superblock checksum, catalog vs. sealed container, orphans, and
 /// whether the disk is merely locked.
 #[tauri::command]
-pub fn check_disk(disk_id: String, state: State<'_, AppState>) -> Result<CheckReport, String> {
+pub fn check_disk(id: String, state: State<'_, AppState>) -> Result<CheckReport, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
-    disk::check(&db, &disk_id)
+    disk::check(&db, &id)
 }
 
 /// Designate the single key-holder disk (clears the flag on all others).
 #[tauri::command]
-pub fn set_disk_key_holder(disk_id: String, state: State<'_, AppState>) -> Result<DiskRow, String> {
+pub fn set_disk_key_holder(id: String, state: State<'_, AppState>) -> Result<DiskRow, String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
-    disk::set_key_holder(&db, &disk_id)
+    disk::set_key_holder(&db, &id)
 }

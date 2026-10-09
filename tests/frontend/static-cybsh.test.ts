@@ -450,6 +450,50 @@ describe('runStaticCybshLine fall-through', () => {
     expect(res?.output).toBe('hello wasm')
     expect(res?.prompt).toBe('cybsh> ')
   })
+
+  it('refuses -os honestly (no host filesystem in the browser)', async () => {
+    const { deps } = fakeDeps()
+    for (const line of ['ls -os', 'cat -os /sdcard/a.txt', 'cp -os /a /b', 'grep -os x']) {
+      const res = await runStaticCybshLine(line, deps)
+      expect(res?.ok).toBe(false)
+      expect(res?.output).toMatch(/^unsupported: .* -os/)
+    }
+  })
+
+  it('refuses --host/--os aliases and non-host verbs with -os', async () => {
+    const { deps } = fakeDeps()
+    for (const line of [
+      'ls --host',
+      'ls --os /sdcard',
+      'cat --host /sdcard/a.txt',
+      'encrypt -os /a',
+      // Non-host verbs refuse too (never fall through to a volume answer)…
+      'scrub -os',
+      'sync -os',
+      // …while unhandled verbs (`search`, `ps`, …) return null here and are
+      // refused by the wasm dispatcher's own `-os` guard instead.
+    ]) {
+      const res = await runStaticCybshLine(line, deps)
+      expect(res?.ok).toBe(false)
+      expect(res?.output).toMatch(/^unsupported: /)
+    }
+  })
+
+  it('refuses -os identically through the .cybsh sh() wrapper', async () => {
+    // Pure command and script wrapper share the refusal: `sh("ls -os …")`
+    // runs through `scriptExecCybsh` → `runStaticCybshLine`, the same choke
+    // point as the terminal. (Chained `ls -os && …` lines bypass this layer
+    // via `parseCybshLine → null` and are refused by the wasm dispatcher's
+    // own `-os` guard instead — same `unsupported:` shape.)
+    const { deps } = fakeDeps({
+      volume: { '/t.cybsh': 'print sh("ls -os /")\n' },
+    })
+    const res = await runStaticCybshLine('run /t.cybsh', deps)
+    expect(res?.ok).toBe(false)
+    expect(res?.output).toMatch(/unsupported: .* -os/)
+    // The script file itself is untouched by the refused run.
+    expect(deps.readVolume()['/t.cybsh']).toContain('ls -os')
+  })
 })
 
 describe('merged cp/mv/rm/mkdir', () => {

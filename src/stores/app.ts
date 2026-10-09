@@ -510,6 +510,22 @@ export const useAppStore = defineStore('cybermanju', () => {
     clearError()
     try {
       const path = parentPath || currentPath.value
+      // Device files (`/host…`) live on the host filesystem, not in the
+      // vault: list them through cybsh `-os` verbs over the os_exec bridge
+      // (Tauri IPC/REST on desktop, IPC on Android). Static web builds have
+      // no host — refuse honestly instead of showing an empty folder.
+      if (String(path || '') === '/host' || String(path || '').replace(/\\/g, '/').startsWith('/host/')) {
+        const { isTauri } = await import('@/composables/useTauri')
+        if (!isTauri()) {
+          files.value = []
+          notifyError('Device files need the app', 'open this vault in the desktop app or the native Android build to browse the device')
+          return
+        }
+        const { listHostDir } = await import('@/utils/hostBrowse')
+        files.value = await listHostDir(String(path))
+        applyStars()
+        return
+      }
       // CONTROL 5.7 — read-only provider browse: `/providers/<id>/…` never
       // touches `list_files`; mounts are lower layers served by the canal.
       if (String(path || '').replace(/\\/g, '/').startsWith('/providers')) {

@@ -13,6 +13,7 @@
 // callers that insist on *synchronous* calls from the main thread).
 import init, { db_dispatch, db_open, db_restore, db_snapshot } from 'cybermanju-os-wasm'
 import { decodeContainer, encodeContainer } from '../utils/container'
+import { IS_DEVELOP_PREVIEW } from '../utils/deploymentScope'
 
 interface DbRequest {
   id: number
@@ -74,7 +75,10 @@ function isReadOnly(op: string): boolean {
 
 async function opfsRoot(): Promise<any> {
   const nav = navigator as unknown as { storage: { getDirectory: () => Promise<any> } }
-  return nav.storage.getDirectory()
+  const root = await nav.storage.getDirectory()
+  return IS_DEVELOP_PREVIEW
+    ? root.getDirectoryHandle('cybermanju-develop', { create: true })
+    : root
 }
 
 async function readBackupBytes(): Promise<Uint8Array | null> {

@@ -584,6 +584,20 @@ impl Database {
             trash_table.insert(file_id, serde_json::to_string(&trash_item)?.as_str())?;
             let mut files_table = tx.open_table(FILES_TABLE)?;
             files_table.remove(file_id)?;
+            if let Some(parent_id) = file_node.parent_id.as_deref() {
+                let mut parent_table = tx.open_table(PARENT_INDEX_TABLE)?;
+                let existing: Vec<String> = parent_table
+                    .get(parent_id)?
+                    .and_then(|value| serde_json::from_str(value.value()).ok())
+                    .unwrap_or_default();
+                let mut ids = existing;
+                ids.retain(|id| id != file_id);
+                if ids.is_empty() {
+                    parent_table.remove(parent_id)?;
+                } else {
+                    parent_table.insert(parent_id, serde_json::to_string(&ids)?.as_str())?;
+                }
+            }
         }
         tx.commit()?;
         Ok(())
@@ -602,6 +616,18 @@ impl Database {
             let mut files_table = tx.open_table(FILES_TABLE)?;
             let serialized = serde_json::to_string(&item.original_file)?;
             files_table.insert(file_id, serialized.as_str())?;
+            if let Some(parent_id) = item.original_file.parent_id.as_deref() {
+                let mut parent_table = tx.open_table(PARENT_INDEX_TABLE)?;
+                let existing: Vec<String> = parent_table
+                    .get(parent_id)?
+                    .and_then(|value| serde_json::from_str(value.value()).ok())
+                    .unwrap_or_default();
+                let mut ids = existing;
+                if !ids.contains(&file_id.to_string()) {
+                    ids.push(file_id.to_string());
+                }
+                parent_table.insert(parent_id, serde_json::to_string(&ids)?.as_str())?;
+            }
             let mut trash_table = tx.open_table(TRASH_TABLE)?;
             trash_table.remove(file_id)?;
         }

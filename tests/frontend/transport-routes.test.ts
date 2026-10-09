@@ -34,14 +34,27 @@ describe('REST route coverage', () => {
     expect(REST_FIRST.has('os_write')).toBe(true)
   })
 
-  it('routes local mobile telemetry through native IPC while retaining REST mappings', () => {
+  it('routes local mobile telemetry + the cybsh OS layer through native IPC', () => {
     for (const cmd of ['os_ps', 'os_top', 'os_workers', 'os_jobs', 'os_df']) {
       expect(REST_ROUTES[cmd]).toBeTruthy()
       expect(REST_FIRST.has(cmd)).toBe(true)
       expect(MOBILE_NATIVE_OS_COMMANDS.has(cmd)).toBe(true)
     }
-    expect(MOBILE_NATIVE_OS_COMMANDS.has('os_exec')).toBe(false)
-    expect(MOBILE_NATIVE_OS_COMMANDS.has('os_write')).toBe(false)
+    // Mobile starts no dashboard, so the native backend serves the full
+    // cybsh OS layer over IPC instead: the terminal, the volume file verbs
+    // and the `-os` host verbs all run against the same redb as desktop.
+    // Every one of these must stay registered in commands/os_shell.rs +
+    // lib.rs (the second half of this test), or the WebView call dies with
+    // a localhost:3456 connection refusal.
+    for (const cmd of ['os_exec', 'os_complete', 'os_stat', 'os_ls', 'os_du', 'os_write']) {
+      expect(MOBILE_NATIVE_OS_COMMANDS.has(cmd)).toBe(true)
+    }
+    const shell = fs.readFileSync('src-tauri/src/commands/os_shell.rs', 'utf8')
+    const runtime = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
+    for (const cmd of ['os_exec', 'os_complete', 'os_stat', 'os_ls', 'os_du', 'os_write']) {
+      expect(shell).toMatch(new RegExp(`pub fn ${cmd}\\b`))
+      expect(runtime).toContain(`commands::os_shell::${cmd}`)
+    }
   })
 
   it('registers every mobile telemetry IPC command in the Tauri backend', () => {
@@ -59,6 +72,20 @@ describe('REST route coverage', () => {
     const runtime = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
     expect(commands).toMatch(/pub fn get_sync_status\b/)
     expect(runtime).toContain('sync_cmd::get_sync_status')
+  })
+
+  it('serves provider quota over native IPC (no dashboard needed)', () => {
+    // `get_sync_usage` is a pure function of the saved config, so Android
+    // gets real quota over IPC. `oauth_start` stays REST-only by design —
+    // it mints dashboard redirect URLs and needs the server OAuth client.
+    expect(REST_ROUTES.get_sync_usage).toBeTruthy()
+    expect(REST_FIRST.has('get_sync_usage')).toBe(true)
+    expect(MOBILE_NATIVE_OS_COMMANDS.has('get_sync_usage')).toBe(true)
+    const commands = fs.readFileSync('src-tauri/src/commands/sync.rs', 'utf8')
+    const runtime = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
+    expect(commands).toMatch(/pub fn get_sync_usage\b/)
+    expect(runtime).toContain('sync_cmd::get_sync_usage')
+    expect(MOBILE_NATIVE_OS_COMMANDS.has('oauth_start')).toBe(false)
   })
 
   it('encodes OS volume paths as ?path= (P1-7)', () => {

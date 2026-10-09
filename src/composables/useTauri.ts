@@ -1294,9 +1294,16 @@ export const REST_FIRST = new Set([
   'recall_agent_memories',
 ])
 
-/** Local read-only OS readings and sync status that Android/iOS serve over Tauri IPC. */
+/** Local commands Android/iOS serve over Tauri IPC (no dashboard on mobile).
+ * The native backend now exposes the full cybsh OS layer + disks/volume, so
+ * the terminal and file verbs run against the same redb as desktop — REST
+ * (localhost:3456) is never probed for these when no server URL is set. */
 export const MOBILE_NATIVE_OS_COMMANDS = new Set([
-  'os_ps', 'os_top', 'os_workers', 'os_jobs', 'os_df', 'get_sync_status',
+  'os_exec', 'os_complete', 'os_stat', 'os_ls', 'os_du', 'os_write',
+  'os_ps', 'os_top', 'os_workers', 'os_jobs', 'os_df',
+  'list_disks', 'get_disk', 'create_disk', 'attach_disk', 'detach_disk',
+  'resize_disk', 'destroy_disk', 'check_disk', 'set_disk_key_holder', 'volume_df',
+  'get_sync_status', 'get_sync_usage',
 ])
 
 // Commands the `cybermanju-os-wasm` crate serves on a static host.
@@ -2367,9 +2374,9 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
         }
         if (res.ok) return true
         if (res.status === 401 || res.status === 403) {
-          throw new Error(
-            `auth: Google rejected the token (HTTP ${res.status}) — sessions minted before the 'drive.file' scope grant cannot touch Drive; sign out + sign in again (or reconnect OAuth on the card), then retry`
-          )
+          const errJson = (await res.json().catch(() => ({}))) as Record<string, unknown>
+          const { googleDriveAuthError } = await import('@/utils/gitProvision')
+          throw new Error(await googleDriveAuthError(token, res.status, errJson))
         }
         throw new Error(`network: Google Drive connection test failed (HTTP ${res.status})`)
       }
@@ -2385,6 +2392,20 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
 
 /** The core invoke — works in both Tauri and Web modes. */
 async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  // ── Android launcher bridge (Gaveta): device-local IPC on every Tauri
+  // transport, never REST — there is no dashboard twin for these commands.
+  // Off-device (web/WASM) the Rust layer refuses with `unsupported:`.
+  if (cmd === 'launcher_list_apps' || cmd === 'launcher_open_app' ||
+    cmd === 'launcher_uninstall_app' || cmd === 'launcher_list_icon_packs' ||
+    cmd === 'launcher_pack_icon' || cmd === 'launcher_list_social_apps' ||
+    cmd === 'launcher_list_messages' || cmd === 'launcher_clear_messages' ||
+    cmd === 'launcher_notification_state' || cmd === 'launcher_open_notification_settings') {
+    if (!isTauri()) {
+      throw new Error('unsupported: Android apps need the native Android build — open this vault in the Android app')
+    }
+    const core = await import('@tauri-apps/api/core')
+    return core.invoke<T>(cmd, args)
+  }
   // ── Provider VFS (CONTROL Phase 5.6): served by the TS canal
   // orchestration on EVERY transport — mounts + cache live in kv (inside
   // the `.cybermanju` container on static hosts); reads go through the Rust
@@ -2503,12 +2524,37 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
     )) as T
   }
   const mapping = REST_ROUTES[cmd]
-  // cfg(mobile) disables the local dashboard, so don't waste time probing
-  // localhost:3456 (or a failing REST fallback) for these native read-only APIs.
-  // A configured server URL remains authoritative for remote dashboard mode.
+  // Mobile has no local dashboard, so native IPC is authoritative whenever no
+  // remote server URL is configured. The fast set above returns immediately;
+  // every other command still tries IPC first (same redb, same sync registry)
+  // and only falls through to REST when the backend reports no such command —
+  // so `cybsh`, disks, sync and agent all work in the Android WebView instead
+  // of dying with a localhost:3456 connection refusal.
   if (isTauriMobile() && !_serverUrl && MOBILE_NATIVE_OS_COMMANDS.has(cmd)) {
     const core = await import('@tauri-apps/api/core')
     return core.invoke<T>(cmd, args)
+  }
+  if (isTauriMobile() && !_serverUrl && !mapping) {
+    // Non-REST commands (native dialogs, crypto over paths, …) go straight
+    // to IPC on mobile — there is no REST twin to probe.
+    const core = await import('@tauri-apps/api/core')
+    return core.invoke<T>(cmd, args)
+  }
+  if (isTauriMobile() && !_serverUrl && mapping && REST_FIRST.has(cmd)) {
+    try {
+      const core = await import('@tauri-apps/api/core')
+      const ipc = await core.invoke<unknown>(cmd, args ?? {})
+      if (mapping.transformResponse) {
+        return (mapping.transformResponse(ipc, args ?? {})) as T
+      }
+      return transformResponseKeys(ipc) as T
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      // Unknown-command means no IPC twin — fall through to the REST path
+      // (which errors honestly). Any other IPC failure IS the answer; do not
+      // mask it with a localhost connection refusal.
+      if (!/no command|unknown|not found|unimplemented/i.test(msg)) throw e
+    }
   }
   if (isTauri() && !REST_FIRST.has(cmd)) {
     // ── Tauri IPC path ────────────────────────────────────

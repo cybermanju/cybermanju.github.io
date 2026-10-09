@@ -38,16 +38,9 @@
 import { ref } from 'vue'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { isTauriMobile } from './useTauri'
-import { vaultDelete, vaultGet, vaultSet } from './useVault'
 
-const URL_KEY = 'cybermanju.supabaseUrl'
-const KEY_KEY = 'cybermanju.supabaseKey'
 const PENDING_CFG_KEY = 'cybermanju.oauthConfigId'
 const TOKEN_STASH_KEY = 'cybermanju.providerToken'
-// In-file twins (`.cybermanju` → kv table) — localStorage stays the hot
-// synchronous cache, the vault is the durable copy inside the file.
-const VAULT_URL_KEY = 'config:supabase.url'
-const VAULT_KEY_KEY = 'config:supabase.key'
 
 export type OAuthBackend = 'github' | 'google' | 'gitlab'
 export const MOBILE_OAUTH_CALLBACK_URL = 'cybermanju://oauth/callback'
@@ -80,13 +73,10 @@ function writeLS(key: string, value: string) {
 }
 
 export function getSupabaseConfig(): { url: string; key: string; source: string } {
-  const lsUrl = readLS(URL_KEY).replace(/\/+$/, '')
-  const lsKey = readLS(KEY_KEY)
-  // Build-time fallback so GitHub Pages / static deploys work without a
-  // manual paste in Settings. CI injects the same repo secrets for web/WASM
-  // and Android builds:
-  //   VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_KEY).
-  // Local dev equivalent: a `.env` file with the same two keys.
+  // Fixed broker: baked at build time via CI secrets
+  // (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY). There is intentionally no
+  // UI to point the app at an arbitrary OAuth endpoint or paste a different
+  // public key — every build talks to the same broker.
   const envUrl = String(
     (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? '',
   ).trim().replace(/\/+$/, '')
@@ -94,11 +84,7 @@ export function getSupabaseConfig(): { url: string; key: string; source: string 
     ((import.meta.env.VITE_SUPABASE_ANON_KEY ??
       import.meta.env.VITE_SUPABASE_KEY) as string | undefined) ?? '',
   ).trim()
-  // Treat the credentials as a pair: a stale, half-saved manual override
-  // must not hide a complete build-time broker configuration.
-  if (lsUrl && lsKey) return { url: lsUrl, key: lsKey, source: 'localStorage' }
   if (envUrl && envKey) return { url: envUrl, key: envKey, source: 'build-env' }
-  if (lsUrl || lsKey) return { url: lsUrl, key: lsKey, source: 'localStorage' }
   if (envUrl || envKey) return { url: envUrl, key: envKey, source: 'build-env' }
   return { url: '', key: '', source: 'none' }
 }
@@ -109,11 +95,8 @@ function readConfiguredFlag(): boolean {
 }
 
 /**
- * Reactive mirror of the localStorage pair. localStorage itself never fires
- * Vue reactivity, so `computed(() => supabaseConfigured())` used to be
- * evaluated once and stay stale forever — saving the broker in Settings left
- * "Broker not configured" banners and blocked OAuth buttons in Accounts until
- * a full reload. Every write path below refreshes this flag.
+ * Reactive mirror of the fixed build-time broker. It never changes at
+ * runtime — there is no settings UI to repoint it.
  */
 const configuredFlag = ref(readConfiguredFlag())
 
@@ -121,43 +104,27 @@ export function supabaseConfigured(): boolean {
   return configuredFlag.value
 }
 
-export function setSupabaseConfig(url: string, key: string) {
-  const cleanUrl = url.trim().replace(/\/+$/, '')
-  const cleanKey = key.trim()
-  writeLS(URL_KEY, cleanUrl)
-  writeLS(KEY_KEY, cleanKey)
-  void (cleanUrl ? vaultSet(VAULT_URL_KEY, cleanUrl) : vaultDelete(VAULT_URL_KEY))
-  void (cleanKey ? vaultSet(VAULT_KEY_KEY, cleanKey) : vaultDelete(VAULT_KEY_KEY))
-  client = null
-  clientKey = ''
-  configuredFlag.value = cleanUrl.startsWith('http') && cleanKey.length > 0
-}
-
-export function clearSupabaseConfig() {
-  writeLS(URL_KEY, '')
-  writeLS(KEY_KEY, '')
-  void vaultDelete(VAULT_URL_KEY)
-  void vaultDelete(VAULT_KEY_KEY)
-  client = null
-  clientKey = ''
-  configuredFlag.value = false
-}
-
-/**
- * Boot: pull the Supabase URL/key out of `.cybermanju` when localStorage is
- * empty (fresh browser, restored file, cleared site data). Writes through to
- * localStorage so `getSupabaseConfig()` stays synchronous everywhere.
- */
-export async function hydrateSupabaseConfig(): Promise<boolean> {
-  if (supabaseConfigured()) return false
-  const [url, key] = await Promise.all([vaultGet(VAULT_URL_KEY), vaultGet(VAULT_KEY_KEY)])
-  if (!url && !key) return false
-  writeLS(URL_KEY, url || '')
-  writeLS(KEY_KEY, key || '')
+/** @deprecated Fixed broker builds ignore runtime overrides — no-op. */
+export function setSupabaseConfig(_url: string, _key: string) {
   client = null
   clientKey = ''
   configuredFlag.value = readConfiguredFlag()
-  return supabaseConfigured()
+}
+
+/** @deprecated Fixed broker builds have nothing to forget — no-op. */
+export function clearSupabaseConfig() {
+  client = null
+  clientKey = ''
+  configuredFlag.value = readConfiguredFlag()
+}
+
+/**
+ * @deprecated The broker is fixed at build time; nothing to hydrate.
+ * Kept as a no-op so boot code keeps compiling.
+ */
+export async function hydrateSupabaseConfig(): Promise<boolean> {
+  configuredFlag.value = readConfiguredFlag()
+  return false
 }
 
 export async function getSupabaseClient(): Promise<SupabaseClient | null> {
@@ -336,7 +303,7 @@ export async function startSupabaseOAuth(backendType: string, popup = true, forc
   const provider = supabaseProviderFor(backendType)
   if (!provider) throw new Error(`unsupported: no Supabase OAuth for '${backendType}'`)
   const sb = await getSupabaseClient()
-  if (!sb) throw new Error('Supabase is not configured — set URL + key in Settings first')
+  if (!sb) throw new Error('OAuth broker is not configured in this build — rebuild with VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY')
   const redirectTo = supabaseRedirectTo(popup)
   const { data, error } = await sb.auth.signInWithOAuth({
     provider,
@@ -754,7 +721,7 @@ export async function startSupabaseSignIn(provider: OAuthBackend, popup = true, 
   const sb = await getSupabaseClient()
   if (!sb) {
     throw new Error(
-      'Supabase is not configured — set the OAuth broker URL + key in Settings first'
+      'OAuth broker is not configured in this build — rebuild with VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY'
     )
   }
   const redirectTo = supabaseRedirectTo(popup)

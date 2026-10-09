@@ -1,9 +1,20 @@
 <template>
   <div class="desktop-shell" :class="{ 'desktop-shell--glow': theme.settings.glow, 'desktop-shell--plasma': isPlasma, 'desktop-shell--mobile': isMobileViewport }">
-    <TopMenuBar v-if="isMobileViewport ? visibleWindows.length > 0 : chrome.topBar" />
+    <!-- Mobile always keeps the single unified header (logo + status +
+      theme + one clock), on home and over sheets — no duplicate rows. -->
+    <TopMenuBar v-if="isMobileViewport || chrome.topBar" />
 
     <div class="desktop-area" @click="handleWorkspaceClick">
       <div class="desktop-wallpaper" :class="`wp-${theme.settings.wallpaper || 'slopes-dark'}`">
+        <img
+          v-if="customWallpaper.source.value"
+          class="desktop-wallpaper__custom-image"
+          :src="customWallpaper.source.value"
+          alt=""
+          aria-hidden="true"
+          referrerpolicy="no-referrer"
+          @error="customWallpaper.imageFailed"
+        />
         <slot name="wallpaper" />
         <div class="desktop-aurora" aria-hidden="true" />
       </div>
@@ -136,6 +147,7 @@ import KickoffMenu from '@/components/KickoffMenu.vue'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
+import { useCustomWallpaper } from '@/composables/useCustomWallpaper'
 import { useKickoff } from '@/composables/useKickoff'
 import { SHELL_CHROME } from '@/ui/shells'
 import { computeStripRects, stripColumnWidth } from '@/utils/shellLayout'
@@ -148,6 +160,7 @@ import type { PanelType } from '@/types'
 
 const wm = useWindowManager()
 const theme = useTheme()
+const customWallpaper = useCustomWallpaper()
 const kickoff = useKickoff()
 const selectShortcut = ref<PanelType | null>(null)
 const mobileShellQuery = typeof window !== 'undefined' ? window.matchMedia?.('(max-width: 768px)') ?? null : null
@@ -158,6 +171,8 @@ function onMobileShellChange(event: MediaQueryListEvent) {
 /** Chrome comes from the shell registry — TopMenuBar/Dock in macOS, PlasmaPanel in plasma. */
 const chrome = computed(() => SHELL_CHROME[theme.shellStyle.value])
 const isPlasma = computed(() => theme.shellStyle.value === 'plasma')
+
+onMounted(() => { void customWallpaper.load() })
 
 const stripScrollRef = ref<HTMLElement | null>(null)
 
@@ -399,6 +414,16 @@ onUnmounted(() => {
   inset: 0;
   pointer-events: none;
   z-index: 0;
+}
+
+.desktop-wallpaper__custom-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  pointer-events: none;
 }
 
 /* Static wallpapers — original gradient artwork (no third-party assets).

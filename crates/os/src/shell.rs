@@ -161,6 +161,25 @@ pub fn completions(prefix: &str) -> Vec<String> {
             out.push(s.to_string());
         }
     }
+    // Script keywords complete too (`.cybsh` authoring from the prompt).
+    for kw in crate::script::SCRIPT_KEYWORDS {
+        if kw.starts_with(prefix) && !out.iter().any(|o| o == kw) {
+            out.push(kw.to_string());
+        }
+    }
+    // `run` flags complete as well.
+    for flag in [
+        "run --dry",
+        "run --lint",
+        "run --fmt",
+        "run --json",
+        "run --record",
+        "run --replay",
+    ] {
+        if flag.starts_with(prefix) && !out.iter().any(|o| o == flag) {
+            out.push(flag.to_string());
+        }
+    }
     out.sort();
     out.dedup();
     out
@@ -614,13 +633,23 @@ fn dispatch(
     }
     let name = cmd[0].as_str();
     let args = &cmd[1..];
+    // `-os` addresses the host filesystem — verbs outside HOST_VERBS refuse
+    // it loudly instead of silently ignoring the flag and touching the
+    // volume (host verbs: ls/cd/pwd/cat/cp/mv/rm/mkdir/touch/stat/du/df/
+    // find/grep/head/tail/wc/write).
+    if has_os_flag(args) && !HOST_VERBS.contains(&name) {
+        return Err(format!(
+            "unsupported: '{name} -os' is not a host verb — host verbs are {}",
+            HOST_VERBS.join(", ")
+        ));
+    }
     match name {
         "help" => Ok(help_text(json)),
         "version" => version_cmd(json),
         "clear" => Ok(CLEAR_SCREEN.to_string()),
         "echo" => Ok(merge_args(args)),
         "history" => history_cmd(args, db, json),
-        "pwd" => Ok(current_dir()),
+        "pwd" => pwd_cmd(args),
         "cd" => cd_cmd(args, db),
         "ls" => ls_cmd(args, db, json),
         "cat" => cat_cmd(args, stdin, db),
@@ -631,7 +660,7 @@ fn dispatch(
         "touch" => touch_cmd(args, db),
         "stat" => stat_cmd(args, db, json),
         "du" => du_cmd(args, db, json),
-        "df" => df_cmd(db, json),
+        "df" => df_cmd(args, db, json),
         "disk" => disk_cmd(args, db, json),
         "mount" => mount_cmd(args, db, json),
         "umount" => umount_cmd(args, db, json),
@@ -693,6 +722,7 @@ fn help_text(json: bool) -> String {
                 "touch",
                 "stat",
                 "du",
+                "… -os (the same verbs on the host filesystem: sdcard on Android)",
                 "grep [-i] [-n] <pattern> [paths…]",
                 "find [path] [pattern]",
                 "head|tail [-n N] <path>",
@@ -720,6 +750,18 @@ fn help_text(json: bool) -> String {
                 "ls|cat|stat /providers/<mount|config>[/path] (outside-container repos)",
                 "cp|mv /providers/<a>/f <dst> (vault or another provider)",
                 "mv <src> <dst> (namespace bytes; synced copies: sync move)",
+                "ls / (vault volume + providers/ in one view)",
+            ],
+        ),
+        (
+            "host",
+            &[
+                "ls -os [path] (host filesystem, not the vault)",
+                "cat|head|tail|wc|grep|find|stat|du|df -os (read the device)",
+                "write -os <path> <content…> (save a device text file, 1 MiB)",
+                "cp -os [-r] <src> <dst> | mv -os <src> <dst> (dirs too)",
+                "rm -os [-r] <path> | mkdir -os [-p] <path> | touch -os <path>",
+                "cd -os <dir> | pwd -os (host cwd, separate from volume cwd)",
             ],
         ),
         ("durability", &["scrub", "repair", "gc", "lease status"]),
@@ -748,8 +790,8 @@ fn help_text(json: bool) -> String {
         (
             "script",
             &[
-                "run <file.cybsh> [--dry] [--json] [--record j.json] [--replay j.json]",
-                "def/print/let/if/try-catch/fetch/ui in `.cybsh` (see SKILL.md)",
+                "run <file.cybsh> [--dry] [--lint] [--fmt] [--json] [--record j.json] [--replay j.json] [-- <args…>]",
+                "def/print/let/if/match/with/import/await/try-catch/fetch/ui in `.cybsh` (see SKILL.md)",
                 "theme <id>|get",
                 "ui theme <id>|accent <#hex|default> [--for <theme>]|density|glass|motion|glow|get",
             ],
@@ -776,7 +818,7 @@ fn help_text(json: bool) -> String {
         }
     }
     out.push_str(&format!(
-        "\n{DIM}operators:{RESET} |  &&  ||  ;    {DIM}flags:{RESET} --json\n{DIM}tab completion works on every command; ↑/↓ walks history.{RESET}\n"
+        "\n{DIM}operators:{RESET} |  &&  ||  ;    {DIM}flags:{RESET} --json  -os (host filesystem)\n{DIM}tab completion works on every command; ↑/↓ walks history.{RESET}\n"
     ));
     out
 }
@@ -922,7 +964,17 @@ fn record_history(line: &str, db: Option<&Database>) {
     }
 }
 
+fn pwd_cmd(args: &[String]) -> Result<String, String> {
+    if has_os_flag(args) {
+        return Ok(lock(host_cwd()).display().to_string());
+    }
+    Ok(current_dir())
+}
+
 fn cd_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
+    if has_os_flag(args) {
+        return cd_os(&strip_os_flag(args));
+    }
     let kernel = Kernel::global();
     let target = if args.is_empty() {
         "/".to_string()
@@ -1081,7 +1133,631 @@ fn absolute(arg: &str) -> String {
     }
 }
 
+// ─── host filesystem (`-os`) ─────────────────────────────────────────────
+// Every file verb addresses the virtual volume by default: `ls` lists the
+// merged vault volume and `/providers/…` reaches provider repos/folders. The
+// `-os` flag transposes the same verbs onto the host (device) filesystem
+// instead — shared storage on Android (`/sdcard`), the process working
+// directory on desktop:
+//
+//   ls -os                    # shared-storage root (sdcard on Android)
+//   ls -os /sdcard/Download   # any host dir, absolute or host-relative
+//   cat -os /sdcard/a.txt     # read verbs take -os too:
+//                             # head/tail/wc/grep/find/stat/du/df
+//   write -os ./note.txt hi   # save a device text file (1 MiB cap)
+//   cp -os -r ./pics /sdcard/backup   # dirs copy/move recursively
+//   cd -os /sdcard/Music      # moves the *host* cwd, volume cwd untouched
+//   pwd -os                   # show the host cwd
+//
+// Both operands of `cp -os`/`mv -os` are host paths, and in `-os` mode even
+// a literal `/providers/…` is a host path (the provider namespace only
+// exists on the volume side). Host access is best-effort: a denied directory
+// answers honestly instead of listing empty.
+
+/// Verbs that understand `-os`. Anything else refuses the flag loudly in
+/// `dispatch` rather than silently ignoring it and touching the volume.
+const HOST_VERBS: &[&str] = &[
+    "ls", "cd", "pwd", "cat", "cp", "mv", "rm", "mkdir", "touch", "stat", "du", "df",
+    "find", "grep", "head", "tail", "wc", "write",
+];
+
+/// Cap for one `cat -os` print (sdcard files can be gigabytes; cp it to the
+/// volume to read fully).
+const HOST_CAT_LIMIT_BYTES: usize = 1024 * 1024;
+
+fn has_os_flag(args: &[String]) -> bool {
+    args.iter()
+        .any(|a| a == "-os" || a == "--host" || a == "--os")
+}
+
+fn strip_os_flag(args: &[String]) -> Vec<String> {
+    args.iter()
+        .filter(|a| a.as_str() != "-os" && a.as_str() != "--host" && a.as_str() != "--os")
+        .cloned()
+        .collect()
+}
+
+/// Shared-storage root: `/sdcard` on Android (falling back to
+/// `/storage/emulated/0`, then `/`); the process working directory
+/// everywhere else.
+fn os_default_dir() -> std::path::PathBuf {
+    #[cfg(target_os = "android")]
+    {
+        for candidate in ["/sdcard", "/storage/emulated/0"] {
+            let path = std::path::PathBuf::from(candidate);
+            if path.is_dir() {
+                return path;
+            }
+        }
+        return std::path::PathBuf::from("/");
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
+    }
+}
+
+fn host_cwd() -> &'static Mutex<std::path::PathBuf> {
+    static HOST_CWD: OnceLock<Mutex<std::path::PathBuf>> = OnceLock::new();
+    HOST_CWD.get_or_init(|| Mutex::new(os_default_dir()))
+}
+
+/// Resolve a `-os` operand: absolute host paths as given, relative ones
+/// against the host cwd. Absoluteness is decided by the platform
+/// (`Path::is_absolute`, so `C:/…`, `C:\…` and UNC `\\server\share` count
+/// on Windows and `/…` everywhere). `.`/`..` resolve lexically (symlinks
+/// unresolved); `..` clamps at the filesystem root and never escapes it.
+fn resolve_host(user: &str) -> Result<std::path::PathBuf, String> {
+    use std::path::Component;
+    if user.contains('\0') {
+        return Err(format!("invalid: bad host path {user:?}"));
+    }
+    if user.trim().is_empty() {
+        return Ok(lock(host_cwd()).clone());
+    }
+    // Backslashes are separators on Windows and ordinary (rare) filename
+    // characters elsewhere — unify first so one spelling works on both.
+    let unified = user.replace('\\', "/");
+    let candidate = std::path::PathBuf::from(&unified);
+    let mut out = if candidate.is_absolute() {
+        std::path::PathBuf::new()
+    } else {
+        lock(host_cwd()).clone()
+    };
+    for comp in candidate.components() {
+        match comp {
+            Component::Prefix(_) | Component::RootDir => {
+                // Absolute candidates rebuild from the root; relative ones
+                // already start at the host cwd (a stray root here would
+                // teleport the path, so only honour it for absolutes).
+                if out.as_os_str().is_empty() {
+                    out.push(comp.as_os_str());
+                }
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                // `pop` is a no-op at the filesystem root — `..` clamps.
+                out.pop();
+            }
+            Component::Normal(c) => out.push(c),
+        }
+    }
+    if out.as_os_str().is_empty() {
+        return Ok(lock(host_cwd()).clone());
+    }
+    Ok(out)
+}
+
+fn host_mtime_ms(meta: &std::fs::Metadata) -> u64 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis().min(u128::from(u64::MAX)) as u64)
+        .unwrap_or(0)
+}
+
+struct HostEntry {
+    name: String,
+    is_dir: bool,
+    size_bytes: u64,
+    modified_ms: u64,
+}
+
+fn read_host_dir(dir: &std::path::Path) -> Result<Vec<HostEntry>, String> {
+    let rd = std::fs::read_dir(dir)
+        .map_err(|e| format!("not_found: host '{}' cannot be listed: {e}", dir.display()))?;
+    let mut out = Vec::new();
+    for entry in rd.flatten() {
+        let meta = entry.metadata().map_err(|e| format!("io error: {e}"))?;
+        let is_dir = meta.is_dir();
+        out.push(HostEntry {
+            name: entry.file_name().to_string_lossy().into_owned(),
+            is_dir,
+            size_bytes: if is_dir { 0 } else { meta.len() },
+            modified_ms: host_mtime_ms(&meta),
+        });
+    }
+    out.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name)));
+    Ok(out)
+}
+
+fn host_entry_json(dir: &std::path::Path, entry: &HostEntry) -> serde_json::Value {
+    serde_json::json!({
+        "path": dir.join(&entry.name).display().to_string(),
+        "name": entry.name,
+        "kind": if entry.is_dir { "dir" } else { "file" },
+        "sizeBytes": entry.size_bytes,
+        "modifiedMs": entry.modified_ms,
+        "isDir": entry.is_dir,
+    })
+}
+
+fn render_host_entries(
+    dir: &std::path::Path,
+    entries: &[HostEntry],
+    long: bool,
+    json: bool,
+) -> Result<String, String> {
+    if json {
+        return serde_json::to_string(&serde_json::json!({
+            "path": dir.display().to_string(),
+            "host": true,
+            "entries": entries.iter().map(|e| host_entry_json(dir, e)).collect::<Vec<_>>(),
+        }))
+        .map_err(|e| e.to_string());
+    }
+    if entries.is_empty() {
+        return Ok(String::new());
+    }
+    let mut out = String::new();
+    for entry in entries {
+        let colour = if entry.is_dir { BLUE } else { RESET };
+        let name = if entry.is_dir {
+            format!("{}/", entry.name)
+        } else {
+            entry.name.clone()
+        };
+        if long {
+            let kind = if entry.is_dir { "d" } else { "-" };
+            out.push_str(&format!(
+                "{} {:>10} {} {colour}{name}{RESET}\n",
+                kind,
+                human(entry.size_bytes),
+                stamp(entry.modified_ms),
+            ));
+        } else {
+            out.push_str(&format!("{colour}{name}{RESET}  "));
+        }
+    }
+    if !long {
+        out.push('\n');
+    }
+    Ok(truncate(out.trim_end().to_string()))
+}
+
+fn ls_os(args: &[String], json: bool) -> Result<String, String> {
+    let flags: Vec<&String> = args.iter().filter(|a| a.starts_with('-')).collect();
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    let long = flags.iter().any(|f| f.contains('l'));
+    let target = match paths.first() {
+        Some(p) => resolve_host(p)?,
+        None => lock(host_cwd()).clone(),
+    };
+    if !target.is_dir() {
+        if target.exists() {
+            return Err(format!("not a directory: {}", target.display()));
+        }
+        return Err(format!("not_found: {}", target.display()));
+    }
+    let entries = read_host_dir(&target)?;
+    render_host_entries(&target, &entries, long, json)
+}
+
+fn cd_os(args: &[String]) -> Result<String, String> {
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    let target = match paths.first() {
+        Some(p) => resolve_host(p)?,
+        // Bare `cd -os` returns to the shared-storage root.
+        None => os_default_dir(),
+    };
+    if !target.is_dir() {
+        return Err(format!("not a directory: {}", target.display()));
+    }
+    *lock(host_cwd()) = target.clone();
+    Ok(target.display().to_string())
+}
+
+fn cat_os(args: &[String], stdin: &str) -> Result<String, String> {
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    if paths.is_empty() {
+        return Ok(stdin.to_string());
+    }
+    let mut out = String::new();
+    for arg in paths {
+        let path = resolve_host(arg)?;
+        if path.is_dir() {
+            return Err(format!("is a directory: {}", path.display()));
+        }
+        let bytes = std::fs::read(&path)
+            .map_err(|_| format!("not_found: {}", path.display()))?;
+        if bytes.len() > HOST_CAT_LIMIT_BYTES {
+            out.push_str(&String::from_utf8_lossy(&bytes[..HOST_CAT_LIMIT_BYTES]));
+            out.push_str(&format!(
+                "\n… [truncated at {} — `cp -os` it to the volume to read fully]",
+                human(HOST_CAT_LIMIT_BYTES as u64)
+            ));
+        } else {
+            out.push_str(&String::from_utf8_lossy(&bytes));
+        }
+    }
+    Ok(out)
+}
+
+/// Cap for one recursive host tree copy/move (a device folder can hold
+/// hundreds of thousands of files; copy it in pieces or sync it instead).
+const HOST_TREE_LIMIT: usize = 20_000;
+
+/// Copy one host file with a byte-level read-back verify (the same
+/// copy→verify rule as namespace moves). Parents are created as needed.
+fn copy_host_file(src: &std::path::Path, dst: &std::path::Path) -> Result<u64, String> {
+    let data =
+        std::fs::read(src).map_err(|_| format!("not_found: {}", src.display()))?;
+    if let Some(parent) = dst.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("io error: cannot mkdir {}: {e}", parent.display()))?;
+        }
+    }
+    std::fs::write(dst, &data)
+        .map_err(|e| format!("io error: cannot write {}: {e}", dst.display()))?;
+    let back = std::fs::read(dst).map_err(|e| format!("io error: {e}"))?;
+    if back != data {
+        return Err(format!(
+            "integrity: host copy mismatch at '{}' — retry",
+            dst.display()
+        ));
+    }
+    Ok(data.len() as u64)
+}
+
+/// Recursively copy a host directory tree (verified per file via
+/// [`copy_host_file`]). Returns `(files, bytes)`. Refuses past
+/// [`HOST_TREE_LIMIT`] entries instead of running for minutes.
+fn copy_host_tree(src: &std::path::Path, dst: &std::path::Path) -> Result<(u64, u64), String> {
+    let mut files = 0u64;
+    let mut bytes = 0u64;
+    let mut stack = vec![src.to_path_buf()];
+    std::fs::create_dir_all(dst)
+        .map_err(|e| format!("io error: cannot mkdir {}: {e}", dst.display()))?;
+    while let Some(dir) = stack.pop() {
+        let rel = dir.strip_prefix(src).unwrap_or(std::path::Path::new(""));
+        let target_dir = dst.join(rel);
+        std::fs::create_dir_all(&target_dir)
+            .map_err(|e| format!("io error: cannot mkdir {}: {e}", target_dir.display()))?;
+        let rd = std::fs::read_dir(&dir)
+            .map_err(|_| format!("not_found: host '{}' cannot be listed", dir.display()))?;
+        for entry in rd.flatten() {
+            if files as usize >= HOST_TREE_LIMIT {
+                return Err(format!(
+                    "too_large: host tree exceeds {HOST_TREE_LIMIT} files — copy it in pieces"
+                ));
+            }
+            let ft = entry.file_type().map_err(|e| format!("io error: {e}"))?;
+            let name = entry.file_name();
+            if ft.is_dir() {
+                stack.push(entry.path());
+            } else if ft.is_file() {
+                bytes += copy_host_file(&entry.path(), &target_dir.join(&name))?;
+                files += 1;
+            }
+            // Symlinks and special files are skipped, never followed —
+            // following a device symlink could copy the world.
+        }
+    }
+    Ok((files, bytes))
+}
+
+/// When the destination of `cp -os`/`mv -os` is an existing directory, the
+/// source lands inside it (`mv a.txt dir/` → `dir/a.txt`), like coreutils.
+fn join_dst_dir(dst: std::path::PathBuf, src: &std::path::Path) -> std::path::PathBuf {
+    if dst.is_dir() {
+        match src.file_name() {
+            Some(name) => dst.join(name),
+            None => dst,
+        }
+    } else {
+        dst
+    }
+}
+
+fn cp_os(args: &[String]) -> Result<String, String> {
+    let recursive = args.iter().any(|a| a == "-r" || a == "-rf" || a == "-fr");
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    if paths.len() < 2 {
+        return Err("usage: cp -os [-r] <src> <dst>".to_string());
+    }
+    let src = resolve_host(paths[0])?;
+    let dst = join_dst_dir(resolve_host(paths[1])?, &src);
+    if src.is_dir() {
+        if !recursive {
+            return Err(format!(
+                "is a directory: {} (use -r to copy the tree)",
+                src.display()
+            ));
+        }
+        let (files, bytes) = copy_host_tree(&src, &dst)?;
+        return Ok(format!(
+            "{} → {} ({files} files, {})",
+            src.display(),
+            dst.display(),
+            human(bytes)
+        ));
+    }
+    if !src.exists() {
+        return Err(format!("not_found: {}", src.display()));
+    }
+    copy_host_file(&src, &dst)?;
+    Ok(format!("{} → {}", src.display(), dst.display()))
+}
+
+fn mv_os(args: &[String]) -> Result<String, String> {
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    if paths.len() < 2 {
+        return Err("usage: mv -os <src> <dst>".to_string());
+    }
+    let src = resolve_host(paths[0])?;
+    let dst = join_dst_dir(resolve_host(paths[1])?, &src);
+    if !src.exists() {
+        return Err(format!("not_found: {}", src.display()));
+    }
+    if let Some(parent) = dst.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("io error: cannot mkdir {}: {e}", parent.display()))?;
+        }
+    }
+    // `rename` fails across filesystems (sdcard ↔ app-private) — fall back
+    // to copy → verify → delete-source, the same rule as namespace moves.
+    // Directories rename atomically on one filesystem; across filesystems
+    // they copy as a verified tree first, and the source is only removed
+    // after every byte verified.
+    if std::fs::rename(&src, &dst).is_err() {
+        if src.is_dir() {
+            let (files, _) = copy_host_tree(&src, &dst)?;
+            std::fs::remove_dir_all(&src)
+                .map_err(|e| format!("io error: destination complete ({files} files) but source kept: {e}"))?;
+        } else {
+            let data =
+                std::fs::read(&src).map_err(|_| format!("not_found: {}", src.display()))?;
+            std::fs::write(&dst, &data)
+                .map_err(|e| format!("io error: cannot write {}: {e}", dst.display()))?;
+            let back = std::fs::read(&dst).map_err(|e| format!("io error: {e}"))?;
+            if back != data {
+                return Err(format!(
+                    "integrity: host copy mismatch at '{}' — retry",
+                    dst.display()
+                ));
+            }
+            std::fs::remove_file(&src).map_err(|e| format!("io error: {e}"))?;
+        }
+    }
+    Ok(format!("{} → {}", src.display(), dst.display()))
+}
+
+fn rm_os(args: &[String]) -> Result<String, String> {
+    let recursive = args.iter().any(|a| a == "-r" || a == "-rf" || a == "-fr");
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    if paths.is_empty() {
+        return Err("usage: rm -os [-r] <path>".to_string());
+    }
+    let mut out = Vec::new();
+    for arg in paths {
+        let path = resolve_host(arg)?;
+        if path.is_dir() {
+            if !recursive {
+                return Err(format!("is a directory: {} (use -r)", path.display()));
+            }
+            std::fs::remove_dir_all(&path)
+                .map_err(|_| format!("not_found: {}", path.display()))?;
+        } else {
+            std::fs::remove_file(&path)
+                .map_err(|_| format!("not_found: {}", path.display()))?;
+        }
+        out.push(format!("{} removed", path.display()));
+    }
+    Ok(out.join("\n"))
+}
+
+fn mkdir_os(args: &[String]) -> Result<String, String> {
+    let parents = args.iter().any(|a| a == "-p");
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    if paths.is_empty() {
+        return Err("usage: mkdir -os [-p] <path>".to_string());
+    }
+    for arg in &paths {
+        let path = resolve_host(arg)?;
+        if parents {
+            std::fs::create_dir_all(&path)
+                .map_err(|e| format!("io error: cannot mkdir {}: {e}", path.display()))?;
+        } else {
+            std::fs::create_dir(&path)
+                .map_err(|e| format!("io error: cannot mkdir {}: {e}", path.display()))?;
+        }
+    }
+    Ok(paths
+        .iter()
+        .map(|p| p.as_str())
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+fn touch_os(args: &[String]) -> Result<String, String> {
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    if paths.is_empty() {
+        return Err("usage: touch -os <path>".to_string());
+    }
+    for arg in paths {
+        let path = resolve_host(arg)?;
+        if path.exists() {
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("io error: cannot mkdir {}: {e}", parent.display()))?;
+            }
+        }
+        std::fs::write(&path, b"")
+            .map_err(|e| format!("io error: cannot touch {}: {e}", path.display()))?;
+    }
+    Ok(String::new())
+}
+
+fn stat_os(args: &[String], json: bool) -> Result<String, String> {
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    let first = paths
+        .first()
+        .ok_or_else(|| "usage: stat -os <path>".to_string())?;
+    let path = resolve_host(first)?;
+    let meta =
+        std::fs::symlink_metadata(&path).map_err(|_| format!("not_found: {}", path.display()))?;
+    let is_dir = meta.is_dir();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string());
+    if json {
+        return serde_json::to_string(&serde_json::json!({
+            "path": path.display().to_string(),
+            "host": true,
+            "name": name,
+            "kind": if is_dir { "dir" } else { "file" },
+            "sizeBytes": if is_dir { 0 } else { meta.len() },
+            "modifiedMs": host_mtime_ms(&meta),
+            "isDir": is_dir,
+        }))
+        .map_err(|e| e.to_string());
+    }
+    Ok(format!(
+        "{BOLD}{}{RESET}\n  type: {}\n  size: {} bytes\n  modified: {}",
+        path.display(),
+        if is_dir { "dir" } else { "file" },
+        if is_dir { 0 } else { meta.len() },
+        stamp(host_mtime_ms(&meta))
+    ))
+}
+
+fn du_os(args: &[String], json: bool) -> Result<String, String> {
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    let target = match paths.first() {
+        Some(p) => resolve_host(p)?,
+        None => lock(host_cwd()).clone(),
+    };
+    if !target.exists() {
+        return Err(format!("not_found: {}", target.display()));
+    }
+    let (bytes, files) = if target.is_dir() {
+        crate::api::dir_size_and_files(&target)
+    } else {
+        (
+            std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0),
+            1,
+        )
+    };
+    let display = target.display().to_string();
+    if json {
+        return serde_json::to_string(&serde_json::json!({
+            "path": display,
+            "host": true,
+            "bytes": bytes,
+            "files": files,
+        }))
+        .map_err(|e| e.to_string());
+    }
+    Ok(format!(
+        "{}  {display}  ({files} file{})",
+        human(bytes),
+        plural(files)
+    ))
+}
+
+/// `df` for one host path. The shell cannot see disk capacity from portable
+/// Rust (no `statvfs` without libc), so this reports honest *usage* under
+/// the path — the same `(bytes, files)` walk as `du -os` — with the path
+/// itself, in the same JSON shape. Capacity comes from the OS, not cybsh.
+fn df_os(args: &[String], json: bool) -> Result<String, String> {
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    let target = match paths.first() {
+        Some(p) => resolve_host(p)?,
+        None => lock(host_cwd()).clone(),
+    };
+    if !target.exists() {
+        return Err(format!("not_found: {}", target.display()));
+    }
+    let (bytes, files) = if target.is_dir() {
+        crate::api::dir_size_and_files(&target)
+    } else {
+        (
+            std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0),
+            1,
+        )
+    };
+    let display = target.display().to_string();
+    if json {
+        return serde_json::to_string(&serde_json::json!({
+            "path": display,
+            "host": true,
+            "bytes": bytes,
+            "files": files,
+        }))
+        .map_err(|e| e.to_string());
+    }
+    Ok(format!(
+        "{display}  {} in {files} file{}  (usage under this path — capacity is not visible from cybsh)",
+        human(bytes),
+        plural(files)
+    ))
+}
+
+/// `write` for one host path: same contract as the volume `write` (arg
+/// content or piped stdin, 1 MiB cap), transposed onto the host filesystem
+/// with parents created as needed. This is the verb the file manager uses
+/// to save device text files.
+fn write_os(args: &[String], stdin: &str) -> Result<String, String> {
+    if args.is_empty() {
+        return Err("usage: write -os <path> <content…>".to_string());
+    }
+    let path = resolve_host(&args[0])?;
+    if path.is_dir() {
+        return Err(format!("is a directory: {}", path.display()));
+    }
+    let content = if args.len() > 1 {
+        args[1..].join(" ")
+    } else {
+        stdin.to_string()
+    };
+    if content.len() > 1024 * 1024 {
+        return Err(format!(
+            "too_large: content is {} bytes, shell write limit is {}",
+            content.len(),
+            1024 * 1024
+        ));
+    }
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("io error: cannot mkdir {}: {e}", parent.display()))?;
+        }
+    }
+    std::fs::write(&path, content.as_bytes())
+        .map_err(|e| format!("io error: cannot write {}: {e}", path.display()))?;
+    Ok(format!("wrote {} ({} bytes)", path.display(), content.len()))
+}
+
 fn ls_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, String> {
+    if has_os_flag(args) {
+        return ls_os(&strip_os_flag(args), json);
+    }
     let flags: Vec<&String> = args.iter().filter(|a| a.starts_with('-')).collect();
     let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
     let long = flags.iter().any(|f| f.contains('l'));
@@ -1135,7 +1811,12 @@ fn ls_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, 
     }
 
     if json {
-        let entries = kernel.readdir(&target)?;
+        let mut entries = kernel.readdir(&target)?;
+        // The provider namespace (`/providers/…`) lives beside the volume,
+        // not inside it — surface it at the root so `ls /` discovers it.
+        if target == "/" && !entries.iter().any(|e| e.name == "providers") {
+            entries.push(providers_root_entry());
+        }
         return serde_json::to_string(&serde_json::json!({
             "path": target,
             "entries": entries,
@@ -1143,7 +1824,11 @@ fn ls_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, 
         .map_err(|e| e.to_string());
     }
 
-    let entries = kernel.readdir(&target)?;
+    let mut entries = kernel.readdir(&target)?;
+    // Same discovery entry as the `--json` arm above.
+    if target == "/" && !entries.iter().any(|e| e.name == "providers") {
+        entries.push(providers_root_entry());
+    }
     if entries.is_empty() {
         return Ok(String::new());
     }
@@ -1176,7 +1861,25 @@ fn ls_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, 
     Ok(truncate(out.trim_end().to_string()))
 }
 
+/// Synthetic `providers/` directory row for root listings: the provider
+/// namespace (`/providers/…`) lives beside the volume, not inside it, so
+/// `ls /` shows the whole virtual drive (vault volume + providers) in one
+/// view. A real volume directory literally named `providers` wins — the
+/// namespace then shadows it, as documented.
+fn providers_root_entry() -> crate::api::DirEntry {
+    crate::api::DirEntry {
+        name: "providers".to_string(),
+        kind: "dir".to_string(),
+        size_bytes: 0,
+        modified_ms: 0,
+        is_dir: true,
+    }
+}
+
 fn cat_cmd(args: &[String], stdin: &str, db: Option<&Database>) -> Result<String, String> {
+    if has_os_flag(args) {
+        return cat_os(&strip_os_flag(args), stdin);
+    }
     let kernel = Kernel::global();
     if args.is_empty() {
         return Ok(stdin.to_string());
@@ -1229,6 +1932,9 @@ fn cat_cmd(args: &[String], stdin: &str, db: Option<&Database>) -> Result<String
 }
 
 fn cp_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
+    if has_os_flag(args) {
+        return cp_os(&strip_os_flag(args));
+    }
     if args.len() < 2 {
         return Err("usage: cp <src> <dst>".to_string());
     }
@@ -1338,6 +2044,9 @@ fn provider_show(path: &str) -> String {
 }
 
 fn mv_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
+    if has_os_flag(args) {
+        return mv_os(&strip_os_flag(args));
+    }
     if args.len() < 2 {
         return Err("usage: mv <src> <dst>".to_string());
     }
@@ -1386,6 +2095,9 @@ fn mv_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
 }
 
 fn rm_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
+    if has_os_flag(args) {
+        return rm_os(&strip_os_flag(args));
+    }
     let recursive = args.iter().any(|a| a == "-r" || a == "-rf" || a == "-fr");
     let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
     if paths.is_empty() {
@@ -1440,6 +2152,9 @@ fn rm_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
 }
 
 fn mkdir_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
+    if has_os_flag(args) {
+        return mkdir_os(&strip_os_flag(args));
+    }
     let parents = args.iter().any(|a| a == "-p");
     let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
     if paths.is_empty() {
@@ -1499,6 +2214,9 @@ fn mkdir_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
 }
 
 fn touch_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
+    if has_os_flag(args) {
+        return touch_os(&strip_os_flag(args));
+    }
     if args.is_empty() {
         return Err("usage: touch <path>".to_string());
     }
@@ -1539,6 +2257,9 @@ fn touch_cmd(args: &[String], db: Option<&Database>) -> Result<String, String> {
 }
 
 fn stat_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, String> {
+    if has_os_flag(args) {
+        return stat_os(&strip_os_flag(args), json);
+    }
     if args.is_empty() {
         return Err("usage: stat <path>".to_string());
     }
@@ -1622,6 +2343,9 @@ fn stat_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String
 }
 
 fn du_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, String> {
+    if has_os_flag(args) {
+        return du_os(&strip_os_flag(args), json);
+    }
     let kernel = Kernel::global();
     let target = args
         .first()
@@ -1647,9 +2371,11 @@ fn du_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, 
     ))
 }
 
-fn df_cmd(db: Option<&Database>, json: bool) -> Result<String, String> {
-    let kernel = Kernel::global();
-    let df = kernel.df(db);
+fn df_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, String> {
+    if has_os_flag(args) {
+        return df_os(&strip_os_flag(args), json);
+    }
+    let kernel = Kernel::global();    let df = kernel.df(db);
     if json {
         return serde_json::to_string(&df).map_err(|e| e.to_string());
     }
@@ -2812,7 +3538,10 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     true
 }
 
-fn grep_cmd(args: &[String], stdin: &str, json: bool) -> Result<String, String> {
+/// Shared `-i`/`-n` flag parsing for `grep` on both filesystems (volume
+/// and `-os`): combined short flags, `--long` forms, and anything else
+/// (including paths that merely contain `/`) falls through to operands.
+fn parse_grep_flags<'a>(args: &'a [String]) -> (bool, bool, Vec<&'a String>) {
     let mut insensitive = false;
     let mut show_line = false;
     let mut rest: Vec<&String> = Vec::new();
@@ -2836,6 +3565,278 @@ fn grep_cmd(args: &[String], stdin: &str, json: bool) -> Result<String, String> 
             _ => rest.push(a),
         }
     }
+    (insensitive, show_line, rest)
+}
+
+/// Recursively list host files under `root` (cap 5000, dirs included when
+/// `dirs`) — the `-os` twin of [`walk_files`]. Symlinked directories are
+/// listed, never descended (a device symlink loop must not hang the shell).
+fn walk_host_files(root: &std::path::Path, dirs: bool) -> Result<Vec<std::path::PathBuf>, String> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let rd = std::fs::read_dir(&dir)
+            .map_err(|_| format!("not_found: host '{}' cannot be listed", dir.display()))?;
+        for entry in rd.flatten() {
+            let ft = entry.file_type().map_err(|e| format!("io error: {e}"))?;
+            let path = entry.path();
+            if ft.is_dir() {
+                if dirs {
+                    out.push(path.clone());
+                }
+                stack.push(path);
+            } else if ft.is_file() {
+                out.push(path);
+            }
+            if out.len() >= 5000 {
+                return Ok(out);
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+fn grep_os(args: &[String], stdin: &str, json: bool) -> Result<String, String> {
+    let (insensitive, show_line, rest) = parse_grep_flags(args);
+    if rest.is_empty() {
+        return Err("usage: grep -os [-i] [-n] <pattern> [paths…]".to_string());
+    }
+    let pattern = rest[0].clone();
+    let needle = if insensitive {
+        pattern.to_lowercase()
+    } else {
+        pattern.clone()
+    };
+    let matches_line = |line: &str| -> bool {
+        if insensitive {
+            line.to_lowercase().contains(&needle)
+        } else {
+            line.contains(&needle)
+        }
+    };
+    // No paths: grep stdin (pipe) or report usage — same rule as the volume.
+    if rest.len() == 1 {
+        if !stdin.is_empty() {
+            let mut hits = Vec::new();
+            for (i, line) in stdin.lines().enumerate() {
+                if matches_line(line) {
+                    hits.push(if show_line {
+                        format!("{}:{line}", i + 1)
+                    } else {
+                        line.to_string()
+                    });
+                }
+            }
+            if json {
+                return serde_json::to_string(&serde_json::json!({
+                    "pattern": pattern, "matches": hits, "host": true,
+                }))
+                .map_err(|e| e.to_string());
+            }
+            if hits.is_empty() {
+                return Ok(format!("no matches for `{pattern}`"));
+            }
+            return Ok(truncate(hits.join("\n")));
+        }
+        return Err("usage: grep -os [-i] [-n] <pattern> [paths…]".to_string());
+    }
+    let mut hits: Vec<String> = Vec::new();
+    let mut targets: Vec<std::path::PathBuf> = Vec::new();
+    for target in &rest[1..] {
+        let path = resolve_host(target)?;
+        if path.is_dir() {
+            targets.extend(walk_host_files(&path, false)?);
+        } else if path.is_file() {
+            targets.push(path);
+        } else {
+            return Err(format!("not_found: {}", path.display()));
+        }
+    }
+    let prefix_file = targets.len() > 1;
+    for file in &targets {
+        let data = match std::fs::read(file) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        let text = String::from_utf8_lossy(&data);
+        let shown = file.display().to_string();
+        for (i, line) in text.lines().enumerate() {
+            if matches_line(line) {
+                let body = if show_line {
+                    format!("{}:{line}", i + 1)
+                } else {
+                    line.to_string()
+                };
+                hits.push(if prefix_file {
+                    format!("{shown}:{body}")
+                } else {
+                    body
+                });
+                if hits.len() >= MAX_LINES {
+                    break;
+                }
+            }
+        }
+        if hits.len() >= MAX_LINES {
+            break;
+        }
+    }
+    if json {
+        return serde_json::to_string(&serde_json::json!({
+            "pattern": pattern, "matches": hits, "host": true,
+        }))
+        .map_err(|e| e.to_string());
+    }
+    if hits.is_empty() {
+        return Ok(format!("no matches for `{pattern}`"));
+    }
+    Ok(truncate(hits.join("\n")))
+}
+
+fn find_os(args: &[String], json: bool) -> Result<String, String> {
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    // Default root is the host cwd (not the filesystem root): a bare
+    // `find -os` must never start a full-device scan by accident.
+    let (root_arg, pattern) = match paths.len() {
+        0 => (None, None),
+        1 => {
+            let probe = resolve_host(paths[0])?;
+            if probe.is_dir() {
+                (Some(paths[0].as_str()), None)
+            } else {
+                (None, Some(paths[0].as_str()))
+            }
+        }
+        _ => (Some(paths[0].as_str()), Some(paths[1].as_str())),
+    };
+    let root = match root_arg {
+        Some(r) => resolve_host(r)?,
+        None => lock(host_cwd()).clone(),
+    };
+    if !root.is_dir() {
+        return Err(format!("not_found: {}", root.display()));
+    }
+    let files = walk_host_files(&root, true)?;
+    let hits: Vec<String> = files
+        .into_iter()
+        .map(|p| p.display().to_string())
+        .filter(|f| match pattern {
+            None => true,
+            Some(p) => {
+                let base = f.rsplit('/').next().unwrap_or(f);
+                glob_match(p, base) || glob_match(p, f)
+            }
+        })
+        .collect();
+    if json {
+        return serde_json::to_string(&serde_json::json!({
+            "root": root.display().to_string(), "pattern": pattern, "matches": hits, "host": true,
+        }))
+        .map_err(|e| e.to_string());
+    }
+    if hits.is_empty() {
+        return Ok("(no matches)".to_string());
+    }
+    Ok(truncate(hits.join("\n")))
+}
+
+fn head_tail_os(
+    tail: bool,
+    args: &[String],
+    stdin: &str,
+) -> Result<String, String> {
+    let (n, rest) = parse_head_tail_n(args);
+    let text = if rest.is_empty() {
+        if stdin.is_empty() {
+            return Err("usage: head|tail -os [-n N] <path>".to_string());
+        }
+        stdin.to_string()
+    } else {
+        let path = resolve_host(rest[0])?;
+        if path.is_dir() {
+            return Err(format!("is a directory: {}", path.display()));
+        }
+        let data = std::fs::read(&path)
+            .map_err(|_| format!("not_found: {}", path.display()))?;
+        String::from_utf8_lossy(&data).into_owned()
+    };
+    let lines: Vec<&str> = text.lines().collect();
+    if tail {
+        let start = lines.len().saturating_sub(n);
+        Ok(lines[start..].join("\n"))
+    } else {
+        Ok(lines.into_iter().take(n).collect::<Vec<_>>().join("\n"))
+    }
+}
+
+fn wc_os(args: &[String], stdin: &str, json: bool) -> Result<String, String> {
+    let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    let mut totals = (0u64, 0u64, 0u64);
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    let count = |data: &[u8]| -> (u64, u64, u64) {
+        let text = String::from_utf8_lossy(data);
+        let lines = text.lines().count() as u64;
+        let words = text.split_whitespace().count() as u64;
+        (lines, words, data.len() as u64)
+    };
+    if paths.is_empty() {
+        if stdin.is_empty() {
+            return Err("usage: wc -os [paths…]".to_string());
+        }
+        let (l, w, b) = count(stdin.as_bytes());
+        if json {
+            return serde_json::to_string(&serde_json::json!({
+                "lines": l, "words": w, "bytes": b, "host": true,
+            }))
+            .map_err(|e| e.to_string());
+        }
+        return Ok(format!("{l} {w} {b}"));
+    }
+    for p in paths {
+        let path = resolve_host(p)?;
+        if path.is_dir() {
+            return Err(format!("is a directory: {}", path.display()));
+        }
+        let data = std::fs::read(&path)
+            .map_err(|_| format!("not_found: {}", path.display()))?;
+        let (l, w, b) = count(&data);
+        totals = (totals.0 + l, totals.1 + w, totals.2 + b);
+        rows.push(
+            serde_json::json!({ "path": path.display().to_string(), "lines": l, "words": w, "bytes": b }),
+        );
+    }
+    if json {
+        return serde_json::to_string(&serde_json::json!({
+            "files": rows,
+            "total": { "lines": totals.0, "words": totals.1, "bytes": totals.2 },
+            "host": true,
+        }))
+        .map_err(|e| e.to_string());
+    }
+    let mut out: Vec<String> = rows
+        .iter()
+        .map(|r| {
+            format!(
+                "{} {} {} {}",
+                r["lines"],
+                r["words"],
+                r["bytes"],
+                r["path"].as_str().unwrap_or("?")
+            )
+        })
+        .collect();
+    if rows.len() > 1 {
+        out.push(format!("{} {} {} total", totals.0, totals.1, totals.2));
+    }
+    Ok(out.join("\n"))
+}
+
+fn grep_cmd(args: &[String], stdin: &str, json: bool) -> Result<String, String> {
+    if has_os_flag(args) {
+        return grep_os(&strip_os_flag(args), stdin, json);
+    }
+    let (insensitive, show_line, rest) = parse_grep_flags(args);
     if rest.is_empty() {
         return Err("usage: grep [-i] [-n] <pattern> [paths…]".to_string());
     }
@@ -2939,6 +3940,9 @@ fn grep_cmd(args: &[String], stdin: &str, json: bool) -> Result<String, String> 
 }
 
 fn find_cmd(args: &[String], json: bool) -> Result<String, String> {
+    if has_os_flag(args) {
+        return find_os(&strip_os_flag(args), json);
+    }
     let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
     if paths
         .iter()
@@ -3016,6 +4020,9 @@ fn parse_head_tail_n(args: &[String]) -> (usize, Vec<&String>) {
 }
 
 fn head_cmd(args: &[String], stdin: &str) -> Result<String, String> {
+    if has_os_flag(args) {
+        return head_tail_os(false, &strip_os_flag(args), stdin);
+    }
     let (n, rest) = parse_head_tail_n(args);
     if rest
         .iter()
@@ -3036,6 +4043,9 @@ fn head_cmd(args: &[String], stdin: &str) -> Result<String, String> {
 }
 
 fn tail_cmd(args: &[String], stdin: &str) -> Result<String, String> {
+    if has_os_flag(args) {
+        return head_tail_os(true, &strip_os_flag(args), stdin);
+    }
     let (n, rest) = parse_head_tail_n(args);
     if rest
         .iter()
@@ -3058,6 +4068,9 @@ fn tail_cmd(args: &[String], stdin: &str) -> Result<String, String> {
 }
 
 fn wc_cmd(args: &[String], stdin: &str, json: bool) -> Result<String, String> {
+    if has_os_flag(args) {
+        return wc_os(&strip_os_flag(args), stdin, json);
+    }
     let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
     if paths
         .iter()
@@ -3119,6 +4132,9 @@ fn wc_cmd(args: &[String], stdin: &str, json: bool) -> Result<String, String> {
 }
 
 fn write_cmd(args: &[String], stdin: &str) -> Result<String, String> {
+    if has_os_flag(args) {
+        return write_os(&strip_os_flag(args), stdin);
+    }
     if args.is_empty() {
         return Err("usage: write <path> <content…>".to_string());
     }
@@ -3204,13 +4220,19 @@ struct JournalCall {
 /// A `--record`/`--replay` journal: every nondeterministic host input a
 /// script saw (`sh` outputs, `fetch` bodies), keyed by call, fingerprinted
 /// by script source (hermetic-sandbox rule: a replay of changed code is an
-/// `integrity:` refusal, never a silent lie).
+/// `integrity:` refusal, never a silent lie). Journals recorded with argv
+/// bind them too (`args` field); v1 journals without `args` replay
+/// regardless of argv (back-compat).
 struct Journal {
     sh: std::collections::BTreeMap<String, JournalCall>,
     fetch: std::collections::BTreeMap<String, JournalCall>,
 }
 
-fn journal_fingerprint_ok(journal: &serde_json::Value, source: &str) -> Result<Journal, String> {
+fn journal_fingerprint_ok(
+    journal: &serde_json::Value,
+    source: &str,
+    args: &[String],
+) -> Result<Journal, String> {
     if journal.get("cybsh").and_then(|v| v.as_u64()) != Some(1) {
         return Err("invalid: replay journal is not a cybsh v1 journal".to_string());
     }
@@ -3222,6 +4244,17 @@ fn journal_fingerprint_ok(journal: &serde_json::Value, source: &str) -> Result<J
         return Err(
             "integrity: replay journal fingerprint mismatch — the script changed since `--record` (re-record, don't replay stale inputs)".to_string(),
         );
+    }
+    if let Some(recorded) = journal.get("args").and_then(|v| v.as_array()) {
+        let recorded: Vec<String> = recorded
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        if recorded.as_slice() != args {
+            return Err(
+                "integrity: replay journal argv mismatch — the script ran with different `--` args since `--record` (re-record, don't replay stale inputs)".to_string(),
+            );
+        }
     }
     let mut out = Journal {
         sh: std::collections::BTreeMap::new(),
@@ -3252,13 +4285,24 @@ fn journal_fingerprint_ok(journal: &serde_json::Value, source: &str) -> Result<J
 }
 
 fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, String> {
-    // `run <file.cybsh> [--dry] [--json] [--record j] [--replay j]`.
+    // `run <file.cybsh> [--dry] [--lint] [--fmt] [--json] [--record j] [--replay j] [-- args…]`.
     // Inline `sh` lines execute through `execute()`, so every operator and
-    // verb keeps working; `--dry` only parses.
-    let dry = args.iter().any(|a| a == "--dry" || a == "--check");
-    if args.iter().any(|a| a == "--help" || a == "-h") || args.is_empty() {
+    // verb keeps working; `--dry` only parses. Everything after a bare `--`
+    // binds `args` inside the script (Rails-style inputs).
+    let dash = args.iter().position(|a| a == "--");
+    let script_args: Vec<String> = dash
+        .map(|d| args[d + 1..].to_vec())
+        .unwrap_or_default();
+    let flags: &[String] = match dash {
+        Some(d) => &args[..d],
+        None => args,
+    };
+    let dry = flags.iter().any(|a| a == "--dry" || a == "--check");
+    let lint = flags.iter().any(|a| a == "--lint");
+    let fmt = flags.iter().any(|a| a == "--fmt");
+    if flags.iter().any(|a| a == "--help" || a == "-h") || flags.is_empty() {
         return Err(
-            "usage: run <file.cybsh> [--dry] [--json] [--record <journal.json>] [--replay <journal.json>]"
+            "usage: run <file.cybsh> [--dry] [--lint] [--fmt] [--json] [--record <journal.json>] [--replay <journal.json>] [-- <args…>]"
                 .to_string(),
         );
     }
@@ -3267,7 +4311,7 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
     let mut replay: Option<String> = None;
     let mut positional: Vec<&String> = Vec::new();
     let mut skip_next = false;
-    for arg in args {
+    for arg in flags {
         if skip_next {
             skip_next = false;
             continue;
@@ -3280,7 +4324,7 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
             positional.push(arg);
         }
     }
-    let mut flag_values = args.iter();
+    let mut flag_values = flags.iter();
     while let Some(arg) = flag_values.next() {
         if arg == "--record" {
             record = Some(
@@ -3305,7 +4349,7 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
     }
     let path_arg = positional
         .first()
-        .ok_or_else(|| "usage: run <file.cybsh> [--dry] [--json]".to_string())?;
+        .ok_or_else(|| "usage: run <file.cybsh> [--dry] [--json] [-- <args…>]".to_string())?;
     let path = absolute(path_arg);
     if !path.to_lowercase().ends_with(crate::script::SCRIPT_EXT) {
         return Err(format!(
@@ -3323,6 +4367,12 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
     }
     let source =
         String::from_utf8(data).map_err(|_| "invalid: script is not UTF-8 text".to_string())?;
+    if lint {
+        return Ok(crate::script::lint_source(&source)?.join("\n"));
+    }
+    if fmt {
+        return Ok(crate::script::format_source(&source)?.trim_end().to_string());
+    }
     if dry {
         let report = crate::script::dry_run(&source)?;
         return Ok(format!("{path}: {report}"));
@@ -3336,14 +4386,15 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
         }
         *depth += 1;
     }
-    // Replay journal first: same source fingerprint or an `integrity:` refusal.
+    // Replay journal first: same source fingerprint (and argv) or an
+    // `integrity:` refusal.
     let journal = if let Some(replay_arg) = &replay {
         let raw = read_file_bytes(&absolute(replay_arg)).map_err(|_| {
             format!("not_found: no replay journal at `{replay_arg}` (`--record` one first)")
         })?;
         let parsed: serde_json::Value = serde_json::from_slice(&raw)
             .map_err(|_| format!("invalid: `{replay_arg}` is not a replay journal"))?;
-        Some(journal_fingerprint_ok(&parsed, &source)?)
+        Some(journal_fingerprint_ok(&parsed, &source, &script_args)?)
     } else {
         None
     };
@@ -3381,29 +4432,47 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
         result
     };
     // Native shell has no HTTP client: replay journals serve `fetch`
-    // deterministically; anything else stays the honest `unsupported:`.
-    let fetch_wrap = |url: &str| -> Result<String, String> {
+    // deterministically (keyed `METHOD url`, with a raw-URL fallback for v1
+    // journals); anything else stays the honest `unsupported:`.
+    let fetch_wrap = |req: &crate::script::FetchReq| -> Result<String, String> {
+        let key = req.journal_key();
         if let Some(journal) = journal.as_ref() {
-            return journal.fetch.get(url).cloned().map_or_else(
-                || Err(format!("not_found: replay journal has no `fetch {url}` (re-record with `--record`)")),
-                |rec| {
-                    if rec.ok {
-                        Ok(rec.output)
-                    } else {
-                        Err(rec.output)
-                    }
+            return journal
+                .fetch
+                .get(&key)
+                .or_else(|| journal.fetch.get(&req.url))
+                .cloned()
+                .map_or_else(
+                    || Err(format!("not_found: replay journal has no `fetch {key}` (re-record with `--record`)")),
+                    |rec| {
+                        if rec.ok {
+                            Ok(rec.output)
+                        } else {
+                            Err(rec.output)
+                        }
+                    },
+                );
+        }
+        let message = format!(
+            "unsupported: `fetch {}` needs the browser/static transport (this shell has no HTTP client) — run the same `.cybsh` on Pages, replay a journal (`--replay`), or serve it via `POST /api/os/exec` on the dashboard worker",
+            req.url
+        );
+        if recording {
+            log_fetch.borrow_mut().insert(
+                key,
+                JournalCall {
+                    ok: false,
+                    output: message.clone(),
                 },
             );
         }
-        Err(format!(
-            "unsupported: `fetch {url}` needs the browser/static transport (this shell has no HTTP client) — run the same `.cybsh` on Pages, replay a journal (`--replay`), or serve it via `POST /api/os/exec` on the dashboard worker"
-        ))
+        Err(message)
     };
     let host = crate::script::Host {
         exec: &exec_wrap,
         fetch: Some(&fetch_wrap),
     };
-    let result = crate::script::run_source(&source, &host);
+    let result = crate::script::run_source_with(&source, &host, &script_args);
     // Decrement through a short-lived guard (std Mutex is not reentrant —
     // never hold two guards on `run_depth` in one statement).
     let depth = lock(run_depth()).saturating_sub(1);
@@ -3413,8 +4482,10 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
         let record_arg = record.as_ref().expect("recording");
         let journal_doc = serde_json::json!({
             "cybsh": 1,
+            "algo": "fnv1a64",
             "fingerprint": crate::script::fingerprint(&source),
             "script": path,
+            "args": script_args,
             "calls": {
                 "sh": log_sh.borrow().iter().map(|(k, v)| (k.clone(), serde_json::json!({ "ok": v.ok, "output": v.output }))).collect::<serde_json::Map<String, serde_json::Value>>(),
                 "fetch": log_fetch.borrow().iter().map(|(k, v)| (k.clone(), serde_json::json!({ "ok": v.ok, "output": v.output }))).collect::<serde_json::Map<String, serde_json::Value>>(),
@@ -3428,6 +4499,7 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
         kernel.close(fd)?;
     }
     if json {
+        let fm = crate::script::parse_frontmatter(&source);
         return serde_json::to_string(&serde_json::json!({
             "path": path,
             "vars": output.vars,
@@ -3435,6 +4507,9 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
             "caps": output.caps.map(|c| serde_json::json!({ "active": c.active, "net": c.net, "read": c.read, "write": c.write, "deny": c.deny })),
             "calls": { "sh": output.sh_calls, "fetch": output.fetch_calls },
             "journal": replay.map(|_| "replay").or_else(|| record.map(|_| "record")),
+            "args": script_args,
+            "schedule": fm.schedule,
+            "triggers": fm.triggers,
             "output": output.text,
         }))
         .map_err(|e| e.to_string());
@@ -4151,6 +5226,113 @@ mod tests {
     }
 
     #[test]
+    fn host_verbs_work_end_to_end() {
+        // Every `-os` verb runs against a temp dir (absolute paths, quoted
+        // for spaces) so this passes on Windows/macOS/Linux/Android runners.
+        let root = std::env::temp_dir().join(format!("cybsh-host-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let q = |p: &std::path::Path| format!("\"{}\"", p.display());
+        let sub = root.join("sub");
+        let note = sub.join("note.txt");
+
+        execute(&format!("mkdir -os -p {}", q(&sub)), None).expect("mkdir -os");
+        assert!(sub.is_dir());
+
+        // `write -os` is what the file manager saves device text through.
+        execute(&format!("write -os {} hello host world", q(&note)), None)
+            .expect("write -os");
+        let out = execute(&format!("cat -os {}", q(&note)), None).expect("cat -os");
+        assert_eq!(out, "hello host world");
+
+        // `ls --json -os` carries the FULL per-entry path — the file
+        // manager navigates by it, so a bare name here would strand it.
+        let out = execute(&format!("ls -os --json {}", q(&sub)), None).expect("ls -os");
+        let ls: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert_eq!(ls["host"], true);
+        let entries = ls["entries"].as_array().expect("entries");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["name"], "note.txt");
+        assert_eq!(entries[0]["path"], note.display().to_string());
+
+        // Read verbs agree on the same bytes.
+        let out = execute(&format!("stat -os --json {}", q(&note)), None).expect("stat");
+        let stat: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert_eq!(stat["kind"], "file");
+        assert_eq!(stat["sizeBytes"], 16);
+        let out = execute(&format!("du -os --json {}", q(&note)), None).expect("du");
+        let du: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert_eq!(du["bytes"], 16);
+        let out = execute(&format!("df -os --json {}", q(&sub)), None).expect("df");
+        let df: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert_eq!(df["host"], true);
+        assert!(df["files"].as_u64().unwrap_or(0) >= 1);
+        let out = execute(&format!("grep -os host {}", q(&note)), None).expect("grep");
+        assert!(out.contains("host"), "got {out}");
+        let out = execute(&format!("find -os {} note*", q(&root)), None).expect("find");
+        assert!(out.contains("note.txt"), "got {out}");
+        let out = execute(&format!("head -os -n 1 {}", q(&note)), None).expect("head");
+        assert!(out.contains("hello"), "got {out}");
+        let out = execute(&format!("tail -os -n 1 {}", q(&note)), None).expect("tail");
+        assert!(out.contains("world"), "got {out}");
+        let out = execute(&format!("wc -os --json {}", q(&note)), None).expect("wc");
+        let wc: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert_eq!(wc["files"][0]["words"], 3);
+
+        // Files copy/move; a directory destination takes the basename in.
+        execute(&format!("cp -os {} {}", q(&note), q(&root.join("copy.txt"))), None)
+            .expect("cp");
+        assert!(root.join("copy.txt").is_file());
+        execute(&format!("cp -os -r {} {}", q(&sub), q(&root.join("tree"))), None)
+            .expect("cp -r");
+        assert!(root.join("tree/note.txt").is_file());
+        execute(
+            &format!("mv -os {} {}", q(&root.join("copy.txt")), q(&sub)),
+            None,
+        )
+        .expect("mv into dir");
+        assert!(sub.join("copy.txt").is_file());
+        execute(&format!("mv -os {} {}", q(&sub), q(&root.join("moved"))), None)
+            .expect("mv dir");
+        assert!(root.join("moved/note.txt").is_file());
+
+        // `cd -os` moves the host cwd only; relatives resolve against it.
+        let prev = execute("pwd -os", None).expect("pwd -os");
+        execute(&format!("cd -os {}", q(&root.join("moved"))), None).expect("cd -os");
+        let out = execute("cat -os note.txt", None).expect("relative cat");
+        assert_eq!(out, "hello host world");
+        execute(&format!("cd -os {}", q(&std::path::PathBuf::from(&prev))), None)
+            .expect("cd back");
+
+        // Non-host verbs refuse the flag loudly (never touch the volume).
+        let err = execute("edit -os a b c", None).expect_err("refuses");
+        assert!(err.starts_with("unsupported:"), "got {err}");
+
+        execute(&format!("rm -os {}", q(&root.join("tree/note.txt"))), None).expect("rm");
+        execute(&format!("rm -os -r {}", q(&root)), None).expect("rm -r");
+        assert!(!root.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolve_host_accepts_windows_absolutes() {
+        let a = resolve_host("C:/Temp/x").expect("drive abs");
+        assert!(a.is_absolute(), "got {}", a.display());
+        let b = resolve_host("C:\\Temp\\x").expect("backslash abs");
+        assert_eq!(a, b);
+        let root = resolve_host("C:/..").expect("clamp");
+        assert!(root.is_absolute(), "got {}", root.display());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn resolve_host_clamps_dotdot_at_root() {
+        let p = resolve_host("/../../etc").expect("clamp");
+        assert_eq!(p, std::path::PathBuf::from("/etc"));
+        let abs = resolve_host("/a/./b/../c").expect("lexical");
+        assert_eq!(abs, std::path::PathBuf::from("/a/c"));
+    }
+
+    #[test]
     fn path_escape_and_cd_are_contained() {
         crate::testutil::volume_dir();
         let err = execute("cd /definitely-not-here", None).expect_err("must fail");
@@ -4355,5 +5537,95 @@ mod tests {
         // the REST intercept is what runs it detached.
         let err = execute("sync start cfg-1", None).expect_err("no worker");
         assert!(err.starts_with("unsupported:"), "got {err}");
+    }
+
+    #[test]
+    fn root_ls_lists_volume_plus_providers() {
+        crate::testutil::volume_dir();
+        let out = execute("ls / --json", None).expect("ls /");
+        let parsed: serde_json::Value = serde_json::from_str(&out).expect("json");
+        let names: Vec<&str> = parsed["entries"]
+            .as_array()
+            .expect("entries")
+            .iter()
+            .filter_map(|e| e["name"].as_str())
+            .collect();
+        assert!(names.contains(&"providers"), "got {names:?}");
+    }
+
+    #[test]
+    fn os_flag_is_refused_outside_host_verbs() {
+        // The flag must never be silently swallowed: anything outside the
+        // host verbs refuses instead of touching the volume. (Host verbs
+        // themselves — ls/cd/pwd/cat/cp/mv/rm/mkdir/touch/stat/du/df/
+        // find/grep/head/tail/wc/write — route to the host filesystem;
+        // see `host_verbs_work_end_to_end`.)
+        for line in [
+            "encrypt -os /a",
+            "search -os hello",
+            "ps -os",
+            "theme -os",
+            "edit -os /a b c",
+        ] {
+            let err = execute(line, None).expect_err("refused");
+            assert!(err.starts_with("unsupported:"), "got {err}");
+            assert!(err.contains("-os"), "got {err}");
+        }
+    }
+
+    #[test]
+    fn os_flag_pure_command_and_script_wrapper_agree() {
+        // `.cybsh` `sh("… -os …")` / `$ … -os …` lines go through the same
+        // `dispatch` choke point as the terminal (via `exec_checked` →
+        // `host.exec`), so the wrapper must refuse exactly like the pure
+        // command — never fall through to a volume answer. Host verbs
+        // route to the host on both paths; non-host verbs refuse on both.
+        let err = execute("encrypt -os /a", None).expect_err("pure refused");
+        assert!(err.starts_with("unsupported:"), "got {err}");
+        // The script interpreter reuses `execute` as its `host.exec`
+        // (see `crates/os/src/script.rs` `exec_checked`); assert the
+        // contract at this choke point rather than re-driving the parser:
+        // a host verb with `-os` must not answer "not a host verb".
+        let host_err = execute("cat -os /definitely-missing-xyz", None).expect_err("host miss");
+        assert!(
+            host_err.starts_with("not_found:"),
+            "host verb must reach the host impl, got {host_err}"
+        );
+    }
+
+    #[test]
+    fn host_filesystem_verbs_round_trip() {
+        // Absolute host paths only — the host cwd is process-global and
+        // other tests move it concurrently.
+        let base =
+            std::env::temp_dir().join(format!("cybsh-os-{}-a", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.display().to_string();
+        execute(&format!("mkdir -os -p {root}/sub"), None).expect("mkdir -os");
+        execute(&format!("touch -os {root}/sub/note.txt"), None).expect("touch -os");
+        // Namespaces stay separate: the volume cannot see host files.
+        assert!(execute("cat /sub/note.txt", None).is_err());
+        let out = execute(&format!("ls -os {root}/sub --json"), None).expect("ls -os");
+        let parsed: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert_eq!(parsed["host"], true);
+        assert_eq!(parsed["entries"][0]["name"], "note.txt");
+        let out = execute(&format!("stat -os {root}/sub/note.txt --json"), None)
+            .expect("stat -os");
+        let stat: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert_eq!(stat["isDir"], false);
+        execute(&format!("cp -os {root}/sub/note.txt {root}/copy.txt"), None)
+            .expect("cp -os");
+        execute(&format!("mv -os {root}/copy.txt {root}/moved.txt"), None).expect("mv -os");
+        let out = execute(&format!("du -os {root} --json"), None).expect("du -os");
+        let du: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert!(
+            du["files"].as_u64().unwrap_or(0) >= 2,
+            "got {du}"
+        );
+        execute(&format!("rm -os -r {root}"), None).expect("rm -os -r");
+        assert!(!base.exists());
+        // A missing host file is honest, not empty.
+        let err = execute(&format!("cat -os {root}/gone.txt"), None).expect_err("missing");
+        assert!(err.starts_with("not_found:"), "got {err}");
     }
 }

@@ -34,6 +34,29 @@ shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
 
 ## 3. Manifest (applied by `android-configure.sh`)
 
+* Launcher bridge (`cybermanju-launcher` crate, Gaveta de Apps): a
+  `<queries>` block for `ACTION_MAIN`/`CATEGORY_LAUNCHER` so
+  `queryIntentActivities` sees every launchable app on Android 11+ WITHOUT
+  the Play-restricted `QUERY_ALL_PACKAGES` permission, plus a
+  `HOME`/`DEFAULT` intent-filter so CyberManju OS can be picked as the
+  device Home (digital-OS mode). Both are marker-guarded + idempotent.
+* Messages hub (top-right icon): `CybermanjuMessages.kt` (a
+  `NotificationListenerService`, written fresh by §4 on every configure
+  run — marker-guarded, foreign files are never overwritten) mirrors
+  mail/chat/social notifications into `cybermanju-messages.json` in the
+  app-private files dir (200-entry ring, dismissed items kept as history).
+  The hub's **Clear all** button wipes the file and fires an explicit
+  `CLEAR_NOTIFICATIONS` intent at the running service, which also dismisses
+  the live shade (`cancelAllNotifications`, best-effort).
+  The manifest gets the `<service>` declaration (bound to
+  `BIND_NOTIFICATION_LISTENER_SERVICE`) plus explicit `<package>`
+  queries for the top social apps. The Rust crate only *reads* the file
+  (`launcher_list_messages` / `launcher_clear_messages` /
+  `launcher_notification_state`); notification access itself is granted by
+  the user in system settings via the hub's enable prompt
+  (`launcher_open_notification_settings`). No message content ever leaves
+  the device.
+
 * Permissions: `INTERNET`, `ACCESS_NETWORK_STATE` (LAN REST + OAuth),
   `ACCESS_FINE/COARSE_LOCATION` (GPS MapView), `CAMERA` (face capture),
   `RECORD_AUDIO` (voice input), `POST_NOTIFICATIONS`. Manifest declarations do

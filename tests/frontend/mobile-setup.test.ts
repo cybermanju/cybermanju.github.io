@@ -4,16 +4,18 @@ import {
   MOBILE_SETUP_STEPS,
   MOBILE_SETUP_STEP_LABELS,
   blankPartitionDraft,
+  clampVaultSizeMb,
   mobileSetupStepIndex,
   nextMobileSetupStep,
   normalizePartitionDraft,
   partitionDraftValid,
   prevMobileSetupStep,
+  signedProviderCards,
   type MobileSetupStep,
 } from '@/utils/setupWizard'
 
 describe('mobile setup flow', () => {
-  it('walks welcome → account → vaults → providers → repos → agent → done', () => {
+  it('walks welcome → account → vaults → providers → repos → agent → appearance → done', () => {
     expect([...MOBILE_SETUP_STEPS]).toEqual([
       'welcome',
       'account',
@@ -21,6 +23,7 @@ describe('mobile setup flow', () => {
       'providers',
       'repos',
       'agent',
+      'appearance',
       'done',
     ])
     let s: MobileSetupStep = 'welcome'
@@ -31,6 +34,9 @@ describe('mobile setup flow', () => {
     expect(nextMobileSetupStep('done')).toBe('done')
     expect(prevMobileSetupStep('welcome')).toBe('welcome')
     expect(mobileSetupStepIndex('vaults')).toBe(3)
+    expect(mobileSetupStepIndex('appearance')).toBe(7)
+    expect(nextMobileSetupStep('appearance')).toBe('done')
+    expect(MOBILE_SETUP_STEP_LABELS.appearance).toBe('Appearance')
   })
 
   it('names repos as an explicit repos + disks substep', () => {
@@ -43,5 +49,17 @@ describe('mobile setup flow', () => {
     expect(normalizePartitionDraft({ ...blankPartitionDraft(), sizeMb: 99999 }).sizeMb).toBe(8192)
     expect(partitionDraftValid(blankPartitionDraft('ab'))).toBe(true)
     expect(partitionDraftValid(blankPartitionDraft('x'))).toBe(false)
+  })
+
+  it('shows the OAuth substep card per logged provider (folder + size)', () => {
+    const cards = signedProviderCards(
+      [{ provider: 'gitlab', name: 'Mobile User' }],
+      [],
+    )
+    expect(cards).toHaveLength(1)
+    expect(cards[0].backend).toBe('gitlab')
+    expect(cards[0].accountName).toBe('Mobile User')
+    expect(cards[0].hasConfig).toBe(false)
+    expect(clampVaultSizeMb(99999)).toBe(8192)
   })
 })

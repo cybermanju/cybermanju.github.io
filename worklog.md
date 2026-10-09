@@ -443,3 +443,261 @@ Stage Summary:
 - Mobile app windows now fill the space between the top menu and dock. File Manager actions are grouped into touch-sized sections, Account Manager uses a horizontal provider rail and session drawer, and Agent opens as a chat-first surface with a hamburger navigation drawer for chats, assistant setup and controls.
 - Added responsive contract coverage for full-bleed sheets, OAuth hand-off, credential gating, touch-first Files tools, Agent navigation and narrow-window layouts.
 - Verified: version check, icon generation, `vue-tsc --noEmit`, 48 frontend test files / 570 tests, and `npm run build`.
+
+## 2026-10-09 — Fixed OAuth broker, mobile cybsh, onboarding ends
+
+- Removed OAuth endpoint/public-key customization: broker is fixed at build time
+  (`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` via CI secrets). `getSupabaseConfig()`
+  reads build env only; `set/clear/hydrateSupabaseConfig` are no-op shims.
+  Settings broker card is read-only status; Accounts banners no longer link to a
+  Configure flow; `supabase-config` tests cover env-only behavior.
+- Fixed mobile terminal: added native IPC `os_exec/os_complete/os_stat/os_ls/os_du/os_write`
+  + `get_disk/destroy_disk` (`src-tauri/src/commands/os_shell.rs`, registered in `lib.rs`);
+  renamed disk `disk_id` params to `id` to match frontend invoke args. Frontend
+  routes the full OS/disk set over IPC on Tauri-mobile with no server URL, and every
+  other REST_FIRST command tries IPC first before REST — so cybsh works in the
+  Android WebView instead of dying on localhost:3456.
+- Onboarding ends: fixed "4 quick things" copy drift, removed the mobile wizard's
+  inverted auto-reassign of local vault partitions to a fresh provider, added a
+  provider picker + default-model placeholder to the mobile agent step.
+- Verified: static review of all touched call sites (no local node_modules/cargo per
+  repo rules — `vue-tsc`/vitest/cargo left to CI).
+
+## 2026-10-09 — cybsh virtual-drive listing + `-os` host flag + script/skill coverage
+
+- `ls /` now shows the whole virtual drive: vault volume entries plus a synthetic
+  `providers/` row (both text and `--json`; a real volume dir named `providers`
+  wins and the namespace still shadows it, as documented).
+- New `-os` flag transposes the file verbs onto the host filesystem — shared
+  storage on Android (`/sdcard` → `/storage/emulated/0` fallback), process cwd
+  on desktop. Covered verbs: `ls/cd/pwd/cat/cp/mv/rm/mkdir/touch/stat/du`
+  (both `cp -os`/`mv -os` operands are host paths; `mv -os` falls back to
+  copy → verify → delete across filesystems; `cat -os` has the 1 MiB print
+  cap). A separate host cwd (`cd -os`/`pwd -os`) leaves the volume cwd alone.
+  Any other verb with `-os` refuses with `unsupported:` instead of silently
+  touching the volume; provider paths never mix with `-os` (`invalid:`).
+- `.cybsh` scripts get it for free: native `run`/`sh` lines go through
+  `execute()`, `--record`/`--replay` journals capture `-os` output for
+  deterministic replay on host-less transports, and `deny=<verb>` capabilities
+  cover `-os` variants on both the Rust and TS interpreters. Static/Pages
+  (`staticCybsh.ts`, `os-wasm`) refuse `-os` with honest `unsupported:`.
+- Docs: agent skill (`.cybermanju/skills/cybsh-script/SKILL.md`) gains a
+  namespaces section (volume + `/providers` + `-os`, agent `bash` guidance,
+  `--json` capture pattern); `docs/OPERATIONS.md` gains §4a2.
+- Tests: native `ls / --json` providers entry, `-os` refusal outside host
+  verbs, host verb round-trip in a temp dir, script `deny=` covering `-os`
+  (Rust); static `-os` refusal + TS deny covering `-os` (frontend).
+- Verified: static review only (no local cargo/node_modules per repo rules —
+  Rust + vitest left to CI).
+
+## 2026-10-09 — iOS-aesthetic mobile home (iOS4Android study, rounds 1+2)
+
+- Cloned https://github.com/itsJoKr/iOS4Android to /tmp/opencode/ios4android
+  (outside repo git) and mined all 8 lib files for portable patterns:
+  PageView pager + IconGrid (2 rows x 4) + DotsIndicator (7.5px dots, 16px
+  spacing) + StatusBar/XStatusBar (carrier left, clock centered, battery
+  right, X notch pill, 30/52px bars) + LauncherIcon squircle (60px, r=15,
+  12px label, 5px gap) + dock (92px, rounded, no labels) + wallpaper stack.
+- Round 1 (`MobileLauncher.vue`, `MobileNav.vue`): springboard pager
+  (MLA_PAGE_SIZE=8, snap scroll, rAF page tracking, tappable dots, reset on
+  search), 3-zone status bar, safe-area-top, CSS wallpaper wash (no binary
+  assets), squircle tiles (16px) + gloss, dots (7.5px/16px), dock blur 28px
+  + radius 28, home-indicator pills, spring press states, focus-visible
+  ring, tab haptics, heavier tab-bar blur. Reference bugs NOT copied:
+  DotsIndicator renders 3 dots for 2 pages and its onPageSelected is never
+  wired — ours renders exact counts and dots actually jump pages.
+- Round 2 (density): column gap 20->16, title clamp 29-36->24-30, grid gap
+  19->16, widgets 76->70px + radius 22 (iOS widget corner), search 49->47px
+  + placeholder "Search" (Spotlight wording), dock icons 47->52px, press
+  feedback brighten->dim (native SpringBoard touch-down), so page 1 + dock
+  fit a phone viewport without scrolling like the reference.
+- Layering check (`DesktopShell.vue`): launcher sits UNDER fullscreen
+  sheets, so dock-vs-tab-bar double chrome cannot occur — no change needed.
+- Honest limits: no notch-variant bar (notch not detectable in CSS), no
+  photographic wallpaper (Apple imagery + binary weight; CSS homage
+  instead), off-page icons stay tabbable (no inert management yet).
+- Tests: new `tests/frontend/mobile-ios.test.ts` (13 asserts); targeted +
+  full suite green (50 files / 597 tests, incl. existing responsive
+  contract). `vue-tsc` shows only 2 pre-existing errors in untouched
+  working-tree files (FileManager hdd icon + call, MobileSetupWizard ??);
+  none in touched files.
+
+## 2026-10-09 — Mock/fake/placeholder audit + full namespace wiring (vault ⇄ provider ⇄ device)
+
+- Audit result: zero TODO/FIXME/stub markers in shipped source (only input
+  `placeholder=` attributes and test doubles). The real "mocks" were
+  behavioral: dead-end refusals, unfiltered bulk actions, and one genuinely
+  broken contract — fixed below, nothing simplified.
+- `upload_file` shape mismatch (native drag-drop + provider→vault broken):
+  the frontend always sent `{fileName, fileData, parentPath}` (static-host
+  shape) while Tauri Rust demanded `{file_path, parent_path}` (missing-field
+  rejection on desktop). Rust now accepts both: path uploads stream from
+  disk as before; byte uploads land under `./imports/{id}_{name}` and go
+  through `import_file` (hash/EXIF/index identical), then rename to the real
+  file name.
+- New `get_sync_usage` Tauri IPC twin (pure function of the saved config —
+  `oauth_start` stays REST-only by design: it mints dashboard redirect
+  URLs). Registered in `lib.rs`, added to `MOBILE_NATIVE_OS_COMMANDS`, so
+  Android gets real quota instead of a localhost refusal.
+- Provider moves grow up: `openProviderMove`/`doProviderMove` no longer
+  refuse folders — files and trees cross via `moveAnywhere` (verified,
+  same-object guard). `saveProviderFileToVault` preserves folder shape
+  under `/<folder>/…` (new `ensureVaultDirs`) instead of flattening
+  basenames into `/` (which collided and overwrote same-named files).
+- Namespace gates: vault-only actions (shield engines, versions/ACL,
+  share links, collections, tags, sync/probe/restore, bulk
+  encrypt/compress/sync) now filter or explain on provider/device rows
+  (`isVaultRow`/`activeIsVault`) instead of one error toast per file;
+  `doSyncTo`/`bulkSync` filter to vault rows; `doDelete` partitions
+  host (permanent `rm -os -r`) / provider (canal) / vault (trash).
+- Device text editing: host text files get an in-place modal editor
+  (strict UTF-8, 512 KiB cap, binary refuses honestly, save-on-close),
+  mirroring the SAF phone-folder editor; menu + inspector entry points,
+  Escape/mobile-back handling.
+- Reviews/fixes while passing through: `solar:hdd-bold` never existed in
+  the installed icon set — replaced with `solar:folder-tree-bold` and
+  regenerated the icon bundle; removed a raw NUL byte that landed in a
+  string literal (now `'\0'`); `trackShellCwd` ignores `cd -os` (host cwd
+  is a separate namespace — the volume mirror kept showing `-os "…"`).
+- Deliberately NOT rewired: TransferGraph keeps its own engine (per-row
+  cancel, artifact passphrase, cap pre-refusal — a rewire would lose
+  features); `oauth_start` stays server-side (needs the OAuth client).
+- Docs: `transport-routes.test.ts` updated to the intended mobile contract
+  (cybsh layer + quota over IPC, with backend-registration assertions).
+  AGENTS.md module/handler counts left for a maintainer re-verification
+  (22 mods / 153 handlers currently; drift predates this session).
+- Verified: `vue-tsc` clean in all touched files (remaining 4 errors are
+  the other agent's in-flight `staticCybsh`/`cybshScript`/`MobileSetupWizard`
+  refactor); `npm test` 595/600 green — the 5 failures sit in that same
+  in-flight refactor (`cybsh-script`, `setup-wizard`), whose import graphs
+  don't touch this work; targeted files covering this work
+  (`host-browse`, `transport-routes`, `shell-cwd`, `provider-browse`,
+  `local-dir`, `static-cybsh`) 115/115 green, incl. new
+  `host-browse.test.ts` (17 asserts). Rust left to CI per repo rules
+  (no local cargo).
+
+## 2026-10-09 — iOS-style Settings sheet on phones
+
+- Double-reviewed `SettingsPage.vue` (560px rules) against the iOS Settings
+  language: large title, grouped inset lists with icon tiles, filtering
+  search, 44pt cell rhythm. Previous mobile sheet was a shrunken desktop
+  dialog (13px title, wrapping chip rows, stacked label-over-control rows,
+  search filtered chips only).
+- `SettingsPage.vue` (scoped CSS + small logic, desktop untouched):
+  SF stack + 26px/800 large title; grouped background (body tints 5% toward
+  text, groups stay solid surface, 14px radius — solid fills because phones
+  disable backdrop-blur globally); card icons become 28px accent-gradient
+  tiles with 15px/700 titles; jump chips collapse to one snap rail with
+  40px targets and a 16px search field; rows stay label-left/control-right
+  at 44px min-height with solid hairlines (wide segmented wraps, not
+  stacks); nested gesture/key tables lose their inner box; action buttons
+  40px.
+- Search now filters whole groups by label + row keywords
+  (`SECTION_KEYWORDS`, 7 sections) with an iOS "No results + Clear" state;
+  scroll spy skips `display:none` cards (`offsetParent` guard).
+- Verified: new `tests/frontend/settings-ios.test.ts` (9 asserts) + prior
+  suites green in targeted runs; `vue-tsc` clean on touched files. Full
+  suite: 607/609 — the 2 failures are pre-existing worktree edits in
+  `cybshScript.ts`/`cybsh-script.test.ts` (byte-count asserts, reproduce in
+  isolation, untouched by this change).
+
+## 2026-10-09 — WASM `-os` masquerade fix + `.cybsh` vs pure-command parity
+
+- Research: pure `ls -os` and script `sh("ls -os …")`/`$ … -os` share one
+  choke point per transport (native `dispatch`, static
+  `runStaticCybshLine`, wasm `dispatch` via `exec_result`), but the wasm
+  dispatcher had no `-os` guard at all — `ls -os` answered with a volume
+  listing (masquerade), `cat -os /x` looked up `/-os`, and chained
+  `ls -os && …` lines bypassed the static guard (`parseCybshLine → null`)
+  straight into the hole. Native and static both refused honestly.
+- Fix (`crates/os-wasm/src/os.rs`): `has_os_flag` + `os_refusal` guard at
+  the top of `dispatch()` (exempting `complete`, whose arg is a raw
+  prefix), same `unsupported: '<verb> -os' addresses the host filesystem
+  …` shape as the static layer; `help` gains the `-os`/sh-wrapper
+  guidance line. Static comment now names the three covered paths.
+- Tests: wasm x2 (`os_flag_never_masquerades_as_a_volume_answer` incl.
+  `--host`/`--os` aliases + chained `exec` + real `run` script file,
+  `os_flag_script_wrapper_refuses_like_the_terminal` via `exec_result`);
+  native shell test fixed (it asserted host verbs `grep/find/df/write -os`
+  refuse — they route to the host; now asserts true non-host verbs refuse
+  + `os_flag_pure_command_and_script_wrapper_agree`) and script verbatim-
+  passthrough test added; vitest `static-cybsh.test.ts` +2 (aliases,
+  non-host verbs, `run` + `sh("ls -os")` agreement).
+- Docs: `OPERATIONS.md` §4a2 + skill `SKILL.md` list the full 18 host
+  verbs (were stale at 10) and state the pure/wrapper agreement + the
+  three refused wasm paths explicitly.
+- Verified: `bash scripts/check-version.sh` green; `npx vue-tsc --noEmit`
+  clean; `static-cybsh.test.ts` 74/74. Full suite 623/626 — the 3
+  failures are concurrent-workstream edits in `cybshScript.ts` /
+  `cybsh-script.test.ts` (fetch byte-counts) + `settings-appearance`
+  (wallpaper toggle), all in files untouched by this change. Rust
+  `fmt/clippy/test` left to CI per repo rules.
+
+## 2026-10-09 — Skill audit: cybsh-script SKILL.md refreshed to recent docs
+
+- Audit (prompted check): the skill missed recent worklog items — stale
+  pre-remake theme ids, no v2 language surface, no `sync move`,
+  no `run --lint/--fmt`, no compress algos, no schedule frontmatter.
+- Fix (`.cybermanju/skills/cybsh-script/SKILL.md` only, no code):
+  canonical 5 theme ids (`os-dark/os-light/os-graphite/plasma-dark/
+  plasma-light`, legacy ids noted as migrating) in the theme table,
+  example, and nightly script; new "Match, await, import, with, pipes,
+  inputs" section (`match` with `ok/err/else` arms, `ok()` constructors +
+  `?`/`unwrap()`, `await … timeout N`, `import … as ns` (`ns_name` calls),
+  `with name = …:`, `|>`, `args`/`arg()`/`env()` — all verified against
+  `crates/os/src/script.rs` + `src/utils/cybshScript.ts` before writing);
+  `sync move` in the verb list + namespaces; `run --lint/--fmt` in the
+  run block; `compress [lz4|zstd|brotli|triple]`; `# schedule:/# on:/# desc:`
+  frontmatter + pinned nightly example; vault-never-synced + key-holder
+  agent note. Description line gains the v2 keywords for discovery.
+- Verified: `npx vue-tsc --noEmit` clean; `static-cybsh` green,
+  `cybsh-script` 38/40 — same 2 pre-existing concurrent-workstream fetch
+  failures as baseline (markdown-only change, no test imports the skill).
+  Rust untouched (nothing to validate in CI for this change).
+
+## 2026-10-09 — Android Gaveta de Apps (launcher bridge, no mocks)
+- New reusable crate `crates/launcher` (0.1.1, workspace member): `AndroidApp`/`IconPack` types, `validate_package_name` (`invalid:`), `sort_apps`, `pack_icon_candidates`; Android JNI layer (`queryIntentActivities` MAIN/LAUNCHER, `loadLabel`/`loadIcon` → 96px PNG data URL, `getLaunchIntentForPackage` + `FLAG_ACTIVITY_NEW_TASK` open, `ACTION_DELETE` uninstall, theme-discovery icon-pack query + drawable resolve); non-Android refuses `unsupported:` (never mock rows). Unit tests in-crate.
+- `src-tauri/src/commands/launcher.rs` (5 commands) wired into `lib.rs`; `cybermanju-launcher` dep added; `useTauri.invoke` routes `launcher_*` to device IPC, never REST.
+- `scripts/android-configure.sh`: `<queries>` MAIN/LAUNCHER (no `QUERY_ALL_PACKAGES`) + HOME/DEFAULT intent-filter (Home picker); `docs/ANDROID.md` §3 documents both.
+- Frontend: `types` (`AndroidApp`/`IconPack`/`LauncherOverride`), `utils/launcher` (order/filter/swap/gallery-resize/swipe-up, tested in `tests/frontend/launcher.test.ts` 6/6), `composables/useAndroidApps`, `stores/launcher` (per-key overrides `android:<pkg>`/`os:<panel>`, drawer state, localStorage), `components/AppDrawer` (swipe-up Gaveta: search, real icons, tap-to-open, hold-to-customize: rename, gallery icon, icon-pack apply, move, hide, uninstall, reset).
+- `MobileLauncher`: bottom-origin swipe-up opens the drawer, All-apps handle, home tiles honor rename/reorder/gallery-icon/hide with hold-to-customize sheet + Reset home.
+- Verified: `npx vue-tsc --noEmit` clean; `launcher.test.ts` 6/6; `check-version.sh` ok for `crates/launcher`; full `npm test` shows only the 2 pre-existing `cybsh-script` failures from the dirty worktree (pass on stash, unrelated files). Rust validation left to CI per AGENTS.md (no local cargo).
+
+## 2026-10-09 — Launcher re-review + messages hub (top-right icon)
+- Re-verified the JNI bridge against `jni` 0.21 docs and hardened it: per-row
+  `with_local_frame` (a 300-app drawer otherwise overflows the 512-entry
+  local-ref table and aborts the VM), owned-value `JValue::Object` args
+  (`JObject` is neither Clone nor Copy), exception-clear on every failure
+  path (a pending exception silently no-ops later calls), explicit
+  `ComponentName` fallback when `getLaunchIntentForPackage` is null,
+  `NullPtr(&'static str)` confirmed, `base64::Engine` import, clippy-safe
+  asserts. `AndroidApp` gains `socialApp` (exact list + long-token contains
+  + dot-segment shorts so `line` never fires in `offline`).
+- New messages surface in `crates/launcher`: `StoredMessage`,
+  `NotificationState`, `list_messages`/`clear_messages` (reads the mirror
+  file only), `notification_state` (Secure `enabled_notification_listeners`
+  vs our own package), `open_notification_settings`. Non-Android stubs stay
+  `unsupported:`.
+- `scripts/android-configure.sh`: writes `CybermanjuMessages.kt`
+  (NotificationListenerService → `cybermanju-messages.json` ring buffer,
+  social rule mirrored from Rust, Tiramisu-safe label lookup), manifest
+  `<service>` + social `<package>` queries (single `<queries>`, merged).
+  `bash -n` clean.
+- Frontend: `useMessages` (social/messages/state/unread/clear/settings),
+  launcher store (`messagesOpen`, `messagesSeenAt` persisted), `MessagesHub`
+  (quick-launch social row, stored messages newest-first with unread dots,
+  enable-access prompt, refresh/clear), top-right icon in the header tray
+  AND a floating home button (home has no header without open windows),
+  unread badge fed silently on mount + visibilitychange. `AppDrawer`
+  swipe-down close now checks grid `scrollTop` (no more slam-shut scrolls).
+- Verified: `npm run icons` (chat-round-dots-bold resolves) + `vue-tsc`
+  clean; `launcher.test.ts` 9/9; `check-version.sh` ok. Rust left to CI.
+
+## 2026-10-09 — Hub Clear-all dismisses live notifications too
+- The hub footer Clear only wiped the stored file; the live shade kept its
+  notifications. `launcher_clear_messages` now also fires an explicit
+  `CLEAR_NOTIFICATIONS` intent at the running `CybermanjuMessages` service
+  (`onStartCommand` → `cancelAllNotifications` + file wipe, `START_NOT_STICKY`),
+  best-effort so an old/missing service never fails the button (file clear is
+  the source of truth). Button relabeled "Clear all" with tooltip.
+- Verified: `bash -n` clean, `vue-tsc` clean, `launcher.test.ts` 9/9.

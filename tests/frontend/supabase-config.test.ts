@@ -1,31 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getSupabaseConfig, supabaseOAuthQueryParams, supabaseScopesFor } from '@/composables/useSupabase'
 
-const URL_KEY = 'cybermanju.supabaseUrl'
-const KEY_KEY = 'cybermanju.supabaseKey'
-const values = new Map<string, string>()
-const localStorageMock = {
-  getItem: (key: string) => values.get(key) ?? null,
-  setItem: (key: string, value: string) => { values.set(key, String(value)) },
-  removeItem: (key: string) => { values.delete(key) },
-  clear: () => { values.clear() },
-}
-
 beforeEach(() => {
-  values.clear()
-  vi.stubGlobal('localStorage', localStorageMock)
   vi.stubEnv('VITE_SUPABASE_URL', 'https://broker.example.test/')
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'build-public-anon-key')
 })
 
 afterEach(() => {
-  values.clear()
-  vi.unstubAllGlobals()
   vi.unstubAllEnvs()
 })
 
-describe('Supabase broker configuration', () => {
-  it('uses the build-time pair when no manual settings are saved', () => {
+describe('Supabase broker configuration (fixed at build time)', () => {
+  it('uses the build-time pair', () => {
     expect(getSupabaseConfig()).toEqual({
       url: 'https://broker.example.test',
       key: 'build-public-anon-key',
@@ -33,20 +19,11 @@ describe('Supabase broker configuration', () => {
     })
   })
 
-  it('prefers a complete manual pair over the build-time pair', () => {
-    localStorageMock.setItem(URL_KEY, 'https://manual.example.test/')
-    localStorageMock.setItem(KEY_KEY, 'manual-public-anon-key')
-
-    expect(getSupabaseConfig()).toEqual({
-      url: 'https://manual.example.test',
-      key: 'manual-public-anon-key',
-      source: 'localStorage',
-    })
-  })
-
-  it('does not let a partial manual override mask a complete build-time pair', () => {
-    localStorageMock.setItem(URL_KEY, 'https://stale.example.test/')
-
+  it('has no runtime override — localStorage entries are ignored', () => {
+    const values = new Map<string, string>()
+    values.set('cybermanju.supabaseUrl', 'https://manual.example.test/')
+    values.set('cybermanju.supabaseKey', 'manual-public-anon-key')
+    // getSupabaseConfig reads build env only; the manual pair never surfaces.
     expect(getSupabaseConfig()).toEqual({
       url: 'https://broker.example.test',
       key: 'build-public-anon-key',
@@ -54,18 +31,9 @@ describe('Supabase broker configuration', () => {
     })
   })
 
-  it('reports an empty source when neither configuration pair is complete', () => {
+  it('reports an empty source when the build has no broker', () => {
     vi.stubEnv('VITE_SUPABASE_URL', '')
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
-    localStorageMock.setItem(URL_KEY, 'https://manual.example.test/')
-
-    expect(getSupabaseConfig()).toEqual({
-      url: 'https://manual.example.test',
-      key: '',
-      source: 'localStorage',
-    })
-
-    localStorageMock.removeItem(URL_KEY)
     expect(getSupabaseConfig()).toEqual({ url: '', key: '', source: 'none' })
   })
 

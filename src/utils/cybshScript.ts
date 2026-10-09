@@ -3,8 +3,10 @@
 // Same language as `crates/os/src/script.rs` (python-style `print` +
 // `if/elif/else`, `let` with stripped TS annotations, `for`/`while`,
 // inline `$ <cybsh>` / `sh "…"` lines, `js` expression subset, `fetch`,
-// `ui`/`theme`, `vars`/`free`/`gc`), same budgets. Differences are
-// transport-only and honest:
+// `ui`/`theme`, `vars`/`free`/`gc`, plus v2: `args`/`env()` inputs,
+// `match`/`ok()`/`err()`/`unwrap()`/`?`, `|>` pipes, `import`, `with`,
+// `await`, `fetch … method/headers/as json`, `# schedule:/# on:`
+// frontmatter), same budgets. Differences are transport-only and honest:
 // - `fetch` really runs here (browser `fetch`, 10 s timeout, 64 KiB cap);
 //   the native shell answers `unsupported:` (no HTTP client in that crate).
 // - `ui`/`theme` lines execute through the static verbs, whose output
@@ -12,6 +14,12 @@
 //   via `useTheme()`.
 // - `sh` lines run through the caller's `execCybsh` (static verbs first,
 //   wasm dispatcher fallback), with the same 4-deep `run` nesting guard.
+// - `-os` (host filesystem: sdcard on Android) has no browser equivalent —
+//   `runStaticCybshLine` refuses it with `unsupported:` before dispatch so a
+//   volume answer never masquerades as a host listing. `deny=<verb>`
+//   capabilities cover `-os` variants (verb match).
+// - `env()` reads `deps.env` (explicit map; falls back to `process.env`
+//   under node, absent in browsers) — ambient, unjournaled.
 
 export const CYBSH_SCRIPT_EXT = '.cybsh'
 export const CYBSH_MAX_SOURCE_BYTES = 64 * 1024
@@ -25,12 +33,29 @@ export const CYBSH_MAX_OUTPUT_BYTES = 256 * 1024
 export const CYBSH_MAX_RUN_DEPTH = 4
 export const CYBSH_MAX_FUNCS = 32
 export const CYBSH_MAX_CALL_DEPTH = 32
+export const CYBSH_MAX_AWAIT_TRIES = 100
+export const CYBSH_DEFAULT_AWAIT_TRIES = 10
+export const CYBSH_MAX_IMPORT_DEPTH = 4
 /** Language version pinned by `# cybsh: 1`. */
 export const CYBSH_SCRIPT_VERSION = '1'
+
+/** Statement + expression keywords (completion/LSP vocabulary). */
+export const CYBSH_SCRIPT_KEYWORDS = [
+  'print', 'let', 'const', 'if', 'elif', 'else', 'for', 'while', 'in', 'try', 'catch',
+  'fail', 'def', 'return', 'match', 'ok', 'err', 'with', 'import', 'as', 'await',
+  'timeout', 'fetch', 'method', 'headers', 'json', 'and', 'or', 'not', 'true',
+  'false', 'null', 'args', 'env',
+]
 
 export interface CybshScriptEffect {
   kind: string
   detail: string
+}
+
+export interface CybshFrontmatter {
+  schedule: string | null
+  triggers: string[]
+  description: string | null
 }
 
 export interface CybshScriptResult {
@@ -46,14 +71,30 @@ export interface CybshScriptResult {
   } | null
   shCalls: number
   fetchCalls: number
+  schedule: string | null
+  triggers: string[]
 }
 
 export type CybshExecFn = (line: string) => Promise<string> | string
 
+/** One `fetch` request (journal key = `METHOD url`). */
+export interface CybshFetchReq {
+  url: string
+  method: string
+  headers: Record<string, string>
+  wantJson: boolean
+}
+
+export function cybshFetchKey(req: CybshFetchReq): string {
+  return `${req.method.toUpperCase()} ${req.url}`
+}
+
 export interface CybshScriptDeps {
   execCybsh: CybshExecFn
   /** Browser fetch for `fetch <url>`; absent → honest `unsupported:`. */
-  fetchText?: (url: string) => Promise<string>
+  fetchText?: (req: CybshFetchReq) => Promise<string>
+  /** Host environment for `env()` (browsers: explicit map; node: `process.env` fallback). */
+  env?: Record<string, string>
 }
 
 type Value =
@@ -225,7 +266,132 @@ export function checkCybshScript(source: string): string {
   const lines = splitLines(source)
   const caps = parseScriptCaps(source)
   const capNote = caps.active ? ` · caps: ${describeScriptCaps(caps)}` : ''
-  return `dry: ${lines.length} statement(s) parse${capNote} — nothing executed (use \`run <file.cybsh>\` to execute)`
+  const fm = parseFrontmatter(source)
+  let extra = ''
+  if (fm.schedule) extra += ` · schedule: ${fm.schedule}`
+  if (fm.triggers.length) extra += ` · on: ${fm.triggers.join(',')}`
+  return `dry: ${lines.length} statement(s) parse${capNote}${extra} — nothing executed (use \`run <file.cybsh>\` to execute)`
+}
+
+/** Parse `# schedule:`, `# on: a, b`, `# desc:` frontmatter (first 200 lines). */
+export function parseFrontmatter(source: string): CybshFrontmatter {
+  const fm: CybshFrontmatter = { schedule: null, triggers: [], description: null }
+  for (const raw of source.split('\n').slice(0, 200)) {
+    const t = raw.trim()
+    if (!t.startsWith('#')) continue
+    const body = t.slice(1).trim()
+    const cut = (prefixes: string[]): string | null => {
+      for (const p of prefixes) {
+        if (body.startsWith(p)) {
+          const v = body.slice(p.length).trim().replace(/^[:\s]+/, '').trim()
+          return v
+        }
+      }
+      return null
+    }
+    const sched = cut(['schedule:', 'schedule '])
+    if (sched !== null && fm.schedule === null && sched) fm.schedule = sched
+    const on = cut(['on:'])
+    if (on !== null) {
+      for (const trg of on.split(',').map((s) => s.trim()).filter((s) => s.length > 0)) {
+        if (!fm.triggers.includes(trg)) fm.triggers.push(trg)
+      }
+      continue
+    }
+    if (body.startsWith('on ') && fm.triggers.length === 0) {
+      const v = body.slice(3).trim()
+      for (const trg of v.split(',').map((s) => s.trim()).filter((s) => s.length > 0)) {
+        if (!fm.triggers.includes(trg)) fm.triggers.push(trg)
+      }
+      continue
+    }
+    const desc = cut(['desc:', 'description:'])
+    if (desc !== null && fm.description === null && desc) fm.description = desc
+  }
+  return fm
+}
+
+const STATEMENT_KWS = new Set([
+  'print', 'let', 'const', 'if', 'elif', 'else', 'for', 'while', 'try',
+  'catch', 'fail', 'def', 'return', 'match', 'ok', 'err', 'with',
+  'import', 'await', 'fetch', 'js', 'vars', 'free', 'gc',
+])
+
+/** Clippy-style static warnings (backs `run --lint`): never executes. */
+export function lintCybshScript(source: string): string[] {
+  if (source.length > CYBSH_MAX_SOURCE_BYTES) {
+    throw new Error(`too_large: script is ${source.length} bytes, limit is ${CYBSH_MAX_SOURCE_BYTES}`)
+  }
+  checkScriptVersion(source)
+  const lines = splitLines(source)
+  const warns: string[] = []
+  const pinned = source.split('\n').some((l) => {
+    const t = l.trim()
+    if (!t.startsWith('#')) return false
+    const d = t.slice(1).trim()
+    return d.startsWith('cybsh:') || d.startsWith('cybsh ')
+  })
+  if (!pinned) warns.push('hint: no `# cybsh: 1` version pin (add one for reproducibility)')
+  const fm = parseFrontmatter(source)
+  if (fm.schedule && !fm.triggers.length) {
+    warns.push('hint: `# schedule:` without `# on:` — triggers default to manual')
+  }
+  for (const line of lines) {
+    const word = line.text.split(/\s+/, 1)[0]!
+    if (BARE_VERBS.has(word) || STATEMENT_KWS.has(word)) continue
+    if (splitAssignment(line.text)) continue
+    if (/^[$"'\-[{0-9]/.test(line.text) || line.text.startsWith('js') || line.text.startsWith('sh')) continue
+    if (/[(\-.|?]/.test(word)) continue
+    warns.push(`warn: line ${line.lineno}: unknown verb \`${word}\` — bare lines must be cybsh verbs (try \`sh "…"\`)`)
+  }
+  if (source.split('\n').some((r) => r.startsWith('\t'))) {
+    warns.push('style: tab indent (works as 4 spaces, prefer 2 spaces)')
+  }
+  const caps = parseScriptCaps(source)
+  if (source.split('\n').some((l) => l.trimStart().startsWith('fetch')) && !caps.active) {
+    warns.push('hint: `fetch` without `# cap: net=<host>` — ambient now, pinned later')
+  }
+  if (!warns.length) warns.push('lint: clean — no warnings')
+  return warns
+}
+
+function isMatchArmLine(text: string): boolean {
+  return text === 'else:' || text === 'else' || text === 'ok:' || text === 'err:' || isKw(text, 'ok') || isKw(text, 'err')
+}
+
+function isDedentKw(text: string): boolean {
+  return text === 'else:' || text === 'else' || text === 'catch' || text === 'catch:' || isKw(text, 'elif') || isKw(text, 'catch') || isMatchArmLine(text)
+}
+
+function opensBlock(text: string): boolean {
+  const opens =
+    isKw(text, 'if') || isKw(text, 'elif') || text === 'else:' || text === 'else' ||
+    isKw(text, 'for') || isKw(text, 'while') || text === 'try:' || text === 'try' ||
+    isCatch(text) || isKw(text, 'def') || isKw(text, 'match') || isKw(text, 'with') ||
+    isMatchArmLine(text)
+  return opens && (text.endsWith(':') || text === 'try' || isCatch(text))
+}
+
+/** Canonical formatter (backs `run --fmt`): 2-space re-indent, idempotent. */
+export function formatCybshScript(source: string): string {
+  checkScriptVersion(source)
+  const lines = splitLines(source)
+  const out: string[] = []
+  let stack: number[] = [-1]
+  for (const line of lines) {
+    const text = line.text
+    const dedent = isDedentKw(text)
+    while (stack.length > 1 && line.indent <= stack[stack.length - 1]!) stack.pop()
+    let depth = stack.length - 1
+    if (dedent) depth = Math.max(0, depth - 1)
+    if (line.indent === 0) {
+      depth = 0
+      stack = [-1]
+    }
+    out.push(`${'  '.repeat(depth)}${text}`)
+    if (opensBlock(text)) stack.push(line.indent)
+  }
+  return out.join('\n') + '\n'
 }
 
 function jsonQuote(s: string): string {
@@ -295,6 +461,7 @@ class Runner {
   funcs = new Map<string, FuncDef>()
   flow: Value | null = null
   callDepth = 0
+  importDepth = 0
   caps: CybshCaps = { active: false, net: null, read: null, write: null, deny: [] }
   chunks: string[] = []
   effects: CybshScriptEffect[] = []
@@ -378,13 +545,13 @@ class Runner {
   }
 
   /** Fetch through the capability gate + host client. */
-  async fetchChecked(url: string, lineno: number): Promise<string> {
+  async fetchChecked(req: CybshFetchReq, lineno: number): Promise<string> {
     if (this.caps.active) {
-      const host = fetchHost(url)
+      const host = fetchHost(req.url)
       if (!this.caps.net || !this.caps.net.some((h) => h.toLowerCase() === host)) {
         throw new Error(
           this.caps.net
-            ? `denied: fetch ${url} is outside this script's \`net=\` allowlist`
+            ? `denied: fetch ${req.url} is outside this script's \`net=\` allowlist`
             : 'denied: fetch needs a `net=<host>` capability (`# cap: net=…`)',
         )
       }
@@ -392,10 +559,10 @@ class Runner {
     this.fetchCalls++
     if (!this.deps.fetchText) {
       throw new Error(
-        `unsupported: \`fetch ${url}\` needs the browser/static transport (this shell has no HTTP client) — run the same \`.cybsh\` on Pages, replay a journal (\`--replay\`), or serve it via \`POST /api/os/exec\` on the dashboard worker`,
+        `unsupported: \`fetch ${req.url}\` needs the browser/static transport (this shell has no HTTP client) — run the same \`.cybsh\` on Pages, replay a journal (\`--replay\`), or serve it via \`POST /api/os/exec\` on the dashboard worker`,
       )
     }
-    return trunc(await this.deps.fetchText(url))
+    return trunc(await this.deps.fetchText(req))
   }
 
   /** Shared capture: `--json` output materializes, text stays a string. */
@@ -504,7 +671,12 @@ async function runBlock(r: Runner, lines: SrcLine[], start: number, parent: numb
 
 class Expr {
   pos = 0
-  constructor(readonly chars: string, readonly vars: Map<string, Value>, readonly lineno: number) {}
+  constructor(
+    readonly chars: string,
+    readonly vars: Map<string, Value>,
+    readonly lineno: number,
+    readonly env?: Record<string, string>,
+  ) {}
 
   skip(): void {
     while (this.pos < this.chars.length && /\s/.test(this.chars[this.pos]!)) this.pos++
@@ -519,6 +691,54 @@ class Expr {
     }
     this.pos += word.length
     return true
+  }
+
+  parsePipe(): Value {
+    // `a |> f(b)` is `f(a, b)`; `a |> len` is `len(a)` (Nushell rule over
+    // materialized values). Pure builtins only here — `sh`/user-`def` pipes
+    // are hoisted one layer up (`evalExprAsync`).
+    let left = this.parseOr()
+    for (;;) {
+      this.skip()
+      if (this.chars[this.pos] === '|' && this.chars[this.pos + 1] === '>') {
+        this.pos += 2
+        left = this.applyPipe(left)
+      } else return left
+    }
+  }
+
+  applyPipe(lhs: Value): Value {
+    this.skip()
+    const name = this.parseIdent()
+    if (!name || !validName(name)) {
+      throw new Error(`syntax: line ${this.lineno}: \`|>\` needs a function (\`x |> len\`, \`x |> split(",")\`)`)
+    }
+    const args: Value[] = [lhs]
+    this.skip()
+    if (this.chars[this.pos] === '(') {
+      this.pos++
+      for (;;) {
+        this.skip()
+        if (this.chars[this.pos] === ')') {
+          this.pos++
+          break
+        }
+        if (args.length >= 9) throw new Error(`syntax: line ${this.lineno}: \`${name}\` takes at most 8 arguments`)
+        args.push(this.parsePipe())
+        this.skip()
+        if (this.chars[this.pos] === ',') {
+          this.pos++
+          continue
+        }
+        this.skip()
+        if (this.chars[this.pos] === ')') {
+          this.pos++
+          break
+        }
+        throw new Error(`syntax: line ${this.lineno}: expected \`,\` or \`)\` in \`${name}(…)\``)
+      }
+    }
+    return builtinSync(name, args, this.lineno, { vars: this.vars, env: this.env })
   }
 
   parseOr(): Value {
@@ -616,7 +836,7 @@ class Expr {
     let base: Value
     if (c === '(') {
       this.pos++
-      base = this.parseOr()
+      base = this.parsePipe()
       this.skip()
       if (this.chars[this.pos] !== ')') throw new Error(`syntax: line ${this.lineno}: unclosed \`(\``)
       this.pos++
@@ -648,7 +868,8 @@ class Expr {
     } else {
       throw new Error(`syntax: line ${this.lineno}: unexpected \`${c}\` in expression`)
     }
-    // Postfix indexing: `d.key`, `d["k"]`, `l[0]`, `s[0]`.
+    // Postfix indexing (`d.key`, `d["k"]`, `l[0]`, `s[0]`) + `?` unwrap
+    // (`{ok:true,value:v}?` → `v`; `{ok:false,error:e}?` raises `e`).
     for (;;) {
       this.skip()
       if (this.chars[this.pos] === '.') {
@@ -660,13 +881,18 @@ class Expr {
       }
       if (this.chars[this.pos] === '[') {
         this.pos++
-        const key = this.parseOr()
+        const key = this.parsePipe()
         this.skip()
         if (this.chars[this.pos] !== ']') {
           throw new Error(`syntax: line ${this.lineno}: unclosed \`[\` in index`)
         }
         this.pos++
         base = indexValue(base, key, this.lineno)
+        continue
+      }
+      if (this.chars[this.pos] === '?') {
+        this.pos++
+        base = unwrapValue(base, this.lineno)
         continue
       }
       return base
@@ -730,7 +956,7 @@ class Expr {
         return vList(items)
       }
       if (items.length >= CYBSH_MAX_LIST) throw new Error(`syntax: line ${this.lineno}: list exceeds ${CYBSH_MAX_LIST} items`)
-      items.push(this.parseOr())
+      items.push(this.parsePipe())
       this.skip()
       if (this.chars[this.pos] === ',') {
         this.pos++
@@ -770,7 +996,7 @@ class Expr {
         throw new Error(`syntax: line ${this.lineno}: dict needs \`key: value\` pairs`)
       }
       this.pos++
-      const value = this.parseOr()
+      const value = this.parsePipe()
       if (value.t === 'str' && value.v.length > CYBSH_MAX_STR) {
         throw new Error(`too_large: line ${this.lineno}: dict value exceeds ${CYBSH_MAX_STR} bytes`)
       }
@@ -799,7 +1025,7 @@ class Expr {
         break
       }
       if (args.length >= 8) throw new Error(`syntax: line ${this.lineno}: \`${name}\` takes at most 8 arguments`)
-      args.push(this.parseOr())
+      args.push(this.parsePipe())
       this.skip()
       if (this.chars[this.pos] === ',') {
         this.pos++
@@ -812,7 +1038,7 @@ class Expr {
       }
       throw new Error(`syntax: line ${this.lineno}: expected \`,\` or \`)\` in \`${name}(…)\``)
     }
-    return builtinSync(name, args, this.lineno)
+    return builtinSync(name, args, this.lineno, { vars: this.vars, env: this.env })
   }
 }
 
@@ -874,7 +1100,36 @@ function arith(left: Value, op: string, right: Value, lineno: number): Value {
 }
 
 /** Sync builtins (`len/int/str/json/split/range`). `sh` needs async exec. */
-function builtinSync(name: string, args: Value[], lineno: number): Value {
+export interface BuiltinCtx {
+  vars?: Map<string, Value>
+  env?: Record<string, string>
+}
+
+const BUILTIN_HINT = 'len/int/str/json/split/range/sh/set/push/del/keys/values/ok/err/unwrap/is_ok/is_err/env/arg/fingerprint'
+
+/** Classify a Result dict: (isErr, okValue, errText). Plain values are ok. */
+function classifyResult(v: Value): { isErr: boolean; value: Value; err: string } {
+  if (v.t === 'dict') {
+    const flag = v.v.get('ok')
+    if (flag?.t === 'bool' && !flag.v) {
+      const e = v.v.get('error')
+      return { isErr: true, value: vNull(), err: e ? display(e) : 'error' }
+    }
+    if (flag?.t === 'bool' && flag.v) {
+      return { isErr: false, value: v.v.get('value') ?? vNull(), err: '' }
+    }
+  }
+  return { isErr: false, value: v, err: '' }
+}
+
+/** Postfix `?` unwrap. */
+function unwrapValue(v: Value, lineno: number): Value {
+  const c = classifyResult(v)
+  if (c.isErr) throw new Error(c.err || `fail: unwrap of err (line ${lineno})`)
+  return c.value
+}
+
+function builtinSync(name: string, args: Value[], lineno: number, ctx?: BuiltinCtx): Value {
   const need = (min: number, max: number): void => {
     if (args.length < min || args.length > max) {
       throw new Error(`syntax: line ${lineno}: \`${name}\` takes ${min}–${max} argument(s), got ${args.length}`)
@@ -973,14 +1228,75 @@ function builtinSync(name: string, args: Value[], lineno: number): Value {
       if (base.t !== 'dict') throw new Error(`syntax: line ${lineno}: \`values\` takes a dict (got ${typeName(base)})`)
       return vList([...base.v.keys()].sort().map((k) => base.v.get(k)!))
     }
+    case 'ok': {
+      need(1, 1)
+      return vDict(new Map([['ok', vBool(true)], ['value', args[0]!]]))
+    }
+    case 'err': {
+      need(1, 1)
+      return vDict(new Map([['ok', vBool(false)], ['error', vStr(display(args[0]!))]]))
+    }
+    case 'unwrap': {
+      need(1, 1)
+      return unwrapValue(args[0]!, lineno)
+    }
+    case 'is_ok': {
+      need(1, 1)
+      return vBool(!classifyResult(args[0]!).isErr)
+    }
+    case 'is_err': {
+      need(1, 1)
+      return vBool(classifyResult(args[0]!).isErr)
+    }
+    case 'env': {
+      need(1, 2)
+      const key = display(args[0]!)
+      const table = ctx?.env ?? readProcessEnv()
+      if (table && key in table) return vStr(trunc(table[key]!))
+      if (args.length === 2) return args[1]!
+      throw new Error(`not_found: no env \`${key}\` (line ${lineno})`)
+    }
+    case 'arg': {
+      need(1, 2)
+      const n = asNum(args[0]!)
+      if (n === null) throw new Error(`syntax: line ${lineno}: \`arg\` needs a number index`)
+      const list = ctx?.vars?.get('args')
+      const items = list?.t === 'list' ? list.v : []
+      const i = Math.trunc(n)
+      if (i < 0 || i >= items.length) {
+        if (args.length === 2) return args[1]!
+        throw new Error(`not_found: no arg \`${i}\` (line ${lineno})`)
+      }
+      return items[i]!
+    }
+    case 'fingerprint': {
+      need(1, 1)
+      return vStr(cybshFingerprint(display(args[0]!)))
+    }
+    case 'sh': {
+      // `sh` needs async exec — the async layer hoists it first. A bare
+      // `sh` surviving to sync eval means it was piped without parens in a
+      // pure (`js`) context.
+      throw new Error(`syntax: line ${lineno}: \`sh\` needs the async shell context (use \`sh("…")\` in a statement or \`let x = sh("…")\`)`)
+    }
     default:
-      throw new Error(`syntax: line ${lineno}: unknown function \`${name}\` (try \`len/int/str/json/split/range/sh/set/push/del/keys/values\` or \`def\` it first)`)
+      throw new Error(`syntax: line ${lineno}: unknown function \`${name}\` (try \`${BUILTIN_HINT}\` or \`def\` it first)`)
+  }
+}
+
+/** `process.env` under node (tests/SSR); browsers pass `deps.env` instead. */
+function readProcessEnv(): Record<string, string> | undefined {
+  try {
+    const g = globalThis as { process?: { env?: Record<string, string> } }
+    return g.process?.env ? { ...g.process.env } as Record<string, string> : undefined
+  } catch {
+    return undefined
   }
 }
 
 function evalExpr(r: Runner, src: string, lineno: number): Value {
-  const p = new Expr(src, r.vars, lineno)
-  const v = p.parseOr()
+  const p = new Expr(src, r.vars, lineno, r.deps.env)
+  const v = p.parsePipe()
   p.skip()
   if (p.pos < p.chars.length) {
     throw new Error(`syntax: line ${lineno}: unexpected \`${p.chars.slice(p.pos).trim()}\` in expression`)
@@ -991,6 +1307,82 @@ function evalExpr(r: Runner, src: string, lineno: number): Value {
   return v
 }
 
+/** Quote/bracket-aware top-level `|>` split. Null when no pipe is present. */
+function splitTopPipe(src: string): string[] | null {
+  const parts: string[] = []
+  let cur = ''
+  let quote: string | null = null
+  let depth = 0
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i]!
+    if (quote) {
+      cur += c
+      if (c === quote) quote = null
+      continue
+    }
+    if (c === '"' || c === "'") {
+      quote = c
+      cur += c
+      continue
+    }
+    if (c === '(' || c === '[' || c === '{') depth++
+    else if (c === ')' || c === ']' || c === '}') depth = Math.max(0, depth - 1)
+    if (depth === 0 && c === '|' && src[i + 1] === '>') {
+      parts.push(cur)
+      cur = ''
+      i++
+      continue
+    }
+    cur += c
+  }
+  if (!parts.length) return null
+  parts.push(cur)
+  return parts
+}
+
+/** Parse a pipe segment rhs: `name` or `name(args…)`. */
+function parsePipeRhs(seg: string, lineno: number): { name: string; argsSrc: string | null } {
+  const t = seg.trim()
+  const m = t.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*(\([\s\S]*\))?$/)
+  if (!m?.[1]) throw new Error(`syntax: line ${lineno}: \`|>\` needs a function (\`x |> len\`, \`x |> split(",")\`)`)
+  const name = m[1]
+  const paren = m[2] ?? null
+  if (paren !== null) {
+    if (!paren.endsWith(')')) throw new Error(`syntax: line ${lineno}: unclosed \`(\` after \`|>\` ${name}`)
+    return { name, argsSrc: paren.slice(1, -1) }
+  }
+  return { name, argsSrc: null }
+}
+
+/** Async pipe: `lhs |> f(a)` is `f(lhs, a)`; user-`def`s and `sh` allowed. */
+async function evalPipeAsync(r: Runner, segments: string[], lineno: number): Promise<Value> {
+  let lhs = await evalExprAsync(r, segments[0]!.trim(), lineno)
+  for (const seg of segments.slice(1)) {
+    const { name, argsSrc } = parsePipeRhs(seg, lineno)
+    const argVals: Value[] = []
+    if (argsSrc !== null && argsSrc.trim()) {
+      for (const a of splitTopCommas(argsSrc)) {
+        if (a) argVals.push(await evalExprAsync(r, a, lineno))
+      }
+    }
+    const full = [lhs, ...argVals]
+    if (r.funcs.has(name)) {
+      if (full.length !== (r.funcs.get(name)!.params.length)) {
+        // callFunc reports arity itself; pad check lives there.
+      }
+      lhs = await callFunc(r, name, full, lineno)
+    } else if (name === 'sh') {
+      if (argVals.length > 0) {
+        throw new Error(`syntax: line ${lineno}: \`|>\` into \`sh\` takes no extra args (\`cmd |> sh\` runs the command)`)
+      }
+      lhs = await execShValue(r, lhs, lineno)
+    } else {
+      lhs = builtinSync(name, full, lineno, { vars: r.vars, env: r.deps.env })
+    }
+  }
+  return lhs
+}
+
 /**
  * Expression evaluation with `sh(…)` hoisting: the sync grammar cannot
  * `await`, so each `sh(<expr>)` runs first (innermost-first, left-to-right)
@@ -998,6 +1390,10 @@ function evalExpr(r: Runner, src: string, lineno: number): Value {
  * shell, where `sh()` takes any expression (`let x = sh("echo " + name)`).
  */
 async function evalExprAsync(r: Runner, src: string, lineno: number): Promise<Value> {
+  // Pipes first (top-level `|>`; segments recurse, so `sh`/user calls
+  // inside any segment hoist naturally), then user `def`s, then `sh(…)`.
+  const piped = splitTopPipe(src)
+  if (piped) return evalPipeAsync(r, piped, lineno)
   // User `def`s hoist first (bodies run statements, hence async), then
   // `sh(…)` — innermost-first, left-to-right, like evaluation order.
   const call = findFirstUserCall(src, r.funcs)
@@ -1189,9 +1585,16 @@ async function evalAssignRhs(r: Runner, src: string, lineno: number): Promise<Va
   if (t.startsWith('js:')) return evalExpr(r, normalizeJs(t.slice(3).trim()), lineno)
   if (isKw(t, 'fetch')) {
     const rest = restOf(t, 'fetch', lineno)
-    const { url: urlSrc } = splitFetch(rest)
-    const url = display(await evalExprAsync(r, urlSrc, lineno))
-    const body = await r.fetchChecked(url, lineno)
+    const spec = splitFetchFull(rest, lineno)
+    const url = display(await evalExprAsync(r, spec.urlSrc, lineno))
+    const headers = await evalFetchHeaders(r, spec.headersSrc, lineno)
+    const body = await r.fetchChecked({ url, method: spec.method, headers, wantJson: spec.wantJson }, lineno)
+    if (spec.wantJson) {
+      const v = materializeJson(body)
+      if (!v) throw new Error(`invalid: line ${lineno}: \`fetch\` did not return JSON`)
+      r.setVar('_', v)
+      return v
+    }
     const v = vStr(body)
     r.setVar('_', v)
     return v
@@ -1207,10 +1610,307 @@ function unquoteArg(s: string, lineno: number): string {
   if (t.startsWith('"') || t.startsWith("'")) throw new Error(`syntax: line ${lineno}: unclosed quote in \`${t}\``)
   return t
 }
-function splitFetch(rest: string): { url: string; asVar: string | null } {
-  const m = rest.match(/^(.*)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)\s*$/)
-  if (m?.[1]?.trim()) return { url: m[1].trim(), asVar: m[2]! }
-  return { url: rest.trim(), asVar: null }
+
+export interface FetchSpec {
+  urlSrc: string
+  method: string
+  headersSrc: string | null
+  wantJson: boolean
+  asVar: string | null
+}
+
+/** Split `head KEYWORD tail` on a top-level keyword (outside quotes/brackets). */
+function splitTopKw(src: string, kw: string): [string, string] | null {
+  let quote: string | null = null
+  let depth = 0
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i]!
+    if (quote) {
+      if (c === quote) quote = null
+      continue
+    }
+    if (c === '"' || c === "'") {
+      quote = c
+      continue
+    }
+    if (c === '(' || c === '[' || c === '{') depth++
+    else if (c === ')' || c === ']' || c === '}') depth = Math.max(0, depth - 1)
+    if (depth === 0 && /\s/.test(c)) {
+      const tail = src.slice(i).trimStart()
+      if (tail === kw || tail.startsWith(`${kw} `)) {
+        return [src.slice(0, i).trim(), tail.slice(kw.length).trim()]
+      }
+    }
+  }
+  return null
+}
+
+/** Trailing `as json name` / `as name` (quote/bracket-aware, last wins). */
+function parseFetchAs(rest: string): { head: string; wantJson: boolean; asVar: string | null } | null {
+  let quote: string | null = null
+  let depth = 0
+  let lastAs = -1
+  for (let i = 0; i < rest.length; i++) {
+    const c = rest[i]!
+    if (quote) {
+      if (c === quote) quote = null
+      continue
+    }
+    if (c === '"' || c === "'") {
+      quote = c
+      continue
+    }
+    if (c === '(' || c === '[' || c === '{') depth++
+    else if (c === ')' || c === ']' || c === '}') depth = Math.max(0, depth - 1)
+    if (depth === 0 && c === ' ') {
+      const tail = rest.slice(i).trimStart()
+      if (tail === 'as' || tail.startsWith('as ')) {
+        const after = tail.slice(2)
+        if (!after || after.startsWith(' ')) lastAs = i
+      }
+    }
+  }
+  if (lastAs < 0) return { head: rest.trim(), wantJson: false, asVar: null }
+  const head = rest.slice(0, lastAs).trim()
+  const tail = rest.slice(lastAs).trimStart().slice(2).trim()
+  if (!tail) return null
+  if (tail === 'json') return null
+  if (tail.startsWith('json ')) {
+    const name = tail.slice(4).trim()
+    if (!validName(name)) return null
+    return { head, wantJson: true, asVar: name }
+  }
+  if (!validName(tail)) return null
+  return { head, wantJson: false, asVar: tail }
+}
+
+const FETCH_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD'])
+
+function splitFetchFull(rest: string, lineno: number): FetchSpec {
+  const asParsed = parseFetchAs(rest)
+  if (!asParsed) {
+    throw new Error(`syntax: line ${lineno}: bad \`fetch … as …\` (try \`fetch <url> [method M] [headers H] [as json <var> | as <var>]\`)`)
+  }
+  let head = asParsed.head
+  let headersSrc: string | null = null
+  const hsplit = splitTopKw(head, 'headers')
+  if (hsplit && hsplit[0].trim()) {
+    head = hsplit[0].trim()
+    headersSrc = hsplit[1].trim()
+    if (!headersSrc) throw new Error(`syntax: line ${lineno}: \`headers\` needs a dict`)
+  }
+  let method = 'GET'
+  const msplit = splitTopKw(head, 'method')
+  if (msplit) {
+    const parts = msplit[1].trim().split(/\s+/)
+    const m = (parts[0] ?? '').toUpperCase()
+    if (!FETCH_METHODS.has(m)) {
+      throw new Error(`syntax: line ${lineno}: bad fetch method \`${parts[0] ?? ''}\` (GET/POST/PUT/DELETE/PATCH/HEAD)`)
+    }
+    if (parts.length > 1) throw new Error(`syntax: line ${lineno}: \`method\` takes one word (\`method ${m}\` before \`headers\`)`)
+    method = m
+    head = msplit[0].trim()
+  }
+  if (!head) throw new Error(`syntax: line ${lineno}: \`fetch\` needs a URL`)
+  return { urlSrc: head, method, headersSrc, wantJson: asParsed.wantJson, asVar: asParsed.asVar }
+}
+
+async function evalFetchHeaders(r: Runner, src: string | null, lineno: number): Promise<Record<string, string>> {
+  if (!src) return {}
+  const v = await evalExprAsync(r, src, lineno)
+  if (v.t !== 'dict') throw new Error(`syntax: line ${lineno}: \`headers\` needs a dict (got ${typeName(v)})`)
+  const out: Record<string, string> = {}
+  for (const [k, val] of v.v) out[k] = display(val)
+  return out
+}
+
+/** `import "path" [as prefix]` parts (path is an expression source). */
+function splitImport(rest: string, lineno: number): { pathSrc: string; prefix: string | null } {
+  const parts = splitTopKw(rest, 'as')
+  if (parts) {
+    const prefix = parts[1].trim()
+    if (!validName(prefix)) throw new Error(`syntax: line ${lineno}: bad import prefix \`${prefix}\``)
+    if (RESERVED_NAMES.has(prefix)) {
+      throw new Error(`syntax: line ${lineno}: \`${prefix}\` is a builtin — pick another prefix`)
+    }
+    if (!parts[0].trim()) throw new Error(`syntax: line ${lineno}: \`import\` needs \`import "lib.cybsh" [as ns]\``)
+    return { pathSrc: parts[0].trim(), prefix }
+  }
+  if (!rest.trim()) throw new Error(`syntax: line ${lineno}: \`import\` needs \`import "lib.cybsh" [as ns]\``)
+  return { pathSrc: rest.trim(), prefix: null }
+}
+
+/** Load another `.cybsh` file's `def`s via `cat` (defs only). */
+async function importDefs(r: Runner, path: string, prefix: string | null, lineno: number): Promise<void> {
+  if (!path.toLowerCase().endsWith(CYBSH_SCRIPT_EXT)) {
+    throw new Error(`invalid: line ${lineno}: \`import\` needs a ${CYBSH_SCRIPT_EXT} file (got \`${path}\`)`)
+  }
+  if (r.importDepth >= CYBSH_MAX_IMPORT_DEPTH) {
+    throw new Error(`too_large: line ${lineno}: \`import\` nesting exceeds ${CYBSH_MAX_IMPORT_DEPTH}`)
+  }
+  const quoted = path.replace(/"/g, '\\"')
+  let source: string
+  try {
+    source = String(await r.deps.execCybsh(`cat "${quoted}"`))
+  } catch (e) {
+    throw new Error(`${e instanceof Error ? e.message : String(e)} (line ${lineno})`)
+  }
+  if (source.length > CYBSH_MAX_SOURCE_BYTES) {
+    throw new Error(`too_large: line ${lineno}: imported script exceeds ${CYBSH_MAX_SOURCE_BYTES} bytes`)
+  }
+  checkScriptVersion(source)
+  const lines = splitLines(source)
+  r.importDepth++
+  try {
+    let count = 0
+    let i = 0
+    while (i < lines.length) {
+      const t = lines[i]!.text
+      if (isKw(t, 'def')) {
+        const header = stripColon(restOf(t, 'def', lines[i]!.lineno), lines[i]!.lineno)
+        const { name: rawName, params } = splitDef(header, lines[i]!.lineno)
+        const parent = lines[i]!.indent
+        if (i + 1 >= lines.length || lines[i + 1]!.indent <= parent) {
+          throw new Error(`syntax: line ${lineno}: imported \`def\` has no body`)
+        }
+        const end = skipBlock(lines, i + 1, parent)
+        const name = prefix ? `${prefix}_${rawName}` : rawName
+        if (r.funcs.size >= CYBSH_MAX_FUNCS && !r.funcs.has(name)) {
+          throw new Error(`too_large: line ${lineno}: script holds ${CYBSH_MAX_FUNCS} functions already`)
+        }
+        r.funcs.set(name, { params, body: lines.slice(i + 1, end), definedAt: lines[i]!.lineno })
+        count++
+        i = end
+      } else {
+        i++
+      }
+    }
+    if (!count) throw new Error(`not_found: line ${lineno}: \`${path}\` defines no \`def\`s to import`)
+  } finally {
+    r.importDepth--
+  }
+}
+
+/** `await <expr> [timeout N]` parts (N in 1..MAX, default 10). */
+function splitAwait(rest: string, lineno: number): { condSrc: string; tries: number } {
+  const parts = splitTopKw(rest, 'timeout')
+  if (parts) {
+    const words = parts[1].trim().split(/\s+/)
+    const n = Number(words[0])
+    if (!words[0] || !Number.isInteger(n) || n < 1 || n > CYBSH_MAX_AWAIT_TRIES) {
+      throw new Error(`syntax: line ${lineno}: \`timeout\` needs a number 1–${CYBSH_MAX_AWAIT_TRIES}`)
+    }
+    if (words.length > 1) throw new Error(`syntax: line ${lineno}: \`await … timeout N\` takes nothing after N`)
+    if (!parts[0].trim()) throw new Error(`syntax: line ${lineno}: \`await\` needs an expression`)
+    return { condSrc: parts[0].trim(), tries: n }
+  }
+  if (!rest.trim()) throw new Error(`syntax: line ${lineno}: \`await\` needs an expression`)
+  return { condSrc: rest.trim(), tries: CYBSH_DEFAULT_AWAIT_TRIES }
+}
+
+/** Is this line a `match` arm header? */
+function isMatchArm(text: string): boolean {
+  // Parenthesized bindings (`ok(v):`, `err(e):`) count — the gate must
+  // agree with `matchArmBinding`, or arms are skipped silently instead of
+  // running (or refusing loudly on bad syntax).
+  return text === 'else:' || text === 'else' || text === 'ok:' || text === 'err:' || isKw(text, 'ok') || isKw(text, 'err') || text.startsWith('ok(') || text.startsWith('err(')
+}
+
+/** `ok(v):` / `err(e):` / `else:` arm binding. */
+function matchArmBinding(text: string, lineno: number): { kind: string; binding: string | null } {
+  const inner = text.trim().replace(/:+$/, '').trim()
+  if (inner === 'else') return { kind: 'else', binding: null }
+  for (const kind of ['ok', 'err']) {
+    if (inner === kind) return { kind, binding: null }
+    if (inner.startsWith(kind)) {
+      const rest = inner.slice(kind.length).trim()
+      const name = rest.replace(/^\(/, '').replace(/\)$/, '').trim()
+      if (rest && validName(name) && (rest.startsWith('(') || rest.startsWith(' '))) {
+        return { kind, binding: name }
+      }
+    }
+  }
+  throw new Error(`syntax: line ${lineno}: bad \`match\` arm \`${text}\` (try \`ok(v):\`, \`err(e):\`, \`else:\`)`)
+}
+
+/** Evaluate a match target, capturing failures as err material. */
+async function evalMatchTarget(r: Runner, src: string, lineno: number): Promise<{ ok: true; value: Value } | { ok: false; error: string }> {
+  const t = src.trim()
+  if (isKw(t, 'sh')) {
+    const cmdline = unquoteArg(restOf(t, 'sh', lineno), lineno)
+    try {
+      return { ok: true as const, value: await r.inlineValue(cmdline, lineno) }
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  }
+  try {
+    return { ok: true as const, value: await evalExprAsync(r, src, lineno) }
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** Run `match <expr>:` — target errors become the `err` arm. */
+async function runMatch(
+  r: Runner,
+  lines: SrcLine[],
+  idx: number,
+  targetSrc: string,
+  lineno: number,
+  parent: number,
+  end: number,
+): Promise<number> {
+  const target = await evalMatchTarget(r, targetSrc, lineno)
+  let isErr = !target.ok
+  let bindValue: Value = vNull()
+  let errText = ''
+  if (target.ok) {
+    const c = classifyResult(target.value)
+    isErr = c.isErr
+    bindValue = c.value
+    errText = c.err
+  } else {
+    errText = target.error
+  }
+  const armParent = lines[idx + 1]!.indent
+  let okArm: { binding: string | null; start: number; end: number } | null = null
+  let errArm: { binding: string | null; start: number; end: number } | null = null
+  let elseArm: { start: number; end: number } | null = null
+  let j = idx + 1
+  while (j < end) {
+    if (lines[j]!.indent !== armParent || !isMatchArm(lines[j]!.text)) {
+      j = skipBlock(lines, j + 1, armParent)
+      continue
+    }
+    const { kind, binding } = matchArmBinding(lines[j]!.text, lines[j]!.lineno)
+    const start = j + 1
+    const armEnd = skipBlock(lines, start, armParent)
+    if (kind === 'ok' && !okArm) okArm = { binding, start, end: armEnd }
+    else if (kind === 'err' && !errArm) errArm = { binding, start, end: armEnd }
+    else if (kind === 'else' && !elseArm) elseArm = { start, end: armEnd }
+    else throw new Error(`syntax: line ${lines[j]!.lineno}: duplicate \`match\` arm \`${kind}\``)
+    j = armEnd
+  }
+  if (isErr) {
+    if (errArm) {
+      if (errArm.binding) r.setVar(errArm.binding, vStr(trunc(errText)))
+      await runBlock(r, lines, errArm.start, armParent)
+      r.setVar('_', vStr(trunc(errText)))
+    } else if (elseArm) {
+      await runBlock(r, lines, elseArm.start, armParent)
+    }
+  } else if (okArm) {
+    if (okArm.binding) r.setVar(okArm.binding, bindValue)
+    r.setVar('_', bindValue)
+    await runBlock(r, lines, okArm.start, armParent)
+  } else if (elseArm) {
+    r.setVar('_', bindValue)
+    await runBlock(r, lines, elseArm.start, armParent)
+  } else {
+    r.setVar('_', bindValue)
+  }
+  return end
 }
 
 /** `catch`, `catch:`, `catch e`, `catch e:` — the `try` sibling. */
@@ -1229,7 +1929,8 @@ function catchBinding(text: string, lineno: number): string | null {
 /** Builtins, literals and operators a `def` may not shadow. */
 const RESERVED_NAMES = new Set([
   'len', 'int', 'str', 'json', 'split', 'range', 'sh', 'set', 'push',
-  'del', 'keys', 'values', 'true', 'false', 'null', 'none', 'nil',
+  'del', 'keys', 'values', 'ok', 'err', 'unwrap', 'is_ok', 'is_err',
+  'env', 'arg', 'fingerprint', 'true', 'false', 'null', 'none', 'nil',
   'and', 'or', 'not',
 ])
 
@@ -1265,7 +1966,7 @@ async function callFunc(r: Runner, name: string, args: Value[], lineno: number):
   const def = r.funcs.get(name)
   if (!def) {
     throw new Error(
-      `syntax: line ${lineno}: unknown function \`${name}\` (try \`len/int/str/json/split/range/sh/set/push/del/keys/values\` or \`def\` it first)`,
+      `syntax: line ${lineno}: unknown function \`${name}\` (try \`${BUILTIN_HINT}\` or \`def\` it first)`,
     )
   }
   if (args.length !== def.params.length) {
@@ -1347,8 +2048,26 @@ function findFirstUserCall(src: string, funcs: Map<string, FuncDef>): { start: n
 
 /** Serialize a value back into expression grammar (for call substitution). */
 function valueToLiteral(v: Value): string {
-  if (v.t === 'str') return JSON.stringify(v.v)
-  return display(v)
+  // Round-trip through JSON, not display: `display` prints dict/list
+  // string items bare (`{theme: os-dark}`), which re-parses as variable
+  // lookups (`not_found: no variable …`). JSON is valid cybsh literal
+  // syntax (quoted keys, nested lists/dicts), so `let x = sh("… --json")`
+  // survives hoisting whenever the shell answers JSON with strings in it.
+  // (Scalars keep their old shape: strings were already JSON-quoted here,
+  // and numbers/bools/null spell identically in both.)
+  return JSON.stringify(valueToJson(v))
+}
+
+/** Plain-JSON mirror of a script value (keys stay sorted by construction). */
+function valueToJson(v: Value): unknown {
+  switch (v.t) {
+    case 'null': return null
+    case 'bool': return v.v
+    case 'num': return v.v
+    case 'str': return v.v
+    case 'list': return v.v.map(valueToJson)
+    case 'dict': return Object.fromEntries([...v.v.entries()].map(([k, item]) => [k, valueToJson(item)]))
+  }
 }
 
 async function runStatement(r: Runner, lines: SrcLine[], idx: number): Promise<number> {
@@ -1439,18 +2158,102 @@ async function runStatement(r: Runner, lines: SrcLine[], idx: number): Promise<n
   }
 
   if (isKw(text, 'fetch')) {
-    const { url: urlSrc, asVar } = splitFetch(restOf(text, 'fetch', lineno))
-    const url = display(await evalExprAsync(r, urlSrc, lineno))
-    const body = await r.fetchChecked(url, lineno)
-    if (asVar) {
-      if (!validName(asVar)) throw new Error(`syntax: line ${lineno}: bad variable name '${asVar}'`)
-      r.setVar(asVar, vStr(body))
-      r.emit(`fetched ${url} (${body.length} bytes → ${asVar})`)
+    const spec = splitFetchFull(restOf(text, 'fetch', lineno), lineno)
+    const url = display(await evalExprAsync(r, spec.urlSrc, lineno))
+    const headers = await evalFetchHeaders(r, spec.headersSrc, lineno)
+    const req: CybshFetchReq = { url, method: spec.method, headers, wantJson: spec.wantJson }
+    const body = await r.fetchChecked(req, lineno)
+    if (spec.wantJson) {
+      const v = materializeJson(body)
+      if (!v) throw new Error(`invalid: line ${lineno}: \`fetch ${url}\` did not return JSON (try plain \`as\`)`)
+      if (spec.asVar) {
+        r.setVar(spec.asVar, v)
+        r.emit(`fetched ${url} (json → ${spec.asVar})`)
+      } else {
+        r.setVar('_', v)
+        r.emit(display(v))
+      }
+    } else if (spec.asVar) {
+      if (!validName(spec.asVar)) throw new Error(`syntax: line ${lineno}: bad variable name '${spec.asVar}'`)
+      r.setVar(spec.asVar, vStr(body))
+      r.emit(`fetched ${url} (${body.length} bytes → ${spec.asVar})`)
     } else {
       r.setVar('_', vStr(body))
       r.emit(body)
     }
     return idx + 1
+  }
+
+  // `import "lib.cybsh" [as ns]` — merge another file's `def`s (defs only).
+  if (isKw(text, 'import')) {
+    const rest = restOf(text, 'import', lineno).trim()
+    const { pathSrc, prefix } = splitImport(rest, lineno)
+    const path = display(await evalExprAsync(r, pathSrc, lineno))
+    await importDefs(r, path, prefix, lineno)
+    return idx + 1
+  }
+
+  // `with [name = expr]:` — scoped block (assignments inside don't escape).
+  if (text === 'with:' || text === 'with' || isKw(text, 'with')) {
+    let rest = ''
+    if (text !== 'with:' && text !== 'with') {
+      rest = stripColon(restOf(text, 'with', lineno).trim(), lineno)
+    }
+    const parent = line.indent
+    blockIndent(lines, idx + 1, parent)
+    const end = skipBlock(lines, idx + 1, parent)
+    const savedVars = r.vars
+    const savedFlow = r.flow
+    r.vars = new Map(savedVars)
+    try {
+      if (rest) {
+        const m = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([\s\S]+)$/)
+        if (!m?.[1] || !m?.[2]) throw new Error(`syntax: line ${lineno}: \`with\` needs \`with [name = expr]:\``)
+        r.setVar(m[1], await evalExprAsync(r, m[2].trim(), lineno))
+      }
+      await runBlock(r, lines, idx + 1, parent)
+    } finally {
+      r.vars = savedVars
+      r.flow = savedFlow
+    }
+    return end
+  }
+
+  // `match <expr>:` with `ok(v):/err(e):/else:` arms.
+  if (isKw(text, 'match')) {
+    const targetSrc = stripColon(restOf(text, 'match', lineno), lineno)
+    const parent = line.indent
+    blockIndent(lines, idx + 1, parent)
+    const end = skipBlock(lines, idx + 1, parent)
+    return runMatch(r, lines, idx, targetSrc, lineno, parent, end)
+  }
+  if (text === 'ok:' || text === 'err:' || isKw(text, 'ok') || isKw(text, 'err')) {
+    throw new Error(`syntax: line ${lineno}: \`ok/err\` arms need \`match\``)
+  }
+
+  // `await <expr> [timeout N]` — logical poll until truthy.
+  if (isKw(text, 'await')) {
+    const { condSrc, tries } = splitAwait(restOf(text, 'await', lineno), lineno)
+    let lastErr: string | null = null
+    let lastVal: Value = vNull()
+    for (let i = 0; i < tries; i++) {
+      r.bump()
+      try {
+        const v = await evalExprAsync(r, condSrc, lineno)
+        lastVal = v
+        if (truthy(v)) {
+          r.setVar('_', v)
+          return idx + 1
+        }
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e)
+      }
+    }
+    throw new Error(
+      lastErr
+        ? `timeout: line ${lineno}: \`await\` still failing after ${tries} tries (last: ${lastErr})`
+        : `timeout: line ${lineno}: \`await\` still falsy after ${tries} tries`,
+    )
   }
 
   if (text === 'vars') {
@@ -1576,7 +2379,7 @@ async function runStatement(r: Runner, lines: SrcLine[], idx: number): Promise<n
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     throw new Error(
-      `syntax: line ${lineno}: unknown statement \`${truncShow(text, 60)}\` (${msg}; try \`print\`, \`let\`, \`def\`, \`if/elif/else\`, \`try/catch\`, \`for\`, \`while\`, \`$ <cybsh>\`, \`sh "…"\`, \`js …\`, \`fetch …\`, \`ui …\`, \`vars/free/gc\`)`,
+      `syntax: line ${lineno}: unknown statement \`${truncShow(text, 60)}\` (${msg}; try \`print\`, \`let\`, \`def\`, \`if/elif/else\`, \`match\`, \`with\`, \`import\`, \`await\`, \`try/catch\`, \`for\`, \`while\`, \`$ <cybsh>\`, \`sh "…"\`, \`js …\`, \`fetch …\`, \`ui …\`, \`vars/free/gc\`)`,
     )
   }
 }
@@ -1598,7 +2401,11 @@ async function forItems(r: Runner, exprSrc: string, lineno: number): Promise<Val
 }
 
 /** Parse and execute a script. Inline `sh` lines go through `execCybsh`. */
-export async function runCybshScript(source: string, deps: CybshScriptDeps): Promise<CybshScriptResult> {
+export async function runCybshScript(
+  source: string,
+  deps: CybshScriptDeps,
+  args: string[] = [],
+): Promise<CybshScriptResult> {
   if (source.length > CYBSH_MAX_SOURCE_BYTES) {
     throw new Error(`too_large: script is ${source.length} bytes, limit is ${CYBSH_MAX_SOURCE_BYTES}`)
   }
@@ -1606,12 +2413,14 @@ export async function runCybshScript(source: string, deps: CybshScriptDeps): Pro
   const lines = splitLines(source)
   const r = new Runner(deps)
   r.caps = parseScriptCaps(source)
+  r.setVar('args', vList(args.map((a) => vStr(a))))
   // Top level runs at parent depth -1 so indent-0 lines execute.
   await runBlock(r, lines, 0, -1)
   let output = r.chunks.join('\n')
   if (r.truncated) {
     output += `\n… output truncated at ${CYBSH_MAX_OUTPUT_BYTES} bytes (fewer \`print\`/\`sh\` lines for the full log)`
   }
+  const fm = parseFrontmatter(source)
   return {
     output,
     effects: r.effects,
@@ -1621,5 +2430,7 @@ export async function runCybshScript(source: string, deps: CybshScriptDeps): Pro
       : null,
     shCalls: r.shCalls,
     fetchCalls: r.fetchCalls,
+    schedule: fm.schedule,
+    triggers: fm.triggers,
   }
 }
