@@ -21,6 +21,10 @@ export const PANEL_ALIASES: Partial<Record<PanelType, PanelType>> = {
   cron: 'processes',
   automation: 'processes',
   schedules: 'processes',
+  passwords: 'secrets',
+  credentials: 'secrets',
+  // NOTE: `vault` intentionally NOT an alias — AccountManager already uses
+  // "Vault file" as a tab label; aliasing would collide in the palette.
 }
 
 /** Props injected when opening via an alias (usually the initial tab). */
@@ -36,6 +40,8 @@ export const ALIAS_TAB_PROPS: Partial<Record<PanelType, Record<string, unknown>>
   cron: { tab: 'schedules' },
   automation: { tab: 'schedules' },
   schedules: { tab: 'schedules' },
+  passwords: {},
+  credentials: {},
 }
 
 /** Canonical window id for a panel id (identity when not aliased). */

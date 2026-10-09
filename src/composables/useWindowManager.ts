@@ -160,6 +160,7 @@ const defaultSizes: SizeMap = {
   compression: { width: 480, height: 420 },
   permissions: { width: 440, height: 380 },
   preview: { width: 480, height: 540 },
+  secrets: { width: 860, height: 600 },
 }
 
 const inlinePanels: PanelType[] = [
@@ -196,6 +197,7 @@ const panelComponentMap: Record<string, Component> = {
   permissions: FilePermissionsPanel,
   preview: FileManager,
   webdash: WebDashboardPanel,
+  secrets: SecretsPanel,
 }
 
 function getComponent(panelType: PanelType): Component | null {
