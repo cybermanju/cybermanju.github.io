@@ -50,7 +50,7 @@
         <button v-if="filterQuery" class="fm-x" title="Clear" aria-label="Clear filter" @click="filterQuery = ''"><AppIcon name="solar:close-bold" :size="11" /></button>
       </div>
 
-      <div class="fm-viewswitch" role="tablist" aria-label="View mode">
+      <div v-if="!isMobileView" class="fm-viewswitch" role="tablist" aria-label="View mode">
         <button
           v-for="v in viewModes"
           :key="v.id"
@@ -66,10 +66,43 @@
       </div>
 
       <div class="fm-topactions">
-        <button class="fm-pill" title="New folder" @click="dlgFolder = true"><AppIcon name="solar:add-folder-bold" :size="13" /> <span>New</span></button>
-        <button class="fm-pill" title="Upload / new file" @click="onUploadClick"><AppIcon name="solar:upload-bold" :size="13" /> <span>File</span></button>
-        <button class="fm-pill ghost" :class="{ on: termOpen }" title="Toggle inline terminal (cybsh here)" @click="toggleTerm"><AppIcon name="solar:file-terminal-bold" :size="13" /> <span>Terminal</span></button>
-        <button class="fm-pill ghost" :class="{ on: isMobileView ? mobileInspectorOpen : inspectorOpen }" title="Toggle inspector" @click="toggleInspectorPanel"><AppIcon name="solar:info-circle-bold" :size="13" /> <span>Info</span></button>
+        <button v-if="isMobileView" class="fm-pill ghost fm-mobile-more" type="button" :aria-expanded="mobileToolsOpen" @click="mobileToolsOpen = !mobileToolsOpen">
+          <AppIcon name="solar:widget-5-bold" :size="15" /> <span>{{ mobileToolsOpen ? 'Close tools' : 'Tools & actions' }}</span>
+        </button>
+        <template v-else>
+          <button class="fm-pill" title="New folder" @click="dlgFolder = true"><AppIcon name="solar:add-folder-bold" :size="13" /> <span>New</span></button>
+          <button class="fm-pill" title="Upload / new file" @click="onUploadClick"><AppIcon name="solar:upload-bold" :size="13" /> <span>File</span></button>
+          <button class="fm-pill ghost" :class="{ on: termOpen }" title="Toggle inline terminal (cybsh here)" @click="toggleTerm"><AppIcon name="solar:file-terminal-bold" :size="13" /> <span>Terminal</span></button>
+          <button class="fm-pill ghost" :class="{ on: inspectorOpen }" title="Toggle inspector" @click="toggleInspectorPanel"><AppIcon name="solar:info-circle-bold" :size="13" /> <span>Info</span></button>
+        </template>
+      </div>
+
+      <div v-if="isMobileView && mobileToolsOpen" class="fm-mobile-tools-menu" role="group" aria-label="File Manager tools" @keydown.esc.stop="mobileToolsOpen = false">
+        <div class="fm-mobile-tools-head"><strong>Tools &amp; actions</strong><button class="fm-ibtn" type="button" aria-label="Close tools" @click="mobileToolsOpen = false"><AppIcon name="solar:close-bold" :size="16" /></button></div>
+        <div class="fm-mobile-tools-group">
+          <span class="fm-mobile-tools-label">Create and browse</span>
+          <button class="fm-mobile-tool" type="button" @click="dlgFolder = true; mobileToolsOpen = false"><AppIcon name="solar:add-folder-bold" :size="17" /> New folder</button>
+          <button class="fm-mobile-tool" type="button" @click="onUploadClick(); mobileToolsOpen = false"><AppIcon name="solar:upload-bold" :size="17" /> Upload or new file</button>
+          <button class="fm-mobile-tool" type="button" @click="toggleSidePanel(); mobileToolsOpen = false"><AppIcon name="solar:folder-bold" :size="17" /> Browse folders</button>
+        </div>
+        <div class="fm-mobile-tools-group">
+          <span class="fm-mobile-tools-label">Workspace</span>
+          <button class="fm-mobile-tool" type="button" :class="{ on: termOpen }" @click="toggleTerm(); mobileToolsOpen = false"><AppIcon name="solar:file-terminal-bold" :size="17" /> {{ termOpen ? 'Close terminal' : 'Open terminal' }}</button>
+          <button class="fm-mobile-tool" type="button" :class="{ on: mobileInspectorOpen }" @click="toggleInspectorPanel(); mobileToolsOpen = false"><AppIcon name="solar:info-circle-bold" :size="17" /> Details and info</button>
+          <button class="fm-mobile-tool" type="button" :class="{ on: showHidden }" @click="showHidden = !showHidden; mobileToolsOpen = false"><AppIcon name="solar:eye-bold" :size="17" /> {{ showHidden ? 'Hide hidden files' : 'Show hidden files' }}</button>
+          <button class="fm-mobile-tool" type="button" :class="{ on: onlyMedia }" @click="onlyMedia = !onlyMedia; mobileToolsOpen = false"><AppIcon name="solar:gallery-bold" :size="17" /> {{ onlyMedia ? 'Show all files' : 'Filter media' }}</button>
+        </div>
+        <div class="fm-mobile-tools-group">
+          <span class="fm-mobile-tools-label">View</span>
+          <div class="fm-mobile-view-grid" role="group" aria-label="Choose a file view">
+            <button v-for="v in viewModes" :key="v.id" class="fm-mobile-tool" type="button" :class="{ on: view === v.id }" @click="setView(v.id); mobileToolsOpen = false"><AppIcon :name="v.icon" :size="17" /> {{ v.hint }}</button>
+          </div>
+        </div>
+        <div class="fm-mobile-tools-group">
+          <span class="fm-mobile-tools-label">Storage</span>
+          <button class="fm-mobile-tool" type="button" @click="wm.open('sync'); mobileToolsOpen = false"><AppIcon name="solar:refresh-bold" :size="17" /> Sync settings</button>
+          <button class="fm-mobile-tool" type="button" @click="wm.open('disks'); mobileToolsOpen = false"><AppIcon name="solar:ssd-square-bold" :size="17" /> Disks and vaults</button>
+        </div>
       </div>
     </header>
 
@@ -735,6 +768,7 @@ import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
 import { useContextMenu } from '@/composables/useContextMenu'
+import { useWindowUi } from '@/composables/useWindowUi'
 import { invoke } from '@/composables/useTauri'
 import { humanBytes, diskPct } from '@/utils/format'
 import { trackShellCwd } from '@/utils/shellCwd'
@@ -791,13 +825,16 @@ const density = ref<'cozy' | 'compact'>('cozy')
 const renderLimit = ref(240)
 const sideOpen = ref(true)
 const inspectorOpen = ref(true)
-const isMobileView = ref(false)
+const windowUi = useWindowUi()
+const mobileViewportMatches = ref(false)
+const isMobileView = computed(() => mobileViewportMatches.value || windowUi.breakpoint.value !== 'lg')
 const mobileSideOpen = ref(false)
 const mobileInspectorOpen = ref(false)
+const mobileToolsOpen = ref(false)
 let mobileViewport: MediaQueryList | null = null
 function onMobileViewportChange(event: MediaQueryListEvent) {
-  isMobileView.value = event.matches
-  if (!event.matches) closeMobilePanels()
+  mobileViewportMatches.value = event.matches
+  if (!event.matches && windowUi.breakpoint.value === 'lg') closeMobilePanels()
 }
 function toggleSidePanel() {
   if (isMobileView.value) {
@@ -818,10 +855,12 @@ function toggleInspectorPanel() {
 function closeMobilePanels() {
   mobileSideOpen.value = false
   mobileInspectorOpen.value = false
+  mobileToolsOpen.value = false
 }
 function handleMobileBack(event: Event) {
   if (!isMobileView.value) return
   if (providerEditor.value) void closeLocalProviderEditor()
+  else if (mobileToolsOpen.value) mobileToolsOpen.value = false
   else if (mobileInspectorOpen.value) mobileInspectorOpen.value = false
   else if (mobileSideOpen.value) mobileSideOpen.value = false
   else if (termOpen.value) termOpen.value = false
@@ -1781,7 +1820,7 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(() => {
   mobileViewport = window.matchMedia?.('(max-width: 900px)') ?? null
   if (mobileViewport) {
-    isMobileView.value = mobileViewport.matches
+    mobileViewportMatches.value = mobileViewport.matches
     mobileViewport.addEventListener?.('change', onMobileViewportChange)
   }
   window.addEventListener('cybermanju:mobile-back', handleMobileBack)
@@ -1808,7 +1847,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.fm { position: relative; display: flex; flex-direction: column; height: 100%; overflow: hidden; outline: none;
+.fm { position: relative; display: flex; flex-direction: column; height: 100%; overflow: hidden; outline: none; container-type: size; container-name: file-manager;
   background: var(--ui-surface);
   color: var(--ui-text); font-size: 12px; }
 .fm-aurora { display: none; }
@@ -2127,9 +2166,9 @@ onBeforeUnmount(() => {
   }
   .fm-main.fm-mobile-insp-open .fm-insp {
     position: absolute; inset: auto 0 0; z-index: 51; display: flex; flex-direction: column;
-    height: min(82dvh, 720px); max-height: calc(100dvh - env(safe-area-inset-top) - 16px);
+    height: min(82dvh, 720px); max-height: 100%;
     box-sizing: border-box; overflow: hidden; border: 1px solid var(--ui-border);
-    border-bottom: 0; border-radius: 24px 24px 0 0; padding-bottom: env(safe-area-inset-bottom);
+    border-bottom: 0; border-radius: 24px 24px 0 0;
     background: var(--ui-glass-2); box-shadow: var(--ui-shadow-3);
   }
   .fm-mobile-backdrop {
@@ -2157,8 +2196,8 @@ onBeforeUnmount(() => {
   .fm-local-editor__foot .fm-pill { min-height: 44px; justify-content: center; }
   .fm-top {
     display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas: 'nav crumbs' 'search search' 'views actions';
-    gap: 6px; padding: 7px 8px;
+    grid-template-areas: 'nav crumbs' 'search search' 'tools tools';
+    gap: 6px; padding: 7px 8px; position: relative; z-index: 20;
   }
   .fm-nav { grid-area: nav; min-width: 0; overflow-x: auto; }
   .fm-nav .fm-ibtn { width: 34px; min-width: 34px; height: 38px; }
@@ -2166,11 +2205,9 @@ onBeforeUnmount(() => {
   .fm-crumb { gap: 4px; padding-inline: 5px; font-size: 10.5px; }
   .fm-search { grid-area: search; width: 100%; max-width: none; min-width: 0; height: 44px; box-sizing: border-box; }
   .fm-search input { font-size: 16px; }
-  .fm-viewswitch { grid-area: views; min-width: 0; max-width: 100%; overflow-x: auto; }
-  .fm-vbtn { min-width: 34px; min-height: 40px; justify-content: center; }
-  .fm-topactions { grid-area: actions; min-width: 0; max-width: 100%; overflow-x: auto; justify-content: flex-end; }
-  .fm-topactions .fm-pill span { display: none; }
-  .fm-topactions .fm-pill { flex: 0 0 42px; min-width: 42px; min-height: 42px; justify-content: center; padding: 0; }
+  .fm-topactions { grid-area: tools; min-width: 0; max-width: 100%; justify-content: stretch; }
+  .fm-topactions .fm-mobile-more { width: 100%; min-height: 44px; justify-content: center; }
+  .fm-mobile-more span { display: inline; }
   .fm-sub { gap: 6px; padding: 5px 8px; font-size: 10px; }
   .fm-pchip { font-size: 9px; }
   .fm-ctool { min-height: 48px; flex-shrink: 0; gap: 7px; overflow-x: auto; padding: 5px 8px; touch-action: pan-x; }
@@ -2201,7 +2238,7 @@ onBeforeUnmount(() => {
   .fm-ficon { width: 30px; height: 30px; }
   .fm-status { min-height: 40px; gap: 7px; overflow-x: auto; padding: 6px 8px; }
   .fm-status > :first-child { max-width: 42vw; }
-  .fm-term { position: absolute; inset: auto 0 0; z-index: 30; height: min(48dvh, 420px); padding-bottom: env(safe-area-inset-bottom); border-radius: 18px 18px 0 0; box-shadow: var(--ui-shadow-3); }
+  .fm-term { position: absolute; inset: auto 0 0; z-index: 30; height: min(48dvh, 420px); max-height: min(48dvh, calc(100% - 180px)); border-radius: 18px 18px 0 0; box-shadow: var(--ui-shadow-3); }
   .fm-term-h button { min-width: 40px; min-height: 40px; }
   .fm-term-in { min-height: 52px; }
   .fm-term-in input { min-height: 44px; font-size: 16px; }
@@ -2216,4 +2253,42 @@ onBeforeUnmount(() => {
   .fm-btnrow .fm-pill { min-height: 40px; }
   .fm-empty { padding: 32px 18px; }
 }
+
+/* Per-window twin: floating/tiled windows can be narrow on a wide desktop. */
+@container file-manager (max-width: 900px) {
+  .fm-main, .fm-main.no-side, .fm-main.no-insp { display: flex; grid-template-columns: 1fr; min-width: 0; }
+  .fm-center { flex: 1; width: 100%; min-width: 0; }
+  .fm-side, .fm-insp { display: none; }
+  .fm-main.fm-mobile-side-open .fm-side { position: absolute; inset: 0 auto 0 0; z-index: 51; display: flex; flex-direction: column; width: min(86cqi, 340px); box-sizing: border-box; overflow-y: auto; padding: 12px; border: 1px solid var(--ui-border); border-radius: 0 20px 20px 0; background: var(--ui-glass-2); box-shadow: var(--ui-shadow-3); }
+  .fm-main.fm-mobile-insp-open .fm-insp { position: absolute; inset: auto 0 0; z-index: 51; display: flex; flex-direction: column; height: min(82dvh, 720px); max-height: 100%; box-sizing: border-box; overflow: hidden; border: 1px solid var(--ui-border); border-bottom: 0; border-radius: 24px 24px 0 0; background: var(--ui-glass-2); box-shadow: var(--ui-shadow-3); }
+  .fm-mobile-backdrop { position: absolute; inset: 0; z-index: 50; display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: rgba(8, 12, 20, .42); }
+  .fm-mobile-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: 0 0 auto; min-height: 48px; padding: 4px 8px 10px; border-bottom: 1px solid var(--ui-hairline); color: var(--ui-text); font-size: 14px; }
+  .fm-mobile-panel-head .fm-ibtn { width: 40px; height: 40px; }
+  .hide-sm { display: none; }
+  .fm-top { flex-wrap: wrap; }
+  .fm-crumbs { order: 5; flex-basis: 100%; }
+}
+
+@container file-manager (max-width: 560px) {
+  .fm-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: 'nav crumbs' 'search search' 'tools tools'; gap: 6px; padding: 7px 8px; position: relative; z-index: 20; }
+  .fm-nav { grid-area: nav; min-width: 0; overflow-x: auto; }
+  .fm-nav .fm-ibtn { width: 34px; min-width: 34px; height: 38px; }
+  .fm-crumbs { grid-area: crumbs; order: 0; flex-basis: auto; min-width: 0; min-height: 40px; padding-inline: 4px; }
+  .fm-crumb { gap: 4px; padding-inline: 5px; font-size: 10.5px; }
+  .fm-search { grid-area: search; width: 100%; max-width: none; min-width: 0; height: 44px; box-sizing: border-box; }
+  .fm-search input { font-size: 16px; }
+  .fm-topactions { grid-area: tools; min-width: 0; max-width: 100%; justify-content: stretch; }
+  .fm-topactions .fm-mobile-more { width: 100%; min-height: 44px; justify-content: center; }
+  .fm-mobile-more span { display: inline; }
+  .fm-mobile-tools-menu { position: absolute; top: calc(100% + 4px); left: 8px; right: 8px; z-index: 80; max-height: min(72dvh, 72cqh); overflow-y: auto; overscroll-behavior: contain; padding: 8px; border: 1px solid var(--ui-border-strong); border-radius: 16px; background: var(--ui-surface-2); color: var(--ui-text); box-shadow: var(--ui-shadow-3); }
+}
+
+.fm-mobile-tools-menu { display: flex; flex-direction: column; gap: 8px; }
+.fm-mobile-tools-head { display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 4px 6px; border-bottom: 1px solid var(--ui-hairline); }
+.fm-mobile-tools-head strong { font-size: 13px; }
+.fm-mobile-tools-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.fm-mobile-tools-label { grid-column: 1 / -1; padding: 3px 4px; color: var(--ui-text-3); font-size: 10px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.fm-mobile-tool { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; padding: 8px 10px; border: 1px solid var(--ui-border); border-radius: 11px; background: color-mix(in srgb, var(--ui-text) 3%, transparent); color: var(--ui-text); font: inherit; font-size: 11px; text-align: left; }
+.fm-mobile-tool.on { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); background: var(--ui-accent-softer); color: var(--ui-accent); }
+.fm-mobile-view-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 </style>

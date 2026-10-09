@@ -15,7 +15,7 @@ export const SETUP_STEP_LABELS: Record<SetupStep, string> = {
   welcome: 'Welcome',
   vault: 'Vault',
   sync: 'Local sync',
-  cloud: 'Cloud',
+  cloud: 'Accounts',
   disks: 'Disks',
   agent: 'Agent (optional)',
   done: 'Done',
@@ -86,7 +86,7 @@ export type MobileSetupStep = (typeof MOBILE_SETUP_STEPS)[number]
 
 export const MOBILE_SETUP_STEP_LABELS: Record<MobileSetupStep, string> = {
   welcome: 'Welcome',
-  account: 'Account',
+  account: 'Accounts',
   vaults: 'Vault partitions',
   providers: 'Providers',
   repos: 'Repos + disks',

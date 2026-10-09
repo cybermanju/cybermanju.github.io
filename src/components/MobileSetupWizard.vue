@@ -1,7 +1,7 @@
 <!-- CyberManju OS — mobile first-run wizard (Android / small screens).
   //
   // Full-screen sheet, 44px+ touch targets, 16px inputs (no iOS zoom):
-  // welcome → account (dashboard login / first-user register) →
+  // welcome → account manager hand-off →
   // vaults (N `.cybermanju` partitions on any provider or local disk) →
   // providers (add N sync configs) → repos (N private vault repos) →
   // agent (optional) → done. Every step skippable; Finish marks seen. -->
@@ -43,27 +43,10 @@
 
       <!-- account -->
       <section v-if="step === 'account'" class="msw-section">
-        <h3 class="msw-h">Sign in to your cloud account</h3>
+        <h3 class="msw-h">Your cloud account</h3>
         <p v-if="identity" class="msw-hint">Signed in as <strong>{{ identity.name || identity.email }}</strong> via {{ identity.provider }}.</p>
-        <p v-else class="msw-hint">Use the same secure sign-in as the rest of the app. Mobile browsers return here automatically after approval.</p>
-        <details class="msw-broker" :open="!brokerConfigured">
-          <summary>{{ brokerConfigured ? 'OAuth broker settings' : 'Configure OAuth broker' }}</summary>
-          <label class="msw-field"><span>Supabase project URL</span>
-            <input v-model="brokerUrl" class="msw-input" type="url" inputmode="url" autocomplete="url" placeholder="https://your-project.supabase.co" />
-          </label>
-          <label class="msw-field"><span>Supabase publishable / anon key</span>
-            <input v-model="brokerKey" class="msw-input" type="password" autocomplete="off" placeholder="sb_publishable_… or anon key" />
-          </label>
-          <button class="msw-btn" type="button" :disabled="brokerBusy" @click="saveBroker">{{ brokerBusy ? 'Saving…' : 'Save broker' }}</button>
-          <p class="msw-hint">Enable Google, GitHub and GitLab in Supabase and allow this callback URL: <code>{{ oauthCallbackUrl }}</code></p>
-          <p v-if="brokerMsg" class="msw-note" :class="brokerOk === false ? 'err' : 'ok'">{{ brokerMsg }}</p>
-        </details>
-        <div class="msw-oauth-grid" role="group" aria-label="Sign in providers">
-          <button v-for="provider in oauthProviders" :key="provider.id" class="msw-btn big" type="button" :disabled="!brokerConfigured || !!cloudAuthBusy" @click="signInCloud(provider.id)">
-            {{ cloudAuthBusy === provider.id ? 'Opening…' : `Continue with ${provider.label}` }}
-          </button>
-        </div>
-        <p v-if="cloudAuthMsg" class="msw-note" :class="cloudAuthOk === false ? 'err' : 'ok'">{{ cloudAuthMsg }}</p>
+        <p v-else class="msw-hint">Sign-in, account switching, OAuth setup and cloud-provider connections all live in one place. This setup will not start a second login flow.</p>
+        <button class="msw-btn primary big" type="button" @click="openAccounts">Open Account Manager</button>
         <div class="msw-nav">
           <button class="msw-btn" type="button" @click="go('welcome')">Back</button>
           <button class="msw-btn primary" type="button" @click="go('vaults')">Next</button>
@@ -118,7 +101,7 @@
       <!-- providers -->
       <section v-if="step === 'providers'" class="msw-section">
         <h3 class="msw-h">Providers <span v-if="providerCount" class="msw-count">{{ providerCount }} connected</span></h3>
-        <p class="msw-hint">Use your OAuth session for cloud providers, or grant Files access to a folder on this phone.</p>
+        <p class="msw-hint">Manage OAuth sign-in and cloud connections in Accounts, or grant Files access to a folder on this phone.</p>
         <div class="msw-logo-row" role="radiogroup" aria-label="Provider type">
           <button
             v-for="b in ['github', 'gitlab', 'googleDrive', 'local']"
@@ -152,9 +135,10 @@
           </div>
         </template>
         <template v-else>
-          <p class="msw-hint">{{ matchingSessionToken ? `A ${shortProv(prov.backendType)} OAuth session can supply its token automatically.` : 'Sign in above with this provider, or paste a personal access token.' }}</p>
-          <label class="msw-field"><span>Personal access token (optional when signed in above)</span>
-            <input v-model="prov.secret" class="msw-input" :type="showSecret ? 'text' : 'password'" autocomplete="off" placeholder="Paste token, or leave empty to use OAuth" />
+          <p class="msw-hint">{{ matchingSessionToken ? `Your ${shortProv(prov.backendType)} session is available; Accounts manages OAuth connections.` : 'Connect this provider in Accounts first, or paste a personal access token.' }}</p>
+          <button class="msw-btn big" type="button" @click="openAccounts">Manage accounts &amp; sign in</button>
+          <label class="msw-field"><span>Personal access token (optional when the session provides one)</span>
+            <input v-model="prov.secret" class="msw-input" :type="showSecret ? 'text' : 'password'" autocomplete="off" placeholder="Paste a token, or connect in Accounts" />
           </label>
           <label class="msw-check"><input v-model="showSecret" type="checkbox" /> Show token</label>
         </template>
@@ -256,8 +240,8 @@
 import AppIcon from '@/components/AppIcon.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { isStaticHost, isTauriMobile } from '@/composables/useTauri'
-import { getSupabaseConfig, identity, MOBILE_OAUTH_CALLBACK_URL, refreshIdentity, setSupabaseConfig, signInWithPopup, supabaseConfigured, supabaseProviderFor, supabaseSession, supabaseSessionProvider, type OAuthBackend } from '@/composables/useSupabase'
+import { isStaticHost } from '@/composables/useTauri'
+import { identity, refreshIdentity, supabaseProviderFor, supabaseSession, supabaseSessionProvider } from '@/composables/useSupabase'
 import { configureMobileVaultMirror, normalizeMobileVaultFileName, pickMobileFolder, supportsNativeScopedStorage, type MobileFolderHandle } from '@/utils/mobileScopedStorage'
 import { listVfsMounts, saveVfsMount } from '@/composables/useProviderCanal'
 import type { ProviderMount } from '@/composables/useProviderCanal'
@@ -305,57 +289,9 @@ function close() { emit('close') }
 function clearSavedStep() { try { localStorage.removeItem(SETUP_STEP_KEY) } catch { /* storage may be disabled */ } }
 function skipAll() { clearSavedStep(); markSetupSeen(); emit('close') }
 function finish() { clearSavedStep(); markSetupSeen(); emit('close') }
-
-// ── account ──
-const brokerDefaults = getSupabaseConfig()
-const brokerUrl = ref(brokerDefaults.url)
-const brokerKey = ref(brokerDefaults.key)
-const brokerConfigured = computed(() => supabaseConfigured())
-const oauthCallbackUrl = isTauriMobile() ? MOBILE_OAUTH_CALLBACK_URL : typeof window === 'undefined' ? '/' : `${window.location.origin}${window.location.pathname}`
-const oauthProviders: Array<{ id: OAuthBackend; label: string }> = [
-  { id: 'google', label: 'Google' },
-  { id: 'github', label: 'GitHub' },
-  { id: 'gitlab', label: 'GitLab' },
-]
-const brokerBusy = ref(false)
-const brokerMsg = ref('')
-const brokerOk = ref<boolean | null>(null)
-const cloudAuthBusy = ref<OAuthBackend | null>(null)
-const cloudAuthMsg = ref('')
-const cloudAuthOk = ref<boolean | null>(null)
-
-function saveBroker() {
-  const url = brokerUrl.value.trim().replace(/\/+$/, '')
-  const key = brokerKey.value.trim()
-  if (!/^https?:\/\//i.test(url) || !key) {
-    brokerMsg.value = 'Enter a valid Supabase project URL and publishable/anon key.'
-    brokerOk.value = false
-    return
-  }
-  brokerBusy.value = true
-  try {
-    setSupabaseConfig(url, key)
-    brokerMsg.value = `Saved. Allow ${oauthCallbackUrl} in Supabase Auth → URL Configuration and enable your providers.`
-    brokerOk.value = true
-  } finally {
-    brokerBusy.value = false
-  }
-}
-
-async function signInCloud(provider: OAuthBackend) {
-  if (cloudAuthBusy.value) return
-  cloudAuthBusy.value = provider
-  cloudAuthMsg.value = ''
-  try {
-    await signInWithPopup(provider)
-    cloudAuthMsg.value = `Signed in with ${provider}.`
-    cloudAuthOk.value = true
-  } catch (e) {
-    cloudAuthMsg.value = e instanceof Error ? e.message : String(e)
-    cloudAuthOk.value = false
-  } finally {
-    cloudAuthBusy.value = null
-  }
+function openAccounts() {
+  emit('close')
+  window.dispatchEvent(new CustomEvent('cybermanju:open-accounts'))
 }
 
 // ── vault partitions (N disks) ──

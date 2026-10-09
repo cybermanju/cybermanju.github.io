@@ -105,6 +105,13 @@
               <AppIcon name="solar:alt-arrow-down-bold" :size="16" class="am-rail-pin-icon" :class="{ open: railPinned }" />
             </button>
           </aside>
+          <button
+            v-if="railPinned"
+            class="am-flyout-backdrop"
+            type="button"
+            aria-label="Close session panel"
+            @click="railPinned = false"
+          />
           <!-- ── session flyout: opens on rail hover, stays when pinned ── -->
           <div class="am-flyout" role="dialog" aria-label="Session">
             <div class="am-flyout-head">
@@ -309,10 +316,15 @@
                 </label>
               </div>
               <p class="am-hint">{{ authGuidance(wiz.backendType) }}</p>
+              <div v-if="isOauthCapable(wiz.backendType) && !wiz.token.trim() && !wizardSessionMatchesProvider" class="am-banner info am-auth-required">
+                <AppIcon name="solar:lock-keyhole-bold" :size="15" />
+                <span>Sign in with this provider or enter a personal access token before adding the connection. Empty cloud accounts cannot be saved.</span>
+                <button class="am-btn sm primary" type="button" @click="railPinned = true">Open sign-in</button>
+              </div>
               <p v-if="wiz.backendType === 'github' || wiz.backendType === 'gitlab'" class="am-hint">No repo yet? Save with just a token (skip the repo field), then use <strong>New private vault repo</strong> in the provider detail to create + sync one.</p>
               <div class="am-row">
-                <button class="am-btn sm primary" type="button" :disabled="wizBusy" @click="addProvider(true)">{{ wizBusy ? 'Verifying…' : 'Save & verify' }}</button>
-                <button class="am-btn sm" type="button" :disabled="wizBusy" @click="addProvider(false)">Save</button>
+                <button class="am-btn sm primary" type="button" :disabled="wizBusy || !wizardCanSave" @click="addProvider(true)">{{ wizBusy ? 'Verifying…' : 'Save & verify' }}</button>
+                <button class="am-btn sm" type="button" :disabled="wizBusy || !wizardCanSave" @click="addProvider(false)">Save</button>
                 <button class="am-btn sm" type="button" :disabled="wizBusy" @click="resetWizard()">Reset</button>
                 <span v-if="wizMsg" class="am-note" :class="wizOk === false ? 'err' : wizOk === true ? 'ok' : ''" style="margin:0;" role="status">{{ wizMsg }}</span>
               </div>
@@ -1290,6 +1302,12 @@ const wiz = reactive({
   folderId: '',
   basePath: '',
 })
+const wizardSessionMatchesProvider = computed(() =>
+  !!identity.value && backendForAccountProvider(identity.value.provider) === wiz.backendType,
+)
+const wizardCanSave = computed(() =>
+  !isOauthCapable(wiz.backendType) || !!wiz.token.trim() || wizardSessionMatchesProvider.value,
+)
 
 /** Restore the add-provider wizard to pristine defaults. */
 function resetWizard() {
@@ -2448,6 +2466,13 @@ async function addProvider(verify: boolean) {
     // mints a Drive-capable one) — use it when the wizard's token field is
     // empty so "Save & verify" works without a manual PAT paste.
     const token = wiz.token.trim() || await sessionTokenFor(wiz.backendType)
+    if (!token && isOauthCapable(wiz.backendType)) {
+      wizOpen.value = true
+      railPinned.value = true
+      wizMsg.value = `Sign in with ${backendLabel(wiz.backendType)} above or paste a personal access token before adding this connection.`
+      wizOk.value = false
+      return
+    }
     const saved = await store.saveSyncConfig({
       ...((token ? { ...wizToConfig(), token } : wizToConfig()) as SyncConfig),
       id: '',
@@ -2565,6 +2590,8 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  container-type: inline-size;
+  container-name: account-manager;
   background: var(--ui-surface);
   color: var(--ui-text);
   font-family: var(--ui-font);
@@ -2959,6 +2986,7 @@ label.small:has(input[type='checkbox']) {
   pointer-events: none;
   transition: opacity 0.16s ease, transform 0.16s ease;
 }
+.am-flyout-backdrop { display: none; }
 .am-rail:hover ~ .am-flyout,
 .am-flyout:hover,
 .am-conn.rail-pinned .am-flyout {
@@ -3158,5 +3186,52 @@ label.small:has(input[type='checkbox']) {
   .am-tabs { padding: 10px 10px 0; }
   .am-work { padding-left: 8px; }
   .am-flyout { left: 62px; width: min(300px, calc(100% - 70px)); }
+}
+
+/* Mobile and narrow sheets: keep the provider workspace full-width; the
+   identity rail becomes a touch strip and its session panel a real drawer. */
+@container account-manager (max-width: 700px) {
+  .am-top { padding: 8px 10px; }
+  .am-top-actions .am-chip { display: none; }
+  .am-hero { margin: 8px 10px 0; }
+  .am-body { min-height: 0; padding: 8px; }
+  .am-conn { flex-direction: column; gap: 8px; min-height: 0; }
+  .am-rail {
+    position: sticky; top: 0; z-index: 10;
+    width: 100%; height: 58px; max-height: none; box-sizing: border-box;
+    flex-direction: row; justify-content: flex-start; gap: 8px; padding: 6px 8px;
+    overflow-x: auto; overflow-y: hidden; border-right: 0;
+    border-bottom: 1px solid var(--ui-border); border-radius: 12px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .am-rail-btn { flex: 0 0 44px; width: 44px; height: 44px; }
+  .am-rail-btn.pin { flex: 0 0 44px; width: 44px; height: 44px; margin: 0; }
+  .am-rail-sep { flex: 0 0 1px; width: 1px; height: 24px; }
+  .am-work { min-width: 0; padding-left: 0; }
+  .am-work-head { align-items: center; }
+  .am-prov-row { min-width: 0; }
+  .am-flyout-backdrop {
+    display: block; position: absolute; inset: 0; z-index: 15;
+    width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0;
+    background: rgb(8 12 20 / 42%);
+  }
+  .am-flyout {
+    left: 0; right: 0; top: 0; bottom: auto; z-index: 20;
+    width: 100%; max-height: min(72dvh, 580px); box-sizing: border-box;
+    border-radius: 16px; transform: translateY(-8px);
+  }
+  .am-rail:hover ~ .am-flyout,
+  .am-flyout:hover,
+  .am-conn.rail-pinned .am-flyout {
+    opacity: 0; transform: translateY(-8px); pointer-events: none;
+  }
+  .am-conn.rail-pinned .am-flyout {
+    opacity: 1; transform: none; pointer-events: auto;
+  }
+  .am-card { padding: 10px; }
+  .am-identity-row { align-items: flex-start; }
+  .am-identity-meta { min-width: 0; }
+  .am-auth-required { align-items: flex-start; flex-wrap: wrap; }
+  .am-auth-required .am-btn { margin-left: 0; }
 }
 </style>

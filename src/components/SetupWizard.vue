@@ -156,36 +156,16 @@
           </div>
         </section>
 
-        <!-- ── 4 · cloud ── -->
+        <!-- ── 4 · accounts ── -->
         <section v-if="step === 'cloud'" class="sw-section">
           <div v-if="oauthIdentity" class="sw-status ok">
             <AppIcon name="solar:check-circle-bold" :size="16" />
             <span>{{ oauthIdentity.name || oauthIdentity.email }} · {{ oauthIdentity.provider }}</span>
           </div>
-
+          <p class="sw-hint">Sign-in, switching cloud identities and provider connections are managed together in Accounts. This setup will not start a second OAuth flow or create a hidden connection.</p>
           <div class="sw-row">
-            <button class="sw-btn" type="button" :disabled="!brokerOk || !!oauthBusy" @click="quickSignIn('google')">{{ oauthBusy === 'google' ? '…' : 'Google' }}</button>
-            <button class="sw-btn" type="button" :disabled="!brokerOk || !!oauthBusy" @click="quickSignIn('github')">{{ oauthBusy === 'github' ? '…' : 'GitHub' }}</button>
-            <button class="sw-btn" type="button" :disabled="!brokerOk || !!oauthBusy" @click="quickSignIn('gitlab')">{{ oauthBusy === 'gitlab' ? '…' : 'GitLab' }}</button>
+            <button class="sw-btn primary" type="button" @click="openAccounts">Open Account Manager</button>
           </div>
-          <p v-if="oauthMsg" class="sw-note" :class="oauthOk === false ? 'err' : 'ok'">{{ oauthMsg }}</p>
-          <p v-if="!brokerOk" class="sw-hint">Needs the broker key below — one paste, once.</p>
-
-          <details class="sw-details" :open="!brokerOk && isStatic">
-            <summary>{{ brokerOk ? 'Broker · connected — edit' : 'Broker setup (Supabase URL + key)' }}</summary>
-            <label class="sw-field">
-              <span class="sw-label">Supabase URL</span>
-              <input v-model="sbUrl" class="sw-input" placeholder="https://xyz.supabase.co" autocomplete="off" />
-            </label>
-            <label class="sw-field">
-              <span class="sw-label">Supabase anon key</span>
-              <input v-model="sbKey" class="sw-input" type="password" placeholder="Paste anon key" autocomplete="off" />
-            </label>
-            <div class="sw-row">
-              <button class="sw-btn primary" type="button" @click="saveBroker">Save</button>
-            </div>
-            <p v-if="sbMsg" class="sw-note" :class="brokerOk ? 'ok' : 'err'">{{ sbMsg }}</p>
-          </details>
 
           <div class="sw-actions">
             <button class="sw-btn" type="button" @click="go('sync')">Back</button>
@@ -337,15 +317,10 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { isStaticHost, isTauri } from '@/composables/useTauri'
 import {
-  getSupabaseConfig,
   identity as supabaseIdentity,
   refreshIdentity,
-  setSupabaseConfig,
-  signInWithPopup,
-  supabaseConfigured,
   supabaseSession,
   supabaseSessionProvider,
-  type OAuthBackend,
 } from '@/composables/useSupabase'
 import {
   createCyberManjuFile,
@@ -409,89 +384,11 @@ const insecureContext = computed(() => {
   }
 })
 
-// ── OAuth broker: prefilled from localStorage / build env / vault hydration.
-const sbInitial = getSupabaseConfig()
-const sbUrl = ref(sbInitial.url)
-const sbKey = ref(sbInitial.key)
-const brokerOk = ref(sbInitial.url.startsWith('http') && sbInitial.key.length > 0)
-const sbMsg = ref(brokerOk.value ? 'Connected.' : '')
-
-function saveBroker() {
-  const url = sbUrl.value.trim()
-  const key = sbKey.value.trim()
-  if (!url.startsWith('http') || !key) {
-    brokerOk.value = false
-    sbMsg.value = 'Paste both the URL (https://…) and the anon key.'
-    return
-  }
-  setSupabaseConfig(url, key)
-  brokerOk.value = true
-  sbMsg.value = 'Saved.'
-}
-
-// ── OAuth quick sign-in (same popup as Accounts).
-const oauthBusy = ref<OAuthBackend | null>(null)
-const oauthMsg = ref('')
-const oauthOk = ref<boolean | null>(null)
 const oauthIdentity = computed(() => supabaseIdentity.value)
 
-async function quickSignIn(provider: OAuthBackend) {
-  if (oauthBusy.value) return
-  if (!supabaseConfigured()) {
-    oauthOk.value = false
-    oauthMsg.value = 'Save the broker key first.'
-    return
-  }
-  oauthBusy.value = provider
-  oauthMsg.value = ''
-  oauthOk.value = null
-  try {
-    const who = await signInWithPopup(provider)
-    oauthOk.value = true
-    oauthMsg.value = `Signed in as ${who.name || who.email}.`
-    // Keep the two lists in sync like Accounts does: a fresh login provisions
-    // its provider row (with the session token when scopes allow) so the
-    // connection exists before any Save & verify.
-    await ensureWizardProvider(provider, who.name || who.email).catch(() => {})
-  } catch (e) {
-    oauthOk.value = false
-    oauthMsg.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    oauthBusy.value = null
-  }
-}
-
-function wizardBackendFor(provider: OAuthBackend): SyncConfig['backendType'] {
-  if (provider === 'google') return 'googleDrive'
-  if (provider === 'gitlab') return 'gitlab'
-  return 'github'
-}
-
-/** Best-effort provider row for a fresh wizard sign-in (mirrors Accounts). */
-async function ensureWizardProvider(provider: OAuthBackend, whoName: string): Promise<void> {
-  await store.fetchSyncConfigs().catch(() => {})
-  const backend = wizardBackendFor(provider)
-  if (store.syncConfigs.some(c => c.backendType === backend)) return
-  let token = ''
-  try {
-    const session = await supabaseSession()
-    const prov = session ? supabaseSessionProvider(session) : null
-    if (prov === provider) token = session?.provider_token ?? ''
-  } catch {
-    token = ''
-  }
-  const { backendLabel } = await import('@/utils/providers')
-  const saved = await store.saveSyncConfig({
-    ...syncConfigDefaults(),
-    id: '',
-    backendType: backend,
-    name: token ? `${backendLabel(backend)} — ${whoName}` : backendLabel(backend),
-    token: token || undefined,
-  } as SyncConfig)
-  if (saved) {
-    await store.fetchSyncConfigs().catch(() => {})
-    oauthMsg.value += token ? ' Connection added (see Accounts).' : ' Connection added — press Connect on its card in Accounts.'
-  }
+function openAccounts() {
+  emit('close')
+  window.dispatchEvent(new CustomEvent('cybermanju:open-accounts'))
 }
 
 // ── `.cybermanju` import/export fallback (no File System Access API).
@@ -998,15 +895,6 @@ function close() {
 onMounted(async () => {
   cardRef.value?.focus()
   await nextTick()
-  // The broker may arrive after this card opens — re-read so a fresh
-  // instance with the broker inside its `.cybermanju` file shows connected.
-  const hydrated = getSupabaseConfig()
-  if (hydrated.url || hydrated.key) {
-    sbUrl.value = hydrated.url
-    sbKey.value = hydrated.key
-    brokerOk.value = hydrated.url.startsWith('http') && hydrated.key.length > 0
-    if (brokerOk.value && !sbMsg.value) sbMsg.value = 'Connected.'
-  }
   await refreshIdentity().catch(() => {})
   await Promise.allSettled([store.fetchSyncConfigs(), store.fetchDisks(), store.fetchAgentConfigs()])
   if (isStatic) {

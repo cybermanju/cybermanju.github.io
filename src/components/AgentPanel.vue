@@ -11,7 +11,7 @@
         aria-controls="agent-session-nav"
         @click="sidebarOpen = !sidebarOpen"
       >
-        <AppIcon name="solar:menu-dots-bold" :size="14" />
+        <AppIcon name="solar:hamburger-menu-bold" :size="18" />
       </button>
       <span class="agent-avatar" aria-hidden="true">
         <AppIcon name="solar:bot-bold" :size="16" />
@@ -70,13 +70,25 @@
     </header>
 
     <div class="agent-body">
+      <button
+        v-if="sidebarOpen"
+        class="agent-sidebar-backdrop"
+        type="button"
+        aria-label="Close navigation"
+        @click="sidebarOpen = false"
+      />
       <!-- ── Sidebar: conversations + assistants ── -->
       <aside id="agent-session-nav" v-show="sidebarOpen" class="agent-sidebar" aria-label="Conversations and assistants">
+        <nav class="agent-mobile-nav" aria-label="Agent navigation">
+          <button type="button" :class="{ on: activeTab === 'chat' }" @click="activeTab = 'chat'; sidebarOpen = false"><AppIcon name="solar:chat-round-dots-bold" :size="16" /> Chat</button>
+          <button type="button" :class="{ on: activeTab === 'setup' }" @click="activeTab = 'setup'; sidebarOpen = false"><AppIcon name="solar:settings-bold" :size="16" /> Assistant setup</button>
+          <button type="button" :class="{ on: activeTab === 'controls' }" @click="activeTab = 'controls'; sidebarOpen = false"><AppIcon name="solar:shield-check-bold" :size="16" /> Controls</button>
+        </nav>
         <div class="agent-side-section">
           <div class="agent-side-head">
             <h3><AppIcon name="solar:chat-square-bold" :size="13" /> Conversations</h3>
             <div class="agent-side-actions">
-              <UiButton size="xs" icon="solar:add-bold" :disabled="!chatConfigId" title="Start a new conversation" @click="newSession">New</UiButton>
+              <UiButton size="xs" icon="solar:add-bold" :disabled="!chatConfigId" title="Start a new conversation" @click="newSession(); sidebarOpen = false">New</UiButton>
               <UiButton size="xs" icon="solar:download-bold" icon-only title="Import a session file" aria-label="Import session" @click="importClick" />
               <input ref="importEl" type="file" accept="application/json" hidden @change="importFile" />
             </div>
@@ -90,7 +102,7 @@
               class="agent-side-item"
               :class="{ on: viewing?.id === s.id }"
               :title="`${s.title} · ${s.messages.length} msgs`"
-              @click="loadSession(s.id)"
+              @click="loadSession(s.id); sidebarOpen = false"
             >
               <span class="agent-side-item-text">
                 <span class="agent-side-item-title">{{ s.title }}</span>
@@ -134,7 +146,7 @@
               class="agent-side-item"
               :class="{ on: chatConfigId === cfg.id }"
               :title="`${cfg.name} · ${cfg.providerId} · ${cfg.model}`"
-              @click="chatConfigId = cfg.id"
+              @click="chatConfigId = cfg.id; sidebarOpen = false"
             >
               <span class="agent-side-item-text">
                 <span class="agent-side-item-title">{{ cfg.name }}</span>
@@ -810,6 +822,7 @@ import {
 } from '@/composables/useAgentHarness'
 import { renderMarkdown } from '@/utils/markdown'
 import { useVoiceInput } from '@/composables/useVoiceInput'
+import { useWindowUi } from '@/composables/useWindowUi'
 import { diffBlocks, editBlocksOf } from '@/utils/agentDiff'
 import type { AgentConfig, AgentJob, AgentSession, ProviderPreset } from '@/types'
 
@@ -903,7 +916,17 @@ watch(chatConfigId, id => {
 
 /* ── modern UX state (progressive disclosure, no behaviour change) ── */
 const activeTab = ref<'chat' | 'setup' | 'controls'>('chat')
-const sidebarOpen = ref(true)
+const agentWindowUi = useWindowUi()
+const agentMobileQuery = typeof window !== 'undefined' && window.matchMedia
+  ? window.matchMedia('(max-width: 768px)')
+  : null
+const agentMobileViewport = ref(agentMobileQuery?.matches ?? false)
+const agentWindowNarrow = computed(() => agentMobileViewport.value || agentWindowUi.width.value < 760)
+const sidebarOpen = ref(!agentWindowNarrow.value)
+watch(agentWindowNarrow, narrow => { if (narrow) sidebarOpen.value = false })
+function onAgentMobileChange(event: MediaQueryListEvent) {
+  agentMobileViewport.value = event.matches
+}
 const sessionSearch = ref('')
 /** Capability strip starts collapsed — one summary line, details on demand. */
 const capsOpen = ref(false)
@@ -2299,6 +2322,7 @@ watch(jobActive, active => {
 
 onBeforeUnmount(() => {
   stopVoice?.()
+  agentMobileQuery?.removeEventListener?.('change', onAgentMobileChange)
   if (tickTimer) window.clearInterval(tickTimer)
   if (liveTimer) window.clearInterval(liveTimer)
   if (typeof window !== 'undefined') {
@@ -2327,6 +2351,8 @@ const FALLBACK_PRESETS: ProviderPreset[] = [
 ]
 
 onMounted(async () => {
+  agentMobileQuery?.addEventListener?.('change', onAgentMobileChange)
+  agentMobileViewport.value = agentMobileQuery?.matches ?? false
   if (wasmMode.value) {
     try {
       const presets = (await agent.wasmAgentCatalog()) as ProviderPreset[]
@@ -2364,6 +2390,8 @@ onMounted(async () => {
 .agent {
   width: 100%;
   height: 100%;
+  container-type: inline-size;
+  container-name: agent;
   display: flex;
   flex-direction: column;
   background: var(--ui-surface);
@@ -2423,6 +2451,8 @@ onMounted(async () => {
 .agent-subtitle { margin: 0; font-size: 11px; color: var(--ui-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .agent-subtitle-sep { margin: 0 4px; opacity: .5; }
 .agent-header-meta { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.agent-sidebar-backdrop,
+.agent-mobile-nav { display: none; }
 .agent-tabs { display: flex; gap: 2px; padding: 2px;  border: 1px solid color-mix(in srgb, var(--ui-text) 9%, transparent); border-radius: var(--ui-radius-lg); background: color-mix(in srgb, var(--ui-glass) 60%, transparent); }
 .agent-tabs button {
   display: inline-flex; align-items: center; gap: 5px;
@@ -2769,29 +2799,47 @@ onMounted(async () => {
 
 /* responsive: sidebar becomes overlay-friendly single column */
 @media (max-width: 760px) {
-  .agent-header { flex-wrap: wrap; }
-  .agent-header-meta { flex-basis: 100%; justify-content: flex-start; flex-wrap: wrap; }
-  .agent-sidebar { position: absolute; inset: 0 auto 0 0; z-index: 10; height: 100%; width: min(304px, calc(100% - 24px)); max-width: none; background: color-mix(in srgb, var(--ui-glass) 72%, transparent); box-shadow: var(--ui-shadow-2), inset 0 1px 0 var(--ui-glass-highlight); }
+  .agent-header { flex-wrap: nowrap; }
+  .agent-header-meta { display: none; }
+  .agent-sidebar { position: absolute; inset: 0 auto 0 0; z-index: 10; height: 100%; width: min(88vw, 360px); max-width: calc(100% - 20px); background: var(--ui-surface-2); box-shadow: var(--ui-shadow-2), inset 0 1px 0 var(--ui-glass-highlight); }
   .agent-body { position: relative; }
+  .agent-main { position: relative; z-index: 1; }
+  .agent-sidebar-backdrop { display: block; position: absolute; inset: 0; z-index: 8; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: rgb(8 12 20 / 42%); }
+  .agent-mobile-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--ui-border); }
+  .agent-mobile-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; min-height: 56px; padding: 6px 4px; border: 1px solid var(--ui-border); border-radius: 12px; background: transparent; color: var(--ui-text-2); font: inherit; font-size: 10px; font-weight: 650; text-align: center; }
+  .agent-mobile-nav button.on { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); background: var(--ui-accent-softer); color: var(--ui-accent); }
   .tool-group { margin-left: 0; }
   .agent-side-item-btns { opacity: 1; }
 }
 
 /* narrow phones: tighter chrome, wrapping thread head, full-width composer */
 @media (max-width: 560px) {
-  .agent-header { padding: 6px 8px; gap: 6px; padding-top: max(6px, env(safe-area-inset-top, 0px)); }
+  .agent-header { padding: 6px 8px; gap: 6px; }
   .agent-title h2 { font-size: 12px; }
   .agent-subtitle { font-size: 10px; }
   .agent-caps { padding: 0 8px; }
   .agent-thread-head { flex-wrap: wrap; padding: 6px 8px 4px; }
   .agent-messages { padding: 4px 8px 8px; }
-  .composer { margin: 0 8px calc(6px + env(safe-area-inset-bottom, 0px)); }
+  .composer { margin: 0 8px 6px; }
   .composer-box { font-size: 16px; }
   .agent-card { margin: 8px; padding: 10px; }
   .preset-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); max-height: 200px; }
   .w-row { flex-direction: column; align-items: stretch; }
   .approval { margin: 0 8px 8px; max-height: 55%; }
   .queue { margin: 0 8px 6px; }
+}
+
+/* Mirror the phone layout when this app is placed in a narrow desktop window. */
+@container agent (max-width: 760px) {
+  .agent-header { flex-wrap: nowrap; }
+  .agent-header-meta { display: none; }
+  .agent-body { position: relative; }
+  .agent-main { position: relative; z-index: 1; }
+  .agent-sidebar { position: absolute; inset: 0 auto 0 0; z-index: 10; width: min(88cqi, 360px); max-width: calc(100% - 20px); background: var(--ui-surface-2); box-shadow: var(--ui-shadow-2); }
+  .agent-sidebar-backdrop { display: block; position: absolute; inset: 0; z-index: 8; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: rgb(8 12 20 / 42%); }
+  .agent-mobile-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--ui-border); }
+  .agent-mobile-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; min-height: 56px; padding: 6px 4px; border: 1px solid var(--ui-border); border-radius: 12px; background: transparent; color: var(--ui-text-2); font: inherit; font-size: 10px; font-weight: 650; text-align: center; }
+  .agent-mobile-nav button.on { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); background: var(--ui-accent-softer); color: var(--ui-accent); }
 }
 
 @media (prefers-reduced-motion: reduce) {

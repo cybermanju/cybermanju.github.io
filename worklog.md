@@ -437,3 +437,9 @@ Stage Summary:
 - Root cause: `run()` installs our own `tracing_subscriber::fmt().try_init()` and then `tauri-plugin-log` calls `log::set_logger` — the two collide, and any second `run()` in the same process (Android activity recreate) re-registers the plugin logger and fails the same way. Either path panicked before first paint.
 - Fix: removed `tauri-plugin-log` everywhere — `.plugin()` line in `lib.rs` (with a comment citing the crash), `src-tauri/Cargo.toml`, `package.json` (+ `package-lock.json` re-synced via `npm install --package-lock-only`), `log:default` from both capability files. The frontend never imported `@tauri-apps/plugin-log`; Rust logs reach logcat via stderr/tracing, so nothing is lost. `docs/ANDROID.md` §5 updated. `Cargo.lock` keeps a stale `tauri-plugin-log` entry until CI's cargo run prunes it (no `--locked` in CI, no local cargo per repo rules).
 - Verified: `check-version.sh` green, `vue-tsc --noEmit` clean, vitest 45 files / 554 tests pass. Rust validation left to CI.
+
+## 2026-10-08 — Mobile windows, file controls and unified account flow
+- Centralized OAuth sign-in and broker setup in Accounts/Settings; desktop and mobile onboarding now hand off to Account Manager instead of duplicating login, and empty OAuth-capable connections are blocked until a matching session or personal access token exists.
+- Mobile app windows now fill the space between the top menu and dock. File Manager actions are grouped into touch-sized sections, Account Manager uses a horizontal provider rail and session drawer, and Agent opens as a chat-first surface with a hamburger navigation drawer for chats, assistant setup and controls.
+- Added responsive contract coverage for full-bleed sheets, OAuth hand-off, credential gating, touch-first Files tools, Agent navigation and narrow-window layouts.
+- Verified: version check, icon generation, `vue-tsc --noEmit`, 48 frontend test files / 570 tests, and `npm run build`.
