@@ -143,6 +143,9 @@ jobs:
   wasm-build:
     name: Build WASM (crate + web bundle)
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && 'cybermanju-pages-content-build' || format('wasm-build-{0}', github.ref) }}
+      cancel-in-progress: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -198,8 +201,75 @@ jobs:
       - name: Build WASM bundle
         run: npm run build:wasm:frontend
         env:
+          VITE_BASE: ${{ github.ref == 'refs/heads/develop' && '/develop/' || '/' }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      # Pages deploys a complete artifact, not an incremental path update.
+      # Include both branch builds so a develop push cannot replace the root
+      # production site and a main push cannot remove the preview.
+      - name: Checkout sibling Pages branch
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.ref == 'refs/heads/main' && 'develop' || 'main' }}
+          path: sibling
+
+      - name: Install sibling branch dependencies
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        working-directory: sibling
+        run: npm ci
+
+      - name: Build sibling branch WASM package
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        working-directory: sibling
+        run: wasm-pack build crates/os-wasm --target web --out-dir pkg
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+
+      - name: Build sibling branch frontend
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        working-directory: sibling
+        run: npm run build:wasm:frontend
+        env:
+          VITE_BASE: ${{ github.ref == 'refs/heads/main' && '/develop/' || '/' }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Assemble Pages site with isolated preview path
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            mkdir -p dist-wasm/develop
+            cp -a sibling/dist-wasm/. dist-wasm/develop/
+          else
+            mv dist-wasm "$RUNNER_TEMP/develop-site"
+            mkdir -p dist-wasm/develop
+            cp -a sibling/dist-wasm/. dist-wasm/
+            cp -a "$RUNNER_TEMP/develop-site"/. dist-wasm/develop/
+          fi
+          # The public manifest is copied verbatim by Vite; give the preview
+          # its own install scope and icon URLs instead of sending it to `/`.
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          manifest_path = Path("dist-wasm/develop/manifest.webmanifest")
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          manifest["start_url"] = "/develop/"
+          manifest["scope"] = "/develop/"
+          for icon in manifest.get("icons", []):
+              src = icon.get("src")
+              if isinstance(src, str) and src.startswith("/") and not src.startswith("/develop/"):
+                  icon["src"] = "/develop/" + src.lstrip("/")
+          manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          checked = json.loads(manifest_path.read_text(encoding="utf-8"))
+          assert checked["start_url"] == "/develop/" and checked["scope"] == "/develop/"
+          assert all(not icon.get("src", "").startswith("/") or icon["src"].startswith("/develop/") for icon in checked.get("icons", []))
+          PY
+          test -s dist-wasm/index.html
+          test -s dist-wasm/develop/index.html
+          grep -q 'src="/develop/' dist-wasm/develop/index.html
 
       - name: Upload WASM artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -742,14 +812,17 @@ jobs:
   deploy-pages:
     name: Deploy to GitHub Pages
     runs-on: ubuntu-latest
-    needs: wasm-build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [wasm-build, rust-check]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    concurrency:
+      group: cybermanju-pages-deploy
+      cancel-in-progress: false
     permissions:
       pages: write
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ format('{0}{1}', steps.deployment.outputs.page_url, github.ref == 'refs/heads/develop' && 'develop/' || '') }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5

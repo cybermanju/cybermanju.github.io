@@ -6,6 +6,7 @@ import Dock from './Dock.vue'
 import { useAppStore } from '@/stores/app'
 import { isTauri, isStaticHost } from '@/composables/useTauri'
 import { wasmBackendActive } from '@/composables/useWasmBackend'
+import { legalPageUrl } from '@/utils/legalPageUrl'
 
 const emit = defineEmits<{ (e: 'open-app'): void }>()
 
@@ -300,9 +301,9 @@ onUnmounted(() => {
           </button>
         </div>
         <div class="legal-hint">
-          <a href="https://cybermanju.github.io/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>
+          <a :href="legalPageUrl('privacy.html')" target="_blank" rel="noopener">Privacy Policy</a>
           <span>·</span>
-          <a href="https://cybermanju.github.io/terms.html" target="_blank" rel="noopener">Terms of Service</a>
+          <a :href="legalPageUrl('terms.html')" target="_blank" rel="noopener">Terms of Service</a>
         </div>
       </div>
     </div>

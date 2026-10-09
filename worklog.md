@@ -455,3 +455,12 @@ Stage Summary:
 
 - Added `develop` to push-triggered CI; pull requests still target `main` only. The existing `deploy-pages` condition remains `refs/heads/main`, so develop builds and tests do not alter the production Pages site.
 - A separate `/develop/` deployment was requested but no non-Pages host or domain is configured in this task; deployment remains pending the destination and account authorization.
+
+
+## 2026-10-09 — GitHub Pages preview isolated under `/develop/`
+
+- Pages now builds a combined artifact with `main` at `/` and `develop` at `/develop/`, regardless of which branch is pushed. Artifact builds and deployments are serialized; publication waits for the web/WASM build and Rust checks. The sibling Rust build shares Cargo's target directory to reduce duplicate work.
+- The preview gets a separate localStorage namespace, IndexedDB database, and OPFS directory; cross-tab storage events are scoped so preview preferences and vault data do not mix with production. Root/desktop behavior remains unchanged.
+- Legal links and the static legal pages follow the active preview path while root/native builds retain canonical Pages URLs.
+- Verified locally: `vue-tsc`, 50 frontend suites / 578 tests, version check, root and `/develop/` bundles, `cargo fmt`, Clippy, and workspace Rust tests. GitHub Pages environment now explicitly allows both `main` and `develop`; remote CI/deployment will be verified after push.
+- The preview's PWA manifest now uses `/develop/` for its start URL, scope and icons; the Pages assembly step asserts those paths so installation cannot jump to production.

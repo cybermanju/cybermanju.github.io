@@ -244,8 +244,8 @@
             Static-build OAuth broker: GitHub / Google / GitLab login without your own server.
             Enable the providers in Supabase → Authentication → Sign-in, and add this page's URL to redirect URLs.
             <span v-if="supabaseConfiguredNow">Source: {{ supabaseSource }}.</span>
-            See the <a class="st-legal" href="https://cybermanju.github.io/privacy.html" target="_blank" rel="noopener">Privacy policy</a>
-            and <a class="st-legal" href="https://cybermanju.github.io/terms.html" target="_blank" rel="noopener">Terms of service</a>
+            See the <a class="st-legal" :href="legalPageUrl('privacy.html')" target="_blank" rel="noopener">Privacy policy</a>
+            and <a class="st-legal" :href="legalPageUrl('terms.html')" target="_blank" rel="noopener">Terms of service</a>
             for how provider data is handled.
           </UiText>
           <div v-if="!supabaseConfiguredNow" class="st-banner warn">
@@ -446,6 +446,7 @@ import { ref, inject, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { isTauri, getServerUrl, setServerUrl } from '@/composables/useTauri'
 import { useTransport } from '@/composables/useTransport'
+import { legalPageUrl } from '@/utils/legalPageUrl'
 import {
   getSupabaseConfig,
   setSupabaseConfig,

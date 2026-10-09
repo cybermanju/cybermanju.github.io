@@ -183,7 +183,8 @@ fn test_trash_and_restore_file_without_parent() {
     let (db, _dir) = temp_db();
     let file = file_node("root-file", None);
     let serialized = serde_json::to_string(&file).unwrap();
-    db.insert_file_with_index(&file.id, &serialized, None).unwrap();
+    db.insert_file_with_index(&file.id, &serialized, None)
+        .unwrap();
 
     db.trash_file(&file.id, &file, None).unwrap();
     assert!(db.list_by_parent("root").unwrap().is_empty());

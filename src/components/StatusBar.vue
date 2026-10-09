@@ -79,9 +79,9 @@
       <span class="sb-div">|</span>
       <span class="sb-tech">{{ transportShort }} MODE</span>
       <span class="sb-div">|</span>
-      <a class="sb-legal" href="https://cybermanju.github.io/privacy.html" target="_blank" rel="noopener" title="Privacy policy">PRIVACY</a>
+      <a class="sb-legal" :href="legalPageUrl('privacy.html')" target="_blank" rel="noopener" title="Privacy policy">PRIVACY</a>
       <span class="sb-div">|</span>
-      <a class="sb-legal" href="https://cybermanju.github.io/terms.html" target="_blank" rel="noopener" title="Terms of service">TERMS</a>
+      <a class="sb-legal" :href="legalPageUrl('terms.html')" target="_blank" rel="noopener" title="Terms of service">TERMS</a>
     </div>
   </footer>
 </template>
@@ -92,6 +92,7 @@ import { useAppStore } from '@/stores/app'
 import { useTransport } from '@/composables/useTransport'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useSystemHardware } from '@/composables/useSystemHardware'
+import { legalPageUrl } from '@/utils/legalPageUrl'
 
 const store = useAppStore()
 const wm = useWindowManager()
@@ -286,9 +287,8 @@ const agentTip = computed(() => {
   padding-left: 8px;
 }
 
-/* Legal links (privacy / terms) — same footprint as the tech readouts so
- * the bar keeps its height; absolute Pages URLs so they resolve from the
- * desktop and Docker builds too, not just the static host. */
+/* Legal links (privacy / terms) — same footprint as the tech readouts; the
+ * URL helper keeps Pages previews scoped while root/native builds stay canonical. */
 .sb-legal {
   font-size: 10px;
   color: var(--ui-text-faint);
