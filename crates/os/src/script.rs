@@ -573,26 +573,43 @@ pub fn format_source(source: &str) -> Result<String, String> {
     let lines = split_lines(source)?;
     let mut out = Vec::new();
     // Stack of indent contexts: each entry is the source indent of a block
-    // child level; the formatter emits depth*2 spaces instead.
-    let mut stack: Vec<isize> = vec![-1];
+    // opener plus whether any deeper line was seen inside it; the formatter
+    // emits depth*2 spaces instead of the source indent.
+    let mut stack: Vec<(isize, bool)> = vec![(-1, true)];
     for line in &lines {
         let text = line.text.as_str();
         // `elif/else/catch/ok:/err:` arms dedent one level before emitting.
         let dedent = is_dedent_kw(text);
-        while stack.len() > 1 && line.indent as isize <= *stack.last().unwrap_or(&-1) {
+        // Close blocks the line dedents out of. A line at exactly the
+        // opener's indent closes the block only if the block already holds
+        // deeper content (a real dedented sibling) or the line is itself a
+        // dedent keyword; otherwise the lenient reading wins and an
+        // unindented line right after `if x:` counts as its first child
+        // (the formatter supplies the indent).
+        while stack.len() > 1 {
+            let (top, entered) = stack[stack.len() - 1];
+            if line.indent as isize > top
+                || (line.indent as isize == top && !entered && !dedent)
+            {
+                break;
+            }
             stack.pop();
         }
         let mut depth = stack.len() as isize - 1;
         if dedent {
             depth = depth.saturating_sub(1);
         }
-        if line.indent == 0 {
-            depth = 0;
-            stack = vec![-1];
-        }
         out.push(format!("{}{}", "  ".repeat(depth.max(0) as usize), text));
+        // A deeper line marks every enclosing block as holding content.
+        for (ind, entered) in stack.iter_mut().rev() {
+            if line.indent as isize > *ind {
+                *entered = true;
+            } else {
+                break;
+            }
+        }
         if opens_block(text) {
-            stack.push(line.indent as isize);
+            stack.push((line.indent as isize, false));
         }
     }
     Ok(out.join("\n") + "\n")

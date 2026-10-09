@@ -82,7 +82,6 @@ pub const UI_PANEL_IDS: &[&str] = &[
     "cron",
     "automation",
     "schedules",
-    "search",
     "secrets",
     "passwords",
     "credentials",
