@@ -379,7 +379,7 @@ function open(panel: PanelType) {
   -webkit-backdrop-filter: blur(24px) saturate(1.45);
 }
 .mla:not(.with-app-nav) { padding-bottom: 96px; }
-.mla:not(.with-app-nav) .mla-dock { bottom: 9px; }
+.mla:not(.with-app-nav) .mla-dock { bottom: 0; }
 .mla-dock-btn { position: relative; flex: 1; min-width: 0; min-height: 58px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 18px; background: transparent; cursor: pointer; transition: transform 130ms ease; -webkit-tap-highlight-color: transparent; }
 .mla-dock-btn:active { transform: scale(.9); }
 .mla-dock-icon { width: 47px; height: 47px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.25); border-radius: 16px; background: linear-gradient(145deg, color-mix(in srgb, var(--app-tint) 72%, #fff), var(--app-tint) 76%); color: #fff; box-shadow: 0 5px 12px color-mix(in srgb, var(--app-tint) 24%, transparent), inset 0 1px rgba(255,255,255,.28); }
