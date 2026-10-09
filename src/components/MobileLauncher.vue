@@ -243,7 +243,7 @@ import {
 import type { PanelType } from '@/types'
 
 /** Icons per springboard page — mirrors iOS4Android IconGrid (2 rows × 4). */
-export const MLA_PAGE_SIZE = 8
+const MLA_PAGE_SIZE = 8
 
 const store = useAppStore()
 const wm = useWindowManager()

@@ -5618,10 +5618,7 @@ mod tests {
         execute(&format!("mv -os {root}/copy.txt {root}/moved.txt"), None).expect("mv -os");
         let out = execute(&format!("du -os {root} --json"), None).expect("du -os");
         let du: serde_json::Value = serde_json::from_str(&out).expect("json");
-        assert!(
-            du["files"].as_u64().unwrap_or(0) >= 2,
-            "got {du}"
-        );
+        assert!(du["files"].as_u64().unwrap_or(0) >= 2, "got {du}");
         execute(&format!("rm -os -r {root}"), None).expect("rm -os -r");
         assert!(!base.exists());
         // A missing host file is honest, not empty.

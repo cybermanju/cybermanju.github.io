@@ -2468,12 +2468,6 @@ fn script_run_with(
         "args".to_string(),
         SValue::List(args.iter().map(|a| SValue::Str(a.clone())).collect()),
     );
-        out: String::new(),
-        steps: 0,
-        truncated: false,
-        sh_calls: 0,
-        fetch_calls: 0,
-    };
     // Top level runs at parent depth -1 so indent-0 lines execute.
     script_block(&mut ip, &lines, 0, -1)?;
     if ip.truncated {

@@ -443,8 +443,7 @@ pub fn upload_file(
         })
         .collect();
     let file_id = uuid::Uuid::new_v4().to_string();
-    let stored_path =
-        std::path::Path::new("imports").join(format!("{}_{}", file_id, safe_name));
+    let stored_path = std::path::Path::new("imports").join(format!("{}_{}", file_id, safe_name));
     if let Some(parent) = stored_path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("integrity: cannot create imports dir: {}", e))?;

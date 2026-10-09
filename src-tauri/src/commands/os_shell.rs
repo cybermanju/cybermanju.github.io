@@ -123,7 +123,10 @@ pub fn os_write(path: String, content: String) -> Result<serde_json::Value, Stri
 
 /// Single disk lookup (frontend `get_disk { id }`).
 #[tauri::command]
-pub fn get_disk(id: String, state: State<'_, AppState>) -> Result<Option<cybermanju_disk::DiskRow>, String> {
+pub fn get_disk(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<cybermanju_disk::DiskRow>, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     cybermanju_disk::disk::get(&db, &id)
 }
