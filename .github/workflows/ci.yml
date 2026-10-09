@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     # A push that only touches prose cannot change a single byte of compiled
     # output — skip the whole ~15-minute pipeline for it. (Deliberately
     # scoped to `push` only: `pull_request` still runs everything so a

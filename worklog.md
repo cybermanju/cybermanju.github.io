@@ -450,3 +450,8 @@ Stage Summary:
 - REST single and batch delete now rely on the database transaction instead of a second index write, removing a transient inconsistency window.
 - Added Rust regressions for preserving siblings, restoring exactly once, and restoring a parentless file.
 - Verified locally: `git diff --check`, `npm run typecheck`, `npm test` (48 files / 573 tests), and `bash scripts/check-version.sh`. Rust tests/fmt/clippy were not run locally per `AGENTS.md`; CI must prove the backend changes.
+
+## 2026-10-09 — CI checks develop without publishing Pages
+
+- Added `develop` to push-triggered CI; pull requests still target `main` only. The existing `deploy-pages` condition remains `refs/heads/main`, so develop builds and tests do not alter the production Pages site.
+- A separate `/develop/` deployment was requested but no non-Pages host or domain is configured in this task; deployment remains pending the destination and account authorization.
