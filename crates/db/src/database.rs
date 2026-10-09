@@ -498,7 +498,7 @@ impl Database {
             let (_, value) = entry?;
             rows.push(serde_json::from_str(value.value())?);
         }
-        rows.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        rows.sort_by_key(|a| a.created_at.clone());
         Ok(rows)
     }
 
@@ -602,7 +602,7 @@ impl Database {
             let (_, value) = entry?;
             rows.push(serde_json::from_str(value.value())?);
         }
-        rows.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+        rows.sort_by_key(|a| a.title.to_lowercase());
         Ok(rows)
     }
 

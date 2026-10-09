@@ -911,7 +911,7 @@ mod android_impl {
                     }
                 }
             }
-            packs.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
+            packs.sort_by_key(|a| a.label.to_lowercase());
             Ok(packs)
         })
     }
