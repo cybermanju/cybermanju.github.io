@@ -228,7 +228,10 @@ pub fn validate_package_name(package: &str) -> Result<(), String> {
     if !(first.is_ascii_alphabetic() || first == '_') {
         return Err(format!("invalid: bad packageName '{p}'"));
     }
-    if !p.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_') {
+    if !p
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
+    {
         return Err(format!("invalid: bad packageName '{p}'"));
     }
     Ok(())
@@ -259,7 +262,11 @@ pub fn pack_icon_candidates(package: &str) -> Vec<String> {
         })
         .collect();
     let trimmed = base.trim_matches('_').to_string();
-    let mut out = vec![trimmed.clone(), format!("{trimmed}_icon"), format!("ic_{trimmed}")];
+    let mut out = vec![
+        trimmed.clone(),
+        format!("{trimmed}_icon"),
+        format!("ic_{trimmed}"),
+    ];
     out.sort();
     out.dedup();
     out.retain(|s| !s.is_empty());
@@ -295,7 +302,9 @@ mod android_impl {
         ctx
     }
 
-    fn with_env<T>(f: impl FnOnce(&mut JNIEnv, &JObject) -> Result<T, String>) -> Result<T, String> {
+    fn with_env<T>(
+        f: impl FnOnce(&mut JNIEnv, &JObject) -> Result<T, String>,
+    ) -> Result<T, String> {
         let ctx = ndk_context::android_context();
         // Inferred cast: `from_raw` decides the pointer type, so this line
         // cannot drift from the `jni` version's expectation.
@@ -306,7 +315,9 @@ mod android_impl {
             .map_err(|e| format!("network: cannot attach to the Android runtime: {e}"))?;
         let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
         if is_null(&activity) {
-            return Err("network: Android activity is gone — retry after the app resumes".to_string());
+            return Err(
+                "network: Android activity is gone — retry after the app resumes".to_string(),
+            );
         }
         // Explicit reborrow through the guard's `DerefMut` (AttachGuard → JNIEnv).
         let env: &mut JNIEnv = &mut *guard;
@@ -344,20 +355,34 @@ mod android_impl {
 
     fn package_manager(env: &mut JNIEnv, activity: &JObject) -> Result<JObject, String> {
         let v = env
-            .call_method(activity, "getPackageManager", "()Landroid/content/pm/PackageManager;", &[])
+            .call_method(
+                activity,
+                "getPackageManager",
+                "()Landroid/content/pm/PackageManager;",
+                &[],
+            )
             .map_err(|e| fail(env, format!("network: cannot reach PackageManager: {e}")))?;
-        let pm: JObject =
-            v.l().map_err(|e| fail(env, format!("network: bad PackageManager: {e}")))?;
+        let pm: JObject = v
+            .l()
+            .map_err(|e| fail(env, format!("network: bad PackageManager: {e}")))?;
         if is_null(&pm) {
             return Err("network: PackageManager is unavailable".to_string());
         }
         Ok(pm)
     }
 
-    fn launcher_query(env: &mut JNIEnv, action: &str, category: Option<&str>) -> Result<JObject, String> {
+    fn launcher_query(
+        env: &mut JNIEnv,
+        action: &str,
+        category: Option<&str>,
+    ) -> Result<JObject, String> {
         let a = new_obj(env, action)?;
         let intent: JObject = env
-            .new_object("android/content/Intent", "(Ljava/lang/String;)V", &[JValue::Object(a)])
+            .new_object(
+                "android/content/Intent",
+                "(Ljava/lang/String;)V",
+                &[JValue::Object(a)],
+            )
             .map_err(|e| fail(env, format!("invalid: cannot build intent: {e}")))?;
         if let Some(c) = category {
             let jc = new_obj(env, c)?;
@@ -372,7 +397,11 @@ mod android_impl {
         Ok(intent)
     }
 
-    fn query_activities(env: &mut JNIEnv, pm: &JObject, intent: &JObject) -> Result<JObject, String> {
+    fn query_activities(
+        env: &mut JNIEnv,
+        pm: &JObject,
+        intent: &JObject,
+    ) -> Result<JObject, String> {
         let local: JObject = env
             .new_local_ref(intent)
             .map_err(|e| fail(env, format!("network: app query failed: {e}")))?;
@@ -384,7 +413,8 @@ mod android_impl {
                 &[JValue::Object(local)],
             )
             .map_err(|e| fail(env, format!("network: app query failed: {e}")))?;
-        v.l().map_err(|e| fail(env, format!("network: app query failed: {e}")))
+        v.l()
+            .map_err(|e| fail(env, format!("network: app query failed: {e}")))
     }
 
     fn load_label(env: &mut JNIEnv, pm: &JObject, item: &JObject) -> String {
@@ -455,9 +485,19 @@ mod android_impl {
             drawable,
             "setBounds",
             "(IIII)V",
-            &[JValue::Int(0), JValue::Int(0), JValue::Int(size), JValue::Int(size)],
+            &[
+                JValue::Int(0),
+                JValue::Int(0),
+                JValue::Int(size),
+                JValue::Int(size),
+            ],
         )?;
-        env.call_method(drawable, "draw", "(Landroid/graphics/Canvas;)V", &[JValue::Object(canvas)])?;
+        env.call_method(
+            drawable,
+            "draw",
+            "(Landroid/graphics/Canvas;)V",
+            &[JValue::Object(canvas)],
+        )?;
         let stream: JObject = env.new_object("java/io/ByteArrayOutputStream", "()V", &[])?;
         let fmt: JObject = env
             .get_static_field(
@@ -471,10 +511,13 @@ mod android_impl {
             &bmp,
             "compress",
             "(Landroid/graphics/Bitmap$CompressFormat;ILjava/io/OutputStream;)Z",
-            &[JValue::Object(fmt), JValue::Int(100), JValue::Object(stream_local)],
+            &[
+                JValue::Object(fmt),
+                JValue::Int(100),
+                JValue::Object(stream_local),
+            ],
         )?;
-        let bytes_obj: JObject =
-            env.call_method(&stream, "toByteArray", "()[B", &[])?.l()?;
+        let bytes_obj: JObject = env.call_method(&stream, "toByteArray", "()[B", &[])?.l()?;
         let arr = jni::objects::JByteArray::from(bytes_obj);
         let bytes = env.convert_byte_array(&arr)?;
         if bytes.is_empty() {
@@ -489,9 +532,14 @@ mod android_impl {
     /// One query row → app. Runs inside a `with_local_frame` (caller-owned):
     /// any `?` return keeps the Java exception pending, which the caller
     /// clears before the next row.
-    fn read_app(env: &mut JNIEnv, pm: &JObject, item: &JObject) -> Result<Option<AndroidApp>, JniError> {
-        let ai: JObject =
-            env.get_field(item, "activityInfo", "Landroid/content/pm/ActivityInfo;")?.l()?;
+    fn read_app(
+        env: &mut JNIEnv,
+        pm: &JObject,
+        item: &JObject,
+    ) -> Result<Option<AndroidApp>, JniError> {
+        let ai: JObject = env
+            .get_field(item, "activityInfo", "Landroid/content/pm/ActivityInfo;")?
+            .l()?;
         if is_null(&ai) {
             return Ok(None);
         }
@@ -500,11 +548,20 @@ mod android_impl {
             return Ok(None);
         }
         let activity_class = field_str(env, &ai, "name").unwrap_or_default();
-        let app_info: JObject =
-            env.get_field(&ai, "applicationInfo", "Landroid/content/pm/ApplicationInfo;")?.l()?;
+        let app_info: JObject = env
+            .get_field(
+                &ai,
+                "applicationInfo",
+                "Landroid/content/pm/ApplicationInfo;",
+            )?
+            .l()?;
         let flags: i32 = env.get_field(&app_info, "flags", "I")?.i()?;
         let raw_label = load_label(env, pm, item);
-        let label = if raw_label.trim().is_empty() { package_name.clone() } else { raw_label };
+        let label = if raw_label.trim().is_empty() {
+            package_name.clone()
+        } else {
+            raw_label
+        };
         let pm_local: JObject = env.new_local_ref(pm)?;
         let drawable: JObject = env
             .call_method(
@@ -531,7 +588,12 @@ mod android_impl {
     }
 
     /// Add `FLAG_ACTIVITY_NEW_TASK` + start. Consumes the intent.
-    fn start(env: &mut JNIEnv, activity: &JObject, intent: JObject, what: &str) -> Result<(), String> {
+    fn start(
+        env: &mut JNIEnv,
+        activity: &JObject,
+        intent: JObject,
+        what: &str,
+    ) -> Result<(), String> {
         env.call_method(
             &intent,
             "addFlags",
@@ -539,17 +601,29 @@ mod android_impl {
             &[JValue::Int(FLAG_ACTIVITY_NEW_TASK)],
         )
         .map_err(|e| fail(env, format!("network: cannot flag the launch: {e}")))?;
-        env.call_method(activity, "startActivity", "(Landroid/content/Intent;)V", &[JValue::Object(
-            intent,
-        )])
-        .map_err(|e| fail(env, format!("not_found: Android refused to open {what}: {e}")))?;
+        env.call_method(
+            activity,
+            "startActivity",
+            "(Landroid/content/Intent;)V",
+            &[JValue::Object(intent)],
+        )
+        .map_err(|e| {
+            fail(
+                env,
+                format!("not_found: Android refused to open {what}: {e}"),
+            )
+        })?;
         Ok(())
     }
 
     /// Explicit `ComponentName` fallback for packages whose
     /// `getLaunchIntentForPackage` returns null.
     fn explicit_intent(env: &mut JNIEnv, pm: &JObject, package: &str) -> Result<JObject, String> {
-        let q = launcher_query(env, "android.intent.action.MAIN", Some("android.intent.category.LAUNCHER"))?;
+        let q = launcher_query(
+            env,
+            "android.intent.action.MAIN",
+            Some("android.intent.category.LAUNCHER"),
+        )?;
         let pkg = new_obj(env, package)?;
         env.call_method(
             &q,
@@ -581,7 +655,11 @@ mod android_impl {
             .map_err(|e| fail(env, format!("not_found: cannot resolve {package}: {e}")))?;
         let main = new_obj(env, "android.intent.action.MAIN")?;
         let intent: JObject = env
-            .new_object("android/content/Intent", "(Ljava/lang/String;)V", &[JValue::Object(main)])
+            .new_object(
+                "android/content/Intent",
+                "(Ljava/lang/String;)V",
+                &[JValue::Object(main)],
+            )
             .map_err(|e| fail(env, format!("not_found: cannot resolve {package}: {e}")))?;
         let p2 = new_obj(env, package)?;
         let c2 = new_obj(env, cls.as_str())?;
@@ -636,8 +714,11 @@ mod android_impl {
     pub fn list_apps() -> Result<Vec<AndroidApp>, String> {
         with_env(|env, activity| {
             let pm = package_manager(env, activity)?;
-            let intent =
-                launcher_query(env, "android.intent.action.MAIN", Some("android.intent.category.LAUNCHER"))?;
+            let intent = launcher_query(
+                env,
+                "android.intent.action.MAIN",
+                Some("android.intent.category.LAUNCHER"),
+            )?;
             let list = query_activities(env, &pm, &intent)?;
             let size: i32 = env
                 .call_method(&list, "size", "()I", &[])
@@ -646,25 +727,23 @@ mod android_impl {
                 .map_err(|e| fail(env, format!("network: app query failed: {e}")))?;
             let mut apps = Vec::new();
             for i in 0..size {
-                let item: JObject = match env.call_method(
-                    &list,
-                    "get",
-                    "(I)Ljava/lang/Object;",
-                    &[JValue::Int(i)],
-                ) {
-                    Ok(v) => match v.l() {
-                        Ok(o) => o,
-                        Err(_) => continue,
-                    },
-                    Err(_) => {
-                        let _ = env.exception_clear();
-                        continue;
-                    }
-                };
+                let item: JObject =
+                    match env.call_method(&list, "get", "(I)Ljava/lang/Object;", &[JValue::Int(i)])
+                    {
+                        Ok(v) => match v.l() {
+                            Ok(o) => o,
+                            Err(_) => continue,
+                        },
+                        Err(_) => {
+                            let _ = env.exception_clear();
+                            continue;
+                        }
+                    };
                 // One row = one local frame: ~10 refs per app would overflow
                 // the 512-entry table on a 300-app drawer otherwise.
-                let row: Result<Option<AndroidApp>, String> =
-                    env.with_local_frame(48, |f| read_app(f, &pm, &item)).map_err(|e| {
+                let row: Result<Option<AndroidApp>, String> = env
+                    .with_local_frame(48, |f| read_app(f, &pm, &item))
+                    .map_err(|e| {
                         let _ = env.exception_clear();
                         format!("network: app row failed: {e}")
                     })?;
@@ -712,8 +791,7 @@ mod android_impl {
                     None
                 }
             };
-            let intent =
-                direct.map_or_else(|| explicit_intent(env, &pm, package.as_str()), Ok)?;
+            let intent = direct.map_or_else(|| explicit_intent(env, &pm, package.as_str()), Ok)?;
             start(env, activity, intent, package.as_str())
         })
     }
@@ -724,9 +802,11 @@ mod android_impl {
         with_env(|env, activity| {
             let action = new_obj(env, "android.intent.action.DELETE")?;
             let intent: JObject = env
-                .new_object("android/content/Intent", "(Ljava/lang/String;)V", &[JValue::Object(
-                    action,
-                )])
+                .new_object(
+                    "android/content/Intent",
+                    "(Ljava/lang/String;)V",
+                    &[JValue::Object(action)],
+                )
                 .map_err(|e| fail(env, format!("invalid: cannot build intent: {e}")))?;
             let spec = new_obj(env, format!("package:{package}").as_str())?;
             let uri: JObject = env
@@ -746,7 +826,12 @@ mod android_impl {
                 &[JValue::Object(uri)],
             )
             .map_err(|e| fail(env, format!("invalid: cannot set data: {e}")))?;
-            start(env, activity, intent, format!("uninstall {package}").as_str())
+            start(
+                env,
+                activity,
+                intent,
+                format!("uninstall {package}").as_str(),
+            )
         })
     }
 
@@ -780,10 +865,19 @@ mod android_impl {
                     let row: Option<(String, String)> = env
                         .with_local_frame(24, |f| {
                             let item: JObject = f
-                                .call_method(&list, "get", "(I)Ljava/lang/Object;", &[JValue::Int(i)])?
+                                .call_method(
+                                    &list,
+                                    "get",
+                                    "(I)Ljava/lang/Object;",
+                                    &[JValue::Int(i)],
+                                )?
                                 .l()?;
                             let ai: JObject = f
-                                .get_field(&item, "activityInfo", "Landroid/content/pm/ActivityInfo;")?
+                                .get_field(
+                                    &item,
+                                    "activityInfo",
+                                    "Landroid/content/pm/ActivityInfo;",
+                                )?
                                 .l()?;
                             let pkg = field_str(f, &ai, "packageName")?;
                             if pkg.trim().is_empty() {
@@ -801,7 +895,10 @@ mod android_impl {
                         .unwrap_or(None);
                     if let Some((package_name, label)) = row {
                         if !packs.iter().any(|p| p.package_name == package_name) {
-                            packs.push(IconPack { package_name, label });
+                            packs.push(IconPack {
+                                package_name,
+                                label,
+                            });
                         }
                     }
                 }
@@ -826,11 +923,17 @@ mod android_impl {
                     &[JValue::Object(jpack)],
                 )
                 .map_err(|e| {
-                    fail(env, format!("not_found: icon pack {pack} has no resources: {e}"))
+                    fail(
+                        env,
+                        format!("not_found: icon pack {pack} has no resources: {e}"),
+                    )
                 })?
                 .l()
                 .map_err(|e| {
-                    fail(env, format!("not_found: icon pack {pack} has no resources: {e}"))
+                    fail(
+                        env,
+                        format!("not_found: icon pack {pack} has no resources: {e}"),
+                    )
                 })?;
             for candidate in pack_icon_candidates(package.as_str()) {
                 let found: Option<String> = env
@@ -939,9 +1042,11 @@ mod android_impl {
             let own = own_package(env, activity)?;
             let action = new_obj(env, "com.cybermanju.os.action.CLEAR_NOTIFICATIONS")?;
             let intent: JObject = env
-                .new_object("android/content/Intent", "(Ljava/lang/String;)V", &[JValue::Object(
-                    action,
-                )])
+                .new_object(
+                    "android/content/Intent",
+                    "(Ljava/lang/String;)V",
+                    &[JValue::Object(action)],
+                )
                 .map_err(|e| fail(env, format!("intent: {e}")))?;
             let p = new_obj(env, own.as_str())?;
             let c = new_obj(env, format!("{own}.CybermanjuMessages").as_str())?;
@@ -985,7 +1090,12 @@ mod android_impl {
             // enable prompt, which is the honest state anyway.
             let own = own_package(env, activity).unwrap_or_default();
             let cr: JObject = env
-                .call_method(activity, "getContentResolver", "()Landroid/content/ContentResolver;", &[])
+                .call_method(
+                    activity,
+                    "getContentResolver",
+                    "()Landroid/content/ContentResolver;",
+                    &[],
+                )
                 .map_err(|e| fail(env, format!("network: cannot reach app settings: {e}")))?
                 .l()
                 .map_err(|e| fail(env, format!("network: cannot reach app settings: {e}")))?;
@@ -1007,7 +1117,8 @@ mod android_impl {
                 detail: if enabled {
                     "notification access is on — chats and mails are being stored".to_string()
                 } else {
-                    "notification access is off — open settings and enable CyberManju OS".to_string()
+                    "notification access is off — open settings and enable CyberManju OS"
+                        .to_string()
                 },
             })
         })
@@ -1015,11 +1126,16 @@ mod android_impl {
 
     pub fn open_notification_settings() -> Result<(), String> {
         with_env(|env, activity| {
-            let action = new_obj(env, "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")?;
+            let action = new_obj(
+                env,
+                "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS",
+            )?;
             let intent: JObject = env
-                .new_object("android/content/Intent", "(Ljava/lang/String;)V", &[JValue::Object(
-                    action,
-                )])
+                .new_object(
+                    "android/content/Intent",
+                    "(Ljava/lang/String;)V",
+                    &[JValue::Object(action)],
+                )
                 .map_err(|e| fail(env, format!("unsupported: cannot open settings: {e}")))?;
             start(env, activity, intent, "notification settings")
         })
@@ -1066,7 +1182,10 @@ pub fn pack_icon(_pack: &str, _package: &str) -> Result<String, String> {
 
 #[cfg(not(target_os = "android"))]
 pub fn list_messages(_limit: usize) -> Result<Vec<StoredMessage>, String> {
-    Err("unsupported: stored messages need the native Android build with notification access".to_string())
+    Err(
+        "unsupported: stored messages need the native Android build with notification access"
+            .to_string(),
+    )
 }
 
 #[cfg(not(target_os = "android"))]
@@ -1101,7 +1220,11 @@ mod tests {
 
     #[test]
     fn sorts_case_insensitively_then_package() {
-        let apps = sort_apps(vec![app("c.z", "telegram"), app("a.y", "Browser"), app("b.x", "browser")]);
+        let apps = sort_apps(vec![
+            app("c.z", "telegram"),
+            app("a.y", "Browser"),
+            app("b.x", "browser"),
+        ]);
         assert_eq!(apps[0].package_name, "a.y");
         assert_eq!(apps[1].package_name, "b.x");
         assert_eq!(apps[2].package_name, "c.z");
@@ -1110,9 +1233,15 @@ mod tests {
     #[test]
     fn rejects_bad_package_names() {
         assert!(validate_package_name("com.example.app").is_ok());
-        assert!(validate_package_name("").unwrap_err().starts_with("invalid:"));
-        assert!(validate_package_name("1bad.name").unwrap_err().starts_with("invalid:"));
-        assert!(validate_package_name("has space/x").unwrap_err().starts_with("invalid:"));
+        assert!(validate_package_name("")
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(validate_package_name("1bad.name")
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(validate_package_name("has space/x")
+            .unwrap_err()
+            .starts_with("invalid:"));
     }
 
     #[test]

@@ -92,7 +92,7 @@ describe('cybsh script: memory + errors', () => {
   it('fetches through the provided client', async () => {
     const out = await runCybshScript('fetch "https://example.com/x" as body\nprint len(body)\n', {
       execCybsh: echoExec,
-      fetchText: async (url) => `page:${url}`,
+      fetchText: async (req) => `page:${req.url}`,
     })
     expect(out.output).toContain(`fetched https://example.com/x (26 bytes → body)`)
     expect(out.output).toContain('\n26')
@@ -368,13 +368,13 @@ describe('cybsh script: versions and capabilities', () => {
     await expect(runOk('# cap: net=example.com\nfetch "https://evil.test/x"\n')).rejects.toThrow(/^denied:/)
     const out = await runCybshScript('# cap: net=example.com deny=rm\nprint "ok"\n', {
       execCybsh: echoExec,
-      fetchText: async (url) => `page:${url}`,
+      fetchText: async (req) => `page:${req.url}`,
     })
     expect(out.output).toBe('ok')
     expect(out.caps).toMatchObject({ active: true, deny: ['rm'] })
     const fetched = await runCybshScript('# cap: net=example.com\nfetch "https://example.com/x" as b\nprint b\n', {
       execCybsh: echoExec,
-      fetchText: async (url) => `page:${url}`,
+      fetchText: async (req) => `page:${req.url}`,
     })
     expect(fetched.output).toContain('page:https://example.com/x')
   })

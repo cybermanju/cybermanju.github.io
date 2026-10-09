@@ -110,6 +110,7 @@ pub fn command_table() -> &'static [&'static str] {
         "edit",
         "ai",
         "run",
+        "cron",
         "theme",
         "ui",
     ]
@@ -144,6 +145,13 @@ pub fn completions(prefix: &str) -> Vec<String> {
         "sync move",
         "compute run",
         "lease status",
+        "cron ls",
+        "cron add",
+        "cron rm",
+        "cron run",
+        "cron enable",
+        "cron disable",
+        "cron history",
         "history clear",
         "ui theme",
         "ui accent",
@@ -693,6 +701,7 @@ fn dispatch(
         "edit" => edit_cmd(args, json),
         "ai" => ai_cmd(args, db, json),
         "run" => run_cmd(args, db, json),
+        "cron" => cron_cmd(args, db, json),
         "theme" => theme_cmd(args, json),
         "ui" => ui_cmd(args, json),
         unknown => Err(did_you_mean("unknown command", unknown, command_table())),
@@ -1157,8 +1166,8 @@ fn absolute(arg: &str) -> String {
 /// Verbs that understand `-os`. Anything else refuses the flag loudly in
 /// `dispatch` rather than silently ignoring it and touching the volume.
 const HOST_VERBS: &[&str] = &[
-    "ls", "cd", "pwd", "cat", "cp", "mv", "rm", "mkdir", "touch", "stat", "du", "df",
-    "find", "grep", "head", "tail", "wc", "write",
+    "ls", "cd", "pwd", "cat", "cp", "mv", "rm", "mkdir", "touch", "stat", "du", "df", "find",
+    "grep", "head", "tail", "wc", "write",
 ];
 
 /// Cap for one `cat -os` print (sdcard files can be gigabytes; cp it to the
@@ -1378,8 +1387,7 @@ fn cat_os(args: &[String], stdin: &str) -> Result<String, String> {
         if path.is_dir() {
             return Err(format!("is a directory: {}", path.display()));
         }
-        let bytes = std::fs::read(&path)
-            .map_err(|_| format!("not_found: {}", path.display()))?;
+        let bytes = std::fs::read(&path).map_err(|_| format!("not_found: {}", path.display()))?;
         if bytes.len() > HOST_CAT_LIMIT_BYTES {
             out.push_str(&String::from_utf8_lossy(&bytes[..HOST_CAT_LIMIT_BYTES]));
             out.push_str(&format!(
@@ -1400,8 +1408,7 @@ const HOST_TREE_LIMIT: usize = 20_000;
 /// Copy one host file with a byte-level read-back verify (the same
 /// copy→verify rule as namespace moves). Parents are created as needed.
 fn copy_host_file(src: &std::path::Path, dst: &std::path::Path) -> Result<u64, String> {
-    let data =
-        std::fs::read(src).map_err(|_| format!("not_found: {}", src.display()))?;
+    let data = std::fs::read(src).map_err(|_| format!("not_found: {}", src.display()))?;
     if let Some(parent) = dst.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)
@@ -1524,11 +1531,11 @@ fn mv_os(args: &[String]) -> Result<String, String> {
     if std::fs::rename(&src, &dst).is_err() {
         if src.is_dir() {
             let (files, _) = copy_host_tree(&src, &dst)?;
-            std::fs::remove_dir_all(&src)
-                .map_err(|e| format!("io error: destination complete ({files} files) but source kept: {e}"))?;
+            std::fs::remove_dir_all(&src).map_err(|e| {
+                format!("io error: destination complete ({files} files) but source kept: {e}")
+            })?;
         } else {
-            let data =
-                std::fs::read(&src).map_err(|_| format!("not_found: {}", src.display()))?;
+            let data = std::fs::read(&src).map_err(|_| format!("not_found: {}", src.display()))?;
             std::fs::write(&dst, &data)
                 .map_err(|e| format!("io error: cannot write {}: {e}", dst.display()))?;
             let back = std::fs::read(&dst).map_err(|e| format!("io error: {e}"))?;
@@ -1557,11 +1564,9 @@ fn rm_os(args: &[String]) -> Result<String, String> {
             if !recursive {
                 return Err(format!("is a directory: {} (use -r)", path.display()));
             }
-            std::fs::remove_dir_all(&path)
-                .map_err(|_| format!("not_found: {}", path.display()))?;
+            std::fs::remove_dir_all(&path).map_err(|_| format!("not_found: {}", path.display()))?;
         } else {
-            std::fs::remove_file(&path)
-                .map_err(|_| format!("not_found: {}", path.display()))?;
+            std::fs::remove_file(&path).map_err(|_| format!("not_found: {}", path.display()))?;
         }
         out.push(format!("{} removed", path.display()));
     }
@@ -1659,10 +1664,7 @@ fn du_os(args: &[String], json: bool) -> Result<String, String> {
     let (bytes, files) = if target.is_dir() {
         crate::api::dir_size_and_files(&target)
     } else {
-        (
-            std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0),
-            1,
-        )
+        (std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0), 1)
     };
     let display = target.display().to_string();
     if json {
@@ -1751,7 +1753,11 @@ fn write_os(args: &[String], stdin: &str) -> Result<String, String> {
     }
     std::fs::write(&path, content.as_bytes())
         .map_err(|e| format!("io error: cannot write {}: {e}", path.display()))?;
-    Ok(format!("wrote {} ({} bytes)", path.display(), content.len()))
+    Ok(format!(
+        "wrote {} ({} bytes)",
+        path.display(),
+        content.len()
+    ))
 }
 
 fn ls_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, String> {
@@ -2375,7 +2381,8 @@ fn df_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, 
     if has_os_flag(args) {
         return df_os(&strip_os_flag(args), json);
     }
-    let kernel = Kernel::global();    let df = kernel.df(db);
+    let kernel = Kernel::global();
+    let df = kernel.df(db);
     if json {
         return serde_json::to_string(&df).map_err(|e| e.to_string());
     }
@@ -3741,11 +3748,7 @@ fn find_os(args: &[String], json: bool) -> Result<String, String> {
     Ok(truncate(hits.join("\n")))
 }
 
-fn head_tail_os(
-    tail: bool,
-    args: &[String],
-    stdin: &str,
-) -> Result<String, String> {
+fn head_tail_os(tail: bool, args: &[String], stdin: &str) -> Result<String, String> {
     let (n, rest) = parse_head_tail_n(args);
     let text = if rest.is_empty() {
         if stdin.is_empty() {
@@ -3757,8 +3760,7 @@ fn head_tail_os(
         if path.is_dir() {
             return Err(format!("is a directory: {}", path.display()));
         }
-        let data = std::fs::read(&path)
-            .map_err(|_| format!("not_found: {}", path.display()))?;
+        let data = std::fs::read(&path).map_err(|_| format!("not_found: {}", path.display()))?;
         String::from_utf8_lossy(&data).into_owned()
     };
     let lines: Vec<&str> = text.lines().collect();
@@ -3798,8 +3800,7 @@ fn wc_os(args: &[String], stdin: &str, json: bool) -> Result<String, String> {
         if path.is_dir() {
             return Err(format!("is a directory: {}", path.display()));
         }
-        let data = std::fs::read(&path)
-            .map_err(|_| format!("not_found: {}", path.display()))?;
+        let data = std::fs::read(&path).map_err(|_| format!("not_found: {}", path.display()))?;
         let (l, w, b) = count(&data);
         totals = (totals.0 + l, totals.1 + w, totals.2 + b);
         rows.push(
@@ -4290,9 +4291,7 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
     // verb keeps working; `--dry` only parses. Everything after a bare `--`
     // binds `args` inside the script (Rails-style inputs).
     let dash = args.iter().position(|a| a == "--");
-    let script_args: Vec<String> = dash
-        .map(|d| args[d + 1..].to_vec())
-        .unwrap_or_default();
+    let script_args: Vec<String> = dash.map(|d| args[d + 1..].to_vec()).unwrap_or_default();
     let flags: &[String] = match dash {
         Some(d) => &args[..d],
         None => args,
@@ -4371,7 +4370,9 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
         return Ok(crate::script::lint_source(&source)?.join("\n"));
     }
     if fmt {
-        return Ok(crate::script::format_source(&source)?.trim_end().to_string());
+        return Ok(crate::script::format_source(&source)?
+            .trim_end()
+            .to_string());
     }
     if dry {
         let report = crate::script::dry_run(&source)?;
@@ -4515,6 +4516,171 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
         .map_err(|e| e.to_string());
     }
     Ok(output.text)
+}
+
+// ─── scheduler (cron) ───────────────────────────────────────────────────
+
+/// `cron ls|add|rm|run|enable|disable|history` — the scheduler verb.
+///
+/// Persistence goes through the shared `cybermanju_web::api::cron_api`
+/// helpers (single source of truth with the REST routes and Tauri commands);
+/// `run` and `add` reuse `cybermanju_os::scheduler` / `schedule`. An `add`
+/// with no expression reads the script's `# schedule:` frontmatter, so a
+/// script that already declares one needs no second source of truth.
+fn cron_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, String> {
+    let sub = args.first().map(String::as_str).unwrap_or("ls");
+    let rest = if args.is_empty() { &[][..] } else { &args[1..] };
+    match sub {
+        "ls" | "list" => {
+            let db = db.ok_or_else(|| "unsupported: cron needs the database".to_string())?;
+            let rows = crate::scheduler::list(db)?;
+            if json {
+                return serde_json::to_string(&rows).map_err(|e| e.to_string());
+            }
+            if rows.is_empty() {
+                return Ok("no schedules — `cron add <path.cybsh> [expr]`".to_string());
+            }
+            let mut out = format!(
+                "{:<22} {:<14} {:<22} {:<8} PATH",
+                "ID", "EXPR", "NEXT", "ENABLED"
+            );
+            for r in &rows {
+                out.push_str(&format!(
+                    "\n{:<22} {:<14} {:<22} {:<8} {}",
+                    r.id,
+                    truncate_word(&r.expr, 14),
+                    r.next_fire_at.as_deref().unwrap_or("-"),
+                    if r.enabled { "on" } else { "off" },
+                    r.path
+                ));
+            }
+            Ok(out)
+        }
+        "add" => {
+            let db = db.ok_or_else(|| "unsupported: cron needs the database".to_string())?;
+            let path = rest
+                .first()
+                .ok_or_else(|| "usage: cron add <path.cybsh> [expr]".to_string())?
+                .clone();
+            if !path.to_lowercase().ends_with(".cybsh") {
+                return Err(format!(
+                    "invalid: schedule path must be a .cybsh script (got `{path}`)"
+                ));
+            }
+            // No expr given → read the script's `# schedule:` frontmatter.
+            let expr = match rest.get(1) {
+                Some(e) => e.clone(),
+                None => {
+                    let data = read_file_bytes(&absolute(&path))?;
+                    let source = String::from_utf8(data)
+                        .map_err(|_| "invalid: script is not UTF-8 text".to_string())?;
+                    crate::script::parse_frontmatter(&source).schedule.ok_or_else(|| {
+                        format!(
+                            "invalid: `{path}` declares no `# schedule:` — pass an expr: cron add {path} \"30 2 * * *\""
+                        )
+                    })?
+                }
+            };
+            let mut row = cybermanju_types::schedule::ScheduleRow {
+                id: format!("sched-{}", uuid::Uuid::new_v4()),
+                path,
+                expr,
+                enabled: true,
+                description: None,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                last_fired_at: None,
+                next_fire_at: None,
+                last_run_id: None,
+                run_on_boot: false,
+            };
+            cybermanju_os::scheduler::recompute_next(&mut row, chrono::Utc::now());
+            let saved = cybermanju_web::api::cron_api::save(db, row)?;
+            if json {
+                return serde_json::to_string(&saved).map_err(|e| e.to_string());
+            }
+            Ok(format!(
+                "cron: added {} → {} (next {})",
+                saved.id,
+                saved.expr,
+                saved.next_fire_at.as_deref().unwrap_or("-")
+            ))
+        }
+        "rm" | "remove" | "delete" => {
+            let db = db.ok_or_else(|| "unsupported: cron needs the database".to_string())?;
+            let id = rest
+                .first()
+                .ok_or_else(|| "usage: cron rm <id>".to_string())?;
+            if !cybermanju_web::api::cron_api::remove(db, id)? {
+                return Err(format!("not_found: no schedule `{id}`"));
+            }
+            if json {
+                return serde_json::to_string(&serde_json::json!({ "removed": id }))
+                    .map_err(|e| e.to_string());
+            }
+            Ok(format!("cron: removed {id}"))
+        }
+        "run" => {
+            let db = db.ok_or_else(|| "unsupported: cron needs the database".to_string())?;
+            let id = rest
+                .first()
+                .ok_or_else(|| "usage: cron run <id>".to_string())?;
+            let run = cybermanju_os::scheduler::run_now(db, id)?;
+            if json {
+                return serde_json::to_string(&run).map_err(|e| e.to_string());
+            }
+            Ok(format!(
+                "cron: {} {} ({}){}",
+                run.schedule_id,
+                run.status,
+                run.finished_at,
+                run.output_tail
+                    .as_deref()
+                    .map(|t| format!("\n{t}"))
+                    .unwrap_or_default()
+            ))
+        }
+        "enable" | "disable" => {
+            let db = db.ok_or_else(|| "unsupported: cron needs the database".to_string())?;
+            let id = rest
+                .first()
+                .ok_or_else(|| format!("usage: cron {sub} <id>"))?;
+            let row = cybermanju_web::api::cron_api::set_enabled(db, id, sub == "enable")?;
+            if json {
+                return serde_json::to_string(&row).map_err(|e| e.to_string());
+            }
+            Ok(format!(
+                "cron: {id} {} (next {})",
+                if row.enabled { "enabled" } else { "disabled" },
+                row.next_fire_at.as_deref().unwrap_or("-")
+            ))
+        }
+        "history" => {
+            let db = db.ok_or_else(|| "unsupported: cron needs the database".to_string())?;
+            let id = rest
+                .first()
+                .ok_or_else(|| "usage: cron history <id>".to_string())?;
+            let runs = cybermanju_web::api::cron_api::history(db, id, 20)?;
+            if json {
+                return serde_json::to_string(&runs).map_err(|e| e.to_string());
+            }
+            if runs.is_empty() {
+                return Ok(format!("cron: no runs recorded for {id}"));
+            }
+            let mut out = format!("{:<26} {:<8} FINISHED", "RUN", "STATUS");
+            for r in &runs {
+                out.push_str(&format!(
+                    "\n{:<26} {:<8} {}",
+                    r.run_id, r.status, r.finished_at
+                ));
+            }
+            Ok(out)
+        }
+        other => Err(did_you_mean(
+            "unknown cron subcommand",
+            other,
+            &["ls", "add", "rm", "run", "enable", "disable", "history"],
+        )),
+    }
 }
 
 /// Theme ids shared with `src/ui/tokens.ts` (`THEME_IDS` + legacy aliases).
@@ -5239,8 +5405,7 @@ mod tests {
         assert!(sub.is_dir());
 
         // `write -os` is what the file manager saves device text through.
-        execute(&format!("write -os {} hello host world", q(&note)), None)
-            .expect("write -os");
+        execute(&format!("write -os {} hello host world", q(&note)), None).expect("write -os");
         let out = execute(&format!("cat -os {}", q(&note)), None).expect("cat -os");
         assert_eq!(out, "hello host world");
 
@@ -5279,11 +5444,17 @@ mod tests {
         assert_eq!(wc["files"][0]["words"], 3);
 
         // Files copy/move; a directory destination takes the basename in.
-        execute(&format!("cp -os {} {}", q(&note), q(&root.join("copy.txt"))), None)
-            .expect("cp");
+        execute(
+            &format!("cp -os {} {}", q(&note), q(&root.join("copy.txt"))),
+            None,
+        )
+        .expect("cp");
         assert!(root.join("copy.txt").is_file());
-        execute(&format!("cp -os -r {} {}", q(&sub), q(&root.join("tree"))), None)
-            .expect("cp -r");
+        execute(
+            &format!("cp -os -r {} {}", q(&sub), q(&root.join("tree"))),
+            None,
+        )
+        .expect("cp -r");
         assert!(root.join("tree/note.txt").is_file());
         execute(
             &format!("mv -os {} {}", q(&root.join("copy.txt")), q(&sub)),
@@ -5291,8 +5462,11 @@ mod tests {
         )
         .expect("mv into dir");
         assert!(sub.join("copy.txt").is_file());
-        execute(&format!("mv -os {} {}", q(&sub), q(&root.join("moved"))), None)
-            .expect("mv dir");
+        execute(
+            &format!("mv -os {} {}", q(&sub), q(&root.join("moved"))),
+            None,
+        )
+        .expect("mv dir");
         assert!(root.join("moved/note.txt").is_file());
 
         // `cd -os` moves the host cwd only; relatives resolve against it.
@@ -5300,8 +5474,11 @@ mod tests {
         execute(&format!("cd -os {}", q(&root.join("moved"))), None).expect("cd -os");
         let out = execute("cat -os note.txt", None).expect("relative cat");
         assert_eq!(out, "hello host world");
-        execute(&format!("cd -os {}", q(&std::path::PathBuf::from(&prev))), None)
-            .expect("cd back");
+        execute(
+            &format!("cd -os {}", q(&std::path::PathBuf::from(&prev))),
+            None,
+        )
+        .expect("cd back");
 
         // Non-host verbs refuse the flag loudly (never touch the volume).
         let err = execute("edit -os a b c", None).expect_err("refuses");
@@ -5597,8 +5774,7 @@ mod tests {
     fn host_filesystem_verbs_round_trip() {
         // Absolute host paths only — the host cwd is process-global and
         // other tests move it concurrently.
-        let base =
-            std::env::temp_dir().join(format!("cybsh-os-{}-a", std::process::id()));
+        let base = std::env::temp_dir().join(format!("cybsh-os-{}-a", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let root = base.display().to_string();
         execute(&format!("mkdir -os -p {root}/sub"), None).expect("mkdir -os");
@@ -5609,12 +5785,10 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&out).expect("json");
         assert_eq!(parsed["host"], true);
         assert_eq!(parsed["entries"][0]["name"], "note.txt");
-        let out = execute(&format!("stat -os {root}/sub/note.txt --json"), None)
-            .expect("stat -os");
+        let out = execute(&format!("stat -os {root}/sub/note.txt --json"), None).expect("stat -os");
         let stat: serde_json::Value = serde_json::from_str(&out).expect("json");
         assert_eq!(stat["isDir"], false);
-        execute(&format!("cp -os {root}/sub/note.txt {root}/copy.txt"), None)
-            .expect("cp -os");
+        execute(&format!("cp -os {root}/sub/note.txt {root}/copy.txt"), None).expect("cp -os");
         execute(&format!("mv -os {root}/copy.txt {root}/moved.txt"), None).expect("mv -os");
         let out = execute(&format!("du -os {root} --json"), None).expect("du -os");
         let du: serde_json::Value = serde_json::from_str(&out).expect("json");

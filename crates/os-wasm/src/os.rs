@@ -1228,10 +1228,9 @@ const SCRIPT_DEFAULT_AWAIT: usize = 10;
 const SCRIPT_MAX_IMPORT: usize = 4;
 /// Statement + expression keywords (completion vocabulary, all transports).
 const SCRIPT_KEYWORDS: &[&str] = &[
-    "print", "let", "const", "if", "elif", "else", "for", "while", "in", "try", "catch",
-    "fail", "def", "return", "match", "ok", "err", "with", "import", "as", "await",
-    "timeout", "fetch", "method", "headers", "json", "and", "or", "not", "true",
-    "false", "null", "args", "env",
+    "print", "let", "const", "if", "elif", "else", "for", "while", "in", "try", "catch", "fail",
+    "def", "return", "match", "ok", "err", "with", "import", "as", "await", "timeout", "fetch",
+    "method", "headers", "json", "and", "or", "not", "true", "false", "null", "args", "env",
 ];
 /// Language version pinned by `# cybsh: 1`.
 const SCRIPT_VERSION: &str = "1";
@@ -1559,7 +1558,10 @@ fn script_parse_frontmatter(source: &str) -> ScriptFrontmatter {
                 continue;
             }
         }
-        if let Some(v) = body.strip_prefix("on:").or_else(|| body.strip_prefix("on ")) {
+        if let Some(v) = body
+            .strip_prefix("on:")
+            .or_else(|| body.strip_prefix("on "))
+        {
             let v = v.trim().trim_start_matches([':', ' ']).trim();
             for trg in v.split(',').map(str::trim).filter(|s| !s.is_empty()) {
                 if !fm.triggers.iter().any(|t| t == trg) {
@@ -1640,7 +1642,9 @@ fn script_lint(source: &str) -> Result<Vec<String>, String> {
     if source.lines().any(|l| l.trim_start().starts_with("fetch"))
         && !script_parse_caps(source).active
     {
-        warns.push("hint: `fetch` without `# cap: net=<host>` — ambient now, pinned later".to_string());
+        warns.push(
+            "hint: `fetch` without `# cap: net=<host>` — ambient now, pinned later".to_string(),
+        );
     }
     if warns.is_empty() {
         warns.push("lint: clean — no warnings".to_string());
@@ -1651,9 +1655,30 @@ fn script_lint(source: &str) -> Result<Vec<String>, String> {
 fn script_statement_kw(word: &str) -> bool {
     matches!(
         word,
-        "print" | "let" | "const" | "if" | "elif" | "else" | "for" | "while" | "try"
-            | "catch" | "fail" | "def" | "return" | "match" | "ok" | "err" | "with"
-            | "import" | "await" | "fetch" | "js" | "vars" | "free" | "gc"
+        "print"
+            | "let"
+            | "const"
+            | "if"
+            | "elif"
+            | "else"
+            | "for"
+            | "while"
+            | "try"
+            | "catch"
+            | "fail"
+            | "def"
+            | "return"
+            | "match"
+            | "ok"
+            | "err"
+            | "with"
+            | "import"
+            | "await"
+            | "fetch"
+            | "js"
+            | "vars"
+            | "free"
+            | "gc"
     )
 }
 
@@ -2949,7 +2974,10 @@ fn script_split_kw(src: &str, kw: &str) -> Option<(String, String)> {
             let byte: usize = chars[..i].iter().collect::<String>().len();
             let tail = src[byte..].trim_start();
             if tail == kw || tail.starts_with(&format!("{kw} ")) {
-                return Some((src[..byte].trim().to_string(), tail[kw.len()..].trim().to_string()));
+                return Some((
+                    src[..byte].trim().to_string(),
+                    tail[kw.len()..].trim().to_string(),
+                ));
             }
         }
         i += 1;
@@ -2995,7 +3023,12 @@ fn script_fetch_as(rest: &str) -> Option<(String, bool, Option<String>)> {
         None => Some((rest.trim().to_string(), false, None)),
         Some(pos) => {
             let head = rest[..pos].trim().to_string();
-            let tail = rest[pos..].trim_start().strip_prefix("as").unwrap_or("").trim().to_string();
+            let tail = rest[pos..]
+                .trim_start()
+                .strip_prefix("as")
+                .unwrap_or("")
+                .trim()
+                .to_string();
             if tail.is_empty() || tail == "json" {
                 return None;
             }
@@ -3027,7 +3060,10 @@ fn script_split_fetch_full(rest: &str, lineno: usize) -> Result<ScriptFetchSpec,
     let (url_src, method) = match script_split_kw(&head, "method") {
         Some((h, t)) => {
             let m = t.split_whitespace().next().unwrap_or("").to_uppercase();
-            if !matches!(m.as_str(), "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD") {
+            if !matches!(
+                m.as_str(),
+                "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD"
+            ) {
                 return Err(format!("syntax: line {lineno}: bad fetch method `{m}` (GET/POST/PUT/DELETE/PATCH/HEAD)"));
             }
             let tail = t.strip_prefix(m.as_str()).unwrap_or("").trim();
@@ -3056,19 +3092,27 @@ fn script_split_import(rest: &str, lineno: usize) -> Result<(String, Option<Stri
         Some((h, t)) => {
             let prefix = t.trim().to_string();
             if !script_valid_name(&prefix) {
-                return Err(format!("syntax: line {lineno}: bad import prefix `{prefix}`"));
+                return Err(format!(
+                    "syntax: line {lineno}: bad import prefix `{prefix}`"
+                ));
             }
             if script_is_reserved(&prefix) {
-                return Err(format!("syntax: line {lineno}: `{prefix}` is a builtin — pick another prefix"));
+                return Err(format!(
+                    "syntax: line {lineno}: `{prefix}` is a builtin — pick another prefix"
+                ));
             }
             if h.trim().is_empty() {
-                return Err(format!("syntax: line {lineno}: `import` needs `import \"lib.cybsh\" [as ns]`"));
+                return Err(format!(
+                    "syntax: line {lineno}: `import` needs `import \"lib.cybsh\" [as ns]`"
+                ));
             }
             Ok((h.trim().to_string(), Some(prefix)))
         }
         None => {
             if rest.trim().is_empty() {
-                return Err(format!("syntax: line {lineno}: `import` needs `import \"lib.cybsh\" [as ns]`"));
+                return Err(format!(
+                    "syntax: line {lineno}: `import` needs `import \"lib.cybsh\" [as ns]`"
+                ));
             }
             Ok((rest.trim().to_string(), None))
         }
@@ -3095,7 +3139,9 @@ fn script_import_defs(
     let source = exec_result(&format!("cat \"{}\"", path.replace('"', "\\\"")))
         .map_err(|e| format!("{e} (line {lineno})"))?;
     if source.len() > SCRIPT_MAX_SOURCE {
-        return Err(format!("too_large: line {lineno}: imported script exceeds {SCRIPT_MAX_SOURCE} bytes"));
+        return Err(format!(
+            "too_large: line {lineno}: imported script exceeds {SCRIPT_MAX_SOURCE} bytes"
+        ));
     }
     script_check_version(source.as_str()).map_err(|e| format!("{e} (line {lineno})"))?;
     let lines = script_split(&source).map_err(|e| format!("{e} (line {lineno})"))?;
@@ -3121,7 +3167,9 @@ fn script_import_defs(
             }
             if ip.funcs.len() >= SCRIPT_MAX_FUNCS && !ip.funcs.contains_key(&name) {
                 ip.import_depth -= 1;
-                return Err(format!("too_large: line {lineno}: script holds {SCRIPT_MAX_FUNCS} functions already"));
+                return Err(format!(
+                    "too_large: line {lineno}: script holds {SCRIPT_MAX_FUNCS} functions already"
+                ));
             }
             ip.funcs.insert(name, SFuncDef { params, body });
             count += 1;
@@ -3132,7 +3180,9 @@ fn script_import_defs(
     }
     ip.import_depth -= 1;
     if count == 0 {
-        return Err(format!("not_found: line {lineno}: `{path}` defines no `def`s to import"));
+        return Err(format!(
+            "not_found: line {lineno}: `{path}` defines no `def`s to import"
+        ));
     }
     Ok(())
 }
@@ -3146,19 +3196,27 @@ fn script_split_await(rest: &str, lineno: usize) -> Result<(String, usize), Stri
                 format!("syntax: line {lineno}: `timeout` needs a number 1–{SCRIPT_MAX_AWAIT}")
             })?;
             if n == 0 || n > SCRIPT_MAX_AWAIT {
-                return Err(format!("syntax: line {lineno}: `timeout` needs a number 1–{SCRIPT_MAX_AWAIT}"));
+                return Err(format!(
+                    "syntax: line {lineno}: `timeout` needs a number 1–{SCRIPT_MAX_AWAIT}"
+                ));
             }
             if words.next().is_some() {
-                return Err(format!("syntax: line {lineno}: `await … timeout N` takes nothing after N"));
+                return Err(format!(
+                    "syntax: line {lineno}: `await … timeout N` takes nothing after N"
+                ));
             }
             if h.trim().is_empty() {
-                return Err(format!("syntax: line {lineno}: `await` needs an expression"));
+                return Err(format!(
+                    "syntax: line {lineno}: `await` needs an expression"
+                ));
             }
             Ok((h.trim().to_string(), n))
         }
         None => {
             if rest.trim().is_empty() {
-                return Err(format!("syntax: line {lineno}: `await` needs an expression"));
+                return Err(format!(
+                    "syntax: line {lineno}: `await` needs an expression"
+                ));
             }
             Ok((rest.trim().to_string(), SCRIPT_DEFAULT_AWAIT))
         }
@@ -3193,20 +3251,21 @@ fn script_match_arm(text: &str, lineno: usize) -> Result<(String, Option<String>
         if let Some(rest) = inner.strip_prefix(kind) {
             let r = rest.trim();
             let name = r.trim_start_matches('(').trim_end_matches(')').trim();
-            if !r.is_empty() && script_valid_name(name) && (r.starts_with('(') || r.starts_with(' ')) {
+            if !r.is_empty()
+                && script_valid_name(name)
+                && (r.starts_with('(') || r.starts_with(' '))
+            {
                 return Ok((kind.to_string(), Some(name.to_string())));
             }
         }
     }
-    Err(format!("syntax: line {lineno}: bad `match` arm `{text}` (try `ok(v):`, `err(e):`, `else:`)"))
+    Err(format!(
+        "syntax: line {lineno}: bad `match` arm `{text}` (try `ok(v):`, `err(e):`, `else:`)"
+    ))
 }
 
 /// Evaluate a match target, capturing failures as err material.
-fn script_match_target(
-    ip: &mut ScriptInterp,
-    src: &str,
-    lineno: usize,
-) -> Result<SValue, String> {
+fn script_match_target(ip: &mut ScriptInterp, src: &str, lineno: usize) -> Result<SValue, String> {
     let t = src.trim();
     if script_is_kw(t, "sh") {
         let rest = script_rest(t, "sh", lineno)?.trim().to_string();
@@ -3554,7 +3613,9 @@ fn script_statement(ip: &mut ScriptInterp, lines: &[SLine], idx: usize) -> Resul
         let body = script_fetch_checked(ip, &url, &spec.method, lineno)?;
         if spec.want_json {
             let v = script_materialize(&body).ok_or_else(|| {
-                format!("invalid: line {lineno}: `fetch {url}` did not return JSON (try plain `as`)")
+                format!(
+                    "invalid: line {lineno}: `fetch {url}` did not return JSON (try plain `as`)"
+                )
             })?;
             if let Some(name) = spec.var {
                 script_set(ip, &name, v)?;
@@ -3606,7 +3667,9 @@ fn script_statement(ip: &mut ScriptInterp, lines: &[SLine], idx: usize) -> Resul
             let name = rest[..eq].trim().to_string();
             let expr = rest[eq + 1..].trim().to_string();
             if !script_valid_name(&name) || expr.is_empty() {
-                return Err(format!("syntax: line {lineno}: `with` needs `with [name = expr]:`"));
+                return Err(format!(
+                    "syntax: line {lineno}: `with` needs `with [name = expr]:`"
+                ));
             }
             let v = script_eval(ip, &expr, lineno)?;
             script_set(ip, &name, v)?;
@@ -3653,7 +3716,9 @@ fn script_statement(ip: &mut ScriptInterp, lines: &[SLine], idx: usize) -> Resul
             }
         }
         return Err(match last_err {
-            Some(e) => format!("timeout: line {lineno}: `await` still failing after {tries} tries (last: {e})"),
+            Some(e) => format!(
+                "timeout: line {lineno}: `await` still failing after {tries} tries (last: {e})"
+            ),
             None => format!("timeout: line {lineno}: `await` still falsy after {tries} tries"),
         });
     }
@@ -3946,9 +4011,8 @@ fn script_assign_rhs(ip: &mut ScriptInterp, src: &str, lineno: usize) -> Result<
         let url = script_eval(ip, &spec.url_src, lineno)?.display();
         let body = script_fetch_checked(ip, &url, &spec.method, lineno)?;
         if spec.want_json {
-            let v = script_materialize(&body).ok_or_else(|| {
-                format!("invalid: line {lineno}: `fetch` did not return JSON")
-            })?;
+            let v = script_materialize(&body)
+                .ok_or_else(|| format!("invalid: line {lineno}: `fetch` did not return JSON"))?;
             script_set(ip, "_", v.clone())?;
             return Ok(v);
         }
@@ -5172,7 +5236,10 @@ mod tests {
                 let out = dispatch(verb, &full);
                 assert!(out.contains(r#""ok":false"#), "{verb} {full:?}: {out}");
                 assert!(out.contains("unsupported:"), "{verb} {full:?}: {out}");
-                assert!(out.contains("-os") || out.contains("host"), "{verb} {full:?}: {out}");
+                assert!(
+                    out.contains("-os") || out.contains("host"),
+                    "{verb} {full:?}: {out}"
+                );
             }
         }
         // Chained lines refuse on the `-os` chunk instead of listing the volume.
@@ -5180,7 +5247,10 @@ mod tests {
         assert!(out.contains("unsupported:"), "{out}");
         let out = dispatch("exec", &["ls -os".to_string()]);
         assert!(out.contains("unsupported:"), "{out}");
-        assert!(!out.contains("(empty directory)"), "volume answer leaked: {out}");
+        assert!(
+            !out.contains("(empty directory)"),
+            "volume answer leaked: {out}"
+        );
         // Ordinary flags still work — the guard only fires on the os-flags.
         let out = dispatch("ls", &["-la".to_string()]);
         assert!(out.contains(r#""ok":true"#), "{out}");
@@ -5193,7 +5263,10 @@ mod tests {
         // so `sh("ls -os")` must refuse exactly like `ls -os` on every
         // transport. Seed one volume file to prove the refusal is not a
         // volume miss, then run both paths.
-        let out = dispatch("write", &["/os-guard/probe.txt".to_string(), "probe".to_string()]);
+        let out = dispatch(
+            "write",
+            &["/os-guard/probe.txt".to_string(), "probe".to_string()],
+        );
         assert!(out.contains(r#""ok":true"#), "{out}");
         let out = dispatch("exec", &["ls -os".to_string()]);
         assert!(out.contains("unsupported:"), "{out}");
@@ -5207,11 +5280,17 @@ mod tests {
         // Full script file: `run` a `.cybsh` whose `sh("ls -os")` must
         // refuse, not list the volume.
         let script = "print sh(\"ls -os\")\n";
-        let out = dispatch("write", &["/os-guard/t.cybsh".to_string(), script.to_string()]);
+        let out = dispatch(
+            "write",
+            &["/os-guard/t.cybsh".to_string(), script.to_string()],
+        );
         assert!(out.contains(r#""ok":true"#), "{out}");
         let out = dispatch("run", &["/os-guard/t.cybsh".to_string()]);
         assert!(out.contains("unsupported:"), "{out}");
-        assert!(!out.contains("(empty directory)"), "volume answer leaked: {out}");
+        assert!(
+            !out.contains("(empty directory)"),
+            "volume answer leaked: {out}"
+        );
         let _ = dispatch("rm", &["-r".to_string(), "/os-guard".to_string()]);
     }
 
@@ -5588,7 +5667,10 @@ mod tests {
         let out = dispatch("run", &["/run-demo/match.cybsh".to_string()]);
         assert!(out.contains(r#""ok":true"#), "{out}");
         assert!(out.contains("6\\nfell\\ngot hi"), "{out}");
-        let _ = dispatch("rm", &["-r".to_string(), "/run-demo/match.cybsh".to_string()]);
+        let _ = dispatch(
+            "rm",
+            &["-r".to_string(), "/run-demo/match.cybsh".to_string()],
+        );
     }
 
     #[test]

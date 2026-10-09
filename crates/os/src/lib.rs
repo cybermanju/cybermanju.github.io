@@ -41,6 +41,18 @@ pub mod provider_fs;
 /// `.cybsh` scripts — interpreted automation over the same shell (`run`).
 pub mod script;
 
+/// Schedule expressions (`# schedule:` frontmatter, `cron` verb) — parse +
+/// next-fire computation. Pure, no threads.
+pub mod schedule;
+
+pub use schedule::ScheduleSpec;
+
+/// The cron daemon: background thread that fires due schedules through the
+/// script interpreter. Wired in `web/lib.rs` + `tauri/commands/sync.rs`
+/// (both must call `ensure_started`; a single wiring leaves the other
+/// transport dark — the `ensure_scrub_started` lesson).
+pub mod scheduler;
+
 pub use shell::{
     command_table, completions, execute, parse_ai_command, parse_sync_start, run, AiCommand,
     SyncStart,

@@ -506,6 +506,14 @@ pub fn run() {
             sync_cmd::seed_repo_files,
             sync_cmd::upload_remote_file,
             sync_cmd::move_sync_file,
+            // Scheduler (cron) — recurring .cybsh triggers
+            commands::cron::cron_list,
+            commands::cron::cron_save,
+            commands::cron::cron_delete,
+            commands::cron::cron_run,
+            commands::cron::cron_history,
+            commands::cron::cron_set_enabled,
+            commands::cron::cron_ensure_started,
             // Native AI agent (configs/sessions/detached jobs)
             commands::agent::list_agent_providers,
             commands::agent::list_agent_configs,

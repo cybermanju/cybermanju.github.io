@@ -18,12 +18,16 @@ import { vaultGet, vaultSet } from './useVault'
 import {
   probeProviderQuotaViaFetch,
   runStaticCybshLine,
+  runStaticSchedule,
   staticConfigFromRow,
   type StaticChacha,
   type StaticCodecs,
   type StaticCybshDeps,
+  type StaticSchedule,
+  type StaticScheduleRun,
   type StaticSyncConfig,
 } from '@/utils/staticCybsh'
+import { nextFire, parseSchedule } from '@/utils/schedule'
 import {
   compressFile,
   decryptFile,
@@ -951,6 +955,64 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     buildPath: (args) => (args.scope ? `/api/lease/status/${encodeURIComponent(String(args.scope))}` : '/api/lease/status'),
   },
 
+  // ── Scheduler (cron): recurring `.cybsh` triggers ─────────
+  // One side per domain (REST first, IPC fallback) — a schedule created
+  // over REST and one created over IPC are the same redb row either way,
+  // but the daemon only ever reads the table, so the split stays harmless.
+  cron_list: {
+    method: 'GET',
+    buildPath: () => '/api/cron',
+  },
+
+  // Upsert: POST `/api/cron` with an `id` updates that row (the shape
+  // `cron_save(row)` takes over IPC), without one it creates fresh.
+  cron_save: {
+    method: 'POST',
+    buildPath: () => '/api/cron',
+    transformRequest: (args) => {
+      const row = (args.row ?? {}) as Record<string, unknown>
+      return {
+        id: row.id ?? '',
+        path: row.path,
+        expr: row.expr,
+        description: row.description ?? null,
+        enabled: row.enabled ?? true,
+        runOnBoot: row.runOnBoot ?? false,
+      }
+    },
+  },
+
+  cron_delete: {
+    method: 'DELETE',
+    buildPath: (args) => `/api/cron/${encodeURIComponent(String(args.id ?? ''))}`,
+  },
+
+  cron_run: {
+    method: 'POST',
+    buildPath: (args) => `/api/cron/${encodeURIComponent(String(args.id ?? ''))}/run`,
+    transformRequest: () => ({}),
+  },
+
+  cron_history: {
+    method: 'GET',
+    buildPath: (args) => `/api/cron/${encodeURIComponent(String(args.id ?? ''))}/runs`,
+  },
+
+  cron_set_enabled: {
+    method: 'POST',
+    buildPath: (args) =>
+      `/api/cron/${encodeURIComponent(String(args.id ?? ''))}/${args.enabled ? 'enable' : 'disable'}`,
+    transformRequest: () => ({}),
+  },
+
+  // Arming the daemon is a server-side no-op from the client's view; the
+  // GET also trips `ensure_started` in `web/lib.rs` on the way past.
+  cron_ensure_started: {
+    method: 'GET',
+    buildPath: () => '/api/cron',
+    transformResponse: () => true,
+  },
+
   // ── Search (paginated) ───────────────────────────────────
   search_files_paginated: {
     method: 'GET',
@@ -1282,6 +1344,8 @@ export const REST_FIRST = new Set([
   'repair_status', 'repair_tasks', 'repair_health', 'repair_run',
   'repair_rebuild', 'repair_gc', 'scrub_run', 'scrub_runs',
   'lease_acquire', 'lease_release', 'lease_status',
+  'cron_list', 'cron_save', 'cron_delete', 'cron_run', 'cron_history',
+  'cron_set_enabled', 'cron_ensure_started',
   'parse_text', 'read_file_content', 'write_file_content',
   'list_agent_providers', 'list_agent_configs', 'save_agent_config',
   'delete_agent_config', 'save_agent_key', 'list_agent_models',
@@ -1304,6 +1368,8 @@ export const MOBILE_NATIVE_OS_COMMANDS = new Set([
   'list_disks', 'get_disk', 'create_disk', 'attach_disk', 'detach_disk',
   'resize_disk', 'destroy_disk', 'check_disk', 'set_disk_key_holder', 'volume_df',
   'get_sync_status', 'get_sync_usage',
+  'cron_list', 'cron_save', 'cron_delete', 'cron_run', 'cron_history',
+  'cron_set_enabled', 'cron_ensure_started',
 ])
 
 // Commands the `cybermanju-os-wasm` crate serves on a static host.
@@ -1341,6 +1407,29 @@ interface DbWasmRoute {
   probe?: boolean
 }
 
+/**
+ * Validate a schedule row and stamp `nextFireAt` before a static-host save.
+ * The wasm db op is pure persistence (no Rust twin runs there), so this is
+ * where `invalid: …` surfaces on Pages — same strings as the Rust parser.
+ */
+function withScheduleFire(row: unknown): Record<string, unknown> {
+  const r = { ...(row as Record<string, unknown>) }
+  const path = String(r.path ?? '')
+  if (!path.toLowerCase().endsWith('.cybsh')) {
+    throw new Error(`invalid: schedule path must be a .cybsh script (got \`${path}\`)`)
+  }
+  const expr = String(r.expr ?? '').trim()
+  parseSchedule(expr) // throws invalid: …
+  const next = nextFire(expr, new Date())
+  r.path = path
+  r.expr = expr
+  r.enabled = typeof r.enabled === 'boolean' ? r.enabled : true
+  r.nextFireAt = next ? next.toISOString() : null
+  if (typeof r.id !== 'string') r.id = ''
+  if (typeof r.createdAt !== 'string') r.createdAt = new Date().toISOString()
+  return r
+}
+
 // Invoke command → demo-database op. The worker stores the same table names
 // and JSON row shapes as the server, so responses already match the
 // TypeScript types (plus the usual snake_case→camelCase pass).
@@ -1355,6 +1444,13 @@ const DB_WASM_ROUTES: Record<string, DbWasmRoute> = {
   list_sync_configs: { op: 'sync.list', args: () => ({}) },
   create_sync_config: { op: 'sync.save', args: (a) => ({ config: a.config }) },
   delete_sync_config: { op: 'sync.delete', args: (a) => ({ configId: a.configId }) },
+  // ── Scheduler (cron) — pure persistence in the worker. The browser twin
+  // validates the expression and stamps `nextFireAt` before the write: no
+  // Rust daemon runs on Pages, so this file is the only validator there.
+  cron_list: { op: 'cron.list', args: () => ({}) },
+  cron_save: { op: 'cron.save', args: (a) => ({ row: withScheduleFire(a.row) }) },
+  cron_delete: { op: 'cron.delete', args: (a) => ({ id: a.id }) },
+  cron_history: { op: 'cron.history', args: (a) => ({ id: a.id }) },
   test_sync_connection: { op: '', args: () => ({}), probe: true },
   list_users: { op: 'users.list', args: () => ({}) },
   register_user: {
@@ -2256,6 +2352,32 @@ const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
     running: false, port: 3456, url: 'http://localhost:3456', activeConnections: 0,
   }),
   stop_dashboard: async () => ({ ok: true }),
+
+  // ── Scheduler (cron) — browser-side execution ──
+  // Pages has no daemon thread: `runStaticSchedule` executes the script
+  // through the same `run` path the `cron` verb uses, and this arms the
+  // very same code path the store's tick calls. `cron_ensure_started` is a
+  // no-op by construction (nothing to arm).
+  cron_ensure_started: async () => true,
+  cron_set_enabled: async (args) => {
+    const rows = (await wasmDbDispatch('cron.list', {})) as StaticSchedule[]
+    const row = rows.find(r => r.id === args.id)
+    if (!row) throw new Error(`not_found: no schedule ${String(args.id ?? '')}`)
+    const enabled = Boolean(args.enabled)
+    let nextFireAt = row.nextFireAt ?? null
+    if (enabled) {
+      parseSchedule(String(row.expr ?? '')) // throws invalid:
+      const next = nextFire(String(row.expr ?? ''), new Date())
+      nextFireAt = next ? next.toISOString() : null
+    }
+    return await wasmDbDispatch('cron.save', { row: { ...row, enabled, nextFireAt } })
+  },
+  cron_run: async (args) => {
+    const id = String(args.id ?? '')
+    if (!id) throw new Error('invalid: id is required')
+    const run = await runStaticSchedule(id, STATIC_CYBSH_DEPS)
+    return run as StaticScheduleRun
+  },
 }
 
 /**

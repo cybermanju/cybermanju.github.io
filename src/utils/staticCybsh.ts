@@ -36,6 +36,7 @@ import {
   type CybshFetchReq,
 } from './cybshScript'
 import { googleDriveAuthErrorSync } from './gitProvision'
+import { nextFire, parseSchedule } from './schedule'
 
 /** The 1 MiB single-write cap mirrors `MAX_WRITE_BYTES` in os.rs. */
 export const STATIC_WRITE_LIMIT = 1024 * 1024
@@ -53,6 +54,30 @@ export interface StaticSyncConfig {
   branch?: string
   basePath?: string
   folderId?: string
+}
+
+/** One scheduler row — camelCase twin of `cybermanju_types::ScheduleRow`. */
+export interface StaticSchedule {
+  id: string
+  path: string
+  expr: string
+  enabled: boolean
+  description?: string | null
+  createdAt: string
+  lastFiredAt?: string | null
+  nextFireAt?: string | null
+  lastRunId?: string | null
+  runOnBoot?: boolean
+}
+
+/** One fire record — twin of `cybermanju_types::ScheduleRun`. */
+export interface StaticScheduleRun {
+  runId: string
+  scheduleId: string
+  startedAt: string
+  finishedAt: string
+  status: string
+  outputTail?: string | null
 }
 
 export interface StaticDiskStatus {
@@ -156,6 +181,14 @@ export interface StaticCybshDeps {
   blake3(data: string): Promise<string | null>
   /** Full-transport fallback for inline `sh` lines (wasm dispatcher on Pages). */
   execFallback?: (line: string) => Promise<string>
+  // Scheduler (cron) — the browser has no daemon thread, so the store ticks
+  // due rows and the `cron` verb runs them here. Optional: a fixture (or a
+  // stale deps object) without them answers `unsupported:` honestly.
+  listSchedules?(): Promise<StaticSchedule[]>
+  saveSchedule?(row: StaticSchedule): Promise<StaticSchedule>
+  deleteSchedule?(id: string): Promise<boolean>
+  scheduleHistory?(id: string): Promise<StaticScheduleRun[]>
+  recordScheduleRun?(run: StaticScheduleRun): Promise<unknown>
 }
 
 export interface ParsedLine {
@@ -174,7 +207,7 @@ const HANDLED_VERBS = new Set([
   'quota', 'providers', 'oauth', 'disk', 'sync',
   'encrypt', 'decrypt', 'keygen', 'compress', 'decompress',
   'scrub', 'repair', 'gc', 'lease', 'mount', 'umount', 'ai',
-  'run', 'theme', 'ui',
+  'run', 'theme', 'ui', 'cron',
 ])
 
 export function handlesStaticVerb(verb: string): boolean {
@@ -2461,6 +2494,215 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
   }
 }
 
+// ─── scheduler (cron) ───────────────────────────────────────────────────
+// Browser twin of `crates/os/src/shell.rs::cron_cmd`. Persistence rides the
+// `cron.*` db ops (supplied through `StaticCybshDeps` by `useTauri.ts`) and
+// execution reuses `handleRun`, so a fired schedule behaves exactly like
+// `run <path>` typed by hand. The daemon thread exists only on desktop/server.
+
+const CRON_SUBCOMMANDS = ['ls', 'add', 'rm', 'run', 'enable', 'disable', 'history']
+
+/** Output kept per run — mirrors `OUTPUT_TAIL_LIMIT` in `scheduler.rs`. */
+const CRON_TAIL_LIMIT = 8 * 1024
+
+function cronPad(s: string, n: number): string {
+  return s.length >= n ? s : s + ' '.repeat(n - s.length)
+}
+
+function cronTruncate(s: string, max: number): string {
+  if (s.length <= max) return s
+  return `${s.slice(0, Math.max(1, max - 1))}…`
+}
+
+/** `sched-<uuid>` when the platform has it, a unique fallback otherwise. */
+function schedId(): string {
+  const c = globalThis.crypto as Crypto | undefined
+  if (c && typeof c.randomUUID === 'function') return `sched-${c.randomUUID()}`
+  return `sched-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+async function cronList(deps: StaticCybshDeps): Promise<StaticSchedule[]> {
+  if (!deps.listSchedules) throw new Error('unsupported: cron needs the local database')
+  return deps.listSchedules()
+}
+
+/**
+ * Fire one schedule now: run its script through `handleRun`, record the run
+ * and stamp the row. `cron run <id>`, the store's browser tick and
+ * `invoke('cron_run')` on Pages all land here — one execution path.
+ */
+export async function runStaticSchedule(
+  id: string,
+  deps: StaticCybshDeps,
+): Promise<StaticScheduleRun> {
+  const rows = await cronList(deps)
+  const row = rows.find(r => r.id === id)
+  if (!row) throw new Error(`not_found: no schedule \`${id}\``)
+  if (!deps.saveSchedule || !deps.recordScheduleRun) {
+    throw new Error('unsupported: cron needs the local database')
+  }
+  const startedAt = new Date().toISOString()
+  let status = 'ok'
+  let tail = ''
+  try {
+    const out = await handleRun([row.path], false, deps)
+    status = out.ok ? 'ok' : 'error'
+    tail = out.text.trim().slice(0, CRON_TAIL_LIMIT)
+  } catch (e) {
+    status = 'error'
+    tail = (e instanceof Error ? e.message : String(e)).slice(0, CRON_TAIL_LIMIT)
+  }
+  const now = new Date()
+  const run: StaticScheduleRun = {
+    runId: schedId(),
+    scheduleId: row.id,
+    startedAt,
+    finishedAt: now.toISOString(),
+    status,
+    outputTail: tail || null,
+  }
+  const next = nextFire(row.expr, now)
+  await deps.saveSchedule({
+    ...row,
+    lastFiredAt: startedAt,
+    runOnBoot: false,
+    nextFireAt: next ? next.toISOString() : null,
+    lastRunId: run.runId,
+  })
+  await deps.recordScheduleRun(run)
+  return run
+}
+
+async function handleCron(
+  args: string[],
+  json: boolean,
+  deps: StaticCybshDeps,
+): Promise<VerbOut> {
+  const sub = args[0] ?? 'ls'
+  const rest = args.slice(1)
+  switch (sub) {
+    case 'ls':
+    case 'list': {
+      const rows = await cronList(deps)
+      if (json) return shellOk(JSON.stringify(rows))
+      if (!rows.length) return shellOk('no schedules — `cron add <path.cybsh> [expr]`')
+      let out = `${cronPad('ID', 22)} ${cronPad('EXPR', 14)} ${cronPad('NEXT', 22)} ${cronPad('ENABLED', 8)} PATH`
+      for (const r of rows) {
+        out += `\n${cronPad(r.id, 22)} ${cronPad(cronTruncate(r.expr, 14), 14)} ${cronPad(r.nextFireAt ?? '-', 22)} ${cronPad(r.enabled ? 'on' : 'off', 8)} ${r.path}`
+      }
+      return shellOk(out)
+    }
+    case 'add': {
+      const path = rest[0]
+      if (!path) return shellErr('usage: cron add <path.cybsh> [expr]')
+      if (!path.toLowerCase().endsWith(CYBSH_SCRIPT_EXT)) {
+        return shellErr(
+          `invalid: schedule path must be a ${CYBSH_SCRIPT_EXT} script (got \`${path}\`)`,
+        )
+      }
+      if (!deps.saveSchedule) return shellErr('unsupported: cron needs the local database')
+      let expr = rest[1]
+      if (!expr) {
+        // No expr → the script's own `# schedule:` frontmatter.
+        const cwd = await deps.getCwd().catch(() => '/')
+        const abs = joinVolumePath(cwd, path)
+        const source = deps.readVolume()[abs]
+        if (source === undefined) return shellErr(`not_found: ${abs}`)
+        expr = parseFrontmatter(source).schedule ?? ''
+        if (!expr) {
+          return shellErr(
+            `invalid: \`${path}\` declares no \`# schedule:\` — pass an expr: cron add ${path} "30 2 * * *"`,
+          )
+        }
+      }
+      try {
+        parseSchedule(expr)
+      } catch (e) {
+        return shellErr(e instanceof Error ? e.message : String(e))
+      }
+      const now = new Date()
+      const next = nextFire(expr, now)
+      const saved = await deps.saveSchedule({
+        id: schedId(),
+        path,
+        expr,
+        enabled: true,
+        createdAt: now.toISOString(),
+        nextFireAt: next ? next.toISOString() : null,
+        runOnBoot: false,
+      })
+      if (json) return shellOk(JSON.stringify(saved))
+      return shellOk(`cron: added ${saved.id} → ${saved.expr} (next ${saved.nextFireAt ?? '-'})`)
+    }
+    case 'rm':
+    case 'remove':
+    case 'delete': {
+      const id = rest[0]
+      if (!id) return shellErr('usage: cron rm <id>')
+      if (!deps.deleteSchedule) return shellErr('unsupported: cron needs the local database')
+      const removed = await deps.deleteSchedule(id)
+      if (!removed) return shellErr(`not_found: no schedule \`${id}\``)
+      if (json) return shellOk(JSON.stringify({ removed: id }))
+      return shellOk(`cron: removed ${id}`)
+    }
+    case 'run': {
+      const id = rest[0]
+      if (!id) return shellErr('usage: cron run <id>')
+      const run = await runStaticSchedule(id, deps)
+      if (json) return shellOk(JSON.stringify(run))
+      return shellOk(
+        `cron: ${run.scheduleId} ${run.status} (${run.finishedAt})${run.outputTail ? `\n${run.outputTail}` : ''}`,
+      )
+    }
+    case 'enable':
+    case 'disable': {
+      const id = rest[0]
+      if (!id) return shellErr(`usage: cron ${sub} <id>`)
+      const rows = await cronList(deps)
+      const row = rows.find(r => r.id === id)
+      if (!row) return shellErr(`not_found: no schedule \`${id}\``)
+      if (!deps.saveSchedule) return shellErr('unsupported: cron needs the local database')
+      const enabled = sub === 'enable'
+      let nextFireAt = row.nextFireAt ?? null
+      if (enabled) {
+        try {
+          parseSchedule(row.expr)
+        } catch (e) {
+          return shellErr(e instanceof Error ? e.message : String(e))
+        }
+        const next = nextFire(row.expr, new Date())
+        nextFireAt = next ? next.toISOString() : null
+      }
+      const saved = await deps.saveSchedule({ ...row, enabled, nextFireAt })
+      if (json) return shellOk(JSON.stringify(saved))
+      return shellOk(
+        `cron: ${id} ${saved.enabled ? 'enabled' : 'disabled'} (next ${saved.nextFireAt ?? '-'})`,
+      )
+    }
+    case 'history': {
+      const id = rest[0]
+      if (!id) return shellErr('usage: cron history <id>')
+      if (!deps.scheduleHistory) return shellErr('unsupported: cron needs the local database')
+      const runs = await deps.scheduleHistory(id)
+      if (json) return shellOk(JSON.stringify(runs))
+      if (!runs.length) return shellOk(`cron: no runs recorded for ${id}`)
+      let out = `${cronPad('RUN', 26)} ${cronPad('STATUS', 8)} FINISHED`
+      for (const r of runs) {
+        out += `\n${cronPad(r.runId, 26)} ${cronPad(r.status, 8)} ${r.finishedAt}`
+      }
+      return shellOk(out)
+    }
+    default: {
+      const suggestion = CRON_SUBCOMMANDS.find(c => c.startsWith(sub) || sub.startsWith(c))
+      return shellErr(
+        suggestion
+          ? `unknown cron subcommand: '${sub}' — did you mean '${suggestion}'?`
+          : `unknown cron subcommand: '${sub}'`,
+      )
+    }
+  }
+}
+
 export async function runStaticCybshLine(
   line: string,
   deps: StaticCybshDeps,
@@ -2591,6 +2833,8 @@ export async function runStaticCybshLine(
         return done(await handleTheme(args, json, deps))
       case 'ui':
         return done(await handleUi(args, json, deps))
+      case 'cron':
+        return done(await handleCron(args, json, deps))
       default:
         return null
     }

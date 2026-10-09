@@ -4,6 +4,7 @@ pub mod audit;
 pub mod batch;
 pub mod collections;
 pub mod compression;
+pub mod cron;
 pub mod dashboard;
 pub mod disk;
 pub mod encryption;

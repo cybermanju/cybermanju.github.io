@@ -671,6 +671,106 @@ pub fn db_dispatch(op: &str, args_json: &str) -> String {
                 .map(serde_json::Value::String)
                 .unwrap_or(serde_json::Value::Null),
         ),
+        // ── scheduler (cron) ──
+        // Pure persistence: the browser owns validation + next-fire
+        // computation via the TS twin (`src/utils/schedule.ts`), and the
+        // store-level tick runs due rows through the exec dispatcher. No
+        // background thread exists in WASM — this matches the plan.
+        "cron.list" => {
+            let mut out = Vec::new();
+            for (_, v) in read_all(DbDefs::get_schedules_table())? {
+                if let Ok(row) = serde_json::from_str::<serde_json::Value>(&v) {
+                    out.push(row);
+                }
+            }
+            Ok(serde_json::Value::Array(out))
+        }
+        "cron.save" => {
+            let mut row = args
+                .get("row")
+                .cloned()
+                .ok_or_else(|| "invalid: missing 'row' object".to_string())?;
+            let id = row
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let id = if id.is_empty() { new_id() } else { id };
+            row["id"] = serde_json::Value::String(id.clone());
+            let path = row
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !path.to_lowercase().ends_with(".cybsh") {
+                return Err(format!(
+                    "invalid: schedule path must be a .cybsh script (got `{path}`)"
+                ));
+            }
+            if row
+                .get("expr")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .is_empty()
+            {
+                return Err("invalid: schedule expression is required".to_string());
+            }
+            write_one(DbDefs::get_schedules_table(), &id, &row.to_string())?;
+            Ok(row)
+        }
+        "cron.delete" => {
+            let id = arg(&args, "id")?.to_string();
+            if !delete_one(DbDefs::get_schedules_table(), &id)? {
+                return Err(format!("not_found: schedule {id}"));
+            }
+            Ok(serde_json::Value::Bool(true))
+        }
+        "cron.history" => {
+            let id = arg(&args, "id")?.to_string();
+            let mut out = Vec::new();
+            for (_, v) in read_all(DbDefs::get_schedule_runs_table())? {
+                if let Ok(run) = serde_json::from_str::<serde_json::Value>(&v) {
+                    if run.get("scheduleId").and_then(|x| x.as_str()) == Some(id.as_str()) {
+                        out.push(run);
+                    }
+                }
+            }
+            // Newest first (mirror the server's `finished_at` sort).
+            out.sort_by(|a, b| {
+                let ka = a
+                    .get("finishedAt")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("");
+                let kb = b
+                    .get("finishedAt")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("");
+                kb.cmp(ka)
+            });
+            out.truncate(20);
+            Ok(serde_json::Value::Array(out))
+        }
+        "cron.runRecord" => {
+            // The browser tick appends a fire result (it executes the script
+            // client-side; there is no daemon thread to record for it).
+            let run = args
+                .get("run")
+                .cloned()
+                .ok_or_else(|| "invalid: missing 'run' object".to_string())?;
+            let run_id = run
+                .get("runId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let run_id = if run_id.is_empty() {
+                new_id()
+            } else {
+                run_id
+            };
+            write_one(DbDefs::get_schedule_runs_table(), &run_id, &run.to_string())?;
+            Ok(run)
+        }
         // ── users ──
         "users.list" => {
             let mut out = Vec::new();

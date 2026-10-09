@@ -148,6 +148,9 @@ const ROUTED_SEGMENTS: &[&str] = &[
     "scrub",
     "lease",
     "os",
+    // Scheduler: recurring `.cybsh` triggers. A schedule runs arbitrary
+    // scripts, so write/run methods demand Admin in `required_role`.
+    "cron",
     // <<< /CYBERMANJU OS PUSH >>>
     "loose-groups",
     "metrics",
@@ -212,6 +215,11 @@ pub fn required_role(method: &str, segments: &[&str]) -> RequiredRole {
         // MCP servers spawn processes — attaching/detaching is privileged.
         ["api", "agent", "configs", _, "mcp"] if method == "POST" => RequiredRole::Admin,
         ["api", "agent", "configs", _, "mcp", _] if method == "DELETE" => RequiredRole::Admin,
+        // A schedule runs arbitrary `.cybsh` scripts — mutating one (or
+        // firing it now) is privileged, same posture as MCP attach.
+        ["api", "cron"] if method == "POST" => RequiredRole::Admin,
+        ["api", "cron", _] if method == "PUT" || method == "DELETE" => RequiredRole::Admin,
+        ["api", "cron", _, _] if method == "POST" => RequiredRole::Admin,
 
         // ── Everything else: any authenticated session ───────────
         _ => RequiredRole::Authenticated,

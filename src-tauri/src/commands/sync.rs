@@ -66,6 +66,7 @@ pub fn get_sync_progress(
     state: State<'_, AppState>,
 ) -> Result<SyncProgress, String> {
     cybermanju_sync::scheduler::ensure_started(Arc::clone(&state.db));
+    cybermanju_os::scheduler::ensure_started(Arc::clone(&state.db));
     Ok(cybermanju_web::api::sync_api::progress(&sync_state))
 }
 
@@ -76,6 +77,7 @@ pub fn get_sync_status(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     cybermanju_sync::scheduler::ensure_started(Arc::clone(&state.db));
+    cybermanju_os::scheduler::ensure_started(Arc::clone(&state.db));
     let progress = cybermanju_web::api::sync_api::latest_progress(&sync_state);
     let provider = cybermanju_sync::state::RunRegistry::global()
         .latest()
