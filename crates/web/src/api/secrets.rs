@@ -122,9 +122,8 @@ fn parse_kind(raw: Option<&str>) -> Result<SecretKind, String> {
 }
 
 fn blank(s: Option<String>) -> Option<String> {
-    s.map(str::trim)
+    s.map(|v| v.trim().to_string())
         .filter(|s| !s.is_empty())
-        .map(str::to_string)
 }
 
 fn seal_value(passphrase: &str, plaintext: &str) -> Result<String, String> {
@@ -317,7 +316,7 @@ pub fn route(
 
         ["api", "secrets"] if method == "POST" => match parse::<CreateRequest>(body) {
             Ok(req) => respond(upsert(db, &req), origin),
-            Err(e) => respond(Err(e), origin),
+            Err(e) => respond::<serde_json::Value>(Err(e), origin),
         },
 
         ["api", "secrets", id, "reveal"] if method == "GET" => respond(
@@ -329,13 +328,16 @@ pub fn route(
 
         ["api", "secrets", id] if method == "PUT" => match parse::<UpdateRequest>(body) {
             Ok(req) => respond(update(db, id, &req), origin),
-            Err(e) => respond(Err(e), origin),
+            Err(e) => respond::<serde_json::Value>(Err(e), origin),
         },
 
         ["api", "secrets", id] if method == "DELETE" => match remove(db, id) {
             Ok(true) => respond(Ok(serde_json::json!({ "removed": true })), origin),
-            Ok(false) => respond(Err(format!("not_found: no secret `{id}`")), origin),
-            Err(e) => respond(Err(e), origin),
+            Ok(false) => respond::<serde_json::Value>(
+                Err(format!("not_found: no secret `{id}`")),
+                origin,
+            ),
+            Err(e) => respond::<serde_json::Value>(Err(e), origin),
         },
 
         _ => return None,

@@ -1516,11 +1516,7 @@ fn split_fetch_full(rest: &str, lineno: usize) -> Result<FetchSpec, String> {
     // `method <M>` inside what remains.
     let (url_src, method) = match split_top_kw(&head, "method") {
         Some((h, t)) => {
-            let m = t
-                .split_whitespace()
-                .next()
-                .unwrap_or("")
-                .to_uppercase();
+            let m = t.split_whitespace().next().unwrap_or("").to_uppercase();
             if !matches!(
                 m.as_str(),
                 "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD"
@@ -1790,11 +1786,7 @@ fn split_await(rest: &str, lineno: usize) -> Result<(String, usize), String> {
                     "syntax: line {lineno}: `timeout` needs a number 1–{MAX_AWAIT_TRIES}"
                 ));
             }
-            let trailing: String = t
-                .split_whitespace()
-                .skip(1)
-                .collect::<Vec<_>>()
-                .join(" ");
+            let trailing: String = t.split_whitespace().skip(1).collect::<Vec<_>>().join(" ");
             if !trailing.is_empty() {
                 return Err(format!(
                     "syntax: line {lineno}: `await … timeout N` takes nothing after N"
