@@ -588,9 +588,7 @@ pub fn format_source(source: &str) -> Result<String, String> {
         // (the formatter supplies the indent).
         while stack.len() > 1 {
             let (top, entered) = stack[stack.len() - 1];
-            if line.indent as isize > top
-                || (line.indent as isize == top && !entered && !dedent)
-            {
+            if line.indent as isize > top || (line.indent as isize == top && !entered && !dedent) {
                 break;
             }
             stack.pop();
