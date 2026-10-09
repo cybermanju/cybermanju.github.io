@@ -11,6 +11,7 @@ pub mod faces;
 pub mod files;
 pub mod import;
 pub mod map;
+pub mod os_metrics;
 pub mod search;
 pub mod share;
 pub mod sync;

@@ -389,6 +389,13 @@ pub fn run() {
             files::get_preview,
             files::read_file_content,
             files::write_file_content,
+            // Read-only OS telemetry and virtual-volume stats. The REST dashboard
+            // is intentionally not started on mobile, so the WebView uses IPC.
+            commands::os_metrics::os_ps,
+            commands::os_metrics::os_top,
+            commands::os_metrics::os_workers,
+            commands::os_metrics::os_jobs,
+            commands::os_metrics::os_df,
             // Point-in-time redb image used by the web-compatible mobile vault mirror
             commands::vault_snapshot::snapshot_native_database,
             commands::vault_snapshot::vault_kv_get,

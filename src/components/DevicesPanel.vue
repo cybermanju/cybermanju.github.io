@@ -95,7 +95,8 @@
       </div>
       <div class="dv-card">
         <strong>SYSTEM</strong>
-        <p>{{ memLine }}</p>
+        <p>{{ nativeStatsLine }}</p>
+        <p class="dv-muted">WebView JavaScript heap: {{ memLine }}</p>
         <p class="dv-muted">{{ motionLine }}</p>
         <p class="dv-muted">{{ localeLine }} · {{ hw.windowSize.width.value }}×{{ hw.windowSize.height.value }} · {{ hw.preferredScheme.value }}</p>
       </div>
@@ -143,9 +144,11 @@
         </div>
       </div>
       <div class="dv-card">
-        <strong>STORAGE QUOTA</strong>
+        <strong>WEBVIEW STORAGE QUOTA</strong>
         <p v-if="storageMsg">{{ storageMsg }}</p>
         <p v-else class="dv-muted">Loading…</p>
+        <p v-if="store.osDf" class="dv-muted">CyberManju volume: {{ fmt(store.osDf.usedBytes) }} / {{ fmt(store.osDf.totalBytes) }} · {{ store.osDf.diskCount }} attached disk(s)</p>
+        <p class="dv-muted">WebView quota is for app data, not the phone's total storage; neither reading needs a permission prompt.</p>
         <div class="dv-pair">
           <UiButton size="sm" @click="loadStorage">Refresh</UiButton>
           <UiButton size="sm" variant="ghost" @click="persist">Persist</UiButton>
@@ -188,10 +191,12 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useSystemHardware, getStorageEstimate, persistStorage } from '@/composables/useSystemHardware'
+import { useAppStore } from '@/stores/app'
 
 const hw = useSystemHardware()
+const store = useAppStore()
 const storageMsg = ref('')
 const picked = ref('')
 const identityMsg = ref('')
@@ -240,6 +245,19 @@ const memLine = computed(() => {
   const used = (m.usedJSHeapSize / 1048576).toFixed(0)
   const lim = m.jsHeapSizeLimit ? ` / ${(m.jsHeapSizeLimit / 1048576).toFixed(0)} MB` : ''
   return `JS heap ${used} MB${lim}`
+})
+const nativeStatsLine = computed(() => {
+  const top = store.osTop
+  if (!top) return 'Native CPU/RAM metrics unavailable in this runtime.'
+  const parts = [`app CPU ${top.cpuPercent.toFixed(1)}%`, `app RSS ${fmt(top.mem.rssBytes)}`]
+  if (top.mem.totalBytes > 0) {
+    const used = Math.max(0, top.mem.totalBytes - top.mem.availableBytes)
+    parts.push(`RAM ${fmt(used)} / ${fmt(top.mem.totalBytes)}`)
+  } else {
+    parts.push('system RAM unavailable')
+  }
+  if (top.load.source === 'proc') parts.push(`load ${top.load.load1.toFixed(2)}`)
+  return parts.join(' · ')
 })
 const motionLine = computed(() => {
   if (!hw.support.value.motion && !hw.support.value.deviceOrientation) return 'motion sensors not exposed here.'
@@ -307,6 +325,7 @@ async function loadStorage() {
   storageMsg.value = est.quota
     ? `${fmt(est.usage ?? 0)} / ${fmt(est.quota)} (${est.percent ?? 0}%) · persisted: ${est.persisted ? 'yes' : 'no'}`
     : `persisted: ${est.persisted ? 'yes' : 'no'} (quota hidden by browser)`
+  await store.fetchOsDf()
 }
 async function persist() { await persistStorage(); await loadStorage() }
 function fmt(n: number): string {
@@ -333,7 +352,14 @@ watch(() => hw.displayMedia.stream.value, (s) => {
   }
 }, { immediate: true })
 
-onMounted(() => { void hw.refreshDevices(); void loadStorage() })
+let statsPoll = 0
+onMounted(() => {
+  void hw.refreshDevices()
+  void loadStorage()
+  void store.fetchOsTop()
+  statsPoll = window.setInterval(() => { void store.fetchOsTop() }, 4000)
+})
+onUnmounted(() => { if (statsPoll) window.clearInterval(statsPoll) })
 </script>
 
 <style scoped>

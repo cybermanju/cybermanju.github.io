@@ -1260,10 +1260,10 @@ export const WRITE_ONLY_COMMANDS = new Set([
 ])
 
 /**
- * Commands served over HTTP in *every* transport. The OS layer has no Tauri
- * IPC twin — the desktop app runs the same web server on :3456 — so routing
- * these through `core.invoke` would fail on the very machine that has the
- * feature. Same for the disk/volume API.
+ * Most commands in this set are served over HTTP in desktop/web transports.
+ * The OS layer ordinarily uses the desktop server on :3456; mobile is the
+ * exception for the read-only telemetry/volume commands below because mobile
+ * deliberately starts no server.
  *
  * The whole sync domain is REST_FIRST too (P1-5): a job started over IPC is
  * invisible to the REST poller, so one side per domain — REST — with a
@@ -1292,6 +1292,11 @@ export const REST_FIRST = new Set([
   'mcp_add_server', 'mcp_remove_server', 'mcp_list_tools',
   'list_agent_memories', 'store_agent_memory', 'delete_agent_memory',
   'recall_agent_memories',
+])
+
+/** Local read-only OS readings that Android/iOS can serve directly over Tauri IPC. */
+export const MOBILE_NATIVE_OS_COMMANDS = new Set([
+  'os_ps', 'os_top', 'os_workers', 'os_jobs', 'os_df',
 ])
 
 // Commands the `cybermanju-os-wasm` crate serves on a static host.
@@ -2498,6 +2503,13 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
     )) as T
   }
   const mapping = REST_ROUTES[cmd]
+  // cfg(mobile) disables the local dashboard, so don't waste time probing
+  // localhost:3456 (or a failing REST fallback) for these native read-only APIs.
+  // A configured server URL remains authoritative for remote dashboard mode.
+  if (isTauriMobile() && !_serverUrl && MOBILE_NATIVE_OS_COMMANDS.has(cmd)) {
+    const core = await import('@tauri-apps/api/core')
+    return core.invoke<T>(cmd, args)
+  }
   if (isTauri() && !REST_FIRST.has(cmd)) {
     // ── Tauri IPC path ────────────────────────────────────
     const core = await import('@tauri-apps/api/core')

@@ -4,8 +4,9 @@
 // threw "not supported": each mapped command must build the server path the
 // dashboard actually serves (see crates/web/src/lib.rs), and local-only
 // commands must be listed in WRITE_ONLY_COMMANDS instead of 404ing.
+import fs from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { REST_FIRST, REST_ROUTES, WRITE_ONLY_COMMANDS } from '@/composables/useTauri'
+import { MOBILE_NATIVE_OS_COMMANDS, REST_FIRST, REST_ROUTES, WRITE_ONLY_COMMANDS } from '@/composables/useTauri'
 
 describe('REST route coverage', () => {
   it('maps suggest to the server suggest endpoint', () => {
@@ -31,6 +32,25 @@ describe('REST route coverage', () => {
       content: 'hi',
     })
     expect(REST_FIRST.has('os_write')).toBe(true)
+  })
+
+  it('routes local mobile telemetry through native IPC while retaining REST mappings', () => {
+    for (const cmd of ['os_ps', 'os_top', 'os_workers', 'os_jobs', 'os_df']) {
+      expect(REST_ROUTES[cmd]).toBeTruthy()
+      expect(REST_FIRST.has(cmd)).toBe(true)
+      expect(MOBILE_NATIVE_OS_COMMANDS.has(cmd)).toBe(true)
+    }
+    expect(MOBILE_NATIVE_OS_COMMANDS.has('os_exec')).toBe(false)
+    expect(MOBILE_NATIVE_OS_COMMANDS.has('os_write')).toBe(false)
+  })
+
+  it('registers every mobile telemetry IPC command in the Tauri backend', () => {
+    const commands = fs.readFileSync('src-tauri/src/commands/os_metrics.rs', 'utf8')
+    const runtime = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
+    for (const cmd of ['os_ps', 'os_top', 'os_workers', 'os_jobs', 'os_df']) {
+      expect(commands).toMatch(new RegExp(`pub fn ${cmd}\\b`))
+      expect(runtime).toContain(`commands::os_metrics::${cmd}`)
+    }
   })
 
   it('encodes OS volume paths as ?path= (P1-7)', () => {

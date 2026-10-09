@@ -84,7 +84,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="stat">
         <span class="stat-key">CPU</span>
-        <span class="stat-val">{{ store.osTop ? store.osTop.cpuPercent.toFixed(1) : '0.0' }}%</span>
+        <span class="stat-val">{{ store.osTop ? `${store.osTop.cpuPercent.toFixed(1)}%` : 'n/a' }}</span>
       </div>
       <div class="stat">
         <span class="stat-key">RSS</span>

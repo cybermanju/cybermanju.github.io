@@ -36,9 +36,12 @@ shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
 
 * Permissions: `INTERNET`, `ACCESS_NETWORK_STATE` (LAN REST + OAuth),
   `ACCESS_FINE/COARSE_LOCATION` (GPS MapView), `CAMERA` (face capture),
-  `RECORD_AUDIO` (voice input), `POST_NOTIFICATIONS`. All optional-hardware
-  permissions are runtime-requested by the WebView bridge; declaring them is
-  what makes the `Permissions-Policy` override below effective.
+  `RECORD_AUDIO` (voice input), `POST_NOTIFICATIONS`. Manifest declarations do
+  not display a prompt by themselves: location/camera/microphone/notification
+  prompts are tied to the corresponding user-triggered feature/API call. CPU,
+  RAM/process metrics and WebView storage quota are not Android runtime
+  permissions, so they must not trigger a system dialog. File access uses the
+  system picker (SAF) rather than broad shared-storage permission.
 * `android:usesCleartextTraffic="true"` — the LAN dashboard is plain
   `http://nas:3456`; without this Android 9+ blocks the REST transport.
 * `android:allowBackup="false"` (fail-closed): auto-backup of `cybermanju.db`
