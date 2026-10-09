@@ -158,8 +158,7 @@ async fn agent_prompt_inner(req_json: &str) -> Result<String, String> {
         cybermanju_agent::protocol::openai_parse(&value)
     } else {
         cybermanju_agent::protocol::anthropic_parse(&value)
-    }
-    .map_err(|e| e)?;
+    }?;
     serde_json::to_string(&serde_json::json!({
         "content": turn.content,
         "tool_calls": turn.tool_calls,

@@ -3545,7 +3545,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 /// Shared `-i`/`-n` flag parsing for `grep` on both filesystems (volume
 /// and `-os`): combined short flags, `--long` forms, and anything else
 /// (including paths that merely contain `/`) falls through to operands.
-fn parse_grep_flags<'a>(args: &'a [String]) -> (bool, bool, Vec<&'a String>) {
+fn parse_grep_flags(args: &[String]) -> (bool, bool, Vec<&String>) {
     let mut insensitive = false;
     let mut show_line = false;
     let mut rest: Vec<&String> = Vec::new();

@@ -569,7 +569,7 @@ fn is_statement_kw(word: &str) -> bool {
 /// 2 spaces per level, strips trailing whitespace, keeps semantics.
 /// Idempotent: formatting formatted output is a fixed point.
 pub fn format_source(source: &str) -> Result<String, String> {
-    check_version_pin(source).map_err(|e| e)?;
+    check_version_pin(source)?;
     let lines = split_lines(source)?;
     let mut out = Vec::new();
     // Stack of indent contexts: each entry is the source indent of a block
@@ -1517,7 +1517,6 @@ fn split_fetch_full(rest: &str, lineno: usize) -> Result<FetchSpec, String> {
     let (url_src, method) = match split_top_kw(&head, "method") {
         Some((h, t)) => {
             let m = t
-                .trim()
                 .split_whitespace()
                 .next()
                 .unwrap_or("")
@@ -1779,7 +1778,6 @@ fn split_await(rest: &str, lineno: usize) -> Result<(String, usize), String> {
     match split_top_kw(rest, "timeout") {
         Some((h, t)) => {
             let n: usize = t
-                .trim()
                 .split_whitespace()
                 .next()
                 .unwrap_or("")
@@ -1793,7 +1791,6 @@ fn split_await(rest: &str, lineno: usize) -> Result<(String, usize), String> {
                 ));
             }
             let trailing: String = t
-                .trim()
                 .split_whitespace()
                 .skip(1)
                 .collect::<Vec<_>>()
