@@ -606,10 +606,7 @@ impl Database {
         Ok(rows)
     }
 
-    pub fn get_secret(
-        &self,
-        id: &str,
-    ) -> Result<Option<cybermanju_types::secrets::SecretRow>> {
+    pub fn get_secret(&self, id: &str) -> Result<Option<cybermanju_types::secrets::SecretRow>> {
         let tx = self.db.begin_read()?;
         let table = tx.open_table(SECRETS_TABLE)?;
         match table.get(id)? {
@@ -633,7 +630,8 @@ impl Database {
         let tx = self.db.begin_write()?;
         let removed = {
             let mut table = tx.open_table(SECRETS_TABLE)?;
-            table.remove(id)?.is_some()
+            let removed = table.remove(id)?.is_some();
+            removed
         };
         tx.commit()?;
         Ok(removed)

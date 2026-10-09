@@ -271,7 +271,7 @@ pub fn system_prompt(
           optional tab/path navigate inside the panel. Read-only and always allowed.\n\
           - ui_notify {{level, message}}: show the user a notification \
           (info/success/warning/error). Always allowed; use sparingly.\n\
-          - secret_list {}: list vault secret METADATA only (id/title/kind/\
+          - secret_list {{}}: list vault secret METADATA only (id/title/kind/\
           username/url/tags/hasValue) — never values. Pair with secret_get \
           only when the user explicitly asked you to use a stored credential.\n\
           - secret_get {{id}}: reveal ONE stored secret's plaintext. The \

@@ -172,8 +172,7 @@ pub fn ml_dsa65_verify(
 // the base64 blob in the `secrets` table. The encode side is
 // `artifact::seal` (same Argon2id m=19456,t=2,p=1 + ChaCha20Poly1305).
 
-const B64_ALPHABET: &[u8; 64] =
-    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const B64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /// Standard base64 with padding — same alphabet/-padding as the native
 /// `base64 0.22` STANDARD engine, so the on-disk strings are identical.
@@ -290,8 +289,7 @@ mod tests {
     #[test]
     fn seal_open_round_trips() {
         let sealed = crate::artifact::seal("vault-pass", b"hunter2").expect("seal");
-        let opened =
-            crate::artifact::open_sealed("vault-pass", &sealed).expect("open");
+        let opened = crate::artifact::open_sealed("vault-pass", &sealed).expect("open");
         assert_eq!(opened, b"hunter2");
         assert!(crate::artifact::open_sealed("wrong", &sealed).is_err());
     }

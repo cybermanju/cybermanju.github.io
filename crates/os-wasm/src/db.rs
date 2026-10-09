@@ -825,8 +825,7 @@ pub fn db_dispatch(op: &str, args_json: &str) -> String {
                 let passphrase = opt_arg(&args, "passphrase").unwrap_or_default();
                 if passphrase.is_empty() {
                     return Err(
-                        "unsupported: no vault passphrase — unlock the session first"
-                            .to_string(),
+                        "unsupported: no vault passphrase — unlock the session first".to_string(),
                     );
                 }
                 if plaintext.trim().is_empty() {
@@ -849,7 +848,12 @@ pub fn db_dispatch(op: &str, args_json: &str) -> String {
             // Timestamps mirror the native `now()`; fill defaults when
             // absent (the caller may pass `now` for deterministic tests).
             for field in ["createdAt", "updatedAt"] {
-                if row.get(field).and_then(|v| v.as_str()).unwrap_or("").is_empty() {
+                if row
+                    .get(field)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .is_empty()
+                {
                     row[field] = serde_json::Value::String(now.to_string());
                 }
             }
@@ -882,8 +886,7 @@ pub fn db_dispatch(op: &str, args_json: &str) -> String {
             let passphrase = opt_arg(&args, "passphrase").unwrap_or_default();
             if passphrase.is_empty() {
                 return Err(
-                    "unsupported: no vault passphrase — unlock the session first"
-                        .to_string(),
+                    "unsupported: no vault passphrase — unlock the session first".to_string(),
                 );
             }
             let value = crate::crypto::open_blob_str(&passphrase, sealed)

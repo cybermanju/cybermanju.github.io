@@ -2050,8 +2050,7 @@ fn exec_tool(
         // path that reveals plaintext, and the permission gate asks first.
         "secret_list" => {
             let metas = crate::api::secrets::list(db)?;
-            serde_json::to_string(&metas)
-                .map_err(|e| format!("integrity: serialize secrets: {e}"))
+            serde_json::to_string(&metas).map_err(|e| format!("integrity: serialize secrets: {e}"))
         }
         "secret_get" => {
             let id = get("id");

@@ -148,12 +148,7 @@ pub fn upsert(db: &Database, req: &CreateRequest) -> Result<SecretMeta, String> 
     }
     let passphrase = require_passphrase()?;
     let ts = now();
-    let id = match req
-        .id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    let id = match req.id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(id) => id.to_string(),
         None => uuid::Uuid::new_v4().to_string(),
     };
@@ -325,9 +320,10 @@ pub fn route(
             Err(e) => respond(Err(e), origin),
         },
 
-        ["api", "secrets", id, "reveal"] if method == "GET" => {
-            respond(reveal(db, id).map(|v| serde_json::json!({ "value": v })), origin)
-        }
+        ["api", "secrets", id, "reveal"] if method == "GET" => respond(
+            reveal(db, id).map(|v| serde_json::json!({ "value": v })),
+            origin,
+        ),
 
         ["api", "secrets", id] if method == "GET" => respond(get_meta(db, id), origin),
 
@@ -358,9 +354,7 @@ mod tests {
         fn claimed(segments: &[&str]) -> bool {
             matches!(
                 segments,
-                ["api", "secrets"]
-                    | ["api", "secrets", _]
-                    | ["api", "secrets", _, "reveal"]
+                ["api", "secrets"] | ["api", "secrets", _] | ["api", "secrets", _, "reveal"]
             )
         }
         assert!(claimed(&["api", "secrets"]));

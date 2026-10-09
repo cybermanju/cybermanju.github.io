@@ -738,3 +738,38 @@ Stage Summary:
   `cybsh-script` red (fetchText signature) fixed.
 - Verified: `check-version.sh` ok; `vue-tsc` clean; `npm test` 671/671.
   Rust left to CI per AGENTS.md.
+
+## 2026-10-09 — Phase 3: secrets keystore (password manager) end-to-end
+- Rust data model: `crates/types/src/secrets.rs` (`SecretRow`, `SecretMeta`
+  structural never-leak projection, `SecretKind` login/card/note/apiKey);
+  `secrets` table + CRUD in `crates/db/src/database.rs` (opened in init +
+  snapshot export). Values sealed with `keystore::seal_str` (`seal:v1`,
+  Argon2id + ChaCha20Poly1305) under `master_passphrase()` — absent
+  passphrase answers `unsupported:`, never plaintext-at-rest.
+- REST: `crates/web/src/api/secrets.rs` (single source for Tauri + REST +
+  WASM twin): list/get return `SecretMeta` only; upsert seals `value` and
+  never echoes it; reveal opens the blob + `log_audit("secret.reveal")`;
+  delete audited. Wired in `lib.rs`; `ROUTED_SEGMENTS += "secrets"`;
+  mutations/reveal Admin-gated, list Authenticated.
+- Tauri: `src-tauri/src/commands/secrets.rs` (6 commands) + lib.rs
+  registration. WASM: `secrets.list/get/create/update/delete/reveal` ops in
+  `os-wasm/db.rs` (session passphrase is an argument, never stored);
+  `seal_blob`/`open_blob` exports in `os-wasm/crypto.rs` (inline base64,
+  byte-compatible with the native STANDARD engine — no new dep).
+- Agent tools (18→20): `secret_list` (metadata, default allow) +
+  `secret_get` (plaintext, default ask — approval card shows the title);
+  plan agents deny both; subagents exclude both; prompts ×3
+  (agent_loop, AgentPanel, useStudioAgent); AGENT_TOOL_META + AGENT_TOOLS
+  + balanced preset + `ensure_default_agent_permissions` (+secret_list).
+- UI: `SecretsPanel.vue` (category sidebar, search, list, detail card with
+  30s auto-hide Reveal, clipboard auto-clear Copy, edit/create modal with
+  live strength meter); `src/utils/password.ts` (crypto.getRandomValues,
+  rejection sampling, entropy bits) + `src/utils/clipboard.ts` (30s
+  overwrite, second-copy cancels first); PanelType `secrets` + aliases
+  `passwords|credentials` (`vault` deliberately not — AccountManager tab
+  collision); store `secrets` + 5 actions; transport routes REST/IPC/wasm.
+- Tests: `password-clipboard.test.ts` 10/10 (charset/entropy/strength/
+  fake-timer auto-clear); transport-routes secrets REST/IPC + Tauri wiring
+  + Admin-gate assertions; panel-aliases vault cases; agent-wasm-parity
+  plan-deny + toolMeta 20. `npm test` 692/692; `vue-tsc` clean;
+  `check-version.sh` ok. Rust left to CI per AGENTS.md.
