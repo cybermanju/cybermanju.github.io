@@ -71,9 +71,10 @@ describe('narrow windows (container)', () => {
     })
   }
 
-  it('hides the same code-studio rails as the 860px viewport rule', () => {
+  it('keeps the mobile agent integrated and exposes editor workspaces', () => {
     const studio = fs.readFileSync('src/components/CodeStudio.vue', 'utf8')
-    expect(studio).toMatch(/@media\s*\(max-width:\s*860px\)[\s\S]*?\.cs-ai\s*\{\s*display:\s*none/)
+    expect(studio).toMatch(/@media\s*\(max-width:\s*860px\)[\s\S]*?\.cs-ai\s*\{\s*display:\s*flex;\s*position:\s*absolute/)
+    expect(studio).toContain('<nav v-if="isMobileLayout" class="cs-mobilebar"')
     expect(narrowBlock()).toMatch(/\.app-window--narrow\s+\.cs-side/)
     expect(studio).toContain("'is-mobile-drawer': isMobileLayout")
     expect(narrowBlock()).toMatch(/\.app-window--narrow\s+\.cs-side\.is-mobile-drawer\s*\{\s*display:\s*flex/)

@@ -508,6 +508,8 @@ onUnmounted(() => {
 /* Mobile sheets: use a clean centered title and no draggable desktop chrome. */
 @media (max-width: 768px) {
   .window-titlebar {
+    height: 40px;
+    min-height: 40px;
     padding: 0 12px;
     cursor: default;
   }

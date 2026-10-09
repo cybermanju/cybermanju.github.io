@@ -369,8 +369,8 @@ body.cybermanju-offline .server-only {
 /* ── mobile desktop (phones ≤768px, Android WebView) ────────────────────
    The window manager stays mounted, but phones get one fullscreen sheet at
    a time: no desktop icons, no floating drag/resize, bottom nav owns the
-   last 64px + safe-area. All form controls hit 44px targets and 16px type
-   so the WebView never auto-zooms. */
+   last 64px + safe-area. Form fields stay at 16px to prevent WebView zoom;
+   compact icon controls keep their intended dimensions. */
 @media (max-width: 768px) {
   /* Perf: phones get zero backdrop-blur (GPU killer) — vibrancy surfaces
      fall back to near-opaque tints, so solid fills look identical. */
@@ -486,10 +486,14 @@ body.cybermanju-offline .server-only {
     font-size: 16px !important;
   }
 
-  button,
+  .bw-btn,
   .am-btn,
   .sw-btn,
-  .ghost-btn {
+  .ghost-btn,
+  .fm-pill,
+  .fm-mobile-tool,
+  .cs-btn,
+  .mn-btn {
     min-height: 44px;
   }
 

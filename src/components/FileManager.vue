@@ -66,7 +66,7 @@
       </div>
 
       <div class="fm-topactions">
-        <button v-if="isMobileView" class="fm-pill ghost fm-mobile-more" type="button" :aria-expanded="mobileToolsOpen" @click="mobileToolsOpen = !mobileToolsOpen">
+        <button v-if="isMobileView" class="fm-pill ghost fm-mobile-more" type="button" :aria-label="mobileToolsOpen ? 'Close tools and actions' : 'Open tools and actions'" :aria-expanded="mobileToolsOpen" @click="mobileToolsOpen = !mobileToolsOpen">
           <AppIcon name="solar:widget-5-bold" :size="15" /> <span>{{ mobileToolsOpen ? 'Close tools' : 'Tools & actions' }}</span>
         </button>
         <template v-else>
@@ -80,6 +80,14 @@
       <div v-if="isMobileView && mobileToolsOpen" class="fm-mobile-tools-menu" role="group" aria-label="File Manager tools" @keydown.esc.stop="mobileToolsOpen = false">
         <div class="fm-mobile-tools-head"><strong>Tools &amp; actions</strong><button class="fm-ibtn" type="button" aria-label="Close tools" @click="mobileToolsOpen = false"><AppIcon name="solar:close-bold" :size="16" /></button></div>
         <div class="fm-mobile-tools-group">
+          <span class="fm-mobile-tools-label">Navigate</span>
+          <button class="fm-mobile-tool" type="button" :disabled="!canBack" @click="goBack(); mobileToolsOpen = false"><AppIcon name="solar:alt-arrow-left-bold" :size="17" /> Back</button>
+          <button class="fm-mobile-tool" type="button" :disabled="!canFwd" @click="goFwd(); mobileToolsOpen = false"><AppIcon name="solar:alt-arrow-right-bold" :size="17" /> Forward</button>
+          <button class="fm-mobile-tool" type="button" @click="goUp(); mobileToolsOpen = false"><AppIcon name="solar:alt-arrow-up-bold" :size="17" /> Up one level</button>
+          <button class="fm-mobile-tool" type="button" @click="goHome(); mobileToolsOpen = false"><AppIcon name="solar:house-bold" :size="17" /> Vault home</button>
+          <button class="fm-mobile-tool" type="button" @click="refresh(); mobileToolsOpen = false"><AppIcon name="solar:refresh-bold" :size="17" /> Refresh files</button>
+        </div>
+        <div class="fm-mobile-tools-group">
           <span class="fm-mobile-tools-label">Create and browse</span>
           <button class="fm-mobile-tool" type="button" @click="dlgFolder = true; mobileToolsOpen = false"><AppIcon name="solar:add-folder-bold" :size="17" /> New folder</button>
           <button class="fm-mobile-tool" type="button" @click="onUploadClick(); mobileToolsOpen = false"><AppIcon name="solar:upload-bold" :size="17" /> Upload or new file</button>
@@ -89,8 +97,14 @@
           <span class="fm-mobile-tools-label">Workspace</span>
           <button class="fm-mobile-tool" type="button" :class="{ on: termOpen }" @click="toggleTerm(); mobileToolsOpen = false"><AppIcon name="solar:file-terminal-bold" :size="17" /> {{ termOpen ? 'Close terminal' : 'Open terminal' }}</button>
           <button class="fm-mobile-tool" type="button" :class="{ on: mobileInspectorOpen }" @click="toggleInspectorPanel(); mobileToolsOpen = false"><AppIcon name="solar:info-circle-bold" :size="17" /> Details and info</button>
+        </div>
+        <div class="fm-mobile-tools-group">
+          <span class="fm-mobile-tools-label">Filters and selection</span>
           <button class="fm-mobile-tool" type="button" :class="{ on: showHidden }" @click="showHidden = !showHidden; mobileToolsOpen = false"><AppIcon name="solar:eye-bold" :size="17" /> {{ showHidden ? 'Hide hidden files' : 'Show hidden files' }}</button>
           <button class="fm-mobile-tool" type="button" :class="{ on: onlyMedia }" @click="onlyMedia = !onlyMedia; mobileToolsOpen = false"><AppIcon name="solar:gallery-bold" :size="17" /> {{ onlyMedia ? 'Show all files' : 'Filter media' }}</button>
+          <button class="fm-mobile-tool" type="button" :class="{ on: density === 'compact' }" @click="density = density === 'compact' ? 'cozy' : 'compact'; mobileToolsOpen = false"><AppIcon name="solar:widget-2-bold" :size="17" /> {{ density === 'compact' ? 'Cozy spacing' : 'Compact spacing' }}</button>
+          <button class="fm-mobile-tool" type="button" @click="selectAll(); mobileToolsOpen = false"><AppIcon name="solar:checklist-bold" :size="17" /> Select all files</button>
+          <button class="fm-mobile-tool" type="button" @click="clearSel(); mobileToolsOpen = false"><AppIcon name="solar:close-bold" :size="17" /> Clear selection</button>
         </div>
         <div class="fm-mobile-tools-group">
           <span class="fm-mobile-tools-label">View</span>
@@ -2195,23 +2209,28 @@ onBeforeUnmount(() => {
   .fm-local-editor__foot .fm-mrow { display: grid; grid-template-columns: 1fr 1fr; }
   .fm-local-editor__foot .fm-pill { min-height: 44px; justify-content: center; }
   .fm-top {
-    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas: 'nav crumbs' 'search search' 'tools tools';
+    display: grid; grid-template-columns: 40px minmax(0, 1fr) 42px;
+    grid-template-areas: 'nav crumbs tools' 'search search search';
     gap: 6px; padding: 7px 8px; position: relative; z-index: 20;
   }
   .fm-nav { grid-area: nav; min-width: 0; overflow-x: auto; }
-  .fm-nav .fm-ibtn { width: 34px; min-width: 34px; height: 38px; }
+  .fm-nav .fm-ibtn { width: 38px; min-width: 38px; height: 40px; }
+  .fm-nav .fm-ibtn:not(:first-child) { display: none; }
   .fm-crumbs { grid-area: crumbs; order: 0; flex-basis: auto; min-width: 0; min-height: 40px; padding-inline: 4px; }
   .fm-crumb { gap: 4px; padding-inline: 5px; font-size: 10.5px; }
   .fm-search { grid-area: search; width: 100%; max-width: none; min-width: 0; height: 44px; box-sizing: border-box; }
   .fm-search input { font-size: 16px; }
-  .fm-topactions { grid-area: tools; min-width: 0; max-width: 100%; justify-content: stretch; }
-  .fm-topactions .fm-mobile-more { width: 100%; min-height: 44px; justify-content: center; }
-  .fm-mobile-more span { display: inline; }
+  .fm-topactions { grid-area: tools; min-width: 0; max-width: 100%; justify-content: flex-end; }
+  .fm-topactions .fm-mobile-more { width: 42px; min-width: 42px; min-height: 42px; justify-content: center; padding: 0; }
+  .fm-mobile-more span { display: none; }
   .fm-sub { gap: 6px; padding: 5px 8px; font-size: 10px; }
+  .fm-sub .fm-dot, .fm-sub .hide-sm, .fm-sub .fm-vol, .fm-sub .fm-pchip, .fm-sub .fm-pill { display: none; }
+  .fm-sub .fm-stat { font-size: 10px; }
   .fm-pchip { font-size: 9px; }
   .fm-ctool { min-height: 48px; flex-shrink: 0; gap: 7px; overflow-x: auto; padding: 5px 8px; touch-action: pan-x; }
   .fm-ctool .fm-spacer { display: none; }
+  .fm-ctool > :nth-child(n + 4) { display: none; }
+  .fm-ctool .fm-ibtn { min-width: 40px; min-height: 40px; }
   .fm-select, .fm-chipbtn, .fm-ctool .fm-pill { min-height: 38px; flex-shrink: 0; }
   .fm-bulk { min-height: 48px; flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto; }
   .fm-bulk button { flex: 0 0 40px; min-height: 40px; justify-content: center; }
@@ -2270,17 +2289,26 @@ onBeforeUnmount(() => {
 }
 
 @container file-manager (max-width: 560px) {
-  .fm-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: 'nav crumbs' 'search search' 'tools tools'; gap: 6px; padding: 7px 8px; position: relative; z-index: 20; }
+  .fm-top { display: grid; grid-template-columns: 40px minmax(0, 1fr) 42px; grid-template-areas: 'nav crumbs tools' 'search search search'; gap: 6px; padding: 7px 8px; position: relative; z-index: 20; }
   .fm-nav { grid-area: nav; min-width: 0; overflow-x: auto; }
-  .fm-nav .fm-ibtn { width: 34px; min-width: 34px; height: 38px; }
+  .fm-nav .fm-ibtn { width: 38px; min-width: 38px; height: 40px; }
+  .fm-nav .fm-ibtn:not(:first-child) { display: none; }
   .fm-crumbs { grid-area: crumbs; order: 0; flex-basis: auto; min-width: 0; min-height: 40px; padding-inline: 4px; }
   .fm-crumb { gap: 4px; padding-inline: 5px; font-size: 10.5px; }
   .fm-search { grid-area: search; width: 100%; max-width: none; min-width: 0; height: 44px; box-sizing: border-box; }
   .fm-search input { font-size: 16px; }
-  .fm-topactions { grid-area: tools; min-width: 0; max-width: 100%; justify-content: stretch; }
-  .fm-topactions .fm-mobile-more { width: 100%; min-height: 44px; justify-content: center; }
-  .fm-mobile-more span { display: inline; }
-  .fm-mobile-tools-menu { position: absolute; top: calc(100% + 4px); left: 8px; right: 8px; z-index: 80; max-height: min(72dvh, 72cqh); overflow-y: auto; overscroll-behavior: contain; padding: 8px; border: 1px solid var(--ui-border-strong); border-radius: 16px; background: var(--ui-surface-2); color: var(--ui-text); box-shadow: var(--ui-shadow-3); }
+  .fm-topactions { grid-area: tools; min-width: 0; max-width: 100%; justify-content: flex-end; }
+  .fm-topactions .fm-mobile-more { width: 42px; min-width: 42px; min-height: 42px; justify-content: center; padding: 0; }
+  .fm-mobile-more span { display: none; }
+  .fm-sub { gap: 6px; padding: 5px 8px; font-size: 10px; }
+  .fm-sub .fm-dot, .fm-sub .hide-sm, .fm-sub .fm-vol, .fm-sub .fm-pchip, .fm-sub .fm-pill { display: none; }
+  .fm-sub .fm-stat { font-size: 10px; }
+  .fm-ctool { min-height: 48px; flex-shrink: 0; gap: 7px; overflow-x: auto; padding: 5px 8px; touch-action: pan-x; }
+  .fm-ctool .fm-spacer { display: none; }
+  .fm-ctool > :nth-child(n + 4) { display: none; }
+  .fm-ctool .fm-ibtn { min-width: 40px; min-height: 40px; }
+  .fm-select, .fm-chipbtn, .fm-ctool .fm-pill { min-height: 38px; flex-shrink: 0; }
+  .fm-mobile-tools-menu { position: fixed; inset: 8px; z-index: 80; max-height: none; overflow-y: auto; overscroll-behavior: contain; padding: 10px 10px max(12px, env(safe-area-inset-bottom)); border: 1px solid var(--ui-border-strong); border-radius: 20px; background: var(--ui-surface-2); color: var(--ui-text); box-shadow: var(--ui-shadow-3); }
 }
 
 .fm-mobile-tools-menu { display: flex; flex-direction: column; gap: 8px; }
@@ -2289,6 +2317,7 @@ onBeforeUnmount(() => {
 .fm-mobile-tools-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .fm-mobile-tools-label { grid-column: 1 / -1; padding: 3px 4px; color: var(--ui-text-3); font-size: 10px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
 .fm-mobile-tool { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; padding: 8px 10px; border: 1px solid var(--ui-border); border-radius: 11px; background: color-mix(in srgb, var(--ui-text) 3%, transparent); color: var(--ui-text); font: inherit; font-size: 11px; text-align: left; }
+.fm-mobile-tool:disabled { opacity: .4; cursor: default; }
 .fm-mobile-tool.on { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); background: var(--ui-accent-softer); color: var(--ui-accent); }
 .fm-mobile-view-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 </style>

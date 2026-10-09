@@ -5,12 +5,16 @@
     <!-- ══ TOP: window-ish toolbar ══ -->
     <header class="cs-top">
       <div class="cs-logo"><AppIcon name="solar:file-code-bold" :size="14" /><b>STUDIO</b></div>
+      <div class="cs-mobile-file" :title="focusTab?.path || focusTab?.label || 'No file open'">
+        <b>{{ focusTab?.label || 'Choose a file' }}</b>
+        <span v-if="focusTab?.dirty" aria-label="Unsaved changes">●</span>
+      </div>
       <span class="cs-transport">{{ transportLabel }}</span>
       <span v-if="focusTab?.parse" class="cs-engine" :class="{ ts: focusTab.parse.engine === 'tree-sitter' }" :title="focusTab.parse.engine === 'tree-sitter' ? 'Real grammar parse' : 'Heuristic fallback'">
         {{ (focusTab.parse.engine || 'heuristic').toUpperCase() }}
       </span>
       <span class="cs-spacer" />
-      <button class="cs-btn" :disabled="!focusTab || saving" title="Save (Ctrl+S)" @click="saveTab(focusTab)"><AppIcon name="solar:diskette-bold" :size="13" /> {{ saving ? 'Saving…' : 'Save' }}</button>
+      <button class="cs-btn" :disabled="!focusTab || saving" title="Save (Ctrl+S)" @click="saveTab(focusTab)"><AppIcon name="solar:diskette-bold" :size="13" /> <span class="cs-btn-label">{{ saving ? 'Saving…' : 'Save' }}</span></button>
       <button class="cs-btn" :disabled="!focusTab" title="Split editor right" @click="splitRight"><AppIcon name="solar:columns-3-bold" :size="13" /> Split</button>
       <div v-if="voice.isSupported.value" class="cs-voice-group">
         <div class="cs-voice-pop" role="group" aria-label="Voice-code language">
@@ -20,9 +24,17 @@
         </div>
         <button class="cs-btn" :class="{ on: voiceCoding }" :disabled="!focusTab" type="button" :title="voiceCoding ? `Listening… ${voice.interim.value || 'speak code'}` : 'Voice-code: dictate code at the cursor (“open paren”, “camel case …”, “nova linha”) — parsed live. Hover for EN/PT.'" @click="toggleVoiceCode"><AppIcon name="solar:microphone-bold" :size="13" /> {{ voiceCoding ? 'Stop' : 'Voice' }}</button>
       </div>
-      <button class="cs-btn" :class="{ on: aiOpen }" title="Toggle AI panel (Ctrl+G)" @click="aiOpen = !aiOpen"><AppIcon name="solar:bot-bold" :size="13" /> AI</button>
+      <button class="cs-btn" :class="{ on: aiOpen }" title="Toggle AI panel (Ctrl+G)" @click="isMobileLayout ? toggleMobileAgent() : aiOpen = !aiOpen"><AppIcon name="solar:bot-bold" :size="13" /> <span class="cs-btn-label">AI</span></button>
       <button class="cs-btn" :class="{ on: bottomOpen }" title="Toggle panel (Ctrl+`)" @click="bottomOpen = !bottomOpen"><AppIcon name="solar:file-terminal-bold" :size="13" /> Panel</button>
     </header>
+
+    <nav v-if="isMobileLayout" class="cs-mobilebar" aria-label="Editor navigation">
+      <button v-for="a in activities" :key="a.id" type="button" :class="{ active: mobileExplorerOpen && sideView === a.id }" :aria-label="a.label" @click="openMobileSideView(a.id)">
+        <AppIcon :name="a.icon" :size="17" /><span>{{ a.id }}</span>
+      </button>
+      <button type="button" :class="{ active: aiOpen }" aria-label="AI agent" @click="toggleMobileAgent"><AppIcon name="solar:bot-bold" :size="17" /><span>Agent</span></button>
+      <button type="button" :class="{ active: bottomOpen }" aria-label="Terminal" @click="toggleMobileTerminal"><AppIcon name="solar:file-terminal-bold" :size="17" /><span>Terminal</span></button>
+    </nav>
 
     <div class="cs-mid">
       <!-- ══ ACTIVITY BAR ══ -->
@@ -36,7 +48,7 @@
       </nav>
 
       <!-- ══ SIDEBAR ══ -->
-      <aside v-if="sideView" class="cs-side" :class="{ 'is-mobile-drawer': isMobileLayout }" :aria-label="`${sideView} panel`" :aria-modal="isMobileLayout ? 'true' : undefined" :role="isMobileLayout ? 'dialog' : 'complementary'">
+      <aside v-if="sideView" class="cs-side" :class="{ 'is-mobile-drawer': isMobileLayout, 'is-mobile-open': mobileExplorerOpen }" :aria-label="`${sideView} panel`" :aria-modal="isMobileLayout && mobileExplorerOpen ? 'true' : undefined" :role="isMobileLayout && mobileExplorerOpen ? 'dialog' : 'complementary'">
         <!-- FILES -->
         <template v-if="sideView === 'files'">
           <div class="cs-side-h">EXPLORER
@@ -164,7 +176,7 @@
         </template>
       </aside>
 
-      <button v-if="sideView" class="cs-drawer-backdrop" aria-label="Close panel" @click="sideView = ''" />
+      <button v-if="isMobileLayout && sideView && mobileExplorerOpen" class="cs-drawer-backdrop" aria-label="Close panel" @click="mobileExplorerOpen = false" />
 
       <!-- ══ EDITOR COLUMN ══ -->
       <section class="cs-edcol">
@@ -183,6 +195,7 @@
               <AppIcon name="solar:file-code-bold" :size="34" />
               <p>Open a file from the Explorer</p>
               <span class="dim">Ctrl+S saves (versions snapshot) · Ctrl+F finds · Ctrl+G splits AI in</span>
+              <button v-if="isMobileLayout" class="cs-btn primary" type="button" @click="openMobileSideView('files')"><AppIcon name="solar:folder-bold" :size="14" /> Browse files</button>
             </div>
           </div>
           <!-- GROUP B -->
@@ -398,8 +411,12 @@ const transportBackend = computed(() => useTransport().backend)
 const isDesktop = computed(() => transportBackend.value === 'tauri')
 const isWasm = computed(() => transportBackend.value === 'wasm')
 const isMobileLayout = ref(false)
+const mobileExplorerOpen = ref(false)
 const mobileMedia = typeof window !== 'undefined' ? window.matchMedia('(max-width: 860px)') : null
-const syncMobileLayout = () => { isMobileLayout.value = mobileMedia?.matches ?? false }
+const syncMobileLayout = () => {
+  isMobileLayout.value = mobileMedia?.matches ?? false
+  if (!isMobileLayout.value) mobileExplorerOpen.value = false
+}
 const transportLabel = computed(() => (isDesktop.value ? 'DESKTOP' : isWasm.value ? 'WASM LOCAL' : 'WEB / REST'))
 
 const tabs = ref<Tab[]>([])
@@ -500,9 +517,10 @@ async function openNode(n: FileNode) {
   if (n.fileType === 'folder') return
   const key = `m:${n.id}`
   const existing = tabs.value.find(t => t.key === key)
-  if (existing) { activate(key, activeGroup.value); return }
+  if (existing) { mobileExplorerOpen.value = false; activate(key, activeGroup.value); return }
   const res = await store.readManagedContent(n.id)
   if (!res) return
+  mobileExplorerOpen.value = false
   tabs.value.push({ key, label: n.name, kind: 'managed', fileId: n.id, path: n.id, language: detectLanguage(n.name, res.content).language, content: res.content, savedContent: res.content, dirty: false, parse: null })
   activate(key, activeGroup.value)
   void reparse(tabs.value[tabs.value.length - 1])
@@ -571,9 +589,10 @@ async function createWasmFile() {
 async function openWasmPath(path: string, label: string) {
   const key = `w:${path}`
   const existing = tabs.value.find(t => t.key === key)
-  if (existing) { activate(key, activeGroup.value); return }
+  if (existing) { mobileExplorerOpen.value = false; activate(key, activeGroup.value); return }
   const content = await store.readWasmFile(path)
   if (content === null) return
+  mobileExplorerOpen.value = false
   tabs.value.push({ key, label, kind: 'wasm', fileId: '', path, language: detectLanguage(label, content).language, content, savedContent: content, dirty: false, parse: null })
   activate(key, activeGroup.value)
   void reparse(tabs.value[tabs.value.length - 1])
@@ -1003,7 +1022,24 @@ async function completeTerm() {
 
 /* ═══════════════ AI panel ═══════════════ */
 
-const aiOpen = ref(true)
+const aiOpen = ref(!(mobileMedia?.matches ?? false))
+function openMobileSideView(view: string) {
+  aiOpen.value = false
+  bottomOpen.value = false
+  if (sideView.value === view && mobileExplorerOpen.value) mobileExplorerOpen.value = false
+  else { sideView.value = view; mobileExplorerOpen.value = true }
+}
+function toggleMobileAgent() {
+  aiOpen.value = !aiOpen.value
+  mobileExplorerOpen.value = false
+  if (aiOpen.value) bottomOpen.value = false
+}
+function toggleMobileTerminal() {
+  bottomTab.value = 'term'
+  bottomOpen.value = !bottomOpen.value
+  mobileExplorerOpen.value = false
+  if (bottomOpen.value) aiOpen.value = false
+}
 const promptInput = ref('')
 const promptEl = ref<HTMLTextAreaElement | null>(null)
 const threadRef = ref<HTMLElement | null>(null)
@@ -1323,6 +1359,7 @@ onBeforeUnmount(() => { mobileMedia?.removeEventListener('change', syncMobileLay
   background: var(--ui-surface);
   color: var(--ui-text); font-size: 12px; }
 .cs-aurora { display: none; }
+.cs-mobile-file, .cs-mobilebar { display: none; }
 
 /* top */
 .cs-top { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--ui-glass);
@@ -1548,19 +1585,27 @@ onBeforeUnmount(() => { mobileMedia?.removeEventListener('change', syncMobileLay
 
 @media (max-width: 1100px) { .cs-ai { width: 270px; } .cs-side { width: 190px; } }
 @media (max-width: 860px) {
-  .cs-top { gap: 6px; padding: calc(7px + env(safe-area-inset-top)) 8px 7px; flex-wrap: wrap; }
-  .cs-top .cs-btn[title="Split editor right"], .cs-top > .cs-voice-group { display: none; }
+  .cs { min-height: 0; }
+  .cs-top { display: flex; flex-wrap: nowrap; gap: 8px; padding: 7px 9px; }
+  .cs-top .cs-logo b { display: none; }
+  .cs-mobile-file { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; color: var(--ui-text); font-size: 12px; }
+  .cs-mobile-file b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cs-mobile-file span { flex: 0 0 auto; color: var(--ui-warning); }
   .cs-transport, .cs-engine { display: none; }
-  .cs-activity { width: 44px; padding-top: 10px; }
-  .cs-activity button { width: 44px; height: 44px; border-radius: 12px; }
-  .cs-ai { display: none; }
-  .cs-side {
-    display: flex; position: absolute; z-index: 20; inset: 0 auto 0 0; width: min(86vw, 320px); max-width: calc(100% - 44px);
-    padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
-    border: 0; border-right: 1px solid var(--ui-hairline); border-radius: 0 18px 18px 0;
-    background: var(--ui-surface); box-shadow: var(--ui-shadow-2); overflow: hidden;
-  }
-  .cs-drawer-backdrop { display: block; position: absolute; z-index: 19; inset: 0; width: 100%; height: 100%; border: 0; padding: 0; background: color-mix(in srgb, #000 28%, transparent); cursor: pointer; }
+  .cs-top .cs-btn[title="Split editor right"], .cs-top > .cs-voice-group,
+  .cs-top .cs-btn[title="Toggle panel (Ctrl+`)"] { display: none; }
+  .cs-top .cs-btn { min-height: 40px; padding: 7px 9px; }
+  .cs-top .cs-btn-label { display: none; }
+  .cs-top .cs-btn[title="Toggle AI panel (Ctrl+G)"] { min-width: 42px; justify-content: center; color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 36%, transparent); }
+  .cs-mobilebar { display: flex; align-items: stretch; gap: 3px; flex: 0 0 auto; overflow-x: auto; padding: 4px 6px; border-bottom: 1px solid var(--ui-hairline); background: var(--ui-surface); scrollbar-width: none; }
+  .cs-mobilebar::-webkit-scrollbar { display: none; }
+  .cs-mobilebar button { display: flex; flex: 1 0 48px; min-width: 48px; min-height: 46px; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 3px 4px; border: 1px solid transparent; border-radius: 11px; background: transparent; color: var(--ui-text-3); font: inherit; font-size: 9px; text-transform: capitalize; white-space: nowrap; }
+  .cs-mobilebar button.active { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 28%, transparent); background: var(--ui-accent-softer); }
+  .cs-mid { flex: 1; min-height: 0; overflow: hidden; }
+  .cs-activity { display: none; }
+  .cs-side { display: none; position: absolute; z-index: 31; inset: 0 12px 0 0; width: auto; max-width: none; padding: 10px 10px max(10px, env(safe-area-inset-bottom)); border: 1px solid var(--ui-border); border-radius: 0 18px 18px 0; background: var(--ui-surface-2); box-shadow: var(--ui-shadow-3); overflow: hidden; }
+  .cs-side.is-mobile-open { display: flex; }
+  .cs-drawer-backdrop { display: block; position: absolute; z-index: 30; inset: 0; width: 100%; height: 100%; border: 0; padding: 0; background: color-mix(in srgb, #000 32%, transparent); cursor: pointer; }
   .cs-drawer-close, .cs-side .cs-ibtn { min-width: 44px; min-height: 44px; }
   .cs-side-h { min-height: 44px; }
   .cs-input, .cs-select { min-height: 44px; font-size: 16px; }
@@ -1568,11 +1613,35 @@ onBeforeUnmount(() => { mobileMedia?.removeEventListener('change', syncMobileLay
   .cs-tabs { min-height: 44px; }
   .cs-tab { min-height: 44px; padding: 8px 8px 8px 12px; }
   .cs-x { width: 44px; height: 44px; margin: -8px -8px -8px 0; justify-content: center; }
-  .cs-input2 { padding-bottom: calc(10px + env(safe-area-inset-bottom)); font-size: 13px; }
-  .cs-status { gap: 8px; padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
-  .cs-find { padding: 8px; }
-  .cs-find .cs-input { width: min(100%, 180px); }
-  .cs-bottom { height: min(35dvh, 220px); }
+  .cs-edcol { position: relative; flex: 1; min-width: 0; min-height: 0; }
+  .cs-groups.split { flex-direction: column; }
+  .cs-groups.split .cs-group { width: 100%; min-height: 0; }
+  .cs-input2, .cs-hl { padding-bottom: calc(10px + env(safe-area-inset-bottom)); font-size: 13px !important; line-height: 1.6; }
+  .cs-status { gap: 6px; padding: 5px 8px; font-size: 9px; }
+  .cs-aistat { max-width: 28%; }
+  .cs-find { padding: 8px; gap: 6px; }
+  .cs-find .cs-input { flex: 1 1 120px; width: auto; min-width: 0; }
+  .cs-bottom { position: absolute; z-index: 15; inset: auto 0 31px; height: min(34dvh, 280px); border: 1px solid var(--ui-border); border-radius: 18px 18px 0 0; box-shadow: var(--ui-shadow-3); }
+  .cs-termin input { min-height: 44px; font-size: 16px; }
+  .cs-btabs button { min-height: 44px; }
+  .cs-ai { display: flex; position: absolute; z-index: 25; inset: 6px; width: auto; max-width: none; border: 1px solid var(--ui-border); border-radius: 20px; background: var(--ui-surface-2); box-shadow: var(--ui-shadow-3); backdrop-filter: none; }
+  .cs-ai-h { min-height: 48px; padding: 8px 10px; }
+  .cs-ai-cfg { align-items: center; padding: 7px 10px 4px; }
+  .cs-ai-cfg .cs-select { min-width: 0; }
+  .cs-ai-note { font-size: 12px; }
+  .cs-thread { padding: 10px; }
+  .cs-msg { padding: 9px 10px; }
+  .cs-body, .cs-md { font-size: 13px; }
+  .cs-md :deep(pre), .cs-md :deep(code) { font-size: 12px; }
+  .cs-approval { max-height: 28dvh; overflow-y: auto; }
+  .cs-quick { flex-wrap: nowrap; overflow-x: auto; padding: 6px 10px 0; }
+  .cs-quick button { flex: 0 0 auto; min-height: 40px; }
+  .cs-prompt { display: flex; flex-wrap: wrap; gap: 7px; padding: 8px 10px max(8px, env(safe-area-inset-bottom)); }
+  .cs-prompt textarea { flex: 1 0 100%; width: 100%; min-height: 72px; max-height: 120px; box-sizing: border-box; font-size: 16px !important; }
+  .cs-prompt > .cs-voice-group { margin-right: auto; }
+  .cs-prompt > .cs-btn { min-height: 44px; }
+  .cs-prompt > .cs-btn.primary { margin-left: auto; }
+  .cs-prompt > .cs-btn.danger { margin-left: 0; }
   .hide-mid { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
