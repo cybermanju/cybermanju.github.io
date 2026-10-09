@@ -514,6 +514,13 @@ pub fn run() {
             commands::cron::cron_history,
             commands::cron::cron_set_enabled,
             commands::cron::cron_ensure_started,
+            // Secrets keystore (Phase 3) — sealed password-manager rows
+            commands::secrets::secret_list,
+            commands::secrets::secret_save,
+            commands::secrets::secret_update,
+            commands::secrets::secret_get,
+            commands::secrets::secret_reveal,
+            commands::secrets::secret_delete,
             // Native AI agent (configs/sessions/detached jobs)
             commands::agent::list_agent_providers,
             commands::agent::list_agent_configs,

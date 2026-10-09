@@ -326,7 +326,7 @@ mod android_impl {
 
     /// Fresh owned `jobject` for one Rust string (args take owned values —
     /// `JObject` is neither `Clone` nor `Copy`).
-    fn new_obj(env: &mut JNIEnv, s: &str) -> Result<JObject, String> {
+    fn new_obj<'a>(env: &mut JNIEnv<'a>, s: &str) -> Result<JObject<'a>, String> {
         env.new_string(s)
             .map(|js| js.into())
             .map_err(|e| fail(env, format!("invalid: bad string: {e}")))
@@ -338,8 +338,8 @@ mod android_impl {
         if is_null(o) {
             return Ok(String::new());
         }
-        let js = jni::objects::JString::from(o);
-        env.get_string(&js)
+        let js = <&jni::objects::JString>::from(o);
+        env.get_string(js)
             .map_err(|e| fail(env, format!("integrity: cannot decode text: {e}")))
             .map(|s| s.to_str().unwrap_or("").to_owned())
     }
@@ -350,10 +350,14 @@ mod android_impl {
             return Ok(String::new());
         }
         let js = jni::objects::JString::from(v);
-        Ok(env.get_string(&js)?.to_str().unwrap_or("").to_owned())
+        let out = env.get_string(&js)?.to_str().unwrap_or("").to_owned();
+        Ok(out)
     }
 
-    fn package_manager(env: &mut JNIEnv, activity: &JObject) -> Result<JObject, String> {
+    fn package_manager<'a>(
+        env: &mut JNIEnv<'a>,
+        activity: &JObject,
+    ) -> Result<JObject<'a>, String> {
         let v = env
             .call_method(
                 activity,
@@ -371,17 +375,17 @@ mod android_impl {
         Ok(pm)
     }
 
-    fn launcher_query(
-        env: &mut JNIEnv,
+    fn launcher_query<'a>(
+        env: &mut JNIEnv<'a>,
         action: &str,
         category: Option<&str>,
-    ) -> Result<JObject, String> {
+    ) -> Result<JObject<'a>, String> {
         let a = new_obj(env, action)?;
         let intent: JObject = env
             .new_object(
                 "android/content/Intent",
                 "(Ljava/lang/String;)V",
-                &[JValue::Object(a)],
+                &[JValue::Object(&a)],
             )
             .map_err(|e| fail(env, format!("invalid: cannot build intent: {e}")))?;
         if let Some(c) = category {
@@ -390,18 +394,18 @@ mod android_impl {
                 &intent,
                 "addCategory",
                 "(Ljava/lang/String;)Landroid/content/Intent;",
-                &[JValue::Object(jc)],
+                &[JValue::Object(&jc)],
             )
             .map_err(|e| fail(env, format!("invalid: cannot add category: {e}")))?;
         }
         Ok(intent)
     }
 
-    fn query_activities(
-        env: &mut JNIEnv,
+    fn query_activities<'a>(
+        env: &mut JNIEnv<'a>,
         pm: &JObject,
         intent: &JObject,
-    ) -> Result<JObject, String> {
+    ) -> Result<JObject<'a>, String> {
         let local: JObject = env
             .new_local_ref(intent)
             .map_err(|e| fail(env, format!("network: app query failed: {e}")))?;
@@ -410,7 +414,7 @@ mod android_impl {
                 pm,
                 "queryIntentActivities",
                 "(Landroid/content/Intent;I)Ljava/util/List;",
-                &[JValue::Object(local)],
+                &[JValue::Object(&local)],
             )
             .map_err(|e| fail(env, format!("network: app query failed: {e}")))?;
         v.l()
@@ -429,7 +433,7 @@ mod android_impl {
             item,
             "loadLabel",
             "(Landroid/content/pm/PackageManager;)Ljava/lang/CharSequence;",
-            &[JValue::Object(pm_local)],
+            &[JValue::Object(&pm_local)],
         ) {
             Ok(v) => match v.l() {
                 Ok(o) => o,
@@ -473,13 +477,13 @@ mod android_impl {
                 "android/graphics/Bitmap",
                 "createBitmap",
                 "(IILandroid/graphics/Bitmap$Config;)Landroid/graphics/Bitmap;",
-                &[JValue::Int(size), JValue::Int(size), JValue::Object(cfg)],
+                &[JValue::Int(size), JValue::Int(size), JValue::Object(&cfg)],
             )?
             .l()?;
         let canvas: JObject = env.new_object(
             "android/graphics/Canvas",
             "(Landroid/graphics/Bitmap;)V",
-            &[JValue::Object(env.new_local_ref(&bmp)?)],
+            &[JValue::Object(&env.new_local_ref(&bmp)?)],
         )?;
         env.call_method(
             drawable,
@@ -496,7 +500,7 @@ mod android_impl {
             drawable,
             "draw",
             "(Landroid/graphics/Canvas;)V",
-            &[JValue::Object(canvas)],
+            &[JValue::Object(&canvas)],
         )?;
         let stream: JObject = env.new_object("java/io/ByteArrayOutputStream", "()V", &[])?;
         let fmt: JObject = env
@@ -512,9 +516,9 @@ mod android_impl {
             "compress",
             "(Landroid/graphics/Bitmap$CompressFormat;ILjava/io/OutputStream;)Z",
             &[
-                JValue::Object(fmt),
+                JValue::Object(&fmt),
                 JValue::Int(100),
-                JValue::Object(stream_local),
+                JValue::Object(&stream_local),
             ],
         )?;
         let bytes_obj: JObject = env.call_method(&stream, "toByteArray", "()[B", &[])?.l()?;
@@ -525,7 +529,7 @@ mod android_impl {
         }
         Ok(format!(
             "data:image/png;base64,{}",
-            base64::Engine::encode(&base64::engine::general_purpose::STANDARD_NO_WRAP, &bytes)
+            base64::engine::general_purpose::STANDARD.encode(&bytes)
         ))
     }
 
@@ -568,7 +572,7 @@ mod android_impl {
                 &ai,
                 "loadIcon",
                 "(Landroid/content/pm/PackageManager;)Landroid/graphics/drawable/Drawable;",
-                &[JValue::Object(pm_local)],
+                &[JValue::Object(&pm_local)],
             )?
             .l()?;
         // Icon failure degrades to "" (letter tile) — but the exception must
@@ -605,7 +609,7 @@ mod android_impl {
             activity,
             "startActivity",
             "(Landroid/content/Intent;)V",
-            &[JValue::Object(intent)],
+            &[JValue::Object(&intent)],
         )
         .map_err(|e| {
             fail(
@@ -618,7 +622,11 @@ mod android_impl {
 
     /// Explicit `ComponentName` fallback for packages whose
     /// `getLaunchIntentForPackage` returns null.
-    fn explicit_intent(env: &mut JNIEnv, pm: &JObject, package: &str) -> Result<JObject, String> {
+    fn explicit_intent<'a>(
+        env: &mut JNIEnv<'a>,
+        pm: &JObject,
+        package: &str,
+    ) -> Result<JObject<'a>, String> {
         let q = launcher_query(
             env,
             "android.intent.action.MAIN",
@@ -629,7 +637,7 @@ mod android_impl {
             &q,
             "setPackage",
             "(Ljava/lang/String;)Landroid/content/Intent;",
-            &[JValue::Object(pkg)],
+            &[JValue::Object(&pkg)],
         )
         .map_err(|e| fail(env, format!("not_found: cannot resolve {package}: {e}")))?;
         let list = query_activities(env, pm, &q)?;
@@ -658,7 +666,7 @@ mod android_impl {
             .new_object(
                 "android/content/Intent",
                 "(Ljava/lang/String;)V",
-                &[JValue::Object(main)],
+                &[JValue::Object(&main)],
             )
             .map_err(|e| fail(env, format!("not_found: cannot resolve {package}: {e}")))?;
         let p2 = new_obj(env, package)?;
@@ -667,14 +675,14 @@ mod android_impl {
             .new_object(
                 "android/content/ComponentName",
                 "(Ljava/lang/String;Ljava/lang/String;)V",
-                &[JValue::Object(p2), JValue::Object(c2)],
+                &[JValue::Object(&p2), JValue::Object(&c2)],
             )
             .map_err(|e| fail(env, format!("not_found: cannot resolve {package}: {e}")))?;
         env.call_method(
             &intent,
             "setComponent",
             "(Landroid/content/ComponentName;)Landroid/content/Intent;",
-            &[JValue::Object(comp)],
+            &[JValue::Object(&comp)],
         )
         .map_err(|e| fail(env, format!("not_found: cannot resolve {package}: {e}")))?;
         let cat = new_obj(env, "android.intent.category.LAUNCHER")?;
@@ -682,7 +690,7 @@ mod android_impl {
             &intent,
             "addCategory",
             "(Ljava/lang/String;)Landroid/content/Intent;",
-            &[JValue::Object(cat)],
+            &[JValue::Object(&cat)],
         )
         .map_err(|e| fail(env, format!("not_found: cannot resolve {package}: {e}")))?;
         Ok(intent)
@@ -746,7 +754,7 @@ mod android_impl {
                     .map_err(|e| {
                         let _ = env.exception_clear();
                         format!("network: app row failed: {e}")
-                    })?;
+                    });
                 match row {
                     Ok(Some(app)) => apps.push(app),
                     Ok(None) => {}
@@ -774,7 +782,7 @@ mod android_impl {
                 &pm,
                 "getLaunchIntentForPackage",
                 "(Ljava/lang/String;)Landroid/content/Intent;",
-                &[JValue::Object(probe)],
+                &[JValue::Object(&probe)],
             ) {
                 Ok(v) => match v.l() {
                     Ok(o) => {
@@ -805,7 +813,7 @@ mod android_impl {
                 .new_object(
                     "android/content/Intent",
                     "(Ljava/lang/String;)V",
-                    &[JValue::Object(action)],
+                    &[JValue::Object(&action)],
                 )
                 .map_err(|e| fail(env, format!("invalid: cannot build intent: {e}")))?;
             let spec = new_obj(env, format!("package:{package}").as_str())?;
@@ -814,7 +822,7 @@ mod android_impl {
                     "android/net/Uri",
                     "parse",
                     "(Ljava/lang/String;)Landroid/net/Uri;",
-                    &[JValue::Object(spec)],
+                    &[JValue::Object(&spec)],
                 )
                 .map_err(|e| fail(env, format!("invalid: bad package uri: {e}")))?
                 .l()
@@ -823,7 +831,7 @@ mod android_impl {
                 &intent,
                 "setData",
                 "(Landroid/net/Uri;)Landroid/content/Intent;",
-                &[JValue::Object(uri)],
+                &[JValue::Object(&uri)],
             )
             .map_err(|e| fail(env, format!("invalid: cannot set data: {e}")))?;
             start(
@@ -920,7 +928,7 @@ mod android_impl {
                     &pm,
                     "getResourcesForApplication",
                     "(Ljava/lang/String;)Landroid/content/res/Resources;",
-                    &[JValue::Object(jpack)],
+                    &[JValue::Object(&jpack)],
                 )
                 .map_err(|e| {
                     fail(
@@ -947,9 +955,9 @@ mod android_impl {
                                 "getIdentifier",
                                 "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
                                 &[
-                                    JValue::Object(jname),
-                                    JValue::Object(jdef),
-                                    JValue::Object(jpkg),
+                                    JValue::Object(&jname),
+                                    JValue::Object(&jdef),
+                                    JValue::Object(&jpkg),
                                 ],
                             )?
                             .i()?;
@@ -1045,7 +1053,7 @@ mod android_impl {
                 .new_object(
                     "android/content/Intent",
                     "(Ljava/lang/String;)V",
-                    &[JValue::Object(action)],
+                    &[JValue::Object(&action)],
                 )
                 .map_err(|e| fail(env, format!("intent: {e}")))?;
             let p = new_obj(env, own.as_str())?;
@@ -1054,14 +1062,14 @@ mod android_impl {
                 .new_object(
                     "android/content/ComponentName",
                     "(Ljava/lang/String;Ljava/lang/String;)V",
-                    &[JValue::Object(p), JValue::Object(c)],
+                    &[JValue::Object(&p), JValue::Object(&c)],
                 )
                 .map_err(|e| fail(env, format!("component: {e}")))?;
             env.call_method(
                 &intent,
                 "setComponent",
                 "(Landroid/content/ComponentName;)Landroid/content/Intent;",
-                &[JValue::Object(comp)],
+                &[JValue::Object(&comp)],
             )
             .map_err(|e| fail(env, format!("component: {e}")))?;
             // The ComponentName return is irrelevant (null when the service
@@ -1070,7 +1078,7 @@ mod android_impl {
                 activity,
                 "startService",
                 "(Landroid/content/Intent;)Landroid/content/ComponentName;",
-                &[JValue::Object(intent)],
+                &[JValue::Object(&intent)],
             ) {
                 Ok(_) => Ok(()),
                 Err(_) => {
@@ -1105,7 +1113,7 @@ mod android_impl {
                     "android/provider/Settings$Secure",
                     "getString",
                     "(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;",
-                    &[JValue::Object(cr), JValue::Object(name)],
+                    &[JValue::Object(&cr), JValue::Object(&name)],
                 )
                 .map_err(|e| fail(env, format!("network: cannot read listener state: {e}")))?
                 .l()
@@ -1134,7 +1142,7 @@ mod android_impl {
                 .new_object(
                     "android/content/Intent",
                     "(Ljava/lang/String;)V",
-                    &[JValue::Object(action)],
+                    &[JValue::Object(&action)],
                 )
                 .map_err(|e| fail(env, format!("unsupported: cannot open settings: {e}")))?;
             start(env, activity, intent, "notification settings")

@@ -2021,17 +2021,16 @@ fn exec_tool(
             if trimmed.is_empty() {
                 return Err("invalid: empty command".to_string());
             }
-            if trimmed.split_whitespace().any(|a| a == "-os" || a == "--host" || a == "--os") {
+            if trimmed
+                .split_whitespace()
+                .any(|a| a == "-os" || a == "--host" || a == "--os")
+            {
                 return Err(
                     "unsupported: 'os_exec -os' addresses the host filesystem — run it in the desktop app or the native Android build"
                         .to_string(),
                 );
             }
-            let verb = trimmed
-                .split_whitespace()
-                .next()
-                .unwrap_or("")
-                .to_string();
+            let verb = trimmed.split_whitespace().next().unwrap_or("").to_string();
             if !cybermanju_os::shell::command_table().contains(&verb.as_str()) {
                 return Err(format!(
                     "unsupported: '{verb}' is not a cybsh verb — os_exec runs the cybsh \
@@ -2046,6 +2045,23 @@ fn exec_tool(
                 return Ok(cut);
             }
             Ok(out)
+        }
+        // Vault metadata — never values. `secret_get` (below) is the only
+        // path that reveals plaintext, and the permission gate asks first.
+        "secret_list" => {
+            let metas = crate::api::secrets::list(db)?;
+            serde_json::to_string(&metas)
+                .map_err(|e| format!("integrity: serialize secrets: {e}"))
+        }
+        "secret_get" => {
+            let id = get("id");
+            if id.trim().is_empty() {
+                return Err("invalid: secret id is required".to_string());
+            }
+            // Plaintext goes to the model (permission gate already asked);
+            // the transcript redactor scrubs provider keys, and the tool
+            // description warns the model to use it sparingly.
+            crate::api::secrets::reveal(db, id.trim())
         }
         other => Err(format!("unsupported: unknown tool '{other}'")),
     }
@@ -4018,8 +4034,8 @@ fn subagent_body(params: SubagentBody) -> String {
         "{}{}\nSUBAGENT TOOLSET: this run has `read`, `list`, `grep`, `glob`, `self_research`, \
         `repo_analyze`, `edit`, `write`, `bash` and the memory tools (`memory_recall`, \
         `memory_remember` — use them when past context or a durable lesson helps) — no task, \
-        question, os_exec, ui_open_panel or ui_notify. Investigate, edit and verify; the \
-        parent reviews it.",
+        question, os_exec, ui_open_panel, ui_notify, secret_list or secret_get. \
+        Investigate, edit and verify; the parent reviews it.",
         agent_loop::system_prompt(
             &root.to_string_lossy(),
             "build",

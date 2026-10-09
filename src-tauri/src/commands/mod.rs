@@ -16,6 +16,7 @@ pub mod map;
 pub mod os_metrics;
 pub mod os_shell;
 pub mod search;
+pub mod secrets;
 pub mod share;
 pub mod sync;
 pub mod trash;

@@ -21,6 +21,7 @@ pub mod oauth;
 pub mod os_api;
 pub mod repair_api;
 pub mod search_api;
+pub mod secrets;
 pub mod share;
 pub mod sync_api;
 pub mod trash;

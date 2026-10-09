@@ -175,12 +175,20 @@ pub fn decide(
 ) -> PermissionDecision {
     // Plan persona: read-only, whatever the rules say. `skill_save` writes a
     // file and `mcp_attach` mutates the config — both are mutations.
-    // `os_exec` runs volume commands (mutations too). `self_research` and
-    // `repo_analyze` are read-only and stay available.
+    // `os_exec` runs volume commands (mutations too). `secret_get` reveals a
+    // credential (plan agents stay out of the vault entirely). `self_research`
+    // and `repo_analyze` are read-only and stay available.
     if kind == AgentKind::Plan
         && matches!(
             tool,
-            "edit" | "write" | "bash" | "skill_save" | "mcp_attach" | "os_exec"
+            "edit"
+                | "write"
+                | "bash"
+                | "skill_save"
+                | "mcp_attach"
+                | "os_exec"
+                | "secret_list"
+                | "secret_get"
         )
     {
         return PermissionDecision::Deny {

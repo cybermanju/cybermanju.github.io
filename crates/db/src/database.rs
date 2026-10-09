@@ -89,6 +89,11 @@ const SCHEDULES_TABLE: TableDefinition<'static, &'static str, &'static str> =
     TableDefinition::new("schedules");
 const SCHEDULE_RUNS_TABLE: TableDefinition<'static, &'static str, &'static str> =
     TableDefinition::new("schedule_runs");
+// Secrets keystore (Phase 3): password-manager rows. Values are sealed
+// (`seal:v1`) under the per-transport vault passphrase; the table stores
+// only the sealed blob + metadata. List responses never serialize the blob.
+const SECRETS_TABLE: TableDefinition<'static, &'static str, &'static str> =
+    TableDefinition::new("secrets");
 // Generic key/value blob: vault secrets, app config, shell file content and
 // any other session state the browser build keeps inside `.cybermanju`.
 // Keys are namespaced by convention (`secret:`, `config:`, `content:`,
@@ -158,6 +163,10 @@ impl Database {
             write_txn.open_table(AGENT_CONFIGS_TABLE)?;
             write_txn.open_table(AGENT_SESSIONS_TABLE)?;
             write_txn.open_table(AGENT_MEMORIES_TABLE)?;
+            // Scheduler + secrets keystore (Phase 1/3).
+            write_txn.open_table(SCHEDULES_TABLE)?;
+            write_txn.open_table(SCHEDULE_RUNS_TABLE)?;
+            write_txn.open_table(SECRETS_TABLE)?;
             // Generic kv blob (secrets, config, content) — same table the
             // browser build writes so a `.cybermanju` image opens here too.
             write_txn.open_table(KV_TABLE)?;
@@ -575,6 +584,59 @@ impl Database {
         rows.sort_by_key(|a| std::cmp::Reverse(a.finished_at.clone()));
         rows.truncate(limit);
         Ok(rows)
+    }
+
+    // ─── Secrets keystore (Phase 3) ────────────────────────────────────
+    /// Secrets table accessor (sealed password-manager rows).
+    pub fn get_secrets_table() -> TableDefinition<'static, &'static str, &'static str> {
+        SECRETS_TABLE
+    }
+
+    /// All stored secrets (sealed values included — the caller decides what
+    /// to serialize; REST/Tauri list paths project through `SecretMeta`).
+    pub fn list_secrets(&self) -> Result<Vec<cybermanju_types::secrets::SecretRow>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(SECRETS_TABLE)?;
+        let mut rows: Vec<cybermanju_types::secrets::SecretRow> = Vec::new();
+        for entry in table.iter()? {
+            let (_, value) = entry?;
+            rows.push(serde_json::from_str(value.value())?);
+        }
+        rows.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+        Ok(rows)
+    }
+
+    pub fn get_secret(
+        &self,
+        id: &str,
+    ) -> Result<Option<cybermanju_types::secrets::SecretRow>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(SECRETS_TABLE)?;
+        match table.get(id)? {
+            Some(v) => Ok(Some(serde_json::from_str(v.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn save_secret(&self, row: &cybermanju_types::secrets::SecretRow) -> Result<()> {
+        let serialized = serde_json::to_string(row)?;
+        let tx = self.db.begin_write()?;
+        {
+            let mut table = tx.open_table(SECRETS_TABLE)?;
+            table.insert(row.id.as_str(), serialized.as_str())?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn remove_secret(&self, id: &str) -> Result<bool> {
+        let tx = self.db.begin_write()?;
+        let removed = {
+            let mut table = tx.open_table(SECRETS_TABLE)?;
+            table.remove(id)?.is_some()
+        };
+        tx.commit()?;
+        Ok(removed)
     }
 
     // ─── Config secrets (AGENT-3 request: token lives beside the row) ──
@@ -1118,6 +1180,7 @@ impl Database {
                 copy_table!(KV_TABLE);
                 copy_table!(SCHEDULES_TABLE);
                 copy_table!(SCHEDULE_RUNS_TABLE);
+                copy_table!(SECRETS_TABLE);
 
                 write_tx.commit()?;
             }

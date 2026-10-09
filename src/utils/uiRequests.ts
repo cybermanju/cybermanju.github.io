@@ -26,16 +26,20 @@ export interface UiRequestHandlers {
   notify: (level: 'info' | 'success' | 'warning' | 'error', msg: string) => void
 }
 
+/** Panel ids the window manager can actually render — `landing` is a shell
+ *  state, not a window (it has no component in the panel map). */
+const NON_WINDOW_PANELS = new Set(['landing'])
+
 /** True when `panel` names a window the shell can actually open. Canonical
  *  ids live in `MODULE_METADATA`; aliases (`cron`, `storage`, …) resolve via
  *  `resolvePanel` onto one of those. */
 export function isKnownPanel(panel: string): boolean {
   const p = panel.trim()
-  if (!p) return false
+  if (!p || NON_WINDOW_PANELS.has(p)) return false
   if (p in MODULE_METADATA) return true
   // An alias resolves to a canonical id that must itself be openable.
   const target = resolvePanel(p as PanelType)
-  return target !== p && target in MODULE_METADATA
+  return target !== p && target in MODULE_METADATA && !NON_WINDOW_PANELS.has(target)
 }
 
 /**

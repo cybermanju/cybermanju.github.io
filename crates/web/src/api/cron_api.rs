@@ -121,7 +121,7 @@ pub fn route(
 
         ["api", "cron"] if method == "POST" => match parse::<CreateRequest>(body) {
             Ok(req) => respond(upsert(db, &req), origin),
-            Err(e) => respond(Err(e), origin),
+            Err(e) => respond::<ScheduleRow>(Err(e), origin),
         },
 
         // NOTE: `POST /api/cron/{id}/run` is handled lockless in lib.rs
@@ -141,13 +141,15 @@ pub fn route(
 
         ["api", "cron", id] if method == "PUT" => match parse::<UpdateRequest>(body) {
             Ok(req) => respond(update(db, id, &req), origin),
-            Err(e) => respond(Err(e), origin),
+            Err(e) => respond::<ScheduleRow>(Err(e), origin),
         },
 
         ["api", "cron", id] if method == "DELETE" => match scheduler::remove(db, id) {
             Ok(true) => respond(Ok(serde_json::json!({ "removed": true })), origin),
-            Ok(false) => respond(Err(format!("not_found: no schedule `{id}`")), origin),
-            Err(e) => respond(Err(e), origin),
+            Ok(false) => {
+                respond::<serde_json::Value>(Err(format!("not_found: no schedule `{id}`")), origin)
+            }
+            Err(e) => respond::<serde_json::Value>(Err(e), origin),
         },
 
         _ => return None,

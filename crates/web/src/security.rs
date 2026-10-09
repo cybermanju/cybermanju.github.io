@@ -157,6 +157,10 @@ const ROUTED_SEGMENTS: &[&str] = &[
     "permissions",
     "readyz",
     "search",
+    // Secrets keystore (Phase 3) — sealed values, master-passphrase gated.
+    // Stays `Authenticated` (default): the blob is useless without the
+    // passphrase; reveal writes an audit row.
+    "secrets",
     "share-links",
     "shared",
     "sync",
@@ -220,6 +224,11 @@ pub fn required_role(method: &str, segments: &[&str]) -> RequiredRole {
         ["api", "cron"] if method == "POST" => RequiredRole::Admin,
         ["api", "cron", _] if method == "PUT" || method == "DELETE" => RequiredRole::Admin,
         ["api", "cron", _, _] if method == "POST" => RequiredRole::Admin,
+        // Secrets keystore — create/update/delete and the plaintext reveal
+        // are dangerous-op posture (Admin); list/meta stay Authenticated.
+        ["api", "secrets"] if method == "POST" => RequiredRole::Admin,
+        ["api", "secrets", _] if method == "PUT" || method == "DELETE" => RequiredRole::Admin,
+        ["api", "secrets", _, "reveal"] => RequiredRole::Admin,
 
         // ── Everything else: any authenticated session ───────────
         _ => RequiredRole::Authenticated,

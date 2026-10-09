@@ -164,3 +164,135 @@ pub fn ml_dsa65_verify(
 
     Ok(verifying_key.verify(message, &sig).is_ok())
 }
+
+// ─── seal:v1 blob helpers (Phase 3 — secrets keystore) ────────────────────
+//
+// Byte-identical to the native `keystore::seal` / `open_sealed`: the WASM
+// build seals the session vault passphrase (held after unlock) and stores
+// the base64 blob in the `secrets` table. The encode side is
+// `artifact::seal` (same Argon2id m=19456,t=2,p=1 + ChaCha20Poly1305).
+
+const B64_ALPHABET: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// Standard base64 with padding — same alphabet/-padding as the native
+/// `base64 0.22` STANDARD engine, so the on-disk strings are identical.
+fn b64_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(B64_ALPHABET[(n >> 18) as usize & 63] as char);
+        out.push(B64_ALPHABET[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            B64_ALPHABET[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            B64_ALPHABET[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+fn b64_decode(text: &str) -> Result<Vec<u8>, String> {
+    fn val(c: u8) -> Result<u32, String> {
+        match c {
+            b'A'..=b'Z' => Ok((c - b'A') as u32),
+            b'a'..=b'z' => Ok((c - b'a') as u32 + 26),
+            b'0'..=b'9' => Ok((c - b'0') as u32 + 52),
+            b'+' => Ok(62),
+            b'/' => Ok(63),
+            _ => Err(format!("invalid: bad base64 byte {c}")),
+        }
+    }
+    let bytes = text.trim().as_bytes();
+    if bytes.len() % 4 != 0 {
+        return Err("invalid: base64 length is not a multiple of 4".to_string());
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    for chunk in bytes.chunks(4) {
+        let pad = chunk.iter().filter(|&&c| c == b'=').count();
+        if pad > 2 || (pad > 0 && chunk[3] != b'=' && chunk[2] != b'=') {
+            return Err("invalid: misplaced base64 padding".to_string());
+        }
+        let n = (val(chunk[0])? << 18)
+            | (val(chunk[1])? << 12)
+            | (val(chunk[2]).unwrap_or(0) << 6)
+            | val(chunk[3]).unwrap_or(0);
+        out.push((n >> 16) as u8);
+        if pad < 2 {
+            out.push((n >> 8) as u8);
+        }
+        if pad < 1 {
+            out.push(n as u8);
+        }
+    }
+    Ok(out)
+}
+
+/// Seal `plaintext` under `passphrase` in the `seal:v1` layout
+/// (`salt(16) || nonce(12) || ct+tag`) and return the base64 string the
+/// `secrets` table stores. The session passphrase is held after unlock and
+/// never persisted — reveal/open take it as an argument.
+#[wasm_bindgen]
+pub fn seal_blob(passphrase: &str, plaintext: &[u8]) -> Result<String, JsValue> {
+    seal_blob_str(passphrase, plaintext).map_err(|e| JsValue::from_str(&e))
+}
+
+/// Open a base64 `seal:v1` blob produced by [`seal_blob`] (or by the native
+/// `keystore::seal_str`) and return the UTF-8 plaintext.
+#[wasm_bindgen]
+pub fn open_blob(passphrase: &str, encoded: &str) -> Result<String, JsValue> {
+    open_blob_str(passphrase, encoded).map_err(|e| JsValue::from_str(&e))
+}
+
+/// Rust-visible [`seal_blob`] — used by the `secrets.*` db ops.
+pub(crate) fn seal_blob_str(passphrase: &str, plaintext: &str) -> Result<String, String> {
+    crate::artifact::seal(passphrase, plaintext.as_bytes()).map(|bytes| b64_encode(&bytes))
+}
+
+/// Rust-visible [`open_blob`] — used by the `secrets.*` db ops.
+pub(crate) fn open_blob_str(passphrase: &str, encoded: &str) -> Result<String, String> {
+    let bytes = b64_decode(encoded)?;
+    let plain = crate::artifact::open_sealed(passphrase, &bytes)?;
+    String::from_utf8(plain).map_err(|_| "sealed blob is not UTF-8".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn b64_round_trips_edge_lengths() {
+        for len in 0..13usize {
+            let data: Vec<u8> = (0..len).map(|i| (i * 37 + 11) as u8).collect();
+            let encoded = b64_encode(&data);
+            assert_eq!(b64_decode(&encoded).expect("decode"), data, "len {len}");
+        }
+    }
+
+    #[test]
+    fn b64_matches_standard_vectors() {
+        assert_eq!(b64_encode(b""), "");
+        assert_eq!(b64_encode(b"f"), "Zg==");
+        assert_eq!(b64_encode(b"fo"), "Zm8=");
+        assert_eq!(b64_encode(b"foo"), "Zm9v");
+        assert_eq!(b64_encode(b"foobar"), "Zm9vYmFy");
+        assert_eq!(b64_decode("Zm9vYmFy").unwrap(), b"foobar");
+    }
+
+    #[test]
+    fn seal_open_round_trips() {
+        let sealed = crate::artifact::seal("vault-pass", b"hunter2").expect("seal");
+        let opened =
+            crate::artifact::open_sealed("vault-pass", &sealed).expect("open");
+        assert_eq!(opened, b"hunter2");
+        assert!(crate::artifact::open_sealed("wrong", &sealed).is_err());
+    }
+}

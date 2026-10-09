@@ -2453,14 +2453,6 @@ fn script_parse(source: &str) -> Result<usize, String> {
     Ok(script_split(source)?.len())
 }
 
-fn script_run(
-    source: &str,
-    exec: ScriptShellFn<'_>,
-    fetch: Option<ScriptFetchFn<'_>>,
-) -> Result<ScriptOut, String> {
-    script_run_with(source, exec, fetch, &[])
-}
-
 /// New-builtin hint shared by every unknown-function error.
 const SCRIPT_BUILTIN_HINT: &str =
     "len/int/str/json/split/range/sh/set/push/del/keys/values/ok/err/unwrap/is_ok/is_err/env/arg/fingerprint";

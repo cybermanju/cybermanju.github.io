@@ -1052,7 +1052,7 @@ fn route_request(
     if path_segments.get(1) == Some(&"cron") {
         cybermanju_os::scheduler::ensure_started(Arc::clone(db));
     }
-    if let ["api", "cron", id, "run"] = path_segments {
+    if let ["api", "cron", id, "run"] = path_segments.as_slice() {
         if method == "POST" {
             let handle = match db.read() {
                 Ok(guard) => guard.clone(),
@@ -1379,6 +1379,9 @@ fn route_request(
         return resp;
     }
     if let Some(resp) = api::cron_api::route(db, method, &path_segments, body, origin) {
+        return resp;
+    }
+    if let Some(resp) = api::secrets::route(db, method, &path_segments, body, origin) {
         return resp;
     }
     // <<< /CYBERMANJU OS PRE-WIRE >>>

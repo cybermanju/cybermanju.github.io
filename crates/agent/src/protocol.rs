@@ -40,6 +40,8 @@ pub const TOOL_NAMES: &[&str] = &[
     "os_exec",
     "ui_open_panel",
     "ui_notify",
+    "secret_list",
+    "secret_get",
 ];
 
 /// Panel ids `ui_open_panel` may open — the Rust twin of the frontend's
@@ -81,6 +83,9 @@ pub const UI_PANEL_IDS: &[&str] = &[
     "automation",
     "schedules",
     "search",
+    "secrets",
+    "passwords",
+    "credentials",
 ];
 
 fn tool_def(
@@ -268,6 +273,20 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
                 "message": { "type": "string", "description": "Short human-readable message (no secrets)" },
             }),
             &["level", "message"],
+        ),
+        tool_def(
+            "secret_list",
+            "List the user's vault secret metadata (id, title, kind, username, url, tags, hasValue). NEVER returns secret values — pair with secret_get only when the user explicitly asked you to use a stored credential.",
+            serde_json::json!({}),
+            &[],
+        ),
+        tool_def(
+            "secret_get",
+            "Reveal ONE stored secret's plaintext value by id. The result carries the plaintext to the model — only call this when the user explicitly asked you to use this credential. Default permission is ASK: the approval card shows the secret title, never the value. Unknown/empty-value ids answer not_found:.",
+            serde_json::json!({
+                "id": { "type": "string", "description": "Secret id from secret_list" },
+            }),
+            &["id"],
         ),
     ]
 }
@@ -818,9 +837,9 @@ mod tests {
     use super::*;
     use cybermanju_types::agent::LlmDialect;
     #[test]
-    fn tool_schemas_cover_eighteen_tools_in_openai_shape() {
+    fn tool_schemas_cover_twenty_tools_in_openai_shape() {
         let tools = openai_tools();
-        assert_eq!(tools.as_array().map(|a| a.len()), Some(18));
+        assert_eq!(tools.as_array().map(|a| a.len()), Some(20));
         let first = &tools[0];
         assert_eq!(first["type"], "function");
         assert_eq!(first["function"]["name"], "read");
@@ -834,7 +853,13 @@ mod tests {
             .iter()
             .any(|t| t["function"]["name"] == "memory_remember"));
         // The three OS/UI tools must be in the schema too.
-        for name in ["os_exec", "ui_open_panel", "ui_notify"] {
+        for name in [
+            "os_exec",
+            "ui_open_panel",
+            "ui_notify",
+            "secret_list",
+            "secret_get",
+        ] {
             assert!(
                 arr.iter().any(|t| t["function"]["name"] == name),
                 "missing tool definition: {name}"
@@ -843,7 +868,10 @@ mod tests {
         // UI panel allowlist stays honest: every id is non-empty and unique.
         assert!(UI_PANEL_IDS.contains(&"files"));
         assert!(UI_PANEL_IDS.contains(&"terminal"));
-        assert!(!UI_PANEL_IDS.contains(&"landing"), "landing is not a window");
+        assert!(
+            !UI_PANEL_IDS.contains(&"landing"),
+            "landing is not a window"
+        );
         let mut sorted = UI_PANEL_IDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -869,7 +897,7 @@ mod tests {
         );
         assert_eq!(body["model"], "gpt-5");
         assert_eq!(body["messages"][0]["role"], "system");
-        assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(18));
+        assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(20));
 
         let reply = serde_json::json!({
             "choices": [{

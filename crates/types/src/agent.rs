@@ -415,6 +415,9 @@ pub fn ensure_default_agent_permissions(rules: &mut PermissionRuleset) {
         // open a panel or show a toast, never mutate state.
         "ui_open_panel",
         "ui_notify",
+        // Vault metadata is safe (no values); `secret_get` (reveal) stays
+        // on the ruleset default = ask — the approval card shows the title.
+        "secret_list",
     ] {
         if !rules.rules.contains_key(tool) {
             rules.rules.insert(

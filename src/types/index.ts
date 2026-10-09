@@ -1,5 +1,5 @@
 export type ViewMode = 'grid' | 'list' | 'masonry' | 'columns' | 'details'
-export type PanelType = 'landing' | 'files' | 'preview' | 'encryption' | 'compression' | 'collections' | 'faces' | 'map' | 'code' | 'editor' | 'agent' | 'search' | 'style' | 'accounts' | 'loose-groups' | 'sync' | 'transfer' | 'webdash' | 'users' | 'dashboard' | 'settings' | 'trash' | 'activity' | 'favorites' | 'recent' | 'storage' | 'terminal' | 'processes' | 'disks' | 'devices' | 'permissions' | 'cron' | 'automation' | 'schedules'
+export type PanelType = 'landing' | 'files' | 'preview' | 'encryption' | 'compression' | 'collections' | 'faces' | 'map' | 'code' | 'editor' | 'agent' | 'search' | 'style' | 'accounts' | 'loose-groups' | 'sync' | 'transfer' | 'webdash' | 'users' | 'dashboard' | 'settings' | 'trash' | 'activity' | 'favorites' | 'recent' | 'storage' | 'terminal' | 'processes' | 'disks' | 'devices' | 'permissions' | 'cron' | 'automation' | 'schedules' | 'secrets'
 export type SidebarSection = 'tree' | 'locations' | 'collections' | 'people' | 'styles' | 'loose' | 'users' | 'sync' | 'dashboard' | 'landing' | 'tools'
 
 export interface ModuleInfo {
@@ -808,6 +808,42 @@ export interface ScheduleRun {
   status: string
   /** Script output tail, or the AGENT-1-prefixed error. */
   outputTail?: string | null
+}
+
+/** Vault secret kind — twin of `cybermanju_types::secrets::SecretKind`. */
+export type SecretKind = 'login' | 'card' | 'note' | 'apiKey'
+
+/** Secret metadata — twin of `SecretMeta`. NEVER carries `valueSealed`:
+ *  list/get strip it server-side (the `hasKey` contract). Reveal is a
+ *  separate call that returns the plaintext once, audit-logged. */
+export interface SecretMeta {
+  id: string
+  kind: SecretKind
+  title: string
+  username?: string | null
+  url?: string | null
+  category?: string | null
+  tags: string[]
+  notes?: string | null
+  favorite: boolean
+  createdAt: string
+  updatedAt: string
+  hasValue: boolean
+}
+
+/** Create/update payload — `value` is the plaintext, sealed on write and
+ *  never echoed back. */
+export interface SecretInput {
+  id?: string
+  kind?: SecretKind
+  title: string
+  username?: string | null
+  url?: string | null
+  category?: string | null
+  tags?: string[]
+  notes?: string | null
+  favorite?: boolean
+  value?: string | null
 }
 
 /** AGENT-6's disk catalog row (`GET /api/disk/list`). */
