@@ -77,4 +77,4 @@ x-casaos:
     zh_cn: CyberManju OS
   index: /
   port_map: "3456"
-  version: "0.1.1"
+  version: "0.1.0"

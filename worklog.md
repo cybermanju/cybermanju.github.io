@@ -773,3 +773,23 @@ Stage Summary:
   + Admin-gate assertions; panel-aliases vault cases; agent-wasm-parity
   plan-deny + toolMeta 20. `npm test` 692/692; `vue-tsc` clean;
   `check-version.sh` ok. Rust left to CI per AGENTS.md.
+
+## 2026-10-09 — push.sh release flags + release.yml reuse mode (no-rebuild publish)
+- `push.sh`: new `--release` (commit `chore(release): vX.Y.Z`, push main,
+  create + push the `vX.Y.Z` tag → triggers the Release workflow full
+  rebuild; `-m`/`--release-notes-file` is the release-notes markdown,
+  prepended to the atlas body once published), `--release --last`
+  (dispatches `release.yml` in reuse mode — zero compilation, ships one
+  green CI run's `dist-*` artifacts unchanged; auto-resolves HEAD's latest
+  green run, pin with `--reuse-run ID`/`$PUSH_REUSE_RUN`), and `--move-tag`
+  (explicit delete/recreate of an existing tag at HEAD + force-update on
+  both remotes; refuses when a published GitHub release sits on the tag).
+- `release.yml`: new `workflow_dispatch` inputs (`tag`, `reuse_run_id`,
+  `notes`) + `resolve` job (tag/version check, zero compilation); every
+  build job (incl. `rust-check` and `docker-build`) skipped in reuse mode;
+  new `fetch-last-build` job downloads the CI run's `dist-*` artifacts via
+  `gh run download` and re-uploads them under `release-*` names so
+  `create-release` is byte-identical in both modes (fan-in guarded with
+  `if: ${{ !cancelled() && !failure() }}` since skipped needs skip
+  dependents by default); custom `notes` prepended to the atlas body.
+- `AGENTS.md` §3/§4 document the new flags and dispatch mode.

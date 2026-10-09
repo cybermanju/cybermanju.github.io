@@ -1,6 +1,6 @@
 [package]
 name = "cybermanju-web"
-version = "0.1.1"
+version = "0.1.0"
 edition = "2021"
 description = "HTTP REST server with JWT auth and rate limiting"
 

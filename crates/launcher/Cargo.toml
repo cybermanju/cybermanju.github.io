@@ -1,6 +1,6 @@
 [package]
 name = "cybermanju-launcher"
-version = "0.1.1"
+version = "0.1.0"
 edition = "2021"
 description = "CyberManju OS launcher bridge: list/open Android apps with icons, icon packs, uninstall — reusable crate behind Tauri commands"
 

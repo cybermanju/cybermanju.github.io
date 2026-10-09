@@ -1,13 +1,13 @@
 # AGENTS.md — CyberManju OS agent rules
 
 > Source of truth for AI agents working in this repo. Verified against the
-> tree on 2026-10-07 (v0.1.1, `com.cybermanju.os`). If a rule below conflicts
+> tree on 2026-10-09 (v0.1.0, `com.cybermanju.os`). If a rule below conflicts
 > with a doc, this file wins for workflow; `ARCHITECTURE.md` wins for design.
 
 ## 0. Project identity
 
 - **Name:** CyberManju OS — quantum-resistant encrypted file manager + decentralized OS layer.
-- **Version:** `0.1.1` — `package.json` is the single source of truth.
+- **Version:** `0.1.0` — `package.json` is the single source of truth.
   Every other version carrier must agree (`bash scripts/check-version.sh`):
   `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`,
   all 15 `crates/*/Cargo.toml`, `docker-compose.yml` (`x-casaos`), `aur/PKGBUILD`, `README.md`.
@@ -80,10 +80,20 @@
   heal `.git` ownership, stage all (aborts if `git add` fails), commit,
   fetch both remotes, auto-rebase onto `origin/main` when behind (never
   force-push), push main, push only tags the remote lacks (divergent remote
-  tags are left alone with a warning). `--watch`
+  tags are left alone with a warning).   `--watch`
   (or `PUSH_WATCH_CI=1`) chains into `scripts/watch-ci.sh --sha HEAD`,
   which polls the CI run via `gh api .../actions/runs/...` + `/jobs`
   and saves/prints the FULL logs of all steps (`logs/ci-<run-id>/`).
+- Release via `push.sh --release -m "notes md"` (`--release-notes-file FILE`
+  for long markdown): commits as `chore(release): vX.Y.Z`, pushes main, creates
+  the `vX.Y.Z` tag and pushes it — the tag push triggers `release.yml` (full
+  rebuild of every family); custom notes are prepended to the atlas body once
+  published. `--release --last [--reuse-run ID]` instead dispatches
+  `release.yml` in reuse mode: zero compilation, ships one green CI run's
+  `dist-*` artifacts unchanged (auto-resolves HEAD's latest green run; pin with
+  `--reuse-run` when HEAD is newer). `--move-tag` (full mode only) explicitly
+  deletes/recreates an existing tag at HEAD and force-updates it on both
+  remotes; refuses when a published GitHub release sits on the tag.
 - CI skips **pushes that touch only prose** (`**.md`, `docs/**`, `LICENSE`).
   Code pushes run the full ~15 min pipeline; `pull_request` always runs all.
 
@@ -100,9 +110,13 @@ CI jobs (`ci.yml`, concurrency `CI-<ref>`, cancel-in-progress):
 `android-build` (NDK `28.2.13676358`, arm64-v8a release, APK+AAB `--split-per-abi`, signed; unsigned PR artifacts say `-unsigned`) ·
 `macos-build` · `deploy-pages` (needs `wasm-build`, push-to-main only).
 
-Release (`release.yml`, on `v*` tags): same gates + Docker→GHCR +
+Release (`release.yml`, on `v*` tags + `workflow_dispatch`): same gates + Docker→GHCR +
 `create-release` with all 8 artifact families present (windows/linux/rpm/
-flatpak/arch/macos/android/wasm + SHA256SUMS). Release notes = generated
+flatpak/arch/macos/android/wasm + SHA256SUMS). Dispatch mode takes
+`tag`/`reuse_run_id`/`notes` inputs: with `reuse_run_id` every build job
+(incl. `rust-check`) is skipped and `fetch-last-build` re-uploads that green
+CI run's `dist-*` artifacts under `release-*` names, so `create-release` is
+byte-identical in both modes. Release notes = generated
 changelog + `docs/RELEASE_NOTES.md` (feature atlas + status, shared with GitLab).
 
 GitLab mirror (`.gitlab-ci.yml`): same stages on SaaS Linux runners; Windows /

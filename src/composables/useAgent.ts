@@ -555,7 +555,7 @@ async function execMcpTool(fullName: string, input: Record<string, unknown>, con
   const init = await mcpHttpRoundtrip(url, cfg.headers ?? [], 'initialize', {
     protocolVersion: '2024-11-05',
     capabilities: { tools: {} },
-    clientInfo: { name: 'cybermanju', version: '0.1.1' },
+    clientInfo: { name: 'cybermanju', version: '0.1.0' },
   }, idBase + 1)
   unwrapMcpResponse(init.value)
   try {
@@ -583,7 +583,7 @@ export async function listLocalMcpTools(configId: string): Promise<Array<{ serve
       const init = await mcpHttpRoundtrip(url, cfg.headers ?? [], 'initialize', {
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
-        clientInfo: { name: 'cybermanju', version: '0.1.1' },
+        clientInfo: { name: 'cybermanju', version: '0.1.0' },
       }, idBase + 1)
       unwrapMcpResponse(init.value)
       const listed = await mcpHttpRoundtrip(url, cfg.headers ?? [], 'tools/list', {}, idBase + 2)
@@ -1090,7 +1090,7 @@ async function execLocalTool(
       const init = await mcpHttpRoundtrip(url, [], 'initialize', {
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
-        clientInfo: { name: 'cybermanju', version: '0.1.1' },
+        clientInfo: { name: 'cybermanju', version: '0.1.0' },
       }, idBase + 1)
       unwrapMcpResponse(init.value)
       const listed = await mcpHttpRoundtrip(url, [], 'tools/list', {}, idBase + 2)
