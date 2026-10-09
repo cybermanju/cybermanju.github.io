@@ -162,10 +162,6 @@
           />
         </div>
         <div class="st-row">
-          <UiText as="span" variant="label" tone="muted">Matrix rain</UiText>
-          <UiToggle v-model="store.matrixRainEnabled" aria-label="Matrix rain" />
-        </div>
-        <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Sidebar expanded</UiText>
           <UiToggle
             :model-value="!store.sidebarCollapsed"

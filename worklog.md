@@ -464,3 +464,10 @@ Stage Summary:
 - Legal links and the static legal pages follow the active preview path while root/native builds retain canonical Pages URLs.
 - Verified locally: `vue-tsc`, 50 frontend suites / 578 tests, version check, root and `/develop/` bundles, `cargo fmt`, Clippy, and workspace Rust tests. GitHub Pages environment now explicitly allows both `main` and `develop`; remote CI/deployment will be verified after push.
 - The preview's PWA manifest now uses `/develop/` for its start URL, scope and icons; the Pages assembly step asserts those paths so installation cannot jump to production.
+
+
+## 2026-10-09 — Remove duplicate wallpaper-effects preference
+
+- Settings → Appearance exposed both “Wallpaper effects” and “Matrix rain” controls for the same `matrixRainEnabled` state. Removed the redundant Matrix rain row, keeping the accessible opt-in canvas control that matches the DesktopShell guidance.
+- Added a regression test ensuring the preference appears once with its accessible label.
+- Verified locally: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, and 51 frontend suites / 579 tests. Changes are isolated to `develop`; Rust validation remains delegated to CI per `AGENTS.md`.
