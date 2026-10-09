@@ -122,8 +122,7 @@ fn parse_kind(raw: Option<&str>) -> Result<SecretKind, String> {
 }
 
 fn blank(s: Option<String>) -> Option<String> {
-    s.map(|v| v.trim().to_string())
-        .filter(|s| !s.is_empty())
+    s.map(|v| v.trim().to_string()).filter(|s| !s.is_empty())
 }
 
 fn seal_value(passphrase: &str, plaintext: &str) -> Result<String, String> {
@@ -333,10 +332,9 @@ pub fn route(
 
         ["api", "secrets", id] if method == "DELETE" => match remove(db, id) {
             Ok(true) => respond(Ok(serde_json::json!({ "removed": true })), origin),
-            Ok(false) => respond::<serde_json::Value>(
-                Err(format!("not_found: no secret `{id}`")),
-                origin,
-            ),
+            Ok(false) => {
+                respond::<serde_json::Value>(Err(format!("not_found: no secret `{id}`")), origin)
+            }
             Err(e) => respond::<serde_json::Value>(Err(e), origin),
         },
 
