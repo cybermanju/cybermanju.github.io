@@ -1006,6 +1006,20 @@ export interface AgentJob {
   activity?: string | null
   /** Terminal-state nudge: long run, nothing stored — UI offers REMEMBER. */
   memoryHint?: string | null
+  /** One-shot UI request from `ui_open_panel`/`ui_notify`
+   *  (consumed-once, deduped by `uiSeq`). Mirrors the Rust
+   *  `JobState.ui_request` wire shape; `utils/uiRequests.ts` applies it. */
+  uiRequest?: {
+    op: 'open' | 'notify'
+    panel?: string
+    tab?: string
+    path?: string
+    level?: string
+    msg?: string
+    seq: number
+  } | null
+  /** Monotonic seq for `uiRequest` dedupe. */
+  uiSeq?: number
 }
 
 /* ── Semantic memory (redb `agent_memories`: curated text + vectors) ─── */
@@ -1073,6 +1087,8 @@ export function agentPermissionPreset(name: 'strict' | 'balanced' | 'yolo'): Per
       grep: 'allow',
       self_research: 'allow',
       repo_analyze: 'allow',
+      ui_open_panel: 'allow',
+      ui_notify: 'allow',
       bash: [['*', 'ask'], ['git *', 'allow'], ['curl *', 'allow'], ['wget *', 'allow'], ['rm *', 'deny']],
       mcp__exa__web_search_exa: 'allow',
       mcp__exa__web_fetch_exa: 'allow',

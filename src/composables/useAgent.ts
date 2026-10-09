@@ -243,9 +243,9 @@ export function decideLocalTool(
   input: Record<string, unknown>,
 ): LocalDecision {
   // Plan persona: read-only. skill_save writes a file, mcp_attach mutates
-  // the config — both denied like edit/write/bash. self_research and
-  // repo_analyze are read-only and stay available.
-  if (agentKind === 'plan' && (tool === 'edit' || tool === 'write' || tool === 'bash' || tool === 'skill_save' || tool === 'mcp_attach')) {
+  // the config, os_exec runs volume commands — all denied like edit/write/
+  // bash. self_research and repo_analyze are read-only and stay available.
+  if (agentKind === 'plan' && (tool === 'edit' || tool === 'write' || tool === 'bash' || tool === 'skill_save' || tool === 'mcp_attach' || tool === 'os_exec')) {
     return { kind: 'deny', reason: `deny: plan agent may not run \`${tool}\`` }
   }
   const rule = rules.rules[tool]
@@ -898,6 +898,59 @@ async function execLocalTool(
     }
     case 'question':
       throw new Error('unsupported: routed through approvals, never executed directly')
+    case 'os_exec': {
+      // Pure cybsh surface — same dispatcher as bash's cybsh path, but
+      // never a device-shell fallthrough and never the -os host flag.
+      const command = String(call.input.command ?? '').trim()
+      if (!command) throw new Error('invalid: command is required')
+      if (command.split(/\s+/).some(a => a === '-os' || a === '--host' || a === '--os')) {
+        throw new Error("unsupported: 'os_exec -os' addresses the host filesystem — run it in the desktop app")
+      }
+      let res: { ok: boolean; output: string }
+      try {
+        res = (await wasmOsDispatch('exec', { line: command })) as { ok: boolean; output: string }
+      } catch (e) {
+        const detail = e instanceof Error ? e.message : String(e)
+        if (detail.includes('not bundled') || detail.includes('wasm backend unavailable')) {
+          throw new Error('unsupported: browser volume unavailable in this build — use desktop/Docker')
+        }
+        throw new Error(`error: os_exec dispatch failed — ${detail}`)
+      }
+      if (res.ok) return capOutput(res.output || '(empty output)')
+      const out = String(res.output || 'command failed')
+      // The dispatcher answers `unsupported:` / `unknown command:` for
+      // device-only verbs — keep the prefix verbatim, never fall through.
+      if (/^(unsupported:|unknown command:)/.test(out)) throw new Error(out)
+      throw new Error(out.startsWith('error:') ? out : `error: ${out}`)
+    }
+    case 'ui_open_panel': {
+      const panel = String(call.input.panel ?? '').trim()
+      if (!panel) throw new Error('invalid: panel is required')
+      const { isKnownPanel } = await import('@/utils/uiRequests')
+      if (!isKnownPanel(panel)) throw new Error(`not_found: unknown panel '${panel}'`)
+      const { useWindowManager } = await import('@/composables/useWindowManager')
+      const wm = useWindowManager()
+      const props: Record<string, unknown> = {}
+      const tab = String(call.input.tab ?? '').trim()
+      const path = String(call.input.path ?? '').trim()
+      if (tab) props.tab = tab
+      if (path) props.path = path
+      const { resolvePanel } = await import('@/utils/panels')
+      wm.open(resolvePanel(panel as never), props)
+      return `ok: opened panel '${panel}'`
+    }
+    case 'ui_notify': {
+      const levelRaw = String(call.input.level ?? 'info').trim()
+      const level = ['info', 'success', 'warning', 'error'].includes(levelRaw) ? levelRaw : ''
+      if (!level) {
+        throw new Error(`invalid: level must be info/success/warning/error (got '${levelRaw}')`)
+      }
+      const message = String(call.input.message ?? '').trim()
+      if (!message) throw new Error('invalid: message is required')
+      const { useNotifications } = await import('@/composables/useNotifications')
+      useNotifications().notify(level as 'info' | 'success' | 'warning' | 'error', message)
+      return 'ok: notified'
+    }
     case 'memory_recall': {
       const query = String(call.input.query ?? '').trim()
       if (!query) throw new Error('invalid: query is required')

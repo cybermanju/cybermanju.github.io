@@ -37,6 +37,50 @@ pub const TOOL_NAMES: &[&str] = &[
     "skill_save",
     "mcp_attach",
     "repo_analyze",
+    "os_exec",
+    "ui_open_panel",
+    "ui_notify",
+];
+
+/// Panel ids `ui_open_panel` may open — the Rust twin of the frontend's
+/// `PanelType` union (aliases like `cron`/`storage` included: the frontend
+/// resolves them via `resolvePanel`). Unknown ids answer `not_found:` so the
+/// model never thinks a panel opened when it did not.
+pub const UI_PANEL_IDS: &[&str] = &[
+    "files",
+    "preview",
+    "encryption",
+    "compression",
+    "collections",
+    "faces",
+    "map",
+    "code",
+    "editor",
+    "agent",
+    "search",
+    "style",
+    "accounts",
+    "loose-groups",
+    "sync",
+    "transfer",
+    "webdash",
+    "users",
+    "dashboard",
+    "settings",
+    "trash",
+    "activity",
+    "favorites",
+    "recent",
+    "storage",
+    "terminal",
+    "processes",
+    "disks",
+    "devices",
+    "permissions",
+    "cron",
+    "automation",
+    "schedules",
+    "search",
 ];
 
 fn tool_def(
@@ -197,6 +241,33 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
                 "branch": { "type": "string", "description": "Branch/ref, default repo default (usually main)" },
             }),
             &["repo"],
+        ),
+        tool_def(
+            "os_exec",
+            "Run ONE cybsh line against the OS volume (ls/cd/pwd/cat/cp/mv/rm/mkdir/touch/stat/du/df/disk/mount/search/sync/scrub/repair/gc/lease/ps/compute/keygen/encrypt/decrypt/ai/cron/ui — the same verbs as bash's cybsh subset). NEVER falls through to a device shell: a non-cybsh verb answers unsupported:. The -os host flag is refused on every transport. Use bash when you may need curl/wget; use os_exec when you want the pure volume syscall surface. One line per call — no pipes or chains.",
+            serde_json::json!({
+                "command": { "type": "string", "description": "One cybsh line, e.g. `ls /inbox` or `search notes`" },
+            }),
+            &["command"],
+        ),
+        tool_def(
+            "ui_open_panel",
+            "Open a UI panel/window for the user (files, terminal, agent, settings, …). The panel id must be one of the known PanelType ids; unknown ids answer not_found:. Optional tab switches a tabbed panel (e.g. tab=schedules on processes); optional path navigates the Files panel to a volume path. Read-only and always allowed — use it to show the user where work landed.",
+            serde_json::json!({
+                "panel": { "type": "string", "description": "Panel id, e.g. files, terminal, agent, settings, disks" },
+                "tab": { "type": "string", "description": "Optional tab id inside the panel" },
+                "path": { "type": "string", "description": "Optional volume path — Files panel navigates here" },
+            }),
+            &["panel"],
+        ),
+        tool_def(
+            "ui_notify",
+            "Show a notification to the user (info/success/warning/error + message). Fires the same toast surface as the shell. Always allowed; use sparingly — a final answer already reaches the user.",
+            serde_json::json!({
+                "level": { "type": "string", "description": "info | success | warning | error" },
+                "message": { "type": "string", "description": "Short human-readable message (no secrets)" },
+            }),
+            &["level", "message"],
         ),
     ]
 }
@@ -747,9 +818,9 @@ mod tests {
     use super::*;
     use cybermanju_types::agent::LlmDialect;
     #[test]
-    fn tool_schemas_cover_eleven_tools_in_openai_shape() {
+    fn tool_schemas_cover_eighteen_tools_in_openai_shape() {
         let tools = openai_tools();
-        assert_eq!(tools.as_array().map(|a| a.len()), Some(15));
+        assert_eq!(tools.as_array().map(|a| a.len()), Some(18));
         let first = &tools[0];
         assert_eq!(first["type"], "function");
         assert_eq!(first["function"]["name"], "read");
@@ -762,6 +833,21 @@ mod tests {
         assert!(arr
             .iter()
             .any(|t| t["function"]["name"] == "memory_remember"));
+        // The three OS/UI tools must be in the schema too.
+        for name in ["os_exec", "ui_open_panel", "ui_notify"] {
+            assert!(
+                arr.iter().any(|t| t["function"]["name"] == name),
+                "missing tool definition: {name}"
+            );
+        }
+        // UI panel allowlist stays honest: every id is non-empty and unique.
+        assert!(UI_PANEL_IDS.contains(&"files"));
+        assert!(UI_PANEL_IDS.contains(&"terminal"));
+        assert!(!UI_PANEL_IDS.contains(&"landing"), "landing is not a window");
+        let mut sorted = UI_PANEL_IDS.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), UI_PANEL_IDS.len(), "duplicate panel ids");
         let anthropic = anthropic_tools();
         assert!(anthropic[0].get("input_schema").is_some());
         assert!(anthropic[0].get("parameters").is_none());
@@ -783,7 +869,7 @@ mod tests {
         );
         assert_eq!(body["model"], "gpt-5");
         assert_eq!(body["messages"][0]["role"], "system");
-        assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(15));
+        assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(18));
 
         let reply = serde_json::json!({
             "choices": [{

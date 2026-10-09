@@ -25,6 +25,8 @@ import { isSyncSuccess, isSyncTerminal, firstSyncError, refreshAfterSync as fanO
 import { parseStarIds, serializeStarIds } from '@/utils/stars'
 import { parseSchedule, scheduleNextAfter } from '@/utils/schedule'
 import { setAuthToken, getAuthToken, isWebMode, isStaticHost } from '@/composables/useTauri'
+import { createUiRequestDedupe } from '@/utils/uiRequests'
+import { useWindowManager } from '@/composables/useWindowManager'
 
 export const useAppStore = defineStore('cybermanju', () => {
   // ── Navigation State ──────────────────────────────────────
@@ -2250,6 +2252,7 @@ export const useAppStore = defineStore('cybermanju', () => {
       if (i >= 0) agentJobs.value[i] = job
       else agentJobs.value.unshift(job)
       announceAgentJob(jobId, job)
+      applyAgentUiRequest(job)
       return job.status === 'done' || job.status === 'error' || job.status === 'cancelled'
     }
     try {
@@ -2306,12 +2309,31 @@ export const useAppStore = defineStore('cybermanju', () => {
       if (i >= 0) agentJobs.value[i] = job
       else agentJobs.value.unshift(job)
       announceAgentJob(jobId, job)
+      applyAgentUiRequest(job)
       if (job.status === 'running' || job.status === 'waiting_approval') {
         setTimeout(() => pollAgentJob(jobId), 1500)
       }
     } catch (e) {
       notifyError('Failed to poll agent job', e)
     }
+  }
+
+  /**
+   * Apply a one-shot `ui_request` (from `ui_open_panel`/`ui_notify`) exactly
+   * once per `uiSeq`. Deduped across the SSE subscribe and the 1.5 s poll
+   * fallback — a replayed snapshot never re-opens a panel or re-fires a toast.
+   */
+  const agentUiDedupe = createUiRequestDedupe()
+  function applyAgentUiRequest(job: AgentJob) {
+    if (!job.uiRequest) return
+    agentUiDedupe.apply(job.uiRequest, {
+      open: (panel, props) => {
+        useWindowManager().open(panel, props)
+      },
+      notify: (level, msg) => {
+        notify(level, msg)
+      },
+    })
   }
 
   /**

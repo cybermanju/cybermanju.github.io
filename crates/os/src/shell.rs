@@ -1699,10 +1699,7 @@ fn df_os(args: &[String], json: bool) -> Result<String, String> {
     let (bytes, files) = if target.is_dir() {
         crate::api::dir_size_and_files(&target)
     } else {
-        (
-            std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0),
-            1,
-        )
+        (std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0), 1)
     };
     let display = target.display().to_string();
     if json {
@@ -4522,9 +4519,10 @@ fn run_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String,
 
 /// `cron ls|add|rm|run|enable|disable|history` — the scheduler verb.
 ///
-/// Persistence goes through the shared `cybermanju_web::api::cron_api`
-/// helpers (single source of truth with the REST routes and Tauri commands);
-/// `run` and `add` reuse `cybermanju_os::scheduler` / `schedule`. An `add`
+/// Persistence goes through the shared `crate::scheduler` store helpers
+/// (single source of truth with the REST routes and Tauri commands, which
+/// re-export them via `cybermanju_web::cron_api`); `run` and `add` reuse
+/// `crate::scheduler` / `schedule`. An `add`
 /// with no expression reads the script's `# schedule:` frontmatter, so a
 /// script that already declares one needs no second source of truth.
 fn cron_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, String> {
@@ -4593,8 +4591,8 @@ fn cron_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String
                 last_run_id: None,
                 run_on_boot: false,
             };
-            cybermanju_os::scheduler::recompute_next(&mut row, chrono::Utc::now());
-            let saved = cybermanju_web::api::cron_api::save(db, row)?;
+            crate::scheduler::recompute_next(&mut row, chrono::Utc::now());
+            let saved = crate::scheduler::save(db, row)?;
             if json {
                 return serde_json::to_string(&saved).map_err(|e| e.to_string());
             }
@@ -4610,7 +4608,7 @@ fn cron_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String
             let id = rest
                 .first()
                 .ok_or_else(|| "usage: cron rm <id>".to_string())?;
-            if !cybermanju_web::api::cron_api::remove(db, id)? {
+            if !crate::scheduler::remove(db, id)? {
                 return Err(format!("not_found: no schedule `{id}`"));
             }
             if json {
@@ -4624,7 +4622,7 @@ fn cron_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String
             let id = rest
                 .first()
                 .ok_or_else(|| "usage: cron run <id>".to_string())?;
-            let run = cybermanju_os::scheduler::run_now(db, id)?;
+            let run = crate::scheduler::run_now(db, id)?;
             if json {
                 return serde_json::to_string(&run).map_err(|e| e.to_string());
             }
@@ -4644,7 +4642,7 @@ fn cron_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String
             let id = rest
                 .first()
                 .ok_or_else(|| format!("usage: cron {sub} <id>"))?;
-            let row = cybermanju_web::api::cron_api::set_enabled(db, id, sub == "enable")?;
+            let row = crate::scheduler::set_enabled(db, id, sub == "enable")?;
             if json {
                 return serde_json::to_string(&row).map_err(|e| e.to_string());
             }
@@ -4659,7 +4657,7 @@ fn cron_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String
             let id = rest
                 .first()
                 .ok_or_else(|| "usage: cron history <id>".to_string())?;
-            let runs = cybermanju_web::api::cron_api::history(db, id, 20)?;
+            let runs = crate::scheduler::history(db, id, 20)?;
             if json {
                 return serde_json::to_string(&runs).map_err(|e| e.to_string());
             }

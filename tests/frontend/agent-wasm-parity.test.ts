@@ -92,21 +92,26 @@ describe('listLocalMcpTools', () => {
 
 describe('browser tool wiring', () => {
   const open: PermissionRuleset = { default: 'allow', rules: {} }
-  it('plan stays read-only for write/edit/bash/skill_save/mcp_attach', () => {
+  it('plan stays read-only for write/edit/bash/skill_save/mcp_attach/os_exec', () => {
     expect(decideLocalTool(open, 'plan', 'bash', { command: 'ls' }).kind).toBe('deny')
     expect(decideLocalTool(open, 'plan', 'write', { path: 'a' }).kind).toBe('deny')
     expect(decideLocalTool(open, 'plan', 'skill_save', { name: 's' }).kind).toBe('deny')
     expect(decideLocalTool(open, 'plan', 'mcp_attach', { name: 's' }).kind).toBe('deny')
+    expect(decideLocalTool(open, 'plan', 'os_exec', { command: 'ls /' }).kind).toBe('deny')
     expect(decideLocalTool(open, 'plan', 'read', { path: 'a' }).kind).toBe('allow')
     expect(decideLocalTool(open, 'plan', 'self_research', { query: 'q' }).kind).toBe('allow')
     expect(decideLocalTool(open, 'plan', 'repo_analyze', { repo: 'o/r' }).kind).toBe('allow')
+    // UI tools are read-only for the plan persona — they open a panel or
+    // show a toast, never mutate the volume.
+    expect(decideLocalTool(open, 'plan', 'ui_open_panel', { panel: 'files' }).kind).toBe('allow')
+    expect(decideLocalTool(open, 'plan', 'ui_notify', { level: 'info', message: 'x' }).kind).toBe('allow')
   })
   it('stripDeniedTools drops plan mutations (D7 parity)', () => {
-    const tools = ['read', 'write', 'edit', 'bash', 'skill_save', 'mcp_attach', 'self_research', 'repo_analyze', 'task', 'memory_recall']
-    expect(stripDeniedTools(tools, open, 'plan')).toEqual(['read', 'self_research', 'repo_analyze', 'task', 'memory_recall'])
+    const tools = ['read', 'write', 'edit', 'bash', 'skill_save', 'mcp_attach', 'self_research', 'repo_analyze', 'task', 'memory_recall', 'os_exec', 'ui_open_panel', 'ui_notify']
+    expect(stripDeniedTools(tools, open, 'plan')).toEqual(['read', 'self_research', 'repo_analyze', 'task', 'memory_recall', 'ui_open_panel', 'ui_notify'])
   })
   it('toolMeta covers every browser tool incl. mcp__', () => {
-    for (const t of ['read', 'write', 'edit', 'list', 'grep', 'glob', 'bash', 'task', 'question', 'memory_recall', 'memory_remember', 'self_research', 'skill_save', 'mcp_attach', 'repo_analyze']) {
+    for (const t of ['read', 'write', 'edit', 'list', 'grep', 'glob', 'bash', 'task', 'question', 'memory_recall', 'memory_remember', 'self_research', 'skill_save', 'mcp_attach', 'repo_analyze', 'os_exec', 'ui_open_panel', 'ui_notify']) {
       expect(toolMeta(t).name).toBe(t)
     }
     expect(toolMeta('mcp__exa__web_search_exa').verb).toBe('MCP')

@@ -37,6 +37,9 @@ export const AGENT_TOOL_META: Record<string, ToolMeta> = {
   skill_save: { name: 'skill_save', verb: 'Saving skill', done: 'Saved skill', icon: 'solar:backpack-bold' },
   mcp_attach: { name: 'mcp_attach', verb: 'Attaching MCP', done: 'Attached MCP', icon: 'solar:plug-circle-bold' },
   repo_analyze: { name: 'repo_analyze', verb: 'Analyzing repo', done: 'Analyzed repo', icon: 'solar:git-branch-bold' },
+  os_exec: { name: 'os_exec', verb: 'Running cybsh', done: 'Ran cybsh', icon: 'solar:command-bold' },
+  ui_open_panel: { name: 'ui_open_panel', verb: 'Opening panel', done: 'Opened panel', icon: 'solar:monitor-bold' },
+  ui_notify: { name: 'ui_notify', verb: 'Notifying', done: 'Notified', icon: 'solar:bell-bold' },
 }
 
 export function toolMeta(name: string): ToolMeta {

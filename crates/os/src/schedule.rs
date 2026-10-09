@@ -10,7 +10,7 @@
 // instead of spinning forever. No threads, no I/O — the daemon in
 // `scheduler.rs` owns that.
 
-use chrono::{Datelike, Duration, Utc};
+use chrono::{Datelike, Duration, Timelike, Utc};
 
 /// A parsed schedule: either a cron expression or a fixed interval.
 #[derive(Debug, Clone, PartialEq, Eq)]

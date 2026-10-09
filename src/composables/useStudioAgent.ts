@@ -79,10 +79,16 @@ function localSystemPrompt(config: AgentConfig): string {
     `- write {path, content}: full-file create/overwrite; prefer edit for small changes.\n` +
     `- bash {command}: cybsh volume commands; device verbs answer unsupported:.\n` +
     `- task {goal, context?}: one bounded subagent with the full file/shell toolset (read/edit/write/bash, 5 turns).\n` +
+    `- question {question}: ask the human when genuinely blocked — sparingly.\n` +
     `- self_research {query, path?, limit?}: introspect YOUR OWN source — sweep this repo for how something works, get file:line snippets back. Read-only, plan-safe. Call it before claiming how the agent works.\n` +
     `- skill_save {name, description, content}: persist a reusable skill into the \`.cybermanju\` container — survives restarts, syncs across devices.\n` +
     `- mcp_attach {name, url}: attach an HTTP MCP server to this assistant persistently (verified before saving; stdio refused here).\n` +
     `- repo_analyze {repo, branch?}: analyze any public GitHub repo WITHOUT cloning (metadata + tree + README over HTTPS; no git needed, works everywhere).\n` +
+    `- os_exec {command}: run ONE cybsh line against the OS volume — same verbs as bash's cybsh subset, ` +
+    `never a device shell (non-cybsh verbs answer unsupported:). One line per call; no pipes or chains.\n` +
+    `- ui_open_panel {panel, tab?, path?}: open a UI panel for the user (files, terminal, agent, settings, …). ` +
+    `Unknown ids answer not_found:; optional tab/path navigate inside the panel. Read-only and always allowed.\n` +
+    `- ui_notify {level, message}: show the user a notification (info/success/warning/error). Always allowed; use sparingly.\n` +
     `- mcp__server__tool: attached HTTP MCP servers only; stdio answers unsupported:.\n` +
     `- memory_recall {query, top_k?}: search long-term memory (past sessions, stored facts). ` +
     `Bounded and possibly stale — verify before acting.\n` +

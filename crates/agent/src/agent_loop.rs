@@ -263,6 +263,14 @@ pub fn system_prompt(
           cloning (metadata + file tree + README over HTTPS; no git binary needed, so \
           it works on desktop, Docker, mobile and WASM). Returns layout, languages, \
           entry files and next reads.\n\
+          - os_exec {{command}}: run ONE cybsh line against the OS volume — the same \
+          verbs as bash's cybsh subset, but never a device shell (a non-cybsh verb \
+          answers unsupported:). One line per call; no pipes or chains.\n\
+          - ui_open_panel {{panel, tab?, path?}}: open a UI panel for the user \
+          (files, terminal, agent, settings, …). Unknown ids answer not_found:; \
+          optional tab/path navigate inside the panel. Read-only and always allowed.\n\
+          - ui_notify {{level, message}}: show the user a notification \
+          (info/success/warning/error). Always allowed; use sparingly.\n\
          - memory_recall {{query, top_k?}}: search long-term memory (past sessions, \
          stored facts). Recalled context is bounded and may be stale — verify against \
          the volume before acting on it.\n\
@@ -445,6 +453,9 @@ mod tests {
             "skill_save",
             "mcp_attach",
             "repo_analyze",
+            "os_exec",
+            "ui_open_panel",
+            "ui_notify",
         ] {
             assert!(
                 crate::protocol::TOOL_NAMES.contains(&tool),

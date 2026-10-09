@@ -44,10 +44,7 @@ pub fn ensure_started(db: Arc<RwLock<Database>>) {
 }
 
 fn run_loop(db: Arc<RwLock<Database>>) {
-    info!(
-        "cron scheduler started (tick {}s)",
-        TICK_INTERVAL.as_secs()
-    );
+    info!("cron scheduler started (tick {}s)", TICK_INTERVAL.as_secs());
     loop {
         std::thread::sleep(TICK_INTERVAL);
         if let Err(e) = tick(&db) {
@@ -178,7 +175,8 @@ fn tail(s: &str) -> String {
 /// deadlocking: the script runs on a cloned redb handle, outside any lock.
 pub fn run_now(handle: &Database, id: &str) -> Result<ScheduleRun, String> {
     let mut row = handle
-        .get_schedule(id)?
+        .get_schedule(id)
+        .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("not_found: no schedule `{id}`"))?;
     let now = Utc::now();
     row.last_fired_at = Some(now.to_rfc3339());
@@ -186,7 +184,7 @@ pub fn run_now(handle: &Database, id: &str) -> Result<ScheduleRun, String> {
     row.next_fire_at = next_fire(&row.expr, now);
     let run_id = format!("sched-{}", uuid::Uuid::new_v4());
     row.last_run_id = Some(run_id.clone());
-    handle.save_schedule(&row)?;
+    handle.save_schedule(&row).map_err(|e| e.to_string())?;
     let started = Utc::now();
     let (status, output_tail) = match execute_script(handle, &row.path) {
         Ok(out) => ("ok".to_string(), Some(tail(&out))),
@@ -200,7 +198,7 @@ pub fn run_now(handle: &Database, id: &str) -> Result<ScheduleRun, String> {
         status,
         output_tail,
     };
-    handle.save_schedule_run(&run)?;
+    handle.save_schedule_run(&run).map_err(|e| e.to_string())?;
     Ok(run)
 }
 
