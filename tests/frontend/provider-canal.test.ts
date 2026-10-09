@@ -6,6 +6,7 @@ import {
   mountKey,
   parseProviderPath,
   providerPathFor,
+  shouldCacheVfsListing,
   VFS_CACHE_TTL_MS,
 } from '../../src/composables/useProviderCanal'
 
@@ -41,6 +42,12 @@ describe('providerPathFor', () => {
 })
 
 describe('cache keys and TTL', () => {
+  it('keeps ordinary provider cache but always refreshes a native SAF folder', () => {
+    expect(shouldCacheVfsListing('github')).toBe(true)
+    expect(shouldCacheVfsListing('googleDrive')).toBe(true)
+    expect(shouldCacheVfsListing('scopedStorage')).toBe(false)
+  })
+
   it('namespaces cache rows per mount + path', () => {
     expect(cacheKey('m', 'a/b')).toBe('vfs:cache:m:a/b')
     expect(cacheKey('m', '/a/b')).toBe('vfs:cache:m:a/b')

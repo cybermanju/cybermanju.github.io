@@ -1,7 +1,7 @@
 <template>
-  <!-- Mobile bottom bar: Home (launcher) + 5 apps. 60px tall + safe-area,
-    labeled, active state follows the focused sheet. -->
-  <nav class="mobile-nav" role="navigation" aria-label="Mobile navigation">
+  <!-- Keep app tabs for open sheets; on the home surface the launcher dock
+    is the only bottom control, like a native phone home screen. -->
+  <nav v-if="hasOpenWindows" class="mobile-nav" role="navigation" aria-label="Mobile navigation">
     <button
       class="mn-btn"
       :class="{ active: !hasOpenWindows }"
@@ -71,6 +71,7 @@ function isActive(t: Tab): boolean {
 
 function goHome() {
   wm.closeAll()
+  store.currentPanel = 'files'
   try {
     ;(navigator as Navigator & { vibrate?: (p: number) => boolean }).vibrate?.(8)
   } catch { /* no haptics */ }
@@ -89,12 +90,15 @@ function go(t: Tab) {
   bottom: 0;
   left: 0;
   right: 0;
-  min-height: 60px;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  background: var(--ui-glass-2);
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  border-top: 1px solid var(--ui-border);
+  height: calc(64px + env(safe-area-inset-bottom, 0px));
+  min-height: 64px;
+  box-sizing: border-box;
+  padding: 4px 8px calc(4px + env(safe-area-inset-bottom, 0px));
+  background: color-mix(in srgb, var(--ui-surface) 73%, transparent);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border-top: 1px solid color-mix(in srgb, var(--ui-border) 68%, transparent);
+  box-shadow: 0 -8px 28px rgba(16, 24, 40, .06);
   z-index: 100;
   font-family: var(--ui-font);
 }
@@ -112,12 +116,13 @@ function go(t: Tab) {
   justify-content: center;
   gap: 2px;
   min-height: 56px;
-  padding: 6px 2px calc(6px + env(safe-area-inset-bottom, 0px));
-  border-radius: 0;
+  padding: 5px 2px;
+  border-radius: 14px;
   transition: color 120ms ease-out;
 }
 .mn-btn:active {
   color: var(--ui-text-2);
+  background: color-mix(in srgb, var(--ui-accent) 9%, transparent);
 }
 
 .mn-label {
@@ -128,6 +133,7 @@ function go(t: Tab) {
 
 .mn-btn.active {
   color: var(--ui-accent);
+  background: color-mix(in srgb, var(--ui-accent) 12%, transparent);
 }
 
 @media (max-width: 768px) {

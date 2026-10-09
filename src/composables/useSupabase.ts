@@ -37,6 +37,7 @@
 
 import { ref } from 'vue'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
+import { isTauriMobile } from './useTauri'
 import { vaultDelete, vaultGet, vaultSet } from './useVault'
 
 const URL_KEY = 'cybermanju.supabaseUrl'
@@ -49,6 +50,7 @@ const VAULT_URL_KEY = 'config:supabase.url'
 const VAULT_KEY_KEY = 'config:supabase.key'
 
 export type OAuthBackend = 'github' | 'google' | 'gitlab'
+export const MOBILE_OAUTH_CALLBACK_URL = 'cybermanju://oauth/callback'
 
 export interface ProviderTokenStash {
   backend: OAuthBackend
@@ -80,10 +82,9 @@ function writeLS(key: string, value: string) {
 export function getSupabaseConfig(): { url: string; key: string; source: string } {
   const lsUrl = readLS(URL_KEY).replace(/\/+$/, '')
   const lsKey = readLS(KEY_KEY)
-  if (lsUrl || lsKey) return { url: lsUrl, key: lsKey, source: 'localStorage' }
   // Build-time fallback so GitHub Pages / static deploys work without a
-  // manual paste in Settings. CI injects GH Secrets as Vite env at build
-  // time (see .github/workflows/ci.yml `wasm-build`):
+  // manual paste in Settings. CI injects the same repo secrets for web/WASM
+  // and Android builds:
   //   VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_KEY).
   // Local dev equivalent: a `.env` file with the same two keys.
   const envUrl = String(
@@ -93,6 +94,11 @@ export function getSupabaseConfig(): { url: string; key: string; source: string 
     ((import.meta.env.VITE_SUPABASE_ANON_KEY ??
       import.meta.env.VITE_SUPABASE_KEY) as string | undefined) ?? '',
   ).trim()
+  // Treat the credentials as a pair: a stale, half-saved manual override
+  // must not hide a complete build-time broker configuration.
+  if (lsUrl && lsKey) return { url: lsUrl, key: lsKey, source: 'localStorage' }
+  if (envUrl && envKey) return { url: envUrl, key: envKey, source: 'build-env' }
+  if (lsUrl || lsKey) return { url: lsUrl, key: lsKey, source: 'localStorage' }
   if (envUrl || envKey) return { url: envUrl, key: envKey, source: 'build-env' }
   return { url: '', key: '', source: 'none' }
 }
@@ -218,6 +224,11 @@ export function supabaseSignInScopes(provider: OAuthBackend): string {
   }
 }
 
+function supabaseRedirectTo(popup: boolean): string {
+  if (isTauriMobile()) return MOBILE_OAUTH_CALLBACK_URL
+  return `${window.location.origin}${window.location.pathname}${popup ? '?oauth=popup' : ''}`
+}
+
 export function setPendingOAuthConfig(configId: string | null) {
   writeLS(PENDING_CFG_KEY, configId ?? '')
 }
@@ -261,9 +272,9 @@ export function isOAuthPopup(): boolean {
   try {
     if (typeof window === 'undefined') return false
     const params = new URLSearchParams(window.location.search)
-    if (params.has('code')) return true
+    if (params.get('oauth') === 'popup') return true
     if (typeof window.opener !== 'undefined' && window.opener && !window.opener.closed) {
-      if (params.get('oauth') === 'popup' || params.has('error')) return true
+      if (params.has('code') || params.has('error')) return true
     }
   } catch {
     return false
@@ -314,12 +325,12 @@ export function closeOAuthPopup(): void {
  * Begin PKCE OAuth without leaving the app: returns the Supabase authorize
  * URL for us to open in a popup. Throws when Supabase is not configured.
  */
-export async function startSupabaseOAuth(backendType: string): Promise<{ url: string }> {
+export async function startSupabaseOAuth(backendType: string, popup = true): Promise<{ url: string }> {
   const provider = supabaseProviderFor(backendType)
   if (!provider) throw new Error(`unsupported: no Supabase OAuth for '${backendType}'`)
   const sb = await getSupabaseClient()
   if (!sb) throw new Error('Supabase is not configured — set URL + key in Settings first')
-  const redirectTo = `${window.location.origin}${window.location.pathname}?oauth=popup`
+  const redirectTo = supabaseRedirectTo(popup)
   const { data, error } = await sb.auth.signInWithOAuth({
     provider,
     options: {
@@ -636,18 +647,109 @@ export async function refreshIdentity(): Promise<CyberIdentity | null> {
   return identity.value
 }
 
+let mobileDeepLinkReady = false
+let mobileDeepLinkListener: (() => void) | null = null
+let mobileDeepLinkInstallPromise: Promise<void> | null = null
+const pendingMobileDeepLinks: string[] = []
+const handledMobileOAuthCodes = new Set<string>()
+
+function isMobileOAuthUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'cybermanju:' && url.hostname === 'oauth' && url.pathname === '/callback'
+  } catch {
+    return false
+  }
+}
+
+async function exchangeMobileOAuthUrl(value: string): Promise<boolean> {
+  const url = new URL(value)
+  if (!isMobileOAuthUrl(value)) return false
+  const providerError = url.searchParams.get('error_description') || url.searchParams.get('error')
+  if (providerError) throw new Error(providerError)
+  const code = url.searchParams.get('code')
+  if (!code) throw new Error('The OAuth callback did not include an authorization code.')
+  if (handledMobileOAuthCodes.has(code)) return true
+  const sb = await getSupabaseClient()
+  if (!sb) throw new Error('Supabase is not configured in this app.')
+  const { data, error } = await sb.auth.exchangeCodeForSession(code)
+  if (error) throw error
+  const session = data.session ?? await supabaseSession()
+  if (!session) throw new Error('Supabase returned no session for this sign-in.')
+  const provider = supabaseSessionProvider(session)
+  identity.value = identityFromSession(session)
+  recordConnectedAccount(session)
+  if (session.provider_token && provider) {
+    stashProviderToken({
+      backend: provider,
+      providerToken: session.provider_token,
+      providerRefreshToken: session.provider_refresh_token ?? null,
+      at: Date.now(),
+    })
+  }
+  handledMobileOAuthCodes.add(code)
+  return true
+}
+
+async function processMobileOAuthUrls(urls: string[], announce: boolean): Promise<boolean> {
+  let handled = false
+  for (const url of urls) {
+    if (!isMobileOAuthUrl(url)) continue
+    handled = true
+    const configId = getPendingOAuthConfig() || null
+    try {
+      await exchangeMobileOAuthUrl(url)
+      if (announce) window.dispatchEvent(new CustomEvent('cybermanju:oauth-return', { detail: { ok: true, configId } }))
+    } catch (e) {
+      if (announce) window.dispatchEvent(new CustomEvent('cybermanju:oauth-return', {
+        detail: { ok: false, configId, message: e instanceof Error ? e.message : String(e) },
+      }))
+    }
+  }
+  return handled
+}
+
+/** Install the mobile URL listener early; callbacks wait in memory until broker hydration completes. */
+export function installMobileOAuthDeepLinks(): Promise<void> {
+  if (!isTauriMobile() || mobileDeepLinkListener) return Promise.resolve()
+  if (mobileDeepLinkInstallPromise) return mobileDeepLinkInstallPromise
+  const install = (async () => {
+    const { getCurrent, onOpenUrl } = await import('@tauri-apps/plugin-deep-link')
+    mobileDeepLinkListener = await onOpenUrl((urls) => {
+      if (!mobileDeepLinkReady) pendingMobileDeepLinks.push(...urls)
+      else void processMobileOAuthUrls(urls, true)
+    })
+    const initialUrls = await getCurrent().catch(() => null)
+    if (initialUrls) pendingMobileDeepLinks.push(...initialUrls)
+  })()
+  mobileDeepLinkInstallPromise = install.catch((error) => {
+    mobileDeepLinkInstallPromise = null
+    throw error
+  })
+  return mobileDeepLinkInstallPromise
+}
+
+/** Exchange any cold-start callback after the stored Supabase broker is hydrated. */
+export async function activateMobileOAuthDeepLinks(): Promise<boolean> {
+  if (!isTauriMobile()) return false
+  await installMobileOAuthDeepLinks()
+  mobileDeepLinkReady = true
+  const queued = pendingMobileDeepLinks.splice(0)
+  return processMobileOAuthUrls(queued, true)
+}
+
 /**
  * Begin sign-in with one of the Supabase-brokered providers. Returns the
  * authorize URL for a popup (same shape as `startSupabaseOAuth`).
  */
-export async function startSupabaseSignIn(provider: OAuthBackend): Promise<{ url: string }> {
+export async function startSupabaseSignIn(provider: OAuthBackend, popup = true): Promise<{ url: string }> {
   const sb = await getSupabaseClient()
   if (!sb) {
     throw new Error(
       'Supabase is not configured — set the OAuth broker URL + key in Settings first'
     )
   }
-  const redirectTo = `${window.location.origin}${window.location.pathname}?oauth=popup`
+  const redirectTo = supabaseRedirectTo(popup)
   const { data, error } = await sb.auth.signInWithOAuth({
     provider,
     options: {
@@ -671,25 +773,56 @@ export async function startSupabaseSignIn(provider: OAuthBackend): Promise<{ url
  * popups are blocked or the flow never completes.
  */
 export async function signInWithPopup(provider: OAuthBackend): Promise<CyberIdentity> {
+  if (isTauriMobile()) {
+    await installMobileOAuthDeepLinks()
+    await supabaseSignOut().catch(() => {})
+    identity.value = null
+    const { url } = await startSupabaseSignIn(provider, false)
+    const { open } = await import('@tauri-apps/plugin-shell')
+    await open(url)
+    const deadline = Date.now() + 180_000
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 700))
+      const session = await supabaseSession()
+      const id = identityFromSession(session)
+      if (id) {
+        identity.value = id
+        recordConnectedAccount(session)
+        return id
+      }
+    }
+    throw new Error('Sign-in timed out. Return to CyberManju OS after approving the provider.')
+  }
   // Fresh login: end the previous session first so the poll below recognizes
   // ANY arriving session (same-user re-login used to hang forever here,
   // because `id !== before` could never turn true).
-  await supabaseSignOut().catch(() => {})
-  identity.value = null
-  const { url } = await startSupabaseSignIn(provider)
   const width = 520
   const height = 640
   const left = Math.max(0, Math.round(window.screen.width / 2 - width / 2))
   const top = Math.max(0, Math.round(window.screen.height / 2 - height / 2))
-  // NOTE: no `noopener` — severing the opener chain is what left the popup
-  // open with the app rendered inside it (close + postMessage both need it).
-  const popup = window.open(
-    url,
-    'cybermanju-signin',
-    `width=${width},height=${height},left=${left},top=${top}`,
-  )
-  if (!popup) {
-    throw new Error('the browser blocked the sign-in popup — allow popups for this site, then retry')
+  let popup: Window | null = null
+  try {
+    // Reserve from the trusted click, before sign-out or PKCE setup awaits.
+    popup = window.open('about:blank', 'cybermanju-signin', `width=${width},height=${height},left=${left},top=${top}`)
+    if (popup === window) popup = null
+  } catch {
+    popup = null
+  }
+  let url = ''
+  try {
+    await supabaseSignOut().catch(() => {})
+    identity.value = null
+    ;({ url } = await startSupabaseSignIn(provider, !!popup))
+    if (!popup) {
+      // Unmarked `?code=` returns boot the full app and complete PKCE there.
+      window.location.assign(url)
+      return await new Promise<CyberIdentity>(() => {})
+    }
+    // Preserve the opener so the return page can message and close this popup.
+    popup.location.href = url
+  } catch (e) {
+    try { if (popup && !popup.closed) popup.close() } catch { /* best effort */ }
+    throw e
   }
   // Wake up early when the popup reports completion; the shared session in
   // localStorage stays the source of truth.

@@ -119,19 +119,19 @@ onBeforeUnmount(() => {
         </thead>
         <tbody>
           <tr v-for="task in tasks" :key="task.id">
-            <td>{{ task.id }}</td>
-            <td>{{ task.kind }}</td>
-            <td class="truncate name-cell" :title="task.name">{{ task.name }}</td>
-            <td>
+            <td data-label="PID">{{ task.id }}</td>
+            <td data-label="Kind">{{ task.kind }}</td>
+            <td data-label="Name" class="truncate name-cell" :title="task.name">{{ task.name }}</td>
+            <td data-label="State">
               <span class="state" :class="`state-${task.state}`">{{ task.state }}</span>
             </td>
-            <td class="progress-cell">
+            <td data-label="Progress" class="progress-cell">
               <span class="bar"><span class="bar-fill" :style="{ width: `${pct(task)}%` }"></span></span>
               <span class="pct">{{ pct(task) }}%</span>
             </td>
-            <td>{{ task.provider }}</td>
-            <td>{{ humanBytes(task.bytes) }}</td>
-            <td>
+            <td data-label="Provider">{{ task.provider }}</td>
+            <td data-label="Bytes">{{ humanBytes(task.bytes) }}</td>
+            <td class="task-action">
               <button
                 v-if="task.state === 'running' || task.state === 'pending'"
                 class="ghost-btn danger"
@@ -178,6 +178,7 @@ onBeforeUnmount(() => {
 .process-panel {
   height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--ui-surface);
   color: var(--ui-text);
   font-family: var(--ui-font);
@@ -216,6 +217,7 @@ onBeforeUnmount(() => {
   font-size: 11px;
   padding: 3px 8px;
   cursor: pointer;
+  min-height: 32px;
 }
 
 .ghost-btn:hover:not(:disabled) {
@@ -306,6 +308,10 @@ onBeforeUnmount(() => {
 
 .task-table tbody tr:nth-child(even):not(.sel) {
   background: color-mix(in srgb, var(--ui-text) 3%, transparent);
+}
+
+.task-action {
+  text-align: right;
 }
 
 .name-cell {
@@ -422,5 +428,196 @@ onBeforeUnmount(() => {
 
 .text-muted {
   color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important;
+}
+
+@media (max-width: 700px) {
+  .process-panel {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .panel-header {
+    gap: 12px;
+    padding: 12px 16px;
+  }
+
+  .header-left {
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .header-left .text-muted {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .header-right,
+  .header-right .ghost-btn {
+    flex: 0 0 auto;
+  }
+
+  .ghost-btn {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px 12px;
+    border-radius: 12px;
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 12px 16px;
+  }
+
+  .stat {
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--ui-border);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--ui-text) 3%, transparent);
+  }
+
+  .stat-val {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .section {
+    padding: 16px;
+  }
+
+  .section-title {
+    margin-bottom: 10px;
+  }
+
+  .task-table,
+  .task-table tbody,
+  .task-table tr,
+  .task-table td {
+    display: block;
+    width: auto;
+  }
+
+  .task-table thead {
+    display: none;
+  }
+
+  .task-table tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 16px;
+    margin-bottom: 10px;
+    padding: 14px;
+    border: 1px solid var(--ui-border);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--ui-text) 3%, transparent);
+  }
+
+  .task-table tbody tr:nth-child(even):not(.sel) {
+    background: color-mix(in srgb, var(--ui-text) 3%, transparent);
+  }
+
+  .task-table td {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+  }
+
+  .task-table td::before {
+    display: block;
+    margin-bottom: 3px;
+    color: var(--ui-text-2);
+    content: attr(data-label);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .task-table .name-cell,
+  .task-table .progress-cell,
+  .task-table .task-action {
+    grid-column: 1 / -1;
+  }
+
+  .task-table .name-cell {
+    max-width: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .task-table .progress-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .task-table .progress-cell::before {
+    flex: 0 0 auto;
+  }
+
+  .task-table .bar {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+    height: 8px;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .task-table .bar-fill {
+    border-radius: inherit;
+  }
+
+  .task-table .task-action {
+    display: flex;
+    justify-content: flex-end;
+    min-height: 44px;
+  }
+
+  .task-table .task-action::before {
+    display: none;
+  }
+
+  .task-table .task-action .ghost-btn {
+    min-width: 72px;
+  }
+
+  .job {
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .job .ghost-btn {
+    flex: 0 0 auto;
+  }
+
+  .path-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .path-input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .process-panel * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 </style>

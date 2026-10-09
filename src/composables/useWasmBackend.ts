@@ -495,12 +495,28 @@ async function mainThreadDbDispatch(op: string, args: Record<string, unknown>): 
   return env.data ?? null
 }
 
+const MOBILE_NATIVE_KV_COMMANDS: Record<string, string> = {
+  'kv.get': 'vault_kv_get',
+  'kv.set': 'vault_kv_set',
+  'kv.delete': 'vault_kv_delete',
+  'kv.list': 'vault_kv_list',
+}
+
 /** One database op through the worker (or the main-thread fallback). */
 export async function wasmDbDispatch(
   op: string,
   args: Record<string, unknown> = {},
   timeoutMs = 30000,
 ): Promise<unknown> {
+  // Native Tauri mobile has a separate Rust redb from the web WASM worker.
+  // Route generic KV calls into that live database so all vault metadata and
+  // volume changes are present in the Scoped Storage snapshot.
+  const nativeCommand = MOBILE_NATIVE_KV_COMMANDS[op]
+  if (nativeCommand) {
+    const { isTauriMobile, invoke } = await import('./useTauri')
+    if (isTauriMobile()) return await invoke<unknown>(nativeCommand, args)
+  }
+
   if (!dbWorker && !dbWorkerFailed) {
     try {
       dbWorker = new Worker(new URL('../workers/db-worker.ts', import.meta.url), {

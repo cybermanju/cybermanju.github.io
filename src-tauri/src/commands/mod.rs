@@ -16,4 +16,5 @@ pub mod share;
 pub mod sync;
 pub mod trash;
 pub mod users;
+pub mod vault_snapshot;
 pub mod versions;

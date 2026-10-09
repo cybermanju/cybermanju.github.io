@@ -1,6 +1,6 @@
 <template>
-  <div class="desktop-shell" :class="{ 'desktop-shell--glow': theme.settings.glow, 'desktop-shell--plasma': isPlasma }">
-    <TopMenuBar v-if="chrome.topBar" />
+  <div class="desktop-shell" :class="{ 'desktop-shell--glow': theme.settings.glow, 'desktop-shell--plasma': isPlasma, 'desktop-shell--mobile': isMobileViewport }">
+    <TopMenuBar v-if="isMobileViewport ? visibleWindows.length > 0 : chrome.topBar" />
 
     <div class="desktop-area" @click="handleWorkspaceClick">
       <div class="desktop-wallpaper" :class="`wp-${theme.settings.wallpaper || 'slopes-dark'}`">
@@ -94,15 +94,15 @@
       </div>
     </div>
 
-    <Dock v-if="chrome.bottom && !isPlasma" />
+    <Dock v-if="!isMobileViewport && chrome.bottom && !isPlasma" />
 
     <!-- Right-bottom shell dock: shortcuts + tiling, above windows. -->
-    <ShellShortcutDock v-if="chrome.shortcutDock" />
+    <ShellShortcutDock v-if="!isMobileViewport && chrome.shortcutDock" />
 
     <!-- Plasma bottom panel (launcher, pager, tasks, tray, clock). -->
-    <PlasmaPanel v-if="isPlasma" />
+    <PlasmaPanel v-if="!isMobileViewport && isPlasma" />
     <!-- Kickoff launcher popup, anchored to the panel launcher button. -->
-    <KickoffMenu v-if="isPlasma && kickoff.kickoffOpen.value" />
+    <KickoffMenu v-if="!isMobileViewport && isPlasma && kickoff.kickoffOpen.value" />
 
     <div
       v-if="dockMenu.visible"
@@ -124,20 +124,14 @@
       </div>
     </div>
 
-    <StatusBar v-if="!isPlasma" />
+    <StatusBar v-if="!isMobileViewport && !isPlasma" />
 
-    <!-- First-run setup wizard (desktop): vault + local sync + agent AI. -->
-    <SetupWizard v-if="setupOpen" @close="setupOpen = false" />
-    <!-- Mobile first-run: account + N vault partitions + providers + repos. -->
-    <MobileSetupWizard v-if="mobileSetupOpen" @close="mobileSetupOpen = false" />
   </div>
 </template>
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import SetupWizard from '@/components/SetupWizard.vue'
 import MobileLauncher from '@/components/MobileLauncher.vue'
-import MobileSetupWizard from '@/components/MobileSetupWizard.vue'
 import PlasmaPanel from '@/components/PlasmaPanel.vue'
 import KickoffMenu from '@/components/KickoffMenu.vue'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
@@ -145,8 +139,6 @@ import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
 import { useKickoff } from '@/composables/useKickoff'
 import { SHELL_CHROME } from '@/ui/shells'
-import { isTauri, isAndroidApp } from '@/composables/useTauri'
-import { setupSeen } from '@/utils/setupWizard'
 import { computeStripRects, stripColumnWidth } from '@/utils/shellLayout'
 import TopMenuBar from './TopMenuBar.vue'
 import Dock from './Dock.vue'
@@ -159,18 +151,15 @@ const wm = useWindowManager()
 const theme = useTheme()
 const kickoff = useKickoff()
 const selectShortcut = ref<PanelType | null>(null)
+const mobileShellQuery = typeof window !== 'undefined' ? window.matchMedia?.('(max-width: 768px)') ?? null : null
+const isMobileViewport = ref(mobileShellQuery?.matches ?? false)
+function onMobileShellChange(event: MediaQueryListEvent) {
+  isMobileViewport.value = event.matches
+}
 /** Chrome comes from the shell registry — TopMenuBar/Dock in macOS, PlasmaPanel in plasma. */
 const chrome = computed(() => SHELL_CHROME[theme.shellStyle.value])
 const isPlasma = computed(() => theme.shellStyle.value === 'plasma')
 
-/** First-run setup wizard (desktop auto-open + Help-menu re-run). */
-const setupOpen = ref(false)
-/** Mobile first-run sheet (Android auto-open; re-runnable the same way). */
-const mobileSetupOpen = ref(false)
-function openSetup() {
-  if (isAndroidApp() || window.innerWidth <= 768) mobileSetupOpen.value = true
-  else setupOpen.value = true
-}
 const stripScrollRef = ref<HTMLElement | null>(null)
 
 const shortcuts: { panel: PanelType; label: string; icon: string }[] = [
@@ -363,29 +352,19 @@ function handleWorkspaceClick(e: MouseEvent) {
 }
 
 onMounted(() => {
+  mobileShellQuery?.addEventListener?.('change', onMobileShellChange)
   window.addEventListener('cybermanju:dock-context', handleDockContext as EventListener)
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('contextmenu', () => { dockMenu.value.visible = false })
   window.addEventListener('resize', handleViewportResize)
-  window.addEventListener('cybermanju:open-setup', openSetup)
-  // First launch: desktop gets the 4-step wizard; Android / phones get the
-  // full-screen mobile flow (account + N vaults + providers + repos).
-  // Static web builds auto-open the desktop wizard too: vault file
-  // create/open and Supabase-brokered OAuth both work there now, so a fresh
-  // Pages instance needs the same onboarding (the old "no file picker / no
-  // key sealing" exclusion is stale).
-  if (!setupSeen()) {
-    if (isAndroidApp() || (isTauri() && window.innerWidth <= 768)) mobileSetupOpen.value = true
-    else setupOpen.value = true
-  }
 })
 
 onUnmounted(() => {
+  mobileShellQuery?.removeEventListener?.('change', onMobileShellChange)
   window.removeEventListener('cybermanju:dock-context', handleDockContext as EventListener)
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('contextmenu', () => { dockMenu.value.visible = false })
   window.removeEventListener('resize', handleViewportResize)
-  window.removeEventListener('cybermanju:open-setup', openSetup)
 })
 </script>
 
@@ -398,6 +377,11 @@ onUnmounted(() => {
   overflow: hidden;
   background: var(--ui-bg);
   position: relative;
+}
+
+@media (max-width: 768px) {
+  .desktop-shell { width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; }
+  .desktop-shell--mobile :deep(.top-menu-bar) { display: flex !important; }
 }
 
 .desktop-area {

@@ -534,9 +534,10 @@ onMounted(() => {
 .spot {
   width: 100%;
   min-height: 100%;
+  min-height: 100dvh;
   display: flex;
   justify-content: center;
-  padding: 22px 18px 16px;
+  padding: 22px 18px calc(16px + env(safe-area-inset-bottom, 0px));
   background:
     radial-gradient(60% 34% at 50% 0%, color-mix(in srgb, var(--ui-accent) 9%, transparent), transparent 70%),
     var(--ui-surface);
@@ -610,8 +611,8 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: 1px solid var(--ui-border);
   background: color-mix(in srgb, var(--ui-text) 7%, transparent);
@@ -669,6 +670,8 @@ onMounted(() => {
   background: var(--ui-glass);
   border: 1px solid var(--ui-border);
   cursor: pointer;
+  min-height: 44px;
+  -webkit-tap-highlight-color: transparent;
   transition:
     border-color var(--ui-dur-fast) var(--ui-ease-out),
     background-color var(--ui-dur-fast) var(--ui-ease-out),
@@ -772,11 +775,13 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: 44px;
   padding: 8px 10px;
   border-radius: var(--ui-radius-md);
   background: var(--ui-glass);
   border: 1px solid var(--ui-border);
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
   transition:
     border-color var(--ui-dur-fast) var(--ui-ease-out),
     background-color var(--ui-dur-fast) var(--ui-ease-out);
@@ -913,10 +918,16 @@ onMounted(() => {
   gap: 6px;
 }
 
+.spot-detail__actions :deep(button),
+.spot-foot :deep(button) {
+  min-height: 44px;
+}
+
 .lg-member {
   font-family: var(--ui-font-mono);
   font-size: 9.5px;
-  padding: 2px 8px;
+  min-height: 44px;
+  padding: 6px 10px;
   border-radius: var(--ui-radius-full);
   border: 1px solid var(--ui-border);
   background: var(--ui-glass);
@@ -968,16 +979,72 @@ onMounted(() => {
 
 @media (max-width: 560px) {
   .spot {
-    padding: 14px 12px 12px;
+    padding: max(14px, env(safe-area-inset-top, 0px)) 12px calc(16px + env(safe-area-inset-bottom, 0px));
   }
   .spot-bar {
-    height: 46px;
+    height: 52px;
   }
   .spot-bar__input {
-    font-size: 14px;
+    /* Keep iOS from zooming the search field when the keyboard opens. */
+    font-size: 16px;
+  }
+  .spot-people {
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  .person-chip {
+    flex: 1 1 calc(25% - 8px);
+    width: auto;
+    min-width: 64px;
+    max-width: 86px;
+  }
+  .spot-row {
+    padding: 8px 12px;
+  }
+  .spot-detail {
+    padding: 14px;
+  }
+  .spot-detail__edit {
+    flex-wrap: wrap;
+  }
+  .spot-detail__input {
+    flex-basis: 100%;
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .spot-foot__stats {
+    flex-basis: 100%;
+    line-height: 1.45;
   }
   .spot-foot__keys {
     display: none;
+  }
+  :deep(.ui-modal-layer) {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  :deep(.ui-modal) {
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px));
+  }
+  :deep(.ui-modal__body) {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 360px) {
+  .spot {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .person-chip {
+    flex-basis: calc(33.333% - 8px);
+  }
+  .spot-row__sub {
+    font-size: 8px;
+    letter-spacing: 0.03em;
+  }
+  .spot-detail__actions :deep(button) {
+    flex: 1 1 calc(50% - 6px);
   }
 }
 

@@ -1,7 +1,7 @@
 <template>
   <header class="top-menu-bar">
     <div class="tmb-left">
-      <button class="app-logo" type="button" @click="store.currentPanel = 'landing'">
+      <button class="app-logo" type="button" aria-label="Home" title="Home" @click="handleHome">
         <span class="logo-mark"><img src="/bhumisparsha.png" alt="Bhumisparsha" width="22" height="22" /></span>
         <span class="logo-brand">CyberManju</span>
       </button>
@@ -67,7 +67,7 @@
     <div class="tmb-right">
       <div class="sys-tray">
         <button
-          class="tray-icon"
+          class="tray-icon tray-icon--encryption"
           :class="{ active: store.encryptionStatus.isEncrypted }"
           type="button"
           @click="wm.open('encryption', { tab: 'shield' })"
@@ -77,7 +77,7 @@
         </button>
 
         <button
-          class="tray-icon"
+          class="tray-icon tray-icon--compression"
           :class="{ active: store.compressedFiles.length > 0 }"
           type="button"
           @click="wm.open('encryption', { tab: 'compress' })"
@@ -87,7 +87,7 @@
         </button>
 
         <button
-          class="tray-icon"
+          class="tray-icon tray-icon--account"
           :class="{ active: store.activeAccount }"
           type="button"
           @click="wm.open('accounts')"
@@ -97,7 +97,7 @@
         </button>
 
         <button
-          class="tray-icon"
+          class="tray-icon tray-icon--theme"
           type="button"
           title="Cycle theme"
           @click="theme.cycleTheme()"
@@ -106,7 +106,7 @@
         </button>
 
         <button
-          class="tray-icon"
+          class="tray-icon tray-icon--effects"
           :class="{ active: store.matrixRainEnabled }"
           type="button"
           @click="store.matrixRainEnabled = !store.matrixRainEnabled"
@@ -116,7 +116,7 @@
         </button>
 
         <button
-          class="tray-icon"
+          class="tray-icon tray-icon--commands"
           type="button"
           @click="store.commandPaletteOpen = true"
           title="Command Palette"
@@ -125,7 +125,7 @@
         </button>
 
         <button
-          class="tray-icon"
+          class="tray-icon tray-icon--login"
           type="button"
           @click="wm.open('accounts')"
           :title="store.currentUser ? `Signed in — ${store.currentUser.username}` : 'Accounts — OAuth sign-in, .cybermanju disk'"
@@ -305,6 +305,15 @@ function handleSearch() {
 
 function clearSearch() {
   store.searchQuery = ''
+}
+
+function handleHome() {
+  if (window.matchMedia?.('(max-width: 768px)').matches) {
+    wm.closeAll()
+    store.currentPanel = 'files'
+  } else {
+    store.currentPanel = 'landing'
+  }
 }
 
 function openDateInfo() {
@@ -746,5 +755,28 @@ onUnmounted(() => {
   .menu-item {
     padding: 5px 7px;
   }
+}
+
+@media (max-width: 768px) {
+  .top-menu-bar {
+    box-sizing: border-box;
+    height: 52px;
+    min-height: 52px;
+    padding: 4px 8px;
+    gap: 6px;
+  }
+  .tmb-left { flex: 0 0 40px; }
+  .app-logo { width: 40px; height: 40px; justify-content: center; padding: 0; }
+  .logo-mark img { width: 22px; height: 22px; }
+  .tmb-right { flex: 1; min-width: 0; justify-content: flex-end; gap: 4px; }
+  .sys-tray { flex: 0 1 auto; gap: 4px; overflow: visible; }
+  .tray-icon { flex: 0 0 40px; width: 40px; height: 40px; border-radius: 14px; }
+  .tray-icon--encryption,
+  .tray-icon--compression,
+  .tray-icon--effects,
+  .tray-icon--login { display: none; }
+  .tmb-separator { display: none; }
+  .clock { min-height: 40px; padding: 0 8px; }
+  .clock-time { font-size: 13px; }
 }
 </style>

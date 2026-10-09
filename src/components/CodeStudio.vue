@@ -36,13 +36,14 @@
       </nav>
 
       <!-- ══ SIDEBAR ══ -->
-      <aside v-if="sideView" class="cs-side">
+      <aside v-if="sideView" class="cs-side" :class="{ 'is-mobile-drawer': isMobileLayout }" :aria-label="`${sideView} panel`" :aria-modal="isMobileLayout ? 'true' : undefined" :role="isMobileLayout ? 'dialog' : 'complementary'">
         <!-- FILES -->
         <template v-if="sideView === 'files'">
           <div class="cs-side-h">EXPLORER
             <span class="cs-spacer" />
             <button class="cs-ibtn" title="Refresh" @click="refreshExplorer"><AppIcon name="solar:refresh-bold" :size="12" /></button>
             <button v-if="isWasm" class="cs-ibtn" title="New file here" @click="wasmNewShow = !wasmNewShow"><AppIcon name="solar:add-bold" :size="12" /></button>
+            <button class="cs-ibtn cs-drawer-close" title="Close panel" aria-label="Close panel" @click="sideView = ''"><AppIcon name="solar:close-bold" :size="12" /></button>
           </div>
           <input v-model="explorerFilter" class="cs-input" placeholder="Filter files…" spellcheck="false" />
           <div v-if="isWasm" class="cs-pathrow">
@@ -70,7 +71,7 @@
 
         <!-- SEARCH (shared surface — same component as the Search window) -->
         <template v-else-if="sideView === 'search'">
-          <div class="cs-side-h">SEARCH</div>
+          <div class="cs-side-h">SEARCH <span class="cs-spacer" /><button class="cs-ibtn cs-drawer-close" title="Close panel" aria-label="Close panel" @click="sideView = ''"><AppIcon name="solar:close-bold" :size="12" /></button></div>
           <div class="cs-searchwrap">
             <SearchPanel @open="openSearchResult" />
           </div>
@@ -78,7 +79,7 @@
 
         <!-- OUTLINE -->
         <template v-else-if="sideView === 'outline'">
-          <div class="cs-side-h">OUTLINE · {{ outlineSymbols.length }}</div>
+          <div class="cs-side-h">OUTLINE · {{ outlineSymbols.length }} <span class="cs-spacer" /><button class="cs-ibtn cs-drawer-close" title="Close panel" aria-label="Close panel" @click="sideView = ''"><AppIcon name="solar:close-bold" :size="12" /></button></div>
           <input v-model="outlineFilter" class="cs-input" placeholder="Filter symbols…" spellcheck="false" />
           <div class="cs-tree">
             <button v-for="s in outlineSymbols" :key="s.name + s.startLine" class="cs-trow" @click="jumpToLine(s.startLine)">
@@ -92,7 +93,7 @@
 
         <!-- INTEL (merged tree-sitter panel: active file / paste / path) -->
         <template v-else-if="sideView === 'intel'">
-          <div class="cs-side-h">CODE INTEL · {{ intelSymbols.length }}</div>
+          <div class="cs-side-h">CODE INTEL · {{ intelSymbols.length }} <span class="cs-spacer" /><button class="cs-ibtn cs-drawer-close" title="Close panel" aria-label="Close panel" @click="sideView = ''"><AppIcon name="solar:close-bold" :size="12" /></button></div>
           <div class="cs-intel-src" role="tablist" aria-label="Intel source">
             <button :class="{ on: intelSource === 'file' }" role="tab" @click="intelSource = 'file'">FILE</button>
             <button :class="{ on: intelSource === 'paste' }" role="tab" @click="intelSource = 'paste'">PASTE</button>
@@ -152,7 +153,7 @@
 
         <!-- SESSIONS -->
         <template v-else-if="sideView === 'sessions'">
-          <div class="cs-side-h">AI SESSIONS · {{ ai.sessions.value.length }}</div>
+          <div class="cs-side-h">AI SESSIONS · {{ ai.sessions.value.length }} <span class="cs-spacer" /><button class="cs-ibtn cs-drawer-close" title="Close panel" aria-label="Close panel" @click="sideView = ''"><AppIcon name="solar:close-bold" :size="12" /></button></div>
           <div class="cs-tree">
             <button v-for="s in ai.sessions.value" :key="s.id" class="cs-trow col" :class="{ active: ai.viewing.value?.id === s.id }" @click="ai.loadSession(s.id)">
               <span class="truncate"><b>{{ s.title }}</b></span>
@@ -162,6 +163,8 @@
           </div>
         </template>
       </aside>
+
+      <button v-if="sideView" class="cs-drawer-backdrop" aria-label="Close panel" @click="sideView = ''" />
 
       <!-- ══ EDITOR COLUMN ══ -->
       <section class="cs-edcol">
@@ -394,6 +397,9 @@ const ai = useStudioAgent()
 const transportBackend = computed(() => useTransport().backend)
 const isDesktop = computed(() => transportBackend.value === 'tauri')
 const isWasm = computed(() => transportBackend.value === 'wasm')
+const isMobileLayout = ref(false)
+const mobileMedia = typeof window !== 'undefined' ? window.matchMedia('(max-width: 860px)') : null
+const syncMobileLayout = () => { isMobileLayout.value = mobileMedia?.matches ?? false }
 const transportLabel = computed(() => (isDesktop.value ? 'DESKTOP' : isWasm.value ? 'WASM LOCAL' : 'WEB / REST'))
 
 const tabs = ref<Tab[]>([])
@@ -920,6 +926,7 @@ function onGlobalKey(e: KeyboardEvent) {
     return
   }
   if (e.ctrlKey && e.key === '`' && !inPrompt) { e.preventDefault(); bottomOpen.value = !bottomOpen.value; return }
+  if (e.key === 'Escape' && sideView.value && !inPrompt) { sideView.value = ''; return }
   if (e.key === 'Escape' && findOpen.value && !inPrompt) { findOpen.value = false; return }
 }
 
@@ -1303,10 +1310,12 @@ const EditorPane = defineComponent({
 const rootRef = ref<HTMLElement | null>(null)
 
 onMounted(() => {
+  syncMobileLayout()
+  mobileMedia?.addEventListener('change', syncMobileLayout)
   void refreshExplorer()
   void ai.ensureCatalog()
 })
-onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer) window.clearInterval(explorerSyncTimer); stopVoice?.() })
+onBeforeUnmount(() => { mobileMedia?.removeEventListener('change', syncMobileLayout); window.clearTimeout(reparseTimer); if (explorerSyncTimer) window.clearInterval(explorerSyncTimer); stopVoice?.() })
 </script>
 
 <style scoped>
@@ -1360,7 +1369,7 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer
 .cs-link { background: none; border: none; color: var(--ui-accent); cursor: pointer; font-weight: 700; }
 
 /* mid */
-.cs-mid { flex: 1; display: flex; min-height: 0; }
+.cs-mid { flex: 1; display: flex; min-height: 0; position: relative; }
 .cs-activity { width: 44px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0;
   border-right: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-surface) 60%, transparent); }
 .cs-activity button { display: flex; width: 34px; height: 34px; align-items: center; justify-content: center; border-radius: 10px;
@@ -1371,6 +1380,7 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer
 /* sidebar */
 .cs-side { width: 232px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px;
   border-right: 1px solid var(--ui-hairline); background: color-mix(in srgb, var(--ui-surface) 55%, transparent); min-height: 0; }
+.cs-drawer-backdrop { display: none; }
 .cs-side-h { display: flex; align-items: center; font-size: 10px; font-weight: 600; color: var(--ui-text-3); padding: 2px 4px; }
 .cs-tree { flex: 1; overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; }
 .cs-searchwrap { flex: 1; overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; }
@@ -1537,7 +1547,37 @@ onBeforeUnmount(() => { window.clearTimeout(reparseTimer); if (explorerSyncTimer
 .cs-err { margin: 0 10px 8px; font-size: 10px; color: var(--ui-danger); }
 
 @media (max-width: 1100px) { .cs-ai { width: 270px; } .cs-side { width: 190px; } }
-@media (max-width: 860px) { .cs-ai, .cs-side { display: none; } .hide-mid { display: none; } }
+@media (max-width: 860px) {
+  .cs-top { gap: 6px; padding: calc(7px + env(safe-area-inset-top)) 8px 7px; flex-wrap: wrap; }
+  .cs-top .cs-btn[title="Split editor right"], .cs-top > .cs-voice-group { display: none; }
+  .cs-transport, .cs-engine { display: none; }
+  .cs-activity { width: 44px; padding-top: 10px; }
+  .cs-activity button { width: 44px; height: 44px; border-radius: 12px; }
+  .cs-ai { display: none; }
+  .cs-side {
+    display: flex; position: absolute; z-index: 20; inset: 0 auto 0 0; width: min(86vw, 320px); max-width: calc(100% - 44px);
+    padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
+    border: 0; border-right: 1px solid var(--ui-hairline); border-radius: 0 18px 18px 0;
+    background: var(--ui-surface); box-shadow: var(--ui-shadow-2); overflow: hidden;
+  }
+  .cs-drawer-backdrop { display: block; position: absolute; z-index: 19; inset: 0; width: 100%; height: 100%; border: 0; padding: 0; background: color-mix(in srgb, #000 28%, transparent); cursor: pointer; }
+  .cs-drawer-close, .cs-side .cs-ibtn { min-width: 44px; min-height: 44px; }
+  .cs-side-h { min-height: 44px; }
+  .cs-input, .cs-select { min-height: 44px; font-size: 16px; }
+  .cs-trow { min-height: 44px; padding: 8px 7px; }
+  .cs-tabs { min-height: 44px; }
+  .cs-tab { min-height: 44px; padding: 8px 8px 8px 12px; }
+  .cs-x { width: 44px; height: 44px; margin: -8px -8px -8px 0; justify-content: center; }
+  .cs-input2 { padding-bottom: calc(10px + env(safe-area-inset-bottom)); font-size: 13px; }
+  .cs-status { gap: 8px; padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
+  .cs-find { padding: 8px; }
+  .cs-find .cs-input { width: min(100%, 180px); }
+  .cs-bottom { height: min(35dvh, 220px); }
+  .hide-mid { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cs-voice-pop { transition: none; }
+}
 </style>
 
 <style>

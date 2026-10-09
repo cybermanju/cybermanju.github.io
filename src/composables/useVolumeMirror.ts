@@ -3,18 +3,18 @@
 // The OS layer keeps a virtual volume (`{ path: text }`) in localStorage
 // (`cybermanju.os.volume`, capped at 1 MiB — see crates/os-wasm/src/os.rs).
 // That copy dies with "clear site data" and never reaches the user's file, so
-// every entry is also mirrored into redb's `kv` table under `volume:<path>`,
-// where it survives inside `.cybermanju` and rides along with the container.
+// every entry is also mirrored into redb's `kv` table under `volume:<path>`:
+// the WASM DB on web, and the native DB on Android/iOS so the SAF container
+// snapshot contains the same edit.
 //
-// Direction is deliberately two-step because the two halves live in different
-// wasm instances (os_* runs on the main thread, redb runs in the worker):
+// Direction is deliberately two-step because the OS volume and the vault DB
+// are separate stores (os_* runs in WASM; the database is WASM or native redb):
 //
 //   write/touch/rm/cat … → localStorage volume → diff → `kv volume:*`
 //   boot / file open     → `kv volume:*` → `os write` → localStorage volume
 //
-// While `kv.*` is unavailable (shipped pkg built before that Rust change)
-// the mirror turns itself off silently — the volume keeps working exactly as
-// before.
+// While `kv.*` is unavailable on web, the mirror turns itself off silently —
+// the volume keeps working exactly as before. Mobile uses the Tauri KV bridge.
 
 import { addOsDispatchHook, wasmDbDispatch, wasmOsDispatch } from './useWasmBackend'
 
@@ -47,6 +47,18 @@ async function kv(
 ): Promise<{ ok: true; value: unknown } | { ok: false }> {
   if (kvBroken) return { ok: false }
   try {
+    const { isTauriMobile, invoke } = await import('./useTauri')
+    if (isTauriMobile()) {
+      const nativeCommand: Record<string, string> = {
+        'kv.get': 'vault_kv_get',
+        'kv.set': 'vault_kv_set',
+        'kv.delete': 'vault_kv_delete',
+        'kv.list': 'vault_kv_list',
+      }
+      const command = nativeCommand[op]
+      if (!command) return { ok: false }
+      return { ok: true, value: await invoke<unknown>(command, args) }
+    }
     const value = await wasmDbDispatch(op, args, 60000)
     return { ok: true, value }
   } catch (e) {
@@ -56,22 +68,33 @@ async function kv(
   }
 }
 
+async function flushMobileMirror(): Promise<void> {
+  const { isTauriMobile } = await import('./useTauri')
+  if (!isTauriMobile()) return
+  const { flushMobileVaultMirror } = await import('@/utils/mobileScopedStorage')
+  await flushMobileVaultMirror()
+}
+
 /** Diff localStorage against the last pushed snapshot and write the delta. */
-async function pushVolume(): Promise<void> {
+async function pushVolume(): Promise<boolean> {
   const current = readVolume()
   const nextJson = JSON.stringify(current)
-  if (nextJson === lastJson) return
+  if (nextJson === lastJson) return false
   const prev = lastJson ? (JSON.parse(lastJson) as Record<string, string>) : {}
-  lastJson = nextJson
 
   for (const [path, text] of Object.entries(current)) {
     if (prev[path] === text) continue
-    if ((await kv('kv.set', { key: PREFIX + path, value: text })).ok === false) return
+    if ((await kv('kv.set', { key: PREFIX + path, value: text })).ok === false) return false
   }
   for (const path of Object.keys(prev)) {
     if (path in current) continue
-    if ((await kv('kv.delete', { key: PREFIX + path })).ok === false) return
+    if ((await kv('kv.delete', { key: PREFIX + path })).ok === false) return false
   }
+  // Advance only after the full delta was stored; a partial failure must be
+  // retried against the same previous image on the next flush.
+  lastJson = nextJson
+  await flushMobileMirror()
+  return true
 }
 
 /**
@@ -131,5 +154,8 @@ export async function flushVolumeMirror(): Promise<void> {
     window.clearTimeout(timer)
     timer = 0
   }
-  if (started) await pushVolume().catch(() => undefined)
+  const pushed = started ? await pushVolume().catch(() => false) : false
+  // Also flush a database mutation that was queued by another UI path when
+  // the OS volume itself had no new delta.
+  if (!pushed) await flushMobileMirror().catch(() => undefined)
 }

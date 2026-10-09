@@ -60,6 +60,14 @@
     },
     "shell": {
       "open": true
+    },
+    "deep-link": {
+      "mobile": [
+        {
+          "scheme": ["cybermanju"],
+          "appLink": false
+        }
+      ]
     }
   }
 }

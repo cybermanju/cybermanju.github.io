@@ -12,7 +12,7 @@ import { useTouchConfig, type TouchAction } from '@/composables/useTouchConfig'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useKickoff } from '@/composables/useKickoff'
 import { useFullscreen } from '@vueuse/core'
-import { finishSupabaseReturn, hydrateSupabaseConfig, refreshIdentity, isOAuthPopup, closeOAuthPopup } from '@/composables/useSupabase'
+import { activateMobileOAuthDeepLinks, finishSupabaseReturn, getPendingOAuthConfig, hydrateSupabaseConfig, installMobileOAuthDeepLinks, refreshIdentity, isOAuthPopup, closeOAuthPopup, setPendingOAuthConfig } from '@/composables/useSupabase'
 import { migrateVaultFromLocalStorage } from '@/composables/useVault'
 import { bootCyberManjuDisk, disk } from '@/composables/useCyberManjuFile'
 import { startVolumeMirror, replayVolumeFromVault, flushVolumeMirror } from '@/composables/useVolumeMirror'
@@ -29,6 +29,8 @@ import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import FileUploadDialog from '@/components/FileUploadDialog.vue'
 import ServerAuthPanel from '@/components/ServerAuthPanel.vue'
 import SetupWizard from '@/components/SetupWizard.vue'
+import MobileSetupWizard from '@/components/MobileSetupWizard.vue'
+import { isAndroidApp, isTauriMobile } from '@/composables/useTauri'
 import { setupSeen } from '@/utils/setupWizard'
 import MobileNav from '@/components/MobileNav.vue'
 import ContextMenu from '@/components/ContextMenu.vue'
@@ -201,23 +203,19 @@ const newFolderName = ref('')
 const folderInputRef = ref<{ focus: () => void } | null>(null)
 const showUploadDialog = ref(false)
 
-// First-run onboarding over the landing screen too: the wizard used to live
-// only inside DesktopShell, so a fresh static/WASM instance sat on the
-// landing boot report with no OAuth + `.cybermanju` setup path until the
-// user clicked [ ENTER ]. Fresh instances open it right away; entering the
-// app later reuses the same `setupSeen` flag (DesktopShell keeps its own
-// copy for the Help-menu re-run path).
+// One root owner for first-run onboarding; phones skip the desktop POST screen
+// and open directly to the launcher behind this wizard.
 const setupOpen = ref(false)
-function openSetupFromApp() {
-  setupOpen.value = true
+const mobileSetupOpen = ref(false)
+function prefersMobileExperience() {
+  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent
+  const ipadOs = typeof navigator !== 'undefined' && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
+  return isTauriMobile() || isAndroidApp() || window.innerWidth <= 768 || /iPhone|iPad|iPod|Android/i.test(ua) || ipadOs
 }
-// Single-wizard handoff: the landing copy owns fresh-instance onboarding;
-// once the user enters the app, DesktopShell mounts its own copy (same
-// `setupSeen` flag) and takes over — drop this one so two overlays never
-// stack.
-watch(() => store.currentPanel, (panel) => {
-  if (panel !== 'landing') setupOpen.value = false
-})
+function openSetupFromApp() {
+  if (prefersMobileExperience()) mobileSetupOpen.value = true
+  else setupOpen.value = true
+}
 
 const mainAreaRef = ref<HTMLElement | null>(null)
 
@@ -610,7 +608,10 @@ function openAgent(event: KeyboardEvent) {
   wm.open('agent')
 }
 
-const openAccountsWindow = () => wm.open('accounts')
+const openAccountsWindow = () => {
+  if (store.currentPanel === 'landing') store.currentPanel = 'files'
+  wm.open('accounts')
+}
 const refreshAuthGate = () => void store.checkAuthStatus()
 
 function isAndroidWebView(): boolean {
@@ -621,16 +622,32 @@ function isAndroidWebView(): boolean {
   }
 }
 
-// Android system back: close transient UI first, else step back in path
-// history (same as desktop `go_back`). Re-push state so every press is
-// observable instead of exiting the WebView.
+// Android system back follows the mobile stack: transient UI → active app →
+// Files path. At Home it stays in the launcher instead of leaving the WebView.
 function handleAndroidBack() {
   if (store.commandPaletteOpen) {
     store.commandPaletteOpen = false
   } else if (store.showShortcutsHelp) {
     store.showShortcutsHelp = false
+  } else if (store.createFolderPromptOpen) {
+    store.createFolderPromptOpen = false
+  } else if (showUploadDialog.value) {
+    showUploadDialog.value = false
+  } else if (confirmVisible.value) {
+    confirmVisible.value = false
+  } else if (mobileSetupOpen.value) {
+    mobileSetupOpen.value = false
+  } else if (setupOpen.value) {
+    setupOpen.value = false
   } else {
-    navigateInHistory(-1)
+    const active = wm.activeWindow.value
+    if (active?.panelType === 'files') {
+      const innerBack = new CustomEvent('cybermanju:mobile-back', { cancelable: true })
+      window.dispatchEvent(innerBack)
+      if (!innerBack.defaultPrevented) navigateInHistory(-1)
+    }
+    else if (active) wm.close(active.id)
+    else store.currentPanel = 'files'
   }
   try {
     if (isAndroidWebView()) window.history.pushState({ cybermanju: true }, '')
@@ -648,6 +665,20 @@ function handleOnlineStatus() {
 // just exchange the code, notify the opener and close itself.
 const isPopupMode = isOAuthPopup()
 const popupStatus = ref('Completing sign-in…')
+
+function handleMobileOAuthReturn(event: Event) {
+  const result = (event as CustomEvent<{ ok?: boolean; configId?: string | null; message?: string }>).detail
+  if (!result) return
+  if (result.ok) {
+    store.notifySuccess(result.configId ? 'Provider account connected' : 'Sign-in completed')
+    const shouldOpenAccounts = result.configId || getPendingOAuthConfig()
+    const accountsAlreadyOpen = wm.windows.value.some(window => window.panelType === 'accounts')
+    if (shouldOpenAccounts && !accountsAlreadyOpen) openAccountsWindow()
+  } else {
+    setPendingOAuthConfig(null)
+    store.notifyError('Mobile OAuth failed', new Error(result.message || 'The provider did not complete sign-in.'))
+  }
+}
 
 function closePopupNow() {
   closeOAuthPopup()
@@ -670,7 +701,11 @@ onMounted(() => {
     })
     return
   }
-  store.currentPanel = 'landing'
+  window.addEventListener('cybermanju:oauth-return', handleMobileOAuthReturn)
+  if (isTauriMobile()) {
+    void installMobileOAuthDeepLinks().catch((error) => store.notifyError('Mobile OAuth callback unavailable', error))
+  }
+  store.currentPanel = prefersMobileExperience() ? 'files' : 'landing'
   // Docker/web transport: probe the login gate first so a missing/expired
   // JWT shows the sign-in screen instead of a fan-out of 401 fetches. The
   // probe is public and fast; initialize() re-checks cheaply.
@@ -680,6 +715,7 @@ onMounted(() => {
   void finishSupabaseReturn().then(async (handled) => {
     if (handled) store.notifySuccess('OAuth return processed — token captured')
     await refreshIdentity()
+    if (handled && getPendingOAuthConfig()) openAccountsWindow()
   })
   // Vault boot: migrate anything an older build left in localStorage into
   // `.cybermanju`, restore the Supabase URL/key from the file, re-attach the
@@ -691,6 +727,11 @@ onMounted(() => {
     try {
       await migrateVaultFromLocalStorage()
       await hydrateSupabaseConfig()
+      try {
+        await activateMobileOAuthDeepLinks()
+      } catch (error) {
+        store.notifyError('Mobile OAuth callback unavailable', error)
+      }
       await bootCyberManjuDisk()
       // Remembered folders (setup sync root + provider local dirs): restore
       // without prompting — lapsed permissions park as one-click re-grants.
@@ -714,7 +755,7 @@ onMounted(() => {
   // over the landing screen — DesktopShell (and its copy of the wizard) is
   // not mounted until the user enters the app.
   try {
-    if (!setupSeen()) setupOpen.value = true
+    if (!setupSeen()) openSetupFromApp()
   } catch {
     // Storage unavailable — DesktopShell still offers the wizard on entry.
   }
@@ -747,6 +788,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', openAgent)
   window.removeEventListener('cybermanju:open-accounts', openAccountsWindow)
   window.removeEventListener('cybermanju:open-setup', openSetupFromApp)
+  window.removeEventListener('cybermanju:oauth-return', handleMobileOAuthReturn)
   window.removeEventListener('cybermanju:open-login', refreshAuthGate)
   window.removeEventListener('popstate', handleAndroidBack)
   window.removeEventListener('online', handleOnlineStatus)
@@ -824,11 +866,10 @@ onBeforeUnmount(() => {
     <ContextMenu />
 
     </template>
-    <!-- Fresh-instance onboarding (OAuth + `.cybermanju`): lives here so it
-         renders over the landing screen too — DesktopShell is not mounted
-         until the user enters the app. Shares `setupSeen` with the shell
-         copy, so finishing/skipping here stays finished inside. -->
+    <!-- The App root is the single owner of first-run onboarding, so setup
+         works over landing and is never duplicated inside DesktopShell. -->
     <SetupWizard v-if="setupOpen && !isPopupMode" @close="setupOpen = false" />
+    <MobileSetupWizard v-if="mobileSetupOpen && !isPopupMode" @close="mobileSetupOpen = false" />
     </div>
 </template>
 
@@ -878,7 +919,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh;
   width: 100vw;
+  box-sizing: border-box;
   background: var(--ui-bg);
   color: var(--ui-text);
   overflow: hidden;

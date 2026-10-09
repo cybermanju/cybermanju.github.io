@@ -95,7 +95,11 @@ const emit = defineEmits<{
 const contentRef = ref<HTMLElement | null>(null)
 const rootRef = ref<HTMLElement | null>(null)
 const isFocused = computed(() => props.focused)
-const isPlasma = computed(() => useTheme().shellStyle.value === 'plasma')
+const theme = useTheme()
+const isMobileApp = ref(false)
+let mobileWindowQuery: MediaQueryList | null = null
+function onMobileWindowChange(event: MediaQueryListEvent) { isMobileApp.value = event.matches }
+const isPlasma = computed(() => !isMobileApp.value && theme.shellStyle.value === 'plasma')
 const wmShell = useWindowManager()
 const ctx = useContextMenu()
 const isMaximized = ref(false)
@@ -184,7 +188,7 @@ let dragOrigX = 0
 let dragOrigY = 0
 
 function startDrag(e: MouseEvent) {
-  if (isMaximized.value) return
+  if (isMaximized.value || isMobileApp.value) return
   dragging = true
   dragStartX = e.clientX
   dragStartY = e.clientY
@@ -229,7 +233,7 @@ let resizeOrigW = 0
 let resizeOrigH = 0
 
 function startResize(dir: string, e?: MouseEvent) {
-  if (isMaximized.value) return
+  if (isMaximized.value || isMobileApp.value) return
   resizing = true
   resizeDir = dir
   resizeStartX = e ? e.clientX : 0
@@ -355,6 +359,11 @@ function handleGlobalKeydown(e: KeyboardEvent) {
 }
 
 onMounted(() => {
+  mobileWindowQuery = window.matchMedia?.('(max-width: 768px)') ?? null
+  if (mobileWindowQuery) {
+    isMobileApp.value = mobileWindowQuery.matches
+    mobileWindowQuery.addEventListener?.('change', onMobileWindowChange)
+  }
   document.addEventListener('keydown', handleGlobalKeydown)
   window.addEventListener('resize', handleViewportResize)
   // Hand the live element to the window context so descendants get real geometry.
@@ -362,6 +371,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  mobileWindowQuery?.removeEventListener?.('change', onMobileWindowChange)
   document.removeEventListener('keydown', handleGlobalKeydown)
   window.removeEventListener('resize', handleViewportResize)
   stopDrag()
@@ -495,10 +505,11 @@ onUnmounted(() => {
   scrollbar-gutter: stable;
 }
 
-/* Mobile sheets: traffic lights hide, title stays centered. */
+/* Mobile sheets: use a clean centered title and no draggable desktop chrome. */
 @media (max-width: 768px) {
   .window-titlebar {
     padding: 0 12px;
+    cursor: default;
   }
   .window-titlebar .ui-lights {
     display: none;

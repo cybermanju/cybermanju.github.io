@@ -70,8 +70,10 @@ describe('narrow windows (container)', () => {
 
   it('hides the same code-studio rails as the 860px viewport rule', () => {
     const studio = fs.readFileSync('src/components/CodeStudio.vue', 'utf8')
-    expect(studio).toMatch(/@media\s*\(max-width:\s*860px\)[^{]*\{[^}]*\.cs-ai/)
+    expect(studio).toMatch(/@media\s*\(max-width:\s*860px\)[\s\S]*?\.cs-ai\s*\{\s*display:\s*none/)
     expect(narrowBlock()).toMatch(/\.app-window--narrow\s+\.cs-side/)
+    expect(studio).toContain("'is-mobile-drawer': isMobileLayout")
+    expect(narrowBlock()).toMatch(/\.app-window--narrow\s+\.cs-side\.is-mobile-drawer\s*\{\s*display:\s*flex/)
   })
 })
 
@@ -86,5 +88,16 @@ describe('mobile home + nav wiring', () => {
       expect(nav, `missing ${tab} tab`).toContain(tab)
     }
     expect(nav).toMatch(/env\(safe-area-inset-bottom/)
+  })
+})
+
+describe('mobile onboarding surface', () => {
+  it('uses an opaque full-screen sheet without CRT scanlines', () => {
+    const wizard = fs.readFileSync('src/components/MobileSetupWizard.vue', 'utf8')
+    expect(wizard).toMatch(/\.msw\s*\{[\s\S]*?position:\s*fixed[\s\S]*?z-index:\s*11000/)
+    expect(wizard).toContain('background: var(--ui-bg, #f2f2f7)')
+    expect(wizard).not.toContain('repeating-linear-gradient')
+    expect(wizard).toContain('msw-welcome-title')
+    expect(wizard).toContain('var(--ui-on-accent)')
   })
 })

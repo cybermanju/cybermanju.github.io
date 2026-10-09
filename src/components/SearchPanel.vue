@@ -3,18 +3,20 @@
     <div class="bw-card search-card">
       <div class="bw-title">SEARCH FILES</div>
       <p class="panel-hint search-sub">Full-text search across file names and contents. Type at least 2 characters.</p>
-      <UiToolbar glass divided>
+      <UiToolbar class="search-toolbar" glass divided>
         <template #lead>
           <p class="text-muted search-summary" role="status" aria-live="polite">{{ searchSummary }}</p>
         </template>
-        <UiSelect
-          v-model="searchTypeFilter"
-          :options="SEARCH_TYPE_OPTIONS"
-          inline
-          aria-label="Filter results by type"
-          title="Filter results by type"
-        />
-        <UiCheckbox v-model="searchCurrentDir" label="Current folder only" title="Only search inside the current folder" />
+        <div class="search-filter-scroller" role="group" aria-label="Search filters">
+          <UiSelect
+            v-model="searchTypeFilter"
+            :options="SEARCH_TYPE_OPTIONS"
+            inline
+            aria-label="Filter results by type"
+            title="Filter results by type"
+          />
+          <UiCheckbox v-model="searchCurrentDir" label="Current folder only" title="Only search inside the current folder" />
+        </div>
         <UiButton
           size="sm"
           variant="ghost"
@@ -27,7 +29,7 @@
       </UiToolbar>
     </div>
 
-    <div v-if="store.isSearching" class="panel-loading" role="status" aria-live="polite">
+    <div v-if="store.isSearching" class="panel-loading" role="status" aria-live="polite" aria-label="Searching files">
       <UiSpinner size="sm" show-label label="Searching files" />
     </div>
 
@@ -68,7 +70,12 @@
         v-for="result in filteredSearchResults"
         :key="result.fileId"
         class="search-result-item bw-card"
+        role="button"
+        tabindex="0"
+        :aria-label="`Open ${result.fileName}`"
         @click="emit('open', result.fileId)"
+        @keydown.enter.prevent="emit('open', result.fileId)"
+        @keydown.space.prevent="emit('open', result.fileId)"
       >
         <div class="search-match-type">{{ result.matchType?.toUpperCase() || 'SEARCH' }}</div>
         <div class="search-result-body">
@@ -90,7 +97,7 @@
       </UiButton>
     </div>
     <UiEmpty
-      v-else-if="store.searchQuery && !store.isSearching"
+      v-else-if="store.searchQuery.trim().length >= 2 && !store.isSearching"
       size="sm"
       icon="solar:magnifier-bold"
       :title="`No results for “${store.searchQuery}”`"
@@ -102,11 +109,11 @@
       </template>
     </UiEmpty>
     <UiEmpty
-      v-else-if="!store.searchQuery"
+      v-else-if="store.searchQuery.trim().length < 2"
       size="sm"
       icon="solar:magnifier-bold"
-      title="Search your files"
-      description="Use the search bar above (Ctrl+F). Try a file name, a word inside a file, or a style tag."
+      :title="store.searchQuery ? 'Keep typing to search' : 'Search your files'"
+      :description="store.searchQuery ? 'Type at least 2 characters to search.' : 'Use the search bar above (Ctrl+F). Try a file name, a word inside a file, or a style tag.'"
     >
       <template #actions>
         <UiButton size="sm" variant="ghost" icon="solar:face-scan-circle-bold" @click="wm.open('faces')">Browse people</UiButton>
@@ -227,11 +234,31 @@ function highlightTerms(text: string, query: string): string {
 
 <style scoped>
 .panel-search {
-  padding: 12px;
+  padding: 12px 12px calc(16px + env(safe-area-inset-bottom));
+  min-width: 0;
+  overflow-x: hidden;
+  scroll-padding-bottom: calc(24px + env(safe-area-inset-bottom));
 }
 .search-card { margin-bottom: 12px; }
 .search-summary { margin: 0; font-size: 10px; flex: 1; min-width: 0; }
 .search-sub { margin: -6px 0 10px; }
+.search-toolbar { min-width: 0; }
+.panel-search :deep(input) {
+  min-height: 44px;
+  scroll-margin-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+.search-filter-scroller {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.search-filter-scroller::-webkit-scrollbar { display: none; }
 .bw-title {
   font-family: var(--ui-font);
   font-size: 11px;
@@ -255,21 +282,25 @@ function highlightTerms(text: string, query: string): string {
 .recent-head .bw-title { margin-bottom: 8px; }
 .recent-searches { margin-bottom: 10px; }
 .recent-search-item {
-  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px;
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 8px 10px;
   cursor: pointer; font-family: var(--ui-font); font-size: 11px; color: var(--ui-text);
   border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm);
   margin-bottom: 4px; background: var(--ui-glass); text-align: left;
 }
 .recent-search-item:hover { border-color: var(--ui-border-hover); background: var(--ui-glass-2); }
-.search-results-list { display: flex; flex-direction: column; gap: 4px; }
-.search-result-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px; cursor: pointer; border-radius: var(--ui-radius-md); }
+.search-results-list { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.search-result-item {
+  display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 10px;
+  cursor: pointer; border-radius: var(--ui-radius-md); min-width: 0;
+}
 .search-result-item:hover { border-color: var(--ui-border-hover); }
-.search-match-type { font-size: 8px; font-weight: 700; padding: 2px 6px; background: var(--ui-surface-3); color: var(--ui-text-2); white-space: nowrap; border-radius: var(--ui-radius-xs); }
+.search-match-type { flex: 0 1 auto; font-size: 8px; font-weight: 700; padding: 2px 6px; background: var(--ui-surface-3); color: var(--ui-text-2); white-space: normal; overflow-wrap: anywhere; border-radius: var(--ui-radius-xs); }
 .search-result-body { flex: 1; min-width: 0; }
-.search-result-name { font-size: 11px; font-weight: 700; margin-bottom: 2px; }
+.search-result-name { font-size: 11px; font-weight: 700; margin-bottom: 2px; overflow-wrap: anywhere; word-break: break-word; }
 .search-result-snippet { font-size: 10px; word-break: break-word; }
-.search-result-score { font-family: var(--ui-font-mono); font-size: 9px; color: var(--ui-text-3); }
-.scene-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.search-result-score { flex: 0 1 auto; max-width: 28%; font-family: var(--ui-font-mono); font-size: 9px; color: var(--ui-text-3); overflow-wrap: anywhere; text-align: right; }
+.scene-strip { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; min-width: 0; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.scene-strip::-webkit-scrollbar { display: none; }
 .scene-strip__label { font-family: var(--ui-font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.12em; color: var(--ui-text-3); }
 .scene-chip {
   font-family: var(--ui-font-mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em;
@@ -291,4 +322,16 @@ function highlightTerms(text: string, query: string): string {
   color: var(--ui-text); border-radius: 2px; padding: 0 2px;
 }
 .panel-loading { display: flex; align-items: center; justify-content: center; padding: 22px 0; }
+
+@media (max-width: 520px) {
+  .panel-search { padding-inline: 10px; }
+  .search-sub { line-height: 1.45; }
+  .search-result-item { gap: 7px; padding: 10px 9px; }
+  .search-result-score { max-width: 24%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-filter-scroller,
+  .scene-strip { scroll-behavior: auto; }
+}
 </style>

@@ -7,6 +7,8 @@
         type="button"
         :title="sidebarOpen ? 'Hide sidebar' : 'Show sidebar'"
         :aria-label="sidebarOpen ? 'Hide sidebar' : 'Show sidebar'"
+        :aria-expanded="sidebarOpen"
+        aria-controls="agent-session-nav"
         @click="sidebarOpen = !sidebarOpen"
       >
         <AppIcon name="solar:menu-dots-bold" :size="14" />
@@ -69,7 +71,7 @@
 
     <div class="agent-body">
       <!-- ── Sidebar: conversations + assistants ── -->
-      <aside v-show="sidebarOpen" class="agent-sidebar" aria-label="Conversations and assistants">
+      <aside id="agent-session-nav" v-show="sidebarOpen" class="agent-sidebar" aria-label="Conversations and assistants">
         <div class="agent-side-section">
           <div class="agent-side-head">
             <h3><AppIcon name="solar:chat-square-bold" :size="13" /> Conversations</h3>
@@ -2385,8 +2387,8 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--ui-radius-sm);
   border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent);
   background: transparent;
@@ -2651,8 +2653,9 @@ onMounted(async () => {
 .role-tool .msg-main { background: color-mix(in srgb, var(--ui-text) 5%, transparent); }
 .msg-role { font-size: 11px; font-weight: 600; color: var(--ui-text-3); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
 .msg-copy { border: 0; background: none; color: inherit; opacity: .55; cursor: pointer; padding: 2px; display: inline-flex; }
+.msg-copy { min-width: 44px; min-height: 44px; align-items: center; justify-content: center; margin: -10px -8px -10px -8px; }
 .msg-copy:hover { opacity: 1; }
-.msg-body { font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.msg-body { font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
 .msg-body.md { white-space: normal; }
 .msg-body.md :deep(p) { margin: 0 0 6px; }
 .msg-body.md :deep(p:last-child) { margin-bottom: 0; }
@@ -2660,7 +2663,7 @@ onMounted(async () => {
 .msg-body.md :deep(pre) {
   margin: 6px 0; padding: 8px; background: color-mix(in srgb, var(--ui-glass) 72%, transparent);
   border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-sm);
-  overflow-x: auto; white-space: pre; font-size: 10px;
+  overflow-x: hidden; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font-size: 10px;
 }
 .msg-body.md :deep(code) { font-family: var(--ui-font-mono); font-size: .92em; }
 .msg-body.md :deep(ul), .msg-body.md :deep(ol) { margin: 4px 0; padding-left: 16px; }
@@ -2669,7 +2672,7 @@ onMounted(async () => {
 .turn-footer { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 50%, transparent); margin-top: 6px; padding-top: 5px; border-top: 1px dashed var(--ui-hairline); }
 .tool-block { margin-top: 4px; }
 .tool-name { font-size: 11px; font-weight: 700; }
-.tool-input { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 70%, transparent); white-space: pre-wrap; word-break: break-word; margin: 4px 0 0; font-family: var(--ui-font-mono); }
+.tool-input { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 70%, transparent); white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; margin: 4px 0 0; font-family: var(--ui-font-mono); min-width: 0; }
 
 /* tool timeline */
 .tool-group { display: flex; flex-direction: column; gap: 4px; margin-left: 34px; }
@@ -2678,13 +2681,13 @@ onMounted(async () => {
 .tool-row.is-running { border-color: color-mix(in srgb, var(--ui-accent) 50%, transparent); }
 .tool-row.is-denied { border-color: color-mix(in srgb, var(--ui-danger) 50%, transparent); }
 .tool-row.is-error { border-color: color-mix(in srgb, var(--ui-warning) 50%, transparent); }
-.tool-head { width: 100%; display: flex; align-items: center; gap: 7px; padding: 6px 8px; background: none; border: 0; color: var(--ui-text); font-family: inherit; font-size: 11px; cursor: pointer; text-align: left; }
+.tool-head { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 7px; padding: 6px 8px; background: none; border: 0; color: var(--ui-text); font-family: inherit; font-size: 11px; cursor: pointer; text-align: left; }
 .tool-head:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
 .tool-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .tool-chev { color: color-mix(in srgb, var(--ui-text) 45%, transparent); transform: rotate(90deg); transition: transform var(--ui-dur-fast) var(--ui-ease-out); }
 .tool-row.open .tool-chev { transform: rotate(-90deg); }
 .tool-detail { border-top: 1px solid var(--ui-hairline); padding: 6px 8px; }
-.tool-result { font-size: 10px; white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; color: color-mix(in srgb, var(--ui-text) 75%, transparent); font-family: var(--ui-font-mono); max-height: 240px; overflow: auto; }
+.tool-result { font-size: 10px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; margin: 6px 0 0; color: color-mix(in srgb, var(--ui-text) 75%, transparent); font-family: var(--ui-font-mono); max-height: 240px; overflow: auto; }
 .tool-result.bad { color: var(--ui-danger); }
 .tool-wait { font-size: 10px; margin-top: 6px; }
 
@@ -2718,7 +2721,7 @@ onMounted(async () => {
 /* composer */
 .composer {
   flex-shrink: 0; min-width: 0;
-  margin: 0 14px 8px; border: 1px solid color-mix(in srgb, var(--ui-border-strong));
+  margin: 0 14px calc(8px + env(safe-area-inset-bottom, 0px)); border: 1px solid color-mix(in srgb, var(--ui-border-strong));
   border-radius: var(--ui-radius-lg); background: color-mix(in srgb, var(--ui-glass) 70%, transparent);
   transition: border-color var(--ui-dur) var(--ui-ease-out), box-shadow var(--ui-dur) var(--ui-ease-out);
   position: relative;
@@ -2728,7 +2731,7 @@ onMounted(async () => {
   width: 100%; border: 0; background: transparent; color: var(--ui-text);
   font-family: var(--ui-font); font-size: 13px; line-height: 1.5;
   padding: 10px 12px 4px; outline: none; resize: vertical; min-height: 52px;
-  max-height: 40vh; overflow-y: auto; box-sizing: border-box;
+  max-height: min(40vh, 240px); overflow-y: auto; box-sizing: border-box; overflow-wrap: anywhere;
 }
 .composer-bar { display: flex; align-items: center; gap: 8px; padding: 4px 8px 8px; }
 /* Dictation language: hidden picker that pops over the Dictate button on
@@ -2768,20 +2771,21 @@ onMounted(async () => {
 @media (max-width: 760px) {
   .agent-header { flex-wrap: wrap; }
   .agent-header-meta { flex-basis: 100%; justify-content: flex-start; flex-wrap: wrap; }
-  .agent-sidebar { position: absolute; z-index: 10; height: 100%; max-width: 85%; background: color-mix(in srgb, var(--ui-glass) 72%, transparent); box-shadow: var(--ui-shadow-2), inset 0 1px 0 var(--ui-glass-highlight); }
+  .agent-sidebar { position: absolute; inset: 0 auto 0 0; z-index: 10; height: 100%; width: min(304px, calc(100% - 24px)); max-width: none; background: color-mix(in srgb, var(--ui-glass) 72%, transparent); box-shadow: var(--ui-shadow-2), inset 0 1px 0 var(--ui-glass-highlight); }
   .agent-body { position: relative; }
   .tool-group { margin-left: 0; }
+  .agent-side-item-btns { opacity: 1; }
 }
 
 /* narrow phones: tighter chrome, wrapping thread head, full-width composer */
 @media (max-width: 560px) {
-  .agent-header { padding: 6px 8px; gap: 6px; }
+  .agent-header { padding: 6px 8px; gap: 6px; padding-top: max(6px, env(safe-area-inset-top, 0px)); }
   .agent-title h2 { font-size: 12px; }
   .agent-subtitle { font-size: 10px; }
   .agent-caps { padding: 0 8px; }
   .agent-thread-head { flex-wrap: wrap; padding: 6px 8px 4px; }
   .agent-messages { padding: 4px 8px 8px; }
-  .composer { margin: 0 8px 6px; }
+  .composer { margin: 0 8px calc(6px + env(safe-area-inset-bottom, 0px)); }
   .composer-box { font-size: 16px; }
   .agent-card { margin: 8px; padding: 10px; }
   .preset-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); max-height: 200px; }
@@ -2792,6 +2796,7 @@ onMounted(async () => {
 
 @media (prefers-reduced-motion: reduce) {
   .agent-avatar-pulse { animation: none; }
+  .agent, .agent * { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
 
 </style>

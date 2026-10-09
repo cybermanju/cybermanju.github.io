@@ -25,7 +25,7 @@
 
     <div class="map-container" v-if="geoMarkers.length > 0">
       <div ref="mapContainer" class="maplibre-map"></div>
-      <div class="map-stats-overlay">
+      <div class="map-stats-overlay" aria-label="Map location count">
         <span>{{ geoMarkers.length }} LOCATIONS</span>
       </div>
     </div>
@@ -236,7 +236,7 @@ async function handleRefresh() { await store.fetchGeoFiles() }
   background: var(--ui-surface);
   border: 1px solid var(--ui-border);
   overflow-y: auto;
-  padding: 16px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -256,6 +256,7 @@ async function handleRefresh() { await store.fetchGeoFiles() }
   justify-content: space-between;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--ui-border);
+  gap: 12px;
 }
 
 .header-left {
@@ -290,6 +291,8 @@ async function handleRefresh() { await store.fetchGeoFiles() }
   font-family: var(--ui-font-mono);
   font-size: 10px;
   padding: 4px 8px;
+  min-width: 0;
+  min-height: 44px;
 }
 
 .loc-search-input::placeholder {
@@ -302,6 +305,9 @@ async function handleRefresh() { await store.fetchGeoFiles() }
   color: var(--ui-text);
   cursor: pointer;
   padding: 2px 6px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: var(--ui-radius-sm, 6px);
   font-family: var(--ui-font-mono);
   font-size: 10px;
   font-weight: 700;
@@ -316,14 +322,15 @@ async function handleRefresh() { await store.fetchGeoFiles() }
   min-height: 300px;
   border: 1px solid var(--ui-border);
   overflow: hidden;
+  border-radius: var(--ui-radius-md, 10px);
 }
 
-.maplibre-map { width: 100%; height: 300px; }
+.maplibre-map { width: 100%; height: 300px; touch-action: none; }
 
 .map-stats-overlay {
   position: absolute;
-  bottom: 6px;
-  right: 6px;
+  top: 8px;
+  left: 8px;
   background: var(--ui-surface);
   border: 1px solid var(--ui-border);
   padding: 2px 6px;
@@ -331,6 +338,8 @@ async function handleRefresh() { await store.fetchGeoFiles() }
   color: var(--ui-text);
   font-family: var(--ui-font-mono);
   z-index: 5;
+  pointer-events: none;
+  border-radius: var(--ui-radius-sm, 6px);
 }
 
 .section { display: flex; flex-direction: column; gap: 8px; }
@@ -357,6 +366,8 @@ async function handleRefresh() { await store.fetchGeoFiles() }
   align-items: center;
   gap: 8px;
   cursor: pointer;
+  min-height: 44px;
+  border-radius: var(--ui-radius-sm, 6px);
 }
 
 .geo-list-item:hover { background: color-mix(in srgb, var(--ui-text) 10%, transparent); }
@@ -411,6 +422,42 @@ async function handleRefresh() { await store.fetchGeoFiles() }
 
 .mono { font-family: var(--ui-font-mono); }
 .text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
+
+@media (max-width: 640px) {
+  .map-view {
+    gap: 10px;
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+
+  .panel-header { align-items: flex-start; }
+  .panel-title { font-size: 13px; line-height: 44px; }
+  .header-actions { flex-shrink: 0; gap: 4px; }
+  .header-actions .refresh-btn { padding-inline: 4px; }
+  .search-location-bar { gap: 8px; }
+  .loc-search-input { font-size: 11px; }
+
+  .map-container { min-height: clamp(260px, 48vh, 420px); }
+  .maplibre-map { height: clamp(260px, 48vh, 420px); }
+  .map-stats-overlay { top: 10px; left: 10px; }
+
+  .geo-list { gap: 6px; }
+  .geo-list-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 4px 8px;
+    padding: 8px 10px;
+  }
+  .geo-list-info { min-width: 0; }
+  .geo-list-coords {
+    grid-column: 2;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .status-footer { padding-bottom: 2px; line-height: 1.4; }
+}
 </style>
 
 <style>

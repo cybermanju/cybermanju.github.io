@@ -295,6 +295,47 @@ impl Database {
         KV_TABLE
     }
 
+    pub fn kv_get(&self, key: &str) -> Result<Option<String>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(KV_TABLE)?;
+        Ok(table.get(key)?.map(|value| value.value().to_string()))
+    }
+
+    pub fn kv_set(&self, key: &str, value: &str) -> Result<()> {
+        let tx = self.db.begin_write()?;
+        {
+            let mut table = tx.open_table(KV_TABLE)?;
+            table.insert(key, value)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn kv_delete(&self, key: &str) -> Result<bool> {
+        let tx = self.db.begin_write()?;
+        let removed = {
+            let mut table = tx.open_table(KV_TABLE)?;
+            let previous = table.remove(key)?;
+            previous.is_some()
+        };
+        tx.commit()?;
+        Ok(removed)
+    }
+
+    pub fn kv_list(&self, prefix: &str) -> Result<Vec<(String, usize)>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(KV_TABLE)?;
+        let mut rows = Vec::new();
+        for entry in table.iter()? {
+            let (key, value) = entry?;
+            let key = key.value().to_string();
+            if key.starts_with(prefix) {
+                rows.push((key, value.value().len()));
+            }
+        }
+        Ok(rows)
+    }
+
     /// Row key for a synced copy: one local file × one config.
     fn sync_file_key(file_id: &str, config_id: &str) -> String {
         format!("{}/{}", file_id, config_id)
@@ -875,5 +916,150 @@ impl Database {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// Export a compact, consistent point-in-time image of the complete database.
+    ///
+    /// redb read transactions provide a stable view while concurrent writes
+    /// continue. Copying the logical tables into a fresh database avoids
+    /// copying a live/mmap'd file and preserves every table in the schema.
+    pub fn snapshot_bytes(&self) -> Result<Vec<u8>> {
+        let path =
+            std::env::temp_dir().join(format!("cybermanju-snapshot-{}.db", uuid::Uuid::new_v4()));
+
+        let result = (|| -> Result<Vec<u8>> {
+            let snapshot_db = RedbDatabase::create(&path)?;
+            {
+                let read_tx = self.db.begin_read()?;
+                let write_tx = snapshot_db.begin_write()?;
+
+                macro_rules! copy_table {
+                    ($table:ident) => {{
+                        let source = read_tx.open_table($table)?;
+                        let mut destination = write_tx.open_table($table)?;
+                        for entry in source.iter()? {
+                            let (key, value) = entry?;
+                            destination.insert(key.value(), value.value())?;
+                        }
+                    }};
+                }
+
+                copy_table!(FILES_TABLE);
+                copy_table!(ACCOUNTS_TABLE);
+                copy_table!(COLLECTIONS_TABLE);
+                copy_table!(COLLECTION_ITEMS_TABLE);
+                copy_table!(FACE_GROUPS_TABLE);
+                copy_table!(LOOSE_GROUPS_TABLE);
+                copy_table!(ENCRYPTION_KEYS_TABLE);
+                copy_table!(LOCATIONS_TABLE);
+                copy_table!(USERS_TABLE);
+                copy_table!(USER_FILE_PERMS_TABLE);
+                copy_table!(SYNC_CONFIGS_TABLE);
+                copy_table!(PARENT_INDEX_TABLE);
+                copy_table!(TRASH_TABLE);
+                copy_table!(AUDIT_LOG_TABLE);
+                copy_table!(FILE_VERSIONS_TABLE);
+                copy_table!(SHARE_LINKS_TABLE);
+                copy_table!(SYNC_FILES_TABLE);
+                copy_table!(SYNC_RUNS_TABLE);
+                copy_table!(SYNC_SECRETS_TABLE);
+                copy_table!(SCHEMA_VERSION_TABLE);
+                copy_table!(DISKS_TABLE);
+                copy_table!(VOLUMES_TABLE);
+                copy_table!(BLOCK_MAP_TABLE);
+                copy_table!(SCRUB_RUNS_TABLE);
+                copy_table!(REPAIRS_TABLE);
+                copy_table!(CHUNK_REFS_TABLE);
+                copy_table!(LEASES_TABLE);
+                copy_table!(PROVIDER_HEALTH_TABLE);
+                copy_table!(COMPUTE_TASKS_TABLE);
+                copy_table!(SHELL_HISTORY_TABLE);
+                copy_table!(AGENT_CONFIGS_TABLE);
+                copy_table!(AGENT_SESSIONS_TABLE);
+                copy_table!(AGENT_MEMORIES_TABLE);
+                copy_table!(KV_TABLE);
+
+                write_tx.commit()?;
+            }
+            drop(snapshot_db);
+
+            let bytes = std::fs::read(&path)?;
+            const MAX_SNAPSHOT_BYTES: usize = 256 * 1024 * 1024;
+            if bytes.len() > MAX_SNAPSHOT_BYTES {
+                anyhow::bail!("native database snapshot exceeds the 256 MiB export limit");
+            }
+            Ok(bytes)
+        })();
+
+        let _ = std::fs::remove_file(&path);
+        result
+    }
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_bytes_preserves_rows_and_opens_as_a_database() {
+        let source_path = std::env::temp_dir().join(format!(
+            "cybermanju-snapshot-source-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let snapshot_path = std::env::temp_dir().join(format!(
+            "cybermanju-snapshot-copy-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let source = Database::new(source_path.to_str().unwrap()).unwrap();
+        {
+            let tx = source.db.begin_write().unwrap();
+            {
+                let mut table = tx.open_table(KV_TABLE).unwrap();
+                table.insert("mirror:test", "snapshot-value").unwrap();
+            }
+            tx.commit().unwrap();
+        }
+
+        let bytes = source.snapshot_bytes().unwrap();
+        std::fs::write(&snapshot_path, &bytes).unwrap();
+        let snapshot = Database::new(snapshot_path.to_str().unwrap()).unwrap();
+        let read_tx = snapshot.db.begin_read().unwrap();
+        let table = read_tx.open_table(KV_TABLE).unwrap();
+        assert_eq!(
+            table.get("mirror:test").unwrap().unwrap().value(),
+            "snapshot-value"
+        );
+
+        drop(table);
+        drop(read_tx);
+        drop(snapshot);
+        drop(source);
+        let _ = std::fs::remove_file(source_path);
+        let _ = std::fs::remove_file(snapshot_path);
+    }
+
+    #[test]
+    fn kv_methods_round_trip_list_prefix_and_delete() {
+        let path =
+            std::env::temp_dir().join(format!("cybermanju-kv-methods-{}.db", uuid::Uuid::new_v4()));
+        let db = Database::new(path.to_str().unwrap()).unwrap();
+        db.kv_set("volume:/notes.md", "Olá, vault").unwrap();
+        db.kv_set("config:theme", "dark").unwrap();
+
+        assert_eq!(
+            db.kv_get("volume:/notes.md").unwrap().as_deref(),
+            Some("Olá, vault")
+        );
+        assert_eq!(db.kv_get("missing").unwrap(), None);
+        assert_eq!(
+            db.kv_list("volume:").unwrap(),
+            vec![("volume:/notes.md".to_string(), "Olá, vault".len())]
+        );
+        assert!(db.kv_delete("volume:/notes.md").unwrap());
+        assert!(!db.kv_delete("volume:/notes.md").unwrap());
+        assert_eq!(db.kv_get("volume:/notes.md").unwrap(), None);
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
     }
 }

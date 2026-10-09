@@ -110,7 +110,7 @@
               type="button"
               class="st-accent-dot"
               :class="{ 'is-active': (theme.settings.accent ?? '') === c.value }"
-              :style="{ background: c.value || theme.themes[theme.settings.theme].palette.accent }"
+              :style="{ '--swatch-color': c.value || theme.themes[theme.settings.theme].palette.accent }"
               :title="c.label"
               :aria-label="c.label"
               :aria-pressed="(theme.settings.accent ?? '') === c.value"
@@ -269,6 +269,60 @@
         <UiDivider />
         <UiButton block icon="solar:refresh-bold" @click="handleRefresh">Refresh all data</UiButton>
         <UiText as="p" variant="small" tone="muted">Re-fetch files, accounts, collections, face groups and sync configs.</UiText>
+        <UiDivider />
+        <div v-if="nativeMirrorAvailable" class="st-mirror">
+          <div class="st-row">
+            <div class="st-stack">
+              <UiText as="span" variant="label">Mobile Vault Mirror</UiText>
+              <UiText as="span" variant="small" tone="muted">
+                {{ mobileVaultMirrorState.configured ? `${mobileVaultMirrorState.folderName} / ${mobileVaultMirrorState.fileName}` : 'Scoped Storage · encrypted web-compatible .cybermanju' }}
+              </UiText>
+            </div>
+            <UiBadge :label="mirrorStatusLabel" :tone="mirrorStatusTone" :dot="true" />
+          </div>
+          <UiText as="p" variant="small" tone="muted">
+            {{ mobileVaultMirrorState.lastSyncedAt ? `Last synced ${formatMirrorTime(mobileVaultMirrorState.lastSyncedAt)}` : 'The selected folder is updated after successful database changes.' }}
+          </UiText>
+          <UiInput
+            v-if="mobileVaultMirrorState.configured && !mobileVaultMirrorState.unlocked"
+            v-model="mirrorPassphrase"
+            label="Vault passphrase"
+            type="password"
+            autocomplete="current-password"
+            placeholder="Enter the mirror passphrase"
+            @enter="unlockMirror"
+          />
+          <div class="st-actions">
+            <UiButton
+              v-if="mobileVaultMirrorState.configured && !mobileVaultMirrorState.unlocked"
+              variant="primary"
+              size="sm"
+              icon="solar:lock-keyhole-bold"
+              :disabled="mirrorActionBusy || mobileVaultMirrorState.busy || !mirrorPassphrase"
+              @click="unlockMirror"
+            >Unlock</UiButton>
+            <UiButton
+              v-if="mobileVaultMirrorState.configured && mobileVaultMirrorState.unlocked"
+              size="sm"
+              icon="solar:refresh-bold"
+              :disabled="mirrorActionBusy || mobileVaultMirrorState.busy"
+              @click="syncMirrorNow"
+            >{{ mobileVaultMirrorState.busy ? 'Syncing…' : 'Sync now' }}</UiButton>
+            <UiButton
+              v-if="mobileVaultMirrorState.configured && mobileVaultMirrorState.unlocked"
+              size="sm"
+              icon="solar:lock-bold"
+              :disabled="mobileVaultMirrorState.busy"
+              @click="lockMirror"
+            >Lock</UiButton>
+          </div>
+          <UiText v-if="mobileVaultMirrorState.lastError" as="p" variant="small" tone="danger" role="alert">
+            {{ mobileVaultMirrorState.lastError }}
+          </UiText>
+          <UiText v-else-if="!mobileVaultMirrorState.configured" as="p" variant="small" tone="muted">
+            Configure a folder and passphrase from Setup → Providers → Local folder.
+          </UiText>
+        </div>
       </UiCard>
 
       <!-- ── gestures ── -->
@@ -403,6 +457,7 @@ import { ShortcutsKey } from '@/composables/shortcutsKey'
 import { useTouchConfig, type GestureType, type TouchAction } from '@/composables/useTouchConfig'
 import { useTheme } from '@/composables/useTheme'
 import { ACCENT_CHOICES, WALLPAPERS, type ShellStyle } from '@/ui/tokens'
+import { lockMobileVaultMirror, mobileVaultMirrorState, supportsNativeScopedStorage, syncMobileVaultMirrorNow, unlockMobileVaultMirror } from '@/utils/mobileScopedStorage'
 
 /**
  * Active transport: tauri IPC, REST dashboard, or local WASM (GitHub Pages).
@@ -425,6 +480,48 @@ const transportTone = computed<'neutral' | 'accent' | 'success' | 'warning' | 'd
 
 const store = useAppStore()
 const theme = useTheme()
+const nativeMirrorAvailable = supportsNativeScopedStorage()
+const mirrorPassphrase = ref('')
+const mirrorActionBusy = ref(false)
+const mirrorStatusLabel = computed(() => {
+  if (!mobileVaultMirrorState.configured) return 'Not configured'
+  if (mobileVaultMirrorState.busy) return 'Syncing'
+  return mobileVaultMirrorState.unlocked ? 'Live Sync on' : 'Locked'
+})
+const mirrorStatusTone = computed<'neutral' | 'success' | 'warning'>(() => {
+  if (!mobileVaultMirrorState.configured) return 'neutral'
+  return mobileVaultMirrorState.unlocked ? 'success' : 'warning'
+})
+function formatMirrorTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString()
+}
+async function unlockMirror() {
+  if (mirrorActionBusy.value || !mirrorPassphrase.value) return
+  mirrorActionBusy.value = true
+  try {
+    await unlockMobileVaultMirror(mirrorPassphrase.value)
+  } catch {
+    // The mirror state exposes a safe, user-visible error; never log the passphrase.
+  } finally {
+    mirrorPassphrase.value = ''
+    mirrorActionBusy.value = false
+  }
+}
+async function syncMirrorNow() {
+  if (mirrorActionBusy.value) return
+  mirrorActionBusy.value = true
+  try {
+    await syncMobileVaultMirrorNow()
+  } catch {
+    // The mirror state exposes the failure inline.
+  } finally {
+    mirrorActionBusy.value = false
+  }
+}
+function lockMirror() {
+  lockMobileVaultMirror()
+  mirrorPassphrase.value = ''
+}
 const accentSwatches = ACCENT_CHOICES
 const wallpaperOptions = WALLPAPERS.map((w) => ({ label: w.label, value: w.id }))
 const panelDocked = ref('0')
@@ -994,23 +1091,47 @@ async function handleRefresh() {
 .st-accents {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   flex-wrap: wrap;
 }
 .st-accent-dot {
-  width: 20px;
-  height: 20px;
+  appearance: none;
+  position: relative;
+  display: grid;
+  flex: 0 0 44px;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.15);
+  border: 0;
+  background: transparent;
   cursor: pointer;
-  transition: box-shadow var(--ui-dur-fast) ease-out;
+  touch-action: manipulation;
 }
-.st-accent-dot:hover {
-  box-shadow: var(--ui-focus-ring);
+.st-accent-dot::before {
+  content: '';
+  display: block;
+  width: 24px;
+  height: 24px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--ui-text) 24%, transparent);
+  background: var(--swatch-color);
+  transition: transform var(--ui-dur-fast) ease-out;
 }
-.st-accent-dot.is-active {
-  box-shadow: var(--ui-focus-ring);
+.st-accent-dot:hover,
+.st-accent-dot:active { background: transparent; }
+.st-accent-dot:hover::before { transform: scale(1.08); }
+.st-accent-dot.is-active::before {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 3px;
+}
+.st-accent-dot:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ui-accent) 55%, transparent);
+  outline-offset: 2px;
 }
 
 /* tables: rows wrap instead of relying on viewport media queries (which never
@@ -1078,6 +1199,11 @@ async function handleRefresh() {
   .st-jumps { padding: 8px 8px 0; }
   .st-body { padding: 8px 8px 20px; }
   .st-brand-mark { width: 28px; height: 28px; }
+  .st-row { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 8px; padding: 10px 0; }
+  .st-row > * { min-width: 0; max-width: 100%; }
+  .st-field-row > :not(:first-child) { flex: 1 1 auto; }
+  .st-key-input { width: min(132px, 100%); flex-basis: min(132px, 100%); }
+  .st-info-row { align-items: flex-start; flex-wrap: wrap; }
 }
 
 @media (prefers-reduced-motion: reduce) {

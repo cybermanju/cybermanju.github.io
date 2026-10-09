@@ -337,7 +337,7 @@ onMounted(() => { void hw.refreshDevices(); void loadStorage() })
 </script>
 
 <style scoped>
-.dv { height: 100%; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; background: var(--ui-surface); color: var(--ui-text); font-family: var(--ui-font); font-size: 13px; }
+.dv { height: 100%; min-width: 0; overflow-x: hidden; overflow-y: auto; padding: 12px 14px; padding-bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; background: var(--ui-surface); color: var(--ui-text); font-family: var(--ui-font); font-size: 13px; }
 .dv-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px 10px; border-bottom: 1px solid var(--ui-border); }
 .dv-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .dv-brand-mark { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; background: color-mix(in srgb, var(--ui-accent) 16%, transparent); color: var(--ui-accent); border: 1px solid color-mix(in srgb, var(--ui-accent) 40%, transparent); flex-shrink: 0; }
@@ -345,12 +345,12 @@ onMounted(() => { void hw.refreshDevices(); void loadStorage() })
 .dv-subtitle { margin: 1px 0 0; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
 .dv-top-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .dv-error { border: 1px solid color-mix(in srgb, var(--ui-danger) 55%, transparent); background: color-mix(in srgb, var(--ui-danger) 10%, transparent); border-radius: 10px; padding: 8px 12px; font-size: 12px; }
-.dv-card { border: 1px solid var(--ui-border); border-radius: 12px; padding: 12px 14px; background: color-mix(in srgb, var(--ui-text) 3%, transparent); display: flex; flex-direction: column; gap: 8px; }
+.dv-card { min-width: 0; border: 1px solid var(--ui-border); border-radius: 12px; padding: 12px 14px; background: color-mix(in srgb, var(--ui-text) 3%, transparent); display: flex; flex-direction: column; gap: 8px; }
 .dv-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; letter-spacing: 1px; }
 .dv-counts { display: flex; gap: 4px; flex-wrap: wrap; }
 .dv-chip { font-family: var(--ui-font-mono); font-size: 9.5px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--ui-border); background: var(--ui-glass); }
-.dv-list { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; }
-.dv-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--ui-hairline); border-radius: 8px; background: var(--ui-glass); }
+.dv-list { display: flex; flex-direction: column; gap: 6px; max-height: 300px; min-width: 0; overflow-y: auto; }
+.dv-row { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 44px; padding: 7px 8px; border: 1px solid var(--ui-hairline); border-radius: 8px; background: var(--ui-glass); }
 .dv-bus { font-family: var(--ui-font-mono); font-size: 8.5px; font-weight: 700; padding: 2px 7px; border-radius: 99px; border: 1px solid color-mix(in srgb, var(--ui-accent) 40%, transparent); color: var(--ui-accent); min-width: 64px; text-align: center; }
 .dv-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .dv-label { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -363,10 +363,34 @@ onMounted(() => { void hw.refreshDevices(); void loadStorage() })
   border: 1px solid var(--ui-border); background: var(--ui-glass); color: var(--ui-text);
   cursor: pointer;
 }
-.dv-hint, .dv-muted { font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); margin: 0; }
-.dv-line { font-size: 12px; margin: 0; overflow: hidden; text-overflow: ellipsis; }
+.dv-hint, .dv-muted { min-width: 0; overflow-wrap: anywhere; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); margin: 0; }
+.dv-line { min-width: 0; font-size: 12px; margin: 0; overflow: hidden; overflow-wrap: anywhere; text-overflow: ellipsis; }
 .dv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 .dv-grid p { margin: 0; font-size: 12px; }
 .dv-vids { display: flex; gap: 8px; flex-wrap: wrap; }
 .dv-vid { width: 220px; max-width: 100%; aspect-ratio: 16/10; border-radius: 10px; border: 1px solid var(--ui-border); background: #000; }
+
+@media (max-width: 600px) {
+  .dv { padding: max(10px, env(safe-area-inset-top)) 10px max(14px, env(safe-area-inset-bottom)); gap: 8px; font-size: 14px; }
+  .dv-top { align-items: flex-start; padding: 10px 4px 12px; }
+  .dv-title { font-size: 17px; }
+  .dv-subtitle { font-size: 12px; line-height: 1.35; }
+  .dv-top-actions { margin-top: -2px; }
+  .dv-card { border-radius: 16px; padding: 14px 12px; gap: 10px; }
+  .dv-card-head { align-items: flex-start; flex-wrap: wrap; line-height: 1.35; }
+  .dv-list { max-height: none; gap: 8px; }
+  .dv-row { border-radius: 12px; padding: 8px 10px; }
+  .dv-bus { min-width: 58px; }
+  .dv-pair { gap: 8px; }
+  .dv-pair :deep(button), .dv-pair :deep(select), .dv-top-actions :deep(button) { min-height: 44px; }
+  .dv-pair :deep(button) { flex: 1 1 auto; }
+  .dv-select { min-width: 54px; }
+  .dv-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .dv-grid p { overflow-wrap: anywhere; line-height: 1.45; }
+  .dv-hint, .dv-muted { line-height: 1.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dv *, .dv *::before, .dv *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
 </style>

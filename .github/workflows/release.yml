@@ -81,7 +81,7 @@ jobs:
 
       # Prebuilt binary; building wasm-pack from source costs minutes.
       - name: Install wasm-pack
-        uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2
+        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
         with:
           tool: wasm-pack
 
@@ -509,7 +509,15 @@ jobs:
         # Release ships arm64-v8a only (ort-sys prebuilts); x86_64 is kept
         # for the emulator smoke test. armv7/i686 are not built — skip them.
         run: |
-          rustup target add aarch64-linux-android x86_64-linux-android
+          rustup target add aarch64-linux-android x86_64-linux-android wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: wasm-pack
+
+      - name: Build web-compatible vault codec
+        run: npm run build:wasm:pkg
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
@@ -594,6 +602,8 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Verify Android APK signature
         run: bash scripts/android-signing.sh verify

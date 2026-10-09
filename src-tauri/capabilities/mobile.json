@@ -1,7 +1,7 @@
 {
   "identifier": "mobile",
-  "description": "Android scope for CyberManju OS (local vault; scoped storage, app-private files dir only)",
-  "platforms": ["android"],
+  "description": "Mobile scope for CyberManju OS (app-private vault + user-selected scoped folders)",
+  "platforms": ["android", "iOS"],
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -22,6 +22,13 @@
     "notification:default",
     "store:default",
     "os:default",
-    "process:default"
+    "process:default",
+    "scoped-storage:allow-pick-folder",
+    "scoped-storage:allow-read-dir",
+    "scoped-storage:allow-read-file",
+    "scoped-storage:allow-write-file",
+    "scoped-storage:allow-stat",
+    "scoped-storage:allow-remove-file",
+    "scoped-storage:allow-remove-dir"
   ]
 }

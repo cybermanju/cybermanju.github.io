@@ -115,15 +115,21 @@ src = (
     + src[m.end():]
 )
 
-# 2c. Deep link + .cyb3 association inside the main activity.
-intent = """
-            <!-- %s: cybermanju:// deep link + .cyb3 payload association. -->
+# 2c. Deep link + .cyb3 association inside the main activity. Tauri's
+# deep-link plugin may already add the scheme filter from tauri.conf.json.
+link_intent = ""
+if 'android:scheme="cybermanju"' not in src:
+    link_intent = """
+            <!-- %s: cybermanju:// deep link. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="cybermanju" />
             </intent-filter>
+""" % mark
+file_intent = """
+            <!-- %s: .cyb3 payload association. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -131,6 +137,7 @@ intent = """
                 <data android:scheme="file" android:mimeType="*/*" android:pathPattern=".*\\.cyb3" />
             </intent-filter>
 """ % mark
+intent = link_intent + file_intent
 close = "</activity>"
 assert close in src, "no </activity> in AndroidManifest"
 src = src.replace(close, intent + "        " + close, 1)

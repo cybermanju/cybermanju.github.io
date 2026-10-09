@@ -20,14 +20,6 @@
       </button>
     </header>
 
-    <div class="msw-dots" aria-hidden="true">
-      <span
-        v-for="s in MOBILE_SETUP_STEPS"
-        :key="s"
-        class="msw-dot"
-        :class="{ on: s === step, past: mobileSetupStepIndex(s) < mobileSetupStepIndex(step) }"
-      />
-    </div>
     <div class="msw-progress" aria-hidden="true">
       <div class="msw-progress-fill" :style="{ width: `${(mobileSetupStepIndex(step) / MOBILE_SETUP_STEPS.length) * 100}%` }" />
     </div>
@@ -35,34 +27,43 @@
     <main class="msw-body">
       <!-- welcome -->
       <section v-if="step === 'welcome'" class="msw-section">
-        <p class="msw-lead">Your private vault, on this phone. Create an account, add as many vault partitions as you want, connect providers, spin up repos — all from here.</p>
-        <ul class="msw-list">
-          <li><AppIcon name="solar:user-circle-bold" :size="16" /><span><strong>Account</strong> — first user on this device, or sign in.</span></li>
-          <li><AppIcon name="solar:diskette-bold" :size="16" /><span><strong>Vaults</strong> — N <code>.cybermanju</code> partitions, any size, any provider or local disk.</span></li>
+        <div class="msw-welcome">
+          <p class="msw-eyebrow">WELCOME TO CYBERMANJU</p>
+          <h3 class="msw-welcome-title">Your private workspace, ready on this phone.</h3>
+          <p class="msw-lead">Set up sign-in, local vaults and the services you actually use. Everything else can wait.</p>
+        </div>
+        <ul class="msw-list" aria-label="What you can set up">
+          <li><AppIcon name="solar:user-circle-bold" :size="16" /><span><strong>Sign in</strong> — Google, GitHub or GitLab through your Supabase broker.</span></li>
+          <li><AppIcon name="solar:diskette-bold" :size="16" /><span><strong>Vaults</strong> — encrypted <code>.cybermanju</code> partitions, on a provider or this phone.</span></li>
           <li><AppIcon name="solar:cloud-bold" :size="16" /><span><strong>Providers + repos</strong> — GitHub, GitLab, Drive, local — then create private vault repos.</span></li>
         </ul>
-        <button class="msw-btn primary big" type="button" @click="go('account')">Get started</button>
+        <button class="msw-btn primary big" type="button" @click="go('account')">Continue</button>
         <button class="msw-link" type="button" @click="skipAll">Skip setup entirely</button>
       </section>
 
       <!-- account -->
       <section v-if="step === 'account'" class="msw-section">
-        <h3 class="msw-h">Your account on this device</h3>
-        <p class="msw-hint" v-if="store.currentUser">Signed in as <strong>{{ store.currentUser.username ?? store.currentUser.displayName ?? 'you' }}</strong> — add more users later in Accounts → Users.</p>
-        <p class="msw-hint" v-else>No dashboard account yet? Create the first one (bootstrap). Otherwise sign in.</p>
-        <label class="msw-field"><span>Username</span>
-          <input v-model="username" class="msw-input" autocomplete="username" placeholder="e.g. manju" />
-        </label>
-        <label class="msw-field"><span>Password</span>
-          <input v-model="password" class="msw-input" type="password" autocomplete="current-password" placeholder="••••••••" />
-        </label>
-        <p v-if="accountMsg" class="msw-note" :class="accountOk === false ? 'err' : 'ok'">{{ accountMsg }}</p>
-        <div class="msw-row">
-          <button class="msw-btn primary big" type="button" :disabled="accountBusy" @click="doAuth(true)">{{ accountBusy ? '…' : 'Create first user' }}</button>
+        <h3 class="msw-h">Sign in to your cloud account</h3>
+        <p v-if="identity" class="msw-hint">Signed in as <strong>{{ identity.name || identity.email }}</strong> via {{ identity.provider }}.</p>
+        <p v-else class="msw-hint">Use the same secure sign-in as the rest of the app. Mobile browsers return here automatically after approval.</p>
+        <details class="msw-broker" :open="!brokerConfigured">
+          <summary>{{ brokerConfigured ? 'OAuth broker settings' : 'Configure OAuth broker' }}</summary>
+          <label class="msw-field"><span>Supabase project URL</span>
+            <input v-model="brokerUrl" class="msw-input" type="url" inputmode="url" autocomplete="url" placeholder="https://your-project.supabase.co" />
+          </label>
+          <label class="msw-field"><span>Supabase publishable / anon key</span>
+            <input v-model="brokerKey" class="msw-input" type="password" autocomplete="off" placeholder="sb_publishable_… or anon key" />
+          </label>
+          <button class="msw-btn" type="button" :disabled="brokerBusy" @click="saveBroker">{{ brokerBusy ? 'Saving…' : 'Save broker' }}</button>
+          <p class="msw-hint">Enable Google, GitHub and GitLab in Supabase and allow this callback URL: <code>{{ oauthCallbackUrl }}</code></p>
+          <p v-if="brokerMsg" class="msw-note" :class="brokerOk === false ? 'err' : 'ok'">{{ brokerMsg }}</p>
+        </details>
+        <div class="msw-oauth-grid" role="group" aria-label="Sign in providers">
+          <button v-for="provider in oauthProviders" :key="provider.id" class="msw-btn big" type="button" :disabled="!brokerConfigured || !!cloudAuthBusy" @click="signInCloud(provider.id)">
+            {{ cloudAuthBusy === provider.id ? 'Opening…' : `Continue with ${provider.label}` }}
+          </button>
         </div>
-        <div class="msw-row">
-          <button class="msw-btn big" type="button" :disabled="accountBusy" @click="doAuth(false)">Sign in</button>
-        </div>
+        <p v-if="cloudAuthMsg" class="msw-note" :class="cloudAuthOk === false ? 'err' : 'ok'">{{ cloudAuthMsg }}</p>
         <div class="msw-nav">
           <button class="msw-btn" type="button" @click="go('welcome')">Back</button>
           <button class="msw-btn primary" type="button" @click="go('vaults')">Next</button>
@@ -116,8 +117,8 @@
 
       <!-- providers -->
       <section v-if="step === 'providers'" class="msw-section">
-        <h3 class="msw-h">Providers <span v-if="store.syncConfigs.length" class="msw-count">{{ store.syncConfigs.length }} connected</span></h3>
-        <p class="msw-hint">Connect GitHub, GitLab, Google Drive or a local folder. Save one, then add as many more as you want.</p>
+        <h3 class="msw-h">Providers <span v-if="providerCount" class="msw-count">{{ providerCount }} connected</span></h3>
+        <p class="msw-hint">Use your OAuth session for cloud providers, or grant Files access to a folder on this phone.</p>
         <div class="msw-logo-row" role="radiogroup" aria-label="Provider type">
           <button
             v-for="b in ['github', 'gitlab', 'googleDrive', 'local']"
@@ -133,16 +134,37 @@
         <label class="msw-field"><span>Display name</span>
           <input v-model="prov.name" class="msw-input" placeholder="e.g. Work GitHub" />
         </label>
-        <label class="msw-field"><span>Token / path</span>
-          <input v-model="prov.secret" class="msw-input" :type="showSecret ? 'text' : 'password'" placeholder="PAT token, or /DATA/SYNC for local" />
-        </label>
-        <label class="msw-check"><input v-model="showSecret" type="checkbox" /> Show secret</label>
+        <template v-if="prov.backendType === 'local'">
+          <p class="msw-hint">Android opens the system folder picker. Access remains limited to the folder you choose.</p>
+          <button class="msw-btn big" type="button" :disabled="provBusy || folderBusy" @click="chooseLocalFolder">{{ folderBusy ? 'Opening picker…' : selectedFolder ? `Selected: ${selectedFolder.name}` : 'Choose a folder' }}</button>
+          <p v-if="!scopedFolderAvailable" class="msw-hint">Persistent folder access is available in the native Android/iOS app, not a mobile browser tab.</p>
+          <div v-if="selectedFolder" class="msw-mirror-setup">
+            <p class="msw-hint">Create a live mirror in this folder. The <code>.cybermanju</code> file uses the web-compatible ChaCha20-Poly1305 + PBKDF2 format, not ML-KEM. The passphrase is never saved by the app.</p>
+            <label class="msw-field"><span>Live Sync file name</span>
+              <input v-model="mirrorFileName" class="msw-input" type="text" autocomplete="off" placeholder="cybermanju-vault.cybermanju" />
+            </label>
+            <label class="msw-field"><span>Vault passphrase (8+ characters)</span>
+              <input v-model="mirrorPassphrase" class="msw-input" type="password" autocomplete="new-password" />
+            </label>
+            <label class="msw-field"><span>Confirm passphrase</span>
+              <input v-model="mirrorPassphraseConfirm" class="msw-input" type="password" autocomplete="new-password" />
+            </label>
+          </div>
+        </template>
+        <template v-else>
+          <p class="msw-hint">{{ matchingSessionToken ? `A ${shortProv(prov.backendType)} OAuth session can supply its token automatically.` : 'Sign in above with this provider, or paste a personal access token.' }}</p>
+          <label class="msw-field"><span>Personal access token (optional when signed in above)</span>
+            <input v-model="prov.secret" class="msw-input" :type="showSecret ? 'text' : 'password'" autocomplete="off" placeholder="Paste token, or leave empty to use OAuth" />
+          </label>
+          <label class="msw-check"><input v-model="showSecret" type="checkbox" /> Show token</label>
+        </template>
         <div class="msw-row">
           <button class="msw-btn primary big" type="button" :disabled="provBusy" @click="saveProvider">{{ provBusy ? 'Saving…' : 'Save provider' }}</button>
         </div>
         <p v-if="provMsg" class="msw-note" :class="provOk === false ? 'err' : 'ok'">{{ provMsg }}</p>
-        <ul v-if="store.syncConfigs.length" class="msw-provs">
+        <ul v-if="providerCount" class="msw-provs">
           <li v-for="c in store.syncConfigs" :key="c.id"><strong>{{ c.name || c.backendType }}</strong> <span class="muted">{{ c.backendType }}</span></li>
+          <li v-for="mount in localFolderMounts" :key="mount.id"><strong>{{ mount.name }}</strong> <span class="muted">Phone folder · Files</span></li>
         </ul>
         <div class="msw-nav">
           <button class="msw-btn" type="button" @click="go('vaults')">Back</button>
@@ -216,9 +238,9 @@
       <!-- done -->
       <section v-if="step === 'done'" class="msw-section">
         <ul class="msw-summary">
-          <li>Account: <strong>{{ store.currentUser ? (store.currentUser.username ?? 'signed in') : 'skipped' }}</strong></li>
+          <li>Account: <strong>{{ identity ? (identity.email || identity.name) : 'skipped' }}</strong></li>
           <li>Vaults: <strong>{{ createdCount ? `${createdCount} partition${createdCount > 1 ? 's' : ''} created` : 'skipped' }}</strong></li>
-          <li>Providers: <strong>{{ store.syncConfigs.length ? `${store.syncConfigs.length} connected` : 'skipped' }}</strong></li>
+          <li>Providers: <strong>{{ providerCount ? `${providerCount} connected` : 'skipped' }}</strong></li>
           <li>Repos: <strong>{{ reposCreated ? `${reposCreated} created` : 'skipped' }}</strong></li>
           <li>Agent: <strong>{{ agentSavedName ? `“${agentSavedName}” ready` : 'skipped' }}</strong></li>
         </ul>
@@ -234,7 +256,11 @@
 import AppIcon from '@/components/AppIcon.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { isStaticHost } from '@/composables/useTauri'
+import { isStaticHost, isTauriMobile } from '@/composables/useTauri'
+import { getSupabaseConfig, identity, MOBILE_OAUTH_CALLBACK_URL, refreshIdentity, setSupabaseConfig, signInWithPopup, supabaseConfigured, supabaseProviderFor, supabaseSession, supabaseSessionProvider, type OAuthBackend } from '@/composables/useSupabase'
+import { configureMobileVaultMirror, normalizeMobileVaultFileName, pickMobileFolder, supportsNativeScopedStorage, type MobileFolderHandle } from '@/utils/mobileScopedStorage'
+import { listVfsMounts, saveVfsMount } from '@/composables/useProviderCanal'
+import type { ProviderMount } from '@/composables/useProviderCanal'
 import {
   MOBILE_SETUP_STEPS,
   MOBILE_SETUP_STEP_LABELS,
@@ -252,7 +278,16 @@ import type { AgentConfig, SyncConfig } from '@/types'
 
 const emit = defineEmits<{ close: [] }>()
 const store = useAppStore()
-const step = ref<MobileSetupStep>('welcome')
+const SETUP_STEP_KEY = 'cybermanju.mobileSetup.step'
+function initialStep(): MobileSetupStep {
+  try {
+    const saved = localStorage.getItem(SETUP_STEP_KEY)
+    return MOBILE_SETUP_STEPS.find(s => s === saved) ?? 'welcome'
+  } catch {
+    return 'welcome'
+  }
+}
+const step = ref<MobileSetupStep>(initialStep())
 const isStatic = isStaticHost()
 
 function tap() {
@@ -261,37 +296,65 @@ function tap() {
   } catch { /* no haptics */ }
 }
 
-function go(s: MobileSetupStep) { tap(); step.value = s }
+function go(s: MobileSetupStep) {
+  tap()
+  step.value = s
+  try { localStorage.setItem(SETUP_STEP_KEY, s) } catch { /* storage may be disabled */ }
+}
 function close() { emit('close') }
-function skipAll() { markSetupSeen(); emit('close') }
-function finish() { markSetupSeen(); emit('close') }
+function clearSavedStep() { try { localStorage.removeItem(SETUP_STEP_KEY) } catch { /* storage may be disabled */ } }
+function skipAll() { clearSavedStep(); markSetupSeen(); emit('close') }
+function finish() { clearSavedStep(); markSetupSeen(); emit('close') }
 
 // ── account ──
-const username = ref('')
-const password = ref('')
-const accountBusy = ref(false)
-const accountMsg = ref('')
-const accountOk = ref<boolean | null>(null)
+const brokerDefaults = getSupabaseConfig()
+const brokerUrl = ref(brokerDefaults.url)
+const brokerKey = ref(brokerDefaults.key)
+const brokerConfigured = computed(() => supabaseConfigured())
+const oauthCallbackUrl = isTauriMobile() ? MOBILE_OAUTH_CALLBACK_URL : typeof window === 'undefined' ? '/' : `${window.location.origin}${window.location.pathname}`
+const oauthProviders: Array<{ id: OAuthBackend; label: string }> = [
+  { id: 'google', label: 'Google' },
+  { id: 'github', label: 'GitHub' },
+  { id: 'gitlab', label: 'GitLab' },
+]
+const brokerBusy = ref(false)
+const brokerMsg = ref('')
+const brokerOk = ref<boolean | null>(null)
+const cloudAuthBusy = ref<OAuthBackend | null>(null)
+const cloudAuthMsg = ref('')
+const cloudAuthOk = ref<boolean | null>(null)
 
-async function doAuth(register: boolean) {
-  if (accountBusy.value || !username.value.trim() || !password.value) {
-    accountMsg.value = 'Enter a username + password first.'
-    accountOk.value = false
+function saveBroker() {
+  const url = brokerUrl.value.trim().replace(/\/+$/, '')
+  const key = brokerKey.value.trim()
+  if (!/^https?:\/\//i.test(url) || !key) {
+    brokerMsg.value = 'Enter a valid Supabase project URL and publishable/anon key.'
+    brokerOk.value = false
     return
   }
-  accountBusy.value = true
-  accountMsg.value = ''
+  brokerBusy.value = true
   try {
-    const ok = register
-      ? await store.register(username.value.trim(), password.value, username.value.trim())
-      : await store.login(username.value.trim(), password.value)
-    accountOk.value = ok
-    accountMsg.value = ok
-      ? (register ? `Welcome, ${username.value.trim()} — account created.` : `Welcome back, ${username.value.trim()}.`)
-      : (store.authError ?? 'Failed — check the details and retry.')
-    if (ok) password.value = ''
+    setSupabaseConfig(url, key)
+    brokerMsg.value = `Saved. Allow ${oauthCallbackUrl} in Supabase Auth → URL Configuration and enable your providers.`
+    brokerOk.value = true
   } finally {
-    accountBusy.value = false
+    brokerBusy.value = false
+  }
+}
+
+async function signInCloud(provider: OAuthBackend) {
+  if (cloudAuthBusy.value) return
+  cloudAuthBusy.value = provider
+  cloudAuthMsg.value = ''
+  try {
+    await signInWithPopup(provider)
+    cloudAuthMsg.value = `Signed in with ${provider}.`
+    cloudAuthOk.value = true
+  } catch (e) {
+    cloudAuthMsg.value = e instanceof Error ? e.message : String(e)
+    cloudAuthOk.value = false
+  } finally {
+    cloudAuthBusy.value = null
   }
 }
 
@@ -379,6 +442,49 @@ const showSecret = ref(false)
 const provBusy = ref(false)
 const provMsg = ref('')
 const provOk = ref<boolean | null>(null)
+const selectedFolder = ref<MobileFolderHandle | null>(null)
+const folderBusy = ref(false)
+const mirrorFileName = ref('cybermanju-vault.cybermanju')
+const mirrorPassphrase = ref('')
+const mirrorPassphraseConfirm = ref('')
+const scopedFolderAvailable = supportsNativeScopedStorage()
+const localFolderMounts = ref<ProviderMount[]>([])
+const providerCount = computed(() => store.syncConfigs.length + localFolderMounts.value.length)
+const matchingSessionToken = computed(() => {
+  const expected = supabaseProviderFor(prov.value.backendType)
+  return !!expected && identity.value?.provider === expected
+})
+
+async function refreshLocalFolderMounts() {
+  try {
+    localFolderMounts.value = (await listVfsMounts()).filter(m => m.backendType === 'scopedStorage')
+  } catch {
+    localFolderMounts.value = []
+  }
+}
+
+async function chooseLocalFolder() {
+  if (!scopedFolderAvailable) {
+    provMsg.value = 'Choose a folder from the native Android or iOS app to grant persistent access.'
+    provOk.value = false
+    return
+  }
+  folderBusy.value = true
+  provMsg.value = ''
+  try {
+    const folder = await pickMobileFolder()
+    selectedFolder.value = folder
+    if (!prov.value.name.trim()) prov.value.name = folder.name
+    provMsg.value = `“${folder.name}” selected. Save provider to add it to Files.`
+    provOk.value = null
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return
+    provMsg.value = e instanceof Error ? e.message : String(e)
+    provOk.value = false
+  } finally {
+    folderBusy.value = false
+  }
+}
 
 function shortProv(b: string) {
   return b === 'googleDrive' ? 'Drive' : b[0].toUpperCase() + b.slice(1)
@@ -394,14 +500,62 @@ async function saveProvider() {
   provBusy.value = true
   provMsg.value = ''
   try {
+    if (prov.value.backendType === 'local') {
+      const folder = selectedFolder.value
+      if (!folder) {
+        provMsg.value = 'Choose a phone folder first.'
+        provOk.value = false
+        return
+      }
+      if (mirrorPassphrase.value.length < 8) {
+        provMsg.value = 'Choose a vault passphrase with at least 8 characters.'
+        provOk.value = false
+        return
+      }
+      if (mirrorPassphrase.value !== mirrorPassphraseConfirm.value) {
+        provMsg.value = 'The vault passphrases do not match.'
+        provOk.value = false
+        return
+      }
+      const normalizedMirrorFileName = normalizeMobileVaultFileName(mirrorFileName.value)
+      const safeId = folder.id.replace(/[^a-z0-9_-]/gi, '-').slice(0, 48)
+      const mount = await saveVfsMount({
+        id: `mobile-${safeId}`,
+        configId: folder.id,
+        folderId: folder.id,
+        name: prov.value.name.trim() || folder.name,
+        backendType: 'scopedStorage',
+      })
+      await refreshLocalFolderMounts()
+      await configureMobileVaultMirror(folder, normalizedMirrorFileName, mirrorPassphrase.value)
+      provMsg.value = `“${mount.name}” is available in Files; live mirror “${normalizedMirrorFileName}” is active and web-compatible.`
+      provOk.value = true
+      selectedFolder.value = null
+      mirrorPassphrase.value = ''
+      mirrorPassphraseConfirm.value = ''
+      mirrorFileName.value = 'cybermanju-vault.cybermanju'
+      prov.value = { backendType: 'local', name: '', secret: '' }
+      return
+    }
+    let token = prov.value.secret.trim()
+    if (!token) {
+      const expected = supabaseProviderFor(prov.value.backendType)
+      const session = await supabaseSession()
+      if (expected && supabaseSessionProvider(session) === expected) token = session?.provider_token ?? ''
+    }
+    if (!token) {
+      provMsg.value = `Sign in with ${shortProv(prov.value.backendType)} above or paste a personal access token.`
+      provOk.value = false
+      return
+    }
     const base = syncConfigDefaults() as unknown as Record<string, unknown>
     const cfg = {
       ...base,
       id: '',
       backendType: prov.value.backendType,
       name: prov.value.name.trim(),
-      token: prov.value.secret.trim() || undefined,
-      basePath: prov.value.backendType === 'local' ? (prov.value.secret.trim() || undefined) : undefined,
+      token,
+      basePath: undefined,
     } as unknown as SyncConfig
     const saved = await store.saveSyncConfig(cfg)
     if (!saved) {
@@ -417,6 +571,9 @@ async function saveProvider() {
     provMsg.value = `“${saved.name}” saved. Add another, or continue.`
     provOk.value = true
     prov.value = { backendType: prov.value.backendType, name: '', secret: '' }
+  } catch (error) {
+    provMsg.value = error instanceof Error ? error.message : String(error)
+    provOk.value = false
   } finally {
     provBusy.value = false
   }
@@ -625,7 +782,13 @@ async function saveAgent() {
 }
 
 onMounted(async () => {
-  await Promise.allSettled([store.fetchSyncConfigs(), store.fetchDisks(), store.fetchUsers(), store.fetchAgentProviders().catch(() => {})])
+  await Promise.allSettled([
+    refreshIdentity(),
+    refreshLocalFolderMounts(),
+    store.fetchSyncConfigs(),
+    store.fetchDisks(),
+    store.fetchAgentProviders().catch(() => {}),
+  ])
 })
 </script>
 
@@ -633,33 +796,20 @@ onMounted(async () => {
 .msw {
   position: fixed;
   inset: 0;
-  z-index: 300;
+  z-index: 11000;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
-  background:
-    radial-gradient(70% 30% at 50% -8%, color-mix(in srgb, var(--ui-accent) 13%, transparent), transparent 70%),
-    radial-gradient(46% 26% at 90% 108%, color-mix(in srgb, var(--ui-danger) 9%, transparent), transparent 70%),
-    var(--ui-bg);
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: var(--ui-bg, #f2f2f7);
   color: var(--ui-text);
   font-family: var(--ui-font);
   padding-top: env(safe-area-inset-top, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-.msw::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    to bottom,
-    transparent 0 3px,
-    rgba(0, 0, 0, 0.2) 3px 4px
-  );
-  opacity: 0.45;
 }
 .msw-progress {
   height: 3px;
-  margin: 8px 16px 0;
+  margin: 5px 16px 0;
   border-radius: var(--ui-radius-full);
   background: color-mix(in srgb, var(--ui-accent) 14%, transparent);
   overflow: hidden;
@@ -692,10 +842,10 @@ onMounted(async () => {
 }
 .msw-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 14px 16px 10px;
+  padding: 10px 16px 9px;
   border-bottom: 1px solid var(--ui-border);
 }
 .msw-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -715,21 +865,21 @@ onMounted(async () => {
 }
 .msw-title { margin: 0; font-size: 16px; letter-spacing: 0.3px; }
 .msw-sub { margin: 1px 0 0; font-size: 11.5px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
-.msw-x { background: none; border: none; color: inherit; padding: 8px; min-width: 44px; min-height: 44px; cursor: pointer; }
+.msw-x { display: inline-flex; align-items: center; justify-content: center; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 999px; color: inherit; padding: 8px; min-width: 44px; min-height: 44px; cursor: pointer; }
 .msw-x.sm { min-width: 32px; min-height: 32px; padding: 4px; }
-.msw-dots { display: flex; gap: 5px; padding: 10px 16px 0; }
-.msw-dot { height: 4px; flex: 1; border-radius: var(--ui-radius-full); background: color-mix(in srgb, var(--ui-text) 12%, transparent); }
-.msw-dot.on { background: var(--ui-accent); }
-.msw-dot.past { background: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
-.msw-body { flex: 1; overflow-y: auto; padding: 14px 16px calc(20px + env(safe-area-inset-bottom, 0px)); -webkit-overflow-scrolling: touch; }
+.msw-body { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 16px max(24px, env(safe-area-inset-bottom, 0px)); -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 .msw-section { display: flex; flex-direction: column; gap: 12px; max-width: 560px; margin: 0 auto; width: 100%; }
-.msw-lead { margin: 0; font-size: 14.5px; line-height: 1.6; }
-.msw-h { margin: 2px 0 0; font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--ui-text-2); display: flex; align-items: center; gap: 8px; }
+.msw-welcome { display: flex; flex-direction: column; gap: 10px; padding: clamp(22px, 6vh, 54px) 2px 8px; }
+.msw-eyebrow { margin: 0; color: var(--ui-accent); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; }
+.msw-welcome-title { max-width: 15ch; color: var(--ui-text); font-size: clamp(28px, 7vw, 34px); font-weight: 700; letter-spacing: -0.035em; line-height: 1.12; }
+.msw-lead { margin: 0; font-size: 15px; line-height: 1.55; color: var(--ui-text-2); }
+.msw-h { margin: 2px 0 0; font-size: 16px; font-weight: 650; letter-spacing: 0; color: var(--ui-text); display: flex; align-items: center; gap: 8px; }
 .msw-count { font-size: 10px; border-radius: var(--ui-radius-md); padding: 1px 8px; background: color-mix(in srgb, var(--ui-text) 12%, transparent); }
 .msw-hint { margin: 0; font-size: 13px; line-height: 1.55; color: color-mix(in srgb, var(--ui-text) 65%, transparent); }
 .msw-hint code, .msw-lead code { font-family: var(--ui-font-mono); font-size: 12px; color: var(--ui-info); }
 .msw-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.msw-list li { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); padding: 12px; font-size: 13px; line-height: 1.5; }
+.msw-list li { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--ui-border); border-radius: 14px; background: var(--ui-surface); padding: 12px; font-size: 13px; line-height: 1.5; }
+.msw-list li > :first-child { flex: 0 0 auto; margin-top: 2px; color: var(--ui-accent); }
 .msw-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; letter-spacing: 0; }
 .msw-field span { font-size: 11px; font-weight: 600; color: var(--ui-text-2); }
 .msw-input {
@@ -740,17 +890,18 @@ onMounted(async () => {
 .msw-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .msw-row { display: flex; gap: 8px; }
 .msw-row .msw-btn { flex: 1; }
-.msw-nav { display: flex; align-items: center; gap: 10px; margin-top: 4px; padding-top: 12px; border-top: 1px dashed var(--ui-border); }
+.msw-nav { display: flex; align-items: center; gap: 10px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--ui-border); }
 .msw-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  min-height: 44px; padding: 10px 14px; border-radius: var(--ui-radius-md);
+  min-height: 44px; padding: 10px 14px; border-radius: 12px;
   background: transparent; border: 1px solid var(--ui-border);
   color: color-mix(in srgb, var(--ui-text) 80%, transparent);
   font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
 }
-.msw-btn.big { width: 100%; min-height: 50px; font-size: 15px; }
-.msw-btn.primary { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); }
-.msw-link { background: none; border: none; color: var(--ui-info); font: inherit; font-size: 13px; text-decoration: underline; margin-left: auto; min-height: 44px; cursor: pointer; }
+.msw-btn.big { width: 100%; min-height: 52px; font-size: 15px; }
+.msw-btn.primary { color: var(--ui-on-accent); background: var(--ui-accent); border-color: transparent; font-weight: 650; }
+.msw-btn.primary:disabled { opacity: 0.45; }
+.msw-link { background: none; border: none; color: var(--ui-info); font: inherit; font-size: 14px; text-decoration: none; margin-left: auto; min-height: 44px; cursor: pointer; }
 .msw-note { margin: 0; font-size: 13px; line-height: 1.5; color: var(--ui-info); }
 .msw-note.err { color: var(--ui-danger); }
 .msw-note.ok { color: var(--ui-accent); }
@@ -763,6 +914,12 @@ onMounted(async () => {
 .msw-logo-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .msw-logo { min-height: 48px; border-radius: var(--ui-radius-md); border: 1px solid var(--ui-border); background: transparent; color: var(--ui-text); font-weight: 700; font-size: 13px; cursor: pointer; }
 .msw-logo.on { border-color: var(--ui-accent); background: color-mix(in srgb, var(--ui-accent) 10%, transparent); }
+.msw-oauth-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.msw-oauth-grid .msw-btn { justify-content: flex-start; text-align: left; }
+.msw-broker { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.msw-broker summary { cursor: pointer; min-height: 28px; display: flex; align-items: center; font-size: 13px; font-weight: 700; color: var(--ui-text-2); }
+.msw-broker[open] summary { margin-bottom: 2px; }
+.msw-broker code { overflow-wrap: anywhere; }
 .msw-check { display: flex; align-items: center; gap: 8px; font-size: 13px; min-height: 44px; }
 .msw-check input { width: 22px; height: 22px; }
 .msw-provs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }

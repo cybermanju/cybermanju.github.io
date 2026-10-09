@@ -26,6 +26,7 @@ export interface ProviderMount {
   name: string
   backendType: string
   basePath?: string
+  folderId?: string
   createdAt: string
   updatedAt: string
 }
@@ -74,6 +75,11 @@ export function isCacheFresh(cachedAt: number, now = Date.now()): boolean {
   return Number.isFinite(cachedAt) && now - cachedAt < VFS_CACHE_TTL_MS
 }
 
+/** SAF trees may change in Files or another Android app, so their listings are never cached. */
+export function shouldCacheVfsListing(backendType: string): boolean {
+  return backendType !== 'scopedStorage'
+}
+
 function newMountId(): string {
   try {
     return `mnt-${crypto.randomUUID().slice(0, 8)}`
@@ -108,7 +114,33 @@ function lsDelete(key: string): void {
   }
 }
 
+const MOBILE_KV_COMMANDS: Record<string, string> = {
+  'kv.get': 'vault_kv_get',
+  'kv.set': 'vault_kv_set',
+  'kv.delete': 'vault_kv_delete',
+}
+
+async function mobileNativeKv(op: string, args: Record<string, unknown>): Promise<{ handled: boolean; value?: unknown }> {
+  const command = MOBILE_KV_COMMANDS[op]
+  if (!command) return { handled: false }
+  const { isTauriMobile, invoke } = await import('./useTauri')
+  if (!isTauriMobile()) return { handled: false }
+  return { handled: true, value: await invoke<unknown>(command, args) }
+}
+
 async function kvGet(key: string): Promise<string | null> {
+  const native = await mobileNativeKv('kv.get', { key })
+  if (native.handled) {
+    const row = native.value as { value?: unknown } | null
+    if (typeof row?.value === 'string') return row.value
+    const legacy = lsGet(key)
+    if (legacy !== null) {
+      await mobileNativeKv('kv.set', { key, value: legacy })
+      lsDelete(key)
+      return legacy
+    }
+    return null
+  }
   try {
     const row = (await wasmDbDispatch('kv.get', { key })) as { value?: unknown } | null
     if (typeof row?.value === 'string') return row.value
@@ -119,6 +151,11 @@ async function kvGet(key: string): Promise<string | null> {
 }
 
 async function kvSet(key: string, value: string): Promise<void> {
+  const native = await mobileNativeKv('kv.set', { key, value })
+  if (native.handled) {
+    lsDelete(key)
+    return
+  }
   lsSet(key, value)
   try {
     await wasmDbDispatch('kv.set', { key, value })
@@ -128,6 +165,11 @@ async function kvSet(key: string, value: string): Promise<void> {
 }
 
 async function kvDelete(key: string): Promise<void> {
+  const native = await mobileNativeKv('kv.delete', { key })
+  if (native.handled) {
+    lsDelete(key)
+    return
+  }
   lsDelete(key)
   try {
     await wasmDbDispatch('kv.delete', { key })
@@ -161,6 +203,7 @@ export async function listVfsMounts(): Promise<ProviderMount[]> {
           name: typeof m.name === 'string' ? m.name : m.id,
           backendType: typeof m.backendType === 'string' ? m.backendType : 'github',
           basePath: typeof m.basePath === 'string' ? m.basePath : '',
+          folderId: typeof m.folderId === 'string' ? m.folderId : undefined,
           createdAt: typeof m.createdAt === 'string' ? m.createdAt : new Date().toISOString(),
           updatedAt: typeof m.updatedAt === 'string' ? m.updatedAt : new Date().toISOString(),
         })
@@ -178,6 +221,7 @@ export async function saveVfsMount(input: {
   name: string
   backendType: string
   basePath?: string
+  folderId?: string
 }): Promise<ProviderMount> {
   const configId = String(input.configId ?? '').trim()
   if (!configId) throw new Error('invalid: configId is required')
@@ -189,6 +233,7 @@ export async function saveVfsMount(input: {
     name: String(input.name || configId),
     backendType: String(input.backendType || 'github'),
     basePath: String(input.basePath || ''),
+    folderId: input.folderId ? String(input.folderId) : undefined,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   }
@@ -225,6 +270,11 @@ export async function deleteVfsMount(id: string): Promise<void> {
 
 /** Resolve a mount's live sync config (token comes from the vault, never the mount row). */
 async function canalConfigFor(mount: ProviderMount): Promise<Record<string, unknown>> {
+  if (mount.backendType === 'scopedStorage') {
+    const folderId = mount.folderId || mount.configId
+    if (!folderId) throw new Error(`not_found: mobile folder handle for ${mount.name}`)
+    return { id: mount.configId, folderId, name: mount.name, backendType: 'scopedStorage' }
+  }
   const cfg = (await wasmDbDispatch('sync.get', { configId: mount.configId }).catch(() => null)) as Record<
     string,
     unknown
@@ -255,19 +305,35 @@ export async function listVfsDir(mountId: string, remotePath = ''): Promise<VfsE
   if (!mount) throw new Error(`not_found: provider mount ${mountId}`)
   const rel = String(remotePath ?? '').replace(/^\/+/, '')
   const key = cacheKey(mountId, rel)
-  const cachedRaw = await kvGet(key)
-  if (cachedRaw) {
-    try {
-      const cached = JSON.parse(cachedRaw) as { at?: number; entries?: VfsEntry[] }
-      if (isCacheFresh(Number(cached?.at ?? 0)) && Array.isArray(cached.entries)) {
-        return cached.entries as VfsEntry[]
+  const config = await canalConfigFor(mount)
+  const cacheable = shouldCacheVfsListing(String(config.backendType ?? ''))
+  if (cacheable) {
+    const cachedRaw = await kvGet(key)
+    if (cachedRaw) {
+      try {
+        const cached = JSON.parse(cachedRaw) as { at?: number; entries?: VfsEntry[] }
+        if (isCacheFresh(Number(cached?.at ?? 0)) && Array.isArray(cached.entries)) {
+          return cached.entries as VfsEntry[]
+        }
+      } catch {
+        // Fall through to a live listing.
       }
-    } catch {
-      // Fall through to a live listing.
     }
   }
-  const config = await canalConfigFor(mount)
-  const entries = await wasmCanalDispatch<VfsEntry[]>('list', { config, prefix: rel })
+  let entries: VfsEntry[]
+  if (config.backendType === 'scopedStorage') {
+    const { listMobileFolder } = await import('@/utils/mobileScopedStorage')
+    entries = (await listMobileFolder(String(config.folderId), rel)).map(e => ({
+      name: String(e.name ?? ''),
+      path: String(e.path ?? e.name ?? ''),
+      locator: String(e.path ?? e.name ?? ''),
+      isDir: !!e.isDir,
+      sizeBytes: Number(e.size ?? 0),
+      modifiedAt: String(e.lastModified ?? ''),
+    }))
+  } else {
+    entries = await wasmCanalDispatch<VfsEntry[]>('list', { config, prefix: rel })
+  }
   const rows = (Array.isArray(entries) ? entries : []).map(e => ({
     name: String(e.name ?? ''),
     path: String(e.path ?? e.name ?? ''),
@@ -276,7 +342,11 @@ export async function listVfsDir(mountId: string, remotePath = ''): Promise<VfsE
     sizeBytes: Number(e.sizeBytes ?? 0),
     modifiedAt: String(e.modifiedAt ?? ''),
   }))
-  await kvSet(key, JSON.stringify({ at: Date.now(), entries: rows })).catch(() => undefined)
+  // SAF folder contents can change outside the app; always ask the native
+  // document provider for a fresh view instead of hiding edits behind TTL.
+  if (cacheable) {
+    await kvSet(key, JSON.stringify({ at: Date.now(), entries: rows })).catch(() => undefined)
+  }
   return rows
 }
 
@@ -297,7 +367,9 @@ export async function readVfsFile(
   if (!rel) throw new Error('invalid: remotePath is required')
   const config = await canalConfigFor(mount)
   const locator = opts.locator || rel
-  const bytes = await wasmCanalFetch(config, locator)
+  const bytes = config.backendType === 'scopedStorage'
+    ? await (await import('@/utils/mobileScopedStorage')).readMobileFolderFile(String(config.folderId), locator)
+    : await wasmCanalFetch(config, locator)
   const magic = await wasmArtifactMagic(bytes).catch(() => 'raw')
   if (magic === 'CYBE1') {
     const passphrase = String(opts.passphrase ?? (await getVfsMasterPassphrase().catch(() => '')) ?? '')
@@ -374,6 +446,13 @@ export async function writeVfsFile(
   if (bytes.length > 5 * 1024 * 1024) throw new Error(`too_large: '${rel}' exceeds the 5 MiB write cap`)
   const { mount, config } = await getMountConfig(mountId)
   const backend = String((config.backendType ?? config.backend ?? mount.backendType) ?? 'github')
+  if (backend === 'scopedStorage') {
+    const { writeMobileFolderFile } = await import('@/utils/mobileScopedStorage')
+    await writeMobileFolderFile(String(config.folderId), rel, bytes)
+    await kvDelete(cacheKey(mountId, parentDirOf(rel))).catch(() => undefined)
+    await kvDelete(cacheKey(mountId, '')).catch(() => undefined)
+    return rel
+  }
   const { isStaticHost } = await import('./useTauri')
   if (isStaticHost()) {
     // No dashboard behind the page: git mounts speak the provider REST APIs
@@ -441,8 +520,16 @@ export async function deleteVfsFile(
 ): Promise<void> {
   const rel = String(opts.locator ?? remotePath ?? '').replace(/^\/+/, '')
   if (!rel) throw new Error('invalid: remotePath is required')
+  if (/(^|\/)\.\.(\/|$)/.test(rel)) throw new Error(`unsupported: provider path '${rel}' escapes the mount`)
   const { mount, config } = await getMountConfig(mountId)
   const backend = String((config.backendType ?? config.backend ?? mount.backendType) ?? 'github')
+  if (backend === 'scopedStorage') {
+    const { removeMobileFolderEntry } = await import('@/utils/mobileScopedStorage')
+    await removeMobileFolderEntry(String(config.folderId), rel)
+    await kvDelete(cacheKey(mountId, parentDirOf(rel))).catch(() => undefined)
+    await kvDelete(cacheKey(mountId, '')).catch(() => undefined)
+    return
+  }
   const { isStaticHost } = await import('./useTauri')
   if (isStaticHost()) {
     if (backend !== 'github' && backend !== 'gitlab' && backend !== 'googleDrive') {

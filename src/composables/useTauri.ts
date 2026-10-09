@@ -135,6 +135,18 @@ export function isAndroidApp(): boolean {
   }
 }
 
+/** True inside the native Android or iOS WebView, not a mobile browser tab. */
+export function isTauriMobile(): boolean {
+  if (typeof navigator === 'undefined' || !isTauri()) return false
+  try {
+    const ua = navigator.userAgent || ''
+    const ipadOs = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
+    return /android|iphone|ipad|ipod/i.test(ua) || ipadOs
+  } catch {
+    return false
+  }
+}
+
 /** Resolve the base URL for REST calls. */
 function getBaseUrl(): string {
   if (_serverUrl) return _serverUrl
@@ -2367,7 +2379,7 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
 }
 
 /** The core invoke — works in both Tauri and Web modes. */
-export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   // ── Provider VFS (CONTROL Phase 5.6): served by the TS canal
   // orchestration on EVERY transport — mounts + cache live in kv (inside
   // the `.cybermanju` container on static hosts); reads go through the Rust
@@ -2634,6 +2646,25 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
   throw new Error(
     `[Web Mode] Command "${cmd}" is not supported. The Web Dashboard REST API does not provide this endpoint.`
   )
+}
+
+function isDatabaseMutationCommand(cmd: string): boolean {
+  if (cmd === 'snapshot_native_database' || cmd.startsWith('vfs_')) return false
+  if (cmd === 'vault_kv_set' || cmd === 'vault_kv_delete') return true
+  const route = REST_ROUTES[cmd]
+  if (route && route.method !== 'GET' && route.method !== 'HEAD') return true
+  return /^(create|update|delete|remove|rename|move|write|store|restore|save|set|add|attach|detach|resize|destroy|import|revoke|purge|encrypt|decrypt)_/.test(cmd)
+}
+
+/** Public invoke wrapper: mirror only after a database mutation succeeds. */
+export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const result = await invokeInternal<T>(cmd, args)
+  if (isTauriMobile() && isDatabaseMutationCommand(cmd)) {
+    void import('@/utils/mobileScopedStorage')
+      .then(({ scheduleMobileVaultMirrorSync }) => scheduleMobileVaultMirrorSync())
+      .catch(error => console.warn('[Vault Mirror] Could not schedule database snapshot:', error))
+  }
+  return result
 }
 
 // ── Composable ──────────────────────────────────────────────

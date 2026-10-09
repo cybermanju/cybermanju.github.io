@@ -696,13 +696,14 @@ import UiEmpty from '@/components/ui/UiEmpty.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
-import { isStaticHost } from '@/composables/useTauri'
+import { isStaticHost, isTauriMobile } from '@/composables/useTauri'
 import { wasmDbBackend } from '@/composables/useWasmBackend'
 import {
   connectedAccounts,
   forgetConnectedAccount,
   getPendingOAuthConfig,
   identity,
+  installMobileOAuthDeepLinks,
   refreshIdentity,
   revokeIdentitySession,
   revokeProviderGrant,
@@ -798,6 +799,7 @@ const connectBusy = ref<string | null>(null)
 const connectAbort = ref<AbortController | null>(null)
 const connectMsg = ref<Record<string, string>>({})
 const connectUrl = ref<Record<string, string>>({})
+const mobileOAuthErrors = ref<Record<string, string>>({})
 const oauthAbort = ref<AbortController | null>(null)
 
 const quotaMsg = ref<Record<string, string>>({})
@@ -1995,7 +1997,7 @@ function connectSubtitle(cfg: SyncConfig): string {
 }
 
 async function connectWithOAuth(cfg: SyncConfig) {
-  if (staticHost) await supabaseConnect(cfg)
+  if (staticHost || isTauriMobile()) await supabaseConnect(cfg)
   else await oauthConnect(cfg)
 }
 
@@ -2034,14 +2036,33 @@ async function oauthConnect(cfg: SyncConfig) {
   cancelConnect()
   connectBusy.value = cfg.id
   connectMsg.value[cfg.id] = 'Opening provider approval…'
-  const res = await store.oauthStart(cfg.backendType, cfg.id)
+  let popup: Window | null = null
+  try {
+    popup = window.open('about:blank', 'cyb_oauth', 'width=620,height=720')
+    if (popup === window) popup = null
+  } catch { popup = null }
+  let res: Awaited<ReturnType<typeof store.oauthStart>>
+  try {
+    res = await store.oauthStart(cfg.backendType, cfg.id)
+  } catch (e) {
+    try { if (popup && !popup.closed) popup.close() } catch { /* best effort */ }
+    connectMsg.value[cfg.id] = e instanceof Error ? e.message : 'OAuth did not start — retry or paste a token.'
+    connectBusy.value = null
+    return
+  }
   if (!res?.authorizeUrl) {
+    try { if (popup && !popup.closed) popup.close() } catch { /* best effort */ }
     connectMsg.value[cfg.id] = 'OAuth did not start — paste a token below instead.'
     connectBusy.value = null
     return
   }
-  const popup = window.open(res.authorizeUrl, 'cyb_oauth', 'width=620,height=720')
-  if (!popup) connectUrl.value[cfg.id] = res.authorizeUrl
+  if (popup) popup.location.href = res.authorizeUrl
+  else {
+    connectUrl.value[cfg.id] = res.authorizeUrl
+    connectMsg.value[cfg.id] = 'Popup blocked — open the approval link below, then return here to verify.'
+    connectBusy.value = null
+    return
+  }
   connectMsg.value[cfg.id] = 'Approve in the opened browser tab — waiting for the callback…'
   const abort = new AbortController()
   connectAbort.value = abort
@@ -2088,21 +2109,42 @@ async function supabaseConnect(cfg: SyncConfig) {
   }
   setPendingOAuthConfig(cfg.id)
   const expected = supabaseProviderFor(cfg.backendType)
+  connectBusy.value = cfg.id
+  delete mobileOAuthErrors.value[cfg.id]
+  let popup: Window | null = null
+  const nativeMobile = isTauriMobile()
+  if (!nativeMobile) {
+    try {
+      // Reserve the browser window while the provider button still owns
+      // a user gesture; opening after PKCE awaits is blocked on mobile Safari.
+      popup = window.open('about:blank', 'cyb_sb_oauth', 'width=620,height=720')
+      if (popup === window) popup = null
+    } catch { popup = null }
+  }
   let url = ''
   try {
-    ;({ url } = await startSupabaseOAuth(cfg.backendType))
+    if (nativeMobile) await installMobileOAuthDeepLinks()
+    ;({ url } = await startSupabaseOAuth(cfg.backendType, !!popup))
+    if (nativeMobile) {
+      const { open } = await import('@tauri-apps/plugin-shell')
+      await open(url)
+    }
   } catch (e) {
+    try { if (popup && !popup.closed) popup.close() } catch { /* best effort */ }
     connectMsg.value[cfg.id] = e instanceof Error ? e.message : String(e)
+    connectBusy.value = null
     return
   }
-  const popup = window.open(url, 'cyb_sb_oauth', 'width=620,height=720')
-  connectBusy.value = cfg.id
-  if (!popup) {
-    connectMsg.value[cfg.id] = 'Popup blocked — approving in this tab…'
-    window.location.href = url
+  if (nativeMobile) {
+    connectMsg.value[cfg.id] = 'Approve in your browser, then return to CyberManju OS…'
+  } else if (!popup) {
+    connectMsg.value[cfg.id] = 'Continuing securely in this tab…'
+    window.location.assign(url)
     return
+  } else {
+    popup.location.href = url
+    connectMsg.value[cfg.id] = 'Approve at the provider in the popup — waiting for the token…'
   }
-  connectMsg.value[cfg.id] = 'Approve at the provider in the popup — waiting for the token…'
   const abort = new AbortController()
   connectAbort.value = abort
   sbAbort.value = abort
@@ -2120,7 +2162,7 @@ async function supabaseConnect(cfg: SyncConfig) {
   try {
     const ok = await pollUntilTrue(
       async () => {
-        if (popup.closed && !msgDone) throw new Error('popup-closed')
+        if (popup?.closed && !msgDone) throw new Error('popup-closed')
         let token = ''
         try {
           const session = await supabaseSession()
@@ -2133,7 +2175,7 @@ async function supabaseConnect(cfg: SyncConfig) {
           token = ''
         }
         if (!token) return false
-        try { popup.close() } catch { /* already gone */ }
+        try { popup?.close() } catch { /* already gone */ }
         await finalizeSupabaseToken(cfg, token)
         return true
       },
@@ -2148,10 +2190,12 @@ async function supabaseConnect(cfg: SyncConfig) {
     )
     if (!ok) connectMsg.value[cfg.id] = 'Timed out waiting for approval (3 min). Retry, or paste a token below.'
   } catch (e) {
-    connectMsg.value[cfg.id] =
+    connectMsg.value[cfg.id] = mobileOAuthErrors.value[cfg.id] || (
       e instanceof Error && e.message === 'popup-closed'
         ? 'Popup closed before approval — retry, or paste a token below.'
         : 'Cancelled.'
+    )
+    delete mobileOAuthErrors.value[cfg.id]
   } finally {
     window.removeEventListener('message', onMsg)
     connectAbort.value = null
@@ -2176,6 +2220,17 @@ async function finalizeSupabaseToken(cfg: SyncConfig, token: string) {
     connectMsg.value[cfg.id] = `Token saved, but verification failed: ${r.detail}`
   }
   setPendingOAuthConfig(null)
+}
+
+function handleMobileOAuthReturn(event: Event) {
+  const result = (event as CustomEvent<{ ok?: boolean; configId?: string | null; message?: string }>).detail
+  if (result?.ok !== false) return
+  const id = result.configId || connectBusy.value
+  if (!id) return
+  const message = result.message || 'The provider did not complete sign-in.'
+  mobileOAuthErrors.value[id] = message
+  connectMsg.value[id] = message
+  if (connectBusy.value === id) cancelConnect()
 }
 
 async function attachDisk(diskId: string, configId: string) {
@@ -2437,6 +2492,7 @@ async function addProvider(verify: boolean) {
 
 onMounted(() => {
   disk.supported = diskSupported()
+  window.addEventListener('cybermanju:oauth-return', handleMobileOAuthReturn)
   void refreshIdentity()
   void (async () => {
     await refresh()
@@ -2498,6 +2554,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('cybermanju:oauth-return', handleMobileOAuthReturn)
   cancelConnect()
 })
 </script>

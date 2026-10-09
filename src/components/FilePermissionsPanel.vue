@@ -147,6 +147,7 @@ async function handleRevoke(perm: FilePermission) {
   height: 100%;
   background: var(--ui-surface);
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 16px;
   font-family: var(--ui-font);
   color: var(--ui-text);
@@ -197,7 +198,7 @@ async function handleRevoke(perm: FilePermission) {
 }
 
 .fi-name { font-size: 13px; font-weight: 700; }
-.fi-path { font-size: 9px; }
+.fi-path { font-size: 9px; overflow-wrap: anywhere; }
 
 .section { margin-bottom: 16px; }
 
@@ -222,9 +223,10 @@ async function handleRevoke(perm: FilePermission) {
   padding: 6px 8px;
   border: 1px solid var(--ui-border);
   font-size: 10px;
+  min-width: 0;
 }
 
-.perm-user { flex: 1; font-weight: 600; }
+.perm-user { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
 .perm-access { font-size: 9px; border: 1px solid var(--ui-border-strong); padding: 0 4px; }
 
 .perm-revoke {
@@ -254,6 +256,7 @@ async function handleRevoke(perm: FilePermission) {
 }
 
 .bw-input {
+  min-width: 0;
   background: var(--ui-surface);
   border: 1px solid var(--ui-border);
   color: var(--ui-text);
@@ -290,10 +293,97 @@ async function handleRevoke(perm: FilePermission) {
   margin-bottom: 6px;
 }
 
+.share-row .bw-input { overflow: hidden; text-overflow: ellipsis; }
+
 .share-copied {
   font-size: 9px;
   margin-bottom: 8px;
 }
 
 .text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
+
+@media (max-width: 640px) {
+  .perms-panel {
+    box-sizing: border-box;
+    min-height: 100%;
+    max-height: 100dvh;
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+
+  .panel-header {
+    position: sticky;
+    top: calc(-1 * max(12px, env(safe-area-inset-top)));
+    z-index: 1;
+    padding: 8px 0 12px;
+    background: var(--ui-surface);
+  }
+
+  .panel-title { font-size: 13px; }
+
+  .close-btn,
+  .perm-revoke,
+  .bw-btn {
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .close-btn { padding: 8px; }
+
+  .file-info {
+    margin-bottom: 18px;
+    padding: 12px;
+    border: 1px solid var(--ui-border);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--ui-surface) 88%, var(--ui-glass-2));
+  }
+
+  .fi-name { font-size: 14px; line-height: 1.35; }
+  .fi-path { font-size: 11px; line-height: 1.4; }
+
+  .section { margin-bottom: 20px; }
+  .section-title { margin-bottom: 10px; font-size: 11px; }
+
+  .perm-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "user revoke" "access revoke";
+    align-items: center;
+    gap: 5px 10px;
+    min-height: 64px;
+    padding: 10px 10px 10px 12px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--ui-surface) 92%, var(--ui-glass-2));
+  }
+
+  .perm-user { grid-area: user; font-size: 13px; line-height: 1.3; }
+  .perm-access { grid-area: access; justify-self: start; padding: 3px 7px; font-size: 10px; border-radius: 6px; }
+  .perm-revoke { grid-area: revoke; border-radius: 10px; }
+
+  .grant-section { padding-top: 16px; }
+  .grant-row,
+  .share-row { flex-direction: column; gap: 8px; margin-bottom: 8px; }
+
+  .grant-row .bw-input,
+  .share-row .bw-input,
+  .grant-row .bw-btn,
+  .share-row .bw-btn { width: 100%; box-sizing: border-box; }
+
+  .bw-input {
+    min-height: 44px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+  }
+
+  .bw-btn { padding: 10px 14px; border-radius: 10px; }
+  .share-row .bw-input { text-overflow: ellipsis; }
+  .share-copied { font-size: 11px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .perms-panel { scroll-behavior: auto; }
+}
 </style>

@@ -123,12 +123,9 @@ wasm-build:
   image: rust:latest
   interruptible: true
   extends: .code-rules
-  variables:
-    # Baked into the Pages bundle at build time (parity with GitHub
-    # `secrets.VITE_SUPABASE_*`). Empty when unset — the app falls back to
-    # the manual Settings paste (see useSupabase.ts).
-    VITE_SUPABASE_URL: $VITE_SUPABASE_URL
-    VITE_SUPABASE_ANON_KEY: $VITE_SUPABASE_ANON_KEY
+  # GitLab project/group CI variables are inherited automatically by WASM and
+  # Android jobs; avoid same-name assignments that can recursively expand.
+  # If unset, the app falls back to the manual Settings paste (useSupabase.ts).
   cache:
     key:
       files: [Cargo.lock, package-lock.json]
@@ -201,7 +198,8 @@ android-build:
     - apt-get install -y nodejs
     - curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
     - export PATH="$HOME/.cargo/bin:$PATH"
-    - rustup target add aarch64-linux-android x86_64-linux-android
+    - rustup target add aarch64-linux-android x86_64-linux-android wasm32-unknown-unknown
+    - curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
     - mkdir -p /opt/android-sdk/cmdline-tools
     - curl -sSfL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdtools.zip
     - unzip -q /tmp/cmdtools.zip -d /opt/android-sdk/cmdline-tools
@@ -214,6 +212,7 @@ android-build:
     - export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
     - export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
     - npm ci
+    - npm run build:wasm:pkg
     - npm run tauri android init
     # `tauri android init` stamps the template's DEFAULT launcher icons —
     # sync the real mark (same as GitHub CI) before configuring + building.

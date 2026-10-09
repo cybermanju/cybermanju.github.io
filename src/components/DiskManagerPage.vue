@@ -382,24 +382,36 @@ onMounted(async () => {
 .disk-panel {
   height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--ui-surface);
   color: var(--ui-text);
   font-family: var(--ui-font);
   font-size: 13px;
+  box-sizing: border-box;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.disk-panel *,
+.disk-panel *::before,
+.disk-panel *::after {
+  box-sizing: border-box;
 }
 
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   padding: 10px 12px;
   border-bottom: 1px solid var(--ui-border);
+  gap: 8px;
 }
 
 .header-left {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .icon-disks {
@@ -410,6 +422,7 @@ onMounted(async () => {
   margin: 0;
   font-size: 13px;
   letter-spacing: 2px;
+  white-space: nowrap;
 }
 
 .ghost-btn {
@@ -675,6 +688,7 @@ onMounted(async () => {
 .card {
   border: 1px solid var(--ui-border);
   padding: 10px;
+  border-radius: 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -758,6 +772,9 @@ onMounted(async () => {
 .card-meta dd {
   margin: 0;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .card-actions {
@@ -769,6 +786,7 @@ onMounted(async () => {
 .resize-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -784,5 +802,193 @@ onMounted(async () => {
 
 .text-muted {
   color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important;
+}
+
+@media (max-width: 600px) {
+  .disk-panel {
+    font-size: 14px;
+  }
+
+  .panel-header {
+    align-items: stretch;
+    padding: max(10px, env(safe-area-inset-top)) 12px 10px;
+  }
+
+  .header-left,
+  .header-right {
+    width: 100%;
+  }
+
+  .header-right .ghost-btn {
+    width: 100%;
+  }
+
+  .ghost-btn,
+  .open-disks,
+  .dm-tabs button,
+  .input {
+    min-height: 44px;
+  }
+
+  .ghost-btn,
+  .open-disks {
+    padding: 8px 12px;
+    border-radius: 10px;
+  }
+
+  .input {
+    padding: 8px 10px;
+    border-radius: 10px;
+  }
+
+  .panel-title {
+    font-size: 12px;
+    letter-spacing: 1.5px;
+  }
+
+  .section {
+    padding: 16px 12px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .stat-card {
+    min-height: 64px;
+    padding: 12px 8px;
+    border-radius: 12px;
+  }
+
+  .type-row {
+    gap: 6px;
+    font-size: 11px;
+  }
+
+  .type-label {
+    width: 58px;
+  }
+
+  .type-size {
+    width: 66px;
+    font-size: 10px;
+  }
+
+  .info-card {
+    padding: 10px 12px;
+    border-radius: 12px;
+  }
+
+  .info-row {
+    align-items: flex-start;
+    gap: 12px;
+    min-height: 32px;
+    font-size: 11px;
+  }
+
+  .info-value {
+    min-width: 0;
+    max-width: 65%;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .df-legend,
+  .df-figures {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    font-size: 11px;
+  }
+
+  .df-legend > span,
+  .df-figures > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .create-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .field,
+  .field.grow {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .cards {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .card {
+    padding: 14px;
+    gap: 10px;
+  }
+
+  .card-head {
+    align-items: center;
+  }
+
+  .card-name,
+  .card-provider {
+    overflow-wrap: anywhere;
+  }
+
+  .health {
+    flex: 0 0 auto;
+    min-height: 28px;
+    padding: 5px 8px;
+    border-radius: 999px;
+  }
+
+  .card-bar {
+    height: 12px;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .card-figures {
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 12px;
+  }
+
+  .card-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .card-actions .ghost-btn {
+    width: 100%;
+  }
+
+  .resize-row {
+    align-items: stretch;
+  }
+
+  .resize-row .slider {
+    flex: 1 1 100%;
+  }
+
+  .resize-row .ghost-btn {
+    flex: 1 1 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .disk-panel *,
+  .disk-panel *::before,
+  .disk-panel *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 </style>

@@ -17,6 +17,7 @@
             @keydown="handleKeydown"
             @input="filterCommands"
           />
+          <button type="button" class="cp-close" aria-label="Close command palette" @click="close">×</button>
         </div>
         <div class="cp-results">
           <div
@@ -240,15 +241,20 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
 
 @media (max-width: 560px) {
   .cp-overlay {
-    padding: calc(8px + env(safe-area-inset-top, 0px)) 8px 8px;
+    align-items: center;
+    padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
   }
   .cp-modal {
     width: 100%;
     max-width: 100%;
-    max-height: calc(100dvh - 120px);
+    max-height: calc(100dvh - max(16px, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px)));
   }
   .cp-input {
     font-size: 16px;
+  }
+  .cp-item {
+    min-height: 44px;
+    padding-block: 8px;
   }
 }
 
@@ -273,6 +279,7 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
   gap: 10px;
   padding: 14px 16px;
   border-bottom: 1px solid var(--ui-separator);
+  flex: 0 0 auto;
 }
 
 .cp-prompt {
@@ -284,6 +291,7 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
 
 .cp-input {
   flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
   color: var(--ui-text);
@@ -293,13 +301,39 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
   outline: none;
 }
 
+.cp-close {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  margin: -7px -8px -7px 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-radius-full);
+  background: transparent;
+  color: var(--ui-text-2);
+  font-family: var(--ui-font);
+  font-size: 25px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cp-close:hover,
+.cp-close:focus-visible {
+  background: var(--ui-surface-2);
+  color: var(--ui-text);
+  outline: none;
+}
+
 .cp-input::placeholder {
   color: var(--ui-text-3);
 }
 
 .cp-results {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   padding: 4px 0;
 }
 
@@ -333,6 +367,7 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
   font-family: var(--ui-font);
   font-size: 13px;
   color: var(--ui-text);
+  min-width: 0;
   transition: background-color var(--ui-dur-fast) ease-out;
 }
 
@@ -356,6 +391,8 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
 
 .cp-item-label {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .cp-item-shortcut {
@@ -363,6 +400,7 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
   font-size: 12px;
   color: var(--ui-text-3);
   margin-left: 12px;
+  flex-shrink: 0;
 }
 
 .cp-item:hover .cp-item-shortcut,
@@ -386,7 +424,8 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
   margin-top: 4px;
   font-size: 10px;
   font-weight: 700;
-  padding: 4px 12px;
+  min-height: 44px;
+  padding: 8px 12px;
   border-radius: var(--ui-radius-full);
   border: 1px solid var(--ui-border-strong);
   background: transparent;
@@ -396,6 +435,7 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
 .cp-empty__clear:hover { border-color: var(--ui-border-hover); color: var(--ui-text); }
 
 .cp-foot {
+  flex: 0 0 auto;
   padding: 6px 12px;
   border-top: 1px solid var(--ui-separator);
   font-family: var(--ui-font);
@@ -405,6 +445,15 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
 }
 
 .text-muted { opacity: 0.5; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cp-modal,
+  .cp-item,
+  .cp-close {
+    animation: none;
+    transition: none;
+  }
+}
 
 /* KRunner style in plasma: top-center, flat, single input, no heavy border. */
 [data-ui-shell='plasma'] .cp-overlay {

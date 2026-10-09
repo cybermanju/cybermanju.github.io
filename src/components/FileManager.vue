@@ -69,7 +69,7 @@
         <button class="fm-pill" title="New folder" @click="dlgFolder = true"><AppIcon name="solar:add-folder-bold" :size="13" /> <span>New</span></button>
         <button class="fm-pill" title="Upload / new file" @click="onUploadClick"><AppIcon name="solar:upload-bold" :size="13" /> <span>File</span></button>
         <button class="fm-pill ghost" :class="{ on: termOpen }" title="Toggle inline terminal (cybsh here)" @click="toggleTerm"><AppIcon name="solar:file-terminal-bold" :size="13" /> <span>Terminal</span></button>
-        <button class="fm-pill ghost" :class="{ on: inspectorOpen }" title="Toggle inspector" @click="inspectorOpen = !inspectorOpen"><AppIcon name="solar:info-circle-bold" :size="13" /> <span>Info</span></button>
+        <button class="fm-pill ghost" :class="{ on: isMobileView ? mobileInspectorOpen : inspectorOpen }" title="Toggle inspector" @click="toggleInspectorPanel"><AppIcon name="solar:info-circle-bold" :size="13" /> <span>Info</span></button>
       </div>
     </header>
 
@@ -101,9 +101,18 @@
     </div>
 
     <!-- ══ MAIN SPLIT ══ -->
-    <div class="fm-main" :class="{ 'no-side': !sideOpen, 'no-insp': !inspectorOpen }">
+    <div class="fm-main" :class="{
+      'no-side': !sideOpen,
+      'no-insp': !inspectorOpen,
+      'fm-mobile-side-open': isMobileView && mobileSideOpen,
+      'fm-mobile-insp-open': isMobileView && mobileInspectorOpen,
+    }">
       <!-- SIDEBAR -->
-      <aside v-if="sideOpen" class="fm-side">
+      <aside v-if="sideOpen || isMobileView" class="fm-side">
+        <div v-if="isMobileView" class="fm-mobile-panel-head">
+          <b>Browse</b>
+          <button class="fm-ibtn sm" type="button" aria-label="Close folders" @click="mobileSideOpen = false"><AppIcon name="solar:close-bold" :size="14" /></button>
+        </div>
         <!-- Dolphin Places (plasma): Home, Recent, Trash, Devices. -->
         <div v-if="isPlasma" class="fm-side-sec">
           <div class="fm-side-h">Places</div>
@@ -208,7 +217,7 @@
       <!-- CENTER -->
       <section class="fm-center">
         <div class="fm-ctool">
-          <button class="fm-ibtn sm" :title="sideOpen ? 'Hide sidebar' : 'Show sidebar'" @click="sideOpen = !sideOpen"><AppIcon name="solar:sidebar-bold" :size="13" /></button>
+          <button class="fm-ibtn sm" :title="isMobileView ? 'Browse folders' : sideOpen ? 'Hide sidebar' : 'Show sidebar'" :aria-label="isMobileView ? 'Browse folders' : sideOpen ? 'Hide sidebar' : 'Show sidebar'" @click="toggleSidePanel"><AppIcon name="solar:sidebar-bold" :size="13" /></button>
           <select v-model="sortField" class="fm-select" title="Sort by" aria-label="Sort by">
             <option value="name">Name</option>
             <option value="size">Size</option>
@@ -441,8 +450,20 @@
         </div>
       </section>
 
+      <button
+        v-if="isMobileView && (mobileSideOpen || mobileInspectorOpen)"
+        class="fm-mobile-backdrop"
+        type="button"
+        aria-label="Close file panel"
+        @click="closeMobilePanels"
+      />
+
       <!-- INSPECTOR -->
-      <aside v-if="inspectorOpen" class="fm-insp">
+      <aside v-if="inspectorOpen || isMobileView" class="fm-insp">
+        <div v-if="isMobileView" class="fm-mobile-panel-head">
+          <b>Details</b>
+          <button class="fm-ibtn sm" type="button" aria-label="Close details" @click="mobileInspectorOpen = false"><AppIcon name="solar:close-bold" :size="14" /></button>
+        </div>
         <div v-if="!active" class="fm-iempty">
           <AppIcon name="solar:file-search-bold" :size="28" />
           <p>Select a file</p>
@@ -502,6 +523,7 @@
               <div v-if="active.faceGroupIds?.length" class="fm-kv"><span>Faces</span><b>{{ active.faceGroupIds.map(getFaceGroupName).join(', ') }}</b></div>
               <div v-if="store.parseResult?.symbols.length" class="fm-kv"><span>Symbols</span><b class="mono">{{ store.parseResult.symbols.length }} · {{ store.parseResult.language }}</b></div>
               <div class="fm-btnrow">
+                <button v-if="isLocalTextProviderFile(active)" class="fm-pill xs" title="Edit and auto-save this text file in the selected phone folder" @click="openLocalProviderEditor(active)">Edit local text</button>
                 <button class="fm-pill xs" @click="openFile(active)">Open</button>
                 <button class="fm-pill xs ghost" @click="copyPath(active)">Copy path</button>
                 <button class="fm-pill xs ghost" @click="beginRename(active)">Rename</button>
@@ -678,6 +700,28 @@
           <div class="fm-mrow"><button class="fm-pill ghost" @click="dlgProvMove = null">Cancel</button><button class="fm-pill" :disabled="!dlgProvDestMount || provMoving" @click="doProviderMove">{{ provMoving ? 'Working…' : (dlgProvOp === 'move' ? 'Move' : 'Copy') }}</button></div>
         </div>
       </div>
+      <div v-if="providerEditor" class="fm-ov fm-local-editor-ov" @click.self="closeLocalProviderEditor">
+        <section class="fm-modal fm-local-editor" role="dialog" aria-modal="true" aria-labelledby="fm-local-editor-title">
+          <header class="fm-local-editor__head">
+            <div class="fm-local-editor__title">
+              <span class="fm-local-editor__eyebrow">LOCAL FOLDER · ANDROID SAF</span>
+              <h3 id="fm-local-editor-title" :title="providerEditor.name">{{ providerEditor.name }}</h3>
+              <span class="fm-local-editor__path" :title="providerEditor.remotePath">{{ providerEditor.remotePath }}</span>
+            </div>
+            <button class="fm-ibtn" aria-label="Close editor" title="Save and close" :disabled="providerEditor.saving" @click="closeLocalProviderEditor"><AppIcon name="solar:close-bold" :size="16" /></button>
+          </header>
+          <textarea ref="localEditorTextarea" v-model="providerEditor.text" class="fm-local-editor__text" aria-label="File contents" spellcheck="false" autocapitalize="off" autocomplete="off" @input="queueLocalProviderSave" />
+          <footer class="fm-local-editor__foot">
+            <span class="fm-local-editor__status" :class="{ error: !!providerEditor.error }" role="status" aria-live="polite">
+              {{ providerEditor.error || (providerEditor.saving ? 'Saving to selected folder…' : providerEditor.text !== providerEditor.savedText ? 'Unsaved changes · auto-save in a moment' : 'Saved directly to selected folder') }}
+            </span>
+            <div class="fm-mrow">
+              <button class="fm-pill ghost" :disabled="providerEditor.saving" @click="closeLocalProviderEditor">Close</button>
+              <button class="fm-pill" :disabled="providerEditor.saving || providerEditor.text === providerEditor.savedText" @click="saveLocalProviderEditor(true)">{{ providerEditor.saving ? 'Saving…' : 'Save now' }}</button>
+            </div>
+          </footer>
+        </section>
+      </div>
       <input ref="filePickRef" type="file" multiple hidden @change="onFilesPicked" />
     </Teleport>
   </div>
@@ -685,7 +729,7 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useDropZone } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
@@ -694,6 +738,7 @@ import { useContextMenu } from '@/composables/useContextMenu'
 import { invoke } from '@/composables/useTauri'
 import { humanBytes, diskPct } from '@/utils/format'
 import { trackShellCwd } from '@/utils/shellCwd'
+import { decodeProviderText, isTextEditableProviderName, MAX_PROVIDER_TEXT_BYTES } from '@/utils/providerText'
 import { ENCRYPTION_INFO, COMPRESSION_INFO, SYNC_BACKEND_INFO } from '@/types'
 import type { DiskRow, FileNode, SyncBackendType } from '@/types'
 
@@ -746,6 +791,43 @@ const density = ref<'cozy' | 'compact'>('cozy')
 const renderLimit = ref(240)
 const sideOpen = ref(true)
 const inspectorOpen = ref(true)
+const isMobileView = ref(false)
+const mobileSideOpen = ref(false)
+const mobileInspectorOpen = ref(false)
+let mobileViewport: MediaQueryList | null = null
+function onMobileViewportChange(event: MediaQueryListEvent) {
+  isMobileView.value = event.matches
+  if (!event.matches) closeMobilePanels()
+}
+function toggleSidePanel() {
+  if (isMobileView.value) {
+    mobileInspectorOpen.value = false
+    mobileSideOpen.value = !mobileSideOpen.value
+  } else {
+    sideOpen.value = !sideOpen.value
+  }
+}
+function toggleInspectorPanel() {
+  if (isMobileView.value) {
+    mobileSideOpen.value = false
+    mobileInspectorOpen.value = !mobileInspectorOpen.value
+  } else {
+    inspectorOpen.value = !inspectorOpen.value
+  }
+}
+function closeMobilePanels() {
+  mobileSideOpen.value = false
+  mobileInspectorOpen.value = false
+}
+function handleMobileBack(event: Event) {
+  if (!isMobileView.value) return
+  if (providerEditor.value) void closeLocalProviderEditor()
+  else if (mobileInspectorOpen.value) mobileInspectorOpen.value = false
+  else if (mobileSideOpen.value) mobileSideOpen.value = false
+  else if (termOpen.value) termOpen.value = false
+  else return
+  event.preventDefault()
+}
 const inspTab = ref<'info' | 'crypto' | 'distro' | 'vers' | 'share'>('info')
 const tabs = [
   { id: 'info', label: 'Info' },
@@ -773,6 +855,7 @@ function pushHist(p: string) {
   histIdx.value = hist.value.length - 1
 }
 async function navTo(path: string) {
+  if (isMobileView.value) closeMobilePanels()
   store.currentPath = path
   pushHist(path)
   renderLimit.value = 240
@@ -871,6 +954,18 @@ const providerChips = computed(() => store.syncConfigs.map(c => ({
 // per sync config is ensured on demand so all repos/files/folders show.
 interface ProvMount { id: string; configId: string; name: string; backendType: string; basePath?: string }
 const vfsMounts = ref<ProvMount[]>([])
+interface LocalProviderEditorState {
+  mountId: string
+  remotePath: string
+  name: string
+  text: string
+  savedText: string
+  saving: boolean
+  error: string
+}
+const providerEditor = ref<LocalProviderEditorState | null>(null)
+const localEditorTextarea = ref<HTMLTextAreaElement | null>(null)
+let localEditorTimer: ReturnType<typeof setTimeout> | null = null
 async function refreshVfsMounts() {
   try {
     const { listVfsMounts } = await import('@/composables/useProviderCanal')
@@ -939,6 +1034,83 @@ function splitProviderPath(path: string): { mountId: string; remotePath: string 
 }
 const isProviderPath = computed(() => store.currentPath.replace(/\\/g, '/').startsWith('/providers'))
 const isProviderFile = (f: FileNode) => String(f.id || '').replace(/\\/g, '/').startsWith('providers/') || splitProviderPath(store.currentPath) !== null
+function isLocalScopedProviderFile(f: FileNode): boolean {
+  const split = splitProviderId(f.id)
+  return !!split?.remotePath && vfsMounts.value.some(m => m.id === split.mountId && m.backendType === 'scopedStorage')
+}
+function isLocalTextProviderFile(f: FileNode): boolean {
+  return isLocalScopedProviderFile(f) && f.fileType === 'file' && isTextEditableProviderName(f.name, f.mimeType || '')
+}
+function clearLocalEditorTimer() {
+  if (localEditorTimer) clearTimeout(localEditorTimer)
+  localEditorTimer = null
+}
+async function openLocalProviderEditor(f: FileNode) {
+  const split = splitProviderId(f.id)
+  if (!split?.remotePath || !isLocalTextProviderFile(f)) return
+  if (f.sizeBytes > MAX_PROVIDER_TEXT_BYTES) {
+    store.notifyError('File is too large to edit here', `Text editing is limited to ${MAX_PROVIDER_TEXT_BYTES} bytes.`)
+    return
+  }
+  try {
+    const { readVfsFile } = await import('@/composables/useProviderCanal')
+    const got = await readVfsFile(split.mountId, split.remotePath, { locator: locatorOf(f) })
+    const text = decodeProviderText(got.bytes)
+    closeMobilePanels()
+    providerEditor.value = { mountId: split.mountId, remotePath: split.remotePath, name: f.name, text, savedText: text, saving: false, error: '' }
+    await nextTick()
+    localEditorTextarea.value?.focus()
+  } catch (e) {
+    store.notifyError('Cannot edit this local file as text', e)
+  }
+}
+function queueLocalProviderSave() {
+  const state = providerEditor.value
+  if (!state || state.text === state.savedText) return
+  clearLocalEditorTimer()
+  localEditorTimer = setTimeout(() => {
+    if (providerEditor.value === state) void saveLocalProviderEditor(false)
+  }, 700)
+}
+async function saveLocalProviderEditor(manual: boolean) {
+  const state = providerEditor.value
+  if (!state || state.saving || state.text === state.savedText) return
+  clearLocalEditorTimer()
+  state.saving = true
+  state.error = ''
+  const snapshot = state.text
+  let wrote = false
+  try {
+    const { writeVfsFile } = await import('@/composables/useProviderCanal')
+    await writeVfsFile(state.mountId, state.remotePath, new TextEncoder().encode(snapshot), { locator: state.remotePath })
+    if (providerEditor.value !== state) return
+    state.savedText = snapshot
+    state.error = ''
+    wrote = true
+    await store.fetchFiles(store.currentPath)
+    if (manual) store.notifySuccess(`Saved '${state.name}' to the selected phone folder`)
+  } catch (e) {
+    if (providerEditor.value === state) {
+      state.error = e instanceof Error ? e.message : String(e)
+      store.notifyError('Local file save failed', e)
+    }
+  } finally {
+    if (providerEditor.value === state) {
+      state.saving = false
+      if (wrote && state.text !== state.savedText) queueLocalProviderSave()
+    }
+  }
+}
+async function closeLocalProviderEditor() {
+  const state = providerEditor.value
+  if (!state || state.saving) return
+  clearLocalEditorTimer()
+  if (state.text !== state.savedText) {
+    await saveLocalProviderEditor(false)
+    if (providerEditor.value !== state || state.saving || state.text !== state.savedText || state.error) return
+  }
+  providerEditor.value = null
+}
 const providerScopeLabel = computed(() => {
   const split = splitProviderPath(store.currentPath)
   if (!split) return 'Providers'
@@ -1047,6 +1219,15 @@ function hideImg(e: Event) { (e.target as HTMLImageElement).style.display = 'non
 
 // ── selection / open ──
 function clickFile(f: FileNode, e: MouseEvent) {
+  if (isMobileView.value) {
+    if (f.fileType === 'folder') { openFolder(f); return }
+    store.selectFile(f.id)
+    inspectorOpen.value = true
+    inspTab.value = 'info'
+    mobileSideOpen.value = false
+    mobileInspectorOpen.value = true
+    return
+  }
   if (e.metaKey || e.ctrlKey) { toggleBulk(f.id); return }
   if (e.shiftKey && store.selectedFileId) {
     const ids = sortedFiles.value.map(x => x.id)
@@ -1073,6 +1254,7 @@ function openFolder(f: FileNode) {
   // every connected repo/folder actually opens instead of showing empty.
   const pend = /pending-([^/]+)/.exec(String(f.id || f.path || ''))
   if (pend) { void openProvider(pend[1]); return }
+  if (isMobileView.value) closeMobilePanels()
   store.selectFile(f.id)
   const p = f.path || (store.currentPath.replace(/\/+$/, '') + '/' + f.name)
   void navTo(p)
@@ -1084,6 +1266,10 @@ function openFile(f: FileNode) {
   // in the inspector, so opening a file raises it on the info tab.
   inspectorOpen.value = true
   inspTab.value = 'info'
+  if (isMobileView.value) {
+    mobileSideOpen.value = false
+    mobileInspectorOpen.value = true
+  }
   wm.open('files', { inspector: true, inspTab: 'info' })
 }
 function revealFile(f: FileNode) {
@@ -1106,6 +1292,7 @@ function fileMenu(e: MouseEvent, f: FileNode) {
   if (splitProviderId(f.id)) {
     ctx.replaceEntries('file_grid_item', [
       { id: 'open', label: 'OPEN', icon: 'solar:folder-open-bold', action: () => openFile(f) },
+      ...(isLocalTextProviderFile(f) ? [{ id: 'edit-local', label: 'EDIT TEXT · SAVE TO PHONE', icon: 'solar:pen-bold', action: () => void openLocalProviderEditor(f) }] : []),
       { id: 'save', label: 'SAVE TO VAULT ↓', icon: 'solar:download-bold', action: () => void saveProviderFileToVault(f) },
       { id: 'move', label: 'MOVE / COPY TO PROVIDER ⇄', icon: 'solar:transfer-horizontal-bold', action: () => openProviderMove(f) },
       { id: 'div0', label: '', divider: true },
@@ -1581,7 +1768,7 @@ function onKeydown(e: KeyboardEvent) {
   else if (e.key === 'Enter' && active.value) openFile(active.value)
   else if (e.key === 'F11') { e.preventDefault(); inspectorOpen.value = !inspectorOpen.value }
   else if (e.altKey && e.key.toLowerCase() === 'l') { e.preventDefault(); startCrumbEdit() }
-  else if (e.key === 'Escape') { clearSel(); termOpen.value = false }
+  else if (e.key === 'Escape') { if (providerEditor.value) void closeLocalProviderEditor(); else { clearSel(); termOpen.value = false } }
   else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault()
     const ids = sortedFiles.value.map(f => f.id)
@@ -1592,6 +1779,12 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 onMounted(() => {
+  mobileViewport = window.matchMedia?.('(max-width: 900px)') ?? null
+  if (mobileViewport) {
+    isMobileView.value = mobileViewport.matches
+    mobileViewport.addEventListener?.('change', onMobileViewportChange)
+  }
+  window.addEventListener('cybermanju:mobile-back', handleMobileBack)
   void Promise.all([store.fetchOsDf(), store.fetchSyncConfigs(), store.fetchDisks(), store.fetchCollections()])
     .then(async () => {
       // Every connected Google Drive / GitHub / GitLab repo is browsable
@@ -1606,6 +1799,11 @@ onMounted(() => {
     .catch(() => {})
   void store.fetchFiles(store.currentPath)
   applyWindowProps()
+})
+onBeforeUnmount(() => {
+  clearLocalEditorTimer()
+  mobileViewport?.removeEventListener?.('change', onMobileViewportChange)
+  window.removeEventListener('cybermanju:mobile-back', handleMobileBack)
 })
 </script>
 
@@ -1672,7 +1870,8 @@ onMounted(() => {
 .fm-pchip:hover { border-color: var(--ui-border-strong); color: var(--ui-text); }
 
 /* main split */
-.fm-main { flex: 1; display: grid; grid-template-columns: 212px 1fr 300px; min-height: 0; }
+.fm-main { position: relative; flex: 1; display: grid; grid-template-columns: 212px 1fr 300px; min-height: 0; }
+.fm-mobile-panel-head, .fm-mobile-backdrop { display: none; }
 .fm-main.no-side { grid-template-columns: 0 1fr 300px; }
 .fm-main.no-insp { grid-template-columns: 212px 1fr 0; }
 .fm-main.no-side.no-insp { grid-template-columns: 0 1fr 0; }
@@ -1703,7 +1902,7 @@ onMounted(() => {
 .fm-link { background: none; border: none; color: var(--ui-accent); cursor: pointer; font-weight: 700; }
 
 /* center */
-.fm-center { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.fm-center { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .fm-ctool { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--ui-hairline); }
 .fm-select { background: color-mix(in srgb, var(--ui-text) 5%, transparent); border: 1px solid var(--ui-hairline); color: var(--ui-text);
   font-size: 10.5px; font-weight: 700; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
@@ -1900,24 +2099,121 @@ onMounted(() => {
 .fm-modal input { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 10px; margin-bottom: 12px;
   background: color-mix(in srgb, var(--ui-text) 5%, transparent); border: 1px solid var(--ui-border); color: var(--ui-text); outline: none; }
 .fm-modal input:focus { border-color: color-mix(in srgb, var(--ui-accent) 60%, transparent); }
+.fm-local-editor-ov { padding: 16px; box-sizing: border-box; }
+.fm-local-editor { display: flex; flex-direction: column; gap: 12px; width: min(760px, 96vw); max-width: 96vw; max-height: min(88dvh, 900px); box-sizing: border-box; }
+.fm-local-editor__head { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.fm-local-editor__title { min-width: 0; flex: 1; }
+.fm-local-editor__eyebrow { display: block; margin-bottom: 5px; color: var(--ui-accent); font-size: 9px; font-weight: 800; letter-spacing: .1em; }
+.fm-local-editor__head h3 { margin: 0 0 4px; font-size: 15px; }
+.fm-local-editor__path { display: block; overflow: hidden; color: var(--ui-text-3); font-family: var(--ui-font-mono, monospace); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.fm-local-editor__text { width: 100%; min-height: min(58dvh, 620px); flex: 1; box-sizing: border-box; resize: vertical; padding: 14px; border: 1px solid var(--ui-border); border-radius: 14px; outline: none; background: color-mix(in srgb, var(--ui-bg-deep) 72%, transparent); color: var(--ui-text); font: 13px/1.55 var(--ui-font-mono, ui-monospace, monospace); tab-size: 2; }
+.fm-local-editor__text:focus { border-color: color-mix(in srgb, var(--ui-accent) 58%, transparent); }
+.fm-local-editor__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fm-local-editor__status { min-width: 0; color: var(--ui-text-2); font-size: 11px; overflow-wrap: anywhere; }
+.fm-local-editor__status.error { color: var(--ui-danger); }
 .fm-mrow { display: flex; justify-content: flex-end; gap: 8px; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hide-sm { }
 @media (max-width: 1100px) { .fm-main { grid-template-columns: 180px 1fr 260px; } .fm-main.no-side { grid-template-columns: 0 1fr 260px; } }
 @media (max-width: 900px) {
-  .fm-main, .fm-main.no-side, .fm-main.no-insp { grid-template-columns: 1fr; }
+  .fm-main, .fm-main.no-side, .fm-main.no-insp { display: flex; grid-template-columns: 1fr; min-width: 0; }
+  .fm-center { flex: 1; width: 100%; }
   .fm-side, .fm-insp { display: none; }
+  .fm-main.fm-mobile-side-open .fm-side {
+    position: absolute; inset: 0 auto 0 0; z-index: 51; display: flex; flex-direction: column;
+    width: min(86vw, 340px); box-sizing: border-box; overflow-y: auto; padding: 12px;
+    border: 1px solid var(--ui-border); border-radius: 0 20px 20px 0;
+    background: var(--ui-glass-2); box-shadow: var(--ui-shadow-3);
+  }
+  .fm-main.fm-mobile-insp-open .fm-insp {
+    position: absolute; inset: auto 0 0; z-index: 51; display: flex; flex-direction: column;
+    height: min(82dvh, 720px); max-height: calc(100dvh - env(safe-area-inset-top) - 16px);
+    box-sizing: border-box; overflow: hidden; border: 1px solid var(--ui-border);
+    border-bottom: 0; border-radius: 24px 24px 0 0; padding-bottom: env(safe-area-inset-bottom);
+    background: var(--ui-glass-2); box-shadow: var(--ui-shadow-3);
+  }
+  .fm-mobile-backdrop {
+    position: absolute; inset: 0; z-index: 50; display: block; width: 100%; height: 100%;
+    padding: 0; border: 0; border-radius: 0; background: rgba(8, 12, 20, .42);
+    backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  }
+  .fm-mobile-panel-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    flex: 0 0 auto; min-height: 48px; padding: 4px 8px 10px;
+    border-bottom: 1px solid var(--ui-hairline); color: var(--ui-text); font-size: 14px;
+  }
+  .fm-mobile-panel-head .fm-ibtn { width: 40px; height: 40px; }
   .hide-sm { display: none; }
-  .fm-top { flex-wrap: wrap; } .fm-crumbs { order: 5; flex-basis: 100%; }
+  .fm-top { flex-wrap: wrap; }
+  .fm-crumbs { order: 5; flex-basis: 100%; }
 }
-/* narrow phones: icon-only action pills, compact search */
+/* Phone layout: compact navigation, scrollable tool rows, touch-first file cards. */
 @media (max-width: 560px) {
-  .fm-top { padding: 6px 8px; gap: 6px; }
-  .fm-topactions .fm-pill span { display: none; }
-  .fm-topactions .fm-pill { padding: 6px 8px; }
-  .fm-search { min-width: 0; flex: 1; }
+  .fm-local-editor-ov { align-items: flex-end; padding: 0; }
+  .fm-local-editor { width: 100%; max-width: 100%; max-height: 94dvh; padding: 18px 14px max(14px, env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0; }
+  .fm-local-editor__text { min-height: 48dvh; max-height: 58dvh; resize: none; padding: 13px; font-size: 16px; }
+  .fm-local-editor__foot { align-items: stretch; flex-direction: column; }
+  .fm-local-editor__foot .fm-mrow { display: grid; grid-template-columns: 1fr 1fr; }
+  .fm-local-editor__foot .fm-pill { min-height: 44px; justify-content: center; }
+  .fm-top {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: 'nav crumbs' 'search search' 'views actions';
+    gap: 6px; padding: 7px 8px;
+  }
+  .fm-nav { grid-area: nav; min-width: 0; overflow-x: auto; }
+  .fm-nav .fm-ibtn { width: 34px; min-width: 34px; height: 38px; }
+  .fm-crumbs { grid-area: crumbs; order: 0; flex-basis: auto; min-width: 0; min-height: 40px; padding-inline: 4px; }
+  .fm-crumb { gap: 4px; padding-inline: 5px; font-size: 10.5px; }
+  .fm-search { grid-area: search; width: 100%; max-width: none; min-width: 0; height: 44px; box-sizing: border-box; }
   .fm-search input { font-size: 16px; }
-  .fm-sub { font-size: 10px; gap: 6px; padding: 4px 8px; }
+  .fm-viewswitch { grid-area: views; min-width: 0; max-width: 100%; overflow-x: auto; }
+  .fm-vbtn { min-width: 34px; min-height: 40px; justify-content: center; }
+  .fm-topactions { grid-area: actions; min-width: 0; max-width: 100%; overflow-x: auto; justify-content: flex-end; }
+  .fm-topactions .fm-pill span { display: none; }
+  .fm-topactions .fm-pill { flex: 0 0 42px; min-width: 42px; min-height: 42px; justify-content: center; padding: 0; }
+  .fm-sub { gap: 6px; padding: 5px 8px; font-size: 10px; }
   .fm-pchip { font-size: 9px; }
+  .fm-ctool { min-height: 48px; flex-shrink: 0; gap: 7px; overflow-x: auto; padding: 5px 8px; touch-action: pan-x; }
+  .fm-ctool .fm-spacer { display: none; }
+  .fm-select, .fm-chipbtn, .fm-ctool .fm-pill { min-height: 38px; flex-shrink: 0; }
+  .fm-bulk { min-height: 48px; flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto; }
+  .fm-bulk button { flex: 0 0 40px; min-height: 40px; justify-content: center; }
+  .fm-bulk-n { flex: 0 0 auto; white-space: nowrap; }
+  .fm-diskscope { flex-wrap: wrap; }
+  .fm-diskscope-t { max-width: calc(100% - 30px); }
+  .fm-grid { padding: 10px; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+  .fm-grid.compact { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+  .fm-grid.masonry { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+  .fm-card { min-height: 132px; padding: 20px 7px 10px; border-radius: 16px; }
+  .fm-thumb { height: calc(58px * var(--fm-zoom, 1)); }
+  .fm-cname { font-size: 12px; }
+  .fm-cmeta { font-size: 10.5px; }
+  .fm-check { top: 6px; left: 6px; width: 32px; height: 32px; border-radius: 50%; background: color-mix(in srgb, var(--ui-surface) 84%, transparent); }
+  .fm-lhead { display: none; }
+  .fm-lrow, .fm-lrow.compact {
+    grid-template-columns: 36px minmax(0, 1fr) auto; gap: 7px; height: auto; min-height: 62px;
+    box-sizing: border-box; padding: 8px 10px;
+  }
+  .fm-lrow .c0 { grid-column: 1; grid-row: 1; }
+  .fm-lrow .c1 { grid-column: 2; grid-row: 1; font-size: 12px; }
+  .fm-lrow .c2 { grid-column: 3; grid-row: 1; max-width: 72px; font-size: 10px; }
+  .fm-lrow .c3, .fm-lrow .c4, .fm-lrow .c5, .fm-lrow .c6 { display: none; }
+  .fm-ficon { width: 30px; height: 30px; }
+  .fm-status { min-height: 40px; gap: 7px; overflow-x: auto; padding: 6px 8px; }
+  .fm-status > :first-child { max-width: 42vw; }
+  .fm-term { position: absolute; inset: auto 0 0; z-index: 30; height: min(48dvh, 420px); padding-bottom: env(safe-area-inset-bottom); border-radius: 18px 18px 0 0; box-shadow: var(--ui-shadow-3); }
+  .fm-term-h button { min-width: 40px; min-height: 40px; }
+  .fm-term-in { min-height: 52px; }
+  .fm-term-in input { min-height: 44px; font-size: 16px; }
+  .fm-ihead { padding: 10px 12px; }
+  .fm-tabs { overflow-x: auto; flex-shrink: 0; padding-inline: 10px; }
+  .fm-tabs button { flex: 0 0 auto; min-width: 66px; min-height: 44px; font-size: 10px; }
+  .fm-ibody { padding: 14px; overscroll-behavior: contain; }
+  .fm-isec { gap: 12px; }
+  .fm-kv { align-items: flex-start; gap: 12px; font-size: 12px; }
+  .fm-kv b { overflow-wrap: anywhere; }
+  .fm-btnrow { gap: 8px; }
+  .fm-btnrow .fm-pill { min-height: 40px; }
+  .fm-empty { padding: 32px 18px; }
 }
 </style>

@@ -60,7 +60,7 @@
         <span>{{ cryptoNote }}</span>
       </p>
 
-      <section class="sh-section" aria-label="Generate a key">
+      <section class="sh-section keygen-section" aria-label="Generate a key">
         <h3 class="section-title"><AppIcon name="solar:key-bold" :size="13" /> New key</h3>
         <div class="algo-grid">
           <div v-for="(info, algo) in ENCRYPTION_INFO" :key="algo" class="algo-card">
@@ -82,7 +82,7 @@
         </div>
       </section>
 
-      <section v-if="encryptionKeys.length > 0" class="sh-section" aria-label="Stored keys">
+      <section v-if="encryptionKeys.length > 0" class="sh-section keys-section" aria-label="Stored keys">
         <h3 class="section-title"><AppIcon name="solar:key-bold" :size="13" /> Keys ({{ encryptionKeys.length }})</h3>
         <div class="keys-list">
           <div v-for="key in encryptionKeys" :key="key.id" class="key-card">
@@ -96,7 +96,7 @@
         </div>
       </section>
 
-      <section v-if="selectedFile" class="sh-section" aria-label="Encrypt selected file">
+      <section v-if="selectedFile" class="sh-section encrypt-section" aria-label="Encrypt selected file">
         <h3 class="section-title"><AppIcon name="solar:lock-bold" :size="13" /> Encrypt selected file</h3>
         <p class="file-chip"><AppIcon name="solar:file-bold" :size="12" /> {{ selectedFile.name }}</p>
         <div class="action-row">
@@ -276,6 +276,8 @@ async function handleCompress() {
   touch-action: pan-x pan-y;
   scrollbar-gutter: stable;
   padding: 16px;
+  box-sizing: border-box;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -497,6 +499,8 @@ async function handleCompress() {
   border-radius: var(--ui-radius-sm);
   padding: 4px 8px;
   word-break: break-all;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .key-date { font-size: 10.5px; color: var(--ui-text-3); }
 
@@ -627,7 +631,44 @@ async function handleCompress() {
 .mono { font-family: var(--ui-font-mono); }
 
 @media (max-width: 560px) {
-  .shield-panel { padding: 12px; }
-  .action-row .ui-btn { flex: 1; }
+  .shield-panel {
+    min-height: 100dvh;
+    padding: max(12px, env(safe-area-inset-top)) 12px max(16px, env(safe-area-inset-bottom));
+    gap: 12px;
+  }
+  .panel-header { gap: 8px; }
+  .panel-subtitle { white-space: normal; line-height: 1.35; }
+  .sh-tabs button,
+  .shield-panel :deep(.ui-btn) { min-height: 44px; }
+  .sh-tabs button { padding: 10px 8px; }
+  .status-hero { padding: 14px 12px; }
+  .status-top { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .status-algo { overflow-wrap: anywhere; }
+  .nist-meter { align-items: flex-start; flex-wrap: wrap; gap: 8px; }
+  .nist-segs { flex-basis: 100%; order: 3; min-width: 0; }
+  .nist-num { margin-left: auto; }
+  .algo-grid { grid-template-columns: minmax(0, 1fr); }
+  .action-row { align-items: stretch; flex-direction: column; }
+  .action-row .field,
+  .action-row .ui-btn { width: 100%; flex: none; }
+  .sh-select { min-height: 44px; }
+  .key-header { align-items: flex-start; }
+  .key-algo { min-width: 0; overflow-wrap: anywhere; }
+  .sh-shield > .status-hero { order: 0; }
+  .sh-shield > .sh-note { order: 1; }
+  .sh-shield > .encrypt-section { order: 2; }
+  .sh-shield > .keys-section { order: 3; }
+  .sh-shield > .keygen-section { order: 4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shield-panel *,
+  .shield-panel *::before,
+  .shield-panel *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 </style>

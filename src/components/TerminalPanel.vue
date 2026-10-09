@@ -429,7 +429,6 @@ onBeforeUnmount(() => {
 onMounted(async () => {
   push('sys', `cybsh — \`help\` lists commands · TAB completes (→ accepts the grey hint) · ↑/↓ walks matching history · ESC clears`)
   if (store.osWorkers === null) await store.fetchOsWorkers()
-  focusInput()
   void scrollToBottom()
 })
 </script>
@@ -696,10 +695,61 @@ onMounted(async () => {
 }
 
 @media (max-width: 560px) {
-  .term-input-row { padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); }
-  .term-input { font-size: 16px; }
+  .terminal-panel {
+    height: 100dvh;
+    min-height: 100dvh;
+    padding-top: env(safe-area-inset-top, 0px);
+    box-sizing: border-box;
+  }
+
+  .panel-header {
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+
+  .ghost-btn,
+  .ghost-select {
+    min-height: 44px;
+    padding: 8px 12px;
+    touch-action: manipulation;
+  }
+
+  .term-scroll {
+    padding: 10px 12px;
+    scroll-padding-bottom: 12px;
+  }
+
+  .term-line {
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .term-input-row {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    flex-wrap: wrap;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+    background: var(--ui-terminal);
+    box-shadow: 0 -6px 16px color-mix(in srgb, var(--ui-terminal) 80%, transparent);
+  }
+
+  .term-prompt {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .term-input-wrap {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .term-input {
+    min-height: 44px;
+    font-size: 16px;
+    touch-action: manipulation;
+  }
   .term-ghost { font-size: 16px; }
-  .ghost-btn { min-height: 44px; padding: 6px 12px; }
-  .term-scroll { padding: 6px 8px; }
 }
 </style>

@@ -125,7 +125,7 @@
         description="Tags appear here once files are tagged."
       />
       <div v-else class="style-tags">
-        <span v-for="tag in allStyleTags" :key="tag" class="style-tag" @click="searchTag(tag)">{{ tag }}</span>
+        <button v-for="tag in allStyleTags" :key="tag" type="button" class="style-tag" @click="searchTag(tag)">{{ tag }}</button>
       </div>
     </div>
 
@@ -274,14 +274,16 @@ onMounted(() => {
 <style scoped>
 .org-panel {
   width: 100%;
+  min-width: 0;
   height: 100%;
   min-height: 100%;
+  box-sizing: border-box;
   background: var(--ui-surface);
   overflow-y: auto;
   overscroll-behavior: contain;
   touch-action: pan-x pan-y;
   scrollbar-gutter: stable;
-  padding: 16px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   font-family: var(--ui-font);
   color: var(--ui-text);
 }
@@ -305,9 +307,9 @@ onMounted(() => {
 
 .org-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
 .org-tabs button {
-  flex: 1; padding: 6px 0; font-size: 9.5px; font-weight: 800; letter-spacing: 0.08em;
+  flex: 1; min-width: 0; min-height: 44px; padding: 6px 4px; font-size: 9.5px; font-weight: 800; letter-spacing: 0.08em;
   background: transparent; border: 1px solid var(--ui-hairline); border-radius: 8px;
-  color: var(--ui-text-3); cursor: pointer; white-space: nowrap;
+  color: var(--ui-text-3); cursor: pointer; white-space: normal; line-height: 1.25;
 }
 .org-tabs button.on {
   color: var(--ui-accent);
@@ -322,6 +324,8 @@ onMounted(() => {
 
 /* collections */
 .collection-card {
+  min-width: 0;
+  min-height: 56px;
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-md);
   padding: 10px 12px;
@@ -331,9 +335,10 @@ onMounted(() => {
   border-color: color-mix(in srgb, var(--ui-accent) 65%, transparent);
   box-shadow: var(--ui-glow-soft);
 }
-.col-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.col-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
 .col-name { font-size: 12px; font-weight: 700; }
-.col-type { font-size: 9px; }
+.col-name, .col-type { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.col-type { font-size: 9px; white-space: nowrap; }
 .col-meta { font-size: 9px; margin-top: 2px; }
 .create-row { display: flex; gap: 6px; align-items: center; }
 .create-row > :first-child { flex: 1; min-width: 0; }
@@ -363,16 +368,17 @@ onMounted(() => {
 /* tags */
 .style-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .style-tag {
+  min-height: 44px;
   font-family: var(--ui-font-mono); font-size: 10px; padding: 4px 10px;
   border-radius: var(--ui-radius-full); border: 1px solid var(--ui-border);
-  background: var(--ui-glass); color: var(--ui-text-2); cursor: pointer;
+  background: var(--ui-glass); color: var(--ui-text-2); cursor: pointer; line-height: 1.2;
 }
 .style-tag:hover { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); color: var(--ui-accent); }
 
 /* favorites */
 .fav-list { display: flex; flex-direction: column; gap: 6px; }
 .fav-item {
-  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 8px;
   border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm);
   background: var(--ui-glass); cursor: pointer;
 }
@@ -381,4 +387,24 @@ onMounted(() => {
 .fav-name { font-size: 11px; font-weight: 600; flex: 1; min-width: 0; }
 
 .text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
+
+@media (max-width: 600px) {
+  .org-panel { padding-top: max(12px, env(safe-area-inset-top)); padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .org-tabs { gap: 6px; margin-inline: -2px; }
+  .org-tabs button { font-size: 9px; }
+  .create-row, .loose-create { align-items: stretch; flex-wrap: wrap; }
+  .create-row > :first-child, .loose-create > :first-child { flex: 1 1 100%; }
+  .create-row > :not(:first-child) { flex: 1 1 calc(50% - 3px); min-width: 0; }
+  .create-row > :last-child, .loose-create > :last-child { min-height: 44px; }
+  .lg-add { align-items: stretch; flex-wrap: wrap; }
+  .lg-add > :first-child { flex: 1 1 100%; }
+  .lg-add > :last-child { min-height: 44px; align-self: stretch; }
+  .lg-member { min-height: 36px; max-width: min(100%, 220px); }
+  .style-tags { gap: 8px; }
+  .fav-item { padding-block: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .org-panel *, .org-panel *::before, .org-panel *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+}
 </style>

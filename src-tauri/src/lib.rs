@@ -370,6 +370,8 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_scoped_storage::init())
+        .plugin(tauri_plugin_deep_link::init())
         .manage(state)
         .manage(dashboard_state)
         .manage(sync_state)
@@ -387,6 +389,12 @@ pub fn run() {
             files::get_preview,
             files::read_file_content,
             files::write_file_content,
+            // Point-in-time redb image used by the web-compatible mobile vault mirror
+            commands::vault_snapshot::snapshot_native_database,
+            commands::vault_snapshot::vault_kv_get,
+            commands::vault_snapshot::vault_kv_set,
+            commands::vault_snapshot::vault_kv_delete,
+            commands::vault_snapshot::vault_kv_list,
             // Search
             search_cmd::search_files,
             search_cmd::search_files_paginated,

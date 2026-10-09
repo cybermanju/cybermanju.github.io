@@ -14,8 +14,10 @@
           @dragleave.prevent="isDragging = false"
           @drop.prevent="handleDrop"
         >
-          <span v-if="!isDragging">DROP FILES HERE OR CLICK TO BROWSE</span>
-          <span v-else>RELEASE TO UPLOAD</span>
+          <span class="drop-zone-copy" v-if="!isDragging">DROP FILES HERE</span>
+          <span class="drop-zone-copy" v-else>RELEASE TO UPLOAD</span>
+          <span v-if="!isDragging" class="drop-zone-hint">OR</span>
+          <button type="button" class="file-picker-button" @click="fileInput?.click()">CHOOSE FILES</button>
           <input ref="fileInput" type="file" multiple class="file-input-hidden" @change="handleFileInput" />
         </div>
 
@@ -135,13 +137,18 @@ async function startUpload() {
   font-family: var(--ui-font);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  box-sizing: border-box;
 }
 
-.upload-modal {background: var(--ui-glass-2);
+.upload-modal {
+  background: var(--ui-glass-2);
   border: 1px solid var(--ui-border);
   width: 480px;
-  max-width: 90vw;
-  max-height: 80vh;
+  max-width: min(480px, 100%);
+  max-height: min(80vh, 100%);
+  min-height: 0;
   display: flex;
   flex-direction: column;
   color: var(--ui-text);
@@ -166,8 +173,8 @@ async function startUpload() {
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-sm);
   color: var(--ui-text-2);
-  width: 26px;
-  height: 26px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -189,10 +196,17 @@ async function startUpload() {
   border: 1px dashed var(--ui-border-strong);
   border-radius: var(--ui-radius-md);
   margin: 12px;
-  padding: 32px;
+  padding: 24px 16px;
   text-align: center;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 11px;
+  min-height: 112px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
   color: var(--ui-text-3);
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
@@ -208,8 +222,31 @@ async function startUpload() {
   display: none;
 }
 
+.drop-zone-copy { font-weight: 700; letter-spacing: .04em; }
+.drop-zone-hint { color: var(--ui-text-3); font-size: 9px; }
+
+.file-picker-button {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-glass-2);
+  color: var(--ui-text);
+  font: inherit;
+  font-weight: 700;
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+
+.file-picker-button:hover,
+.file-picker-button:focus-visible {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-softer);
+}
+
 .upload-files {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 0 12px;
   display: flex;
@@ -227,6 +264,7 @@ async function startUpload() {
   border-radius: var(--ui-radius-sm);
   font-size: 9px;
   background: color-mix(in srgb, var(--ui-glass) 50%, transparent);
+  min-width: 0;
 }
 
 .upload-file-row.done {
@@ -250,6 +288,8 @@ async function startUpload() {
   justify-content: space-between;
   padding: 10px 12px;
   border-top: 1px solid var(--ui-border);
+  flex-shrink: 0;
+  gap: 12px;
 }
 
 .upload-progress-text {
@@ -259,4 +299,36 @@ async function startUpload() {
 
 .text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 600px) {
+  .upload-modal {
+    width: 100%;
+    max-height: 100%;
+  }
+
+  .upload-header { padding: 8px 12px 8px 16px; }
+  .drop-zone { margin: 12px 12px 10px; min-height: 124px; }
+  .upload-files { padding: 0 12px; max-height: none; }
+  .upload-file-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px 8px;
+    padding: 9px 10px;
+    font-size: 10px;
+  }
+  .uf-name { grid-column: 1 / -1; min-width: 0; }
+  .uf-size { grid-column: 1; justify-self: start; }
+  .uf-status { grid-column: 2; justify-self: end; }
+  .uf-error {
+    grid-column: 1 / -1;
+    text-align: left;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .upload-footer { padding: 10px 12px max(10px, env(safe-area-inset-bottom)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .upload-close, .drop-zone { transition: none; }
+}
 </style>

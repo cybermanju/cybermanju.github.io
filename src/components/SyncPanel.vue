@@ -30,7 +30,7 @@
           </div>
           <div class="cfg-actions">
             <UiButton size="xs" @click="testCfg(cfg)">Test</UiButton>
-            <UiButton size="xs" variant="primary" @click="startCfg(cfg)">Start</UiButton>
+            <UiButton class="sync-primary-action" size="xs" variant="primary" @click="startCfg(cfg)">Start</UiButton>
             <UiButton v-if="isOauthCapable(cfg.backendType)" size="xs" @click="oauthConnectCfg(cfg)">Connect</UiButton>
             <UiButton size="xs" @click="usageCfg(cfg)">Quota</UiButton>
           </div>
@@ -60,7 +60,7 @@
             @update:model-value="runConfigId = $event"
           />
         </div>
-        <UiButton size="sm" :disabled="!runConfigId || busy" @click="startRun">Start</UiButton>
+        <UiButton class="sync-primary-action" size="sm" :disabled="!runConfigId || busy" @click="startRun">Start</UiButton>
         <UiButton size="sm" @click="cancelRun">Cancel</UiButton>
         <UiButton size="sm" @click="refreshRuns">Refresh</UiButton>
       </div>
@@ -272,7 +272,7 @@ async function browseRemote() {
   height: 100%;
   background: var(--ui-surface);
   overflow-y: auto;
-  padding: 16px;
+  padding: 16px max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left));
   font-family: var(--ui-font);
   color: var(--ui-text);
 }
@@ -321,9 +321,9 @@ async function browseRemote() {
   -webkit-backdrop-filter: blur(calc(var(--ui-blur) * 0.4));
 }
 .cfg-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.cfg-name { font-size: 12px; font-weight: 700; flex: 1; }
-.cfg-type { font-size: 9px; }
-.cfg-meta { font-size: 9px; }
+.cfg-name { font-size: 12px; font-weight: 700; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cfg-type { font-size: 9px; min-width: 0; overflow-wrap: anywhere; }
+.cfg-meta { font-size: 9px; overflow-wrap: anywhere; word-break: break-word; }
 .cfg-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
 
 .progress-card {
@@ -335,9 +335,9 @@ async function browseRemote() {
   gap: 4px;
   background: color-mix(in srgb, var(--ui-glass) 55%, transparent);
 }
-.p-row { display: flex; justify-content: space-between; }
+.p-row { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
 .p-key { font-size: 10px; }
-.p-value { font-size: 10px; font-weight: 700; }
+.p-value { font-size: 10px; font-weight: 700; min-width: 0; text-align: right; overflow-wrap: anywhere; }
 .p-errors { display: flex; flex-direction: column; gap: 2px; }
 .p-err { font-size: 9px; color: var(--ui-danger); word-break: break-all; }
 .run-card {
@@ -351,6 +351,44 @@ async function browseRemote() {
   background: var(--ui-glass);
 }
 .remote-list { margin-top: 6px; }
-.remote-row { display: flex; justify-content: space-between; font-size: 10px; border-bottom: 1px solid var(--ui-hairline); padding: 2px 0; }
+.remote-row { display: flex; justify-content: space-between; gap: 8px; min-width: 0; font-size: 10px; border-bottom: 1px solid var(--ui-hairline); padding: 2px 0; }
+.remote-row > :first-child { min-width: 0; overflow-wrap: anywhere; }
 .text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
+
+/* Phones: keep each interaction group calm, stacked and comfortably tappable.
+   The desktop arrangement above remains the default. */
+@media (max-width: 600px) {
+  .sync-panel {
+    padding-top: max(12px, env(safe-area-inset-top));
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+
+  .panel-header { align-items: center; gap: 12px; }
+  .panel-header > :last-child { flex: 0 0 auto; }
+  .sync-panel :deep(.ui-btn) { min-height: 44px; }
+  .section { margin-bottom: 20px; }
+  .config-card, .progress-card { border-radius: var(--ui-radius-lg, var(--ui-radius-md)); padding: 12px; }
+  .cfg-header { align-items: flex-start; flex-wrap: wrap; }
+  .cfg-name { flex: 1 1 100%; font-size: 13px; }
+  .cfg-type { flex: 1 1 auto; }
+  .cfg-actions, .w-actions { gap: 8px; }
+  .cfg-actions :deep(.ui-btn), .w-actions :deep(.ui-btn), .w-row > :deep(.ui-btn) {
+    min-height: 44px;
+  }
+  .cfg-actions :deep(.ui-btn) { flex: 1 1 calc(50% - 4px); }
+  .cfg-actions .sync-primary-action { order: -1; }
+  .w-row { flex-direction: column; gap: 8px; }
+  .w-row .w-field, .w-row .w-field.grow { flex: 1 1 auto; width: 100%; min-width: 0; }
+  .w-row > :deep(.ui-btn), .w-actions :deep(.ui-btn) { width: 100%; }
+  .w-row .sync-primary-action { order: -1; }
+  .p-row { align-items: baseline; }
+  .run-card { align-items: flex-start; flex-wrap: wrap; padding: 8px; line-height: 1.35; }
+  .run-card > :first-child { flex: 1 1 100%; overflow-wrap: anywhere; }
+  .remote-row { padding: 6px 0; }
+  .section-title { line-height: 1.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-panel *, .sync-panel *::before, .sync-panel *::after { scroll-behavior: auto !important; transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
+}
 </style>
