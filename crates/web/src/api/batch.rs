@@ -21,13 +21,8 @@ pub fn delete(db: &Database, file_ids: &[String]) -> Result<u32, String> {
         if let Some(node) = file_node {
             db.log_audit("batch_delete", "file", file_id, None, None)
                 .map_err(|e| e.to_string())?;
-            let parent_id = node.parent_id.clone();
             db.trash_file(file_id, &node, None)
                 .map_err(|e| e.to_string())?;
-            if let Some(pid) = parent_id {
-                db.remove_from_parent_index(file_id, &pid)
-                    .map_err(|e| e.to_string())?;
-            }
             count += 1;
         }
     }

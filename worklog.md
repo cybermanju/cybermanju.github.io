@@ -443,3 +443,10 @@ Stage Summary:
 - Mobile app windows now fill the space between the top menu and dock. File Manager actions are grouped into touch-sized sections, Account Manager uses a horizontal provider rail and session drawer, and Agent opens as a chat-first surface with a hamburger navigation drawer for chats, assistant setup and controls.
 - Added responsive contract coverage for full-bleed sheets, OAuth hand-off, credential gating, touch-first Files tools, Agent navigation and narrow-window layouts.
 - Verified: version check, icon generation, `vue-tsc --noEmit`, 48 frontend test files / 570 tests, and `npm run build`.
+
+## 2026-10-09 — trash/restore keeps folder index atomic
+
+- `Database::trash_file` now removes the file from `parent_index` in the same redb write transaction that moves it to trash; `restore_from_trash` re-adds it under its original parent in the same transaction, without duplicates. Parentless items remain unindexed.
+- REST single and batch delete now rely on the database transaction instead of a second index write, removing a transient inconsistency window.
+- Added Rust regressions for preserving siblings, restoring exactly once, and restoring a parentless file.
+- Verified locally: `git diff --check`, `npm run typecheck`, `npm test` (48 files / 573 tests), and `bash scripts/check-version.sh`. Rust tests/fmt/clippy were not run locally per `AGENTS.md`; CI must prove the backend changes.
