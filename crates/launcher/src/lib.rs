@@ -871,7 +871,7 @@ mod android_impl {
                 };
                 for i in 0..size {
                     let row: Option<(String, String)> = env
-                        .with_local_frame(24, |f| {
+                        .with_local_frame(24, |f| -> Result<Option<(String, String)>, JniError> {
                             let item: JObject = f
                                 .call_method(
                                     &list,
@@ -945,7 +945,7 @@ mod android_impl {
                 })?;
             for candidate in pack_icon_candidates(package.as_str()) {
                 let found: Option<String> = env
-                    .with_local_frame(24, |f| {
+                    .with_local_frame(24, |f| -> Result<Option<String>, JniError> {
                         let jname: JObject = f.new_string(candidate.as_str())?.into();
                         let jdef: JObject = f.new_string("drawable")?.into();
                         let jpkg: JObject = f.new_string(pack.as_str())?.into();
