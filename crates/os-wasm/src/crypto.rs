@@ -241,7 +241,9 @@ fn b64_decode(text: &str) -> Result<Vec<u8>, String> {
 /// never persisted — reveal/open take it as an argument.
 #[wasm_bindgen]
 pub fn seal_blob(passphrase: &str, plaintext: &[u8]) -> Result<String, JsValue> {
-    seal_blob_str(passphrase, plaintext).map_err(|e| JsValue::from_str(&e))
+    crate::artifact::seal(passphrase, plaintext)
+        .map(|bytes| b64_encode(&bytes))
+        .map_err(|e| JsValue::from_str(&e))
 }
 
 /// Open a base64 `seal:v1` blob produced by [`seal_blob`] (or by the native
