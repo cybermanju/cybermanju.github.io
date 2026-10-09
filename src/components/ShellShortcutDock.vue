@@ -19,7 +19,7 @@
         <AppIcon name="solar:info-circle-bold" :size="13" />
         <span>
           Browser owns <b>Ctrl+T / Ctrl+W / Ctrl+Tab</b> — the page never sees them.
-          Use the <b>Alt+</b> fallbacks below in WASM. Tauri uses both.
+          Use the <b>Alt+</b> fallbacks below in browser mode. Tauri supports both.
         </span>
       </div>
 
@@ -87,17 +87,17 @@
             :title="rowTitle(s)"
             @click="fireAction(s.action)"
           >
-            <kbd class="dock-key" :class="{ blocked: s.blockedInBrowser && !inBrowser }">{{ s.keys }}</kbd>
+            <kbd class="dock-key">{{ s.keys }}</kbd>
             <span class="dock-desc">{{ s.description }}</span>
-            <span v-if="s.blockedInBrowser" class="dock-fb" :title="`Browser fallback: ${s.fallback} (primary ${s.primary} is owned by the browser)`">
-              {{ inBrowser ? `was ${s.primary}` : `→ ${s.fallback} in browser` }}
+            <span v-if="s.blockedInBrowser && inBrowser" class="dock-fb" :title="`Browser fallback: ${s.fallback} (primary ${s.primary} is owned by the browser)`">
+              was {{ s.primary }}
             </span>
           </button>
         </div>
         <div v-if="grouped.length === 0" class="dock-empty">No shortcuts registered.</div>
       </div>
 
-      <div class="dock-foot">? help · Esc close · {{ inBrowser ? 'WASM: Alt+ fallbacks' : 'Tauri: all keys live' }}</div>
+      <div class="dock-foot">? help · Esc close · {{ inBrowser ? 'Browser: Alt+ fallbacks' : 'Tauri: all keys live' }}</div>
     </div>
 
     <!-- Collapsed FAB -->
@@ -172,7 +172,7 @@ const grouped = computed(() => {
 })
 
 function rowTitle(s: { primary: string; fallback: string; blockedInBrowser: boolean }): string {
-  if (s.blockedInBrowser && s.fallback) return `Primary ${s.primary} is browser-owned — press ${s.fallback} in WASM`
+  if (inBrowser.value && s.blockedInBrowser && s.fallback) return `Primary ${s.primary} is browser-owned — press ${s.fallback} in browser mode`
   return s.primary || s.fallback
 }
 

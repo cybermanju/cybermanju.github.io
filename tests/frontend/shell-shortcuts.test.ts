@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   isReservedInBrowser,
@@ -44,7 +45,6 @@ describe('browser-reserved shortcuts', () => {
 
 describe('window/layout shortcut coverage', () => {
   it('covers every layout mode with an Alt+number binding', async () => {
-    const fs = await import('node:fs')
     const kpl = fs.readFileSync('keymaps/default.kpl', 'utf8')
     for (const action of [
       'close_window',
@@ -74,5 +74,23 @@ describe('window/layout shortcut coverage', () => {
       const m = line.match(/^(close_window|focus_next|focus_prev|autotile_toggle)\s*=\s*(.+)$/)
       if (m) expect(isReservedInBrowser(m[2].trim())).toBe(false)
     }
+  })
+})
+
+describe('shortcut help transport copy', () => {
+  it('describes browser fallbacks for REST and WASM without showing them as active in Tauri', () => {
+    const dock = fs.readFileSync('src/components/ShellShortcutDock.vue', 'utf8')
+    const help = fs.readFileSync('src/components/KeyboardShortcutsHelp.vue', 'utf8')
+
+    expect(dock).toContain('fallbacks below in browser mode')
+    expect(dock).toContain("inBrowser ? 'Browser: Alt+ fallbacks' : 'Tauri: all keys live'")
+    expect(dock).toContain('v-if="s.blockedInBrowser && inBrowser"')
+    expect(dock).toContain('if (inBrowser.value && s.blockedInBrowser && s.fallback)')
+    expect(dock).not.toContain('in WASM')
+    expect(dock).not.toContain('blocked: s.blockedInBrowser')
+
+    expect(help).toContain('s.blockedInBrowser && inBrowser')
+    expect(help).toContain("inBrowser ? 'Browser: Alt+ fallbacks'")
+    expect(help).not.toContain('WASM uses Alt+ fallbacks')
   })
 })

@@ -20,8 +20,8 @@
             <div v-for="s in group.shortcuts" :key="s.action" class="ks-row">
               <span class="ks-key">{{ s.keys }}</span>
               <span class="ks-desc">{{ s.description }}</span>
-              <span v-if="s.blockedInBrowser" class="ks-fb" :title="`Primary ${s.primary} never reaches page JS in a browser — press ${s.fallback} instead`">
-                {{ inBrowser ? `was ${s.primary}` : `browser: ${s.fallback}` }}
+              <span v-if="s.blockedInBrowser && inBrowser" class="ks-fb" :title="`Primary ${s.primary} never reaches page JS in a browser — press ${s.fallback} instead`">
+                was {{ s.primary }}
               </span>
             </div>
           </div>
@@ -29,7 +29,7 @@
             No shortcuts registered. Press Esc to close.
           </div>
         </div>
-        <div class="ks-help-foot text-muted">Press ? to toggle · Esc to close · {{ inBrowser ? 'WASM uses Alt+ fallbacks' : 'Ctrl+K for commands · Alt+1-4 layouts' }}</div>
+        <div class="ks-help-foot text-muted">Press ? to toggle · Esc to close · {{ inBrowser ? 'Browser: Alt+ fallbacks' : 'Ctrl+K for commands · Alt+1-4 layouts' }}</div>
       </div>
     </div>
   </Teleport>

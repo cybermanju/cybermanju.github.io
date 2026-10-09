@@ -479,3 +479,10 @@ Stage Summary:
 - The selector surfaces “Custom image” while active and returns to the prior preset when reset. `/develop/` uses a separate IndexedDB database from the production root. Added coverage for URL/file validation, local save/restore, object-URL cleanup, and preview isolation.
 - Fixed a pre-existing autosave omission in `useTheme()`: built-in wallpaper changes now persist with the other appearance settings.
 - Verified locally: `npm run typecheck`, `npm test` (52 suites / 585 tests), `bash scripts/check-version.sh`, `npm run build`, and Vite frontend builds with `VITE_BASE=/` and `/develop/` (asset prefixes checked). The checked-in WASM package is stale, so local Vite builds used the stub; no local Cargo/wasm-pack run per `AGENTS.md`. CI will rebuild the WASM package.
+
+
+## 2026-10-09 — Browser shortcut help matches the active transport
+
+- Updated the Shell shortcut dock and keyboard-help modal: browser-reserved chords now point to Alt+ fallbacks in all browser transports (REST and WASM), rather than calling them WASM-only. Fallback badges appear only in browser mode, and Tauri no longer marks its working primary shortcuts as blocked.
+- Marked `TASKS.md` P1-2 complete and added a regression test for transport-neutral browser guidance and browser-only fallback hints.
+- Verified locally: `npm run typecheck`, `npm test` (52 suites / 586 tests), `bash scripts/check-version.sh`, `npm run build`, and `git diff --check`. No Rust changes; remote CI is pending after push.
