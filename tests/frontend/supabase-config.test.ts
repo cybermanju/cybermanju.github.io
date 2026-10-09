@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getSupabaseConfig } from '@/composables/useSupabase'
+import { getSupabaseConfig, supabaseOAuthQueryParams, supabaseScopesFor } from '@/composables/useSupabase'
 
 const URL_KEY = 'cybermanju.supabaseUrl'
 const KEY_KEY = 'cybermanju.supabaseKey'
@@ -67,5 +67,13 @@ describe('Supabase broker configuration', () => {
 
     localStorageMock.removeItem(URL_KEY)
     expect(getSupabaseConfig()).toEqual({ url: '', key: '', source: 'none' })
+  })
+
+  it('requests a fresh offline Google consent when reconnecting Drive', () => {
+    expect(supabaseScopesFor('googleDrive')).toContain('https://www.googleapis.com/auth/drive.file')
+    expect(supabaseOAuthQueryParams('googleDrive', true)).toEqual({ access_type: 'offline', prompt: 'consent' })
+    expect(supabaseOAuthQueryParams('google', true)).toEqual({ access_type: 'offline', prompt: 'consent' })
+    expect(supabaseOAuthQueryParams('github', true)).toBeUndefined()
+    expect(supabaseOAuthQueryParams('googleDrive')).toBeUndefined()
   })
 })

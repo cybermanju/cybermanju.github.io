@@ -207,6 +207,7 @@ const showUploadDialog = ref(false)
 // and open directly to the launcher behind this wizard.
 const setupOpen = ref(false)
 const mobileSetupOpen = ref(false)
+const resumeSetupAfterAccounts = ref(false)
 function prefersMobileExperience() {
   const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent
   const ipadOs = typeof navigator !== 'undefined' && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
@@ -216,6 +217,13 @@ function openSetupFromApp() {
   if (prefersMobileExperience()) mobileSetupOpen.value = true
   else setupOpen.value = true
 }
+
+const accountsWindowOpen = computed(() => wm.windows.value.some(window => window.panelType === 'accounts' && !window.minimized))
+watch(accountsWindowOpen, (opened, wasOpened) => {
+  if (opened || !wasOpened || !resumeSetupAfterAccounts.value) return
+  resumeSetupAfterAccounts.value = false
+  void nextTick(() => openSetupFromApp())
+})
 
 const mainAreaRef = ref<HTMLElement | null>(null)
 
@@ -608,7 +616,9 @@ function openAgent(event: KeyboardEvent) {
   wm.open('agent')
 }
 
-const openAccountsWindow = () => {
+const openAccountsWindow = (event?: Event) => {
+  const detail = (event as CustomEvent<{ resumeSetup?: boolean }> | undefined)?.detail
+  if (detail?.resumeSetup) resumeSetupAfterAccounts.value = true
   if (store.currentPanel === 'landing') store.currentPanel = 'files'
   wm.open('accounts')
 }

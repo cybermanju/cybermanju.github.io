@@ -224,6 +224,13 @@ export function supabaseSignInScopes(provider: OAuthBackend): string {
   }
 }
 
+/** Google must show a fresh consent screen when an existing grant lacks drive.file. */
+export function supabaseOAuthQueryParams(backendType: string, forceGoogleConsent = false): Record<string, string> | undefined {
+  const provider = backendType === 'google' ? 'google' : supabaseProviderFor(backendType)
+  if (!forceGoogleConsent || provider !== 'google') return undefined
+  return { access_type: 'offline', prompt: 'consent' }
+}
+
 function supabaseRedirectTo(popup: boolean): string {
   if (isTauriMobile()) return MOBILE_OAUTH_CALLBACK_URL
   return `${window.location.origin}${window.location.pathname}${popup ? '?oauth=popup' : ''}`
@@ -325,7 +332,7 @@ export function closeOAuthPopup(): void {
  * Begin PKCE OAuth without leaving the app: returns the Supabase authorize
  * URL for us to open in a popup. Throws when Supabase is not configured.
  */
-export async function startSupabaseOAuth(backendType: string, popup = true): Promise<{ url: string }> {
+export async function startSupabaseOAuth(backendType: string, popup = true, forceGoogleConsent = false): Promise<{ url: string }> {
   const provider = supabaseProviderFor(backendType)
   if (!provider) throw new Error(`unsupported: no Supabase OAuth for '${backendType}'`)
   const sb = await getSupabaseClient()
@@ -336,6 +343,7 @@ export async function startSupabaseOAuth(backendType: string, popup = true): Pro
     options: {
       redirectTo,
       scopes: supabaseScopesFor(backendType) || undefined,
+      queryParams: supabaseOAuthQueryParams(backendType, forceGoogleConsent),
       skipBrowserRedirect: true,
     },
   })
@@ -742,7 +750,7 @@ export async function activateMobileOAuthDeepLinks(): Promise<boolean> {
  * Begin sign-in with one of the Supabase-brokered providers. Returns the
  * authorize URL for a popup (same shape as `startSupabaseOAuth`).
  */
-export async function startSupabaseSignIn(provider: OAuthBackend, popup = true): Promise<{ url: string }> {
+export async function startSupabaseSignIn(provider: OAuthBackend, popup = true, forceGoogleConsent = false): Promise<{ url: string }> {
   const sb = await getSupabaseClient()
   if (!sb) {
     throw new Error(
@@ -755,6 +763,7 @@ export async function startSupabaseSignIn(provider: OAuthBackend, popup = true):
     options: {
       redirectTo,
       scopes: supabaseSignInScopes(provider),
+      queryParams: supabaseOAuthQueryParams(provider, forceGoogleConsent),
       skipBrowserRedirect: true,
     },
   })
@@ -777,7 +786,7 @@ export async function signInWithPopup(provider: OAuthBackend): Promise<CyberIden
     await installMobileOAuthDeepLinks()
     await supabaseSignOut().catch(() => {})
     identity.value = null
-    const { url } = await startSupabaseSignIn(provider, false)
+    const { url } = await startSupabaseSignIn(provider, false, provider === 'google')
     const { open } = await import('@tauri-apps/plugin-shell')
     await open(url)
     const deadline = Date.now() + 180_000
@@ -812,7 +821,7 @@ export async function signInWithPopup(provider: OAuthBackend): Promise<CyberIden
   try {
     await supabaseSignOut().catch(() => {})
     identity.value = null
-    ;({ url } = await startSupabaseSignIn(provider, !!popup))
+    ;({ url } = await startSupabaseSignIn(provider, !!popup, provider === 'google'))
     if (!popup) {
       // Unmarked `?code=` returns boot the full app and complete PKCE there.
       window.location.assign(url)

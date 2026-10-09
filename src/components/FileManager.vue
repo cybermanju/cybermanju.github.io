@@ -2320,4 +2320,22 @@ onBeforeUnmount(() => {
 .fm-mobile-tool:disabled { opacity: .4; cursor: default; }
 .fm-mobile-tool.on { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); background: var(--ui-accent-softer); color: var(--ui-accent); }
 .fm-mobile-view-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+
+/* On phones the navigation/search toolbar sits below the file area. Keeping it
+   in normal flex flow reserves space instead of covering files or the status. */
+@media (max-width: 560px) {
+  .fm-top { order: 3; flex: 0 0 auto; box-sizing: border-box; padding-bottom: max(8px, env(safe-area-inset-bottom)); border-top: 1px solid var(--ui-hairline); border-bottom: 0; box-shadow: 0 -6px 18px color-mix(in srgb, var(--ui-bg-deep) 22%, transparent); }
+  .fm-sub { order: 1; }
+  .fm-main { order: 2; }
+  .fm-ctool { display: none; }
+  .fm-mobile-tools-menu { position: absolute; inset: auto 8px calc(100% + 8px); z-index: 80; max-height: min(72dvh, 620px); overflow-y: auto; overscroll-behavior: contain; padding: 10px; }
+}
+
+@container file-manager (max-width: 560px) {
+  .fm-top { order: 3; flex: 0 0 auto; box-sizing: border-box; padding-bottom: max(8px, env(safe-area-inset-bottom)); border-top: 1px solid var(--ui-hairline); border-bottom: 0; box-shadow: 0 -6px 18px color-mix(in srgb, var(--ui-bg-deep) 22%, transparent); }
+  .fm-sub { order: 1; }
+  .fm-main { order: 2; }
+  .fm-ctool { display: none; }
+  .fm-mobile-tools-menu { position: absolute; inset: auto 8px calc(100% + 8px); z-index: 80; max-height: min(72dvh, 620px); overflow-y: auto; overscroll-behavior: contain; padding: 10px; }
+}
 </style>

@@ -345,8 +345,11 @@ import { humanBytes } from '@/utils/format'
 import {
   SETUP_STEPS,
   SETUP_STEP_LABELS,
+  clearSetupResumeStep,
   markSetupSeen,
+  saveSetupResumeStep,
   setupStepIndex,
+  takeSetupResumeStep,
   type SetupStep,
 } from '@/utils/setupWizard'
 
@@ -355,7 +358,7 @@ const emit = defineEmits<{ close: [] }>()
 const store = useAppStore()
 const cardRef = ref<HTMLElement | null>(null)
 
-const step = ref<SetupStep>('welcome')
+const step = ref<SetupStep>(takeSetupResumeStep() ?? 'welcome')
 
 /** The browser (WASM/Pages) build runs the agent locally — same setup form,
 // configs in localStorage, provider catalog from the wasm bundle, keys in
@@ -387,8 +390,9 @@ const insecureContext = computed(() => {
 const oauthIdentity = computed(() => supabaseIdentity.value)
 
 function openAccounts() {
+  saveSetupResumeStep('disks')
   emit('close')
-  window.dispatchEvent(new CustomEvent('cybermanju:open-accounts'))
+  window.dispatchEvent(new CustomEvent('cybermanju:open-accounts', { detail: { resumeSetup: true } }))
 }
 
 // ── `.cybermanju` import/export fallback (no File System Access API).
@@ -878,11 +882,13 @@ function go(s: SetupStep) {
 }
 
 function skipAll() {
+  clearSetupResumeStep()
   markSetupSeen()
   emit('close')
 }
 
 function finish() {
+  clearSetupResumeStep()
   markSetupSeen()
   emit('close')
 }

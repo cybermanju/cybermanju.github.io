@@ -1294,9 +1294,9 @@ export const REST_FIRST = new Set([
   'recall_agent_memories',
 ])
 
-/** Local read-only OS readings that Android/iOS can serve directly over Tauri IPC. */
+/** Local read-only OS readings and sync status that Android/iOS serve over Tauri IPC. */
 export const MOBILE_NATIVE_OS_COMMANDS = new Set([
-  'os_ps', 'os_top', 'os_workers', 'os_jobs', 'os_df',
+  'os_ps', 'os_top', 'os_workers', 'os_jobs', 'os_df', 'get_sync_status',
 ])
 
 // Commands the `cybermanju-os-wasm` crate serves on a static host.

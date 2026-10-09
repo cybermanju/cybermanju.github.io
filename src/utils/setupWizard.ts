@@ -6,10 +6,41 @@
 // without a browser.
 
 export const SETUP_SEEN_KEY = 'cybermanju.setupSeen.v1'
+export const SETUP_RESUME_STEP_KEY = 'cybermanju.setup.resumeStep'
 
 export const SETUP_STEPS = ['welcome', 'vault', 'sync', 'cloud', 'disks', 'agent', 'done'] as const
 
 export type SetupStep = (typeof SETUP_STEPS)[number]
+
+/** Save one validated step to resume after visiting Accounts. */
+export function saveSetupResumeStep(step: SetupStep): void {
+  try {
+    if (typeof localStorage === 'undefined') return
+    localStorage.setItem(SETUP_RESUME_STEP_KEY, step)
+  } catch {
+    // Private mode — the wizard still opens at Welcome.
+  }
+}
+
+/** Read and consume a pending continuation exactly once. */
+export function takeSetupResumeStep(): SetupStep | null {
+  try {
+    if (typeof localStorage === 'undefined') return null
+    const saved = localStorage.getItem(SETUP_RESUME_STEP_KEY)
+    localStorage.removeItem(SETUP_RESUME_STEP_KEY)
+    return SETUP_STEPS.find(step => step === saved) ?? null
+  } catch {
+    return null
+  }
+}
+
+export function clearSetupResumeStep(): void {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(SETUP_RESUME_STEP_KEY)
+  } catch {
+    // Nothing stored — nothing to clear.
+  }
+}
 
 export const SETUP_STEP_LABELS: Record<SetupStep, string> = {
   welcome: 'Welcome',

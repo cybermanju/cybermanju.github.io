@@ -69,6 +69,25 @@ pub fn get_sync_progress(
     Ok(cybermanju_web::api::sync_api::progress(&sync_state))
 }
 
+/// Get the latest sync status summary (the same shape as GET /api/sync/status).
+#[tauri::command]
+pub fn get_sync_status(
+    sync_state: State<'_, Arc<SyncState>>,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    cybermanju_sync::scheduler::ensure_started(Arc::clone(&state.db));
+    let progress = cybermanju_web::api::sync_api::latest_progress(&sync_state);
+    let provider = cybermanju_sync::state::RunRegistry::global()
+        .latest()
+        .map(|run| run.config_id.clone());
+    Ok(serde_json::json!({
+        "syncEnabled": true,
+        "status": progress.status,
+        "lastSync": progress.started_at,
+        "provider": provider,
+    }))
+}
+
 /// Test the connection for a sync configuration.
 #[tauri::command]
 pub fn test_sync_connection(config: SyncConfig) -> Result<bool, String> {

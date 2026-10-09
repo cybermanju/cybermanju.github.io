@@ -479,6 +479,9 @@ onMounted(async () => {
           @paste="onPaste"
         />
       </div>
+      <button class="term-send-btn" type="button" :disabled="!input.trim()" title="Send command" aria-label="Send command" @click="submit">
+        <AppIcon name="solar:arrow-up-bold" :size="16" />
+      </button>
       <select
         v-if="voice.isSupported.value"
         class="ghost-select"
@@ -648,6 +651,10 @@ onMounted(async () => {
   flex: 0 0 auto;
 }
 
+.term-send-btn {
+  display: none;
+}
+
 .term-prompt {
   color: var(--ui-accent);
 }
@@ -743,6 +750,24 @@ onMounted(async () => {
   .term-input-wrap {
     min-height: 44px;
     align-items: center;
+  }
+
+  .term-send-btn {
+    display: inline-flex;
+    flex: 0 0 44px;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    min-height: 44px;
+    border: 1px solid color-mix(in srgb, var(--ui-accent) 48%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--ui-accent) 16%, transparent);
+    color: var(--ui-accent);
+    touch-action: manipulation;
+  }
+
+  .term-send-btn:disabled {
+    opacity: .45;
   }
 
   .term-input {

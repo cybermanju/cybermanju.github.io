@@ -53,6 +53,14 @@ describe('REST route coverage', () => {
     }
   })
 
+  it('routes mobile sync status through registered native IPC', () => {
+    expect(MOBILE_NATIVE_OS_COMMANDS.has('get_sync_status')).toBe(true)
+    const commands = fs.readFileSync('src-tauri/src/commands/sync.rs', 'utf8')
+    const runtime = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
+    expect(commands).toMatch(/pub fn get_sync_status\b/)
+    expect(runtime).toContain('sync_cmd::get_sync_status')
+  })
+
   it('encodes OS volume paths as ?path= (P1-7)', () => {
     expect(REST_ROUTES.os_stat.buildPath({ path: '/foo bar' })).toBe(
       '/api/os/stat?path=%2Ffoo%20bar',

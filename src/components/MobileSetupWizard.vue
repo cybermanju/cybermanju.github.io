@@ -46,7 +46,7 @@
         <h3 class="msw-h">Your cloud account</h3>
         <p v-if="identity" class="msw-hint">Signed in as <strong>{{ identity.name || identity.email }}</strong> via {{ identity.provider }}.</p>
         <p v-else class="msw-hint">Sign-in, account switching, OAuth setup and cloud-provider connections all live in one place. This setup will not start a second login flow.</p>
-        <button class="msw-btn primary big" type="button" @click="openAccounts">Open Account Manager</button>
+        <button class="msw-btn primary big" type="button" @click="openAccounts('vaults')">Open Account Manager</button>
         <div class="msw-nav">
           <button class="msw-btn" type="button" @click="go('welcome')">Back</button>
           <button class="msw-btn primary" type="button" @click="go('vaults')">Next</button>
@@ -136,7 +136,7 @@
         </template>
         <template v-else>
           <p class="msw-hint">{{ matchingSessionToken ? `Your ${shortProv(prov.backendType)} session is available; Accounts manages OAuth connections.` : 'Connect this provider in Accounts first, or paste a personal access token.' }}</p>
-          <button class="msw-btn big" type="button" @click="openAccounts">Manage accounts &amp; sign in</button>
+          <button class="msw-btn big" type="button" @click="openAccounts(step)">Manage accounts &amp; sign in</button>
           <label class="msw-field"><span>Personal access token (optional when the session provides one)</span>
             <input v-model="prov.secret" class="msw-input" :type="showSecret ? 'text' : 'password'" autocomplete="off" placeholder="Paste a token, or connect in Accounts" />
           </label>
@@ -289,9 +289,10 @@ function close() { emit('close') }
 function clearSavedStep() { try { localStorage.removeItem(SETUP_STEP_KEY) } catch { /* storage may be disabled */ } }
 function skipAll() { clearSavedStep(); markSetupSeen(); emit('close') }
 function finish() { clearSavedStep(); markSetupSeen(); emit('close') }
-function openAccounts() {
+function openAccounts(returnStep: MobileSetupStep) {
+  go(returnStep)
   emit('close')
-  window.dispatchEvent(new CustomEvent('cybermanju:open-accounts'))
+  window.dispatchEvent(new CustomEvent('cybermanju:open-accounts', { detail: { resumeSetup: true } }))
 }
 
 // ── vault partitions (N disks) ──

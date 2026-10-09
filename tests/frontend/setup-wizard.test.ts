@@ -1,8 +1,9 @@
 // First-run setup wizard flag + step order stay honest without a browser:
 // unseen by default, finish/skip persists, navigation clamps at both ends.
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it, beforeEach, vi } from 'vitest'
 import {
   SETUP_SEEN_KEY,
+  SETUP_RESUME_STEP_KEY,
   SETUP_STEP_LABELS,
   SETUP_STEPS,
   clearSetupSeen,
@@ -11,6 +12,8 @@ import {
   prevSetupStep,
   setupSeen,
   setupStepIndex,
+  saveSetupResumeStep,
+  takeSetupResumeStep,
   type SetupStep,
 } from '@/utils/setupWizard'
 
@@ -34,6 +37,23 @@ describe('setup wizard state', () => {
 
   it('exposes the flag key for the component', () => {
     expect(SETUP_SEEN_KEY).toBe('cybermanju.setupSeen.v1')
+  })
+
+  it('consumes a valid Account Manager continuation only once', () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, String(value)) },
+      removeItem: (key: string) => { values.delete(key) },
+    })
+    try {
+      saveSetupResumeStep('disks')
+      expect(values.get(SETUP_RESUME_STEP_KEY)).toBe('disks')
+      expect(takeSetupResumeStep()).toBe('disks')
+      expect(takeSetupResumeStep()).toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('walks forward and clamps on done', () => {

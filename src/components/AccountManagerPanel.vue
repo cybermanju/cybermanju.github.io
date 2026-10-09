@@ -2126,6 +2126,7 @@ async function supabaseConnect(cfg: SyncConfig) {
     return
   }
   setPendingOAuthConfig(cfg.id)
+  const refreshGoogleGrant = cfg.backendType === 'googleDrive' && authState.value[cfg.id]?.ok === false
   const expected = supabaseProviderFor(cfg.backendType)
   connectBusy.value = cfg.id
   delete mobileOAuthErrors.value[cfg.id]
@@ -2141,8 +2142,9 @@ async function supabaseConnect(cfg: SyncConfig) {
   }
   let url = ''
   try {
+    if (refreshGoogleGrant) await signOutIdentity().catch(() => {})
     if (nativeMobile) await installMobileOAuthDeepLinks()
-    ;({ url } = await startSupabaseOAuth(cfg.backendType, !!popup))
+    ;({ url } = await startSupabaseOAuth(cfg.backendType, !!popup, cfg.backendType === 'googleDrive'))
     if (nativeMobile) {
       const { open } = await import('@tauri-apps/plugin-shell')
       await open(url)

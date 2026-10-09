@@ -470,6 +470,7 @@ pub fn run() {
             sync_cmd::delete_sync_config,
             sync_cmd::start_sync,
             sync_cmd::get_sync_progress,
+            sync_cmd::get_sync_status,
             sync_cmd::test_sync_connection,
             sync_cmd::cancel_sync,
             sync_cmd::list_remote_files,
