@@ -47,7 +47,7 @@ Checkboxes are intentional — tick as you land.
 
 ## P1 — Frontend transport parity (`src/composables/useTauri.ts`)
 
-- [ ] `P1-1` `isTauri():99-101` truthiness — `'__TAURI__' in window` is true even when `vite.config.wasm.ts:53-58` defines it `false`. Check truthiness. Same fix in `SettingsPage.vue:319`, `StatusBar.vue:80`.
+- [x] `P1-1` `isTauri():99-104` checks the truthiness of `window.__TAURI__` so the static build's `false` sentinel is not misidentified as native. Settings uses the shared helper and StatusBar derives from `useTransport()`; regression tests cover false sentinel and truthy bridge.
 - [x] `P1-2` Shared `useTransport()` — replace binary `isWebMode()/isStaticHost()` labels with one 3-state helper `(label/short/tone/backend: tauri|rest|wasm)`. Fix `StatusBar.vue:80`, `KeyboardShortcutsHelp`, `ShellShortcutDock` (currently `WEB/TAURI`); `CodeStudio.vue:380` 3-way is the pattern to keep. Browser-only Alt+ fallback guidance is now explicitly scoped to browser mode, not just WASM.
 - [ ] `P1-3` Static-host health probe — `isStaticHost():115-119` has no probe: bare `https://host` → `wasm` even if user expected REST; stale `_serverUrl` → forced REST + `ERR_CONNECTION_REFUSED`. Probe `_serverUrl`/`/api/readyz` with fallback.
 - [ ] `P1-4` WASM first-paint flash — `wasmBackendActive() useWasmBackend.ts:159-161` null until async load; `SettingsPage:299-313`, `ShellShortcutDock:141-146`, `LandingPage:169` flash `Web→WASM`. Use `isStaticHost()` for initial label, reactive ref after `loadWasm()`.

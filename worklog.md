@@ -493,3 +493,10 @@ Stage Summary:
 - `useTauri().pathExists()` previously requested `/api/files` directly and returned `true` for any successful response, even when the requested path was missing; it also bypassed the local WASM database. Browser mode now calls the shared `invoke('list_files')` router and checks the requested `FileNode.path`, using REST or the WASM DB worker as appropriate.
 - Marked `TASKS.md` P1-11 complete and added regressions for an existing path and a missing path when the list endpoint succeeds.
 - Verified locally: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, 53 frontend suites / 588 tests, `npm run build`, and `git diff --check`. The web build succeeds with the existing advisory about large chunks; no Rust changes, per `AGENTS.md`. Remote CI will be checked after push.
+
+
+## 2026-10-10 — Guard Tauri detection against the WASM sentinel
+
+- Confirmed `isTauri()` checks truthiness rather than property presence; Settings uses that shared helper and StatusBar derives its label through `useTransport()`. Added regression tests proving `window.__TAURI__ = false` stays browser mode while a truthy bridge is detected as native.
+- Marked `TASKS.md` P1-1 complete so the backlog reflects the existing runtime fix and its new test coverage.
+- Verified locally: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, 53 frontend suites / 590 tests, `npm run build`, and `git diff --check`. Build succeeds with the existing advisory about large chunks; no Rust changes, per `AGENTS.md`. Remote CI will be checked after push.
