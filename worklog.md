@@ -500,3 +500,10 @@ Stage Summary:
 - Confirmed `isTauri()` checks truthiness rather than property presence; Settings uses that shared helper and StatusBar derives its label through `useTransport()`. Added regression tests proving `window.__TAURI__ = false` stays browser mode while a truthy bridge is detected as native.
 - Marked `TASKS.md` P1-1 complete so the backlog reflects the existing runtime fix and its new test coverage.
 - Verified locally: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, 53 frontend suites / 590 tests, `npm run build`, and `git diff --check`. Build succeeds with the existing advisory about large chunks; no Rust changes, per `AGENTS.md`. Remote CI will be checked after push.
+
+
+## 2026-10-10 — Pin the cross-transport shell write cap
+
+- Added a contract test that reads Rust `MAX_WRITE_BYTES` and compares it with the browser shell's `STATIC_WRITE_LIMIT`, asserting both remain at 1 MiB. This prevents Pages/WASM and Rust WASM from silently diverging without introducing source-generation coupling between the languages.
+- Marked `TASKS.md` P1-17 complete with the parity-test approach.
+- Verified locally: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, 54 frontend suites / 591 tests, `npm run build`, and `git diff --check`. Build succeeds with the existing advisory about large chunks; no Rust changes, per `AGENTS.md`. Remote CI will be checked after push.

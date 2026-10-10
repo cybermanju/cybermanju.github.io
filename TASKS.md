@@ -66,7 +66,7 @@ Checkboxes are intentional — tick as you land.
 ## P1 — Offline / OPFS / volume
 
 - [ ] `P1-16` Single volume writer — triple writers to `cybermanju.os.volume`: `useTauri.ts:1391-1418` whole-blob JSON, `crates/os-wasm/src/os.rs:34,95-144`, `useVolumeMirror.ts:21`. Read-modify-write race + 5MiB quota. Rust `save_volume` silently drops return. Add locking/dirty-merge, surface quota (`disk_full:` already correct on TS side).
-- [ ] `P1-17` Shared 1MiB cap — `os.rs:39 MAX_WRITE_BYTES` vs `staticCybsh.ts:28 STATIC_WRITE_LIMIT` duplicated. Extract shared const + test.
+- [x] `P1-17` Cross-language 1MiB cap — Rust and TypeScript keep separate constants; a frontend contract test parses Rust `MAX_WRITE_BYTES` and asserts it equals `STATIC_WRITE_LIMIT`, preventing WASM shell writes from drifting across transports.
 - [ ] `P1-18` Pipe refusal UX — `os.rs:386-390` refuses `|` with `unsupported:` but `staticCybsh` intercept (`useTauri.ts:1971-1978`) swallows throw; chained `quota && ls` fails confusingly. Log interceptor decision.
 - [ ] `P1-19` WASM load resilience — `loadWasm:143-156` rejection cached forever, no retry. `wasmDbBackend:308-317` caches `opfs|memory` forever — never upgrades if OPFS appears. `dbWorker:502-542` 30s/120s timeouts, no `navigator.onLine` fast-fail. Retry + upgrade path.
 - [ ] `P1-20` Vault boot — `useVault.ts:64-93 kvKnownBroken` flips permanently on one `unsupported:` (correct for old pkg) but `vaultBackend()` stays `unknown` until first call. Call `wasmDbBackend()` at boot so `AccountManagerPanel.vue:905` warning is accurate. `migrateVaultFromLocalStorage:146-165` good — keep.
