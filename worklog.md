@@ -486,3 +486,10 @@ Stage Summary:
 - Updated the Shell shortcut dock and keyboard-help modal: browser-reserved chords now point to Alt+ fallbacks in all browser transports (REST and WASM), rather than calling them WASM-only. Fallback badges appear only in browser mode, and Tauri no longer marks its working primary shortcuts as blocked.
 - Marked `TASKS.md` P1-2 complete and added a regression test for transport-neutral browser guidance and browser-only fallback hints.
 - Verified locally: `npm run typecheck`, `npm test` (52 suites / 586 tests), `bash scripts/check-version.sh`, `npm run build`, and `git diff --check`. No Rust changes; remote CI is pending after push.
+
+
+## 2026-10-09 — Make browser path checks transport-aware
+
+- `useTauri().pathExists()` previously requested `/api/files` directly and returned `true` for any successful response, even when the requested path was missing; it also bypassed the local WASM database. Browser mode now calls the shared `invoke('list_files')` router and checks the requested `FileNode.path`, using REST or the WASM DB worker as appropriate.
+- Marked `TASKS.md` P1-11 complete and added regressions for an existing path and a missing path when the list endpoint succeeds.
+- Verified locally: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, 53 frontend suites / 588 tests, `npm run build`, and `git diff --check`. The web build succeeds with the existing advisory about large chunks; no Rust changes, per `AGENTS.md`. Remote CI will be checked after push.

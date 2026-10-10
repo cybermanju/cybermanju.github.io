@@ -2786,8 +2786,8 @@ export function useTauri() {
   async function pathExists(path: string): Promise<boolean> {
     if (isWebMode()) {
       try {
-        await restFetch<unknown>('GET', `/api/files`)
-        return true
+        const files = await invoke<FileNode[]>('list_files', {})
+        return files.some((file) => file.path === path)
       } catch {
         return false
       }
