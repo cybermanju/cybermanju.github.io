@@ -145,7 +145,7 @@ export async function wasmArtifactOpen(bytes: Uint8Array, passphrase: string): P
 async function loadWasm(): Promise<typeof wasmModule> {
   if (wasmModule) return wasmModule
   if (!wasmLoad) {
-    wasmLoad = (async () => {
+    const pending = (async () => {
       const mod = (await import('cybermanju-os-wasm')) as unknown as WasmBackend & {
         default: () => Promise<void>
       }
@@ -153,6 +153,13 @@ async function loadWasm(): Promise<typeof wasmModule> {
       wasmModule = mod
       return mod
     })()
+    wasmLoad = pending
+    // A transient chunk/network or wasm-bindgen init failure should not poison
+    // this tab forever. Keep the rejection for current callers, but let the
+    // next interaction start a fresh load attempt.
+    void pending.catch(() => {
+      if (wasmLoad === pending) wasmLoad = null
+    })
   }
   return wasmLoad
 }
