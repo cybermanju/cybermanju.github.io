@@ -182,7 +182,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload WASM artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-wasm
           path: dist-wasm/
@@ -225,7 +225,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-windows
           path: |
@@ -286,7 +286,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload Linux artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-linux
           path: |
@@ -298,7 +298,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload Debian package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-linux-deb
           path: target/release/bundle/deb/*.deb
@@ -306,7 +306,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload RPM package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-linux-rpm
           path: target/release/bundle/rpm/*.rpm
@@ -330,7 +330,7 @@ jobs:
           path: rpm-out
 
       - name: Upload RPM artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-rpm
           path: rpm-out/*.rpm
@@ -371,7 +371,7 @@ jobs:
           flatpak build-bundle repo cybermanju-os.flatpak com.cybermanju.os
 
       - name: Upload Flatpak artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-flatpak
           path: cybermanju-os.flatpak
@@ -485,7 +485,7 @@ jobs:
           '
 
       - name: Upload Arch build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-arch
           path: dist-arch/
@@ -527,7 +527,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload macOS artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-macos
           path: |
@@ -716,7 +716,7 @@ jobs:
         run: bash scripts/android-signing.sh cleanup
 
       - name: Upload Android artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-android
           path: |
@@ -780,7 +780,7 @@ jobs:
         run: bash ../scripts/cyb-deb.sh "$(node -p "require('../package.json').version")" . dist-cli
 
       - name: Upload CLI artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-cli
           path: cli/dist-cli/
@@ -896,7 +896,7 @@ jobs:
           exit $missing
 
       - name: Re-upload Windows artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-windows
           path: artifacts/release-windows/
@@ -904,7 +904,7 @@ jobs:
           if-no-files-found: error
 
       - name: Re-upload Linux artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-linux
           path: artifacts/release-linux/
@@ -912,7 +912,7 @@ jobs:
           if-no-files-found: error
 
       - name: Re-upload Debian package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-linux-deb
           path: artifacts/release-linux-deb/
@@ -920,7 +920,7 @@ jobs:
           if-no-files-found: error
 
       - name: Re-upload RPM source package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-linux-rpm
           path: artifacts/release-linux-rpm/
@@ -928,7 +928,7 @@ jobs:
           if-no-files-found: error
 
       - name: Re-upload RPM artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-rpm
           path: artifacts/release-rpm/
@@ -936,7 +936,7 @@ jobs:
           if-no-files-found: error
 
       - name: Re-upload Flatpak artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-flatpak
           path: artifacts/release-flatpak/
@@ -944,7 +944,7 @@ jobs:
           if-no-files-found: error
 
       - name: Re-upload Arch artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-arch
           path: artifacts/release-arch/
@@ -952,7 +952,7 @@ jobs:
           if-no-files-found: error
 
       - name: Re-upload macOS artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-macos
           path: artifacts/release-macos/
@@ -960,7 +960,7 @@ jobs:
           if-no-files-found: error
 
       - name: Re-upload Android artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-android
           path: artifacts/release-android/
@@ -968,7 +968,7 @@ jobs:
           if-no-files-found: error
 
       - name: Re-upload CLI artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-cli
           path: artifacts/release-cli/
@@ -976,7 +976,7 @@ jobs:
           if-no-files-found: error
 
       - name: Re-upload WASM artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-wasm
           path: artifacts/dist-wasm/
