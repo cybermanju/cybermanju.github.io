@@ -13,6 +13,8 @@
       class="dock"
       @click.stop
       @contextmenu.prevent.stop="handleDockSurfaceContext"
+      @mouseenter="onDockEnter"
+      @mouseleave="onDockLeave"
     >
       <div
         v-for="app in pinnedApps"
@@ -39,6 +41,7 @@
         class="dock-item"
         :class="{ active: isWindowActive(win.id), 'minimized-item': win.minimized }"
         @click="handleOpenWindowClick(win.id)"
+        @contextmenu.prevent.stop="handleOpenWindowContext($event, win.id)"
       >
         <span class="dock-tip" aria-hidden="true">{{ win.title }}</span>
         <div class="dock-icon" :class="{ minimized: win.minimized }">
@@ -55,6 +58,7 @@
         class="dock-item"
         :class="{ active: isAppActive('trash') }"
         @click="handleDockClick('trash')"
+        @contextmenu.prevent.stop="handleDockContext($event, 'trash')"
       >
         <span class="dock-tip" aria-hidden="true">Trash</span>
         <div class="dock-icon">
@@ -82,6 +86,13 @@ const dock = useDock()
 
 const dockEl = ref<HTMLElement | null>(null)
 
+/** Auto-hide + menu-pin state (declared before emitDockMenu uses it). */
+const autohideShown = ref(false)
+const menuOpen = ref(false)
+let hideTimer: number | undefined
+
+const HIDE_DELAY_MS = 450
+
 /** One entry of the shell-rendered dock context menu (DesktopShell.vue). */
 interface DockMenuEntry {
   label: string
@@ -91,9 +102,22 @@ interface DockMenuEntry {
 }
 
 function emitDockMenu(x: number, y: number, items: DockMenuEntry[]) {
+  menuOpen.value = true
   window.dispatchEvent(new CustomEvent('cybermanju:dock-context', {
     detail: { x, y, items },
   }))
+}
+
+/** Shared dock-preference section: appended to every item menu. */
+function dockSettingsItems(): DockMenuEntry[] {
+  return [
+    { label: '', separator: true },
+    { label: 'Full width', checked: dock.layout.value === 'full', action: () => dock.setLayout('full') },
+    { label: 'Centered', checked: dock.layout.value === 'centered', action: () => dock.setLayout('centered') },
+    { label: '', separator: true },
+    { label: 'Fixed', checked: dock.visibility.value === 'fixed', action: () => dock.setVisibility('fixed') },
+    { label: 'Auto-hide', checked: dock.visibility.value === 'autohide', action: () => dock.setVisibility('autohide') },
+  ]
 }
 
 interface DockApp {
@@ -161,60 +185,122 @@ function handleDockClick(panelType: PanelType) {
 
 function handleDockContext(e: MouseEvent, panelType: PanelType) {
   const existing = wm.windows.value.find(w => w.panelType === panelType)
-  const items: DockMenuEntry[] = existing
+  const specific: DockMenuEntry[] = existing
     ? [
         { label: 'Focus', action: () => wm.focus(existing.id) },
         { label: 'Minimize', action: () => wm.minimize(existing.id) },
         { label: 'Close', action: () => wm.close(existing.id) },
       ]
     : [{ label: 'Open', action: () => wm.open(panelType) }]
-  emitDockMenu(e.clientX, e.clientY, items)
+  emitDockMenu(e.clientX, e.clientY, [...specific, ...dockSettingsItems()])
+}
+
+/** Right-click an open (unpinned/minimized) window icon: window actions + dock options. */
+function handleOpenWindowContext(e: MouseEvent, id: string) {
+  const win = wm.windows.value.find((w) => w.id === id)
+  if (!win) return
+  const specific: DockMenuEntry[] = win.minimized
+    ? [
+        { label: 'Restore', action: () => wm.restore(id) },
+        { label: 'Close', action: () => wm.close(id) },
+      ]
+    : [
+        { label: 'Focus', action: () => wm.focus(id) },
+        { label: 'Minimize', action: () => wm.minimize(id) },
+        { label: 'Close', action: () => wm.close(id) },
+      ]
+  emitDockMenu(e.clientX, e.clientY, [...specific, ...dockSettingsItems()])
 }
 
 /** Right-click the dock surface itself: layout + visibility sub-options. */
 function handleDockSurfaceContext(e: MouseEvent) {
-  emitDockMenu(e.clientX, e.clientY, [
-    { label: 'Full width', checked: dock.layout.value === 'full', action: () => dock.setLayout('full') },
-    { label: 'Centered', checked: dock.layout.value === 'centered', action: () => dock.setLayout('centered') },
-    { label: '', separator: true },
-    { label: 'Fixed', checked: dock.visibility.value === 'fixed', action: () => dock.setVisibility('fixed') },
-    { label: 'Auto-hide', checked: dock.visibility.value === 'autohide', action: () => dock.setVisibility('autohide') },
-  ])
+  emitDockMenu(e.clientX, e.clientY, dockSettingsItems().slice(1))
 }
 
-/** Auto-hide: the dock slides away until the pointer kisses the bottom edge. */
-const autohideShown = ref(false)
+/** Auto-hide: the dock slides away until the pointer kisses the bottom edge.
+ *  A short hide delay + an expanded grace zone keep it up while hovering:
+ *  moving from the screen edge onto the icons must not retreat mid-travel,
+ *  and an open context menu pins the dock until dismissed. */
+function cancelHide() {
+  if (hideTimer !== undefined) {
+    window.clearTimeout(hideTimer)
+    hideTimer = undefined
+  }
+}
+
+function scheduleHide() {
+  if (hideTimer !== undefined) return
+  hideTimer = window.setTimeout(() => {
+    hideTimer = undefined
+    if (!menuOpen.value) autohideShown.value = false
+  }, HIDE_DELAY_MS)
+}
+
+/** Pointer arrived on the dock surface itself — pin it open. */
+function onDockEnter() {
+  if (dock.visibility.value !== 'autohide') return
+  cancelHide()
+  autohideShown.value = true
+}
+
+/** Pointer left the dock — retreat after a grace delay (menu keeps it up). */
+function onDockLeave() {
+  if (dock.visibility.value !== 'autohide') return
+  if (menuOpen.value) return
+  scheduleHide()
+}
+
+function onMenuClosed() {
+  menuOpen.value = false
+  // If the pointer already left while the menu was open, retreat now.
+  if (dock.visibility.value !== 'autohide') return
+  const el = dockEl.value
+  if (el && el.matches(':hover')) return
+  scheduleHide()
+}
 
 function onAutohideMove(e: MouseEvent) {
   if (dock.visibility.value !== 'autohide') {
     autohideShown.value = false
     return
   }
-  if (autohideShown.value) {
-    const r = dockEl.value?.getBoundingClientRect()
-    const inside =
-      !!r &&
-      e.clientX >= r.left - 12 &&
-      e.clientX <= r.right + 12 &&
-      e.clientY >= r.top - 24 &&
-      e.clientY <= r.bottom + 16
-    // Stay up while hovered; retreat once the pointer leaves and rises.
-    if (!inside && e.clientY < window.innerHeight - 8) autohideShown.value = false
+  if (!autohideShown.value) {
+    if (e.clientY >= window.innerHeight - 6) {
+      cancelHide()
+      autohideShown.value = true
+    }
     return
   }
-  if (e.clientY >= window.innerHeight - 4) autohideShown.value = true
+  // Open menu pins the dock; a reveal just happened at the edge.
+  if (menuOpen.value) return
+  const inBottomStrip = e.clientY >= window.innerHeight - 72
+  const r = dockEl.value?.getBoundingClientRect()
+  const inside =
+    !!r &&
+    e.clientX >= r.left - 24 &&
+    e.clientX <= r.right + 24 &&
+    e.clientY >= r.top - 56 &&
+    e.clientY <= window.innerHeight + 24
+  if (inside || inBottomStrip) cancelHide()
+  else scheduleHide()
 }
 
 watch(() => dock.visibility.value, (v) => {
+  cancelHide()
   if (v !== 'autohide') autohideShown.value = false
 })
 
 onMounted(() => {
   window.addEventListener('mousemove', onAutohideMove, { passive: true })
+  document.addEventListener('click', onMenuClosed)
+  document.addEventListener('contextmenu', onMenuClosed)
 })
 
 onUnmounted(() => {
   window.removeEventListener('mousemove', onAutohideMove)
+  document.removeEventListener('click', onMenuClosed)
+  document.removeEventListener('contextmenu', onMenuClosed)
+  cancelHide()
 })
 </script>
 

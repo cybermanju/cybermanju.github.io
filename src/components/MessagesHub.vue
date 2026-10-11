@@ -27,6 +27,7 @@
 
           <p v-if="!hub.supported" class="msg-note">
             Stored chats and mails live in the native Android build. This device shows the CyberManju panels instead.
+            <button class="msg-btn" type="button" @click="openInstall">Install options</button>
           </p>
 
           <template v-else>
@@ -113,11 +114,13 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import { watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useAndroidApps } from '@/composables/useAndroidApps'
 import { useMessages } from '@/composables/useMessages'
+import { useNotifications, type NotificationType } from '@/composables/useNotifications'
 import { useLauncherStore } from '@/stores/launcher'
 import { useAppStore } from '@/stores/app'
+import { requestInstallWindow } from '@/utils/installLinks'
 import { launcherKeyForApp, formatMessageTime } from '@/utils/launcher'
 import type { AndroidApp } from '@/types'
 
@@ -125,9 +128,52 @@ const hub = useMessages()
 const browser = useAndroidApps()
 const launcher = useLauncherStore()
 const store = useAppStore()
+const sys = useNotifications()
+
+const tab = computed(() => launcher.centerTab)
+function setTab(t: 'system' | 'messages') {
+  launcher.centerTab = t
+  if (t === 'system') sys.markAllRead()
+}
+
+const sysHistory = computed(() => sys.history.value)
+const sysUnread = computed(() => sys.unreadCount.value)
+const totalUnread = computed(() => sysUnread.value + (hub.supported ? hub.unread.value : 0))
+
+const SYS_ICONS: Record<NotificationType, string> = {
+  success: 'solar:check-circle-bold',
+  error: 'solar:close-circle-bold',
+  warning: 'solar:danger-triangle-bold',
+  info: 'solar:info-circle-bold',
+}
+
+const SYS_TITLES: Record<NotificationType, string> = {
+  success: 'CyberManju OS',
+  error: 'CyberManju OS',
+  warning: 'CyberManju OS',
+  info: 'CyberManju OS',
+}
+
+function readRow(id: string) {
+  sys.markRead(id)
+}
+
+function markAll() {
+  sys.markAllRead()
+}
+
+function clearSystem() {
+  sys.clearHistory()
+  store.notifySuccess('System notifications cleared')
+}
 
 function close() {
   launcher.setMessagesOpen(false)
+}
+
+/** Open the Install window (native builds per platform, App × CLI). */
+function openInstall() {
+  requestInstallWindow('needs-app')
 }
 
 function socialName(app: AndroidApp): string {
@@ -178,7 +224,12 @@ async function enableAccess() {
 watch(
   () => launcher.messagesOpen,
   (open) => {
-    if (!open || !hub.supported) return
+    if (!open) return
+    // The badge is the "while you were away" digest: opening the center on
+    // the system tab marks it seen; the messages tab keeps its own refresh
+    // + markSeen flow below.
+    if (launcher.centerTab === 'system') sys.markAllRead()
+    if (!hub.supported) return
     void hub.refreshSocial().catch(() => {})
     void hub.refresh(true).then(() => hub.markSeen()).catch(() => {})
   },
@@ -247,6 +298,51 @@ watch(
   color: var(--ui-text-2);
   cursor: pointer;
 }
+.msg-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--ui-surface-2);
+}
+.msg-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ui-text-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.msg-tab.active {
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  box-shadow: var(--ui-shadow-1);
+}
+.msg-tab-badge {
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 18px;
+  text-align: center;
+}
+.msg-row-tile.sys-error { color: var(--ui-danger); }
+.msg-row-tile.sys-success { color: var(--ui-accent); }
+.msg-row-tile.sys-warning { color: var(--ui-warning); }
+.msg-row-tile.sys-info { color: var(--ui-info); }
 .msg-note {
   margin: 0;
   color: var(--ui-text-3);

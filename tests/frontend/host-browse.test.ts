@@ -1,18 +1,23 @@
 // CyberManju OS — Host browse.test (tests/frontend/host-browse.test.ts).
 // Host bridge: `/host` namespace math, shell quoting, `ls --json` mapping,
 // and the move-anything→anywhere matrix (with fake transports, no Tauri).
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  cpHost,
   destFromVmPath,
   hostAbsFromVm,
   hostEntriesToNodes,
   hostParentVm,
   isHostId,
   isHostPath,
+  listHostDir,
   moveAnywhere,
+  mvHost,
+  rmHost,
   shellQuote,
   sourceFromNode,
   vmForHost,
+  writeHostText,
   type MoveDeps,
   type MoveDest,
   type MoveSource,
@@ -129,6 +134,7 @@ describe('host namespace math', () => {
   it('quotes shell operands', () => {
     expect(shellQuote('/sdcard/a b')).toBe('"/sdcard/a b"')
     expect(shellQuote('say "hi"')).toBe('"say \\"hi\\""')
+    expect(shellQuote('C:\\Users\\A')).toBe('"C:\\\\Users\\\\A"')
   })
 
   it('maps ls --json entries to file rows with full paths', () => {
@@ -182,6 +188,62 @@ describe('source / destination descriptors', () => {
   })
 })
 
+describe('host browser transport and text safety', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps browser Web/REST host listings on the REST-backed runner', async () => {
+    vi.stubEnv('VITE_TRANSPORT', 'rest')
+    const run = vi.fn(async () => JSON.stringify({
+      entries: [{ path: '/Docs/note.txt', name: 'note.txt', kind: 'file', sizeBytes: 3, modifiedMs: 1, isDir: false }],
+    }))
+    const rows = await listHostDir('/host/Docs', run)
+    expect(run).toHaveBeenCalledWith('ls --json -os "/Docs"')
+    expect(rows[0]).toMatchObject({ id: 'host:/Docs/note.txt', path: '/host/Docs/note.txt' })
+  })
+
+  it('does not treat the WASM mount list as a move destination', () => {
+    vi.stubEnv('VITE_TRANSPORT', 'wasm')
+    expect(destFromVmPath('/host')).toBeNull()
+    expect(destFromVmPath('/host/')).toBeNull()
+    vi.stubEnv('VITE_TRANSPORT', 'rest')
+    expect(destFromVmPath('/host/')).toEqual({ kind: 'host', absDir: '/' })
+  })
+
+  it('refuses copying or moving a WASM mounted-folder root across namespaces', async () => {
+    vi.stubEnv('VITE_TRANSPORT', 'wasm')
+    const { deps, calls } = fakeDeps()
+    const mountedRoot: MoveSource = { kind: 'host', absPath: '/Docs', name: 'Docs', isDir: true }
+    await expect(moveAnywhere(mountedRoot, { kind: 'vault', vaultPath: '/' }, 'move', deps)).rejects.toThrow(/^invalid:/)
+    await expect(moveAnywhere(mountedRoot, { kind: 'provider', mountId: 'p', remoteDir: '' }, 'copy', deps)).rejects.toThrow(/^invalid:/)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('round-trips literal text and applies the 1 MiB limit in UTF-8 bytes', async () => {
+    vi.stubEnv('VITE_TRANSPORT', 'rest')
+    const run = vi.fn(async () => '')
+    const content = '  $HOME `literal` "quotes" \\\\ repeated  spaces  '
+    await writeHostText('/Docs/notes.txt', content, run)
+    expect(run).toHaveBeenCalledWith(`write -os ${shellQuote('/Docs/notes.txt')} ${shellQuote(content)}`)
+
+    const tooLarge = '😀'.repeat(262_145)
+    await expect(writeHostText('/Docs/large.txt', tooLarge, run)).rejects.toThrow(/^too_large:/)
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses deleting, copying or moving a host filesystem root', async () => {
+    const run = vi.fn(async () => '')
+    await expect(rmHost('/', true, run)).rejects.toThrow(/^invalid:/)
+    await expect(rmHost('C:\\', true, run)).rejects.toThrow(/^invalid:/)
+    await expect(rmHost('\\\\server\\share\\', true, run)).rejects.toThrow(/^invalid:/)
+    await expect(cpHost('/', '/tmp', true, run)).rejects.toThrow(/^invalid:/)
+    await expect(mvHost('C:/', '/tmp', run)).rejects.toThrow(/^invalid:/)
+    expect(run).not.toHaveBeenCalled()
+  })
+})
+
 describe('moveAnywhere matrix', () => {
   it('host → host file uses native verbs', async () => {
     const { deps, calls } = fakeDeps()
@@ -192,6 +254,24 @@ describe('moveAnywhere matrix', () => {
     const { deps: d2, calls: c2 } = fakeDeps()
     await moveAnywhere(src, { kind: 'host', absDir: '/sdcard/b' }, 'copy', d2)
     expect(c2.some((c) => c.kind === 'run' && String(c.args[0]).startsWith('cp -os'))).toBe(true)
+  })
+
+  it('refuses host-root sources and recursive self/descendant targets before I/O', async () => {
+    const { deps, calls } = fakeDeps()
+    const root: MoveSource = { kind: 'host', absPath: '/', name: '/', isDir: true }
+    await expect(moveAnywhere(root, { kind: 'vault', vaultPath: '/' }, 'move', deps)).rejects.toThrow(/^invalid:/)
+    const tree: MoveSource = { kind: 'host', absPath: '/sdcard/pics', name: 'pics', isDir: true }
+    await expect(moveAnywhere(tree, { kind: 'host', absDir: '/sdcard/pics/sub' }, 'move', deps)).rejects.toThrow(/^invalid:/)
+    await expect(moveAnywhere(tree, { kind: 'host', absDir: '/sdcard' }, 'copy', deps)).rejects.toThrow(/^invalid:/)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('joins a file destination at `/` without producing a double-slash path', async () => {
+    const { deps, calls } = fakeDeps()
+    const src: MoveSource = { kind: 'host', absPath: '/sdcard/a.txt', name: 'a.txt', isDir: false }
+    await moveAnywhere(src, { kind: 'host', absDir: '/' }, 'copy', deps)
+    expect(calls.some((call) => String(call.args[0]).includes('"/a.txt"'))).toBe(true)
+    expect(calls.some((call) => String(call.args[0]).includes('//a.txt'))).toBe(false)
   })
 
   it('vault → vault move re-parents by id (no bytes)', async () => {

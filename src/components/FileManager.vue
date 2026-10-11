@@ -233,7 +233,7 @@
           <button
             class="fm-srow"
             :class="{ active: isHostPathNow }"
-            title="Browse this device's files (sdcard on Android, your picked $HOME folder on web) — move anything between vault, providers and the device"
+            :title="isNative ? `Browse this device's files (sdcard on Android) — move anything between vault, providers and the device` : `Browse the added external folders — move anything between vault, providers and the device`"
             @click="openHostRoot"
           >
             <AppIcon name="solar:smartphone-bold" :size="14" />
@@ -252,20 +252,44 @@
           </button>
           <button
             class="fm-srow"
-            :title="isNative ? 'Pick any device folder to browse it here' : 'Pick your $HOME folder — its whole tree loads into the app here'"
+            :title="isNative ? 'Pick any device folder to browse it here' : 'Add an external folder — pick a SUBfolder (Chrome blocks $HOME and system roots): create e.g. Documents/CyberManju and pick it'"
             @click="pickHostFolder"
           >
             <AppIcon name="solar:folder-open-bold" :size="14" />
-            <span class="t">{{ isNative ? 'Pick folder…' : 'Pick $HOME…' }}</span>
+            <span class="t">{{ isNative ? 'Pick folder…' : 'Add folder…' }}</span>
           </button>
           <button
-            v-if="!isNative && hostWasmState !== 'ready'"
+            v-for="m in wasmMounts"
+            :key="m.id"
             class="fm-srow"
-            :title="hostWasmState === 'needs-permission' ? 'Re-allow the remembered folder (no re-pick)' : 'The picked folder needs permission after a reload'"
+            :class="{ active: store.currentPath === `/host/${m.label}` || store.currentPath.startsWith(`/host/${m.label}/`) }"
+            :title="m.status === 'ready' ? `Browse ${m.label} — right-click: unmount` : `${m.label} (${m.status}) — right-click: unmount, or Re-allow below`"
+            @click="openHostMount(m.label)"
+            @contextmenu.prevent.stop="hostMountMenu($event, m)"
+          >
+            <AppIcon name="solar:folder-bold" :size="14" />
+            <span class="t truncate">{{ m.label }}</span>
+            <span class="m mono">{{ m.status === 'ready' ? 'ext' : m.status }}</span>
+          </button>
+          <button
+            v-if="!isNative && hostWasmParked > 0"
+            class="fm-srow"
+            title="Re-allow the remembered folders (no re-pick)"
             @click="reallowHostWasm"
           >
             <AppIcon name="solar:key-bold" :size="14" />
-            <span class="t">Re-allow folder</span>
+            <span class="t">Re-allow ({{ hostWasmParked }})</span>
+          </button>
+        </div>
+        <div v-else class="fm-side-sec">
+          <div class="fm-side-h">DEVICE</div>
+          <button
+            class="fm-srow"
+            title="This browser cannot open device folders — see native install options (Android, Linux, Windows, Docker)"
+            @click="openInstall('host-unsupported')"
+          >
+            <AppIcon name="solar:download-bold" :size="14" />
+            <span class="t">Get device access…</span>
           </button>
         </div>
         <div class="fm-side-sec">
@@ -369,9 +393,11 @@
             <span class="dim">· device files — not vault yet</span>
           </span>
           <span class="fm-spacer" />
-          <button v-if="!isNative" class="fm-pill xs" title="Pick your $HOME folder — its whole tree loads into the app here" @click="pickHostFolder">Pick $HOME…</button>
-          <button v-if="!isNative && hostWasmState === 'needs-permission'" class="fm-pill xs ghost" title="Re-allow the remembered folder (no re-pick)" @click="reallowHostWasm">Re-allow</button>
+          <button v-if="!isNative" class="fm-pill xs" title="Add an external folder — pick a SUBfolder (Chrome blocks $HOME and system roots)" @click="pickHostFolder">Add folder…</button>
+          <button v-if="!isNative && hostMountLabel" class="fm-pill xs ghost" :title="`Remove '${hostMountLabel}' from Device files (files stay on disk)`" @click="unmountHostWasm(hostMountLabel, hostMountLabel)">Unmount</button>
+          <button v-if="!isNative && hostWasmParked > 0" class="fm-pill xs ghost" title="Re-allow the remembered folders (no re-pick)" @click="reallowHostWasm">Re-allow ({{ hostWasmParked }})</button>
           <button class="fm-pill xs" title="Import selected device files into the vault (.cybermanju)" :disabled="!selCount && !active" @click="() => saveHostSelToVault()">↓ Vault</button>
+          <button class="fm-pill xs" title="Save selected device files into the vault AND encrypt them there" :disabled="!selCount && !active" @click="() => vaultEncryptHostSel()">↓ Vault + Encrypt</button>
           <button class="fm-pill xs ghost" title="Move/copy to vault, provider or another device folder" :disabled="!active && !selCount" @click="openMoveTo(null)">⇄ Move</button>
           <button class="fm-pill xs ghost" title="Back to vault root (.cybermanju home)" @click="goHomeVault">Vault ⌂</button>
         </div>
@@ -915,6 +941,7 @@ import { useWindowUi } from '@/composables/useWindowUi'
 import { invoke, isTauri } from '@/composables/useTauri'
 import { destFromVmPath, hostAbsFromVm, isHostId, isHostPath, sourceFromNode } from '@/utils/hostBrowse'
 import { hostWasmSupported } from '@/utils/hostWasm'
+import { requestInstallWindow } from '@/utils/installLinks'
 import { humanBytes, diskPct } from '@/utils/format'
 import { trackShellCwd } from '@/utils/shellCwd'
 import { decodeProviderText, isTextEditableProviderName, MAX_PROVIDER_TEXT_BYTES } from '@/utils/providerText'
@@ -1316,9 +1343,12 @@ const providerScopeLabel = computed(() => {  const split = splitProviderPath(sto
 // ── device files: host filesystem browsed through cybsh `-os` ──────
 // Same tree as vault/providers (`/host…`), listed over the os_exec bridge
 // so desktop (IPC/REST) and Android (IPC) share every verb; bytes ride
-// plugin-fs. On WASM/static builds the same namespace is served by the
-// picked `$HOME` folder (File System Access API dialog — `hostWasm`), so
-// every verb below keeps working with zero per-callsite branching.
+// plugin-fs. On WASM/static builds the same namespace is served by ADDED
+// external folders (File System Access API dialog — `hostWasm`): Chromium
+// blocks the whole `$HOME` and the Documents/Downloads/Desktop roots
+// ("contains system files"), so users add SUBfolders (`/host` lists the
+// mounts, `/host/<Label>/…` is one picked tree). Every verb below keeps
+// working with zero per-callsite branching.
 const isNative = computed(() => {
   try {
     return isTauri()
@@ -1335,53 +1365,63 @@ const hasDevice = computed(() => {
     return false
   }
 })
-// Remembered `$HOME` handle state on web (`ready` / `needs-permission` /
-// `missing` / `unsupported`) + its display name for the banner.
+// Added external folders on web (mount registry state for sidebar/banner).
 const hostWasmState = ref('')
 const hostWasmName = ref('')
+const hostWasmParked = ref(0)
+const wasmMounts = ref<{ id: string; label: string; status: string }[]>([])
 async function refreshHostWasmMeta() {
   if (isNative.value) {
     hostWasmState.value = ''
     hostWasmName.value = ''
+    hostWasmParked.value = 0
+    wasmMounts.value = []
     return
   }
   try {
-    const { hostWasmStatus, hostWasmRootName } = await import('@/utils/hostWasm')
+    const { listHostWasmMounts, hostWasmStatus } = await import('@/utils/hostWasm')
+    const mounts = await listHostWasmMounts().catch(() => [])
+    wasmMounts.value = mounts
     const st = await hostWasmStatus().catch(() => null)
-    hostWasmState.value = st?.status ?? ''
-    hostWasmName.value = await hostWasmRootName().catch(() => '')
+    hostWasmState.value = st?.status ?? (mounts.length ? 'ready' : 'missing')
+    hostWasmParked.value = st?.parked ?? mounts.filter((m) => m.status !== 'ready').length
+    hostWasmName.value = mounts.length ? `${mounts.length} folder(s)` : ''
   } catch {
     hostWasmState.value = ''
     hostWasmName.value = ''
+    hostWasmParked.value = 0
+    wasmMounts.value = []
   }
 }
 const isHostPathNow = computed(() => isHostPath(store.currentPath))
 const hostAbsNow = computed(() => hostAbsFromVm(store.currentPath))
+/** Mount label behind the current listing (`/host/Docs/a` → `Docs`). */
+const hostMountLabel = computed(() => {
+  if (isNative.value) return ''
+  const m = /^\/([^/]+)/.exec(hostAbsNow.value || '')
+  return m ? m[1] : ''
+})
 async function openHostRoot() {
   if (!isNative.value) {
-    // Web: the picked `$HOME` folder is the host. Re-allow after a reload
-    // when parked, pick when nothing is remembered yet (still the same
-    // click gesture the picker requires), else just browse.
+    // Web: added external folders are the host. When none is added yet,
+    // pick one now (still the same click gesture the picker requires) —
+    // guiding to a SUBfolder, since Chrome blocks `$HOME`/system roots.
     try {
-      const { hostWasmStatus, hostWasmReallow, pickHostWasmDir } = await import('@/utils/hostWasm')
-      const st = await hostWasmStatus().catch(() => null)
-      if (st?.status === 'needs-permission') {
-        const ok = await hostWasmReallow()
-        if (!ok) {
-          store.notifyError('Home folder is parked', 'press Re-allow and grant access to browse it')
-          await refreshHostWasmMeta()
-          return
-        }
-      } else if (st?.status === 'missing' || st?.status === 'unsupported') {
-        if (st?.status === 'unsupported') {
-          store.notifyError('Device files need the app', 'this browser has no folder picker — open this vault in the desktop app or Chrome/Edge over HTTPS')
-          return
-        }
+      const { listHostWasmMounts, pickHostWasmDir, isPickerCancel } = await import('@/utils/hostWasm')
+      const mounts = await listHostWasmMounts().catch(() => [])
+      if (!mounts.length) {
+        store.notifySuccess('Pick a SUBfolder (e.g. create CyberManju inside Documents) — Chrome blocks the whole $HOME and system folders')
         try {
           const picked = await pickHostWasmDir()
-          store.notifySuccess(`Home folder '${picked.name}' loaded — its files are browsable here`)
+          clearDiskScope(true)
+          store.selectFile(null)
+          await navTo(`/host/${picked.label}`)
+          await refreshHostWasmMeta()
+          store.notifySuccess(`'${picked.name}' added — browse it under Device files`)
+          return
         } catch (e) {
-          store.notifyError('Cannot pick a home folder', e)
+          if (isPickerCancel(e)) return // dismissed — stay silent
+          store.notifyError('Cannot add folder', e)
           return
         }
       }
@@ -1401,7 +1441,7 @@ async function openHostRoot() {
 }
 function openHostFsRoot() {
   if (!isNative.value) {
-    // No filesystem root in a browser tab — the picked folder is the root.
+    // No filesystem root in a browser tab — the folders list is the root.
     void openHostRoot()
     return
   }
@@ -1409,19 +1449,53 @@ function openHostFsRoot() {
   store.selectFile(null)
   void navTo('/host/')
 }
+/** Browse one added folder. */
+function openHostMount(label: string) {
+  clearDiskScope(true)
+  store.selectFile(null)
+  void navTo(`/host/${label}`)
+}
+function hostMountMenu(e: MouseEvent, m: { id: string; label: string }) {
+  ctx.replaceEntries('fm_host_mount', [
+    { id: 'open', label: 'OPEN FOLDER', icon: 'solar:folder-open-bold', action: () => openHostMount(m.label) },
+    { id: 'unmount', label: 'UNMOUNT (KEEP FILES)', icon: 'solar:minus-circle-bold', action: () => void unmountHostWasm(m.id, m.label) },
+  ])
+  ctx.open(e, 'fm_host_mount')
+}
+/** Forget one added folder (bytes stay on disk — unmount, never delete). */
+async function unmountHostWasm(idOrLabel: string, label: string) {
+  if (!window.confirm(`Remove '${label}' from Device files? The files stay on disk.`)) return
+  try {
+    const { removeHostWasmMount } = await import('@/utils/hostWasm')
+    await removeHostWasmMount(idOrLabel)
+    await refreshHostWasmMeta()
+    if (store.currentPath === `/host/${label}` || store.currentPath.startsWith(`/host/${label}/`)) {
+      await navTo('/host')
+    } else {
+      await store.fetchFiles(store.currentPath)
+    }
+    store.notifySuccess(`'${label}' removed — files stay on disk`)
+  } catch (e) {
+    store.notifyError('Cannot remove folder', e)
+  }
+}
 async function pickHostFolder() {
   if (!isNative.value) {
-    // Dialog browser API: the whole `$HOME` tree loads behind `/host`.
+    // Dialog browser API: one external SUBfolder per pick (Chrome blocks
+    // `$HOME`/system roots) — each lands as `/host/<Label>`.
+    const { pickHostWasmDir, isPickerCancel } = await import('@/utils/hostWasm')
     try {
-      const { pickHostWasmDir } = await import('@/utils/hostWasm')
       const picked = await pickHostWasmDir()
       clearDiskScope(true)
       store.selectFile(null)
-      await navTo('/host')
+      await navTo(`/host/${picked.label}`)
       await refreshHostWasmMeta()
-      store.notifySuccess(`Home folder '${picked.name}' loaded — its files are browsable here`)
+      store.notifySuccess(`'${picked.name}' added — browse it under Device files`)
     } catch (e) {
-      store.notifyError('Cannot pick a home folder', e)
+      if (isPickerCancel(e)) return // dismissed — stay silent
+      // The central notifyError net opens the Install window when the
+      // failure is a missing folder picker; anything else stays a toast.
+      store.notifyError('Cannot add folder', e)
     }
     return
   }
@@ -1438,20 +1512,24 @@ async function pickHostFolder() {
     store.notifyError('Cannot pick a device folder', e)
   }
 }
-/** User-gesture re-grant for the parked `$HOME` handle, then re-list. */
+/** Open the Install window (native builds per platform, App × CLI). */
+function openInstall(reason = 'host-unsupported') {
+  requestInstallWindow(reason)
+}
+/** User-gesture re-grant for parked folders, then re-list. */
 async function reallowHostWasm() {
   try {
     const { hostWasmReallow } = await import('@/utils/hostWasm')
     const ok = await hostWasmReallow()
     await refreshHostWasmMeta()
     if (ok) {
-      store.notifySuccess('Home folder re-allowed')
+      store.notifySuccess('Folders re-allowed')
       await store.fetchFiles(store.currentPath)
     } else {
-      store.notifyError('Home folder stays parked', 'grant access to browse it')
+      store.notifyError('Folders stay parked', 'grant access to browse them')
     }
   } catch (e) {
-    store.notifyError('Cannot re-allow the home folder', e)
+    store.notifyError('Cannot re-allow the folders', e)
   }
 }
 /** Absolute host dir behind the current listing (`/host` → `pwd -os`). */
@@ -1748,6 +1826,7 @@ function fileMenu(e: MouseEvent, f: FileNode) {
       ...(isHostTextFile(f) ? [{ id: 'edit-host', label: 'EDIT TEXT · SAVE TO DEVICE', icon: 'solar:pen-bold', action: () => void openHostEditor(f) }] : []),
       { id: 'move', label: 'MOVE / COPY TO…', icon: 'solar:transfer-horizontal-bold', action: () => openMoveTo(f) },
       { id: 'save', label: 'SAVE TO VAULT ↓', icon: 'solar:download-bold', action: () => void saveHostSelToVault([f]) },
+      ...(f.fileType === 'file' ? [{ id: 'vaultenc', label: 'SAVE TO VAULT + ENCRYPT', icon: 'solar:lock-bold', action: () => void vaultEncryptHostSel([f]) }] : []),
       { id: 'div0', label: '', divider: true },
       { id: 'star', label: f.isStarred ? 'UNSTAR' : 'STAR', icon: 'solar:star-bold', action: () => store.toggleStar(f.id) },
       { id: 'rename', label: 'RENAME', icon: 'solar:pen-bold', action: () => beginRename(f) },
@@ -1817,7 +1896,8 @@ async function pasteHere() {
   const { destFromVmPath, liveMoveDeps, moveAnywhere, resolveHostDir } = await import('@/utils/hostBrowse')
   let dest = destFromVmPath(store.currentPath)
   if (!dest && isHostPath(store.currentPath)) {
-    // `/host` carries no absolute — resolve the `-os` default dir first.
+    // Native `/host` carries no absolute — resolve the `-os` default dir;
+    // the web folders list (`/host` with no mount) refuses honestly here.
     try {
       dest = { kind: 'host', absDir: await resolveHostDir(store.currentPath) }
     } catch (e) {
@@ -1834,6 +1914,7 @@ async function pasteHere() {
   for (const f of nodes) {
     const src = sourceFromNode(f, store.currentPath)
     if (!src) continue
+    if (op === 'move' && isMountRootMove(src)) continue
     try {
       await moveAnywhere(src, dest, op, deps)
       ok++
@@ -1894,6 +1975,14 @@ async function doMkdir() {
   if (!dlgFolderName.value.trim()) return
   const name = dlgFolderName.value.trim().replace(/[/\\]+/g, '_')
   if (isHostPathNow.value) {
+    // Web folders list (`/host` with no mount behind it) takes no folders —
+    // mounts arrive through the picker, subfolders inside a mount.
+    if (!isNative.value && !hostAbsNow.value) {
+      store.notifyError('Pick a folder first', 'use Add folder… to add an external folder, then create folders inside it')
+      dlgFolderName.value = ''
+      dlgFolder.value = false
+      return
+    }
     try {
       const base = hostAbsNow.value || await currentHostDir()
       const { mkdirHost } = await import('@/utils/hostBrowse')
@@ -2058,6 +2147,11 @@ async function uploadDroppedFiles(files: File[] | null) {
     return
   }
   if (isHostPathNow.value) {
+    // Web folders list takes no files — mounts arrive through the picker.
+    if (!isNative.value && !hostAbsNow.value) {
+      store.notifyError('Pick a folder first', 'use Add folder… to add an external folder, then drop files inside it')
+      return
+    }
     try {
       const base = hostAbsNow.value || await currentHostDir()
       const { writeHostBytes } = await import('@/utils/hostBrowse')
@@ -2103,6 +2197,11 @@ async function onFilesPicked(e: Event) {
       } catch (err) { store.notifyError(`Upload failed: ${f.name}`, err) }
     }
   } else if (isHostPathNow.value) {
+    if (!isNative.value && !hostAbsNow.value) {
+      store.notifyError('Pick a folder first', 'use Add folder… to add an external folder, then upload inside it')
+      input.value = ''
+      return
+    }
     try {
       const base = hostAbsNow.value || await currentHostDir()
       const { writeHostBytes } = await import('@/utils/hostBrowse')
@@ -2419,6 +2518,7 @@ async function doMoveTo() {
     for (const f of dlg.nodes) {
       const src = sourceFromNode(f, store.currentPath)
       if (!src) continue
+      if (dlgMoveOp.value === 'move' && isMountRootMove(src)) continue
       try {
         await moveAnywhere(src, dest, dlgMoveOp.value, deps)
         ok++
@@ -2430,9 +2530,26 @@ async function doMoveTo() {
     clearSel()
     await store.fetchFiles(store.currentPath)
     if (ok) store.notifySuccess(dlgMoveOp.value === 'move' ? `Moved ${ok} item(s) (verified)` : `Copied ${ok} item(s)`)
+  } catch (e) {
+    store.notifyError('Cannot move here', e)
   } finally {
     moveWorking.value = false
   }
+}
+/**
+ * Mounted web folders (`host:/Label`) copy fine but never MOVE (the
+ * cleanup would wipe a whole picked tree — mounts unmount instead).
+ * True when the move must be refused up-front (with its own toast).
+ */
+function isMountRootMove(src: { kind: string; absPath?: string; name?: string }): boolean {
+  if (isNative.value || src.kind !== 'host') return false
+  const abs = String(src.absPath ?? '')
+  if (!/^\/[^/]+$/.test(abs)) return false
+  store.notifyError(
+    `Move failed: ${src.name || abs}`,
+    'mounted folders copy — move the files inside instead (or unmount it)',
+  )
+  return true
 }
 /** Device selection → vault root (the ⇄ shortcut beside every host row). */
 async function saveHostSelToVault(nodes?: FileNode[]) {
@@ -2461,6 +2578,74 @@ async function saveHostSelToVault(nodes?: FileNode[]) {
   if (n) {
     await navTo('/')
     store.notifySuccess(`Saved ${n} file(s) to the vault`)
+  }
+}
+/**
+ * Upload bytes and return the vault node on every transport. Tauri answers
+ * `UploadResult.file_node`, the WASM pack answers the node itself; REST has
+ * no byte-upload endpoint, so text falls back through `os_write` and the
+ * row is located by name (newest first) — binary refuses honestly there.
+ */
+async function uploadBytesNode(fileName: string, bytes: Uint8Array, parentPath = '/'): Promise<FileNode> {
+  const clean = String(fileName || 'file').replace(/[\\/]+/g, '_')
+  const parent = parentPath || '/'
+  try {
+    const res = await invoke<unknown>('upload_file', { fileName: clean, fileData: Array.from(bytes), parentPath: parent })
+    const node = (res && typeof res === 'object' && 'file_node' in (res as Record<string, unknown>)
+      ? (res as Record<string, unknown>).file_node
+      : res) as FileNode | undefined
+    if (node && node.id) return node
+    throw new Error('integrity: upload returned no node — retry')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (!/Web Mode|WASM Mode|not supported|dashboard|network:/i.test(msg)) throw e
+    await vaultWriteBytes(clean, bytes, parent)
+    const rows = await invoke<FileNode[]>('list_files', { parentPath: parent })
+    const hits = rows
+      .filter((r) => r.name === clean)
+      .sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime())
+    if (!hits[0]) throw new Error('integrity: saved but the vault row is not visible — encrypt it from the vault')
+    return hits[0]
+  }
+}
+/**
+ * Device files → vault AND encrypted there (the crypto pipeline is
+ * vault-row based: keys, versions and shares only exist in the vault).
+ * Files only — folders save plain first, then encrypt file-by-file inside.
+ */
+async function vaultEncryptHostSel(nodes?: FileNode[]) {
+  const list = nodes?.length
+    ? nodes
+    : store.files.filter((x) => store.selectedFileIds.includes(x.id))
+  const picked = list.length ? list : (active.value ? [active.value] : [])
+  if (!picked.length) {
+    store.notifyError('Nothing to encrypt', 'select a device file first')
+    return
+  }
+  const dirs = picked.filter((f) => f.fileType === 'folder').length
+  if (dirs) {
+    store.notifyError(
+      `Skipped ${dirs} folder(s)`,
+      'folders save plain first (↓ Vault) — then encrypt their files inside the vault',
+    )
+  }
+  let ok = 0
+  for (const f of picked) {
+    if (!isHostId(f.id) || f.fileType === 'folder') continue
+    try {
+      const { readHostBytes } = await import('@/utils/hostBrowse')
+      const bytes = await readHostBytes(f.id.slice('host:'.length))
+      const node = await uploadBytesNode(f.name, bytes, '/')
+      await store.encryptFile(node.id, 'hybrid')
+      ok++
+    } catch (e) {
+      store.notifyError(`Encrypt failed: ${f.name}`, e)
+    }
+  }
+  clearSel()
+  if (ok) {
+    await navTo('/')
+    store.notifySuccess(`Saved + encrypted ${ok} file(s) in the vault`)
   }
 }
 function onTab(t: string) {

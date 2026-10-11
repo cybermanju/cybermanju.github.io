@@ -173,7 +173,9 @@
         <template v-if="prov.backendType === 'local'">
           <p class="msw-hint">Android opens the system folder picker. Access remains limited to the folder you choose.</p>
           <button class="msw-btn big" type="button" :disabled="provBusy || folderBusy" @click="chooseLocalFolder">{{ folderBusy ? 'Opening picker…' : selectedFolder ? `Selected: ${selectedFolder.name}` : 'Choose a folder' }}</button>
-          <p v-if="!scopedFolderAvailable" class="msw-hint">Persistent folder access is available in the native Android/iOS app, not a mobile browser tab.</p>
+          <p v-if="!scopedFolderAvailable" class="msw-hint">Persistent folder access is available in the native Android/iOS app, not a mobile browser tab.
+            <button class="msw-link" type="button" @click="openInstall">Install options</button>
+          </p>
           <div v-if="selectedFolder" class="msw-mirror-setup">
             <p class="msw-hint">Create a live mirror in this folder. The <code>.cybermanju</code> file uses the web-compatible ChaCha20-Poly1305 + PBKDF2 format, not ML-KEM. The passphrase is never saved by the app.</p>
             <label class="msw-field"><span>Live Sync file name</span>
@@ -198,7 +200,9 @@
         <div class="msw-row">
           <button class="msw-btn primary big" type="button" :disabled="provBusy" @click="saveProvider">{{ provBusy ? 'Saving…' : 'Save provider' }}</button>
         </div>
-        <p v-if="provMsg" class="msw-note" :class="provOk === false ? 'err' : 'ok'">{{ provMsg }}</p>
+        <p v-if="provMsg" class="msw-note" :class="provOk === false ? 'err' : 'ok'">{{ provMsg }}
+          <button v-if="provMsgNeedsApp" class="msw-link" type="button" @click="openInstall">Install options</button>
+        </p>
         <ul v-if="providerCount" class="msw-provs">
           <li v-for="c in store.syncConfigs" :key="c.id"><strong>{{ c.name || c.backendType }}</strong> <span class="muted">{{ c.backendType }}</span></li>
           <li v-for="mount in localFolderMounts" :key="mount.id"><strong>{{ mount.name }}</strong> <span class="muted">Phone folder · Files</span></li>
@@ -367,6 +371,7 @@ import {
   type VaultPartitionDraft,
 } from '@/utils/setupWizard'
 import { backendLabel, syncConfigDefaults } from '@/utils/providers'
+import { requestInstallWindow } from '@/utils/installLinks'
 import { useTheme } from '@/composables/useTheme'
 import { useCustomWallpaper } from '@/composables/useCustomWallpaper'
 import { THEMES, WALLPAPERS, type ThemeId } from '@/ui/tokens'
@@ -655,6 +660,12 @@ const mirrorFileName = ref('cybermanju-vault.cybermanju')
 const mirrorPassphrase = ref('')
 const mirrorPassphraseConfirm = ref('')
 const scopedFolderAvailable = supportsNativeScopedStorage()
+/** The provider message is a native-app refusal — offer the installer. */
+const provMsgNeedsApp = computed(() => /native android or ios app/i.test(provMsg.value || ''))
+/** Open the Install window (native builds per platform, App × CLI). */
+function openInstall() {
+  requestInstallWindow('needs-app')
+}
 const localFolderMounts = ref<ProviderMount[]>([])
 const providerCount = computed(() => store.syncConfigs.length + localFolderMounts.value.length)
 const matchingSessionToken = computed(() => {
@@ -674,6 +685,8 @@ async function chooseLocalFolder() {
   if (!scopedFolderAvailable) {
     provMsg.value = 'Choose a folder from the native Android or iOS app to grant persistent access.'
     provOk.value = false
+    // Native-app-only capability in a browser tab — open install options.
+    requestInstallWindow('needs-app')
     return
   }
   folderBusy.value = true

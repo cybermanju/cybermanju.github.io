@@ -1306,15 +1306,100 @@ Stage Summary:
   `#[tauri::command(async)]` conversions + the release LTO profile compile
   and pass on every target.
 
-
 ## 2026-10-11 — Final main sync and pre-push verification
 - Integrated `origin/main` through `3fa0c67`; this latest commit is documentation-only and adds the main-side wiki/CI worklog entries. The append-only conflict was resolved by preserving both histories. Main code remains at `3caa6a3`.
 - CI run `38163841181` for `3caa6a3` completed successfully with all 14 jobs green, including Rust Lint & Test, WASM, CLI, and GitHub Pages deployment. Final local checks also passed: version consistency, 475 headers, `vue-tsc`, 65 frontend files / 716 tests, wiki build at `/develop/`, and whitespace checks. No Cargo commands were run locally.
 - The final fetch showed `origin/main` at `3fa0c67`, `origin/develop` unchanged at `dda9b2e`, and local develop 15 commits ahead / 0 behind with main as an ancestor. No force-push, release, or change to `main` was made.
 
+## 2026-10-11 — Pages toast `Table 'schedules' does not exist`: wasm `open_all_tables` lagged native
+- Root cause: `crates/os-wasm/src/db.rs::open_all_tables` created 32 of the
+  37 tables — missing `schedules`, `schedule_runs`, `agent_configs`,
+  `agent_sessions`, `agent_memories` (native `Database::new` creates all of
+  them on every open). A read txn errors `Table '<name>' does not exist` for
+  any skipped table, so on the static host `cron.list` failed on every fresh
+  browser DB and the store toasted `Failed to fetch schedules` on init, the
+  Schedules tab, and the 30 s browser tick. Writes (`cron.save`, `runRecord`)
+  masked it — write txns create-on-open — so the bug only showed pre-first-save.
+- Fix: the 5 missing `open_table` calls (same pattern as the neighbors, plus
+  a lockstep comment pointing at `crates/db/src/database.rs` so the list
+  can't silently drift again) + `open_tables_tests` regression test in the
+  same file (in-memory backend, asserts the cron + agent tables open for
+  read after `open_all_tables`). Rust validation left to CI per repo rules.
+- Verified: check-version.sh green, check-file-headers.sh 475/475, vitest
+  62 files / 715 tests green.
+- 2026-10-11 — WASM Host folders + Install window: `/host` browses the
+  picked `$HOME` folder on static builds (File System Access dialog,
+  `src/utils/hostWasm.ts`, same namespace/ids as Tauri; `hostBrowse`
+  delegates per-verb, store + FileManager unchanged in shape). Browsers
+  without a picker (`unsupported:`) now open a center-screen Install window
+  (`InstallPanel.vue`, PanelType `install`) with per-platform logos and
+  direct links — Android APK/AAB, Ubuntu deb/AppImage/rpm/Flatpak, Arch
+  AUR/AppImage, Windows MSI/EXE, macOS DMG, Docker/GHCR — each App x CLI
+  with copyable commands and live GitHub-release asset resolution
+  (`src/utils/installLinks.ts`, release-page fallback). Triggered from
+  FileManager + store via `cybermanju:open-install` (App.vue opens it).
+  715 frontend tests green (incl. new `install-links`), vue-tsc + icons +
+  headers + versions green.
+- 2026-10-11 — Install window on every native-build `unsupported`: central
+  net in `notifyError` (`isInstallNeededError` + `installReasonFor` in
+  `src/utils/installLinks.ts`) opens the Install window for picker /
+  desktop-app / dashboard wordings — present and future toast sites alike —
+  while provider-shaped `unsupported:` (bad repo/path/layer, locked vault)
+  stays a plain toast (unit-tested both sides). Inline `Install options`
+  affordances added everywhere the state shows without a toast: FileManager
+  DEVICE row when no picker exists, SetupWizard one-folder fallback,
+  ShieldPanel web-locked notes, MobileSetupWizard scoped-storage hints +
+  refusal, AccountManager local-picker hints + refusals, MessagesHub and
+  AppDrawer Android notes. Terminal/agent transcripts stay text-only
+  (command results must not pop windows). 718 frontend tests green,
+  typecheck + headers + versions green.
+- 2026-10-11 — CI build-time optimization (A–J): shared `linux-workspace`
+  rust-cache key across rust-check/linux/wasm + `save-if` main/develop-only
+  (kills ~3x700 MB duplication and per-PR cache churn); Android SDK/NDK +
+  Gradle caches (longest job); Arch job gets rust-cache + npm cache
+  (was full rebuild from zero); dropped duplicate `cargo check` before
+  `wasm-pack build` (ci/release/GitLab); `rust-toolchain.toml` declares
+  channel + targets (all `rustup target add` steps removed); apt caching via
+  pinned cache-apt-pkgs-action; Docker GHA cache scoped + Dockerfile npm
+  cache-mount with `npm ci`; sibling Pages branch reuses last green
+  `dist-wasm` artifact (SHA-guarded, rebuild fallback); rpm-build folded
+  into linux-build (was a rename-only job); release build jobs no longer
+  wait on rust-check (create-release still gates); PRs build Tauri
+  `--debug`, release profile on pushes/releases. Local: versions + headers
+  + vue-tsc + 718 vitest green, both workflows YAML-parse.
+
+## 2026-10-11 — Notification center (ANALYSIS §3) + mobile hub integration
+- `useNotifications` now persists every toast into a per-device history
+  (localStorage `cybermanju.notifications.history.v1`, cap 100, sanitized
+  restore): `history`, `unreadCount`, `markRead/markAllRead`,
+  `removeFromHistory/clearHistory`. Toast auto-dismiss never drops rows.
+- `MessagesHub` is now the Notification Center: `System` tab (history with
+  unread dots, relative time, mark-all-read/clear) + `Messages` tab (existing
+  Android stored-message hub untouched). Launcher store gains `centerTab`;
+  `setMessagesOpen(open, tab?)` stays backward compatible; opening on the
+  system tab marks it seen (the "while you were away" digest).
+- Entry points: TopMenuBar bell (always visible, unread badge; messages button
+  stays Android-only and lands on its tab), MobileLauncher bell (same),
+  PlasmaPanel tray bell (opens the center; dead live-list popover removed),
+  CommandPalette "Open Notification Center". `ui_notify` agent tool and all
+  store/scheduler notifies land in history with zero call-site changes.
+- Verified: `check-version.sh` + `check-file-headers.sh` ok, `npm run
+  typecheck` clean, full `npm test` 65 files / 754 green (new
+  `tests/frontend/notification-center.test.ts` 7/7). Rust untouched; no local
+  cargo per repo rules. Note: a concurrent session reverted
+  `useNotifications.ts` + `stores/launcher.ts` mid-pass; re-applied and
+  re-verified on disk before testing.
 
 ## 2026-10-11 — Block main CLI/WASM interaction integration pending safety fixes
 - Integrated `origin/main` through `b90a6a5` locally on `develop` without code conflicts; did not push. At the last fetch, remote `develop` remained at `3b93d97` and the local branch had three main-integration commits ahead. `main` was not modified.
 - Local checks passed: version consistency, 477 file headers, `vue-tsc`, 66 frontend files / 722 tests, WASM frontend build with `VITE_BASE=/develop/`, wiki build, and diff checks. The local frontend build correctly warned that the generated Rust WASM package is stale and therefore used the repository stub; no Cargo was run.
 - Review identified promotion blockers in the new host interaction feature: **high** — `src/utils/hostBrowse.ts:43-49` classifies every non-Tauri browser as WASM, breaking Web/REST host browsing; `src/utils/hostBrowse.ts:530-539` strips `/host`'s root destination to an empty string; `src/utils/hostWasm.ts:272-335` can recursively copy a directory into itself/its descendant and then delete the source on move. **Medium** — `src/utils/hostWasm.ts:405-467` reconstructs `write` arguments and can silently lose spacing/leading-hyphen filenames; `src/utils/hostWasm.ts:264-269` checks UTF-16 string length rather than encoded UTF-8 bytes.
 - The CI run for main's feature commit `24c3995` (`38165915833`) and the earlier develop run for `3b93d97` (`38165713593`) were cancelled; no green CI validates the new feature. Keep the integration local until these risks are resolved and CI succeeds; no deploy of this integration occurred.
+
+
+## 2026-10-11 — Host filesystem safety before promotion
+- Integrated `origin/main` through `3c2b66c` locally on `develop`, preserving the main-side multi-mount implementation and all existing develop fixes. During final validation, main advanced again to `3aa6066`; that follow-up is being incorporated separately before any push.
+- Closed P1-21: host browsing now selects WASM from `useTransport()` so REST dashboards stay on REST; filesystem roots, WASM mount-root sources, traversal paths and self/descendant copy/move targets are refused. WASM copies compare every byte after writing, and a move deletes its source only after verification succeeds.
+- Host text writes now quote the path and content as separate shell operands and enforce the 1 MiB ceiling on encoded UTF-8 bytes. The WASM shim preserves empty/quoted/backslash content and leading-hyphen operands. Added regressions for REST routing, roots, traversal, recursion, same-length corruption (including move-source preservation), quoting, empty text, and multibyte size limits.
+- The integrated shell tokenizer had one redundant `quote !== 'single'` comparison rejected by TypeScript narrowing; removed that redundant condition without changing parsing behavior.
+- Verified on this tree: version check, file headers (487 files), `vue-tsc`, 70 frontend files / 781 tests, WASM frontend build at `/develop/`, wiki build at `/develop/`, and staged/unstaged diff checks all passed. The WASM frontend build used the repository stub because the generated Rust WASM package is stale; no Cargo was run, per `AGENTS.md`. Rust/CI validation remains required after syncing the latest main.

@@ -74,6 +74,8 @@ redb = "2"
 # Auth & crypto (additional)
 argon2 = "0.5"
 jsonwebtoken = "9"
+# hmac stays 0.12: commands/users.rs instantiates Hmac<Sha256> from sha2
+# 0.10 (digest 0.10); hmac 0.13 (digest 0.11) breaks it (CI 2026-10-11).
 hmac = "0.12"
 sha2 = "0.10"
 
@@ -100,7 +102,7 @@ tree-sitter-python = { version = "0.23", optional = true }
 tree-sitter-javascript = { version = "0.23", optional = true }
 tree-sitter-typescript = { version = "0.23", optional = true }
 tree-sitter-go = { version = "0.23", optional = true }
-tree-sitter-bash = { version = "0.23", optional = true }
+tree-sitter-bash = { version = "0.25", optional = true }
 
 # ─── Platform-gated extras (LAST table in this file) ────────────────
 # This `[target.*.dependencies]` table MUST stay after every

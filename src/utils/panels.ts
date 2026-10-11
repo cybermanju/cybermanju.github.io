@@ -14,9 +14,14 @@ export const PANEL_ALIASES: Partial<Record<PanelType, PanelType>> = {
   storage: 'disks',
   compression: 'encryption',
   users: 'accounts',
-  favorites: 'collections',
-  'loose-groups': 'collections',
-  style: 'collections',
+  // Merged omni-search: FACES + COLLECTIONS + SEARCH are one window now —
+  // the old ids (and the organize-tab aliases) resolve to `search` so every
+  // shortcut, palette entry and menu item lands on the unified surface.
+  faces: 'search',
+  collections: 'search',
+  favorites: 'search',
+  'loose-groups': 'search',
+  style: 'search',
   preview: 'files',
   cron: 'processes',
   automation: 'processes',
@@ -33,9 +38,9 @@ export const ALIAS_TAB_PROPS: Partial<Record<PanelType, Record<string, unknown>>
   storage: { tab: 'overview' },
   compression: { tab: 'compress' },
   users: { tab: 'users' },
-  favorites: { tab: 'favorites' },
-  'loose-groups': { tab: 'loose' },
-  style: { tab: 'tags' },
+  // Omni-search aliases carry no tab props — the unified window has a
+  // single input, not tabs. Keys stay absent so the alias test
+  // (`only carries tab props for aliased ids`) is unaffected either way.
   preview: { inspector: true, inspTab: 'info' },
   cron: { tab: 'schedules' },
   automation: { tab: 'schedules' },

@@ -1,194 +1,229 @@
 <!-- CyberManju OS — DevicesPanel (src/components/DevicesPanel.vue). -->
-<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Role: Devices window — live hardware telemetry, pairing, capture, system. -->
 <!-- Exports: module root (see items below). -->
-<!-- Integrates: @/…, vue. -->
-<!-- Contracts: none special (pure logic; errors bubble to caller). -->
+<!-- Integrates: @/components/ui/*, @/composables/useSystemHardware, @/stores/app, @/utils/deviceStats. -->
+<!-- Contracts: never-throw rendering — the wasm `top` twin answers -->
+<!--   tasks/counts/uptime ONLY, so every numeric readout funnels through -->
+<!--   deviceStats guards (a bare `.toFixed()` here crashed the window). -->
 <template>
   <div class="dv">
-    <header class="dv-top">
+    <header class="dv-hero">
       <div class="dv-brand">
-        <span class="dv-brand-mark"><AppIcon name="solar:cpu-bold" :size="20" /></span>
-        <div>
+        <span class="dv-brand-mark"><AppIcon name="solar:devices-bold" :size="22" /></span>
+        <div class="dv-brand-text">
           <h2 class="dv-title">Devices</h2>
-          <p class="dv-subtitle">{{ hw.pluggedDevices.value.length }} plugged · {{ netLine }} · {{ powerLine }}</p>
+          <div class="dv-pills">
+            <UiBadge :tone="hw.online.value ? 'success' : 'danger'" dot :pulse="hw.online.value" :label="netLine" />
+            <UiBadge tone="info" icon="solar:battery-charge-bold" :label="powerLine" />
+            <UiBadge tone="accent" icon="solar:usb-bold" :label="pluggedLabel" />
+          </div>
         </div>
       </div>
       <div class="dv-top-actions">
+        <UiButton size="sm" variant="ghost" icon="solar:map-point-bold" @click="locate">Locate</UiButton>
         <UiButton size="sm" icon="solar:refresh-bold" :loading="hw.refreshing.value" @click="hw.refreshDevices()">Scan</UiButton>
       </div>
     </header>
 
-    <div v-if="hw.lastError.value" class="dv-error">{{ hw.lastError.value }}</div>
+    <div v-if="hw.lastError.value" class="dv-error" role="alert">{{ hw.lastError.value }}</div>
 
-    <!-- ── plugged devices ── -->
-    <section class="dv-card" aria-label="Plugged devices">
-      <div class="dv-card-head">
-        <strong>PLUGGED IN</strong>
-        <span class="dv-counts">
-          <span v-for="(n, bus) in hw.deviceCountByBus.value" :key="bus" class="dv-chip">{{ bus }}:{{ n }}</span>
-        </span>
+    <UiSegmented :model-value="tab" :options="tabOptions" aria-label="Devices sections" class="dv-tabs" @update:model-value="tab = String($event)" />
+
+    <!-- ── overview: live tiles + presence + screens ── -->
+    <section v-if="tab === 'overview'" aria-label="Overview">
+      <div class="dv-tiles">
+        <UiCard pad="sm" class="dv-tile">
+          <div class="dv-tile-top"><AppIcon name="solar:cpu-bold" :size="15" class="dv-tile-icon" /><span class="dv-tile-label">CPU</span></div>
+          <div class="dv-tile-value">{{ formatCpuPercent(store.osTop) }}</div>
+          <div class="dv-tile-sub">{{ cpuSub }}</div>
+        </UiCard>
+        <UiCard pad="sm" class="dv-tile">
+          <div class="dv-tile-top"><AppIcon name="solar:layers-bold" :size="15" class="dv-tile-icon" /><span class="dv-tile-label">JS HEAP</span></div>
+          <div class="dv-tile-value">{{ heapTile.value }}</div>
+          <div class="dv-tile-sub">{{ heapTile.sub }}</div>
+        </UiCard>
+        <UiCard pad="sm" class="dv-tile">
+          <div class="dv-tile-top"><AppIcon name="solar:battery-charge-bold" :size="15" class="dv-tile-icon" /><span class="dv-tile-label">BATTERY</span></div>
+          <div class="dv-tile-value">{{ batteryValue }}</div>
+          <div class="dv-tile-sub">{{ batterySub }}</div>
+          <UiProgress v-if="hw.battery.isSupported.value" :value="batteryPct" :tone="batteryTone" :label="`Battery ${batteryPct} percent`" />
+        </UiCard>
+        <UiCard pad="sm" class="dv-tile">
+          <div class="dv-tile-top"><AppIcon name="solar:global-bold" :size="15" class="dv-tile-icon" /><span class="dv-tile-label">NETWORK</span></div>
+          <div class="dv-tile-value">{{ netValue }}</div>
+          <div class="dv-tile-sub">{{ netSub }}</div>
+        </UiCard>
+        <UiCard pad="sm" class="dv-tile">
+          <div class="dv-tile-top"><AppIcon name="solar:folder-bold" :size="15" class="dv-tile-icon" /><span class="dv-tile-label">STORAGE</span></div>
+          <div class="dv-tile-value">{{ storageValue }}</div>
+          <div class="dv-tile-sub">{{ storageSub }}</div>
+          <UiProgress v-if="storageStat.percent != null" :value="storageStat.percent" :tone="storageTone" :label="`Storage ${storageStat.percent} percent used`" />
+        </UiCard>
+        <UiCard pad="sm" class="dv-tile">
+          <div class="dv-tile-top"><AppIcon name="solar:map-point-bold" :size="15" class="dv-tile-icon" /><span class="dv-tile-label">LOCATION</span></div>
+          <div class="dv-tile-value dv-tile-value--sm">{{ geoShort }}</div>
+          <div class="dv-tile-sub">{{ geoTileSub }}</div>
+        </UiCard>
       </div>
-      <UiEmpty
-        v-if="hw.pluggedDevices.value.length === 0"
-        size="sm"
-        icon="solar:plug-circle-bold"
-        title="No devices visible"
-        description="Grant camera/mic once, or pair USB / HID / Serial / Bluetooth below. Gamepads appear automatically."
-      />
-      <div v-else class="dv-list">
-        <div v-for="d in hw.pluggedDevices.value" :key="d.id" class="dv-row">
-          <span class="dv-bus" :data-bus="d.bus">{{ d.bus.toUpperCase() }}</span>
-          <div class="dv-info">
-            <span class="dv-label">{{ d.label }}</span>
-            <span class="dv-kind">{{ d.kind }}</span>
+      <div class="dv-grid">
+        <UiCard title="Presence" icon="solar:eye-bold" meta="multi-tab">
+          <p class="dv-card-line">idle: {{ hw.idle.idle.value ? 'away (5min)' : 'active' }} · tab: {{ hw.visibility.value }} · focused: {{ hw.focused.value ? 'yes' : 'no' }}</p>
+          <div class="dv-pair">
+            <UiButton size="sm" :disabled="!hw.support.value.broadcast" @click="hw.pingTabs(`ping ${Date.now()}`)">Ping tabs</UiButton>
           </div>
-          <span class="dv-dot" :class="{ on: d.connected }" />
-        </div>
-      </div>
-      <div class="dv-pair">
-        <UiButton v-if="hw.support.value.usb" size="sm" icon="solar:usb-bold" @click="hw.requestUsb()">Pair USB</UiButton>
-        <UiButton v-if="hw.support.value.hid" size="sm" icon="solar:gamepad-bold" @click="hw.requestHid()">Pair HID</UiButton>
-        <UiButton v-if="hw.support.value.serial" size="sm" icon="solar:plug-circle-bold" @click="hw.requestSerial()">Pair Serial</UiButton>
-        <UiButton v-if="hw.support.value.bluetooth" size="sm" icon="solar:bluetooth-bold" @click="hw.requestBluetooth()">Pair BLE</UiButton>
-      </div>
-      <p class="dv-hint">USB / HID / Serial / Bluetooth need a user gesture + HTTPS or localhost. Media labels stay generic until camera/mic permission is granted. Plugs refresh live via devicechange listeners.</p>
-    </section>
-
-    <!-- ── media capture ── -->
-    <section class="dv-card" aria-label="Media capture">
-      <div class="dv-card-head"><strong>CAPTURE</strong><span class="dv-muted">face input · screen share · voice</span></div>
-      <div class="dv-pair">
-        <UiButton size="sm" :disabled="!hw.support.value.camera" @click="toggleCam">{{ camOn ? 'Stop camera' : 'Start camera' }}</UiButton>
-        <UiButton size="sm" :disabled="!hw.support.value.screenShare" @click="toggleShare">{{ shareOn ? 'Stop share' : 'Share screen' }}</UiButton>
-        <UiButton size="sm" :disabled="!hw.support.value.speechSynthesis" @click="hw.speak('CyberManju OS ready')">Speak</UiButton>
-        <select v-if="hw.support.value.speechRecognition" class="dv-select" :value="hw.speechLang.value" aria-label="Voice language" title="Voice language: English (EN) or Portuguese (PT-BR)" @change="hw.setSpeechLang(($event.target as HTMLSelectElement).value as 'en-US' | 'pt-BR')">
-          <option value="en-US">EN</option>
-          <option value="pt-BR">PT</option>
-        </select>
-        <UiButton v-if="hw.support.value.speechRecognition" size="sm" @click="toggleListen">{{ listening ? 'Stop listening' : 'Voice command' }}</UiButton>
-      </div>
-      <div v-if="camOn || shareOn" class="dv-vids">
-        <video v-show="camOn" ref="camVideoRef" autoplay playsinline muted class="dv-vid" />
-        <video v-show="shareOn" ref="shareVideoRef" autoplay playsinline muted class="dv-vid" />
-      </div>
-      <p v-if="transcript" class="dv-line">heard: “{{ transcript }}”</p>
-      <p v-else class="dv-muted">camera feeds face grouping · screen share demos the vault · voice fills cybsh.</p>
-    </section>
-
-    <!-- ── local files & clipboard ── -->
-    <section class="dv-card" aria-label="Local files">
-      <div class="dv-card-head"><strong>LOCAL FILES</strong><span class="dv-muted">File System Access · no Tauri needed</span></div>
-      <div class="dv-pair">
-        <UiButton size="sm" :disabled="!hw.support.value.fileSystemAccess" @click="openLocal">Open file</UiButton>
-        <UiButton size="sm" :disabled="!hw.support.value.fileSystemAccess" @click="saveLocal">Save note</UiButton>
-        <UiButton size="sm" @click="hw.pickFiles()">Picker ({{ pickedCount }})</UiButton>
-        <UiButton size="sm" @click="copyRich">Rich copy</UiButton>
-      </div>
-      <p v-if="localName" class="dv-line">{{ localName }} — {{ localPreview }}</p>
-      <p v-else class="dv-muted">Open reads text into the OS · Save writes back to disk · Picker uses a classic dialog fallback.</p>
-    </section>
-
-    <!-- ── presence / multi-tab ── -->
-    <section class="dv-grid">
-      <div class="dv-card">
-        <strong>PRESENCE</strong>
-        <p>idle: {{ hw.idle.idle.value ? 'away (5min)' : 'active' }} · tab: {{ hw.visibility.value }} · focused: {{ hw.focused.value ? 'yes' : 'no' }}</p>
-        <div class="dv-pair">
-          <UiButton size="sm" :disabled="!hw.support.value.broadcast" @click="hw.pingTabs(`ping ${Date.now()}`)">Ping tabs</UiButton>
-        </div>
-        <p class="dv-muted">last bus: {{ busMsg || '—' }} · FileManager refreshes on broadcast.</p>
-      </div>
-      <div class="dv-card">
-        <strong>SYSTEM</strong>
-        <p>{{ nativeStatsLine }}</p>
-        <p class="dv-muted">WebView JavaScript heap: {{ memLine }}</p>
-        <p class="dv-muted">{{ motionLine }}</p>
-        <p class="dv-muted">{{ localeLine }} · {{ hw.windowSize.width.value }}×{{ hw.windowSize.height.value }} · {{ hw.preferredScheme.value }}</p>
-      </div>
-      <div class="dv-card">
-        <strong>SCREENS {{ hw.screens.value.length ? `(${hw.screens.value.length})` : '' }}</strong>
-        <p v-if="hw.screens.value.length">{{ screenLine }}</p>
-        <p v-else class="dv-muted">{{ hw.support.value.multiScreen ? 'No extended screens reported.' : 'Multi-screen API not exposed here.' }}</p>
-        <div class="dv-pair">
-          <UiButton v-if="hw.support.value.multiScreen" size="sm" @click="hw.refreshScreens()">Detect</UiButton>
-          <UiButton v-if="hw.support.value.appBadge" size="sm" @click="badgeDemo">Badge ①</UiButton>
-          <UiButton v-if="hw.support.value.appBadge" size="sm" variant="ghost" @click="hw.clearBadge()">Clear</UiButton>
-        </div>
+          <p class="dv-muted">last bus: {{ busMsg || '—' }} · FileManager refreshes on broadcast.</p>
+        </UiCard>
+        <UiCard title="Screens" icon="solar:monitor-bold" :meta="hw.screens.value.length ? `(${hw.screens.value.length})` : ''">
+          <p v-if="hw.screens.value.length" class="dv-card-line">{{ screenLine }}</p>
+          <p v-else class="dv-muted">{{ hw.support.value.multiScreen ? 'No extended screens reported.' : 'Multi-screen API not exposed here.' }}</p>
+          <div class="dv-pair">
+            <UiButton v-if="hw.support.value.multiScreen" size="sm" @click="hw.refreshScreens()">Detect</UiButton>
+            <UiButton v-if="hw.support.value.appBadge" size="sm" @click="badgeDemo">Badge ①</UiButton>
+            <UiButton v-if="hw.support.value.appBadge" size="sm" variant="ghost" @click="hw.clearBadge()">Clear</UiButton>
+          </div>
+        </UiCard>
       </div>
     </section>
 
-    <!-- ── sensors & system ── -->
-    <section class="dv-grid">
-      <div class="dv-card">
-        <strong>BATTERY</strong>
-        <p v-if="hw.battery.isSupported.value">{{ batteryLine }}</p>
-        <p v-else class="dv-muted">Not exposed by this browser.</p>
-      </div>
-      <div class="dv-card">
-        <strong>NETWORK</strong>
-        <p>{{ netDetail }}</p>
-        <p class="dv-muted">online: {{ hw.online.value ? 'yes' : 'no' }}</p>
-      </div>
-      <div class="dv-card">
-        <strong>LOCATION</strong>
-        <p v-if="hasGeo">lat {{ geoLat }}, lon {{ geoLon }} (±{{ geoAcc }}m)</p>
-        <p v-else class="dv-muted">Permission: {{ hw.geoPermission.value ?? 'unknown' }}</p>
-        <div class="dv-pair">
-          <UiButton size="sm" @click="locate">Locate</UiButton>
-          <UiButton size="sm" variant="ghost" @click="copyGeo" :disabled="!hasGeo">Copy</UiButton>
+    <!-- ── devices: plugged hardware + pairing ── -->
+    <section v-else-if="tab === 'devices'" aria-label="Plugged devices">
+      <UiCard title="Plugged in" icon="solar:usb-bold" :meta="`${hw.pluggedDevices.value.length} visible`">
+        <template #actions>
+          <span class="dv-counts">
+            <span v-for="(n, bus) in hw.deviceCountByBus.value" :key="bus" class="dv-chip">{{ bus }}:{{ n }}</span>
+          </span>
+        </template>
+        <UiEmpty
+          v-if="hw.pluggedDevices.value.length === 0"
+          size="sm"
+          icon="solar:plug-circle-bold"
+          title="No devices visible"
+          description="Grant camera/mic once, or pair USB / HID / Serial / Bluetooth below. Gamepads appear automatically."
+        />
+        <div v-else class="dv-list">
+          <div v-for="d in hw.pluggedDevices.value" :key="d.id" class="dv-row">
+            <span class="dv-bus" :data-bus="d.bus">{{ d.bus.toUpperCase() }}</span>
+            <div class="dv-info">
+              <span class="dv-label">{{ d.label }}</span>
+              <span class="dv-kind">{{ d.kind }}</span>
+            </div>
+            <span class="dv-dot" :class="{ on: d.connected }" />
+          </div>
         </div>
-      </div>
-      <div class="dv-card">
-        <strong>SCREEN</strong>
-        <p>{{ orientationLine }}</p>
         <div class="dv-pair">
-          <UiButton size="sm" @click="hw.fullscreen.toggle()">{{ hw.fullscreen.isFullscreen.value ? 'Exit fullscreen' : 'Fullscreen' }}</UiButton>
-          <UiButton v-if="hw.support.value.wakeLock" size="sm" :variant="hw.wakeLock.isActive.value ? 'primary' : 'ghost'" @click="toggleWake">
-            Wake {{ hw.wakeLock.isActive.value ? 'ON' : 'OFF' }}
-          </UiButton>
+          <UiButton v-if="hw.support.value.usb" size="sm" icon="solar:usb-bold" @click="hw.requestUsb()">Pair USB</UiButton>
+          <UiButton v-if="hw.support.value.hid" size="sm" icon="solar:gamepad-bold" @click="hw.requestHid()">Pair HID</UiButton>
+          <UiButton v-if="hw.support.value.serial" size="sm" icon="solar:plug-circle-bold" @click="hw.requestSerial()">Pair Serial</UiButton>
+          <UiButton v-if="hw.support.value.bluetooth" size="sm" icon="solar:bluetooth-bold" @click="hw.requestBluetooth()">Pair BLE</UiButton>
         </div>
-      </div>
-      <div class="dv-card">
-        <strong>WEBVIEW STORAGE QUOTA</strong>
-        <p v-if="storageMsg">{{ storageMsg }}</p>
-        <p v-else class="dv-muted">Loading…</p>
-        <p v-if="store.osDf" class="dv-muted">CyberManju volume: {{ fmt(store.osDf.usedBytes) }} / {{ fmt(store.osDf.totalBytes) }} · {{ store.osDf.diskCount }} attached disk(s)</p>
-        <p class="dv-muted">WebView quota is for app data, not the phone's total storage; neither reading needs a permission prompt.</p>
-        <div class="dv-pair">
-          <UiButton size="sm" @click="loadStorage">Refresh</UiButton>
-          <UiButton size="sm" variant="ghost" @click="persist">Persist</UiButton>
-        </div>
-      </div>
-      <div class="dv-card">
-        <strong>SHARE / HAPTICS</strong>
-        <div class="dv-pair">
-          <UiButton size="sm" :disabled="!hw.support.value.share" @click="shareNow">Share OS</UiButton>
-          <UiButton size="sm" :disabled="!hw.support.value.vibrate" @click="buzz">Vibrate</UiButton>
-          <UiButton v-if="hw.support.value.eyeDropper" size="sm" @click="pick">Pick color{{ picked ? `: ${picked}` : '' }}</UiButton>
-        </div>
-        <p class="dv-muted">share: {{ hw.support.value.share ? 'yes' : 'no' }} · vibrate: {{ hw.support.value.vibrate ? 'yes' : 'no' }}</p>
+        <p class="dv-hint">USB / HID / Serial / Bluetooth need a user gesture + HTTPS or localhost. Media labels stay generic until camera/mic permission is granted. Plugs refresh live via devicechange listeners.</p>
+      </UiCard>
+    </section>
+
+    <!-- ── media: capture + local files + share ── -->
+    <section v-else-if="tab === 'media'" aria-label="Media">
+      <div class="dv-stack">
+        <UiCard title="Capture" icon="solar:videocamera-bold" meta="face input · screen · voice">
+          <div class="dv-pair">
+            <UiButton size="sm" :disabled="!hw.support.value.camera" @click="toggleCam">{{ camOn ? 'Stop camera' : 'Start camera' }}</UiButton>
+            <UiButton size="sm" :disabled="!hw.support.value.screenShare" @click="toggleShare">{{ shareOn ? 'Stop share' : 'Share screen' }}</UiButton>
+            <UiButton size="sm" :disabled="!hw.support.value.speechSynthesis" @click="hw.speak('CyberManju OS ready')">Speak</UiButton>
+            <select v-if="hw.support.value.speechRecognition" class="dv-select" :value="hw.speechLang.value" aria-label="Voice language" title="Voice language: English (EN) or Portuguese (PT-BR)" @change="hw.setSpeechLang(($event.target as HTMLSelectElement).value as 'en-US' | 'pt-BR')">
+              <option value="en-US">EN</option>
+              <option value="pt-BR">PT</option>
+            </select>
+            <UiButton v-if="hw.support.value.speechRecognition" size="sm" @click="toggleListen">{{ listening ? 'Stop listening' : 'Voice command' }}</UiButton>
+          </div>
+          <div v-if="camOn || shareOn" class="dv-vids">
+            <video v-show="camOn" ref="camVideoRef" autoplay playsinline muted class="dv-vid" />
+            <video v-show="shareOn" ref="shareVideoRef" autoplay playsinline muted class="dv-vid" />
+          </div>
+          <p v-if="transcript" class="dv-line">heard: “{{ transcript }}”</p>
+          <p v-else class="dv-muted">camera feeds face grouping · screen share demos the vault · voice fills cybsh.</p>
+        </UiCard>
+        <UiCard title="Local files" icon="solar:folder-bold" meta="no Tauri needed">
+          <div class="dv-pair">
+            <UiButton size="sm" :disabled="!hw.support.value.fileSystemAccess" @click="openLocal">Open file</UiButton>
+            <UiButton size="sm" :disabled="!hw.support.value.fileSystemAccess" @click="saveLocal">Save note</UiButton>
+            <UiButton size="sm" @click="hw.pickFiles()">Picker ({{ pickedCount }})</UiButton>
+            <UiButton size="sm" @click="copyRich">Rich copy</UiButton>
+          </div>
+          <p v-if="localName" class="dv-line">{{ localName }} — {{ localPreview }}</p>
+          <p v-else class="dv-muted">Open reads text into the OS · Save writes back to disk · Picker uses a classic dialog fallback.</p>
+        </UiCard>
+        <UiCard title="Share & haptics" icon="solar:share-bold" meta="system integrations">
+          <div class="dv-pair">
+            <UiButton size="sm" :disabled="!hw.support.value.share" @click="shareNow">Share OS</UiButton>
+            <UiButton size="sm" :disabled="!hw.support.value.vibrate" @click="buzz">Vibrate</UiButton>
+            <UiButton v-if="hw.support.value.eyeDropper" size="sm" @click="pick">Pick color{{ picked ? `: ${picked}` : '' }}</UiButton>
+          </div>
+          <p class="dv-muted">share: {{ hw.support.value.share ? 'yes' : 'no' }} · vibrate: {{ hw.support.value.vibrate ? 'yes' : 'no' }}</p>
+        </UiCard>
       </div>
     </section>
 
-    <!-- ── identity & progressive ── -->
-    <section class="dv-card" aria-label="Identity and progressive APIs">
-      <div class="dv-card-head"><strong>IDENTITY & SCAN</strong><span class="dv-muted">passkeys · NFC · contacts · codes</span></div>
-      <div class="dv-pair">
-        <UiButton size="sm" :disabled="!hw.support.value.webAuthn" @click="passkeyInfo">Passkeys</UiButton>
-        <UiButton v-if="hw.support.value.nfc" size="sm" @click="hw.requestNfcScan()">NFC scan</UiButton>
-        <UiButton v-if="hw.support.value.contacts" size="sm" @click="pickContacts">Contacts</UiButton>
-      </div>
-      <p v-if="identityMsg" class="dv-line">{{ identityMsg }}</p>
-      <p v-else-if="hw.nfcMessage.value" class="dv-line">{{ hw.nfcMessage.value }}</p>
-      <p v-else class="dv-muted">WebAuthn: {{ hw.support.value.webAuthn ? 'ready' : 'n/a' }} · NFC: {{ hw.support.value.nfc ? 'ready' : 'n/a' }} · contacts: {{ hw.support.value.contacts ? 'ready' : 'n/a' }} · barcode: {{ hw.support.value.barcode ? 'ready' : 'n/a' }} · face: {{ hw.support.value.faceDetector ? 'ready' : 'n/a' }}</p>
-    </section>
-
-    <!-- ── notifications ── -->
-    <section class="dv-card" aria-label="Notifications">
-      <div class="dv-card-head"><strong>NOTIFICATIONS</strong><span class="dv-muted">permission: {{ hw.notifyPermission.value ?? 'unknown' }}</span></div>
-      <div class="dv-pair">
-        <UiButton size="sm" :disabled="!hw.support.value.notifications" @click="askNotify">Enable</UiButton>
-        <UiButton size="sm" :disabled="!canNotify" @click="testNotify">Test</UiButton>
+    <!-- ── system: telemetry, storage, identity, notifications ── -->
+    <section v-else aria-label="System">
+      <div class="dv-stack">
+        <UiCard title="System load" icon="solar:chart-bold" meta="live">
+          <p class="dv-card-line">{{ nativeStatsLine }}</p>
+          <p class="dv-muted">WebView JavaScript heap: {{ memLine }}</p>
+          <p class="dv-muted">{{ motionLine }}</p>
+          <p class="dv-muted">{{ localeLine }} · {{ hw.windowSize.width.value }}×{{ hw.windowSize.height.value }} · {{ hw.preferredScheme.value }}</p>
+        </UiCard>
+        <div class="dv-grid">
+          <UiCard title="Battery" icon="solar:battery-charge-bold">
+            <p v-if="hw.battery.isSupported.value" class="dv-card-line">{{ batteryLine }}</p>
+            <p v-else class="dv-muted">Not exposed by this browser.</p>
+          </UiCard>
+          <UiCard title="Network" icon="solar:global-bold">
+            <p class="dv-card-line">{{ netDetail }}</p>
+            <p class="dv-muted">online: {{ hw.online.value ? 'yes' : 'no' }}</p>
+          </UiCard>
+          <UiCard title="Location" icon="solar:map-point-bold">
+            <p v-if="hasGeo" class="dv-card-line">lat {{ geoLat }}, lon {{ geoLon }} (±{{ geoAcc }}m)</p>
+            <p v-else class="dv-muted">Permission: {{ hw.geoPermission.value ?? 'unknown' }}</p>
+            <div class="dv-pair">
+              <UiButton size="sm" @click="locate">Locate</UiButton>
+              <UiButton size="sm" variant="ghost" @click="copyGeo" :disabled="!hasGeo">Copy</UiButton>
+            </div>
+          </UiCard>
+          <UiCard title="Screen" icon="solar:monitor-smartphone-bold">
+            <p class="dv-card-line">{{ orientationLine }}</p>
+            <div class="dv-pair">
+              <UiButton size="sm" @click="hw.fullscreen.toggle()">{{ hw.fullscreen.isFullscreen.value ? 'Exit fullscreen' : 'Fullscreen' }}</UiButton>
+              <UiButton v-if="hw.support.value.wakeLock" size="sm" :variant="hw.wakeLock.isActive.value ? 'primary' : 'ghost'" @click="toggleWake">
+                Wake {{ hw.wakeLock.isActive.value ? 'ON' : 'OFF' }}
+              </UiButton>
+            </div>
+          </UiCard>
+          <UiCard title="WebView storage quota" icon="solar:server-bold">
+            <p v-if="storageMsg" class="dv-card-line">{{ storageMsg }}</p>
+            <p v-else class="dv-muted">Loading…</p>
+            <p v-if="store.osDf" class="dv-muted">CyberManju volume: {{ formatBytesDec(store.osDf.usedBytes) }} / {{ formatBytesDec(store.osDf.totalBytes) }} · {{ store.osDf.diskCount }} attached disk(s)</p>
+            <p class="dv-muted">WebView quota is for app data, not the phone's total storage; neither reading needs a permission prompt.</p>
+            <div class="dv-pair">
+              <UiButton size="sm" @click="loadStorage">Refresh</UiButton>
+              <UiButton size="sm" variant="ghost" @click="persist">Persist</UiButton>
+            </div>
+          </UiCard>
+          <UiCard title="Identity & scan" icon="solar:lock-password-bold" meta="passkeys · NFC · contacts">
+            <div class="dv-pair">
+              <UiButton size="sm" :disabled="!hw.support.value.webAuthn" @click="passkeyInfo">Passkeys</UiButton>
+              <UiButton v-if="hw.support.value.nfc" size="sm" @click="hw.requestNfcScan()">NFC scan</UiButton>
+              <UiButton v-if="hw.support.value.contacts" size="sm" @click="pickContacts">Contacts</UiButton>
+            </div>
+            <p v-if="identityMsg" class="dv-line">{{ identityMsg }}</p>
+            <p v-else-if="hw.nfcMessage.value" class="dv-line">{{ hw.nfcMessage.value }}</p>
+            <p v-else class="dv-muted">WebAuthn: {{ hw.support.value.webAuthn ? 'ready' : 'n/a' }} · NFC: {{ hw.support.value.nfc ? 'ready' : 'n/a' }} · contacts: {{ hw.support.value.contacts ? 'ready' : 'n/a' }} · barcode: {{ hw.support.value.barcode ? 'ready' : 'n/a' }} · face: {{ hw.support.value.faceDetector ? 'ready' : 'n/a' }}</p>
+          </UiCard>
+          <UiCard title="Notifications" icon="solar:bell-bold" :meta="`permission: ${hw.notifyPermission.value ?? 'unknown'}`">
+            <div class="dv-pair">
+              <UiButton size="sm" :disabled="!hw.support.value.notifications" @click="askNotify">Enable</UiButton>
+              <UiButton size="sm" :disabled="!canNotify" @click="testNotify">Test</UiButton>
+            </div>
+          </UiCard>
+        </div>
       </div>
     </section>
   </div>
@@ -199,14 +234,33 @@ import AppIcon from '@/components/AppIcon.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useSystemHardware, getStorageEstimate, persistStorage } from '@/composables/useSystemHardware'
 import { useAppStore } from '@/stores/app'
+import {
+  formatBytesDec,
+  formatCoord,
+  formatCpuPercent,
+  formatHeapLine,
+  formatTopLine,
+  isFiniteNum,
+} from '@/utils/deviceStats'
+import type { TopSnapshot } from '@/utils/deviceStats'
 
 const hw = useSystemHardware()
 const store = useAppStore()
 const storageMsg = ref('')
+const storageStat = ref<{ usage: number | null; quota: number | null; percent: number | null; persisted: boolean }>({
+  usage: null, quota: null, percent: null, persisted: false,
+})
 const picked = ref('')
 const identityMsg = ref('')
 const camVideoRef = ref<HTMLVideoElement | null>(null)
 const shareVideoRef = ref<HTMLVideoElement | null>(null)
+const tab = ref('overview')
+const tabOptions = [
+  { label: 'Overview', value: 'overview', icon: 'solar:devices-bold' },
+  { label: 'Devices', value: 'devices', icon: 'solar:usb-bold' },
+  { label: 'Media', value: 'media', icon: 'solar:videocamera-bold' },
+  { label: 'System', value: 'system', icon: 'solar:chart-bold' },
+]
 
 const netLine = computed(() => hw.online.value ? `online${hw.network.effectiveType.value ? ` · ${hw.network.effectiveType.value}` : ''}` : 'offline')
 const netDetail = computed(() => {
@@ -215,6 +269,31 @@ const netDetail = computed(() => {
   if (hw.network.rtt.value != null) parts.push(`${hw.network.rtt.value}ms rtt`)
   if (hw.network.saveData.value) parts.push('save-data')
   return parts.join(' · ')
+})
+const netValue = computed(() => hw.online.value ? (hw.network.effectiveType.value || hw.network.type.value || 'online') : 'offline')
+const netSub = computed(() => {
+  if (!hw.online.value) return 'no connection'
+  const parts: string[] = []
+  if (hw.network.downlink.value != null) parts.push(`${hw.network.downlink.value} Mbps`)
+  if (hw.network.rtt.value != null) parts.push(`${hw.network.rtt.value}ms`)
+  if (hw.network.saveData.value) parts.push('save-data')
+  return parts.length ? parts.join(' · ') : 'link up'
+})
+const pluggedLabel = computed(() => {
+  const n = hw.pluggedDevices.value.length
+  return `${n} plugged`
+})
+const batteryPct = computed(() => Math.round((hw.battery.level.value ?? 0) * 100))
+const batteryValue = computed(() => hw.battery.isSupported.value ? `${batteryPct.value}%` : 'n/a')
+const batterySub = computed(() => {
+  if (!hw.battery.isSupported.value) return 'not exposed'
+  return hw.battery.charging.value ? 'charging' : 'on battery'
+})
+const batteryTone = computed(() => {
+  if (!hw.battery.isSupported.value || hw.battery.charging.value) return 'success' as const
+  if (batteryPct.value < 20) return 'danger' as const
+  if (batteryPct.value < 50) return 'warning' as const
+  return 'success' as const
 })
 const powerLine = computed(() => {
   if (!hw.battery.isSupported.value) return 'power: n/a'
@@ -226,10 +305,49 @@ const orientationLine = computed(() => {
   const oType = typeof raw === 'string' ? raw : (raw?.type ?? (screen.orientation as ScreenOrientation | undefined)?.type ?? 'unknown')
   return `${oType} · ${window.innerWidth}×${window.innerHeight}`
 })
-const hasGeo = computed(() => hw.geo.coords.value.latitude !== Infinity && isFinite(hw.geo.coords.value.latitude))
-const geoLat = computed(() => hw.geo.coords.value.latitude.toFixed(5))
-const geoLon = computed(() => hw.geo.coords.value.longitude.toFixed(5))
-const geoAcc = computed(() => Math.round(hw.geo.coords.value.accuracy ?? 0))
+const hasGeo = computed(() => isFiniteNum(hw.geo.coords.value?.latitude) && isFiniteNum(hw.geo.coords.value?.longitude))
+const geoLat = computed(() => formatCoord(hw.geo.coords.value?.latitude))
+const geoLon = computed(() => formatCoord(hw.geo.coords.value?.longitude))
+const geoAcc = computed(() => Math.round(hw.geo.coords.value?.accuracy ?? 0))
+const geoShort = computed(() => hasGeo.value ? `${formatCoord(hw.geo.coords.value?.latitude, 4)}, ${formatCoord(hw.geo.coords.value?.longitude, 4)}` : 'No fix')
+const geoTileSub = computed(() => hasGeo.value ? `±${geoAcc.value} m accuracy` : `permission: ${hw.geoPermission.value ?? 'unknown'}`)
+const cpuSub = computed(() => {
+  const top = store.osTop as TopSnapshot | null
+  if (!top || typeof top !== 'object') return 'no host telemetry'
+  if (top.load?.source === 'proc' && isFiniteNum(top.load?.load1)) return `load ${top.load.load1.toFixed(2)}`
+  return 'app process'
+})
+const heapTile = computed(() => {
+  const m = hw.memory.memory.value as unknown as { usedJSHeapSize?: number | null; jsHeapSizeLimit?: number | null } | undefined
+  const used = m?.usedJSHeapSize
+  if (!isFiniteNum(used) || used <= 0) {
+    return hw.support.value.memory
+      ? { value: '…', sub: 'reading heap' }
+      : { value: 'n/a', sub: 'not exposed' }
+  }
+  const lim = m?.jsHeapSizeLimit
+  return {
+    value: `${(used / 1048576).toFixed(0)} MB`,
+    sub: isFiniteNum(lim) && lim > 0 ? `/ ${(lim / 1048576).toFixed(0)} MB limit` : 'live heap',
+  }
+})
+const storageValue = computed(() => {
+  const s = storageStat.value
+  if (s.percent != null) return `${s.percent}%`
+  if (s.quota != null) return formatBytesDec(s.usage)
+  return s.persisted ? 'stored' : '—'
+})
+const storageSub = computed(() => {
+  const s = storageStat.value
+  if (s.quota != null) return `${formatBytesDec(s.usage)} of ${formatBytesDec(s.quota)}`
+  return `persisted: ${s.persisted ? 'yes' : 'no'}`
+})
+const storageTone = computed(() => {
+  const p = storageStat.value.percent ?? 0
+  if (p > 90) return 'danger' as const
+  if (p > 70) return 'warning' as const
+  return 'accent' as const
+})
 
 // capture state
 const camOn = computed(() => !!hw.userMedia.stream.value)
@@ -244,33 +362,21 @@ const localPreview = computed(() => {
   if (typeof d !== 'string') return ''
   return d.length > 90 ? `${d.slice(0, 90)}… (${d.length} chars)` : d || '(empty)'
 })
-const memLine = computed(() => {
-  const m = hw.memory.memory.value as unknown as { usedJSHeapSize?: number; jsHeapSizeLimit?: number } | undefined
-  if (!m?.usedJSHeapSize) return hw.support.value.memory ? 'memory: reading…' : 'memory API not exposed here.'
-  const used = (m.usedJSHeapSize / 1048576).toFixed(0)
-  const lim = m.jsHeapSizeLimit ? ` / ${(m.jsHeapSizeLimit / 1048576).toFixed(0)} MB` : ''
-  return `JS heap ${used} MB${lim}`
-})
-const nativeStatsLine = computed(() => {
-  const top = store.osTop
-  if (!top) return 'Native CPU/RAM metrics unavailable in this runtime.'
-  const parts = [`app CPU ${top.cpuPercent.toFixed(1)}%`, `app RSS ${fmt(top.mem.rssBytes)}`]
-  if (top.mem.totalBytes > 0) {
-    const used = Math.max(0, top.mem.totalBytes - top.mem.availableBytes)
-    parts.push(`RAM ${fmt(used)} / ${fmt(top.mem.totalBytes)}`)
-  } else {
-    parts.push('system RAM unavailable')
-  }
-  if (top.load.source === 'proc') parts.push(`load ${top.load.load1.toFixed(2)}`)
-  return parts.join(' · ')
-})
+const memLine = computed(() => formatHeapLine(
+  hw.support.value.memory,
+  hw.memory.memory.value as unknown as { usedJSHeapSize?: number | null; jsHeapSizeLimit?: number | null } | undefined,
+))
+// Crash fix: the wasm `top` twin answers tasks/counts/uptime ONLY —
+// `top.cpuPercent.toFixed()` threw on every mount + 4s poll. formatTopLine
+// renders real readings where present, 'n/a' where the sandbox has none.
+const nativeStatsLine = computed(() => formatTopLine(store.osTop as TopSnapshot | null))
 const motionLine = computed(() => {
   if (!hw.support.value.motion && !hw.support.value.deviceOrientation) return 'motion sensors not exposed here.'
   const o = hw.deviceOrientation
   const parts: string[] = []
-  if (o.alpha.value != null) parts.push(`α ${o.alpha.value.toFixed(0)}°`)
-  if (o.beta.value != null) parts.push(`β ${o.beta.value.toFixed(0)}°`)
-  if (o.gamma.value != null) parts.push(`γ ${o.gamma.value.toFixed(0)}°`)
+  if (isFiniteNum(o.alpha.value)) parts.push(`α ${o.alpha.value.toFixed(0)}°`)
+  if (isFiniteNum(o.beta.value)) parts.push(`β ${o.beta.value.toFixed(0)}°`)
+  if (isFiniteNum(o.gamma.value)) parts.push(`γ ${o.gamma.value.toFixed(0)}°`)
   return parts.length ? `orientation ${parts.join(' ')}` : 'motion: no reading yet (needs gesture on iOS).'
 })
 const localeLine = computed(() => {
@@ -327,17 +433,18 @@ async function toggleWake() {
 }
 async function loadStorage() {
   const est = await getStorageEstimate()
+  storageStat.value = {
+    usage: est.usage ?? null,
+    quota: est.quota ?? null,
+    percent: est.percent ?? null,
+    persisted: !!est.persisted,
+  }
   storageMsg.value = est.quota
-    ? `${fmt(est.usage ?? 0)} / ${fmt(est.quota)} (${est.percent ?? 0}%) · persisted: ${est.persisted ? 'yes' : 'no'}`
+    ? `${formatBytesDec(est.usage ?? 0)} / ${formatBytesDec(est.quota)} (${est.percent ?? 0}%) · persisted: ${est.persisted ? 'yes' : 'no'}`
     : `persisted: ${est.persisted ? 'yes' : 'no'} (quota hidden by browser)`
   await store.fetchOsDf()
 }
 async function persist() { await persistStorage(); await loadStorage() }
-function fmt(n: number): string {
-  if (n > 1e9) return `${(n / 1e9).toFixed(1)} GB`
-  if (n > 1e6) return `${(n / 1e6).toFixed(1)} MB`
-  return `${Math.round(n / 1e3)} KB`
-}
 async function shareNow() {
   try { await hw.share({ title: 'CyberManju OS', text: 'Web OS inside an OS', url: location.href }) } catch { /* dismissed */ }
 }
@@ -372,15 +479,25 @@ onUnmounted(() => { if (statsPoll) window.clearInterval(statsPoll) })
 
 <style scoped>
 .dv { height: 100%; min-width: 0; overflow-x: hidden; overflow-y: auto; padding: 12px 14px; padding-bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; background: var(--ui-surface); color: var(--ui-text); font-family: var(--ui-font); font-size: 13px; }
-.dv-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px 10px; border-bottom: 1px solid var(--ui-border); }
-.dv-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.dv-brand-mark { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; background: color-mix(in srgb, var(--ui-accent) 16%, transparent); color: var(--ui-accent); border: 1px solid color-mix(in srgb, var(--ui-accent) 40%, transparent); flex-shrink: 0; }
-.dv-title { margin: 0; font-size: 15px; letter-spacing: 0.4px; }
-.dv-subtitle { margin: 1px 0 0; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.dv-hero { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border: 1px solid var(--ui-border); border-radius: 16px; background: linear-gradient(135deg, color-mix(in srgb, var(--ui-accent) 14%, transparent), color-mix(in srgb, var(--ui-accent) 3%, transparent) 55%, transparent); }
+.dv-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.dv-brand-mark { display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px; border-radius: 13px; background: linear-gradient(135deg, var(--ui-accent), color-mix(in srgb, var(--ui-accent) 55%, transparent)); color: #fff; box-shadow: 0 4px 14px color-mix(in srgb, var(--ui-accent) 45%, transparent); flex-shrink: 0; }
+.dv-brand-text { min-width: 0; }
+.dv-title { margin: 0; font-size: 16px; letter-spacing: 0.4px; }
+.dv-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 5px; }
 .dv-top-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .dv-error { border: 1px solid color-mix(in srgb, var(--ui-danger) 55%, transparent); background: color-mix(in srgb, var(--ui-danger) 10%, transparent); border-radius: 10px; padding: 8px 12px; font-size: 12px; }
-.dv-card { min-width: 0; border: 1px solid var(--ui-border); border-radius: 12px; padding: 12px 14px; background: color-mix(in srgb, var(--ui-text) 3%, transparent); display: flex; flex-direction: column; gap: 8px; }
-.dv-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; letter-spacing: 1px; }
+.dv-tabs { align-self: flex-start; max-width: 100%; overflow-x: auto; }
+.dv-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.dv-tile-top { display: flex; align-items: center; gap: 6px; }
+.dv-tile-icon { color: var(--ui-accent); flex-shrink: 0; }
+.dv-tile-label { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.dv-tile-value { font-size: 22px; font-weight: 750; letter-spacing: 0.2px; margin-top: 6px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dv-tile-value--sm { font-size: 15px; }
+.dv-tile-sub { font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); margin: 2px 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dv-stack { display: flex; flex-direction: column; gap: 10px; }
+.dv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.dv-card-line { margin: 0; font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
 .dv-counts { display: flex; gap: 4px; flex-wrap: wrap; }
 .dv-chip { font-family: var(--ui-font-mono); font-size: 9.5px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--ui-border); background: var(--ui-glass); }
 .dv-list { display: flex; flex-direction: column; gap: 6px; max-height: 300px; min-width: 0; overflow-y: auto; }
@@ -391,36 +508,31 @@ onUnmounted(() => { if (statsPoll) window.clearInterval(statsPoll) })
 .dv-kind { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
 .dv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ui-border-strong); flex-shrink: 0; }
 .dv-dot.on { background: var(--ui-success, #22c55e); box-shadow: 0 0 8px color-mix(in srgb, var(--ui-success, #22c55e) 70%, transparent); }
-.dv-pair { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.dv-pair { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 .dv-select {
   font-size: 11px; font-weight: 700; padding: 5px 6px; border-radius: 8px;
   border: 1px solid var(--ui-border); background: var(--ui-glass); color: var(--ui-text);
   cursor: pointer;
 }
-.dv-hint, .dv-muted { min-width: 0; overflow-wrap: anywhere; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); margin: 0; }
-.dv-line { min-width: 0; font-size: 12px; margin: 0; overflow: hidden; overflow-wrap: anywhere; text-overflow: ellipsis; }
-.dv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
-.dv-grid p { margin: 0; font-size: 12px; }
-.dv-vids { display: flex; gap: 8px; flex-wrap: wrap; }
+.dv-hint, .dv-muted { min-width: 0; overflow-wrap: anywhere; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); margin: 8px 0 0; }
+.dv-line { min-width: 0; font-size: 12px; margin: 8px 0 0; overflow: hidden; overflow-wrap: anywhere; text-overflow: ellipsis; }
+.dv-vids { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .dv-vid { width: 220px; max-width: 100%; aspect-ratio: 16/10; border-radius: 10px; border: 1px solid var(--ui-border); background: #000; }
 
 @media (max-width: 600px) {
   .dv { padding: max(10px, env(safe-area-inset-top)) 10px max(14px, env(safe-area-inset-bottom)); gap: 8px; font-size: 14px; }
-  .dv-top { align-items: flex-start; padding: 10px 4px 12px; }
-  .dv-title { font-size: 17px; }
-  .dv-subtitle { font-size: 12px; line-height: 1.35; }
-  .dv-top-actions { margin-top: -2px; }
-  .dv-card { border-radius: 16px; padding: 14px 12px; gap: 10px; }
-  .dv-card-head { align-items: flex-start; flex-wrap: wrap; line-height: 1.35; }
+  .dv-hero { align-items: flex-start; padding: 12px; border-radius: 18px; }
+  .dv-title { font-size: 18px; }
+  .dv-top-actions { margin-top: -2px; flex-direction: column; }
+  .dv-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .dv-tile-value { font-size: 19px; }
+  .dv-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .dv-list { max-height: none; gap: 8px; }
   .dv-row { border-radius: 12px; padding: 8px 10px; }
-  .dv-bus { min-width: 58px; }
   .dv-pair { gap: 8px; }
-  .dv-pair :deep(button), .dv-pair :deep(select), .dv-top-actions :deep(button) { min-height: 44px; }
+  .dv-pair :deep(button), .dv-top-actions :deep(button) { min-height: 44px; }
   .dv-pair :deep(button) { flex: 1 1 auto; }
-  .dv-select { min-width: 54px; }
-  .dv-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .dv-grid p { overflow-wrap: anywhere; line-height: 1.45; }
+  .dv-card-line { overflow-wrap: anywhere; line-height: 1.5; }
   .dv-hint, .dv-muted { line-height: 1.45; }
 }
 

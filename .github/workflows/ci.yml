@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Versions agree everywhere
         run: bash scripts/check-version.sh
@@ -54,27 +54,47 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # apt cache: the WebKit/GTK stack is ~400 MB of .debs, identical on
+      # every run — restore instead of re-downloading (key bump = v2, v3…).
+      # libglib2.0-dev is explicit (not just transitive via libgtk-3-dev):
+      # glib-sys (via tauri → gtk, and via tauri-plugin-dialog → rfd on
+      # Linux) runs `pkg-config glib-2.0 >= 2.70` at build time, and the
+      # transitive pull proved unreliable (CI: `glib-2.0.pc not found`).
       - name: Install system dependencies (for Tauri)
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        with:
+          packages: libwebkit2gtk-4.1-dev libgtk-3-dev libglib2.0-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config build-essential libssl-dev
+          version: "1.1"
+
+      # The cache action pins exact .deb versions yet reports success even
+      # when `apt-get install` 404s on a stale mirror index — leaving ZERO
+      # system libs installed (CI 2026-10-11: every GTK compile then fails
+      # on `glib-2.0.pc not found`). Self-heal with an unpinned reinstall,
+      # then prove the .pc files pkg-config actually needs exist.
+      - name: Verify system dependencies (repair on mirror 404)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            pkg-config \
-            build-essential \
-            libssl-dev
+          if ! pkg-config --exists 'glib-2.0 >= 2.70'; then
+            echo "glib-2.0.pc missing — retrying apt with a fresh index"
+            sudo apt-get update
+            sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libglib2.0-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config build-essential libssl-dev
+          fi
+          pkg-config --modversion glib-2.0
+          pkg-config --exists 'glib-2.0 >= 2.70'
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: "."
           cache-on-failure: true
+          # One shared cache for the three Linux workspace jobs (rust-check,
+          # linux-build, wasm-build): same OS/toolchain/Cargo.lock, so the
+          # default per-job key stored the same ~700 MB of third-party
+          # crates three times. PRs read main/develop's cache but don't
+          # write per-PR duplicates (save-if) — kills the eviction churn.
+          shared-key: "linux-workspace"
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
 
       # Workspace-wide: `src-tauri` alone has no tests, so a current-package-only
       # run silently executed zero tests (all crates/tests live outside it).
@@ -93,20 +113,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build Docker image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile
           push: false
           tags: cybermanju-os:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Explicit scope: the default `buildkit` scope shares one slot and
+          # would collide with the release job's image cache. GHA-backed
+          # layer blobs share the 10 GB repo cache quota with rust-cache,
+          # so this stays `mode=max` only for the single-image CI build.
+          cache-from: type=gha,scope=cybermanju-docker
+          cache-to: type=gha,mode=max,scope=cybermanju-docker
           # OAuth broker (public URL + anon key) baked into the served
           # bundle. Empty when unset — the app then takes the Settings paste.
           build-args: |
@@ -122,7 +146,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Prebuilt binary. `cargo install cargo-audit --locked` compiles
       # ~300 crates from source on every single run for no reason.
@@ -156,21 +180,22 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Item 17: the Rust half. These steps are what make CI fail when
       # crates/os-wasm stops compiling for the browser target.
-      - name: Install Rust WASM target
-        run: rustup target add wasm32-unknown-unknown
-
+      # Toolchain + targets come from rust-toolchain.toml (no `rustup target
+      # add` needed — rustup auto-installs listed targets). The `cargo check`
+      # used to sit here too, but `wasm-pack build` compiles the same crate
+      # right below, so the check was a full duplicate compile — removed.
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: "."
           cache-on-failure: true
-
-      - name: cargo check os-wasm for wasm32
-        run: cargo check --target wasm32-unknown-unknown -p cybermanju-os-wasm
+          # Shared with rust-check/linux-build (same Linux workspace cache).
+          shared-key: "linux-workspace"
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
 
       # Prebuilt binary; building wasm-pack from source costs minutes.
       - name: Install wasm-pack
@@ -227,25 +252,60 @@ jobs:
       # production site and a main push cannot remove the preview.
       - name: Checkout sibling Pages branch
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.ref == 'refs/heads/main' && 'develop' || 'main' }}
           path: sibling
 
-      - name: Install sibling branch dependencies
+      # Reuse the sibling branch's own last green `dist-wasm` instead of
+      # rebuilding it from scratch (npm ci + wasm-pack + vite ≈ minutes).
+      # Exactness guard: the producing run's head SHA must equal the sibling
+      # checkout's SHA, otherwise the preview would lag the sibling branch.
+      # On a main push the bare develop build is the `develop/` subdir of
+      # the sibling's assembled artifact; on a develop push the artifact
+      # root is the main build (its stale nested preview is overwritten by
+      # the assembly step below). Any miss → falls through to the rebuild
+      # steps (outcome != 'success'), never fails the job.
+      - name: Restore sibling dist-wasm from last green run
+        id: sibling-restore
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        continue-on-error: true
+        run: |
+          SIBLING_BRANCH="${{ github.ref == 'refs/heads/main' && 'develop' || 'main' }}"
+          SIBLING_SHA="$(git -C sibling rev-parse HEAD)"
+          RUN_JSON="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow CI \
+            --branch "$SIBLING_BRANCH" --status success --limit 1 \
+            --json databaseId,headSha)"
+          RUN_ID="$(echo "$RUN_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["databaseId"])')"
+          RUN_SHA="$(echo "$RUN_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["headSha"])')"
+          echo "sibling $SIBLING_BRANCH at $SIBLING_SHA, last green run $RUN_ID at $RUN_SHA"
+          [ "$RUN_SHA" = "$SIBLING_SHA" ] || { echo "sibling moved since its last green run — rebuilding"; exit 1; }
+          rm -rf sibling/dl sibling/dist-wasm
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" -n dist-wasm -D sibling/dl
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            mv sibling/dl/develop sibling/dist-wasm
+            rm -rf sibling/dl
+          else
+            mv sibling/dl sibling/dist-wasm
+          fi
+          test -s sibling/dist-wasm/index.html
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install sibling branch dependencies
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && steps.sibling-restore.outcome != 'success'
         working-directory: sibling
         run: npm ci
 
       - name: Build sibling branch WASM package
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && steps.sibling-restore.outcome != 'success'
         working-directory: sibling
         run: wasm-pack build crates/os-wasm --target web --out-dir pkg
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/target
 
       - name: Build sibling branch frontend
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && steps.sibling-restore.outcome != 'success'
         working-directory: sibling
         run: npm run build:wasm:frontend && npm run wiki
         env:
@@ -287,9 +347,21 @@ jobs:
           test -s dist-wasm/index.html
           test -s dist-wasm/develop/index.html
           grep -q 'src="/develop/' dist-wasm/develop/index.html
+          # The installer one-liners (`install.sh` / `install.ps1`) live at
+          # the repo root, but Pages serves dist-wasm/ — publish them at the
+          # site root or the documented URLs 404. `/` always runs the
+          # main-branch build, so on develop pushes the scripts come from
+          # the sibling (main) checkout, not the workspace (develop).
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            cp install.sh install.ps1 dist-wasm/
+          else
+            cp sibling/install.sh sibling/install.ps1 dist-wasm/
+          fi
+          test -s dist-wasm/install.sh
+          test -s dist-wasm/install.ps1
 
       - name: Upload WASM artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-wasm
           path: dist-wasm/
@@ -302,13 +374,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: "."
           cache-on-failure: true
+          # PRs read the branch cache but don't write per-PR duplicates.
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
 
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -319,7 +393,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Tauri app
+      # PRs validate with a debug build (no LTO/opt, links in a fraction of
+      # the time); release profile still builds on every main/develop push
+      # and every release, so the shipping link is always validated.
+      - name: Build Tauri app (PR debug)
+        if: github.event_name == 'pull_request'
+        run: npm run tauri build -- --debug
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # OAuth broker (public URL + anon key) baked into the bundle so
+          # sign-in works out of the box on every device. Empty when unset —
+          # the app then takes the Settings → OAuth broker paste.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Build Tauri app (release)
+        if: github.event_name != 'pull_request'
         run: npm run tauri build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -330,10 +419,11 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-windows
-          path: target/release/bundle/**/*
+          # target/release on branch/release builds, target/debug on PRs.
+          path: target/*/bundle/**/*
           retention-days: 7
           if-no-files-found: error
 
@@ -343,27 +433,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install system dependencies (for Tauri)
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        with:
+          # libglib2.0-dev explicit: glib-sys build script needs glib-2.0.pc
+          # (see rust-check step for the full reason).
+          packages: libwebkit2gtk-4.1-dev libgtk-3-dev libglib2.0-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config build-essential libssl-dev
+          version: "1.1"
+
+      # Self-heal for stale-mirror 404s that leave zero system libs
+      # installed (see rust-check's verify step for the full reason).
+      - name: Verify system dependencies (repair on mirror 404)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            pkg-config \
-            build-essential \
-            libssl-dev
+          if ! pkg-config --exists 'glib-2.0 >= 2.70'; then
+            echo "glib-2.0.pc missing — retrying apt with a fresh index"
+            sudo apt-get update
+            sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libglib2.0-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config build-essential libssl-dev
+          fi
+          pkg-config --modversion glib-2.0
+          pkg-config --exists 'glib-2.0 >= 2.70'
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: "."
           cache-on-failure: true
+          # Shared with rust-check/wasm-build (same Linux workspace cache).
+          shared-key: "linux-workspace"
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
 
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -374,7 +473,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Tauri app
+      # PRs validate with a debug build (no LTO/opt); release profile still
+      # builds on every main/develop push and every release.
+      - name: Build Tauri app (PR debug)
+        if: github.event_name == 'pull_request'
+        run: npm run tauri build -- --debug
+        env:
+          # OAuth broker (public URL + anon key) baked into the bundle —
+          # linux artifacts (deb/AppImage/rpm, and the Flatpak repackaged
+          # from the deb) sign in out of the box on every device.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Build Tauri app (release)
+        if: github.event_name != 'pull_request'
         run: npm run tauri build
         env:
           # OAuth broker (public URL + anon key) baked into the bundle —
@@ -384,50 +496,40 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload Linux artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-linux
           path: |
-            target/release/bundle/deb/*.deb
-            target/release/bundle/appimage/*.AppImage
+            target/*/bundle/deb/*.deb
+            target/*/bundle/appimage/*.AppImage
           retention-days: 7
           if-no-files-found: error
 
       - name: Upload Debian package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-linux-deb
-          path: target/release/bundle/deb/*.deb
+          path: target/*/bundle/deb/*.deb
           retention-days: 7
           if-no-files-found: error
 
       - name: Upload RPM package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-linux-rpm
-          path: target/release/bundle/rpm/*.rpm
+          path: target/*/bundle/rpm/*.rpm
           retention-days: 7
           if-no-files-found: error
 
-  # ─── Linux: Build RPM ────────────────────────────────────────────
-  rpm-build:
-    name: Build Linux (RPM)
-    runs-on: ubuntu-latest
-    # Only waits for the job that produces `dist-linux-rpm`, not for lint.
-    needs: linux-build
-    steps:
-      - name: Download RPM from linux-build
-        continue-on-error: true
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: dist-linux-rpm
-          path: rpm-out
-
-      - name: Upload RPM artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      # Folded in from the old standalone `rpm-build` job: that job only
+      # downloaded `dist-linux-rpm` and re-uploaded the identical bytes as
+      # `dist-rpm` — a whole runner + queue cycle for a rename. Both names
+      # are still produced so `fetch-last-build` pairs keep working.
+      - name: Upload RPM artifacts (release name)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-rpm
-          path: rpm-out/*.rpm
+          path: target/*/bundle/rpm/*.rpm
           retention-days: 7
           if-no-files-found: error
 
@@ -439,11 +541,11 @@ jobs:
     needs: linux-build
     steps:
       - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download Debian package
         continue-on-error: true
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist-linux-deb
           path: artifacts
@@ -464,7 +566,7 @@ jobs:
           flatpak build-bundle repo cybermanju-os.flatpak com.cybermanju.os
 
       - name: Upload Flatpak artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-flatpak
           path: cybermanju-os.flatpak
@@ -533,7 +635,7 @@ jobs:
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
       - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Fix ownership
         run: chown -R builder:builder $GITHUB_WORKSPACE
@@ -543,8 +645,36 @@ jobs:
           sudo -u builder bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
           sudo -u builder bash -c 'source $HOME/.cargo/env && rustup default stable'
 
+      # rust-cache below runs as root but must see the toolchain (installed
+      # as `builder` above) — link it onto the default PATH.
+      - name: Link cargo into PATH (for rust-cache)
+        run: ln -sf /home/builder/.cargo/bin/cargo /home/builder/.cargo/bin/rustc /usr/local/bin/
+
+      # First cache this job ever had: without it every run recompiled the
+      # whole workspace from zero (~12 min job). HOME override aligns the
+      # cargo-home paths with the build step (which exports HOME=/home/builder).
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        env:
+          HOME: /home/builder
+        with:
+          workspaces: "."
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
+
       - name: Install Node.js
         run: pacman -S --noconfirm nodejs npm
+
+      - name: Cache npm directory
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: /home/builder/.npm
+          key: npm-arch-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-arch-
+
+      - name: Fix npm cache ownership
+        run: chown -R builder:builder /home/builder/.npm 2>/dev/null || true
 
       # NO_STRIP: linuxdeploy's bundled strip cannot read the .relr.dyn sections
       # Arch-built libraries carry, which aborts the AppImage bundle with
@@ -572,7 +702,10 @@ jobs:
             export VITE_SUPABASE_ANON_KEY=\"$VITE_SUPABASE_ANON_KEY\"
             cd $GITHUB_WORKSPACE
             npm ci
-            npm run tauri build || npm run tauri -- build --verbose
+            # Unescaped on purpose: expands in the OUTER shell (sudo scrubs
+            # the environment, so the inner shell never sees GITHUB_EVENT_NAME).
+            if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then EXTRA='--debug'; else EXTRA=''; fi
+            npm run tauri build \$EXTRA || npm run tauri -- build \$EXTRA --verbose
           "
 
       - name: Collect artifacts
@@ -582,10 +715,12 @@ jobs:
             mkdir -p dist-arch
             cp target/release/bundle/deb/*.deb dist-arch/ 2>/dev/null || true
             cp target/release/bundle/appimage/*.AppImage dist-arch/ 2>/dev/null || true
+            cp target/debug/bundle/deb/*.deb dist-arch/ 2>/dev/null || true
+            cp target/debug/bundle/appimage/*.AppImage dist-arch/ 2>/dev/null || true
           '
 
       - name: Upload Arch build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-arch
           path: dist-arch/
@@ -606,7 +741,7 @@ jobs:
       NDK_VERSION: 28.2.13676358
     steps:
       - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # ort-sys `download-binaries` (via cybermanju-faces default `onnx-face`)
       # extracts the ONNX Runtime into a host cache dir OUTSIDE `target/`.
@@ -618,7 +753,7 @@ jobs:
         run: echo "ORT_CACHE_DIR=$HOME/.cache/ort" >> "$GITHUB_ENV"
 
       - name: Setup Java
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: "temurin"
           java-version: "17"
@@ -629,6 +764,27 @@ jobs:
           # Passed explicitly (== the v4 default) so upstream default churn
           # can never reintroduce the removed legacy 'tools' package.
           packages: platform-tools
+
+      # The SDK (platforms + build-tools + NDK ≈ 1 GB) was re-downloaded on
+      # every run — the longest job in CI. sdkmanager skips what's present,
+      # so a warm cache turns the step below into a no-op.
+      - name: Cache Android SDK/NDK
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.ANDROID_HOME }}
+          key: android-sdk-36-ndk-${{ env.NDK_VERSION }}-v1
+
+      # Gradle/AGP/Kotlin artifacts (~500 MB) were also re-fetched every
+      # run; the GitLab mirror already caches ~/.gradle, GitHub did not.
+      - name: Cache Gradle
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-v1
+          restore-keys: |
+            gradle-${{ runner.os }}-
 
       - name: Install Android SDK components
         run: |
@@ -662,11 +818,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Rust targets
-        # Release ships arm64-v8a only (ort-sys prebuilts); x86_64 is kept
-        # for the emulator smoke test. armv7/i686 are not built — skip them.
-        run: |
-          rustup target add aarch64-linux-android x86_64-linux-android wasm32-unknown-unknown
+      # Rust targets (aarch64/x86_64-android, wasm32) come from
+      # rust-toolchain.toml — rustup auto-installs listed targets, so the
+      # manual `rustup target add` step is gone.
 
       - name: Install wasm-pack
         uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
@@ -681,6 +835,9 @@ jobs:
         with:
           workspaces: "."
           cache-on-failure: true
+          # Own key (Android target triples differ from the Linux workspace
+          # cache), but PRs still only read — no per-PR duplicates.
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
 
       # The `ORT_CACHE_DIR` above (`dfbin/<target>/<hash>/libonnxruntime.a`)
       # survives here; without it a warm rust-cache (valid build-script
@@ -799,7 +956,7 @@ jobs:
         run: bash scripts/android-signing.sh cleanup
 
       - name: Upload Android artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-android
           path: |
@@ -814,13 +971,15 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: "."
           cache-on-failure: true
+          # PRs read the branch cache but don't write per-PR duplicates.
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
 
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -831,7 +990,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Tauri app
+      # PRs validate with a debug build (no LTO/opt); release profile still
+      # builds on every main/develop push and every release.
+      - name: Build Tauri app (PR debug)
+        if: github.event_name == 'pull_request'
+        run: npm run tauri build -- --debug
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # OAuth broker (public URL + anon key) baked into the bundle so
+          # sign-in works out of the box on every device.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Build Tauri app (release)
+        if: github.event_name != 'pull_request'
         run: npm run tauri build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -841,12 +1013,13 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload macOS artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-macos
+          # target/release on branch/release builds, target/debug on PRs.
           path: |
-            target/release/bundle/dmg/*.dmg
-            target/release/bundle/macos/*.app
+            target/*/bundle/dmg/*.dmg
+            target/*/bundle/macos/*.app
           retention-days: 7
           if-no-files-found: error
 
@@ -857,7 +1030,7 @@ jobs:
     # Pure Go (no cgo): one runner cross-compiles all six OS/arch pairs.
     steps:
       - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -903,7 +1076,7 @@ jobs:
         run: bash ../scripts/cyb-deb.sh "$(node -p "require('../package.json').version")" . dist-cli
 
       - name: Upload CLI artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-cli
           path: cli/dist-cli/
@@ -927,19 +1100,19 @@ jobs:
       url: ${{ format('{0}{1}', steps.deployment.outputs.page_url, github.ref == 'refs/heads/develop' && 'develop/' || '') }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download WASM artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist-wasm
           path: dist-wasm/
 
       - name: Setup Pages
-        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Upload artifact to GitHub Pages
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: dist-wasm/
 

@@ -5,11 +5,11 @@
 // stays addressable in one tree:
 //
 //   /host                  → the `-os` default dir (sdcard on Android, the
-//                            user's home dir on desktop; the picked `$HOME`
-//                            folder on WASM/static builds)
+//                            user's home dir on desktop; a virtual list of
+//                            explicitly mounted folders on WASM/static builds)
 //   /host/sdcard/Download  → that host dir (Android / Linux / macOS)
 //   /host/C:/Users/me      → that host dir (Windows)
-//   /host/                 → the filesystem root (native) / the picked root
+//   /host/                 → the filesystem root (native) / virtual mount list
 //                            (WASM — browsers expose no filesystem root)
 //
 // Metadata ops (`ls/stat/mkdir/cp/mv/rm/write/… -os`) run through cybsh over
@@ -29,21 +29,27 @@
 // verify-before-delete on every destructive leg.
 
 import type { FileNode, ShellResult } from '@/types'
+import { useTransport } from '@/composables/useTransport'
+import {
+  HOST_WRITE_LIMIT_BYTES,
+  isHostFilesystemRoot,
+  isSameOrDescendantHostPath,
+  joinHostPath,
+  normalizeHostPath,
+} from './hostFsSafety'
 
 export const HOST_ROOT = '/host'
 
 export type HostRunner = (line: string) => Promise<string>
 
 /**
- * True on WASM/static builds: a real browser window without Tauri IPC.
- * Node (no window) stays on the native path so unit tests keep their fake
- * runners; browsers without a folder picker still route here so the WASM
- * leg can refuse honestly (`unsupported:`) instead of dying in plugin-fs.
+ * True only on the explicitly classified WASM/static transport.
+ * Web/REST dashboards also run in a browser without Tauri and must continue
+ * through the REST-backed host shell instead of the local folder picker.
  */
 function useWasmHost(): boolean {
   try {
-    if (typeof window === 'undefined') return false
-    return !Boolean((window as unknown as Record<string, unknown>).__TAURI__)
+    return useTransport().backend === 'wasm'
   } catch {
     return false
   }
@@ -58,7 +64,7 @@ async function defaultRunner(line: string): Promise<string> {
 
 /** Quote one shell operand (mirrors the terminal's `sh()` helper). */
 export function shellQuote(p: string): string {
-  return `"${String(p ?? '').replace(/"/g, '\\"')}"`
+  return `"${String(p ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
 /** True for FileManager paths inside the host namespace. */
@@ -204,22 +210,24 @@ export async function mkdirHost(abs: string, run: HostRunner = defaultRunner): P
 }
 
 export async function writeHostText(abs: string, content: string, run: HostRunner = defaultRunner): Promise<void> {
+  const byteLength = new TextEncoder().encode(content).byteLength
+  if (byteLength > HOST_WRITE_LIMIT_BYTES) {
+    throw new Error(`too_large: content is ${byteLength} UTF-8 bytes, host text write limit is ${HOST_WRITE_LIMIT_BYTES}`)
+  }
   if (useWasmHost()) {
     const { writeHostWasmText } = await import('@/utils/hostWasm')
     await writeHostWasmText(abs, content)
     return
   }
-  if (content.length > 1024 * 1024) {
-    throw new Error(`too_large: content is ${content.length} bytes, shell write limit is ${1024 * 1024}`)
-  }
-  // Content rides as trailing argv words (the shell joins them with one
-  // space); escape backslashes + quotes so the round-trip is byte-exact for
-  // ordinary text. Binary goes through writeHostBytes (plugin-fs) instead.
-  const safe = content.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-  await run(`write -os ${shellQuote(abs)} "${safe}"`)
+  // Content rides as one quoted argv word. Binary goes through
+  // writeHostBytes (plugin-fs) instead.
+  await run(`write -os ${shellQuote(abs)} ${shellQuote(content)}`)
 }
 
 export async function rmHost(abs: string, recursive: boolean, run: HostRunner = defaultRunner): Promise<void> {
+  if (isHostFilesystemRoot(abs)) {
+    throw new Error('invalid: refusing to delete the host filesystem root')
+  }
   if (useWasmHost()) {
     const { rmHostWasm } = await import('@/utils/hostWasm')
     await rmHostWasm(abs, recursive)
@@ -229,6 +237,9 @@ export async function rmHost(abs: string, recursive: boolean, run: HostRunner = 
 }
 
 export async function cpHost(src: string, dst: string, recursive: boolean, run: HostRunner = defaultRunner): Promise<void> {
+  if (isHostFilesystemRoot(src)) {
+    throw new Error('invalid: refusing to copy the host filesystem root')
+  }
   if (useWasmHost()) {
     const { cpHostWasm } = await import('@/utils/hostWasm')
     await cpHostWasm(src, dst, recursive)
@@ -238,6 +249,9 @@ export async function cpHost(src: string, dst: string, recursive: boolean, run: 
 }
 
 export async function mvHost(src: string, dst: string, run: HostRunner = defaultRunner): Promise<void> {
+  if (isHostFilesystemRoot(src)) {
+    throw new Error('invalid: refusing to move the host filesystem root')
+  }
   if (useWasmHost()) {
     const { mvHostWasm } = await import('@/utils/hostWasm')
     await mvHostWasm(src, dst)
@@ -500,8 +514,7 @@ async function listSourceDir(src: MoveSource, deps: MoveDeps): Promise<{ name: s
 
 async function ensureDestDir(dest: MoveDest, name: string, deps: MoveDeps): Promise<MoveDest> {
   if (dest.kind === 'host') {
-    const clean = dest.absDir.replace(/\/+$/, '')
-    const next = `${clean}/${name}`
+    const next = joinHostPath(dest.absDir, name)
     await deps.run(`mkdir -os -p ${shellQuote(next)}`)
     return { kind: 'host', absDir: next }
   }
@@ -526,16 +539,34 @@ export async function moveAnywhere(
   op: 'copy' | 'move',
   deps: MoveDeps,
 ): Promise<string> {
+  if (src.kind === 'host') {
+    const normalizedSource = normalizeHostPath(src.absPath)
+    const wasmMountRoot = useWasmHost() && /^\/[^/]+$/.test(normalizedSource)
+    if (isHostFilesystemRoot(normalizedSource) || wasmMountRoot) {
+      throw new Error('invalid: refusing to copy or move a host or mounted-folder root')
+    }
+    if (dest.kind === 'host') {
+      if (!dest.absDir) throw new Error('invalid: host destination directory is unresolved')
+      const target = joinHostPath(dest.absDir, srcName(src))
+      // Conservative case folding covers case-insensitive desktop volumes and
+      // prevents copying/moving a directory into itself through a path alias.
+      if (isSameOrDescendantHostPath(src.absPath, target, true)) {
+        throw new Error(`invalid: host destination '${target}' is the source or lies inside it`)
+      }
+    }
+  }
   // ── same-namespace fast paths ──
   if (src.kind === 'host' && dest.kind === 'host') {
-    const clean = dest.absDir.replace(/\/+$/, '')
+    const clean = normalizeHostPath(dest.absDir)
+    if (!clean) throw new Error('invalid: host destination directory is unresolved')
     if (srcIsDir(src)) {
       if (op === 'copy') await deps.run(`cp -os -r ${shellQuote(src.absPath)} ${shellQuote(clean)}`)
       else await deps.run(`mv -os ${shellQuote(src.absPath)} ${shellQuote(clean)}`)
       return `${op === 'move' ? 'Moved' : 'Copied'} '${srcName(src)}' on this device`
     }
-    if (op === 'copy') await deps.run(`cp -os ${shellQuote(src.absPath)} ${shellQuote(castAbs(clean, srcName(src)))}`)
-    else await deps.run(`mv -os ${shellQuote(src.absPath)} ${shellQuote(castAbs(clean, srcName(src)))}`)
+    const fileTarget = joinHostPath(clean, srcName(src))
+    if (op === 'copy') await deps.run(`cp -os ${shellQuote(src.absPath)} ${shellQuote(fileTarget)}`)
+    else await deps.run(`mv -os ${shellQuote(src.absPath)} ${shellQuote(fileTarget)}`)
     return `${op === 'move' ? 'Moved' : 'Copied'} '${srcName(src)}' on this device`
   }
   if (src.kind === 'vault' && dest.kind === 'vault' && !srcIsDir(src)) {
@@ -645,10 +676,6 @@ async function deleteSourceDir(src: MoveSource, deps: MoveDeps): Promise<void> {
   await deleteVaultSource(src.file, deps)
 }
 
-function castAbs(dir: string, name: string): string {
-  return `${dir}/${name}`
-}
-
 function humanSize(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`
@@ -690,9 +717,9 @@ export function destFromVmPath(vmPath: string): MoveDest | null {
   if (isHostPath(norm)) {
     const abs = hostAbsFromVm(norm)
     // Native `/host` carries no absolute — callers resolve the `-os`
-    // default dir first. On WASM `/host` IS the picked `$HOME` root, so it
-    // resolves to `/` directly (the handle root).
-    if (abs === '') return useWasmHost() ? { kind: 'host', absDir: '/' } : null
+    // default dir first. On WASM `/host` is the virtual folders list
+    // (mounts only) — never a move destination either.
+    if (abs === '' || (useWasmHost() && abs === '/')) return null
     return { kind: 'host', absDir: abs }
   }
   if (norm === '/providers' || norm === '/providers/') return null

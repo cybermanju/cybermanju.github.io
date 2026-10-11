@@ -31,6 +31,7 @@ import { isSyncSuccess, isSyncTerminal, firstSyncError, refreshAfterSync as fanO
 import { parseStarIds, serializeStarIds } from '@/utils/stars'
 import { parseSchedule, scheduleNextAfter } from '@/utils/schedule'
 import { setAuthToken, getAuthToken, isWebMode, isStaticHost } from '@/composables/useTauri'
+import { isInstallNeededError, installReasonFor, requestInstallWindow } from '@/utils/installLinks'
 import { createUiRequestDedupe } from '@/utils/uiRequests'
 import { useWindowManager } from '@/composables/useWindowManager'
 
@@ -443,6 +444,18 @@ export const useAppStore = defineStore('cybermanju', () => {
     lastError.value = hint !== 'See logs for detail.' ? `${msg}: ${detail} — ${hint}` : `${msg}: ${detail}`
     notify('error', lastError.value)
     console.error(lastError.value)
+    // Central Install-window net: every toast that means "this needs a
+    // native build" opens the per-platform installer — present call sites
+    // and future ones alike, so no unsupported state can strand the user.
+    // The predicate is deliberately narrow (picker / desktop-app /
+    // dashboard wordings only); provider-shaped `unsupported:` (bad repo
+    // name, bad path, unknown layer) stays a toast. Headless-safe:
+    // `requestInstallWindow` no-ops where no window exists. `wm.open`
+    // re-steers the live Install window, so bursts refocus instead of
+    // stacking.
+    if (isInstallNeededError(`${msg}: ${detail}`)) {
+      requestInstallWindow(installReasonFor(`${msg}: ${detail}`))
+    }
   }
 
   function notifySuccess(msg: string) {
@@ -555,8 +568,10 @@ export const useAppStore = defineStore('cybermanju', () => {
             notifyError('Device files need a home folder', e)
             return
           }
+          // No folder picker in this browser: the central notifyError net
+          // opens the Install window (native app per platform, App × CLI).
           files.value = []
-          notifyError('Device files need the app', 'open this vault in the desktop app or the native Android build to browse the device')
+          notifyError('Device files need the app', 'this browser has no folder picker — install options are opening')
           return
         }
         const { listHostDir } = await import('@/utils/hostBrowse')

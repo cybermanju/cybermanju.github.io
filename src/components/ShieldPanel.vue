@@ -63,6 +63,7 @@
       <p class="sh-note" :class="webLocked ? 'is-warn' : 'is-info'">
         <AppIcon :name="webLocked ? 'solar:danger-circle-bold' : 'solar:info-circle-bold'" :size="13" />
         <span>{{ cryptoNote }}</span>
+        <UiButton v-if="webLocked" size="sm" variant="ghost" icon="solar:download-bold" @click="openInstall">Get the native app</UiButton>
       </p>
 
       <section class="sh-section keygen-section" aria-label="Generate a key">
@@ -149,6 +150,7 @@
       <p class="sh-note" :class="webLocked ? 'is-warn' : 'is-info'">
         <AppIcon :name="webLocked ? 'solar:danger-circle-bold' : 'solar:info-circle-bold'" :size="13" />
         <span>{{ compressNote }}</span>
+        <UiButton v-if="webLocked" size="sm" variant="ghost" icon="solar:download-bold" @click="openInstall">Get the native app</UiButton>
       </p>
 
       <section v-if="selectedFile" class="sh-section" aria-label="Compress selected file">
@@ -201,11 +203,17 @@ import { useAppStore } from '@/stores/app'
 import { humanBytes } from '@/utils/format'
 import { isStaticHost } from '@/composables/useTauri'
 import { compressionCapable } from '@/composables/useWasmCrypto'
+import { requestInstallWindow } from '@/utils/installLinks'
 import type { EncryptionAlgo, CompressionType } from '@/types'
 import { ENCRYPTION_INFO, COMPRESSION_INFO } from '@/types'
 
 const store = useAppStore()
 const emit = defineEmits<{ close: [] }>()
+
+/** Open the Install window (native builds per platform, App × CLI). */
+function openInstall() {
+  requestInstallWindow('needs-app')
+}
 
 // Merged shield window: `compression` opens here on the compress tab.
 const props = defineProps<{ tab?: string }>()

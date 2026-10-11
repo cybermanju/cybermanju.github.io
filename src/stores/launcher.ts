@@ -39,8 +39,10 @@ export const useLauncherStore = defineStore('launcher', () => {
   const overrides = ref<OverrideMap>(readStored())
   /** Drawer open state — home swipe-up and the handle button share it. */
   const drawerOpen = ref(false)
-  /** Messages-hub open state — the top-right icon toggles it. */
+  /** Notification-center open state — the bell icons toggle it. */
   const messagesOpen = ref(false)
+  /** Which center tab opens: system history vs Android messages hub. */
+  const centerTab = ref<'system' | 'messages'>('messages')
   /** Last mark-read time for the hub badge (unix millis, per-device). */
   const messagesSeenAt = ref(0)
 
@@ -112,7 +114,8 @@ export const useLauncherStore = defineStore('launcher', () => {
     drawerOpen.value = open
   }
 
-  function setMessagesOpen(open: boolean) {
+  function setMessagesOpen(open: boolean, tab?: 'system' | 'messages') {
+    if (tab) centerTab.value = tab
     messagesOpen.value = open
   }
 
@@ -133,5 +136,5 @@ export const useLauncherStore = defineStore('launcher', () => {
     // Session-only.
   }
 
-  return { overrides, drawerOpen, messagesOpen, messagesSeenAt, get, patch, rename, setIcon, setIconPack, hide, pinToEnd, move, swap, reset, setDrawer, setMessagesOpen, markMessagesSeen }
+  return { overrides, drawerOpen, messagesOpen, centerTab, messagesSeenAt, get, patch, rename, setIcon, setIconPack, hide, pinToEnd, move, swap, reset, setDrawer, setMessagesOpen, markMessagesSeen }
 })

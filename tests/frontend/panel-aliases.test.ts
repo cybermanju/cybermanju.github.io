@@ -18,10 +18,16 @@ describe('panel aliases', () => {
     expect(resolvePanel('storage')).toBe('disks')
     expect(resolvePanel('compression')).toBe('encryption')
     expect(resolvePanel('users')).toBe('accounts')
-    expect(resolvePanel('favorites')).toBe('collections')
-    expect(resolvePanel('loose-groups')).toBe('collections')
-    expect(resolvePanel('style')).toBe('collections')
     expect(resolvePanel('preview')).toBe('files')
+  })
+
+  it('merges faces + collections + search into the unified search window', () => {
+    for (const alias of ['faces', 'collections', 'favorites', 'loose-groups', 'style'] as const) {
+      expect(resolvePanel(alias), `${alias} → search`).toBe('search')
+      expect(MODULE_METADATA[alias], `${alias} metadata`).toBeDefined()
+    }
+    expect(PANEL_ALIASES.search).toBeUndefined()
+    expect(MODULE_METADATA.search).toBeDefined()
   })
 
   it('routes the scheduler aliases onto the Tasks window (Phase 1)', () => {

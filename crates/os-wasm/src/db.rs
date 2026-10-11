@@ -312,6 +312,21 @@ fn open_all_tables(db: &RedbDatabase) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         txn.open_table(DbDefs::get_shell_history_table())
             .map_err(|e| e.to_string())?;
+        // Keep this list in lockstep with the native `Database::new`
+        // (`crates/db/src/database.rs`): a read txn errors
+        // `Table '<name>' does not exist` for any table skipped here, which
+        // surfaces as a UI toast on every poll (e.g. `cron.list` on a fresh
+        // browser DB failed before `schedules` was added).
+        txn.open_table(DbDefs::get_agent_configs_table())
+            .map_err(|e| e.to_string())?;
+        txn.open_table(DbDefs::get_agent_sessions_table())
+            .map_err(|e| e.to_string())?;
+        txn.open_table(DbDefs::get_agent_memories_table())
+            .map_err(|e| e.to_string())?;
+        txn.open_table(DbDefs::get_schedules_table())
+            .map_err(|e| e.to_string())?;
+        txn.open_table(DbDefs::get_schedule_runs_table())
+            .map_err(|e| e.to_string())?;
         txn.open_table(DbDefs::get_kv_table())
             .map_err(|e| e.to_string())?;
         txn.open_table(DbDefs::get_secrets_table())
@@ -1483,4 +1498,34 @@ fn get_disk(id: &str) -> Result<serde_json::Value, String> {
     read_one(DbDefs::get_disks_table(), id)?
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .ok_or_else(|| format!("not_found: disk {id}"))
+}
+
+#[cfg(test)]
+mod open_tables_tests {
+    use super::*;
+
+    /// Regression: `open_all_tables` must create every table any op reads.
+    /// `cron.list` on a fresh browser DB used to fail with
+    /// `Table 'schedules' does not exist` (read txns don't create tables),
+    /// which the store surfaced as a `Failed to fetch schedules` toast on
+    /// every poll. Same coverage for the agent tables, which the native
+    /// `Database::new` has always created.
+    #[test]
+    fn open_all_tables_creates_cron_and_agent_tables() {
+        let db = redb::Builder::new()
+            .create_with_backend(Backend::Memory(MemoryBackend::new()))
+            .expect("in-memory open");
+        open_all_tables(&db).expect("open_all_tables");
+        let tx = db.begin_read().expect("read txn");
+        for table in [
+            DbDefs::get_schedules_table(),
+            DbDefs::get_schedule_runs_table(),
+            DbDefs::get_agent_configs_table(),
+            DbDefs::get_agent_sessions_table(),
+            DbDefs::get_agent_memories_table(),
+        ] {
+            tx.open_table(table)
+                .expect("open_all_tables must create the table");
+        }
+    }
 }

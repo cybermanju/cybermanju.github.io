@@ -250,12 +250,12 @@
           <button class="ql-item" @click="wm.open('terminal')" aria-label="OPEN TERMINAL">[&gt;] TERMINAL (cybsh)</button>
           <button class="ql-item" @click="wm.open('processes')" aria-label="OPEN TASKS"><AppIcon name="solar:cpu-bold" :size="12" /> TASKS (ps/top)</button>
           <button class="ql-item" @click="wm.open('disks')" aria-label="OPEN DISKS"><AppIcon name="solar:ssd-square-bold" :size="12" /> DISKS &amp; VOLUME</button>
-          <button class="ql-item" @click="wm.open('collections', { tab: 'favorites' })" aria-label="OPEN FAVORITES"><AppIcon name="solar:star-bold" :size="12" /> FAVORITES ({{ store.starredFiles.length }})</button>
+          <button class="ql-item" @click="wm.open('search')" aria-label="OPEN UNIFIED SEARCH"><AppIcon name="solar:star-bold" :size="12" /> SEARCH · STARRED ({{ store.starredFiles.length }})</button>
           <button class="ql-item" @click="wm.open('recent')" aria-label="OPEN RECENT FILES"><AppIcon name="solar:history-bold" :size="12" /> RECENT FILES</button>
           <button class="ql-item" @click="wm.open('activity'); store.fetchAuditLog()" aria-label="OPEN ACTIVITY LOG"><AppIcon name="solar:pulse-bold" :size="12" /> ACTIVITY LOG</button>
           <button class="ql-item" @click="wm.open('disks')" aria-label="OPEN STORAGE DASHBOARD"><AppIcon name="solar:database-bold" :size="12" /> STORAGE</button>
-          <button class="ql-item" @click="wm.open('collections', { tab: 'loose' })" aria-label="OPEN LOOSE GROUPS"><AppIcon name="solar:users-group-two-rounded-bold" :size="12" /> LOOSE GROUPS</button>
-          <button class="ql-item" @click="wm.open('collections', { tab: 'tags' })" aria-label="OPEN STYLE TAGS"><AppIcon name="solar:tag-bold" :size="12" /> STYLE TAGS</button>
+          <button class="ql-item" @click="wm.open('search')" aria-label="OPEN UNIFIED SEARCH"><AppIcon name="solar:users-group-two-rounded-bold" :size="12" /> SEARCH · PEOPLE &amp; GROUPS</button>
+          <button class="ql-item" @click="wm.open('search')" aria-label="OPEN UNIFIED SEARCH"><AppIcon name="solar:tag-bold" :size="12" /> SEARCH · TAGS</button>
           <button class="ql-item" @click="wm.open('dashboard')" aria-label="OPEN REMOTE DASHBOARD"><AppIcon name="solar:kanban-square-bold" :size="12" /> DASHBOARD</button>
           <button class="ql-item" @click="wm.open('settings')" aria-label="OPEN SETTINGS"><AppIcon name="solar:settings-bold" :size="12" /> SETTINGS</button>
           <button class="ql-item" @click="wm.open('trash'); store.fetchTrashItems()" aria-label="OPEN TRASH"><AppIcon name="solar:trash-bin-trash-bold" :size="12" /> TRASH</button>
