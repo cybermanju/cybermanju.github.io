@@ -53,6 +53,13 @@ export type OAuthBackend = 'github' | 'google' | 'gitlab'
  * "Redirection to URL with a scheme that is not HTTP(S)" block never fires.
  */
 export const OAUTH_CALLBACK_URL = 'cybermanju://oauth/callback'
+/**
+ * Bare custom scheme for OS handler registration. Source of truth for the
+ * value is `src-tauri/tauri.conf.json > plugins.deep-link.desktop.schemes`
+ * (the bundler stamps it into every installer); this constant only feeds the
+ * runtime `register()` self-heal below, so keep the two in sync.
+ */
+export const OAUTH_DEEP_LINK_SCHEME = 'cybermanju'
 /** @deprecated Use OAUTH_CALLBACK_URL — kept for backwards compatibility. */
 export const MOBILE_OAUTH_CALLBACK_URL = OAUTH_CALLBACK_URL
 
@@ -781,13 +788,25 @@ export function installMobileOAuthDeepLinks(): Promise<void> {
   if (!isTauri() || mobileDeepLinkListener) return Promise.resolve()
   if (mobileDeepLinkInstallPromise) return mobileDeepLinkInstallPromise
   const install = (async () => {
-    const { getCurrent, onOpenUrl } = await import('@tauri-apps/plugin-deep-link')
+    const { getCurrent, isRegistered, onOpenUrl, register } = await import('@tauri-apps/plugin-deep-link')
     mobileDeepLinkListener = await onOpenUrl((urls) => {
       if (!mobileDeepLinkReady) pendingMobileDeepLinks.push(...urls)
       else void processMobileOAuthUrls(urls, true)
     })
     const initialUrls = await getCurrent().catch(() => null)
     if (initialUrls) pendingMobileDeepLinks.push(...initialUrls)
+    // Desktop self-heal (Linux/Windows): claim the custom scheme at runtime
+    // so installs without OS-level integration (bare AppImage with no
+    // launcher daemon, xcopy-style exe) still receive the OAuth return.
+    // Strictly best-effort and failure-swallowed: register() is unsupported
+    // on macOS/mobile (bundler owns those), and a missing xdg-mime must
+    // never break the listener install above.
+    try {
+      const already = await isRegistered(OAUTH_DEEP_LINK_SCHEME).catch(() => true)
+      if (!already) await register(OAUTH_DEEP_LINK_SCHEME)
+    } catch {
+      /* OS registration unavailable here — installer/.desktop owns it. */
+    }
   })()
   mobileDeepLinkInstallPromise = install.catch((error) => {
     mobileDeepLinkInstallPromise = null

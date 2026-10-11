@@ -19,8 +19,9 @@ use commands::{
     search as search_cmd, share, trash, users, versions,
 };
 use db::Database;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::Manager;
 
 pub struct AppState {
     /// Shared with the web dashboard so the redb file is only opened once.
@@ -269,89 +270,18 @@ pub fn run() {
     }
     tracing::info!("CyberManju OS starting...");
 
-    // Initialize redb database (opened exactly once — shared with the web dashboard)
-    let db_path = resolve_desktop_db_path();
-    if let Some(parent) = db_path.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
-            fatal(&format!(
-                "Failed to create database directory {}: {}",
-                parent.display(),
-                e
-            ));
-        }
-    }
-    tracing::info!("Using database at {}", db_path.display());
-    let db = Arc::new(RwLock::new(open_database(&db_path)));
-    tracing::info!("redb database initialized");
-
-    // Initialize Tantivy full-text search index.
-    // Mobile note: the index is mmap'd next to the database and grows with
-    // the corpus — on Android this lives in the app-private files dir (no
-    // scoped-storage permission needed) but counts against the app quota;
-    // large restores should run on Wi-Fi/charger (see docs/ANDROID.md §ABI).
-    let index_path = resolve_desktop_index_path(&db_path);
-    tracing::info!("Using search index at {}", index_path.display());
-    let tantivy_index = open_search_index(&index_path);
-    tracing::info!("Tantivy search index ready");
-
-    // Initialize triple-layer compressor
-    let compressor = compression::TripleCompressor::new();
-
-    // Initialize HMAC secret for secure session tokens
-    let mut hmac_secret = [0u8; 32];
-    use rand_core::{OsRng, RngCore};
-    OsRng.fill_bytes(&mut hmac_secret);
-
-    let state = AppState {
-        db: Arc::clone(&db),
-        tantivy_index: Arc::new(RwLock::new(tantivy_index)),
-        compression: compressor,
-        hmac_secret,
-    };
-
-    // Dashboard state for connection tracking and lifecycle
-    let dashboard_state = Arc::new(dashboard::DashboardState::new());
-
-    // Sync state for progress tracking and cancellation — shared with the web
-    // dashboard so REST and Tauri callers observe the same progress.
-    let sync_state = Arc::new(sync_cmd::SyncState::new());
-
-    // ─── Start Web Dashboard (localhost-only, JWT-authenticated) ────────
-    // Desktop/server only. On mobile the dashboard is NOT started: binding a
-    // localhost HTTP server on a phone wastes battery, trips Play policy
-    // review, and no LAN peer expects it — the Android app is a local vault
-    // (Tauri IPC), not a server. Dashboard commands stay registered so the
-    // frontend's transport switch keeps working; they report "unavailable".
-    #[cfg(mobile)]
-    let dashboard = {
-        let mut dashboard =
-            web_dashboard::WebDashboard::new_shared(web_dashboard::DEFAULT_PORT, Arc::clone(&db));
-        dashboard.sync_state = Arc::clone(&sync_state);
-        dashboard.set_search_index(Arc::clone(&state.tantivy_index));
-        tracing::info!("Web Dashboard disabled on mobile (local-vault mode)");
-        Arc::new(dashboard)
-    };
-    // It borrows the application's database handle instead of opening the
-    // redb file a second time (which would fail on the exclusive file lock).
-    #[cfg(not(mobile))]
-    let dashboard = {
-        let mut dashboard =
-            web_dashboard::WebDashboard::new_shared(web_dashboard::DEFAULT_PORT, Arc::clone(&db));
-        dashboard.sync_state = Arc::clone(&sync_state);
-        dashboard.set_search_index(Arc::clone(&state.tantivy_index));
-        let dashboard = Arc::new(dashboard);
-        match dashboard.start() {
-            Ok(()) => tracing::info!(
-                "Web Dashboard started on port {} (localhost only, JWT auth)",
-                web_dashboard::DEFAULT_PORT
-            ),
-            Err(e) => tracing::error!("Failed to start Web Dashboard: {}", e),
-        }
-        dashboard
-    };
-    // dashboard.stop() is called explicitly below after Tauri exits,
-    // ensuring the accept thread is joined from the MAIN thread (not from
-    // the accept thread's own Drop, which would self-deadlock).
+    // Storage + dashboard init lives in the `.setup()` hook below, NOT here.
+    // The OS delivers a cybermanju:// OAuth return by spawning a SECOND
+    // process: single-instance (first plugin) hands its argv to the running
+    // app and exits that process during plugin setup. Everything above this
+    // point is side-effect free (stderr logging only); if the database were
+    // opened here, the second process would hit the first instance's
+    // exclusive redb lock and quarantine the LIVE vault before exiting.
+    // The dashboard Arc is ferried out via a holder for the clean shutdown
+    // after `.run()` returns.
+    let dashboard_holder: Arc<Mutex<Option<Arc<web_dashboard::WebDashboard>>>> =
+        Arc::new(Mutex::new(None));
+    let dashboard_holder_setup = Arc::clone(&dashboard_holder);
 
     // NOTE (2026-10-08): tauri-plugin-log was removed. It calls
     // `log::set_logger` at run(), which collides with our own
@@ -382,10 +312,6 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_scoped_storage::init())
         .plugin(tauri_plugin_deep_link::init())
-        .manage(state)
-        .manage(dashboard_state)
-        .manage(sync_state)
-        .manage(Arc::clone(&dashboard))
         .invoke_handler(tauri::generate_handler![
             // File operations
             files::list_files,
@@ -595,13 +521,119 @@ pub fn run() {
             commands::disk::check_disk,
             commands::disk::set_disk_key_holder,
         ])
+        .setup(move |app| {
+            // Storage + dashboard init runs HERE — after every plugin's
+            // setup, so single-instance (registered first) has already
+            // detected a running first instance and exited a second process
+            // (OAuth deep-link return) before we touch the redb exclusive
+            // lock, the index, or the dashboard port. See the note above
+            // `dashboard_holder`.
+            let db_path = resolve_desktop_db_path();
+            if let Some(parent) = db_path.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    fatal(&format!(
+                        "Failed to create database directory {}: {}",
+                        parent.display(),
+                        e
+                    ));
+                }
+            }
+            tracing::info!("Using database at {}", db_path.display());
+            let db = Arc::new(RwLock::new(open_database(&db_path)));
+            tracing::info!("redb database initialized");
+
+            // Tantivy full-text search index.
+            // Mobile note: the index is mmap'd next to the database and grows
+            // with the corpus — on Android this lives in the app-private files
+            // dir (no scoped-storage permission needed) but counts against the
+            // app quota; large restores should run on Wi-Fi/charger
+            // (see docs/ANDROID.md §ABI).
+            let index_path = resolve_desktop_index_path(&db_path);
+            tracing::info!("Using search index at {}", index_path.display());
+            let tantivy_index = open_search_index(&index_path);
+            tracing::info!("Tantivy search index ready");
+
+            // Triple-layer compressor.
+            let compressor = compression::TripleCompressor::new();
+
+            // HMAC secret for secure session tokens.
+            let mut hmac_secret = [u8; 32];
+            use rand_core::{OsRng, RngCore};
+            OsRng.fill_bytes(&mut hmac_secret);
+
+            let state = AppState {
+                db: Arc::clone(&db),
+                tantivy_index: Arc::new(RwLock::new(tantivy_index)),
+                compression: compressor,
+                hmac_secret,
+            };
+
+            // Dashboard state for connection tracking and lifecycle.
+            let dashboard_state = Arc::new(dashboard::DashboardState::new());
+
+            // Sync state for progress tracking and cancellation — shared with
+            // the web dashboard so REST and Tauri callers observe the same
+            // progress.
+            let sync_state = Arc::new(sync_cmd::SyncState::new());
+
+            // ─── Web Dashboard (localhost-only, JWT-authenticated) ───
+            // Desktop/server only. On mobile the dashboard is NOT started:
+            // binding a localhost HTTP server on a phone wastes battery, trips
+            // Play policy review, and no LAN peer expects it — the Android app
+            // is a local vault (Tauri IPC), not a server. Dashboard commands
+            // stay registered so the frontend's transport switch keeps
+            // working; they report "unavailable".
+            #[cfg(mobile)]
+            let dashboard = {
+                let mut dashboard = web_dashboard::WebDashboard::new_shared(
+                    web_dashboard::DEFAULT_PORT, Arc::clone(&db),
+                );
+                dashboard.sync_state = Arc::clone(&sync_state);
+                dashboard.set_search_index(Arc::clone(&state.tantivy_index));
+                tracing::info!("Web Dashboard disabled on mobile (local-vault mode)");
+                Arc::new(dashboard)
+            };
+            // It borrows the application's database handle instead of opening
+            // the redb file a second time (which would fail on the exclusive
+            // file lock).
+            #[cfg(not(mobile))]
+            let dashboard = {
+                let mut dashboard = web_dashboard::WebDashboard::new_shared(
+                    web_dashboard::DEFAULT_PORT, Arc::clone(&db),
+                );
+                dashboard.sync_state = Arc::clone(&sync_state);
+                dashboard.set_search_index(Arc::clone(&state.tantivy_index));
+                let dashboard = Arc::new(dashboard);
+                match dashboard.start() {
+                    Ok(()) => tracing::info!(
+                        "Web Dashboard started on port {} (localhost only, JWT auth)",
+                        web_dashboard::DEFAULT_PORT
+                    ),
+                    Err(e) => tracing::error!("Failed to start Web Dashboard: {}", e),
+                }
+                dashboard
+            };
+
+            app.manage(state);
+            app.manage(dashboard_state);
+            app.manage(sync_state);
+            app.manage(Arc::clone(&dashboard));
+            *dashboard_holder_setup.lock().expect("dashboard holder poisoned") = Some(dashboard);
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("Fatal error while running CyberManju OS — see logs above");
 
     // ─── Clean shutdown: stop the dashboard before dropping the Arc ──
-    // Mobile never started it; stop() is a no-op there (same Drop path).
+    // Mobile never started it (the Option stays Some but stop() is a no-op
+    // there — same Drop path). dashboard.stop() runs from the MAIN thread
+    // (not from the accept thread's own Drop, which would self-deadlock).
+    // The underscore name keeps mobile builds warning-free (deny warnings).
+    let _dashboard = dashboard_holder.lock().expect("dashboard holder poisoned").take();
     #[cfg(not(mobile))]
-    dashboard.stop();
+    if let Some(dashboard) = _dashboard {
+        dashboard.stop();
+    }
     #[cfg(not(mobile))]
     log::info!("Web Dashboard shut down cleanly");
 }
