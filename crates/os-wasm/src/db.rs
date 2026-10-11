@@ -38,6 +38,7 @@ use crate::opfs_backend::OpfsBackend;
 
 const DB_FILE: &str = "cybermanju.db";
 const DEMO_VOLUME: &str = "wasm-demo-volume";
+const MAX_SNAPSHOT_BYTES: usize = 256 * 1024 * 1024;
 
 thread_local! {
     static DB: RefCell<Option<DbHandle>> = const { RefCell::new(None) };
@@ -1420,8 +1421,8 @@ pub fn db_snapshot() -> Result<JsValue, JsValue> {
             let len = backend
                 .len()
                 .map_err(|e| format!("network: snapshot size failed: {e}"))?;
-            if len > 256 * 1024 * 1024 {
-                return Err("unsupported: database image exceeds 256 MiB snapshot cap".to_string());
+            if len > MAX_SNAPSHOT_BYTES as u64 {
+                return Err("too_large: database image exceeds 256 MiB snapshot cap".to_string());
             }
             if len == 0 {
                 return Err("unavailable: database image is empty (call db_open first)".to_string());
@@ -1436,17 +1437,38 @@ pub fn db_snapshot() -> Result<JsValue, JsValue> {
     Ok(view.into())
 }
 
-/// Replace the database file with a snapshot image and reopen. The open
-/// handle is reused (dropped redb state first), so no new OPFS acquisition
+/// Validate an image in an isolated in-memory redb before replacing the live
+/// database. This prevents arbitrary legacy/raw files from truncating OPFS.
+fn validate_snapshot_image(data: &[u8]) -> Result<(), String> {
+    if data.is_empty() {
+        return Err("invalid: refusing to restore an empty image".to_string());
+    }
+    if data.len() > MAX_SNAPSHOT_BYTES {
+        return Err("too_large: image exceeds 256 MiB snapshot cap".to_string());
+    }
+    let staged = Backend::Memory(MemoryBackend::new());
+    staged
+        .set_len(data.len() as u64)
+        .map_err(|e| format!("invalid: cannot stage snapshot image: {e}"))?;
+    staged
+        .write(0, data)
+        .map_err(|e| format!("invalid: cannot stage snapshot image: {e}"))?;
+    let db = redb::Builder::new()
+        .create_with_backend(staged)
+        .map_err(|e| format!("invalid: backup is not a valid redb database image: {e}"))?;
+    open_all_tables(&db)
+        .map_err(|e| format!("invalid: backup redb tables cannot be opened: {e}"))?;
+    Ok(())
+}
+
+/// Replace the database file with a validated snapshot image and reopen. The
+/// open handle is reused (dropped redb state first), so no new OPFS acquisition
 /// — and no second sync handle on the same file — is needed. Works on both
 /// the OPFS and the in-memory backend, so IMPORT works everywhere.
 #[wasm_bindgen]
 pub fn db_restore(data: &[u8]) -> String {
-    if data.is_empty() {
-        return err_envelope("invalid: refusing to restore an empty image");
-    }
-    if data.len() > 256 * 1024 * 1024 {
-        return err_envelope("unsupported: image exceeds 256 MiB snapshot cap");
+    if let Err(e) = validate_snapshot_image(data) {
+        return err_envelope(&e);
     }
     let backend = DB.with(|cell| cell.borrow_mut().take().map(|h| h.backend));
     let backend = match backend {
@@ -1527,5 +1549,25 @@ mod open_tables_tests {
             tx.open_table(table)
                 .expect("open_all_tables must create the table");
         }
+    }
+
+    #[test]
+    fn restore_preflight_rejects_arbitrary_bytes() {
+        let err = validate_snapshot_image(b"not a redb snapshot").expect_err("must refuse");
+        assert!(err.starts_with("invalid:"), "got: {err}");
+    }
+
+    #[test]
+    fn restore_preflight_accepts_a_valid_redb_image() {
+        let backend = Backend::Memory(MemoryBackend::new());
+        let db = redb::Builder::new()
+            .create_with_backend(backend.clone())
+            .expect("open in-memory database");
+        open_all_tables(&db).expect("create schema tables");
+        drop(db);
+        let len = backend.len().expect("image size");
+        let image = backend.read(0, len as usize).expect("read image");
+
+        validate_snapshot_image(&image).expect("valid image passes isolated preflight");
     }
 }

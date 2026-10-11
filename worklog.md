@@ -1436,3 +1436,11 @@ Stage Summary:
   col/chain style). NOTE: a parallel session commits this tree (`git add -A`
   sweeps); the mid-pass revert of two notification files earlier is why
   disk-state is re-verified before every edit.
+
+
+## 2026-10-11 — Harden backup restore and container bounds
+- Integrated `origin/main` through `b9ce64a` into `develop` in merge `31f927b`; the append-only worklog conflict was resolved by keeping both branches' complete entries. `main` remains untouched. The CI run for `b9ce64a` was cancelled, so CI validation is still required on the resulting `develop` push.
+- Added matching TypeScript/Rust container limits: images are capped at 256 MiB, PBKDF2 work at 1,000,000 rounds, and unknown flags, inconsistent KDF/salt/nonce metadata, undersized AEAD/compressed bodies, empty images, and oversized declared LZ4 output are rejected before expensive crypto/decompression. Decoded images are checked again against the cap.
+- WASM restore now opens an imported image in an isolated in-memory redb and creates/checks the schema before touching the active OPFS database. Legacy raw backups are labeled as unauthenticated and unverified at the container layer. The browser restore asks before replacing the current vault and reports restore errors in the wizard.
+- Native snapshots check the finished file's metadata against the transport cap before reading it into a `Vec`; REST applies its 32 MiB cap through the same helper (general native snapshot ceiling remains 256 MiB). Added a database limit regression and Rust codec/WASM preflight regressions. Updated the static-cybsh test fixture to carry a structurally valid 16-byte AEAD tag.
+- Local checks passed: version consistency; 495 file headers; `vue-tsc`; full frontend suite (72 files / 823 tests); WASM frontend build with `VITE_BASE=/develop/`; wiki build at `/develop/wiki/`; and `git diff --check`. The WASM frontend build used the repository stub because the generated Rust package is stale; no Cargo was run, per `AGENTS.md`. Rust fmt/clippy/tests remain delegated to CI.

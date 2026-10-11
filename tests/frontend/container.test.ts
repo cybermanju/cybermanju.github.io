@@ -7,12 +7,14 @@
 // test, and the wasm binding is exercised in the browser build.
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from 'node:crypto'
 import { deflateRawSync, inflateRawSync } from 'node:zlib'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   CONTAINER_MAGIC,
   DEFAULT_ITERATIONS,
   FLAG_COMPRESSED,
   FLAG_ENCRYPTED,
+  MAX_CONTAINER_IMAGE_BYTES,
+  MAX_CONTAINER_ITERATIONS,
   WrongPassphraseError,
   concat,
   decodeContainer,
@@ -27,8 +29,17 @@ const utf8 = (b: Uint8Array) => new TextDecoder().decode(b)
 
 /** Node-backed twin of the wasm primitives. */
 const nodePrimitives: ContainerPrimitives = {
-  compress: (d) => new Uint8Array(deflateRawSync(Buffer.from(d))),
-  decompress: (d) => new Uint8Array(inflateRawSync(Buffer.from(d))),
+  compress: (d) => {
+    const size = new Uint8Array(4)
+    new DataView(size.buffer).setUint32(0, d.length, true)
+    return concat(size, new Uint8Array(deflateRawSync(Buffer.from(d))))
+  },
+  decompress: (d) => {
+    const size = new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(0, true)
+    const inflated = new Uint8Array(inflateRawSync(Buffer.from(d.subarray(4))))
+    if (inflated.length !== size) throw new Error('declared image length mismatch')
+    return inflated
+  },
   deriveKey: (passphrase, salt, length, iterations) =>
     new Uint8Array(pbkdf2Sync(passphrase, Buffer.from(salt), iterations, length, 'sha512')),
   encrypt: (key, nonce, plaintext) => {
@@ -151,6 +162,37 @@ describe('container codec', () => {
     const decoded = await decodeContainer(bytes, 'pw', nodePrimitives)
     expect(decoded.compressed).toBe(false)
     expect(Array.from(decoded.image)).toEqual(Array.from(fakeImage(256)))
+  })
+
+  it('rejects a compressed-size bomb before invoking the decompressor', async () => {
+    const bytes = new Uint8Array(20)
+    bytes.set(text.encode(CONTAINER_MAGIC))
+    bytes[7] = 1
+    bytes[8] = 0
+    bytes[9] = FLAG_COMPRESSED
+    new DataView(bytes.buffer).setUint32(16, MAX_CONTAINER_IMAGE_BYTES + 1, true)
+    const decompress = vi.fn(nodePrimitives.decompress)
+    await expect(
+      decodeContainer(bytes, '', { ...nodePrimitives, decompress }),
+    ).rejects.toThrow(/too_large/)
+    expect(decompress).not.toHaveBeenCalled()
+  })
+
+  it('rejects excessive KDF work before deriving a key', async () => {
+    const bytes = await encodeContainer(fakeImage(64), 'pw', nodePrimitives, {
+      iterations: 1000,
+      compress: false,
+    })
+    new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).setUint32(
+      12,
+      MAX_CONTAINER_ITERATIONS + 1,
+      true,
+    )
+    const deriveKey = vi.fn(nodePrimitives.deriveKey)
+    await expect(
+      decodeContainer(bytes, 'pw', { ...nodePrimitives, deriveKey }),
+    ).rejects.toThrow(/iterations/)
+    expect(deriveKey).not.toHaveBeenCalled()
   })
 
   it('default passphrase cost is a real KDF, not a hash of the password', () => {

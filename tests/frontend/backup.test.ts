@@ -15,6 +15,7 @@ import {
   pruneVictims,
   verifyContainerHeader,
 } from '@/utils/backup'
+import { MAX_CONTAINER_ITERATIONS } from '@/utils/container'
 
 describe('backup names', () => {
   it('shapes chronological file names', () => {
@@ -59,21 +60,25 @@ describe('managedBackupScript', () => {
 
 describe('verifyContainerHeader', () => {
   function container(flags: number, body: Uint8Array): Uint8Array {
-    const out = new Uint8Array(16 + body.length)
+    const encrypted = (flags & 2) !== 0
+    const saltLen = encrypted ? 16 : 0
+    const nonceLen = encrypted ? 12 : 0
+    const bodyAt = 16 + saltLen + nonceLen
+    const out = new Uint8Array(bodyAt + body.length)
     new TextEncoder().encodeInto('CYBMJ01', out)
     out[7] = 1
-    out[8] = flags & 2 ? 1 : 0
+    out[8] = encrypted ? 1 : 0
     out[9] = flags
-    out[10] = 0
-    out[11] = 0
-    new DataView(out.buffer).setUint32(12, 0, true)
-    out.set(body, 16)
+    out[10] = saltLen
+    out[11] = nonceLen
+    new DataView(out.buffer).setUint32(12, encrypted ? 1000 : 0, true)
+    out.set(body, bodyAt)
     return out
   }
 
   it('parses sealed and plaintext headers', () => {
-    const sealed = verifyContainerHeader(container(2, new Uint8Array([1, 2, 3])))
-    expect(sealed).toMatchObject({ legacy: false, version: 1, encrypted: true, compressed: false, bodyBytes: 3, totalBytes: 19 })
+    const sealed = verifyContainerHeader(container(2, new Uint8Array(16)))
+    expect(sealed).toMatchObject({ legacy: false, version: 1, encrypted: true, compressed: false, bodyBytes: 16, totalBytes: 60 })
     const plain = verifyContainerHeader(container(0, new Uint8Array([9])))
     expect(plain.encrypted).toBe(false)
   })
@@ -85,5 +90,22 @@ describe('verifyContainerHeader', () => {
     const badVersion = container(0, new Uint8Array([1]))
     badVersion[7] = 9
     expect(() => verifyContainerHeader(badVersion)).toThrow(/invalid: container version 9/)
+  })
+
+  it('rejects inconsistent encryption metadata, unknown flags, and excessive KDF work', () => {
+    const badNonce = container(2, new Uint8Array(16))
+    badNonce[11] = 11
+    expect(() => verifyContainerHeader(badNonce)).toThrow(/nonce length/)
+
+    const unknownFlags = container(4, new Uint8Array([1]))
+    expect(() => verifyContainerHeader(unknownFlags)).toThrow(/unknown container flags/)
+
+    const plaintextWithKdf = container(0, new Uint8Array([1]))
+    plaintextWithKdf[8] = 1
+    expect(() => verifyContainerHeader(plaintextWithKdf)).toThrow(/plaintext container/)
+
+    const excessiveKdf = container(2, new Uint8Array(16))
+    new DataView(excessiveKdf.buffer).setUint32(12, MAX_CONTAINER_ITERATIONS + 1, true)
+    expect(() => verifyContainerHeader(excessiveKdf)).toThrow(/iterations/)
   })
 })

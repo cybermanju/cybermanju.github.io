@@ -2414,17 +2414,19 @@ export const useAppStore = defineStore('cybermanju', () => {
   async function verifyBackupBytes(
     bytes: Uint8Array,
     passphrase: string,
-  ): Promise<{ encrypted: boolean; imageBytes: number } | null> {
+  ): Promise<{ encrypted: boolean; imageBytes: number; legacy: boolean } | null> {
     try {
       const { verifyContainerHeader } = await import('@/utils/backup')
       const { decodeContainer } = await import('@/utils/container')
       const header = verifyContainerHeader(bytes)
-      if (header.legacy) return { encrypted: false, imageBytes: header.bodyBytes }
+      if (header.legacy) {
+        return { encrypted: false, imageBytes: header.bodyBytes, legacy: true }
+      }
       if (header.encrypted && !passphrase) {
         throw new Error('auth: this backup is passphrase-sealed — enter it to verify')
       }
       const decoded = await decodeContainer(bytes, passphrase)
-      return { encrypted: header.encrypted, imageBytes: decoded.image.length }
+      return { encrypted: header.encrypted, imageBytes: decoded.image.length, legacy: false }
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e)
       if (/wrong passphrase|did not decrypt|refused the passphrase/i.test(detail)) {

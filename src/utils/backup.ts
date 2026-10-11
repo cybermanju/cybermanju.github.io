@@ -3,11 +3,22 @@
 // Exports: BACKUP_DIR, MANAGED_SCRIPT_PATH, DEFAULT_BACKUP_KEEP,
 //   buildBackupName, isBackupName, pruneVictims, managedBackupScript,
 //   verifyContainerHeader, ContainerHeader.
-// Integrates: none (pure logic; errors bubble to caller).
+// Integrates: container.ts format constants only (no crypto or WASM load).
 // Contracts: names (`cybermanju-<UTC stamp>.cybermanju`) sort chronologically;
 //   prune never touches non-managed files; header errors carry AGENT-1
 //   prefixes (`invalid:`); deep trial-decrypt stays with the caller
 //   (`decodeContainer`), which maps failures to `auth:` at restore time.
+
+import {
+  CONTAINER_VERSION,
+  FLAG_COMPRESSED,
+  FLAG_ENCRYPTED,
+  KDF_NONE,
+  KDF_PBKDF2_SHA512,
+  MAX_CONTAINER_FILE_BYTES,
+  MAX_CONTAINER_IMAGE_BYTES,
+  MAX_CONTAINER_ITERATIONS,
+} from './container'
 
 /** Default vault directory for local snapshot exports (native volume). */
 export const BACKUP_DIR = '/backups'
@@ -19,6 +30,10 @@ export const DEFAULT_BACKUP_KEEP = 7
 const PREFIX = 'cybermanju-'
 const EXT = '.cybermanju'
 const MAGIC = 'CYBMJ01'
+const HEADER_FIXED = 16
+const SALT_LEN = 16
+const NONCE_LEN = 12
+const AEAD_TAG_LEN = 16
 
 function stamp(d: Date): string {
   const p = (n: number, w = 2) => String(n).padStart(w, '0')
@@ -88,8 +103,15 @@ export interface ContainerHeader {
  * `invalid:` on structural damage; legacy raw images report `legacy: true`.
  */
 export function verifyContainerHeader(bytes: Uint8Array): ContainerHeader {
+  if (bytes.byteLength === 0) throw new Error('invalid: backup image is empty')
+  if (bytes.byteLength > MAX_CONTAINER_FILE_BYTES) {
+    throw new Error('too_large: backup container exceeds the 256 MiB image cap')
+  }
   const magic = new TextDecoder().decode(bytes.subarray(0, MAGIC.length))
   if (magic !== MAGIC) {
+    if (bytes.byteLength > MAX_CONTAINER_IMAGE_BYTES) {
+      throw new Error('too_large: legacy backup image exceeds the 256 MiB cap')
+    }
     return {
       legacy: true,
       version: 0,
@@ -99,22 +121,41 @@ export function verifyContainerHeader(bytes: Uint8Array): ContainerHeader {
       totalBytes: bytes.length,
     }
   }
-  if (bytes.length < 16) throw new Error('invalid: container header truncated')
+  if (bytes.length < HEADER_FIXED) throw new Error('invalid: container header truncated')
   const version = bytes[7]
-  if (version !== 1) throw new Error(`invalid: container version ${version}`)
+  if (version !== CONTAINER_VERSION) throw new Error(`invalid: container version ${version}`)
   const kdf = bytes[8]
-  if (kdf !== 0 && kdf !== 1) throw new Error(`invalid: container kdf ${kdf}`)
   const flags = bytes[9]
   const saltLen = bytes[10]
   const nonceLen = bytes[11]
-  const bodyAt = 16 + saltLen + nonceLen
+  const encrypted = (flags & FLAG_ENCRYPTED) !== 0
+  const compressed = (flags & FLAG_COMPRESSED) !== 0
+  if ((flags & ~(FLAG_COMPRESSED | FLAG_ENCRYPTED)) !== 0) {
+    throw new Error(`invalid: unknown container flags ${flags}`)
+  }
+  const iterations = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(12, true)
+  if (encrypted) {
+    if (kdf !== KDF_PBKDF2_SHA512) throw new Error(`invalid: container kdf ${kdf}`)
+    if (saltLen !== SALT_LEN || nonceLen !== NONCE_LEN) {
+      throw new Error('invalid: encrypted container has invalid salt or nonce length')
+    }
+    if (iterations < 1 || iterations > MAX_CONTAINER_ITERATIONS) {
+      throw new Error(`invalid: PBKDF2 iterations must be between 1 and ${MAX_CONTAINER_ITERATIONS}`)
+    }
+  } else if (kdf !== KDF_NONE || saltLen !== 0 || nonceLen !== 0 || iterations !== 0) {
+    throw new Error('invalid: plaintext container has encrypted metadata')
+  }
+  const bodyAt = HEADER_FIXED + saltLen + nonceLen
   if (bytes.length < bodyAt) throw new Error('invalid: container header truncated')
+  const bodyBytes = bytes.length - bodyAt
+  const minimumBodyBytes = (encrypted ? AEAD_TAG_LEN : 0) + (compressed ? 4 : 0)
+  if (bodyBytes < minimumBodyBytes) throw new Error('invalid: container body truncated')
   return {
     legacy: false,
     version,
-    encrypted: (flags & 2) !== 0,
-    compressed: (flags & 1) !== 0,
-    bodyBytes: bytes.length - bodyAt,
+    encrypted,
+    compressed,
+    bodyBytes,
     totalBytes: bytes.length,
   }
 }

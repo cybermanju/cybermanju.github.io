@@ -14,7 +14,7 @@ use cybermanju_db::Database;
 /// HTTP-safe ceiling: the hand-rolled server flushes one complete
 /// `Content-Length` response (5 s write timeout), so giant vaults must use
 /// the host script or the shell verb instead of this endpoint.
-const EXPORT_CAP: u64 = 32 * 1024 * 1024;
+const EXPORT_CAP: usize = 32 * 1024 * 1024;
 
 /// Raw snapshot image, base64'd for the JSON transport.
 #[derive(serde::Serialize)]
@@ -28,12 +28,13 @@ pub struct ExportReport {
 
 /// Point-in-time database image for `GET /api/backup/export`.
 pub fn export_db(db: &Database) -> Result<ExportReport, String> {
-    let image = db
-        .snapshot_bytes()
-        .map_err(|e| format!("integrity: database snapshot failed: {e:#}"))?;
-    if image.len() as u64 > EXPORT_CAP {
-        return Err("too_large: vault image exceeds the 32 MiB HTTP export cap — run scripts/backup.sh on the host or `backup export` in cybsh".to_string());
-    }
+    let image = db.snapshot_bytes_with_limit(EXPORT_CAP).map_err(|e| {
+        if e.to_string().starts_with("too_large:") {
+            "too_large: vault image exceeds the 32 MiB HTTP export cap — run scripts/backup.sh on the host or `backup export` in cybsh".to_string()
+        } else {
+            format!("integrity: database snapshot failed: {e:#}")
+        }
+    })?;
     Ok(ExportReport {
         name: format!(
             "cybermanju-{}.cybermanju",

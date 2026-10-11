@@ -10,6 +10,7 @@ use redb::{
     Database as RedbDatabase, ReadTransaction, ReadableTable, TableDefinition, WriteTransaction,
 };
 
+const MAX_SNAPSHOT_BYTES: usize = 256 * 1024 * 1024;
 const FILES_TABLE: TableDefinition<'static, &'static str, &'static str> =
     TableDefinition::new("files");
 const ACCOUNTS_TABLE: TableDefinition<'static, &'static str, &'static str> =
@@ -1127,6 +1128,13 @@ impl Database {
     /// continue. Copying the logical tables into a fresh database avoids
     /// copying a live/mmap'd file and preserves every table in the schema.
     pub fn snapshot_bytes(&self) -> Result<Vec<u8>> {
+        self.snapshot_bytes_with_limit(MAX_SNAPSHOT_BYTES)
+    }
+
+    /// Export a snapshot only when its finished file is within `max_bytes`.
+    /// Check metadata before `read` so an oversized database is not materialized
+    /// as an unbounded `Vec` for REST, Tauri, shell or WASM transport.
+    pub fn snapshot_bytes_with_limit(&self, max_bytes: usize) -> Result<Vec<u8>> {
         let path =
             std::env::temp_dir().join(format!("cybermanju-snapshot-{}.db", uuid::Uuid::new_v4()));
 
@@ -1189,11 +1197,13 @@ impl Database {
             }
             drop(snapshot_db);
 
-            let bytes = std::fs::read(&path)?;
-            const MAX_SNAPSHOT_BYTES: usize = 256 * 1024 * 1024;
-            if bytes.len() > MAX_SNAPSHOT_BYTES {
-                anyhow::bail!("native database snapshot exceeds the 256 MiB export limit");
+            let snapshot_bytes = std::fs::metadata(&path)?.len();
+            if snapshot_bytes > max_bytes as u64 {
+                anyhow::bail!(
+                    "too_large: database snapshot is {snapshot_bytes} bytes, exceeding the {max_bytes}-byte cap"
+                );
             }
+            let bytes = std::fs::read(&path)?;
             Ok(bytes)
         })();
 
@@ -1242,6 +1252,21 @@ mod snapshot_tests {
         drop(source);
         let _ = std::fs::remove_file(source_path);
         let _ = std::fs::remove_file(snapshot_path);
+    }
+
+    #[test]
+    fn snapshot_bytes_refuses_a_small_limit() {
+        let path = std::env::temp_dir().join(format!(
+            "cybermanju-snapshot-limit-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let db = Database::new(path.to_str().unwrap()).expect("source database");
+        let err = db
+            .snapshot_bytes_with_limit(1)
+            .expect_err("database snapshot exceeds one byte");
+        assert!(err.to_string().starts_with("too_large:"), "got: {err}");
+        drop(db);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

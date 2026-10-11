@@ -346,9 +346,16 @@ async function verifyPicked() {
   try {
     const checked = await store.verifyBackupBytes(wizBytes.value, wizPass.value)
     if (checked) {
-      wizResult.value = checked.encrypted
-        ? `Verified: sealed container, image ${checked.imageBytes} bytes — passphrase opens it.`
-        : `Verified: plaintext image, ${checked.imageBytes} bytes.`
+      if (checked.legacy) {
+        const restoreNote = onPages.value
+          ? 'The browser restore validates the redb structure before replacing the vault.'
+          : 'This wizard cannot validate its redb structure on this transport; restore only from a trusted copy.'
+        wizResult.value = `Legacy raw image selected: ${checked.imageBytes} bytes; it has no container authentication or checksum. ${restoreNote}`
+      } else {
+        wizResult.value = checked.encrypted
+          ? `Verified: sealed container, image ${checked.imageBytes} bytes — passphrase opens it.`
+          : `Verified: plaintext image, ${checked.imageBytes} bytes.`
+      }
       if (onPages.value) {
         // Pages restores the decoded image directly.
         const { decodeContainer } = await import('@/utils/container')
@@ -367,6 +374,14 @@ async function verifyPicked() {
 
 async function applyRestore() {
   if (!wizImage.value) return
+  if (
+    onPages.value &&
+    !window.confirm(
+      'This will replace the current browser vault with the selected backup and reload the app. Continue only if you have another copy of any data you need.',
+    )
+  ) {
+    return
+  }
   wizBusy.value = true
   try {
     if (onPages.value) {
@@ -374,6 +389,9 @@ async function applyRestore() {
     } else {
       manualSteps.value = true
     }
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e)
+    wizResult.value = `Restore failed: ${detail}`
   } finally {
     wizBusy.value = false
   }

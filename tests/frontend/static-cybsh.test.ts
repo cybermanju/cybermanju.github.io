@@ -1628,7 +1628,7 @@ describe('static cron verb', () => {
 })
 
 describe('static backup verb', () => {
-  function container(body = 'fake-image'): Uint8Array {
+  function container(body = '0123456789abcdef'): Uint8Array {
     const payload = new TextEncoder().encode(body)
     const out = new Uint8Array(44 + payload.length)
     new TextEncoder().encodeInto('CYBMJ01', out)
