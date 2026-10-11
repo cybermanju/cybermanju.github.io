@@ -228,12 +228,12 @@
             <span class="t">Show all providers</span>
           </button>
         </div>
-        <div v-if="isNative" class="fm-side-sec">
+        <div v-if="hasDevice" class="fm-side-sec">
           <div class="fm-side-h">DEVICE</div>
           <button
             class="fm-srow"
             :class="{ active: isHostPathNow }"
-            title="Browse this device's files (sdcard on Android) — move anything between vault, providers and the device"
+            title="Browse this device's files (sdcard on Android, your picked $HOME folder on web) — move anything between vault, providers and the device"
             @click="openHostRoot"
           >
             <AppIcon name="solar:smartphone-bold" :size="14" />
@@ -241,6 +241,7 @@
             <span class="m mono">-os</span>
           </button>
           <button
+            v-if="isNative"
             class="fm-srow"
             title="Browse from the filesystem root"
             @click="openHostFsRoot"
@@ -251,11 +252,20 @@
           </button>
           <button
             class="fm-srow"
-            title="Pick any device folder to browse it here"
+            :title="isNative ? 'Pick any device folder to browse it here' : 'Pick your $HOME folder — its whole tree loads into the app here'"
             @click="pickHostFolder"
           >
             <AppIcon name="solar:folder-open-bold" :size="14" />
-            <span class="t">Pick folder…</span>
+            <span class="t">{{ isNative ? 'Pick folder…' : 'Pick $HOME…' }}</span>
+          </button>
+          <button
+            v-if="!isNative && hostWasmState !== 'ready'"
+            class="fm-srow"
+            :title="hostWasmState === 'needs-permission' ? 'Re-allow the remembered folder (no re-pick)' : 'The picked folder needs permission after a reload'"
+            @click="reallowHostWasm"
+          >
+            <AppIcon name="solar:key-bold" :size="14" />
+            <span class="t">Re-allow folder</span>
           </button>
         </div>
         <div class="fm-side-sec">
@@ -354,11 +364,13 @@
              Android). Files here move to the vault or any provider and back. -->
         <div v-if="isHostPathNow" class="fm-diskscope provider" role="status">
           <AppIcon name="solar:smartphone-bold" :size="13" />
-          <span class="fm-diskscope-t truncate" :title="hostAbsNow || store.currentPath">
-            <b>{{ hostAbsNow || 'Device' }}</b>
+          <span class="fm-diskscope-t truncate" :title="hostAbsNow || hostWasmName || store.currentPath">
+            <b>{{ hostAbsNow || hostWasmName || 'Device' }}</b>
             <span class="dim">· device files — not vault yet</span>
           </span>
           <span class="fm-spacer" />
+          <button v-if="!isNative" class="fm-pill xs" title="Pick your $HOME folder — its whole tree loads into the app here" @click="pickHostFolder">Pick $HOME…</button>
+          <button v-if="!isNative && hostWasmState === 'needs-permission'" class="fm-pill xs ghost" title="Re-allow the remembered folder (no re-pick)" @click="reallowHostWasm">Re-allow</button>
           <button class="fm-pill xs" title="Import selected device files into the vault (.cybermanju)" :disabled="!selCount && !active" @click="() => saveHostSelToVault()">↓ Vault</button>
           <button class="fm-pill xs ghost" title="Move/copy to vault, provider or another device folder" :disabled="!active && !selCount" @click="openMoveTo(null)">⇄ Move</button>
           <button class="fm-pill xs ghost" title="Back to vault root (.cybermanju home)" @click="goHomeVault">Vault ⌂</button>
@@ -814,7 +826,7 @@
           <div class="fm-mrow left">
             <button class="fm-chipbtn" :class="{ on: dlgMoveKind === 'vault' }" @click="dlgMoveKind = 'vault'">vault</button>
             <button class="fm-chipbtn" :class="{ on: dlgMoveKind === 'provider' }" @click="dlgMoveKind = 'provider'">provider</button>
-            <button v-if="isNative" class="fm-chipbtn" :class="{ on: dlgMoveKind === 'host' }" @click="dlgMoveKind = 'host'">device</button>
+            <button v-if="hasDevice" class="fm-chipbtn" :class="{ on: dlgMoveKind === 'host' }" @click="dlgMoveKind = 'host'">device</button>
           </div>
           <template v-if="dlgMoveKind === 'vault'">
             <label class="fm-dlg-label" for="fm-movedest-vault">Vault folder</label>
@@ -830,8 +842,8 @@
           </template>
           <template v-else>
             <label class="fm-dlg-label" for="fm-movedest-host">Device folder</label>
-            <input id="fm-movedest-host" v-model="dlgMoveHostDir" placeholder="/sdcard/Download (blank = here)" aria-label="Device folder" @keyup.enter="doMoveTo" />
-            <div class="fm-mrow left">
+            <input id="fm-movedest-host" v-model="dlgMoveHostDir" :placeholder="isNative ? '/sdcard/Download (blank = here)' : '/Photos (blank = here, inside the picked home folder)'" aria-label="Device folder" @keyup.enter="doMoveTo" />
+            <div v-if="isNative" class="fm-mrow left">
               <button class="fm-pill ghost" title="Pick a device folder" @click="pickMoveHostDir">Pick folder…</button>
             </div>
           </template>
@@ -902,6 +914,7 @@ import { useContextMenu } from '@/composables/useContextMenu'
 import { useWindowUi } from '@/composables/useWindowUi'
 import { invoke, isTauri } from '@/composables/useTauri'
 import { destFromVmPath, hostAbsFromVm, isHostId, isHostPath, sourceFromNode } from '@/utils/hostBrowse'
+import { hostWasmSupported } from '@/utils/hostWasm'
 import { humanBytes, diskPct } from '@/utils/format'
 import { trackShellCwd } from '@/utils/shellCwd'
 import { decodeProviderText, isTextEditableProviderName, MAX_PROVIDER_TEXT_BYTES } from '@/utils/providerText'
@@ -1033,6 +1046,7 @@ async function navTo(path: string) {
   renderLimit.value = 240
   colPreview.value = null
   await store.fetchFiles(path)
+  if (String(path || '').replace(/\\/g, '/').startsWith('/host')) void refreshHostWasmMeta()
 }
 function goBack() { if (canBack.value) { histIdx.value--; store.currentPath = hist.value[histIdx.value]; void store.fetchFiles(store.currentPath) } }
 function goFwd() { if (canFwd.value) { histIdx.value++; store.currentPath = hist.value[histIdx.value]; void store.fetchFiles(store.currentPath) } }
@@ -1302,7 +1316,9 @@ const providerScopeLabel = computed(() => {  const split = splitProviderPath(sto
 // ── device files: host filesystem browsed through cybsh `-os` ──────
 // Same tree as vault/providers (`/host…`), listed over the os_exec bridge
 // so desktop (IPC/REST) and Android (IPC) share every verb; bytes ride
-// plugin-fs. Hidden on static web builds (no host there).
+// plugin-fs. On WASM/static builds the same namespace is served by the
+// picked `$HOME` folder (File System Access API dialog — `hostWasm`), so
+// every verb below keeps working with zero per-callsite branching.
 const isNative = computed(() => {
   try {
     return isTauri()
@@ -1310,11 +1326,73 @@ const isNative = computed(() => {
     return false
   }
 })
+// Visible when a host exists: native IPC, or the dialog browser API.
+const hasDevice = computed(() => {
+  if (isNative.value) return true
+  try {
+    return hostWasmSupported()
+  } catch {
+    return false
+  }
+})
+// Remembered `$HOME` handle state on web (`ready` / `needs-permission` /
+// `missing` / `unsupported`) + its display name for the banner.
+const hostWasmState = ref('')
+const hostWasmName = ref('')
+async function refreshHostWasmMeta() {
+  if (isNative.value) {
+    hostWasmState.value = ''
+    hostWasmName.value = ''
+    return
+  }
+  try {
+    const { hostWasmStatus, hostWasmRootName } = await import('@/utils/hostWasm')
+    const st = await hostWasmStatus().catch(() => null)
+    hostWasmState.value = st?.status ?? ''
+    hostWasmName.value = await hostWasmRootName().catch(() => '')
+  } catch {
+    hostWasmState.value = ''
+    hostWasmName.value = ''
+  }
+}
 const isHostPathNow = computed(() => isHostPath(store.currentPath))
 const hostAbsNow = computed(() => hostAbsFromVm(store.currentPath))
 async function openHostRoot() {
   if (!isNative.value) {
-    store.notifyError('Device files need the app', 'open this vault in the desktop app or the native Android build')
+    // Web: the picked `$HOME` folder is the host. Re-allow after a reload
+    // when parked, pick when nothing is remembered yet (still the same
+    // click gesture the picker requires), else just browse.
+    try {
+      const { hostWasmStatus, hostWasmReallow, pickHostWasmDir } = await import('@/utils/hostWasm')
+      const st = await hostWasmStatus().catch(() => null)
+      if (st?.status === 'needs-permission') {
+        const ok = await hostWasmReallow()
+        if (!ok) {
+          store.notifyError('Home folder is parked', 'press Re-allow and grant access to browse it')
+          await refreshHostWasmMeta()
+          return
+        }
+      } else if (st?.status === 'missing' || st?.status === 'unsupported') {
+        if (st?.status === 'unsupported') {
+          store.notifyError('Device files need the app', 'this browser has no folder picker — open this vault in the desktop app or Chrome/Edge over HTTPS')
+          return
+        }
+        try {
+          const picked = await pickHostWasmDir()
+          store.notifySuccess(`Home folder '${picked.name}' loaded — its files are browsable here`)
+        } catch (e) {
+          store.notifyError('Cannot pick a home folder', e)
+          return
+        }
+      }
+    } catch (e) {
+      store.notifyError('Cannot open device files', e)
+      return
+    }
+    clearDiskScope(true)
+    store.selectFile(null)
+    await navTo('/host')
+    await refreshHostWasmMeta()
     return
   }
   clearDiskScope(true)
@@ -1323,7 +1401,8 @@ async function openHostRoot() {
 }
 function openHostFsRoot() {
   if (!isNative.value) {
-    store.notifyError('Device files need the app', 'open this vault in the desktop app or the native Android build')
+    // No filesystem root in a browser tab — the picked folder is the root.
+    void openHostRoot()
     return
   }
   clearDiskScope(true)
@@ -1331,6 +1410,21 @@ function openHostFsRoot() {
   void navTo('/host/')
 }
 async function pickHostFolder() {
+  if (!isNative.value) {
+    // Dialog browser API: the whole `$HOME` tree loads behind `/host`.
+    try {
+      const { pickHostWasmDir } = await import('@/utils/hostWasm')
+      const picked = await pickHostWasmDir()
+      clearDiskScope(true)
+      store.selectFile(null)
+      await navTo('/host')
+      await refreshHostWasmMeta()
+      store.notifySuccess(`Home folder '${picked.name}' loaded — its files are browsable here`)
+    } catch (e) {
+      store.notifyError('Cannot pick a home folder', e)
+    }
+    return
+  }
   try {
     const { open } = await import('@tauri-apps/plugin-dialog')
     const sel = await open({ directory: true, multiple: false })
@@ -1344,6 +1438,22 @@ async function pickHostFolder() {
     store.notifyError('Cannot pick a device folder', e)
   }
 }
+/** User-gesture re-grant for the parked `$HOME` handle, then re-list. */
+async function reallowHostWasm() {
+  try {
+    const { hostWasmReallow } = await import('@/utils/hostWasm')
+    const ok = await hostWasmReallow()
+    await refreshHostWasmMeta()
+    if (ok) {
+      store.notifySuccess('Home folder re-allowed')
+      await store.fetchFiles(store.currentPath)
+    } else {
+      store.notifyError('Home folder stays parked', 'grant access to browse it')
+    }
+  } catch (e) {
+    store.notifyError('Cannot re-allow the home folder', e)
+  }
+}
 /** Absolute host dir behind the current listing (`/host` → `pwd -os`). */
 async function currentHostDir(): Promise<string> {
   const { resolveHostDir } = await import('@/utils/hostBrowse')
@@ -1353,6 +1463,24 @@ async function openHostWithSystem(f: FileNode) {
   const abs = isHostId(f.id) ? f.id.slice('host:'.length) : hostAbsFromVm(f.path || '')
   if (!abs) {
     store.notifyError('Nothing to open', 'select a device file first')
+    return
+  }
+  if (!isNative.value) {
+    // No system opener in a browser tab — download the bytes instead.
+    try {
+      const { readHostBytes } = await import('@/utils/hostBrowse')
+      const bytes = await readHostBytes(abs)
+      const url = URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = f.name || 'file'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 4000)
+    } catch (e) {
+      store.notifyError('Cannot download this device file', e)
+    }
     return
   }
   try {
@@ -2240,7 +2368,7 @@ function openMoveTo(f: FileNode | null) {
     dlgMoveKind.value = 'vault'
     dlgMoveVault.value = '/'
   } else {
-    dlgMoveKind.value = isNative.value ? 'host' : 'provider'
+    dlgMoveKind.value = hasDevice.value ? 'host' : 'provider'
     dlgMoveHostDir.value = hostAbsNow.value || ''
     dlgMoveVault.value = store.currentPath || '/'
   }
@@ -2248,6 +2376,13 @@ function openMoveTo(f: FileNode | null) {
   dlgMove.value = { nodes: list }
 }
 async function pickMoveHostDir() {
+  if (!isNative.value) {
+    // The WASM host is the picked tree — destinations are typed paths
+    // inside it (`/Photos`), not a second OS picker (which would replace
+    // the `$HOME` handle instead of choosing a destination).
+    store.notifyError('Type the device folder', 'destinations inside the picked home folder are typed, e.g. /Photos')
+    return
+  }
   try {
     const { open } = await import('@tauri-apps/plugin-dialog')
     const sel = await open({ directory: true, multiple: false })
@@ -2493,6 +2628,7 @@ onMounted(() => {
     })
     .catch(() => {})
   void store.fetchFiles(store.currentPath)
+  void refreshHostWasmMeta()
   applyWindowProps()
 })
 onBeforeUnmount(() => {

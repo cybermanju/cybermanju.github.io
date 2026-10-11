@@ -334,10 +334,23 @@ threat model → [`docs/SECURITY.md`](docs/SECURITY.md).
 
 ### ⌨️ Universal CLI (`cyb`)
 
-```bash
-curl -fsSL https://cybermanju.github.io/install.sh | bash  # Linux/macOS/Git-Bash
-# Windows PowerShell:  irm https://cybermanju.github.io/install.ps1 | iex
+Paste-ready install — checksum-verified against the release `SHA256SUMS`.
+The binary lands in `~/.local/bin` (`%LOCALAPPDATA%\cybermanju\bin` on
+Windows); pin a release with `CYB_VERSION=v0.1.0` (`$env:CYB_VERSION`).
 
+Linux / macOS (also Git-Bash/MSYS2 on Windows):
+
+```bash
+curl -fsSL https://cybermanju.github.io/install.sh | bash
+```
+
+Windows PowerShell (native):
+
+```powershell
+irm https://cybermanju.github.io/install.ps1 | iex
+```
+
+```bash
 cyb setup                 # server → account → saved profile (0600)
 cyb serve up              # dashboard via Docker (or point at one: cyb config set-server URL)
 cyb oauth launch google --config <id>   # browser approval, verified after
