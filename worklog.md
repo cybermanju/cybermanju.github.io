@@ -1052,3 +1052,9 @@ Stage Summary:
   (endpoint returns a bare bool).
 - Known server-side gap (not a CLI bug): no public REST creates vault
   FileNodes, so provider→provider `move` needs a vault file first.
+
+## 2026-10-11 — Merge latest main and align startup transport diagnostics
+
+- Integrated `origin/main` through `a866573` (three main-only commits since the previous merge), including the expanded `cyb` CLI, selectable backends/Supabase-direct support, release packaging, CI, and documentation. The only merge conflict was the append-heavy worklog; kept develop's integration record and all new main entries. Develop's own fixes and regression tests remained present.
+- LandingPage now uses the synchronous shared `useTransport()` classifier for its startup transport summary, matching Settings and the shortcut badge without waiting for WASM initialization. Added regression tests for Pages first paint, shared label consumers, and the explicit transport override; marked P1-4 complete.
+- Verified locally: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, `npm test` (63 files / 711 tests), `npm run build` (existing large-chunk advisory), and `git diff --check`. Local Go vet/tests could not start because the installed Go is 1.26.8 while `cli/go.mod` requires 1.27.2; the latest `main` CI for `a866573` passed, and the develop CI run will validate the merged branch. No Cargo commands run per `AGENTS.md`.

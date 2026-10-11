@@ -4,7 +4,8 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import TopMenuBar from './TopMenuBar.vue'
 import Dock from './Dock.vue'
 import { useAppStore } from '@/stores/app'
-import { isTauri, isStaticHost } from '@/composables/useTauri'
+import { isStaticHost } from '@/composables/useTauri'
+import { useTransport } from '@/composables/useTransport'
 import { wasmBackendActive } from '@/composables/useWasmBackend'
 import { legalPageUrl } from '@/utils/legalPageUrl'
 
@@ -146,7 +147,7 @@ async function runLoading() {
   moduleLines.value = []
   bootProgress.value = 0
 
-  const transport = isTauri() ? 'TAURI IPC' : isStaticHost() ? 'STATIC WASM PACK' : 'WEB REST :3456'
+  const transport = useTransport().label
   pushLine(`TRANSPORT :: ${transport} [OK]`, { name: 'TRANSPORT', detail: transport, ok: true })
 
   let done = 0
