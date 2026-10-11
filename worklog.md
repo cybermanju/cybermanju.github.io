@@ -881,6 +881,13 @@ Stage Summary:
 - Docs: README CLI section + repo map, atlas entry in
   `docs/RELEASE_NOTES.md`. Local: `go build` × 6 targets, `go vet` +
   `go test` green.
+- Charm pink/red pass: bubbletea-native animated spinner (pink dots +
+  gradient ◈) on every `SpinWhile` with a plain fallback off-TTY;
+  pink→red per-rune `Gradient` banner; pink Huh form theme
+  (`ui.NewForm`) on setup/login/passphrase/confirms/approvals; pink
+  REPL prompt + rounded pink viewport border; pink→red `progress`
+  download bar wired into `cyb update`. Pure helpers unit-tested
+  (gradient round-trip, theme, banner); spinner proven under a pty.
 
 ## 2026-10-11 — Deep-link follow-up: runtime self-heal + 2nd-process storage guard
 - Symptom (CachyOS, release AppImage): browser OAuth approved (200 OK) but

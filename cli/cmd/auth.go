@@ -22,10 +22,10 @@ var loginCmd = &cobra.Command{
 		c := mustClient()
 		username, password := loginUsername, loginPassword
 		if username == "" {
-			form := huh.NewForm(huh.NewGroup(
+			form := ui.NewForm(huh.NewGroup(
 				huh.NewInput().Title("Username").Value(&username),
 				huh.NewInput().Title("Password").EchoMode(huh.EchoModePassword).Value(&password),
-			)).WithShowHelp(false)
+			))
 			if err := form.Run(); err != nil {
 				return err
 			}

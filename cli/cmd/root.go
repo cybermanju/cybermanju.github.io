@@ -115,9 +115,9 @@ func confirmDanger(question string) bool {
 		return true
 	}
 	var ok bool
-	form := huh.NewForm(huh.NewGroup(
+	form := ui.NewForm(huh.NewGroup(
 		huh.NewConfirm().Title(question).Value(&ok),
-	)).WithShowHelp(false)
+	))
 	if err := form.Run(); err != nil {
 		return false
 	}

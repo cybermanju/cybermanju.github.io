@@ -37,7 +37,7 @@ No server yet? Run:  cyb serve up   (Docker, one command)`,
 				return fmt.Errorf("non-interactive setup needs --username and --password")
 			}
 		} else {
-			form := huh.NewForm(
+			form := ui.NewForm(
 				huh.NewGroup(
 					huh.NewInput().
 						Title("Dashboard URL").
@@ -52,7 +52,7 @@ No server yet? Run:  cyb serve up   (Docker, one command)`,
 					huh.NewInput().Title("Password").EchoMode(huh.EchoModePassword).Value(&password),
 					huh.NewInput().Title("Display name (register only, optional)").Value(&display),
 				),
-			).WithShowHelp(false)
+			)
 			if err := form.Run(); err != nil {
 				return err
 			}

@@ -46,11 +46,11 @@ the code itself and seals it (0600) — cyb never sees the secret.`,
 			ui.Info("could not open a browser — visit:\n%s", got.AuthorizeURL)
 		}
 		var done bool
-		form := huh.NewForm(huh.NewGroup(
+		form := ui.NewForm(huh.NewGroup(
 			huh.NewConfirm().
 				Title("Approve at the provider, then confirm here").
 				Value(&done),
-		)).WithShowHelp(false)
+		))
 		if err := form.Run(); err != nil {
 			return err
 		}
