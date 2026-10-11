@@ -553,7 +553,7 @@ for r in json.load(sys.stdin).get("workflow_runs", []):
   missing="$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts?per_page=50" \
     | python3 -c '
 import json,sys
-want = ["dist-windows","dist-linux","dist-linux-deb","dist-linux-rpm","dist-rpm","dist-flatpak","dist-arch","dist-macos","dist-android","dist-wasm"]
+want = ["dist-windows","dist-linux","dist-linux-deb","dist-linux-rpm","dist-rpm","dist-flatpak","dist-arch","dist-macos","dist-android","dist-wasm","dist-cli"]
 have = {a["name"] for a in json.load(sys.stdin).get("artifacts", []) if not a.get("expired")}
 print(" ".join(w for w in want if w not in have))')"
   if [ -n "$missing" ]; then

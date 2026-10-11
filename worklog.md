@@ -847,3 +847,37 @@ Stage Summary:
   its Redirect URLs (already required for mobile).
 - Tests: 3 redirect-selection cases (web https return, Tauri desktop +
   mobile deep-link). `npm run typecheck` clean, full `npm test` green.
+
+## 2026-10-11 — Universal `cyb` CLI (Go + Charm) + installer
+- New `cli/` Go module (`github.com/cybermanju/cybermanju.github.io/cli`):
+  cobra command tree with a Charm face — Lipgloss theme/tables/panels,
+  Bubbles+Bubble Tea `repl` (viewport scrollback, history, plain fallback
+  when piped), Huh forms (`setup`/`login`/passphrases/confirms), Glamour
+  markdown for `ai` results, `pkg/browser` for OAuth launch. REST-first
+  against the dashboard (`internal/client`, camelCase wire, AGENT-1
+  prefix → hint mapping, 401 → `cyb login`).
+- Commands: `setup` (probe → register/login → 0600 profile) · `serve`
+  (Docker up/status/stop) · `login/logout` · `config` · `files`
+  (ls/info/mkdir/rename/trash/restore/empty) · `sync` (configs/create/rm/
+  start --wait/move/test/remote/usage/status/progress/cancel/job) ·
+  `disk` (list/create/attach/detach/resize/check/df/key-holder/destroy;
+  passphrase via flag/file/prompt, never logged) · `oauth launch`
+  (PKCE URL → browser → verify via connection test) + `status` ·
+  `sh`/`run` (same cybsh incl. --dry/--lint/--fmt/--json/argv) · `ai`
+  (providers/configs/prompt --follow/sessions/abort/approve; asks park
+  notice) · checksum-verified self-`update` from GitHub releases.
+- Transport is genuinely tested: `httptest` fake dashboard covers auth
+  header, camelCase decode, conflict/401 hint mapping, OAuth/exec shapes;
+  plus config 0600 + resolution-order and size/version/asset-name units.
+- `install.sh` (Linux/macOS/Git-Bash) + `install.ps1` (native PowerShell):
+  OS/arch detect, latest-or-pinned tag, `cyb-<os>-<arch>.tar.gz` +
+  SHA256SUMS verify, `~/.local/bin` / `%LOCALAPPDATA%\\cybermanju\\bin`.
+- CI: new `cli-build` job (`gofmt -l` gate → `go vet` → `go test` →
+  CGO_ENABLED=0 cross-compile linux/darwin/windows × amd64/arm64 with
+  `-trimpath` + version/commit ldflags → `dist-cli/`); release ships a
+  9th family (`release-cli`, required in full + reuse checks, atlas +
+  Downloads rows); `push.sh --release --last` validates `dist-cli`;
+  GitLab mirror gains `cli-build` (golang image) + release collect.
+- Docs: README CLI section + repo map, atlas entry in
+  `docs/RELEASE_NOTES.md`. Local: `go build` × 6 targets, `go vet` +
+  `go test` green.
