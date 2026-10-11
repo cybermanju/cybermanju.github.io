@@ -821,3 +821,29 @@ Stage Summary:
 - `tests/frontend/supabase-config.test.ts` rewritten for settings-over-build
   precedence, validation, fallback and alias (9 tests). `npm run typecheck` clean,
   full suite 60 files / 697 tests green.
+
+## 2026-10-11 — OAuth on Linux desktop: system browser + cybermanju:// deep link
+- Symptom (AppImage): after approving Google, the popup died with
+  `Redirection to URL with a scheme that is not HTTP(S)`. Root cause:
+  `supabaseRedirectTo()` returned the Tauri page URL (`tauri://localhost/…`)
+  and the Linux WebKitGTK WebView refuses to navigate back to any
+  non-HTTP(S) scheme, so the PKCE return never landed.
+- Fix: every Tauri build (desktop + mobile) now authenticates in the SYSTEM
+  browser with the `cybermanju://oauth/callback` return. `useSupabase.ts`:
+  `supabaseRedirectTo()` returns `OAUTH_CALLBACK_URL` under `isTauri()`
+  (exported for tests; `MOBILE_OAUTH_CALLBACK_URL` kept as an alias),
+  `signInWithPopup()` + deep-link install/activate use `isTauri()` instead of
+  `isTauriMobile()`, and Supabase `redirect` rejections now name the exact URL
+  to allowlist (Supabase → Authentication → URL Configuration → Redirect URLs).
+  Accounts per-card Connect hardens the same way (`nativeApp = isTauri()`,
+  browser-worded waiting messages); App boot installs the listener on all
+  Tauri; Settings broker card names the `cybermanju://oauth/callback` entry.
+- Native plumbing: `tauri.conf.json` registers the desktop scheme
+  (`plugins.deep-link.desktop.schemes: ["cybermanju"]`); `src-tauri` adds
+  `tauri-plugin-single-instance` (`deep-link` feature, desktop-gated) and
+  registers it FIRST in `lib.rs` so a return arriving while the app runs is
+  forwarded to the live instance's `onOpenUrl` instead of booting a stray
+  second window. Supabase dashboard needs `cybermanju://oauth/callback` in
+  its Redirect URLs (already required for mobile).
+- Tests: 3 redirect-selection cases (web https return, Tauri desktop +
+  mobile deep-link). `npm run typecheck` clean, full `npm test` green.

@@ -706,7 +706,7 @@ import UiEmpty from '@/components/ui/UiEmpty.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
-import { isStaticHost, isTauriMobile } from '@/composables/useTauri'
+import { isStaticHost, isTauri, isTauriMobile } from '@/composables/useTauri'
 import { wasmDbBackend } from '@/composables/useWasmBackend'
 import {
   connectedAccounts,
@@ -2136,8 +2136,11 @@ async function supabaseConnect(cfg: SyncConfig) {
   connectBusy.value = cfg.id
   delete mobileOAuthErrors.value[cfg.id]
   let popup: Window | null = null
-  const nativeMobile = isTauriMobile()
-  if (!nativeMobile) {
+  // Any Tauri build authenticates in the system browser via the
+  // cybermanju:// deep link — a popup WebView cannot navigate back to a
+  // custom scheme on Linux ("scheme that is not HTTP(S)").
+  const nativeApp = isTauri()
+  if (!nativeApp) {
     try {
       // Reserve the browser window while the provider button still owns
       // a user gesture; opening after PKCE awaits is blocked on mobile Safari.
@@ -2148,9 +2151,9 @@ async function supabaseConnect(cfg: SyncConfig) {
   let url = ''
   try {
     if (refreshGoogleGrant) await signOutIdentity().catch(() => {})
-    if (nativeMobile) await installMobileOAuthDeepLinks()
+    if (nativeApp) await installMobileOAuthDeepLinks()
     ;({ url } = await startSupabaseOAuth(cfg.backendType, !!popup, cfg.backendType === 'googleDrive'))
-    if (nativeMobile) {
+    if (nativeApp) {
       const { open } = await import('@tauri-apps/plugin-shell')
       await open(url)
     }
@@ -2160,7 +2163,7 @@ async function supabaseConnect(cfg: SyncConfig) {
     connectBusy.value = null
     return
   }
-  if (nativeMobile) {
+  if (nativeApp) {
     connectMsg.value[cfg.id] = 'Approve in your browser, then return to CyberManju OS…'
   } else if (!popup) {
     connectMsg.value[cfg.id] = 'Continuing securely in this tab…'
@@ -2209,7 +2212,9 @@ async function supabaseConnect(cfg: SyncConfig) {
         maxAttempts: 90,
         signal: abort.signal,
         onAttempt: (n) => {
-          if (n % 10 === 0) connectMsg.value[cfg.id] = `Approve at the provider in the popup — waiting… (${n * 2}s)`
+          if (n % 10 === 0) connectMsg.value[cfg.id] = nativeApp
+            ? `Approve at the provider in your browser — waiting… (${n * 2}s)`
+            : `Approve at the provider in the popup — waiting… (${n * 2}s)`
         },
       },
     )

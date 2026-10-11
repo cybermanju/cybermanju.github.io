@@ -3,9 +3,11 @@ import {
   clearSupabaseConfig,
   getSupabaseConfig,
   hydrateSupabaseConfig,
+  OAUTH_CALLBACK_URL,
   setSupabaseConfig,
   supabaseConfigured,
   supabaseOAuthQueryParams,
+  supabaseRedirectTo,
   supabaseScopesFor,
 } from '@/composables/useSupabase'
 
@@ -131,5 +133,45 @@ describe('Supabase broker configuration (build pair + Settings paste)', () => {
     expect(supabaseOAuthQueryParams('google', true)).toEqual({ access_type: 'offline', prompt: 'consent' })
     expect(supabaseOAuthQueryParams('github', true)).toBeUndefined()
     expect(supabaseOAuthQueryParams('googleDrive')).toBeUndefined()
+  })
+})
+
+describe('OAuth redirect selection (Tauri deep-link vs web popup)', () => {
+  const DESKTOP_UA =
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
+  const ANDROID_UA =
+    'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36'
+
+  function stubBrowser(tauri: boolean, ua: string) {
+    vi.stubGlobal('window', {
+      __TAURI__: tauri || undefined,
+      location: { origin: 'https://app.example.test', pathname: '/index.html' },
+      opener: null,
+      closed: false,
+      screen: { width: 1400, height: 900 },
+    })
+    vi.stubGlobal('navigator', { userAgent: ua, platform: 'Linux', maxTouchPoints: 0 })
+  }
+
+  it('uses the https page return on plain web', () => {
+    stubBrowser(false, DESKTOP_UA)
+    expect(supabaseRedirectTo(true)).toBe('https://app.example.test/index.html?oauth=popup')
+    expect(supabaseRedirectTo(false)).toBe('https://app.example.test/index.html')
+  })
+
+  it('uses the cybermanju:// callback on Tauri desktop (system browser)', () => {
+    // A popup WebView cannot navigate back to a custom scheme — Linux
+    // WebKitGTK aborts with "scheme that is not HTTP(S)" — so desktop must
+    // never return a tauri:// page URL here.
+    stubBrowser(true, DESKTOP_UA)
+    expect(supabaseRedirectTo(true)).toBe(OAUTH_CALLBACK_URL)
+    expect(supabaseRedirectTo(false)).toBe(OAUTH_CALLBACK_URL)
+    expect(supabaseRedirectTo(true)).toBe('cybermanju://oauth/callback')
+  })
+
+  it('uses the cybermanju:// callback on Tauri mobile', () => {
+    stubBrowser(true, ANDROID_UA)
+    expect(supabaseRedirectTo(true)).toBe(OAUTH_CALLBACK_URL)
+    expect(supabaseRedirectTo(false)).toBe(OAUTH_CALLBACK_URL)
   })
 })

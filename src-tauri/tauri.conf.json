@@ -62,6 +62,9 @@
       "open": true
     },
     "deep-link": {
+      "desktop": {
+        "schemes": ["cybermanju"]
+      },
       "mobile": [
         {
           "scheme": ["cybermanju"],

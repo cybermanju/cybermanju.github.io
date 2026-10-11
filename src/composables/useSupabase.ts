@@ -10,9 +10,11 @@
 //  1. `startSupabaseOAuth()` / `startSupabaseSignIn()` —
 //     `signInWithOAuth({ skipBrowserRedirect: true })` returns the Supabase
 //     authorize URL (PKCE verifier stashed in localStorage by the client).
-//     We open it in a popup WITHOUT `noopener` so the opener chain survives.
-//  2. User approves at the provider → Supabase → redirectTo (our page,
-//     `?oauth=popup`) lands *inside the popup*.
+//     Web builds open it in a popup WITHOUT `noopener` so the opener chain
+//     survives; Tauri builds (desktop + mobile) open it in the SYSTEM browser
+//     with the `cybermanju://oauth/callback` return instead.
+//  2. User approves at the provider → Supabase → redirectTo: the popup page
+//     (`?oauth=popup`) on web, the deep-link callback (`onOpenUrl`) on Tauri.
 //  3. The popup boots this same bundle but takes the popup fast-path
 //     (`isOAuthPopup()` → App.vue minimal view): `finishSupabaseReturn()`
 //     lets the client auto-exchange `?code=` (`detectSessionInUrl`), reads
@@ -37,13 +39,22 @@
 
 import { ref } from 'vue'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
-import { isTauriMobile } from './useTauri'
+import { isTauri } from './useTauri'
 
 const PENDING_CFG_KEY = 'cybermanju.oauthConfigId'
 const TOKEN_STASH_KEY = 'cybermanju.providerToken'
 
 export type OAuthBackend = 'github' | 'google' | 'gitlab'
-export const MOBILE_OAUTH_CALLBACK_URL = 'cybermanju://oauth/callback'
+/**
+ * Custom-scheme OAuth return for every Tauri build (desktop + mobile).
+ * The SYSTEM browser completes the provider dance, then the OS routes this
+ * URL back into the app via the deep-link plugin — the WebView never
+ * navigates to it, so Linux WebKitGTK's
+ * "Redirection to URL with a scheme that is not HTTP(S)" block never fires.
+ */
+export const OAUTH_CALLBACK_URL = 'cybermanju://oauth/callback'
+/** @deprecated Use OAUTH_CALLBACK_URL — kept for backwards compatibility. */
+export const MOBILE_OAUTH_CALLBACK_URL = OAUTH_CALLBACK_URL
 
 export interface ProviderTokenStash {
   backend: OAuthBackend
@@ -264,9 +275,24 @@ export function supabaseOAuthQueryParams(backendType: string, forceGoogleConsent
   return { access_type: 'offline', prompt: 'consent' }
 }
 
-function supabaseRedirectTo(popup: boolean): string {
-  if (isTauriMobile()) return MOBILE_OAUTH_CALLBACK_URL
+export function supabaseRedirectTo(popup: boolean): string {
+  // Every Tauri build (desktop AND mobile) authenticates in the SYSTEM
+  // browser with the cybermanju:// deep-link return: a popup WebView cannot
+  // navigate back to a custom scheme (Linux WebKitGTK aborts the whole login
+  // with "Redirection to URL with a scheme that is not HTTP(S)").
+  if (isTauri()) return OAUTH_CALLBACK_URL
   return `${window.location.origin}${window.location.pathname}${popup ? '?oauth=popup' : ''}`
+}
+
+/** Supabase rejected the redirect — tell the user which URL to allowlist. */
+function withRedirectHint(e: unknown, redirectTo: string): Error {
+  const msg = e instanceof Error ? e.message : String(e)
+  if (/redirect/i.test(msg)) {
+    return new Error(
+      `${msg} — add '${redirectTo}' (plus this app's own URL) to Supabase → Authentication → URL Configuration → Redirect URLs`,
+    )
+  }
+  return e instanceof Error ? e : new Error(msg)
 }
 
 export function setPendingOAuthConfig(configId: string | null) {
@@ -380,7 +406,7 @@ export async function startSupabaseOAuth(backendType: string, popup = true, forc
       skipBrowserRedirect: true,
     },
   })
-  if (error || !data?.url) throw new Error(error?.message || 'Supabase did not return an authorize URL')
+  if (error || !data?.url) throw withRedirectHint(error ?? new Error('Supabase did not return an authorize URL'), redirectTo)
   return { url: data.url }
 }
 
@@ -750,9 +776,9 @@ async function processMobileOAuthUrls(urls: string[], announce: boolean): Promis
   return handled
 }
 
-/** Install the mobile URL listener early; callbacks wait in memory until broker hydration completes. */
+/** Install the native deep-link listener early; callbacks wait in memory until broker hydration completes. */
 export function installMobileOAuthDeepLinks(): Promise<void> {
-  if (!isTauriMobile() || mobileDeepLinkListener) return Promise.resolve()
+  if (!isTauri() || mobileDeepLinkListener) return Promise.resolve()
   if (mobileDeepLinkInstallPromise) return mobileDeepLinkInstallPromise
   const install = (async () => {
     const { getCurrent, onOpenUrl } = await import('@tauri-apps/plugin-deep-link')
@@ -772,7 +798,7 @@ export function installMobileOAuthDeepLinks(): Promise<void> {
 
 /** Exchange any cold-start callback after the stored Supabase broker is hydrated. */
 export async function activateMobileOAuthDeepLinks(): Promise<boolean> {
-  if (!isTauriMobile()) return false
+  if (!isTauri()) return false
   await installMobileOAuthDeepLinks()
   mobileDeepLinkReady = true
   const queued = pendingMobileDeepLinks.splice(0)
@@ -799,7 +825,7 @@ export async function startSupabaseSignIn(provider: OAuthBackend, popup = true, 
     },
   })
   if (error || !data?.url) {
-    throw new Error(error?.message || 'Supabase did not return an authorize URL')
+    throw withRedirectHint(error ?? new Error('Supabase did not return an authorize URL'), redirectTo)
   }
   return { url: data.url }
 }
@@ -813,7 +839,11 @@ export async function startSupabaseSignIn(provider: OAuthBackend, popup = true, 
  * popups are blocked or the flow never completes.
  */
 export async function signInWithPopup(provider: OAuthBackend): Promise<CyberIdentity> {
-  if (isTauriMobile()) {
+  // Native (desktop + mobile): the SYSTEM browser approves, the OS routes
+  // cybermanju://oauth/callback back into the app, and the poll below sees
+  // the exchanged session. Never a popup WebView here — it cannot navigate
+  // back to a custom scheme (Linux WebKitGTK: "scheme that is not HTTP(S)").
+  if (isTauri()) {
     await installMobileOAuthDeepLinks()
     await supabaseSignOut().catch(() => {})
     identity.value = null

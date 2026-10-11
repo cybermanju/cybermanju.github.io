@@ -117,3 +117,8 @@ tree-sitter-bash = { version = "0.23", optional = true }
 # never fabricated — AUDIT F7), same as a desktop with no model file.
 [target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
 cybermanju-faces = { path = "../crates/faces", features = ["onnx-face"] }
+# Single-instance with the `deep-link` feature: on Windows/Linux the OS
+# delivers a cybermanju:// OAuth return by spawning a second process, and the
+# plugin forwards its argv to the running app so the frontend `onOpenUrl`
+# listener fires (without it `onOpenUrl` never fires while running).
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }

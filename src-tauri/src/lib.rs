@@ -362,7 +362,17 @@ pub fn run() {
     // old lib.rs:527 before first paint. The frontend never imported
     // `@tauri-apps/plugin-log`; Rust logs go to stderr (logcat) via
     // tracing, so the plugin bought nothing.
-    tauri::Builder::default()
+    // OAuth deep links on Windows/Linux arrive as a second-process CLI
+    // argument — single-instance (with the `deep-link` feature) forwards them
+    // to the running app so the frontend `onOpenUrl` listener fires instead
+    // of booting a stray second window that would exchange PKCE in the wrong
+    // process. Must be first for the same reason.
+    let mut builder = tauri::Builder::default();
+    #[cfg(not(mobile))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}));
+    }
+    builder
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())

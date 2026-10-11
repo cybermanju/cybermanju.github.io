@@ -297,7 +297,8 @@
           <p v-if="brokerMsg" class="st-feedback" :class="`is-${brokerMsg.tone}`" role="status">{{ brokerMsg.text }}</p>
           <UiText as="p" variant="small" tone="muted">
             Static-build OAuth broker: GitHub / Google / GitLab login without your own server.
-            Enable the providers in Supabase → Authentication → Sign-in, and add this page's URL to redirect URLs.
+            Enable the providers in Supabase → Authentication → Sign-in, and add this page's URL
+            — plus <code>cybermanju://oauth/callback</code> for the desktop/mobile apps — to redirect URLs.
             <span v-if="supabaseConfiguredNow">Source: {{ supabaseSourceLabel }}.</span>
             The paste lives on this device only — repeat it on each device.
             Provider tokens you mint then reach your other devices through your encrypted sync.
