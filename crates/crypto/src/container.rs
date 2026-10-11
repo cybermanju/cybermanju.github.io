@@ -108,7 +108,9 @@ pub fn parse_header(bytes: &[u8]) -> Result<ContainerMeta, String> {
             return Err(format!("invalid: encrypted container kdf {kdf}"));
         }
         if salt_len != SALT_LEN || nonce_len != NONCE_LEN {
-            return Err("invalid: encrypted container has invalid salt or nonce length".to_string());
+            return Err(
+                "invalid: encrypted container has invalid salt or nonce length".to_string(),
+            );
         }
         if iterations == 0 || iterations > MAX_KDF_ITERATIONS {
             return Err(format!(
@@ -123,8 +125,8 @@ pub fn parse_header(bytes: &[u8]) -> Result<ContainerMeta, String> {
         return Err("invalid: container header truncated".to_string());
     }
     let body_len = bytes.len() - body_at;
-    let minimum_body_len = (if encrypted { AEAD_TAG_LEN } else { 0 })
-        + (if compressed { 4 } else { 0 });
+    let minimum_body_len =
+        (if encrypted { AEAD_TAG_LEN } else { 0 }) + (if compressed { 4 } else { 0 });
     if body_len < minimum_body_len {
         return Err("invalid: container body truncated".to_string());
     }
@@ -400,13 +402,7 @@ mod tests {
     #[test]
     fn compressed_size_bomb_refuses_before_lz4_decode() {
         let mut bytes = MAGIC.to_vec();
-        bytes.extend_from_slice(&[
-            CONTAINER_VERSION,
-            KDF_NONE,
-            FLAG_COMPRESSED,
-            0,
-            0,
-        ]);
+        bytes.extend_from_slice(&[CONTAINER_VERSION, KDF_NONE, FLAG_COMPRESSED, 0, 0]);
         bytes.extend_from_slice(&0u32.to_le_bytes());
         let declared = u32::try_from(MAX_IMAGE_BYTES + 1).expect("cap fits in u32");
         bytes.extend_from_slice(&declared.to_le_bytes());
