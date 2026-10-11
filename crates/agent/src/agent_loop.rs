@@ -286,6 +286,9 @@ pub fn system_prompt(
          (a decision, preference, environment quirk, lesson learned). One fact per \
          call; check memory_recall first so facts are not stored twice; never store \
          secrets or whole files.\n\
+         - todo_add {{title}} / todo_list {{}} / todo_done {{id, done?}}: the user's \
+         shared task list (same list as the Archive TASKS tab). List before \
+         completing so ids are exact; one clear title per add.\n\
          INTERFACE: the Terminal panel runs cybsh — the same shell as your bash \
          tool. Its `theme`/`ui` verbs customize the whole interface on every \
          transport and persist to the volume mirror: `ui theme <id>`, \
@@ -466,6 +469,9 @@ mod tests {
             "ui_notify",
             "secret_list",
             "secret_get",
+            "todo_add",
+            "todo_list",
+            "todo_done",
         ] {
             assert!(
                 crate::protocol::TOOL_NAMES.contains(&tool),

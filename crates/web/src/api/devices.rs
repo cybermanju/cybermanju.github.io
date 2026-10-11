@@ -25,7 +25,21 @@ fn now_rfc3339() -> String {
 }
 
 fn respond<T: serde::Serialize>(result: Result<T, String>, origin: Option<&str>) -> String {
-    crate::api_response(result, origin)
+    match result {
+        Ok(value) => crate::json_ok(&value, origin),
+        Err(message) => {
+            let status = if message.starts_with("not_found:") {
+                404
+            } else if message.starts_with("unsupported:") {
+                501
+            } else if message.starts_with("integrity:") {
+                409
+            } else {
+                400
+            };
+            crate::json_error(status, &message, origin)
+        }
+    }
 }
 
 fn parse<T: for<'de> serde::Deserialize<'de>>(body: &str) -> Result<T, String> {

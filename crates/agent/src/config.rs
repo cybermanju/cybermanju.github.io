@@ -190,6 +190,8 @@ pub fn decide(
                 | "os_exec"
                 | "secret_list"
                 | "secret_get"
+                | "todo_add"
+                | "todo_done"
         )
     {
         return PermissionDecision::Deny {

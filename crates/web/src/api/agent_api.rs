@@ -1714,6 +1714,78 @@ fn tool_skill_save(
     ))
 }
 
+/// `todo_add` / `todo_list` / `todo_done` (§4.9 agent bridge): the run
+/// owner's shared task list (same rows the Archive TASKS tab shows).
+/// Owner-scoped like sessions (P0-10 posture) — other owners' rows answer
+/// `not_found:`, never leak. `source` records which assistant acted.
+fn tool_todo_list(db: &Database, owner: &str) -> Result<String, String> {
+    let rows = db
+        .list_todos(Some(owner))
+        .map_err(|e| format!("integrity: todo list unreadable: {e}"))?;
+    if rows.is_empty() {
+        return Ok("no todos — `todo_add` creates the first".to_string());
+    }
+    Ok(rows
+        .iter()
+        .map(|r| {
+            format!(
+                "- [{}] {} {}",
+                if r.done { "x" } else { " " },
+                r.id,
+                r.title
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+fn tool_todo_add(db: &Database, owner: &str, config_id: &str, title: &str) -> Result<String, String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("invalid: todo title is required".to_string());
+    }
+    if title.len() > 500 {
+        return Err("invalid: todo title exceeds 500 chars".to_string());
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    let row = cybermanju_types::schema::TodoRow {
+        id: format!("todo-{}", uuid::Uuid::new_v4()),
+        title: title.to_string(),
+        done: false,
+        created_at: now,
+        done_at: None,
+        owner_id: owner.to_string(),
+        source: format!("agent:{config_id}"),
+    };
+    db.save_todo(&row).map_err(|e| e.to_string())?;
+    Ok(format!("added {} — {}", row.id, row.title))
+}
+
+fn tool_todo_done(db: &Database, owner: &str, id: &str, done: bool) -> Result<String, String> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err("invalid: todo id is required".to_string());
+    }
+    let mut row = db
+        .list_todos(Some(owner))
+        .map_err(|e| format!("integrity: todo list unreadable: {e}"))?
+        .into_iter()
+        .find(|r| r.id == id)
+        .ok_or_else(|| format!("not_found: no todo `{id}`"))?;
+    row.done = done;
+    row.done_at = if done {
+        Some(chrono::Utc::now().to_rfc3339())
+    } else {
+        None
+    };
+    db.save_todo(&row).map_err(|e| e.to_string())?;
+    Ok(format!(
+        "{} marked {}",
+        row.id,
+        if done { "done" } else { "open" }
+    ))
+}
+
 /// `mcp_attach`: verify-then-persist an HTTP MCP server on this config.
 /// stdio is refused (process spawn — desktop UI instead). The new tools go
 /// live on the NEXT run (this run's `McpSet` was connected up front).
@@ -1827,6 +1899,9 @@ struct MemoryCtx<'a> {
     session_id: &'a str,
     embedding_model: String,
     allow_remember: bool,
+    /// JWT `user_id` that owns the run (`"local"` on trusted transports).
+    /// Todo tools scope to it — the agent never sees another user's list.
+    owner: &'a str,
 }
 
 fn exec_tool(
@@ -2010,6 +2085,17 @@ fn exec_tool(
             mem.config_id,
             &get("name"),
             call.input.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+        ),
+        "todo_list" => tool_todo_list(db, mem.owner),
+        "todo_add" => tool_todo_add(db, mem.owner, mem.config_id, &get("title")),
+        "todo_done" => tool_todo_done(
+            db,
+            mem.owner,
+            &get("id"),
+            call.input
+                .get("done")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
         ),
         "repo_analyze" => tool_repo_analyze(&get("repo"), &get("branch")),
         // cybsh-only OS surface: same command_table gate as bash's cybsh
@@ -3194,6 +3280,7 @@ fn run_agent_job(
         session_id: &session.id,
         embedding_model: embedding_model(&config),
         allow_remember: true,
+        owner: &job.owner_id,
     };
 
     loop {
@@ -4159,6 +4246,7 @@ fn subagent_body(params: SubagentBody) -> String {
                                 session_id: &job.session_id,
                                 embedding_model: embedding_model(&config),
                                 allow_remember: true,
+                                owner: &job.owner_id,
                             };
                             match exec_tool(&guard, root, vol, call, &mem_ctx, config.shell_mode) {
                                 Ok(output) => clean_output(output),

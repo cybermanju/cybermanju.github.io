@@ -15,8 +15,8 @@ pub mod web_dashboard;
 use commands::faces as face_cmd;
 use commands::sync as sync_cmd;
 use commands::{
-    accounts, audit, batch, collections, dashboard, encryption, files, import as import_cmd, map,
-    search as search_cmd, share, trash, users, versions,
+    accounts, audit, batch, collections, dashboard, devices, encryption, files,
+    import as import_cmd, map, search as search_cmd, share, todos, trash, users, versions,
 };
 use db::Database;
 use std::sync::{Arc, Mutex, RwLock};
@@ -453,6 +453,18 @@ pub fn run() {
             commands::cron::cron_history,
             commands::cron::cron_set_enabled,
             commands::cron::cron_ensure_started,
+            // Device identity (§2B.1) + LAN peers (§2B.2).
+            devices::list_devices,
+            devices::register_device,
+            devices::register_this_device,
+            devices::revoke_device,
+            devices::remove_device,
+            devices::list_lan_peers,
+            // Server-side todos (§4.9 agent bridge — same rows the agent tools use).
+            todos::list_todos,
+            todos::create_todo,
+            todos::toggle_todo,
+            todos::delete_todo,
             // Secrets keystore (Phase 3) — sealed password-manager rows
             commands::secrets::secret_list,
             commands::secrets::secret_save,

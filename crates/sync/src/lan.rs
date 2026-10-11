@@ -240,10 +240,7 @@ fn parse_packet(buf: &[u8]) -> Option<(bool, Answers)> {
         let _ttl = r.u32()?;
         let rdlen = r.u16()? as usize;
         let rdata = r.bytes(rdlen)?;
-        let mut rr = Reader {
-            buf: rdata,
-            pos: 0,
-        };
+        let mut rr = Reader { buf: rdata, pos: 0 };
         match rtype {
             12 => out.ptr_targets.push(rr.name()?),
             33 => {
@@ -266,10 +263,8 @@ fn parse_packet(buf: &[u8]) -> Option<(bool, Answers)> {
                 out.txt.push((name, pairs));
             }
             1 if rdlen == 4 => {
-                out.a.push((
-                    name,
-                    Ipv4Addr::new(rdata[0], rdata[1], rdata[2], rdata[3]),
-                ));
+                out.a
+                    .push((name, Ipv4Addr::new(rdata[0], rdata[1], rdata[2], rdata[3])));
             }
             _ => {}
         }
@@ -429,10 +424,7 @@ mod tests {
     #[test]
     fn query_packet_parses_as_a_query_for_our_service() {
         let pkt = encode_query();
-        let mut r = Reader {
-            buf: &pkt,
-            pos: 0,
-        };
+        let mut r = Reader { buf: &pkt, pos: 0 };
         assert_eq!(r.u16(), Some(0));
         assert_eq!(r.u16(), Some(0));
         assert_eq!(r.u16(), Some(1));
@@ -443,7 +435,12 @@ mod tests {
 
     #[test]
     fn announce_round_trips_through_the_collector() {
-        let pkt = encode_announce("laptop-1", "Ada Laptop", Ipv4Addr::new(192, 168, 1, 50), 3456);
+        let pkt = encode_announce(
+            "laptop-1",
+            "Ada Laptop",
+            Ipv4Addr::new(192, 168, 1, 50),
+            3456,
+        );
         let from: SocketAddr = "192.168.1.50:5353".parse().unwrap();
         let peers = collect_peers(&pkt, from);
         assert_eq!(peers.len(), 1);

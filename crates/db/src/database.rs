@@ -708,7 +708,8 @@ impl Database {
         let tx = self.db.begin_write()?;
         let removed = {
             let mut table = tx.open_table(DEVICES_TABLE)?;
-            table.remove(id)?.is_some()
+            let removed = table.remove(id)?.is_some();
+            removed
         };
         tx.commit()?;
         Ok(removed)
@@ -765,7 +766,8 @@ impl Database {
         let tx = self.db.begin_write()?;
         let removed = {
             let mut table = tx.open_table(TODOS_TABLE)?;
-            table.remove(id)?.is_some()
+            let removed = table.remove(id)?.is_some();
+            removed
         };
         tx.commit()?;
         Ok(removed)
@@ -1552,10 +1554,8 @@ mod registry_oplog_tests {
     use cybermanju_types::schema::{DeviceRow, OpRow, TodoRow};
 
     fn test_db(name: &str) -> (Database, std::path::PathBuf) {
-        let path = std::env::temp_dir().join(format!(
-            "cybermanju-{name}-{}.db",
-            uuid::Uuid::new_v4()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("cybermanju-{name}-{}.db", uuid::Uuid::new_v4()));
         let db = Database::new(path.to_str().unwrap()).unwrap();
         (db, path)
     }
@@ -1637,14 +1637,18 @@ mod registry_oplog_tests {
         let b = db.append_op(op("d1", "star", Some("f1"))).unwrap();
         assert_eq!((a.seq, b.seq), (0, 1));
         assert_eq!(a.op_id, "d1-0");
-        assert!(db.append_op(OpRow {
-            kind: String::new(),
-            ..op("d1", "", None)
-        }).is_err());
+        assert!(db
+            .append_op(OpRow {
+                kind: String::new(),
+                ..op("d1", "", None)
+            })
+            .is_err());
         assert_eq!(db.oplog_head().unwrap(), 1);
         assert_eq!(db.list_ops_since(0, 0).unwrap().len(), 1);
         // Merge: same op_id skips, foreign op appends with a fresh local seq.
-        let (appended, skipped) = db.merge_ops(&[a.clone(), op("d2", "tag", Some("f1"))]).unwrap();
+        let (appended, skipped) = db
+            .merge_ops(&[a.clone(), op("d2", "tag", Some("f1"))])
+            .unwrap();
         assert_eq!((appended, skipped), (1, 1));
         assert_eq!(db.oplog_head().unwrap(), 2);
         drop(db);

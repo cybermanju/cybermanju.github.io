@@ -531,7 +531,10 @@ mod tests {
             .into_iter()
             .map(|h| h.join().expect("thread"))
             .collect();
-        let winners: Vec<&String> = outcomes.iter().filter(|o| !o.starts_with("lost:")).collect();
+        let winners: Vec<&String> = outcomes
+            .iter()
+            .filter(|o| !o.starts_with("lost:"))
+            .collect();
         assert_eq!(winners.len(), 1, "{outcomes:?}");
         assert!(
             outcomes

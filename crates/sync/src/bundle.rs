@@ -99,7 +99,9 @@ pub fn import_bundle(db: &Database, bytes: &[u8]) -> Result<(usize, usize, Strin
     let canonical = canonical_ops_json(&bundle.ops)?;
     let digest = blake3::hash(canonical.as_bytes()).to_hex().to_string();
     if digest != bundle.manifest_blake3 {
-        return Err("integrity: bundle manifest mismatch — the file changed in transit".to_string());
+        return Err(
+            "integrity: bundle manifest mismatch — the file changed in transit".to_string(),
+        );
     }
     let (appended, skipped) = db.merge_ops(&bundle.ops).map_err(|e| e.to_string())?;
     Ok((appended, skipped, bundle.from_device))

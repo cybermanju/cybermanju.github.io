@@ -1384,6 +1384,36 @@ fn route_request(
     if let Some(resp) = api::secrets::route(db, method, &path_segments, body, origin) {
         return resp;
     }
+    // <<< ANALYSIS 100%: device identity (§2B.1) — enrollment is
+    // idempotent; revocation is Admin-gated in `required_role` below. >>>
+    if let Some(resp) = api::devices::route(db, method, &path_segments, body, origin) {
+        return resp;
+    }
+    // <<< ANALYSIS 100%: server todos (§4.9 agent bridge) — owner-scoped
+    // for non-admins (P0-10 posture); admins see every owner. >>>
+    if let Some(resp) = {
+        let (owner, is_admin) = claims_owner(&claims);
+        api::todos::route(db, method, &path_segments, body, origin, &owner, is_admin)
+    } {
+        return resp;
+    }
+    // <<< ANALYSIS 100%: op-log exchange (§2C) — idempotent push, paged
+    // pull, fork-pair conflicts for the UI. >>>
+    if let Some(resp) = api::oplog::route(db, method, &path_segments, query, body, origin) {
+        return resp;
+    }
+    // <<< ANALYSIS 100%: LAN peers (§2B.2) + sneakernet bundles (§2B.4).
+    // The scan holds only the shared read lock and is capped at 2 s, so a
+    // slow LAN never stalls writers (P0-22 discipline). >>>
+    if method == "GET" && matches!(path_segments.as_slice(), ["api", "peers"]) {
+        return lan_peers(origin);
+    }
+    if method == "GET" && matches!(path_segments.as_slice(), ["api", "sync", "bundle", "export"]) {
+        return bundle_export(db, query, origin);
+    }
+    if method == "POST" && matches!(path_segments.as_slice(), ["api", "sync", "bundle", "import"]) {
+        return bundle_import(db, body, origin);
+    }
     // <<< /CYBERMANJU OS PRE-WIRE >>>
 
     // Route to appropriate handler
@@ -2885,6 +2915,72 @@ fn register_user_web(
             };
             json_error(status, &e, origin)
         }
+    }
+}
+
+/// GET /api/peers — active mDNS scan for CyberManju devices on the LAN
+/// (§2B.2). Capped at 2 s and lock-free of writers (called under the shared
+/// read lock); an empty list is a real answer (no devices around), never an
+/// error.
+fn lan_peers(origin: Option<&str>) -> String {
+    match cybermanju_sync::lan::discover(
+        std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
+            cybermanju_sync::lan::MDNS_ADDR,
+            cybermanju_sync::lan::MDNS_PORT,
+        )),
+        std::time::Duration::from_secs(2),
+    ) {
+        Ok(peers) => json_ok(
+            &peers
+                .iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "deviceId": p.device_id,
+                        "name": p.name,
+                        "host": p.host,
+                        "port": p.port,
+                        "lastSeenSecs": p.last_seen_secs,
+                    })
+                })
+                .collect::<Vec<_>>(),
+            origin,
+        ),
+        Err(e) => json_error(502, &e, origin),
+    }
+}
+
+/// GET /api/sync/bundle/export?since=N&deviceId=X — sneakernet delta (§2B.4)
+/// as JSON. Admin-only (it walks the whole op-log); the caller places the
+/// bytes on the USB stick / provider object.
+fn bundle_export(db: &Database, query: &str, origin: Option<&str>) -> String {
+    let since = parse_query_param(query, "since")
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+    let device_id = parse_query_param(query, "deviceId")
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| {
+            std::env::var("CYBERMANJU_DEVICE")
+                .filter(|v| !v.trim().is_empty())
+                .unwrap_or_else(|_| "dashboard".to_string())
+        });
+    match cybermanju_sync::bundle::export_bundle(db, &device_id, since) {
+        Ok(bundle) => json_ok(&bundle, origin),
+        Err(e) if e.starts_with("too_large:") => json_error(413, &e, origin),
+        Err(e) => json_error(400, &e, origin),
+    }
+}
+
+/// POST /api/sync/bundle/import — validate + merge a received bundle
+/// (idempotent; same op_ids skip). Admin-only.
+fn bundle_import(db: &Database, body: &str, origin: Option<&str>) -> String {
+    match cybermanju_sync::bundle::import_bundle(db, body.as_bytes()) {
+        Ok((appended, skipped, from)) => json_ok(
+            &serde_json::json!({ "appended": appended, "skipped": skipped, "from": from }),
+            origin,
+        ),
+        Err(e) if e.starts_with("too_large:") => json_error(413, &e, origin),
+        Err(e) if e.starts_with("integrity:") => json_error(409, &e, origin),
+        Err(e) => json_error(400, &e, origin),
     }
 }
 

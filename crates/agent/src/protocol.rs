@@ -43,6 +43,9 @@ pub const TOOL_NAMES: &[&str] = &[
     "ui_notify",
     "secret_list",
     "secret_get",
+    "todo_add",
+    "todo_list",
+    "todo_done",
 ];
 
 /// Panel ids `ui_open_panel` may open — the Rust twin of the frontend's
@@ -80,6 +83,7 @@ pub const UI_PANEL_IDS: &[&str] = &[
     "disks",
     "devices",
     "permissions",
+    "archive",
     "cron",
     "automation",
     "schedules",
@@ -285,6 +289,29 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
             "Reveal ONE stored secret's plaintext value by id. The result carries the plaintext to the model — only call this when the user explicitly asked you to use this credential. Default permission is ASK: the approval card shows the secret title, never the value. Unknown/empty-value ids answer not_found:.",
             serde_json::json!({
                 "id": { "type": "string", "description": "Secret id from secret_list" },
+            }),
+            &["id"],
+        ),
+        tool_def(
+            "todo_add",
+            "Add a todo to the user's shared task list (the same list the Archive TASKS tab shows). One clear title per call. Plan agents may not add — report the task instead.",
+            serde_json::json!({
+                "title": { "type": "string", "description": "Task title, one line" },
+            }),
+            &["title"],
+        ),
+        tool_def(
+            "todo_list",
+            "List the user's todos (open and done), oldest first. Read-only and plan-safe — call it before completing anything so ids are exact.",
+            serde_json::json!({}),
+            &[],
+        ),
+        tool_def(
+            "todo_done",
+            "Mark one todo done (or reopen it with done=false) by exact id from todo_list. Scoped to the run owner's list — other users' todos answer not_found:. Plan agents may not complete — report instead.",
+            serde_json::json!({
+                "id": { "type": "string", "description": "Todo id from todo_list" },
+                "done": { "type": "boolean", "description": "True to complete (default), false to reopen" },
             }),
             &["id"],
         ),
@@ -837,9 +864,9 @@ mod tests {
     use super::*;
     use cybermanju_types::agent::LlmDialect;
     #[test]
-    fn tool_schemas_cover_twenty_tools_in_openai_shape() {
+    fn tool_schemas_cover_all_tools_in_openai_shape() {
         let tools = openai_tools();
-        assert_eq!(tools.as_array().map(|a| a.len()), Some(20));
+        assert_eq!(tools.as_array().map(|a| a.len()), Some(23));
         let first = &tools[0];
         assert_eq!(first["type"], "function");
         assert_eq!(first["function"]["name"], "read");
@@ -897,7 +924,7 @@ mod tests {
         );
         assert_eq!(body["model"], "gpt-5");
         assert_eq!(body["messages"][0]["role"], "system");
-        assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(20));
+        assert_eq!(body["tools"].as_array().map(|a| a.len()), Some(23));
 
         let reply = serde_json::json!({
             "choices": [{

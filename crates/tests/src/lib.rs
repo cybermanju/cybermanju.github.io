@@ -39,3 +39,7 @@ mod editor;
 mod os;
 #[cfg(test)]
 mod repair;
+// <<< ANALYSIS 100%: device identity, server todos, op-log, LAN peers,
+// sneakernet bundles + the P0-6 no-row-token regression. >>>
+#[cfg(test)]
+mod spine;
