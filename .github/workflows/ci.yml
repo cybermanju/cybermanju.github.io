@@ -287,6 +287,18 @@ jobs:
           test -s dist-wasm/index.html
           test -s dist-wasm/develop/index.html
           grep -q 'src="/develop/' dist-wasm/develop/index.html
+          # The installer one-liners (`install.sh` / `install.ps1`) live at
+          # the repo root, but Pages serves dist-wasm/ — publish them at the
+          # site root or the documented URLs 404. `/` always runs the
+          # main-branch build, so on develop pushes the scripts come from
+          # the sibling (main) checkout, not the workspace (develop).
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            cp install.sh install.ps1 dist-wasm/
+          else
+            cp sibling/install.sh sibling/install.ps1 dist-wasm/
+          fi
+          test -s dist-wasm/install.sh
+          test -s dist-wasm/install.ps1
 
       - name: Upload WASM artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
