@@ -23,6 +23,27 @@ describe('panel aliases', () => {
     expect(resolvePanel('preview')).toBe('files')
   })
 
+  it('routes the scheduler aliases onto the Tasks window (Phase 1)', () => {
+    for (const alias of ['cron', 'automation', 'schedules'] as const) {
+      expect(resolvePanel(alias), `${alias} → processes`).toBe('processes')
+      expect(ALIAS_TAB_PROPS[alias], `${alias} tab props`).toEqual({ tab: 'schedules' })
+      expect(MODULE_METADATA[alias], `${alias} metadata`).toBeDefined()
+    }
+  })
+
+  it('routes the vault aliases onto the Secrets window (Phase 3)', () => {
+    for (const alias of ['passwords', 'credentials'] as const) {
+      expect(resolvePanel(alias), `${alias} → secrets`).toBe('secrets')
+      expect(MODULE_METADATA[alias], `${alias} metadata`).toBeDefined()
+    }
+    // `secrets` itself is canonical (not an alias) and has metadata.
+    expect(PANEL_ALIASES.secrets).toBeUndefined()
+    expect(MODULE_METADATA.secrets).toBeDefined()
+    // `vault` is intentionally NOT an alias — AccountManager already uses
+    // "Vault file" as a tab label; aliasing would collide in the palette.
+    expect(PANEL_ALIASES.vault).toBeUndefined()
+  })
+
   it('has no self-aliases, chains or cycles', () => {
     for (const [alias, target] of Object.entries(PANEL_ALIASES)) {
       expect(target, `${alias} aliases to itself`).not.toBe(alias)

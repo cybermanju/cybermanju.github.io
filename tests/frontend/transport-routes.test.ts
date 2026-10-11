@@ -34,14 +34,27 @@ describe('REST route coverage', () => {
     expect(REST_FIRST.has('os_write')).toBe(true)
   })
 
-  it('routes local mobile telemetry through native IPC while retaining REST mappings', () => {
+  it('routes local mobile telemetry + the cybsh OS layer through native IPC', () => {
     for (const cmd of ['os_ps', 'os_top', 'os_workers', 'os_jobs', 'os_df']) {
       expect(REST_ROUTES[cmd]).toBeTruthy()
       expect(REST_FIRST.has(cmd)).toBe(true)
       expect(MOBILE_NATIVE_OS_COMMANDS.has(cmd)).toBe(true)
     }
-    expect(MOBILE_NATIVE_OS_COMMANDS.has('os_exec')).toBe(false)
-    expect(MOBILE_NATIVE_OS_COMMANDS.has('os_write')).toBe(false)
+    // Mobile starts no dashboard, so the native backend serves the full
+    // cybsh OS layer over IPC instead: the terminal, the volume file verbs
+    // and the `-os` host verbs all run against the same redb as desktop.
+    // Every one of these must stay registered in commands/os_shell.rs +
+    // lib.rs (the second half of this test), or the WebView call dies with
+    // a localhost:3456 connection refusal.
+    for (const cmd of ['os_exec', 'os_complete', 'os_stat', 'os_ls', 'os_du', 'os_write']) {
+      expect(MOBILE_NATIVE_OS_COMMANDS.has(cmd)).toBe(true)
+    }
+    const shell = fs.readFileSync('src-tauri/src/commands/os_shell.rs', 'utf8')
+    const runtime = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
+    for (const cmd of ['os_exec', 'os_complete', 'os_stat', 'os_ls', 'os_du', 'os_write']) {
+      expect(shell).toMatch(new RegExp(`pub fn ${cmd}\\b`))
+      expect(runtime).toContain(`commands::os_shell::${cmd}`)
+    }
   })
 
   it('registers every mobile telemetry IPC command in the Tauri backend', () => {
@@ -59,6 +72,20 @@ describe('REST route coverage', () => {
     const runtime = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
     expect(commands).toMatch(/pub fn get_sync_status\b/)
     expect(runtime).toContain('sync_cmd::get_sync_status')
+  })
+
+  it('serves provider quota over native IPC (no dashboard needed)', () => {
+    // `get_sync_usage` is a pure function of the saved config, so Android
+    // gets real quota over IPC. `oauth_start` stays REST-only by design —
+    // it mints dashboard redirect URLs and needs the server OAuth client.
+    expect(REST_ROUTES.get_sync_usage).toBeTruthy()
+    expect(REST_FIRST.has('get_sync_usage')).toBe(true)
+    expect(MOBILE_NATIVE_OS_COMMANDS.has('get_sync_usage')).toBe(true)
+    const commands = fs.readFileSync('src-tauri/src/commands/sync.rs', 'utf8')
+    const runtime = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
+    expect(commands).toMatch(/pub fn get_sync_usage\b/)
+    expect(runtime).toContain('sync_cmd::get_sync_usage')
+    expect(MOBILE_NATIVE_OS_COMMANDS.has('oauth_start')).toBe(false)
   })
 
   it('encodes OS volume paths as ?path= (P1-7)', () => {
@@ -104,6 +131,80 @@ describe('REST route coverage', () => {
     expect(r.method).toBe('GET')
     expect(r.buildPath({ query: 'vault', limit: 20, offset: 40 })).toContain('/api/search/paginated')
   })
+  it('routes the scheduler family over REST + native IPC (Phase 1)', () => {
+    const cmds = [
+      'cron_list',
+      'cron_save',
+      'cron_delete',
+      'cron_run',
+      'cron_history',
+      'cron_set_enabled',
+      'cron_ensure_started',
+    ] as const
+    for (const cmd of cmds) {
+      expect(REST_ROUTES[cmd], cmd).toBeTruthy()
+      expect(REST_FIRST.has(cmd), cmd).toBe(true)
+      expect(MOBILE_NATIVE_OS_COMMANDS.has(cmd), cmd).toBe(true)
+    }
+    expect(REST_ROUTES.cron_list.buildPath({})).toBe('/api/cron')
+    expect(REST_ROUTES.cron_save.transformRequest!({ row: { path: '/j.cybsh', expr: '@hourly' } })).toMatchObject({
+      path: '/j.cybsh',
+      expr: '@hourly',
+      enabled: true,
+    })
+    expect(REST_ROUTES.cron_delete.buildPath({ id: 'sched-1' })).toBe('/api/cron/sched-1')
+    expect(REST_ROUTES.cron_run.buildPath({ id: 'sched-1' })).toBe('/api/cron/sched-1/run')
+    expect(REST_ROUTES.cron_history.buildPath({ id: 'sched-1' })).toBe('/api/cron/sched-1/runs')
+    expect(REST_ROUTES.cron_set_enabled.buildPath({ id: 'sched-1', enabled: true })).toBe('/api/cron/sched-1/enable')
+    expect(REST_ROUTES.cron_set_enabled.buildPath({ id: 'sched-1', enabled: false })).toBe('/api/cron/sched-1/disable')
+    // Daemon arming is a side effect of the first GET; the client only sees `true`.
+    expect(REST_ROUTES.cron_ensure_started.transformResponse!(null, {})).toBe(true)
+    // Desktop/mobile IPC handlers must stay wired in the Tauri backend.
+    const commands = fs.readFileSync('src-tauri/src/commands/cron.rs', 'utf8')
+    const runtime = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
+    for (const cmd of ['cron_list', 'cron_save', 'cron_delete', 'cron_run', 'cron_history']) {
+      expect(commands).toMatch(new RegExp(`pub fn ${cmd}\\b`))
+      expect(runtime).toContain(`commands::cron::${cmd}`)
+    }
+  })
+
+  it('routes the secrets keystore over REST + native IPC + wasm (Phase 3)', () => {
+    const cmds = [
+      'secret_list',
+      'secret_save',
+      'secret_update',
+      'secret_get',
+      'secret_reveal',
+      'secret_delete',
+    ] as const
+    for (const cmd of cmds) {
+      expect(REST_ROUTES[cmd], cmd).toBeTruthy()
+      expect(REST_FIRST.has(cmd), cmd).toBe(true)
+      expect(MOBILE_NATIVE_OS_COMMANDS.has(cmd), cmd).toBe(true)
+    }
+    expect(REST_ROUTES.secret_list.buildPath({})).toBe('/api/secrets')
+    expect(REST_ROUTES.secret_get.buildPath({ id: 's-1' })).toBe('/api/secrets/s-1')
+    expect(REST_ROUTES.secret_reveal.buildPath({ id: 's-1' })).toBe('/api/secrets/s-1/reveal')
+    expect(REST_ROUTES.secret_delete.buildPath({ id: 's-1' })).toBe('/api/secrets/s-1')
+    // Save sends the plaintext `value` (sealed server-side, never echoed).
+    const body = REST_ROUTES.secret_save.transformRequest!({
+      request: { title: 'GitHub', kind: 'login', value: 'hunter2', username: 'octocat' },
+    })
+    expect(body).toMatchObject({ title: 'GitHub', kind: 'login', value: 'hunter2', username: 'octocat' })
+    // Desktop/mobile IPC handlers stay wired in the Tauri backend.
+    const commands = fs.readFileSync('src-tauri/src/commands/secrets.rs', 'utf8')
+    const runtime = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
+    for (const cmd of ['secret_list', 'secret_save', 'secret_get', 'secret_reveal', 'secret_delete']) {
+      expect(commands).toMatch(new RegExp(`pub fn ${cmd}\\b`))
+      expect(runtime).toContain(`commands::secrets::${cmd}`)
+    }
+    // REST segment is registered (404-before-401 gate) and Admin-gated for
+    // mutations/reveal — list stays Authenticated.
+    const security = fs.readFileSync('crates/web/src/security.rs', 'utf8')
+    expect(security).toContain('"secrets"')
+    expect(security).toContain('["api", "secrets", _, "reveal"] => RequiredRole::Admin')
+  })
+
   it('keeps local-only commands in WRITE_ONLY instead of 404ing', () => {
     for (const cmd of ['get_compression_stats', 'get_symbols', 'parse_file', 'upload_file']) {
       expect(WRITE_ONLY_COMMANDS.has(cmd)).toBe(true)

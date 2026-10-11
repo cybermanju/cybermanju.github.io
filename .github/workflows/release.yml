@@ -4,6 +4,27 @@ on:
   push:
     tags:
       - "v*"
+  # Manual / push.sh-driven release. Two modes (see the `resolve` job):
+  # - full (reuse_run_id empty): rebuild every artifact family for `tag`.
+  # - reuse (reuse_run_id set): skip ALL build jobs and ship the dist-*
+  #   artifacts of that green CI run unchanged (`push.sh --release --last`
+  #   resolves the run id for HEAD and dispatches this workflow).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (must be v<package.json version>)"
+        required: true
+        type: string
+      reuse_run_id:
+        description: "Green CI run id whose dist-* artifacts to ship (skips all rebuilds)"
+        required: false
+        default: ""
+        type: string
+      notes:
+        description: "Custom release-notes markdown, prepended to docs/RELEASE_NOTES.md"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -17,16 +38,63 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # ─── Resolve: which tag, full rebuild or artifact reuse ────────────
+  # Cheap (checkout + version check only, zero compilation) so BOTH modes
+  # validate the tag before anything expensive — or anything at all — runs.
+  resolve:
+    name: Resolve tag & mode
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.t.outputs.tag }}
+      reuse_run_id: ${{ steps.t.outputs.reuse_run_id }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag and reuse mode
+        id: t
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+            REUSE="${{ inputs.reuse_run_id }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+            REUSE=""
+          fi
+          case "$TAG" in
+            v*) ;;
+            *) echo "::error::tag must look like v<X.Y.Z> (got '$TAG')"; exit 1 ;;
+          esac
+          if [ -n "$REUSE" ]; then
+            case "$REUSE" in
+              ''|*[!0-9]*) echo "::error::reuse_run_id must be a numeric CI run id (got '$REUSE')"; exit 1 ;;
+            esac
+            echo "reuse mode: shipping dist-* artifacts of CI run $REUSE, no rebuild"
+          else
+            echo "full mode: rebuilding everything for $TAG"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "reuse_run_id=$REUSE" >> "$GITHUB_OUTPUT"
+
+      - name: Release tag matches the version everywhere
+        run: bash scripts/check-version.sh --tag "${{ steps.t.outputs.tag }}"
+
   # ─── Rust: Lint & Test (gate) ─────────────────────────────────────
   rust-check:
     name: Rust Lint & Test
     runs-on: ubuntu-latest
+    needs: resolve
+    # Skipped in reuse mode: the reused CI run already passed these gates
+    # on the same tree, and this job compiles the workspace (a rebuild).
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Release tag matches the version everywhere
-        run: bash scripts/check-version.sh --tag "${GITHUB_REF#refs/tags/}"
+        run: bash scripts/check-version.sh --tag "${{ needs.resolve.outputs.tag }}"
 
       - name: Install system dependencies
         run: |
@@ -61,6 +129,7 @@ jobs:
   wasm-build:
     name: Build WASM (Web)
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -125,6 +194,7 @@ jobs:
     name: Build Windows
     runs-on: windows-latest
     needs: rust-check
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -148,6 +218,11 @@ jobs:
         run: npm run tauri build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # OAuth broker (public URL + anon key) baked into the bundle so
+          # sign-in works out of the box on every device. Empty when unset —
+          # the app then takes the Settings → OAuth broker paste.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -166,6 +241,7 @@ jobs:
     name: Build Linux (deb+AppImage+rpm)
     runs-on: ubuntu-latest
     needs: rust-check
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -203,6 +279,11 @@ jobs:
         run: npm run tauri build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # OAuth broker (public URL + anon key) baked into the bundle —
+          # linux artifacts (deb/AppImage/rpm, and the Flatpak repackaged
+          # from the deb) sign in out of the box on every device.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -239,6 +320,7 @@ jobs:
     # Only waits for the job that produces `release-linux-rpm`, not for lint
     # (create-release still gates on rust-check). Matches ci.yml.
     needs: linux-build
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Download RPM from linux-build
         continue-on-error: true
@@ -261,6 +343,7 @@ jobs:
     runs-on: ubuntu-latest
     # Only waits for `release-linux-deb`, not for lint. Matches ci.yml.
     needs: linux-build
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -303,6 +386,7 @@ jobs:
     # build inside an Arch container and downloads no artifacts from any
     # other job, so `needs` here was pure latency. Matches ci.yml
     # (create-release still gates on rust-check + this job).
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     container:
       image: archlinux:latest
     steps:
@@ -370,12 +454,22 @@ jobs:
       # sections Arch-built libraries carry (tauri#8929).
       # APPIMAGE_EXTRACT_AND_RUN: no /dev/fuse in this container.
       - name: Build Arch package
+        # OAuth broker secrets ride the step env into the inner sudo shell
+        # via the explicit exports below (`sudo` scrubs the environment, so
+        # the inner command would otherwise build broker-less). The two
+        # unescaped `$VARS` expand in the outer shell on purpose; `\$HOME` /
+        # `\$PATH` stay escaped for the inner one.
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           sudo -u builder bash -c "
             export HOME=/home/builder
             export PATH=\$HOME/.cargo/bin:\$PATH
             export NO_STRIP=true
             export APPIMAGE_EXTRACT_AND_RUN=1
+            export VITE_SUPABASE_URL=\"$VITE_SUPABASE_URL\"
+            export VITE_SUPABASE_ANON_KEY=\"$VITE_SUPABASE_ANON_KEY\"
             cd $GITHUB_WORKSPACE
             npm ci
             npm run tauri build || npm run tauri -- build --verbose
@@ -403,6 +497,7 @@ jobs:
     name: Build macOS
     runs-on: macos-latest
     needs: rust-check
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -426,6 +521,10 @@ jobs:
         run: npm run tauri build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # OAuth broker (public URL + anon key) baked into the bundle so
+          # sign-in works out of the box on every device.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -444,6 +543,7 @@ jobs:
     name: Build Android
     runs-on: ubuntu-latest
     needs: rust-check
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     env:
       # Pinned to the AGP default (AGP 9.x release notes). The Tauri template
       # sets compileSdk/targetSdk 36 with no ndkVersion, so Gradle demands
@@ -625,11 +725,67 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+  # ─── Go: universal `cyb` CLI (Charm UI) ──────────────────────────
+  # Pure Go (no cgo): one runner cross-compiles all six OS/arch pairs.
+  # Deliberately waits on nothing (no downloads from other jobs).
+  cli-build:
+    name: Build CLI (cyb)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+      - name: Check formatting
+        working-directory: cli
+        run: test -z "$(gofmt -l .)"
+
+      - name: Run vet + tests
+        working-directory: cli
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Cross-compile cyb (linux/darwin/windows × amd64/arm64)
+        working-directory: cli
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          PKG_VER="$(node -p "require('../package.json').version")"
+          mkdir -p dist-cli
+          for target in "linux amd64" "linux arm64" "darwin amd64" "darwin arm64" "windows amd64" "windows arm64"; do
+            set -- $target
+            bin="cyb"
+            [ "$1" = "windows" ] && bin="cyb.exe"
+            CGO_ENABLED=0 GOOS="$1" GOARCH="$2" go build -trimpath \
+              -ldflags "-s -w -X main.version=v$PKG_VER -X main.commit=$GITHUB_SHA" \
+              -o "build-$1-$2/$bin" .
+            tar -czf "dist-cli/cyb-$1-$2.tar.gz" -C "build-$1-$2" "$bin"
+          done
+          ls -la dist-cli/
+
+      - name: Upload CLI artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-cli
+          path: cli/dist-cli/
+          retention-days: 30
+          if-no-files-found: error
+
   # ─── Docker: Build & Publish to GHCR ──────────────────────────────
   docker-build:
     name: Docker Build & Publish
     runs-on: ubuntu-latest
-    needs: rust-check
+    needs:
+      - resolve
+      - rust-check
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     permissions:
       contents: read
       packages: write
@@ -661,19 +817,164 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ${{ steps.image.outputs.name }}:${{ github.ref_name }}
+            ${{ steps.image.outputs.name }}:${{ needs.resolve.outputs.tag }}
             ${{ steps.image.outputs.name }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # OAuth broker (public URL + anon key) baked into the served
+          # bundle. Empty when unset — the app then takes the Settings paste.
+          build-args: |
+            VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Verify published image
         run: docker pull "${{ steps.image.outputs.name }}:latest"
+
+  # ─── Reuse: ship a previous green CI build, zero compilation ─────
+  # Runs ONLY in reuse mode (workflow_dispatch + reuse_run_id). Downloads
+  # the CI run's dist-* artifacts and re-uploads them under the release-*
+  # names the build jobs would have produced, so `create-release` below is
+  # byte-identical in both modes. No checkout of source, no compilation.
+  fetch-last-build:
+    name: Fetch last CI build (no rebuild)
+    runs-on: ubuntu-latest
+    needs: resolve
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.reuse_run_id != ''
+    permissions:
+      contents: read
+      actions: read
+    env:
+      RUN_ID: ${{ needs.resolve.outputs.reuse_run_id }}
+      # No checkout in this job, so gh cannot infer the repo from git remotes.
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download dist-* artifacts of the CI run
+        run: |
+          pairs="dist-windows:release-windows dist-linux:release-linux dist-linux-deb:release-linux-deb dist-linux-rpm:release-linux-rpm dist-rpm:release-rpm dist-flatpak:release-flatpak dist-arch:release-arch dist-macos:release-macos dist-android:release-android dist-wasm:dist-wasm dist-cli:release-cli"
+          mkdir -p artifacts
+          for pair in $pairs; do
+            src="${pair%%:*}"; dst="${pair##*:}"
+            echo "--- $src → artifacts/$dst ---"
+            gh run download "$RUN_ID" -n "$src" -D "artifacts/$dst"
+          done
+          echo "downloaded:"
+          find artifacts -type f | sort
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fail early when a release family is missing
+        run: |
+          missing=0
+          need() {
+            if ! find "artifacts/$1" -name "$2" -print -quit | grep -q .; then
+              echo "::error::CI run $RUN_ID artifact '$1' contains no $2 (expired or never built?)"
+              missing=1
+            fi
+          }
+          need release-windows '*.exe'
+          need release-windows '*.msi'
+          need release-linux '*.deb'
+          need release-linux '*.AppImage'
+          need release-rpm '*.rpm'
+          need release-flatpak '*.flatpak'
+          need release-arch '*.AppImage'
+          need release-macos '*.dmg'
+          need release-android '*.apk'
+          need release-android '*.aab'
+          need release-cli 'cyb-*.tar.gz'
+          need dist-wasm 'index.html'
+          exit $missing
+
+      - name: Re-upload Windows artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-windows
+          path: artifacts/release-windows/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Re-upload Linux artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-linux
+          path: artifacts/release-linux/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Re-upload Debian package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-linux-deb
+          path: artifacts/release-linux-deb/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Re-upload RPM source package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-linux-rpm
+          path: artifacts/release-linux-rpm/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Re-upload RPM artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-rpm
+          path: artifacts/release-rpm/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Re-upload Flatpak artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-flatpak
+          path: artifacts/release-flatpak/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Re-upload Arch artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-arch
+          path: artifacts/release-arch/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Re-upload macOS artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-macos
+          path: artifacts/release-macos/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Re-upload Android artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-android
+          path: artifacts/release-android/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Re-upload WASM artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist-wasm
+          path: artifacts/dist-wasm/
+          retention-days: 30
+          if-no-files-found: error
 
   # ─── Create GitHub Release ───────────────────────────────────────
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
+    # Fan-in over two mutually exclusive modes: in each mode half the needs
+    # above are skipped, and a skipped need skips its dependents by default.
+    # Run unless something actually failed or was cancelled instead.
+    if: ${{ !cancelled() && !failure() }}
     needs:
+      - resolve
       - rust-check
       - wasm-build
       - windows-build
@@ -683,7 +984,9 @@ jobs:
       - arch-build
       - macos-build
       - android-build
+      - cli-build
       - docker-build
+      - fetch-last-build
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -730,13 +1033,16 @@ jobs:
           check release-arch     "*.AppImage"
           check release-macos    "*.dmg"
           check release-android  "*.apk" "*.aab"
+          check release-cli      "cyb-*.tar.gz"
           check dist-wasm        "index.html"
           exit $missing
 
       - name: Generate release notes
         id: notes
+        env:
+          CUSTOM_NOTES: ${{ inputs.notes }}
         run: |
-          CURRENT_TAG=${GITHUB_REF#refs/tags/}
+          CURRENT_TAG="${{ needs.resolve.outputs.tag }}"
           # Previous tag = newest tag other than the one being released.
           PREV_TAG=$(git tag --sort=-creatordate | grep -vx "$CURRENT_TAG" | head -1 || true)
           # Published image name — must match the docker-build job above.
@@ -747,6 +1053,11 @@ jobs:
           # No generated commit list — the log below used to dump every commit
           # subject into the release notes; the feature atlas is the body.
           echo "" > release_notes.md
+          # Custom notes from a manual dispatch (push.sh --release -m "...")
+          # lead; the feature atlas follows in both modes.
+          if [ -n "${CUSTOM_NOTES:-}" ]; then
+            printf '%s\n\n' "$CUSTOM_NOTES" >> release_notes.md
+          fi
           # Feature atlas + status live in docs/RELEASE_NOTES.md (single source
           # shared with the GitLab mirror).
           cat docs/RELEASE_NOTES.md >> release_notes.md
@@ -762,6 +1073,7 @@ jobs:
           echo "| Linux (Arch) | \`*-arch.deb\` / \`*-arch.AppImage\` built on Arch |" >> release_notes.md
           echo "| macOS | \`.dmg\` (app inside) |" >> release_notes.md
           echo "| Android | signed \`.apk\` (arm64-v8a) + \`.aab\` (Play upload) |" >> release_notes.md
+          echo "| Terminal | \`cyb-*.tar.gz\` universal CLI (\`curl -fsSL https://cybermanju.github.io/install.sh \| bash\`) |" >> release_notes.md
           echo "| Web (WASM) | \`dist-wasm.zip\` (static files for any web server) |" >> release_notes.md
           echo "| Docker | \`docker pull ${IMAGE}:latest\` |" >> release_notes.md
           echo "" >> release_notes.md
@@ -821,6 +1133,7 @@ jobs:
           copy_files artifacts/release-arch "-arch" '*.deb' '*.AppImage'
           copy_files artifacts/release-macos "" '*.dmg'
           copy_files artifacts/release-android "" '*.apk' '*.aab'
+          copy_files artifacts/release-cli "" 'cyb-*.tar.gz'
 
           # Web stays a zip: it is a directory tree (index.html + assets),
           # not a single installable file.
@@ -839,8 +1152,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: "CyberManju OS ${{ github.ref_name }}"
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          name: "CyberManju OS ${{ needs.resolve.outputs.tag }}"
           body_path: release_notes.md
           draft: false
           prerelease: false

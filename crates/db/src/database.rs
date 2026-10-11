@@ -84,6 +84,16 @@ const AGENT_SESSIONS_TABLE: TableDefinition<'static, &'static str, &'static str>
 // on open, like every table above. >>>
 const AGENT_MEMORIES_TABLE: TableDefinition<'static, &'static str, &'static str> =
     TableDefinition::new("agent_memories");
+// Scheduler: recurring `.cybsh` triggers + fire history (Phase 1).
+const SCHEDULES_TABLE: TableDefinition<'static, &'static str, &'static str> =
+    TableDefinition::new("schedules");
+const SCHEDULE_RUNS_TABLE: TableDefinition<'static, &'static str, &'static str> =
+    TableDefinition::new("schedule_runs");
+// Secrets keystore (Phase 3): password-manager rows. Values are sealed
+// (`seal:v1`) under the per-transport vault passphrase; the table stores
+// only the sealed blob + metadata. List responses never serialize the blob.
+const SECRETS_TABLE: TableDefinition<'static, &'static str, &'static str> =
+    TableDefinition::new("secrets");
 // Generic key/value blob: vault secrets, app config, shell file content and
 // any other session state the browser build keeps inside `.cybermanju`.
 // Keys are namespaced by convention (`secret:`, `config:`, `content:`,
@@ -153,6 +163,10 @@ impl Database {
             write_txn.open_table(AGENT_CONFIGS_TABLE)?;
             write_txn.open_table(AGENT_SESSIONS_TABLE)?;
             write_txn.open_table(AGENT_MEMORIES_TABLE)?;
+            // Scheduler + secrets keystore (Phase 1/3).
+            write_txn.open_table(SCHEDULES_TABLE)?;
+            write_txn.open_table(SCHEDULE_RUNS_TABLE)?;
+            write_txn.open_table(SECRETS_TABLE)?;
             // Generic kv blob (secrets, config, content) — same table the
             // browser build writes so a `.cybermanju` image opens here too.
             write_txn.open_table(KV_TABLE)?;
@@ -271,6 +285,14 @@ impl Database {
     /// AGENT-8 — the process table behind `ps` / `top` / `kill`.
     pub fn get_compute_tasks_table() -> TableDefinition<'static, &'static str, &'static str> {
         COMPUTE_TASKS_TABLE
+    }
+    /// Scheduler — recurring `.cybsh` triggers.
+    pub fn get_schedules_table() -> TableDefinition<'static, &'static str, &'static str> {
+        SCHEDULES_TABLE
+    }
+    /// Scheduler — fire history (pruned).
+    pub fn get_schedule_runs_table() -> TableDefinition<'static, &'static str, &'static str> {
+        SCHEDULE_RUNS_TABLE
     }
     /// AGENT-8 — `cybsh` command history.
     pub fn get_shell_history_table() -> TableDefinition<'static, &'static str, &'static str> {
@@ -463,6 +485,156 @@ impl Database {
         rows.sort_by_key(|a| std::cmp::Reverse(a.finished_at.clone()));
         rows.truncate(limit);
         Ok(rows)
+    }
+
+    // ─── Scheduler: recurring triggers + fire history (Phase 1) ─────────
+
+    /// Every schedule row, oldest `created_at` first.
+    pub fn list_schedules(&self) -> Result<Vec<cybermanju_types::schedule::ScheduleRow>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(SCHEDULES_TABLE)?;
+        let mut rows: Vec<cybermanju_types::schedule::ScheduleRow> = Vec::new();
+        for entry in table.iter()? {
+            let (_, value) = entry?;
+            rows.push(serde_json::from_str(value.value())?);
+        }
+        rows.sort_by_key(|a| a.created_at.clone());
+        Ok(rows)
+    }
+
+    pub fn get_schedule(
+        &self,
+        id: &str,
+    ) -> Result<Option<cybermanju_types::schedule::ScheduleRow>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(SCHEDULES_TABLE)?;
+        match table.get(id)? {
+            Some(v) => Ok(Some(serde_json::from_str(v.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn save_schedule(&self, row: &cybermanju_types::schedule::ScheduleRow) -> Result<()> {
+        let serialized = serde_json::to_string(row)?;
+        let tx = self.db.begin_write()?;
+        {
+            let mut table = tx.open_table(SCHEDULES_TABLE)?;
+            table.insert(row.id.as_str(), serialized.as_str())?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn remove_schedule(&self, id: &str) -> Result<bool> {
+        let tx = self.db.begin_write()?;
+        let removed = {
+            let mut table = tx.open_table(SCHEDULES_TABLE)?;
+            let removed = table.remove(id)?.is_some();
+            removed
+        };
+        tx.commit()?;
+        Ok(removed)
+    }
+
+    /// Persist a finished run and prune the history to
+    /// [`cybermanju_types::schedule::SCHEDULE_RUN_HISTORY_LIMIT`] rows
+    /// (oldest `finished_at` first).
+    pub fn save_schedule_run(&self, run: &cybermanju_types::schedule::ScheduleRun) -> Result<()> {
+        let limit = cybermanju_types::schedule::SCHEDULE_RUN_HISTORY_LIMIT;
+        let serialized = serde_json::to_string(run)?;
+        let tx = self.db.begin_write()?;
+        {
+            let mut table = tx.open_table(SCHEDULE_RUNS_TABLE)?;
+            table.insert(run.run_id.as_str(), serialized.as_str())?;
+
+            let mut rows: Vec<(String, String)> = Vec::new();
+            for entry in table.iter()? {
+                let (key, value) = entry?;
+                let stored: cybermanju_types::schedule::ScheduleRun =
+                    serde_json::from_str(value.value())?;
+                rows.push((key.value().to_string(), stored.finished_at));
+            }
+            if rows.len() > limit {
+                rows.sort_by_key(|a| a.1.clone());
+                for (stale, _) in rows.iter().take(rows.len() - limit) {
+                    table.remove(stale.as_str())?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Run history for one schedule, newest `finished_at` first, capped.
+    pub fn list_schedule_runs(
+        &self,
+        schedule_id: &str,
+        limit: usize,
+    ) -> Result<Vec<cybermanju_types::schedule::ScheduleRun>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(SCHEDULE_RUNS_TABLE)?;
+        let mut rows = Vec::new();
+        for entry in table.iter()? {
+            let (_, value) = entry?;
+            let run: cybermanju_types::schedule::ScheduleRun = serde_json::from_str(value.value())?;
+            if run.schedule_id == schedule_id {
+                rows.push(run);
+            }
+        }
+        rows.sort_by_key(|a| std::cmp::Reverse(a.finished_at.clone()));
+        rows.truncate(limit);
+        Ok(rows)
+    }
+
+    // ─── Secrets keystore (Phase 3) ────────────────────────────────────
+    /// Secrets table accessor (sealed password-manager rows).
+    pub fn get_secrets_table() -> TableDefinition<'static, &'static str, &'static str> {
+        SECRETS_TABLE
+    }
+
+    /// All stored secrets (sealed values included — the caller decides what
+    /// to serialize; REST/Tauri list paths project through `SecretMeta`).
+    pub fn list_secrets(&self) -> Result<Vec<cybermanju_types::secrets::SecretRow>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(SECRETS_TABLE)?;
+        let mut rows: Vec<cybermanju_types::secrets::SecretRow> = Vec::new();
+        for entry in table.iter()? {
+            let (_, value) = entry?;
+            rows.push(serde_json::from_str(value.value())?);
+        }
+        rows.sort_by_key(|a| a.title.to_lowercase());
+        Ok(rows)
+    }
+
+    pub fn get_secret(&self, id: &str) -> Result<Option<cybermanju_types::secrets::SecretRow>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(SECRETS_TABLE)?;
+        match table.get(id)? {
+            Some(v) => Ok(Some(serde_json::from_str(v.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn save_secret(&self, row: &cybermanju_types::secrets::SecretRow) -> Result<()> {
+        let serialized = serde_json::to_string(row)?;
+        let tx = self.db.begin_write()?;
+        {
+            let mut table = tx.open_table(SECRETS_TABLE)?;
+            table.insert(row.id.as_str(), serialized.as_str())?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn remove_secret(&self, id: &str) -> Result<bool> {
+        let tx = self.db.begin_write()?;
+        let removed = {
+            let mut table = tx.open_table(SECRETS_TABLE)?;
+            let removed = table.remove(id)?.is_some();
+            removed
+        };
+        tx.commit()?;
+        Ok(removed)
     }
 
     // ─── Config secrets (AGENT-3 request: token lives beside the row) ──
@@ -1004,6 +1176,9 @@ impl Database {
                 copy_table!(AGENT_SESSIONS_TABLE);
                 copy_table!(AGENT_MEMORIES_TABLE);
                 copy_table!(KV_TABLE);
+                copy_table!(SCHEDULES_TABLE);
+                copy_table!(SCHEDULE_RUNS_TABLE);
+                copy_table!(SECRETS_TABLE);
 
                 write_tx.commit()?;
             }

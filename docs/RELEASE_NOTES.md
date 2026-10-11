@@ -11,6 +11,7 @@
 - **OAuth broker** — Supabase (GitHub/Google/GitLab) so static builds sign in and sync without your own server; Settings shows live broker state, Accounts deep-links straight to the broker card.
 - **Native AI agent, zero new runtimes** — pure-Rust core on desktop/server/WASM · 10 provider presets + custom · opencode-style allow/ask/deny permissions (deny wins, 10-min parked asks) · MCP servers · SSE streaming · doom-loop guard · secret redaction · BLAKE3 hash-anchored edits · two-layer memory (transcripts + semantic, Hermes-compatible).
 - **Decentralized OS layer** — `cybsh` shell (same on desktop/web/Pages, JSON mode, pipes, history, completion) · sized `.cybermanju` disks merged into one spanned volume · Reed-Solomon durability with scrub → repair, rebuild-from-remote, refcount GC and single-writer leases.
+- **Universal terminal (`cyb`)** — Go CLI with a Charm face (Lipgloss/Bubbles/Huh/Glamour): `setup` end-to-end, `serve` via Docker, files, provider-to-provider `sync move`, encrypted `disk` management with sealed passphrases, browser `oauth launch`, `sh`/`run`/`repl` over the same cybsh, `ai prompt --follow`, checksum-verified `update`. Install: `curl -fsSL https://cybermanju.github.io/install.sh | bash` (Windows: `install.ps1`).
 - **Remade Settings** — section jump chips with scroll spy, keyboard-bindings filter (98 bindings) with live count, gesture matrix that actually saves, inline broker validation.
 
 ## Status & known limits
@@ -19,4 +20,4 @@
 - WASM `sync` needs the dashboard; the content API caps at 1 MiB with versioned saves and `encrypted:` / `binary:` / `too_large:` refusals.
 - Faces returns empty without the ONNX model — on purpose, never fabricated.
 - Auth is fail-closed (404-before-401, RBAC, bootstrap-only register, 0600 secrets).
-- Every artifact below passed the full CI gates: `cargo fmt --check` → `clippy -D warnings` → `cargo test --workspace` · `vue-tsc` · `vitest` · checksums in `SHA256SUMS.txt`.
+- Every artifact below passed the full CI gates: `cargo fmt --check` → `clippy -D warnings` → `cargo test --workspace` · `vue-tsc` · `vitest` · `gofmt` + `go vet` + `go test` for `cyb` · checksums in `SHA256SUMS.txt`.

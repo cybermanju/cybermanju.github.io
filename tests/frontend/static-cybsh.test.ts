@@ -13,11 +13,14 @@ import {
   parseCybshLine,
   probeProviderQuotaViaFetch,
   runStaticCybshLine,
+  runStaticSchedule,
   splitProviderPath,
   staticConfigFromRow,
   STATIC_WRITE_LIMIT,
   type ProviderQuotaProbe,
   type StaticCybshDeps,
+  type StaticSchedule,
+  type StaticScheduleRun,
   type StaticSyncConfig,
   type StaticVfsEntry,
 } from '../../src/utils/staticCybsh'
@@ -492,6 +495,50 @@ describe('runStaticCybshLine dispatch', () => {
     expect(res?.ok).toBe(true)
     expect(res?.output).toBe('hello wasm')
     expect(res?.prompt).toBe('cybsh> ')
+  })
+
+  it('refuses -os honestly (no host filesystem in the browser)', async () => {
+    const { deps } = fakeDeps()
+    for (const line of ['ls -os', 'cat -os /sdcard/a.txt', 'cp -os /a /b', 'grep -os x']) {
+      const res = await runStaticCybshLine(line, deps)
+      expect(res?.ok).toBe(false)
+      expect(res?.output).toMatch(/^unsupported: .* -os/)
+    }
+  })
+
+  it('refuses --host/--os aliases and non-host verbs with -os', async () => {
+    const { deps } = fakeDeps()
+    for (const line of [
+      'ls --host',
+      'ls --os /sdcard',
+      'cat --host /sdcard/a.txt',
+      'encrypt -os /a',
+      // Non-host verbs refuse too (never fall through to a volume answer)…
+      'scrub -os',
+      'sync -os',
+      // …while unhandled verbs (`search`, `ps`, …) return null here and are
+      // refused by the wasm dispatcher's own `-os` guard instead.
+    ]) {
+      const res = await runStaticCybshLine(line, deps)
+      expect(res?.ok).toBe(false)
+      expect(res?.output).toMatch(/^unsupported: /)
+    }
+  })
+
+  it('refuses -os identically through the .cybsh sh() wrapper', async () => {
+    // Pure command and script wrapper share the refusal: `sh("ls -os …")`
+    // runs through `scriptExecCybsh` → `runStaticCybshLine`, the same choke
+    // point as the terminal. (Chained `ls -os && …` lines bypass this layer
+    // via `parseCybshLine → null` and are refused by the wasm dispatcher's
+    // own `-os` guard instead — same `unsupported:` shape.)
+    const { deps } = fakeDeps({
+      volume: { '/t.cybsh': 'print sh("ls -os /")\n' },
+    })
+    const res = await runStaticCybshLine('run /t.cybsh', deps)
+    expect(res?.ok).toBe(false)
+    expect(res?.output).toMatch(/unsupported: .* -os/)
+    // The script file itself is untouched by the refused run.
+    expect(deps.readVolume()['/t.cybsh']).toContain('ls -os')
   })
 })
 
@@ -1396,5 +1443,185 @@ describe('text verbs (grep/find/head/tail/wc/edit)', () => {
     const pv = await runStaticCybshLine('edit /providers/m1/docs/a.md readme README', deps)
     expect(pv?.ok).toBe(true)
     expect(new TextDecoder().decode(state.providers.m1['docs/a.md'])).toBe('# README')
+  })
+})
+
+// ─── scheduler (cron) ────────────────────────────────────────────────────
+// Browser twin of `crates/os/src/shell.rs::cron_cmd`. The schedule storage
+// rides the optional `StaticCybshDeps` methods (`cron.*` wasm db ops in
+// production); execution reuses `handleRun`, so a fired schedule behaves
+// exactly like `run <path>` typed by hand.
+
+interface FakeCronState {
+  rows: StaticSchedule[]
+  runs: StaticScheduleRun[]
+}
+
+function fakeCronDeps(
+  volume: Record<string, string>,
+  seed: Partial<FakeCronState> = {},
+): { deps: StaticCybshDeps; cron: FakeCronState } {
+  const { deps } = fakeDeps({ volume })
+  const cron: FakeCronState = {
+    rows: (seed.rows ?? []).map((r) => ({ ...r })),
+    runs: (seed.runs ?? []).map((r) => ({ ...r })),
+  }
+  deps.listSchedules = async () => cron.rows.map((r) => ({ ...r }))
+  deps.saveSchedule = async (row) => {
+    const i = cron.rows.findIndex((r) => r.id === row.id)
+    if (i >= 0) cron.rows[i] = { ...cron.rows[i], ...row }
+    else cron.rows.push({ ...row })
+    return { ...row }
+  }
+  deps.deleteSchedule = async (id) => {
+    const i = cron.rows.findIndex((r) => r.id === id)
+    if (i < 0) return false
+    cron.rows.splice(i, 1)
+    return true
+  }
+  deps.scheduleHistory = async (id) =>
+    cron.runs.filter((r) => r.scheduleId === id).map((r) => ({ ...r }))
+  deps.recordScheduleRun = async (run) => {
+    cron.runs.push({ ...run })
+  }
+  return { deps, cron }
+}
+
+describe('static cron verb', () => {
+  it('is claimed by the static layer', () => {
+    expect(handlesStaticVerb('cron')).toBe(true)
+    expect(handlesStaticVerb('CRON')).toBe(true)
+  })
+
+  it('lists nothing when the schedule database is absent', async () => {
+    const { deps } = fakeDeps()
+    const out = await runStaticCybshLine('cron ls', deps)
+    expect(out?.ok).toBe(false)
+    expect(out?.output).toMatch(/^unsupported: cron needs the local database/)
+  })
+
+  it('adds, lists, runs, toggles and removes a schedule', async () => {
+    const { deps, cron } = fakeCronDeps({
+      '/scripts/backup.cybsh': 'echo fired\n',
+    })
+
+    // add with an explicit 5-field expression
+    const add = await runStaticCybshLine('cron add /scripts/backup.cybsh "30 2 * * *"', deps)
+    expect(add?.ok).toBe(true)
+    expect(add?.output).toMatch(/^cron: added sched-/)
+    expect(add?.output).toContain('30 2 * * *')
+    expect(cron.rows).toHaveLength(1)
+    const row = cron.rows[0]
+    expect(row.path).toBe('/scripts/backup.cybsh')
+    expect(row.expr).toBe('30 2 * * *')
+    expect(row.enabled).toBe(true)
+    expect(row.nextFireAt).toBeTruthy()
+
+    // list shows the id/expr/next/enabled/path columns
+    const ls = await runStaticCybshLine('cron ls', deps)
+    expect(ls?.output).toContain(row.id)
+    expect(ls?.output).toContain('30 2 * *')
+    expect(ls?.output).toContain('on')
+    expect(ls?.output).toContain('/scripts/backup.cybsh')
+
+    // run fires the script through the same path as `run <file>`
+    const run = await runStaticCybshLine(`cron run ${row.id}`, deps)
+    expect(run?.ok).toBe(true)
+    expect(run?.output).toContain('ok')
+    expect(run?.output).toContain('fired')
+    expect(cron.runs).toHaveLength(1)
+    expect(cron.runs[0].scheduleId).toBe(row.id)
+    expect(cron.rows[0].lastFiredAt).toBeTruthy()
+    expect(cron.rows[0].lastRunId).toBe(cron.runs[0].runId)
+    // the next fire was recomputed from "now" and is still in the future
+    expect(new Date(cron.rows[0].nextFireAt ?? 0).getTime()).toBeGreaterThan(Date.now())
+
+    // disable pauses without losing the row (nextFireAt is kept; the
+    // enabled flag is what the tick consults)
+    const off = await runStaticCybshLine(`cron disable ${row.id}`, deps)
+    expect(off?.output).toContain('disabled')
+    expect(cron.rows[0].enabled).toBe(false)
+
+    // enable recomputes the next fire
+    const on = await runStaticCybshLine(`cron enable ${row.id}`, deps)
+    expect(on?.output).toContain('enabled')
+    expect(cron.rows[0].enabled).toBe(true)
+    expect(cron.rows[0].nextFireAt).toBeTruthy()
+
+    // history lists the recorded run
+    const hist = await runStaticCybshLine(`cron history ${row.id}`, deps)
+    expect(hist?.output).toContain('RUN')
+    expect(hist?.output).toContain(cron.runs[0].runId)
+    expect(hist?.output).toContain('ok')
+
+    // rm removes it; a second rm is not_found
+    const rm = await runStaticCybshLine(`cron rm ${row.id}`, deps)
+    expect(rm?.output).toBe(`cron: removed ${row.id}`)
+    expect(cron.rows).toHaveLength(0)
+    const again = await runStaticCybshLine(`cron rm ${row.id}`, deps)
+    expect(again?.output).toMatch(/^not_found:/)
+  })
+
+  it('reads `# schedule:` frontmatter when no expression is passed', async () => {
+    const { deps, cron } = fakeCronDeps({
+      '/scripts/nightly.cybsh': '# schedule: 0 3 * * *\necho night\n',
+    })
+    const add = await runStaticCybshLine('cron add /scripts/nightly.cybsh', deps)
+    expect(add?.ok).toBe(true)
+    expect(cron.rows[0].expr).toBe('0 3 * * *')
+  })
+
+  it('validates the path, expression and subcommand', async () => {
+    const { deps } = fakeCronDeps({ '/scripts/job.cybsh': 'echo hi\n' })
+
+    // non-.cybsh path is refused before touching the database
+    const badPath = await runStaticCybshLine('cron add /notes.txt @hourly', deps)
+    expect(badPath?.output).toMatch(/^invalid: schedule path must be a \.cybsh script/)
+
+    // unparseable expression is refused
+    const badExpr = await runStaticCybshLine('cron add /scripts/job.cybsh "not a schedule"', deps)
+    expect(badExpr?.output).toMatch(/^invalid:/)
+
+    // a script with no frontmatter and no expr is refused with a hint
+    const noFm = await runStaticCybshLine('cron add /scripts/job.cybsh', deps)
+    expect(noFm?.output).toMatch(/^invalid: .*declares no `# schedule:`/)
+
+    // missing path/usage errors
+    expect((await runStaticCybshLine('cron add', deps))?.output).toMatch(/^usage: cron add/)
+    expect((await runStaticCybshLine('cron run', deps))?.output).toMatch(/^usage: cron run/)
+    expect((await runStaticCybshLine('cron enable', deps))?.output).toMatch(/^usage: cron enable/)
+
+    // typo'd subcommand suggests the closest match
+    const typo = await runStaticCybshLine('cron hist', deps)
+    expect(typo?.output).toContain("unknown cron subcommand: 'hist'")
+    expect(typo?.output).toContain("did you mean 'history'?")
+  })
+
+  it('records a failed run when the script errors', async () => {
+    const { deps, cron } = fakeCronDeps(
+      { '/scripts/bad.cybsh': 'cd /definitely-missing-dir\n' },
+      {
+        rows: [
+          {
+            id: 'sched-bad',
+            path: '/scripts/bad.cybsh',
+            expr: '@hourly',
+            enabled: true,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            nextFireAt: null,
+          },
+        ],
+      },
+    )
+    const run = await runStaticCybshLine('cron run sched-bad', deps)
+    expect(run?.ok).toBe(true)
+    expect(run?.output).toContain('error')
+    expect(cron.runs[0].status).toBe('error')
+    expect(cron.rows[0].lastRunId).toBe(cron.runs[0].runId)
+  })
+
+  it('runStaticSchedule throws not_found for an unknown id', async () => {
+    const { deps } = fakeCronDeps({})
+    await expect(runStaticSchedule('sched-ghost', deps)).rejects.toThrow(/^not_found: no schedule/)
   })
 })

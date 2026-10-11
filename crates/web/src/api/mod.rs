@@ -11,6 +11,7 @@ pub mod audit;
 pub mod batch;
 pub mod code;
 pub mod collections;
+pub mod cron_api;
 // <<< CYBERMANJU OS PUSH: pre-wired route families — each owned by one agent.
 // The dispatcher in lib.rs already calls all three; implement `route()`. >>>
 pub mod disk_api;
@@ -20,6 +21,7 @@ pub mod oauth;
 pub mod os_api;
 pub mod repair_api;
 pub mod search_api;
+pub mod secrets;
 pub mod share;
 pub mod sync_api;
 pub mod trash;

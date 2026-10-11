@@ -4,7 +4,8 @@
   // welcome → account manager hand-off →
   // vaults (N `.cybermanju` partitions on any provider or local disk) →
   // providers (add N sync configs) → repos (N private vault repos) →
-  // agent (optional) → done. Every step skippable; Finish marks seen. -->
+  // agent (optional) → appearance (theme + wallpaper, live preview) →
+  // done. Every step skippable; Finish marks seen. -->
 <template>
   <div class="msw" role="dialog" aria-modal="true" aria-labelledby="msw-title">
     <header class="msw-head">
@@ -33,9 +34,10 @@
           <p class="msw-lead">Set up sign-in, local vaults and the services you actually use. Everything else can wait.</p>
         </div>
         <ul class="msw-list" aria-label="What you can set up">
-          <li><AppIcon name="solar:user-circle-bold" :size="16" /><span><strong>Sign in</strong> — Google, GitHub or GitLab through your Supabase broker.</span></li>
+          <li><AppIcon name="solar:user-circle-bold" :size="16" /><span><strong>Sign in</strong> — Google, GitHub or GitLab through the built-in sign-in broker.</span></li>
           <li><AppIcon name="solar:diskette-bold" :size="16" /><span><strong>Vaults</strong> — encrypted <code>.cybermanju</code> partitions, on a provider or this phone.</span></li>
           <li><AppIcon name="solar:cloud-bold" :size="16" /><span><strong>Providers + repos</strong> — GitHub, GitLab, Drive, local — then create private vault repos.</span></li>
+          <li><AppIcon name="solar:monitor-bold" :size="16" /><span><strong>Appearance</strong> — theme + wallpaper, previewed live.</span></li>
         </ul>
         <button class="msw-btn primary big" type="button" @click="go('account')">Continue</button>
         <button class="msw-link" type="button" @click="skipAll">Skip setup entirely</button>
@@ -45,8 +47,56 @@
       <section v-if="step === 'account'" class="msw-section">
         <h3 class="msw-h">Your cloud account</h3>
         <p v-if="identity" class="msw-hint">Signed in as <strong>{{ identity.name || identity.email }}</strong> via {{ identity.provider }}.</p>
-        <p v-else class="msw-hint">Sign-in, account switching, OAuth setup and cloud-provider connections all live in one place. This setup will not start a second login flow.</p>
-        <button class="msw-btn primary big" type="button" @click="openAccounts('vaults')">Open Account Manager</button>
+        <p v-else class="msw-hint">One tap per provider — no Account Manager detour needed.</p>
+        <div class="msw-oauth-grid">
+          <button
+            v-for="p in MOBILE_LOGIN_CARDS"
+            :key="p.id"
+            class="msw-btn big msw-oauth"
+            type="button"
+            :disabled="mswSignInBusy === p.id || !mswSbConfigured"
+            :title="mswSbConfigured ? `Continue with ${p.label}` : 'OAuth broker not set — add it in Settings → OAuth broker'"
+            @click="mswSignIn(p.id)"
+          >
+            <ProviderLogo :provider="p.logo" :size="30" />
+            <span>{{ mswSignInBusy === p.id ? 'Opening…' : `Continue with ${p.label}` }}</span>
+          </button>
+        </div>
+        <p v-if="mswSignInMsg" class="msw-note" :class="mswSignInOk === false ? 'err' : mswSignInOk ? 'ok' : ''">{{ mswSignInMsg }}</p>
+        <!-- substep · after sign-in OK: folder + .cybermanju size per logged provider -->
+        <div v-if="mswSignInOk || identity" class="msw-substep">
+          <h4 class="msw-substep-title">Vault home per provider</h4>
+          <p class="msw-hint">Signed in — pick where each provider keeps its <code>.cybermanju</code> files and how big the disk is. Drive gets a folder, GitHub/GitLab a private repo (created when missing).</p>
+          <div v-for="sp in mswSignedProviders" :key="sp.backend" class="msw-prov-card">
+            <div class="msw-prov-head">
+              <ProviderLogo :provider="sp.logo" :size="26" />
+              <div class="msw-prov-meta">
+                <strong>{{ sp.label }}</strong>
+                <small>{{ sp.accountName }}</small>
+              </div>
+              <span v-if="mswCloudDone[sp.backend]" class="msw-note ok" style="margin:0">ready ✓</span>
+            </div>
+            <div v-if="sp.config" class="msw-grid2">
+              <label class="msw-field"><span>Folder</span>
+                <input v-model="mswCloudFolders[sp.backend]" class="msw-input" placeholder="cybermanju-vault" autocomplete="off" />
+              </label>
+              <label class="msw-field"><span>Size (MB)</span>
+                <input v-model.number="mswCloudSizes[sp.backend]" class="msw-input" type="number" min="64" max="8192" step="64" placeholder="512" />
+              </label>
+            </div>
+            <button
+              v-if="sp.config"
+              class="msw-btn primary big"
+              type="button"
+              :disabled="!!mswCloudBusy[sp.backend] || mswCloudDone[sp.backend]"
+              @click="mswProvisionCloudDisk(sp.backend)"
+            >{{ mswCloudBusy[sp.backend] ? 'Creating…' : mswCloudDone[sp.backend] ? 'Created ✓' : `Create in ${sp.label}` }}</button>
+            <p v-else class="msw-note">No {{ sp.label }} connection yet — sign in again above to create it.</p>
+            <p v-if="mswCloudMsgs[sp.backend]" class="msw-note" :class="mswCloudMsgs[sp.backend].ok ? 'ok' : 'err'">{{ mswCloudMsgs[sp.backend].text }}</p>
+          </div>
+        </div>
+        <p v-if="!mswSbConfigured" class="msw-note err">OAuth broker is not set — sign-in stays off until you add the URL + key in Settings → OAuth broker.</p>
+        <button class="msw-btn big" type="button" @click="openAccounts('vaults')">Open Account Manager</button>
         <div class="msw-nav">
           <button class="msw-btn" type="button" @click="go('welcome')">Back</button>
           <button class="msw-btn primary" type="button" @click="go('vaults')">Next</button>
@@ -199,11 +249,16 @@
       <section v-if="step === 'agent'" class="msw-section">
         <h3 class="msw-h">Agent AI <em class="muted">(optional)</em></h3>
         <p class="msw-hint">{{ isStatic ? 'Saved locally in this browser — key held in memory only (re-enter after reload).' : 'Pick a provider and seal a key — or skip and do it later in Agent.' }}</p>
+        <label v-if="agentProviderOptions.length" class="msw-field"><span>Provider</span>
+          <select v-model="agentProviderId" class="msw-input">
+            <option v-for="p in agentProviderOptions" :key="p.id" :value="p.id">{{ p.label }} · {{ p.defaultModel }}</option>
+          </select>
+        </label>
         <label class="msw-field"><span>Assistant name</span>
           <input v-model="agentName" class="msw-input" placeholder="My assistant" />
         </label>
         <label class="msw-field"><span>Model</span>
-          <input v-model="agentModel" class="msw-input" placeholder="model id" />
+          <input v-model="agentModel" class="msw-input" :placeholder="agentProviderDefaultModel" />
         </label>
         <label class="msw-field"><span>API key (sealed, never shown back)</span>
           <input v-model="agentKey" class="msw-input" type="password" placeholder="paste key — optional now" />
@@ -214,6 +269,51 @@
         <p v-if="agentMsg" class="msw-note" :class="agentOk === false ? 'err' : 'ok'">{{ agentMsg }}</p>
         <div class="msw-nav">
           <button class="msw-btn" type="button" @click="go('repos')">Back</button>
+          <button class="msw-btn primary" type="button" @click="go('appearance')">Next</button>
+          <button class="msw-link" type="button" @click="go('appearance')">Skip</button>
+        </div>
+      </section>
+
+      <!-- appearance -->
+      <section v-if="step === 'appearance'" class="msw-section">
+        <h3 class="msw-h">Appearance</h3>
+        <p class="msw-hint">Pick a look — it applies instantly, and Settings → Appearance can change it later.</p>
+        <span class="msw-sub-label">Theme</span>
+        <div class="msw-theme-grid" role="radiogroup" aria-label="Theme">
+          <button
+            v-for="t in mswAppearanceChoices"
+            :key="t.id"
+            type="button"
+            role="radio"
+            :aria-checked="mswEffectiveAppearance === t.id"
+            class="msw-btn big msw-theme"
+            :class="{ on: mswEffectiveAppearance === t.id }"
+            @click="mswPickAppearance(t.id)"
+          >
+            <span class="msw-theme-swatch" :style="t.swatch" aria-hidden="true" />
+            <span class="msw-theme-meta"><strong>{{ t.label }}</strong><small>{{ t.blurb }}</small></span>
+          </button>
+        </div>
+        <span class="msw-sub-label">Wallpaper</span>
+        <div class="msw-theme-grid" role="radiogroup" aria-label="Wallpaper">
+          <button
+            v-for="w in mswWallpaperChoices"
+            :key="w.id"
+            type="button"
+            role="radio"
+            :aria-checked="mswActiveWallpaper === w.id"
+            class="msw-btn big msw-theme col"
+            :class="{ on: mswActiveWallpaper === w.id }"
+            @click="mswPickWallpaper(w.id)"
+          >
+            <span class="msw-wp-swatch" :class="`msw-wp-${w.id}`" aria-hidden="true" />
+            <span class="msw-theme-meta"><strong>{{ w.label }}</strong></span>
+          </button>
+        </div>
+        <p v-if="mswCustomWallpaper.kind.value" class="msw-note">Custom image active — picking a preset above switches back to it.</p>
+        <p v-else class="msw-hint">A custom image (URL or file) stays in Settings → Appearance.</p>
+        <div class="msw-nav">
+          <button class="msw-btn" type="button" @click="go('agent')">Back</button>
           <button class="msw-btn primary" type="button" @click="go('done')">Next</button>
           <button class="msw-link" type="button" @click="go('done')">Skip</button>
         </div>
@@ -227,10 +327,11 @@
           <li>Providers: <strong>{{ providerCount ? `${providerCount} connected` : 'skipped' }}</strong></li>
           <li>Repos: <strong>{{ reposCreated ? `${reposCreated} created` : 'skipped' }}</strong></li>
           <li>Agent: <strong>{{ agentSavedName ? `“${agentSavedName}” ready` : 'skipped' }}</strong></li>
+          <li>Appearance: <strong>{{ mswAppearanceSummary }}</strong></li>
         </ul>
         <p class="msw-hint">Everything skipped stays one tap away in Accounts, Disks and Agent.</p>
         <button class="msw-btn primary big" type="button" @click="finish">Enter CyberManju →</button>
-        <button class="msw-link" type="button" @click="go('agent')">Back</button>
+        <button class="msw-link" type="button" @click="go('appearance')">Back</button>
       </section>
     </main>
   </div>
@@ -238,10 +339,11 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
+import ProviderLogo from '@/components/ProviderLogo.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { isStaticHost } from '@/composables/useTauri'
-import { identity, refreshIdentity, supabaseProviderFor, supabaseSession, supabaseSessionProvider } from '@/composables/useSupabase'
+import { identity, connectedAccounts, refreshIdentity, signInWithPopup, supabaseConfigured, supabaseProviderFor, supabaseSession, supabaseSessionProvider, type OAuthBackend } from '@/composables/useSupabase'
 import { configureMobileVaultMirror, normalizeMobileVaultFileName, pickMobileFolder, supportsNativeScopedStorage, type MobileFolderHandle } from '@/utils/mobileScopedStorage'
 import { listVfsMounts, saveVfsMount } from '@/composables/useProviderCanal'
 import type { ProviderMount } from '@/composables/useProviderCanal'
@@ -249,16 +351,21 @@ import {
   MOBILE_SETUP_STEPS,
   MOBILE_SETUP_STEP_LABELS,
   blankPartitionDraft,
+  clampVaultSizeMb,
   mobileSetupStepIndex,
   markSetupSeen,
   normalizePartitionDraft,
   partitionDraftValid,
+  signedProviderCards,
   type MobileSetupStep,
   type VaultPartitionDraft,
 } from '@/utils/setupWizard'
-import { syncConfigDefaults } from '@/utils/providers'
+import { backendLabel, syncConfigDefaults } from '@/utils/providers'
+import { useTheme } from '@/composables/useTheme'
+import { useCustomWallpaper } from '@/composables/useCustomWallpaper'
+import { THEMES, WALLPAPERS, type ThemeId } from '@/ui/tokens'
 import { agentPermissionPreset, defaultMcpServers } from '@/types'
-import type { AgentConfig, SyncConfig } from '@/types'
+import type { AgentConfig, SyncBackendType, SyncConfig } from '@/types'
 
 const emit = defineEmits<{ close: [] }>()
 const store = useAppStore()
@@ -293,6 +400,151 @@ function openAccounts(returnStep: MobileSetupStep) {
   go(returnStep)
   emit('close')
   window.dispatchEvent(new CustomEvent('cybermanju:open-accounts', { detail: { resumeSetup: true } }))
+}
+
+// ── account step: inline OAuth (same broker as Account Manager) ──
+const MOBILE_LOGIN_CARDS: Array<{ id: OAuthBackend; label: string; logo: string }> = [
+  { id: 'google', label: 'Google', logo: 'google' },
+  { id: 'github', label: 'GitHub', logo: 'github' },
+  { id: 'gitlab', label: 'GitLab', logo: 'gitlab' },
+]
+const mswSbConfigured = computed(() => supabaseConfigured())
+const mswSignInBusy = ref<OAuthBackend | null>(null)
+const mswSignInMsg = ref('')
+const mswSignInOk = ref<boolean | null>(null)
+
+function mswBackendForOAuth(p: OAuthBackend | string): SyncBackendType {
+  if (p === 'google') return 'googleDrive'
+  if (p === 'gitlab') return 'gitlab'
+  return 'github'
+}
+
+async function mswSignIn(provider: OAuthBackend) {
+  if (mswSignInBusy.value) return
+  mswSignInBusy.value = provider
+  mswSignInMsg.value = ''
+  mswSignInOk.value = null
+  try {
+    const who = await signInWithPopup(provider)
+    // Same as Account Manager: provision the matching provider row so the
+    // vault/provider steps can use it immediately.
+    try {
+      const backend = mswBackendForOAuth(provider)
+      if (!store.syncConfigs.some(c => c.backendType === backend)) {
+        let token = ''
+        try {
+          const session = await supabaseSession()
+          if (session?.provider_token && supabaseSessionProvider(session) === provider) {
+            token = session.provider_token ?? ''
+          }
+        } catch {
+          token = ''
+        }
+        await store.saveSyncConfig({
+          ...syncConfigDefaults(),
+          id: '',
+          backendType: backend,
+          name: `${backendLabel(backend)} — ${who.name}`,
+          token: token.trim() || undefined,
+        } as unknown as SyncConfig)
+        await store.fetchSyncConfigs().catch(() => {})
+      }
+    } catch {
+      // Provider provisioning is best-effort — the sign-in already succeeded.
+    }
+    mswSignInMsg.value = `Signed in as ${who.name} (${who.provider}).`
+    mswSignInOk.value = true
+  } catch (e) {
+    mswSignInMsg.value = e instanceof Error ? e.message : String(e)
+    mswSignInOk.value = false
+  } finally {
+    mswSignInBusy.value = null
+  }
+}
+
+// ── account substep: after 200-OK sign-in, one folder + `.cybermanju`
+// size card per logged provider (same substep as the desktop wizard).
+const mswCloudFolders = ref<Record<string, string>>({})
+const mswCloudSizes = ref<Record<string, number>>({})
+const mswCloudBusy = ref<Record<string, boolean>>({})
+const mswCloudDone = ref<Record<string, boolean>>({})
+const mswCloudMsgs = ref<Record<string, { ok: boolean; text: string }>>({})
+
+const mswSignedProviders = computed(() => {
+  const accounts = connectedAccounts.value.map(a => ({
+    provider: a.provider,
+    name: a.name,
+    email: a.email,
+  }))
+  if (identity.value) {
+    accounts.unshift({
+      provider: identity.value.provider,
+      name: identity.value.name,
+      email: identity.value.email,
+    })
+  }
+  return signedProviderCards(
+    accounts,
+    store.syncConfigs.map(c => ({ backendType: c.backendType })),
+  ).map(card => ({
+    ...card,
+    config: store.syncConfigs.find(c => c.backendType === card.backend) ?? null,
+  }))
+})
+
+/** Saved secret first, live OAuth session second (same precedence as desktop). */
+async function mswDiskTokenFor(cfg: SyncConfig): Promise<string> {
+  if (typeof cfg.token === 'string' && cfg.token.trim()) return cfg.token.trim()
+  try {
+    const session = await supabaseSession()
+    const prov = session ? supabaseSessionProvider(session) : null
+    if (prov && supabaseProviderFor(cfg.backendType) === prov) {
+      return session?.provider_token ?? ''
+    }
+  } catch {
+    // Session unreadable — the disk still gets created, remote warns.
+  }
+  return ''
+}
+
+async function mswProvisionCloudDisk(backend: SyncBackendType) {
+  if (mswCloudBusy.value[backend] || mswCloudDone.value[backend]) return
+  const cfg = store.syncConfigs.find(c => c.backendType === backend) ?? null
+  if (!cfg) {
+    mswCloudMsgs.value[backend] = { ok: false, text: 'No connection yet — sign in again above to create it.' }
+    return
+  }
+  mswCloudBusy.value[backend] = true
+  delete mswCloudMsgs.value[backend]
+  try {
+    const folder = (mswCloudFolders.value[backend] ?? '').trim() || 'cybermanju-vault'
+    const sizeMb = clampVaultSizeMb(mswCloudSizes.value[backend] ?? 512)
+    const out = await store.createDiskWithRemote(cfg, {
+      sizeMb,
+      passphrase: '',
+      diskName: folder,
+      token: await mswDiskTokenFor(cfg),
+    })
+    if (!out?.disk) {
+      mswCloudMsgs.value[backend] = { ok: false, text: 'Could not create the disk — retry.' }
+      return
+    }
+    mswCloudDone.value[backend] = true
+    if (out.remote) {
+      const where = backend === 'googleDrive'
+        ? `Drive folder \`${out.remote.remoteDir}\``
+        : `private repo \`${out.remote.config.repoName}\``
+      mswCloudMsgs.value[backend] = { ok: true, text: `“${folder}” live (${sizeMb} MB) — ${where} holds its .cybermanju files.` }
+    } else if (out.remoteWarning) {
+      mswCloudMsgs.value[backend] = { ok: false, text: `Disk attached, but the remote seed failed: ${out.remoteWarning}` }
+    } else {
+      mswCloudMsgs.value[backend] = { ok: true, text: `“${folder}” created (${sizeMb} MB).` }
+    }
+  } catch (e) {
+    mswCloudMsgs.value[backend] = { ok: false, text: e instanceof Error ? e.message : String(e) }
+  } finally {
+    mswCloudBusy.value[backend] = false
+  }
 }
 
 // ── vault partitions (N disks) ──
@@ -501,10 +753,6 @@ async function saveProvider() {
       return
     }
     await store.fetchSyncConfigs()
-    // Point pending provider-partitions at the fresh config.
-    for (const p of partitions.value) {
-      if (!p.configId) p.configId = saved.id
-    }
     provMsg.value = `“${saved.name}” saved. Add another, or continue.`
     provOk.value = true
     prov.value = { backendType: prov.value.backendType, name: '', secret: '' }
@@ -621,6 +869,12 @@ const agentBusy = ref(false)
 const agentMsg = ref('')
 const agentOk = ref<boolean | null>(null)
 const agentSavedName = ref('')
+const agentProviderId = ref('')
+const agentProviderOptions = computed(() => store.agentProviders.length
+  ? store.agentProviders
+  : [{ id: 'openrouter', label: 'OpenRouter', baseUrl: '', defaultModel: 'model id', keyless: false } as unknown as (typeof store.agentProviders)[number]])
+const agentProviderDefaultModel = computed(() =>
+  agentProviderOptions.value.find(p => p.id === agentProviderId.value)?.defaultModel ?? 'model id')
 
 async function saveAgent() {
   if (agentBusy.value) return
@@ -640,7 +894,7 @@ async function saveAgent() {
       }
       const existing = listLocalConfigs()
       const fallbackPreset = existing[0]
-      const providerId = fallbackPreset?.providerId ?? store.agentProviders[0]?.id ?? 'openrouter'
+      const providerId = agentProviderId.value || (fallbackPreset?.providerId ?? store.agentProviders[0]?.id ?? 'openrouter')
       // Static host: store providers are empty (no dashboard), so resolve
       // the default model from the wasm catalog (same source Agent uses).
       let catalogModel = ''
@@ -688,8 +942,8 @@ async function saveAgent() {
     }
     const saved = await store.saveAgentConfig({
       name: agentName.value.trim() || 'My assistant',
-      providerId: store.agentProviders[0]?.id ?? 'openrouter',
-      model: agentModel.value.trim() || store.agentProviders[0]?.defaultModel || 'model id',
+      providerId: agentProviderId.value || (store.agentProviders[0]?.id ?? 'openrouter'),
+      model: agentModel.value.trim() || agentProviderDefaultModel.value,
       workingDir: '',
       agentKind: 'build',
       permission: agentPermissionPreset('balanced'),
@@ -718,6 +972,40 @@ async function saveAgent() {
   }
 }
 
+// ── appearance: theme + wallpaper (same store as Settings, live preview) ──
+const mswTheme = useTheme()
+const mswCustomWallpaper = useCustomWallpaper()
+
+const mswAppearanceChoices = computed(() => [
+  { id: 'auto', label: 'Auto', blurb: 'Follows the OS light / dark scheme', swatch: 'background: linear-gradient(90deg, #000000 50%, #ECECEC 50%)' },
+  ...Object.values(THEMES).map(t => ({
+    id: t.id as string,
+    label: t.label,
+    blurb: t.blurb,
+    swatch: `background: linear-gradient(135deg, ${t.palette.bg} 55%, ${t.palette.accent} 55%)`,
+  })),
+])
+const mswEffectiveAppearance = computed(() => (mswTheme.settings.followSystem ? 'auto' : mswTheme.settings.theme))
+
+function mswPickAppearance(id: string) {
+  if (id === 'auto') mswTheme.setAppearance('auto')
+  else mswTheme.setAppearance(id as ThemeId)
+}
+
+const mswWallpaperChoices = WALLPAPERS
+const mswActiveWallpaper = computed(() => (mswCustomWallpaper.kind.value ? 'custom' : mswTheme.settings.wallpaper))
+const mswAppearanceSummary = computed(() => {
+  const t = mswAppearanceChoices.value.find(c => c.id === mswEffectiveAppearance.value)
+  const w = mswWallpaperChoices.find(wp => wp.id === mswTheme.settings.wallpaper)
+  const wpLabel = mswCustomWallpaper.kind.value ? 'Custom image' : (w?.label ?? mswTheme.settings.wallpaper)
+  return `${t?.label ?? mswEffectiveAppearance.value} · ${wpLabel}`
+})
+
+function mswPickWallpaper(id: string) {
+  mswTheme.setWallpaper(id)
+  if (mswCustomWallpaper.kind.value) void mswCustomWallpaper.clear()
+}
+
 onMounted(async () => {
   await Promise.allSettled([
     refreshIdentity(),
@@ -726,6 +1014,9 @@ onMounted(async () => {
     store.fetchDisks(),
     store.fetchAgentProviders().catch(() => {}),
   ])
+  if (!agentProviderId.value && agentProviderOptions.value.length) {
+    agentProviderId.value = agentProviderOptions.value[0].id
+  }
 })
 </script>
 
@@ -853,6 +1144,35 @@ onMounted(async () => {
 .msw-logo.on { border-color: var(--ui-accent); background: color-mix(in srgb, var(--ui-accent) 10%, transparent); }
 .msw-oauth-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
 .msw-oauth-grid .msw-btn { justify-content: flex-start; text-align: left; }
+.msw-oauth { gap: 10px; }
+.msw-sub-label { font-size: 11px; font-weight: 700; color: var(--ui-text-2); }
+.msw-theme-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.msw-theme { justify-content: flex-start; text-align: left; gap: 10px; height: auto; }
+.msw-theme.col { flex-direction: column; align-items: stretch; gap: 8px; }
+.msw-theme.on { border-color: var(--ui-accent); background: color-mix(in srgb, var(--ui-accent) 10%, transparent); }
+.msw-theme-swatch { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--ui-border); flex-shrink: 0; }
+.msw-theme-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.msw-theme-meta strong { font-size: 14px; }
+.msw-theme-meta small { font-size: 12px; font-weight: 400; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.msw-wp-swatch { width: 100%; height: 40px; border-radius: 10px; border: 1px solid var(--ui-border); flex-shrink: 0; }
+.msw-wp-slopes-dark { background: linear-gradient(180deg, #2b3136 0%, #1b1e20 55%, #101315 100%); }
+.msw-wp-slopes-light { background: linear-gradient(180deg, #f4f5f6 0%, #dcdfe3 60%, #c9ced4 100%); }
+.msw-wp-dunes { background: radial-gradient(120% 90% at 80% 110%, rgba(246, 116, 0, 0.35), transparent 55%), linear-gradient(180deg, #232629 0%, #0e1113 100%); }
+.msw-substep {
+  display: flex; flex-direction: column; gap: 10px;
+  border: 1px dashed var(--ui-border-strong); border-radius: 14px;
+  padding: 12px;
+}
+.msw-substep-title { margin: 0; font-size: 14px; font-weight: 700; }
+.msw-prov-card {
+  display: flex; flex-direction: column; gap: 10px;
+  border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
+  background: var(--ui-surface); padding: 12px;
+}
+.msw-prov-head { display: flex; align-items: center; gap: 10px; }
+.msw-prov-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.msw-prov-meta strong { font-size: 14px; }
+.msw-prov-meta small { font-size: 12px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msw-broker { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .msw-broker summary { cursor: pointer; min-height: 28px; display: flex; align-items: center; font-size: 13px; font-weight: 700; color: var(--ui-text-2); }
 .msw-broker[open] summary { margin-bottom: 2px; }

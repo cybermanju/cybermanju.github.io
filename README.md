@@ -19,7 +19,7 @@
 [![Rust](https://img.shields.io/badge/backend-Rust_2021-dea584?style=for-the-badge&logo=rust)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-00FF41?style=for-the-badge)](LICENSE)
 
-**Version:** 0.1.1 \
+**Version:** 0.1.0 \
 **Identifier:** `com.cybermanju.os` \
 **License:** MIT
 
@@ -331,12 +331,32 @@ ZimaOS metadata (`x-casaos`, amd64+arm64) is baked into `docker-compose.yml`.
 Full runbook → [`docs/OPERATIONS.md`](docs/OPERATIONS.md) ·
 threat model → [`docs/SECURITY.md`](docs/SECURITY.md).
 
+### ⌨️ Universal CLI (`cyb`)
+
+```bash
+curl -fsSL https://cybermanju.github.io/install.sh | bash  # Linux/macOS/Git-Bash
+# Windows PowerShell:  irm https://cybermanju.github.io/install.ps1 | iex
+
+cyb setup                 # server → account → saved profile (0600)
+cyb serve up              # dashboard via Docker (or point at one: cyb config set-server URL)
+cyb oauth launch google --config <id>   # browser approval, verified after
+cyb disk create <config> 10G            # encrypted vault disk (passphrase-sealed)
+cyb sync move <file> <from> <to>        # single-copy move between providers
+cyb sh "disk list" | cyb run job.cybsh | cyb repl   # the same cybsh everywhere
+cyb ai prompt <config> "summarize the vault" --follow
+```
+
+Go (cobra + Lipgloss/Bubbles/Huh/Glamour) in `cli/`, REST-first against the
+dashboard, checksum-verified self-updates (`cyb update`). Releases ship
+`cyb-<os>-<arch>.tar.gz` × 6 alongside the desktop families.
+
 ### 📱·🍎·🪟 Everywhere else
 
 CI builds **Windows** (MSI/NSIS) · **Linux** (deb + AppImage + rpm) · **RPM** ·
 **Flatpak** (`com.cybermanju.os`) · **Arch** · **macOS** (dmg) · **Android**
-(signed arm64 APK, NDK `28.2.13676358`) — releases ship all 8 families +
-`SHA256SUMS`. Tags `v*` trigger `release.yml` (Docker → GHCR included).
+(signed arm64 APK, NDK `28.2.13676358`) · **CLI** (`cyb` × linux/darwin/windows
+amd64+arm64) — releases ship all 9 families + `SHA256SUMS`. Tags `v*` trigger
+`release.yml` (Docker → GHCR included).
 
 ### 🌐 WASM / GitHub Pages
 
@@ -356,11 +376,13 @@ npm run build:wasm:frontend   # → dist-wasm/ (Pages deploys on every main push
 ├── crates/ (15)  agent · os · os-wasm · disk · erasure · web (18 api) · sync · db
 │                 types · crypto · compression · search · faces · scene · tests
 ├── src-tauri/ (20 command modules · lib.rs · tauri.conf.json 1400×900)
+├── cli/ (Go `cyb`: cobra + lipgloss/bubbles/huh/glamour · REST-first)
+├── install.sh + install.ps1 (checksum-verified universal installer)
 ├── docker/server/ (headless web entrypoint) · Dockerfile · docker-compose.yml
 ├── tests/frontend/ (25 files · 281 tests — scene 42 · memory · canal/ship · hermes · panel-aliases)
 ├── scripts/ (check-version · android-signing · os-* ops · generate-icon-set)
 ├── docs/ OPERATIONS · SECURITY · MEMORY · HERMES-INSIGHTS · AGENT-REVIEW · OPENCODE-PORT …
-├── .github/workflows/ ci.yml (13 jobs) · release.yml (v* → 8 families + GHCR)
+├── .github/workflows/ ci.yml (14 jobs) · release.yml (v* → 9 families + GHCR)
 ├── .gitlab-ci.yml (GitLab mirror: SaaS-Linux jobs run; windows/macos are
 │   manual + allow_failure until tagged runners exist; release ships produced
 │   families + SHA256SUMS as Generic Packages with a GitLab Release)

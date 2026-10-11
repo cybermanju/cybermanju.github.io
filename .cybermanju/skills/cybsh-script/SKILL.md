@@ -1,6 +1,6 @@
 ---
 name: cybsh-script
-description: Write `.cybsh` automation scripts for CyberManju OS (interpreted, no build): python-style print/if/def/try, dicts/lists, inline cybsh, js expressions, fetch, capabilities, replay journals, ui/theme, providers.
+description: Write `.cybsh` automation scripts for CyberManju OS (interpreted, no build): python-style print/if/def/try/match, dicts/lists, inline cybsh, js expressions, fetch, capabilities, replay journals, ui/theme, providers, args/env, imports.
 version: 1
 tools: [read, list, grep, glob]
 ---
@@ -12,6 +12,8 @@ Terminal** — no compiler, no build step. Run it with:
 ```bash
 run /scripts/tidy.cybsh                              # execute
 run /scripts/tidy.cybsh --dry                        # parse + budget-check only
+run /scripts/tidy.cybsh --lint                       # style warnings only
+run /scripts/tidy.cybsh --fmt                        # print canonical format
 run /scripts/tidy.cybsh --json                       # machine output {path, vars, caps, calls, output}
 run /scripts/tidy.cybsh --record nightly.json        # capture sh/fetch into a journal
 run /scripts/tidy.cybsh --replay nightly.json        # replay journal, no network/exec
@@ -20,7 +22,10 @@ run /scripts/tidy.cybsh --replay nightly.json        # replay journal, no networ
 The file **must** end in `.cybsh` (otherwise `run` refuses with
 `invalid:`). Same language on all three transports (native shell
 `crates/os/src/script.rs`, Pages twin `src/utils/cybshScript.ts`, WASM
-fallback in `crates/os-wasm/src/os.rs`).
+fallback in `crates/os-wasm/src/os.rs`). Runnable examples ship in
+`examples/` — `tour.cybsh` covers almost everything below (start there;
+copy the dir to `/scripts` to run them, since `tour` imports
+`/scripts/lib.cybsh`).
 
 Pin the language and declare least privilege up top (both optional,
 both recommended):
@@ -92,6 +97,40 @@ readable, assignments never escape; recursion bounded (call depth 32);
 (`len/int/str/json/split/range/sh/set/push/del/keys/values`, literals,
 `and/or/not`) cannot be redefined — one meaning per name.
 
+## Match, await, import, with, pipes, inputs (one way each, Oils rule)
+
+```python
+match sh("sync status --json"):          # Rust-style Result: failing `sh`
+  ok(st):                                # becomes the `err` arm, no abort
+    print st.jobs
+  err(e):
+    print "sync unavailable: " + e
+  else:                                  # `else:` catches anything left
+    print "unexpected"
+
+let it = ok("fine")                      # constructors + `?` unwrap
+print it?                                # postfix `?` (err aborts w/ line N)
+print unwrap(err("x"))                   # same, function form
+
+await len(sh("sync status --json").jobs) == 0 timeout 30   # poll till truthy
+# detached jobs (`sync start`, `ai ask`): `await` polls logically, no
+# sleep — a still-falsy expr after N tries fails as `timeout:` (catchable)
+
+import "/lib/util.cybsh" as u            # merge another file's `def`s only
+print u_greet("manju")                   # (caps/frontmatter stay local;
+                                         # `.cybsh` required, 4 deep max)
+
+with tmp = sh("ls / --json"):            # scoped block: assignments inside
+  print len(tmp)                         # never escape (RAII/Vue-scope rule)
+
+print "a,b,c" |> split(",") |> len       # `x |> f(a)` is `f(x, a)` (Nushell)
+print "hi" |> greet                      # user `def`s pipe too
+
+print args                               # `run f.cybsh -- a b` binds argv
+print arg(0, "weekly")                   # indexed + fallback
+print env("HOME", "/")                   # host env (ambient, unjournaled)
+```
+
 ## Values: text is UI, structure is API (Nushell rule)
 
 `null true false` numbers strings lists **dicts** (sorted keys —
@@ -153,6 +192,22 @@ catch:
   sh "echo sync-offline"
 ```
 
+Host files use the same verbs with `-os` (native shell only: sdcard on
+Android, process cwd on desktop). `deny=<verb>` covers the `-os` variant
+too (`deny=rm` refuses `rm -os`):
+
+```python
+try:
+  let photos = sh("ls -os /sdcard/DCIM --json")
+  sh("cp -os /sdcard/DCIM/shot.jpg /photos/shot.jpg")
+catch e:
+  # static/Pages has no host filesystem: `-os` answers `unsupported:`
+  print "host unavailable here: " + e
+```
+
+Record once (`--record`) and `-os` output replays byte-identically
+(`--replay`) on transports without a host — the journal bridges them.
+
 ## `js` expressions (subset, no engine needed)
 
 ```python
@@ -176,11 +231,75 @@ print len(body)
   `unsupported:` — **unless replaying a journal** (below), which serves
   `fetch` deterministically everywhere.
 - Providers/durability are just shell verbs — prefer them over `fetch`:
-  `providers`, `quota`, `sync status|list`, `disk`, `mount`,
-  `scrub`, `repair`, `gc`, `lease status`, `compress|decompress`,
+  `providers`, `quota`, `sync status|list|move <file> <from> <to>`, `disk`, `mount`,
+  `scrub`, `repair`, `gc`, `lease status`, `compress [lz4|zstd|brotli|triple]|decompress`,
   `encrypt|decrypt|keygen`, `search|grep|find`.
 - Provider files live at `/providers/<mountId>/…` — same `cp/mv/rm/mkdir`
   verbs, cross-provider moves copy-then-delete.
+
+## Namespaces: volume, providers, host (touch/move files anywhere)
+
+`ls /` shows the whole virtual drive in one view: the vault volume **plus**
+a synthetic `providers/` entry for the provider namespace (a real volume
+directory literally named `providers` wins, and the namespace shadows it).
+
+```bash
+ls /                                 # vault volume + providers/ (discovery)
+ls /providers                        # every mount/config ( Drive, GitHub, GitLab )
+ls /providers/<id>/docs              # files + folders, folders first
+cat /providers/<id>/README.md        # 1 MiB print cap (cp to read fully)
+cp /providers/<a>/f.md /notes.md     # provider → vault
+cp /notes.md /providers/<b>/f.md     # vault → provider (BLAKE3-verified)
+mv /providers/<a>/f /providers/<b>/g # copy → verify → delete source
+sync move notes.txt <a> <b>          # move a *synced copy's* home provider
+rm /providers/<id>/old.md            # rm -r for provider dirs
+mkdir -p /providers/<id>/new/dir    # `.keep` marker (git has no empty dirs)
+stat /providers/<id>/f.md [--json]
+cd /providers/<id>/docs              # relative paths keep working after
+```
+
+The `-os` flag transposes the same file verbs onto the **host (device)
+filesystem** — shared storage on Android (`/sdcard`), the process working
+directory on desktop. Both operands of `cp -os`/`mv -os` are host paths;
+in `-os` mode even a literal `/providers/…` is a host path.
+
+```bash
+ls -os                                # shared-storage root (sdcard on Android)
+ls -os /sdcard/Download               # absolute or host-relative paths
+cat -os /sdcard/a.txt                 # 1 MiB print cap, like provider reads
+cp -os /sdcard/a.txt /vault-drop/a.txt
+mv -os /sdcard/old.txt /sdcard/new.txt  # cross-filesystem = copy → verify → delete
+rm -os /sdcard/tmp.txt                # rm -os -r for host dirs
+mkdir -os -p /sdcard/new/dir
+touch -os /sdcard/new/note.txt
+stat -os /sdcard/a.txt [--json]
+du -os /sdcard/Download [--json]
+cd -os /sdcard/Music                  # moves the *host* cwd (volume cwd untouched)
+pwd -os                               # show the host cwd
+```
+
+Host verbs are `ls/cd/pwd/cat/cp/mv/rm/mkdir/touch/stat/du/df` plus the
+read verbs `find/grep/head/tail/wc` and `write` — any other verb with `-os`
+refuses with `unsupported:` instead of touching the volume. Pure commands
+and script wrappers agree on every transport: `sh("ls -os …")` / `$ ls -os`
+go through the same shell choke point as the terminal line, so a script
+sees the host listing natively and `unsupported:` anywhere else.
+Host access is best-effort: a denied directory answers `not_found:` with
+the OS reason (on Android, grant a folder via Setup → Providers → Local
+folder when the sandbox withholds sdcard). The static/Pages build has no
+host filesystem: `-os` there answers `unsupported:` on all three paths —
+single-command lines, chained `&&`/`;` lines, and direct `wasm` dispatch —
+replay a journal or run the line in the desktop/Android app.
+
+For the AI agent: the `bash` tool runs these same cybsh verbs (cybsh-first
+in `auto` mode), so touching or moving provider files or host files means
+`bash` with the lines above — `read/list/write/edit/grep/glob` stay
+volume-contained and refuse escapes. Prefer `--json` (`ls --json`,
+`ls -os --json`, `stat --json`) and capture with `sh("… --json")` so the
+listing materializes into structure instead of parsed text. Vault/secret
+paths (`*.cybermanju`, `master.passphrase`, `keystore.json`) are never
+synced or moved; one provider/disk holds the keys for the rest
+(`SyncConfig.keyHolder` — set it on the provider card, not from a script).
 
 ## Replay journals — determinism you can file
 
@@ -196,23 +315,35 @@ The journal captures every `sh` output and `fetch` body, fingerprinted
 (FNV-1a/64) by script source. Replaying changed code is an `integrity:`
 refusal, never a silent lie; a missing call is `not_found:`.
 
+Declare schedule/trigger frontmatter (convention, first 200 lines —
+`run --json` reports it; a missing `on:` defaults to manual):
+
+```python
+# schedule: nightly
+# on: inbox, 02:00
+# desc: tidy provider inbox, report, restyle
+```
+
 ## OS interface — colours and theme
 
 ```bash
 ui get                                 # show theme + accent
-ui theme mac-dark                      # system: mac-light|mac-dark|mac-graphite-light|mac-graphite-dark|mac-midnight
-                                       # color light: ocean-light|sunset-light|forest-light|lavender-light|rose-light
-                                       # color night: ocean-night|forest-night|ember-night|nebula-night|cyber-night
+ui theme os-dark                        # 5 themes: os-dark|os-light|os-graphite
+                                        # (flat set) + plasma-dark|plasma-light
+                                        # (Breeze-like set)
 ui accent #ff2d55                      # #rrggbb|#rgb, or `default` for system
-theme nebula-night                     # short form (theme only)
+theme plasma-dark                      # short form (theme only)
 ```
+
+(Pre-remake ids like `mac-dark`/`nebula-night` still resolve — they
+migrate by mode — but write the five canonical ids in new scripts.)
 
 Every mutation prints a machine `ui: theme=…` / `ui: accent=…` line: the
 Terminal applies it live via `useTheme()`, and it persists to the volume
 mirror (`/.cybermanju/theme.json`) + `localStorage`. From scripts:
 
 ```python
-sh "ui theme mac-dark"
+sh "ui theme os-dark"
 if "dark" == "dark":
   sh "ui accent #0a84ff"
 ```
@@ -240,6 +371,8 @@ rides along as a suffix: `unknown command: 'x' (line 4)`.
 ```python
 # cybsh: 1
 # cap: deny=rm read=/providers/inbox write=/archive
+# schedule: nightly
+# on: inbox
 # /scripts/nightly.cybsh — tidy inbox, report, restyle
 
 def note(text):

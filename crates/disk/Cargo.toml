@@ -1,6 +1,6 @@
 [package]
 name = "cybermanju-disk"
-version = "0.1.1"
+version = "0.1.0"
 edition = "2021"
 description = ".cybermanju virtual disks: superblock, block allocator, volume merge, mount"
 

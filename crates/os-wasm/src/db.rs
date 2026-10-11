@@ -314,6 +314,8 @@ fn open_all_tables(db: &RedbDatabase) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         txn.open_table(DbDefs::get_kv_table())
             .map_err(|e| e.to_string())?;
+        txn.open_table(DbDefs::get_secrets_table())
+            .map_err(|e| e.to_string())?;
     }
     txn.commit().map_err(|e| e.to_string())?;
     Ok(())
@@ -671,6 +673,226 @@ pub fn db_dispatch(op: &str, args_json: &str) -> String {
                 .map(serde_json::Value::String)
                 .unwrap_or(serde_json::Value::Null),
         ),
+        // ── scheduler (cron) ──
+        // Pure persistence: the browser owns validation + next-fire
+        // computation via the TS twin (`src/utils/schedule.ts`), and the
+        // store-level tick runs due rows through the exec dispatcher. No
+        // background thread exists in WASM — this matches the plan.
+        "cron.list" => {
+            let mut out = Vec::new();
+            for (_, v) in read_all(DbDefs::get_schedules_table())? {
+                if let Ok(row) = serde_json::from_str::<serde_json::Value>(&v) {
+                    out.push(row);
+                }
+            }
+            Ok(serde_json::Value::Array(out))
+        }
+        "cron.save" => {
+            let mut row = args
+                .get("row")
+                .cloned()
+                .ok_or_else(|| "invalid: missing 'row' object".to_string())?;
+            let id = row
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let id = if id.is_empty() { new_id() } else { id };
+            row["id"] = serde_json::Value::String(id.clone());
+            let path = row
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !path.to_lowercase().ends_with(".cybsh") {
+                return Err(format!(
+                    "invalid: schedule path must be a .cybsh script (got `{path}`)"
+                ));
+            }
+            if row
+                .get("expr")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .is_empty()
+            {
+                return Err("invalid: schedule expression is required".to_string());
+            }
+            write_one(DbDefs::get_schedules_table(), &id, &row.to_string())?;
+            Ok(row)
+        }
+        "cron.delete" => {
+            let id = arg(&args, "id")?.to_string();
+            if !delete_one(DbDefs::get_schedules_table(), &id)? {
+                return Err(format!("not_found: schedule {id}"));
+            }
+            Ok(serde_json::Value::Bool(true))
+        }
+        "cron.history" => {
+            let id = arg(&args, "id")?.to_string();
+            let mut out = Vec::new();
+            for (_, v) in read_all(DbDefs::get_schedule_runs_table())? {
+                if let Ok(run) = serde_json::from_str::<serde_json::Value>(&v) {
+                    if run.get("scheduleId").and_then(|x| x.as_str()) == Some(id.as_str()) {
+                        out.push(run);
+                    }
+                }
+            }
+            // Newest first (mirror the server's `finished_at` sort).
+            out.sort_by(|a, b| {
+                let ka = a.get("finishedAt").and_then(|x| x.as_str()).unwrap_or("");
+                let kb = b.get("finishedAt").and_then(|x| x.as_str()).unwrap_or("");
+                kb.cmp(ka)
+            });
+            out.truncate(20);
+            Ok(serde_json::Value::Array(out))
+        }
+        "cron.runRecord" => {
+            // The browser tick appends a fire result (it executes the script
+            // client-side; there is no daemon thread to record for it).
+            let run = args
+                .get("run")
+                .cloned()
+                .ok_or_else(|| "invalid: missing 'run' object".to_string())?;
+            let run_id = run
+                .get("runId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let run_id = if run_id.is_empty() { new_id() } else { run_id };
+            write_one(DbDefs::get_schedule_runs_table(), &run_id, &run.to_string())?;
+            Ok(run)
+        }
+        // ── secrets keystore (Phase 3) ──
+        // The session vault passphrase is an argument on create/update/
+        // reveal — never stored. List/get strip `value_sealed` the same
+        // way the native `SecretMeta` projection does.
+        "secrets.list" => {
+            let mut out = Vec::new();
+            for (_, v) in read_all(DbDefs::get_secrets_table())? {
+                if let Ok(mut row) = serde_json::from_str::<serde_json::Value>(&v) {
+                    if let Some(map) = row.as_object_mut() {
+                        map.remove("valueSealed");
+                    }
+                    out.push(row);
+                }
+            }
+            // Title sort, mirror the native list.
+            out.sort_by_key(|r| {
+                r.get("title")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_lowercase()
+            });
+            Ok(serde_json::Value::Array(out))
+        }
+        "secrets.get" => {
+            let id = arg(&args, "id")?.to_string();
+            let raw = read_one(DbDefs::get_secrets_table(), &id)?
+                .ok_or_else(|| format!("not_found: no secret `{id}`"))?;
+            let mut row: serde_json::Value =
+                serde_json::from_str(&raw).map_err(|e| format!("integrity: bad row: {e}"))?;
+            if let Some(map) = row.as_object_mut() {
+                map.remove("valueSealed");
+            }
+            Ok(row)
+        }
+        "secrets.create" | "secrets.update" => {
+            let mut row = args
+                .get("row")
+                .cloned()
+                .ok_or_else(|| "invalid: missing 'row' object".to_string())?;
+            let id = row
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let id = if id.is_empty() { new_id() } else { id };
+            row["id"] = serde_json::Value::String(id.clone());
+            let title = row
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if title.is_empty() {
+                return Err("invalid: secret title is required".to_string());
+            }
+            row["title"] = serde_json::Value::String(title);
+            // Re-seal when a plaintext `value` is present; otherwise keep
+            // the existing sealed blob (update semantics).
+            if let Some(plaintext) = args.get("value").and_then(|v| v.as_str()) {
+                let passphrase = opt_arg(&args, "passphrase").unwrap_or_default();
+                if passphrase.is_empty() {
+                    return Err(
+                        "unsupported: no vault passphrase — unlock the session first".to_string(),
+                    );
+                }
+                if plaintext.trim().is_empty() {
+                    row["valueSealed"] = serde_json::Value::String(String::new());
+                    row["hasValue"] = serde_json::Value::Bool(false);
+                } else {
+                    let sealed = crate::crypto::seal_blob_str(&passphrase, plaintext)
+                        .map_err(|e| format!("integrity: failed to seal secret: {e}"))?;
+                    row["valueSealed"] = serde_json::Value::String(sealed);
+                    row["hasValue"] = serde_json::Value::Bool(true);
+                }
+            } else if op == "secrets.create" {
+                row["valueSealed"] = serde_json::Value::String(String::new());
+                row["hasValue"] = serde_json::Value::Bool(false);
+            } else if row.get("valueSealed").is_none() {
+                // Partial update without a value on a row that never had one.
+                row["valueSealed"] = serde_json::Value::String(String::new());
+                row["hasValue"] = serde_json::Value::Bool(false);
+            }
+            // Timestamps mirror the native `now()`; fill defaults when
+            // absent (the caller may pass `now` for deterministic tests).
+            for field in ["createdAt", "updatedAt"] {
+                if row
+                    .get(field)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .is_empty()
+                {
+                    row[field] = serde_json::Value::String(now.to_string());
+                }
+            }
+            write_one(DbDefs::get_secrets_table(), &id, &row.to_string())?;
+            if let Some(map) = row.as_object_mut() {
+                map.remove("valueSealed");
+            }
+            Ok(row)
+        }
+        "secrets.delete" => {
+            let id = arg(&args, "id")?.to_string();
+            if !delete_one(DbDefs::get_secrets_table(), &id)? {
+                return Err(format!("not_found: no secret `{id}`"));
+            }
+            Ok(serde_json::Value::Bool(true))
+        }
+        "secrets.reveal" => {
+            let id = arg(&args, "id")?.to_string();
+            let raw = read_one(DbDefs::get_secrets_table(), &id)?
+                .ok_or_else(|| format!("not_found: no secret `{id}`"))?;
+            let row: serde_json::Value =
+                serde_json::from_str(&raw).map_err(|e| format!("integrity: bad row: {e}"))?;
+            let sealed = row
+                .get("valueSealed")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if sealed.is_empty() {
+                return Err(format!("not_found: secret `{id}` has no stored value"));
+            }
+            let passphrase = opt_arg(&args, "passphrase").unwrap_or_default();
+            if passphrase.is_empty() {
+                return Err(
+                    "unsupported: no vault passphrase — unlock the session first".to_string(),
+                );
+            }
+            let value = crate::crypto::open_blob_str(&passphrase, sealed)
+                .map_err(|e| format!("integrity: failed to open sealed secret: {e}"))?;
+            Ok(serde_json::json!({ "value": value }))
+        }
         // ── users ──
         "users.list" => {
             let mut out = Vec::new();

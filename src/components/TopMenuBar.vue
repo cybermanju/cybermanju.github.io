@@ -65,6 +65,12 @@
     </div>
 
     <div class="tmb-right">
+      <!-- Mobile-only status chips: single header owns online + vault count
+        so the launcher never renders a second clock/status row. -->
+      <span class="tmb-mobile-meta" aria-label="Connection and vault status">
+        <span class="tmb-net" :class="{ off: !online }"><span class="tmb-dot" aria-hidden="true" />{{ online ? 'Online' : 'Offline' }}</span>
+        <span class="tmb-vaults">{{ vaultCount }}</span>
+      </span>
       <div class="sys-tray">
         <button
           class="tray-icon tray-icon--encryption"
@@ -103,6 +109,18 @@
           @click="theme.cycleTheme()"
         >
           <AppIcon :name="theme.mode.value === 'light' ? 'solar:sun-bold' : 'solar:moon-bold'" :size="14" />
+        </button>
+
+        <button
+          v-if="msgHub.supported"
+          class="tray-icon tray-icon--messages"
+          type="button"
+          title="Messages"
+          aria-label="Messages"
+          @click="launcher.setMessagesOpen(true)"
+        >
+          <AppIcon name="solar:chat-round-dots-bold" :size="14" />
+          <span v-if="msgHub.unread.value > 0" class="tray-badge">{{ msgHub.unread.value > 99 ? '99+' : msgHub.unread.value }}</span>
         </button>
 
         <button
@@ -148,15 +166,29 @@
 import AppIcon from '@/components/AppIcon.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useLauncherStore } from '@/stores/launcher'
+import { useMessages } from '@/composables/useMessages'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
 
 const store = useAppStore()
+const launcher = useLauncherStore()
+const msgHub = useMessages()
 const wm = useWindowManager()
 const theme = useTheme()
 const searchQueryShort = computed(() => store.searchQuery.trim().length > 0)
 
 const searchFocused = ref(false)
+
+// Mobile single-header status: connectivity + vault count live here so the
+// launcher must not render its own clock/status row (no duplicated clocks).
+const online = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
+const vaultCount = computed(() => {
+  const n = store.disks.length
+  return `${n} vault${n === 1 ? '' : 's'}`
+})
+function onOnline() { online.value = true }
+function onOffline() { online.value = false }
 
 const timeStr = ref('')
 const dateStr = ref('')
@@ -171,10 +203,16 @@ function updateClock() {
 onMounted(() => {
   updateClock()
   clockTimer = setInterval(updateClock, 1000)
+  window.addEventListener('online', onOnline)
+  window.addEventListener('offline', onOffline)
+  // Best-effort so the mobile vault chip is correct on first paint.
+  void store.fetchDisks().catch(() => {})
 })
 
 onUnmounted(() => {
   if (clockTimer) clearInterval(clockTimer)
+  window.removeEventListener('online', onOnline)
+  window.removeEventListener('offline', onOffline)
 })
 
 const openMenu = ref<string | null>(null)
@@ -698,6 +736,27 @@ onUnmounted(() => {
   color: var(--ui-accent);
 }
 
+.tray-icon--messages {
+  position: relative;
+}
+
+.tray-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 15px;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #f2475e;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+}
+
 .tmb-separator {
   width: 1px;
   height: 18px;
@@ -757,26 +816,76 @@ onUnmounted(() => {
   }
 }
 
+/* Mobile status chips live in this header only — hidden on desktop. */
+.tmb-mobile-meta {
+  display: none;
+}
+.tmb-net {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.tmb-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ui-success);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--ui-success) 55%, transparent);
+  flex-shrink: 0;
+}
+.tmb-net.off .tmb-dot {
+  background: var(--ui-danger);
+  box-shadow: none;
+}
+.tmb-vaults {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (max-width: 768px) {
+  /* Single-line mobile header: logo + status + theme + one clock.
+     Nothing wraps — extra tray icons stay hidden, meta ellipsizes. */
   .top-menu-bar {
     box-sizing: border-box;
-    height: 52px;
-    min-height: 52px;
-    padding: 4px 8px;
+    height: calc(52px + env(safe-area-inset-top, 0px));
+    min-height: calc(52px + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) 8px 4px;
     gap: 6px;
+    flex-wrap: nowrap;
+    overflow: hidden;
   }
-  .tmb-left { flex: 0 0 40px; }
-  .app-logo { width: 40px; height: 40px; justify-content: center; padding: 0; }
+  .menu-items,
+  .tmb-center {
+    display: none !important;
+  }
+  .tmb-left { flex: 0 0 auto; min-width: 0; }
+  .app-logo { width: 40px; height: 40px; justify-content: center; padding: 0; flex-shrink: 0; }
   .logo-mark img { width: 22px; height: 22px; }
-  .tmb-right { flex: 1; min-width: 0; justify-content: flex-end; gap: 4px; }
-  .sys-tray { flex: 0 1 auto; gap: 4px; overflow: visible; }
+  .tmb-right { flex: 1; min-width: 0; justify-content: flex-end; align-items: center; gap: 4px; flex-wrap: nowrap; overflow: hidden; }
+  .tmb-mobile-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ui-text-2);
+  }
+  .tmb-vaults { color: var(--ui-text-3); font-weight: 500; }
+  .sys-tray { flex: 0 0 auto; gap: 4px; overflow: visible; }
   .tray-icon { flex: 0 0 40px; width: 40px; height: 40px; border-radius: 14px; }
   .tray-icon--encryption,
   .tray-icon--compression,
   .tray-icon--effects,
-  .tray-icon--login { display: none; }
+  .tray-icon--login,
+  .tray-icon--account,
+  .tray-icon--commands { display: none; }
   .tmb-separator { display: none; }
-  .clock { min-height: 40px; padding: 0 8px; }
+  .clock { min-height: 40px; padding: 0 8px; flex-shrink: 0; }
   .clock-time { font-size: 13px; }
 }
 </style>

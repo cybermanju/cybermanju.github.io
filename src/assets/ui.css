@@ -388,10 +388,14 @@ body.cybermanju-offline .server-only {
     display: none !important;
   }
 
-  /* The launcher owns the home status row; open apps get a compact 52px
-     action header. Desktop menus/search stay in the launcher and palette. */
+  /* Single unified mobile header (logo + status + theme + one clock) on
+     every surface. Desktop menus/search stay in the launcher and palette.
+     Height includes the notch so sheets (top: 52px + safe-area) never expose
+     a gap row behind them. */
   .top-menu-bar {
-    min-height: 52px;
+    min-height: calc(52px + env(safe-area-inset-top, 0px));
+    flex-wrap: nowrap !important;
+    overflow: hidden !important;
   }
   .top-menu-bar .menu-items,
   .top-menu-bar .tmb-center {

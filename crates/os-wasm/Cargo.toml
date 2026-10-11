@@ -1,6 +1,6 @@
 [package]
 name = "cybermanju-os-wasm"
-version = "0.1.1"
+version = "0.1.0"
 edition = "2021"
 description = "CyberManju OS — WASM bridge for browser-based crypto, compression, and storage"
 

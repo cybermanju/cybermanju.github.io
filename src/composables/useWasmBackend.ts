@@ -339,6 +339,13 @@ interface MainDiskState {
 let mainDisk: MainDiskState | null = null
 let mainDirty = false
 
+/** Session vault passphrase held after `.cybermanju` unlock (never
+ *  persisted by this module). Secrets seal/open on WASM pass it as an
+ *  argument — empty string means locked, and the ops answer `unsupported:`. */
+export function sessionVaultPassphrase(): string {
+  return mainDisk?.passphrase ?? ''
+}
+
 function mainDiskStatus() {
   return {
     backend: 'memory' as const,

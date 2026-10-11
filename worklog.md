@@ -444,6 +444,384 @@ Stage Summary:
 - Added responsive contract coverage for full-bleed sheets, OAuth hand-off, credential gating, touch-first Files tools, Agent navigation and narrow-window layouts.
 - Verified: version check, icon generation, `vue-tsc --noEmit`, 48 frontend test files / 570 tests, and `npm run build`.
 
+## 2026-10-09 — Fixed OAuth broker, mobile cybsh, onboarding ends
+
+- Removed OAuth endpoint/public-key customization: broker is fixed at build time
+  (`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` via CI secrets). `getSupabaseConfig()`
+  reads build env only; `set/clear/hydrateSupabaseConfig` are no-op shims.
+  Settings broker card is read-only status; Accounts banners no longer link to a
+  Configure flow; `supabase-config` tests cover env-only behavior.
+- Fixed mobile terminal: added native IPC `os_exec/os_complete/os_stat/os_ls/os_du/os_write`
+  + `get_disk/destroy_disk` (`src-tauri/src/commands/os_shell.rs`, registered in `lib.rs`);
+  renamed disk `disk_id` params to `id` to match frontend invoke args. Frontend
+  routes the full OS/disk set over IPC on Tauri-mobile with no server URL, and every
+  other REST_FIRST command tries IPC first before REST — so cybsh works in the
+  Android WebView instead of dying on localhost:3456.
+- Onboarding ends: fixed "4 quick things" copy drift, removed the mobile wizard's
+  inverted auto-reassign of local vault partitions to a fresh provider, added a
+  provider picker + default-model placeholder to the mobile agent step.
+- Verified: static review of all touched call sites (no local node_modules/cargo per
+  repo rules — `vue-tsc`/vitest/cargo left to CI).
+
+## 2026-10-09 — cybsh virtual-drive listing + `-os` host flag + script/skill coverage
+
+- `ls /` now shows the whole virtual drive: vault volume entries plus a synthetic
+  `providers/` row (both text and `--json`; a real volume dir named `providers`
+  wins and the namespace still shadows it, as documented).
+- New `-os` flag transposes the file verbs onto the host filesystem — shared
+  storage on Android (`/sdcard` → `/storage/emulated/0` fallback), process cwd
+  on desktop. Covered verbs: `ls/cd/pwd/cat/cp/mv/rm/mkdir/touch/stat/du`
+  (both `cp -os`/`mv -os` operands are host paths; `mv -os` falls back to
+  copy → verify → delete across filesystems; `cat -os` has the 1 MiB print
+  cap). A separate host cwd (`cd -os`/`pwd -os`) leaves the volume cwd alone.
+  Any other verb with `-os` refuses with `unsupported:` instead of silently
+  touching the volume; provider paths never mix with `-os` (`invalid:`).
+- `.cybsh` scripts get it for free: native `run`/`sh` lines go through
+  `execute()`, `--record`/`--replay` journals capture `-os` output for
+  deterministic replay on host-less transports, and `deny=<verb>` capabilities
+  cover `-os` variants on both the Rust and TS interpreters. Static/Pages
+  (`staticCybsh.ts`, `os-wasm`) refuse `-os` with honest `unsupported:`.
+- Docs: agent skill (`.cybermanju/skills/cybsh-script/SKILL.md`) gains a
+  namespaces section (volume + `/providers` + `-os`, agent `bash` guidance,
+  `--json` capture pattern); `docs/OPERATIONS.md` gains §4a2.
+- Tests: native `ls / --json` providers entry, `-os` refusal outside host
+  verbs, host verb round-trip in a temp dir, script `deny=` covering `-os`
+  (Rust); static `-os` refusal + TS deny covering `-os` (frontend).
+- Verified: static review only (no local cargo/node_modules per repo rules —
+  Rust + vitest left to CI).
+
+## 2026-10-09 — iOS-aesthetic mobile home (iOS4Android study, rounds 1+2)
+
+- Cloned https://github.com/itsJoKr/iOS4Android to /tmp/opencode/ios4android
+  (outside repo git) and mined all 8 lib files for portable patterns:
+  PageView pager + IconGrid (2 rows x 4) + DotsIndicator (7.5px dots, 16px
+  spacing) + StatusBar/XStatusBar (carrier left, clock centered, battery
+  right, X notch pill, 30/52px bars) + LauncherIcon squircle (60px, r=15,
+  12px label, 5px gap) + dock (92px, rounded, no labels) + wallpaper stack.
+- Round 1 (`MobileLauncher.vue`, `MobileNav.vue`): springboard pager
+  (MLA_PAGE_SIZE=8, snap scroll, rAF page tracking, tappable dots, reset on
+  search), 3-zone status bar, safe-area-top, CSS wallpaper wash (no binary
+  assets), squircle tiles (16px) + gloss, dots (7.5px/16px), dock blur 28px
+  + radius 28, home-indicator pills, spring press states, focus-visible
+  ring, tab haptics, heavier tab-bar blur. Reference bugs NOT copied:
+  DotsIndicator renders 3 dots for 2 pages and its onPageSelected is never
+  wired — ours renders exact counts and dots actually jump pages.
+- Round 2 (density): column gap 20->16, title clamp 29-36->24-30, grid gap
+  19->16, widgets 76->70px + radius 22 (iOS widget corner), search 49->47px
+  + placeholder "Search" (Spotlight wording), dock icons 47->52px, press
+  feedback brighten->dim (native SpringBoard touch-down), so page 1 + dock
+  fit a phone viewport without scrolling like the reference.
+- Layering check (`DesktopShell.vue`): launcher sits UNDER fullscreen
+  sheets, so dock-vs-tab-bar double chrome cannot occur — no change needed.
+- Honest limits: no notch-variant bar (notch not detectable in CSS), no
+  photographic wallpaper (Apple imagery + binary weight; CSS homage
+  instead), off-page icons stay tabbable (no inert management yet).
+- Tests: new `tests/frontend/mobile-ios.test.ts` (13 asserts); targeted +
+  full suite green (50 files / 597 tests, incl. existing responsive
+  contract). `vue-tsc` shows only 2 pre-existing errors in untouched
+  working-tree files (FileManager hdd icon + call, MobileSetupWizard ??);
+  none in touched files.
+
+## 2026-10-09 — Mock/fake/placeholder audit + full namespace wiring (vault ⇄ provider ⇄ device)
+
+- Audit result: zero TODO/FIXME/stub markers in shipped source (only input
+  `placeholder=` attributes and test doubles). The real "mocks" were
+  behavioral: dead-end refusals, unfiltered bulk actions, and one genuinely
+  broken contract — fixed below, nothing simplified.
+- `upload_file` shape mismatch (native drag-drop + provider→vault broken):
+  the frontend always sent `{fileName, fileData, parentPath}` (static-host
+  shape) while Tauri Rust demanded `{file_path, parent_path}` (missing-field
+  rejection on desktop). Rust now accepts both: path uploads stream from
+  disk as before; byte uploads land under `./imports/{id}_{name}` and go
+  through `import_file` (hash/EXIF/index identical), then rename to the real
+  file name.
+- New `get_sync_usage` Tauri IPC twin (pure function of the saved config —
+  `oauth_start` stays REST-only by design: it mints dashboard redirect
+  URLs). Registered in `lib.rs`, added to `MOBILE_NATIVE_OS_COMMANDS`, so
+  Android gets real quota instead of a localhost refusal.
+- Provider moves grow up: `openProviderMove`/`doProviderMove` no longer
+  refuse folders — files and trees cross via `moveAnywhere` (verified,
+  same-object guard). `saveProviderFileToVault` preserves folder shape
+  under `/<folder>/…` (new `ensureVaultDirs`) instead of flattening
+  basenames into `/` (which collided and overwrote same-named files).
+- Namespace gates: vault-only actions (shield engines, versions/ACL,
+  share links, collections, tags, sync/probe/restore, bulk
+  encrypt/compress/sync) now filter or explain on provider/device rows
+  (`isVaultRow`/`activeIsVault`) instead of one error toast per file;
+  `doSyncTo`/`bulkSync` filter to vault rows; `doDelete` partitions
+  host (permanent `rm -os -r`) / provider (canal) / vault (trash).
+- Device text editing: host text files get an in-place modal editor
+  (strict UTF-8, 512 KiB cap, binary refuses honestly, save-on-close),
+  mirroring the SAF phone-folder editor; menu + inspector entry points,
+  Escape/mobile-back handling.
+- Reviews/fixes while passing through: `solar:hdd-bold` never existed in
+  the installed icon set — replaced with `solar:folder-tree-bold` and
+  regenerated the icon bundle; removed a raw NUL byte that landed in a
+  string literal (now `'\0'`); `trackShellCwd` ignores `cd -os` (host cwd
+  is a separate namespace — the volume mirror kept showing `-os "…"`).
+- Deliberately NOT rewired: TransferGraph keeps its own engine (per-row
+  cancel, artifact passphrase, cap pre-refusal — a rewire would lose
+  features); `oauth_start` stays server-side (needs the OAuth client).
+- Docs: `transport-routes.test.ts` updated to the intended mobile contract
+  (cybsh layer + quota over IPC, with backend-registration assertions).
+  AGENTS.md module/handler counts left for a maintainer re-verification
+  (22 mods / 153 handlers currently; drift predates this session).
+- Verified: `vue-tsc` clean in all touched files (remaining 4 errors are
+  the other agent's in-flight `staticCybsh`/`cybshScript`/`MobileSetupWizard`
+  refactor); `npm test` 595/600 green — the 5 failures sit in that same
+  in-flight refactor (`cybsh-script`, `setup-wizard`), whose import graphs
+  don't touch this work; targeted files covering this work
+  (`host-browse`, `transport-routes`, `shell-cwd`, `provider-browse`,
+  `local-dir`, `static-cybsh`) 115/115 green, incl. new
+  `host-browse.test.ts` (17 asserts). Rust left to CI per repo rules
+  (no local cargo).
+
+## 2026-10-09 — iOS-style Settings sheet on phones
+
+- Double-reviewed `SettingsPage.vue` (560px rules) against the iOS Settings
+  language: large title, grouped inset lists with icon tiles, filtering
+  search, 44pt cell rhythm. Previous mobile sheet was a shrunken desktop
+  dialog (13px title, wrapping chip rows, stacked label-over-control rows,
+  search filtered chips only).
+- `SettingsPage.vue` (scoped CSS + small logic, desktop untouched):
+  SF stack + 26px/800 large title; grouped background (body tints 5% toward
+  text, groups stay solid surface, 14px radius — solid fills because phones
+  disable backdrop-blur globally); card icons become 28px accent-gradient
+  tiles with 15px/700 titles; jump chips collapse to one snap rail with
+  40px targets and a 16px search field; rows stay label-left/control-right
+  at 44px min-height with solid hairlines (wide segmented wraps, not
+  stacks); nested gesture/key tables lose their inner box; action buttons
+  40px.
+- Search now filters whole groups by label + row keywords
+  (`SECTION_KEYWORDS`, 7 sections) with an iOS "No results + Clear" state;
+  scroll spy skips `display:none` cards (`offsetParent` guard).
+- Verified: new `tests/frontend/settings-ios.test.ts` (9 asserts) + prior
+  suites green in targeted runs; `vue-tsc` clean on touched files. Full
+  suite: 607/609 — the 2 failures are pre-existing worktree edits in
+  `cybshScript.ts`/`cybsh-script.test.ts` (byte-count asserts, reproduce in
+  isolation, untouched by this change).
+
+## 2026-10-09 — WASM `-os` masquerade fix + `.cybsh` vs pure-command parity
+
+- Research: pure `ls -os` and script `sh("ls -os …")`/`$ … -os` share one
+  choke point per transport (native `dispatch`, static
+  `runStaticCybshLine`, wasm `dispatch` via `exec_result`), but the wasm
+  dispatcher had no `-os` guard at all — `ls -os` answered with a volume
+  listing (masquerade), `cat -os /x` looked up `/-os`, and chained
+  `ls -os && …` lines bypassed the static guard (`parseCybshLine → null`)
+  straight into the hole. Native and static both refused honestly.
+- Fix (`crates/os-wasm/src/os.rs`): `has_os_flag` + `os_refusal` guard at
+  the top of `dispatch()` (exempting `complete`, whose arg is a raw
+  prefix), same `unsupported: '<verb> -os' addresses the host filesystem
+  …` shape as the static layer; `help` gains the `-os`/sh-wrapper
+  guidance line. Static comment now names the three covered paths.
+- Tests: wasm x2 (`os_flag_never_masquerades_as_a_volume_answer` incl.
+  `--host`/`--os` aliases + chained `exec` + real `run` script file,
+  `os_flag_script_wrapper_refuses_like_the_terminal` via `exec_result`);
+  native shell test fixed (it asserted host verbs `grep/find/df/write -os`
+  refuse — they route to the host; now asserts true non-host verbs refuse
+  + `os_flag_pure_command_and_script_wrapper_agree`) and script verbatim-
+  passthrough test added; vitest `static-cybsh.test.ts` +2 (aliases,
+  non-host verbs, `run` + `sh("ls -os")` agreement).
+- Docs: `OPERATIONS.md` §4a2 + skill `SKILL.md` list the full 18 host
+  verbs (were stale at 10) and state the pure/wrapper agreement + the
+  three refused wasm paths explicitly.
+- Verified: `bash scripts/check-version.sh` green; `npx vue-tsc --noEmit`
+  clean; `static-cybsh.test.ts` 74/74. Full suite 623/626 — the 3
+  failures are concurrent-workstream edits in `cybshScript.ts` /
+  `cybsh-script.test.ts` (fetch byte-counts) + `settings-appearance`
+  (wallpaper toggle), all in files untouched by this change. Rust
+  `fmt/clippy/test` left to CI per repo rules.
+
+## 2026-10-09 — Skill audit: cybsh-script SKILL.md refreshed to recent docs
+
+- Audit (prompted check): the skill missed recent worklog items — stale
+  pre-remake theme ids, no v2 language surface, no `sync move`,
+  no `run --lint/--fmt`, no compress algos, no schedule frontmatter.
+- Fix (`.cybermanju/skills/cybsh-script/SKILL.md` only, no code):
+  canonical 5 theme ids (`os-dark/os-light/os-graphite/plasma-dark/
+  plasma-light`, legacy ids noted as migrating) in the theme table,
+  example, and nightly script; new "Match, await, import, with, pipes,
+  inputs" section (`match` with `ok/err/else` arms, `ok()` constructors +
+  `?`/`unwrap()`, `await … timeout N`, `import … as ns` (`ns_name` calls),
+  `with name = …:`, `|>`, `args`/`arg()`/`env()` — all verified against
+  `crates/os/src/script.rs` + `src/utils/cybshScript.ts` before writing);
+  `sync move` in the verb list + namespaces; `run --lint/--fmt` in the
+  run block; `compress [lz4|zstd|brotli|triple]`; `# schedule:/# on:/# desc:`
+  frontmatter + pinned nightly example; vault-never-synced + key-holder
+  agent note. Description line gains the v2 keywords for discovery.
+- Verified: `npx vue-tsc --noEmit` clean; `static-cybsh` green,
+  `cybsh-script` 38/40 — same 2 pre-existing concurrent-workstream fetch
+  failures as baseline (markdown-only change, no test imports the skill).
+  Rust untouched (nothing to validate in CI for this change).
+
+## 2026-10-09 — Android Gaveta de Apps (launcher bridge, no mocks)
+- New reusable crate `crates/launcher` (0.1.1, workspace member): `AndroidApp`/`IconPack` types, `validate_package_name` (`invalid:`), `sort_apps`, `pack_icon_candidates`; Android JNI layer (`queryIntentActivities` MAIN/LAUNCHER, `loadLabel`/`loadIcon` → 96px PNG data URL, `getLaunchIntentForPackage` + `FLAG_ACTIVITY_NEW_TASK` open, `ACTION_DELETE` uninstall, theme-discovery icon-pack query + drawable resolve); non-Android refuses `unsupported:` (never mock rows). Unit tests in-crate.
+- `src-tauri/src/commands/launcher.rs` (5 commands) wired into `lib.rs`; `cybermanju-launcher` dep added; `useTauri.invoke` routes `launcher_*` to device IPC, never REST.
+- `scripts/android-configure.sh`: `<queries>` MAIN/LAUNCHER (no `QUERY_ALL_PACKAGES`) + HOME/DEFAULT intent-filter (Home picker); `docs/ANDROID.md` §3 documents both.
+- Frontend: `types` (`AndroidApp`/`IconPack`/`LauncherOverride`), `utils/launcher` (order/filter/swap/gallery-resize/swipe-up, tested in `tests/frontend/launcher.test.ts` 6/6), `composables/useAndroidApps`, `stores/launcher` (per-key overrides `android:<pkg>`/`os:<panel>`, drawer state, localStorage), `components/AppDrawer` (swipe-up Gaveta: search, real icons, tap-to-open, hold-to-customize: rename, gallery icon, icon-pack apply, move, hide, uninstall, reset).
+- `MobileLauncher`: bottom-origin swipe-up opens the drawer, All-apps handle, home tiles honor rename/reorder/gallery-icon/hide with hold-to-customize sheet + Reset home.
+- Verified: `npx vue-tsc --noEmit` clean; `launcher.test.ts` 6/6; `check-version.sh` ok for `crates/launcher`; full `npm test` shows only the 2 pre-existing `cybsh-script` failures from the dirty worktree (pass on stash, unrelated files). Rust validation left to CI per AGENTS.md (no local cargo).
+
+## 2026-10-09 — Launcher re-review + messages hub (top-right icon)
+- Re-verified the JNI bridge against `jni` 0.21 docs and hardened it: per-row
+  `with_local_frame` (a 300-app drawer otherwise overflows the 512-entry
+  local-ref table and aborts the VM), owned-value `JValue::Object` args
+  (`JObject` is neither Clone nor Copy), exception-clear on every failure
+  path (a pending exception silently no-ops later calls), explicit
+  `ComponentName` fallback when `getLaunchIntentForPackage` is null,
+  `NullPtr(&'static str)` confirmed, `base64::Engine` import, clippy-safe
+  asserts. `AndroidApp` gains `socialApp` (exact list + long-token contains
+  + dot-segment shorts so `line` never fires in `offline`).
+- New messages surface in `crates/launcher`: `StoredMessage`,
+  `NotificationState`, `list_messages`/`clear_messages` (reads the mirror
+  file only), `notification_state` (Secure `enabled_notification_listeners`
+  vs our own package), `open_notification_settings`. Non-Android stubs stay
+  `unsupported:`.
+- `scripts/android-configure.sh`: writes `CybermanjuMessages.kt`
+  (NotificationListenerService → `cybermanju-messages.json` ring buffer,
+  social rule mirrored from Rust, Tiramisu-safe label lookup), manifest
+  `<service>` + social `<package>` queries (single `<queries>`, merged).
+  `bash -n` clean.
+- Frontend: `useMessages` (social/messages/state/unread/clear/settings),
+  launcher store (`messagesOpen`, `messagesSeenAt` persisted), `MessagesHub`
+  (quick-launch social row, stored messages newest-first with unread dots,
+  enable-access prompt, refresh/clear), top-right icon in the header tray
+  AND a floating home button (home has no header without open windows),
+  unread badge fed silently on mount + visibilitychange. `AppDrawer`
+  swipe-down close now checks grid `scrollTop` (no more slam-shut scrolls).
+- Verified: `npm run icons` (chat-round-dots-bold resolves) + `vue-tsc`
+  clean; `launcher.test.ts` 9/9; `check-version.sh` ok. Rust left to CI.
+
+## 2026-10-09 — Hub Clear-all dismisses live notifications too
+- The hub footer Clear only wiped the stored file; the live shade kept its
+  notifications. `launcher_clear_messages` now also fires an explicit
+  `CLEAR_NOTIFICATIONS` intent at the running `CybermanjuMessages` service
+  (`onStartCommand` → `cancelAllNotifications` + file wipe, `START_NOT_STICKY`),
+  best-effort so an old/missing service never fails the button (file clear is
+  the source of truth). Button relabeled "Clear all" with tooltip.
+- Verified: `bash -n` clean, `vue-tsc` clean, `launcher.test.ts` 9/9.
+
+## 2026-10-09 — Phase 1: scheduler (cron) end-to-end + Tasks → Schedules tab
+- TS twin of the Rust cron parser (`src/utils/schedule.ts`): `parseSchedule`
+  (5-field cron with `*,-,/`, `every Nm/h/d`, `@hourly/@daily/@weekly`,
+  `invalid:` errors), `nextFire` (UTC, ≤5 years probe), `previewSchedule`,
+  `describeSchedule`, `formatIn`. Fixed block-comment `*/15` parse error by
+  using `//` comments; `*/15` still parses as a step field.
+- Rust fixes blind-paired from the twin's tests: `parse_dow` (`7→0`,
+  sort+dedup — its own `sunday_seven_matches_zero` test would have failed in
+  CI), `describe()` renders full-range fields as `*` via `fmt_field`.
+- `cron_api.rs`: POST upserts when `id` is supplied (`created_at`,
+  `last_fired_at`, `last_run_id` preserved); new `upsert()`.
+- Transport: 7 `cron_*` commands over REST (`GET/POST /api/cron`,
+  `DELETE/POST …/{id}[/run|enable|disable|runs]`), `REST_FIRST`,
+  `MOBILE_NATIVE_OS_COMMANDS`, wasm `cron.list/save/delete/history/runRecord`
+  ops, static handlers (`cron_ensure_started` → true, `cron_set_enabled`,
+  `cron_run` → `runStaticSchedule`), `withScheduleFire` stamps validated
+  `nextFireAt` on every save path.
+- Static cybsh: `cron` verb (ls/add/rm/run/enable/disable/history +
+  did-you-mean) mirroring `crates/os/src/shell.rs::cron_cmd` output;
+  `runStaticSchedule(id, deps)` is the single execution path (verb, store
+  tick, wasm `cron_run`).
+- Store: `schedules` + `fetchSchedules/cronSave/cronDelete/cronRun/
+  cronSetEnabled/cronHistory`, browser tick (`tickSchedules`, 30s +
+  visibilitychange, static transport only — the daemon owns native).
+- UI: ProcessPanel gains `processes|schedules` tabs; Schedules tab is a
+  full CRUD (table mirrors `cron ls`, add/edit modal with live
+  `previewSchedule` validation + presets + run-on-boot, enable toggle,
+  Run-now, History modal). Aliases `cron|automation|schedules` →
+  `processes` + `{tab:'schedules'}`; palette entry "Open Schedules (cron)".
+- Tests: `schedule.test.ts` 19/19; static `cron` verb suite (7 tests:
+  add/list/run/toggle/rm lifecycle, frontmatter `# schedule:`, validation +
+  did-you-mean, failed-run recording, `not_found`); transport-routes cron
+  REST/IPC coverage; panel-aliases scheduler cases. Pre-existing
+  `cybsh-script` red (fetchText signature) fixed.
+- Verified: `check-version.sh` ok; `vue-tsc` clean; `npm test` 671/671.
+  Rust left to CI per AGENTS.md.
+
+## 2026-10-09 — Phase 3: secrets keystore (password manager) end-to-end
+- Rust data model: `crates/types/src/secrets.rs` (`SecretRow`, `SecretMeta`
+  structural never-leak projection, `SecretKind` login/card/note/apiKey);
+  `secrets` table + CRUD in `crates/db/src/database.rs` (opened in init +
+  snapshot export). Values sealed with `keystore::seal_str` (`seal:v1`,
+  Argon2id + ChaCha20Poly1305) under `master_passphrase()` — absent
+  passphrase answers `unsupported:`, never plaintext-at-rest.
+- REST: `crates/web/src/api/secrets.rs` (single source for Tauri + REST +
+  WASM twin): list/get return `SecretMeta` only; upsert seals `value` and
+  never echoes it; reveal opens the blob + `log_audit("secret.reveal")`;
+  delete audited. Wired in `lib.rs`; `ROUTED_SEGMENTS += "secrets"`;
+  mutations/reveal Admin-gated, list Authenticated.
+- Tauri: `src-tauri/src/commands/secrets.rs` (6 commands) + lib.rs
+  registration. WASM: `secrets.list/get/create/update/delete/reveal` ops in
+  `os-wasm/db.rs` (session passphrase is an argument, never stored);
+  `seal_blob`/`open_blob` exports in `os-wasm/crypto.rs` (inline base64,
+  byte-compatible with the native STANDARD engine — no new dep).
+- Agent tools (18→20): `secret_list` (metadata, default allow) +
+  `secret_get` (plaintext, default ask — approval card shows the title);
+  plan agents deny both; subagents exclude both; prompts ×3
+  (agent_loop, AgentPanel, useStudioAgent); AGENT_TOOL_META + AGENT_TOOLS
+  + balanced preset + `ensure_default_agent_permissions` (+secret_list).
+- UI: `SecretsPanel.vue` (category sidebar, search, list, detail card with
+  30s auto-hide Reveal, clipboard auto-clear Copy, edit/create modal with
+  live strength meter); `src/utils/password.ts` (crypto.getRandomValues,
+  rejection sampling, entropy bits) + `src/utils/clipboard.ts` (30s
+  overwrite, second-copy cancels first); PanelType `secrets` + aliases
+  `passwords|credentials` (`vault` deliberately not — AccountManager tab
+  collision); store `secrets` + 5 actions; transport routes REST/IPC/wasm.
+- Tests: `password-clipboard.test.ts` 10/10 (charset/entropy/strength/
+  fake-timer auto-clear); transport-routes secrets REST/IPC + Tauri wiring
+  + Admin-gate assertions; panel-aliases vault cases; agent-wasm-parity
+  plan-deny + toolMeta 20. `npm test` 692/692; `vue-tsc` clean;
+  `check-version.sh` ok. Rust left to CI per AGENTS.md.
+
+## 2026-10-09 — push.sh release flags + release.yml reuse mode (no-rebuild publish)
+- `push.sh`: new `--release` (commit `chore(release): vX.Y.Z`, push main,
+  create + push the `vX.Y.Z` tag → triggers the Release workflow full
+  rebuild; `-m`/`--release-notes-file` is the release-notes markdown,
+  prepended to the atlas body once published), `--release --last`
+  (dispatches `release.yml` in reuse mode — zero compilation, ships one
+  green CI run's `dist-*` artifacts unchanged; auto-resolves HEAD's latest
+  green run, pin with `--reuse-run ID`/`$PUSH_REUSE_RUN`), and `--move-tag`
+  (explicit delete/recreate of an existing tag at HEAD + force-update on
+  both remotes; refuses when a published GitHub release sits on the tag).
+- `release.yml`: new `workflow_dispatch` inputs (`tag`, `reuse_run_id`,
+  `notes`) + `resolve` job (tag/version check, zero compilation); every
+  build job (incl. `rust-check` and `docker-build`) skipped in reuse mode;
+  new `fetch-last-build` job downloads the CI run's `dist-*` artifacts via
+  `gh run download` and re-uploads them under `release-*` names so
+  `create-release` is byte-identical in both modes (fan-in guarded with
+  `if: ${{ !cancelled() && !failure() }}` since skipped needs skip
+  dependents by default); custom `notes` prepended to the atlas body.
+- `AGENTS.md` §3/§4 document the new flags and dispatch mode.
+
+## 2026-10-09 — Supabase broker: runtime Settings paste + baked into every desktop build
+- `useSupabase.ts`: broker is no longer build-env-only. `getSupabaseConfig()` returns
+  `{url,key,source:'settings'|'build-env'|'none'}` — an explicit Settings paste
+  (`cybermanju.supabaseUrl/Key` in localStorage) wins over the baked pair; half-filled
+  sides surface so the UI can name the missing half. `setSupabaseConfig()` validates
+  (http URL, key length) and returns an error string instead of being a no-op;
+  `clearSupabaseConfig()` forgets the paste and falls back to the baked pair;
+  `hydrateSupabaseConfig()` re-reads and returns the live state. A `storage` listener
+  keeps every window/tab of the same profile in sync. All "rebuild with
+  VITE_SUPABASE_…" throws now point at Settings → OAuth broker. Legacy
+  `VITE_SUPABASE_KEY` alias honoured even when `ANON_KEY` is present-but-empty.
+- Settings → OAuth broker card is honest again: Save persists, Forget falls back,
+  source label reads "saved in Settings on this device" vs "baked into this build",
+  plus a per-device note (paste repeats per device; minted tokens roam via sync).
+- Accounts panel: broker banner gains a working Configure button (`wm.open('settings')`
+  + `cybermanju:settings-focus` deep-link); all "missing from this build" copy in
+  Accounts/Setup/Mobile wizards now names the Settings destination; connected-accounts
+  hint states sign-in is per device.
+- CI/release: `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` now bake into
+  windows/linux/macos/arch builds (`ci.yml` + `release.yml`; arch exports through the
+  sudo shell; Flatpak inherits via the linux deb). `Dockerfile` takes the pair as
+  build-args (empty default = old Settings-paste behaviour); both docker jobs and
+  GitLab `docker-build` pass them. GitLab desktop jobs inherit the mirrored project
+  variables automatically (comments only, per the file's no-same-name rule).
+- `tests/frontend/supabase-config.test.ts` rewritten for settings-over-build
+  precedence, validation, fallback and alias (9 tests). `npm run typecheck` clean,
+  full suite 60 files / 697 tests green.
+
 ## 2026-10-09 — trash/restore keeps folder index atomic
 
 - `Database::trash_file` now removes the file from `parent_index` in the same redb write transaction that moves it to trash; `restore_from_trash` re-adds it under its original parent in the same transaction, without duplicates. Parentless items remain unindexed.
@@ -456,7 +834,6 @@ Stage Summary:
 - Added `develop` to push-triggered CI; pull requests still target `main` only. The existing `deploy-pages` condition remains `refs/heads/main`, so develop builds and tests do not alter the production Pages site.
 - A separate `/develop/` deployment was requested but no non-Pages host or domain is configured in this task; deployment remains pending the destination and account authorization.
 
-
 ## 2026-10-09 — GitHub Pages preview isolated under `/develop/`
 
 - Pages now builds a combined artifact with `main` at `/` and `develop` at `/develop/`, regardless of which branch is pushed. Artifact builds and deployments are serialized; publication waits for the web/WASM build and Rust checks. The sibling Rust build shares Cargo's target directory to reduce duplicate work.
@@ -465,13 +842,11 @@ Stage Summary:
 - Verified locally: `vue-tsc`, 50 frontend suites / 578 tests, version check, root and `/develop/` bundles, `cargo fmt`, Clippy, and workspace Rust tests. GitHub Pages environment now explicitly allows both `main` and `develop`; remote CI/deployment will be verified after push.
 - The preview's PWA manifest now uses `/develop/` for its start URL, scope and icons; the Pages assembly step asserts those paths so installation cannot jump to production.
 
-
 ## 2026-10-09 — Remove duplicate wallpaper-effects preference
 
 - Settings → Appearance exposed both “Wallpaper effects” and “Matrix rain” controls for the same `matrixRainEnabled` state. Removed the redundant Matrix rain row, keeping the accessible opt-in canvas control that matches the DesktopShell guidance.
 - Added a regression test ensuring the preference appears once with its accessible label.
 - Verified locally: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, and 51 frontend suites / 579 tests. Changes are isolated to `develop`; Rust validation remains delegated to CI per `AGENTS.md`.
-
 
 ## 2026-10-09 — Custom wallpaper via URL or file picker
 
@@ -480,13 +855,11 @@ Stage Summary:
 - Fixed a pre-existing autosave omission in `useTheme()`: built-in wallpaper changes now persist with the other appearance settings.
 - Verified locally: `npm run typecheck`, `npm test` (52 suites / 585 tests), `bash scripts/check-version.sh`, `npm run build`, and Vite frontend builds with `VITE_BASE=/` and `/develop/` (asset prefixes checked). The checked-in WASM package is stale, so local Vite builds used the stub; no local Cargo/wasm-pack run per `AGENTS.md`. CI will rebuild the WASM package.
 
-
 ## 2026-10-09 — Browser shortcut help matches the active transport
 
 - Updated the Shell shortcut dock and keyboard-help modal: browser-reserved chords now point to Alt+ fallbacks in all browser transports (REST and WASM), rather than calling them WASM-only. Fallback badges appear only in browser mode, and Tauri no longer marks its working primary shortcuts as blocked.
 - Marked `TASKS.md` P1-2 complete and added a regression test for transport-neutral browser guidance and browser-only fallback hints.
 - Verified locally: `npm run typecheck`, `npm test` (52 suites / 586 tests), `bash scripts/check-version.sh`, `npm run build`, and `git diff --check`. No Rust changes; remote CI is pending after push.
-
 
 ## 2026-10-09 — Make browser path checks transport-aware
 
@@ -494,13 +867,11 @@ Stage Summary:
 - Marked `TASKS.md` P1-11 complete and added regressions for an existing path and a missing path when the list endpoint succeeds.
 - Verified locally: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, 53 frontend suites / 588 tests, `npm run build`, and `git diff --check`. The web build succeeds with the existing advisory about large chunks; no Rust changes, per `AGENTS.md`. Remote CI will be checked after push.
 
-
 ## 2026-10-10 — Guard Tauri detection against the WASM sentinel
 
 - Confirmed `isTauri()` checks truthiness rather than property presence; Settings uses that shared helper and StatusBar derives its label through `useTransport()`. Added regression tests proving `window.__TAURI__ = false` stays browser mode while a truthy bridge is detected as native.
 - Marked `TASKS.md` P1-1 complete so the backlog reflects the existing runtime fix and its new test coverage.
 - Verified locally: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, 53 frontend suites / 590 tests, `npm run build`, and `git diff --check`. Build succeeds with the existing advisory about large chunks; no Rust changes, per `AGENTS.md`. Remote CI will be checked after push.
-
 
 ## 2026-10-10 — Pin the cross-transport shell write cap
 
@@ -508,10 +879,105 @@ Stage Summary:
 - Marked `TASKS.md` P1-17 complete with the parity-test approach.
 - Verified locally: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, 54 frontend suites / 591 tests, `npm run build`, and `git diff --check`. Build succeeds with the existing advisory about large chunks; no Rust changes, per `AGENTS.md`. Remote CI will be checked after push.
 
-
 ## 2026-10-10 — Dispatch cybsh chains across the static vault and WASM volume
 
 - Static cybsh now splits unquoted `&&`/`;` chains, runs vault-aware commands locally, and falls back clause-by-clause to the WASM volume for ordinary shell commands. The chain stops on its first failed command and retains combined output; mixed `&&`/`;` stays on the existing Rust path until both parsers share semantics.
 - Unquoted `|` returns an explicit `unsupported:` result while quoted bars remain arguments. Unexpected interceptor errors are logged before the Rust fallback. Marked `TASKS.md` P1-18 complete.
 - Added regressions for `quota && ls`, all-static `&&` and `;` chains, short-circuit failure, explicit pipe refusal, and quoted-pipe behavior.
 - Verified: `bash scripts/check-version.sh`; `npm run typecheck`; `npm test` (54 files / 593 tests); `npm run build`; `git diff --check`. Build succeeded with the repository's existing large-chunk advisory and used the WASM stub because the checked-in generated package is older than Rust sources. No local Cargo commands, per `AGENTS.md`.
+
+## 2026-10-11 — OAuth on Linux desktop: system browser + cybermanju:// deep link
+- Symptom (AppImage): after approving Google, the popup died with
+  `Redirection to URL with a scheme that is not HTTP(S)`. Root cause:
+  `supabaseRedirectTo()` returned the Tauri page URL (`tauri://localhost/…`)
+  and the Linux WebKitGTK WebView refuses to navigate back to any
+  non-HTTP(S) scheme, so the PKCE return never landed.
+- Fix: every Tauri build (desktop + mobile) now authenticates in the SYSTEM
+  browser with the `cybermanju://oauth/callback` return. `useSupabase.ts`:
+  `supabaseRedirectTo()` returns `OAUTH_CALLBACK_URL` under `isTauri()`
+  (exported for tests; `MOBILE_OAUTH_CALLBACK_URL` kept as an alias),
+  `signInWithPopup()` + deep-link install/activate use `isTauri()` instead of
+  `isTauriMobile()`, and Supabase `redirect` rejections now name the exact URL
+  to allowlist (Supabase → Authentication → URL Configuration → Redirect URLs).
+  Accounts per-card Connect hardens the same way (`nativeApp = isTauri()`,
+  browser-worded waiting messages); App boot installs the listener on all
+  Tauri; Settings broker card names the `cybermanju://oauth/callback` entry.
+- Native plumbing: `tauri.conf.json` registers the desktop scheme
+  (`plugins.deep-link.desktop.schemes: ["cybermanju"]`); `src-tauri` adds
+  `tauri-plugin-single-instance` (`deep-link` feature, desktop-gated) and
+  registers it FIRST in `lib.rs` so a return arriving while the app runs is
+  forwarded to the live instance's `onOpenUrl` instead of booting a stray
+  second window. Supabase dashboard needs `cybermanju://oauth/callback` in
+  its Redirect URLs (already required for mobile).
+- Tests: 3 redirect-selection cases (web https return, Tauri desktop +
+  mobile deep-link). `npm run typecheck` clean, full `npm test` green.
+
+## 2026-10-11 — Universal `cyb` CLI (Go + Charm) + installer
+- New `cli/` Go module (`github.com/cybermanju/cybermanju.github.io/cli`):
+  cobra command tree with a Charm face — Lipgloss theme/tables/panels,
+  Bubbles+Bubble Tea `repl` (viewport scrollback, history, plain fallback
+  when piped), Huh forms (`setup`/`login`/passphrases/confirms), Glamour
+  markdown for `ai` results, `pkg/browser` for OAuth launch. REST-first
+  against the dashboard (`internal/client`, camelCase wire, AGENT-1
+  prefix → hint mapping, 401 → `cyb login`).
+- Commands: `setup` (probe → register/login → 0600 profile) · `serve`
+  (Docker up/status/stop) · `login/logout` · `config` · `files`
+  (ls/info/mkdir/rename/trash/restore/empty) · `sync` (configs/create/rm/
+  start --wait/move/test/remote/usage/status/progress/cancel/job) ·
+  `disk` (list/create/attach/detach/resize/check/df/key-holder/destroy;
+  passphrase via flag/file/prompt, never logged) · `oauth launch`
+  (PKCE URL → browser → verify via connection test) + `status` ·
+  `sh`/`run` (same cybsh incl. --dry/--lint/--fmt/--json/argv) · `ai`
+  (providers/configs/prompt --follow/sessions/abort/approve; asks park
+  notice) · checksum-verified self-`update` from GitHub releases.
+- Transport is genuinely tested: `httptest` fake dashboard covers auth
+  header, camelCase decode, conflict/401 hint mapping, OAuth/exec shapes;
+  plus config 0600 + resolution-order and size/version/asset-name units.
+- `install.sh` (Linux/macOS/Git-Bash) + `install.ps1` (native PowerShell):
+  OS/arch detect, latest-or-pinned tag, `cyb-<os>-<arch>.tar.gz` +
+  SHA256SUMS verify, `~/.local/bin` / `%LOCALAPPDATA%\\cybermanju\\bin`.
+- CI: new `cli-build` job (`gofmt -l` gate → `go vet` → `go test` →
+  CGO_ENABLED=0 cross-compile linux/darwin/windows × amd64/arm64 with
+  `-trimpath` + version/commit ldflags → `dist-cli/`); release ships a
+  9th family (`release-cli`, required in full + reuse checks, atlas +
+  Downloads rows); `push.sh --release --last` validates `dist-cli`;
+  GitLab mirror gains `cli-build` (golang image) + release collect.
+- Docs: README CLI section + repo map, atlas entry in
+  `docs/RELEASE_NOTES.md`. Local: `go build` × 6 targets, `go vet` +
+  `go test` green.
+
+## 2026-10-11 — Deep-link follow-up: runtime self-heal + 2nd-process storage guard
+- Symptom (CachyOS, release AppImage): browser OAuth approved (200 OK) but
+  the OS had no handler for the `cybermanju://` return ("Nenhum aplicativo
+  instalado"). Root causes, all desktop-packaging gaps: (a) no
+  `x-scheme-handler/cybermanju` default on bare AppImages without launcher
+  integration, (b) storage/dashboard init ran in `run()` BEFORE the
+  single-instance plugin setup, so the second process opened the live redb
+  exclusive lock and quarantined the vault (`corrupt-<ts>.bak`) before
+  exiting, (c) frontend never called `register()`, (d) capabilities lacked
+  every `deep-link:*` permission (so even `getCurrent()` was denied).
+- Fix: `useSupabase.ts` best-effort `isRegistered()` → `register('cybermanju')`
+  on desktop startup (new `OAUTH_DEEP_LINK_SCHEME`, kept in sync with
+  `tauri.conf.json > plugins.deep-link.desktop.schemes`); capabilities gain
+  `deep-link:default` + `allow-register` + `allow-is-registered`; `lib.rs`
+  moves DB/index/dashboard init into the builder `.setup()` hook (runs after
+  plugin setups, so a second process exits via single-instance before
+  touching storage) with the dashboard Arc ferried out via a holder for the
+  main-thread `stop()` after `.run()`.
+- Verified: `tauri.conf` scheme already ships in every installer (extracted
+  the release AppImage: `MimeType=x-scheme-handler/cybermanju` in the bundled
+  `.desktop`, which deb/rpm/flatpak/AUR all reuse; the pinned CLI binary
+  embeds the NSIS `URL Protocol` registry template; `macos/app.rs` consumes
+  the same key for the dmg plist). `vue-tsc` clean, full `npm test` green
+  (700), `check-version.sh` green. Rust side (fmt/clippy/test + all 8
+  families) rides the next CI run — no local cargo per repo rules.
+- Note: `Cargo.lock` is missing `tauri-plugin-single-instance` (added without
+  a lock update); harmless in CI (no `--locked`) but run `cargo update -w`
+  and commit the lock. Local machine fallback used during triage:
+  `xdg-mime default cybermanju-os.desktop x-scheme-handler/cybermanju`.
+
+## 2026-10-11 — Integrate current main into develop
+
+- Merged `origin/main` at `5c3d68d` into `develop`, retaining both branches' commits and worklog entries. The import includes the universal Go `cyb` CLI and installer, Linux desktop OAuth deep links, Supabase broker improvements, mobile launcher/messages, scheduler/secrets, and associated CI/docs updates.
+- Resolved the Settings conflict by preserving develop's wallpaper/settings UI while keeping main's Supabase redirect instructions and per-device storage guidance. Recombined append-only worklog entries from both branches in date order.
+- Local checks passed: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, `npm test` (62 files / 708 tests), `npm run build`, and `git diff --check`. Build retains the existing large-chunk advisory. Rust checks are delegated to CI per `AGENTS.md`. CLI Go checks could not run locally: the installed Go is 1.26.8 while `cli/go.mod` requires 1.27.2; the CI job installs the version from `cli/go.mod`. Remote CI will be checked after pushing the merge to develop.

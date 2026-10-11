@@ -22,14 +22,21 @@
 // window). `useTauri.ts` supplies the real deps; nothing here imports a
 // composable, so there are no module cycles.
 
-import type { ShellResult } from '@/types'
+import type { ScheduleRow, ScheduleRun, ShellResult } from '@/types'
 import {
   checkCybshScript,
+  cybshFetchKey,
   cybshFingerprint,
+  formatCybshScript,
+  lintCybshScript,
+  parseFrontmatter,
   CYBSH_MAX_RUN_DEPTH,
   CYBSH_SCRIPT_EXT,
   runCybshScript,
+  type CybshFetchReq,
 } from './cybshScript'
+import { googleDriveAuthErrorSync } from './gitProvision'
+import { nextFire, parseSchedule } from './schedule'
 
 /** The 1 MiB single-write cap mirrors `MAX_WRITE_BYTES` in os.rs. */
 export const STATIC_WRITE_LIMIT = 1024 * 1024
@@ -48,6 +55,12 @@ export interface StaticSyncConfig {
   basePath?: string
   folderId?: string
 }
+
+/** One scheduler row / fire record — shared shapes live in `@/types`
+ * (`ScheduleRow`/`ScheduleRun`); the aliases keep this module's deps
+ * signatures readable without re-declaring the fields. */
+export type StaticSchedule = ScheduleRow
+export type StaticScheduleRun = ScheduleRun
 
 export interface StaticDiskStatus {
   attached: boolean
@@ -150,6 +163,14 @@ export interface StaticCybshDeps {
   blake3(data: string): Promise<string | null>
   /** Full-transport fallback for inline `sh` lines (wasm dispatcher on Pages). */
   execFallback?: (line: string) => Promise<string>
+  // Scheduler (cron) — the browser has no daemon thread, so the store ticks
+  // due rows and the `cron` verb runs them here. Optional: a fixture (or a
+  // stale deps object) without them answers `unsupported:` honestly.
+  listSchedules?(): Promise<StaticSchedule[]>
+  saveSchedule?(row: StaticSchedule): Promise<StaticSchedule>
+  deleteSchedule?(id: string): Promise<boolean>
+  scheduleHistory?(id: string): Promise<StaticScheduleRun[]>
+  recordScheduleRun?(run: StaticScheduleRun): Promise<unknown>
 }
 
 export interface ParsedLine {
@@ -168,7 +189,7 @@ const HANDLED_VERBS = new Set([
   'quota', 'providers', 'oauth', 'disk', 'sync',
   'encrypt', 'decrypt', 'keygen', 'compress', 'decompress',
   'scrub', 'repair', 'gc', 'lease', 'mount', 'umount', 'ai',
-  'run', 'theme', 'ui',
+  'run', 'theme', 'ui', 'cron',
 ])
 
 export function handlesStaticVerb(verb: string): boolean {
@@ -583,14 +604,23 @@ export async function probeProviderQuotaViaFetch(
         return blocked('www.googleapis.com')
       }
       if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          const body = await safeJson(res)
+          const errJson = body.ok && typeof body.value === 'object' && body.value !== null
+            ? (body.value as Record<string, unknown>)
+            : undefined
+          return {
+            ...base,
+            ok: false,
+            detail: '',
+            error: `${googleDriveAuthErrorSync(res.status, errJson)} (config ${cfg.id})`,
+          }
+        }
         return {
           ...base,
           ok: false,
           detail: '',
-          error:
-            res.status === 401 || res.status === 403
-              ? `auth: Google rejected the token for ${cfg.id} (HTTP ${res.status}) — reconnect OAuth via the dashboard`
-              : `network: Google Drive quota probe failed for ${cfg.id} (HTTP ${res.status})`,
+          error: `network: Google Drive quota probe failed for ${cfg.id} (HTTP ${res.status})`,
         }
       }
       const body = await safeJson(res)
@@ -2242,7 +2272,8 @@ async function scriptExecCybsh(line: string, deps: StaticCybshDeps): Promise<str
   )
 }
 
-async function staticFetchText(url: string): Promise<string> {
+async function staticFetchText(req: CybshFetchReq): Promise<string> {
+  const url = req.url
   if (typeof fetch === 'undefined') {
     throw new Error(
       `unsupported: \`fetch ${url}\` has no HTTP client in this context — run the same \`.cybsh\` in the browser build`,
@@ -2251,7 +2282,7 @@ async function staticFetchText(url: string): Promise<string> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 10_000)
   try {
-    const res = await fetch(url, { signal: ctrl.signal })
+    const res = await fetch(url, { signal: ctrl.signal, method: req.method, headers: req.headers })
     if (!res.ok) throw new Error(`network: fetch ${url} → HTTP ${res.status}`)
     return (await res.text()).slice(0, 64 * 1024)
   } catch (e) {
@@ -2266,22 +2297,32 @@ async function staticFetchText(url: string): Promise<string> {
 
 interface ReplayJournal {
   fingerprint: string
+  args: string[] | null
   sh: Record<string, { ok: boolean; output: string }>
   fetch: Record<string, { ok: boolean; output: string }>
 }
 
-function parseReplayJournal(raw: string, source: string, arg: string): ReplayJournal {
+function parseReplayJournal(raw: string, source: string, arg: string, args: string[]): ReplayJournal {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
   } catch {
     throw new Error(`invalid: \`${arg}\` is not a replay journal`)
   }
-  const doc = parsed as { cybsh?: unknown; fingerprint?: unknown; calls?: unknown }
+  const doc = parsed as { cybsh?: unknown; fingerprint?: unknown; calls?: unknown; args?: unknown }
   if (doc.cybsh !== 1) throw new Error('invalid: replay journal is not a cybsh v1 journal')
   if (doc.fingerprint !== cybshFingerprint(source)) {
     throw new Error(
       'integrity: replay journal fingerprint mismatch — the script changed since `--record` (re-record, don\'t replay stale inputs)',
+    )
+  }
+  // Journals recorded with argv bind them: replaying with different args is
+  // an `integrity:` refusal, never a silent lie. Journals without `args`
+  // (v1) replay regardless of argv (back-compat).
+  const recordedArgs = Array.isArray(doc.args) ? (doc.args as unknown[]).map(String) : null
+  if (recordedArgs && (recordedArgs.length !== args.length || recordedArgs.some((a, i) => a !== args[i]))) {
+    throw new Error(
+      'integrity: replay journal argv mismatch — the script ran with different `--` args since `--record` (re-record, don\'t replay stale inputs)',
     )
   }
   const calls = (doc.calls ?? {}) as { sh?: unknown; fetch?: unknown }
@@ -2296,37 +2337,45 @@ function parseReplayJournal(raw: string, source: string, arg: string): ReplayJou
   }
   return {
     fingerprint: String(doc.fingerprint ?? ''),
+    args: recordedArgs,
     sh: table(calls.sh),
     fetch: table(calls.fetch),
   }
 }
 
 async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
-  const dry = args.some((a) => a === '--dry' || a === '--check')
-  if (args.some((a) => a === '--help' || a === '-h') || args.length === 0) {
-    return shellErr('usage: run <file.cybsh> [--dry] [--json] [--record <journal.json>] [--replay <journal.json>]')
+  // Script argv: everything after a bare `--` belongs to the script
+  // (`run job.cybsh -- /inbox weekly`), bound as `args`.
+  const dash = args.indexOf('--')
+  const scriptArgs = dash >= 0 ? args.slice(dash + 1) : []
+  const flags = dash >= 0 ? args.slice(0, dash) : args
+  const dry = flags.some((a) => a === '--dry' || a === '--check')
+  const lint = flags.some((a) => a === '--lint')
+  const fmt = flags.some((a) => a === '--fmt')
+  if (flags.some((a) => a === '--help' || a === '-h') || flags.length === 0) {
+    return shellErr('usage: run <file.cybsh> [--dry] [--lint] [--fmt] [--json] [--record <journal.json>] [--replay <journal.json>] [-- <args…>]')
   }
   // Value flags consume the next arg, so positionals skip both.
-  const positional = args.filter((a, i) => {
+  const positional = flags.filter((a, i) => {
     if (a.startsWith('-')) return false
-    const prev = args[i - 1]
+    const prev = flags[i - 1]
     return prev !== '--record' && prev !== '--replay'
   })
   let recordArg: string | null = null
   let replayArg: string | null = null
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--record' || args[i] === '--replay') {
-      const value = args[i + 1]
+  for (let i = 0; i < flags.length; i++) {
+    if (flags[i] === '--record' || flags[i] === '--replay') {
+      const value = flags[i + 1]
       if (!value || value.startsWith('-')) {
-        return shellErr(`usage: run <file.cybsh> [${args[i]} <journal.json>]`)
+        return shellErr(`usage: run <file.cybsh> [${flags[i]} <journal.json>]`)
       }
-      if (args[i] === '--record') recordArg = value
+      if (flags[i] === '--record') recordArg = value
       else replayArg = value
     }
   }
   if (recordArg && replayArg) return shellErr('invalid: `--record` and `--replay` are exclusive')
   const pathArg = positional[0]
-  if (!pathArg) return shellErr('usage: run <file.cybsh> [--dry] [--json]')
+  if (!pathArg) return shellErr('usage: run <file.cybsh> [--dry] [--json] [-- <args…>]')
   if (!pathArg.toLowerCase().endsWith(CYBSH_SCRIPT_EXT)) {
     return shellErr(
       `invalid: \`run\` needs a ${CYBSH_SCRIPT_EXT} file (got \`${pathArg}\`) — scripts are interpreted, no build step`,
@@ -2341,6 +2390,20 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
   }
   const source = deps.readVolume()[path]
   if (source === undefined) return shellErr(`not_found: no script at ${path}`)
+  if (lint) {
+    try {
+      return shellOk(lintCybshScript(source).join('\n'))
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+  if (fmt) {
+    try {
+      return shellOk(formatCybshScript(source).trimEnd())
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+  }
   if (dry) {
     try {
       return shellOk(`${path}: ${checkCybshScript(source)}`)
@@ -2351,7 +2414,8 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
   if (scriptDepth >= CYBSH_MAX_RUN_DEPTH) {
     return shellErr('too_large: `run` nesting exceeds 4 (script calling script calling …)')
   }
-  // Replay journal: same source fingerprint or an `integrity:` refusal.
+  // Replay journal: same source fingerprint (and argv, when recorded) or an
+  // `integrity:` refusal.
   let journal: ReplayJournal | null = null
   if (replayArg) {
     const journalPath = joinVolumePath(cwd, replayArg)
@@ -2360,7 +2424,7 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
       return shellErr(`not_found: no replay journal at ${journalPath} (\`--record\` one first)`)
     }
     try {
-      journal = parseReplayJournal(raw, source, replayArg)
+      journal = parseReplayJournal(raw, source, replayArg, scriptArgs)
     } catch (e) {
       return shellErr(e instanceof Error ? e.message : String(e))
     }
@@ -2385,29 +2449,34 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
       throw e
     }
   }
-  const fetchJournal = async (url: string): Promise<string> => {
+  const fetchJournal = async (req: CybshFetchReq): Promise<string> => {
+    const key = cybshFetchKey(req)
     if (journal) {
-      const rec = journal.fetch[url]
-      if (!rec) throw new Error(`not_found: replay journal has no \`fetch ${url}\` (re-record with \`--record\`)`)
+      const rec = journal.fetch[key] ?? journal.fetch[req.url]
+      if (!rec) throw new Error(`not_found: replay journal has no \`fetch ${key}\` (re-record with \`--record\`)`)
       if (!rec.ok) throw new Error(rec.output)
       return rec.output
     }
     try {
-      const body = await staticFetchText(url)
-      if (recording) logFetch[url] = { ok: true, output: body }
+      const body = await staticFetchText(req)
+      if (recording) logFetch[key] = { ok: true, output: body }
       return body
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      if (recording) logFetch[url] = { ok: false, output: msg }
+      if (recording) logFetch[key] = { ok: false, output: msg }
       throw e
     }
   }
   scriptDepth += 1
   try {
-    const out = await runCybshScript(source, {
-      execCybsh: execJournal,
-      fetchText: fetchJournal,
-    })
+    const out = await runCybshScript(
+      source,
+      {
+        execCybsh: execJournal,
+        fetchText: fetchJournal,
+      },
+      scriptArgs,
+    )
     if (recording) {
       const recordPath = joinVolumePath(cwd, recordArg as string)
       await deps.writeVolumeFile(
@@ -2415,8 +2484,10 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
         JSON.stringify(
           {
             cybsh: 1,
+            algo: 'fnv1a64',
             fingerprint: cybshFingerprint(source),
             script: path,
+            args: scriptArgs,
             calls: { sh: logSh, fetch: logFetch },
           },
           null,
@@ -2425,6 +2496,7 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
       )
     }
     if (json) {
+      const fm = parseFrontmatter(source)
       return shellOk(
         JSON.stringify({
           path,
@@ -2433,6 +2505,9 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
           caps: out.caps,
           calls: { sh: out.shCalls, fetch: out.fetchCalls },
           journal: journal ? 'replay' : recording ? 'record' : null,
+          args: scriptArgs,
+          schedule: fm.schedule,
+          triggers: fm.triggers,
           output: out.output,
         }),
       )
@@ -2442,6 +2517,215 @@ async function handleRun(args: string[], json: boolean, deps: StaticCybshDeps): 
     return shellErr(e instanceof Error ? e.message : String(e))
   } finally {
     scriptDepth = Math.max(0, scriptDepth - 1)
+  }
+}
+
+// ─── scheduler (cron) ───────────────────────────────────────────────────
+// Browser twin of `crates/os/src/shell.rs::cron_cmd`. Persistence rides the
+// `cron.*` db ops (supplied through `StaticCybshDeps` by `useTauri.ts`) and
+// execution reuses `handleRun`, so a fired schedule behaves exactly like
+// `run <path>` typed by hand. The daemon thread exists only on desktop/server.
+
+const CRON_SUBCOMMANDS = ['ls', 'add', 'rm', 'run', 'enable', 'disable', 'history']
+
+/** Output kept per run — mirrors `OUTPUT_TAIL_LIMIT` in `scheduler.rs`. */
+const CRON_TAIL_LIMIT = 8 * 1024
+
+function cronPad(s: string, n: number): string {
+  return s.length >= n ? s : s + ' '.repeat(n - s.length)
+}
+
+function cronTruncate(s: string, max: number): string {
+  if (s.length <= max) return s
+  return `${s.slice(0, Math.max(1, max - 1))}…`
+}
+
+/** `sched-<uuid>` when the platform has it, a unique fallback otherwise. */
+function schedId(): string {
+  const c = globalThis.crypto as Crypto | undefined
+  if (c && typeof c.randomUUID === 'function') return `sched-${c.randomUUID()}`
+  return `sched-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+async function cronList(deps: StaticCybshDeps): Promise<StaticSchedule[]> {
+  if (!deps.listSchedules) throw new Error('unsupported: cron needs the local database')
+  return deps.listSchedules()
+}
+
+/**
+ * Fire one schedule now: run its script through `handleRun`, record the run
+ * and stamp the row. `cron run <id>`, the store's browser tick and
+ * `invoke('cron_run')` on Pages all land here — one execution path.
+ */
+export async function runStaticSchedule(
+  id: string,
+  deps: StaticCybshDeps,
+): Promise<StaticScheduleRun> {
+  const rows = await cronList(deps)
+  const row = rows.find(r => r.id === id)
+  if (!row) throw new Error(`not_found: no schedule \`${id}\``)
+  if (!deps.saveSchedule || !deps.recordScheduleRun) {
+    throw new Error('unsupported: cron needs the local database')
+  }
+  const startedAt = new Date().toISOString()
+  let status = 'ok'
+  let tail = ''
+  try {
+    const out = await handleRun([row.path], false, deps)
+    status = out.ok ? 'ok' : 'error'
+    tail = out.text.trim().slice(0, CRON_TAIL_LIMIT)
+  } catch (e) {
+    status = 'error'
+    tail = (e instanceof Error ? e.message : String(e)).slice(0, CRON_TAIL_LIMIT)
+  }
+  const now = new Date()
+  const run: StaticScheduleRun = {
+    runId: schedId(),
+    scheduleId: row.id,
+    startedAt,
+    finishedAt: now.toISOString(),
+    status,
+    outputTail: tail || null,
+  }
+  const next = nextFire(row.expr, now)
+  await deps.saveSchedule({
+    ...row,
+    lastFiredAt: startedAt,
+    runOnBoot: false,
+    nextFireAt: next ? next.toISOString() : null,
+    lastRunId: run.runId,
+  })
+  await deps.recordScheduleRun(run)
+  return run
+}
+
+async function handleCron(
+  args: string[],
+  json: boolean,
+  deps: StaticCybshDeps,
+): Promise<VerbOut> {
+  const sub = args[0] ?? 'ls'
+  const rest = args.slice(1)
+  switch (sub) {
+    case 'ls':
+    case 'list': {
+      const rows = await cronList(deps)
+      if (json) return shellOk(JSON.stringify(rows))
+      if (!rows.length) return shellOk('no schedules — `cron add <path.cybsh> [expr]`')
+      let out = `${cronPad('ID', 22)} ${cronPad('EXPR', 14)} ${cronPad('NEXT', 22)} ${cronPad('ENABLED', 8)} PATH`
+      for (const r of rows) {
+        out += `\n${cronPad(r.id, 22)} ${cronPad(cronTruncate(r.expr, 14), 14)} ${cronPad(r.nextFireAt ?? '-', 22)} ${cronPad(r.enabled ? 'on' : 'off', 8)} ${r.path}`
+      }
+      return shellOk(out)
+    }
+    case 'add': {
+      const path = rest[0]
+      if (!path) return shellErr('usage: cron add <path.cybsh> [expr]')
+      if (!path.toLowerCase().endsWith(CYBSH_SCRIPT_EXT)) {
+        return shellErr(
+          `invalid: schedule path must be a ${CYBSH_SCRIPT_EXT} script (got \`${path}\`)`,
+        )
+      }
+      if (!deps.saveSchedule) return shellErr('unsupported: cron needs the local database')
+      let expr = rest[1]
+      if (!expr) {
+        // No expr → the script's own `# schedule:` frontmatter.
+        const cwd = await deps.getCwd().catch(() => '/')
+        const abs = joinVolumePath(cwd, path)
+        const source = deps.readVolume()[abs]
+        if (source === undefined) return shellErr(`not_found: ${abs}`)
+        expr = parseFrontmatter(source).schedule ?? ''
+        if (!expr) {
+          return shellErr(
+            `invalid: \`${path}\` declares no \`# schedule:\` — pass an expr: cron add ${path} "30 2 * * *"`,
+          )
+        }
+      }
+      try {
+        parseSchedule(expr)
+      } catch (e) {
+        return shellErr(e instanceof Error ? e.message : String(e))
+      }
+      const now = new Date()
+      const next = nextFire(expr, now)
+      const saved = await deps.saveSchedule({
+        id: schedId(),
+        path,
+        expr,
+        enabled: true,
+        createdAt: now.toISOString(),
+        nextFireAt: next ? next.toISOString() : null,
+        runOnBoot: false,
+      })
+      if (json) return shellOk(JSON.stringify(saved))
+      return shellOk(`cron: added ${saved.id} → ${saved.expr} (next ${saved.nextFireAt ?? '-'})`)
+    }
+    case 'rm':
+    case 'remove':
+    case 'delete': {
+      const id = rest[0]
+      if (!id) return shellErr('usage: cron rm <id>')
+      if (!deps.deleteSchedule) return shellErr('unsupported: cron needs the local database')
+      const removed = await deps.deleteSchedule(id)
+      if (!removed) return shellErr(`not_found: no schedule \`${id}\``)
+      if (json) return shellOk(JSON.stringify({ removed: id }))
+      return shellOk(`cron: removed ${id}`)
+    }
+    case 'run': {
+      const id = rest[0]
+      if (!id) return shellErr('usage: cron run <id>')
+      const run = await runStaticSchedule(id, deps)
+      if (json) return shellOk(JSON.stringify(run))
+      return shellOk(
+        `cron: ${run.scheduleId} ${run.status} (${run.finishedAt})${run.outputTail ? `\n${run.outputTail}` : ''}`,
+      )
+    }
+    case 'enable':
+    case 'disable': {
+      const id = rest[0]
+      if (!id) return shellErr(`usage: cron ${sub} <id>`)
+      const rows = await cronList(deps)
+      const row = rows.find(r => r.id === id)
+      if (!row) return shellErr(`not_found: no schedule \`${id}\``)
+      if (!deps.saveSchedule) return shellErr('unsupported: cron needs the local database')
+      const enabled = sub === 'enable'
+      let nextFireAt = row.nextFireAt ?? null
+      if (enabled) {
+        try {
+          parseSchedule(row.expr)
+        } catch (e) {
+          return shellErr(e instanceof Error ? e.message : String(e))
+        }
+        const next = nextFire(row.expr, new Date())
+        nextFireAt = next ? next.toISOString() : null
+      }
+      const saved = await deps.saveSchedule({ ...row, enabled, nextFireAt })
+      if (json) return shellOk(JSON.stringify(saved))
+      return shellOk(
+        `cron: ${id} ${saved.enabled ? 'enabled' : 'disabled'} (next ${saved.nextFireAt ?? '-'})`,
+      )
+    }
+    case 'history': {
+      const id = rest[0]
+      if (!id) return shellErr('usage: cron history <id>')
+      if (!deps.scheduleHistory) return shellErr('unsupported: cron needs the local database')
+      const runs = await deps.scheduleHistory(id)
+      if (json) return shellOk(JSON.stringify(runs))
+      if (!runs.length) return shellOk(`cron: no runs recorded for ${id}`)
+      let out = `${cronPad('RUN', 26)} ${cronPad('STATUS', 8)} FINISHED`
+      for (const r of runs) {
+        out += `\n${cronPad(r.runId, 26)} ${cronPad(r.status, 8)} ${r.finishedAt}`
+      }
+      return shellOk(out)
+    }
+    default: {
+      const suggestion = CRON_SUBCOMMANDS.find(c => c.startsWith(sub) || sub.startsWith(c))
+      return shellErr(
+        suggestion
+          ? `unknown cron subcommand: '${sub}' — did you mean '${suggestion}'?`
+          : `unknown cron subcommand: '${sub}'`,
+      )
+    }
   }
 }
 
@@ -2509,6 +2793,22 @@ export async function runStaticCybshLine(
   if (!parsed || !handlesStaticVerb(parsed.verb)) return null
   try {
     const { verb, args, json } = parsed
+    // Host filesystem (`-os`) only exists in the native shell (desktop app /
+    // Android): this static build has no host paths to transpose onto.
+    // Refuse loudly — the flag would otherwise be swallowed as an unknown
+    // switch and the volume answer would masquerade as a host listing.
+    // (Single-command lines only: chained `&&`/`;` lines return null above
+    // and direct `wasm` dispatch calls never reach this layer — both are
+    // refused by the wasm dispatcher's own `-os` guard with the same shape.
+    // `.cybsh` `sh("… -os …")` lines land here via `scriptExecCybsh`, so the
+    // wrapper agrees with the terminal on every transport.)
+    if (args.some((a) => a === '-os' || a === '--host' || a === '--os')) {
+      return done(
+        shellErr(
+          `unsupported: '${verb} -os' addresses the host filesystem (sdcard on Android) — run it in the desktop app or the native Android build`,
+        ),
+      )
+    }
     switch (verb) {
       case 'echo':
         return done(shellOk(args.join(' ')))
@@ -2603,6 +2903,8 @@ export async function runStaticCybshLine(
         return done(await handleTheme(args, json, deps))
       case 'ui':
         return done(await handleUi(args, json, deps))
+      case 'cron':
+        return done(await handleCron(args, json, deps))
       default:
         return null
     }

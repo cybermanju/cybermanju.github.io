@@ -30,7 +30,7 @@ import FileUploadDialog from '@/components/FileUploadDialog.vue'
 import ServerAuthPanel from '@/components/ServerAuthPanel.vue'
 import SetupWizard from '@/components/SetupWizard.vue'
 import MobileSetupWizard from '@/components/MobileSetupWizard.vue'
-import { isAndroidApp, isTauriMobile } from '@/composables/useTauri'
+import { isAndroidApp, isTauri, isTauriMobile } from '@/composables/useTauri'
 import { setupSeen } from '@/utils/setupWizard'
 import MobileNav from '@/components/MobileNav.vue'
 import ContextMenu from '@/components/ContextMenu.vue'
@@ -712,8 +712,8 @@ onMounted(() => {
     return
   }
   window.addEventListener('cybermanju:oauth-return', handleMobileOAuthReturn)
-  if (isTauriMobile()) {
-    void installMobileOAuthDeepLinks().catch((error) => store.notifyError('Mobile OAuth callback unavailable', error))
+  if (isTauri()) {
+    void installMobileOAuthDeepLinks().catch((error) => store.notifyError('OAuth callback unavailable', error))
   }
   store.currentPanel = prefersMobileExperience() ? 'files' : 'landing'
   // Docker/web transport: probe the login gate first so a missing/expired
@@ -740,7 +740,7 @@ onMounted(() => {
       try {
         await activateMobileOAuthDeepLinks()
       } catch (error) {
-        store.notifyError('Mobile OAuth callback unavailable', error)
+        store.notifyError('OAuth callback unavailable', error)
       }
       await bootCyberManjuDisk()
       // Remembered folders (setup sync root + provider local dirs): restore

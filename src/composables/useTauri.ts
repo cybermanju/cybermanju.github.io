@@ -7,6 +7,7 @@
 import type { FileNode } from '@/types'
 import {
   notifyOsDispatch,
+  sessionVaultPassphrase,
   wasmDbDispatch,
   wasmDiskStatus,
   wasmModuleExports,
@@ -18,12 +19,16 @@ import { vaultGet, vaultSet } from './useVault'
 import {
   probeProviderQuotaViaFetch,
   runStaticCybshLine,
+  runStaticSchedule,
   staticConfigFromRow,
   type StaticChacha,
   type StaticCodecs,
   type StaticCybshDeps,
+  type StaticSchedule,
+  type StaticScheduleRun,
   type StaticSyncConfig,
 } from '@/utils/staticCybsh'
+import { nextFire, parseSchedule } from '@/utils/schedule'
 import {
   compressFile,
   decryptFile,
@@ -951,6 +956,128 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     buildPath: (args) => (args.scope ? `/api/lease/status/${encodeURIComponent(String(args.scope))}` : '/api/lease/status'),
   },
 
+  // ── Scheduler (cron): recurring `.cybsh` triggers ─────────
+  // One side per domain (REST first, IPC fallback) — a schedule created
+  // over REST and one created over IPC are the same redb row either way,
+  // but the daemon only ever reads the table, so the split stays harmless.
+  cron_list: {
+    method: 'GET',
+    buildPath: () => '/api/cron',
+  },
+
+  // Upsert: POST `/api/cron` with an `id` updates that row (the shape
+  // `cron_save(row)` takes over IPC), without one it creates fresh.
+  cron_save: {
+    method: 'POST',
+    buildPath: () => '/api/cron',
+    transformRequest: (args) => {
+      const row = (args.row ?? {}) as Record<string, unknown>
+      return {
+        id: row.id ?? '',
+        path: row.path,
+        expr: row.expr,
+        description: row.description ?? null,
+        enabled: row.enabled ?? true,
+        runOnBoot: row.runOnBoot ?? false,
+      }
+    },
+  },
+
+  cron_delete: {
+    method: 'DELETE',
+    buildPath: (args) => `/api/cron/${encodeURIComponent(String(args.id ?? ''))}`,
+  },
+
+  cron_run: {
+    method: 'POST',
+    buildPath: (args) => `/api/cron/${encodeURIComponent(String(args.id ?? ''))}/run`,
+    transformRequest: () => ({}),
+  },
+
+  cron_history: {
+    method: 'GET',
+    buildPath: (args) => `/api/cron/${encodeURIComponent(String(args.id ?? ''))}/runs`,
+  },
+
+  cron_set_enabled: {
+    method: 'POST',
+    buildPath: (args) =>
+      `/api/cron/${encodeURIComponent(String(args.id ?? ''))}/${args.enabled ? 'enable' : 'disable'}`,
+    transformRequest: () => ({}),
+  },
+
+  // ── Secrets keystore (Phase 3) — sealed password-manager rows ──
+  // List/meta never carry values; `secret_reveal` is the only plaintext
+  // path and the server audits it. The `value` field on save is the
+  // plaintext (sealed server-side, never echoed).
+  secret_list: {
+    method: 'GET',
+    buildPath: () => '/api/secrets',
+  },
+
+  secret_save: {
+    method: 'POST',
+    buildPath: () => '/api/secrets',
+    transformRequest: (args) => {
+      const r = (args.request ?? args) as Record<string, unknown>
+      return {
+        id: r.id ?? '',
+        kind: r.kind ?? 'login',
+        title: r.title,
+        username: r.username ?? null,
+        url: r.url ?? null,
+        category: r.category ?? null,
+        tags: r.tags ?? [],
+        notes: r.notes ?? null,
+        favorite: r.favorite ?? false,
+        value: r.value ?? null,
+      }
+    },
+  },
+
+  secret_update: {
+    method: 'PUT',
+    buildPath: (args) => `/api/secrets/${encodeURIComponent(String(args.id ?? ''))}`,
+    transformRequest: (args) => {
+      const r = (args.request ?? args) as Record<string, unknown>
+      return {
+        kind: r.kind ?? null,
+        title: r.title ?? null,
+        username: r.username ?? null,
+        url: r.url ?? null,
+        category: r.category ?? null,
+        tags: r.tags ?? null,
+        notes: r.notes ?? null,
+        favorite: r.favorite ?? null,
+        value: r.value ?? null,
+      }
+    },
+  },
+
+  secret_get: {
+    method: 'GET',
+    buildPath: (args) => `/api/secrets/${encodeURIComponent(String(args.id ?? ''))}`,
+  },
+
+  secret_reveal: {
+    method: 'GET',
+    buildPath: (args) =>
+      `/api/secrets/${encodeURIComponent(String(args.id ?? ''))}/reveal`,
+  },
+
+  secret_delete: {
+    method: 'DELETE',
+    buildPath: (args) => `/api/secrets/${encodeURIComponent(String(args.id ?? ''))}`,
+  },
+
+  // Arming the daemon is a server-side no-op from the client's view; the
+  // GET also trips `ensure_started` in `web/lib.rs` on the way past.
+  cron_ensure_started: {
+    method: 'GET',
+    buildPath: () => '/api/cron',
+    transformResponse: () => true,
+  },
+
   // ── Search (paginated) ───────────────────────────────────
   search_files_paginated: {
     method: 'GET',
@@ -1282,6 +1409,10 @@ export const REST_FIRST = new Set([
   'repair_status', 'repair_tasks', 'repair_health', 'repair_run',
   'repair_rebuild', 'repair_gc', 'scrub_run', 'scrub_runs',
   'lease_acquire', 'lease_release', 'lease_status',
+  'cron_list', 'cron_save', 'cron_delete', 'cron_run', 'cron_history',
+  'cron_set_enabled', 'cron_ensure_started',
+  'secret_list', 'secret_save', 'secret_update', 'secret_get',
+  'secret_reveal', 'secret_delete',
   'parse_text', 'read_file_content', 'write_file_content',
   'list_agent_providers', 'list_agent_configs', 'save_agent_config',
   'delete_agent_config', 'save_agent_key', 'list_agent_models',
@@ -1294,9 +1425,20 @@ export const REST_FIRST = new Set([
   'recall_agent_memories',
 ])
 
-/** Local read-only OS readings and sync status that Android/iOS serve over Tauri IPC. */
+/** Local commands Android/iOS serve over Tauri IPC (no dashboard on mobile).
+ * The native backend now exposes the full cybsh OS layer + disks/volume, so
+ * the terminal and file verbs run against the same redb as desktop — REST
+ * (localhost:3456) is never probed for these when no server URL is set. */
 export const MOBILE_NATIVE_OS_COMMANDS = new Set([
-  'os_ps', 'os_top', 'os_workers', 'os_jobs', 'os_df', 'get_sync_status',
+  'os_exec', 'os_complete', 'os_stat', 'os_ls', 'os_du', 'os_write',
+  'os_ps', 'os_top', 'os_workers', 'os_jobs', 'os_df',
+  'list_disks', 'get_disk', 'create_disk', 'attach_disk', 'detach_disk',
+  'resize_disk', 'destroy_disk', 'check_disk', 'set_disk_key_holder', 'volume_df',
+  'get_sync_status', 'get_sync_usage',
+  'cron_list', 'cron_save', 'cron_delete', 'cron_run', 'cron_history',
+  'cron_set_enabled', 'cron_ensure_started',
+  'secret_list', 'secret_save', 'secret_update', 'secret_get',
+  'secret_reveal', 'secret_delete',
 ])
 
 // Commands the `cybermanju-os-wasm` crate serves on a static host.
@@ -1334,6 +1476,35 @@ interface DbWasmRoute {
   probe?: boolean
 }
 
+/** Session vault passphrase for the secrets wasm ops (held after unlock;
+ *  empty when locked — the ops answer `unsupported:` honestly). */
+function sessionVaultPass(): string {
+  return sessionVaultPassphrase()
+}
+
+/**
+ * Validate a schedule row and stamp `nextFireAt` before a static-host save.
+ * The wasm db op is pure persistence (no Rust twin runs there), so this is
+ * where `invalid: …` surfaces on Pages — same strings as the Rust parser.
+ */
+function withScheduleFire(row: unknown): Record<string, unknown> {
+  const r = { ...(row as Record<string, unknown>) }
+  const path = String(r.path ?? '')
+  if (!path.toLowerCase().endsWith('.cybsh')) {
+    throw new Error(`invalid: schedule path must be a .cybsh script (got \`${path}\`)`)
+  }
+  const expr = String(r.expr ?? '').trim()
+  parseSchedule(expr) // throws invalid: …
+  const next = nextFire(expr, new Date())
+  r.path = path
+  r.expr = expr
+  r.enabled = typeof r.enabled === 'boolean' ? r.enabled : true
+  r.nextFireAt = next ? next.toISOString() : null
+  if (typeof r.id !== 'string') r.id = ''
+  if (typeof r.createdAt !== 'string') r.createdAt = new Date().toISOString()
+  return r
+}
+
 // Invoke command → demo-database op. The worker stores the same table names
 // and JSON row shapes as the server, so responses already match the
 // TypeScript types (plus the usual snake_case→camelCase pass).
@@ -1348,6 +1519,54 @@ const DB_WASM_ROUTES: Record<string, DbWasmRoute> = {
   list_sync_configs: { op: 'sync.list', args: () => ({}) },
   create_sync_config: { op: 'sync.save', args: (a) => ({ config: a.config }) },
   delete_sync_config: { op: 'sync.delete', args: (a) => ({ configId: a.configId }) },
+  // ── Scheduler (cron) — pure persistence in the worker. The browser twin
+  // validates the expression and stamps `nextFireAt` before the write: no
+  // Rust daemon runs on Pages, so this file is the only validator there.
+  cron_list: { op: 'cron.list', args: () => ({}) },
+  cron_save: { op: 'cron.save', args: (a) => ({ row: withScheduleFire(a.row) }) },
+  cron_delete: { op: 'cron.delete', args: (a) => ({ id: a.id }) },
+  cron_history: { op: 'cron.history', args: (a) => ({ id: a.id }) },
+  // ── Secrets keystore — sealed at rest; the session vault passphrase is
+  // an argument (held after `.cybermanju` unlock, never stored). ──
+  secret_list: { op: 'secrets.list', args: () => ({}) },
+  secret_get: { op: 'secrets.get', args: (a) => ({ id: a.id }) },
+  secret_save: {
+    op: 'secrets.create',
+    args: (a) => {
+      const r = (a.request ?? a) as Record<string, unknown>
+      return {
+        row: {
+          id: r.id ?? '',
+          kind: r.kind ?? 'login',
+          title: r.title,
+          username: r.username ?? null,
+          url: r.url ?? null,
+          category: r.category ?? null,
+          tags: r.tags ?? [],
+          notes: r.notes ?? null,
+          favorite: r.favorite ?? false,
+        },
+        value: r.value ?? '',
+        passphrase: sessionVaultPass(),
+      }
+    },
+  },
+  secret_update: {
+    op: 'secrets.update',
+    args: (a) => {
+      const r = (a.request ?? a) as Record<string, unknown>
+      return {
+        row: { id: a.id, ...r },
+        value: r.value ?? undefined,
+        passphrase: sessionVaultPass(),
+      }
+    },
+  },
+  secret_reveal: {
+    op: 'secrets.reveal',
+    args: (a) => ({ id: a.id, passphrase: sessionVaultPass() }),
+  },
+  secret_delete: { op: 'secrets.delete', args: (a) => ({ id: a.id }) },
   test_sync_connection: { op: '', args: () => ({}), probe: true },
   list_users: { op: 'users.list', args: () => ({}) },
   register_user: {
@@ -2010,6 +2229,25 @@ const STATIC_CYBSH_DEPS: StaticCybshDeps = {
     }
     throw new Error('wasm backend unavailable')
   },
+  // Scheduler (cron) — rows live in the worker db (OPFS redb); execution is
+  // `runStaticSchedule` (see STATIC_COMMAND_HANDLERS.cron_run).
+  listSchedules: async () => {
+    const raw = (await wasmDbDispatch('cron.list', {})) as StaticSchedule[]
+    return Array.isArray(raw) ? raw : []
+  },
+  saveSchedule: async (row) => {
+    return (await wasmDbDispatch('cron.save', { row: withScheduleFire(row) })) as StaticSchedule
+  },
+  deleteSchedule: async (id) => {
+    return Boolean(await wasmDbDispatch('cron.delete', { id }))
+  },
+  scheduleHistory: async (id) => {
+    const raw = (await wasmDbDispatch('cron.history', { id })) as StaticScheduleRun[]
+    return Array.isArray(raw) ? raw : []
+  },
+  recordScheduleRun: async (run) => {
+    return await wasmDbDispatch('cron.runRecord', { run })
+  },
 }
 
 const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
@@ -2249,6 +2487,32 @@ const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
     running: false, port: 3456, url: 'http://localhost:3456', activeConnections: 0,
   }),
   stop_dashboard: async () => ({ ok: true }),
+
+  // ── Scheduler (cron) — browser-side execution ──
+  // Pages has no daemon thread: `runStaticSchedule` executes the script
+  // through the same `run` path the `cron` verb uses, and this arms the
+  // very same code path the store's tick calls. `cron_ensure_started` is a
+  // no-op by construction (nothing to arm).
+  cron_ensure_started: async () => true,
+  cron_set_enabled: async (args) => {
+    const rows = (await wasmDbDispatch('cron.list', {})) as StaticSchedule[]
+    const row = rows.find(r => r.id === args.id)
+    if (!row) throw new Error(`not_found: no schedule ${String(args.id ?? '')}`)
+    const enabled = Boolean(args.enabled)
+    let nextFireAt = row.nextFireAt ?? null
+    if (enabled) {
+      parseSchedule(String(row.expr ?? '')) // throws invalid:
+      const next = nextFire(String(row.expr ?? ''), new Date())
+      nextFireAt = next ? next.toISOString() : null
+    }
+    return await wasmDbDispatch('cron.save', { row: { ...row, enabled, nextFireAt } })
+  },
+  cron_run: async (args) => {
+    const id = String(args.id ?? '')
+    if (!id) throw new Error('invalid: id is required')
+    const run = await runStaticSchedule(id, STATIC_CYBSH_DEPS)
+    return run as StaticScheduleRun
+  },
 }
 
 /**
@@ -2367,9 +2631,9 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
         }
         if (res.ok) return true
         if (res.status === 401 || res.status === 403) {
-          throw new Error(
-            `auth: Google rejected the token (HTTP ${res.status}) — sessions minted before the 'drive.file' scope grant cannot touch Drive; sign out + sign in again (or reconnect OAuth on the card), then retry`
-          )
+          const errJson = (await res.json().catch(() => ({}))) as Record<string, unknown>
+          const { googleDriveAuthError } = await import('@/utils/gitProvision')
+          throw new Error(await googleDriveAuthError(token, res.status, errJson))
         }
         throw new Error(`network: Google Drive connection test failed (HTTP ${res.status})`)
       }
@@ -2385,6 +2649,20 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
 
 /** The core invoke — works in both Tauri and Web modes. */
 async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  // ── Android launcher bridge (Gaveta): device-local IPC on every Tauri
+  // transport, never REST — there is no dashboard twin for these commands.
+  // Off-device (web/WASM) the Rust layer refuses with `unsupported:`.
+  if (cmd === 'launcher_list_apps' || cmd === 'launcher_open_app' ||
+    cmd === 'launcher_uninstall_app' || cmd === 'launcher_list_icon_packs' ||
+    cmd === 'launcher_pack_icon' || cmd === 'launcher_list_social_apps' ||
+    cmd === 'launcher_list_messages' || cmd === 'launcher_clear_messages' ||
+    cmd === 'launcher_notification_state' || cmd === 'launcher_open_notification_settings') {
+    if (!isTauri()) {
+      throw new Error('unsupported: Android apps need the native Android build — open this vault in the Android app')
+    }
+    const core = await import('@tauri-apps/api/core')
+    return core.invoke<T>(cmd, args)
+  }
   // ── Provider VFS (CONTROL Phase 5.6): served by the TS canal
   // orchestration on EVERY transport — mounts + cache live in kv (inside
   // the `.cybermanju` container on static hosts); reads go through the Rust
@@ -2503,12 +2781,37 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
     )) as T
   }
   const mapping = REST_ROUTES[cmd]
-  // cfg(mobile) disables the local dashboard, so don't waste time probing
-  // localhost:3456 (or a failing REST fallback) for these native read-only APIs.
-  // A configured server URL remains authoritative for remote dashboard mode.
+  // Mobile has no local dashboard, so native IPC is authoritative whenever no
+  // remote server URL is configured. The fast set above returns immediately;
+  // every other command still tries IPC first (same redb, same sync registry)
+  // and only falls through to REST when the backend reports no such command —
+  // so `cybsh`, disks, sync and agent all work in the Android WebView instead
+  // of dying with a localhost:3456 connection refusal.
   if (isTauriMobile() && !_serverUrl && MOBILE_NATIVE_OS_COMMANDS.has(cmd)) {
     const core = await import('@tauri-apps/api/core')
     return core.invoke<T>(cmd, args)
+  }
+  if (isTauriMobile() && !_serverUrl && !mapping) {
+    // Non-REST commands (native dialogs, crypto over paths, …) go straight
+    // to IPC on mobile — there is no REST twin to probe.
+    const core = await import('@tauri-apps/api/core')
+    return core.invoke<T>(cmd, args)
+  }
+  if (isTauriMobile() && !_serverUrl && mapping && REST_FIRST.has(cmd)) {
+    try {
+      const core = await import('@tauri-apps/api/core')
+      const ipc = await core.invoke<unknown>(cmd, args ?? {})
+      if (mapping.transformResponse) {
+        return (mapping.transformResponse(ipc, args ?? {})) as T
+      }
+      return transformResponseKeys(ipc) as T
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      // Unknown-command means no IPC twin — fall through to the REST path
+      // (which errors honestly). Any other IPC failure IS the answer; do not
+      // mask it with a localhost connection refusal.
+      if (!/no command|unknown|not found|unimplemented/i.test(msg)) throw e
+    }
   }
   if (isTauri() && !REST_FIRST.has(cmd)) {
     // ── Tauri IPC path ────────────────────────────────────

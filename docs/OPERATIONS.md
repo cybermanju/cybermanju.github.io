@@ -65,6 +65,7 @@ lists mounts plus enabled-but-unmounted configs). Same namespace on desktop,
 Docker, and Pages (the static shell serves it through the provider canal).
 
 ```bash
+ls /                                 # vault volume + providers/ (whole virtual drive)
 ls /providers                          # every mount/config
 ls /providers/<id>/docs                # files + folders, folders first
 cat /providers/<id>/README.md          # 1 MiB print cap (cp to read fully)
@@ -77,6 +78,10 @@ stat /providers/<id>/f.md [--json]
 cd /providers/<id>/docs                # relative paths keep working after
 ```
 
+`ls /` always shows the whole virtual drive: the vault volume plus a
+synthetic `providers/` entry for this namespace (a real volume directory
+literally named `providers` wins, and this namespace shadows it).
+
 `du|find|grep|head|tail|wc|write|edit|encrypt|decrypt|compress|decompress`
 stay volume-only and refuse provider operands with `unsupported:` (cp the
 file locally first). `local`-backend configs refuse too (a host path, not a
@@ -84,6 +89,47 @@ remote). Drive listings merge files + an explicit folder query (its file
 listing hides folders); git listings synthesize one level from the
 recursive tree. A volume directory literally named `providers` is shadowed by
 this namespace.
+
+## 4a2. Host filesystem (`-os` in cybsh, native app only)
+
+The same file verbs transpose onto the host (device) filesystem with `-os`:
+shared storage on Android (`/sdcard`), the process working directory on
+desktop. Both operands of `cp -os`/`mv -os` are host paths; in `-os` mode
+even a literal `/providers/…` is a host path.
+
+```bash
+ls -os                                # shared-storage root (sdcard on Android)
+ls -os /sdcard/Download               # absolute or host-relative paths
+cat -os /sdcard/a.txt                 # 1 MiB print cap (cp it to read fully)
+cp -os /sdcard/a.txt /vault-drop/a.txt
+mv -os /sdcard/old.txt /sdcard/new.txt  # cross-filesystem = copy → verify → delete
+rm -os /sdcard/tmp.txt                # rm -os -r for host dirs
+mkdir -os -p /sdcard/new/dir
+touch -os /sdcard/new/note.txt
+stat -os /sdcard/a.txt [--json]
+du -os /sdcard/Download [--json]
+cd -os /sdcard/Music                  # host cwd (volume cwd untouched)
+pwd -os
+```
+
+Host verbs are `ls/cd/pwd/cat/cp/mv/rm/mkdir/touch/stat/du/df` plus the
+read verbs `find/grep/head/tail/wc` and `write` — any other verb
+with `-os` refuses with `unsupported:` instead of touching the volume, and
+provider paths never mix with `-os` (`invalid:`). Pure commands and `.cybsh`
+script wrappers agree on every transport: `sh("ls -os …")` / `$ ls -os …`
+lines go through the same shell choke point as the terminal line (native
+`dispatch`, static `runStaticCybshLine`, wasm `dispatch` via `exec_result`),
+so scripts see the host listing natively and `unsupported:` anywhere else.
+Host access is best-effort:
+a denied directory answers `not_found:` with the OS reason (on Android, grant
+a folder via Setup → Providers → Local folder when the sandbox withholds
+sdcard). The static/Pages build has no host filesystem, so `-os` there
+answers `unsupported:` honestly on all three paths — single-command lines
+(static guard), chained `&&`/`;` lines and direct `wasm` dispatch calls
+(wasm guard) — never a volume listing masquerading as a host one. Agent `bash` runs these same verbs
+(cybsh-first in `auto` mode), so the agent touches/moves provider or host
+files through `bash` — `read/list/write/edit/grep/glob` stay
+volume-contained; prefer `--json` for machine parsing.
 
 ## 4b. Agent runs (same async contract)
 

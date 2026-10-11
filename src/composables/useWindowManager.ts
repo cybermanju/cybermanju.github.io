@@ -19,6 +19,7 @@ import DiskManagerPage from '@/components/DiskManagerPage.vue'
 import ShieldPanel from '@/components/ShieldPanel.vue'
 import FilePermissionsPanel from '@/components/FilePermissionsPanel.vue'
 import ProcessPanel from '@/components/ProcessPanel.vue'
+import SecretsPanel from '@/components/SecretsPanel.vue'
 import DevicesPanel from '@/components/DevicesPanel.vue'
 import AccountManagerPanel from '@/components/AccountManagerPanel.vue'
 import TransferGraph from '@/components/TransferGraph.vue'
@@ -160,6 +161,7 @@ const defaultSizes: SizeMap = {
   compression: { width: 480, height: 420 },
   permissions: { width: 440, height: 380 },
   preview: { width: 480, height: 540 },
+  secrets: { width: 860, height: 600 },
 }
 
 const inlinePanels: PanelType[] = [
@@ -196,6 +198,7 @@ const panelComponentMap: Record<string, Component> = {
   permissions: FilePermissionsPanel,
   preview: FileManager,
   webdash: WebDashboardPanel,
+  secrets: SecretsPanel,
 }
 
 function getComponent(panelType: PanelType): Component | null {

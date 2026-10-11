@@ -66,6 +66,7 @@ pub fn get_sync_progress(
     state: State<'_, AppState>,
 ) -> Result<SyncProgress, String> {
     cybermanju_sync::scheduler::ensure_started(Arc::clone(&state.db));
+    cybermanju_os::scheduler::ensure_started(Arc::clone(&state.db));
     Ok(cybermanju_web::api::sync_api::progress(&sync_state))
 }
 
@@ -76,6 +77,7 @@ pub fn get_sync_status(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     cybermanju_sync::scheduler::ensure_started(Arc::clone(&state.db));
+    cybermanju_os::scheduler::ensure_started(Arc::clone(&state.db));
     let progress = cybermanju_web::api::sync_api::latest_progress(&sync_state);
     let provider = cybermanju_sync::state::RunRegistry::global()
         .latest()
@@ -92,6 +94,23 @@ pub fn get_sync_status(
 #[tauri::command]
 pub fn test_sync_connection(config: SyncConfig) -> Result<bool, String> {
     cybermanju_web::api::sync_api::test_connection(&config)
+}
+
+/// Provider quota/usage for a config (the IPC twin of
+/// `GET /api/sync/usage/:id`). Pure function of the saved config — no
+/// dashboard needed, so Android gets real quota instead of a localhost
+/// connection refusal. (`oauth_start` stays REST-only: it mints dashboard
+/// redirect URLs and needs the server's OAuth client.)
+#[tauri::command]
+pub fn get_sync_usage(
+    config_id: String,
+    state: State<'_, AppState>,
+) -> Result<cybermanju_sync::QuotaUsage, String> {
+    let config = {
+        let db = state.db.read().map_err(|e| e.to_string())?;
+        cybermanju_web::api::sync_api::get_config(&db, &config_id)?
+    };
+    cybermanju_sync::quota_usage(&config)
 }
 
 /// Cancel the current sync operation.

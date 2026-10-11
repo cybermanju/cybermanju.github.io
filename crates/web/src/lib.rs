@@ -1044,6 +1044,25 @@ fn route_request(
     }
     // <<< /AGENT-2 ROUTES >>>
 
+    // <<< CRON RUN-NOW (lockless) >>>
+    // `POST /api/cron/{id}/run` executes a script synchronously — the
+    // request lock must not be held across the run. The Database is cloned
+    // (shares the redb handle) and the script runs outside any app lock,
+    // same contract as `POST /api/sync/start`.
+    if path_segments.get(1) == Some(&"cron") {
+        cybermanju_os::scheduler::ensure_started(Arc::clone(db));
+    }
+    if let ["api", "cron", id, "run"] = path_segments.as_slice() {
+        if method == "POST" {
+            let handle = match db.read() {
+                Ok(guard) => guard.clone(),
+                Err(poisoned) => poisoned.into_inner().clone(),
+            };
+            return api_response(cybermanju_os::scheduler::run_now(&handle, id), origin);
+        }
+    }
+    // <<< /CRON RUN-NOW >>>
+
     // <<< AI AGENT JOBS (lockless) >>>
     // Prompt/abort/approve must not hold the request lock: start_job takes
     // its own short reads (and spawns the worker), so running it under the
@@ -1357,6 +1376,12 @@ fn route_request(
         return resp;
     }
     if let Some(resp) = api::os_api::route(db, method, &path_segments, query, body, origin) {
+        return resp;
+    }
+    if let Some(resp) = api::cron_api::route(db, method, &path_segments, body, origin) {
+        return resp;
+    }
+    if let Some(resp) = api::secrets::route(db, method, &path_segments, body, origin) {
         return resp;
     }
     // <<< /CYBERMANJU OS PRE-WIRE >>>

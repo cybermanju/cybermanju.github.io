@@ -55,6 +55,10 @@ export function trackShellCwd(cwd: string, line: string): string {
     const dest = (m[1] ?? '').trim()
     // Bare `cd` with no destination: leave the mirror alone (server decides).
     if (!dest) continue
+    // `cd -os …` moves the *host* cwd (a separate namespace) — the volume
+    // mirror must not follow it, or the next explicit navigation shows a
+    // garbage `-os "…"` path.
+    if (/^(-os|--host|--os)(\s|$)/.test(dest)) continue
     next = normalizeCwd(next, dest)
   }
   return next

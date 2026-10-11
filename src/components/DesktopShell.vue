@@ -1,6 +1,8 @@
 <template>
   <div class="desktop-shell" :class="{ 'desktop-shell--glow': theme.settings.glow, 'desktop-shell--plasma': isPlasma, 'desktop-shell--mobile': isMobileViewport }">
-    <TopMenuBar v-if="isMobileViewport ? visibleWindows.length > 0 : chrome.topBar" />
+    <!-- Mobile always keeps the single unified header (logo + status +
+      theme + one clock), on home and over sheets — no duplicate rows. -->
+    <TopMenuBar v-if="isMobileViewport || chrome.topBar" />
 
     <div class="desktop-area" @click="handleWorkspaceClick">
       <div class="desktop-wallpaper" :class="`wp-${theme.settings.wallpaper || 'slopes-dark'}`">

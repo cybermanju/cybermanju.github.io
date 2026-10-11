@@ -223,6 +223,36 @@
             <span class="t">Show all providers</span>
           </button>
         </div>
+        <div v-if="isNative" class="fm-side-sec">
+          <div class="fm-side-h">DEVICE</div>
+          <button
+            class="fm-srow"
+            :class="{ active: isHostPathNow }"
+            title="Browse this device's files (sdcard on Android) — move anything between vault, providers and the device"
+            @click="openHostRoot"
+          >
+            <AppIcon name="solar:smartphone-bold" :size="14" />
+            <span class="t">Device files</span>
+            <span class="m mono">-os</span>
+          </button>
+          <button
+            class="fm-srow"
+            title="Browse from the filesystem root"
+            @click="openHostFsRoot"
+          >
+            <AppIcon name="solar:folder-tree-bold" :size="14" />
+            <span class="t">Filesystem root</span>
+            <span class="m mono">/</span>
+          </button>
+          <button
+            class="fm-srow"
+            title="Pick any device folder to browse it here"
+            @click="pickHostFolder"
+          >
+            <AppIcon name="solar:folder-open-bold" :size="14" />
+            <span class="t">Pick folder…</span>
+          </button>
+        </div>
         <div class="fm-side-sec">
           <div class="fm-side-h">FOLDERS</div>
           <button
@@ -315,6 +345,20 @@
           <button class="fm-pill xs ghost" title="Back to vault root (.cybermanju home)" @click="goHomeVault">Vault ⌂</button>
         </div>
 
+        <!-- DEVICE SCOPE: host filesystem via cybsh `-os` (sdcard on
+             Android). Files here move to the vault or any provider and back. -->
+        <div v-if="isHostPathNow" class="fm-diskscope provider" role="status">
+          <AppIcon name="solar:smartphone-bold" :size="13" />
+          <span class="fm-diskscope-t truncate" :title="hostAbsNow || store.currentPath">
+            <b>{{ hostAbsNow || 'Device' }}</b>
+            <span class="dim">· device files — not vault yet</span>
+          </span>
+          <span class="fm-spacer" />
+          <button class="fm-pill xs" title="Import selected device files into the vault (.cybermanju)" :disabled="!selCount && !active" @click="() => saveHostSelToVault()">↓ Vault</button>
+          <button class="fm-pill xs ghost" title="Move/copy to vault, provider or another device folder" :disabled="!active && !selCount" @click="openMoveTo(null)">⇄ Move</button>
+          <button class="fm-pill xs ghost" title="Back to vault root (.cybermanju home)" @click="goHomeVault">Vault ⌂</button>
+        </div>
+
         <div v-if="selCount > 0" class="fm-bulk" role="toolbar" aria-label="Bulk actions">
           <span class="fm-bulk-n">{{ selCount }} selected · {{ humanBytes(selBytes) }}</span>
           <button title="Encrypt" @click="bulkEncrypt"><AppIcon name="solar:lock-bold" :size="12" /></button>
@@ -323,7 +367,7 @@
           <button title="Star" @click="bulkStar"><AppIcon name="solar:star-bold" :size="12" /></button>
           <button title="Copy" @click="copySel"><AppIcon name="solar:copy-bold" :size="12" /></button>
           <button title="Cut" @click="cutSel"><AppIcon name="solar:scissors-bold" :size="12" /></button>
-          <button title="Paste here" :disabled="!clipboard.ids.length" @click="pasteHere"><AppIcon name="solar:clipboard-paste-bold" :size="12" /></button>
+          <button title="Paste here" :disabled="!clipboard.nodes.length" @click="pasteHere"><AppIcon name="solar:clipboard-paste-bold" :size="12" /></button>
           <button class="danger" title="Delete" @click="askDeleteSel"><AppIcon name="solar:trash-bin-trash-bold" :size="12" /></button>
           <button title="Clear" @click="clearSel"><AppIcon name="solar:close-bold" :size="12" /></button>
         </div>
@@ -467,7 +511,7 @@
           <span class="fm-spacer" />
           <span v-if="active?.encrypted" class="fm-sbadge lock">🔒 {{ (active.encryptionAlgorithm || 'enc').toUpperCase() }}</span>
           <span v-if="active && encLayer(active) !== 'none'" class="fm-sbadge zip">🗜 {{ encLayer(active).toUpperCase() }}</span>
-          <span v-if="clipboard.ids.length" class="fm-sbadge clip">📋 {{ clipboard.ids.length }} {{ clipboard.mode }}</span>
+          <span v-if="clipboard.nodes.length" class="fm-sbadge clip">📋 {{ clipboard.nodes.length }} {{ clipboard.mode }}</span>
           <span v-if="df" class="mono dim hide-sm">{{ humanBytes((df.totalBytes || 0) - (df.usedBytes || 0)) }} free</span>
           <label v-if="view === 'grid' || view === 'masonry'" class="fm-zoom" title="Icon size">
             <AppIcon name="solar:gallery-bold" :size="12" />
@@ -545,7 +589,7 @@
               <div class="fm-kv hash"><span>BLAKE3</span><b class="mono" :title="active.hashBlake3">{{ active.hashBlake3 || '—' }}</b></div>
               <div class="fm-kv"><span>Starred</span><button class="fm-pill xs" @click="store.toggleStar(active!.id)">{{ active.isStarred ? '★ yes' : '☆ star it' }}</button></div>
               <div v-if="active.tags?.length" class="fm-kv"><span>Tags</span><b>{{ active.tags.join(', ') }}</b></div>
-              <div class="fm-tagedit">
+              <div v-if="activeIsVault" class="fm-tagedit">
                 <span class="fm-tagedit__label">TAGS — TEACH SEARCH</span>
                 <div class="fm-tagedit__chips">
                   <span v-for="t in (active.tags || [])" :key="t" class="fm-tagedit__chip">
@@ -566,11 +610,13 @@
                   <button type="submit" class="fm-pill xs" :disabled="!tagDraft.trim() || tagSaving">Add</button>
                 </form>
               </div>
+              <div v-else class="fm-sempty">Tags live on vault files — save this {{ isHostId(active.id) ? 'device file' : 'provider file' }} to the vault to teach search about it.</div>
               <div v-if="active.gpsLat != null" class="fm-kv"><span>GPS</span><b class="mono">{{ active.gpsLat.toFixed(4) }}, {{ active.gpsLon?.toFixed(4) }}</b></div>
               <div v-if="active.faceGroupIds?.length" class="fm-kv"><span>Faces</span><b>{{ active.faceGroupIds.map(getFaceGroupName).join(', ') }}</b></div>
               <div v-if="store.parseResult?.symbols.length" class="fm-kv"><span>Symbols</span><b class="mono">{{ store.parseResult.symbols.length }} · {{ store.parseResult.language }}</b></div>
               <div class="fm-btnrow">
                 <button v-if="isLocalTextProviderFile(active)" class="fm-pill xs" title="Edit and auto-save this text file in the selected phone folder" @click="openLocalProviderEditor(active)">Edit local text</button>
+                <button v-if="isHostTextFile(active)" class="fm-pill xs" title="Edit this device text file in place" @click="openHostEditor(active)">Edit device text</button>
                 <button class="fm-pill xs" @click="openFile(active)">Open</button>
                 <button class="fm-pill xs ghost" @click="copyPath(active)">Copy path</button>
                 <button class="fm-pill xs ghost" @click="beginRename(active)">Rename</button>
@@ -584,6 +630,8 @@
             <!-- CRYPTO -->
             <div v-else-if="inspTab === 'crypto'" class="fm-isec">
               <div class="fm-side-h">Encryption</div>
+              <div v-if="!activeIsVault" class="fm-sempty">Shield engines act on vault files — save this file to the vault first.</div>
+              <template v-else>
               <div class="fm-cryptocard" :class="{ on: active.encrypted }">
                 <div class="fm-kv"><span>Status</span><b>{{ active.encrypted ? '🔒 ENCRYPTED' : '🔓 plain' }}</b></div>
                 <div class="fm-kv"><span>Algorithm</span><b>{{ activeAlgoName }}</b></div>
@@ -616,11 +664,13 @@
                 <button v-if="encLayer(active) !== 'none'" class="fm-pill xs ghost" @click="store.decompressFile(active!.id)">Decompress</button>
                 <button class="fm-pill xs ghost" @click="wm.open('encryption', { tab: 'compress' })">Engine</button>
               </div>
+              </template>
             </div>
             <!-- DISTRIBUTION -->
             <div v-else-if="inspTab === 'distro'" class="fm-isec">
               <div class="fm-side-h">Location</div>
-              <div class="fm-kv"><span>Vault file</span><b class="mono">.cybermanju</b></div>
+              <div v-if="!activeIsVault" class="fm-kv"><span>This file</span><b class="mono">{{ isHostId(active.id) ? hostAbsFromVm(active.path || '') || 'device' : 'provider repo' }}</b></div>
+              <div v-else class="fm-kv"><span>Vault file</span><b class="mono">.cybermanju</b></div>
               <div class="fm-kv"><span>Volume</span><b class="mono">{{ df ? `${humanBytes(df.usedBytes)} / ${humanBytes(df.totalBytes)}` : '—' }}</b></div>
               <div class="fm-distro">
                 <div v-for="c in store.syncConfigs" :key="c.id" class="fm-drow" :title="c.basePath || c.repoName || c.backendType">
@@ -628,8 +678,8 @@
                   <span class="t truncate"><b>{{ backendLabel(c.backendType) }}</b> <span class="dim">{{ c.name || '' }}</span></span>
                   <span class="mono dim">{{ c.placement || 'whole' }}{{ c.parity ? '·p' + c.parity : '' }}</span>
                   <span class="fm-dstat" :class="{ on: c.enabled }">{{ c.enabled ? 'on' : 'off' }}</span>
-                  <button class="fm-pill xs" title="Sync this file now" @click="syncFileTo(c.id)">⇪</button>
-                  <button class="fm-pill xs ghost" title="Probe remote copy" @click="probeRemote(c.id)">locate</button>
+                  <button v-if="activeIsVault" class="fm-pill xs" title="Sync this file now" @click="syncFileTo(c.id)">⇪</button>
+                  <button v-if="activeIsVault" class="fm-pill xs ghost" title="Probe remote copy" @click="probeRemote(c.id)">locate</button>
                 </div>
                 <div v-if="!store.syncConfigs.length" class="fm-sempty">No providers configured — <button class="fm-link" @click="wm.open('accounts', { tab: 'connections' })">add one in Accounts</button>.</div>
               </div>
@@ -655,12 +705,14 @@
               <div class="fm-btnrow">
                 <button class="fm-pill xs ghost" @click="wm.open('sync')">Sync panel</button>
                 <button class="fm-pill xs ghost" @click="wm.open('disks')">Disks</button>
-                <button class="fm-pill xs ghost" @click="restoreToVault">Restore ↓</button>
+                <button v-if="activeIsVault" class="fm-pill xs ghost" @click="restoreToVault">Restore ↓</button>
               </div>
             </div>
             <!-- VERSIONS -->
             <div v-else-if="inspTab === 'vers'" class="fm-isec">
               <div class="fm-side-h">VERSION HISTORY</div>
+              <div v-if="!activeIsVault" class="fm-sempty">Snapshots belong to vault files — save this file to the vault first.</div>
+              <template v-else>
               <div v-for="v in store.fileVersions" :key="v.id" class="fm-kv small">
                 <span>v{{ v.versionNumber }} · {{ fmtDate(v.createdAt) }}</span>
                 <button class="fm-pill xs ghost" @click="store.revertToVersion(active!.id, v.id)">revert</button>
@@ -672,10 +724,13 @@
               </div>
               <div class="fm-side-h">PERMISSIONS</div>
               <div class="fm-btnrow"><button class="fm-pill xs ghost" @click="wm.open('permissions')">Open ACL editor</button></div>
+              </template>
             </div>
             <!-- SHARE -->
             <div v-else class="fm-isec">
               <div class="fm-side-h">SHARE LINK</div>
+              <div v-if="!activeIsVault" class="fm-sempty">Share links address vault files — save this file to the vault first.</div>
+              <template v-else>
               <div class="fm-btnrow">
                 <button class="fm-pill xs" @click="makeShare(24)">24h link</button>
                 <button class="fm-pill xs ghost" @click="makeShare(168)">7d link</button>
@@ -691,6 +746,7 @@
               <div class="fm-btnrow">
                 <button v-for="c in store.collections.slice(0, 4)" :key="c.id" class="fm-pill xs ghost" @click="store.addToCollection(c.id, active!.id)">{{ c.name }}</button>
               </div>
+              </template>
             </div>
           </div>
         </template>
@@ -716,7 +772,7 @@
       <div v-if="dlgDelete" class="fm-ov" @click.self="dlgDelete = null">
         <div class="fm-modal danger">
           <h3>Delete {{ dlgDeleteMany ? dlgDeleteMany + ' items' : '“' + (dlgDelete.name || '') + '”' }}?</h3>
-          <p class="dim">Moves to Trash — restorable.</p>
+          <p class="dim">{{ deleteIsHost ? 'Permanently deletes from this device — no trash there.' : 'Moves to Trash — restorable.' }}</p>
           <div class="fm-mrow"><button class="fm-pill ghost" @click="dlgDelete = null; dlgDeleteMany = 0">Cancel</button><button class="fm-pill danger" @click="doDelete">Delete</button></div>
         </div>
       </div>
@@ -747,6 +803,40 @@
           <div class="fm-mrow"><button class="fm-pill ghost" @click="dlgProvMove = null">Cancel</button><button class="fm-pill" :disabled="!dlgProvDestMount || provMoving" @click="doProviderMove">{{ provMoving ? 'Working…' : (dlgProvOp === 'move' ? 'Move' : 'Copy') }}</button></div>
         </div>
       </div>
+      <div v-if="dlgMove" class="fm-ov" @click.self="dlgMove = null">
+        <div class="fm-modal">
+          <h3>{{ dlgMoveOp === 'move' ? 'Move' : 'Copy' }} {{ dlgMove.nodes.length }} item(s) to…</h3>
+          <div class="fm-mrow left">
+            <button class="fm-chipbtn" :class="{ on: dlgMoveKind === 'vault' }" @click="dlgMoveKind = 'vault'">vault</button>
+            <button class="fm-chipbtn" :class="{ on: dlgMoveKind === 'provider' }" @click="dlgMoveKind = 'provider'">provider</button>
+            <button v-if="isNative" class="fm-chipbtn" :class="{ on: dlgMoveKind === 'host' }" @click="dlgMoveKind = 'host'">device</button>
+          </div>
+          <template v-if="dlgMoveKind === 'vault'">
+            <label class="fm-dlg-label" for="fm-movedest-vault">Vault folder</label>
+            <input id="fm-movedest-vault" v-model="dlgMoveVault" placeholder="/photos" aria-label="Vault folder" @keyup.enter="doMoveTo" />
+          </template>
+          <template v-else-if="dlgMoveKind === 'provider'">
+            <label class="fm-dlg-label" for="fm-movedest-prov">Destination provider</label>
+            <select id="fm-movedest-prov" v-model="dlgMoveProvMount" class="fm-select wide" aria-label="Destination provider">
+              <option v-for="m in vfsMounts" :key="m.id" :value="m.id">{{ m.name }} · {{ m.backendType }}</option>
+            </select>
+            <label class="fm-dlg-label" for="fm-movedest-provpath">Destination folder (optional)</label>
+            <input id="fm-movedest-provpath" v-model="dlgMoveProvDir" placeholder="folder/subfolder (blank = root)" aria-label="Destination folder" @keyup.enter="doMoveTo" />
+          </template>
+          <template v-else>
+            <label class="fm-dlg-label" for="fm-movedest-host">Device folder</label>
+            <input id="fm-movedest-host" v-model="dlgMoveHostDir" placeholder="/sdcard/Download (blank = here)" aria-label="Device folder" @keyup.enter="doMoveTo" />
+            <div class="fm-mrow left">
+              <button class="fm-pill ghost" title="Pick a device folder" @click="pickMoveHostDir">Pick folder…</button>
+            </div>
+          </template>
+          <div class="fm-mrow left">
+            <button class="fm-chipbtn" :class="{ on: dlgMoveOp === 'copy' }" @click="dlgMoveOp = 'copy'">copy</button>
+            <button class="fm-chipbtn" :class="{ on: dlgMoveOp === 'move' }" @click="dlgMoveOp = 'move'">move</button>
+          </div>
+          <div class="fm-mrow"><button class="fm-pill ghost" @click="dlgMove = null">Cancel</button><button class="fm-pill" :disabled="moveWorking" @click="doMoveTo">{{ moveWorking ? 'Working…' : (dlgMoveOp === 'move' ? 'Move' : 'Copy') }}</button></div>
+        </div>
+      </div>
       <div v-if="providerEditor" class="fm-ov fm-local-editor-ov" @click.self="closeLocalProviderEditor">
         <section class="fm-modal fm-local-editor" role="dialog" aria-modal="true" aria-labelledby="fm-local-editor-title">
           <header class="fm-local-editor__head">
@@ -769,6 +859,28 @@
           </footer>
         </section>
       </div>
+      <div v-if="hostEditor" class="fm-ov fm-local-editor-ov" @click.self="closeHostEditor">
+        <section class="fm-modal fm-local-editor" role="dialog" aria-modal="true" aria-labelledby="fm-host-editor-title">
+          <header class="fm-local-editor__head">
+            <div class="fm-local-editor__title">
+              <span class="fm-local-editor__eyebrow">DEVICE FILE · SAVES IN PLACE</span>
+              <h3 id="fm-host-editor-title" :title="hostEditor.name">{{ hostEditor.name }}</h3>
+              <span class="fm-local-editor__path" :title="hostEditor.absPath">{{ hostEditor.absPath }}</span>
+            </div>
+            <button class="fm-ibtn" aria-label="Close editor" title="Save and close" :disabled="hostEditor.saving" @click="closeHostEditor"><AppIcon name="solar:close-bold" :size="16" /></button>
+          </header>
+          <textarea ref="hostEditorTextarea" v-model="hostEditor.text" class="fm-local-editor__text" aria-label="File contents" spellcheck="false" autocapitalize="off" autocomplete="off" />
+          <footer class="fm-local-editor__foot">
+            <span class="fm-local-editor__status" :class="{ error: !!hostEditor.error }" role="status" aria-live="polite">
+              {{ hostEditor.error || (hostEditor.saving ? 'Saving to device…' : hostEditor.text !== hostEditor.savedText ? 'Unsaved changes' : 'Saved on this device') }}
+            </span>
+            <div class="fm-mrow">
+              <button class="fm-pill ghost" :disabled="hostEditor.saving" @click="closeHostEditor">Close</button>
+              <button class="fm-pill" :disabled="hostEditor.saving || hostEditor.text === hostEditor.savedText" @click="saveHostEditor">{{ hostEditor.saving ? 'Saving…' : 'Save now' }}</button>
+            </div>
+          </footer>
+        </section>
+      </div>
       <input ref="filePickRef" type="file" multiple hidden @change="onFilesPicked" />
     </Teleport>
   </div>
@@ -783,7 +895,8 @@ import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
 import { useContextMenu } from '@/composables/useContextMenu'
 import { useWindowUi } from '@/composables/useWindowUi'
-import { invoke } from '@/composables/useTauri'
+import { invoke, isTauri } from '@/composables/useTauri'
+import { destFromVmPath, hostAbsFromVm, isHostId, isHostPath, sourceFromNode } from '@/utils/hostBrowse'
 import { humanBytes, diskPct } from '@/utils/format'
 import { trackShellCwd } from '@/utils/shellCwd'
 import { decodeProviderText, isTextEditableProviderName, MAX_PROVIDER_TEXT_BYTES } from '@/utils/providerText'
@@ -874,6 +987,7 @@ function closeMobilePanels() {
 function handleMobileBack(event: Event) {
   if (!isMobileView.value) return
   if (providerEditor.value) void closeLocalProviderEditor()
+  else if (hostEditor.value) void closeHostEditor()
   else if (mobileToolsOpen.value) mobileToolsOpen.value = false
   else if (mobileInspectorOpen.value) mobileInspectorOpen.value = false
   else if (mobileSideOpen.value) mobileSideOpen.value = false
@@ -929,7 +1043,9 @@ function jumpCrumb(p: string) { store.selectFile(null); void navTo(p) }
 const crumbs = computed(() => {
   const p = store.currentPath || '/'
   const parts = p.split('/').filter(Boolean)
-  const out = [{ label: 'vault', path: '/' }]
+  const norm = p.replace(/\\/g, '/')
+  const home = norm === '/host' || norm.startsWith('/host/') ? 'device' : 'vault'
+  const out = [{ label: home, path: norm.startsWith('/host') ? '/host' : '/' }]
   let acc = ''
   for (const part of parts) { acc += '/' + part; out.push({ label: part, path: acc }) }
   return out
@@ -1086,6 +1202,12 @@ function splitProviderPath(path: string): { mountId: string; remotePath: string 
   return splitProviderId(path)
 }
 const isProviderPath = computed(() => store.currentPath.replace(/\\/g, '/').startsWith('/providers'))
+/** Vault rows are the only ones with crypto/versions/shares/tags/sync state. */
+function isVaultRow(f: FileNode | null | undefined): boolean {
+  if (!f || !f.id) return false
+  return !isHostId(f.id) && !splitProviderId(f.id)
+}
+const activeIsVault = computed(() => isVaultRow(active.value ?? null))
 const isProviderFile = (f: FileNode) => String(f.id || '').replace(/\\/g, '/').startsWith('providers/') || splitProviderPath(store.currentPath) !== null
 function isLocalScopedProviderFile(f: FileNode): boolean {
   const split = splitProviderId(f.id)
@@ -1164,14 +1286,158 @@ async function closeLocalProviderEditor() {
   }
   providerEditor.value = null
 }
-const providerScopeLabel = computed(() => {
-  const split = splitProviderPath(store.currentPath)
+const providerScopeLabel = computed(() => {  const split = splitProviderPath(store.currentPath)
   if (!split) return 'Providers'
   const mount = vfsMounts.value.find(m => m.id === split.mountId)
   const cfg = mount ? store.syncConfigs.find(c => c.id === mount.configId) : undefined
   const who = mount?.name || (cfg ? `${backendLabel(cfg.backendType)} · ${(cfg.repoName || cfg.basePath || '').slice(0, 28)}` : split.mountId)
   return split.remotePath ? `${who} / ${split.remotePath}` : who
 })
+
+// ── device files: host filesystem browsed through cybsh `-os` ──────
+// Same tree as vault/providers (`/host…`), listed over the os_exec bridge
+// so desktop (IPC/REST) and Android (IPC) share every verb; bytes ride
+// plugin-fs. Hidden on static web builds (no host there).
+const isNative = computed(() => {
+  try {
+    return isTauri()
+  } catch {
+    return false
+  }
+})
+const isHostPathNow = computed(() => isHostPath(store.currentPath))
+const hostAbsNow = computed(() => hostAbsFromVm(store.currentPath))
+async function openHostRoot() {
+  if (!isNative.value) {
+    store.notifyError('Device files need the app', 'open this vault in the desktop app or the native Android build')
+    return
+  }
+  clearDiskScope(true)
+  store.selectFile(null)
+  await navTo('/host')
+}
+function openHostFsRoot() {
+  if (!isNative.value) {
+    store.notifyError('Device files need the app', 'open this vault in the desktop app or the native Android build')
+    return
+  }
+  clearDiskScope(true)
+  store.selectFile(null)
+  void navTo('/host/')
+}
+async function pickHostFolder() {
+  try {
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const sel = await open({ directory: true, multiple: false })
+    if (typeof sel === 'string' && sel) {
+      const { vmForHost } = await import('@/utils/hostBrowse')
+      clearDiskScope(true)
+      store.selectFile(null)
+      await navTo(vmForHost(sel))
+    }
+  } catch (e) {
+    store.notifyError('Cannot pick a device folder', e)
+  }
+}
+/** Absolute host dir behind the current listing (`/host` → `pwd -os`). */
+async function currentHostDir(): Promise<string> {
+  const { resolveHostDir } = await import('@/utils/hostBrowse')
+  return resolveHostDir(store.currentPath)
+}
+async function openHostWithSystem(f: FileNode) {
+  const abs = isHostId(f.id) ? f.id.slice('host:'.length) : hostAbsFromVm(f.path || '')
+  if (!abs) {
+    store.notifyError('Nothing to open', 'select a device file first')
+    return
+  }
+  try {
+    const { open } = await import('@tauri-apps/plugin-shell')
+    await open(abs)
+  } catch (e) {
+    store.notifyError('Cannot open with system', e)
+  }
+}
+
+// ── device text editing (the `-os` counterpart of the SAF text editor) ──
+// Host text files open in a modal backed by plugin-fs bytes: strict UTF-8
+// decode refuses binary honestly, saves are explicit, and closing with
+// unsaved changes saves first (like the phone-folder editor).
+const MAX_HOST_TEXT_BYTES = 512 * 1024
+interface HostEditorState {
+  absPath: string
+  name: string
+  text: string
+  savedText: string
+  saving: boolean
+  error: string
+}
+const hostEditor = ref<HostEditorState | null>(null)
+const hostEditorTextarea = ref<HTMLTextAreaElement | null>(null)
+function isHostTextFile(f: FileNode): boolean {
+  return isHostId(f.id)
+    && f.fileType === 'file'
+    && (f.sizeBytes || 0) <= MAX_HOST_TEXT_BYTES
+    && isTextEditableProviderName(f.name, f.mimeType || '')
+}
+async function openHostEditor(f: FileNode) {
+  const abs = isHostId(f.id) ? f.id.slice('host:'.length) : ''
+  if (!abs || f.fileType === 'folder') return
+  if ((f.sizeBytes || 0) > MAX_HOST_TEXT_BYTES) {
+    store.notifyError('File is too large to edit here', `Device text editing is limited to ${MAX_HOST_TEXT_BYTES} bytes.`)
+    return
+  }
+  try {
+    const { readHostBytes } = await import('@/utils/hostBrowse')
+    const bytes = await readHostBytes(abs)
+    let text: string
+    try {
+      text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    } catch {
+      store.notifyError('Binary files need a system app', 'open it with OPEN WITH SYSTEM instead')
+      return
+    }
+    if (text.indexOf('\0') >= 0) {
+      store.notifyError('Binary files need a system app', 'open it with OPEN WITH SYSTEM instead')
+      return
+    }
+    closeMobilePanels()
+    hostEditor.value = { absPath: abs, name: f.name, text, savedText: text, saving: false, error: '' }
+    await nextTick()
+    hostEditorTextarea.value?.focus()
+  } catch (e) {
+    store.notifyError('Cannot edit this device file as text', e)
+  }
+}
+async function saveHostEditor() {
+  const state = hostEditor.value
+  if (!state || state.saving || state.text === state.savedText) return
+  state.saving = true
+  state.error = ''
+  try {
+    const { writeHostBytes } = await import('@/utils/hostBrowse')
+    await writeHostBytes(state.absPath, new TextEncoder().encode(state.text))
+    if (hostEditor.value !== state) return
+    state.savedText = state.text
+    await store.fetchFiles(store.currentPath)
+    store.notifySuccess(`Saved '${state.name}' on this device`)
+  } catch (e) {
+    if (hostEditor.value === state) {
+      state.error = e instanceof Error ? e.message : String(e)
+      store.notifyError('Device file save failed', e)
+    }
+  } finally {
+    if (hostEditor.value === state) state.saving = false
+  }
+}
+async function closeHostEditor() {
+  const state = hostEditor.value
+  if (!state || state.saving) return
+  if (state.text !== state.savedText) {
+    await saveHostEditor()
+    if (hostEditor.value !== state || state.saving || state.text !== state.savedText || state.error) return
+  }
+  hostEditor.value = null
+}
 
 // ── disk scope: click a disk → its ratio + proportional files share ──
 // Disks hold block ranges of the merged volume (no per-file owner), so the
@@ -1342,6 +1608,23 @@ function onDrag(e: DragEvent, f: FileNode) { e.dataTransfer?.setData('text/plain
 
 // ── context menus (reuse registered contexts) ──
 function fileMenu(e: MouseEvent, f: FileNode) {
+  if (isHostId(f.id) || (f.path && isHostPath(f.path))) {
+    ctx.replaceEntries('file_grid_item', [
+      { id: 'open', label: 'OPEN', icon: 'solar:folder-open-bold', action: () => openFile(f) },
+      { id: 'system', label: 'OPEN WITH SYSTEM', icon: 'solar:share-bold', action: () => void openHostWithSystem(f) },
+      ...(isHostTextFile(f) ? [{ id: 'edit-host', label: 'EDIT TEXT · SAVE TO DEVICE', icon: 'solar:pen-bold', action: () => void openHostEditor(f) }] : []),
+      { id: 'move', label: 'MOVE / COPY TO…', icon: 'solar:transfer-horizontal-bold', action: () => openMoveTo(f) },
+      { id: 'save', label: 'SAVE TO VAULT ↓', icon: 'solar:download-bold', action: () => void saveHostSelToVault([f]) },
+      { id: 'div0', label: '', divider: true },
+      { id: 'star', label: f.isStarred ? 'UNSTAR' : 'STAR', icon: 'solar:star-bold', action: () => store.toggleStar(f.id) },
+      { id: 'rename', label: 'RENAME', icon: 'solar:pen-bold', action: () => beginRename(f) },
+      { id: 'copyd', label: 'COPY PATH', icon: 'solar:copy-bold', action: () => copyPath(f) },
+      { id: 'div1', label: '', divider: true },
+      { id: 'delete', label: 'DELETE FROM DEVICE', icon: 'solar:trash-bin-trash-bold', action: () => askDelete(f) },
+    ])
+    ctx.open(e, 'file_grid_item')
+    return
+  }
   if (splitProviderId(f.id)) {
     ctx.replaceEntries('file_grid_item', [
       { id: 'open', label: 'OPEN', icon: 'solar:folder-open-bold', action: () => openFile(f) },
@@ -1381,33 +1664,86 @@ function fileMenu(e: MouseEvent, f: FileNode) {
 }
 function bgMenu(e: MouseEvent) { ctx.open(e, 'file_grid_bg') }
 
-// ── clipboard copy/cut/paste ──
-const clipboard = ref<{ ids: string[]; mode: 'copy' | 'cut' }>({ ids: [], mode: 'copy' })
-function copySel() { clipboard.value = { ids: [...store.selectedFileIds], mode: 'copy' }; store.notifySuccess(`Copied ${clipboard.value.ids.length} item(s)`) }
-function cutSel() { clipboard.value = { ids: [...store.selectedFileIds], mode: 'cut' }; store.notifySuccess(`Cut ${clipboard.value.ids.length} item(s) — paste to move`) }
+// ── clipboard copy/cut/paste (any namespace → any folder) ──
+// Snapshots are FileNodes, not ids: pasting into another namespace must
+// still know each source's kind (vault id, provider locator, host path)
+// after the listing has moved on.
+const clipboard = ref<{ nodes: FileNode[]; mode: 'copy' | 'cut' }>({ nodes: [], mode: 'copy' })
+function copySel() {
+  clipboard.value = { nodes: store.files.filter(f => store.selectedFileIds.includes(f.id)), mode: 'copy' }
+  store.notifySuccess(`Copied ${clipboard.value.nodes.length} item(s)`)
+}
+function cutSel() {
+  clipboard.value = { nodes: store.files.filter(f => store.selectedFileIds.includes(f.id)), mode: 'cut' }
+  store.notifySuccess(`Cut ${clipboard.value.nodes.length} item(s) — paste to move`)
+}
 async function pasteHere() {
-  const { ids, mode } = clipboard.value
-  for (const id of ids) {
-    try { await store.duplicateFileContext(id); if (mode === 'cut') await store.deleteFile(id) } catch { /* per-file toast already shown */ }
+  const { nodes, mode } = clipboard.value
+  if (!nodes.length) return
+  const op = mode === 'cut' ? 'move' : 'copy'
+  const { destFromVmPath, liveMoveDeps, moveAnywhere, resolveHostDir } = await import('@/utils/hostBrowse')
+  let dest = destFromVmPath(store.currentPath)
+  if (!dest && isHostPath(store.currentPath)) {
+    // `/host` carries no absolute — resolve the `-os` default dir first.
+    try {
+      dest = { kind: 'host', absDir: await resolveHostDir(store.currentPath) }
+    } catch (e) {
+      store.notifyError('Cannot resolve device folder', e)
+      return
+    }
   }
-  if (mode === 'cut') clipboard.value = { ids: [], mode: 'copy' }
+  if (!dest) {
+    store.notifyError('Cannot paste here', 'this folder is not a move destination')
+    return
+  }
+  const deps = await liveMoveDeps()
+  let ok = 0
+  for (const f of nodes) {
+    const src = sourceFromNode(f, store.currentPath)
+    if (!src) continue
+    try {
+      await moveAnywhere(src, dest, op, deps)
+      ok++
+    } catch (e) {
+      store.notifyError(`Paste failed: ${f.name}`, e)
+    }
+  }
+  if (mode === 'cut') clipboard.value = { nodes: [], mode: 'copy' }
+  clearSel()
   await store.fetchFiles(store.currentPath)
+  if (ok) store.notifySuccess(op === 'move' ? `Moved ${ok} item(s) here (verified)` : `Copied ${ok} item(s) here`)
 }
 
 // ── bulk ──
+// Shield engines act on vault rows only: provider/device rows are skipped
+// with an honest count instead of one error toast per file.
+function vaultSel(): FileNode[] {
+  return store.files.filter(f => store.selectedFileIds.includes(f.id) && isVaultRow(f))
+}
 async function bulkEncrypt() {
+  const rows = vaultSel()
+  const skipped = store.selectedFileIds.length - rows.length
   let failed = 0
-  for (const id of [...store.selectedFileIds]) { try { await store.encryptFile(id, 'hybrid') } catch { failed++ } }
+  for (const f of rows) { try { await store.encryptFile(f.id, 'hybrid') } catch { failed++ } }
+  if (skipped) store.notifyError(`Bulk encrypt skipped ${skipped} non-vault item(s)`, 'save them to the vault first')
   if (failed) store.notifyError(`Bulk encrypt: ${failed} file(s) failed`, 'see per-file messages')
   clearSel()
 }
 async function bulkCompress() {
+  const rows = vaultSel()
+  const skipped = store.selectedFileIds.length - rows.length
   let failed = 0
-  for (const id of [...store.selectedFileIds]) { try { await store.compressFile(id, 'zstd') } catch { failed++ } }
+  for (const f of rows) { try { await store.compressFile(f.id, 'zstd') } catch { failed++ } }
+  if (skipped) store.notifyError(`Bulk compress skipped ${skipped} non-vault item(s)`, 'save them to the vault first')
   if (failed) store.notifyError(`Bulk compress: ${failed} file(s) failed`, 'see per-file messages')
   clearSel()
 }
-function bulkSync() { dlgSyncIds.value = [...store.selectedFileIds]; dlgSync.value = true }
+function bulkSync() {
+  const rows = vaultSel()
+  if (!rows.length) { store.notifyError('Nothing vault-side to sync', 'select vault files first (providers/device files sync after a vault save)'); return }
+  dlgSyncIds.value = rows.map(f => f.id)
+  dlgSync.value = true
+}
 async function bulkStar() { for (const id of [...store.selectedFileIds]) { try { await store.toggleStar(id) } catch { /* per-file toast already shown */ } } clearSel() }
 function askDeleteSel() { dlgDelete.value = null; dlgDeleteMany.value = store.selectedFileIds.length }
 
@@ -1423,16 +1759,64 @@ const dlgSyncIds = ref<string[]>([])
 watch(dlgFolder, v => { if (v) nextTick(() => folderRef.value?.focus()) })
 async function doMkdir() {
   if (!dlgFolderName.value.trim()) return
-  await store.createFolder(dlgFolderName.value.trim(), scopeFolder.value?.id || '')
+  const name = dlgFolderName.value.trim().replace(/[/\\]+/g, '_')
+  if (isHostPathNow.value) {
+    try {
+      const base = hostAbsNow.value || await currentHostDir()
+      const { mkdirHost } = await import('@/utils/hostBrowse')
+      await mkdirHost(`${base.replace(/\/+$/, '')}/${name}`)
+      store.notifySuccess(`Device folder '${name}' created`)
+    } catch (e) {
+      store.notifyError('Cannot create device folder', e)
+    }
+    dlgFolderName.value = ''
+    dlgFolder.value = false
+    await store.fetchFiles(store.currentPath)
+    return
+  }
+  await store.createFolder(name, scopeFolder.value?.id || '')
   dlgFolderName.value = ''
   dlgFolder.value = false
 }
 function beginRename(f: FileNode) { dlgRename.value = f; dlgRenameName.value = f.name; nextTick(() => renameRef.value?.focus()) }
 async function doRename() {
-  if (dlgRename.value && dlgRenameName.value.trim()) await store.renameFile(dlgRename.value.id, dlgRenameName.value.trim())
+  if (dlgRename.value && dlgRenameName.value.trim()) {
+    const target = dlgRenameName.value.trim().replace(/[/\\]+/g, '_')
+    const f = dlgRename.value
+    if (isHostId(f.id)) {
+      // Device rename is a same-folder `mv -os`.
+      const abs = f.id.slice('host:'.length)
+      const parent = abs.replace(/\\/g, '/').split('/').slice(0, -1).join('/') || '/'
+      try {
+        const { mvHost } = await import('@/utils/hostBrowse')
+        await mvHost(abs, `${parent}/${target}`)
+        store.notifySuccess(`Renamed to '${target}' on this device`)
+      } catch (e) {
+        store.notifyError('Device rename failed', e)
+      }
+      dlgRename.value = null
+      await store.fetchFiles(store.currentPath)
+      return
+    }
+    if (splitProviderId(f.id)) {
+      store.notifyError('Provider renames ride on move', 'use MOVE / COPY TO… for provider files')
+      dlgRename.value = null
+      return
+    }
+    await store.renameFile(f.id, target)
+  }
   dlgRename.value = null
 }
 function askDelete(f: FileNode) { dlgDeleteMany.value = 0; dlgDelete.value = f }
+const deleteIsHost = computed(() => {
+  if (dlgDelete.value && isHostId(dlgDelete.value.id)) return true
+  if (dlgDeleteMany.value > 0) {
+    return store.files
+      .filter(f => store.selectedFileIds.includes(f.id))
+      .every(f => isHostId(f.id))
+  }
+  return false
+})
 // ── user tags (teach search/parse + scene matching on any file) ──
 const tagDraft = ref('')
 const tagSaving = ref(false)
@@ -1440,6 +1824,7 @@ async function addTag() {
   const file = active.value
   const tag = tagDraft.value.trim()
   if (!file || !tag || tagSaving.value) return
+  if (!isVaultRow(file)) { store.notifyError('Tags live on vault files', 'save this file to the vault first'); return }
   if ((file.tags || []).some(t => t.toLowerCase() === tag.toLowerCase())) {
     tagDraft.value = ''
     return
@@ -1455,6 +1840,7 @@ async function addTag() {
 async function removeTag(tag: string) {
   const file = active.value
   if (!file || tagSaving.value) return
+  if (!isVaultRow(file)) { store.notifyError('Tags live on vault files', 'save this file to the vault first'); return }
   tagSaving.value = true
   try {
     await store.setFileTags(file.id, (file.tags || []).filter(t => t !== tag))
@@ -1463,16 +1849,56 @@ async function removeTag(tag: string) {
   }
 }
 async function doDelete() {
-  if (dlgDeleteMany.value > 0) await store.batchDeleteFiles([...store.selectedFileIds])
-  else if (dlgDelete.value) await store.deleteFile(dlgDelete.value.id)
+  // Device deletes are permanent (`rm -os -r` — there is no trash on the
+  // host); provider deletes go through the canal; the vault keeps trash.
+  const targets: FileNode[] = dlgDeleteMany.value > 0
+    ? store.files.filter(f => store.selectedFileIds.includes(f.id))
+    : (dlgDelete.value ? [dlgDelete.value] : [])
+  const hostTargets = targets.filter(f => isHostId(f.id))
+  const rest = targets.filter(f => !isHostId(f.id))
+  for (const f of hostTargets) {
+    try {
+      const { rmHost } = await import('@/utils/hostBrowse')
+      await rmHost(f.id.slice('host:'.length), f.fileType === 'folder')
+    } catch (e) {
+      store.notifyError(`Device delete failed: ${f.name}`, e)
+    }
+  }
+  for (const f of rest.filter(f => splitProviderId(f.id))) {
+    try {
+      await removeProviderFile(f)
+    } catch (e) {
+      store.notifyError(`Provider delete failed: ${f.name}`, e)
+    }
+  }
+  const vaultRest = rest.filter(f => !splitProviderId(f.id))
+  if (dlgDeleteMany.value > 0) {
+    if (vaultRest.length) await store.batchDeleteFiles(vaultRest.map(f => f.id))
+  } else if (vaultRest.length && dlgDelete.value) {
+    await store.deleteFile(dlgDelete.value.id)
+  }
+  if (hostTargets.length) {
+    clearSel()
+    await store.fetchFiles(store.currentPath)
+    if (hostTargets.length && !rest.length) store.notifySuccess(`Deleted ${hostTargets.length} item(s) from this device`)
+  }
   dlgDelete.value = null
   dlgDeleteMany.value = 0
 }
 async function doSyncTo(configId: string) {
-  const ids = dlgSyncIds.value.length ? dlgSyncIds.value : [...store.selectedFileIds]
+  const picked = dlgSyncIds.value.length ? [...dlgSyncIds.value] : [...store.selectedFileIds]
   dlgSync.value = null
   dlgSyncIds.value = []
-  if (!ids.length) { store.notifyError('Nothing to sync', 'select a file first'); return }
+  // The sync engine addresses vault rows by id — provider/device rows sync
+  // after a vault save, never directly.
+  const ids = picked.filter(id => {
+    const f = store.files.find(x => x.id === id)
+    return f ? isVaultRow(f) : true
+  })
+  if (picked.length - ids.length > 0) {
+    store.notifyError(`Sync skipped ${picked.length - ids.length} non-vault item(s)`, 'save them to the vault first')
+  }
+  if (!ids.length) { store.notifyError('Nothing to sync', 'select a vault file first'); return }
   await store.startSync(configId, ids)
   clearSel()
 }
@@ -1480,7 +1906,8 @@ async function doSyncTo(configId: string) {
 // ── upload / new file ──
 function onUploadClick() { filePickRef.value?.click() }
 // In a provider folder uploads go straight to that Google Drive /
-// GitHub / GitLab path via the canal; in the vault they use upload_file.
+// GitHub / GitLab path via the canal; on the device they land in the
+// host folder (plugin-fs bytes); in the vault they use upload_file.
 async function uploadDroppedFiles(files: File[] | null) {
   if (!files?.length) return
   const prov = splitProviderPath(store.currentPath)
@@ -1492,6 +1919,24 @@ async function uploadDroppedFiles(files: File[] | null) {
         const dest = prov.remotePath ? `${prov.remotePath.replace(/\/+$/, '')}/${f.name}` : f.name
         await writeVfsFile(prov.mountId, dest, buf)
       } catch (err) { store.notifyError(`Upload failed: ${f.name}`, err) }
+    }
+    await store.fetchFiles(store.currentPath)
+    store.notifySuccess(`Upload complete (${files.length})`)
+    return
+  }
+  if (isHostPathNow.value) {
+    try {
+      const base = hostAbsNow.value || await currentHostDir()
+      const { writeHostBytes } = await import('@/utils/hostBrowse')
+      for (const f of files) {
+        try {
+          const buf = new Uint8Array(await f.arrayBuffer())
+          await writeHostBytes(`${base.replace(/\/+$/, '')}/${f.name}`, buf)
+        } catch (err) { store.notifyError(`Upload failed: ${f.name}`, err) }
+      }
+    } catch (err) {
+      store.notifyError('Cannot resolve device folder', err)
+      return
     }
     await store.fetchFiles(store.currentPath)
     store.notifySuccess(`Upload complete (${files.length})`)
@@ -1512,7 +1957,8 @@ async function onFilesPicked(e: Event) {
   const list = input.files
   if (!list?.length) return
   // Same routing as drag-drop: provider folders go to that Google Drive /
-  // GitHub / GitLab path via the canal, vault folders use upload_file.
+  // GitHub / GitLab path via the canal, device folders take bytes, vault
+  // folders use upload_file.
   const prov = splitProviderPath(store.currentPath)
   if (prov && prov.mountId && !prov.mountId.startsWith('pending-')) {
     const { writeVfsFile } = await import('@/composables/useProviderCanal')
@@ -1522,6 +1968,21 @@ async function onFilesPicked(e: Event) {
         const dest = prov.remotePath ? `${prov.remotePath.replace(/\/+$/, '')}/${f.name}` : f.name
         await writeVfsFile(prov.mountId, dest, buf)
       } catch (err) { store.notifyError(`Upload failed: ${f.name}`, err) }
+    }
+  } else if (isHostPathNow.value) {
+    try {
+      const base = hostAbsNow.value || await currentHostDir()
+      const { writeHostBytes } = await import('@/utils/hostBrowse')
+      for (const f of Array.from(list)) {
+        try {
+          const buf = new Uint8Array(await f.arrayBuffer())
+          await writeHostBytes(`${base.replace(/\/+$/, '')}/${f.name}`, buf)
+        } catch (err) { store.notifyError(`Upload failed: ${f.name}`, err) }
+      }
+    } catch (err) {
+      store.notifyError('Cannot resolve device folder', err)
+      input.value = ''
+      return
     }
   } else {
     for (const f of Array.from(list)) {
@@ -1563,6 +2024,7 @@ async function probeRemote(configId: string) {
   const cfg = store.syncConfigs.find(c => c.id === configId)
   const file = active.value
   if (!cfg || !file) return
+  if (!isVaultRow(file)) { store.notifyError('Probing starts in the vault', 'save this file to the vault first'); return }
   const name = file.name
   probing.value = true
   try {
@@ -1571,9 +2033,14 @@ async function probeRemote(configId: string) {
     if (!remoteHits.value.length) store.notifySuccess('Probe done — no name match on this provider')
   } finally { probing.value = false }
 }
-async function syncFileTo(configId: string) { if (active.value) await store.startSync(configId, [active.value.id]) }
+async function syncFileTo(configId: string) {
+  if (!active.value) return
+  if (!isVaultRow(active.value)) { store.notifyError('Sync starts in the vault', 'save this file to the vault first'); return }
+  await store.startSync(configId, [active.value.id])
+}
 async function restoreToVault() {
   if (!active.value) return
+  if (!isVaultRow(active.value)) { store.notifyError('Restore targets the vault', 'pick a vault file to restore into'); return }
   const cfg = store.syncConfigs.find(c => c.enabled)
   if (!cfg) { wm.open('sync'); return }
   await store.restoreSyncFile(cfg.id, active.value.id)
@@ -1583,7 +2050,7 @@ async function restoreToVault() {
 // Provider rows have no vault file id — moves go through the canal:
 // read bytes → write destination → verify → delete source on move.
 const provMoving = ref(false)
-const dlgProvMove = ref<{ mountId: string; remotePath: string; locator: string; name: string; op: 'copy' | 'move' } | null>(null)
+const dlgProvMove = ref<{ mountId: string; remotePath: string; locator: string; name: string; op: 'copy' | 'move'; isDir: boolean } | null>(null)
 const dlgProvDestMount = ref('')
 const dlgProvDestDir = ref('')
 const dlgProvOp = ref<'copy' | 'move'>('move')
@@ -1595,9 +2062,10 @@ function locatorOf(f: FileNode): string {
 // Vault write: `upload_file` on Tauri (byte-exact); `os_write` text
 // fallback on web/static where the Tauri-only upload has no REST twin.
 // Binary bytes cannot ride a text volume write — those refuse honestly.
-async function vaultWriteBytes(fileName: string, bytes: Uint8Array) {
+async function vaultWriteBytes(fileName: string, bytes: Uint8Array, parentPath = '/') {
+  const parent = parentPath || '/'
   try {
-    await invoke('upload_file', { fileName, fileData: Array.from(bytes), parentPath: '/' })
+    await invoke('upload_file', { fileName, fileData: Array.from(bytes), parentPath: parent })
     return
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -1612,14 +2080,34 @@ async function vaultWriteBytes(fileName: string, bytes: Uint8Array) {
     throw new Error('[Web Mode] binary files need the desktop app or dashboard server to enter the vault (.cybermanju) — text files work here via os_write')
   }
   const safe = String(fileName || 'provider-file').replace(/[\\/]+/g, '_')
-  await invoke('os_write', { path: `/${safe}`, content: text })
+  await invoke('os_write', { path: `${parent === '/' ? '' : parent}/${safe}`, content: text })
+}
+/** Ensure a vault folder chain exists (`a/b/c` → rows for each level). */
+async function ensureVaultDirs(rel: string): Promise<string> {
+  const segs = String(rel || '').split('/').filter(Boolean)
+  let acc = ''
+  for (const seg of segs) {
+    const parent = acc || '/'
+    try {
+      await invoke('create_folder', { name: seg, parentId: parent })
+    } catch {
+      // Already there — vault names merge, which is exactly right.
+    }
+    acc = parent === '/' ? `/${seg}` : `${parent}/${seg}`
+  }
+  return acc || '/'
 }
 async function saveProviderFileToVault(f: FileNode) {
   const split = splitProviderId(f.id) ?? splitProviderPath(store.currentPath + '/' + f.name)
   if (!split || !split.remotePath) { store.notifyError('Nothing to save', 'open a provider file first'); return }
   if (f.fileType === 'folder') {
-    // Folders are prefixes on blob stores — import every file beneath.
+    // Folders are prefixes on blob stores — import the whole tree,
+    // preserving its shape under `/<folder>/…` instead of flattening every
+    // basename into the root (which collided and overwrote same-named files
+    // from different subfolders).
+    const top = split.remotePath.split('/').filter(Boolean).pop() || f.name
     const { listVfsDir, readVfsFile } = await import('@/composables/useProviderCanal')
+    await ensureVaultDirs(top)
     const stack = [split.remotePath]
     let n = 0
     while (stack.length) {
@@ -1628,13 +2116,17 @@ async function saveProviderFileToVault(f: FileNode) {
       for (const k of kids) {
         const src = [dir, k.name].filter(Boolean).join('/').replace(/^\/+/, '')
         if (k.isDir) { stack.push(src); continue }
+        // Relative path under the saved top folder → same shape in vault.
+        const rel = src.slice(split.remotePath.length).replace(/^\/+/, '')
+        const relDir = rel.split('/').slice(0, -1).join('/')
+        const parent = relDir ? await ensureVaultDirs(`${top}/${relDir}`) : `/${top}`
         const got = await readVfsFile(split.mountId, src, { locator: k.locator || src })
-        await vaultWriteBytes(src.split('/').pop() || k.name, got.bytes)
+        await vaultWriteBytes(k.name, got.bytes, parent)
         n++
       }
     }
     await store.fetchFiles(isProviderPath.value ? store.currentPath : '/')
-    store.notifySuccess(`Saved ${n} file(s) to vault (.cybermanju)`)
+    store.notifySuccess(`Saved ${n} file(s) to vault /${top}`)
     return
   }
   const { readVfsFile } = await import('@/composables/useProviderCanal')
@@ -1660,57 +2152,182 @@ function openProviderMove(f: FileNode | null) {
   if (!file) { store.notifyError('Nothing to move', 'select a provider file first'); return }
   const split = splitProviderId(file.id)
   if (!split || !split.remotePath) { store.notifyError('Vault files move differently', 'use Sync to provider, or open a provider file to move it'); return }
-  if (file.fileType === 'folder') { store.notifyError('Folders move file-by-file', 'open the folder and move its files (blob stores have no folder move)'); return }
   dlgProvOp.value = 'move'
   dlgProvDestDir.value = ''
   dlgProvDestMount.value = vfsMounts.value.find(m => m.id !== split.mountId)?.id ?? ''
-  dlgProvMove.value = { mountId: split.mountId, remotePath: split.remotePath, locator: locatorOf(file), name: file.name, op: 'move' }
+  dlgProvMove.value = { mountId: split.mountId, remotePath: split.remotePath, locator: locatorOf(file), name: file.name, op: 'move', isDir: file.fileType === 'folder' }
 }
 async function doProviderMove() {
   const src = dlgProvMove.value
   if (!src || !dlgProvDestMount.value || provMoving.value) return
-  if (dlgProvDestMount.value === src.mountId && !dlgProvDestDir.value.trim()) {
+  const destDir = dlgProvDestDir.value.trim().replace(/^\/+|\/+$/g, '')
+  // Same-object guard (files and folders alike): the destination object
+  // path must differ from the source locator.
+  const destObj = destDir ? `${destDir}/${src.name}` : src.name
+  if (dlgProvDestMount.value === src.mountId && destObj === src.remotePath) {
     store.notifyError('Same place', 'pick another provider or a different folder')
     return
   }
   provMoving.value = true
   try {
-    const { readVfsFile, writeVfsFile, deleteVfsFile } = await import('@/composables/useProviderCanal')
-    const got = await readVfsFile(src.mountId, src.remotePath, { locator: src.locator })
-    const destDir = dlgProvDestDir.value.trim().replace(/^\/+|\/+$/g, '')
-    const dest = destDir ? `${destDir}/${src.name}` : src.name
-    await writeVfsFile(dlgProvDestMount.value, dest, got.bytes)
-    if (dlgProvOp.value === 'move') {
-      // Verify-before-delete, same as the transfer board.
-      const back = await readVfsFile(dlgProvDestMount.value, dest)
-      const a = got.bytes
-      const b = back.bytes
-      const same = a.length === b.length && a.every((v, i) => v === b[i])
-      if (!same) throw new Error(`integrity: '${dest}' differs after write — source kept`)
-      await deleteVfsFile(src.mountId, src.remotePath, { locator: src.locator })
-    }
+    // Folders cross as verified trees (one file at a time); files take the
+    // same verified copy path — the transfer board's rule, one code path.
+    const { liveMoveDeps, moveAnywhere } = await import('@/utils/hostBrowse')
+    const deps = await liveMoveDeps()
+    const msg = await moveAnywhere(
+      { kind: 'provider', mountId: src.mountId, remotePath: src.remotePath, locator: src.locator, name: src.name, isDir: !!src.isDir },
+      { kind: 'provider', mountId: dlgProvDestMount.value, remoteDir: destDir },
+      dlgProvOp.value,
+      deps,
+    )
     dlgProvMove.value = null
     await store.fetchFiles(store.currentPath)
-    store.notifySuccess(dlgProvOp.value === 'move' ? `Moved '${src.name}' between providers (verified)` : `Copied '${src.name}' between providers`)
+    store.notifySuccess(msg)
   } catch (e) {
     store.notifyError(dlgProvOp.value === 'move' ? 'Move failed' : 'Copy failed', e)
   } finally {
     provMoving.value = false
   }
 }
+async function removeProviderFile(f: FileNode) {
+  const split = splitProviderId(f.id)
+  if (!split || !split.remotePath) return
+  const { deleteVfsFile } = await import('@/composables/useProviderCanal')
+  await deleteVfsFile(split.mountId, split.remotePath, { locator: locatorOf(f) })
+  await store.fetchFiles(store.currentPath)
+  store.notifySuccess(`Deleted '${f.name}' from provider`)
+}
 async function deleteProviderFile(f: FileNode) {
   const split = splitProviderId(f.id)
   if (!split || !split.remotePath) return
   if (!window.confirm(`Delete '${f.name}' from this provider?`)) return
   try {
-    const { deleteVfsFile } = await import('@/composables/useProviderCanal')
-    await deleteVfsFile(split.mountId, split.remotePath, { locator: locatorOf(f) })
-    await store.fetchFiles(store.currentPath)
-    store.notifySuccess(`Deleted '${f.name}' from provider`)
+    await removeProviderFile(f)
   } catch (e) { store.notifyError('Remote delete failed', e) }
+}
+
+// ── move anything → anywhere (vault ⇄ provider ⇄ device) ─────────
+// The dialog collects a destination in any namespace; `moveAnywhere` does
+// the verified crossing (files and trees, copy or move).
+const dlgMove = ref<{ nodes: FileNode[] } | null>(null)
+const dlgMoveOp = ref<'copy' | 'move'>('move')
+const dlgMoveKind = ref<'vault' | 'provider' | 'host'>('vault')
+const dlgMoveVault = ref('/')
+const dlgMoveProvMount = ref('')
+const dlgMoveProvDir = ref('')
+const dlgMoveHostDir = ref('')
+const moveWorking = ref(false)
+function openMoveTo(f: FileNode | null) {
+  const nodes = f
+    ? [f]
+    : store.files.filter(x => store.selectedFileIds.includes(x.id))
+  const list = nodes.length ? nodes : (active.value ? [active.value] : [])
+  if (!list.length) {
+    store.notifyError('Nothing to move', 'select a file first')
+    return
+  }
+  dlgMoveOp.value = 'move'
+  // Default destination: the other side of where we stand.
+  if (isHostPathNow.value) {
+    dlgMoveKind.value = 'vault'
+    dlgMoveVault.value = '/'
+  } else if (isProviderPath.value) {
+    dlgMoveKind.value = 'vault'
+    dlgMoveVault.value = '/'
+  } else {
+    dlgMoveKind.value = isNative.value ? 'host' : 'provider'
+    dlgMoveHostDir.value = hostAbsNow.value || ''
+    dlgMoveVault.value = store.currentPath || '/'
+  }
+  if (!dlgMoveProvMount.value) dlgMoveProvMount.value = vfsMounts.value[0]?.id ?? ''
+  dlgMove.value = { nodes: list }
+}
+async function pickMoveHostDir() {
+  try {
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const sel = await open({ directory: true, multiple: false })
+    if (typeof sel === 'string' && sel) dlgMoveHostDir.value = sel
+  } catch (e) {
+    store.notifyError('Cannot pick a device folder', e)
+  }
+}
+async function doMoveTo() {
+  const dlg = dlgMove.value
+  if (!dlg || moveWorking.value) return
+  const { destFromVmPath, liveMoveDeps, moveAnywhere, resolveHostDir, sourceFromNode } = await import('@/utils/hostBrowse')
+  moveWorking.value = true
+  try {
+    let dest = null as null | { kind: 'vault'; vaultPath: string } | { kind: 'provider'; mountId: string; remoteDir: string } | { kind: 'host'; absDir: string }
+    if (dlgMoveKind.value === 'vault') {
+      const v = dlgMoveVault.value.trim() || '/'
+      dest = { kind: 'vault', vaultPath: v.startsWith('/') ? v : `/${v}` }
+    } else if (dlgMoveKind.value === 'provider') {
+      if (!dlgMoveProvMount.value) {
+        store.notifyError('Pick a provider', 'no destination mount selected')
+        return
+      }
+      dest = { kind: 'provider', mountId: dlgMoveProvMount.value, remoteDir: dlgMoveProvDir.value.trim().replace(/^\/+|\/+$/g, '') }
+    } else {
+      let dir = dlgMoveHostDir.value.trim()
+      if (!dir && isHostPathNow.value) dir = hostAbsNow.value || await currentHostDir()
+      if (!dir) dir = await resolveHostDir('/host')
+      dest = { kind: 'host', absDir: dir }
+    }
+    // Same-folder no-op guard for the fast paths.
+    const deps = await liveMoveDeps()
+    let ok = 0
+    for (const f of dlg.nodes) {
+      const src = sourceFromNode(f, store.currentPath)
+      if (!src) continue
+      try {
+        await moveAnywhere(src, dest, dlgMoveOp.value, deps)
+        ok++
+      } catch (e) {
+        store.notifyError(`${dlgMoveOp.value === 'move' ? 'Move' : 'Copy'} failed: ${f.name}`, e)
+      }
+    }
+    dlgMove.value = null
+    clearSel()
+    await store.fetchFiles(store.currentPath)
+    if (ok) store.notifySuccess(dlgMoveOp.value === 'move' ? `Moved ${ok} item(s) (verified)` : `Copied ${ok} item(s)`)
+  } finally {
+    moveWorking.value = false
+  }
+}
+/** Device selection → vault root (the ⇄ shortcut beside every host row). */
+async function saveHostSelToVault(nodes?: FileNode[]) {
+  const list = nodes?.length
+    ? nodes
+    : store.files.filter(x => store.selectedFileIds.includes(x.id))
+  const picked = list.length ? list : (active.value ? [active.value] : [])
+  if (!picked.length) {
+    store.notifyError('Nothing to save', 'select a device file first')
+    return
+  }
+  const { liveMoveDeps, moveAnywhere, sourceFromNode } = await import('@/utils/hostBrowse')
+  const deps = await liveMoveDeps()
+  let n = 0
+  for (const f of picked) {
+    const src = sourceFromNode(f, store.currentPath)
+    if (!src || src.kind !== 'host') continue
+    try {
+      await moveAnywhere(src, { kind: 'vault', vaultPath: '/' }, 'copy', deps)
+      n++
+    } catch (e) {
+      store.notifyError(`Save failed: ${f.name}`, e)
+    }
+  }
+  clearSel()
+  if (n) {
+    await navTo('/')
+    store.notifySuccess(`Saved ${n} file(s) to the vault`)
+  }
 }
 function onTab(t: string) {
   if (!active.value) return
+  // Device/provider rows carry no vault state (versions, shares, crypto
+  // pipeline) — their tabs explain that instead of firing doomed fetches.
+  if (!activeIsVault.value && (t === 'vers' || t === 'share' || t === 'crypto')) return
   if (t === 'vers') void store.fetchFileVersions(active.value.id)
   if (t === 'share') void store.fetchShareLinks()
   if (t === 'crypto') void store.fetchEncryptionStatus()
@@ -1718,6 +2335,7 @@ function onTab(t: string) {
 }
 watch(() => store.selectedFileId, id => {
   if (!id) return
+  if (!activeIsVault.value) return
   if (inspTab.value === 'vers') void store.fetchFileVersions(id)
   if (inspTab.value === 'crypto') void store.fetchEncryptionStatus()
 })
@@ -1743,6 +2361,7 @@ const lastShare = ref('')
 const sharesForActive = computed(() => active.value ? store.shareLinks.filter(s => s.fileId === active.value?.id) : [])
 async function makeShare(hours: number) {
   if (!active.value) return
+  if (!isVaultRow(active.value)) { store.notifyError('Sharing starts in the vault', 'save this file to the vault first'); return }
   const s = await store.generateShareLink(active.value.id, hours)
   if (s) { lastShare.value = s.url; await copyText(s.url) }
 }
@@ -1798,6 +2417,24 @@ function toggleTerm() {
   }
 }
 function openFolderInTerm(f?: FileNode, full = false) {
+  const hostAbs = f && isHostId(f.id)
+    ? f.id.slice('host:'.length)
+    : (f && f.fileType === 'folder' && f.path && isHostPath(f.path) ? hostAbsFromVm(f.path) : '')
+  const dirAbs = hostAbs || (isHostPathNow.value ? (hostAbsNow.value || '') : '')
+  if (dirAbs) {
+    // Device folder: the same shell with `-os` (host cwd is separate).
+    const line = `cd -os ${sh(dirAbs)} && ls -la -os`
+    if (full) {
+      wm.open('terminal')
+      void store.execShellLine(line)
+    } else {
+      termOpen.value = true
+      termCwd.value = dirAbs
+      nextTick(() => termInputRef.value?.focus())
+      void runTerm(line)
+    }
+    return
+  }
   const p = f ? (f.fileType === 'folder' ? (f.path || store.currentPath + '/' + f.name) : store.currentPath) : store.currentPath
   if (full) { wm.open('terminal'); void store.execShellLine(`cd ${sh(p)}`) }
   else {
@@ -1821,7 +2458,7 @@ function onKeydown(e: KeyboardEvent) {
   else if (e.key === 'Enter' && active.value) openFile(active.value)
   else if (e.key === 'F11') { e.preventDefault(); inspectorOpen.value = !inspectorOpen.value }
   else if (e.altKey && e.key.toLowerCase() === 'l') { e.preventDefault(); startCrumbEdit() }
-  else if (e.key === 'Escape') { if (providerEditor.value) void closeLocalProviderEditor(); else { clearSel(); termOpen.value = false } }
+  else if (e.key === 'Escape') { if (providerEditor.value) void closeLocalProviderEditor(); else if (hostEditor.value) void closeHostEditor(); else { clearSel(); termOpen.value = false } }
   else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault()
     const ids = sortedFiles.value.map(f => f.id)

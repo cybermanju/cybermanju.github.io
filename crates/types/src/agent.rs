@@ -411,6 +411,13 @@ pub fn ensure_default_agent_permissions(rules: &mut PermissionRuleset) {
         "mcp__exa__web_fetch_exa",
         "self_research",
         "repo_analyze",
+        // UI tools are read-only from the volume's point of view — they
+        // open a panel or show a toast, never mutate state.
+        "ui_open_panel",
+        "ui_notify",
+        // Vault metadata is safe (no values); `secret_get` (reveal) stays
+        // on the ruleset default = ask — the approval card shows the title.
+        "secret_list",
     ] {
         if !rules.rules.contains_key(tool) {
             rules.rules.insert(

@@ -3,8 +3,12 @@
 
 pub mod agent;
 pub mod code;
+pub mod schedule;
 pub mod schema;
+pub mod secrets;
 pub mod sync;
 
+pub use schedule::*;
 pub use schema::*;
+pub use secrets::*;
 pub use sync::*;

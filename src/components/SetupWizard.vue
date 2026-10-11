@@ -1,12 +1,14 @@
 <!-- CyberManju OS — first-run setup wizard.
 //
-// Seven one-job steps, every one skippable: welcome → vault (bind a
-// `.cybermanju` file via the OS picker) → local sync (folder picker, no
-// typed paths) → cloud (broker + one-click sign-in) → disks (one system
-// disk per provider, with its cloud folder + files) → agent AI (optional)
-// → done summary. Shown once on first launch; Help → "Setup wizard"
-// re-opens it any time. Closing via ✕ or Escape leaves the "seen" flag
-// unset, so the wizard returns next launch until finish/skip. -->
+// Seven one-job steps, every one skippable: welcome → vault folder (pick one
+// folder: auto-opens the `.cybermanju` inside, or creates it with your
+// name + size, plus its `files/` local copies) → accounts (Google/GitHub/
+// GitLab one-click sign-in, inline) → disks (one system disk per provider,
+// with its cloud folder + files) → agent AI (optional) → appearance (theme
+// + wallpaper, live preview) → done summary.
+// Shown once on first launch; Help → "Setup wizard" re-opens it any time.
+// Closing via ✕ or Escape leaves the "seen" flag unset, so the wizard
+// returns next launch until finish/skip. -->
 <template>
   <div class="sw-overlay" role="presentation" @keydown.esc="close">
     <div
@@ -46,12 +48,12 @@
       <main class="sw-body">
         <!-- ── 1 · welcome ── -->
         <section v-if="step === 'welcome'" class="sw-section">
-          <p class="sw-lead">4 quick things. Skip anything.</p>
+          <p class="sw-lead">A few quick things. Skip anything.</p>
           <ul class="sw-list">
-            <li><AppIcon name="solar:diskette-bold" :size="16" /><span><strong>Vault</strong> — where your files live.</span></li>
-            <li><AppIcon name="solar:folder-bold" :size="16" /><span><strong>Sync</strong> — mirror a folder, add cloud later.</span></li>
-<li><AppIcon name="solar:ssd-square-bold" :size="16" /><span><strong>Disks</strong> — a system disk per provider, with its cloud folder + files.</span></li>
+            <li><AppIcon name="solar:folder-bold" :size="16" /><span><strong>Vault folder</strong> — one folder holds the vault + its files.</span></li>
+            <li><AppIcon name="solar:ssd-square-bold" :size="16" /><span><strong>Disks</strong> — a system disk per provider, with its cloud folder + files.</span></li>
             <li><AppIcon name="solar:bot-bold" :size="16" /><span><strong>Agent</strong> <em class="sw-opt">optional</em> — chat + automation.</span></li>
+            <li><AppIcon name="solar:monitor-bold" :size="16" /><span><strong>Appearance</strong> — theme + wallpaper, previewed live.</span></li>
           </ul>
           <div class="sw-actions">
             <button class="sw-btn primary" type="button" @click="go('vault')">Get started</button>
@@ -59,30 +61,43 @@
           </div>
         </section>
 
-        <!-- ── 2 · vault ── -->
+        <!-- ── 2 · vault folder (merged: one folder pick does it all) ── -->
         <section v-if="step === 'vault'" class="sw-section">
           <div class="sw-status" :class="disk.bound ? 'ok' : 'idle'">
-            <AppIcon :name="disk.bound ? 'solar:check-circle-bold' : 'solar:diskette-bold'" :size="16" />
-            <span>{{ disk.bound ? `${disk.name} · ${humanBytes(disk.savedBytes)}` : 'No vault file yet — session only' }}</span>
+            <AppIcon :name="disk.bound ? 'solar:check-circle-bold' : 'solar:folder-bold'" :size="16" />
+            <span>{{ disk.bound ? `${disk.name} · ${humanBytes(disk.savedBytes)}` : 'No vault folder yet — session only' }}</span>
           </div>
-          <button class="sw-picker" type="button" :disabled="disk.busy || oneFolderBusy" @click="setupOneFolder">
+          <div v-if="store.syncConfigs.length" class="sw-status ok">
+            <AppIcon name="solar:check-circle-bold" :size="16" />
+            <span>{{ store.syncConfigs.length }} folder{{ store.syncConfigs.length === 1 ? '' : 's' }} connected</span>
+          </div>
+
+          <button class="sw-picker" type="button" :disabled="disk.busy || oneFolderBusy" @click="setupVaultFolder">
             <AppIcon name="solar:folder-bold" :size="20" />
             <span>
-              <strong>One folder — vault + local copies together (Recommended)</strong>
-              <small>{{ oneFolderBusy ? 'Setting up…' : 'Pick a folder → vault.cybermanju + files/ inside it' }}</small>
+              <strong>{{ folderLabel || 'Select folder…' }}</strong>
+              <small>{{ oneFolderBusy ? 'Setting up…' : 'Auto-opens the .cybermanju inside, or creates it' }}</small>
             </span>
           </button>
-          <p v-if="oneFolderMsg" class="sw-note" :class="oneFolderOk === false ? 'err' : oneFolderOk ? 'ok' : ''">{{ oneFolderMsg }}</p>
-          <div class="sw-bigrow">
-            <button class="sw-choice" type="button" :disabled="disk.busy" @click="createVault">
-              <AppIcon name="solar:add-circle-bold" :size="20" />
-              <span><strong>New vault</strong><small>Pick a folder + name</small></span>
-            </button>
-            <button class="sw-choice" type="button" :disabled="disk.busy" @click="openVault">
-              <AppIcon name="solar:folder-open-bold" :size="20" />
-              <span><strong>Open existing</strong><small>Pick a .cybermanju file</small></span>
-            </button>
+
+          <div class="sw-row">
+            <label class="sw-field grow">
+              <span class="sw-label">Vault file name</span>
+              <input v-model="vaultFileName" class="sw-input" placeholder="vault.cybermanju" autocomplete="off" />
+            </label>
+            <label class="sw-field" style="max-width: 130px">
+              <span class="sw-label">Size (MB)</span>
+              <input v-model.number="vaultSizeMb" class="sw-input" type="number" min="64" max="8192" step="64" />
+            </label>
           </div>
+          <p class="sw-hint">Pick one folder: if it already holds a <code>.cybermanju</code> file it opens; otherwise a new one is created with the name + size above, plus a <code>files/</code> subfolder for local copies (never synced itself). The size becomes the default for the Disks step.</p>
+          <p v-if="oneFolderMsg" class="sw-note" :class="oneFolderOk === false ? 'err' : oneFolderOk ? 'ok' : ''">{{ oneFolderMsg }}</p>
+          <p v-if="wizardDirNote && !isTauri()" class="sw-note" :class="wizardDirOk === false ? 'err' : wizardDirOk ? 'ok' : ''">
+            {{ wizardDirNote }}
+            <button v-if="wizardDirReallow" class="sw-link" type="button" @click="reallowWizardDir">
+              {{ wizardDirBusy ? 'Allowing…' : 'Re-allow access' }}
+            </button>
+          </p>
           <p v-if="disk.lastError" class="sw-note err">{{ disk.lastError }}</p>
           <p v-else-if="disk.lastMessage" class="sw-note ok">{{ disk.lastMessage }}</p>
           <p v-if="insecureContext && !isTauri()" class="sw-note">
@@ -100,81 +115,102 @@
             </div>
           </details>
 
-          <div class="sw-actions">
-            <button class="sw-btn" type="button" @click="go('welcome')">Back</button>
-            <button class="sw-btn primary" type="button" @click="go('sync')">Next</button>
-            <button class="sw-link" type="button" @click="go('sync')">Skip</button>
-          </div>
-        </section>
-
-        <!-- ── 3 · local sync (picker-first, no typed path) ── -->
-        <section v-if="step === 'sync'" class="sw-section">
-          <div v-if="store.syncConfigs.length" class="sw-status ok">
-            <AppIcon name="solar:check-circle-bold" :size="16" />
-            <span>{{ store.syncConfigs.length }} folder{{ store.syncConfigs.length === 1 ? '' : 's' }} connected</span>
-          </div>
-
-          <label class="sw-field">
-            <span class="sw-label">Name</span>
-            <input v-model="localName" class="sw-input" placeholder="Local folder" autocomplete="off" />
-          </label>
-
-          <button class="sw-picker" type="button" @click="pickLocalFolder">
-            <AppIcon name="solar:folder-bold" :size="20" />
-            <span>
-              <strong>{{ localFolderLabel || 'Choose folder…' }}</strong>
-              <small>{{ pickerHint }}</small>
-            </span>
-          </button>
-          <p v-if="wizardDirNote" class="sw-note" :class="wizardDirOk === false ? 'err' : wizardDirOk ? 'ok' : ''">
-            {{ wizardDirNote }}
-            <button v-if="wizardDirReallow" class="sw-link" type="button" @click="reallowWizardDir">
-              {{ wizardDirBusy ? 'Allowing…' : 'Re-allow access' }}
-            </button>
-          </p>
-
           <details class="sw-details">
-            <summary>Advanced — type path manually</summary>
-            <label class="sw-field">
-              <span class="sw-label">Folder path</span>
-              <input v-model="localPath" class="sw-input" placeholder="/DATA/SYNC" autocomplete="off" />
-            </label>
+            <summary>Advanced — pick a .cybermanju file directly</summary>
+            <div class="sw-bigrow">
+              <button class="sw-choice" type="button" :disabled="disk.busy" @click="createVault">
+                <AppIcon name="solar:add-circle-bold" :size="20" />
+                <span><strong>New vault file</strong><small>File picker + name</small></span>
+              </button>
+              <button class="sw-choice" type="button" :disabled="disk.busy" @click="openVault">
+                <AppIcon name="solar:folder-open-bold" :size="20" />
+                <span><strong>Open existing file</strong><small>Pick a .cybermanju file</small></span>
+              </button>
+            </div>
           </details>
 
-          <p v-if="loopWarning" class="sw-note err">{{ loopWarning }} <button class="sw-link" type="button" @click="fixLoopPath">Use files/ subfolder</button></p>
-          <div class="sw-row">
-            <button class="sw-btn primary" type="button" :disabled="localBusy || !canSaveLocal" @click="saveLocalSync">
-              {{ localBusy ? 'Saving…' : 'Save & verify' }}
-            </button>
-          </div>
-          <p v-if="localMsg" class="sw-note" :class="localOk === false ? 'err' : localOk ? 'ok' : ''">{{ localMsg }}</p>
-
           <div class="sw-actions">
-            <button class="sw-btn" type="button" @click="go('vault')">Back</button>
+            <button class="sw-btn" type="button" @click="go('welcome')">Back</button>
             <button class="sw-btn primary" type="button" @click="go('cloud')">Next</button>
             <button class="sw-link" type="button" @click="go('cloud')">Skip</button>
           </div>
         </section>
 
-        <!-- ── 4 · accounts ── -->
+        <!-- ── 3 · accounts (inline OAuth, no detour needed) ── -->
         <section v-if="step === 'cloud'" class="sw-section">
           <div v-if="oauthIdentity" class="sw-status ok">
             <AppIcon name="solar:check-circle-bold" :size="16" />
             <span>{{ oauthIdentity.name || oauthIdentity.email }} · {{ oauthIdentity.provider }}</span>
           </div>
-          <p class="sw-hint">Sign-in, switching cloud identities and provider connections are managed together in Accounts. This setup will not start a second OAuth flow or create a hidden connection.</p>
+          <div class="sw-oauth-grid">
+            <button
+              v-for="p in LOGIN_CARDS"
+              :key="p.id"
+              class="sw-oauth"
+              type="button"
+              :disabled="signInBusy === p.id || !sbConfigured"
+              :title="sbConfigured ? `Continue with ${p.label}` : 'OAuth broker not set — add it in Settings → OAuth broker'"
+              @click="signIn(p.id)"
+            >
+              <ProviderLogo :provider="p.logo" :size="30" />
+              <span class="sw-oauth-meta">
+                <strong>{{ signInBusy === p.id ? 'Opening…' : `Continue with ${p.label}` }}</strong>
+                <small>{{ p.sub }}</small>
+              </span>
+            </button>
+          </div>
+          <p v-if="signInMsg" class="sw-note" :class="signInOk === false ? 'err' : signInOk ? 'ok' : ''">{{ signInMsg }}</p>
+          <p v-if="ensureMsg" class="sw-note" :class="ensureOk === false ? 'err' : ensureOk ? 'ok' : ''">{{ ensureMsg }}</p>
+
+          <!-- substep · after sign-in OK: folder + .cybermanju size per logged provider -->
+          <div v-if="signInOk || oauthIdentity" class="sw-substep">
+            <h4 class="sw-substep-title">Vault home per provider</h4>
+            <p class="sw-hint">Signed in — pick where each provider keeps its <code>.cybermanju</code> files and how big the disk is. Drive gets a folder, GitHub/GitLab a private repo (created when missing).</p>
+            <div v-for="sp in signedProviders" :key="sp.backend" class="sw-prov-card">
+              <div class="sw-prov-head">
+                <ProviderLogo :provider="sp.logo" :size="26" />
+                <div class="sw-prov-meta">
+                  <strong>{{ sp.label }}</strong>
+                  <small>{{ sp.accountName }}</small>
+                </div>
+                <span v-if="cloudDone[sp.backend]" class="sw-note ok" style="margin:0">ready ✓</span>
+              </div>
+              <div v-if="sp.config" class="sw-row">
+                <label class="sw-field grow">
+                  <span class="sw-label">Folder</span>
+                  <input v-model="cloudFolders[sp.backend]" class="sw-input" placeholder="cybermanju-vault" autocomplete="off" />
+                </label>
+                <label class="sw-field" style="max-width: 110px">
+                  <span class="sw-label">Size (MB)</span>
+                  <input v-model.number="cloudSizes[sp.backend]" class="sw-input" type="number" min="64" max="8192" step="64" placeholder="512" />
+                </label>
+              </div>
+              <div v-if="sp.config" class="sw-row">
+                <button
+                  class="sw-btn primary"
+                  type="button"
+                  :disabled="!!cloudBusy[sp.backend] || cloudDone[sp.backend]"
+                  @click="provisionCloudDisk(sp.backend)"
+                >{{ cloudBusy[sp.backend] ? 'Creating…' : cloudDone[sp.backend] ? 'Created ✓' : `Create in ${sp.label}` }}</button>
+              </div>
+              <p v-else class="sw-note">No {{ sp.label }} connection yet — sign in again above to create it.</p>
+              <p v-if="cloudMsgs[sp.backend]" class="sw-note" :class="cloudMsgs[sp.backend].ok ? 'ok' : 'err'">{{ cloudMsgs[sp.backend].text }}</p>
+            </div>
+          </div>
+          <p v-if="!sbConfigured" class="sw-note err">OAuth broker is not set — sign-in stays off until you add the URL + key in Settings → OAuth broker.</p>
+          <p class="sw-hint">Each sign-in also creates its provider connection below, so Disks can use it right away. Advanced switching stays in Accounts.</p>
           <div class="sw-row">
-            <button class="sw-btn primary" type="button" @click="openAccounts">Open Account Manager</button>
+            <button class="sw-btn" type="button" @click="openAccounts">Open Account Manager</button>
           </div>
 
           <div class="sw-actions">
-            <button class="sw-btn" type="button" @click="go('sync')">Back</button>
+            <button class="sw-btn" type="button" @click="go('vault')">Back</button>
             <button class="sw-btn primary" type="button" @click="go('disks')">Next</button>
             <button class="sw-link" type="button" @click="go('disks')">Skip</button>
           </div>
         </section>
 
-        <!-- ── 5 · disks (substep: one system disk per provider) ── -->
+        <!-- ── 4 · disks (substep: one system disk per provider) ── -->
         <section v-if="step === 'disks'" class="sw-section">
           <div v-if="store.disks.length" class="sw-status ok">
             <AppIcon name="solar:check-circle-bold" :size="16" />
@@ -226,7 +262,7 @@
           </div>
         </section>
 
-        <!-- ── 6 · agent (optional) ── -->
+        <!-- ── 5 · agent (optional) ── -->
         <section v-if="step === 'agent'" class="sw-section">
           <div v-if="isStatic" class="sw-banner info">
             <AppIcon name="solar:info-circle-bold" :size="15" />
@@ -272,6 +308,53 @@
           </template>
           <div class="sw-actions">
             <button class="sw-btn" type="button" @click="go('disks')">Back</button>
+            <button class="sw-btn primary" type="button" @click="go('appearance')">Next</button>
+            <button class="sw-link" type="button" @click="go('appearance')">Skip</button>
+          </div>
+        </section>
+
+        <!-- ── 6 · appearance (theme + wallpaper, live preview) ── -->
+        <section v-if="step === 'appearance'" class="sw-section">
+          <p class="sw-hint">Pick a look — it applies instantly, and Settings → Appearance can change it later.</p>
+          <span class="sw-label">Theme</span>
+          <div class="sw-presets" role="radiogroup" aria-label="Theme">
+            <button
+              v-for="t in appearanceChoices"
+              :key="t.id"
+              type="button"
+              role="radio"
+              :aria-checked="effectiveAppearance === t.id"
+              class="sw-preset"
+              :class="{ on: effectiveAppearance === t.id }"
+              :title="t.blurb"
+              @click="pickAppearance(t.id)"
+            >
+              <span class="sw-theme-swatch" :style="t.swatch" aria-hidden="true" />
+              <strong>{{ t.label }}</strong>
+              <span class="muted">{{ t.blurb }}</span>
+            </button>
+          </div>
+          <span class="sw-label">Wallpaper</span>
+          <div class="sw-presets" role="radiogroup" aria-label="Wallpaper">
+            <button
+              v-for="w in wallpaperChoices"
+              :key="w.id"
+              type="button"
+              role="radio"
+              :aria-checked="activeWallpaper === w.id"
+              class="sw-preset"
+              :class="{ on: activeWallpaper === w.id }"
+              :title="w.label"
+              @click="pickWallpaper(w.id)"
+            >
+              <span class="sw-wp-swatch" :class="`sw-wp-${w.id}`" aria-hidden="true" />
+              <strong>{{ w.label }}</strong>
+            </button>
+          </div>
+          <p v-if="customWallpaper.kind.value" class="sw-note">Custom image active — picking a preset above switches back to it.</p>
+          <p v-else class="sw-hint">A custom image (URL or file) stays in Settings → Appearance.</p>
+          <div class="sw-actions">
+            <button class="sw-btn" type="button" @click="go('agent')">Back</button>
             <button class="sw-btn primary" type="button" @click="go('done')">Next</button>
             <button class="sw-link" type="button" @click="go('done')">Skip</button>
           </div>
@@ -300,9 +383,13 @@
               <AppIcon :name="savedAgentName ? 'solar:check-circle-bold' : 'solar:minus-circle-bold'" :size="15" />
               <span>Agent: <strong>{{ savedAgentName ? `“${savedAgentName}”` : 'skipped' }}</strong></span>
             </li>
+            <li>
+              <AppIcon name="solar:check-circle-bold" :size="15" />
+              <span>Appearance: <strong>{{ appearanceSummary }}</strong></span>
+            </li>
           </ul>
           <div class="sw-actions">
-            <button class="sw-btn" type="button" @click="go('agent')">Back</button>
+            <button class="sw-btn" type="button" @click="go('appearance')">Back</button>
             <button class="sw-btn primary" type="button" @click="finish">Finish</button>
           </div>
         </section>
@@ -313,14 +400,19 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
+import ProviderLogo from '@/components/ProviderLogo.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { isStaticHost, isTauri } from '@/composables/useTauri'
 import {
+  connectedAccounts,
   identity as supabaseIdentity,
   refreshIdentity,
+  signInWithPopup,
+  supabaseConfigured,
   supabaseSession,
   supabaseSessionProvider,
+  type OAuthBackend,
 } from '@/composables/useSupabase'
 import {
   createCyberManjuFile,
@@ -333,22 +425,24 @@ import {
 import {
   SYNC_SUBDIR,
   VAULT_FILENAME,
-  isProtectedSyncPath,
-  isVaultContainerPath,
   oneFolderLayout,
-  suggestLoopSafeSubdir,
 } from '@/utils/vaultFolder'
-import { syncConfigDefaults } from '@/utils/providers'
+import { backendLabel, syncConfigDefaults } from '@/utils/providers'
+import { useTheme } from '@/composables/useTheme'
+import { useCustomWallpaper } from '@/composables/useCustomWallpaper'
+import { THEMES, WALLPAPERS, type ThemeId } from '@/ui/tokens'
 import { agentPermissionPreset, defaultMcpServers } from '@/types'
-import type { AgentConfig, ProviderPreset, SyncConfig } from '@/types'
+import type { AgentConfig, ProviderPreset, SyncBackendType, SyncConfig } from '@/types'
 import { humanBytes } from '@/utils/format'
 import {
   SETUP_STEPS,
   SETUP_STEP_LABELS,
+  clampVaultSizeMb,
   clearSetupResumeStep,
   markSetupSeen,
   saveSetupResumeStep,
   setupStepIndex,
+  signedProviderCards,
   takeSetupResumeStep,
   type SetupStep,
 } from '@/utils/setupWizard'
@@ -415,7 +509,7 @@ async function onImportPicked(e: Event) {
   await importCyberManjuFile(file)
 }
 
-// ── vault step ──
+// ── vault folder step (merged: one folder → vault file + files/ + local sync) ──
 async function createVault() {
   await createCyberManjuFile()
 }
@@ -424,12 +518,46 @@ async function openVault() {
   await openCyberManjuFile()
 }
 
-// ── one-folder setup: <picked>/vault.cybermanju + <picked>/files/ ──
 const oneFolderBusy = ref(false)
 const oneFolderMsg = ref('')
 const oneFolderOk = ref<boolean | null>(null)
+const vaultFileName = ref(VAULT_FILENAME)
+const vaultSizeMb = ref(512)
+const folderLabel = ref('')
+const localPath = ref('')
 
-async function setupOneFolder() {
+function sanitizedVaultName(): string {
+  const raw = vaultFileName.value.trim().replace(/[\\/]/g, '').slice(0, 64) || VAULT_FILENAME
+  return raw.toLowerCase().endsWith('.cybermanju') ? raw : `${raw}.cybermanju`
+}
+
+/** Best-effort local sync row for the picked folder (never fails the vault step). */
+async function ensureVaultLocalSync(syncLabel: string, displayName: string): Promise<void> {
+  try {
+    const existing = store.syncConfigs.find(
+      c => c.backendType === 'local' && (c.basePath === syncLabel || c.name === displayName),
+    )
+    if (existing) return
+    const saved = await store.saveSyncConfig({
+      ...syncConfigDefaults(),
+      id: '',
+      backendType: 'local',
+      name: displayName,
+      basePath: syncLabel || undefined,
+    } as SyncConfig)
+    if (!saved) {
+      oneFolderMsg.value += ' (local sync row could not save — retry from Accounts.)'
+      oneFolderOk.value = false
+      return
+    }
+    await store.fetchSyncConfigs().catch(() => {})
+    await store.probeSyncConnection(saved).catch(() => null)
+  } catch {
+    // Sync save is best-effort — the vault binding above already succeeded.
+  }
+}
+
+async function setupVaultFolder() {
   if (oneFolderBusy.value || disk.busy) return
   oneFolderBusy.value = true
   oneFolderMsg.value = ''
@@ -443,26 +571,56 @@ async function setupOneFolder() {
       const path = typeof picked === 'string' ? picked : null
       if (!path) return
       const clean = path.replace(/\/+$/g, '')
+      const leaf = clean.split('/').filter(Boolean).pop() ?? clean
+      const want = sanitizedVaultName()
+      vaultFileName.value = want
+      folderLabel.value = leaf
       localPath.value = `${clean}/${SYNC_SUBDIR}`
-      localFolderLabel.value = `${clean.split('/').filter(Boolean).pop() ?? clean}/${SYNC_SUBDIR}`
-      localName.value = 'Local folder'
-      oneFolderMsg.value = `Folder picked — vault goes to ${clean}/${VAULT_FILENAME}, copies to ${localPath.value}. Press Save & verify on the next step.`
+      diskSizeMb.value = Math.min(8192, Math.max(64, Math.round(vaultSizeMb.value) || 512))
+      await ensureVaultLocalSync(localPath.value, 'Local folder')
+      oneFolderMsg.value = `Folder “${leaf}” picked — vault at ${clean}/${want} (${diskSizeMb.value} MB default for Disks), copies in ${localPath.value}, connected below.`
       oneFolderOk.value = true
-      go('sync')
       return
     }
-    // 2. Chromium: one directory pick creates both entries, no second picker.
+    // 2. Chromium: one directory pick auto-detects or creates the vault —
+    // no second picker, no typed path.
     const w = window as unknown as {
       showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>
     }
     if (typeof w.showDirectoryPicker !== 'function') {
-      oneFolderMsg.value = 'No folder picker in this browser — use New vault + Advanced path instead.'
+      oneFolderMsg.value = 'No folder picker in this browser — use the file fallback below instead.'
       oneFolderOk.value = false
       return
     }
     const dir = await w.showDirectoryPicker()
-    const layout = oneFolderLayout(String((dir as { name?: string }).name ?? 'vault'))
-    const made = await createCyberManjuFileInDirectory(dir, layout.vaultName)
+    const dirName = String((dir as { name?: string }).name ?? 'vault')
+    folderLabel.value = dirName
+    const layout = oneFolderLayout(dirName)
+    // Auto-detect: an existing `*.cybermanju` in the folder opens, otherwise
+    // the custom name is created fresh.
+    let target = sanitizedVaultName()
+    let detected = ''
+    try {
+      const values = (dir as FileSystemDirectoryHandle & { values?: () => AsyncIterableIterator<FileSystemHandle> }).values?.()
+      if (values) {
+        for await (const entry of values) {
+          const n = String((entry as { name?: string }).name ?? '')
+          if (n.toLowerCase().endsWith('.cybermanju')) {
+            detected = n
+            break
+          }
+        }
+      }
+    } catch {
+      // Listing is best-effort — fall through to create the custom name.
+    }
+    if (detected) {
+      target = detected
+      vaultFileName.value = detected
+    } else {
+      vaultFileName.value = target
+    }
+    const made = await createCyberManjuFileInDirectory(dir, target)
     if (!made) return
     // `files/` subdir beside the vault (created, handle remembered).
     let syncLabel = layout.syncVirtualPath
@@ -479,11 +637,12 @@ async function setupOneFolder() {
       // Subdir creation is best-effort — the virtual path still guides setup.
     }
     localPath.value = syncLabel
-    localFolderLabel.value = `${made.dirName || layout.folderName}/${layout.syncSubdir}`
-    localName.value = 'Local folder'
-    oneFolderMsg.value = `Vault bound (${made.dirName || 'folder'}/${VAULT_FILENAME}) + sync root ${syncLabel} — vault itself is never synced.`
+    diskSizeMb.value = Math.min(8192, Math.max(64, Math.round(vaultSizeMb.value) || 512))
+    await ensureVaultLocalSync(syncLabel, 'Local folder')
+    oneFolderMsg.value = detected
+      ? `Found ${detected} in “${made.dirName || dirName}” — opened, sync root ${syncLabel} connected.`
+      : `Created ${target} in “${made.dirName || dirName}” (${diskSizeMb.value} MB default for Disks) + sync root ${syncLabel} — vault itself is never synced.`
     oneFolderOk.value = true
-    go('sync')
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') return
     oneFolderMsg.value = e instanceof Error ? e.message : String(e)
@@ -492,31 +651,6 @@ async function setupOneFolder() {
     oneFolderBusy.value = false
   }
 }
-
-// ── sync step: picker-first, never a bare path field ──
-const localName = ref('Local folder')
-const localPath = ref('')
-const localFolderLabel = ref('')
-const localBusy = ref(false)
-const localMsg = ref('')
-const localOk = ref<boolean | null>(null)
-
-const dirPickerSupported = computed(() => {
-  try {
-    return typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function'
-  } catch {
-    return false
-  }
-})
-
-const pickerHint = computed(() => {
-  if (localFolderLabel.value) return 'Tap to change'
-  if (isTauri()) return 'Opens the system folder picker'
-  if (dirPickerSupported.value) return 'Opens the browser folder picker'
-  return 'No picker here — use Advanced below'
-})
-
-const canSaveLocal = computed(() => localPath.value.trim().length > 0)
 
 // ── remembered folder status (browser leg): a reloaded page keeps the
 // handle but loses the grant — one click re-allows, never a re-pick.
@@ -567,107 +701,159 @@ async function reallowWizardDir() {
   }
 }
 
-/** Loop guard: the vault file itself (or its folder) must never be the sync root. */
-const loopWarning = computed(() => {
-  const p = localPath.value.trim()
-  if (!p) return ''
-  if (isVaultContainerPath(p)) return 'That path is the vault file itself — sync would chase its own tail.'
-  if (isProtectedSyncPath(p)) return 'That path holds vault/secret files — use the files/ subfolder.'
-  return ''
+// ── accounts step: inline OAuth (same broker as Account Manager) ──
+const LOGIN_CARDS: Array<{ id: OAuthBackend; label: string; logo: string; sub: string }> = [
+  { id: 'google', label: 'Google', logo: 'google', sub: 'Drive OAuth' },
+  { id: 'github', label: 'GitHub', logo: 'github', sub: 'Repo Contents API' },
+  { id: 'gitlab', label: 'GitLab', logo: 'gitlab', sub: 'Projects API v4' },
+]
+const sbConfigured = computed(() => supabaseConfigured())
+const signInBusy = ref<OAuthBackend | null>(null)
+const signInMsg = ref('')
+const signInOk = ref<boolean | null>(null)
+const ensureMsg = ref('')
+const ensureOk = ref<boolean | null>(null)
+
+function backendForOAuth(p: OAuthBackend | string): SyncBackendType {
+  if (p === 'google') return 'googleDrive'
+  if (p === 'gitlab') return 'gitlab'
+  return 'github'
+}
+
+async function sessionTokenFor(backend: SyncBackendType): Promise<string> {
+  try {
+    const session = await supabaseSession()
+    if (!session?.provider_token) return ''
+    const prov = supabaseSessionProvider(session)
+    if (!prov) return ''
+    return backendForOAuth(prov) === backend ? (session.provider_token ?? '') : ''
+  } catch {
+    return ''
+  }
+}
+
+async function ensureWizardProvider(backend: SyncBackendType, token: string, displayName: string): Promise<void> {
+  const existing = store.syncConfigs.find(c => c.backendType === backend)
+  if (existing) {
+    if (token && !(existing as SyncConfig).token) {
+      await store.saveSyncConfig({ ...existing, token }).catch(() => null)
+      await store.fetchSyncConfigs().catch(() => {})
+    }
+    return
+  }
+  const saved = await store.saveSyncConfig({
+    ...syncConfigDefaults(),
+    id: '',
+    backendType: backend,
+    name: displayName,
+    token: token.trim() || undefined,
+  } as SyncConfig)
+  if (saved) await store.fetchSyncConfigs().catch(() => {})
+}
+
+async function signIn(provider: OAuthBackend) {
+  if (signInBusy.value) return
+  signInBusy.value = provider
+  signInMsg.value = ''
+  signInOk.value = null
+  ensureMsg.value = ''
+  ensureOk.value = null
+  try {
+    const who = await signInWithPopup(provider)
+    signInMsg.value = `Signed in as ${who.name} (${who.provider}).`
+    signInOk.value = true
+    // Same as Account Manager: a fresh login provisions its provider row so
+    // the Disks step can use it immediately.
+    try {
+      const backend = backendForOAuth(provider)
+      const token = await sessionTokenFor(backend)
+      await ensureWizardProvider(backend, token, `${backendLabel(backend)} — ${who.name}`)
+      await store.fetchSyncConfigs().catch(() => {})
+      ensureMsg.value = token
+        ? `${backendLabel(backend)} connection ready.`
+        : `${backendLabel(backend)} connection created — finish OAuth in Accounts if it asks.`
+      ensureOk.value = true
+    } catch (e) {
+      ensureMsg.value = e instanceof Error ? e.message : String(e)
+      ensureOk.value = false
+    }
+  } catch (e) {
+    signInMsg.value = e instanceof Error ? e.message : String(e)
+    signInOk.value = false
+  } finally {
+    signInBusy.value = null
+  }
+}
+
+// ── OAuth substep: after 200-OK sign-in, one folder + `.cybermanju`
+// size card per logged provider (Drive folder, GitHub/GitLab private
+// repo created when missing). The folder seeds the disk name, so the
+// remote dir / repo visibly matches what the user picked.
+const cloudFolders = ref<Record<string, string>>({})
+const cloudSizes = ref<Record<string, number>>({})
+const cloudBusy = ref<Record<string, boolean>>({})
+const cloudDone = ref<Record<string, boolean>>({})
+const cloudMsgs = ref<Record<string, { ok: boolean; text: string }>>({})
+
+const signedProviders = computed(() => {
+  const accounts = connectedAccounts.value.map(a => ({
+    provider: a.provider,
+    name: a.name,
+    email: a.email,
+  }))
+  if (oauthIdentity.value) {
+    accounts.unshift({
+      provider: oauthIdentity.value.provider,
+      name: oauthIdentity.value.name,
+      email: oauthIdentity.value.email,
+    })
+  }
+  return signedProviderCards(
+    accounts,
+    store.syncConfigs.map(c => ({ backendType: c.backendType })),
+  ).map(card => ({
+    ...card,
+    config: store.syncConfigs.find(c => c.backendType === card.backend) ?? null,
+  }))
 })
 
-function fixLoopPath() {
-  const fixed = suggestLoopSafeSubdir(localPath.value)
-  if (fixed) {
-    localPath.value = fixed
-    localFolderLabel.value = fixed.split('/').filter(Boolean).slice(-2).join('/')
-  }
-}
-
-/** Folder picker → `localPath`. Desktop uses the native dialog, browsers
- * use `showDirectoryPicker` (which never reveals an absolute path, so we
- * store `/<name>` + the handle like Accounts does). */
-async function pickLocalFolder() {
-  localMsg.value = ''
-  localOk.value = null
-  // 1. Tauri desktop: native dialog returns a real absolute path.
-  // Append the loop-safe `files/` subdir (vault lives beside it).
-  if (isTauri()) {
-    try {
-      const { open } = await import('@tauri-apps/plugin-dialog')
-      const picked = await open({ directory: true, multiple: false })
-      const path = typeof picked === 'string' ? picked : null
-      if (!path) return
-      const clean = path.replace(/\/+$/g, '')
-      const safe = clean.toLowerCase().endsWith(`/${SYNC_SUBDIR}`) ? clean : `${clean}/${SYNC_SUBDIR}`
-      localPath.value = safe
-      localFolderLabel.value = safe.split('/').filter(Boolean).slice(-2).join('/')
-      return
-    } catch (e) {
-      localMsg.value = e instanceof Error ? e.message : String(e)
-      localOk.value = false
-      return
-    }
-  }
-  // 2. Chromium browsers: File System Access directory picker.
-  // Nudge toward the loop-safe `files/` subdir (vault lives beside it).
-  const w = window as unknown as { showDirectoryPicker?: () => Promise<{ name: string }> }
-  if (typeof w.showDirectoryPicker === 'function') {
-    try {
-      const dir = await w.showDirectoryPicker()
-      const name = String(dir?.name ?? '').trim()
-      if (!name) return
-      localPath.value = `/${name}/${SYNC_SUBDIR}`
-      localFolderLabel.value = `${name}/${SYNC_SUBDIR}`
-      try {
-        const { rememberLocalDir, WIZARD_LOCAL_DIR_KEY } = await import('@/utils/localDir')
-        await rememberLocalDir(WIZARD_LOCAL_DIR_KEY, dir)
-      } catch {
-        // Handle persistence is best-effort; the path is what sync uses.
-      }
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') return
-      localMsg.value = e instanceof Error ? e.message : String(e)
-      localOk.value = false
-    }
+async function provisionCloudDisk(backend: SyncBackendType) {
+  if (cloudBusy.value[backend] || cloudDone.value[backend]) return
+  const cfg = store.syncConfigs.find(c => c.backendType === backend) ?? null
+  if (!cfg) {
+    cloudMsgs.value[backend] = { ok: false, text: 'No connection yet — sign in again above to create it.' }
     return
   }
-  // 3. No picker — point at the manual field.
-  localMsg.value = 'No folder picker in this browser — type the path under Advanced.'
-  localOk.value = false
-}
-
-async function saveLocalSync() {
-  if (localBusy.value || !canSaveLocal.value) return
-  if (loopWarning.value) {
-    localMsg.value = `${loopWarning.value} Press “Use files/ subfolder” first.`
-    localOk.value = false
-    return
-  }
-  localBusy.value = true
-  localMsg.value = ''
-  localOk.value = null
+  cloudBusy.value[backend] = true
+  delete cloudMsgs.value[backend]
   try {
-    const saved = await store.saveSyncConfig({
-      ...syncConfigDefaults(),
-      id: '',
-      backendType: 'local',
-      name: localName.value.trim() || 'Local folder',
-      basePath: localPath.value.trim() || undefined,
-    } as SyncConfig)
-    if (!saved) {
-      localMsg.value = 'Could not save — retry.'
-      localOk.value = false
+    const folder = (cloudFolders.value[backend] ?? '').trim() || 'cybermanju-vault'
+    const sizeMb = clampVaultSizeMb(cloudSizes.value[backend] ?? 512)
+    const out = await store.createDiskWithRemote(cfg, {
+      sizeMb,
+      passphrase: '',
+      diskName: folder,
+      token: await diskTokenFor(cfg),
+    })
+    if (!out?.disk) {
+      cloudMsgs.value[backend] = { ok: false, text: 'Could not create the disk — retry.' }
       return
     }
-    await store.fetchSyncConfigs()
-    const r = await store.probeSyncConnection(saved)
-    localOk.value = r.ok
-    localMsg.value = r.ok
-      ? `“${saved.name}” connected.`
-      : `Saved, but check failed: ${r.detail}`
+    cloudDone.value[backend] = true
+    if (out.remote) {
+      const where = backend === 'googleDrive'
+        ? `Drive folder \`${out.remote.remoteDir}\``
+        : `private repo \`${out.remote.config.repoName}\``
+      cloudMsgs.value[backend] = { ok: true, text: `“${folder}” live (${sizeMb} MB) — ${where} holds its .cybermanju files.` }
+    } else if (out.remoteWarning) {
+      cloudMsgs.value[backend] = { ok: false, text: `Disk attached, but the remote seed failed: ${out.remoteWarning}` }
+    } else {
+      cloudMsgs.value[backend] = { ok: true, text: `“${folder}” created (${sizeMb} MB).` }
+    }
+  } catch (e) {
+    cloudMsgs.value[backend] = { ok: false, text: e instanceof Error ? e.message : String(e) }
   } finally {
-    localBusy.value = false
+    cloudBusy.value[backend] = false
   }
 }
 
@@ -876,6 +1062,40 @@ async function saveAssistant() {
   }
 }
 
+// ── appearance step: theme + wallpaper (same store as Settings) ──
+const theme = useTheme()
+const customWallpaper = useCustomWallpaper()
+
+const appearanceChoices = computed(() => [
+  { id: 'auto', label: 'Auto', blurb: 'Follows the OS light / dark scheme', swatch: 'background: linear-gradient(90deg, #000000 50%, #ECECEC 50%)' },
+  ...Object.values(THEMES).map(t => ({
+    id: t.id as string,
+    label: t.label,
+    blurb: t.blurb,
+    swatch: `background: linear-gradient(135deg, ${t.palette.bg} 55%, ${t.palette.accent} 55%)`,
+  })),
+])
+const effectiveAppearance = computed(() => (theme.settings.followSystem ? 'auto' : theme.settings.theme))
+
+function pickAppearance(id: string) {
+  if (id === 'auto') theme.setAppearance('auto')
+  else theme.setAppearance(id as ThemeId)
+}
+
+const wallpaperChoices = WALLPAPERS
+const activeWallpaper = computed(() => (customWallpaper.kind.value ? 'custom' : theme.settings.wallpaper))
+const appearanceSummary = computed(() => {
+  const t = appearanceChoices.value.find(c => c.id === effectiveAppearance.value)
+  const w = wallpaperChoices.find(wp => wp.id === theme.settings.wallpaper)
+  const wpLabel = customWallpaper.kind.value ? 'Custom image' : (w?.label ?? theme.settings.wallpaper)
+  return `${t?.label ?? effectiveAppearance.value} · ${wpLabel}`
+})
+
+function pickWallpaper(id: string) {
+  theme.setWallpaper(id)
+  if (customWallpaper.kind.value) void customWallpaper.clear()
+}
+
 // ── navigation ──
 function go(s: SetupStep) {
   step.value = s
@@ -935,10 +1155,10 @@ onMounted(async () => {
     const p = agentProviderList.value.find(x => x.id === providerId.value)
     if (p && !model.value) model.value = p.defaultModel
   }
-  // Folder attach follows the step: entering sync re-checks the remembered
+  // Folder attach follows the step: entering vault re-checks the remembered
   // directory without prompting (lapsed grants show the one-click re-allow).
   watch(step, (s) => {
-    if (s === 'sync') void refreshWizardDir()
+    if (s === 'vault') void refreshWizardDir()
   })
   void refreshWizardDir()
 })
@@ -1006,7 +1226,7 @@ onMounted(async () => {
 .sw-sub { margin: 1px 0 0; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
 .sw-icon-btn { background: none; border: none; color: color-mix(in srgb, var(--ui-text) 55%, transparent); cursor: pointer; padding: 4px; border-radius: var(--ui-radius-sm); display: inline-flex; }
 .sw-icon-btn:hover { color: var(--ui-text); }
-.sw-icon-btn:focus-visible, .sw-btn:focus-visible, .sw-link:focus-visible, .sw-preset:focus-visible, .sw-choice:focus-visible, .sw-picker:focus-visible, .sw-dot:focus-visible {
+.sw-icon-btn:focus-visible, .sw-btn:focus-visible, .sw-link:focus-visible, .sw-preset:focus-visible, .sw-choice:focus-visible, .sw-picker:focus-visible, .sw-oauth:focus-visible, .sw-dot:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--ui-accent) 75%, transparent);
   outline-offset: 2px;
 }
@@ -1103,11 +1323,47 @@ onMounted(async () => {
 .sw-preset:hover { border-color: var(--ui-border-hover); transform: translateY(-1px); }
 .sw-preset.on { border-color: var(--ui-accent); background: var(--ui-accent-softer); box-shadow: var(--ui-focus-ring); }
 .sw-preset .muted { font-size: 11px; }
+.sw-theme-swatch {
+  width: 100%; height: 26px; border-radius: var(--ui-radius-sm);
+  border: 1px solid var(--ui-border);
+}
+.sw-wp-swatch {
+  width: 100%; height: 26px; border-radius: var(--ui-radius-sm);
+  border: 1px solid var(--ui-border);
+}
+.sw-wp-slopes-dark { background: linear-gradient(180deg, #2b3136 0%, #1b1e20 55%, #101315 100%); }
+.sw-wp-slopes-light { background: linear-gradient(180deg, #f4f5f6 0%, #dcdfe3 60%, #c9ced4 100%); }
+.sw-wp-dunes { background: radial-gradient(120% 90% at 80% 110%, rgba(246, 116, 0, 0.35), transparent 55%), linear-gradient(180deg, #232629 0%, #0e1113 100%); }
 .sw-free {
   font-size: 11px; font-weight: 600; letter-spacing: 0;
   color: var(--ui-accent); border: 1px solid color-mix(in srgb, var(--ui-accent) 50%, transparent);
   border-radius: var(--ui-radius-xs); padding: 1px 7px; margin-top: 3px;
 }
+.sw-oauth-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.sw-oauth {
+  display: flex; gap: 10px; align-items: center; text-align: left; width: 100%;
+  padding: 10px 12px; border-radius: var(--ui-radius-md); border: 1px solid var(--ui-border);
+  background: transparent; color: var(--ui-text); font-family: inherit; font-size: 12.5px; cursor: pointer;
+}
+.sw-oauth:hover:not(:disabled) { border-color: var(--ui-accent); }
+.sw-oauth:disabled { opacity: 0.45; cursor: not-allowed; }
+.sw-oauth-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.sw-oauth-meta small { font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.sw-substep {
+  display: flex; flex-direction: column; gap: 8px;
+  border: 1px dashed var(--ui-border-strong); border-radius: var(--ui-radius-md);
+  padding: 10px 12px;
+}
+.sw-substep-title { margin: 0; font-size: 12.5px; }
+.sw-prov-card {
+  display: flex; flex-direction: column; gap: 8px;
+  border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
+  padding: 10px 12px;
+}
+.sw-prov-head { display: flex; align-items: center; gap: 8px; }
+.sw-prov-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.sw-prov-meta small { font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-hint code { font-family: var(--ui-font-mono); font-size: 11px; color: var(--ui-info); }
 .sw-summary { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .sw-summary li {
   display: flex; gap: 10px; align-items: center;

@@ -1,16 +1,21 @@
 // CyberManju OS — first-run setup wizard state (pure, unit-tested).
 //
-// The wizard itself lives in `SetupWizard.vue` (vault file + local sync +
-// cloud + disks + agent AI, every step skippable). This module owns the browser-free parts:
+// The wizard itself lives in `SetupWizard.vue` (vault folder + cloud +
+// disks + agent AI + appearance, every step skippable). This module owns the browser-free parts:
 // the "seen" flag in localStorage and the step order, so both stay honest
 // without a browser.
 
 export const SETUP_SEEN_KEY = 'cybermanju.setupSeen.v1'
 export const SETUP_RESUME_STEP_KEY = 'cybermanju.setup.resumeStep'
 
-export const SETUP_STEPS = ['welcome', 'vault', 'sync', 'cloud', 'disks', 'agent', 'done'] as const
+export const SETUP_STEPS = ['welcome', 'vault', 'cloud', 'disks', 'agent', 'appearance', 'done'] as const
 
 export type SetupStep = (typeof SETUP_STEPS)[number]
+
+/** Legacy steps from older wizards (e.g. the removed standalone `sync` step). */
+const LEGACY_STEP_ALIAS: Record<string, SetupStep> = {
+  sync: 'vault',
+}
 
 /** Save one validated step to resume after visiting Accounts. */
 export function saveSetupResumeStep(step: SetupStep): void {
@@ -28,7 +33,11 @@ export function takeSetupResumeStep(): SetupStep | null {
     if (typeof localStorage === 'undefined') return null
     const saved = localStorage.getItem(SETUP_RESUME_STEP_KEY)
     localStorage.removeItem(SETUP_RESUME_STEP_KEY)
-    return SETUP_STEPS.find(step => step === saved) ?? null
+    const direct = SETUP_STEPS.find(step => step === saved) ?? null
+    if (direct) return direct
+    // Older wizards saved `sync` (now merged into `vault`) — resume there.
+    if (typeof saved === 'string' && LEGACY_STEP_ALIAS[saved]) return LEGACY_STEP_ALIAS[saved]
+    return null
   } catch {
     return null
   }
@@ -44,11 +53,11 @@ export function clearSetupResumeStep(): void {
 
 export const SETUP_STEP_LABELS: Record<SetupStep, string> = {
   welcome: 'Welcome',
-  vault: 'Vault',
-  sync: 'Local sync',
+  vault: 'Vault folder',
   cloud: 'Accounts',
   disks: 'Disks',
   agent: 'Agent (optional)',
+  appearance: 'Appearance',
   done: 'Done',
 }
 
@@ -110,6 +119,7 @@ export const MOBILE_SETUP_STEPS = [
   'providers',
   'repos',
   'agent',
+  'appearance',
   'done',
 ] as const
 
@@ -122,6 +132,7 @@ export const MOBILE_SETUP_STEP_LABELS: Record<MobileSetupStep, string> = {
   providers: 'Providers',
   repos: 'Repos + disks',
   agent: 'Agent AI (optional)',
+  appearance: 'Appearance',
   done: 'Done',
 }
 
@@ -171,4 +182,68 @@ export function normalizePartitionDraft(d: VaultPartitionDraft): VaultPartitionD
 export function partitionDraftValid(d: VaultPartitionDraft): boolean {
   const n = normalizePartitionDraft(d)
   return n.name.length >= 2 && n.sizeMb >= PARTITION_MIN_MB && n.sizeMb <= PARTITION_MAX_MB
+}
+
+// ── OAuth substep: folder + `.cybermanju` size per logged provider ───
+// After a 200-OK sign-in both wizards (desktop `SetupWizard.vue`, mobile
+// `MobileSetupWizard.vue`) show one card per logged provider: a folder
+// input (Drive folder / repo name seed) + a `.cybermanju` size input +
+// a create button. Pure so both wizards and tests share it.
+
+export type SignedProviderBackend = 'googleDrive' | 'github' | 'gitlab'
+
+export interface OAuthAccountRef {
+  provider: string
+  name?: string
+  email?: string
+}
+
+export interface ProviderConfigRef {
+  backendType: string
+}
+
+export interface SignedProviderCard {
+  backend: SignedProviderBackend
+  label: string
+  logo: string
+  accountName: string
+  hasConfig: boolean
+}
+
+export const DEFAULT_VAULT_FOLDER = 'cybermanju-vault'
+export const DEFAULT_VAULT_SIZE_MB = 512
+
+const OAUTH_BACKENDS: Array<{ slug: string; backend: SignedProviderBackend; label: string; logo: string }> = [
+  { slug: 'google', backend: 'googleDrive', label: 'Google Drive', logo: 'google' },
+  { slug: 'github', backend: 'github', label: 'GitHub', logo: 'github' },
+  { slug: 'gitlab', backend: 'gitlab', label: 'GitLab', logo: 'gitlab' },
+]
+
+/** Clamp a `.cybermanju` size into the 64–8192 MB budget. */
+export function clampVaultSizeMb(v: unknown): number {
+  return Math.max(PARTITION_MIN_MB, Math.min(PARTITION_MAX_MB, Math.round(Number(v) || DEFAULT_VAULT_SIZE_MB)))
+}
+
+/**
+ * One card per logged OAuth provider (deduped by backend, first account
+ * wins). `accounts` is the remembered list + current identity;
+ * `configs` marks which providers already have a saved connection.
+ */
+export function signedProviderCards(
+  accounts: OAuthAccountRef[],
+  configs: ProviderConfigRef[],
+): SignedProviderCard[] {
+  const out: SignedProviderCard[] = []
+  for (const meta of OAUTH_BACKENDS) {
+    const acc = accounts.find(a => a.provider === meta.slug)
+    if (!acc) continue
+    out.push({
+      backend: meta.backend,
+      label: meta.label,
+      logo: meta.logo,
+      accountName: (acc.name || acc.email || meta.label).trim().slice(0, 80) || meta.label,
+      hasConfig: configs.some(c => c.backendType === meta.backend),
+    })
+  }
+  return out
 }

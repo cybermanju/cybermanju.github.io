@@ -1,6 +1,6 @@
 [package]
 name = "cybermanju-sync"
-version = "0.1.1"
+version = "0.1.0"
 edition = "2021"
 description = "Storage sync backends (local, GitHub, GitLab, Google Drive)"
 

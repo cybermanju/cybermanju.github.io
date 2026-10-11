@@ -10,9 +10,11 @@
 //  1. `startSupabaseOAuth()` / `startSupabaseSignIn()` —
 //     `signInWithOAuth({ skipBrowserRedirect: true })` returns the Supabase
 //     authorize URL (PKCE verifier stashed in localStorage by the client).
-//     We open it in a popup WITHOUT `noopener` so the opener chain survives.
-//  2. User approves at the provider → Supabase → redirectTo (our page,
-//     `?oauth=popup`) lands *inside the popup*.
+//     Web builds open it in a popup WITHOUT `noopener` so the opener chain
+//     survives; Tauri builds (desktop + mobile) open it in the SYSTEM browser
+//     with the `cybermanju://oauth/callback` return instead.
+//  2. User approves at the provider → Supabase → redirectTo: the popup page
+//     (`?oauth=popup`) on web, the deep-link callback (`onOpenUrl`) on Tauri.
 //  3. The popup boots this same bundle but takes the popup fast-path
 //     (`isOAuthPopup()` → App.vue minimal view): `finishSupabaseReturn()`
 //     lets the client auto-exchange `?code=` (`detectSessionInUrl`), reads
@@ -37,20 +39,29 @@
 
 import { ref } from 'vue'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
-import { isTauriMobile } from './useTauri'
-import { vaultDelete, vaultGet, vaultSet } from './useVault'
+import { isTauri } from './useTauri'
 
-const URL_KEY = 'cybermanju.supabaseUrl'
-const KEY_KEY = 'cybermanju.supabaseKey'
 const PENDING_CFG_KEY = 'cybermanju.oauthConfigId'
 const TOKEN_STASH_KEY = 'cybermanju.providerToken'
-// In-file twins (`.cybermanju` → kv table) — localStorage stays the hot
-// synchronous cache, the vault is the durable copy inside the file.
-const VAULT_URL_KEY = 'config:supabase.url'
-const VAULT_KEY_KEY = 'config:supabase.key'
 
 export type OAuthBackend = 'github' | 'google' | 'gitlab'
-export const MOBILE_OAUTH_CALLBACK_URL = 'cybermanju://oauth/callback'
+/**
+ * Custom-scheme OAuth return for every Tauri build (desktop + mobile).
+ * The SYSTEM browser completes the provider dance, then the OS routes this
+ * URL back into the app via the deep-link plugin — the WebView never
+ * navigates to it, so Linux WebKitGTK's
+ * "Redirection to URL with a scheme that is not HTTP(S)" block never fires.
+ */
+export const OAUTH_CALLBACK_URL = 'cybermanju://oauth/callback'
+/**
+ * Bare custom scheme for OS handler registration. Source of truth for the
+ * value is `src-tauri/tauri.conf.json > plugins.deep-link.desktop.schemes`
+ * (the bundler stamps it into every installer); this constant only feeds the
+ * runtime `register()` self-heal below, so keep the two in sync.
+ */
+export const OAUTH_DEEP_LINK_SCHEME = 'cybermanju'
+/** @deprecated Use OAUTH_CALLBACK_URL — kept for backwards compatibility. */
+export const MOBILE_OAUTH_CALLBACK_URL = OAUTH_CALLBACK_URL
 
 export interface ProviderTokenStash {
   backend: OAuthBackend
@@ -79,27 +90,59 @@ function writeLS(key: string, value: string) {
   }
 }
 
-export function getSupabaseConfig(): { url: string; key: string; source: string } {
-  const lsUrl = readLS(URL_KEY).replace(/\/+$/, '')
-  const lsKey = readLS(KEY_KEY)
-  // Build-time fallback so GitHub Pages / static deploys work without a
-  // manual paste in Settings. CI injects the same repo secrets for web/WASM
-  // and Android builds:
-  //   VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_KEY).
-  // Local dev equivalent: a `.env` file with the same two keys.
-  const envUrl = String(
+export type SupabaseConfigSource = 'settings' | 'build-env' | 'none'
+
+export interface SupabaseConfig {
+  url: string
+  key: string
+  source: SupabaseConfigSource
+}
+
+// Manual override pasted in Settings → OAuth broker. Stored per device /
+// profile (localStorage): the anon key is public by design, but the broker
+// choice roams with NEITHER the vault NOR the OS — every device (and every
+// browser profile) needs the paste once, then provider tokens minted on one
+// device roam to the others through the encrypted sync configs.
+const MANUAL_URL_KEY = 'cybermanju.supabaseUrl'
+const MANUAL_KEY_KEY = 'cybermanju.supabaseKey'
+
+const BROKER_HELP = 'Supabase broker is not configured — set the project URL + anon key in Settings → OAuth broker'
+
+function readBuildEnv(): { url: string; key: string } {
+  const url = String(
     (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? '',
   ).trim().replace(/\/+$/, '')
-  const envKey = String(
-    ((import.meta.env.VITE_SUPABASE_ANON_KEY ??
-      import.meta.env.VITE_SUPABASE_KEY) as string | undefined) ?? '',
-  ).trim()
-  // Treat the credentials as a pair: a stale, half-saved manual override
-  // must not hide a complete build-time broker configuration.
-  if (lsUrl && lsKey) return { url: lsUrl, key: lsKey, source: 'localStorage' }
-  if (envUrl && envKey) return { url: envUrl, key: envKey, source: 'build-env' }
-  if (lsUrl || lsKey) return { url: lsUrl, key: lsKey, source: 'localStorage' }
-  if (envUrl || envKey) return { url: envUrl, key: envKey, source: 'build-env' }
+  const envKey =
+    String(
+      (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? '',
+    ).trim() ||
+    // Legacy alias, honoured even when ANON_KEY is present-but-empty (CI
+    // injects unset secrets as empty strings, and `'' ?? x` stays `''`).
+    String((import.meta.env.VITE_SUPABASE_KEY as string | undefined) ?? '').trim()
+  return { url, key: envKey }
+}
+
+function readManualPair(): { url: string; key: string } {
+  const url = readLS(MANUAL_URL_KEY).trim().replace(/\/+$/, '')
+  const key = readLS(MANUAL_KEY_KEY).trim()
+  return { url, key }
+}
+
+export function getSupabaseConfig(): SupabaseConfig {
+  // An explicit Settings paste wins over the baked pair (lets any build —
+  // distro package, older release, CI without secrets — be fixed at runtime,
+  // and lets a rotated broker be picked up without waiting for a release).
+  const manual = readManualPair()
+  if (manual.url && manual.key) return { url: manual.url, key: manual.key, source: 'settings' }
+  const env = readBuildEnv()
+  if (env.url && env.key) return { url: env.url, key: env.key, source: 'build-env' }
+  if (env.url || env.key || manual.url || manual.key) {
+    // Half-filled on one side only — surface what exists so the UI can say
+    // which half is missing instead of a bare "not configured".
+    const url = manual.url || env.url
+    const key = manual.key || env.key
+    return { url, key, source: manual.url || manual.key ? 'settings' : 'build-env' }
+  }
   return { url: '', key: '', source: 'none' }
 }
 
@@ -109,55 +152,63 @@ function readConfiguredFlag(): boolean {
 }
 
 /**
- * Reactive mirror of the localStorage pair. localStorage itself never fires
- * Vue reactivity, so `computed(() => supabaseConfigured())` used to be
- * evaluated once and stay stale forever — saving the broker in Settings left
- * "Broker not configured" banners and blocked OAuth buttons in Accounts until
- * a full reload. Every write path below refreshes this flag.
+ * Reactive mirror of the effective broker. Changes on Save / Forget /
+ * boot-hydrate, and across tabs/windows of the same profile via the
+ * `storage` listener below.
  */
 const configuredFlag = ref(readConfiguredFlag())
+
+function refreshConfiguredFlag(): boolean {
+  configuredFlag.value = readConfiguredFlag()
+  return configuredFlag.value
+}
 
 export function supabaseConfigured(): boolean {
   return configuredFlag.value
 }
 
-export function setSupabaseConfig(url: string, key: string) {
-  const cleanUrl = url.trim().replace(/\/+$/, '')
-  const cleanKey = key.trim()
-  writeLS(URL_KEY, cleanUrl)
-  writeLS(KEY_KEY, cleanKey)
-  void (cleanUrl ? vaultSet(VAULT_URL_KEY, cleanUrl) : vaultDelete(VAULT_URL_KEY))
-  void (cleanKey ? vaultSet(VAULT_KEY_KEY, cleanKey) : vaultDelete(VAULT_KEY_KEY))
+/** Persist a Settings paste. Returns an error string, or null on success. */
+export function setSupabaseConfig(url: string, key: string): string | null {
+  const cleanUrl = String(url ?? '').trim().replace(/\/+$/, '')
+  const cleanKey = String(key ?? '').trim()
+  if (!cleanUrl || !cleanKey) return 'Paste the project URL and the anon / publishable key first.'
+  if (!cleanUrl.startsWith('http')) return 'Project URL must be a full https://… address.'
+  if (cleanKey.length < 8) return 'That key looks too short — paste the anon / publishable (sb_publishable_… or eyJ…) key.'
+  writeLS(MANUAL_URL_KEY, cleanUrl)
+  writeLS(MANUAL_KEY_KEY, cleanKey)
   client = null
   clientKey = ''
-  configuredFlag.value = cleanUrl.startsWith('http') && cleanKey.length > 0
+  refreshConfiguredFlag()
+  return null
 }
 
+/** Forget the Settings paste (falls back to the baked pair when one exists). */
 export function clearSupabaseConfig() {
-  writeLS(URL_KEY, '')
-  writeLS(KEY_KEY, '')
-  void vaultDelete(VAULT_URL_KEY)
-  void vaultDelete(VAULT_KEY_KEY)
+  writeLS(MANUAL_URL_KEY, '')
+  writeLS(MANUAL_KEY_KEY, '')
   client = null
   clientKey = ''
-  configuredFlag.value = false
+  refreshConfiguredFlag()
 }
 
 /**
- * Boot: pull the Supabase URL/key out of `.cybermanju` when localStorage is
- * empty (fresh browser, restored file, cleared site data). Writes through to
- * localStorage so `getSupabaseConfig()` stays synchronous everywhere.
+ * Re-read the effective broker (build env + Settings paste). Called at boot
+ * and safe to call any time — returns whether the broker is usable now.
  */
 export async function hydrateSupabaseConfig(): Promise<boolean> {
-  if (supabaseConfigured()) return false
-  const [url, key] = await Promise.all([vaultGet(VAULT_URL_KEY), vaultGet(VAULT_KEY_KEY)])
-  if (!url && !key) return false
-  writeLS(URL_KEY, url || '')
-  writeLS(KEY_KEY, key || '')
-  client = null
-  clientKey = ''
-  configuredFlag.value = readConfiguredFlag()
-  return supabaseConfigured()
+  return refreshConfiguredFlag()
+}
+
+// Same profile, another window/tab saved or forgot the broker — stay in
+// sync without a reload (badges, buttons and gates read `configuredFlag`).
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === MANUAL_URL_KEY || e.key === MANUAL_KEY_KEY) {
+      client = null
+      clientKey = ''
+      refreshConfiguredFlag()
+    }
+  })
 }
 
 export async function getSupabaseClient(): Promise<SupabaseClient | null> {
@@ -231,9 +282,24 @@ export function supabaseOAuthQueryParams(backendType: string, forceGoogleConsent
   return { access_type: 'offline', prompt: 'consent' }
 }
 
-function supabaseRedirectTo(popup: boolean): string {
-  if (isTauriMobile()) return MOBILE_OAUTH_CALLBACK_URL
+export function supabaseRedirectTo(popup: boolean): string {
+  // Every Tauri build (desktop AND mobile) authenticates in the SYSTEM
+  // browser with the cybermanju:// deep-link return: a popup WebView cannot
+  // navigate back to a custom scheme (Linux WebKitGTK aborts the whole login
+  // with "Redirection to URL with a scheme that is not HTTP(S)").
+  if (isTauri()) return OAUTH_CALLBACK_URL
   return `${window.location.origin}${window.location.pathname}${popup ? '?oauth=popup' : ''}`
+}
+
+/** Supabase rejected the redirect — tell the user which URL to allowlist. */
+function withRedirectHint(e: unknown, redirectTo: string): Error {
+  const msg = e instanceof Error ? e.message : String(e)
+  if (/redirect/i.test(msg)) {
+    return new Error(
+      `${msg} — add '${redirectTo}' (plus this app's own URL) to Supabase → Authentication → URL Configuration → Redirect URLs`,
+    )
+  }
+  return e instanceof Error ? e : new Error(msg)
 }
 
 export function setPendingOAuthConfig(configId: string | null) {
@@ -336,7 +402,7 @@ export async function startSupabaseOAuth(backendType: string, popup = true, forc
   const provider = supabaseProviderFor(backendType)
   if (!provider) throw new Error(`unsupported: no Supabase OAuth for '${backendType}'`)
   const sb = await getSupabaseClient()
-  if (!sb) throw new Error('Supabase is not configured — set URL + key in Settings first')
+  if (!sb) throw new Error(BROKER_HELP)
   const redirectTo = supabaseRedirectTo(popup)
   const { data, error } = await sb.auth.signInWithOAuth({
     provider,
@@ -347,7 +413,7 @@ export async function startSupabaseOAuth(backendType: string, popup = true, forc
       skipBrowserRedirect: true,
     },
   })
-  if (error || !data?.url) throw new Error(error?.message || 'Supabase did not return an authorize URL')
+  if (error || !data?.url) throw withRedirectHint(error ?? new Error('Supabase did not return an authorize URL'), redirectTo)
   return { url: data.url }
 }
 
@@ -679,7 +745,7 @@ async function exchangeMobileOAuthUrl(value: string): Promise<boolean> {
   if (!code) throw new Error('The OAuth callback did not include an authorization code.')
   if (handledMobileOAuthCodes.has(code)) return true
   const sb = await getSupabaseClient()
-  if (!sb) throw new Error('Supabase is not configured in this app.')
+  if (!sb) throw new Error(BROKER_HELP)
   const { data, error } = await sb.auth.exchangeCodeForSession(code)
   if (error) throw error
   const session = data.session ?? await supabaseSession()
@@ -717,18 +783,30 @@ async function processMobileOAuthUrls(urls: string[], announce: boolean): Promis
   return handled
 }
 
-/** Install the mobile URL listener early; callbacks wait in memory until broker hydration completes. */
+/** Install the native deep-link listener early; callbacks wait in memory until broker hydration completes. */
 export function installMobileOAuthDeepLinks(): Promise<void> {
-  if (!isTauriMobile() || mobileDeepLinkListener) return Promise.resolve()
+  if (!isTauri() || mobileDeepLinkListener) return Promise.resolve()
   if (mobileDeepLinkInstallPromise) return mobileDeepLinkInstallPromise
   const install = (async () => {
-    const { getCurrent, onOpenUrl } = await import('@tauri-apps/plugin-deep-link')
+    const { getCurrent, isRegistered, onOpenUrl, register } = await import('@tauri-apps/plugin-deep-link')
     mobileDeepLinkListener = await onOpenUrl((urls) => {
       if (!mobileDeepLinkReady) pendingMobileDeepLinks.push(...urls)
       else void processMobileOAuthUrls(urls, true)
     })
     const initialUrls = await getCurrent().catch(() => null)
     if (initialUrls) pendingMobileDeepLinks.push(...initialUrls)
+    // Desktop self-heal (Linux/Windows): claim the custom scheme at runtime
+    // so installs without OS-level integration (bare AppImage with no
+    // launcher daemon, xcopy-style exe) still receive the OAuth return.
+    // Strictly best-effort and failure-swallowed: register() is unsupported
+    // on macOS/mobile (bundler owns those), and a missing xdg-mime must
+    // never break the listener install above.
+    try {
+      const already = await isRegistered(OAUTH_DEEP_LINK_SCHEME).catch(() => true)
+      if (!already) await register(OAUTH_DEEP_LINK_SCHEME)
+    } catch {
+      /* OS registration unavailable here — installer/.desktop owns it. */
+    }
   })()
   mobileDeepLinkInstallPromise = install.catch((error) => {
     mobileDeepLinkInstallPromise = null
@@ -739,7 +817,7 @@ export function installMobileOAuthDeepLinks(): Promise<void> {
 
 /** Exchange any cold-start callback after the stored Supabase broker is hydrated. */
 export async function activateMobileOAuthDeepLinks(): Promise<boolean> {
-  if (!isTauriMobile()) return false
+  if (!isTauri()) return false
   await installMobileOAuthDeepLinks()
   mobileDeepLinkReady = true
   const queued = pendingMobileDeepLinks.splice(0)
@@ -753,9 +831,7 @@ export async function activateMobileOAuthDeepLinks(): Promise<boolean> {
 export async function startSupabaseSignIn(provider: OAuthBackend, popup = true, forceGoogleConsent = false): Promise<{ url: string }> {
   const sb = await getSupabaseClient()
   if (!sb) {
-    throw new Error(
-      'Supabase is not configured — set the OAuth broker URL + key in Settings first'
-    )
+    throw new Error(BROKER_HELP)
   }
   const redirectTo = supabaseRedirectTo(popup)
   const { data, error } = await sb.auth.signInWithOAuth({
@@ -768,7 +844,7 @@ export async function startSupabaseSignIn(provider: OAuthBackend, popup = true, 
     },
   })
   if (error || !data?.url) {
-    throw new Error(error?.message || 'Supabase did not return an authorize URL')
+    throw withRedirectHint(error ?? new Error('Supabase did not return an authorize URL'), redirectTo)
   }
   return { url: data.url }
 }
@@ -782,7 +858,11 @@ export async function startSupabaseSignIn(provider: OAuthBackend, popup = true, 
  * popups are blocked or the flow never completes.
  */
 export async function signInWithPopup(provider: OAuthBackend): Promise<CyberIdentity> {
-  if (isTauriMobile()) {
+  // Native (desktop + mobile): the SYSTEM browser approves, the OS routes
+  // cybermanju://oauth/callback back into the app, and the poll below sees
+  // the exchanged session. Never a popup WebView here — it cannot navigate
+  // back to a custom scheme (Linux WebKitGTK: "scheme that is not HTTP(S)").
+  if (isTauri()) {
     await installMobileOAuthDeepLinks()
     await supabaseSignOut().catch(() => {})
     identity.value = null

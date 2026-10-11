@@ -2,7 +2,7 @@
 #
 # What runs where (gitlab.com SaaS runners are Linux-only):
 # - SaaS Linux runners build: meta, rust, audit, wasm, linux (deb+AppImage+rpm),
-#   rpm re-pack, flatpak, arch, android, docker, pages, release.
+#   rpm re-pack, flatpak, arch, android, docker, pages, release + cli (Go cyb).
 # - Windows / macOS have NO SaaS runners: those two jobs are manual +
 #   allow_failure and need self-hosted runners tagged `cybermanju-windows` /
 #   `cybermanju-macos`. The GitLab release ships every family its pipeline
@@ -12,9 +12,11 @@
 #   ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD, VITE_SUPABASE_URL,
 #   VITE_SUPABASE_ANON_KEY.
 #   Android release signing is REQUIRE_SIGNING=1: without the keystore that
-#   job fails by design, same as GitHub. The Supabase vars are baked into the
-#   Pages bundle at build time (same as GitHub Secrets); empty when unset —
-#   the app falls back to the manual Settings paste.
+#   job fails by design, same as GitHub. The Supabase vars are baked into
+#   every frontend bundle at build time (Pages, desktop installers, docker
+#   image — project/group CI variables are inherited automatically by every
+#   job, so no same-name assignment is needed); empty when unset — the app
+#   falls back to the manual Settings paste.
 # - gitlab.com SaaS runners require the account to pass identity verification
 #   (credit/debit card or phone). Until that is done every pipeline fails
 #   with "Identity verification is required in order to run CI jobs" before
@@ -118,6 +120,37 @@ audit:
     - npm audit --omit=dev || true
 
 # ─── build ───────────────────────────────────────────────────────────
+cli-build:
+  stage: build
+  image: golang:bookworm
+  interruptible: true
+  extends: .code-rules
+  cache:
+    key:
+      files: [cli/go.sum]
+      prefix: go-cli
+    paths: [$HOME/go/pkg/mod/, $HOME/.cache/go-build/]
+  script:
+    - cd cli
+    - test -z "$(gofmt -l .)"
+    - go vet ./...
+    - go test ./...
+    # Root package.json is the version source of truth (no node here).
+    - PKG_VER="$(grep -m1 '"version"' ../package.json | cut -d'"' -f4)"
+    - mkdir -p dist-cli
+    - |
+      for target in "linux amd64" "linux arm64" "darwin amd64" "darwin arm64" "windows amd64" "windows arm64"; do
+        set -- $target
+        bin="cyb"
+        [ "$1" = "windows" ] && bin="cyb.exe"
+        CGO_ENABLED=0 GOOS="$1" GOARCH="$2" go build -trimpath -ldflags "-s -w -X main.version=v$PKG_VER" -o "build-$1-$2/$bin" .
+        tar -czf "dist-cli/cyb-$1-$2.tar.gz" -C "build-$1-$2" "$bin"
+      done
+    - ls dist-cli/
+  artifacts:
+    paths: [cli/dist-cli/]
+    expire_in: 1 week
+
 wasm-build:
   stage: build
   image: rust:latest
@@ -169,6 +202,8 @@ linux-build:
       libjavascriptcoregtk-4.1-dev pkg-config build-essential libssl-dev nodejs
   script:
     - npm ci
+    # VITE_SUPABASE_* project variables are inherited automatically, so the
+    # desktop bundle bakes the OAuth broker (empty ⇒ Settings paste on device).
     - npm run tauri build
     - mkdir -p ship/linux/deb ship/linux/appimage ship/linux/rpm
     - cp target/release/bundle/deb/*.deb ship/linux/deb/
@@ -284,7 +319,10 @@ docker-build:
   interruptible: true
   extends: .code-rules
   script:
-    - docker build -t cybermanju-os:latest -f ./Dockerfile .
+    # OAuth broker build-args (public URL + anon key); empty when unset —
+    # the app then takes the Settings paste. Project variables inherited
+    # automatically, no same-name `variables:` assignment (see wasm-build).
+    - docker build -t cybermanju-os:latest -f ./Dockerfile --build-arg VITE_SUPABASE_URL="$VITE_SUPABASE_URL" --build-arg VITE_SUPABASE_ANON_KEY="$VITE_SUPABASE_ANON_KEY" .
     - docker images cybermanju-os:latest
 
 # ─── package ─────────────────────────────────────────────────────────
@@ -344,6 +382,8 @@ arch-build:
     - export PATH="$HOME/.cargo/bin:$PATH"
     - export NO_STRIP=true APPIMAGE_EXTRACT_AND_RUN=1
     - npm ci
+    # VITE_SUPABASE_* project variables are inherited automatically, so the
+    # Arch bundle bakes the OAuth broker (empty ⇒ Settings paste on device).
     - npm run tauri build || npm run tauri -- build --verbose
     - mkdir -p ship/arch
     - cp target/release/bundle/deb/*.deb ship/arch/ 2>/dev/null || true
@@ -407,7 +447,7 @@ release:
   script:
     # Collect every family the pipeline produced into release/ dirs.
     - mkdir -p release/release-linux release/release-rpm release/release-flatpak
-      release/release-arch release/release-android release/release-windows release/release-macos
+      release/release-arch release/release-android release/release-windows release/release-macos release/release-cli
     - cp ship/linux/deb/*.deb ship/linux/appimage/*.AppImage release/release-linux/
     - cp ship/rpm/*.rpm release/release-rpm/
     - cp ship/flatpak/*.flatpak release/release-flatpak/
@@ -415,6 +455,7 @@ release:
     - cp ship/android/*.apk ship/android/*.aab release/release-android/ 2>/dev/null || cp ship/android/*.apk release/release-android/
     - cp ship/windows/* release/release-windows/ 2>/dev/null || true
     - cp ship/macos/* release/release-macos/ 2>/dev/null || true
+    - cp cli/dist-cli/*.tar.gz release/release-cli/
     # A job can go green while producing nothing: fail here instead of
     # shipping a release with a hole (windows/macos are best-effort —
     # manual jobs — so they only warn).
@@ -440,6 +481,7 @@ release:
       check release-flatpak "*.flatpak"
       check release-arch "*.AppImage"
       check release-android "*.apk" "*.aab"
+      check release-cli "cyb-*.tar.gz"
       test -f dist-wasm/index.html || { echo "ERROR: dist-wasm/index.html missing"; missing=1; }
       OPTIONAL=1 check release-windows "*.exe" "*.msi"
       OPTIONAL=1 check release-macos "*.dmg"
@@ -474,6 +516,7 @@ release:
         echo "| Linux (Arch) | \`dist-arch.zip\` (deb + AppImage on Arch) |"
         echo "| macOS | \`dist-macos.zip\` (DMG) |"
         echo "| Android | \`dist-android.zip\` (signed APK + AAB, arm64-v8a) |"
+        echo "| Terminal | \`dist-cli.zip\` (cyb universal CLI for linux/darwin/windows) |"
         echo "| Web (WASM) | \`dist-wasm.zip\` (static files for any web server) |"
         echo "| Docker | \`docker pull $CI_REGISTRY_IMAGE:latest\` |"
         echo ""
@@ -493,7 +536,7 @@ release:
     # Zip every family + checksums.
     - |
       mkdir -p packages
-      for fam in windows linux rpm flatpak arch macos android; do
+      for fam in windows linux rpm flatpak arch macos android cli; do
         if [ -d "release/release-$fam" ]; then
           (cd "release/release-$fam" && zip -r "../../packages/dist-$fam.zip" .)
         fi

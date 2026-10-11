@@ -431,8 +431,159 @@ const DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files'
 const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files'
 const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder'
 
+/** The narrow Drive grant the app needs — also requested via Supabase OAuth. */
+export const GOOGLE_DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
+
 function driveHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` }
+}
+
+/**
+ * Granted OAuth scopes behind a Google access token (CORS-open tokeninfo).
+ * Returns null when the endpoint is unreachable — callers then keep the
+ * generic message instead of claiming a scope state they could not verify.
+ */
+export async function googleTokenScopes(token: string): Promise<string[] | null> {
+  const t = token.trim()
+  if (!t) return null
+  try {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 8000)
+    try {
+      const res = await fetch(
+        `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(t)}`,
+        { signal: ctrl.signal },
+      )
+      if (!res.ok) return null
+      const json = (await res.json().catch(() => null)) as { scope?: unknown } | null
+      const raw = typeof json?.scope === 'string' ? json.scope : ''
+      if (!raw.trim()) return []
+      return raw.split(/\s+/).filter(Boolean)
+    } finally {
+      clearTimeout(timer)
+    }
+  } catch {
+    return null
+  }
+}
+
+function googleErrorSnippet(json: Record<string, unknown>): string {
+  try {
+    const err = (json as { error?: { message?: unknown; status?: unknown; errors?: unknown } }).error
+    const msg = typeof err?.message === 'string' ? err.message : ''
+    const status = typeof err?.status === 'string' ? err.status : ''
+    let reason = ''
+    const errs = (err as { errors?: unknown } | undefined)?.errors
+    if (Array.isArray(errs)) {
+      const first = errs[0] as { reason?: unknown } | undefined
+      if (typeof first?.reason === 'string') reason = first.reason
+    }
+    const combined = [status || reason, msg].filter(Boolean).join(': ').trim()
+    if (combined) return combined.slice(0, 260)
+  } catch {
+    // Fall through to the empty snippet.
+  }
+  return ''
+}
+
+function googleErrorReason(json?: Record<string, unknown>): string {
+  try {
+    const err = (json as { error?: { errors?: unknown } } | undefined)?.error
+    const errs = err?.errors
+    if (Array.isArray(errs)) {
+      const first = errs[0] as { reason?: unknown } | undefined
+      if (typeof first?.reason === 'string') return first.reason
+    }
+  } catch {
+    // No reason present.
+  }
+  return ''
+}
+
+// NOTE: Supabase's Google provider screen has NO extra-scope field (just
+// Client IDs + secret + callback URL) — the app already requests
+// `drive.file` at runtime via signInWithOAuth `scopes`, so there is nothing
+// to paste in Supabase. A fresh-login 403 therefore means the Google Cloud
+// side of that same client ID is incomplete, not the Supabase form.
+const GOOGLE_SCOPE_FIX =
+  `fix (Google Cloud console, same project as your Supabase Client ID): ` +
+  `1) APIs & Services → Library → enable "Google Drive API". ` +
+  `2) OAuth consent screen → Scopes → add '${GOOGLE_DRIVE_FILE_SCOPE}'` +
+  ` (if Testing mode, also add your account under Test users). ` +
+  `3) Revoke the stale grant at https://myaccount.google.com/permissions, then sign out + sign in again with consent ` +
+  `(or reconnect OAuth on the card). No Supabase scope field exists — the app sends the scope on every login`
+
+const GOOGLE_API_DISABLED_FIX =
+  `fix: the Drive API is disabled in the Google Cloud project behind your Supabase Client ID — ` +
+  `Google Cloud console → APIs & Services → Library → enable "Google Drive API", wait a few minutes, then retry. ` +
+  `If the consent screen is in Testing mode, add your account under Test users too`
+
+/**
+ * Actionable `auth:` error for every Google 401/403. A bare "reconnect
+ * OAuth" loops forever when the Cloud project behind the Supabase Client ID
+ * has the Drive API disabled or the `drive.file` scope unlisted: the
+ * Supabase sign-in looks OK while Drive keeps 403ing (Supabase's Google
+ * screen has no scope field — the app sends the scope at runtime). This
+ * reports Google's own error text/reason plus the granted scopes (via
+ * tokeninfo) so the real fix — enable Drive API + list the scope in the
+ * Cloud console, then a fresh consent — is visible.
+ */
+export async function googleDriveAuthError(
+  token: string,
+  status: number,
+  json?: Record<string, unknown>,
+): Promise<string> {
+  const detail = json ? googleErrorSnippet(json) : ''
+  const reason = json ? googleErrorReason(json) : ''
+  const suffix = detail ? ` — Google says: ${detail}` : ''
+  // Drive API never enabled in this GCP project: re-login can never help.
+  if (
+    reason === 'accessNotConfigured' ||
+    /access not configured|has not been used|is disabled/i.test(detail)
+  ) {
+    return `auth: Google rejected the token (HTTP ${status})${suffix}. ${GOOGLE_API_DISABLED_FIX}`
+  }
+  const scopes = await googleTokenScopes(token)
+  if (scopes && !scopes.includes(GOOGLE_DRIVE_FILE_SCOPE)) {
+    const have = scopes.length ? scopes.join(' ') : '(no scopes reported)'
+    return (
+      `auth: Google rejected the token (HTTP ${status})${suffix} — the grant lacks '${GOOGLE_DRIVE_FILE_SCOPE}' ` +
+      `(granted: ${have}). ${GOOGLE_SCOPE_FIX}`
+    )
+  }
+  if (status === 401) {
+    return (
+      `auth: Google rejected the token (HTTP 401)${suffix} — expired or revoked. ` +
+      `Sign out + sign in again (or reconnect OAuth on the card), then retry`
+    )
+  }
+  return (
+    `auth: Google rejected the token (HTTP ${status})${suffix} — even a fresh login 403s when the Cloud project ` +
+    `has no Drive API / scope grant. ${GOOGLE_SCOPE_FIX}`
+  )
+}
+
+/** Sync (non-tokeninfo) variant for paths that already hold the error JSON. */
+export function googleDriveAuthErrorSync(status: number, json?: Record<string, unknown>): string {
+  const detail = json ? googleErrorSnippet(json) : ''
+  const reason = json ? googleErrorReason(json) : ''
+  const suffix = detail ? ` — Google says: ${detail}` : ''
+  if (
+    reason === 'accessNotConfigured' ||
+    /access not configured|has not been used|is disabled/i.test(detail)
+  ) {
+    return `auth: Google rejected the token (HTTP ${status})${suffix}. ${GOOGLE_API_DISABLED_FIX}`
+  }
+  if (status === 401) {
+    return (
+      `auth: Google rejected the token (HTTP 401)${suffix} — expired or revoked. ` +
+      `Sign out + sign in again (or reconnect OAuth on the card), then retry`
+    )
+  }
+  return (
+    `auth: Google rejected the token (HTTP ${status})${suffix} — even a fresh login 403s when the Cloud project ` +
+    `has no Drive API / scope grant. ${GOOGLE_SCOPE_FIX}`
+  )
 }
 
 function decodeBase64Bytes(b64: string): Uint8Array {
@@ -466,7 +617,7 @@ async function driveFindChild(token: string, parentId: string, name: string): Pr
     token,
     `${DRIVE_FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id)&pageSize=10`,
   )
-  if (status === 401 || status === 403) throw new Error(`auth: Google rejected the token (HTTP ${status}) — reconnect with OAuth`)
+  if (status === 401 || status === 403) throw new Error(await googleDriveAuthError(token, status, json))
   if (status !== 200) throw new Error(`network: Drive lookup failed (HTTP ${status})`)
   const files = Array.isArray(json.files) ? json.files : []
   const first = files[0] as { id?: unknown } | undefined
@@ -488,6 +639,7 @@ async function driveEnsureParents(token: string, rootId: string, parts: string[]
       body: JSON.stringify({ name: seg, mimeType: DRIVE_FOLDER_MIME, parents: [parent] }),
     })
     const id = json.id
+    if (status === 401 || status === 403) throw new Error(await googleDriveAuthError(token, status, json))
     if (status !== 200 || typeof id !== 'string' || !id) {
       throw new Error(`network: Drive folder create for '${seg}' failed (HTTP ${status})`)
     }
@@ -533,6 +685,10 @@ export async function driveWriteDirect(input: {
       }).catch(() => {
         throw new Error('network: www.googleapis.com is not reachable from this browser')
       })
+      if (res.status === 401 || res.status === 403) {
+        const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+        throw new Error(await googleDriveAuthError(token, res.status, json))
+      }
       if (!res.ok) throw new Error(`network: Drive overwrite of '${rel}' failed (HTTP ${res.status})`)
       return existing
     }
@@ -555,6 +711,10 @@ export async function driveWriteDirect(input: {
     }).catch(() => {
       throw new Error('network: www.googleapis.com is not reachable from this browser')
     })
+    if (res.status === 401 || res.status === 403) {
+      const errJson = (await res.json().catch(() => ({}))) as Record<string, unknown>
+      throw new Error(await googleDriveAuthError(token, res.status, errJson))
+    }
     if (!res.ok) throw new Error(`network: Drive upload of '${rel}' failed (HTTP ${res.status})`)
     const json = (await res.json().catch(() => ({}))) as { id?: unknown }
     if (typeof json.id !== 'string' || !json.id) throw new Error('network: Drive upload returned no file id')
@@ -596,7 +756,8 @@ export async function driveDeleteDirect(input: {
     if (!found) return
     id = found
   }
-  const { status } = await driveJson(token, `${DRIVE_FILES_URL}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const { status, json } = await driveJson(token, `${DRIVE_FILES_URL}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  if (status === 401 || status === 403) throw new Error(await googleDriveAuthError(token, status, json))
   if (status !== 204 && status !== 200 && status !== 404) {
     throw new Error(`network: Drive delete failed (HTTP ${status})`)
   }
@@ -700,7 +861,7 @@ export async function listDriveFolders(token: string, parentId?: string): Promis
     t,
     `${DRIVE_FILES_URL}?q=${encodeURIComponent(q)}&fields=files(id,name)&orderBy=name&pageSize=100`,
   )
-  if (status === 401 || status === 403) throw new Error('auth: Google rejected the token — reconnect with OAuth')
+  if (status === 401 || status === 403) throw new Error(await googleDriveAuthError(t, status, json))
   if (status !== 200) throw new Error(`network: Drive folder list failed (HTTP ${status})`)
   const files = Array.isArray(json.files) ? json.files : []
   return (files as Array<{ id?: unknown; name?: unknown }>)
@@ -721,6 +882,7 @@ export async function createDriveFolder(token: string, name: string, parentId?: 
     body: JSON.stringify({ name: clean, mimeType: DRIVE_FOLDER_MIME, parents: [parent] }),
   })
   const id = json.id
+  if (status === 401 || status === 403) throw new Error(await googleDriveAuthError(t, status, json))
   if (status !== 200 || typeof id !== 'string' || !id) {
     throw new Error(`network: Drive folder create failed (HTTP ${status})`)
   }

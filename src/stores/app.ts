@@ -17,12 +17,17 @@ import type {
   AuthResult, ModuleInfo, TrashItem, AuditEntry, FileVersion, User,
   DashboardStatus,
   ShellResult, OsPs, OsTop, OsWorkers, OsJob, OsVolumeDf, DiskRow,
+  ScheduleRow, ScheduleRun,
+  SecretMeta, SecretInput,
   SyncBackendType,
 } from '@/types'
 import { MODULE_METADATA, oauthSlugForBackend, describeSyncError, agentErrorHint } from '@/types'
 import { isSyncSuccess, isSyncTerminal, firstSyncError, refreshAfterSync as fanOutSyncRefresh, syncSummaryLine } from '@/utils/syncRefresh'
 import { parseStarIds, serializeStarIds } from '@/utils/stars'
+import { parseSchedule, scheduleNextAfter } from '@/utils/schedule'
 import { setAuthToken, getAuthToken, isWebMode, isStaticHost } from '@/composables/useTauri'
+import { createUiRequestDedupe } from '@/utils/uiRequests'
+import { useWindowManager } from '@/composables/useWindowManager'
 
 export const useAppStore = defineStore('cybermanju', () => {
   // ── Navigation State ──────────────────────────────────────
@@ -97,6 +102,14 @@ export const useAppStore = defineStore('cybermanju', () => {
   const disks = ref<DiskRow[]>([])
   /** True while a `cybsh` line is in flight — the status bar shows it. */
   const shellBusy = ref(false)
+
+  // ── Scheduler (cron): recurring `.cybsh` triggers ─────────
+  const schedules = ref<ScheduleRow[]>([])
+
+  // ── Secrets keystore (Phase 3): sealed password-manager rows ──
+  // Metadata only — `valueSealed` never reaches this store; reveal is a
+  // one-shot call whose plaintext the panel copies and forgets.
+  const secrets = ref<SecretMeta[]>([])
 
   // ── Code Intelligence State ───────────────────────────────
   const parseResult = ref<ParseResult | null>(null)
@@ -460,8 +473,11 @@ export const useAppStore = defineStore('cybermanju', () => {
         fetchEncryptionStatus(),
         listKeys(),
         fetchSyncConfigs(),
+        fetchSchedules(),
+        fetchSecrets(),
       ])
       startAutoRefresh()
+      startScheduleTick()
     } finally {
       isLoading.value = false
     }
@@ -510,6 +526,22 @@ export const useAppStore = defineStore('cybermanju', () => {
     clearError()
     try {
       const path = parentPath || currentPath.value
+      // Device files (`/host…`) live on the host filesystem, not in the
+      // vault: list them through cybsh `-os` verbs over the os_exec bridge
+      // (Tauri IPC/REST on desktop, IPC on Android). Static web builds have
+      // no host — refuse honestly instead of showing an empty folder.
+      if (String(path || '') === '/host' || String(path || '').replace(/\\/g, '/').startsWith('/host/')) {
+        const { isTauri } = await import('@/composables/useTauri')
+        if (!isTauri()) {
+          files.value = []
+          notifyError('Device files need the app', 'open this vault in the desktop app or the native Android build to browse the device')
+          return
+        }
+        const { listHostDir } = await import('@/utils/hostBrowse')
+        files.value = await listHostDir(String(path))
+        applyStars()
+        return
+      }
       // CONTROL 5.7 — read-only provider browse: `/providers/<id>/…` never
       // touches `list_files`; mounts are lower layers served by the canal.
       if (String(path || '').replace(/\\/g, '/').startsWith('/providers')) {
@@ -1984,6 +2016,186 @@ export const useAppStore = defineStore('cybermanju', () => {
     return result
   }
 
+  // ── Actions: Scheduler (cron) ─────────────────────────────
+  let cronArmed = false
+  let scheduleTickTimer: ReturnType<typeof setInterval> | null = null
+  let scheduleVisibilityHooked = false
+
+  async function fetchSchedules() {
+    try {
+      schedules.value = await invoke<ScheduleRow[]>('cron_list')
+      if (!cronArmed) {
+        cronArmed = true
+        // Boots the daemon thread over IPC/REST. On Pages this is a no-op —
+        // the browser tick below *is* the daemon there.
+        await invoke('cron_ensure_started').catch(() => true)
+      }
+    } catch (e) {
+      notifyError('Failed to fetch schedules', e)
+    }
+  }
+
+  /** Stamp `nextFireAt` with the TS twin so every transport stores the same
+   * row shape (the server recomputes its own on write anyway; the browser
+   * has no server, so this is the only computation Pages ever gets). */
+  function scheduleRowWithFire(row: Partial<ScheduleRow>): ScheduleRow {
+    const expr = String(row.expr ?? '').trim()
+    const spec = parseSchedule(expr) // throws `invalid: …` (AGENT-1 family)
+    const next = scheduleNextAfter(spec, new Date())
+    return {
+      id: row.id ?? '',
+      path: String(row.path ?? ''),
+      expr,
+      enabled: row.enabled ?? true,
+      description: row.description ?? null,
+      createdAt: row.createdAt ?? new Date().toISOString(),
+      lastFiredAt: row.lastFiredAt ?? null,
+      nextFireAt: next ? next.toISOString() : null,
+      lastRunId: row.lastRunId ?? null,
+      runOnBoot: row.runOnBoot ?? false,
+    }
+  }
+
+  async function cronSave(row: Partial<ScheduleRow>): Promise<ScheduleRow | null> {
+    try {
+      const saved = await invoke<ScheduleRow>('cron_save', { row: scheduleRowWithFire(row) })
+      await fetchSchedules()
+      return saved
+    } catch (e) {
+      notifyError('Failed to save schedule', e)
+      return null
+    }
+  }
+
+  async function cronDelete(id: string) {
+    try {
+      await invoke('cron_delete', { id })
+      await fetchSchedules()
+    } catch (e) {
+      notifyError('Failed to delete schedule', e)
+    }
+  }
+
+  /** Run one schedule now. Returns the recorded run (or `null` on error). */
+  async function cronRun(id: string): Promise<ScheduleRun | null> {
+    try {
+      const run = await invoke<ScheduleRun>('cron_run', { id })
+      await fetchSchedules()
+      return run
+    } catch (e) {
+      notifyError('Failed to run schedule', e)
+      return null
+    }
+  }
+
+  async function cronSetEnabled(id: string, enabled: boolean) {
+    try {
+      await invoke('cron_set_enabled', { id, enabled })
+      await fetchSchedules()
+    } catch (e) {
+      notifyError('Failed to update schedule', e)
+    }
+  }
+
+  async function cronHistory(id: string): Promise<ScheduleRun[]> {
+    try {
+      return await invoke<ScheduleRun[]>('cron_history', { id })
+    } catch (e) {
+      notifyError('Failed to fetch schedule history', e)
+      return []
+    }
+  }
+
+  /**
+   * Pages has no daemon thread — this *is* the daemon: fire every due row
+   * through `cron_run`, which lands on the same execution path as
+   * `cron run <id>`. Gated to static hosts (desktop/server own the real
+   * thread) and to visible tabs so a backgrounded tab never runs scripts.
+   */
+  async function tickSchedules() {
+    if (!isStaticHost()) return
+    if (typeof document !== 'undefined' && document.hidden) return
+    await fetchSchedules()
+    const due = schedules.value.filter(s => {
+      if (!s.enabled) return false
+      if (!s.lastFiredAt && s.runOnBoot) return true
+      if (!s.nextFireAt) return false
+      return new Date(s.nextFireAt).getTime() <= Date.now()
+    })
+    for (const row of due) await cronRun(row.id)
+  }
+
+  /** Arm the browser-side scheduler (static hosts only, 30 s tick + focus). */
+  function startScheduleTick() {
+    if (!isStaticHost()) return
+    if (scheduleTickTimer) clearInterval(scheduleTickTimer)
+    scheduleTickTimer = setInterval(() => {
+      void tickSchedules()
+    }, 30_000)
+    if (!scheduleVisibilityHooked && typeof document !== 'undefined') {
+      scheduleVisibilityHooked = true
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) void tickSchedules()
+      })
+    }
+  }
+
+  // ── Actions: Secrets keystore (Phase 3) ───────────────────
+  async function fetchSecrets() {
+    try {
+      secrets.value = await invoke<SecretMeta[]>('secret_list')
+    } catch (e) {
+      notifyError('Failed to fetch vault secrets', e)
+    }
+  }
+
+  /** Create or update a secret. `value` is the plaintext — sealed on
+   *  write and never echoed back (the store only sees metadata). */
+  async function createSecret(input: SecretInput): Promise<SecretMeta | null> {
+    try {
+      const saved = await invoke<SecretMeta>('secret_save', { request: input })
+      await fetchSecrets()
+      return saved
+    } catch (e) {
+      notifyError('Failed to save secret', e)
+      return null
+    }
+  }
+
+  async function updateSecret(id: string, patch: Partial<SecretInput>): Promise<SecretMeta | null> {
+    try {
+      const saved = await invoke<SecretMeta>('secret_update', { id, request: patch })
+      await fetchSecrets()
+      return saved
+    } catch (e) {
+      notifyError('Failed to update secret', e)
+      return null
+    }
+  }
+
+  async function deleteSecret(id: string) {
+    try {
+      await invoke('secret_delete', { id })
+      await fetchSecrets()
+    } catch (e) {
+      notifyError('Failed to delete secret', e)
+    }
+  }
+
+  /** Reveal the plaintext once — the caller copies it and forgets it.
+   *  The server audits the reveal; this never logs the value. */
+  async function revealSecret(id: string): Promise<string | null> {
+    try {
+      const raw = await invoke<string | { value?: string }>('secret_reveal', { id })
+      // REST answers `{ value }`; Tauri answers the bare string.
+      if (typeof raw === 'string') return raw
+      return typeof raw?.value === 'string' ? raw.value : null
+    } catch (e) {
+      notifyError('Failed to reveal secret', e)
+      return null
+    }
+  }
+
   // ── Actions: AI agent ─────────────────────────────────────
   const agentProviders = ref<ProviderPreset[]>([])
   const agentConfigs = ref<AgentConfig[]>([])
@@ -2103,6 +2315,7 @@ export const useAppStore = defineStore('cybermanju', () => {
       if (i >= 0) agentJobs.value[i] = job
       else agentJobs.value.unshift(job)
       announceAgentJob(jobId, job)
+      applyAgentUiRequest(job)
       return job.status === 'done' || job.status === 'error' || job.status === 'cancelled'
     }
     try {
@@ -2159,12 +2372,31 @@ export const useAppStore = defineStore('cybermanju', () => {
       if (i >= 0) agentJobs.value[i] = job
       else agentJobs.value.unshift(job)
       announceAgentJob(jobId, job)
+      applyAgentUiRequest(job)
       if (job.status === 'running' || job.status === 'waiting_approval') {
         setTimeout(() => pollAgentJob(jobId), 1500)
       }
     } catch (e) {
       notifyError('Failed to poll agent job', e)
     }
+  }
+
+  /**
+   * Apply a one-shot `ui_request` (from `ui_open_panel`/`ui_notify`) exactly
+   * once per `uiSeq`. Deduped across the SSE subscribe and the 1.5 s poll
+   * fallback — a replayed snapshot never re-opens a panel or re-fires a toast.
+   */
+  const agentUiDedupe = createUiRequestDedupe()
+  function applyAgentUiRequest(job: AgentJob) {
+    if (!job.uiRequest) return
+    agentUiDedupe.apply(job.uiRequest, {
+      open: (panel, props) => {
+        useWindowManager().open(panel, props)
+      },
+      notify: (level, msg) => {
+        notify(level, msg)
+      },
+    })
   }
 
   /**
@@ -2393,6 +2625,8 @@ export const useAppStore = defineStore('cybermanju', () => {
     compressionStats, parseResult, syncConfigs, syncProgress,
     syncJobs, syncRuns, syncStatus, repairStatus, scrubRuns, leaseInfo, lastGc,
     osPs, osTop, osWorkers, osJobs, osDf, disks, shellBusy,
+    schedules,
+    secrets,
     trashItems, showTrashPanel, auditLog, fileVersions, dashboardStatus, shareLinks,
     searchQuery, searchTotalResults, isSearching, isLoading, lastError, wasmGapCount, matrixRainEnabled,
     commandPaletteOpen, lastSyncAt, lastSyncSummary,
@@ -2422,6 +2656,10 @@ export const useAppStore = defineStore('cybermanju', () => {
     execShellLine, completeShellLine,
     fetchOsPs, fetchOsTop, fetchOsWorkers, fetchOsJobs, fetchOsDf,
     killOsTask, runComputeJob,
+    // Scheduler (cron)
+    fetchSchedules, cronSave, cronDelete, cronRun, cronSetEnabled, cronHistory,
+    fetchSecrets, createSecret, updateSecret, deleteSecret, revealSecret,
+    tickSchedules, startScheduleTick,
     agentProviders, agentConfigs, agentSessions, agentJobs, activeAgentJob,
     fetchAgentProviders, fetchAgentConfigs, saveAgentConfig, deleteAgentConfig,
     saveAgentKey, refreshAgentModels, fetchAgentSessions, loadAgentSession, deleteAgentSession,

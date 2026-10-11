@@ -1000,7 +1000,7 @@ const capVisible = computed(() => !!chatConfig.value || !!viewing.value)
 
 // One tool list for both transports (native parity: the same 11 tools;
 // wasm-only limits surface per-tool via `unsupported`, not a second list).
-const AGENT_TOOLS = ['read', 'write', 'edit', 'list', 'grep', 'glob', 'bash', 'task', 'question', 'memory_recall', 'memory_remember']
+const AGENT_TOOLS = ['read', 'write', 'edit', 'list', 'grep', 'glob', 'bash', 'task', 'question', 'memory_recall', 'memory_remember', 'self_research', 'skill_save', 'mcp_attach', 'repo_analyze', 'os_exec', 'ui_open_panel', 'ui_notify', 'secret_list', 'secret_get']
 
 /** Per-tool default action, evaluated through the same `decide` as the loop. */
 const toolPerms = computed(() => {
@@ -1487,10 +1487,21 @@ function localSystemPrompt(config: AgentConfig): string {
     `- write {path, content}: full-file create/overwrite; prefer edit for small changes.\n` +
     `- bash {command}: cybsh volume commands (ls/cat/cp/mv/rm/mkdir/ls/search/compute); device verbs answer unsupported:.\n` +
     `- task {goal, context?}: one bounded subagent with the full file/shell toolset (read/edit/write/bash, 5 turns).\n` +
+    `- question {question}: ask the human when genuinely blocked — sparingly.\n` +
     `- self_research {query, path?, limit?}: introspect YOUR OWN source — sweep this repo for how something works, get file:line snippets back. Read-only, plan-safe. Call it before claiming how the agent works.\n` +
     `- skill_save {name, description, content}: persist a reusable skill into the \`.cybermanju\` container (.cybermanju/skills/<name>/SKILL.md) — survives restarts, syncs across devices.\n` +
     `- mcp_attach {name, url}: attach an HTTP MCP server to this assistant persistently (verified before saving; stdio refused here).\n` +
     `- repo_analyze {repo, branch?}: analyze any public GitHub repo WITHOUT cloning (metadata + tree + README over HTTPS; no git needed, works everywhere).\n` +
+    `- os_exec {command}: run ONE cybsh line against the OS volume — same verbs as bash's cybsh subset, ` +
+    `never a device shell (non-cybsh verbs answer unsupported:). One line per call; no pipes or chains.\n` +
+    `- ui_open_panel {panel, tab?, path?}: open a UI panel for the user (files, terminal, agent, settings, …). ` +
+    `Unknown ids answer not_found:; optional tab/path navigate inside the panel. Read-only and always allowed.\n` +
+    `- ui_notify {level, message}: show the user a notification (info/success/warning/error). Always allowed; use sparingly.\n` +
+    `- secret_list {}: list vault secret METADATA only (id/title/kind/username/url/tags/hasValue) — ` +
+    `never values. Pair with secret_get only when the user explicitly asked you to use a stored credential.\n` +
+    `- secret_get {id}: reveal ONE stored secret's plaintext. The result carries the plaintext to you — ` +
+    `default permission is ASK (the approval card shows the title, never the value). Only call it when ` +
+    `the user explicitly asked you to use this credential.\n` +
     `- mcp__server__tool: attached HTTP MCP servers only; stdio servers answer unsupported:.\n` +
     `- memory_recall {query, top_k?}: search long-term memory (past sessions, stored facts). ` +
     `Bounded and possibly stale — verify before acting.\n` +

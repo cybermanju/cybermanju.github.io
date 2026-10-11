@@ -51,7 +51,7 @@
 
     <main ref="bodyEl" class="st-body" @scroll.passive="onBodyScroll">
       <!-- ── appearance ── -->
-      <UiCard id="st-sec-appearance" title="Appearance" icon="solar:monitor-bold" meta="View">
+      <UiCard v-show="sectionVisible('appearance')" id="st-sec-appearance" title="Appearance" icon="solar:monitor-bold" meta="View">
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Appearance</UiText>
           <UiSegmented
@@ -230,7 +230,7 @@
       </UiCard>
 
       <!-- ── remote dashboard ── -->
-      <UiCard id="st-sec-remote" title="Remote dashboard" icon="solar:server-bold" meta="Connection">
+      <UiCard v-show="sectionVisible('remote')" id="st-sec-remote" title="Remote dashboard" icon="solar:server-bold" meta="Connection">
         <div class="st-field-row">
           <UiInput
             v-model="serverUrlDraft"
@@ -252,6 +252,7 @@
 
       <!-- ── supabase broker ── -->
       <UiCard
+        v-show="sectionVisible('broker')"
         id="oauth-broker-card"
         :class="{ 'is-target': focusFlash }"
         title="OAuth broker"
@@ -296,8 +297,11 @@
           <p v-if="brokerMsg" class="st-feedback" :class="`is-${brokerMsg.tone}`" role="status">{{ brokerMsg.text }}</p>
           <UiText as="p" variant="small" tone="muted">
             Static-build OAuth broker: GitHub / Google / GitLab login without your own server.
-            Enable the providers in Supabase → Authentication → Sign-in, and add this page's URL to redirect URLs.
-            <span v-if="supabaseConfiguredNow">Source: {{ supabaseSource }}.</span>
+            Enable the providers in Supabase → Authentication → Sign-in, and add this page's URL
+            — plus <code>cybermanju://oauth/callback</code> for the desktop/mobile apps — to redirect URLs.
+            <span v-if="supabaseConfiguredNow">Source: {{ supabaseSourceLabel }}.</span>
+            The paste lives on this device only — repeat it on each device.
+            Provider tokens you mint then reach your other devices through your encrypted sync.
             See the <a class="st-legal" :href="legalPageUrl('privacy.html')" target="_blank" rel="noopener">Privacy policy</a>
             and <a class="st-legal" :href="legalPageUrl('terms.html')" target="_blank" rel="noopener">Terms of service</a>
             for how provider data is handled.
@@ -310,7 +314,7 @@
       </UiCard>
 
       <!-- ── auto-refresh + data ── -->
-      <UiCard id="st-sec-sync" title="Sync behaviour" icon="solar:refresh-bold" meta="Refresh">
+      <UiCard v-show="sectionVisible('sync')" id="st-sec-sync" title="Sync behaviour" icon="solar:refresh-bold" meta="Refresh">
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Auto-refresh</UiText>
           <UiSelect
@@ -380,7 +384,7 @@
       </UiCard>
 
       <!-- ── gestures ── -->
-      <UiCard v-if="touchConfig" id="st-sec-gestures" title="Gestures" icon="solar:cursor-square-bold" :meta="touchMeta">
+      <UiCard v-if="touchConfig" v-show="sectionVisible('gestures')" id="st-sec-gestures" title="Gestures" icon="solar:cursor-square-bold" :meta="touchMeta">
         <UiText as="p" variant="small" tone="muted">
           Device: {{ touchConfig.state.touchSupported ? 'touch enabled' : 'no touch' }} ·
           {{ touchConfig.state.isMobile ? 'mobile' : 'desktop' }}
@@ -440,7 +444,7 @@
       </UiCard>
 
       <!-- ── keyboard ── -->
-      <UiCard v-if="shortcuts" id="st-sec-keys" title="Keyboard bindings" icon="solar:keyboard-bold" :meta="keyMeta">
+      <UiCard v-if="shortcuts" v-show="sectionVisible('keys')" id="st-sec-keys" title="Keyboard bindings" icon="solar:keyboard-bold" :meta="keyMeta">
         <UiText as="p" variant="small" tone="muted">
           {{ isBrowserKeys ? 'Browser tab: Ctrl+T / Ctrl+W / Ctrl+Tab never reach the page — Alt+ fallbacks are listed.' : 'Tauri desktop: every binding fires, including Ctrl+T / Ctrl+W.' }}
           Window layout lives under WINDOWS / WORKSPACE · LAYOUT.
@@ -480,7 +484,7 @@
       </UiCard>
 
       <!-- ── about ── -->
-      <UiCard id="st-sec-about" title="About" icon="solar:info-circle-bold" meta="0.1.0">
+      <UiCard v-show="sectionVisible('about')" id="st-sec-about" title="About" icon="solar:info-circle-bold" meta="0.1.0">
         <dl class="st-info">
           <div class="st-info-row"><dt>Version</dt><dd>0.1.0</dd></div>
           <div class="st-info-row"><dt>Framework</dt><dd>Vue 3 + Pinia</dd></div>
@@ -490,6 +494,11 @@
           <div class="st-info-row"><dt>Database</dt><dd>redb</dd></div>
         </dl>
       </UiCard>
+      <!-- iOS "No Results": the filter hid every group. -->
+      <p v-if="filteredSections.length === 0" class="st-empty" role="status">
+        No results for “{{ sectionQuery }}”.
+        <button class="st-link" type="button" @click="sectionQuery = ''">Clear search</button>
+      </p>
     </main>
   </div>
 </template>
@@ -680,8 +689,15 @@ function clearServerUrl() {
 const supabaseUrlDraft = ref(getSupabaseConfig().url)
 const supabaseKeyDraft = ref('')
 const supabaseConfiguredNow = computed(() => supabaseConfigured())
-/** Where the broker credentials came from — shown so Pages deploys can tell baked-in env apart from a manual paste. */
+/** Where the broker credentials came from — a Settings paste or the baked build pair. */
 const supabaseSource = computed(() => getSupabaseConfig().source)
+const supabaseSourceLabel = computed(() =>
+  supabaseSource.value === 'settings'
+    ? 'saved in Settings on this device'
+    : supabaseSource.value === 'build-env'
+      ? 'baked into this build'
+      : 'none',
+)
 /** Inline result of the last Save / Forget (clears as soon as a field is edited). */
 const brokerMsg = ref<{ text: string; tone: 'ok' | 'err' } | null>(null)
 
@@ -690,24 +706,12 @@ function saveSupabase() {
   // Keep the already-stored/baked key when rotating only the URL — the
   // password field stays empty by design (we never echo the secret back).
   const key = supabaseKeyDraft.value.trim() || getSupabaseConfig().key
-  if (!url && !key) {
-    brokerMsg.value = { text: 'Paste the project URL and the anon / publishable key first.', tone: 'err' }
+  const err = setSupabaseConfig(url, key)
+  if (err) {
+    brokerMsg.value = { text: err, tone: 'err' }
     return
   }
-  if (!url) {
-    brokerMsg.value = { text: 'Missing project URL — copy it from Supabase → Project Settings → API.', tone: 'err' }
-    return
-  }
-  if (!url.startsWith('http')) {
-    brokerMsg.value = { text: 'Project URL must be a full https://… address.', tone: 'err' }
-    return
-  }
-  if (!key) {
-    brokerMsg.value = { text: 'Missing key — paste the anon / publishable (sb_publishable_… or eyJ…) key.', tone: 'err' }
-    return
-  }
-  setSupabaseConfig(url, key)
-  supabaseUrlDraft.value = url
+  supabaseUrlDraft.value = getSupabaseConfig().url
   supabaseKeyDraft.value = ''
   brokerMsg.value = { text: 'Broker saved — this window, the Accounts panel and OAuth sign-in pick it up right away.', tone: 'ok' }
   store.notifySuccess('OAuth broker configured')
@@ -716,9 +720,11 @@ function saveSupabase() {
 async function clearSupabase() {
   await supabaseSignOut().catch(() => {})
   clearSupabaseConfig()
-  supabaseUrlDraft.value = ''
+  supabaseUrlDraft.value = getSupabaseConfig().url
   supabaseKeyDraft.value = ''
-  brokerMsg.value = { text: 'Broker forgotten — OAuth sign-in stays off until you save credentials again.', tone: 'ok' }
+  brokerMsg.value = getSupabaseConfig().url || getSupabaseConfig().key
+    ? { text: 'Settings paste forgotten — fell back to the pair baked into this build.', tone: 'ok' }
+    : { text: 'Broker forgotten — OAuth sign-in stays off until you save credentials again.', tone: 'ok' }
 }
 
 // ── section jump bar + scroll spy ──────────────────────────────
@@ -740,13 +746,32 @@ const SECTIONS: Section[] = [
 
 const bodyEl = ref<HTMLElement | null>(null)
 const activeSection = ref<string>('appearance')
-/** System-Settings style category filter for the jump bar. */
+/** iOS-Settings style search: matches section names AND their row content,
+  so "theme" finds Appearance and "oauth" finds the broker card. */
+const SECTION_KEYWORDS: Record<string, string[]> = {
+  appearance: ['theme', 'wallpaper', 'accent', 'density', 'chrome', 'translucent', 'motion', 'matrix', 'sidebar', 'view', 'shell', 'plasma', 'panel'],
+  remote: ['server', 'url', 'dashboard', 'endpoint', 'connection', 'static'],
+  broker: ['oauth', 'supabase', 'github', 'google', 'gitlab', 'login', 'sign-in', 'key', 'privacy', 'terms'],
+  sync: ['refresh', 'auto', 'mirror', 'vault', 'passphrase', 'interval', 'fetch'],
+  gestures: ['touch', 'swipe', 'tap', 'press', 'edge', 'mobile'],
+  keys: ['keyboard', 'shortcut', 'binding', 'rebind', 'hotkey', 'kpl'],
+  about: ['version', 'framework', 'tauri', 'tantivy', 'encryption', 'redb', 'vue'],
+}
 const sectionQuery = ref('')
 const filteredSections = computed(() => {
   const q = sectionQuery.value.trim().toLowerCase()
   if (!q) return SECTIONS
-  return SECTIONS.filter((s) => s.label.toLowerCase().includes(q))
+  return SECTIONS.filter((s) =>
+    s.label.toLowerCase().includes(q) ||
+    (SECTION_KEYWORDS[s.id] ?? []).some((k) => k.includes(q) || q.includes(k)),
+  )
 })
+/** Card-level filter twin of the chip filter: searching hides whole groups,
+  like iOS Settings search, instead of only filtering the jump chips. */
+function sectionVisible(id: string): boolean {
+  if (!sectionQuery.value.trim()) return true
+  return filteredSections.value.some((s) => s.id === id)
+}
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -767,7 +792,10 @@ function onBodyScroll() {
   let current = SECTIONS[0].id
   for (const s of SECTIONS) {
     const el = document.getElementById(s.el)
-    if (el && el.getBoundingClientRect().top - base <= 56) current = s.id
+    // v-show-hidden cards (search filter) report zero rects — skip them so
+    // the spy never parks on an invisible section.
+    if (!el || el.offsetParent === null) continue
+    if (el.getBoundingClientRect().top - base <= 56) current = s.id
   }
   activeSection.value = current
 }
@@ -792,6 +820,12 @@ function focusSection(e: Event) {
 }
 
 onMounted(() => window.addEventListener('cybermanju:settings-focus', focusSection))
+onMounted(async () => {
+  await customWallpaper.load()
+  if (!wallpaperUrlDraft.value && customWallpaper.url.value) {
+    wallpaperUrlDraft.value = customWallpaper.url.value
+  }
+})
 onBeforeUnmount(() => {
   window.removeEventListener('cybermanju:settings-focus', focusSection)
   if (flashTimer) clearTimeout(flashTimer)
@@ -1282,6 +1316,7 @@ async function handleRefresh() {
 .st-table--gestures .st-table-row > :nth-child(2) { flex: 1 1 130px; min-width: 110px; }
 .st-table--keys .st-table-row > :first-child { flex: 1 1 170px; }
 .st-empty { margin: 0; padding: 14px 10px; font-size: 12px; text-align: center; color: var(--ui-text-3); }
+.st-link { padding: 6px 4px; border: 0; background: none; color: var(--ui-accent); font: inherit; font-weight: 650; cursor: pointer; }
 .st-key-fb {
   font-family: var(--ui-font-mono);
   font-size: 9px;
@@ -1319,15 +1354,90 @@ async function handleRefresh() {
 .st-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
 @media (max-width: 560px) {
-  .st-top { padding: 6px 8px; }
-  .st-strip { margin: 8px 8px 0; }
-  .st-jumps { padding: 8px 8px 0; }
-  .st-body { padding: 8px 8px 20px; }
+  /* iOS Settings voice: SF stack, large title, grouped-list rhythm. */
+  .st { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--ui-font), sans-serif; }
+  .st-top { padding: 10px 12px 8px; }
   .st-brand-mark { width: 28px; height: 28px; }
-  .st-row { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 8px; padding: 10px 0; }
-  .st-row > * { min-width: 0; max-width: 100%; }
+  /* Large-title homage (sheet scale: 26px under the 52px top bar). */
+  .st-title { font-size: 26px; line-height: 1.15; font-weight: 800; letter-spacing: -0.025em; }
+  .st-subtitle { font-size: 12px; }
+
+  /* Grouped background (iOS light-grey / pure-black split, theme-aware):
+     the scroll area tints toward the text colour while groups stay surface. */
+  .st-body {
+    padding: 12px 12px 24px;
+    background: color-mix(in srgb, var(--ui-text) 5%, var(--ui-surface));
+  }
+  .st-body > * + * { margin-top: 14px; }
+  .st-strip { margin: 10px 12px 0; border-radius: 14px; }
+  .st-strip-url { margin-left: 0; flex-basis: 100%; }
+
+  /* iOS groups: solid inset-rounded cards. (Phones disable backdrop-blur
+     globally, so glass fills would go muddy — solid surface instead.) */
+  .st-body > :deep(.ui-card) {
+    background: var(--ui-surface);
+    border-radius: 14px;
+  }
+  /* Section icon tiles (iOS 29px squircle homage) + stronger titles. */
+  .st-body > :deep(.ui-card__header) { padding: 10px 14px; }
+  .st-body > :deep(.ui-card__heading) { gap: 10px; }
+  .st-body > :deep(.ui-card__icon) {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: linear-gradient(145deg, color-mix(in srgb, var(--ui-accent) 78%, #fff), var(--ui-accent));
+    color: #fff;
+  }
+  .st-body > :deep(.ui-card__title) { font-size: 15px; font-weight: 700; }
+  .st-body > :deep(.ui-card__body) { padding: 4px 14px 12px; }
+
+  /* Jump chips become a single snap rail (no 3-row wrap). */
+  .st-jumps {
+    padding: 8px 12px 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+  .st-jumps::-webkit-scrollbar { display: none; }
+  .st-jump-search {
+    flex: 0 0 150px;
+    min-height: 40px;
+    border-radius: 10px;
+    font-size: 16px;
+  }
+  .st-jump {
+    min-height: 40px;
+    padding: 8px 13px;
+    border-radius: 11px;
+    font-size: 13px;
+    scroll-snap-align: start;
+  }
+
+  /* Rows stay label-left / control-right at 44px (iOS cells), wrapping
+     wide controls (segmented) onto their own line instead of stacking
+     every row. Separators go solid hairline, like iOS. */
+  .st-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    min-height: 44px;
+    padding: 8px 0;
+  }
+  .st-row > :first-child { flex: 1 1 130px; min-width: 0; }
+  .st-row + .st-row { border-top: 1px solid var(--ui-hairline); }
   .st-field-row > :not(:first-child) { flex: 1 1 auto; }
-  .st-key-input { width: min(132px, 100%); flex-basis: min(132px, 100%); }
+  .st-actions .ui-btn { min-height: 40px; }
+
+  /* Tables lose their nested box inside the group; rows hit 44px. */
+  .st-table { border: 0; border-radius: 0; max-height: 320px; }
+  .st-table-row { min-height: 44px; padding: 8px 0; }
+  .st-key-input { flex: 1 1 150px; width: auto; min-height: 40px; font-size: 13px; }
   .st-info-row { align-items: flex-start; flex-wrap: wrap; }
 }
 

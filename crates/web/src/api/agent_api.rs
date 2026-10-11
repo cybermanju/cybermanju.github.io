@@ -86,6 +86,14 @@ pub struct JobSnapshot {
     /// something but stored no memory — the UI offers a one-tap REMEMBER.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_hint: Option<String>,
+    /// One-shot UI request from `ui_open_panel` / `ui_notify`
+    /// (consumed-once on the frontend, deduped by `ui_seq`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ui_request: Option<serde_json::Value>,
+    /// Monotonic sequence — a second request overwrites the first; the
+    /// frontend applies only seqs it has not seen.
+    #[serde(default)]
+    pub ui_seq: u64,
 }
 
 // ─── secrets (never serialized) ──────────────────────────────────────────
@@ -944,6 +952,11 @@ struct JobState {
     /// Hermes-style nudge, set once at terminal states: a long run that
     /// stored nothing earns one "teach me" hint. Never mid-run nagging.
     memory_hint: Option<String>,
+    /// One-shot UI request (`ui_open_panel`/`ui_notify`) riding the
+    /// snapshot → SSE/poll path. Consumed-once by the frontend.
+    ui_request: Option<serde_json::Value>,
+    /// Monotonic seq for `ui_request` dedupe.
+    ui_seq: u64,
 }
 
 pub struct AgentJob {
@@ -1002,6 +1015,8 @@ fn snapshot(job: &AgentJob) -> JobSnapshot {
         pending: state.pending.clone(),
         activity: state.activity.clone(),
         memory_hint: state.memory_hint.clone(),
+        ui_request: state.ui_request.clone(),
+        ui_seq: state.ui_seq,
     }
 }
 
@@ -1997,6 +2012,56 @@ fn exec_tool(
             call.input.get("url").and_then(|v| v.as_str()).unwrap_or(""),
         ),
         "repo_analyze" => tool_repo_analyze(&get("repo"), &get("branch")),
+        // cybsh-only OS surface: same command_table gate as bash's cybsh
+        // path, but never a device-shell fallthrough — the model asked for
+        // the pure volume syscall surface and gets exactly that.
+        "os_exec" => {
+            let command = get("command");
+            let trimmed = command.trim();
+            if trimmed.is_empty() {
+                return Err("invalid: empty command".to_string());
+            }
+            if trimmed
+                .split_whitespace()
+                .any(|a| a == "-os" || a == "--host" || a == "--os")
+            {
+                return Err(
+                    "unsupported: 'os_exec -os' addresses the host filesystem — run it in the desktop app or the native Android build"
+                        .to_string(),
+                );
+            }
+            let verb = trimmed.split_whitespace().next().unwrap_or("").to_string();
+            if !cybermanju_os::shell::command_table().contains(&verb.as_str()) {
+                return Err(format!(
+                    "unsupported: '{verb}' is not a cybsh verb — os_exec runs the cybsh \
+                     surface only (ls/cp/cat/search/sync/ps/…); use bash for device commands"
+                ));
+            }
+            let out = cybermanju_os::shell::execute(trimmed, Some(db))?;
+            if out.len() > TOOL_OUTPUT_CAP {
+                let mut cut = out;
+                cut.truncate(TOOL_OUTPUT_CAP);
+                cut.push_str("\n… truncated at 64 KiB");
+                return Ok(cut);
+            }
+            Ok(out)
+        }
+        // Vault metadata — never values. `secret_get` (below) is the only
+        // path that reveals plaintext, and the permission gate asks first.
+        "secret_list" => {
+            let metas = crate::api::secrets::list(db)?;
+            serde_json::to_string(&metas).map_err(|e| format!("integrity: serialize secrets: {e}"))
+        }
+        "secret_get" => {
+            let id = get("id");
+            if id.trim().is_empty() {
+                return Err("invalid: secret id is required".to_string());
+            }
+            // Plaintext goes to the model (permission gate already asked);
+            // the transcript redactor scrubs provider keys, and the tool
+            // description warns the model to use it sparingly.
+            crate::api::secrets::reveal(db, id.trim())
+        }
         other => Err(format!("unsupported: unknown tool '{other}'")),
     }
 }
@@ -2600,6 +2665,8 @@ pub fn start_job_as(
             pending: None,
             activity: Some("starting".to_string()),
             memory_hint: None,
+            ui_request: None,
+            ui_seq: 0,
         }),
         cancel: AtomicBool::new(false),
     });
@@ -3563,6 +3630,91 @@ fn run_one_tool(
         return ToolOutcome::Continue("declined: auto-approve cannot answer questions".to_string());
     }
 
+    // UI tools mutate JobState (not the volume) — handled here, where the
+    // job handle lives, never in exec_tool (which only sees db/root/vol).
+    if call.name == "ui_open_panel" {
+        let panel = call
+            .input
+            .get("panel")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if panel.is_empty() {
+            return ToolOutcome::Continue("error: invalid: panel is required".to_string());
+        }
+        if !cybermanju_agent::protocol::UI_PANEL_IDS.contains(&panel.as_str()) {
+            return ToolOutcome::Continue(format!(
+                "error: not_found: unknown panel '{panel}' — known ids: {}",
+                cybermanju_agent::protocol::UI_PANEL_IDS.join(", ")
+            ));
+        }
+        let tab = call
+            .input
+            .get("tab")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let path = call
+            .input
+            .get("path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let seq = {
+            let mut st = job.state.lock().unwrap_or_else(|p| p.into_inner());
+            st.ui_seq += 1;
+            st.ui_request = Some(serde_json::json!({
+                "op": "open",
+                "panel": panel,
+                "tab": tab,
+                "path": path,
+                "seq": st.ui_seq,
+            }));
+            st.ui_seq
+        };
+        return ToolOutcome::Continue(format!("ok: opened panel '{panel}' (ui_seq {seq})"));
+    }
+    if call.name == "ui_notify" {
+        let level = call
+            .input
+            .get("level")
+            .and_then(|v| v.as_str())
+            .unwrap_or("info")
+            .trim()
+            .to_string();
+        let level = match level.as_str() {
+            "info" | "success" | "warning" | "error" => level,
+            other => {
+                return ToolOutcome::Continue(format!(
+                    "error: invalid: level must be info/success/warning/error (got '{other}')"
+                ))
+            }
+        };
+        let message = call
+            .input
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if message.is_empty() {
+            return ToolOutcome::Continue("error: invalid: message is required".to_string());
+        }
+        let seq = {
+            let mut st = job.state.lock().unwrap_or_else(|p| p.into_inner());
+            st.ui_seq += 1;
+            st.ui_request = Some(serde_json::json!({
+                "op": "notify",
+                "level": level,
+                "msg": message,
+                "seq": st.ui_seq,
+            }));
+            st.ui_seq
+        };
+        return ToolOutcome::Continue(format!("ok: notified (ui_seq {seq})"));
+    }
+
     // Namespaced MCP tools run on the live per-run connection set.
     if mcp_proto::split_tool_name(&call.name).is_some() {
         let output = match mcp_call(mcp, &call.name, &call.input, &job.cancel) {
@@ -3880,8 +4032,9 @@ fn subagent_body(params: SubagentBody) -> String {
     let system = format!(
         "{}{}\nSUBAGENT TOOLSET: this run has `read`, `list`, `grep`, `glob`, `self_research`, \
         `repo_analyze`, `edit`, `write`, `bash` and the memory tools (`memory_recall`, \
-        `memory_remember` — use them when past context or a durable lesson helps) — no task \
-        or question. Investigate, edit and verify; the parent reviews it.",
+        `memory_remember` — use them when past context or a durable lesson helps) — no task, \
+        question, os_exec, ui_open_panel, ui_notify, secret_list or secret_get. \
+        Investigate, edit and verify; the parent reviews it.",
         agent_loop::system_prompt(
             &root.to_string_lossy(),
             "build",

@@ -34,6 +34,14 @@ COPY scripts/ ./scripts/
 # serves the
 # dashboard REST API on :3456, so the wasm backend is not needed here — the
 # frontend-only vite step uses the stub plugin (no wasm-pack in this stage).
+#
+# OAuth broker (Supabase project URL + public anon key): baked into the
+# served bundle at build time so sign-in works out of the box. Both values
+# are public — pass with --build-arg when available. Empty keeps the old
+# behaviour: the app then takes the Settings → OAuth broker paste.
+ARG VITE_SUPABASE_URL=""
+ARG VITE_SUPABASE_ANON_KEY=""
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 RUN DOCKER_BUILD=true npm run build:wasm:frontend
 
 # ─── Stage 2: Rust Backend Build ─────────────────────────────────────
