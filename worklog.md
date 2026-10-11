@@ -1226,3 +1226,44 @@ Stage Summary:
 - Integrated `origin/main` through `0fd3df5` after `d9fb6da`, retaining P1-14 and the develop-only Pages workflow fix. The new main commit includes wiki scenery/structure work, the CLI UI and test expansion, and the rustfmt-only corrections. Its only merge conflict was the append-only `worklog.md`; preserved develop's complete log and appended both main-only wiki/CLI entries.
 - Final allowed local checks passed on the combined tree: `bash scripts/check-version.sh`, `bash scripts/check-file-headers.sh` (475 files), `npx vue-tsc --noEmit`, `npm test -- --reporter=dot` (65 files / 716 tests), `VITE_BASE=/develop/ npm run wiki`, and staged/unstaged `git diff --check`. No Cargo commands were run, per `AGENTS.md`.
 - Actions for `0fd3df5` (run `38160866995`) was still running during this validation; its Rust/Go checks will be reviewed before pushing only `develop`. `main` remains untouched and no release was made.
+
+## 2026-10-11 — CLI: Charm v2 migration (bubbletea/lipgloss/bubbles/huh/glamour)
+- Full v2 migration on the `charm.land/*/v2` paths: bubbletea v2.1.0,
+  lipgloss v2.0.6, bubbles v2.2.1, huh v2.0.3, glamour v2.0.1
+  (latest as of today); v1 modules fully dropped from go.mod/go.sum.
+  Per the v2 upgrade guides: `View() tea.View`, `KeyPressMsg` +
+  string matching (`ctrl+c`/`esc`/`enter`/`up`/`down`), viewport
+  `WithWidth/WithHeight` + `SetWidth/SetHeight`, textinput `SetStyles`,
+  progress `WithColors` blend, huh `ThemeFunc` (adapts dark/light),
+  glamour API unchanged.
+- v2 output discipline: builders emit full-fidelity ANSI; every print
+  boundary downsamples to `lipgloss.Writer`'s profile, and spinner/Huh/
+  REPL are pinned via `tea.WithColorProfile`. `--no-color` now pins
+  `NoTTY` (byte-clean; v2 Ascii keeps bold SGR, so Ascii is not enough).
+- Verified: gofmt/vet clean, `go test ./...` green incl. new
+  builder-vs-print profile tests, readonly-mode build ok, binary smoke
+  (`--help` atlas, subcommand pages, `version`, zero ESC bytes under
+  `--no-color`/pipes), headers 470/470. `-race` remains CI-only (no
+  gcc on this box).
+
+## 2026-10-11 — CLI: double-review pass (correctness + consistency)
+- Fixed real issues found on re-read: animated spinner dot (frames
+  never advanced), `fitWidths` dead param, subcommand help rows
+  bypassing Downsample, nondeterministic "more" order (sorted),
+  `completion` invisible in the atlas, flag defaults missing from help
+  (`--timeout (default 15s)` …), `backend` panel bypassing Downsample,
+  REPL/viewport negative widths on tiny terminals (clamped), empty
+  tables without guards (`geo`, supa repos/files/projects).
+- Consistency: client-known vocab now decorated (`Flag("encrypted")`,
+  `Flag("key-holder")`, cyan search scores); server strings untouched.
+  Chrome moved to stderr (`serve` next-step, `poll with:`, sync/ai
+  wait ticks, ai follow start) so stdout stays pipe-clean.
+- New `TestRootHelpAtlasComplete`: every visible command must sit in a
+  section (catches unmapped commands), leaf pages show usage + flags.
+  45 CLI tests green; gofmt/vet clean; headers 470/470.
+
+
+## 2026-10-11 — Integrate latest main through 78ff10a
+- After `0fd3df5`, main CI reached Clippy and reported two `manual_pattern_char_comparison` errors in `crates/types/src/code.rs`. The follow-up `78ff10a` replaced both closures with equivalent character-array patterns and also carried CLI consistency/test updates; merged it into develop. The only conflict was the append-only worklog, resolved by retaining develop's full history and appending the two new main CLI sections.
+- Local validation of the combined tree passed: version check, headers (475 files), `vue-tsc`, all 716 frontend tests, the wiki build with `VITE_BASE=/develop/`, and both staged/unstaged diff checks. Rust and Go validation remain remote-only under the repository's toolchain constraints.
+- CI for `78ff10a` (run `38162469871`) is in progress; hold the develop push until its result is known. `main` is unchanged.

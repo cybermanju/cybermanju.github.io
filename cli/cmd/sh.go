@@ -11,12 +11,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/client"
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/config"
@@ -164,8 +165,10 @@ func newReplModel(c *client.Client, history []string) replModel {
 	ti := textinput.New()
 	ti.Placeholder = "disk list  |  sync move <file> <a> <b>  |  ai ask \"hi\""
 	ti.Prompt = "cybsh> "
-	ti.PromptStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(ui.PinkHot))
-	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.IceWhite))
+	styles := textinput.DefaultDarkStyles()
+	styles.Focused.Prompt = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(ui.PinkHot))
+	styles.Focused.Text = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.IceWhite))
+	ti.SetStyles(styles)
 	ti.Focus()
 	return replModel{client: c, input: ti, history: history, histIdx: len(history)}
 }
@@ -179,20 +182,25 @@ func (m replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		border := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(ui.PinkDeep))
+		// Clamp for postage-stamp terminals — bubbles misbehaves at ≤0.
+		vw, vh, iw := max(20, msg.Width-2), max(6, msg.Height-4), max(10, msg.Width-10)
 		if !m.ready {
-			m.view = viewport.New(msg.Width-2, msg.Height-4)
+			m.view = viewport.New(
+				viewport.WithWidth(vw),
+				viewport.WithHeight(vh),
+			)
 			m.view.Style = border
 			m.ready = true
 		} else {
-			m.view.Width = msg.Width - 2
-			m.view.Height = msg.Height - 4
+			m.view.SetWidth(vw)
+			m.view.SetHeight(vh)
 		}
-		m.input.Width = msg.Width - 10
-	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
+		m.input.SetWidth(iw)
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc":
 			return m, tea.Quit
-		case tea.KeyEnter:
+		case "enter":
 			line := strings.TrimSpace(m.input.Value())
 			m.input.Reset()
 			m.histIdx = len(m.history)
@@ -229,13 +237,13 @@ func (m replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.emit(ui.Err.Render("  " + res.Error))
 			}
 			return m, nil
-		case tea.KeyUp:
+		case "up":
 			if m.histIdx > 0 {
 				m.histIdx--
 				m.input.SetValue(m.history[m.histIdx])
 			}
 			return m, nil
-		case tea.KeyDown:
+		case "down":
 			if m.histIdx < len(m.history) {
 				m.histIdx++
 				if m.histIdx == len(m.history) {
@@ -267,14 +275,14 @@ func (m *replModel) emit(s string) {
 	m.view.GotoBottom()
 }
 
-func (m replModel) View() string {
+func (m replModel) View() tea.View {
 	if !m.ready {
-		return ui.Dim.Render("warming up the neon…")
+		return tea.NewView(ui.Dim.Render("warming up the neon…"))
 	}
 	help := "  " + ui.Key(":help") + ui.Dim.Render(" commands  ") +
 		ui.Key("↑/↓") + ui.Dim.Render(" history  ") +
 		ui.Key("esc") + ui.Dim.Render(" quits")
-	return m.view.View() + "\n" + m.input.View() + "\n" + help
+	return tea.NewView(m.view.View() + "\n" + m.input.View() + "\n" + help)
 }
 
 var histFile string
@@ -322,7 +330,9 @@ var replCmd = &cobra.Command{
 		if !term.IsTerminal(int(os.Stdin.Fd())) {
 			return plainRepl(c, history)
 		}
-		p := tea.NewProgram(newReplModel(c, history))
+		p := tea.NewProgram(newReplModel(c, history),
+			tea.WithColorProfile(ui.ColorProfile()),
+		)
 		_, err := p.Run()
 		return err
 	},
@@ -330,11 +340,11 @@ var replCmd = &cobra.Command{
 
 // plainRepl is the pipe-friendly fallback (no TTY).
 func plainRepl(c *client.Client, history []string) error {
-	fmt.Println(ui.Banner(cliVersion) + "  " + ui.Dim.Render("cybsh REPL — :quit to leave"))
+	ui.Emit(ui.Banner(cliVersion) + "  " + ui.Dim.Render("cybsh REPL — :quit to leave"))
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for {
-		fmt.Print(ui.Accent.Render("cybsh> "))
+		fmt.Print(ui.Downsample(ui.Accent.Render("cybsh> ")))
 		if !in.Scan() {
 			fmt.Println()
 			return nil

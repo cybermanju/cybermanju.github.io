@@ -103,7 +103,7 @@ var aiPromptCmd = &cobra.Command{
 		}
 		ui.Success("agent job %s started (session %s)", job.JobID, job.SessionID)
 		if !aiFollow {
-			ui.Info("poll with: cyb ai status %s", job.JobID)
+			ui.Hint("poll with %s", ui.Chip("cyb ai status "+job.JobID))
 			return nil
 		}
 		return followAgentJob(c, job.JobID)
@@ -112,6 +112,7 @@ var aiPromptCmd = &cobra.Command{
 
 // followAgentJob polls an agent job, rendering the result as markdown.
 func followAgentJob(c *client.Client, id string) error {
+	ui.Hint("following job %s (max %s)", id, aiWait)
 	deadline := time.Now().Add(aiWait)
 	for {
 		j, err := c.AgentJob(id)
@@ -126,7 +127,7 @@ func followAgentJob(c *client.Client, id string) error {
 			return nil
 		}
 		if j.Pending != nil {
-			fmt.Println(ui.Warn.Render(fmt.Sprintf("job %s parks an approval: %s — %s", id, j.Pending.Tool, j.Pending.Summary)))
+			fmt.Println(ui.Downsample(ui.Warn.Render(fmt.Sprintf("job %s parks an approval: %s — %s", id, j.Pending.Tool, j.Pending.Summary))))
 			ui.Info("answer with: cyb ai approve %s [--answer TEXT|--deny]", id)
 			return nil
 		}

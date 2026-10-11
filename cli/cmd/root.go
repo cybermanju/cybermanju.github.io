@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/huh"
+	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/client"
@@ -70,9 +70,9 @@ var versionCmd = &cobra.Command{
 	Short: "Print the CLI version",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("%s  %s %s\n",
-			ui.Gradient("◈ cyb", ui.PinkHot, ui.RedHot),
-			ui.Accent.Render("v"+strings.TrimPrefix(cliVersion, "v")),
-			ui.Dim.Render("(commit "+cliCommit+")"))
+			ui.Downsample(ui.Gradient("◈ cyb", ui.PinkHot, ui.RedHot)),
+			ui.Downsample(ui.Accent.Render("v"+strings.TrimPrefix(cliVersion, "v"))),
+			ui.Downsample(ui.Dim.Render("(commit "+cliCommit+")")))
 	},
 }
 

@@ -2,8 +2,8 @@
 // Role: CLI terminal UI tests — table, JSON tint, markdown, chips.
 // Exports: TestRenderTable*, TestRenderJSON*, TestRenderMarkdown*,
 // TestIsMarkdown, TestGlamourStyle, TestTermWidthBounds, TestChromeAtoms.
-// Integrates: testing, strings, lipgloss, termenv.
-// Contracts: profile-sensitive tests pin lipgloss.SetColorProfile first
+// Integrates: testing, strings, lipgloss, colorprofile.
+// Contracts: profile-sensitive tests pin lipgloss.Writer.Profile first
 // (tests share the process-global renderer); width tests only assume the
 // 40..100 TermWidth clamp, so they hold on any terminal and in CI logs.
 package ui
@@ -12,12 +12,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
 func TestRenderTableHasHeaderAndRule(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	lipgloss.Writer.Profile = colorprofile.TrueColor
 	out := stripANSI(RenderTable(
 		[]string{"ID", "NAME"},
 		[][]string{{"ab12", "notes.md"}, {"cd34", "photos"}},
@@ -38,18 +38,24 @@ func TestRenderTableHasHeaderAndRule(t *testing.T) {
 }
 
 func TestRenderTableCarriesColor(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	// v2 builders always emit full-fidelity ANSI; the profile only gates
+	// what Downsample (and the lipgloss writers) let through to output.
+	lipgloss.Writer.Profile = colorprofile.TrueColor
 	if got := RenderTable([]string{"A"}, [][]string{{"b"}}); !strings.Contains(got, "\x1b[") {
-		t.Fatal("expected ANSI styling on a color terminal")
+		t.Fatal("expected ANSI styling in the builder")
 	}
-	lipgloss.SetColorProfile(termenv.Ascii)
-	if got := RenderTable([]string{"A"}, [][]string{{"b"}}); strings.Contains(got, "\x1b[") {
-		t.Fatalf("Ascii profile must strip styling, got %q", got)
+	lipgloss.Writer.Profile = colorprofile.NoTTY
+	plain := Downsample(RenderTable([]string{"A"}, [][]string{{"b"}}))
+	if strings.Contains(plain, "\x1b[") {
+		t.Fatalf("NoTTY profile must strip styling at print, got %q", plain)
+	}
+	if stripANSI(plain) != "A\n─\nb" {
+		t.Fatalf("stripped table wrong: %q", stripANSI(plain))
 	}
 }
 
 func TestRenderTableTruncatesOverflow(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.Ascii)
+	lipgloss.Writer.Profile = colorprofile.Ascii
 	long := strings.Repeat("x", 300)
 	out := RenderTable([]string{"NAME"}, [][]string{{long}})
 	if strings.Contains(out, long) {
@@ -66,7 +72,7 @@ func TestRenderTableTruncatesOverflow(t *testing.T) {
 }
 
 func TestRenderJSONPrettyAndTinted(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	lipgloss.Writer.Profile = colorprofile.TrueColor
 	raw := []byte(`{"id":"ab12","size":1234,"ok":true,"meta":null,"tags":["a","b"]}`)
 	out, ok := RenderJSON(raw)
 	if !ok {
@@ -78,12 +84,16 @@ func TestRenderJSONPrettyAndTinted(t *testing.T) {
 		}
 	}
 	if !strings.Contains(out, "\x1b[") {
-		t.Fatal("expected syntax tint on a color terminal")
+		t.Fatal("expected syntax tint in the builder")
+	}
+	lipgloss.Writer.Profile = colorprofile.NoTTY
+	if plain := Downsample(out); strings.Contains(plain, "\x1b[") {
+		t.Fatalf("NoTTY profile must strip tint at print: %q", plain)
 	}
 }
 
 func TestRenderJSONShapes(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.Ascii)
+	lipgloss.Writer.Profile = colorprofile.Ascii
 	for _, raw := range []string{`[]`, `{}`, `[1,{"a":[true,null]}]`, `"str"`, `42`} {
 		if out, ok := RenderJSON([]byte(raw)); !ok || out == "" {
 			t.Fatalf("must render %s (ok=%v)", raw, ok)
@@ -98,7 +108,7 @@ func TestRenderJSONShapes(t *testing.T) {
 }
 
 func TestRenderMarkdownRendersHeading(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	lipgloss.Writer.Profile = colorprofile.TrueColor
 	out := RenderMarkdown("# hello vault\n\nsome *text*")
 	// Styles may split words into separate runs — assert on the plain text.
 	if !strings.Contains(stripANSI(out), "hello vault") {
@@ -113,7 +123,7 @@ func TestRenderMarkdownRendersHeading(t *testing.T) {
 }
 
 func TestRenderMarkdownNoColorIsPlain(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.Ascii)
+	lipgloss.Writer.Profile = colorprofile.NoTTY
 	out := RenderMarkdown("# hello vault\n\n- one\n- two")
 	if strings.Contains(out, "\x1b[") {
 		t.Fatalf("Ascii profile must strip styling: %q", out)
@@ -126,7 +136,7 @@ func TestRenderMarkdownNoColorIsPlain(t *testing.T) {
 }
 
 func TestRenderMarkdownWrapsToWidth(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.Ascii)
+	lipgloss.Writer.Profile = colorprofile.Ascii
 	para := strings.Repeat("neon ", 60)
 	for _, line := range strings.Split(RenderMarkdown(para), "\n") {
 		if lipgloss.Width(line) > 100 {
@@ -136,7 +146,7 @@ func TestRenderMarkdownWrapsToWidth(t *testing.T) {
 }
 
 func TestRenderMarkdownHonorsEnvStyle(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	lipgloss.Writer.Profile = colorprofile.TrueColor
 	t.Setenv("GLAMOUR_STYLE", "notty")
 	out := RenderMarkdown("# hello")
 	if !strings.Contains(out, "hello") {
@@ -145,7 +155,7 @@ func TestRenderMarkdownHonorsEnvStyle(t *testing.T) {
 }
 
 func TestRenderMarkdownBadEnvFallsBack(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	lipgloss.Writer.Profile = colorprofile.TrueColor
 	t.Setenv("GLAMOUR_STYLE", "no-such-style")
 	in := "# hello"
 	if out := RenderMarkdown(in); out != in {
@@ -167,13 +177,17 @@ func TestIsMarkdown(t *testing.T) {
 }
 
 func TestGlamourStyle(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.Ascii)
+	lipgloss.Writer.Profile = colorprofile.Ascii
 	if GlamourStyle() != "ascii" {
 		t.Fatalf("no-color must use the ascii style, got %s", GlamourStyle())
 	}
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	lipgloss.Writer.Profile = colorprofile.TrueColor
 	if GlamourStyle() != "pink" {
 		t.Fatalf("color terminal must use the pink style, got %s", GlamourStyle())
+	}
+	lipgloss.Writer.Profile = colorprofile.NoTTY
+	if GlamourStyle() != "ascii" {
+		t.Fatalf("pipes must use the ascii style, got %s", GlamourStyle())
 	}
 }
 
@@ -185,7 +199,7 @@ func TestTermWidthBounds(t *testing.T) {
 }
 
 func TestChromeAtoms(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	lipgloss.Writer.Profile = colorprofile.TrueColor
 	if !strings.Contains(Badge(true), "✓") || !strings.Contains(Badge(false), "✗") {
 		t.Fatal("badges must carry ✓/✗")
 	}
@@ -201,5 +215,17 @@ func TestChromeAtoms(t *testing.T) {
 	}
 	if stripANSI(List("a", "b")) != "▸ a\n▸ b" {
 		t.Fatalf("list markers wrong: %q", stripANSI(List("a", "b")))
+	}
+	if stripANSI(Flag("encrypted")) != "‹encrypted›" {
+		t.Fatalf("flag chips wrong: %q", stripANSI(Flag("encrypted")))
+	}
+	if stripANSI(Number.Render("42")) != "42" {
+		t.Fatal("number must keep its digits")
+	}
+	if !strings.Contains(StatusDot(true), "●") || !strings.Contains(StatusDot(false), "●") {
+		t.Fatal("status dots must carry ●")
+	}
+	if !strings.Contains(stripANSI(Panel.Render("hi")), "hi") {
+		t.Fatalf("panel must keep its body: %q", stripANSI(Panel.Render("hi")))
 	}
 }

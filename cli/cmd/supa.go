@@ -213,6 +213,10 @@ var supaReposCmd = &cobra.Command{
 			for _, r := range repos {
 				rows = append(rows, []string{r.FullName, r.DefaultBr, fmt.Sprint(r.Private), truncate(r.Description, 48)})
 			}
+			if len(rows) == 0 {
+				ui.Info("no repos visible to this token")
+				return nil
+			}
 			ui.Table([]string{"REPO", "BRANCH", "PRIVATE", "DESCRIPTION"}, rows)
 		case "google":
 			files, err := supa.DriveFiles(token)
@@ -223,6 +227,10 @@ var supaReposCmd = &cobra.Command{
 			for _, d := range files {
 				rows = append(rows, []string{d.ID, d.Name, d.MimeType, d.Size})
 			}
+			if len(rows) == 0 {
+				ui.Info("no drive files visible to this token")
+				return nil
+			}
 			ui.Table([]string{"ID", "NAME", "MIME", "SIZE"}, rows)
 		case "gitlab":
 			projs, err := supa.GitLabProjects(supaInstance, token)
@@ -232,6 +240,10 @@ var supaReposCmd = &cobra.Command{
 			var rows [][]string
 			for _, p := range projs {
 				rows = append(rows, []string{fmt.Sprint(p.ID), p.PathWithNamespace, p.Visibility})
+			}
+			if len(rows) == 0 {
+				ui.Info("no projects visible to this token")
+				return nil
 			}
 			ui.Table([]string{"ID", "PROJECT", "VISIBILITY"}, rows)
 		}

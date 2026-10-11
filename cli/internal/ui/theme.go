@@ -3,19 +3,23 @@
 // palette (hot pink into signal red on near-black, neon cyan + hazard
 // yellow accents), gradient banner, Huh form theme, and the shared style
 // atoms (badges, chips, keycaps, panels, lists) every command renders with.
-// Exports: palette consts, style vars, Gradient, CharmTheme, NewForm, Logo,
-// Rule, Splash, Badge, Chip, Key, List, PanelTitled, NextSteps, StatusDot.
-// Integrates: fmt, strings, github.com (lipgloss, huh).
-// Contracts: pure rendering — safe on pipes; lipgloss downsamples to the
-// active color profile automatically (Ascii when --no-color).
+// Exports: palette consts, style vars (Title/OK/Err/Warn/Dim/Accent/Panel/
+// Number/Subtle/BadgeCheck/BadgeCross/Bullet), Gradient, CharmTheme,
+// NewForm, Logo, Rule, Splash, Badge, Flag, Chip, Key, List, PanelTitled,
+// NextSteps, StatusDot.
+// Integrates: fmt, strings, charm.land (lipgloss/v2, huh/v2).
+// Contracts: pure rendering — safe on pipes; builders emit full-fidelity
+// ANSI and every print boundary downsamples to the active colorprofile
+// (NoTTY when --no-color).
 package ui
 
 import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // CyberManju Charm palette — hot pink into signal red on near-black,
@@ -69,25 +73,33 @@ func hexRGB(s string) (uint8, uint8, uint8, error) {
 	return r, g, b, err
 }
 
-// CharmTheme is the Huh form theme: pink focus, red accents.
-func CharmTheme() *huh.Theme {
-	t := huh.ThemeCharm()
-	pink := lipgloss.Color(PinkHot)
-	red := lipgloss.Color(RedHot)
-	t.Focused.Title = t.Focused.Title.Foreground(pink).Bold(true)
-	t.Focused.Description = t.Focused.Description.Foreground(pink)
-	t.Focused.Base = t.Focused.Base.BorderForeground(pink)
-	t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(red)
-	t.Focused.NextIndicator = t.Focused.NextIndicator.Foreground(red)
-	t.Focused.PrevIndicator = t.Focused.PrevIndicator.Foreground(red)
-	t.Focused.Option = t.Focused.Option.Foreground(lipgloss.Color(IceWhite))
-	t.Focused.MultiSelectSelector = t.Focused.MultiSelectSelector.Foreground(red)
-	return t
+// CharmTheme is the Huh form theme: pink focus, red accents, adapting to
+// the terminal background at runtime. The CyberManju terminal is dark, so
+// the dark Charm base applies there.
+func CharmTheme() huh.Theme {
+	return huh.ThemeFunc(func(isDark bool) *huh.Styles {
+		t := huh.ThemeCharm(isDark)
+		pink := lipgloss.Color(PinkHot)
+		red := lipgloss.Color(RedHot)
+		t.Focused.Title = t.Focused.Title.Foreground(pink).Bold(true)
+		t.Focused.Description = t.Focused.Description.Foreground(pink)
+		t.Focused.Base = t.Focused.Base.BorderForeground(pink)
+		t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(red)
+		t.Focused.NextIndicator = t.Focused.NextIndicator.Foreground(red)
+		t.Focused.PrevIndicator = t.Focused.PrevIndicator.Foreground(red)
+		t.Focused.Option = t.Focused.Option.Foreground(lipgloss.Color(IceWhite))
+		t.Focused.MultiSelectSelector = t.Focused.MultiSelectSelector.Foreground(red)
+		return t
+	})
 }
 
-// NewForm builds a Huh form in the CyberManju Charm theme.
+// NewForm builds a Huh form in the CyberManju Charm theme, pinned to the
+// active color profile (--no-color strips form chrome too).
 func NewForm(groups ...*huh.Group) *huh.Form {
-	return huh.NewForm(groups...).WithTheme(CharmTheme()).WithShowHelp(false)
+	return huh.NewForm(groups...).
+		WithTheme(CharmTheme()).
+		WithShowHelp(false).
+		WithProgramOptions(tea.WithColorProfile(ColorProfile()))
 }
 
 // Logo is the cyberpunk mark: gradient blades over the wordmark.

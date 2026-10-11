@@ -1,10 +1,13 @@
 // CyberManju OS — Ui (cli/internal/ui/ui.go).
-// Package ui is the Charm face of `cyb`: one Lipgloss cyberpunk-neon theme
-// (hot pink into signal red, neon cyan + hazard yellow accents), a gradient
-// banner, Bubble Tea spinner, gradient progress downloads, neon tables with
-// header rules and zebra rows, syntax-tinted JSON, and width-aware Glamour
-// markdown shared by every command. Informational chrome always goes to
-// stderr; stdout stays pipe-clean.
+// Package ui is the Charm v2 face of `cyb`: one Lipgloss cyberpunk-neon
+// theme (hot pink into signal red, neon cyan + hazard yellow accents), a
+// gradient banner, Bubble Tea spinner, gradient progress downloads, neon
+// tables with header rules and zebra rows, syntax-tinted JSON, and
+// width-aware Glamour markdown shared by every command. Builders emit
+// full-fidelity ANSI; every print boundary downsamples to the active
+// colorprofile (NoTTY when --no-color), so stdout stays pipe-clean and
+// honest. Interactive programs (spinner, Huh forms, REPL) are pinned to
+// the same profile via tea.WithColorProfile.
 package ui
 
 import (
@@ -18,14 +21,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/truncate"
-	"github.com/muesli/termenv"
 	"golang.org/x/term"
+
+	"charm.land/bubbles/v2/progress"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
 var (
@@ -48,9 +52,17 @@ var (
 		Padding(0, 1)
 )
 
-// NoColor disables all styling (for pipes and --no-color).
+// NoColor disables all styling (for pipes and --no-color) by pinning the
+// Lipgloss writer to the NoTTY profile, which strips every escape sequence.
+// (The Ascii profile keeps non-color SGR like bold — not plain enough.)
 func NoColor() {
-	lipgloss.SetColorProfile(termenv.Ascii)
+	lipgloss.Writer.Profile = colorprofile.NoTTY
+}
+
+// ColorProfile reports the active Lipgloss output profile (tests pin it;
+// production auto-detects from the terminal).
+func ColorProfile() colorprofile.Profile {
+	return lipgloss.Writer.Profile
 }
 
 // Banner is the `cyb` mark in a pink → red gradient.
@@ -60,34 +72,40 @@ func Banner(version string) string {
 
 // Success prints a pink check line.
 func Success(format string, args ...any) {
-	fmt.Fprintln(os.Stdout, OK.Render("✓ ")+fmt.Sprintf(format, args...))
+	fmt.Fprintln(os.Stdout, Downsample(OK.Render("✓ ")+fmt.Sprintf(format, args...)))
 }
 
 // Failure prints a red cross line.
 func Failure(format string, args ...any) {
-	fmt.Fprintln(os.Stderr, Err.Render("✗ ")+fmt.Sprintf(format, args...))
+	fmt.Fprintln(os.Stderr, Downsample(Err.Render("✗ ")+fmt.Sprintf(format, args...)))
 }
 
 // Info prints a dim informational line.
 func Info(format string, args ...any) {
-	fmt.Fprintln(os.Stdout, Dim.Render("• ")+fmt.Sprintf(format, args...))
+	fmt.Fprintln(os.Stdout, Downsample(Dim.Render("• ")+fmt.Sprintf(format, args...)))
 }
 
 // Header prints a neon section title.
 func Header(format string, args ...any) {
-	fmt.Fprintln(os.Stdout, Title.Render("◈ "+fmt.Sprintf(format, args...)))
+	fmt.Fprintln(os.Stdout, Downsample(Title.Render("◈ "+fmt.Sprintf(format, args...))))
 }
 
 // Hint prints a dim next-step line to stderr so stdout stays pipe-clean.
 // Wrap `cyb …` references in Chip for scanability.
 func Hint(format string, args ...any) {
-	fmt.Fprintln(os.Stderr, Dim.Render("→  ")+fmt.Sprintf(format, args...))
+	fmt.Fprintln(os.Stderr, Downsample(Dim.Render("→  ")+fmt.Sprintf(format, args...)))
+}
+
+// Emit prints one pre-styled line to stdout, downsampled to the active
+// color profile.
+func Emit(s string) {
+	fmt.Fprintln(os.Stdout, Downsample(s))
 }
 
 // Table renders neon columns: pink header row over a neon rule,
 // ice-white cells, faint zebra striping, terminal-width truncation.
 func Table(headers []string, rows [][]string) {
-	fmt.Fprintln(os.Stdout, RenderTable(headers, rows))
+	Emit(RenderTable(headers, rows))
 }
 
 // RenderTable is the pure Table builder (stdout-free, unit-testable).
@@ -105,7 +123,7 @@ func RenderTable(headers []string, rows [][]string) string {
 			}
 		}
 	}
-	fitWidths(widths, len(headers))
+	fitWidths(widths)
 	pad := func(s string, w int) string {
 		// truncate.StringWithTail counts the tail inside the limit, so
 		// only truncate cells that actually overflow (exact fits stay whole).
@@ -147,7 +165,7 @@ func RenderTable(headers []string, rows [][]string) string {
 
 // fitWidths shrinks the widest columns (never below 8 cells) until the
 // table fits the terminal.
-func fitWidths(widths []int, ncols int) {
+func fitWidths(widths []int) {
 	total := func() int {
 		n := 0
 		for _, w := range widths {
@@ -179,7 +197,7 @@ func KV(pairs ...[2]string) {
 	}
 	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(PinkHot))
 	for _, p := range pairs {
-		fmt.Fprintf(os.Stdout, "%s  %s\n", keyStyle.Render(p[0]+strings.Repeat(" ", max(0, w-lipgloss.Width(p[0])))), p[1])
+		Emit(fmt.Sprintf("%s  %s", keyStyle.Render(p[0]+strings.Repeat(" ", max(0, w-lipgloss.Width(p[0])))), p[1]))
 	}
 }
 
@@ -198,7 +216,7 @@ var (
 // terminals (plain pretty JSON when --no-color). Non-JSON passes through.
 func PrintJSON(raw []byte) error {
 	if s, ok := RenderJSON(raw); ok {
-		fmt.Println(s)
+		fmt.Println(Downsample(s))
 		return nil
 	}
 	fmt.Println(strings.TrimSpace(string(raw)))
@@ -331,7 +349,7 @@ func TermWidth() int {
 // GlamourStyle picks the markdown stylesheet for the active color profile:
 // ascii when color is off, the cyberpunk pink style on color terminals.
 func GlamourStyle() string {
-	if lipgloss.ColorProfile() == termenv.Ascii {
+	if ColorProfile() <= colorprofile.Ascii {
 		return "ascii"
 	}
 	return "pink"
@@ -351,7 +369,7 @@ func IsMarkdown(name string) bool {
 // Downsample re-emits styled text for the active color profile (strips ANSI
 // entirely when --no-color).
 func Downsample(s string) string {
-	return lipgloss.NewStyle().Render(s)
+	return lipgloss.Sprint(s)
 }
 
 // RenderMarkdown glamour-renders markdown for the terminal: word-wrapped to
@@ -387,6 +405,7 @@ type spinDoneMsg struct{ err error }
 type spinModel struct {
 	spinner spinner.Model
 	msg     string
+	frame   int
 	done    chan error
 }
 
@@ -398,7 +417,7 @@ func newSpinModel(msg string, done chan error) spinModel {
 	return spinModel{spinner: s, msg: msg, done: done}
 }
 
-// pinkFrames pulses the message dot between pink and red.
+// pinkFrames pulses the message dot between pink and red shapes.
 var pinkFrames = []string{"◈", "◉", "⬢", "⬣"}
 
 func (m spinModel) Init() tea.Cmd {
@@ -415,14 +434,15 @@ func (m spinModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
+		m.frame++
 		return m, cmd
 	}
 	return m, nil
 }
 
-func (m spinModel) View() string {
-	dot := Gradient(pinkFrames[0], PinkHot, RedHot)
-	return fmt.Sprintf("%s %s  %s", m.spinner.View(), dot, m.msg)
+func (m spinModel) View() tea.View {
+	dot := Gradient(pinkFrames[m.frame%len(pinkFrames)], PinkHot, RedHot)
+	return tea.NewView(fmt.Sprintf("%s %s  %s", m.spinner.View(), dot, m.msg))
 }
 
 // SpinWhile runs fn under a hot-pink Bubble Tea spinner (plain fallback
@@ -434,7 +454,10 @@ func SpinWhile(msg string, fn func() error) error {
 		err := <-done
 		return err
 	}
-	p := tea.NewProgram(newSpinModel(msg, done), tea.WithOutput(os.Stderr))
+	p := tea.NewProgram(newSpinModel(msg, done),
+		tea.WithOutput(os.Stderr),
+		tea.WithColorProfile(ColorProfile()),
+	)
 	if _, err := p.Run(); err != nil {
 		return <-done
 	}
@@ -456,7 +479,7 @@ func (p *progressReader) Read(b []byte) (int, error) {
 	p.n += int64(n)
 	if p.total > 0 && time.Since(p.last) > 80*time.Millisecond {
 		p.last = time.Now()
-		fmt.Fprintf(os.Stderr, "\r%s", p.bar.ViewAs(float64(p.n)/float64(p.total)))
+		fmt.Fprintf(os.Stderr, "\r%s", Downsample(p.bar.ViewAs(float64(p.n)/float64(p.total))))
 	}
 	return n, err
 }
@@ -483,12 +506,11 @@ func Download(url, dest string) (int64, error) {
 		return n, err
 	}
 	bar := progress.New(
-		progress.WithGradient(PinkHot, RedHot),
+		progress.WithColors(lipgloss.Color(PinkHot), lipgloss.Color(RedHot)),
 		progress.WithWidth(40),
-		progress.WithoutPercentage(),
 	)
 	pr := &progressReader{r: res.Body, total: total, bar: bar, last: time.Now()}
 	n, err := io.Copy(f, pr)
-	fmt.Fprintf(os.Stderr, "\r%s\n", bar.ViewAs(1))
+	fmt.Fprintf(os.Stderr, "\r%s\n", Downsample(bar.ViewAs(1)))
 	return n, err
 }

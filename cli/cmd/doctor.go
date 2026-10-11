@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/config"
@@ -22,7 +22,7 @@ import (
 func doctorSupabase() error {
 	f := profile()
 	ui.Header("system check — supabase-direct (limited, read-only)")
-	fmt.Println(ui.Rule(48))
+	ui.Emit(ui.Rule(48))
 	var checks []check
 	fail := func(name, detail string) { checks = append(checks, check{name, false, detail}) }
 	pass := func(name, detail string) { checks = append(checks, check{name, true, detail}) }
@@ -73,13 +73,13 @@ var doctorCmd = &cobra.Command{
 	Short: "Health checklist: server, auth, crypto, disks, providers, agent",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := mustClient()
-		fmt.Println(ui.Splash(cliVersion))
+		ui.Emit(ui.Splash(cliVersion))
 		fmt.Println()
 		if profile().Backend.TypeOrDefault() == config.BackendSupabase {
 			return doctorSupabase()
 		}
 		ui.Header("system check — %s", c.BaseURL)
-		fmt.Println(ui.Rule(48))
+		ui.Emit(ui.Rule(48))
 
 		var checks []check
 		fail := func(name, detail string) { checks = append(checks, check{name, false, detail}) }
@@ -189,12 +189,12 @@ func printChecks(checks []check) {
 		}
 	}
 	for _, ch := range checks {
-		mark := ui.Badge(ch.ok)
+		mark := ui.Downsample(ui.Badge(ch.ok))
 		detail := ch.detail
 		if detail != "" {
 			detail = " — " + detail
 		}
-		fmt.Printf("%s %s%s\n", mark, ch.name+strings.Repeat(" ", max(0, w-lipgloss.Width(ch.name))), ui.Dim.Render(detail))
+		fmt.Printf("%s %s%s\n", mark, ch.name+strings.Repeat(" ", max(0, w-lipgloss.Width(ch.name))), ui.Downsample(ui.Dim.Render(detail)))
 	}
 }
 

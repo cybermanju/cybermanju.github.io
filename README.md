@@ -351,7 +351,7 @@ cyb files cat <id> -r      # glamour-render markdown to the terminal
 Every screen is Lipgloss neon (hot pink → signal red, cyan keycaps,
 zebra tables, tinted `--json`); agent answers and `cat -r` render
 markdown via Glamour (`GLAMOUR_STYLE` wins when set). Go
-(cobra + Lipgloss/Bubbles/Huh/Glamour) in `cli/`, checksum-verified
+(cobra + Charm v2: Bubble Tea, Lipgloss, Bubbles, Huh, Glamour) in `cli/`, checksum-verified
 self-updates (`cyb update`). Releases ship `cyb-<os>-<arch>.tar.gz` × 6,
 `cyb_<ver>_<arch>.deb` × 2, plus `SHA256SUMS` alongside the desktop
 families (`install.sh` uses tarballs; Windows zips carry `cyb.exe`).

@@ -8,7 +8,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/charmbracelet/huh"
+	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/client"
@@ -37,7 +37,7 @@ No server yet? Run:  cyb serve up   (Docker, one command)`,
 		var username, password, display string
 		nonInteractive := setupUsername != "" || setupLogin
 		if !nonInteractive {
-			fmt.Println(ui.Splash(cliVersion))
+			ui.Emit(ui.Splash(cliVersion))
 			fmt.Println()
 		}
 		if nonInteractive {
@@ -106,7 +106,7 @@ No server yet? Run:  cyb serve up   (Docker, one command)`,
 		}
 		ui.Success("signed in as %s (%s) — profile saved", login.Username, login.Role)
 		fmt.Println()
-		fmt.Println(ui.NextSteps("next",
+		ui.Emit(ui.NextSteps("next",
 			[2]string{"cyb oauth launch google --config <id>", "connect a provider"},
 			[2]string{"cyb disk create <config> 10G", "encrypted vault disk"},
 			[2]string{`cyb sh "help"`, "the full cybsh verb list"},

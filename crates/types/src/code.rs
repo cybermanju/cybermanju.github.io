@@ -165,7 +165,7 @@ fn name_token(raw: &str) -> &str {
         .next()
         .unwrap_or("")
         .trim()
-        .trim_end_matches(|c| c == '?' || c == '!')
+        .trim_end_matches(['?', '!'])
 }
 
 /// True for doc-comment lines (`///`, `//!`, `/**`, `##`, `#:`, `"""`, …).
@@ -192,7 +192,7 @@ fn doc_text(trimmed: &str) -> Option<&str> {
         return None;
     };
     let body = body
-        .trim_start_matches(|c| matches!(c, '/' | '*' | ' ' | '#' | '!' | '-' | '>' | ':' | '"'))
+        .trim_start_matches(['/', '*', ' ', '#', '!', '-', '>', ':', '"'])
         .trim();
     if body.is_empty() || body.starts_with('*') {
         return None;
