@@ -252,11 +252,7 @@ pub fn list_volume(kernel: &Kernel, dir: &str) -> Result<Vec<BackupEntry>, Strin
 }
 
 /// Snapshot files in a provider directory.
-pub fn list_provider(
-    db: &Database,
-    head: &str,
-    rest: &str,
-) -> Result<Vec<BackupEntry>, String> {
+pub fn list_provider(db: &Database, head: &str, rest: &str) -> Result<Vec<BackupEntry>, String> {
     let mut out: Vec<BackupEntry> = crate::provider_fs::list_dir(db, head, rest)?
         .into_iter()
         .filter(|e| !e.is_dir && is_backup_name(&e.name))
@@ -329,7 +325,12 @@ pub fn verify_provider(
     deep: bool,
 ) -> Result<VerifyReport, String> {
     let bytes = crate::provider_fs::read_file(db, head, rest)?;
-    verify_bytes(&format!("/providers/{head}/{rest}"), &bytes, passphrase, deep)
+    verify_bytes(
+        &format!("/providers/{head}/{rest}"),
+        &bytes,
+        passphrase,
+        deep,
+    )
 }
 
 #[cfg(test)]

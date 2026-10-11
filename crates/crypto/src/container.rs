@@ -110,12 +110,14 @@ fn pbkdf2_sha512(passphrase: &[u8], salt: &[u8], iterations: u32) -> [u8; PBKDF2
     let mut block = Vec::with_capacity(salt.len() + 4);
     block.extend_from_slice(salt);
     block.extend_from_slice(&1u32.to_be_bytes());
-    let mut mac = HmacSha512::new_from_slice(passphrase).expect("hmac takes any key length");
+    let mut mac =
+        HmacSha512::new_from_slice(passphrase).expect("hmac takes any key length");
     mac.update(&block);
     let mut acc = mac.finalize().into_bytes();
     let mut prev = acc.clone();
     for _ in 1..iterations {
-        let mut round = HmacSha512::new_from_slice(passphrase).expect("hmac takes any key length");
+        let mut round =
+            HmacSha512::new_from_slice(passphrase).expect("hmac takes any key length");
         round.update(&prev);
         prev = round.finalize().into_bytes();
         for (a, b) in acc.iter_mut().zip(prev.iter()) {
@@ -135,12 +137,7 @@ fn derive_key(passphrase: &str, salt: &[u8], iterations: u32) -> Result<[u8; KEY
     Ok(key)
 }
 
-fn assemble(
-    image: &[u8],
-    passphrase: &str,
-    salt: &[u8],
-    nonce: &[u8],
-) -> Result<Vec<u8>, String> {
+fn assemble(image: &[u8], passphrase: &str, salt: &[u8], nonce: &[u8]) -> Result<Vec<u8>, String> {
     let encrypted = !passphrase.is_empty();
     let iterations = if encrypted { DEFAULT_ITERATIONS } else { 0 };
     let mut payload = image.to_vec();
@@ -163,7 +160,11 @@ fn assemble(
     let mut out = Vec::with_capacity(HEADER_FIXED + salt.len() + nonce.len() + body.len());
     out.extend_from_slice(MAGIC);
     out.push(CONTAINER_VERSION);
-    out.push(if encrypted { KDF_PBKDF2_SHA512 } else { KDF_NONE });
+    out.push(if encrypted {
+        KDF_PBKDF2_SHA512
+    } else {
+        KDF_NONE
+    });
     out.push(flags);
     out.push(salt.len() as u8);
     out.push(nonce.len() as u8);
@@ -220,8 +221,8 @@ pub fn decode_container(bytes: &[u8], passphrase: &str) -> Result<DecodedContain
         }
         if passphrase.is_empty() {
             return Err(
-                    "auth: container is passphrase-sealed (wrong or missing passphrase)".to_string(),
-                );
+                "auth: container is passphrase-sealed (wrong or missing passphrase)".to_string(),
+            );
         }
         let key = derive_key(passphrase, salt, meta.iterations)?;
         let cipher = ChaCha20Poly1305::new_from_slice(&key)
@@ -306,7 +307,10 @@ mod tests {
     #[test]
     fn truncated_header_refuses() {
         let err = parse_header(b"CYBMJ01\x01").expect_err("must refuse");
-        assert!(err.contains("truncated") || err.contains("invalid"), "got: {err}");
+        assert!(
+            err.contains("truncated") || err.contains("invalid"),
+            "got: {err}"
+        );
     }
 
     #[test]

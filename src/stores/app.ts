@@ -24,12 +24,14 @@ import type {
   ShellResult, OsPs, OsTop, OsWorkers, OsJob, OsVolumeDf, DiskRow,
   ScheduleRow, ScheduleRun,
   SecretMeta, SecretInput,
+  BackupEntry, BackupReport, BackupVerify,
   SyncBackendType,
 } from '@/types'
 import { MODULE_METADATA, oauthSlugForBackend, describeSyncError, agentErrorHint } from '@/types'
 import { isSyncSuccess, isSyncTerminal, firstSyncError, refreshAfterSync as fanOutSyncRefresh, syncSummaryLine } from '@/utils/syncRefresh'
 import { parseStarIds, serializeStarIds } from '@/utils/stars'
 import { parseSchedule, scheduleNextAfter } from '@/utils/schedule'
+import { MANAGED_SCRIPT_PATH } from '@/utils/backup'
 import { setAuthToken, getAuthToken, isWebMode, isStaticHost } from '@/composables/useTauri'
 import { isInstallNeededError, installReasonFor, requestInstallWindow } from '@/utils/installLinks'
 import { createUiRequestDedupe } from '@/utils/uiRequests'
@@ -2290,6 +2292,237 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
+  // ── Actions: Vault backup (scheduled + on-demand) ─────────────
+  /** Run one `backup …` line everywhere (`os_exec` twin on each transport). */
+  async function backupShell(line: string): Promise<string> {
+    const res = await invoke<ShellResult>('os_exec', { line })
+    if (!res.ok) throw new Error(res.output || res.error || 'backup command failed')
+    return res.output
+  }
+
+  function parseBackupJson<T>(output: string): T {
+    return JSON.parse(output) as T
+  }
+
+  async function fetchBackupList(dest: string): Promise<BackupEntry[]> {
+    try {
+      const output = await backupShell(`backup list ${dest} --json`)
+      const rows = parseBackupJson<BackupEntry[]>(output)
+      return Array.isArray(rows) ? rows : []
+    } catch (e) {
+      notifyError('Failed to list backups', e)
+      return []
+    }
+  }
+
+  async function exportBackupToProvider(
+    dest: string,
+    keep = 7,
+    plain = false,
+  ): Promise<BackupReport | null> {
+    try {
+      const output = await backupShell(
+        `backup export --to ${dest} --keep ${keep}${plain ? ' --plain' : ''} --json`,
+      )
+      const report = parseBackupJson<BackupReport>(output)
+      notifySuccess(
+        `Backup exported (${report.bytes} bytes${report.encrypted ? ', sealed' : ', PLAINTEXT'})` +
+          (report.pruned.length ? ` — pruned ${report.pruned.length} old` : ''),
+      )
+      return report
+    } catch (e) {
+      notifyError('Backup export failed', e)
+      return null
+    }
+  }
+
+  async function verifyBackupPath(path: string, deep = false): Promise<BackupVerify | null> {
+    try {
+      const output = await backupShell(`backup verify ${path}${deep ? ' --deep' : ''} --json`)
+      return parseBackupJson<BackupVerify>(output)
+    } catch (e) {
+      notifyError('Backup verify failed', e)
+      return null
+    }
+  }
+
+  function base64ToBytes(b64: string): Uint8Array {
+    const bin = atob(b64)
+    const out = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+    return out
+  }
+
+  /**
+   * Download a full vault snapshot now. Tauri/REST return the RAW image
+   * (sealed here, so the passphrase never leaves the device); Pages
+   * returns the already-sealed container. Either way the trial-decrypt
+   * below proves the file before it lands in Downloads.
+   */
+  async function downloadBackup(passphrase: string): Promise<string | null> {
+    try {
+      const raw = (await invoke<Record<string, unknown>>('backup_export', { passphrase })) as {
+        name?: unknown
+        bytes?: unknown
+        sealed?: unknown
+        imageB64?: unknown
+        imageBytes?: unknown
+        blake3?: unknown
+      }
+      const { isContainer, decodeContainer, encodeContainer, containerPrimitives } =
+        await import('@/utils/container')
+      let sealed: Uint8Array
+      let name = typeof raw.name === 'string' && raw.name ? raw.name : 'cybermanju.cybermanju'
+      if (raw.bytes instanceof Uint8Array || Array.isArray(raw.bytes)) {
+        // Pages/static shape: already a container.
+        sealed = raw.bytes instanceof Uint8Array ? raw.bytes : Uint8Array.from(raw.bytes as number[])
+      } else if (typeof raw.imageB64 === 'string') {
+        // Tauri/REST shape: raw image — seal it on-device.
+        const image = base64ToBytes(raw.imageB64)
+        const primitives = await containerPrimitives().catch(() => null)
+        if (!primitives) throw new Error('unsupported: database sealing needs the app build on this browser')
+        sealed = await encodeContainer(image, passphrase, primitives)
+        const { buildBackupName } = await import('@/utils/backup')
+        if (!name || name === 'cybermanju.cybermanju') name = buildBackupName()
+      } else {
+        throw new Error('unsupported: database export failed on this build')
+      }
+      if (!isContainer(sealed)) throw new Error('integrity: export is not a container')
+      // Trial-decrypt proves passphrase + integrity (AEAD) before download.
+      await decodeContainer(sealed, passphrase)
+      const blob = new Blob([sealed.buffer as ArrayBuffer], { type: 'application/octet-stream' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = name
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 30_000)
+      notifySuccess(`Backup downloaded (${sealed.length} bytes — store it away from this device)`)
+      return name
+    } catch (e) {
+      notifyError('Backup download failed', e)
+      return null
+    }
+  }
+
+  /**
+   * Verify picked backup bytes (upload / provider file): header always,
+   * trial-decrypt when sealed. Wrong passphrases surface as `auth:`.
+   */
+  async function verifyBackupBytes(
+    bytes: Uint8Array,
+    passphrase: string,
+  ): Promise<{ encrypted: boolean; imageBytes: number } | null> {
+    try {
+      const { verifyContainerHeader } = await import('@/utils/backup')
+      const { decodeContainer } = await import('@/utils/container')
+      const header = verifyContainerHeader(bytes)
+      if (header.legacy) return { encrypted: false, imageBytes: header.bodyBytes }
+      if (header.encrypted && !passphrase) {
+        throw new Error('auth: this backup is passphrase-sealed — enter it to verify')
+      }
+      const decoded = await decodeContainer(bytes, passphrase)
+      return { encrypted: header.encrypted, imageBytes: decoded.image.length }
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e)
+      if (/wrong passphrase|did not decrypt|refused the passphrase/i.test(detail)) {
+        notifyError('Backup verify failed', 'auth: container refused the passphrase (wrong key or damaged body)')
+      } else {
+        notifyError('Backup verify failed', e)
+      }
+      return null
+    }
+  }
+
+  /**
+   * Apply a verified image. Pages replaces the OPFS database + reloads;
+   * every other transport needs the app stopped first, so this reports
+   * back and the wizard shows the guided steps instead.
+   */
+  async function restoreBackupImage(image: Uint8Array): Promise<'reloaded' | 'manual'> {
+    if (isStaticHost()) {
+      await invoke('backup_restore', { image })
+      notifySuccess('Backup restored — reloading onto the restored vault')
+      setTimeout(() => window.location.reload(), 800)
+      return 'reloaded'
+    }
+    return 'manual'
+  }
+
+  function findBackupSchedule(): ScheduleRow | undefined {
+    return schedules.value.find((s) => s.path === MANAGED_SCRIPT_PATH)
+  }
+
+  /**
+   * Schedule unattended snapshots: write the managed script (frontmatter
+   * owns the expr) via `os_write` on every transport, then `cron add`.
+   */
+  async function scheduleBackup(
+    expr: string,
+    dest: string,
+    keep = 7,
+    plain = false,
+  ): Promise<ScheduleRow | null> {
+    try {
+      const { managedBackupScript, MANAGED_SCRIPT_PATH: scriptPath } = await import('@/utils/backup')
+      parseSchedule(expr.trim()) // throws `invalid:` before anything is written
+      const existing = findBackupSchedule()
+      if (existing && existing.expr !== expr.trim()) {
+        await invoke('cron_delete', { id: existing.id })
+      }
+      const script = managedBackupScript(expr.trim(), dest, { keep, plain })
+      await invoke('os_exec', { line: 'mkdir -p "/.cybermanju"' }).catch(() => null)
+      await invoke('os_write', { path: scriptPath, content: script })
+      const saved = await cronSave({
+        id: existing?.id ?? '',
+        path: scriptPath,
+        expr: expr.trim(),
+        description: 'Nightly vault snapshot (Backup panel)',
+        enabled: true,
+      })
+      if (saved) notifySuccess(`Backup scheduled (${expr.trim()} → ${dest}, next ${saved.nextFireAt ?? 'soon'})`)
+      return saved
+    } catch (e) {
+      notifyError('Failed to schedule backup', e)
+      return null
+    }
+  }
+
+  async function listBackupMounts(): Promise<{ id: string; name: string; backendType: string; configId: string }[]> {
+    try {
+      const canal = await import('@/composables/useProviderCanal')
+      return await canal.listVfsMounts()
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Pull one backup file's bytes from a provider destination
+   * (`/providers/<mount>[/sub]` + file name) for verify/restore.
+   */
+  async function fetchBackupBytes(dest: string, name: string): Promise<Uint8Array | null> {
+    try {
+      const head = dest.replace(/^\/providers\//, '').split('/').filter(Boolean)
+      const key = head.shift() ?? ''
+      const sub = head.join('/')
+      const mounts = await listBackupMounts()
+      const mount =
+        mounts.find((m) => m.id === key) ??
+        mounts.find((m) => m.configId === key) ??
+        mounts.find((m) => m.name.toLowerCase() === key.toLowerCase())
+      if (!mount) throw new Error(`not_found: no provider mount \`${key}\``)
+      const canal = await import('@/composables/useProviderCanal')
+      const file = await canal.readVfsFile(mount.id, sub ? `${sub}/${name}` : name)
+      return file.bytes
+    } catch (e) {
+      notifyError('Failed to read backup file', e)
+      return null
+    }
+  }
+
   // ── Actions: AI agent ─────────────────────────────────────
   const agentProviders = ref<ProviderPreset[]>([])
   const agentConfigs = ref<AgentConfig[]>([])
@@ -2757,6 +2990,9 @@ export const useAppStore = defineStore('cybermanju', () => {
     // Scheduler (cron)
     fetchSchedules, cronSave, cronDelete, cronRun, cronSetEnabled, cronHistory,
     fetchSecrets, createSecret, updateSecret, deleteSecret, revealSecret,
+    backupShell, fetchBackupList, exportBackupToProvider, verifyBackupPath,
+    downloadBackup, verifyBackupBytes, restoreBackupImage, scheduleBackup,
+    findBackupSchedule, listBackupMounts, fetchBackupBytes,
     tickSchedules, startScheduleTick,
     agentProviders, agentConfigs, agentSessions, agentJobs, activeAgentJob,
     fetchAgentProviders, fetchAgentConfigs, saveAgentConfig, deleteAgentConfig,

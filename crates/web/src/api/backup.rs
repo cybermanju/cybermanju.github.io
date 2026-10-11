@@ -35,7 +35,10 @@ pub fn export_db(db: &Database) -> Result<ExportReport, String> {
         return Err("too_large: vault image exceeds the 32 MiB HTTP export cap — run scripts/backup.sh on the host or `backup export` in cybsh".to_string());
     }
     Ok(ExportReport {
-        name: format!("cybermanju-{}.cybermanju", cybermanju_os::backup::utc_stamp()),
+        name: format!(
+            "cybermanju-{}.cybermanju",
+            cybermanju_os::backup::utc_stamp()
+        ),
         image_bytes: image.len() as u64,
         blake3: blake3::hash(&image).to_hex().to_string(),
         image_b64: BASE64.encode(&image),

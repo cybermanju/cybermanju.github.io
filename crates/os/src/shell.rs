@@ -4762,8 +4762,9 @@ fn backup_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<Stri
     let passphrase = if plain {
         String::new()
     } else {
-        cybermanju_crypto::keystore::master_passphrase()
-            .ok_or_else(|| "unsupported: no master passphrase (unlock the vault first)".to_string())?
+        cybermanju_crypto::keystore::master_passphrase().ok_or_else(|| {
+            "unsupported: no master passphrase (unlock the vault first)".to_string()
+        })?
     };
     match sub {
         "export" => {
@@ -4810,7 +4811,11 @@ fn backup_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<Stri
                 report.bytes,
                 report.path,
                 report.blake3,
-                if report.encrypted { " [sealed]" } else { " [PLAINTEXT — --plain]" },
+                if report.encrypted {
+                    " [sealed]"
+                } else {
+                    " [PLAINTEXT — --plain]"
+                },
             );
             if !report.pruned.is_empty() {
                 out.push_str(&format!(" · pruned {}", report.pruned.join(", ")));
@@ -4822,26 +4827,28 @@ fn backup_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<Stri
                 .or_else(|| positionals.first().cloned())
                 .unwrap_or_else(|| crate::backup::BACKUP_DIR.to_string());
             let dir_abs = absolute(&dir);
-            let rows: Vec<(String, u64)> =
-                if crate::provider_fs::is_provider_path(&dir_abs) {
-                    let db = need_db(db, "backup list")?;
-                    let display = provider_display(&dir_abs);
-                    let (head, rest) = crate::provider_fs::split_provider_path(&display)
-                        .ok_or_else(|| format!("invalid: bad provider path `{dir}`"))?;
-                    crate::backup::list_provider(db, &head, &rest)?
-                        .into_iter()
-                        .map(|e| (e.name, e.bytes))
-                        .collect()
-                } else {
-                    crate::backup::list_volume(&kernel, &dir_abs)?
-                        .into_iter()
-                        .map(|e| (e.name, e.bytes))
-                        .collect()
-                };
+            let rows: Vec<(String, u64)> = if crate::provider_fs::is_provider_path(&dir_abs) {
+                let db = need_db(db, "backup list")?;
+                let display = provider_display(&dir_abs);
+                let (head, rest) = crate::provider_fs::split_provider_path(&display)
+                    .ok_or_else(|| format!("invalid: bad provider path `{dir}`"))?;
+                crate::backup::list_provider(db, &head, &rest)?
+                    .into_iter()
+                    .map(|e| (e.name, e.bytes))
+                    .collect()
+            } else {
+                crate::backup::list_volume(&kernel, &dir_abs)?
+                    .into_iter()
+                    .map(|e| (e.name, e.bytes))
+                    .collect()
+            };
             if json {
-                return serde_json::to_string(&rows.iter().map(|(name, bytes)| {
-                    serde_json::json!({ "name": name, "bytes": bytes })
-                }).collect::<Vec<_>>())
+                return serde_json::to_string(
+                    &rows
+                        .iter()
+                        .map(|(name, bytes)| serde_json::json!({ "name": name, "bytes": bytes }))
+                        .collect::<Vec<_>>(),
+                )
                 .map_err(|e| e.to_string());
             }
             if rows.is_empty() {
@@ -4890,7 +4897,11 @@ fn backup_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<Stri
                     format!(
                         "CYBMJ01 v{} {}{}",
                         report.version,
-                        if report.encrypted { "sealed" } else { "plaintext" },
+                        if report.encrypted {
+                            "sealed"
+                        } else {
+                            "plaintext"
+                        },
                         if report.compressed { "+lz4" } else { "" },
                     )
                 },
@@ -6044,15 +6055,21 @@ mod tests {
     #[test]
     fn backup_plain_export_lists_and_verifies() {
         crate::testutil::volume_dir();
-        let db_path = std::env::temp_dir()
-            .join(format!("cybsh-backup-{}.db", uuid::Uuid::new_v4()));
+        let db_path =
+            std::env::temp_dir().join(format!("cybsh-backup-{}.db", uuid::Uuid::new_v4()));
         let db = Database::new(db_path.to_str().unwrap()).expect("test db");
         let dir = format!("/backup-test-{}", uuid::Uuid::new_v4());
         // Plaintext export needs no passphrase (unattended-safe, recorded).
         let out = backup_cmd(
-            &["export".to_string(), "--to".to_string(), dir.clone(),
-              "--name".to_string(), "cybermanju-a.cybermanju".to_string(),
-              "--plain".to_string(), "--json".to_string()],
+            &[
+                "export".to_string(),
+                "--to".to_string(),
+                dir.clone(),
+                "--name".to_string(),
+                "cybermanju-a.cybermanju".to_string(),
+                "--plain".to_string(),
+                "--json".to_string(),
+            ],
             Some(&db),
             true,
         )
@@ -6062,10 +6079,17 @@ mod tests {
         assert!(report["bytes"].as_u64().unwrap_or(0) > 0, "got {report}");
         // Second export with --keep 1 prunes the first.
         let out = backup_cmd(
-            &["export".to_string(), "--to".to_string(), dir.clone(),
-              "--name".to_string(), "cybermanju-b.cybermanju".to_string(),
-              "--plain".to_string(), "--keep".to_string(), "1".to_string(),
-              "--json".to_string()],
+            &[
+                "export".to_string(),
+                "--to".to_string(),
+                dir.clone(),
+                "--name".to_string(),
+                "cybermanju-b.cybermanju".to_string(),
+                "--plain".to_string(),
+                "--keep".to_string(),
+                "1".to_string(),
+                "--json".to_string(),
+            ],
             Some(&db),
             true,
         )
@@ -6094,7 +6118,12 @@ mod tests {
         assert_eq!(check["encrypted"], false);
         assert!(check["image_bytes"].is_null(), "header only: {check}");
         let out = backup_cmd(
-            &["verify".to_string(), target, "--deep".to_string(), "--json".to_string()],
+            &[
+                "verify".to_string(),
+                target,
+                "--deep".to_string(),
+                "--json".to_string(),
+            ],
             Some(&db),
             true,
         )
@@ -6102,18 +6131,24 @@ mod tests {
         let deep: serde_json::Value = serde_json::from_str(&out).expect("json");
         assert!(deep["image_bytes"].as_u64().unwrap_or(0) > 0, "got {deep}");
         // Unknown subcommand suggests neighbours; bad keep refuses.
-        let err = backup_cmd(&["frobnicate".to_string()], Some(&db), false)
-            .expect_err("unknown");
+        let err = backup_cmd(&["frobnicate".to_string()], Some(&db), false).expect_err("unknown");
         assert!(err.contains("export"), "got {err}");
         let err = backup_cmd(
-            &["export".to_string(), "--keep".to_string(), "many".to_string()],
+            &[
+                "export".to_string(),
+                "--keep".to_string(),
+                "many".to_string(),
+            ],
             Some(&db),
             false,
         )
         .expect_err("bad keep");
         assert!(err.starts_with("invalid:"), "got {err}");
         let err = backup_cmd(
-            &["verify".to_string(), "/backup-test-missing-xyz.cybermanju".to_string()],
+            &[
+                "verify".to_string(),
+                "/backup-test-missing-xyz.cybermanju".to_string(),
+            ],
             Some(&db),
             false,
         )

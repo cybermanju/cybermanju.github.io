@@ -259,4 +259,21 @@ describe('REST response transforms', () => {
     expect(out.isEncrypted).toBe(true)
     expect(out.algorithm).toBe('hybrid')
   })
+
+  it('routes vault backup export over REST + native IPC + wasm', () => {
+    expect(REST_ROUTES.backup_export).toBeTruthy()
+    expect(REST_FIRST.has('backup_export')).toBe(true)
+    expect(MOBILE_NATIVE_OS_COMMANDS.has('backup_export')).toBe(true)
+    expect(REST_ROUTES.backup_export.buildPath({})).toBe('/api/backup/export')
+    // Desktop/mobile IPC handler stays wired in the Tauri backend.
+    const commands = fs.readFileSync('src-tauri/src/commands/vault_snapshot.rs', 'utf8')
+    const runtime = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
+    expect(commands).toMatch(/pub fn backup_export\b/)
+    expect(runtime).toContain('commands::vault_snapshot::backup_export')
+    // REST segment is registered (404-before-401 gate) and Admin-gated —
+    // the image holds sealed secrets and transcripts.
+    const security = fs.readFileSync('crates/web/src/security.rs', 'utf8')
+    expect(security).toContain('"backup"')
+    expect(security).toContain('["api", "backup", "export"] => RequiredRole::Admin')
+  })
 })

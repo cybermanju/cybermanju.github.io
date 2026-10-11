@@ -34,5 +34,9 @@ fn backup_export_reports_a_verifiable_image() {
     assert_eq!(payload["blake3"].as_str().map(|s| s.len()), Some(64));
     // Base64 length must agree with the reported image size.
     let b64_len = payload["imageB64"].as_str().expect("imageB64").len() as u64;
-    assert_eq!(b64_len, (image_bytes + 2) / 3 * 4, "{image_bytes} vs {b64_len}");
+    assert_eq!(
+        b64_len,
+        (image_bytes + 2) / 3 * 4,
+        "{image_bytes} vs {b64_len}"
+    );
 }
