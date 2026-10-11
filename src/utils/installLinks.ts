@@ -266,7 +266,7 @@ export function isInstallNeededError(text: string): boolean {
   if (!t) return false
   return (
     /no (folder picker|file system access api)/i.test(t) ||
-    /(requires?|needs?) the (tauri desktop|desktop|native( android| ios)?) (app|build)/i.test(t) ||
+    /(requires?|needs?) the (tauri desktop|desktop|native( android( or ios)?| ios)?) (app|build)/i.test(t) ||
     /needs? the dashboard/i.test(t) ||
     /open this \S+ in the (desktop app|android app)/i.test(t) ||
     /run it in the (desktop app|native android build)/i.test(t) ||
