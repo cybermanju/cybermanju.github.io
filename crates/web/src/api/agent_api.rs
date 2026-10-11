@@ -671,11 +671,15 @@ pub fn save_memory_row(db: &Database, memory: &AgentMemory) -> Result<(), String
 
 /// Newest-first memory list, optionally scoped to one config. Vectors are
 /// stripped unless `include_vectors` — list views never ship megabytes of
-/// floats; export/sync restores do.
+/// floats; export/sync restores do. Owner-scoped like sessions (P0-12):
+/// admins and trusted-local (`owner == ""`) see everything; everyone else
+/// sees their own rows plus legacy unowned rows.
 pub fn list_memories(
     db: &Database,
     config_id: Option<&str>,
     include_vectors: bool,
+    owner: &str,
+    is_admin: bool,
 ) -> Result<Vec<AgentMemory>, String> {
     let tx = db.begin_read().map_err(|e| e.to_string())?;
     let table = tx
@@ -690,6 +694,9 @@ pub fn list_memories(
                 continue;
             }
         }
+        if !owner.is_empty() && !is_admin && !m.owner_id.is_empty() && m.owner_id != owner {
+            continue;
+        }
         if !include_vectors {
             m.embedding = Vec::new();
             m.dims = 0;
@@ -701,14 +708,36 @@ pub fn list_memories(
     Ok(rows)
 }
 
-/// Delete one memory by id.
-pub fn delete_memory(db: &Database, memory_id: &str) -> Result<bool, String> {
+/// Delete one memory by id. Owner-scoped (P0-12): crossing owners answers
+/// `not_found:`, never a leak-shaped 403.
+pub fn delete_memory(
+    db: &Database,
+    memory_id: &str,
+    owner: &str,
+    is_admin: bool,
+) -> Result<bool, String> {
     crate::security::validate_id(memory_id)?;
     let tx = db.begin_write().map_err(|e| e.to_string())?;
     {
         let mut table = tx
             .open_table(Database::get_agent_memories_table())
             .map_err(|e| e.to_string())?;
+        let existing: Option<AgentMemory> = table
+            .get(memory_id)
+            .map_err(|e| e.to_string())?
+            .and_then(|v| serde_json::from_str(v.value()).ok());
+        match existing {
+            None => return Err(format!("Agent memory not found: {memory_id}")),
+            Some(m)
+                if !owner.is_empty()
+                    && !is_admin
+                    && !m.owner_id.is_empty()
+                    && m.owner_id != owner =>
+            {
+                return Err(format!("Agent memory not found: {memory_id}"));
+            }
+            _ => {}
+        }
         let removed = table
             .remove(memory_id)
             .map_err(|e| e.to_string())?
@@ -736,6 +765,7 @@ pub fn prepare_memory(
     text: &str,
     origin: MemoryOrigin,
     embedding_model: &str,
+    owner: &str,
 ) -> Result<AgentMemory, String> {
     if config_id.trim().is_empty() {
         return Err("invalid: config_id is required".to_string());
@@ -753,6 +783,7 @@ pub fn prepare_memory(
     Ok(AgentMemory {
         id: uuid::Uuid::new_v4().to_string(),
         config_id: config_id.to_string(),
+        owner_id: owner.to_string(),
         text: cleaned,
         dims: embedding.len() as u32,
         embedding,
@@ -771,6 +802,7 @@ pub fn store_memory_entry(
     config_id: &str,
     session_id: Option<String>,
     text: &str,
+    owner: &str,
 ) -> Result<AgentMemory, String> {
     let (config, key) = {
         let guard = db.read().map_err(|e| e.to_string())?;
@@ -788,6 +820,7 @@ pub fn store_memory_entry(
         text,
         MemoryOrigin::Remember,
         &model,
+        owner,
     )?;
     {
         let guard = db.read().map_err(|e| e.to_string())?;
@@ -837,8 +870,10 @@ pub fn recall_text(
     query: &str,
     top_k: usize,
     embedding_model: &str,
+    owner: &str,
+    is_admin: bool,
 ) -> Vec<MemoryHit> {
-    let memories = list_memories(db, Some(config_id), true).unwrap_or_default();
+    let memories = list_memories(db, Some(config_id), true, owner, is_admin).unwrap_or_default();
     if memories.is_empty() {
         return Vec::new();
     }
@@ -859,13 +894,17 @@ pub fn recall_memory_entries(
     config_id: Option<&str>,
     query: &str,
     top_k: usize,
+    owner: &str,
+    is_admin: bool,
 ) -> Result<Vec<MemoryHit>, String> {
     if query.trim().is_empty() {
         return Err("invalid: query is required".to_string());
     }
     let Some(config_id) = config_id else {
         let guard = db.read().map_err(|e| e.to_string())?;
-        let memories = list_memories(&guard, None, true)?;
+        // P0-12: unscoped recall no longer scans every config for non-admins —
+        // it ranks their own rows plus legacy unowned rows.
+        let memories = list_memories(&guard, None, true, owner, is_admin)?;
         return Ok(agent_memory::recall_rank(None, query, &memories, top_k));
     };
     let (config, key) = {
@@ -877,7 +916,7 @@ pub fn recall_memory_entries(
     let model = embedding_model(&config);
     let guard = db.read().map_err(|e| e.to_string())?;
     Ok(recall_text(
-        &guard, &cancel, &endpoint, &key, &config.id, query, top_k, &model,
+        &guard, &cancel, &endpoint, &key, &config.id, query, top_k, &model, owner, is_admin,
     ))
 }
 
@@ -891,13 +930,14 @@ fn recall_block_for_run(
     config: &AgentConfig,
     prompt: &str,
     cancel: &AtomicBool,
+    owner: &str,
 ) -> String {
     if prompt.trim().is_empty() {
         return String::new();
     }
     let model = embedding_model(config);
     let memories = match db.read() {
-        Ok(guard) => list_memories(&guard, Some(&config.id), true).unwrap_or_default(),
+        Ok(guard) => list_memories(&guard, Some(&config.id), true, owner, false).unwrap_or_default(),
         Err(_) => return String::new(),
     };
     if memories.is_empty() {
@@ -1065,7 +1105,8 @@ fn working_root(config: &AgentConfig) -> Result<PathBuf, String> {
     Ok(vol.join(w))
 }
 
-/// Lexically normalize path parts (no symlink resolution — documented).
+/// Lexically normalize path parts (symlinks resolved by the caller —
+/// see `join_contained`).
 fn normalize_join(base: &Path, user: &str) -> PathBuf {
     let mut out = base.to_path_buf();
     for part in user.split(['/', '\\']) {
@@ -1081,8 +1122,28 @@ fn normalize_join(base: &Path, user: &str) -> PathBuf {
     out
 }
 
+/// Nearest existing ancestor (the path itself when it exists). Bounded —
+/// walks up at most 256 levels, then gives up on `/`.
+fn existing_prefix(path: &Path) -> PathBuf {
+    let mut anchor = path.to_path_buf();
+    for _ in 0..256 {
+        if anchor.exists() {
+            return anchor;
+        }
+        if !anchor.pop() {
+            break;
+        }
+    }
+    PathBuf::from("/")
+}
+
 /// Join a tool path onto a root, refusing escapes. Leading `/` means the
 /// volume root (cybsh convention); anything else is working-dir-relative.
+/// Lexical checks first, then symlink resolution (P0-11): a symlink inside
+/// the root can point outside it, so the nearest existing ancestor is
+/// canonicalized and containment is re-verified. Non-existent tails are
+/// covered through their existing parent; callers re-resolve at open time,
+/// so a refusal here fails closed instead of bypassing.
 fn join_contained(root: &Path, vol: &Path, user: &str) -> Result<PathBuf, String> {
     let trimmed = user.trim();
     if trimmed.is_empty() {
@@ -1098,6 +1159,17 @@ fn join_contained(root: &Path, vol: &Path, user: &str) -> Result<PathBuf, String
     }
     if !absolute && path != *root && !path.starts_with(root) {
         return Err("deny: path escapes the working root".to_string());
+    }
+    let anchor = existing_prefix(&path);
+    if let Ok(canonical) = anchor.canonicalize() {
+        let canon_vol = vol.canonicalize().unwrap_or_else(|_| vol.to_path_buf());
+        let canon_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        if canonical != canon_vol && !canonical.starts_with(&canon_vol) {
+            return Err("deny: path escapes the volume (symlink)".to_string());
+        }
+        if !absolute && canonical != canon_root && !canonical.starts_with(&canon_root) {
+            return Err("deny: path escapes the working root (symlink)".to_string());
+        }
     }
     Ok(path)
 }
@@ -1374,11 +1446,32 @@ fn tool_write(
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("not_found: cannot create '{}': {}", parent.display(), e))?;
+            // Re-resolve after creating parents (P0-11): a swapped symlink
+            // between the check and the write must fail closed, not land
+            // outside the root.
+            let _ = join_contained(root, vol, path)?;
         }
     }
     let existed = full.exists();
-    std::fs::write(&full, content.as_bytes())
-        .map_err(|e| format!("not_found: cannot write '{}': {}", path.trim(), e))?;
+    // Atomic write (P0-11): temp file in the same directory + rename, so a
+    // concurrent read never observes a half-written file and a crash never
+    // leaves a truncated one. `read_raw → apply_edit → tool_write` is still
+    // read-modify-write at the model level (the hash anchor guards that);
+    // this closes the filesystem half.
+    let tmp = full.with_extension(format!(
+        "tmp-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    let write_result = std::fs::write(&tmp, content.as_bytes())
+        .and_then(|_| std::fs::rename(&tmp, &full))
+        .map_err(|e| format!("not_found: cannot write '{}': {}", path.trim(), e));
+    if write_result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    write_result?;
     let hash = agent_edit::blake3_hex(content.as_bytes());
     let _ = db.log_audit(
         "agent_write",
@@ -2013,6 +2106,8 @@ fn exec_tool(
                 &query,
                 top_k,
                 &mem.embedding_model,
+                mem.owner,
+                false,
             );
             if hits.is_empty() {
                 Ok("no memories match — proceed with the transcript alone".to_string())
@@ -2048,6 +2143,7 @@ fn exec_tool(
                 text,
                 MemoryOrigin::Remember,
                 &mem.embedding_model,
+                mem.owner,
             ) {
                 Ok(m) => match save_memory_row(db, &m) {
                     Ok(()) => Ok(format!(
@@ -2937,8 +3033,20 @@ pub fn approve_job_for(
         // REST transport it needs admin, like `save_config_as`. A non-admin
         // approval still works once — only the permanent rule is skipped.
         // (Tauri IPC passes `is_admin=true`, so desktop behavior is unchanged.)
+        // P0-9: both outcomes are audit-logged (who/when/which tool) — one
+        // approved `ask` becoming permanent must never happen silently, and
+        // a skipped widening must be visible too.
         if !is_admin {
             log::debug!("remember-allow skipped: non-admin approval approves once only");
+            if let Ok(guard) = db.read() {
+                let _ = guard.log_audit(
+                    "remember_allow_skipped",
+                    "agent_job",
+                    job_id,
+                    if requester.is_empty() { None } else { Some(requester) },
+                    tool.as_ref().map(|t| serde_json::json!({ "tool": t })),
+                );
+            }
         } else if let Some(tool) = tool {
             // Best effort: the approval itself is already recorded above.
             // A failure here must not turn an approval into an error.
@@ -2946,13 +3054,32 @@ pub fn approve_job_for(
                 if let Ok(registry) = jobs().lock() {
                     if let Some(job) = registry.get(job_id) {
                         let config_id = job.config_id.clone();
+                        let owner = job.owner_id.clone();
                         drop(registry);
                         if let Ok(mut config) = get_config(&guard, &config_id) {
                             cybermanju_agent::config::remember_allow(&mut config.permission, &tool);
                             drop(guard);
                             if let Ok(guard) = db.read() {
-                                if let Err(e) = save_config(&guard, config) {
-                                    log::debug!("remember-allow rule not persisted: {e}");
+                                match save_config(&guard, config) {
+                                    Ok(()) => {
+                                        let _ = guard.log_audit(
+                                            "remember_allow",
+                                            "agent_config",
+                                            &config_id,
+                                            if owner.is_empty() { None } else { Some(owner.as_str()) },
+                                            Some(serde_json::json!({ "tool": tool })),
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::debug!("remember-allow rule not persisted: {e}");
+                                        let _ = guard.log_audit(
+                                            "remember_allow_failed",
+                                            "agent_config",
+                                            &config_id,
+                                            if owner.is_empty() { None } else { Some(owner.as_str()) },
+                                            Some(serde_json::json!({ "tool": tool, "error": e })),
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -3219,6 +3346,7 @@ fn run_agent_job(
         &config,
         &prompt,
         &job.cancel,
+        &job.owner_id,
     ));
     let mut headers = endpoint_headers(&endpoint, &active_key);
     let mut model = routes[0].model.clone();
@@ -4664,6 +4792,7 @@ pub fn compact_session_for(
                 &summary,
                 MemoryOrigin::CompactHandoff,
                 &model,
+                &session.owner_id,
             )
             .and_then(|m| save_memory_row(&guard, &m));
         }

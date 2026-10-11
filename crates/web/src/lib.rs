@@ -195,7 +195,7 @@ impl WebDashboard {
             }
         }
 
-        Self {
+        let dashboard = Self {
             port,
             bind_addr: bind_addr.to_string(),
             jwt_secret,
@@ -209,7 +209,23 @@ impl WebDashboard {
             auth: security::AuthState::new(),
             server_thread: Mutex::new(None),
             shutdown_tx: Mutex::new(None),
+        };
+        // P0-5: revocations persist in the db, not just in memory — hydrate
+        // the in-memory gate at boot so logouts survive restarts. A locked
+        // or unreadable db degrades to an empty gate (fail-open only for
+        // tokens revoked before an unclean shutdown; live revokes persist
+        // on the logout path below).
+        if let Ok(guard) = dashboard.db.read() {
+            match guard.list_live_revocations(security::now_secs()) {
+                Ok(rows) => {
+                    for (jti, exp) in rows {
+                        dashboard.auth.revoke(&jti, exp);
+                    }
+                }
+                Err(e) => warn!("Could not hydrate revocations: {}", e),
+            }
         }
+        dashboard
     }
     // <<< /AGENT-3 JWT SECRET >>>
 
@@ -427,14 +443,24 @@ fn handle_connection(dashboard: &WebDashboard, mut stream: TcpStream) {
     // complete `Content-Length` response) so the stream below owns the
     // socket: headers now, one flushed frame per job change, heartbeat
     // comments while idle. Polling `GET /api/agent/jobs/:id` stays the
-    // fallback — browsers using `EventSource` cannot send the
-    // `Authorization` header, so the panel keeps its 1.5 s poller.
+    // fallback. `EventSource` cannot send the `Authorization` header, so a
+    // `?token=` query credential is accepted here (P0-7) — header first,
+    // query second, never logged — and enforced by the same JWT gate inside
+    // `handle_sse_connection`. A missing credential answers 401, never a
+    // stream.
     if let Some(job_id) = is_sse_events_path(&method, &path) {
+        let authed: Option<String> = auth_header.clone().or_else(|| {
+            path.split('?')
+                .nth(1)
+                .and_then(|q| parse_query_param(q, "token"))
+                .filter(|t| !t.trim().is_empty())
+                .map(|t| format!("Bearer {}", t.trim()))
+        });
         handle_sse_connection(
             dashboard,
             stream,
             &job_id,
-            auth_header.as_deref(),
+            authed.as_deref(),
             effective_origin,
         );
         return;
@@ -1189,14 +1215,18 @@ fn route_request(
         ["api", "agent", "memories"] if method == "GET" => {
             // Newest-first, vectors stripped unless `?vectors=true`
             // (export/sync restores need them; list views never do).
+            // Owner-scoped like sessions (P0-12).
             let config_id = parse_query_param(query, "configId");
             let vectors = parse_query_param(query, "vectors").as_deref() == Some("true");
+            let (owner_id, is_admin) = claims_owner(&claims);
             return match db.read() {
                 Ok(guard) => api_response(
                     api::agent_api::list_memories(
                         &guard,
                         config_id.as_deref().filter(|s| !s.is_empty()),
                         vectors,
+                        &owner_id,
+                        is_admin,
                     ),
                     origin,
                 ),
@@ -1220,14 +1250,16 @@ fn route_request(
                 text: String,
             }
             let req: MemoryStoreBody = json_body!(body, origin);
+            let (owner_id, _) = claims_owner(&claims);
             return api_response(
-                api::agent_api::store_memory_entry(db, &req.config_id, req.session_id, &req.text),
+                api::agent_api::store_memory_entry(db, &req.config_id, req.session_id, &req.text, &owner_id),
                 origin,
             );
         }
         ["api", "agent", "memories", memory_id] if method == "DELETE" => {
+            let (owner_id, is_admin) = claims_owner(&claims);
             return match db.read() {
-                Ok(guard) => api_response(api::agent_api::delete_memory(&guard, memory_id), origin),
+                Ok(guard) => api_response(api::agent_api::delete_memory(&guard, memory_id, &owner_id, is_admin), origin),
                 Err(e) => api_response::<bool>(Err(e.to_string()), origin),
             };
         }
@@ -1246,12 +1278,15 @@ fn route_request(
                 top_k: Option<u64>,
             }
             let req: MemoryRecallBody = json_body!(body, origin);
+            let (owner_id, is_admin) = claims_owner(&claims);
             return api_response(
                 api::agent_api::recall_memory_entries(
                     db,
                     req.config_id.as_deref().filter(|s| !s.is_empty()),
                     &req.query,
                     req.top_k.unwrap_or(3) as usize,
+                    &owner_id,
+                    is_admin,
                 ),
                 origin,
             );
@@ -1263,7 +1298,8 @@ fn route_request(
             return match db.read() {
                 Ok(guard) => {
                     let scope = config_id.as_deref().filter(|s| !s.is_empty());
-                    match api::agent_api::list_memories(&guard, scope, true) {
+                    let (owner_id, is_admin) = claims_owner(&claims);
+                    match api::agent_api::list_memories(&guard, scope, true, &owner_id, is_admin) {
                         Ok(memories) => {
                             let markdown =
                                 cybermanju_agent::memory::render_export_markdown(&memories);
@@ -2263,6 +2299,14 @@ fn route_request(
         ["api", "auth", "logout"] if method == "POST" => match claims {
             Some(claims) => {
                 dashboard.auth.revoke(&claims.jti, claims.exp);
+                // P0-5: persist the revocation — memory alone forgets it on
+                // restart. Best-effort: the in-memory gate above already
+                // holds it for this process lifetime.
+                if let Ok(guard) = db.read() {
+                    if let Err(e) = guard.save_revocation(&claims.jti, claims.exp) {
+                        warn!("Could not persist revocation: {}", e);
+                    }
+                }
                 let _ = db.log_audit(
                     "logout",
                     "user",
@@ -2979,7 +3023,9 @@ fn peer_sync(db: &Database, device_id: &str, body: &str, origin: Option<&str>) -
         Ok(None) => {
             return json_error(
                 404,
-                &format!("not_found: no device '{device_id}' — enroll it via POST /api/devices first"),
+                &format!(
+                    "not_found: no device '{device_id}' — enroll it via POST /api/devices first"
+                ),
                 origin,
             )
         }

@@ -28,6 +28,14 @@ pub struct ExportReport {
 
 /// Point-in-time database image for `GET /api/backup/export`.
 pub fn export_db(db: &Database) -> Result<ExportReport, String> {
+    export_db_shared(db)
+}
+
+/// Guard-free snapshot export (P0-22): `snapshot_bytes` opens its own redb
+/// MVCC read txn, so the image is consistent without the app-level guard —
+/// holding the request read guard for a whole-db copy starves writers for
+/// seconds. Pure read: no logical serialization is needed.
+pub fn export_db_shared(db: &Database) -> Result<ExportReport, String> {
     let image = db
         .snapshot_bytes()
         .map_err(|e| format!("integrity: database snapshot failed: {e:#}"))?;

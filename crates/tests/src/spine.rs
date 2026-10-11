@@ -262,7 +262,13 @@ fn oplog_resolve_appends_a_verdict_without_deleting_history() {
     assert_eq!(verdict["resolved"], true);
     assert_eq!(verdict["op"]["kind"], "resolve");
     // Both forks survive under the verdict — resolution never deletes.
-    let page = call(&d, "GET", "/api/oplog/since?since=0&limit=500", "", Some(&auth));
+    let page = call(
+        &d,
+        "GET",
+        "/api/oplog/since?since=0&limit=500",
+        "",
+        Some(&auth),
+    );
     let page: serde_json::Value = serde_json::from_str(body_of(&page)).expect("json");
     assert_eq!(page["ops"].as_array().map(|a| a.len()), Some(3));
 }
@@ -281,7 +287,13 @@ fn mutations_append_ops_for_queue_and_replay() {
         Some(&auth),
     );
     assert_eq!(status_of(&created), 200, "{created}");
-    let page = call(&d, "GET", "/api/oplog/since?since=0&limit=500", "", Some(&auth));
+    let page = call(
+        &d,
+        "GET",
+        "/api/oplog/since?since=0&limit=500",
+        "",
+        Some(&auth),
+    );
     let page: serde_json::Value = serde_json::from_str(body_of(&page)).expect("json");
     let ops = page["ops"].as_array().expect("ops");
     assert!(

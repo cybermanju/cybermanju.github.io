@@ -167,6 +167,50 @@ pub fn verify_session_token(token: &str, hmac_secret: &[u8]) -> Result<(String, 
 // Tauri commands
 // ---------------------------------------------------------------------------
 
+/// P0-3: local IPC capability gate. Desktop IPC is same-machine, but the
+/// webview can invoke every command — identity/user/ACL writes need a session
+/// capability, not just `State`. Bootstrap (no users yet) stays open so
+/// first-run setup works; afterwards admin writes need an admin session
+/// token and user-list reads need any valid session.
+fn ipc_caller(
+    db: &crate::db::Database,
+    session_token: Option<String>,
+    hmac_secret: &[u8],
+) -> Result<Option<User>, String> {
+    let count = cybermanju_web::api::users::count_users(db).map_err(|e| e.to_string())?;
+    if count == 0 {
+        return Ok(None);
+    }
+    let token = session_token
+        .filter(|t| !t.trim().is_empty())
+        .ok_or_else(|| {
+            "auth: this action needs a signed-in session (LocalIpc capability gate)".to_string()
+        })?;
+    let (username, _) =
+        verify_session_token(&token, hmac_secret).map_err(|e| format!("auth: invalid session: {e}"))?;
+    let user = cybermanju_web::api::users::find_by_username(db, &username)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "auth: session user no longer exists".to_string())?;
+    if !user.is_active {
+        return Err("auth: session user is deactivated".to_string());
+    }
+    Ok(Some(user))
+}
+
+/// Same gate, admin-only (user/role/ACL writes). Bootstrap stays open.
+fn require_ipc_admin(
+    db: &crate::db::Database,
+    session_token: Option<String>,
+    hmac_secret: &[u8],
+    action: &str,
+) -> Result<(), String> {
+    match ipc_caller(db, session_token, hmac_secret)? {
+        None => Ok(()),
+        Some(user) if user.role == "admin" => Ok(()),
+        Some(_) => Err(format!("auth: {action} needs an admin session")),
+    }
+}
+
 /// Register a new user (arg validation + persistence live in the shared API).
 #[tauri::command(async)]
 pub fn register_user(
@@ -174,9 +218,11 @@ pub fn register_user(
     password: String,
     display_name: Option<String>,
     role: Option<String>,
+    session_token: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<User, String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
+    require_ipc_admin(&db, session_token, &state.hmac_secret, "register_user")?;
     // <<< AGENT-3 IDENTITY: desktop IPC is a trusted local transport, so it
     // keeps full role freedom; the HTTP path is Bootstrap/AdminCreated. >>>
     cybermanju_web::api::users::register(
@@ -248,8 +294,13 @@ pub fn verify_token(
 
 /// List all registered users.
 #[tauri::command(async)]
-pub fn list_users(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>, String> {
+pub fn list_users(
+    session_token: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
+    // Any valid session reads (bootstrap lists freely); hashes never cross.
+    ipc_caller(&db, session_token, &state.hmac_secret)?;
     let tx = db.begin_read().map_err(|e| e.to_string())?;
     let table = tx
         .open_table(crate::db::Database::get_users_table())
@@ -280,9 +331,10 @@ pub fn grant_file_permission(
     file_id: String,
     access: String,
     granted_by: String,
+    session_token: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<crate::db::schema::UserFilePermission, String> {
-    set_file_permission(user_id, file_id, access, granted_by, state)
+    set_file_permission(user_id, file_id, access, granted_by, session_token, state)
 }
 
 /// Grant a file permission to a user (aliased as grant_file_permission for frontend).
@@ -292,8 +344,13 @@ pub fn set_file_permission(
     file_id: String,
     access: String,
     granted_by: String,
+    session_token: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<UserFilePermission, String> {
+    {
+        let db = state.db.read().map_err(|e| e.to_string())?;
+        require_ipc_admin(&db, session_token, &state.hmac_secret, "set_file_permission")?;
+    }
     if !["read", "write", "admin"].contains(&access.as_str()) {
         return Err(format!(
             "Invalid access level: {}. Must be read, write, or admin",
@@ -353,8 +410,13 @@ pub fn set_file_permission(
 #[tauri::command(async)]
 pub fn revoke_file_permission(
     permission_id: String,
+    session_token: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
+    {
+        let db = state.db.read().map_err(|e| e.to_string())?;
+        require_ipc_admin(&db, session_token, &state.hmac_secret, "revoke_file_permission")?;
+    }
     let db = state.db.write().map_err(|e| e.to_string())?;
     let tx = db.begin_write().map_err(|e| e.to_string())?;
     {
@@ -425,14 +487,23 @@ pub fn create_user(
     username: String,
     password: String,
     role: String,
+    session_token: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<User, String> {
-    register_user(username, password, None, Some(role), state)
+    register_user(username, password, None, Some(role), session_token, state)
 }
 
 /// Delete a user by ID.
 #[tauri::command(async)]
-pub fn delete_user(user_id: String, state: State<'_, AppState>) -> Result<bool, String> {
+pub fn delete_user(
+    user_id: String,
+    session_token: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    {
+        let db = state.db.read().map_err(|e| e.to_string())?;
+        require_ipc_admin(&db, session_token, &state.hmac_secret, "delete_user")?;
+    }
     let db = state.db.write().map_err(|e| e.to_string())?;
     cybermanju_web::api::users::delete(&db, &user_id)
 }
@@ -442,8 +513,13 @@ pub fn delete_user(user_id: String, state: State<'_, AppState>) -> Result<bool, 
 pub fn update_user_role(
     user_id: String,
     role: String,
+    session_token: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<User, String> {
+    {
+        let db = state.db.read().map_err(|e| e.to_string())?;
+        require_ipc_admin(&db, session_token, &state.hmac_secret, "update_user_role")?;
+    }
     let db = state.db.write().map_err(|e| e.to_string())?;
     cybermanju_web::api::users::update_role(&db, &user_id, role)
 }

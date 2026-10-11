@@ -86,7 +86,7 @@ describe('iOS native scaffold (P2-16)', () => {
   const runbook = fs.readFileSync('docs/IOS.md', 'utf8')
 
   it('sets the iOS deployment floor', () => {
-    expect(conf.bundle.ios.minimumSystemVersion).toBe('17.0')
+    expect(conf.bundle.iOS.minimumSystemVersion).toBe('17.0')
   })
 
   it('keeps the mobile IPC set transport-complete (no dashboard on iOS)', () => {

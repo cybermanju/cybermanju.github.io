@@ -221,7 +221,15 @@ struct RegistryInner {
     runs: HashMap<String, Arc<SyncRun>>,
     order: VecDeque<String>,
     latest: Option<String>,
+    /// Recently evicted ids, oldest first (P0-21): an evicted poll answers
+    /// `expired:`, never `not_found:` — the job existed, its window passed.
+    /// Bounded (64); restarts lose it, but completed runs persist in the
+    /// `sync_runs` history table, so post-restart polls still resolve.
+    expired: VecDeque<String>,
 }
+
+/// How many evicted ids are remembered for `expired:` answers.
+const MAX_EXPIRED_IDS: usize = 64;
 
 /// Process-wide registry of sync runs (item 5 / item 14).
 ///
@@ -437,10 +445,21 @@ impl RunRegistry {
                 Some(idx) => {
                     if let Some(id) = inner.order.remove(idx) {
                         inner.runs.remove(&id);
+                        inner.expired.push_back(id);
+                        while inner.expired.len() > MAX_EXPIRED_IDS {
+                            inner.expired.pop_front();
+                        }
                     }
                 }
                 None => break,
             }
         }
+    }
+
+    /// Whether `run_id` left through eviction (P0-21): pollers translate
+    /// this to `expired:`, not `not_found:`.
+    pub fn was_evicted(&self, run_id: &str) -> bool {
+        let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        inner.expired.iter().any(|id| id == run_id)
     }
 }

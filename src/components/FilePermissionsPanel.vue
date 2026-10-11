@@ -69,7 +69,7 @@
 import AppIcon from '@/components/AppIcon.vue'
 import { ref, computed, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { invoke } from '@/composables/useTauri'
+import { invoke, getAuthToken } from '@/composables/useTauri'
 import type { FilePermission } from '@/types'
 
 defineEmits<{ close: [] }>()
@@ -111,6 +111,7 @@ async function handleGrant() {
       fileId: store.selectedFileId,
       userId: grantUserId.value,
       access: grantAccess.value,
+      sessionToken: getAuthToken(),
     })
     store.notifySuccess('Permission granted')
     await fetchPermissions(store.selectedFileId)
@@ -137,6 +138,7 @@ async function handleRevoke(perm: FilePermission) {
     await invoke('revoke_file_permission', {
       fileId: store.selectedFileId,
       userId: perm.userId,
+      sessionToken: getAuthToken(),
     })
     store.notifySuccess('Permission revoked')
     await fetchPermissions(store.selectedFileId)

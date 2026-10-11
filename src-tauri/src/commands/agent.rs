@@ -227,10 +227,14 @@ pub fn list_agent_memories(
     state: State<'_, AppState>,
 ) -> Result<Vec<cybermanju_types::agent::AgentMemory>, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
+    // Trusted-local (Tauri IPC): no owner filter — device-scoped rows land
+    // unowned (`""`), readable as legacy, exactly like old transcripts.
     cybermanju_web::api::agent_api::list_memories(
         &db,
         config_id.as_deref().filter(|s| !s.is_empty()),
         false,
+        "",
+        true,
     )
 }
 
@@ -242,7 +246,7 @@ pub fn store_agent_memory(
     text: String,
     state: State<'_, AppState>,
 ) -> Result<cybermanju_types::agent::AgentMemory, String> {
-    cybermanju_web::api::agent_api::store_memory_entry(&state.db, &config_id, session_id, &text)
+    cybermanju_web::api::agent_api::store_memory_entry(&state.db, &config_id, session_id, &text, "")
 }
 
 /// Hybrid recall over one config (`config_id`) or every config (keyword-only
@@ -259,6 +263,8 @@ pub fn recall_agent_memories(
         config_id.as_deref().filter(|s| !s.is_empty()),
         &query,
         top_k.unwrap_or(3) as usize,
+        "",
+        true,
     )
 }
 
@@ -266,5 +272,5 @@ pub fn recall_agent_memories(
 #[tauri::command(async)]
 pub fn delete_agent_memory(memory_id: String, state: State<'_, AppState>) -> Result<bool, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
-    cybermanju_web::api::agent_api::delete_memory(&db, &memory_id)
+    cybermanju_web::api::agent_api::delete_memory(&db, &memory_id, "", true)
 }

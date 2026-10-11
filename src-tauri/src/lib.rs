@@ -571,10 +571,55 @@ pub fn run() {
             // Triple-layer compressor.
             let compressor = compression::TripleCompressor::new();
 
-            // HMAC secret for secure session tokens.
+            // HMAC secret for secure session tokens (P0-5): stable across
+            // restarts, not OsRng-fresh per boot — desktop sessions used to
+            // die on every restart while JWTs lived. Load-or-create at
+            // `<data dir>/ipc_hmac_secret` (0600); when no data dir resolves
+            // (P0-17 fail-closed), fall back to a fresh secret and log it —
+            // sessions become restart-scoped, honestly.
             let mut hmac_secret = [0u8; 32];
-            use rand_core::{OsRng, RngCore};
-            OsRng.fill_bytes(&mut hmac_secret);
+            {
+                use rand_core::{OsRng, RngCore};
+                let stable = cybermanju_crypto::keystore::data_dir().and_then(|dir| {
+                    let path = dir.join("ipc_hmac_secret");
+                    if let Ok(raw) = std::fs::read(&path) {
+                        if raw.len() == 32 {
+                            let mut s = [0u8; 32];
+                            s.copy_from_slice(&raw);
+                            return Some(s);
+                        }
+                    }
+                    let mut fresh = [0u8; 32];
+                    OsRng.fill_bytes(&mut fresh);
+                    let stored = std::fs::create_dir_all(&dir)
+                        .and_then(|_| std::fs::write(&path, fresh))
+                        .map(|_| {
+                            #[cfg(unix)]
+                            {
+                                use std::os::unix::fs::PermissionsExt;
+                                let _ = std::fs::set_permissions(
+                                    &path,
+                                    std::fs::Permissions::from_mode(0o600),
+                                );
+                            }
+                        })
+                        .is_ok()
+                        && path.exists();
+                    if stored {
+                        return Some(fresh);
+                    }
+                    None
+                });
+                match stable {
+                    Some(s) => hmac_secret = s,
+                    None => {
+                        tracing::warn!(
+                            "no data dir for the IPC HMAC secret — sessions are restart-scoped"
+                        );
+                        OsRng.fill_bytes(&mut hmac_secret);
+                    }
+                }
+            }
 
             let state = AppState {
                 db: Arc::clone(&db),

@@ -337,8 +337,9 @@ export const ENCRYPTION_INFO: Record<EncryptionAlgo, { name: string; nistLevel: 
   },
   hybrid: {
     name: 'Hybrid PQ+Classical',
-    nistLevel: 5,
-    description: 'Combines ML-KEM with X25519 for defense-in-depth transitional security.',
+    // P0-15: ML-KEM-768 is NIST Level 3 — never claim 5.
+    nistLevel: 3,
+    description: 'Combines ML-KEM-768 (Level 3) with X25519 for defense-in-depth transitional security.',
     color: '#FFFFFF',
   },
   aes256: {
@@ -1136,6 +1137,8 @@ export type MemoryOrigin = 'remember' | 'compactHandoff' | 'import'
 export interface AgentMemory {
   id: string
   configId: string
+  /** Owner user id (`''` on rows predating ownership — readable as legacy). */
+  ownerId?: string
   text: string
   embedding: number[]
   dims: number

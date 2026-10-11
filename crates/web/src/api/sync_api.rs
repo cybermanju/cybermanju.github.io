@@ -781,7 +781,19 @@ pub fn job_for(
     let record = db
         .get_sync_run(job_id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("not_found: sync job '{job_id}' not found"))?;
+        .ok_or_else(|| {
+            // P0-21: evicted (or history-pruned) ids answer `expired:`, never
+            // `not_found:` — the job existed, its poll window passed. Unknown
+            // ids stay `not_found:`.
+            if RunRegistry::global().was_evicted(job_id) {
+                format!(
+                    "expired: sync job '{job_id}' left the live registry — \
+                     poll the latest run or start a new one"
+                )
+            } else {
+                format!("not_found: sync job '{job_id}' not found")
+            }
+        })?;
     if !requester.is_empty() && !is_admin {
         if let Some(owner) = record.owner_id.as_deref() {
             if owner != requester {

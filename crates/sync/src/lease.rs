@@ -366,6 +366,10 @@ pub fn relate(local: &VersionVector, incoming: &VersionVector) -> Relation {
 pub enum WriteDecision {
     /// Write it and record the version.
     Apply,
+    /// Write the incoming bytes AND store the merged vector (P0-20): an
+    /// Overwrite that just `Apply`ies erases the loser's history — the
+    /// caller records `merged` so both devices' counters survive.
+    ApplyMerged { merged: VersionVector },
     /// Write it, keeping both histories (the caller stores a second entry).
     KeepBoth { suggested_id: String },
 }
@@ -374,10 +378,11 @@ pub enum WriteDecision {
 ///
 /// * no conflict (equal / incoming advances) → [`WriteDecision::Apply`];
 /// * conflict + `Skip` → `Err("conflict: …")`, local state untouched;
-/// * conflict + `Overwrite` → apply, with the vectors merged so the losing
-///   device's history is not erased;
-/// * conflict + `KeepBoth` → [`WriteDecision::KeepBoth`] with an id the
-///   caller can write under.
+/// * conflict + `Overwrite` → [`WriteDecision::ApplyMerged`] with the
+///   component-wise max of both vectors, so the losing device's history is
+///   preserved in the stored vector instead of erased;
+/// * conflict + `KeepBoth` → [`WriteDecision::KeepBoth`] with a deterministic
+///   id (stable across retries, unique per fork pair — no PIDs).
 pub fn decide_write(
     file_id: &str,
     local: &VersionVector,
@@ -387,9 +392,13 @@ pub fn decide_write(
     match relate(local, incoming) {
         Relation::Equal | Relation::IncomingAdvances => Ok(WriteDecision::Apply),
         Relation::LocalAhead | Relation::Diverged => match policy {
-            ConflictPolicy::Overwrite => Ok(WriteDecision::Apply),
+            ConflictPolicy::Overwrite => {
+                let mut merged = local.clone();
+                merged.merge(incoming);
+                Ok(WriteDecision::ApplyMerged { merged })
+            }
             ConflictPolicy::KeepBoth => Ok(WriteDecision::KeepBoth {
-                suggested_id: format!("{}-keep-{}", file_id, std::process::id()),
+                suggested_id: keep_both_id(file_id, local, incoming),
             }),
             ConflictPolicy::Skip => Err(format!(
                 "conflict: write to '{}' from another device diverged (local {:?}, incoming {:?}); \
@@ -398,6 +407,26 @@ pub fn decide_write(
             )),
         },
     }
+}
+
+/// Deterministic KeepBoth id (P0-20): `process::id()` collides across
+/// devices and changes every retry (duplicating the second entry). The id
+/// below hashes the fork pair itself — stable across retries, distinct per
+/// divergence, no PIDs anywhere.
+fn keep_both_id(file_id: &str, local: &VersionVector, incoming: &VersionVector) -> String {
+    let digest = crate::blake3_hex(
+        format!("{file_id}|{}|{}", vv_fingerprint(local), vv_fingerprint(incoming)).as_bytes(),
+    );
+    format!("{file_id}-keep-{}", &digest[..16])
+}
+
+/// Canonical `node=counter,…` rendering for id derivation.
+fn vv_fingerprint(vv: &VersionVector) -> String {
+    vv.entries
+        .iter()
+        .map(|(node, count)| format!("{node}={count}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// Read the stored vector for `file_id` (empty when the entry is new).
@@ -592,14 +621,24 @@ mod tests {
         assert_eq!(
             decide_write("file-1", &local, &incoming, ConflictPolicy::Overwrite)
                 .expect("overwrite applies"),
-            WriteDecision::Apply
+            WriteDecision::ApplyMerged {
+                merged: {
+                    let mut v = local.clone();
+                    v.merge(&incoming);
+                    v
+                }
+            }
         );
 
         match decide_write("file-1", &local, &incoming, ConflictPolicy::KeepBoth)
             .expect("keep both")
         {
             WriteDecision::KeepBoth { suggested_id } => {
-                assert!(suggested_id.starts_with("file-1"), "{}", suggested_id)
+                assert!(suggested_id.starts_with("file-1-keep-"), "{}", suggested_id);
+                // Deterministic: the same fork pair re-derives the same id.
+                let again = decide_write("file-1", &local, &incoming, ConflictPolicy::KeepBoth)
+                    .expect("keep both again");
+                assert_eq!(WriteDecision::KeepBoth { suggested_id: suggested_id.clone() }, again);
             }
             other => panic!("expected KeepBoth, got {:?}", other),
         }

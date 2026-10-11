@@ -268,7 +268,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     authBusy.value = true
     authError.value = null
     try {
-      await invoke('register_user', { username, password, displayName })
+      await invoke('register_user', { username, password, displayName, sessionToken: getAuthToken() })
       // Bootstrap register returns the user, not a token — sign in after.
       return await login(username, password)
     } catch (e) {
@@ -1892,7 +1892,7 @@ export const useAppStore = defineStore('cybermanju', () => {
   // ── Actions: User Management ───────────────────────────────
   async function fetchUsers() {
     try {
-      users.value = await invoke<User[]>('list_users')
+      users.value = await invoke<User[]>('list_users', { sessionToken: getAuthToken() })
     } catch (e) {
       notifyError('Failed to fetch users', e)
     }
@@ -1900,7 +1900,7 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function createUser(username: string, password: string, role: string) {
     try {
-      await invoke('create_user', { username, password, role })
+      await invoke('create_user', { username, password, role, sessionToken: getAuthToken() })
       await fetchUsers()
       notifySuccess(`User '${username}' created`)
     } catch (e) {
@@ -1910,7 +1910,7 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function deleteUser(userId: string) {
     try {
-      await invoke('delete_user', { userId })
+      await invoke('delete_user', { userId, sessionToken: getAuthToken() })
       await fetchUsers()
       notifySuccess('User deleted')
     } catch (e) {
@@ -1920,7 +1920,7 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function updateUserRole(userId: string, role: string) {
     try {
-      await invoke('update_user_role', { userId, role })
+      await invoke('update_user_role', { userId, role, sessionToken: getAuthToken() })
       await fetchUsers()
       notifySuccess('User role updated')
     } catch (e) {

@@ -961,6 +961,56 @@ impl Database {
         Ok(None)
     }
 
+    // ─── Persistent revocations (P0-5) ──────────────────────────────
+    // Logout must survive restarts and replica hand-offs: revoked JTIs live
+    // in kv (`revoked:<jti>` → exp epoch secs) next to the rows, not just in
+    // the dashboard's memory. `AuthState` hydrates from here at boot and
+    // every `revoke()` persists here too. Single-file redb has one opener,
+    // so this is the shared revocation list for every transport on the box.
+
+    fn revoked_key(jti: &str) -> String {
+        format!("revoked:{jti}")
+    }
+
+    /// Persist one revocation (idempotent; keeps the farthest expiry).
+    pub fn save_revocation(&self, jti: &str, exp: u64) -> Result<()> {
+        if jti.trim().is_empty() {
+            anyhow::bail!("invalid: jti is required");
+        }
+        let tx = self.db.begin_write()?;
+        {
+            let mut kv = tx.open_table(KV_TABLE)?;
+            let key = Self::revoked_key(jti);
+            let keep = match kv.get(key.as_str())? {
+                Some(v) => v.value().parse::<u64>().unwrap_or(0).max(exp),
+                None => exp,
+            };
+            kv.insert(key.as_str(), keep.to_string().as_str())?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Live revocations (`exp` still in the future) for boot hydration.
+    pub fn list_live_revocations(&self, now_secs: u64) -> Result<Vec<(String, u64)>> {
+        let tx = self.db.begin_read()?;
+        let kv = tx.open_table(KV_TABLE)?;
+        let mut out = Vec::new();
+        for entry in kv.iter()? {
+            let (key, value) = entry?;
+            let key = key.value();
+            let Some(jti) = key.strip_prefix("revoked:") else {
+                continue;
+            };
+            if let Ok(exp) = value.value().parse::<u64>() {
+                if exp > now_secs {
+                    out.push((jti.to_string(), exp));
+                }
+            }
+        }
+        Ok(out)
+    }
+
     // ─── Config secrets (AGENT-3 request: token lives beside the row) ──
     // `SyncConfig.token` is `skip_serializing`, so the JSON row never holds
     // it. The side table does — written by `save_config`, merged back by
