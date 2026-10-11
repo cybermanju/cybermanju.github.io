@@ -1374,7 +1374,11 @@ async function openHostRoot() {
         }
       } else if (st?.status === 'missing' || st?.status === 'unsupported') {
         if (st?.status === 'unsupported') {
-          store.notifyError('Device files need the app', 'this browser has no folder picker — open this vault in the desktop app or Chrome/Edge over HTTPS')
+          // No folder picker in this browser — the Install window carries
+          // the way out (native app per platform, App × CLI).
+          const { requestInstallWindow } = await import('@/utils/installLinks')
+          requestInstallWindow('host-unsupported')
+          store.notifyError('Device files need the app', 'this browser has no folder picker — install options are opening')
           return
         }
         try {
@@ -1421,7 +1425,16 @@ async function pickHostFolder() {
       await refreshHostWasmMeta()
       store.notifySuccess(`Home folder '${picked.name}' loaded — its files are browsable here`)
     } catch (e) {
-      store.notifyError('Cannot pick a home folder', e)
+      // `unsupported:` (no folder picker at all) opens the Install window
+      // with per-platform native builds; anything else stays a toast.
+      const msg = e instanceof Error ? e.message : String(e)
+      if (msg.startsWith('unsupported:')) {
+        const { requestInstallWindow } = await import('@/utils/installLinks')
+        requestInstallWindow('host-unsupported')
+        store.notifyError('Device files need the app', 'this browser has no folder picker — install options are opening')
+      } else {
+        store.notifyError('Cannot pick a home folder', e)
+      }
     }
     return
   }

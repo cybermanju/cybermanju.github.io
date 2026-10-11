@@ -555,8 +555,17 @@ export const useAppStore = defineStore('cybermanju', () => {
             notifyError('Device files need a home folder', e)
             return
           }
+          // No folder picker in this browser: the Install window carries
+          // the way out (native app per platform, App × CLI) — fired as an
+          // event because the store cannot import the window manager.
           files.value = []
-          notifyError('Device files need the app', 'open this vault in the desktop app or the native Android build to browse the device')
+          try {
+            const { requestInstallWindow } = await import('@/utils/installLinks')
+            requestInstallWindow('host-unsupported')
+          } catch {
+            // Event bus unavailable — the toast below still explains.
+          }
+          notifyError('Device files need the app', 'this browser has no folder picker — install options are opening')
           return
         }
         const { listHostDir } = await import('@/utils/hostBrowse')

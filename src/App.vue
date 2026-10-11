@@ -37,6 +37,7 @@ import SetupWizard from '@/components/SetupWizard.vue'
 import MobileSetupWizard from '@/components/MobileSetupWizard.vue'
 import { isAndroidApp, isTauri, isTauriMobile } from '@/composables/useTauri'
 import { setupSeen } from '@/utils/setupWizard'
+import { INSTALL_EVENT } from '@/utils/installLinks'
 import MobileNav from '@/components/MobileNav.vue'
 import ContextMenu from '@/components/ContextMenu.vue'
 import type { PanelType } from '@/types'
@@ -627,6 +628,14 @@ const openAccountsWindow = (event?: Event) => {
   if (store.currentPanel === 'landing') store.currentPanel = 'files'
   wm.open('accounts')
 }
+// `unsupported:` host paths (no folder picker) land here via
+// `requestInstallWindow()` — the Install window opens center-screen with
+// per-platform native builds (App × CLI) instead of a dead-end toast.
+const openInstallWindow = (event?: Event) => {
+  const detail = (event as CustomEvent<{ reason?: string }> | undefined)?.detail
+  if (store.currentPanel === 'landing') store.currentPanel = 'files'
+  wm.open('install', { reason: detail?.reason ?? 'host-unsupported' })
+}
 const refreshAuthGate = () => void store.checkAuthStatus()
 
 function isAndroidWebView(): boolean {
@@ -765,6 +774,7 @@ onMounted(() => {
   window.addEventListener('cybermanju:upload', handleUpload)
   window.addEventListener('cybermanju:open-accounts', openAccountsWindow)
   window.addEventListener('cybermanju:open-setup', openSetupFromApp)
+  window.addEventListener(INSTALL_EVENT, openInstallWindow)
   // Fresh instance (first run, e.g. a new WASM/Pages deploy with empty
   // site data): offer the OAuth + `.cybermanju` onboarding immediately,
   // over the landing screen — DesktopShell (and its copy of the wizard) is
@@ -803,6 +813,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', openAgent)
   window.removeEventListener('cybermanju:open-accounts', openAccountsWindow)
   window.removeEventListener('cybermanju:open-setup', openSetupFromApp)
+  window.removeEventListener(INSTALL_EVENT, openInstallWindow)
   window.removeEventListener('cybermanju:oauth-return', handleMobileOAuthReturn)
   window.removeEventListener('cybermanju:open-login', refreshAuthGate)
   window.removeEventListener('popstate', handleAndroidBack)

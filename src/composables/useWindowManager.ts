@@ -109,6 +109,7 @@ const SecretsPanel = asyncPanel(() => import('@/components/SecretsPanel.vue'))
 const DevicesPanel = asyncPanel(() => import('@/components/DevicesPanel.vue'))
 const AccountManagerPanel = asyncPanel(() => import('@/components/AccountManagerPanel.vue'))
 const TransferGraph = asyncPanel(() => import('@/components/TransferGraph.vue'))
+const InstallPanel = asyncPanel(() => import('@/components/InstallPanel.vue'))
 
 export interface WindowState {
   id: string
@@ -174,6 +175,7 @@ const defaultSizes: SizeMap = {
   permissions: { width: 440, height: 380 },
   preview: { width: 480, height: 540 },
   secrets: { width: 860, height: 600 },
+  install: { width: 880, height: 620 },
 }
 
 const inlinePanels: PanelType[] = [
@@ -211,6 +213,7 @@ const panelComponentMap: Record<string, Component> = {
   preview: FileManager,
   webdash: WebDashboardPanel,
   secrets: SecretsPanel,
+  install: InstallPanel,
 }
 
 function getComponent(panelType: PanelType): Component | null {
