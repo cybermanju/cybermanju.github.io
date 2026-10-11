@@ -346,9 +346,28 @@ cyb sh "disk list" | cyb run job.cybsh | cyb repl   # the same cybsh everywhere
 cyb ai prompt <config> "summarize the vault" --follow
 ```
 
-Go (cobra + Lipgloss/Bubbles/Huh/Glamour) in `cli/`, REST-first against the
-dashboard, checksum-verified self-updates (`cyb update`). Releases ship
-`cyb-<os>-<arch>.tar.gz` × 6 alongside the desktop families.
+Go (cobra + Lipgloss/Bubbles/Huh/Glamour) in `cli/`, checksum-verified
+self-updates (`cyb update`). Releases ship `cyb-<os>-<arch>.tar.gz` × 6,
+`cyb_<ver>_<arch>.deb` × 2, plus `SHA256SUMS` alongside the desktop
+families (`install.sh` uses tarballs; Windows zips carry `cyb.exe`).
+
+Backends (`cyb backend use …`) — one CLI, four ways to reach a vault:
+`remote` (any dashboard URL) · `docker` (`cyb serve up` under the hood) ·
+`native` (installed deb/AppImage/dmg/apk/Windows app's localhost
+dashboard, auto-probed) · `supabase` (broker-direct, read-only: Supabase
+Auth + provider repo/file/project lists, encrypted blobs stay opaque —
+full power needs a dashboard). `cyb doctor` checks all of them.
+
+| Area | Commands |
+|---|---|
+| Onboarding | `setup` (splash → probe → register/login) · `serve up/status/stop` (Docker) · `login/logout` · `config` · `doctor` (8 health checks) |
+| Files | `files ls/info/mkdir/rename/trash/restore/empty-trash` · `cat/write` (1 MiB, versioned) · `versions/snapshot/revert/snapshot-all` · `batch delete/encrypt/compress` |
+| Sync | `sync configs/create/rm/start --wait/job/status/progress/cancel` · `move` (provider↔provider) · `test/remote/usage/runs/restore/remote-rm/create-repo/upload` |
+| Disks | `disk list/create/attach/detach/resize/check/df/key-holder/destroy` (Argon2id+ChaCha, passphrase never logged) |
+| OAuth | `oauth launch <github\|google\|gitlab> --config` (browser + verify) · `oauth status` |
+| Organize | `collections` · `accounts` · `loose` · `faces` (engine-labeled) · `share` · `audit` |
+| Ops | `sh` (one line) · `run` (.cybsh --dry/--lint/--fmt) · `repl` (Bubble Tea) · `cron` · `repair/scrub/lease` · `search/suggest/geo` · `secrets` (sealed) · `crypto` · `code parse` · `users/perms` (admin) |
+| AI | `ai providers/configs/new/session/forget/import` · `prompt --follow` (Glamour) · `status/abort/approve` · `init/compact/key/models/mcp*/mem` |
 
 ### 📱·🍎·🪟 Everywhere else
 

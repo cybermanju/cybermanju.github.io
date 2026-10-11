@@ -8,12 +8,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// CyberManju Charm palette — hot pink into signal red on near-black.
+// CyberManju Charm palette — hot pink into signal red on near-black,
+// with cyberpunk neon cyan + hazard yellow accents.
 const (
 	PinkHot  = "#FF5FA2"
 	PinkDeep = "#C9184A"
 	RedHot   = "#FF2222"
 	RedDeep  = "#8D0801"
+	CyanNeon = "#00F0FF"
+	YellowHz = "#FFE600"
 	IceWhite = "#FFF0F5"
 	DimGray  = "#8A8A93"
 )
@@ -75,4 +78,31 @@ func CharmTheme() *huh.Theme {
 // NewForm builds a Huh form in the CyberManju Charm theme.
 func NewForm(groups ...*huh.Group) *huh.Form {
 	return huh.NewForm(groups...).WithTheme(CharmTheme()).WithShowHelp(false)
+}
+
+// Logo is the cyberpunk mark: gradient blades over the wordmark.
+func Logo() string {
+	blades := Gradient("/// CYBERMANJU_OS v1", CyanNeon, PinkHot)
+	word := Gradient("◈ cyb", PinkHot, RedHot)
+	return blades + "\n" + word
+}
+
+// Rule renders a deterministic neon divider (pink/cyan segments).
+func Rule(width int) string {
+	if width < 8 {
+		width = 8
+	}
+	if width > 80 {
+		width = 80
+	}
+	pink := lipgloss.NewStyle().Foreground(lipgloss.Color(PinkHot)).Render(strings.Repeat("━", width/2))
+	cyan := lipgloss.NewStyle().Foreground(lipgloss.Color(CyanNeon)).Render(strings.Repeat("━", width-width/2))
+	return pink + cyan
+}
+
+// Splash is the setup/boot header: logo + tagline + rule.
+func Splash(version string) string {
+	return Logo() + "  " + Dim.Render("v"+strings.TrimPrefix(version, "v")) + "\n" +
+		Dim.Render("your vault · your cloud · your terminal") + "\n" +
+		Rule(48)
 }

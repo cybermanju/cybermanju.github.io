@@ -75,3 +75,57 @@ func TestResolutionOrder(t *testing.T) {
 		t.Fatalf("default: %s", got)
 	}
 }
+
+func TestExpiry(t *testing.T) {
+	withHome(t)
+	f := File{Token: "abc"}.WithExpiry(3600)
+	if f.Expired() {
+		t.Fatal("fresh token must not be expired")
+	}
+	if (File{Token: "abc"}).Expired() {
+		t.Fatal("unknown expiry must not count as expired")
+	}
+	if (File{}).Expired() {
+		t.Fatal("empty profile must not count as expired")
+	}
+	if err := Save(File{Server: "http://x:3456", Token: "abc"}.WithExpiry(-5)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ExpiresAt != "" {
+		t.Fatalf("non-positive expiry must not stamp, got %q", got.ExpiresAt)
+	}
+}
+
+func TestBackendResolution(t *testing.T) {
+	withHome(t)
+	// Default is remote → stored chain → default server.
+	if got := ResolveDashboard("", File{}); got != DefaultServer {
+		t.Fatalf("default remote: %s", got)
+	}
+	// Supabase mode has no dashboard, even with a saved server.
+	f := File{Server: "http://x:3456", Backend: Backend{Type: BackendSupabase}}
+	if got := ResolveDashboard("", f); got != "" {
+		t.Fatalf("supabase must resolve empty, got %s", got)
+	}
+	// Docker/native resolve to loopback ports.
+	f = File{Backend: Backend{Type: BackendDocker, DockerPort: 3457}}
+	if got := ResolveDashboard("", f); got != "http://127.0.0.1:3457" {
+		t.Fatalf("docker: %s", got)
+	}
+	f = File{Backend: Backend{Type: BackendNative}}
+	if got := ResolveDashboard("", f); got != "http://127.0.0.1:3456" {
+		t.Fatalf("native default port: %s", got)
+	}
+	// Explicit flag always wins.
+	if got := ResolveDashboard("http://other:9999/", f); got != "http://other:9999" {
+		t.Fatalf("flag: %s", got)
+	}
+	// Supa expiry mirrors JWT semantics.
+	if (&SupaSession{}).Expired() {
+		t.Fatal("empty supa must not be expired")
+	}
+}

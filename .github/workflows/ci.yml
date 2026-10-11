@@ -861,7 +861,7 @@ jobs:
         working-directory: cli
         run: |
           go vet ./...
-          go test ./...
+          go test -race -count=1 ./...
 
       - name: Cross-compile cyb (linux/darwin/windows × amd64/arm64)
         working-directory: cli
@@ -880,6 +880,10 @@ jobs:
             tar -czf "dist-cli/cyb-$1-$2.tar.gz" -C "build-$1-$2" "$bin"
           done
           ls -la dist-cli/
+
+      - name: Build .debs (linux amd64/arm64)
+        working-directory: cli
+        run: bash ../scripts/cyb-deb.sh "$(node -p "require('../package.json').version")" . dist-cli
 
       - name: Upload CLI artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

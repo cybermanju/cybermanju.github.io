@@ -37,6 +37,7 @@ var loginCmd = &cobra.Command{
 		f := profile()
 		f.Server = c.BaseURL
 		f.Token = resp.Token
+		f = f.WithExpiry(resp.ExpiresIn)
 		if err := config.Save(f); err != nil {
 			return err
 		}

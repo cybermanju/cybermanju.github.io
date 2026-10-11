@@ -750,7 +750,7 @@ jobs:
         working-directory: cli
         run: |
           go vet ./...
-          go test ./...
+          go test -race -count=1 ./...
 
       - name: Cross-compile cyb (linux/darwin/windows × amd64/arm64)
         working-directory: cli
@@ -769,6 +769,10 @@ jobs:
             tar -czf "dist-cli/cyb-$1-$2.tar.gz" -C "build-$1-$2" "$bin"
           done
           ls -la dist-cli/
+
+      - name: Build .debs (linux amd64/arm64)
+        working-directory: cli
+        run: bash ../scripts/cyb-deb.sh "$(node -p "require('../package.json').version")" . dist-cli
 
       - name: Upload CLI artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -882,6 +886,7 @@ jobs:
           need release-android '*.apk'
           need release-android '*.aab'
           need release-cli 'cyb-*.tar.gz'
+          need release-cli 'cyb_*.deb'
           need dist-wasm 'index.html'
           exit $missing
 
@@ -1033,7 +1038,7 @@ jobs:
           check release-arch     "*.AppImage"
           check release-macos    "*.dmg"
           check release-android  "*.apk" "*.aab"
-          check release-cli      "cyb-*.tar.gz"
+          check release-cli      "cyb-*.tar.gz" "cyb_*.deb"
           check dist-wasm        "index.html"
           exit $missing
 
@@ -1134,6 +1139,7 @@ jobs:
           copy_files artifacts/release-macos "" '*.dmg'
           copy_files artifacts/release-android "" '*.apk' '*.aab'
           copy_files artifacts/release-cli "" 'cyb-*.tar.gz'
+          copy_files artifacts/release-cli "" 'cyb_*.deb'
 
           # Web stays a zip: it is a directory tree (index.html + assets),
           # not a single installable file.
