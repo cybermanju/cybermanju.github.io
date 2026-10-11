@@ -43,6 +43,7 @@
 
           <p v-if="!browser.supported" class="drawer-note">
             Android apps list in the native Android build. This device shows the CyberManju panels instead.
+            <button class="drawer-btn" type="button" @click="openInstall">Install options</button>
           </p>
 
           <div v-else-if="browser.status.value === 'loading'" class="drawer-state" role="status">
@@ -192,11 +193,17 @@ import {
   orderAndroidApps,
   type OrderedApp,
 } from '@/utils/launcher'
+import { requestInstallWindow } from '@/utils/installLinks'
 import type { IconPack } from '@/types'
 
 const browser = useAndroidApps()
 const launcher = useLauncherStore()
 const store = useAppStore()
+
+/** Open the Install window (native builds per platform, App × CLI). */
+function openInstall() {
+  requestInstallWindow('needs-app')
+}
 
 const query = ref('')
 const active = ref<OrderedApp | null>(null)

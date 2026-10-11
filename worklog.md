@@ -1174,3 +1174,33 @@ Stage Summary:
   macos/android/wasm, docker, CLI, audit, meta. This also proves the 175
   `#[tauri::command(async)]` conversions + the release LTO profile compile
   and pass on every target.
+
+## 2026-10-11 — Pages toast `Table 'schedules' does not exist`: wasm `open_all_tables` lagged native
+- Root cause: `crates/os-wasm/src/db.rs::open_all_tables` created 32 of the
+  37 tables — missing `schedules`, `schedule_runs`, `agent_configs`,
+  `agent_sessions`, `agent_memories` (native `Database::new` creates all of
+  them on every open). A read txn errors `Table '<name>' does not exist` for
+  any skipped table, so on the static host `cron.list` failed on every fresh
+  browser DB and the store toasted `Failed to fetch schedules` on init, the
+  Schedules tab, and the 30 s browser tick. Writes (`cron.save`, `runRecord`)
+  masked it — write txns create-on-open — so the bug only showed pre-first-save.
+- Fix: the 5 missing `open_table` calls (same pattern as the neighbors, plus
+  a lockstep comment pointing at `crates/db/src/database.rs` so the list
+  can't silently drift again) + `open_tables_tests` regression test in the
+  same file (in-memory backend, asserts the cron + agent tables open for
+  read after `open_all_tables`). Rust validation left to CI per repo rules.
+- Verified: check-version.sh green, check-file-headers.sh 475/475, vitest
+  62 files / 715 tests green.
+- 2026-10-11 — WASM Host folders + Install window: `/host` browses the
+  picked `$HOME` folder on static builds (File System Access dialog,
+  `src/utils/hostWasm.ts`, same namespace/ids as Tauri; `hostBrowse`
+  delegates per-verb, store + FileManager unchanged in shape). Browsers
+  without a picker (`unsupported:`) now open a center-screen Install window
+  (`InstallPanel.vue`, PanelType `install`) with per-platform logos and
+  direct links — Android APK/AAB, Ubuntu deb/AppImage/rpm/Flatpak, Arch
+  AUR/AppImage, Windows MSI/EXE, macOS DMG, Docker/GHCR — each App x CLI
+  with copyable commands and live GitHub-release asset resolution
+  (`src/utils/installLinks.ts`, release-page fallback). Triggered from
+  FileManager + store via `cybermanju:open-install` (App.vue opens it).
+  715 frontend tests green (incl. new `install-links`), vue-tsc + icons +
+  headers + versions green.

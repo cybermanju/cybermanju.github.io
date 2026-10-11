@@ -55,15 +55,18 @@ function glowTexture(color: string): THREE.CanvasTexture {
   let tex = glowTexCache.get(color);
   if (!tex) {
     const c = document.createElement('canvas');
-    c.width = c.height = 128;
+    // Tiny canvas on purpose: magnified with NearestFilter the glow reads
+    // as chunky pixel-art light instead of a photorealistic gradient.
+    c.width = c.height = 24;
     const g = c.getContext('2d')!;
-    const grad = g.createRadialGradient(64, 64, 2, 64, 64, 64);
+    const grad = g.createRadialGradient(12, 12, 1, 12, 12, 12);
     grad.addColorStop(0, color);
-    grad.addColorStop(0.35, color + 'aa');
+    grad.addColorStop(0.4, color + 'aa');
     grad.addColorStop(1, color + '00');
     g.fillStyle = grad;
-    g.fillRect(0, 0, 128, 128);
+    g.fillRect(0, 0, 24, 24);
     tex = new THREE.CanvasTexture(c);
+    tex.magFilter = THREE.NearestFilter;
     glowTexCache.set(color, tex);
   }
   return tex;
@@ -83,33 +86,66 @@ function glowSprite(color: string, size: number, opacity: number): THREE.Sprite 
   return sp;
 }
 
-function textSprite(text: string, h = 1.05): THREE.Sprite {
+// Pixel-art nameplate: opaque dark plate, chunky accent frame with stepped
+// corner rivets, bitmap type (Silkscreen) with a hard black outline. Plates
+// live in labelScene and render AFTER the post chain (see tick), so bloom +
+// tone mapping can never smear the type — labels stay crisp at any distance.
+function textSprite(text: string, h = 1.15, accent = '#a855f7'): THREE.Sprite {
   const c = document.createElement('canvas');
   const g = c.getContext('2d')!;
-  const font = '700 46px "Baloo 2", system-ui, sans-serif';
+  const font = '700 56px "Silkscreen", "Baloo 2", ui-monospace, monospace';
   g.font = font;
-  const w = Math.ceil(g.measureText(text).width) + 56;
-  c.width = w;
-  c.height = 84;
+  const padX = 34;
+  const plateH = 118;
+  c.width = Math.ceil(g.measureText(text).width) + padX * 2;
+  c.height = plateH;
   const g2 = c.getContext('2d')!;
+  // Opaque plate — nothing (starfield, nebulae, bloom) shines through.
+  g2.fillStyle = '#0a0514';
+  g2.fillRect(0, 0, c.width, c.height);
+  // Chunky 8px accent frame.
+  g2.fillStyle = accent;
+  g2.fillRect(0, 0, c.width, 8);
+  g2.fillRect(0, c.height - 8, c.width, 8);
+  g2.fillRect(0, 0, 8, c.height);
+  g2.fillRect(c.width - 8, 0, 8, c.height);
+  // Stepped corner rivets (white block + accent core = pixel-notch detail).
+  for (const [rx, ry] of [
+    [0, 0],
+    [c.width - 16, 0],
+    [0, c.height - 16],
+    [c.width - 16, c.height - 16],
+  ]) {
+    g2.fillStyle = '#f5f3ff';
+    g2.fillRect(rx, ry, 16, 16);
+    g2.fillStyle = accent;
+    g2.fillRect(rx + 4, ry + 4, 8, 8);
+  }
   g2.font = font;
   g2.textBaseline = 'middle';
-  // Pill backdrop so labels read over the starfield.
-  g2.fillStyle = 'rgba(13,7,20,0.72)';
-  g2.beginPath();
-  g2.roundRect(2, 6, w - 4, 72, 36);
-  g2.fill();
-  g2.strokeStyle = 'rgba(168,85,247,0.55)';
-  g2.lineWidth = 2;
-  g2.stroke();
-  g2.fillStyle = '#f5f3ff';
-  g2.fillText(text, 28, 44);
+  g2.lineJoin = 'miter';
+  g2.miterLimit = 2;
+  // Hard black outline first, then the bright fill — readable on any bg.
+  g2.strokeStyle = '#000000';
+  g2.lineWidth = 10;
+  g2.strokeText(text, padX, plateH / 2 + 3);
+  g2.fillStyle = '#ffffff';
+  g2.fillText(text, padX, plateH / 2 + 3);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
+  // Nearest on magnify: chunky pixels when zoomed in, mipmapped when far.
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
   const sp = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }),
+    new THREE.SpriteMaterial({
+      map: tex,
+      transparent: false,
+      depthWrite: false,
+      toneMapped: false,
+    }),
   );
-  sp.scale.set((h * w) / 84, h, 1);
+  sp.scale.set((h * c.width) / plateH, h, 1);
+  sp.userData.baseScale = sp.scale.clone();
   return sp;
 }
 
@@ -144,8 +180,17 @@ function manjuFace(): THREE.CanvasTexture {
   g.beginPath();
   g.arc(128, 138, 20, Math.PI * 0.2, Math.PI * 0.8);
   g.stroke();
+  // Pixelate the face: crush to 32px and blow back up with no smoothing,
+  // so the mascot matches the voxel scenery instead of looking airbrushed.
+  const tiny = document.createElement('canvas');
+  tiny.width = tiny.height = 32;
+  tiny.getContext('2d')!.drawImage(c, 0, 0, 32, 32);
+  g.imageSmoothingEnabled = false;
+  g.clearRect(0, 0, 256, 256);
+  g.drawImage(tiny, 0, 0, 256, 256);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.NearestFilter;
   return tex;
 }
 
@@ -173,6 +218,21 @@ async function boot(): Promise<void> {
   }
   const byId = new Map(data.subjects.map((s) => [s.id, s]));
 
+  // Pixel-art type: wait (briefly) for the bitmap font so canvas nameplates
+  // are measured and rasterized in Silkscreen. Offline/slow fonts fall back
+  // to Baloo 2 / monospace — still legible, just less blocky.
+  try {
+    await Promise.race([
+      Promise.all([
+        document.fonts.load('700 56px "Silkscreen"'),
+        document.fonts.load('400 56px "Silkscreen"'),
+      ]),
+      new Promise((r) => window.setTimeout(r, 1200)),
+    ]);
+  } catch {
+    /* font API unavailable — use the fallback stack */
+  }
+
   // ── Scene ────────────────────────────────────────────────
   const mount = document.getElementById('scene')!;
   const renderer = new THREE.WebGLRenderer({
@@ -196,7 +256,11 @@ async function boot(): Promise<void> {
   mount.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x0d0714, 0.011);
+  scene.fog = new THREE.FogExp2(0x0d0714, 0.0095);
+  // HUD layer: every text nameplate lives here and renders AFTER the post
+  // chain (see tick) — no bloom, no fog, no lights, no tone mapping.
+  // Labels keep full brightness and razor edges at any orbit distance.
+  const labelScene = new THREE.Scene();
 
   const camera = new THREE.PerspectiveCamera(
     55,
@@ -204,14 +268,14 @@ async function boot(): Promise<void> {
     0.1,
     400,
   );
-  camera.position.set(0, 8.5, 30);
+  camera.position.set(0, 9.5, 36);
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.target.set(0, 1.5, 0);
   controls.enableDamping = true;
   controls.dampingFactor = 0.06;
   controls.minDistance = 9;
-  controls.maxDistance = 70;
+  controls.maxDistance = 80;
   controls.maxPolarAngle = 1.68;
   controls.autoRotate = !REDUCED;
   controls.autoRotateSpeed = 0.55;
@@ -313,15 +377,37 @@ async function boot(): Promise<void> {
   scene.add(mascot);
 
   // ── Subject nodes on two tilted rings ────────────────────
+  // Wide radii (≈12 / ≈16 units between neighbors) so voxels + nameplates
+  // never crowd each other, even with all 16 modules on screen.
   const nodes: THREE.Mesh[] = [];
   const nodeBase: THREE.Vector3[] = [];
   const nodeLabels: THREE.Sprite[] = [];
-  const nodeRings: THREE.Mesh[] = [];
+  const nodeRings: THREE.LineLoop[] = [];
   const nodeById = new Map<string, THREE.Mesh>();
   const lines: THREE.Line[] = [];
+  // Shared voxel kit: one cube + one edge frame + one pixel-square orbit
+  // path for all nodes (materials stay per-node — emissive animates).
+  const nodeGeo = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+  const nodeEdgeGeo = new THREE.EdgesGeometry(nodeGeo);
+  const nodeEdgeMat = new THREE.LineBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.7,
+  });
+  const squareGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-1.55, 0, -1.55),
+    new THREE.Vector3(1.55, 0, -1.55),
+    new THREE.Vector3(1.55, 0, 1.55),
+    new THREE.Vector3(-1.55, 0, 1.55),
+  ]);
+  const squareMat = new THREE.LineBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.5,
+  });
   const ringDefs = [
-    { r: 11.5, y: 3.4, tilt: 0.12 },
-    { r: 15.0, y: -0.6, tilt: -0.1 },
+    { r: 15.5, y: 4.4, tilt: 0.12 },
+    { r: 20.5, y: -1.4, tilt: -0.1 },
   ];
   data.subjects.forEach((sub, ix) => {
     const ring = ringDefs[ix % 2];
@@ -335,15 +421,18 @@ async function boot(): Promise<void> {
     );
     const color = new THREE.Color(sub.color);
     const mesh = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(0.85, 1),
+      nodeGeo,
       new THREE.MeshStandardMaterial({
         color,
         emissive: color,
         emissiveIntensity: 0.55,
-        roughness: 0.3,
-        metalness: 0.15,
+        roughness: 0.55,
+        metalness: 0.1,
+        flatShading: true,
       }),
     );
+    // Voxel edge frame rides the cube (inherits scale/rotation, zero upkeep).
+    mesh.add(new THREE.LineSegments(nodeEdgeGeo, nodeEdgeMat));
     mesh.position.copy(pos);
     mesh.userData.id = sub.id;
     scene.add(mesh);
@@ -351,45 +440,42 @@ async function boot(): Promise<void> {
     nodeBase.push(pos.clone());
     nodeById.set(sub.id, mesh);
 
-    const orbit = new THREE.Mesh(
-      new THREE.TorusGeometry(1.3, 0.028, 10, 48),
-      new THREE.MeshBasicMaterial({
-        color: 0xffffff,
-        transparent: true,
-        opacity: 0.35,
-      }),
-    );
+    // Voxel orbit frame: a spinning white pixel-square, not a torus.
+    const orbit = new THREE.LineLoop(squareGeo, squareMat);
     orbit.position.copy(pos);
     orbit.rotation.x = Math.PI / 2.4;
     scene.add(orbit);
     nodeRings.push(orbit);
 
-    const label = textSprite(sub.title);
-    label.position.copy(pos).add(new THREE.Vector3(0, 1.7, 0));
-    scene.add(label);
+    const label = textSprite(sub.title, 1.15, sub.color);
+    label.position.copy(pos).add(new THREE.Vector3(0, 2.05, 0));
+    labelScene.add(label);
     nodeLabels.push(label);
 
     const geo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 1.6, 0),
       pos,
     ]);
+    // Spoke tinted with the module's own color — the wire tells you whose
+    // node it reaches even before the nameplate resolves.
     const link = new THREE.Line(
       geo,
       new THREE.LineBasicMaterial({
-        color: 0xa855f7,
+        color,
         transparent: true,
-        opacity: 0.22,
+        opacity: 0.3,
       }),
     );
     scene.add(link);
     lines.push(link);
   });
 
-  // Festival lanterns: ONE draw call (InstancedMesh, per-instance color)
+  // Voxel lanterns: ONE draw call (InstancedMesh, per-instance color)
   // instead of one sprite each. Basic material + bloom does the glowing.
+  // Boxes, not spheres — drifting pixels that match the voxel scenery.
   const LANTERN_N = REDUCED ? 0 : 70;
   const lanternMesh = new THREE.InstancedMesh(
-    new THREE.SphereGeometry(0.11, 8, 8),
+    new THREE.BoxGeometry(0.22, 0.22, 0.22),
     new THREE.MeshBasicMaterial({ toneMapped: false }),
     Math.max(LANTERN_N, 1),
   );
@@ -460,9 +546,11 @@ async function boot(): Promise<void> {
     (burstGeo.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
   }
 
-  // Selection beacon: light pillar + expanding ring, recolored per subject.
+  // Selection beacon: square light prism + square pulse ring, recolored
+  // per subject. 4-sided geometry keeps the voxel look; the prism is spun
+  // 45° so its faces (not its edges) face the camera at rest.
   const beacon = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.32, 0.55, 7, 20, 1, true),
+    new THREE.CylinderGeometry(0.45, 0.68, 7, 4, 1, true),
     new THREE.MeshBasicMaterial({
       color: 0xa855f7,
       transparent: true,
@@ -472,10 +560,13 @@ async function boot(): Promise<void> {
       side: THREE.DoubleSide,
     }),
   );
+  beacon.rotation.y = Math.PI / 4;
   beacon.visible = false;
   scene.add(beacon);
+  const pulseGeo = new THREE.RingGeometry(1.0, 1.3, 4);
+  pulseGeo.rotateZ(Math.PI / 4); // diamond → axis-aligned pixel square
   const pulse = new THREE.Mesh(
-    new THREE.RingGeometry(0.9, 1.1, 48),
+    pulseGeo,
     new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -527,12 +618,19 @@ async function boot(): Promise<void> {
     tip: string;
   }
   let sats: Sat[] = [];
-  const satGeo = new THREE.IcosahedronGeometry(0.3, 1);
+  // Shared voxel kit for satellites (mirrors the node kit above).
+  const satGeo = new THREE.BoxGeometry(0.55, 0.55, 0.55);
+  const satEdgeGeo = new THREE.EdgesGeometry(satGeo);
+  const satEdgeMat = new THREE.LineBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.65,
+  });
 
   function clearSats(): void {
     for (const s of sats) {
       scene.remove(s.mesh);
-      scene.remove(s.label);
+      labelScene.remove(s.label);
       scene.remove(s.link);
       (s.mesh.material as THREE.Material).dispose();
       (s.label.material as THREE.SpriteMaterial).map?.dispose();
@@ -577,13 +675,15 @@ async function boot(): Promise<void> {
           color,
           emissive: color,
           emissiveIntensity: 0.9,
-          roughness: 0.35,
+          roughness: 0.5,
+          flatShading: true,
         }),
       );
+      mesh.add(new THREE.LineSegments(satEdgeGeo, satEdgeMat));
       mesh.userData = { sat: true, kind: it.kind, subId: it.subId, symName: it.symName };
       scene.add(mesh);
-      const label = textSprite(it.label, 0.62);
-      scene.add(label);
+      const label = textSprite(it.label, 0.62, it.color);
+      labelScene.add(label);
       const linkPos = new THREE.BufferAttribute(new Float32Array(6), 3);
       const linkGeo = new THREE.BufferGeometry();
       linkGeo.setAttribute('position', linkPos);
@@ -639,7 +739,7 @@ async function boot(): Promise<void> {
     if (REDUCED) return;
     fly = {
       fromPos: camera.position.clone(),
-      toPos: new THREE.Vector3(0, 8.5, 30),
+      toPos: new THREE.Vector3(0, 9.5, 36),
       t0: performance.now(),
       dur: 1400,
     };
@@ -1077,14 +1177,20 @@ async function boot(): Promise<void> {
       mesh.scale.setScalar(s);
       mesh.rotation.y += active ? 0.012 : 0.003;
       mesh.rotation.x += 0.001;
-      // Gentle per-node bob (phased) + labels and orbit rings follow.
+      // Gentle per-node bob (phased) + nameplates and orbit frames follow.
       if (!REDUCED) {
         const bob = Math.sin(t * 1.1 + ix * 1.7) * 0.28;
         mesh.position.y = nodeBase[ix].y + bob;
-        nodeLabels[ix].position.set(mesh.position.x, mesh.position.y + 1.7, mesh.position.z);
+        nodeLabels[ix].position.set(mesh.position.x, mesh.position.y + 2.05, mesh.position.z);
         nodeRings[ix].position.copy(mesh.position);
         nodeRings[ix].rotation.z += 0.004;
       }
+      // Selected / hovered nameplates pop (HUD-scale punch, never bloom).
+      const lab = nodeLabels[ix];
+      const base = lab.userData.baseScale as THREE.Vector3;
+      const boost =
+        id === selected ? 1.14 + Math.sin(t * 4) * 0.04 : id === hovered ? 1.07 : 1;
+      lab.scale.set(base.x * boost, base.y * boost, 1);
     });
     // Satellites orbit the selected node; tethers follow both endpoints.
     if (sats.length) {
@@ -1096,7 +1202,7 @@ async function boot(): Promise<void> {
           const pz = center.z + Math.sin(s.angle) * s.radius;
           const py = center.y + s.yOff + (REDUCED ? 0 : Math.sin(t * 1.6 + s.angle * 2) * 0.15);
           s.mesh.position.set(px, py, pz);
-          s.label.position.set(px, py + 0.62, pz);
+          s.label.position.set(px, py + 0.72, pz);
           const p = s.linkPos.array as Float32Array;
           p[0] = center.x; p[1] = center.y; p[2] = center.z;
           p[3] = px; p[4] = py; p[5] = pz;
@@ -1113,7 +1219,7 @@ async function boot(): Promise<void> {
     lines.forEach((link, ix) => {
       const on = data.subjects[ix]?.id === selected;
       const lm = link.material as THREE.LineBasicMaterial;
-      lm.opacity += ((on ? 0.65 : 0.22) - lm.opacity) * 0.15;
+      lm.opacity += ((on ? 0.7 : 0.3) - lm.opacity) * 0.15;
     });
     // Eased flight + FOV punch while travelling.
     if (fly) {
@@ -1130,6 +1236,12 @@ async function boot(): Promise<void> {
     controls.update();
     if (BLOOM_OK) composer.render();
     else renderer.render(scene, camera);
+    // HUD pass: nameplates draw straight to screen (no bloom, no fog, no
+    // tone mapping), so the pixel type stays razor sharp over the scenery.
+    renderer.autoClear = false;
+    renderer.clearDepth();
+    renderer.render(labelScene, camera);
+    renderer.autoClear = true;
     // Adaptive resolution (production-site staple): sustained slow frames
     // step DPR down, sustained fast frames step it back up.
     frameAcc += dt * 1000;

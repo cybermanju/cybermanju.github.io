@@ -8,6 +8,8 @@ import {
   INSTALL_REPO,
   INSTALL_TAG_URLS,
   INSTALL_TARGETS,
+  installReasonFor,
+  isInstallNeededError,
   pickInstallAssetUrls,
   releaseAssetUrl,
   releasePageUrl,
@@ -101,5 +103,49 @@ describe('install panel registration', () => {
 
   it('fires the open-install event without throwing headless', () => {
     expect(() => requestInstallWindow('host-unsupported')).not.toThrow()
+  })
+})
+
+describe('isInstallNeededError (central notifyError net)', () => {
+  it('matches every native-build wording shown in the app', () => {
+    const cases = [
+      'Device files need the app: this browser has no folder picker — install options are opening',
+      'unsupported: this browser has no folder picker (showDirectoryPicker)',
+      'Cannot pick a home folder: unsupported: this browser has no folder picker — use Chrome/Edge over HTTPS',
+      'No File System Access API in this browser — use Export / Import instead',
+      '[Web Mode] Command "upload_file" requires the Tauri desktop app and is not available through the Web Dashboard REST API.',
+      'Save failed: [Web Mode] binary files need the desktop app or dashboard server to enter the vault',
+      'unsupported: Android apps need the native Android build — open this vault in the Android app',
+      'Vault Mirror requires the native Android or iOS app.',
+      'unsupported: writes need the dashboard for local mounts',
+      'unsupported: deletes need the dashboard for local mounts',
+      'unsupported: MCP server `x` uses stdio — stdio needs the desktop app or Docker server (spawn processes)',
+      "unsupported: 'os_exec -os' addresses the host filesystem — run it in the desktop app",
+      'open this vault in the desktop app or the native Android build to browse the device',
+    ]
+    for (const c of cases) expect(isInstallNeededError(c), c).toBe(true)
+  })
+
+  it('ignores provider-shaped unsupported (their fix is not installing)', () => {
+    const cases = [
+      'unsupported: GitHub repo has no owner/name yet — create it first',
+      "unsupported: Drive path 'a' is invalid",
+      "unsupported: compress layer 'foo' (none|lz4|zstd|brotli|triple)",
+      'unsupported: cron needs the local database',
+      'unsupported: encrypt needs the rebuilt wasm crypto bundle — reconnect after the next Pages deploy',
+      'unsupported: zstd needs the browser wasm bundle — reconnect after the next deploy',
+      'unsupported: repo creation is not supported for x (github + gitlab only)',
+      'not_found: vault file is missing',
+      'network: api.github.com is not reachable from this browser (offline or blocked)',
+      '',
+    ]
+    for (const c of cases) expect(isInstallNeededError(c), c).toBe(false)
+  })
+
+  it('maps picker wordings to the device-files reason, rest to general', () => {
+    expect(installReasonFor('no folder picker in this browser')).toBe('host-unsupported')
+    expect(installReasonFor('No File System Access API here')).toBe('host-unsupported')
+    expect(installReasonFor('needs the desktop app')).toBe('needs-app')
+    expect(installReasonFor('writes need the dashboard')).toBe('needs-app')
   })
 })

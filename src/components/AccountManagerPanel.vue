@@ -331,7 +331,9 @@
                 <button class="am-btn sm primary" type="button" :disabled="wizBusy || !wizardCanSave" @click="addProvider(true)">{{ wizBusy ? 'Verifying…' : 'Save & verify' }}</button>
                 <button class="am-btn sm" type="button" :disabled="wizBusy || !wizardCanSave" @click="addProvider(false)">Save</button>
                 <button class="am-btn sm" type="button" :disabled="wizBusy" @click="resetWizard()">Reset</button>
-                <span v-if="wizMsg" class="am-note" :class="wizOk === false ? 'err' : wizOk === true ? 'ok' : ''" style="margin:0;" role="status">{{ wizMsg }}</span>
+                <span v-if="wizMsg" class="am-note" :class="wizOk === false ? 'err' : wizOk === true ? 'ok' : ''" style="margin:0;" role="status">{{ wizMsg }}
+                  <button v-if="isNoPickerNote(wizMsg)" class="am-btn xs" type="button" @click="openInstall">Install options</button>
+                </span>
               </div>
             </div>
           </div>
@@ -416,10 +418,14 @@
                     </span>
                     <input v-else v-model="(draft(selectedCfg!) as any)[f.key]" class="am-input" :placeholder="f.placeholder" autocomplete="off" />
                     <span v-if="f.hint" class="am-field-hint">{{ f.hint }}</span>
-                    <span v-if="f.key === 'basePath' && selectedCfg.backendType === 'local'" class="am-field-hint">{{ localDirSupported ? 'Browse… fills this automatically (browser folder picker).' : 'No browser folder picker here — type the absolute path (desktop app).' }}</span>
+                    <span v-if="f.key === 'basePath' && selectedCfg.backendType === 'local'" class="am-field-hint">{{ localDirSupported ? 'Browse… fills this automatically (browser folder picker).' : 'No browser folder picker here — type the absolute path (desktop app).' }}
+                      <button v-if="!localDirSupported" class="am-btn xs" type="button" @click="openInstall">Install options</button>
+                    </span>
                   </label>
                 </div>
-                <p v-if="localPickMsg[selectedCfg.id]" class="am-note">{{ localPickMsg[selectedCfg.id] }}</p>
+                <p v-if="localPickMsg[selectedCfg.id]" class="am-note">{{ localPickMsg[selectedCfg.id] }}
+                  <button v-if="isNoPickerNote(localPickMsg[selectedCfg.id])" class="am-btn xs" type="button" @click="openInstall">Install options</button>
+                </p>
                 <p class="am-hint">{{ authGuidance(selectedCfg.backendType) }}</p>
 
                 <!-- git vault repo: pick an existing repo, or create one in step 5 -->
@@ -748,6 +754,7 @@ import {
 import { SYNC_BACKEND_INFO, describeSyncError, isOauthCapable } from '@/types'
 import type { DiskRow, SyncBackendType, SyncConfig } from '@/types'
 import { humanBytes, diskPct } from '@/utils/format'
+import { requestInstallWindow } from '@/utils/installLinks'
 import {
   authGuidance,
   backendLabel,
@@ -1110,6 +1117,15 @@ const driveSelected = ref('')
 const driveNewName = ref('cybermanju-vault')
 const localPickMsg = ref<Record<string, string>>({})
 
+/** A picker note is a missing-picker refusal — offer the installer next to it. */
+function isNoPickerNote(text: string): boolean {
+  return /no browser folder picker/i.test(String(text ?? ''))
+}
+/** Open the Install window (native builds per platform, App × CLI). */
+function openInstall() {
+  requestInstallWindow('host-unsupported')
+}
+
 const localDirSupported = computed(() => {
   try {
     return typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function'
@@ -1237,6 +1253,8 @@ async function pickLocalDir(cfg: SyncConfig): Promise<void> {
   const w = window as unknown as { showDirectoryPicker?: () => Promise<{ name: string }> }
   if (typeof w.showDirectoryPicker !== 'function') {
     localPickMsg.value[cfg.id] = 'No browser folder picker here — type the absolute path (desktop app).'
+    // Picker-less browser — open install options alongside the note.
+    requestInstallWindow('host-unsupported')
     return
   }
   try {
@@ -1263,6 +1281,8 @@ async function pickWizLocalDir(): Promise<void> {
   if (typeof w.showDirectoryPicker !== 'function') {
     wizMsg.value = 'No browser folder picker here — type the absolute path (desktop app).'
     wizOk.value = false
+    // Picker-less browser — open install options alongside the note.
+    requestInstallWindow('host-unsupported')
     return
   }
   try {

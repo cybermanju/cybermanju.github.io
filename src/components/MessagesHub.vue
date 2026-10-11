@@ -27,6 +27,7 @@
 
           <p v-if="!hub.supported" class="msg-note">
             Stored chats and mails live in the native Android build. This device shows the CyberManju panels instead.
+            <button class="msg-btn" type="button" @click="openInstall">Install options</button>
           </p>
 
           <template v-else>
@@ -118,6 +119,7 @@ import { useAndroidApps } from '@/composables/useAndroidApps'
 import { useMessages } from '@/composables/useMessages'
 import { useLauncherStore } from '@/stores/launcher'
 import { useAppStore } from '@/stores/app'
+import { requestInstallWindow } from '@/utils/installLinks'
 import { launcherKeyForApp, formatMessageTime } from '@/utils/launcher'
 import type { AndroidApp } from '@/types'
 
@@ -128,6 +130,11 @@ const store = useAppStore()
 
 function close() {
   launcher.setMessagesOpen(false)
+}
+
+/** Open the Install window (native builds per platform, App × CLI). */
+function openInstall() {
+  requestInstallWindow('needs-app')
 }
 
 function socialName(app: AndroidApp): string {

@@ -4,7 +4,8 @@
 //   live GitHub-release asset resolver so per-file download buttons stay
 //   direct without hardcoding versioned bundle names.
 // Exports: `INSTALL_REPO`, `INSTALL_TAG_URLS`, `INSTALL_TARGETS`,
-//   `fetchLatestReleaseAssets`, `pickInstallAssetUrls`, `requestInstallWindow`.
+//   `fetchLatestReleaseAssets`, `pickInstallAssetUrls`, `requestInstallWindow`,
+//   `isInstallNeededError` (native-build remedy predicate).
 // Integrates: `InstallPanel.vue` renders the table; `App.vue` opens the
 //   window on the `cybermanju:open-install` event this module fires.
 // Contracts: `unsupported:` never appears here — unknown assets fall back
@@ -251,4 +252,34 @@ export function requestInstallWindow(reason = 'host-unsupported'): void {
   } catch {
     // Non-browser runtimes (tests/SSR) have no window to open.
   }
+}
+
+/**
+ * True when an error means "this needs a native build" — the Install
+ * window is the remedy (desktop/Android app, Docker image). Deliberately
+ * narrow: provider-shaped `unsupported:` (bad repo name, bad Drive path,
+ * unknown compress layer, locked vault, stale wasm bundle) must NOT match
+ * — their fix is not installing anything. Pure — unit-tested.
+ */
+export function isInstallNeededError(text: string): boolean {
+  const t = String(text ?? '')
+  if (!t) return false
+  return (
+    /no (folder picker|file system access api)/i.test(t) ||
+    /(requires?|needs?) the (tauri desktop|desktop|native( android| ios)?) (app|build)/i.test(t) ||
+    /needs? the dashboard/i.test(t) ||
+    /open this \S+ in the (desktop app|android app)/i.test(t) ||
+    /run it in the (desktop app|native android build)/i.test(t) ||
+    /push from the desktop app/i.test(t)
+  )
+}
+
+/**
+ * Panel reason for an install-needed error: picker-shaped wordings get the
+ * device-files explanation, everything else the general native-build one.
+ * Pure — unit-tested.
+ */
+export function installReasonFor(text: string): string {
+  const t = String(text ?? '')
+  return /no (folder picker|file system access api)/i.test(t) ? 'host-unsupported' : 'needs-app'
 }

@@ -259,13 +259,24 @@
             <span class="t">{{ isNative ? 'Pick folder…' : 'Pick $HOME…' }}</span>
           </button>
           <button
-            v-if="!isNative && hostWasmState !== 'ready'"
+            v-if="!isNative && hostWasmState === 'needs-permission'"
             class="fm-srow"
-            :title="hostWasmState === 'needs-permission' ? 'Re-allow the remembered folder (no re-pick)' : 'The picked folder needs permission after a reload'"
+            title="Re-allow the remembered folder (no re-pick)"
             @click="reallowHostWasm"
           >
             <AppIcon name="solar:key-bold" :size="14" />
             <span class="t">Re-allow folder</span>
+          </button>
+        </div>
+        <div v-else class="fm-side-sec">
+          <div class="fm-side-h">DEVICE</div>
+          <button
+            class="fm-srow"
+            title="This browser cannot open device folders — see native install options (Android, Linux, Windows, Docker)"
+            @click="openInstall('host-unsupported')"
+          >
+            <AppIcon name="solar:download-bold" :size="14" />
+            <span class="t">Get device access…</span>
           </button>
         </div>
         <div class="fm-side-sec">
@@ -915,6 +926,7 @@ import { useWindowUi } from '@/composables/useWindowUi'
 import { invoke, isTauri } from '@/composables/useTauri'
 import { destFromVmPath, hostAbsFromVm, isHostId, isHostPath, sourceFromNode } from '@/utils/hostBrowse'
 import { hostWasmSupported } from '@/utils/hostWasm'
+import { requestInstallWindow } from '@/utils/installLinks'
 import { humanBytes, diskPct } from '@/utils/format'
 import { trackShellCwd } from '@/utils/shellCwd'
 import { decodeProviderText, isTextEditableProviderName, MAX_PROVIDER_TEXT_BYTES } from '@/utils/providerText'
@@ -1374,10 +1386,8 @@ async function openHostRoot() {
         }
       } else if (st?.status === 'missing' || st?.status === 'unsupported') {
         if (st?.status === 'unsupported') {
-          // No folder picker in this browser — the Install window carries
-          // the way out (native app per platform, App × CLI).
-          const { requestInstallWindow } = await import('@/utils/installLinks')
-          requestInstallWindow('host-unsupported')
+          // No folder picker in this browser — the central notifyError net
+          // opens the Install window (native app per platform, App × CLI).
           store.notifyError('Device files need the app', 'this browser has no folder picker — install options are opening')
           return
         }
@@ -1425,16 +1435,9 @@ async function pickHostFolder() {
       await refreshHostWasmMeta()
       store.notifySuccess(`Home folder '${picked.name}' loaded — its files are browsable here`)
     } catch (e) {
-      // `unsupported:` (no folder picker at all) opens the Install window
-      // with per-platform native builds; anything else stays a toast.
-      const msg = e instanceof Error ? e.message : String(e)
-      if (msg.startsWith('unsupported:')) {
-        const { requestInstallWindow } = await import('@/utils/installLinks')
-        requestInstallWindow('host-unsupported')
-        store.notifyError('Device files need the app', 'this browser has no folder picker — install options are opening')
-      } else {
-        store.notifyError('Cannot pick a home folder', e)
-      }
+      // The central notifyError net opens the Install window when the
+      // failure is a missing folder picker; anything else stays a toast.
+      store.notifyError('Cannot pick a home folder', e)
     }
     return
   }
@@ -1450,6 +1453,10 @@ async function pickHostFolder() {
   } catch (e) {
     store.notifyError('Cannot pick a device folder', e)
   }
+}
+/** Open the Install window (native builds per platform, App × CLI). */
+function openInstall(reason = 'host-unsupported') {
+  requestInstallWindow(reason)
 }
 /** User-gesture re-grant for the parked `$HOME` handle, then re-list. */
 async function reallowHostWasm() {

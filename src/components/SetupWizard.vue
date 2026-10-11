@@ -91,7 +91,9 @@
             </label>
           </div>
           <p class="sw-hint">Pick one folder: if it already holds a <code>.cybermanju</code> file it opens; otherwise a new one is created with the name + size above, plus a <code>files/</code> subfolder for local copies (never synced itself). The size becomes the default for the Disks step.</p>
-          <p v-if="oneFolderMsg" class="sw-note" :class="oneFolderOk === false ? 'err' : oneFolderOk ? 'ok' : ''">{{ oneFolderMsg }}</p>
+          <p v-if="oneFolderMsg" class="sw-note" :class="oneFolderOk === false ? 'err' : oneFolderOk ? 'ok' : ''">{{ oneFolderMsg }}
+            <button v-if="oneFolderNoPicker" class="sw-link" type="button" @click="openInstall">Install options</button>
+          </p>
           <p v-if="wizardDirNote && !isTauri()" class="sw-note" :class="wizardDirOk === false ? 'err' : wizardDirOk ? 'ok' : ''">
             {{ wizardDirNote }}
             <button v-if="wizardDirReallow" class="sw-link" type="button" @click="reallowWizardDir">
@@ -440,6 +442,7 @@ import { THEMES, WALLPAPERS, type ThemeId } from '@/ui/tokens'
 import { agentPermissionPreset, defaultMcpServers } from '@/types'
 import type { AgentConfig, ProviderPreset, SyncBackendType, SyncConfig } from '@/types'
 import { humanBytes } from '@/utils/format'
+import { requestInstallWindow } from '@/utils/installLinks'
 import {
   SETUP_STEPS,
   SETUP_STEP_LABELS,
@@ -527,6 +530,12 @@ async function openVault() {
 const oneFolderBusy = ref(false)
 const oneFolderMsg = ref('')
 const oneFolderOk = ref<boolean | null>(null)
+/** The one-folder message is a missing-picker refusal — offer the installer. */
+const oneFolderNoPicker = computed(() => /no folder picker/i.test(oneFolderMsg.value || ''))
+/** Open the Install window (native builds per platform, App × CLI). */
+function openInstall() {
+  requestInstallWindow('host-unsupported')
+}
 const vaultFileName = ref(VAULT_FILENAME)
 const vaultSizeMb = ref(512)
 const folderLabel = ref('')

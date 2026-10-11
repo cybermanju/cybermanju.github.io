@@ -234,24 +234,25 @@ function subjectHtml(c) {
 <meta name="description" content="${escHtml(sub.blurb)}">
 <style>
 :root{--ac:${sub.color};--bg:#0d0714;--card:#1a0f2e;--tx:#f5f3ff;--mut:#b8a6d9}
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(1200px 600px at 80% -10%,#2b1247 0%,var(--bg) 60%) fixed,var(--bg);color:var(--tx);font-family:ui-rounded,"Baloo 2",system-ui,sans-serif;line-height:1.6}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font-family:"Pixelify Sans","Baloo 2",ui-rounded,system-ui,sans-serif;line-height:1.6}
 .wrap{max-width:860px;margin:0 auto;padding:32px 20px 64px}
 nav{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px;font-size:14px}
-nav a{color:var(--ac);text-decoration:none;border:1px solid #ffffff22;padding:6px 14px;border-radius:999px}
-.hero{border:1px solid #ffffff1e;border-left:6px solid var(--ac);border-radius:20px;padding:24px;background:var(--card)}
-.hero h1{margin:0 0 4px;font-size:32px}.tag{color:var(--ac);font-weight:700}.blurb{color:var(--mut)}
+nav a{color:var(--ac);text-decoration:none;border:2px solid #ffffff22;padding:6px 14px;border-radius:0;box-shadow:3px 3px 0 rgba(0,0,0,.55);font-family:"Silkscreen","Pixelify Sans",monospace;font-size:12px}
+.hero{border:2px solid #ffffff1e;border-left:8px solid var(--ac);border-radius:0;box-shadow:5px 5px 0 rgba(0,0,0,.55);padding:24px;background:var(--card)}
+.hero h1{margin:0 0 4px;font-size:30px;font-family:"Silkscreen","Pixelify Sans",monospace;line-height:1.3}.tag{color:var(--ac);font-weight:700;font-family:"Silkscreen","Pixelify Sans",monospace;font-size:12px}.blurb{color:var(--mut)}
 .stats{display:flex;gap:16px;margin:16px 0;color:var(--mut);font-size:14px}
-details{background:#ffffff08;border:1px solid #ffffff14;border-radius:12px;padding:8px 12px;margin:8px 0}
+h2{font-family:"Silkscreen","Pixelify Sans",monospace;font-size:15px;letter-spacing:.06em}
+details{background:#ffffff08;border:2px solid #ffffff14;border-radius:0;padding:8px 12px;margin:8px 0}
 summary{cursor:pointer}summary code{color:var(--ac)}.n{color:var(--mut);font-size:12px}
-.h{margin:4px 0;color:var(--mut);font-size:14px}.syms code{background:#ffffff12;border-radius:6px;padding:1px 6px;font-size:12px;margin:1px}
-ul.links{list-style:none;padding:0;display:flex;gap:10px;flex-wrap:wrap}ul.links a{color:var(--tx);background:#ffffff10;border-radius:10px;padding:6px 12px;text-decoration:none;font-size:13px}
+.h{margin:4px 0;color:var(--mut);font-size:14px}.syms code{background:#ffffff12;border-radius:0;padding:1px 6px;font-size:12px;margin:1px}
+ul.links{list-style:none;padding:0;display:flex;gap:10px;flex-wrap:wrap}ul.links a{color:var(--tx);background:#ffffff10;border:2px solid var(--line,#ffffff1f);border-radius:0;box-shadow:3px 3px 0 rgba(0,0,0,.55);padding:6px 12px;text-decoration:none;font-size:13px}
 footer{margin-top:32px;color:var(--mut);font-size:13px}
 </style></head><body><div class="wrap">
 <nav><a href="${SITE}/wiki/">✦ 3D wiki</a><a href="${SITE}/llms.txt">llms.txt</a><a href="./${sub.id}.txt">.txt</a><a href="./${sub.id}.json">.json</a></nav>
 <div class="hero"><div class="tag">${escHtml(sub.tag)}</div><h1>${escHtml(sub.title)}</h1>
 <p class="blurb">${escHtml(sub.blurb)}</p>
 <div class="stats"><span>${fileCount} files</span><span>${symbolCount} symbols</span><span>v${VERSION}</span></div></div>
-${(c.links && c.links.length) ? `<h2>Related modules</h2><p class="syms">${c.links.map((id) => `<a href="./${id}.html" style="color:var(--ac);text-decoration:none;border:1px solid #ffffff22;border-radius:8px;padding:2px 10px;margin:2px;display:inline-block">${escHtml(id)}</a>`).join(' ')}</p>` : ''}
+${(c.links && c.links.length) ? `<h2>Related modules</h2><p class="syms">${c.links.map((id) => `<a href="./${id}.html" style="color:var(--ac);text-decoration:none;border:2px solid #ffffff22;border-radius:0;box-shadow:2px 2px 0 rgba(0,0,0,.55);padding:2px 10px;margin:2px;display:inline-block">${escHtml(id)}</a>`).join(' ')}</p>` : ''}
 <h2>Modules</h2>${rows}
 <h2>Top symbols</h2><p class="syms">${topSyms.map((s) => `<code title="${escHtml(s.file)}:${s.line}">${escHtml(s.name)}</code>`).join(' ')}</p>
 <h2>Contracts</h2><p>${contracts.length ? contracts.slice(0, 24).map(([s]) => `<code>${escHtml(s)}</code>`).join(' ') : 'none — pure logic'}</p>
