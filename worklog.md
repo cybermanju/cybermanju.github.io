@@ -1267,3 +1267,9 @@ Stage Summary:
 - After `0fd3df5`, main CI reached Clippy and reported two `manual_pattern_char_comparison` errors in `crates/types/src/code.rs`. The follow-up `78ff10a` replaced both closures with equivalent character-array patterns and also carried CLI consistency/test updates; merged it into develop. The only conflict was the append-only worklog, resolved by retaining develop's full history and appending the two new main CLI sections.
 - Local validation of the combined tree passed: version check, headers (475 files), `vue-tsc`, all 716 frontend tests, the wiki build with `VITE_BASE=/develop/`, and both staged/unstaged diff checks. Rust and Go validation remain remote-only under the repository's toolchain constraints.
 - CI for `78ff10a` (run `38162469871`) is in progress; hold the develop push until its result is known. `main` is unchanged.
+
+
+## 2026-10-11 — Integrate main follow-up 471c089
+- The `78ff10a` Actions run was cancelled as main advanced again. Integrated `471c089`, which binds the Rust heuristic-test symbol vector before iterating and resolves the reported `E0716`; this merge was automatic with no conflicts. The latest fetched `origin/main` remained at `471c089`.
+- Revalidated the combined tree locally: version/header checks (475 files), `vue-tsc`, 65 frontend files / 716 tests, wiki build at `/develop/`, clean cross-branch diff, and clean worktree. No Cargo was run locally.
+- CI run `38162682023` for `471c089` was still in progress; do not push develop until this latest run completes successfully. `main` remains unchanged.
