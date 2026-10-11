@@ -31,6 +31,10 @@ pub use task::{
     TaskTable, TopSnapshot, MAX_TASKS, REPAIR_ID_BASE,
 };
 
+/// Vault snapshot exports: passphrase-sealed CYBMJ01 containers in the
+/// volume or on any provider (`backup` verb, scheduled or on demand).
+pub mod backup;
+
 /// `cybsh` — the system terminal: tokenizer, parser and the command table.
 pub mod shell;
 

@@ -43,6 +43,7 @@
           class="omni-drop"
           role="listbox"
           aria-label="Search results"
+          :aria-activedescendant="activeDescendantId"
         >
           <div v-if="store.isSearching" class="omni-loading" role="status" aria-live="polite">
             <UiSpinner size="sm" show-label label="Searching" />
@@ -65,17 +66,19 @@
             </button>
           </div>
 
-          <div v-for="sec in sections" :key="sec.id" class="omni-sec">
+          <div v-for="(sec, si) in sections" :key="sec.id" class="omni-sec">
             <div class="omni-sec__head">
               <span class="omni-tag">{{ OMNI_SECTION_TAG[sec.id] }} · {{ sec.rows.length }}</span>
               <span class="omni-div" aria-hidden="true" />
             </div>
             <div
-              v-for="row in sec.rows"
+              v-for="(row, ri) in sec.rows"
               :key="sec.id + ':' + row.key"
+              :id="`omni-${si}-${ri}`"
               :data-nav="sec.id + ':' + row.key"
               class="omni-row"
               :class="{ active: activeKey === sec.id + ':' + row.key }"
+              :style="{ '--i': ri }"
               role="option"
               :aria-selected="activeKey === sec.id + ':' + row.key"
               tabindex="0"
@@ -126,6 +129,17 @@
             </div>
           </div>
 
+          <div v-if="canLoadMoreContent" class="omni-more">
+            <UiButton
+              size="sm"
+              icon="solar:double-alt-arrow-down-bold"
+              :disabled="store.isSearching"
+              @click="store.loadMoreSearchResults()"
+            >
+              LOAD MORE ({{ store.searchTotalResults - contentRows.length }} MORE)
+            </UiButton>
+          </div>
+
           <div v-if="q && empty" class="omni-empty">
             <UiEmpty
               size="sm"
@@ -161,7 +175,8 @@ import { useWindowManager } from '@/composables/useWindowManager'
 import { useContextMenu, type ContextMenuEntry } from '@/composables/useContextMenu'
 import { MODULE_METADATA, type PanelType } from '@/types'
 import { resolvePanel } from '@/utils/panels'
-import { OMNI_SECTION_ORDER, OMNI_SECTION_TAG, buildOmniSections, type OmniSectionId } from '@/utils/omniSearch'
+import { isEditableTarget } from '@/utils/dom'
+import { OMNI_SECTION_TAG, buildOmniSections, type OmniSectionId } from '@/utils/omniSearch'
 
 const store = useAppStore()
 const wm = useWindowManager()
@@ -273,36 +288,57 @@ const contentRows = computed<OmniRow[]>(() =>
   })),
 )
 
-const sections = computed(() => {
-  const built = buildOmniSections(q.value, {
+const sections = computed(() =>
+  buildOmniSections(q.value, {
     apps: appRows.value, collections: collectionRows.value, people: peopleRows.value,
     providers: providerRows.value, folders: folderRows.value, files: fileRows.value,
     content: contentRows.value,
-  })
-  const rowByKey = new Map<string, OmniRow>()
-  for (const r of [...appRows.value, ...collectionRows.value, ...peopleRows.value,
-    ...providerRows.value, ...folderRows.value, ...fileRows.value, ...contentRows.value]) {
-    rowByKey.set(`${r.kind}:${r.key}`, r)
-  }
-  // Rehydrate full rows in the canonical section order.
-  return OMNI_SECTION_ORDER.flatMap((id) => {
-    const sec = built.find((s) => s.id === id)
-    if (!sec) return []
-    const rows = sec.rows
-      .map((r) => rowByKey.get(`${id}:${r.key}`))
-      .filter((r): r is OmniRow => Boolean(r))
-    return rows.length ? [{ id, rows }] : []
-  })
-})
+  }),
+)
 
 const flatRows = computed(() => sections.value.flatMap((s) => s.rows.map((r) => ({ sec: s.id as OmniSectionId, row: r }))))
 const totalRows = computed(() => flatRows.value.length)
 const empty = computed(() => totalRows.value === 0)
 
+/** BM25 page behind the visible content rows — offer the next page inline. */
+const canLoadMoreContent = computed(() =>
+  q.value.length >= 2
+  && contentRows.value.length > 0
+  && store.searchTotalResults > contentRows.value.length,
+)
+
+/** Listbox active descendant for screen readers (stable si/ri ids). */
+const activeDescendantId = computed(() => {
+  if (!activeKey.value) return undefined
+  const flat = flatRows.value.findIndex(({ sec, row }) => `${sec}:${row.key}` === activeKey.value)
+  if (flat === -1) return undefined
+  let n = 0
+  for (let si = 0; si < sections.value.length; si++) {
+    const rows = sections.value[si].rows
+    if (flat < n + rows.length) return `omni-${si}-${flat - n}`
+    n += rows.length
+  }
+  return undefined
+})
+
+/** Drop a highlight that no longer exists (new keystroke, new results). */
+watch(flatRows, (rows) => {
+  if (activeKey.value && !rows.some(({ sec, row }) => `${sec}:${row.key}` === activeKey.value)) {
+    activeKey.value = null
+  }
+})
+
 /* ── search wiring (single source: store.searchQuery) ── */
 
 watch(query, (v) => {
   if (debounce) clearTimeout(debounce)
+  if (!v.trim()) {
+    // Instant reset — stale BM25 rows must vanish the moment the line is
+    // cleared, not linger behind the debounce.
+    store.searchQuery = ''
+    void store.searchFiles('')
+    return
+  }
   debounce = setTimeout(() => {
     store.searchQuery = v
     if (v.trim().length >= 2) void store.searchFiles(v.trim())
@@ -343,6 +379,7 @@ function activate(sec: OmniSectionId, row: OmniRow) {
   } else if (sec === 'people') {
     const g = store.faceGroups.find((x) => x.id === row.refId)
     if (g?.fileIds[0]) openFilesAt(g.fileIds[0])
+    else wm.open('files')
   } else if (sec === 'providers') {
     const path = `/providers/${row.refId}`
     store.currentPath = path
@@ -513,6 +550,9 @@ function moveActive(delta: 1 | -1) {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  // Typing inside the rename/tag editors must never steer the list —
+  // only the main search line shares keys with navigation.
+  if (isEditableTarget(e.target) && e.target !== inputRef.value) return
   if (e.key === 'ArrowDown') { e.preventDefault(); moveActive(1) }
   else if (e.key === 'ArrowUp') { e.preventDefault(); moveActive(-1) }
   else if (e.key === 'Enter' && activeKey.value) {
@@ -537,6 +577,9 @@ function highlight(name: string): string {
 
 onMounted(() => {
   void Promise.allSettled([store.fetchFiles(), store.fetchCollections(), store.fetchFaceGroups(), store.fetchSyncConfigs()])
+  // Handoff from another surface (e.g. Code Studio search) may leave a
+  // query with stale results — re-fire so content rows match the line.
+  if (q.value.length >= 2) void store.searchFiles(q.value)
   void nextTick(() => inputRef.value?.focus())
 })
 
@@ -670,10 +713,20 @@ onUnmounted(() => {
   background: transparent; border: 1px solid transparent;
   cursor: pointer; text-align: left; color: var(--ui-text); font-family: var(--ui-font);
   transition: border-color var(--ui-dur-fast) var(--ui-ease-out), background-color var(--ui-dur-fast) var(--ui-ease-out);
+  animation: omni-row-in 160ms var(--ui-ease-out) both;
+  animation-delay: min(calc(var(--i, 0) * 18ms), 150ms);
+}
+@keyframes omni-row-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .omni-row:hover, .omni-row.active {
   border-color: color-mix(in srgb, var(--omni-accent) 45%, transparent);
   background: color-mix(in srgb, var(--omni-accent) 9%, var(--ui-accent-softer));
+}
+.omni-row:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--omni-accent) 80%, transparent);
+  outline-offset: 1px;
 }
 .omni-row__icon { display: inline-flex; color: var(--ui-text-3); flex-shrink: 0; }
 .omni-row:hover .omni-row__icon, .omni-row.active .omni-row__icon { color: var(--omni-accent); }
@@ -708,6 +761,8 @@ onUnmounted(() => {
 
 .omni-empty { display: flex; justify-content: center; }
 
+.omni-more { display: flex; justify-content: center; padding: 2px 0; }
+
 .omni-foot {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   border-top: 1px solid var(--ui-hairline); padding-top: 8px;
@@ -728,5 +783,6 @@ onUnmounted(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .omni-drop-enter-active, .omni-drop-leave-active { animation: none; }
+  .omni-row { animation: none; }
 }
 </style>

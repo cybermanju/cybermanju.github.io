@@ -288,6 +288,8 @@ fn cybermanju_commands() -> &'static [&'static str] {
         "decompress",
         "ai",
         "run",
+        "cron",
+        "backup",
         "theme",
         "ui",
     ]
@@ -317,6 +319,16 @@ fn complete_subs() -> &'static [&'static str] {
         "sync cancel",
         "compute run",
         "lease status",
+        "cron ls",
+        "cron add",
+        "cron rm",
+        "cron run",
+        "cron enable",
+        "cron disable",
+        "cron history",
+        "backup export",
+        "backup list",
+        "backup verify",
         "history clear",
         "oauth status",
         "oauth start",
@@ -765,6 +777,7 @@ fn dispatch(cmd: &str, args: &[String]) -> String {
                 "quota", "providers", "oauth", "disk", "sync status",
                 "sync list", "sync move", "lease", "mount", "scrub", "repair", "gc",
                 "keygen", "encrypt", "decrypt", "compress", "decompress",
+                "cron ls|add|run", "backup export|list|verify",
             ]
             .join(" · "),
         )),
@@ -1142,7 +1155,7 @@ fn dispatch(cmd: &str, args: &[String]) -> String {
         // and point at both the local answer and the dashboard.
         "df-attached" | "mount" | "umount" | "disk" | "providers" | "quota" | "oauth"
         | "sync" | "scrub" | "repair" | "gc" | "lease" | "keygen" | "encrypt"
-        | "decrypt" | "compress" | "decompress" => err(format!(
+        | "decrypt" | "compress" | "decompress" | "cron" | "backup" => err(format!(
             "unsupported: `{cmd}` needs the CyberManju dashboard for provider work — the wasm build is a \
              browser sandbox (volume lives in localStorage, secrets in the local vault). \
              Run `{cmd}` as a single-command line for the local vault answer, or connect a dashboard (:3456) for provider push"

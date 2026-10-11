@@ -1027,6 +1027,13 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     transformRequest: () => ({}),
   },
 
+  // ── Vault backup export — raw snapshot image (base64 JSON); the
+  // frontend seals it into CYBMJ01 with a passphrase kept on-device ──
+  backup_export: {
+    method: 'GET',
+    buildPath: () => '/api/backup/export',
+  },
+
   // ── Secrets keystore (Phase 3) — sealed password-manager rows ──
   // List/meta never carry values; `secret_reveal` is the only plaintext
   // path and the server audits it. The `value` field on save is the
@@ -1432,6 +1439,7 @@ export const REST_FIRST = new Set([
   'lease_acquire', 'lease_release', 'lease_status',
   'cron_list', 'cron_save', 'cron_delete', 'cron_run', 'cron_history',
   'cron_set_enabled', 'cron_ensure_started',
+  'backup_export',
   'secret_list', 'secret_save', 'secret_update', 'secret_get',
   'secret_reveal', 'secret_delete',
   'parse_text', 'read_file_content', 'write_file_content',
@@ -1458,6 +1466,7 @@ export const MOBILE_NATIVE_OS_COMMANDS = new Set([
   'get_sync_status', 'get_sync_usage',
   'cron_list', 'cron_save', 'cron_delete', 'cron_run', 'cron_history',
   'cron_set_enabled', 'cron_ensure_started',
+  'backup_export',
   'secret_list', 'secret_save', 'secret_update', 'secret_get',
   'secret_reveal', 'secret_delete',
 ])
@@ -2237,6 +2246,34 @@ const STATIC_CYBSH_DEPS: StaticCybshDeps = {
       return null
     }
   },
+  // BLAKE3 over raw bytes (backup fingerprints — comparable with the native
+  // verb, unlike the string-taking `blake3` above).
+  blake3Bytes: async (data) => {
+    try {
+      const mod = await staticCryptoExports()
+      if (!mod) return null
+      return mod.blake3_hash(data)
+    } catch {
+      return null
+    }
+  },
+  // Vault snapshot export: the wasm `_export` op seals a CYBMJ01 container
+  // with the session passphrase (empty = compressed plaintext).
+  exportDatabase: async (passphrase) => {
+    const { wasmDbDispatch } = await import('./useWasmBackend')
+    const raw = (await wasmDbDispatch('_export', { passphrase }, 120000)) as {
+      bytes?: Uint8Array | number[]
+    } | null
+    const bytes = raw?.bytes
+    if (!bytes) throw new Error('unsupported: database export failed on this build')
+    return bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes)
+  },
+  // Session vault passphrase for unattended `backup export` (empty while
+  // locked — the verb refuses with `auth:` instead of writing plaintext).
+  backupPassphrase: async () => {
+    const { sessionVaultPassphrase } = await import('./useWasmBackend')
+    return sessionVaultPassphrase()
+  },
   // Inline `sh` for `.cybsh` scripts: the wasm volume dispatcher answers
   // single-command lines the static verbs don't (ls/cat/df/…).
   execFallback: async (line) => {
@@ -2533,6 +2570,36 @@ const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
     if (!id) throw new Error('invalid: id is required')
     const run = await runStaticSchedule(id, STATIC_CYBSH_DEPS)
     return run as StaticScheduleRun
+  },
+
+  // Vault backup export on Pages: the wasm `_export` op seals a CYBMJ01
+  // container with the session passphrase (empty = plaintext container).
+  // Shape differs from Tauri/REST on purpose (`sealed: true` + container
+  // bytes vs raw image bytes) — the store branches on `isContainer()`.
+  backup_export: async (args) => {
+    const passphrase = String(args.passphrase ?? '')
+    const { wasmDbDispatch } = await import('./useWasmBackend')
+    const raw = (await wasmDbDispatch('_export', { passphrase }, 120000)) as {
+      bytes?: Uint8Array | number[]
+      name?: string
+    } | null
+    const bytes = raw?.bytes
+    if (!bytes) throw new Error('unsupported: database export failed on this build')
+    return {
+      name: String(raw?.name ?? 'cybermanju.cybermanju'),
+      bytes: bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes),
+      sealed: true,
+    }
+  },
+
+  // Vault restore on Pages: replace the OPFS database with a verified image
+  // (callers trial-decrypt first — a wrong passphrase never reaches here).
+  backup_restore: async (args) => {
+    const bytes = coerceBytes(args.image)
+    if (!bytes.length) throw new Error('invalid: image is required')
+    const { wasmDatabaseRestore } = await import('./useWasmBackend')
+    await wasmDatabaseRestore(bytes)
+    return { restored: true, bytes: bytes.length }
   },
 }
 

@@ -855,6 +855,34 @@ export interface SecretInput {
   value?: string | null
 }
 
+/** One snapshot file (`backup list` — every transport, `--json`). */
+export interface BackupEntry {
+  name: string
+  bytes: number
+}
+
+/** Finished snapshot export (`backup export --json`). */
+export interface BackupReport {
+  path: string
+  bytes: number
+  blake3: string
+  encrypted: boolean
+  pruned: string[]
+}
+
+/** Snapshot verification (`backup verify --json`, header + optional deep). */
+export interface BackupVerify {
+  path: string
+  legacy: boolean
+  version: number
+  encrypted: boolean
+  compressed: boolean
+  bodyBytes: number
+  totalBytes: number
+  blake3: string
+  imageBytes: number | null
+}
+
 /** AGENT-6's disk catalog row (`GET /api/disk/list`). */
 export interface DiskRow {
   id: string

@@ -104,6 +104,7 @@ const commands = computed<CommandGroup[]>(() => [
       { id: 'nav-tasks', label: 'Open Tasks (ps/top)', icon: 'solar:cpu-bold', action: () => { wm.open('processes') } },
       { id: 'nav-schedules', label: 'Open Schedules (cron)', icon: 'solar:alarm-bold', action: () => { wm.open('cron') } },
       { id: 'nav-disks', label: 'Open Disks & Volume', icon: 'solar:ssd-square-bold', action: () => { wm.open('disks') } },
+      { id: 'nav-backup', label: 'Open Vault Backup (export/schedule/restore)', icon: 'solar:archive-bold', action: () => { wm.open('disks', { tab: 'backup' }) } },
       { id: 'nav-storage', label: 'Open Storage & Disks', icon: 'solar:database-bold', action: () => { wm.open('disks') } },
       { id: 'nav-settings', label: 'Go to Settings', icon: 'solar:settings-bold', action: () => { wm.open('settings') as PanelType } },
       { id: 'nav-trash', label: 'Go to Trash', icon: 'solar:trash-bin-trash-bold', action: () => { wm.open('trash'); store.fetchTrashItems() } },

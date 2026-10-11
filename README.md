@@ -60,18 +60,55 @@
 
 ```bash
 curl -fsSL https://cybermanju.github.io/install.sh | bash
-cyb setup     # server → account → saved profile (0600)
-cyb serve up  # dashboard → http://localhost:3456
+# installs `cyb`, then walks you through it: pick a backend
+# (docker · native app · remote · supabase) and run `cyb setup`
 ```
 
 Windows PowerShell (native):
 
 ```powershell
 irm https://cybermanju.github.io/install.ps1 | iex
+# same walkthrough: backend menu, then `cyb setup`
 ```
 
 Open `http://localhost:3456` from any device on your LAN — same vault, new screen. ✨
 Checksum-verified against the release `SHA256SUMS`; pin a release with `CYB_VERSION=v0.1.0`.
+
+<details>
+<summary>⚙️ Preselect / automate the installer (click to expand)</summary>
+
+Env goes **before `bash`** (stdin already carries the script), or use flags
+with `bash -s --`:
+
+```bash
+# straight to a local dashboard, no menu
+curl -fsSL https://cybermanju.github.io/install.sh | CYB_BACKEND=docker bash
+# install only, configure later by hand
+curl -fsSL https://cybermanju.github.io/install.sh | CYB_SETUP=0 bash
+# fully unattended: docker backend + account in one shot
+curl -fsSL https://cybermanju.github.io/install.sh | CYB_SETUP=1 CYB_BACKEND=docker CYB_USERNAME=you CYB_PASSWORD=secret bash
+# same via flags
+curl -fsSL https://cybermanju.github.io/install.sh | bash -s -- --backend docker --setup
+```
+
+| Knob | Values | Purpose |
+|---|---|---|
+| `CYB_SETUP` | `1` / `0` / `auto` (default) | run / skip / offer `cyb setup` |
+| `CYB_BACKEND` | `docker` · `native` · `remote` · `supabase` | `serve up` / app dashboard / URL / read-only broker |
+| `CYB_SERVE` | `1` | shorthand for `CYB_BACKEND=docker` |
+| `CYB_SERVER` | URL | dashboard for `remote` + `setup` |
+| `CYB_PORT` / `CYB_DATA` / `CYB_IMAGE` | port / dir / image | `serve up` + `native` customization |
+| `CYB_USERNAME` / `CYB_PASSWORD` / `CYB_DISPLAY` | strings | unattended `cyb setup` |
+| `CYB_SUPA_URL` / `CYB_SUPA_KEY` | URL / key | `supabase` broker pair |
+| `CYB_YES` | `1` | assume yes to prompts |
+| `CYB_VERSION` / `INSTALL_DIR` | tag / dir | pin release · install location |
+
+PowerShell takes the same knobs as `$env:` variables
+(`$env:CYB_BACKEND='docker'`, `$env:CYB_SETUP='0'`, …).
+No TTY (CI/cron) means install-only unless `CYB_SETUP=1` or flags force it.
+Full reference: `install.sh --help` (header comment lists everything).
+
+</details>
 
 <details>
 <summary>🛠️ Prefer building from source? (click to expand)</summary>

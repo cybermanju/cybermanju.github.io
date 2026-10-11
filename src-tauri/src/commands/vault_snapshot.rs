@@ -1,6 +1,6 @@
 // CyberManju OS — Vault snapshot (src-tauri/src/commands/vault_snapshot.rs).
 // Role: Tauri IPC commands (19 modules, 130 handlers).
-// Exports: snapshot_native_database, vault_kv_get, vault_kv_set, vault_kv_delete, vault_kv_list.
+// Exports: snapshot_native_database, backup_export, vault_kv_get, vault_kv_set, vault_kv_delete, vault_kv_list.
 // Integrates: serde_json, tauri.
 // Contracts: none special (pure logic; errors bubble to caller).
 use serde_json::{json, Value};
@@ -20,6 +20,17 @@ pub fn snapshot_native_database(state: State<'_, AppState>) -> Result<Vec<u8>, S
     let db = state.db.read().map_err(|e| e.to_string())?;
     db.snapshot_bytes()
         .map_err(|e| format!("native database snapshot failed: {e:#}"))
+}
+
+/// Vault backup export — the shared REST shape (`api::backup::export_db`)
+/// over IPC: raw image base64'd, sealed into CYBMJ01 by the frontend with a
+/// passphrase that never leaves the device.
+#[tauri::command(async)]
+pub fn backup_export(
+    state: State<'_, AppState>,
+) -> Result<cybermanju_web::api::backup::ExportReport, String> {
+    let db = state.db.read().map_err(|e| e.to_string())?;
+    cybermanju_web::api::backup::export_db(&db)
 }
 
 /// Native mobile equivalent of the WASM `kv.get` operation.

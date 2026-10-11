@@ -53,4 +53,27 @@ describe('omni search sections', () => {
     const sections = buildOmniSections('zzz-no-match', INPUT)
     expect(sections).toEqual([])
   })
+
+  it('ranks prefix hits above plain substring hits, stably', () => {
+    const rows = [
+      { key: 'a', name: 'my summer', sub: '' },
+      { key: 'b', name: 'Summer Mix', sub: '' },
+      { key: 'c', name: 'high summer', sub: '' },
+    ]
+    const sections = buildOmniSections('summer', {
+      apps: [], collections: [], people: [], providers: [], folders: [],
+      files: rows, content: [],
+    })
+    expect(sections.map((s) => s.id)).toEqual(['files'])
+    expect(sections[0].rows.map((r) => r.key)).toEqual(['b', 'a', 'c'])
+  })
+
+  it('returns caller rows by reference (no rehydrate step downstream)', () => {
+    const row = { key: 'f1', name: 'note.txt', sub: '/note.txt', extra: 42 }
+    const sections = buildOmniSections('', {
+      apps: [], collections: [], people: [], providers: [], folders: [],
+      files: [row], content: [],
+    })
+    expect(sections[0].rows[0]).toBe(row)
+  })
 })

@@ -127,7 +127,9 @@ produced families + SHA256SUMS as Generic Packages with a GitLab Release.
 Secrets mirror GitHub (`TAURI_SIGNING_PRIVATE_KEY`, `ANDROID_KEYSTORE_*`).
 
 - Watch until all jobs green; fix and re-push on failure.
-- Do not cancel or re-run unrelated queued dependabot runs.
+- No Dependabot in this repo (no `dependabot.yml`, no bot branches/PRs) —
+  action pins in `ci.yml`/`release.yml` are bumped by hand (SHA + version
+  comment), majors only after checking release notes against our inputs.
 - Android signing: `scripts/android-signing.sh prepare|verify|cleanup`
   (+ `android-configure.sh` manifest/versionCode, `android-icons.sh`
   launcher icons, `android-smoke.sh` on-device best-effort); release requires `REQUIRE_SIGNING=1` + keystore

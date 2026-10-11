@@ -1565,6 +1565,14 @@ fn route_request(
             api_response(api::versions::snapshot_all(db), origin)
         }
 
+        // ─── Vault backup export ─────────────────────────────────
+        // Raw snapshot image (base64 JSON); the browser seals it into a
+        // CYBMJ01 container with a passphrase that never leaves the
+        // device. Admin-only (see `security.rs`).
+        ["api", "backup", "export"] if method == "GET" => {
+            api_response(api::backup::export_db(db), origin)
+        }
+
         // ─── Audit log ───────────────────────────────────────────
         ["api", "audit"] if method == "GET" => {
             // <<< AGENT-3 VALIDATION: cap the page size >>>

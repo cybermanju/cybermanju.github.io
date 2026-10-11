@@ -51,18 +51,38 @@ function matches(query: string, ...texts: Array<string | undefined>): boolean {
 }
 
 /**
+ * Prefix-first ranking, stable: rows whose name starts with the query float
+ * above plain substring hits without disturbing backend order otherwise
+ * (BM25 content rows keep their rank inside each band).
+ */
+function rankPrefixFirst<T extends OmniRowInput>(rows: T[], query: string): T[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return rows
+  const head: T[] = []
+  const tail: T[] = []
+  for (const r of rows) {
+    if (r.name.toLowerCase().startsWith(q)) head.push(r)
+    else tail.push(r)
+  }
+  return head.length > 0 && tail.length > 0 ? [...head, ...tail] : rows
+}
+
+/**
  * Build the merged dropdown sections in canonical order, already filtered by
  * `query` (empty query returns the top rows of every section). File-content
  * rows arrive pre-ranked from Tantivy BM25 and keep their order.
+ *
+ * Generic over the row type so callers get their own rows back by reference
+ * — no rehydrate-by-key step downstream that could silently drop rows.
  */
-export function buildOmniSections(
+export function buildOmniSections<T extends OmniRowInput>(
   query: string,
-  input: Record<OmniSectionId, OmniRowInput[]>,
+  input: Record<OmniSectionId, T[]>,
   limitPerSection = 6,
-): OmniSectionInput[] {
-  const take = (id: OmniSectionId, match: (row: OmniRowInput) => boolean): OmniSectionInput => ({
+): Array<{ id: OmniSectionId; rows: T[] }> {
+  const take = (id: OmniSectionId, match: (row: T) => boolean): { id: OmniSectionId; rows: T[] } => ({
     id,
-    rows: input[id].filter(match).slice(0, limitPerSection),
+    rows: rankPrefixFirst(input[id].filter(match), query).slice(0, limitPerSection),
   })
   return [
     take('apps', (r) => matches(query, r.name, r.sub)),

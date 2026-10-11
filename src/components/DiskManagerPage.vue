@@ -5,6 +5,7 @@
 // Integrates: `/api/os/df` merged bar, AGENT-6 catalog rows, @/…, vue.
 // Contracts: signals: AGENT-.
 import AppIcon from '@/components/AppIcon.vue'
+import BackupPanel from '@/components/BackupPanel.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { humanBytes, diskPct } from '@/utils/format'
@@ -14,9 +15,10 @@ const store = useAppStore()
 // Merged storage window: `storage` opens here on the overview tab.
 // `wm.open('disks', { tab: 'disks', diskId })` focuses one card — FileManager
 // "Manage disk" steers here so the right disk is highlighted + scrolled to.
+// `wm.open('disks', { tab: 'backup' })` lands on snapshot exports + restore.
 const props = defineProps<{ tab?: string; diskId?: string; highlightId?: string }>()
-const view = ref<'overview' | 'disks'>(props.tab === 'overview' ? 'overview' : 'disks')
-watch(() => props.tab, (t) => { if (t === 'overview' || t === 'disks') view.value = t })
+const view = ref<'overview' | 'disks' | 'backup'>(props.tab === 'backup' ? 'backup' : props.tab === 'overview' ? 'overview' : 'disks')
+watch(() => props.tab, (t) => { if (t === 'overview' || t === 'disks' || t === 'backup') view.value = t })
 const focusDiskId = computed(() => props.highlightId || props.diskId || '')
 watch(focusDiskId, (id) => {
   if (!id) return
@@ -176,6 +178,7 @@ onMounted(async () => {
     <div class="dm-tabs" role="tablist" aria-label="Disks views">
       <button role="tab" :aria-selected="view === 'overview'" :class="{ on: view === 'overview' }" type="button" @click="view = 'overview'">OVERVIEW</button>
       <button role="tab" :aria-selected="view === 'disks'" :class="{ on: view === 'disks' }" type="button" @click="view = 'disks'">DISKS</button>
+      <button role="tab" :aria-selected="view === 'backup'" :class="{ on: view === 'backup' }" type="button" @click="view = 'backup'">BACKUP</button>
     </div>
 
     <!-- ══ OVERVIEW (merged storage dashboard) ══ -->
@@ -374,6 +377,10 @@ onMounted(async () => {
         provider compute slots to the fan-out pool.
       </p>
     </div>
+    </template>
+
+    <template v-if="view === 'backup'">
+      <BackupPanel />
     </template>
   </div>
 </template>

@@ -171,6 +171,11 @@ export interface StaticCybshDeps {
   deleteSchedule?(id: string): Promise<boolean>
   scheduleHistory?(id: string): Promise<StaticScheduleRun[]>
   recordScheduleRun?(run: StaticScheduleRun): Promise<unknown>
+  // Vault backup (`backup` verb) — sealed snapshot bytes + the vault
+  // passphrase, both optional so fixtures stay honest when absent.
+  exportDatabase?(passphrase: string): Promise<Uint8Array>
+  backupPassphrase?(): Promise<string>
+  blake3Bytes?(data: Uint8Array): Promise<string | null>
 }
 
 export interface ParsedLine {
@@ -189,7 +194,7 @@ const HANDLED_VERBS = new Set([
   'quota', 'providers', 'oauth', 'disk', 'sync',
   'encrypt', 'decrypt', 'keygen', 'compress', 'decompress',
   'scrub', 'repair', 'gc', 'lease', 'mount', 'umount', 'ai',
-  'run', 'theme', 'ui', 'cron',
+  'run', 'theme', 'ui', 'cron', 'backup',
 ])
 
 export function handlesStaticVerb(verb: string): boolean {
@@ -2547,6 +2552,192 @@ function schedId(): string {
   return `sched-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+/** Resolve a `/providers/< head>/…` destination to a live mount id. */
+async function resolveBackupMount(
+  head: string,
+  deps: StaticCybshDeps,
+): Promise<{ mountId: string; label: string }> {
+  const mounts = await deps.listMounts().catch(() => [])
+  const exact = mounts.find((m) => m.id === head)
+  if (exact) return { mountId: exact.id, label: exact.name || exact.id }
+  const byConfig = mounts.find((m) => m.configId === head)
+  if (byConfig) return { mountId: byConfig.id, label: byConfig.name || byConfig.id }
+  const byName = mounts.find((m) => m.name.toLowerCase() === head.toLowerCase())
+  if (byName) return { mountId: byName.id, label: byName.name || byName.id }
+  throw new Error(
+    `not_found: no provider mount \`${head}\` (mount id, config id or name — see \`providers\`)`,
+  )
+}
+
+interface BackupFlags {
+  to: string | null
+  name: string | null
+  keep: number | null
+  plain: boolean
+}
+
+/** Shared `--to/--name/--keep/--plain` parse (mirrors the native verb). */
+function parseBackupFlags(args: string[]): { flags: BackupFlags; rest: string[] } {
+  const flags: BackupFlags = { to: null, name: null, keep: null, plain: false }
+  const rest: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]
+    if (a === '--to') flags.to = args[++i] ?? null
+    else if (a === '--name') flags.name = args[++i] ?? null
+    else if (a === '--keep') {
+      const n = Number(args[++i])
+      if (!Number.isInteger(n) || n < 0) throw new Error('invalid: --keep needs a number')
+      flags.keep = n
+    } else if (a === '--plain') flags.plain = true
+    else if (a === '--json') continue
+    else if (a.startsWith('--')) throw new Error(`usage: unknown flag ${a}`)
+    else rest.push(a)
+  }
+  return { flags, rest }
+}
+
+async function backupFingerprint(
+  deps: StaticCybshDeps,
+  data: Uint8Array,
+): Promise<string> {
+  try {
+    const fp = await deps.blake3Bytes?.(data)
+    if (typeof fp === 'string' && fp) return fp
+  } catch {
+    // Fall through to the honest placeholder.
+  }
+  return 'unavailable'
+}
+
+/**
+ * Vault snapshot backups on static hosts: seal via the wasm `_export` op,
+ * land on a provider (the browser volume is text-only, so a local `--to`
+ * refuses honestly), prune beyond `--keep`. Same shapes as the native
+ * `backup` verb, `--json` included.
+ */
+async function handleBackup(
+  args: string[],
+  json: boolean,
+  deps: StaticCybshDeps,
+): Promise<VerbOut> {
+  const lazyBackup = await import('./backup')
+  const sub = args[0] ?? 'export'
+  const { flags, rest } = parseBackupFlags(args.slice(1))
+  const cwd = await deps.getCwd().catch(() => '/')
+  switch (sub) {
+    case 'export': {
+      if (!deps.exportDatabase || !deps.backupPassphrase) {
+        return shellErr('unsupported: backup needs the database snapshot op on this build')
+      }
+      const dest = flags.to ?? rest[0] ?? ''
+      if (!dest) return shellErr('usage: backup export --to /providers/<mount>[/dir] [--name F] [--keep 7]')
+      const ep = resolveEndpoint(cwd, dest)
+      if (ep.kind !== 'provider') {
+        return shellErr(
+          'invalid: backup export needs --to /providers/<mount>[/dir] (the browser volume is text-only — pick a provider destination)',
+        )
+      }
+      const { mountId } = await resolveBackupMount(ep.mountId, deps)
+      const passphrase = flags.plain ? '' : await deps.backupPassphrase()
+      if (!flags.plain && !passphrase) {
+        return shellErr('auth: unlock the vault first (or pass --plain to record a plaintext export)')
+      }
+      const sealed = await deps.exportDatabase(passphrase)
+      const file = flags.name?.trim() || lazyBackup.buildBackupName()
+      if (file.includes('/') || file.includes('\0')) {
+        return shellErr('invalid: backup file name must be a plain file name')
+      }
+      const remote = ep.remotePath ? `${ep.remotePath}/${file}` : file
+      await deps.providerWrite(mountId, remote, sealed)
+      const keep = flags.keep ?? lazyBackup.DEFAULT_BACKUP_KEEP
+      const pruned: string[] = []
+      if (keep > 0) {
+        const dir = ep.remotePath
+        const entries = await deps.providerList(mountId, dir).catch(() => null)
+        if (entries) {
+          const victims = lazyBackup.pruneVictims(
+            entries.filter((e) => !e.isDir && lazyBackup.isBackupName(e.name) && e.name !== file).map((e) => e.name),
+            Math.max(0, keep - 1),
+          )
+          for (const v of victims) {
+            const victimRemote = dir ? `${dir}/${v}` : v
+            try {
+              await deps.providerDelete(mountId, victimRemote)
+              pruned.push(v)
+            } catch {
+              // A failed prune never fails the export that just landed.
+            }
+          }
+        }
+      }
+      const path = `/providers/${ep.mountId}/${remote}`
+      const digest = await backupFingerprint(deps, sealed)
+      const encrypted = passphrase.length > 0
+      if (json) {
+        return shellOk(JSON.stringify({ path, bytes: sealed.length, blake3: digest, encrypted, pruned }))
+      }
+      return shellOk(
+        `backup: exported ${sealed.length} bytes → ${path} (blake3 ${digest})${encrypted ? ' [sealed]' : ' [PLAINTEXT — --plain]'}${pruned.length ? ` · pruned ${pruned.join(', ')}` : ''}`,
+      )
+    }
+    case 'ls':
+    case 'list': {
+      const dest = flags.to ?? rest[0] ?? ''
+      if (!dest) return shellErr('usage: backup list /providers/<mount>[/dir]')
+      const ep = resolveEndpoint(cwd, dest)
+      if (ep.kind !== 'provider') return shellErr('invalid: backup list needs a /providers/… destination')
+      const { mountId } = await resolveBackupMount(ep.mountId, deps)
+      const entries = await deps.providerList(mountId, ep.remotePath)
+      const rows = entries
+        .filter((e) => !e.isDir && lazyBackup.isBackupName(e.name))
+        .sort((a, b) => (a.name < b.name ? 1 : -1))
+      if (json) {
+        return shellOk(JSON.stringify(rows.map((e) => ({ name: e.name, bytes: e.sizeBytes }))))
+      }
+      if (!rows.length) return shellOk(`no snapshots in ${dest}`)
+      let out = `${'NAME'.padEnd(44)} ${'BYTES'.padStart(12)}`
+      for (const e of rows) out += `\n${e.name.padEnd(44)} ${String(e.sizeBytes).padStart(12)}`
+      return shellOk(out)
+    }
+    case 'verify': {
+      const target = flags.to ?? rest[0] ?? ''
+      if (!target) return shellErr('usage: backup verify /providers/<mount>[/dir]/<file>')
+      const ep = resolveEndpoint(cwd, target)
+      if (ep.kind !== 'provider' || !ep.remotePath) {
+        return shellErr('invalid: backup verify needs a /providers/<mount>/… file path')
+      }
+      const { mountId } = await resolveBackupMount(ep.mountId, deps)
+      const bytes = await deps.providerRead(mountId, ep.remotePath)
+      const header = lazyBackup.verifyContainerHeader(bytes)
+      const digest = await backupFingerprint(deps, bytes)
+      const path = `/providers/${ep.mountId}/${ep.remotePath}`
+      if (json) {
+        return shellOk(
+          JSON.stringify({
+            path,
+            legacy: header.legacy,
+            version: header.version,
+            encrypted: header.encrypted,
+            compressed: header.compressed,
+            body_bytes: header.bodyBytes,
+            total_bytes: header.totalBytes,
+            blake3: digest,
+            image_bytes: null,
+          }),
+        )
+      }
+      if (header.legacy) {
+        return shellOk(`backup: ${path} legacy raw image (${header.totalBytes} bytes, blake3 ${digest})`)
+      }
+      return shellOk(
+        `backup: ${path} CYBMJ01 v${header.version} ${header.encrypted ? 'sealed' : 'plaintext'}${header.compressed ? '+lz4' : ''} (${header.totalBytes} bytes, blake3 ${digest}) · header only (trial-decrypt runs at restore)`,
+      )
+    }
+    default:
+      return shellErr('usage: backup export|list|verify [--to …] [--json]')
+  }
+}
+
 async function cronList(deps: StaticCybshDeps): Promise<StaticSchedule[]> {
   if (!deps.listSchedules) throw new Error('unsupported: cron needs the local database')
   return deps.listSchedules()
@@ -2905,6 +3096,8 @@ export async function runStaticCybshLine(
         return done(await handleUi(args, json, deps))
       case 'cron':
         return done(await handleCron(args, json, deps))
+      case 'backup':
+        return done(await handleBackup(args, json, deps))
       default:
         return null
     }

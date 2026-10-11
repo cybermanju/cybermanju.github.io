@@ -112,6 +112,7 @@ pub fn command_table() -> &'static [&'static str] {
         "ai",
         "run",
         "cron",
+        "backup",
         "theme",
         "ui",
     ]
@@ -153,6 +154,9 @@ pub fn completions(prefix: &str) -> Vec<String> {
         "cron enable",
         "cron disable",
         "cron history",
+        "backup export",
+        "backup list",
+        "backup verify",
         "history clear",
         "ui theme",
         "ui accent",
@@ -703,6 +707,7 @@ fn dispatch(
         "ai" => ai_cmd(args, db, json),
         "run" => run_cmd(args, db, json),
         "cron" => cron_cmd(args, db, json),
+        "backup" => backup_cmd(args, db, json),
         "theme" => theme_cmd(args, json),
         "ui" => ui_cmd(args, json),
         unknown => Err(did_you_mean("unknown command", unknown, command_table())),
@@ -774,7 +779,8 @@ fn help_text(json: bool) -> String {
                 "cd -os <dir> | pwd -os (host cwd, separate from volume cwd)",
             ],
         ),
-        ("durability", &["scrub", "repair", "gc", "lease status"]),
+        ("durability", &["scrub", "repair", "gc", "lease status",
+            "backup export [--to /providers/<id>] [--keep 7] | backup list|verify"]),
         ("tasks", &["ps", "top", "kill <id>"]),
         ("compute", &["jobs", "compute run <job> <path>", "workers"]),
         (
@@ -4716,6 +4722,206 @@ fn cron_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String
     }
 }
 
+/// Vault snapshot exports (`backup export|list|verify`). The sealed file is
+/// a CYBMJ01 container (`cybermanju_crypto::container`), byte-compatible
+/// with the browser codec — a desktop export restores on Pages and back.
+fn backup_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<String, String> {
+    let sub = args.first().map(String::as_str).unwrap_or("export");
+    let rest = if args.is_empty() { &[][..] } else { &args[1..] };
+    // `--flag value` options shared by the subcommands.
+    let mut to: Option<String> = None;
+    let mut name: Option<String> = None;
+    let mut keep: Option<usize> = None;
+    let mut plain = false;
+    let mut deep = false;
+    let mut positionals: Vec<String> = Vec::new();
+    let mut flag_rest = rest.iter();
+    while let Some(arg) = flag_rest.next() {
+        match arg.as_str() {
+            "--to" => to = flag_rest.next().cloned(),
+            "--name" => name = flag_rest.next().cloned(),
+            "--keep" => {
+                let raw = flag_rest.next().cloned().unwrap_or_default();
+                keep = Some(
+                    raw.parse::<usize>()
+                        .map_err(|_| "invalid: --keep needs a number".to_string())?,
+                );
+            }
+            "--plain" => plain = true,
+            "--deep" => deep = true,
+            "--json" => {}
+            other if other.starts_with("--") => {
+                return Err(format!("usage: unknown flag {other}"));
+            }
+            other => positionals.push(other.to_string()),
+        }
+    }
+    let kernel = Kernel::global();
+    // Unattended schedules cannot prompt: the master passphrase seals, and
+    // `--plain` is the explicit, recorded opt-out.
+    let passphrase = if plain {
+        String::new()
+    } else {
+        cybermanju_crypto::keystore::master_passphrase().ok_or_else(|| {
+            "unsupported: no master passphrase (unlock the vault first)".to_string()
+        })?
+    };
+    match sub {
+        "export" => {
+            let db = need_db(db, "backup export")?;
+            let dest = to
+                .or_else(|| positionals.first().cloned())
+                .unwrap_or_else(|| crate::backup::BACKUP_DIR.to_string());
+            let keep_n = keep.unwrap_or(crate::backup::DEFAULT_KEEP);
+            let dest_abs = absolute(&dest);
+            let report = if crate::provider_fs::is_provider_path(&dest_abs) {
+                let display = provider_display(&dest_abs);
+                let (head, rest) = crate::provider_fs::split_provider_path(&display)
+                    .ok_or_else(|| format!("invalid: bad provider path `{dest}`"))?;
+                crate::backup::export_provider(
+                    db,
+                    &head,
+                    &rest,
+                    name.as_deref(),
+                    keep_n,
+                    &passphrase,
+                )?
+            } else {
+                crate::backup::export_volume(
+                    db,
+                    &kernel,
+                    &dest_abs,
+                    name.as_deref(),
+                    keep_n,
+                    &passphrase,
+                )?
+            };
+            if json {
+                return serde_json::to_string(&serde_json::json!({
+                    "path": report.path,
+                    "bytes": report.bytes,
+                    "blake3": report.blake3,
+                    "encrypted": report.encrypted,
+                    "pruned": report.pruned,
+                }))
+                .map_err(|e| e.to_string());
+            }
+            let mut out = format!(
+                "backup: exported {} bytes → {} (blake3 {}){}",
+                report.bytes,
+                report.path,
+                report.blake3,
+                if report.encrypted {
+                    " [sealed]"
+                } else {
+                    " [PLAINTEXT — --plain]"
+                },
+            );
+            if !report.pruned.is_empty() {
+                out.push_str(&format!(" · pruned {}", report.pruned.join(", ")));
+            }
+            Ok(out)
+        }
+        "ls" | "list" => {
+            let dir = to
+                .or_else(|| positionals.first().cloned())
+                .unwrap_or_else(|| crate::backup::BACKUP_DIR.to_string());
+            let dir_abs = absolute(&dir);
+            let rows: Vec<(String, u64)> = if crate::provider_fs::is_provider_path(&dir_abs) {
+                let db = need_db(db, "backup list")?;
+                let display = provider_display(&dir_abs);
+                let (head, rest) = crate::provider_fs::split_provider_path(&display)
+                    .ok_or_else(|| format!("invalid: bad provider path `{dir}`"))?;
+                crate::backup::list_provider(db, &head, &rest)?
+                    .into_iter()
+                    .map(|e| (e.name, e.bytes))
+                    .collect()
+            } else {
+                crate::backup::list_volume(&kernel, &dir_abs)?
+                    .into_iter()
+                    .map(|e| (e.name, e.bytes))
+                    .collect()
+            };
+            if json {
+                return serde_json::to_string(
+                    &rows
+                        .iter()
+                        .map(|(name, bytes)| serde_json::json!({ "name": name, "bytes": bytes }))
+                        .collect::<Vec<_>>(),
+                )
+                .map_err(|e| e.to_string());
+            }
+            if rows.is_empty() {
+                return Ok(format!("no snapshots in {dir}"));
+            }
+            let mut out = format!("{:<44} {:>12}", "NAME", "BYTES");
+            for (entry_name, entry_bytes) in &rows {
+                out.push_str(&format!("\n{entry_name:<44} {entry_bytes:>12}"));
+            }
+            Ok(out)
+        }
+        "verify" => {
+            let target = to
+                .or_else(|| positionals.first().cloned())
+                .ok_or_else(|| "usage: backup verify <path> [--deep]".to_string())?;
+            let target_abs = absolute(&target);
+            let report = if crate::provider_fs::is_provider_path(&target_abs) {
+                let db = need_db(db, "backup verify")?;
+                let display = provider_display(&target_abs);
+                let (head, rest) = crate::provider_fs::split_provider_path(&display)
+                    .ok_or_else(|| format!("invalid: bad provider path `{target}`"))?;
+                crate::backup::verify_provider(db, &head, &rest, &passphrase, deep)?
+            } else {
+                crate::backup::verify_volume(&kernel, &target_abs, &passphrase, deep)?
+            };
+            if json {
+                return serde_json::to_string(&serde_json::json!({
+                    "path": report.path,
+                    "legacy": report.legacy,
+                    "version": report.version,
+                    "encrypted": report.encrypted,
+                    "compressed": report.compressed,
+                    "body_bytes": report.body_bytes,
+                    "total_bytes": report.total_bytes,
+                    "blake3": report.blake3,
+                    "image_bytes": report.image_bytes,
+                }))
+                .map_err(|e| e.to_string());
+            }
+            let out = format!(
+                "backup: {} {} ({} bytes, blake3 {}){}",
+                report.path,
+                if report.legacy {
+                    "legacy raw image".to_string()
+                } else {
+                    format!(
+                        "CYBMJ01 v{} {}{}",
+                        report.version,
+                        if report.encrypted {
+                            "sealed"
+                        } else {
+                            "plaintext"
+                        },
+                        if report.compressed { "+lz4" } else { "" },
+                    )
+                },
+                report.total_bytes,
+                report.blake3,
+                match report.image_bytes {
+                    Some(n) => format!(" · image {n} bytes verified"),
+                    None => " · header only (re-run with --deep)".to_string(),
+                },
+            );
+            Ok(out)
+        }
+        other => Err(did_you_mean(
+            "unknown backup subcommand",
+            other,
+            &["export", "list", "verify"],
+        )),
+    }
+}
+
 /// Theme ids shared with `src/ui/tokens.ts` (`THEME_IDS` + legacy aliases).
 /// Flat AMOLED set plus the Breeze-like plasma pair.
 const THEME_IDS: &[&str] = &[
@@ -5843,6 +6049,110 @@ mod tests {
         assert!(!base.exists());
         // A missing host file is honest, not empty.
         let err = execute(&format!("cat -os {root}/gone.txt"), None).expect_err("missing");
+        assert!(err.starts_with("not_found:"), "got {err}");
+    }
+
+    #[test]
+    fn backup_plain_export_lists_and_verifies() {
+        crate::testutil::volume_dir();
+        let db_path =
+            std::env::temp_dir().join(format!("cybsh-backup-{}.db", uuid::Uuid::new_v4()));
+        let db = Database::new(db_path.to_str().unwrap()).expect("test db");
+        let dir = format!("/backup-test-{}", uuid::Uuid::new_v4());
+        // Plaintext export needs no passphrase (unattended-safe, recorded).
+        let out = backup_cmd(
+            &[
+                "export".to_string(),
+                "--to".to_string(),
+                dir.clone(),
+                "--name".to_string(),
+                "cybermanju-a.cybermanju".to_string(),
+                "--plain".to_string(),
+                "--json".to_string(),
+            ],
+            Some(&db),
+            true,
+        )
+        .expect("export");
+        let report: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert_eq!(report["encrypted"], false);
+        assert!(report["bytes"].as_u64().unwrap_or(0) > 0, "got {report}");
+        // Second export with --keep 1 prunes the first.
+        let out = backup_cmd(
+            &[
+                "export".to_string(),
+                "--to".to_string(),
+                dir.clone(),
+                "--name".to_string(),
+                "cybermanju-b.cybermanju".to_string(),
+                "--plain".to_string(),
+                "--keep".to_string(),
+                "1".to_string(),
+                "--json".to_string(),
+            ],
+            Some(&db),
+            true,
+        )
+        .expect("export keep");
+        let kept: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert_eq!(kept["pruned"].as_array().map(|a| a.len()), Some(1));
+        // List shows only the survivor, newest first.
+        let out = backup_cmd(
+            &["list".to_string(), dir.clone(), "--json".to_string()],
+            Some(&db),
+            true,
+        )
+        .expect("list");
+        let rows: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert_eq!(rows.as_array().map(|a| a.len()), Some(1));
+        assert_eq!(rows[0]["name"], "cybermanju-b.cybermanju");
+        // Header verify, then deep (plaintext needs no key).
+        let target = format!("{dir}/cybermanju-b.cybermanju");
+        let out = backup_cmd(
+            &["verify".to_string(), target.clone(), "--json".to_string()],
+            Some(&db),
+            true,
+        )
+        .expect("verify");
+        let check: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert_eq!(check["encrypted"], false);
+        assert!(check["image_bytes"].is_null(), "header only: {check}");
+        let out = backup_cmd(
+            &[
+                "verify".to_string(),
+                target,
+                "--deep".to_string(),
+                "--json".to_string(),
+            ],
+            Some(&db),
+            true,
+        )
+        .expect("deep verify");
+        let deep: serde_json::Value = serde_json::from_str(&out).expect("json");
+        assert!(deep["image_bytes"].as_u64().unwrap_or(0) > 0, "got {deep}");
+        // Unknown subcommand suggests neighbours; bad keep refuses.
+        let err = backup_cmd(&["frobnicate".to_string()], Some(&db), false).expect_err("unknown");
+        assert!(err.contains("export"), "got {err}");
+        let err = backup_cmd(
+            &[
+                "export".to_string(),
+                "--keep".to_string(),
+                "many".to_string(),
+            ],
+            Some(&db),
+            false,
+        )
+        .expect_err("bad keep");
+        assert!(err.starts_with("invalid:"), "got {err}");
+        let err = backup_cmd(
+            &[
+                "verify".to_string(),
+                "/backup-test-missing-xyz.cybermanju".to_string(),
+            ],
+            Some(&db),
+            false,
+        )
+        .expect_err("missing");
         assert!(err.starts_with("not_found:"), "got {err}");
     }
 }
