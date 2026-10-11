@@ -277,7 +277,7 @@ jobs:
           grep -q 'src="/develop/' dist-wasm/develop/index.html
 
       - name: Upload WASM artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-wasm
           path: dist-wasm/
@@ -318,7 +318,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-windows
           path: target/release/bundle/**/*
@@ -372,7 +372,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload Linux artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-linux
           path: |
@@ -382,7 +382,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload Debian package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-linux-deb
           path: target/release/bundle/deb/*.deb
@@ -390,7 +390,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload RPM package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-linux-rpm
           path: target/release/bundle/rpm/*.rpm
@@ -412,7 +412,7 @@ jobs:
           path: rpm-out
 
       - name: Upload RPM artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-rpm
           path: rpm-out/*.rpm
@@ -452,7 +452,7 @@ jobs:
           flatpak build-bundle repo cybermanju-os.flatpak com.cybermanju.os
 
       - name: Upload Flatpak artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-flatpak
           path: cybermanju-os.flatpak
@@ -573,7 +573,7 @@ jobs:
           '
 
       - name: Upload Arch build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-arch
           path: dist-arch/
@@ -787,7 +787,7 @@ jobs:
         run: bash scripts/android-signing.sh cleanup
 
       - name: Upload Android artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-android
           path: |
@@ -829,7 +829,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload macOS artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-macos
           path: |
@@ -891,7 +891,7 @@ jobs:
         run: bash ../scripts/cyb-deb.sh "$(node -p "require('../package.json').version")" . dist-cli
 
       - name: Upload CLI artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-cli
           path: cli/dist-cli/
