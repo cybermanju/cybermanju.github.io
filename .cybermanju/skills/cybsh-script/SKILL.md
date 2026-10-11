@@ -233,7 +233,8 @@ print len(body)
 - Providers/durability are just shell verbs — prefer them over `fetch`:
   `providers`, `quota`, `sync status|list|move <file> <from> <to>`, `disk`, `mount`,
   `scrub`, `repair`, `gc`, `lease status`, `compress [lz4|zstd|brotli|triple]|decompress`,
-  `encrypt|decrypt|keygen`, `search|grep|find`.
+  `encrypt|decrypt|keygen`, `search|grep|find`,
+  `backup export [--to /providers/<id>] [--keep 7] | backup list|verify`.
 - Provider files live at `/providers/<mountId>/…` — same `cp/mv/rm/mkdir`
   verbs, cross-provider moves copy-then-delete.
 
