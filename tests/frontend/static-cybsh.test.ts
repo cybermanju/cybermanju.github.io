@@ -435,12 +435,55 @@ describe('probeProviderQuotaViaFetch', () => {
   })
 })
 
-describe('runStaticCybshLine fall-through', () => {
-  it('returns null for unknown verbs and chained lines', async () => {
+describe('runStaticCybshLine dispatch', () => {
+  it('returns null for unknown verbs and runs all-static chains', async () => {
     const { deps } = fakeDeps()
     expect(await runStaticCybshLine('frobnicate', deps)).toBeNull()
-    expect(await runStaticCybshLine('quota && providers', deps)).toBeNull()
+    const chained = await runStaticCybshLine('echo local && providers', deps)
+    expect(chained?.ok).toBe(true)
+    expect(chained?.output).toContain('local')
+    expect(chained?.output).toContain('mount m1 → github (docs)')
+    const separated = await runStaticCybshLine('echo first; echo second', deps)
+    expect(separated?.ok).toBe(true)
+    expect(separated?.output).toBe('first\nsecond')
     expect(await runStaticCybshLine('', deps)).toBeNull()
+  })
+
+  it('runs a vault verb before falling back to the WASM volume in a chain', async () => {
+    const { deps } = fakeDeps({
+      configs: [{ id: 'c1', backendType: 'github', enabled: true }],
+      secrets: { c1: 'test-token' },
+    })
+    const fallbackCalls: string[] = []
+    deps.execFallback = async (line) => {
+      fallbackCalls.push(line)
+      return 'wasm ls output'
+    }
+    const result = await runStaticCybshLine('quota && ls', deps)
+    expect(result?.ok).toBe(true)
+    expect(result?.output).toContain('c1 (github): used')
+    expect(result?.output).toContain('wasm ls output')
+    expect(fallbackCalls).toEqual(['ls'])
+  })
+
+  it('stops after a failed clause and refuses pipes without rejecting quoted bars', async () => {
+    const { deps } = fakeDeps()
+    const fallbackCalls: string[] = []
+    deps.execFallback = async (line) => {
+      fallbackCalls.push(line)
+      return 'fallback'
+    }
+    const failed = await runStaticCybshLine('kill 7 && ls', deps)
+    expect(failed?.ok).toBe(false)
+    expect(failed?.output).toMatch(/^unsupported: kill needs/)
+    expect(fallbackCalls).toEqual([])
+
+    const piped = await runStaticCybshLine('echo left | cat', deps)
+    expect(piped?.ok).toBe(false)
+    expect(piped?.output).toMatch(/^unsupported: pipelines/)
+    const quoted = await runStaticCybshLine('echo "left | right"', deps)
+    expect(quoted?.ok).toBe(true)
+    expect(quoted?.output).toBe('left | right')
   })
 
   it('echoes', async () => {

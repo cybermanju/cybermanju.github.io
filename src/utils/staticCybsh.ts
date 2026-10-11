@@ -176,9 +176,9 @@ export function handlesStaticVerb(verb: string): boolean {
 }
 
 /**
- * Quote-aware first-word parse. Returns `null` for chained lines (`&&`,
- * `;`, `|` outside quotes) — those stay with the wasm shell, which stitches
- * `&&`/`;` itself and refuses `|` honestly.
+ * Quote-aware first-word parse. Returns `null` for chain operators outside
+ * quotes; the line runner dispatches `&&`/`;` clauses across static + WASM
+ * backends and refuses `|` honestly.
  */
 export function parseCybshLine(line: string): ParsedLine | null {
   const tokens: string[] = []
@@ -221,6 +221,50 @@ export function parseCybshLine(line: string): ParsedLine | null {
   const args = tokens.slice(1).filter((a) => a !== '--json')
   const json = tokens.slice(1).some((a) => a === '--json')
   return { verb: tokens[0].toLowerCase(), args, json }
+}
+
+interface StaticCybshChain {
+  commands: string[]
+  separators: string[]
+  hasPipe: boolean
+}
+
+/** Split only unquoted shell operators so static verbs can share a chain with WASM commands. */
+function splitStaticCybshChain(line: string): StaticCybshChain {
+  const commands: string[] = []
+  const separators: string[] = []
+  let quote: string | null = null
+  let start = 0
+  let hasPipe = false
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (quote) {
+      if (c === quote) quote = null
+      continue
+    }
+    if (c === "'" || c === '"') {
+      quote = c
+      continue
+    }
+    if (c === '|') {
+      hasPipe = true
+      continue
+    }
+    if (c === ';') {
+      commands.push(line.slice(start, i))
+      separators.push(';')
+      start = i + 1
+      continue
+    }
+    if (c === '&' && line[i + 1] === '&') {
+      commands.push(line.slice(start, i))
+      separators.push('&&')
+      i++
+      start = i + 1
+    }
+  }
+  commands.push(line.slice(start))
+  return { commands, separators, hasPipe }
 }
 
 /** Mirror of `join()` in crates/os-wasm/src/os.rs (cwd + relative → absolute). */
@@ -2405,13 +2449,6 @@ export async function runStaticCybshLine(
   line: string,
   deps: StaticCybshDeps,
 ): Promise<ShellResult | null> {
-  let parsed: ParsedLine | null
-  try {
-    parsed = parseCybshLine(line)
-  } catch {
-    return null
-  }
-  if (!parsed || !handlesStaticVerb(parsed.verb)) return null
   const done = (out: VerbOut): ShellResult => ({
     ok: out.ok,
     line,
@@ -2419,6 +2456,57 @@ export async function runStaticCybshLine(
     ...(out.ok ? {} : { error: out.text }),
     prompt: 'cybsh> ',
   })
+  const chain = splitStaticCybshChain(line)
+  if (chain.hasPipe) {
+    return done(shellErr('unsupported: pipelines are not available in the wasm sandbox'))
+  }
+  if (chain.separators.length > 0) {
+    // Keep mixed-operator semantics with the Rust dispatcher until both paths
+    // share a parser. Homogeneous `&&` and `;` chains can safely mix local and
+    // volume commands here.
+    if (new Set(chain.separators).size > 1) return null
+    const commands = chain.commands.map((command) => command.trim()).filter(Boolean)
+    const includesStaticVerb = commands.some((command) => {
+      const commandParsed = parseCybshLine(command)
+      return !!commandParsed && handlesStaticVerb(commandParsed.verb)
+    })
+    if (!includesStaticVerb) return null
+
+    const output: string[] = []
+    for (const command of commands) {
+      let result: VerbOut
+      try {
+        const handled = await runStaticCybshLine(command, deps)
+        if (handled) {
+          result = { ok: handled.ok, text: handled.output }
+        } else if (deps.execFallback) {
+          try {
+            result = shellOk(await deps.execFallback(command))
+          } catch (e) {
+            result = shellErr(e instanceof Error ? e.message : String(e))
+          }
+        } else {
+          const commandParsed = parseCybshLine(command)
+          const verb = commandParsed?.verb ?? command.split(/\s+/, 1)[0] ?? command
+          result = shellErr(`unsupported: \`${verb}\` needs the WASM shell fallback in this static build`)
+        }
+      } catch (e) {
+        result = shellErr(e instanceof Error ? e.message : String(e))
+      }
+      if (result.text) output.push(result.text)
+      // Match the WASM runner: stop at the first unsuccessful command.
+      if (!result.ok) return done(shellErr(output.join('\n')))
+    }
+    return done(shellOk(output.join('\n')))
+  }
+
+  let parsed: ParsedLine | null
+  try {
+    parsed = parseCybshLine(line)
+  } catch {
+    return null
+  }
+  if (!parsed || !handlesStaticVerb(parsed.verb)) return null
   try {
     const { verb, args, json } = parsed
     switch (verb) {

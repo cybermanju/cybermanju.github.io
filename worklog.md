@@ -507,3 +507,11 @@ Stage Summary:
 - Added a contract test that reads Rust `MAX_WRITE_BYTES` and compares it with the browser shell's `STATIC_WRITE_LIMIT`, asserting both remain at 1 MiB. This prevents Pages/WASM and Rust WASM from silently diverging without introducing source-generation coupling between the languages.
 - Marked `TASKS.md` P1-17 complete with the parity-test approach.
 - Verified locally: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, 54 frontend suites / 591 tests, `npm run build`, and `git diff --check`. Build succeeds with the existing advisory about large chunks; no Rust changes, per `AGENTS.md`. Remote CI will be checked after push.
+
+
+## 2026-10-10 — Dispatch cybsh chains across the static vault and WASM volume
+
+- Static cybsh now splits unquoted `&&`/`;` chains, runs vault-aware commands locally, and falls back clause-by-clause to the WASM volume for ordinary shell commands. The chain stops on its first failed command and retains combined output; mixed `&&`/`;` stays on the existing Rust path until both parsers share semantics.
+- Unquoted `|` returns an explicit `unsupported:` result while quoted bars remain arguments. Unexpected interceptor errors are logged before the Rust fallback. Marked `TASKS.md` P1-18 complete.
+- Added regressions for `quota && ls`, all-static `&&` and `;` chains, short-circuit failure, explicit pipe refusal, and quoted-pipe behavior.
+- Verified: `bash scripts/check-version.sh`; `npm run typecheck`; `npm test` (54 files / 593 tests); `npm run build`; `git diff --check`. Build succeeded with the repository's existing large-chunk advisory and used the WASM stub because the checked-in generated package is older than Rust sources. No local Cargo commands, per `AGENTS.md`.

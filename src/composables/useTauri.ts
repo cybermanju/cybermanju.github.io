@@ -2525,15 +2525,16 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
     if (OS_WASM_COMMANDS.has(cmd)) {
       // Vault-aware cybsh verbs (`quota`, `providers`, `oauth`, `disk`,
       // `sync`, `encrypt`, cross-mount `cp`/`mv`/`rm`/`mkdir`, …) answer
-      // from the local vault + live provider probes before the wasm volume
-      // dispatcher ever sees the line. Chained lines and unknown verbs
-      // return `null` and fall through to the Rust shell as before.
+      // from the local vault + live provider probes. `&&`/`;` chains dispatch
+      // clause-by-clause here, falling back to Rust only for volume commands;
+      // unknown simple verbs still fall through unchanged.
       if (cmd === 'os_exec') {
         try {
           const handled = await runStaticCybshLine(String(args?.line ?? ''), STATIC_CYBSH_DEPS)
           if (handled) return handled as T
-        } catch {
+        } catch (error) {
           // Interceptor failure — the wasm dispatcher stays the fallback.
+          console.warn('[cybsh] Static interceptor failed; falling back to WASM shell.', error)
         }
       }
       const wasmArgs = wasmArgsForCommand(cmd, args ?? {})
