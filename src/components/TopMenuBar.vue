@@ -117,12 +117,23 @@
         </button>
 
         <button
+          class="tray-icon tray-icon--notifications"
+          type="button"
+          title="Notifications"
+          aria-label="Notifications"
+          @click="launcher.setMessagesOpen(true, 'system')"
+        >
+          <AppIcon name="solar:bell-bold" :size="14" />
+          <span v-if="sysUnread > 0" class="tray-badge">{{ sysUnread > 99 ? '99+' : sysUnread }}</span>
+        </button>
+
+        <button
           v-if="msgHub.supported"
           class="tray-icon tray-icon--messages"
           type="button"
           title="Messages"
           aria-label="Messages"
-          @click="launcher.setMessagesOpen(true)"
+          @click="launcher.setMessagesOpen(true, 'messages')"
         >
           <AppIcon name="solar:chat-round-dots-bold" :size="14" />
           <span v-if="msgHub.unread.value > 0" class="tray-badge">{{ msgHub.unread.value > 99 ? '99+' : msgHub.unread.value }}</span>
@@ -173,12 +184,15 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useLauncherStore } from '@/stores/launcher'
 import { useMessages } from '@/composables/useMessages'
+import { useNotifications } from '@/composables/useNotifications'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
 
 const store = useAppStore()
 const launcher = useLauncherStore()
 const msgHub = useMessages()
+const sysNotifs = useNotifications()
+const sysUnread = computed(() => sysNotifs.unreadCount.value)
 const wm = useWindowManager()
 const theme = useTheme()
 const searchQueryShort = computed(() => store.searchQuery.trim().length > 0)
@@ -274,17 +288,13 @@ const menuStructure = computed<MenuGroup[]>(() => [
     label: 'View',
     children: [
       { id: 'file-browser', label: 'File Browser', icon: 'solar:folder-bold', shortcut: 'Ctrl+1', action: () => { wm.open('files') } },
-      { id: 'collections', label: 'Organize', icon: 'solar:library-bold', action: () => { wm.open('collections') } },
-      { id: 'people', label: 'People (Faces)', icon: 'solar:face-scan-square-bold', action: () => { wm.open('faces') } },
-      { id: 'map', label: 'Map View', icon: 'solar:map-bold', action: () => { wm.open('map') } },
       { id: 'code', label: 'Code Studio', icon: 'solar:code-square-bold', action: () => { wm.open('editor') } },
       { id: 'div1', divider: true },
-      { id: 'search', label: 'Search', icon: 'solar:magnifer-bold', shortcut: 'Ctrl+F', action: () => { store.searchQuery = ''; wm.open('search') } },
+      { id: 'search', label: 'Search (apps, collections, people, files)', icon: 'solar:magnifer-bold', shortcut: 'Ctrl+F', action: () => { store.searchQuery = ''; wm.open('search') } },
+      { id: 'map', label: 'Map View', icon: 'solar:map-bold', action: () => { wm.open('map') } },
       { id: 'storage', label: 'Storage & Disks', icon: 'solar:database-bold', action: () => { wm.open('disks') } },
       { id: 'sync-panel', label: 'Sync Panel', icon: 'solar:refresh-bold', action: () => { wm.open('sync') } },
       { id: 'devices', label: 'Devices & Sensors', icon: 'solar:plug-circle-bold', action: () => { wm.open('devices') } },
-      { id: 'loose-groups', label: 'Loose Groups', icon: 'solar:users-group-two-rounded-bold', action: () => { wm.open('loose-groups') } },
-      { id: 'style', label: 'Style Tags', icon: 'solar:tag-bold', action: () => { wm.open('style') } },
       { id: 'overlay', label: 'Remote Dashboard', icon: 'solar:kanban-square-bold', action: () => { wm.open('dashboard') } },
     ],
   },
@@ -297,7 +307,7 @@ const menuStructure = computed<MenuGroup[]>(() => [
       { id: 'div1', divider: true },
       { id: 'trash', label: 'Trash', icon: 'solar:trash-bin-trash-bold', action: () => { wm.open('trash'); store.fetchTrashItems() } },
       { id: 'activity', label: 'Activity Log', icon: 'solar:chart-bold', action: () => { wm.open('activity'); store.fetchAuditLog() } },
-      { id: 'favorites', label: 'Favorites', icon: 'solar:star-bold', action: () => { wm.open('favorites') } },
+      { id: 'favorites', label: 'Search', icon: 'solar:star-bold', action: () => { wm.open('search') } },
       { id: 'recent', label: 'Recent Files', icon: 'solar:history-2-bold', action: () => { wm.open('recent') } },
       { id: 'div1', divider: true },
       { id: 'accounts', label: 'Account Manager', icon: 'solar:user-id-bold', action: () => { wm.open('accounts') } },

@@ -5,9 +5,9 @@
 <!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="window-content-panel">
-    <!-- Search Panel (shared surface — Code Studio renders the same component) -->
+    <!-- Unified search (merged FACES + COLLECTIONS + SEARCH — opens targets itself) -->
     <div v-if="panelType === 'search'" class="panel-search-host">
-      <SearchPanel @open="openSearchResult" />
+      <OmniSearchPanel />
     </div>
 
     <!-- Trash Panel -->
@@ -161,7 +161,7 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import SearchPanel from '@/components/SearchPanel.vue'
+import OmniSearchPanel from '@/components/OmniSearchPanel.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiEmpty from '@/components/ui/UiEmpty.vue'
 import UiError from '@/components/ui/UiError.vue'
@@ -191,11 +191,7 @@ onMounted(() => {
   }
 })
 
-/** Search result picked in the shared panel → select + show files. */
-function openSearchResult(fileId: string) {
-  store.selectFile(fileId)
-  wm.open('files')
-}
+/** The unified search panel opens its own targets (no host callback needed). */
 
 // ── Trash confirmations (destructive actions always ask first) ──
 const confirmEmptyTrashVisible = ref(false)

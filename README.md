@@ -59,6 +59,24 @@
 ## ⚡ 60-second launch
 
 ```bash
+curl -fsSL https://cybermanju.github.io/install.sh | bash
+cyb setup     # server → account → saved profile (0600)
+cyb serve up  # dashboard → http://localhost:3456
+```
+
+Windows PowerShell (native):
+
+```powershell
+irm https://cybermanju.github.io/install.ps1 | iex
+```
+
+Open `http://localhost:3456` from any device on your LAN — same vault, new screen. ✨
+Checksum-verified against the release `SHA256SUMS`; pin a release with `CYB_VERSION=v0.1.0`.
+
+<details>
+<summary>🛠️ Prefer building from source? (click to expand)</summary>
+
+```bash
 # 1 — clone
 git clone https://github.com/cybermanju/cybermanju.github.io.git
 cd cybermanju.github.io
@@ -70,7 +88,7 @@ npm install
 npm run tauri:dev
 ```
 
-Open `http://localhost:3456` from any device on your LAN — same vault, new screen. ✨
+</details>
 
 <details>
 <summary>📦 Prerequisites per platform (click to expand)</summary>

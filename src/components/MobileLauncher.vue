@@ -17,13 +17,24 @@
   >
     <!-- The single mobile header (TopMenuBar) owns connectivity, vault
       count and the clock — no duplicate status row here. -->
-    <div v-if="msgHub.supported" class="mla-topbtns">
+    <div class="mla-topbtns">
       <button
+        class="mla-msgbtn"
+        type="button"
+        aria-label="Notifications"
+        title="Notifications"
+        @click="launcher.setMessagesOpen(true, 'system')"
+      >
+        <AppIcon name="solar:bell-bold" :size="19" />
+        <span v-if="sysUnread > 0" class="mla-badge static">{{ sysUnread > 99 ? '99+' : sysUnread }}</span>
+      </button>
+      <button
+        v-if="msgHub.supported"
         class="mla-msgbtn"
         type="button"
         aria-label="Messages"
         title="Messages"
-        @click="launcher.setMessagesOpen(true)"
+        @click="launcher.setMessagesOpen(true, 'messages')"
       >
         <AppIcon name="solar:chat-round-dots-bold" :size="19" />
         <span v-if="msgHub.unread.value > 0" class="mla-badge static">{{ msgHub.unread.value > 99 ? '99+' : msgHub.unread.value }}</span>
@@ -240,6 +251,7 @@ import { useAppStore } from '@/stores/app'
 import { useLauncherStore } from '@/stores/launcher'
 import { useAndroidApps } from '@/composables/useAndroidApps'
 import { useMessages } from '@/composables/useMessages'
+import { useNotifications } from '@/composables/useNotifications'
 import { useWindowManager } from '@/composables/useWindowManager'
 import {
   fileToLauncherIcon,
@@ -255,6 +267,7 @@ const wm = useWindowManager()
 const launcher = useLauncherStore()
 const androidApps = useAndroidApps()
 const msgHub = useMessages()
+const sysUnread = computed(() => useNotifications().unreadCount.value)
 const query = ref('')
 const dateStr = ref('')
 const greeting = ref('')

@@ -85,11 +85,11 @@
       <button
         class="pp-tray-btn"
         type="button"
-        :title="`${notifications.length} notifications`"
-        @click="togglePopover('notif')"
+        :title="`${unreadCount} notifications — open notification center`"
+        @click="openCenter()"
       >
-        <AppIcon name="solar:info-circle-bold" :size="16" />
-        <span v-if="notifications.length > 0" class="pp-badge">{{ notifications.length }}</span>
+        <AppIcon name="solar:bell-bold" :size="16" />
+        <span v-if="unreadCount > 0" class="pp-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
       </button>
       <button
         class="pp-tray-btn"
@@ -149,13 +149,6 @@
         <div class="pp-kv"><span>Status</span><b>{{ syncBusy ? 'Running' : 'Idle' }}</b></div>
         <button class="pp-act" type="button" @click="wm.open('sync')">Open sync panel</button>
       </div>
-      <div v-else-if="popover === 'notif'" class="pp-pop-body pp-notifs">
-        <div v-if="notifications.length === 0" class="pp-empty">No notifications</div>
-        <div v-for="n in notifications" :key="n.id" class="pp-notif">
-          <b>{{ n.title || 'CyberManju OS' }}</b>
-          <span>{{ n.message }}</span>
-        </div>
-      </div>
       <div v-else-if="popover === 'vol'" class="pp-pop-body">
         <span class="pp-empty">Volume control is a placeholder in this build.</span>
       </div>
@@ -170,6 +163,7 @@ import { useWindowManager, type ShellLayoutMode } from '@/composables/useWindowM
 import { useTheme } from '@/composables/useTheme'
 import { useKickoff } from '@/composables/useKickoff'
 import { useNotifications } from '@/composables/useNotifications'
+import { useLauncherStore } from '@/stores/launcher'
 import { useContextMenu } from '@/composables/useContextMenu'
 import { useTransport } from '@/composables/useTransport'
 import { useAppStore } from '@/stores/app'
@@ -180,7 +174,13 @@ const theme = useTheme()
 const kickoff = useKickoff()
 const store = useAppStore()
 const ctx = useContextMenu()
-const { notifications } = useNotifications()
+const launcher = useLauncherStore()
+const notifs = useNotifications()
+const unreadCount = computed(() => notifs.unreadCount.value)
+function openCenter() {
+  popover.value = null
+  launcher.setMessagesOpen(true, 'system')
+}
 
 const layouts: { id: ShellLayoutMode; label: string }[] = [
   { id: 'floating', label: 'Float' },
@@ -205,7 +205,7 @@ const endpointLabel = computed(() => {
 })
 const syncBusy = computed(() => store.shellBusy)
 
-const popover = ref<null | 'clock' | 'net' | 'sync' | 'notif' | 'vol'>(null)
+const popover = ref<null | 'clock' | 'net' | 'sync' | 'vol'>(null)
 function togglePopover(name: NonNullable<typeof popover.value>) {
   popover.value = popover.value === name ? null : name
 }
@@ -214,7 +214,6 @@ const popoverTitle = computed(() => {
     case 'clock': return 'Calendar'
     case 'net': return 'Network / transport'
     case 'sync': return 'Sync'
-    case 'notif': return 'Notifications'
     case 'vol': return 'Volume'
     default: return ''
   }
@@ -629,30 +628,6 @@ onUnmounted(() => {
 
 .pp-act:hover {
   border-color: var(--ui-accent);
-}
-
-.pp-notifs {
-  max-height: 280px;
-  overflow-y: auto;
-}
-
-.pp-notif {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 6px 8px;
-  border-radius: var(--ui-radius-sm);
-  background: color-mix(in srgb, var(--ui-text) 4%, transparent);
-}
-
-.pp-notif b {
-  font-size: 12px;
-  color: var(--ui-text);
-}
-
-.pp-notif span {
-  font-size: 12px;
-  overflow-wrap: anywhere;
 }
 
 .pp-empty {

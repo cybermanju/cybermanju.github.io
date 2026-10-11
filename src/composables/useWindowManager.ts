@@ -95,8 +95,11 @@ const CodeStudio = asyncPanel(() => import('@/components/CodeStudio.vue'))
 // first paint on every launch. Chunks are local assets, so the first open of
 // a panel is a disk read, not a network round trip.
 const FileManager = asyncPanel(() => import('@/components/FileManager.vue'))
-const OrganizePanel = asyncPanel(() => import('@/components/OrganizePanel.vue'))
-const FaceGroupingPanel = asyncPanel(() => import('@/components/FaceGroupingPanel.vue'))
+// Merged omni-search: FACES + COLLECTIONS + SEARCH render one window
+// (OmniSearchPanel). The retired OrganizePanel/FaceGroupingPanel files stay
+// in the tree for reference but no window opens them — `search`,
+// `collections` and `faces` all map to the unified panel below.
+const OmniSearchPanel = asyncPanel(() => import('@/components/OmniSearchPanel.vue'))
 const MapView = asyncPanel(() => import('@/components/MapView.vue'))
 const WebDashboardPanel = asyncPanel(() => import('@/components/WebDashboardPanel.vue'))
 const SyncPanel = asyncPanel(() => import('@/components/SyncPanel.vue'))
@@ -145,9 +148,9 @@ type SizeMap = { [K in PanelType]?: { width: number; height: number } } & {
 }
 const defaultSizes: SizeMap = {
   files: { width: 1240, height: 720 },
-  search: { width: 600, height: 480 },
-  collections: { width: 500, height: 420 },
-  faces: { width: 620, height: 640 },
+  search: { width: 640, height: 600 },
+  collections: { width: 640, height: 600 },
+  faces: { width: 640, height: 600 },
   map: { width: 720, height: 520 },
   code: { width: 1280, height: 740 },
   editor: { width: 1280, height: 740 },
@@ -184,11 +187,14 @@ const inlinePanels: PanelType[] = [
 
 const panelComponentMap: Record<string, Component> = {
   files: FileManager,
-  collections: OrganizePanel,
-  favorites: OrganizePanel,
-  'loose-groups': OrganizePanel,
-  style: OrganizePanel,
-  faces: FaceGroupingPanel,
+  // Omni-search: every merged id renders the unified panel. Aliases resolve
+  // in open() first, but the map stays explicit so direct lookups agree.
+  search: OmniSearchPanel,
+  collections: OmniSearchPanel,
+  favorites: OmniSearchPanel,
+  'loose-groups': OmniSearchPanel,
+  style: OmniSearchPanel,
+  faces: OmniSearchPanel,
   map: MapView,
   // Merged studio: `code` (tree-sitter intel) and `editor` (VSCode-like)
   // are one window now — `code` stays as an alias so old shortcuts,
@@ -403,8 +409,11 @@ export function useWindowManager() {
   }
 
   function toggle(panelType: PanelType, props?: Record<string, unknown>) {
+    // Resolve merged aliases first so toggling an old id (faces,
+    // collections, …) toggles the unified window instead of a ghost.
+    const target = resolvePanel(panelType)
     const existing = windows.value.find(
-      w => w.panelType === panelType
+      w => w.panelType === target
     )
     if (existing) {
       if (existing.minimized) {
@@ -608,7 +617,7 @@ export function useWindowManager() {
   )
 
   const isOpen = (panelType: PanelType) =>
-    windows.value.some(w => w.panelType === panelType)
+    windows.value.some(w => w.panelType === resolvePanel(panelType))
 
   return {
     windows,

@@ -416,8 +416,10 @@ async function requireMount(label: string): Promise<FsDirHandle> {
   const index = await readMountIndex()
   // An unknown label is always `not_found:` — even where the picker itself
   // is missing (node/vitest, non-Chromium): the folder simply isn't mounted.
-  // The injected test mount counts as known here too.
-  const known = [...(testMount ? [testMount.mount.label] : []), ...index.map((m) => m.label)]
+  // NB: no test-seam label is spread here — the seam either returned (above)
+  // or threw (above), so `testMount` narrows to `null` past this point and a
+  // ternary over it collapses to `never` (vue-tsc E2339, CI 2026-10-11).
+  const known = index.map((m) => m.label)
   const mount = index.find((m) => m.label === label)
   if (!mount) {
     if (!index.length && !testMount) {

@@ -60,11 +60,13 @@
 import AppIcon from '@/components/AppIcon.vue'
 import { ref, toRef, computed, nextTick, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useLauncherStore } from '@/stores/launcher'
 import { useWindowManager } from '@/composables/useWindowManager'
 import type { PanelType } from '@/types'
 import { useFocusTrap } from '@/composables/useFocusTrap'
 
 const store = useAppStore()
+const launcher = useLauncherStore()
 const wm = useWindowManager()
 const cpRef = ref<HTMLElement | null>(null)
 useFocusTrap(cpRef, toRef(store, 'commandPaletteOpen'))
@@ -91,9 +93,7 @@ const commands = computed<CommandGroup[]>(() => [
     label: 'NAVIGATION',
     items: [
       { id: 'nav-files', label: 'Go to Files', icon: 'solar:folder-bold', shortcut: '', action: () => { wm.open('files') } },
-      { id: 'nav-search', label: 'Go to Search', icon: 'solar:magnifier-bold', action: () => { wm.open('search') } },
-      { id: 'nav-collections', label: 'Open Organize', icon: 'solar:library-bold', action: () => { wm.open('collections') } },
-      { id: 'nav-faces', label: 'Go to People (Faces)', icon: 'solar:face-scan-circle-bold', action: () => { wm.open('faces') } },
+      { id: 'nav-search', label: 'Go to Search (apps, collections, people, files)', icon: 'solar:magnifier-bold', action: () => { wm.open('search') } },
       { id: 'nav-map', label: 'Go to Map', icon: 'solar:map-bold', action: () => { wm.open('map'); store.fetchGeoFiles() } },
       { id: 'nav-code', label: 'Open Code Studio', icon: 'solar:code-bold', action: () => { wm.open('editor') } },
       { id: 'nav-sync', label: 'Go to Sync (providers + OAuth)', icon: 'solar:refresh-bold', action: () => { wm.open('sync') } },
@@ -107,9 +107,10 @@ const commands = computed<CommandGroup[]>(() => [
       { id: 'nav-storage', label: 'Open Storage & Disks', icon: 'solar:database-bold', action: () => { wm.open('disks') } },
       { id: 'nav-settings', label: 'Go to Settings', icon: 'solar:settings-bold', action: () => { wm.open('settings') as PanelType } },
       { id: 'nav-trash', label: 'Go to Trash', icon: 'solar:trash-bin-trash-bold', action: () => { wm.open('trash'); store.fetchTrashItems() } },
-      { id: 'nav-favorites', label: 'Open Organize — favorites', icon: 'solar:star-bold', action: () => { wm.open('collections', { tab: 'favorites' }) as PanelType } },
+      { id: 'nav-favorites', label: 'Open Search', icon: 'solar:star-bold', action: () => { wm.open('search') } },
       { id: 'nav-recent', label: 'Go to Recent Files', icon: 'solar:history-bold', action: () => { wm.open('recent') as PanelType } },
       { id: 'nav-activity', label: 'Go to Activity Log', icon: 'solar:pulse-bold', action: () => { wm.open('activity'); store.fetchAuditLog() } },
+      { id: 'nav-notifications', label: 'Open Notification Center', icon: 'solar:bell-bold', action: () => { launcher.setMessagesOpen(true, 'system') } },
     ],
   },
   {

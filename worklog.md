@@ -1231,3 +1231,25 @@ Stage Summary:
   wait on rust-check (create-release still gates); PRs build Tauri
   `--debug`, release profile on pushes/releases. Local: versions + headers
   + vue-tsc + 718 vitest green, both workflows YAML-parse.
+
+## 2026-10-11 — Notification center (ANALYSIS §3) + mobile hub integration
+- `useNotifications` now persists every toast into a per-device history
+  (localStorage `cybermanju.notifications.history.v1`, cap 100, sanitized
+  restore): `history`, `unreadCount`, `markRead/markAllRead`,
+  `removeFromHistory/clearHistory`. Toast auto-dismiss never drops rows.
+- `MessagesHub` is now the Notification Center: `System` tab (history with
+  unread dots, relative time, mark-all-read/clear) + `Messages` tab (existing
+  Android stored-message hub untouched). Launcher store gains `centerTab`;
+  `setMessagesOpen(open, tab?)` stays backward compatible; opening on the
+  system tab marks it seen (the "while you were away" digest).
+- Entry points: TopMenuBar bell (always visible, unread badge; messages button
+  stays Android-only and lands on its tab), MobileLauncher bell (same),
+  PlasmaPanel tray bell (opens the center; dead live-list popover removed),
+  CommandPalette "Open Notification Center". `ui_notify` agent tool and all
+  store/scheduler notifies land in history with zero call-site changes.
+- Verified: `check-version.sh` + `check-file-headers.sh` ok, `npm run
+  typecheck` clean, full `npm test` 65 files / 754 green (new
+  `tests/frontend/notification-center.test.ts` 7/7). Rust untouched; no local
+  cargo per repo rules. Note: a concurrent session reverted
+  `useNotifications.ts` + `stores/launcher.ts` mid-pass; re-applied and
+  re-verified on disk before testing.

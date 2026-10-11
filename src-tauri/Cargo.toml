@@ -74,7 +74,9 @@ redb = "2"
 # Auth & crypto (additional)
 argon2 = "0.5"
 jsonwebtoken = "9"
-hmac = "0.13"
+# hmac stays 0.12: commands/users.rs instantiates Hmac<Sha256> from sha2
+# 0.10 (digest 0.10); hmac 0.13 (digest 0.11) breaks it (CI 2026-10-11).
+hmac = "0.12"
 sha2 = "0.10"
 
 # Image & media
