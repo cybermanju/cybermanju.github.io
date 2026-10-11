@@ -1148,3 +1148,29 @@ Stage Summary:
 - New `TestRootHelpAtlasComplete`: every visible command must sit in a
   section (catches unmapped commands), leaf pages show usage + flags.
   45 CLI tests green; gofmt/vet clean; headers 470/470.
+
+## 2026-10-11 — wiki satellites: node clicks explode into real connections
+- Generator mines inter-subject links (import edges cybermanju_* → subject,
+  reverse used-by edges, shared-signal fallback) + line numbers in the SPA
+  index; static pages gained a Related modules section.
+- Clicking a node now orbits ≤10 satellite stars: linked modules (their
+  colors, click-through) + the module's own top symbols (docs in tooltips),
+  each tethered with a live line. Symbols open deep cards `#/id/symbol`
+  (kind, file:line, doc-comment, copy link); chips/search/pager/Esc all
+  route there. Nothing generic — every satellite resolves to mined data.
+- Verified: vue-tsc clean, vitest 60/700 green, headers 470/470.
+
+## 2026-10-11 — CI green on the perf push (run 38163841181, all 14 jobs)
+- Pushed the perf pass + in-flight tree work: CI failed `cargo fmt` on two
+  other-session hunks (`os-wasm` db.rs passphrase guard, `types` code.rs
+  keyword vec) — hand-applied rustfmt's exact wrapping (no local cargo).
+- Then `clippy -D warnings`: `manual-pattern-char-comparison` x2 in the new
+  code.rs helpers → array patterns (`['?', '!']`, the trim set).
+- Then `cargo test` (all-targets): E0716 in the new heuristic test —
+  `.iter()` chained on a temporary `Vec` → bind (`ts_syms`/`go_syms`) then
+  iterate; rustfmt then wanted those two chains single-line.
+- Fix commits 0fd3df5 → 78ff10a → 471c089 → 3caa6a3; final run green
+  across fmt, clippy, full workspace tests, windows/linux/rpm/flatpak/arch/
+  macos/android/wasm, docker, CLI, audit, meta. This also proves the 175
+  `#[tauri::command(async)]` conversions + the release LTO profile compile
+  and pass on every target.
