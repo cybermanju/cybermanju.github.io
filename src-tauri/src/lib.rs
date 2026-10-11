@@ -557,7 +557,7 @@ pub fn run() {
             let compressor = compression::TripleCompressor::new();
 
             // HMAC secret for secure session tokens.
-            let mut hmac_secret = [u8; 32];
+            let mut hmac_secret = [0u8; 32];
             use rand_core::{OsRng, RngCore};
             OsRng.fill_bytes(&mut hmac_secret);
 
