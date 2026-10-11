@@ -1,3 +1,4 @@
+// CyberManju OS — Disk (crates/disk/src/disk.rs).
 //! Disk lifecycle: `create` · `attach` · `detach` · `resize` · `check` ·
 //! `destroy`, plus the sealed container that outlives the local catalog.
 //!

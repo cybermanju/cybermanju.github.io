@@ -1,3 +1,4 @@
+// CyberManju OS — Setup wizard.test (tests/frontend/setup-wizard.test.ts).
 // First-run setup wizard flag + step order stay honest without a browser:
 // unseen by default, finish/skip persists, navigation clamps at both ends.
 import { describe, expect, it, beforeEach, vi } from 'vitest'

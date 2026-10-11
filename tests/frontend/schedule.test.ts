@@ -1,3 +1,4 @@
+// CyberManju OS — Schedule.test (tests/frontend/schedule.test.ts).
 // Schedule expressions — TypeScript twin of `crates/os/src/schedule.rs`.
 // Every case here has a Rust twin test in that file; a divergence means the
 // daemon (UTC) and the browser preview/tick disagree by a minute.

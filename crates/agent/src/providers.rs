@@ -1,3 +1,4 @@
+// CyberManju OS — Providers (crates/agent/src/providers.rs).
 // Provider catalog: id, endpoint, model family, auth. Every field is a
 // *default* — configs override endpoint/model, keys are stored sealed.
 // OpenAI-dialect first: one wire shape serves OpenRouter, Ollama `/v1`,

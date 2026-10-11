@@ -1,3 +1,4 @@
+// CyberManju OS — Agent diff.test (tests/frontend/agent-diff.test.ts).
 // Approval diff view — unified pre/post rendering for edit approvals.
 import { describe, expect, it } from 'vitest'
 import { diffBlocks, editBlocksOf } from '../../src/utils/agentDiff'

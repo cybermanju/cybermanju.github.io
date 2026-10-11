@@ -1,3 +1,4 @@
+// CyberManju OS — Cybsh examples.test (tests/frontend/cybsh-examples.test.ts).
 // Skill examples must run: execute every `.cybsh` file shipped in
 // `.cybermanju/skills/cybsh-script/examples/` through the TS interpreter
 // with a stub shell (echo unwrapped, `--json` legs answered as JSON,

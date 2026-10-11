@@ -1,3 +1,8 @@
+// CyberManju OS — Audit (crates/web/src/api/audit.rs).
+// Role: REST dashboard (:3456): routes, auth, security headers.
+// Exports: list.
+// Integrates: cybermanju_db, cybermanju_types, redb.
+// Contracts: none special (pure logic; errors bubble to caller).
 // CyberManju OS — Audit log (shared by Tauri IPC and REST)
 
 use cybermanju_db::Database;

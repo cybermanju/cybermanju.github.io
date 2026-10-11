@@ -1,3 +1,8 @@
+// CyberManju OS — Extra (cli/internal/client/extra.go).
+// Role: CLI REST client.
+// Exports: GetRetry, SyncConfigRaw, SyncTestMap, SyncRemoteFilesMap, Readyz, HealthRaw, DashboardStatusRaw, Search.
+// Integrates: encoding, fmt, net, strings, time, config.
+// Contracts: none special (pure logic; errors bubble to caller).
 package client
 
 import (

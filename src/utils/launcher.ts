@@ -1,3 +1,4 @@
+// CyberManju OS — Launcher (src/utils/launcher.ts).
 // CyberManju launcher helpers — pure + unit-tested (no Tauri imports).
 // Ordering/filtering for the Gaveta drawer and the home springboard share
 // these so Rust (`sort_apps`) and TS never disagree on tie-breaks.

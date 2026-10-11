@@ -1,3 +1,8 @@
+// CyberManju OS — Web (crates/tests/src/web.rs).
+// Role: workspace integration tests.
+// Exports: module root (see items below).
+// Integrates: cybermanju_web.
+// Contracts: signals: AGENT-.
 use cybermanju_web::WebDashboard;
 use std::fs;
 use std::io::{Read, Write};

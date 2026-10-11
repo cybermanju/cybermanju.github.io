@@ -1,3 +1,8 @@
+// CyberManju OS — UseWindowManager (src/composables/useWindowManager.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: WindowState, ShellLayoutMode, StripDirection, shellLayoutMode, shellStripDirection, shellAutoTile, stripOffset, stripLine.
+// Integrates: vue, @vueuse, @/….
+// Contracts: signals: AGENT-.
 import { ref, computed, markRaw, defineAsyncComponent, defineComponent, h, type Component } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 import type { PanelType } from '@/types'
@@ -8,21 +13,6 @@ import {
   resolveStripLine,
 } from '@/utils/shellLayout'
 import { PANEL_ALIASES, ALIAS_TAB_PROPS, resolvePanel } from '@/utils/panels'
-import FileManager from '@/components/FileManager.vue'
-import OrganizePanel from '@/components/OrganizePanel.vue'
-import FaceGroupingPanel from '@/components/FaceGroupingPanel.vue'
-import MapView from '@/components/MapView.vue'
-import WebDashboardPanel from '@/components/WebDashboardPanel.vue'
-import SyncPanel from '@/components/SyncPanel.vue'
-import SettingsPage from '@/components/SettingsPage.vue'
-import DiskManagerPage from '@/components/DiskManagerPage.vue'
-import ShieldPanel from '@/components/ShieldPanel.vue'
-import FilePermissionsPanel from '@/components/FilePermissionsPanel.vue'
-import ProcessPanel from '@/components/ProcessPanel.vue'
-import SecretsPanel from '@/components/SecretsPanel.vue'
-import DevicesPanel from '@/components/DevicesPanel.vue'
-import AccountManagerPanel from '@/components/AccountManagerPanel.vue'
-import TransferGraph from '@/components/TransferGraph.vue'
 import WindowContent from '@/components/WindowContent.vue'
 
 // Async panels render through AppWindow's error boundary, but a failed chunk
@@ -97,6 +87,28 @@ const AgentPanel = asyncPanel(() => import('@/components/AgentPanel.vue'))
 // The code studio (editor + AI sidecar) is as heavy as the terminal, so it
 // is code-split like the terminal — fetched on first open, not on boot.
 const CodeStudio = asyncPanel(() => import('@/components/CodeStudio.vue'))
+
+// Every remaining windowed surface is code-split the same way. These panels
+// run to 1000–3300 lines each (AccountManagerPanel, FileManager, SettingsPage,
+// DiskManagerPage…) and none of them render until someone opens the window —
+// shipping them in the boot bundle only cost parse time, heap and a slower
+// first paint on every launch. Chunks are local assets, so the first open of
+// a panel is a disk read, not a network round trip.
+const FileManager = asyncPanel(() => import('@/components/FileManager.vue'))
+const OrganizePanel = asyncPanel(() => import('@/components/OrganizePanel.vue'))
+const FaceGroupingPanel = asyncPanel(() => import('@/components/FaceGroupingPanel.vue'))
+const MapView = asyncPanel(() => import('@/components/MapView.vue'))
+const WebDashboardPanel = asyncPanel(() => import('@/components/WebDashboardPanel.vue'))
+const SyncPanel = asyncPanel(() => import('@/components/SyncPanel.vue'))
+const SettingsPage = asyncPanel(() => import('@/components/SettingsPage.vue'))
+const DiskManagerPage = asyncPanel(() => import('@/components/DiskManagerPage.vue'))
+const ShieldPanel = asyncPanel(() => import('@/components/ShieldPanel.vue'))
+const FilePermissionsPanel = asyncPanel(() => import('@/components/FilePermissionsPanel.vue'))
+const ProcessPanel = asyncPanel(() => import('@/components/ProcessPanel.vue'))
+const SecretsPanel = asyncPanel(() => import('@/components/SecretsPanel.vue'))
+const DevicesPanel = asyncPanel(() => import('@/components/DevicesPanel.vue'))
+const AccountManagerPanel = asyncPanel(() => import('@/components/AccountManagerPanel.vue'))
+const TransferGraph = asyncPanel(() => import('@/components/TransferGraph.vue'))
 
 export interface WindowState {
   id: string

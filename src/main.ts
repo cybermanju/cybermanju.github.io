@@ -1,3 +1,8 @@
+// CyberManju OS — Main (src/main.ts).
+// Role: module (see exports below).
+// Exports: module root (see items below).
+// Integrates: ./…, vue, pinia.
+// Contracts: none special (pure logic; errors bubble to caller).
 // CyberManju OS — Main Entry
 import './utils/deploymentStorage'
 import { createApp } from 'vue'

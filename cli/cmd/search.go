@@ -1,3 +1,8 @@
+// CyberManju OS — Search (cli/cmd/search.go).
+// Role: cybsh CLI command.
+// Exports: module root (see items below).
+// Integrates: encoding, fmt, github.com.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (

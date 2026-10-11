@@ -1,3 +1,4 @@
+// CyberManju OS — CodeDetect (src/utils/codeDetect.ts).
 // Language detection + per-language highlighting for the code editor.
 //
 // `detectLanguage(fileName, content)` layers four signals so it keeps

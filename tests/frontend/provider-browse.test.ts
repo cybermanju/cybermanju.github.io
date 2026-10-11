@@ -1,3 +1,4 @@
+// CyberManju OS — Provider browse.test (tests/frontend/provider-browse.test.ts).
 // Provider browse: every Google Drive / GitHub / GitLab repo stays visible
 // in the file manager (`/providers`), with folder rows synthesized when the
 // native recursive fallback (no isDir) engages, and moves land in the vault

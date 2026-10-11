@@ -1,3 +1,8 @@
+<!-- CyberManju OS — UiInput (src/components/ui/UiInput.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: vue, @/…. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <label class="ui-field" :class="{ 'ui-field--inline': inline, 'ui-field--error': Boolean(error) }">
     <span v-if="label || $slots.label" class="ui-field__label">

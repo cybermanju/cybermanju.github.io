@@ -192,6 +192,9 @@ export async function ensureRemoteForDisk(deps: DiskProvisionDeps): Promise<Disk
       ...config,
       repoName: created.repoName,
       branch: created.branch || branch,
+      // Keep the token that just created the repo when the row has none —
+      // otherwise the seed + every later sync runs tokenless on desktop.
+      ...(!String(config.token ?? '').trim() && token ? { token } : {}),
     })
     if (!saved?.id) throw new Error('network: provider config could not be saved after repo creation — retry')
     config = saved
@@ -247,12 +250,16 @@ export async function ensureRemoteForDisk(deps: DiskProvisionDeps): Promise<Disk
   } else if (backend === 'googleDrive') {
     // One `upload_remote_file` per file: the Rust Drive backend resolves
     // `parent_for(remote, create=true)`, so the folder chain is created
-    // server-side on first upload.
+    // server-side on first upload. The backend reads the token out of the
+    // config — merge the resolved session/draft token in when the row has
+    // none, or desktop Drive seeds 401 while static direct writes succeed.
+    const backendConfig = token && !String(config.token ?? '').trim() ? { ...config, token } : config
     for (const f of files) {
-      await deps.uploadFile(config, f.path, f.contentBase64)
+      await deps.uploadFile(backendConfig, f.path, f.contentBase64)
     }
   } else {
-    await deps.seedFiles(config, files)
+    const backendConfig = token && !String(config.token ?? '').trim() ? { ...config, token } : config
+    await deps.seedFiles(backendConfig, files)
   }
   return { remoteDir: dir, files: files.map((f) => f.path), repoCreated, config, vaultSeeded }
 }
@@ -285,6 +292,7 @@ export async function provisionDiskWithRemote(deps: DiskCreateDeps): Promise<{
 }> {
   const mb = Math.min(8192, Math.max(64, Math.round(deps.sizeMb || 512)))
   const sizeBytes = mb * 1024 * 1024
+  if (!deps.passphrase) throw new Error('auth: a disk passphrase must not be empty — type one on the disk card first')
   const row = await deps.createDisk(deps.config.id, sizeBytes, deps.passphrase)
   if (!row?.id) throw new Error('network: disk row could not be created — retry')
   const disk: DiskRef = { id: row.id, name: deps.diskName || row.name || row.id }

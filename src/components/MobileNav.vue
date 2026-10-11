@@ -1,3 +1,8 @@
+<!-- CyberManju OS — MobileNav (src/components/MobileNav.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <!-- Keep app tabs for open sheets; on the home surface the launcher dock
     is the only bottom control, like a native phone home screen. -->

@@ -1,3 +1,4 @@
+// CyberManju OS — Util (cli/internal/util/util.go).
 // Package util holds small pure helpers (sizes, versions, asset names)
 // shared by commands and unit-tested without a dashboard.
 package util

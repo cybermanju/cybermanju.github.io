@@ -1,3 +1,8 @@
+// CyberManju OS — Types (crates/tests/src/types.rs).
+// Role: workspace integration tests.
+// Exports: module root (see items below).
+// Integrates: cybermanju_types.
+// Contracts: signals: engine.
 use cybermanju_types::schema::*;
 use cybermanju_types::sync::*;
 

@@ -1,3 +1,8 @@
+// CyberManju OS — Map (src-tauri/src/commands/map.rs).
+// Role: Tauri IPC commands (19 modules, 130 handlers).
+// Exports: GeoFile, get_geo_files, GpsCoordinates, extract_exif_gps.
+// Integrates: redb, serde, tauri.
+// Contracts: none special (pure logic; errors bubble to caller).
 use redb::ReadableTable;
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -22,7 +27,7 @@ pub struct GeoFile {
 }
 
 /// Get all files that have GPS coordinates stored in their metadata.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_geo_files(state: State<'_, AppState>) -> Result<Vec<GeoFile>, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     let tx = db.begin_read().map_err(|e| e.to_string())?;
@@ -61,7 +66,7 @@ pub struct GpsCoordinates {
 
 /// Extract GPS coordinates from a file's EXIF data using kamadak-exif.
 /// Returns the extracted coordinates and updates the file node in the database.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn extract_exif_gps(
     file_id: String,
     state: State<'_, AppState>,

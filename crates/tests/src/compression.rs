@@ -1,3 +1,8 @@
+// CyberManju OS — Compression (crates/tests/src/compression.rs).
+// Role: workspace integration tests.
+// Exports: module root (see items below).
+// Integrates: cybermanju_compression.
+// Contracts: none special (pure logic; errors bubble to caller).
 use cybermanju_compression::layers::{BrotliLayer, Lz4Layer, ZstdLayer};
 use cybermanju_compression::triple::TripleCompressor;
 use cybermanju_compression::types::{CompressionStats, CompressionType, LayerDetail};

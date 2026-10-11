@@ -1,3 +1,8 @@
+// CyberManju OS — Db (crates/tests/src/db.rs).
+// Role: workspace integration tests.
+// Exports: module root (see items below).
+// Integrates: cybermanju_db, cybermanju_types.
+// Contracts: none special (pure logic; errors bubble to caller).
 use cybermanju_db::Database;
 use cybermanju_types::FileNode;
 

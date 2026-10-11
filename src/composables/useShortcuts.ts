@@ -1,3 +1,8 @@
+// CyberManju OS — UseShortcuts (src/composables/useShortcuts.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: ShortcutGroup, KplData, KpdData, ShortcutEntry, isBrowserShell, BROWSER_RESERVED, isReservedInBrowser, BROWSER_FALLBACKS.
+// Integrates: vue, @vueuse, @/….
+// Contracts: none special (pure logic; errors bubble to caller).
 import { onMounted, watch, computed, type Ref } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { isEditableTarget } from '@/utils/dom'

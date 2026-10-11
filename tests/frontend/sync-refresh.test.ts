@@ -1,3 +1,4 @@
+// CyberManju OS — Sync refresh.test (tests/frontend/sync-refresh.test.ts).
 // Refresh-after-sync: terminal-state detection, summary lines, fan-out order.
 import { describe, expect, it, vi } from 'vitest'
 import {

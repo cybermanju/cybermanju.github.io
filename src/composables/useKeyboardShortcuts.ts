@@ -1,3 +1,8 @@
+// CyberManju OS — UseKeyboardShortcuts (src/composables/useKeyboardShortcuts.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: useKeyboardShortcuts, getGlobalShortcuts.
+// Integrates: vue, @/….
+// Contracts: none special (pure logic; errors bubble to caller).
 import { onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'

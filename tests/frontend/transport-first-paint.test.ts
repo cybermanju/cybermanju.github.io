@@ -1,3 +1,6 @@
+// CyberManju OS — tests/frontend/transport-first-paint.test.ts.
+// Role: see header automation pilot (collect-file-context + AI merge pending full prose).
+// Exports/Integrates: documented at the item level; header to be expanded.
 import fs from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setServerUrl } from '@/composables/useTauri'

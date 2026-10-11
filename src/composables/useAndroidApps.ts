@@ -1,3 +1,4 @@
+// CyberManju OS — UseAndroidApps (src/composables/useAndroidApps.ts).
 // CyberManju Android apps bridge — device-local IPC, never REST.
 // Off-device the Rust layer refuses with `unsupported:` (no mock rows).
 

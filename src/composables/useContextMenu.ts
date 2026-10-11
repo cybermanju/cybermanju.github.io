@@ -1,3 +1,8 @@
+// CyberManju OS — UseContextMenu (src/composables/useContextMenu.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: ContextMenuEntry, useContextMenu.
+// Integrates: vue.
+// Contracts: none special (pure logic; errors bubble to caller).
 import { reactive, readonly, type ComponentPublicInstance } from 'vue'
 
 export interface ContextMenuEntry {

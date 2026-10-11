@@ -1,3 +1,4 @@
+// CyberManju OS — Protocol (crates/agent/src/protocol.rs).
 // Provider wire protocol: request builders, response parsers, tool schemas.
 //
 // Two dialects, one normalized shape. Everything here is pure JSON in/out;

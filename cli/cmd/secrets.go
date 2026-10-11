@@ -1,3 +1,8 @@
+// CyberManju OS — Secrets (cli/cmd/secrets.go).
+// Role: cybsh CLI command.
+// Exports: module root (see items below).
+// Integrates: fmt, github.com, id, username, category, notes.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (

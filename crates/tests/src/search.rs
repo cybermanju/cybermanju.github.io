@@ -1,3 +1,8 @@
+// CyberManju OS — Search (crates/tests/src/search.rs).
+// Role: workspace integration tests.
+// Exports: module root (see items below).
+// Integrates: cybermanju_search.
+// Contracts: none special (pure logic; errors bubble to caller).
 use cybermanju_search::{SearchIndex, SearchRequest};
 
 #[test]

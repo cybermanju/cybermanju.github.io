@@ -1,3 +1,4 @@
+// CyberManju OS — Api (crates/os/src/api.rs).
 //! The typed syscall boundary (AGENT-8 item 4 / MISSING.md F3).
 //!
 //! Everything the shell, the REST routes and future apps do to storage goes

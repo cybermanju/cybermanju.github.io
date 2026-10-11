@@ -44,6 +44,7 @@
 | 🌐 Try the **web demo** | [Pages / WASM](#-wasm--github-pages) | 0 min |
 | 🤖 Talk to the **AI agent** | [Agent guide](#-native-ai-agent-zero-new-runtimes) | 3 min |
 | 💽 Learn the **disk OS** | [cybsh + disks](#-decentralized-os-cybsh--disks--durability) | 5 min |
+| 📚 Browse the **3D wiki** | [Interactive wiki](https://cybermanju.github.io/wiki/) (agents: [`llms.txt`](https://cybermanju.github.io/llms.txt)) | 2 min |
 | 🛠️ Hack on the **code** | [Contributing & repo map](#-repo-map) | ∞ |
 
 > [!TIP]
@@ -376,6 +377,35 @@ CI builds **Windows** (MSI/NSIS) · **Linux** (deb + AppImage + rpm) · **RPM** 
 (signed arm64 APK, NDK `28.2.13676358`) · **CLI** (`cyb` × linux/darwin/windows
 amd64+arm64) — releases ship all 9 families + `SHA256SUMS`. Tags `v*` trigger
 `release.yml` (Docker → GHCR included).
+
+#### Linux graphics checks (AppImage / .deb on Wayland, X11, VMs)
+
+The desktop shell is GPU-composited by WebKitGTK, so a driver or compositor
+quirk shows up as scrolling/animation jank, a black window, or paint
+tearing — never as an error. These are **diagnostic** one-shot overrides
+(the app never sets them for you); run each as an A/B test:
+
+```bash
+# Mesa/AMD/Intel: WebKit's DMABUF renderer is the usual suspect for
+# black/garbled or stalling surfaces — fall back to the plain renderer.
+WEBKIT_DISABLE_DMABUF_RENDERER=1 ./CyberManju*.AppImage
+
+# Suspect the driver entirely? Force llvmpipe (software GL).
+# Smooth here but not on the GPU path => mesa/driver is the culprit.
+LIBGL_ALWAYS_SOFTWARE=1 ./CyberManju*.AppImage
+
+# WebKit compositing off — helps in some VM / remote / nested sessions.
+WEBKIT_DISABLE_COMPOSITING_MODE=1 ./CyberManju*.AppImage
+
+# Wayland session where WebKitGTK's Wayland path misbehaves: run on X11.
+GDK_BACKEND=x11 ./CyberManju*.AppImage
+```
+
+Still janky under `LIBGL_ALWAYS_SOFTWARE=1`? Then it is not the GPU — the
+remaining levers are built into the app itself: every Tauri command runs
+off the main thread (`#[tauri::command(async)]`), polling pauses while the
+window is hidden, drag/resize writes are rAF-coalesced, and the heavy
+panels are code-split out of the boot bundle.
 
 ### 🌐 WASM / GitHub Pages
 

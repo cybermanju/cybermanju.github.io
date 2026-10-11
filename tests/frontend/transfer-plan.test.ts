@@ -1,3 +1,4 @@
+// CyberManju OS — Transfer plan.test (tests/frontend/transfer-plan.test.ts).
 // Transfer-board plan model: edges, validation, destination math, layout.
 import { describe, expect, it } from 'vitest'
 import {

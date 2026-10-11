@@ -1,3 +1,8 @@
+// CyberManju OS — Import (src-tauri/src/commands/import.rs).
+// Role: Tauri IPC commands (19 modules, 130 handlers).
+// Exports: ImportResult, UploadResult, import_file, scan_directory, upload_file, rebuild_search_index, import_from_url.
+// Integrates: chrono, redb, serde, tauri.
+// Contracts: none special (pure logic; errors bubble to caller).
 use chrono::Utc;
 use redb::ReadableTable;
 use serde::{Deserialize, Serialize};
@@ -27,7 +32,7 @@ pub struct UploadResult {
 /// Import a single file from the real filesystem into the database.
 /// Reads the file's actual metadata (size, mime type), hashes it with BLAKE3,
 /// extracts EXIF GPS if it's an image, and stores the FileNode.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn import_file(
     file_path: String,
     parent_path: String,
@@ -172,7 +177,7 @@ pub fn import_file(
 /// Scan a directory and import all files/folders into the database.
 /// Uses walkdir for robust traversal with depth limiting, symlink skipping,
 /// and hidden file filtering. Batches Tantivy commits for performance.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn scan_directory(
     dir_path: String,
     parent_id: String,
@@ -405,7 +410,7 @@ pub fn scan_directory(
 ///   and then go through [`import_file`] so hashing, EXIF GPS and search
 ///   indexing behave exactly like every other import; the node is renamed
 ///   to the real file name afterwards (the stored basename is `{id}_{safe}`).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn upload_file(
     parent_path: String,
     file_path: Option<String>,
@@ -467,7 +472,7 @@ pub fn upload_file(
 
 /// Rebuild the Tantivy search index from all FileNodes in the database.
 /// Useful after bulk imports or database migrations.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn rebuild_search_index(state: State<'_, AppState>) -> Result<u32, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     let tx = db.begin_read().map_err(|e| e.to_string())?;
@@ -517,7 +522,7 @@ pub fn rebuild_search_index(state: State<'_, AppState>) -> Result<u32, String> {
 }
 
 /// Import a file from a URL — downloads the file and processes it like a local import.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn import_from_url(
     url: String,
     parent_path: String,

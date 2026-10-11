@@ -1,3 +1,4 @@
+// CyberManju OS — Ui (cli/internal/ui/ui.go).
 // Package ui is the Charm face: one Lipgloss theme (hot pink → signal
 // red), gradient banner, Bubble Tea spinner, progress downloads, tables
 // and Glamour markdown shared by every command.

@@ -1,3 +1,4 @@
+// CyberManju OS — Catalog (crates/disk/src/catalog.rs).
 //! Rows and redb access for the three tables AGENT-6 owns: `disks`,
 //! `volumes` and `block_map`.
 //!

@@ -1,3 +1,8 @@
+<!-- CyberManju OS — StatusBar (src/components/StatusBar.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: vue, @/…. -->
+<!-- Contracts: signals: AGENT-. -->
 <template>
   <footer class="statusbar">
     <div class="sb-left">
@@ -136,6 +141,9 @@ let poll = 0
 onMounted(() => {
   void store.fetchOsPs()
   poll = window.setInterval(() => {
+    // Hidden/minimized app: no one can read the bar — skip the Rust call and
+    // the reactive re-render; the next visible tick refreshes it anyway.
+    if (document.hidden) return
     void store.fetchOsPs()
   }, pollMs)
 })

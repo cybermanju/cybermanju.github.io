@@ -1,3 +1,8 @@
+<!-- CyberManju OS — TopMenuBar (src/components/TopMenuBar.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <header class="top-menu-bar">
     <div class="tmb-left">
@@ -202,7 +207,9 @@ function updateClock() {
 
 onMounted(() => {
   updateClock()
-  clockTimer = setInterval(updateClock, 1000)
+  // Tick only while visible: a hidden bar can't be read, and the first
+  // visible tick repaints the correct time anyway.
+  clockTimer = setInterval(() => { if (!document.hidden) updateClock() }, 1000)
   window.addEventListener('online', onOnline)
   window.addEventListener('offline', onOffline)
   // Best-effort so the mobile vault chip is correct on first paint.

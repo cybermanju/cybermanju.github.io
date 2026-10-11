@@ -1,3 +1,4 @@
+// CyberManju OS — Git provision.test (tests/frontend/git-provision.test.ts).
 // Private vault repo provisioning — validation, naming, seed layout.
 import { describe, expect, it, vi } from 'vitest'
 import {

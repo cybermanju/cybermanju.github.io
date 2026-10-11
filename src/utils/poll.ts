@@ -1,3 +1,4 @@
+// CyberManju OS — Poll (src/utils/poll.ts).
 // Shared polling primitive for approve-then-verify flows (dashboard OAuth,
 // Supabase OAuth, sync progress). AbortController-owned: callers keep one
 // controller per flow, wire Cancel buttons + onBeforeUnmount to `abort()`,

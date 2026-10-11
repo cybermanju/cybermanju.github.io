@@ -1,4 +1,9 @@
 <script setup lang="ts">
+// CyberManju OS — ServerAuthPanel (src/components/ServerAuthPanel.vue).
+// Role: Vue desktop UI: windows, panels, overlays.
+// Exports: module root (see items below).
+// Integrates: vue, @/….
+// Contracts: none special (pure logic; errors bubble to caller).
 // CyberManju OS — Docker/web login gate.
 //
 // Shown on every device that reaches the dashboard (:3456) without a valid

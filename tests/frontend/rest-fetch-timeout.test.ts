@@ -1,3 +1,6 @@
+// CyberManju OS — tests/frontend/rest-fetch-timeout.test.ts.
+// Role: see header automation pilot (collect-file-context + AI merge pending full prose).
+// Exports/Integrates: documented at the item level; header to be expanded.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { invoke, setServerUrl } from '@/composables/useTauri'
 

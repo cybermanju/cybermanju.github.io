@@ -1,3 +1,4 @@
+// CyberManju OS — Server auth.test (tests/frontend/server-auth.test.ts).
 // Docker/web login gate — the 401 fan-out happened because the frontend had
 // no way to sign in: `authenticate_user`/`register_user` existed but no UI
 // called them, and the 401 hint pointed at provider OAuth (which never

@@ -1,3 +1,4 @@
+// CyberManju OS — Globals.d (src/ui/globals.d.ts).
 /**
  * Global component typings for the design system. Lets templates use
  * `<UiButton>` etc. without per-file imports, and keeps vue-tsc happy.

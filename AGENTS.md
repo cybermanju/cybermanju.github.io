@@ -31,7 +31,7 @@
 | Search | Tantivy 0.22 BM25 + `crates/scene` heuristic | Scene: 17 categories × 10 langs, 740 keywords, weights name 1.0/tags 0.95/path 0.7 |
 | Crypto | ChaCha20Poly1305 + `rustpq` (ML-KEM-1024 FIPS 203, ML-DSA-65 FIPS 204, SLH-DSA-128f FIPS 205) + Argon2id + BLAKE3 | Hybrid ML-KEM+X25519 supported |
 | Compression | LZ4 → ZSTD-15 → Brotli-11 cascade | Per-layer stats, `.cyb3` payloads |
-| Code intel | tree-sitter (rust/python/js/ts/go/bash) + heuristic fallback | Every result reports `"engine"` |
+| Code intel | tree-sitter (rust/python/js/ts/go/bash) + heuristic fallback | Every result reports `"engine"`; heuristic strips qualifiers (`export const`, `pub mod`, Go receivers, bash defs) and hoists doc-comments into an additive `docs` field (`crates/types/src/code.rs`) |
 | WASM | `crates/os-wasm` (agent/artifact/canal/compression/crypto/db/opfs/os) via `wasm-pack` + OPFS/localStorage | Pages transport = local volume + BM25-lite |
 | Tests | Vitest (node env), 28 files / 365 tests in `tests/frontend/` | Includes `scene` (42), `memory`, `provider-canal/ship`, `hermes`, `agent-*`, `panel-aliases` |
 
@@ -60,7 +60,8 @@
 - NEVER run `npm ci` from scratch unless CI parity demands it; prefer existing
   `node_modules`. (CI uses `npm ci` + `setup-node` npm cache.)
 - Local verification loop (allowed, fast):
-  `bash scripts/check-version.sh` → `npx vue-tsc --noEmit` → `npm test`
+  `bash scripts/check-version.sh` → `bash scripts/check-file-headers.sh` →
+  `npx vue-tsc --noEmit` → `npm test`
   (`npm run typecheck` also runs the icon generator).
 
 ## 3. Git / GitHub rules
@@ -100,7 +101,7 @@
 ## 4. CI rules (`.github/workflows/ci.yml` + `release.yml`)
 
 CI jobs (`ci.yml`, concurrency `CI-<ref>`, cancel-in-progress):
-`meta-check` (versions + LICENSE) · `rust-check` (fmt → clippy `-D warnings`
+`meta-check` (versions + file headers + LICENSE) · `rust-check` (fmt → clippy `-D warnings`
 → `cargo test --workspace --no-fail-fast`) · `docker-build` ·
 `audit` (advisory, `continue-on-error`) ·
 `wasm-build` (wasm32 check → `wasm-pack` → `npm ci` → `vue-tsc` → `npm test`
@@ -184,3 +185,32 @@ Secrets mirror GitHub (`TAURI_SIGNING_PRIVATE_KEY`, `ANDROID_KEYSTORE_*`).
 - `docs/HERMES-INSIGHTS.md`, `docs/AGENT-REVIEW.md` + `AI.md` (tracker),
   `docs/OPENCODE-PORT.md`, `docs/AI-AGENT-ALTERNATIVES.md`.
 - `worklog.md` — dated change log (append entries; newest last).
+
+## 7. Comment strategy (top-file headers, 100% enforced)
+
+- Every code file (`.rs/.ts/.vue/.js/.mjs/.sh/.go`) carries a merged
+  top-file header — file-level *what/why/who* in one stable block:
+  `// CyberManju OS — <Module> (<path>).` + `Role:` + `Exports:` +
+  `Integrates:` + `Contracts:`. Vue SFCs put it after the `<script>`
+  opener; `.sh` uses `#`; `.vue` template-only files use `<!-- -->`.
+- Triage (what merges up vs what stays): file-level narration merges UP
+  into the header; item-level docs STAY inline at the item they guard —
+  `///`/`/**`, `SAFETY:`, error prefixes (`auth:/integrity:/conflict:`…),
+  budgets/caps, `engine` labels, `AGENT-*`/`P*` tags, section bars.
+  Never hoist contracts away, never delete code to satisfy the gate.
+- Grandfather: a leading `CyberManju` block with ≥2 lines of merged prose
+  already passes; only missing / unnamed / single-line headers fail.
+- Tooling (all cargo-free, local-safe):
+  `scripts/check-file-headers.sh [--list|--fix]` (CI `meta-check` gate);
+  `scripts/generate-file-headers.py --dry-run|--apply` (idempotent filler,
+  header-only insertions at line 1 — audit with `git diff`, hunks must sit
+  at line 1); `scripts/collect-file-context.mjs` (heuristic
+  symbols/imports/comments JSON mirroring `cybermanju-types::code`).
+- Structure finder (`crates/types/src/code.rs::extract_symbols_heuristic`,
+  the authoritative fallback for every transport): qualifier stripping
+  (`export const`, `pub mod`, `pub(in…)`, `unsafe/async`, Go receiver
+  parens), bash `name()` defs, top-level-only `const`/`static`, and
+  doc-comment hoisting (`///`/`//!`/`/**`/`##`/`#:`/`"""` → additive
+  `docs` field, ≤4 lines above the item, across `#[…]`/`@…` attributes).
+  Plain `//` narration is never hoisted. Same JSON shape + `docs`;
+  tree-sitter stays primary where grammars are bundled.

@@ -1,3 +1,4 @@
+// CyberManju OS — Allocator (crates/disk/src/allocator.rs).
 //! Block allocator for one `.cybermanju` disk.
 //!
 //! Three jobs, all of them needed before this can be called a disk:

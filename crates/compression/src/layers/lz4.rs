@@ -1,3 +1,8 @@
+// CyberManju OS — Lz4 (crates/compression/src/layers/lz4.rs).
+// Role: LZ4→ZSTD-15→Brotli-11 triple cascade + .cyb3.
+// Exports: Lz4Layer, NAME, ALGORITHM, COLOR, compress, decompress, compress_with_detail, probe_ratio.
+// Integrates: anyhow.
+// Contracts: none special (pure logic; errors bubble to caller).
 use crate::types::LayerDetail;
 use anyhow::Result;
 

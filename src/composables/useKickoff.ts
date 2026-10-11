@@ -1,3 +1,8 @@
+// CyberManju OS — UseKickoff (src/composables/useKickoff.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: useKickoff.
+// Integrates: vue.
+// Contracts: none special (pure logic; errors bubble to caller).
 import { ref } from 'vue'
 
 /**

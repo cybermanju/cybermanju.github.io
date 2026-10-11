@@ -1,3 +1,4 @@
+// CyberManju OS — Stream (crates/agent/src/stream.rs).
 // SSE wire helpers: pure event formatting + chunk parsing.
 //
 // No I/O, no threads, no `TcpStream` here on purpose: the hand-rolled

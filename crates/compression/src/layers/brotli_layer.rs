@@ -1,3 +1,8 @@
+// CyberManju OS — Brotli layer (crates/compression/src/layers/brotli_layer.rs).
+// Role: LZ4→ZSTD-15→Brotli-11 triple cascade + .cyb3.
+// Exports: BrotliLayer, NAME, COLOR, DEFAULT_LEVEL, compress, decompress, compress_with_detail.
+// Integrates: anyhow.
+// Contracts: none special (pure logic; errors bubble to caller).
 use crate::types::LayerDetail;
 use anyhow::Result;
 use std::io::Write;

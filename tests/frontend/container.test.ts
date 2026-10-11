@@ -1,3 +1,4 @@
+// CyberManju OS — Container.test (tests/frontend/container.test.ts).
 // `.cybermanju` container codec — round-trip and failure paths.
 //
 // The codec takes injectable primitives so this suite runs on Node's own

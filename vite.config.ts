@@ -1,3 +1,8 @@
+// CyberManju OS — Vite.config (vite.config.ts).
+// Role: module (see exports below).
+// Exports: module root (see items below).
+// Integrates: vite, @vitejs, path, ./….
+// Contracts: none special (pure logic; errors bubble to caller).
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { resolve } from "path";

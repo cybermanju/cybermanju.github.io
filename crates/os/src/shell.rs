@@ -1,3 +1,4 @@
+// CyberManju OS — Shell (crates/os/src/shell.rs).
 //! `cybsh` (AGENT-8 item 1 / MISSING.md F1): a real, server-side shell.
 //!
 //! Input → tokenizer (quotes, `\` escapes, `|`, `&&`, `||`, `;`, `--json`) →
@@ -827,7 +828,7 @@ fn help_text(json: bool) -> String {
         }
     }
     out.push_str(&format!(
-        "\n{DIM}operators:{RESET} |  &&  ||  ;    {DIM}flags:{RESET} --json  -os (host filesystem)\n{DIM}tab completion works on every command; ↑/↓ walks history.{RESET}\n"
+        "\n{DIM}operators:{RESET} |  &&  ||  ;    {DIM}flags:{RESET} --json  -os (host filesystem)\n{DIM}tab completion works on every command; ↑/↓ walks history.\n{DIM}docs:{RESET} 3D wiki https://cybermanju.github.io/wiki/  ·  agents: /llms.txt\n"
     ));
     out
 }
@@ -1146,10 +1147,10 @@ fn absolute(arg: &str) -> String {
 // Every file verb addresses the virtual volume by default: `ls` lists the
 // merged vault volume and `/providers/…` reaches provider repos/folders. The
 // `-os` flag transposes the same verbs onto the host (device) filesystem
-// instead — shared storage on Android (`/sdcard`), the process working
-// directory on desktop:
+// instead — shared storage on Android (`/sdcard`), the user's home
+// directory (`$HOME` / `%USERPROFILE%`) on desktop:
 //
-//   ls -os                    # shared-storage root (sdcard on Android)
+//   ls -os                    # home dir on desktop (sdcard on Android)
 //   ls -os /sdcard/Download   # any host dir, absolute or host-relative
 //   cat -os /sdcard/a.txt     # read verbs take -os too:
 //                             # head/tail/wc/grep/find/stat/du/df
@@ -1187,8 +1188,39 @@ fn strip_os_flag(args: &[String]) -> Vec<String> {
 }
 
 /// Shared-storage root: `/sdcard` on Android (falling back to
-/// `/storage/emulated/0`, then `/`); the process working directory
-/// everywhere else.
+/// `/storage/emulated/0`, then `/`); the user's home directory (`$HOME` /
+/// `%USERPROFILE%`) on desktop, falling back to the process working
+/// directory and then `/`. Home wins over the CWD on purpose: an AppImage
+/// launch inherits the read-only bundle mount (`…/usr` with `bin lib lib64
+/// share`) as its CWD, which stranded Device files inside the bundle.
+fn desktop_home_dir() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(p) = std::env::var("USERPROFILE") {
+            let path = std::path::PathBuf::from(p.trim());
+            if !path.as_os_str().is_empty() && path.is_dir() {
+                return Some(path);
+            }
+        }
+        let drive = std::env::var("HOMEDRIVE").unwrap_or_default();
+        let path = std::env::var("HOMEPATH").unwrap_or_default();
+        let joined = format!("{drive}{path}");
+        if !joined.trim().is_empty() {
+            let pb = std::path::PathBuf::from(joined);
+            if pb.is_dir() {
+                return Some(pb);
+            }
+        }
+    }
+    if let Ok(p) = std::env::var("HOME") {
+        let path = std::path::PathBuf::from(p.trim());
+        if !path.as_os_str().is_empty() && path.is_dir() {
+            return Some(path);
+        }
+    }
+    None
+}
+
 fn os_default_dir() -> std::path::PathBuf {
     #[cfg(target_os = "android")]
     {
@@ -1202,6 +1234,9 @@ fn os_default_dir() -> std::path::PathBuf {
     }
     #[cfg(not(target_os = "android"))]
     {
+        if let Some(home) = desktop_home_dir() {
+            return home;
+        }
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
     }
 }
@@ -1366,7 +1401,7 @@ fn cd_os(args: &[String]) -> Result<String, String> {
     let paths: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
     let target = match paths.first() {
         Some(p) => resolve_host(p)?,
-        // Bare `cd -os` returns to the shared-storage root.
+        // Bare `cd -os` returns to the home dir (sdcard root on Android).
         None => os_default_dir(),
     };
     if !target.is_dir() {
@@ -5485,6 +5520,19 @@ mod tests {
         execute(&format!("rm -os {}", q(&root.join("tree/note.txt"))), None).expect("rm");
         execute(&format!("rm -os -r {}", q(&root)), None).expect("rm -r");
         assert!(!root.exists());
+    }
+
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn host_default_dir_prefers_home_over_bundle_cwd() {
+        // Regression: an AppImage launch inherits the read-only bundle
+        // mount (`…/usr` with `bin lib lib64 share`) as its CWD — Device
+        // files must open on $HOME instead.
+        let def = os_default_dir();
+        assert!(def.is_dir(), "default {} is not a dir", def.display());
+        if let Some(home) = desktop_home_dir() {
+            assert_eq!(def, home, "home dir must win over the CWD");
+        }
     }
 
     #[cfg(windows)]

@@ -1,3 +1,4 @@
+// CyberManju OS — Agent ui.test (tests/frontend/agent-ui.test.ts).
 // Agent thread + awareness helpers. These are the pieces the panel renders
 // from, so they are tested as a unit: if they drift, every transport shows a
 // different thread for the same transcript.

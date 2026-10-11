@@ -1,3 +1,8 @@
+<!-- CyberManju OS — WindowContent (src/components/WindowContent.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="window-content-panel">
     <!-- Search Panel (shared surface — Code Studio renders the same component) -->

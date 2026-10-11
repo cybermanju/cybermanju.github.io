@@ -1,3 +1,8 @@
+<!-- CyberManju OS — LoadingSpinner (src/components/LoadingSpinner.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="loading-spinner" :class="sizeClass" role="status" aria-label="Loading">
     <div class="spinner-ring"></div>

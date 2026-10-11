@@ -1,3 +1,4 @@
+// CyberManju OS — Local dir.test (tests/frontend/local-dir.test.ts).
 // Remembered folder handles — real File System Access I/O through
 // in-memory fake handles (node has no picker): list/read/write/mkdir/delete
 // round-trip, `..` escapes refuse, missing paths report `not_found:`, and a

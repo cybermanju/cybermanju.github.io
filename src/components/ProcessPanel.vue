@@ -1,4 +1,9 @@
 <script setup lang="ts">
+// CyberManju OS — ProcessPanel (src/components/ProcessPanel.vue).
+// Role: Vue desktop UI: windows, panels, overlays.
+// Exports: module root (see items below).
+// Integrates: @/…, vue.
+// Contracts: signals: AGENT-.
 import AppIcon from '@/components/AppIcon.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiInput from '@/components/ui/UiInput.vue'
@@ -188,6 +193,7 @@ onMounted(() => {
   if (store.osJobs.length === 0) void store.fetchOsJobs()
   void store.fetchSchedules()
   timer = window.setInterval(() => {
+    if (document.hidden) return
     nowMs.value = Date.now()
     void refresh()
   }, refreshMs)

@@ -1,3 +1,4 @@
+// CyberManju OS — Transport routes.test (tests/frontend/transport-routes.test.ts).
 // Transport parity — every invoke() command resolves on web/smoke paths.
 //
 // Guards the gaps where a Tauri command existed but web/static transports

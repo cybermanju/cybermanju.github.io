@@ -1,3 +1,4 @@
+// CyberManju OS — UseStudioAgent (src/composables/useStudioAgent.ts).
 // Studio agent driver — one interface over both OS agent transports.
 //
 // Native (desktop / Docker / REST): server-side loop via the app store
@@ -558,7 +559,7 @@ function createDriver() {
   watch(jobActive, active => {
     if (!startedAt.value && active) startedAt.value = Date.now()
     if (active) {
-      if (!liveTimer) liveTimer = window.setInterval(() => void refreshLiveThread(), 1500)
+      if (!liveTimer) liveTimer = window.setInterval(() => { if (!document.hidden) void refreshLiveThread() }, 1500)
       return
     }
     if (liveTimer) {

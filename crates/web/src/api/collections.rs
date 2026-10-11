@@ -1,3 +1,8 @@
+// CyberManju OS — Collections (crates/web/src/api/collections.rs).
+// Role: REST dashboard (:3456): routes, auth, security headers.
+// Exports: list, create, add_item, remove_item.
+// Integrates: cybermanju_db, cybermanju_types, redb.
+// Contracts: none special (pure logic; errors bubble to caller).
 // CyberManju OS — Collections (shared by Tauri IPC and REST)
 
 use cybermanju_db::Database;

@@ -1,3 +1,4 @@
+// CyberManju OS — Settings ios.test (tests/frontend/settings-ios.test.ts).
 // iOS-Settings contract for the phone sheet: large title, grouped lists
 // with icon tiles, a filtering search rail, and 44px cell rhythm — scoped
 // to the max-width:560px block so desktop windows keep their density.

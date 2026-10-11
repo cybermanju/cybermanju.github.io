@@ -1,3 +1,8 @@
+// CyberManju OS — Files (crates/web/src/api/files.rs).
+// Role: REST dashboard (:3456): routes, auth, security headers.
+// Exports: create_folder, delete, rename, duplicate, move_to, rebuild_parent_index, create_loose_group, add_to_loose_group.
+// Integrates: cybermanju_db, cybermanju_types, redb.
+// Contracts: signals: too_large, not_found.
 // CyberManju OS — File tree operations (shared by Tauri IPC and REST)
 
 use cybermanju_db::Database;

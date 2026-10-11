@@ -1,3 +1,4 @@
+// CyberManju OS — Sync routes (crates/tests/src/sync_routes.rs).
 // AGENT-4 item 9 — sync job REST contract (AGENT-2's engine, my status codes).
 //
 // These tests do not start a sync run: they pin the transport — auth gate,

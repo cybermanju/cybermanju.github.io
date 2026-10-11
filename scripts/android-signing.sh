@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# CyberManju OS — Android signing (scripts/android-signing.sh).
 # Android release signing for CI.
 #
 # `tauri android init` generates app/build.gradle.kts without a release

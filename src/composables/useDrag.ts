@@ -1,3 +1,8 @@
+// CyberManju OS — UseDrag (src/composables/useDrag.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: DragOptions, DropZoneOptions, useDrag.
+// Integrates: vue.
+// Contracts: none special (pure logic; errors bubble to caller).
 import { onMounted, onUnmounted, type Ref } from 'vue'
 
 export interface DragOptions {

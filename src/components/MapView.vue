@@ -1,3 +1,8 @@
+<!-- CyberManju OS — MapView (src/components/MapView.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue, maplibre-gl. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="map-view">
     <div class="panel-header">

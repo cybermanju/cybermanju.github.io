@@ -12,33 +12,33 @@ use cybermanju_launcher::{AndroidApp, IconPack, NotificationState, StoredMessage
 ///
 /// Desktop/web/WASM refuse with `unsupported:` — there is no mock data; the
 /// drawer renders that state honestly instead of fake rows.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn launcher_list_apps() -> Result<Vec<AndroidApp>, String> {
     cybermanju_launcher::list_apps()
 }
 
 /// Open one app by package name (`FLAG_ACTIVITY_NEW_TASK`).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn launcher_open_app(package_name: String) -> Result<(), String> {
     cybermanju_launcher::validate_package_name(&package_name)?;
     cybermanju_launcher::open_app(package_name.trim())
 }
 
 /// Open the system uninstall sheet for one package (`ACTION_DELETE`).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn launcher_uninstall_app(package_name: String) -> Result<(), String> {
     cybermanju_launcher::validate_package_name(&package_name)?;
     cybermanju_launcher::uninstall_app(package_name.trim())
 }
 
 /// List installed icon-pack themes (theme-discovery intents).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn launcher_list_icon_packs() -> Result<Vec<IconPack>, String> {
     cybermanju_launcher::list_icon_packs()
 }
 
 /// Resolve one app's icon from one icon pack (best-effort PNG data URL).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn launcher_pack_icon(pack_package: String, app_package: String) -> Result<String, String> {
     cybermanju_launcher::validate_package_name(&pack_package)?;
     cybermanju_launcher::validate_package_name(&app_package)?;
@@ -47,32 +47,32 @@ pub fn launcher_pack_icon(pack_package: String, app_package: String) -> Result<S
 
 /// List installed mail/chat/social apps only (email, WhatsApp, Instagram,
 /// Facebook, Messenger, Telegram, …) — the messages-hub quick launch.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn launcher_list_social_apps() -> Result<Vec<AndroidApp>, String> {
     cybermanju_launcher::list_social_apps()
 }
 
 /// Stored messaging/social notifications, newest first (from the host app's
 /// notification-listener mirror; capped server-side).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn launcher_list_messages(limit: Option<usize>) -> Result<Vec<StoredMessage>, String> {
     cybermanju_launcher::list_messages(limit.unwrap_or(100))
 }
 
 /// Wipe the stored notification mirror.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn launcher_clear_messages() -> Result<(), String> {
     cybermanju_launcher::clear_messages()
 }
 
 /// Whether the user granted notification access to this app.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn launcher_notification_state() -> Result<NotificationState, String> {
     cybermanju_launcher::notification_state()
 }
 
 /// Jump to the system notification-access settings screen.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn launcher_open_notification_settings() -> Result<(), String> {
     cybermanju_launcher::open_notification_settings()
 }

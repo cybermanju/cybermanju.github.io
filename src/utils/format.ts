@@ -1,4 +1,8 @@
-// Shared byte/percentage formatting — one implementation for every panel.
+// CyberManju OS — Format (src/utils/format.ts).
+// Role: shared byte/percentage formatting — one implementation for every panel.
+// Exports: humanBytes, diskPct.
+// Integrates: standalone (no imports); used by DiskManagerPage + panels.
+// Contracts: none special (pure; zero/NaN-safe, never throws).
 
 /** `1536` → `"1.5 KB"`, `0`/null → `"0 B"`. Binary (1024) units. */
 export function humanBytes(bytes: number | null | undefined): string {

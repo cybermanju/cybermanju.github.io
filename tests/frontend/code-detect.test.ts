@@ -1,3 +1,8 @@
+// CyberManju OS — Code detect.test (tests/frontend/code-detect.test.ts).
+// Role: Vitest frontend suite.
+// Exports: module root (see items below).
+// Integrates: vitest.
+// Contracts: none special (pure logic; errors bubble to caller).
 import { describe, expect, it } from 'vitest'
 import {
   checkBrackets,

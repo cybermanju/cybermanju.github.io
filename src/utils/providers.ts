@@ -1,3 +1,4 @@
+// CyberManju OS — Providers (src/utils/providers.ts).
 // Shared provider metadata + credential-draft helpers.
 //
 // AccountManager's per-provider cards ask the same questions for every

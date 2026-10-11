@@ -1,3 +1,8 @@
+// CyberManju OS — Lib (crates/tests/src/lib.rs).
+// Role: workspace integration tests.
+// Exports: module root (see items below).
+// Integrates: standalone (no imports).
+// Contracts: signals: AGENT-.
 #[cfg(test)]
 mod compression;
 #[cfg(test)]

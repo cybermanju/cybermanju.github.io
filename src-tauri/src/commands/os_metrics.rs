@@ -1,3 +1,4 @@
+// CyberManju OS — Os metrics (src-tauri/src/commands/os_metrics.rs).
 //! Native IPC equivalents for the read-only OS telemetry routes.
 //!
 //! Mobile builds do not start the local REST dashboard, so these readings must
@@ -7,31 +8,31 @@
 use crate::AppState;
 use tauri::State;
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn os_ps(state: State<'_, AppState>) -> Result<cybermanju_os::PsSnapshot, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     Ok(cybermanju_os::ps(Some(&*db)))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn os_top(state: State<'_, AppState>) -> Result<cybermanju_os::TopSnapshot, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     Ok(cybermanju_os::top(Some(&*db)))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn os_workers(state: State<'_, AppState>) -> Result<cybermanju_os::Workers, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     Ok(cybermanju_os::workers(Some(&*db)))
 }
 
-#[tauri::command]
-pub fn os_jobs() -> Vec<cybermanju_os::compute::JobInfo> {
-    cybermanju_os::available_jobs()
+#[tauri::command(async)]
+pub fn os_jobs() -> Result<Vec<cybermanju_os::compute::JobInfo>, String> {
+    Ok(cybermanju_os::available_jobs())
 }
 
 /// Statistics for CyberManju's virtual volume, not the phone's entire storage.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn os_df(state: State<'_, AppState>) -> Result<cybermanju_os::VolumeDf, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     Ok(cybermanju_os::Kernel::global().df(Some(&*db)))

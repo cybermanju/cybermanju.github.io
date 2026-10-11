@@ -1,3 +1,8 @@
+// CyberManju OS — Password clipboard.test (tests/frontend/password-clipboard.test.ts).
+// Role: Vitest frontend suite.
+// Exports: module root (see items below).
+// Integrates: vitest.
+// Contracts: none special (pure logic; errors bubble to caller).
 // CyberManju OS — password generator + clipboard auto-clear (Phase 3).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

@@ -1,3 +1,4 @@
+// CyberManju OS — Agent wasm parity.test (tests/frontend/agent-wasm-parity.test.ts).
 // Browser parity: bash-subset + depth-1 subagents + HTTP MCP helpers.
 import { describe, expect, it } from 'vitest'
 import {

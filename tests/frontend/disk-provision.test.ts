@@ -1,3 +1,4 @@
+// CyberManju OS — Disk provision.test (tests/frontend/disk-provision.test.ts).
 // Disk ↔ remote provisioning: per-disk dirs, Drive folder creation via
 // upload, GitHub private-repo creation + file seed, local short-circuit.
 import { describe, expect, it, vi } from 'vitest'

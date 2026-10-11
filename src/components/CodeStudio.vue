@@ -1,3 +1,8 @@
+<!-- CyberManju OS — CodeStudio (src/components/CodeStudio.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div ref="rootRef" class="cs" tabindex="0" @keydown="onGlobalKey">
     <div class="cs-aurora" aria-hidden="true" />
@@ -648,7 +653,7 @@ async function syncExplorerAndTabs() {
 }
 watch(() => ai.jobActive.value, (active, was) => {
   if (active && !explorerSyncTimer) {
-    explorerSyncTimer = window.setInterval(() => void syncExplorerAndTabs(), 2500)
+    explorerSyncTimer = window.setInterval(() => { if (!document.hidden) void syncExplorerAndTabs() }, 2500)
     void syncExplorerAndTabs()
   } else if (!active && was) {
     if (explorerSyncTimer) { window.clearInterval(explorerSyncTimer); explorerSyncTimer = 0 }

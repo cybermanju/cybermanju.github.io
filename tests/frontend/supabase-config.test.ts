@@ -1,3 +1,8 @@
+// CyberManju OS — Supabase config.test (tests/frontend/supabase-config.test.ts).
+// Role: Vitest frontend suite.
+// Exports: module root (see items below).
+// Integrates: vitest.
+// Contracts: none special (pure logic; errors bubble to caller).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearSupabaseConfig,

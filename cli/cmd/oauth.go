@@ -1,3 +1,8 @@
+// CyberManju OS — Oauth (cli/cmd/oauth.go).
+// Role: cybsh CLI command.
+// Exports: module root (see items below).
+// Integrates: fmt, github.com.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (

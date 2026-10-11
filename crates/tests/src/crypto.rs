@@ -1,3 +1,8 @@
+// CyberManju OS — Crypto (crates/tests/src/crypto.rs).
+// Role: workspace integration tests.
+// Exports: module root (see items below).
+// Integrates: cybermanju_crypto.
+// Contracts: none special (pure logic; errors bubble to caller).
 use cybermanju_crypto::pqc::*;
 
 #[test]

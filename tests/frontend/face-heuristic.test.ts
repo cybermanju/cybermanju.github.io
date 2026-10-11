@@ -1,3 +1,4 @@
+// CyberManju OS — Face heuristic.test (tests/frontend/face-heuristic.test.ts).
 // Heuristic face detection v2 (TS twin of `crates/faces/src/heuristic.rs`)
 // — pure over synthetic RGBA pixels (node has no canvas): a skin rect with
 // eyes + mouth is found and labeled, a featureless blob (hand/wall) is

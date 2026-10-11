@@ -1,3 +1,8 @@
+<!-- CyberManju OS — NotificationStack (src/components/NotificationStack.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <Teleport to="body">
     <div class="notification-stack" role="alert" aria-live="polite">

@@ -1,3 +1,8 @@
+// CyberManju OS — ShortcutsKey (src/composables/shortcutsKey.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: ShortcutsAPI, ShortcutsKey.
+// Integrates: vue, @/….
+// Contracts: none special (pure logic; errors bubble to caller).
 import type { InjectionKey } from 'vue'
 import type { ShortcutGroup } from '@/composables/useShortcuts'
 

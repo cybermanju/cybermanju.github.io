@@ -1,3 +1,4 @@
+// CyberManju OS — Config (cli/internal/config/config.go).
 // Package config persists the CLI's connection profile: which dashboard to
 // talk to and the JWT minted by `cyb login` / `cyb setup`. The file is
 // created 0600 — the token is a bearer credential, never logged.

@@ -42,6 +42,9 @@ jobs:
       - name: Versions agree everywhere
         run: bash scripts/check-version.sh
 
+      - name: Top-file headers present
+        run: bash scripts/check-file-headers.sh
+
       - name: License file exists
         run: test -f LICENSE
 
@@ -210,6 +213,15 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
+      # Wiki: structure data (improved heuristic finder) + llms.txt +
+      # per-subject .txt/.json/.html + the Three.js SPA, all into dist-wasm/
+      # (wiki build never empties it). Same VITE_BASE so the wiki serves
+      # under /wiki/ on main and /develop/wiki/ on the preview path.
+      - name: Build wiki
+        run: npm run wiki
+        env:
+          VITE_BASE: ${{ github.ref == 'refs/heads/develop' && '/develop/' || '/' }}
+
       # Pages deploys a complete artifact, not an incremental path update.
       # Include both branch builds so a develop push cannot replace the root
       # production site and a main push cannot remove the preview.
@@ -235,7 +247,7 @@ jobs:
       - name: Build sibling branch frontend
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
         working-directory: sibling
-        run: npm run build:wasm:frontend
+        run: npm run build:wasm:frontend && npm run wiki
         env:
           VITE_BASE: ${{ github.ref == 'refs/heads/main' && '/develop/' || '/' }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}

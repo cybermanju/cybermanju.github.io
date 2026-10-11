@@ -1,3 +1,8 @@
+<!-- CyberManju OS — SearchPanel (src/components/SearchPanel.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="panel-search">
     <div class="bw-card search-card">

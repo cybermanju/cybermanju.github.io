@@ -1,3 +1,4 @@
+// CyberManju OS — Shell cwd.test (tests/frontend/shell-cwd.test.ts).
 // Client-side cybsh cwd mirror (used by the FileManager + CodeStudio panels).
 import { describe, expect, it } from 'vitest'
 import { trackShellCwd } from '../../src/utils/shellCwd'

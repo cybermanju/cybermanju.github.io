@@ -1,3 +1,4 @@
+// CyberManju OS — Client (cli/internal/client/client.go).
 // Package client speaks the CyberManju OS dashboard REST API
 // (the same surface the Docker/web dashboard serves on :3456).
 // The wire is camelCase JSON; errors carry the AGENT-1 machine prefixes

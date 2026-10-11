@@ -1,3 +1,8 @@
+// CyberManju OS — Serve (cli/cmd/serve.go).
+// Role: cybsh CLI command.
+// Exports: module root (see items below).
+// Integrates: fmt, os, path, strings, github.com, --name.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (

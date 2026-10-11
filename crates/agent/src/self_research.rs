@@ -1,3 +1,4 @@
+// CyberManju OS — Self research (crates/agent/src/self_research.rs).
 // Introspective self-research + persistent skill/MCP + GitHub repo analysis.
 // Pure helpers shared by every transport (native fs, WASM volume, Docker).
 // No I/O here: callers walk their own volume and call these to validate,

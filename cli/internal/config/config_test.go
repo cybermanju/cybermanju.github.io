@@ -1,3 +1,8 @@
+// CyberManju OS — Config test (cli/internal/config/config_test.go).
+// Role: CLI config.
+// Exports: TestSaveLoadRoundTrip, TestMissingFileIsEmpty, TestResolutionOrder, TestExpiry, TestBackendResolution.
+// Integrates: os, path, testing.
+// Contracts: none special (pure logic; errors bubble to caller).
 package config
 
 import (

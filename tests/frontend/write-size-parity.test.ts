@@ -1,3 +1,6 @@
+// CyberManju OS — tests/frontend/write-size-parity.test.ts.
+// Role: see header automation pilot (collect-file-context + AI merge pending full prose).
+// Exports/Integrates: documented at the item level; header to be expanded.
 import fs from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { STATIC_WRITE_LIMIT } from '../../src/utils/staticCybsh'

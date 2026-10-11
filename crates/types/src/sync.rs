@@ -1,3 +1,8 @@
+// CyberManju OS — Sync (crates/types/src/sync.rs).
+// Role: shared schemas: files, sync, agent, schedules.
+// Exports: SyncBackendType, SyncStatus, ConflictPolicy, PlacementMode, CloudAccount, OAuthCredentials, is_expired, SyncFile.
+// Integrates: serde.
+// Contracts: signals: AGENT-, conflict, not_found.
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]

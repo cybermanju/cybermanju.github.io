@@ -1,3 +1,8 @@
+<!-- CyberManju OS — UiProgress (src/components/ui/UiProgress.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="ui-progress" :class="[`ui-progress--${tone}`, { 'ui-progress--indeterminate': indeterminate }]">
     <div v-if="label || $slots.label || showValue" class="ui-progress__meta">

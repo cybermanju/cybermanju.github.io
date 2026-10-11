@@ -1,3 +1,4 @@
+// CyberManju OS — Memory (crates/agent/src/memory.rs).
 // Semantic memory core: chunking, cosine ranking, budgets, rendering.
 //
 // Storage lives in redb (`agent_memories` — same DB file as sessions, the

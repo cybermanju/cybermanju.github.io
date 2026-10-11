@@ -1,3 +1,4 @@
+// CyberManju OS — Ui requests.test (tests/frontend/ui-requests.test.ts).
 // One-shot UI requests from the agent (`ui_open_panel` / `ui_notify`) —
 // pure apply + dedupe. A replayed snapshot must never re-open a panel or
 // re-fire a toast; an unknown panel id never opens a ghost window.

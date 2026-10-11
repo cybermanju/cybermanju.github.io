@@ -1,3 +1,4 @@
+// CyberManju OS — Shells (src/ui/shells.ts).
 /**
  * Shell-style registry — structure switches here, tokens switch in tokens.ts.
  *

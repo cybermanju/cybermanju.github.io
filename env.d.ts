@@ -1,3 +1,4 @@
+// CyberManju OS — Env.d (env.d.ts).
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {

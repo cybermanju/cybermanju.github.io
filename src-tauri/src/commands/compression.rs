@@ -1,3 +1,8 @@
+// CyberManju OS — Compression (src-tauri/src/commands/compression.rs).
+// Role: Tauri IPC commands (19 modules, 130 handlers).
+// Exports: FrontendCompressionStats, FrontendLayerDetail, compress_file, decompress_file, get_compression_stats.
+// Integrates: chrono, serde, tauri.
+// Contracts: none special (pure logic; errors bubble to caller).
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -54,7 +59,7 @@ pub struct FrontendLayerDetail {
 }
 
 /// Compress a file using the triple compressor.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn compress_file(
     file_id: String,
     layer: String,
@@ -269,7 +274,7 @@ pub fn compress_file(
 }
 
 /// Decompress a file by removing all compression layers.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn decompress_file(
     file_id: String,
     state: State<'_, AppState>,
@@ -418,7 +423,7 @@ pub fn decompress_file(
 }
 
 /// Get compression statistics for a file — returns frontend-compatible format.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_compression_stats(
     file_id: String,
     state: State<'_, AppState>,

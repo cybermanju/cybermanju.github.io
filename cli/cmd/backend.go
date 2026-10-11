@@ -1,3 +1,8 @@
+// CyberManju OS — Backend (cli/cmd/backend.go).
+// Role: cybsh CLI command.
+// Exports: module root (see items below).
+// Integrates: fmt, github.com, signed, expired, Allowlist, http:.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (

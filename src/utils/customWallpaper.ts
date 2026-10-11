@@ -1,3 +1,8 @@
+// CyberManju OS — CustomWallpaper (src/utils/customWallpaper.ts).
+// Role: pure TS helpers (unit-tested, transport-agnostic).
+// Exports: MAX_CUSTOM_WALLPAPER_BYTES, CustomWallpaperRecord, CustomWallpaperStorage, customWallpaperDatabaseName, normalizeCustomWallpaperUrl, validateCustomWallpaperFile, createIndexedDbCustomWallpaperStorage.
+// Integrates: ./….
+// Contracts: none special (pure logic; errors bubble to caller).
 import { IS_DEVELOP_PREVIEW } from './deploymentScope'
 
 export const MAX_CUSTOM_WALLPAPER_BYTES = 20 * 1024 * 1024

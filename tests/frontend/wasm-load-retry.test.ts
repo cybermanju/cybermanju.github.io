@@ -1,3 +1,6 @@
+// CyberManju OS — tests/frontend/wasm-load-retry.test.ts.
+// Role: see header automation pilot (collect-file-context + AI merge pending full prose).
+// Exports/Integrates: documented at the item level; header to be expanded.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { wasmInit } = vi.hoisted(() => ({ wasmInit: vi.fn() }))

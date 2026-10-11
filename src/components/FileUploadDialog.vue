@@ -1,3 +1,8 @@
+<!-- CyberManju OS — FileUploadDialog (src/components/FileUploadDialog.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <Teleport to="body">
     <div v-if="visible" class="upload-overlay" @click.self="$emit('close')">

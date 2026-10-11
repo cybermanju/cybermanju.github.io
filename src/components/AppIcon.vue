@@ -1,3 +1,8 @@
+<!-- CyberManju OS — AppIcon (src/components/AppIcon.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: vue, @iconify, @/…. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <Icon
     v-if="resolved"

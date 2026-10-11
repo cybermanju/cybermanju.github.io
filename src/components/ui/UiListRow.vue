@@ -1,3 +1,8 @@
+<!-- CyberManju OS — UiListRow (src/components/ui/UiListRow.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <component
     :is="clickable ? 'button' : 'div'"

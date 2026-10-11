@@ -1,3 +1,8 @@
+// CyberManju OS — Vault snapshot (src-tauri/src/commands/vault_snapshot.rs).
+// Role: Tauri IPC commands (19 modules, 130 handlers).
+// Exports: snapshot_native_database, vault_kv_get, vault_kv_set, vault_kv_delete, vault_kv_list.
+// Integrates: serde_json, tauri.
+// Contracts: none special (pure logic; errors bubble to caller).
 use serde_json::{json, Value};
 use tauri::State;
 
@@ -10,7 +15,7 @@ const MAX_KV_VALUE_BYTES: usize = 5 * 1024 * 1024;
 ///
 /// The frontend wraps these bytes with the shared CYBMJ01 web container codec
 /// before writing a user-selected Android/iOS SAF file.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn snapshot_native_database(state: State<'_, AppState>) -> Result<Vec<u8>, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     db.snapshot_bytes()
@@ -18,7 +23,7 @@ pub fn snapshot_native_database(state: State<'_, AppState>) -> Result<Vec<u8>, S
 }
 
 /// Native mobile equivalent of the WASM `kv.get` operation.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vault_kv_get(key: String, state: State<'_, AppState>) -> Result<Value, String> {
     if key.len() > MAX_KV_KEY_BYTES {
         return Err(format!("invalid: key exceeds {MAX_KV_KEY_BYTES} bytes"));
@@ -34,7 +39,7 @@ pub fn vault_kv_get(key: String, state: State<'_, AppState>) -> Result<Value, St
 }
 
 /// Native mobile equivalent of the WASM `kv.set` operation.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vault_kv_set(
     key: String,
     value: String,
@@ -54,7 +59,7 @@ pub fn vault_kv_set(
 }
 
 /// Native mobile equivalent of the WASM `kv.delete` operation.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vault_kv_delete(key: String, state: State<'_, AppState>) -> Result<bool, String> {
     if key.len() > MAX_KV_KEY_BYTES {
         return Err(format!("invalid: key exceeds {MAX_KV_KEY_BYTES} bytes"));
@@ -65,7 +70,7 @@ pub fn vault_kv_delete(key: String, state: State<'_, AppState>) -> Result<bool, 
 }
 
 /// Native mobile equivalent of the WASM `kv.list` operation (keys and sizes only).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vault_kv_list(
     prefix: Option<String>,
     state: State<'_, AppState>,

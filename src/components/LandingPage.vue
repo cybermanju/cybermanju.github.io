@@ -1,4 +1,9 @@
 <script setup lang="ts">
+// CyberManju OS — LandingPage (src/components/LandingPage.vue).
+// Role: Vue desktop UI: windows, panels, overlays.
+// Exports: module root (see items below).
+// Integrates: @/…, vue, ./….
+// Contracts: none special (pure logic; errors bubble to caller).
 import AppIcon from '@/components/AppIcon.vue'
 import { ref, onMounted, onUnmounted } from 'vue'
 import TopMenuBar from './TopMenuBar.vue'
@@ -21,8 +26,6 @@ const store = useAppStore()
 const phase = ref<'post' | 'loading' | 'ready'>('post')
 const bootProgress = ref(0)
 const bootLog = ref<string[]>([])
-const showCursor = ref(true)
-let cursorTimer: ReturnType<typeof setInterval> | null = null
 const postDone = ref(false)
 
 interface ModuleLine { name: string; detail: string; ok: boolean }
@@ -95,9 +98,19 @@ const buddhaFrames = [
 
 const currentFrame = ref(0)
 const frameLines = ref<string[]>([])
-const buddhaGlow = ref(0)
 let buddhaTimer: ReturnType<typeof setInterval> | null = null
-let glowTimer: ReturnType<typeof setInterval> | null = null
+
+/**
+ * Particle placement/timing is random ONCE. It used to be random on every
+ * render — and the ASCII frame tick re-renders this tree every 280 ms, so
+ * each particle teleported and restarted its CSS animation 3.5×/second.
+ */
+const particleStyles = Array.from({ length: 20 }, () => ({
+  left: `${Math.random() * 100}%`,
+  top: `${Math.random() * 100}%`,
+  animationDelay: `${Math.random() * 5}s`,
+  animationDuration: `${3 + Math.random() * 4}s`,
+}))
 
 // ── Verbose SCI-FI loader ──────────────────────────────────────
 // Each step awaits a REAL store fetch and reports the live count.
@@ -203,34 +216,28 @@ function restartBoot() {
   bootLog.value = []
   moduleLines.value = []
   currentFrame.value = 0
-  buddhaGlow.value = 0
   runPost()
 }
 
 // ── Animations ──
+// The Buddha glow used to be a 50 ms JS timer writing a reactive opacity
+// (20 reactive style writes/second forever). It is a pure sine wave, so the
+// identical curve now lives in CSS (`.ascii-buddha` keyframes) — the browser
+// composites it for free and the script only advances the ASCII frames.
 function startBuddhaAnimation() {
   frameLines.value = buddhaFrames[0]
   buddhaTimer = setInterval(() => {
     currentFrame.value = (currentFrame.value + 1) % buddhaFrames.length
     frameLines.value = buddhaFrames[currentFrame.value]
   }, 280)
-
-  glowTimer = setInterval(() => {
-    buddhaGlow.value = Math.sin(Date.now() / 800) * 0.3 + 0.6
-  }, 50)
 }
 
 function stopAnimations() {
   if (buddhaTimer) clearInterval(buddhaTimer)
-  if (glowTimer) clearInterval(glowTimer)
-  if (cursorTimer) clearInterval(cursorTimer)
   buddhaTimer = null
-  glowTimer = null
-  cursorTimer = null
 }
 
 onMounted(() => {
-  cursorTimer = setInterval(() => { showCursor.value = !showCursor.value }, 500)
   currentQuote.value = quotes[Math.floor(Math.random() * quotes.length)]
   startBuddhaAnimation()
   runPost()
@@ -263,16 +270,11 @@ onUnmounted(() => {
 
       <div v-else class="desktop-landing">
         <div class="ascii-background">
-          <div class="ascii-buddha" :style="{ opacity: buddhaGlow }">
+          <div class="ascii-buddha">
             <div v-for="(line, i) in frameLines" :key="i" class="buddha-line">{{ line }}</div>
           </div>
           <div class="ascii-particles">
-            <div v-for="n in 20" :key="n" class="particle" :style="{
-              left: Math.random() * 100 + '%',
-              top: Math.random() * 100 + '%',
-              animationDelay: Math.random() * 5 + 's',
-              animationDuration: (3 + Math.random() * 4) + 's',
-            }">.</div>
+            <div v-for="(p, n) in particleStyles" :key="n" class="particle" :style="p">.</div>
           </div>
         </div>
 
@@ -305,6 +307,8 @@ onUnmounted(() => {
           <a :href="legalPageUrl('privacy.html')" target="_blank" rel="noopener">Privacy Policy</a>
           <span>·</span>
           <a :href="legalPageUrl('terms.html')" target="_blank" rel="noopener">Terms of Service</a>
+          <span>·</span>
+          <a href="https://cybermanju.github.io/wiki/" target="_blank" rel="noopener">Wiki</a>
         </div>
       </div>
     </div>
@@ -448,8 +452,19 @@ onUnmounted(() => {
   line-height: 1.15;
   color: var(--ui-text-3);
   letter-spacing: 0;
-  transition: opacity 0.05s;
   user-select: none;
+  /* Same pulse the old 50 ms JS timer wrote by hand (sin(t/800)*0.3+0.6,
+     period ≈5.03 s, range 0.3–0.9) — composited by the browser instead of
+     round-tripping through Vue's reactivity 20×/second. */
+  animation: buddha-glow 5.027s ease-in-out infinite;
+}
+
+@keyframes buddha-glow {
+  0% { opacity: 0.6; }
+  25% { opacity: 0.9; }
+  50% { opacity: 0.6; }
+  75% { opacity: 0.3; }
+  100% { opacity: 0.6; }
 }
 
 .buddha-line {

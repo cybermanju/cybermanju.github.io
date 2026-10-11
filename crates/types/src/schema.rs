@@ -1,3 +1,8 @@
+// CyberManju OS — Schema (crates/types/src/schema.rs).
+// Role: shared schemas: files, sync, agent, schedules.
+// Exports: FileNode, Account, Collection, CollectionItem, FaceGroup, EncryptionKey, LooseGroup, User.
+// Integrates: serde.
+// Contracts: signals: engine.
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

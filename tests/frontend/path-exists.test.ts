@@ -1,3 +1,6 @@
+// CyberManju OS — tests/frontend/path-exists.test.ts.
+// Role: see header automation pilot (collect-file-context + AI merge pending full prose).
+// Exports/Integrates: documented at the item level; header to be expanded.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setServerUrl, useTauri } from '@/composables/useTauri'
 import type { FileNode } from '@/types'

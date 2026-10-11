@@ -1,3 +1,8 @@
+<!-- CyberManju OS — FaceGroupingPanel (src/components/FaceGroupingPanel.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: signals: engine. -->
 <template>
   <div class="spot" @keydown="handleKeydown">
     <div class="spot-col">

@@ -1,3 +1,4 @@
+// CyberManju OS — Responsive.test (tests/frontend/responsive.test.ts).
 // Responsive contract: every panel must stay usable in a narrow window and
 // on phones. Viewport `@media` queries never fire for a small floating
 // window on a wide monitor, so `AppWindow` mirrors the breakpoint as

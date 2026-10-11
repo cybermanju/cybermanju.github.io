@@ -1,3 +1,4 @@
+// CyberManju OS — Self research.test (tests/frontend/self-research.test.ts).
 // Self-research ranking twin of `rank_research_files` — UI/cybsh questions
 // must bridge to the implementor files (shells, tokens, theme hook).
 import { describe, it, expect } from 'vitest'

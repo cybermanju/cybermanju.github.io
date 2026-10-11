@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# CyberManju OS — Backup (scripts/backup.sh).
 # AGENT-4 item 12 — snapshot the redb database and the Tantivy search index.
 #
 #   scripts/backup.sh                  # snapshot now, keep 7

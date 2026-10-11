@@ -1,10 +1,10 @@
 <script setup lang="ts">
+// CyberManju OS — DiskManagerPage: disk/volume manager (AGENT-8 item 9).
+// Role: one merged `df` bar over every `.cybermanju` disk + per-provider cards (attach/detach/resize/check).
+// Exports: module root (see items below).
+// Integrates: `/api/os/df` merged bar, AGENT-6 catalog rows, @/…, vue.
+// Contracts: signals: AGENT-.
 import AppIcon from '@/components/AppIcon.vue'
-// CyberManju OS — disk / volume manager (AGENT-8, item 9)
-//
-// One merged `df` bar over every `.cybermanju` disk, per-provider cards with
-// an adjustable size, and the attach / detach / resize / check controls.
-// Disk rows come from AGENT-6's catalog; the merged bar from `/api/os/df`.
 import { computed, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { humanBytes, diskPct } from '@/utils/format'

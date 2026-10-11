@@ -1,3 +1,8 @@
+// CyberManju OS — LegalPageUrl (src/utils/legalPageUrl.ts).
+// Role: pure TS helpers (unit-tested, transport-agnostic).
+// Exports: legalPageUrl.
+// Integrates: standalone (no imports).
+// Contracts: none special (pure logic; errors bubble to caller).
 const CANONICAL_LEGAL_BASE = 'https://cybermanju.github.io/'
 
 type LegalPage = 'privacy.html' | 'terms.html'

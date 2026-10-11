@@ -1,3 +1,8 @@
+// CyberManju OS — UseCustomWallpaper (src/composables/useCustomWallpaper.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: createCustomWallpaperController, useCustomWallpaper.
+// Integrates: vue.
+// Contracts: none special (pure logic; errors bubble to caller).
 import { ref } from 'vue'
 import {
   createIndexedDbCustomWallpaperStorage,

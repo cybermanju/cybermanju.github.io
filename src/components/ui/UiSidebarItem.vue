@@ -1,3 +1,8 @@
+<!-- CyberManju OS — UiSidebarItem (src/components/ui/UiSidebarItem.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <button
     type="button"

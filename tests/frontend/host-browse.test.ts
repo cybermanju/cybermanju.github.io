@@ -1,3 +1,4 @@
+// CyberManju OS — Host browse.test (tests/frontend/host-browse.test.ts).
 // Host bridge: `/host` namespace math, shell quoting, `ls --json` mapping,
 // and the move-anything→anywhere matrix (with fake transports, no Tauri).
 import { describe, expect, it, vi } from 'vitest'

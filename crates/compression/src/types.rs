@@ -1,3 +1,8 @@
+// CyberManju OS — Types (crates/compression/src/types.rs).
+// Role: LZ4→ZSTD-15→Brotli-11 triple cascade + .cyb3.
+// Exports: CompressionType, display_name, color, speed_label, CompressionStats, LayerDetail.
+// Integrates: serde.
+// Contracts: none special (pure logic; errors bubble to caller).
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]

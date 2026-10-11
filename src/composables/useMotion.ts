@@ -1,3 +1,8 @@
+// CyberManju OS — UseMotion (src/composables/useMotion.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: useMotion.
+// Integrates: vue, @/….
+// Contracts: none special (pure logic; errors bubble to caller).
 import { computed, ref, watchEffect, type ComputedRef } from 'vue'
 import { useTheme } from '@/composables/useTheme'
 

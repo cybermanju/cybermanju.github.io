@@ -1,3 +1,8 @@
+// CyberManju OS — Files (src-tauri/src/commands/files.rs).
+// Role: Tauri IPC commands (19 modules, 130 handlers).
+// Exports: list_files, get_file, create_folder, delete_file, rename_file, set_file_tags, duplicate_file_context, move_file.
+// Integrates: chrono, redb, tauri, cybermanju_web.
+// Contracts: signals: not_found.
 use chrono::Utc;
 use redb::ReadableTable;
 use tauri::State;
@@ -10,7 +15,7 @@ use crate::AppState;
 
 /// List all file nodes whose parent_id matches the given parent_path.
 /// Uses the parent_index secondary index for O(1) lookup instead of O(N) full scan.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_files(
     parent_path: String,
     state: State<'_, AppState>,
@@ -57,7 +62,7 @@ pub fn list_files(
 }
 
 /// Get a single file node by its ID.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_file(file_id: String, state: State<'_, AppState>) -> Result<FileNode, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     let tx = db.begin_read().map_err(|e| e.to_string())?;
@@ -75,7 +80,7 @@ pub fn get_file(file_id: String, state: State<'_, AppState>) -> Result<FileNode,
 }
 
 /// Create a new folder entry in the database.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_folder(
     name: String,
     parent_id: String,
@@ -86,14 +91,14 @@ pub fn create_folder(
 }
 
 /// Delete a file or folder by its ID (soft-delete to trash).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_file(file_id: String, state: State<'_, AppState>) -> Result<bool, String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
     api::files::delete(&db, &file_id)
 }
 
 /// Rename a file or folder.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn rename_file(
     file_id: String,
     new_name: String,
@@ -104,7 +109,7 @@ pub fn rename_file(
 }
 
 /// Replace a file's user tags (search/parse refinement + scene matching).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_file_tags(
     file_id: String,
     tags: Vec<String>,
@@ -115,7 +120,7 @@ pub fn set_file_tags(
 }
 
 /// Context-preserving duplication: copies a file node and preserves context_data.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn duplicate_file_context(
     file_id: String,
     state: State<'_, AppState>,
@@ -125,7 +130,7 @@ pub fn duplicate_file_context(
 }
 
 /// Move a file to a new parent.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn move_file(
     file_id: String,
     new_parent_id: String,
@@ -136,7 +141,7 @@ pub fn move_file(
 }
 
 /// Get preview metadata for a file.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_preview(
     file_id: String,
     state: State<'_, AppState>,
@@ -147,7 +152,7 @@ pub fn get_preview(
 
 /// Read a file's text content for the code editor.
 /// Same refusals as REST (`encrypted:`, `binary:`, `too_large:`, `not_found:`).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_file_content(
     file_id: String,
     state: State<'_, AppState>,
@@ -159,7 +164,7 @@ pub fn read_file_content(
 /// Overwrite a file's text content from the code editor.
 /// Snapshots a version first (best effort), then writes bytes and refreshes
 /// size/hash/modified metadata.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn write_file_content(
     file_id: String,
     content: String,
@@ -171,7 +176,7 @@ pub fn write_file_content(
     api::files::write_content(&db, &file_id, &content)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_loose_group(
     name: String,
     color: String,
@@ -205,7 +210,7 @@ pub fn create_loose_group(
 }
 
 /// Add a file to a loose group. Also updates the file node's loose_group_ids.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn add_to_loose_group(
     group_id: String,
     file_id: String,
@@ -268,7 +273,7 @@ pub fn add_to_loose_group(
 }
 
 /// List all loose groups.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_loose_groups(state: State<'_, AppState>) -> Result<Vec<LooseGroup>, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     let tx = db.begin_read().map_err(|e| e.to_string())?;
@@ -288,7 +293,7 @@ pub fn list_loose_groups(state: State<'_, AppState>) -> Result<Vec<LooseGroup>, 
 
 /// Rebuild the parent index from all FileNodes in the files table.
 /// Useful after restoring from a backup or index corruption.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn rebuild_parent_index(state: State<'_, AppState>) -> Result<u32, String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
     api::files::rebuild_parent_index(&db)

@@ -1,3 +1,8 @@
+// CyberManju OS — Triple (crates/compression/src/triple.rs).
+// Role: LZ4→ZSTD-15→Brotli-11 triple cascade + .cyb3.
+// Exports: TripleCompressor, new, compress_lz4, decompress_lz4, compress_zstd, decompress_zstd, compress_brotli, decompress_brotli.
+// Integrates: anyhow.
+// Contracts: none special (pure logic; errors bubble to caller).
 use anyhow::Result;
 
 use crate::layers::{BrotliLayer, Lz4Layer, ZstdLayer};

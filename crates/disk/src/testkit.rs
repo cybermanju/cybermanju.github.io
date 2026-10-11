@@ -1,3 +1,4 @@
+// CyberManju OS — Testkit (crates/disk/src/testkit.rs).
 //! Shared scaffolding for the disk/volume unit tests: a scratch database, a
 //! local provider directory and a helper to make disks.
 //!

@@ -1,3 +1,8 @@
+<!-- CyberManju OS — SyncPanel (src/components/SyncPanel.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="sync-panel">
     <div class="panel-header">

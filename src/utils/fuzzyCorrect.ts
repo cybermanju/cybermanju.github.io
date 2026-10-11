@@ -1,3 +1,4 @@
+// CyberManju OS — FuzzyCorrect (src/utils/fuzzyCorrect.ts).
 // Shared string-similarity helpers (mirrors crates/os shell.rs `distance`
 // so the frontend corrects the same way the server suggests).
 

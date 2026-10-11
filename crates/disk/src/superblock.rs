@@ -1,3 +1,4 @@
+// CyberManju OS — Superblock (crates/disk/src/superblock.rs).
 //! The `.cybermanju` container: a sealed superblock header, the block map it
 //! commits to, and a footer that points back at it.
 //!

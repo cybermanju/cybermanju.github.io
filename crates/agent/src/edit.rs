@@ -1,3 +1,4 @@
+// CyberManju OS — Edit (crates/agent/src/edit.rs).
 // Hash-anchored edits (hashline-inspired, BLAKE3-addressed).
 //
 // The model replaces one exact `old_block` with `new_block` instead of

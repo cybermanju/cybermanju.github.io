@@ -1,3 +1,4 @@
+// CyberManju OS — Oauth revoke.test (tests/frontend/oauth-revoke.test.ts).
 // OAuth revoke — the Accounts panel's Revoke buttons rest on
 // `revokeProviderGrant`: Google revokes provider-side (mocked fetch here),
 // providers without a browser-safe endpoint clear locally, and an empty

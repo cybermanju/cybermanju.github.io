@@ -168,7 +168,7 @@ pub fn verify_session_token(token: &str, hmac_secret: &[u8]) -> Result<(String, 
 // ---------------------------------------------------------------------------
 
 /// Register a new user (arg validation + persistence live in the shared API).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn register_user(
     username: String,
     password: String,
@@ -189,7 +189,7 @@ pub fn register_user(
     )
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn authenticate_user(
     username: String,
     password: String,
@@ -226,7 +226,7 @@ pub fn authenticate_user(
 ///
 /// This is a separate command so the frontend (or any caller) can validate
 /// tokens without performing a full authentication.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn verify_token(
     token: String,
     state: State<'_, AppState>,
@@ -246,7 +246,7 @@ pub fn verify_token(
 }
 
 /// List all registered users.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_users(state: State<'_, AppState>) -> Result<Vec<User>, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     let tx = db.begin_read().map_err(|e| e.to_string())?;
@@ -265,7 +265,7 @@ pub fn list_users(state: State<'_, AppState>) -> Result<Vec<User>, String> {
 }
 
 /// Alias for set_file_permission — frontend calls this as grant_file_permission.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn grant_file_permission(
     user_id: String,
     file_id: String,
@@ -277,7 +277,7 @@ pub fn grant_file_permission(
 }
 
 /// Grant a file permission to a user (aliased as grant_file_permission for frontend).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_file_permission(
     user_id: String,
     file_id: String,
@@ -341,7 +341,7 @@ pub fn set_file_permission(
 }
 
 /// Revoke a file permission — frontend calls this as revoke_file_permission.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn revoke_file_permission(
     permission_id: String,
     state: State<'_, AppState>,
@@ -365,7 +365,7 @@ pub fn revoke_file_permission(
 }
 
 /// Verify whether a specific user has access to a specific file.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn verify_file_access(
     user_id: String,
     file_id: String,
@@ -411,7 +411,7 @@ pub fn verify_file_access(
 }
 
 /// Alias for register_user — called by the frontend as create_user.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_user(
     username: String,
     password: String,
@@ -422,14 +422,14 @@ pub fn create_user(
 }
 
 /// Delete a user by ID.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_user(user_id: String, state: State<'_, AppState>) -> Result<bool, String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
     cybermanju_web::api::users::delete(&db, &user_id)
 }
 
 /// Update a user's role.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_user_role(
     user_id: String,
     role: String,
@@ -438,7 +438,7 @@ pub fn update_user_role(
     let db = state.db.write().map_err(|e| e.to_string())?;
     cybermanju_web::api::users::update_role(&db, &user_id, role)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_file_permissions(
     file_id: String,
     state: State<'_, AppState>,

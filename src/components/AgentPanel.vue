@@ -1,3 +1,8 @@
+<!-- CyberManju OS — AgentPanel (src/components/AgentPanel.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: signals: engine. -->
 <template>
   <div class="agent" :class="{ 'agent--sidebar-closed': !sidebarOpen }">
     <!-- ── Header: identity + transport + context + YOLO + setup ── -->
@@ -2324,8 +2329,8 @@ async function refreshLiveThread() {
 watch(jobActive, active => {
   if (active) {
     if (!startedAt.value) startedAt.value = Date.now()
-    if (!tickTimer) tickTimer = window.setInterval(() => { nowTick.value = Date.now() }, 1000)
-    if (!liveTimer) liveTimer = window.setInterval(() => { void refreshLiveThread() }, 1500)
+    if (!tickTimer) tickTimer = window.setInterval(() => { if (!document.hidden) nowTick.value = Date.now() }, 1000)
+    if (!liveTimer) liveTimer = window.setInterval(() => { if (!document.hidden) void refreshLiveThread() }, 1500)
     return
   }
   if (tickTimer) { window.clearInterval(tickTimer); tickTimer = 0 }

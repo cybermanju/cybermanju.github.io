@@ -1,3 +1,4 @@
+// CyberManju OS — Cybsh script.test (tests/frontend/cybsh-script.test.ts).
 // `.cybsh` scripts — interpreter twin + static `run`/`theme`/`ui` verbs.
 // Pure logic (node env); browser effects (fetch/localStorage) are stubbed.
 import { describe, expect, it } from 'vitest'

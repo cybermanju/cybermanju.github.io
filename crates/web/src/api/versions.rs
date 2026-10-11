@@ -1,3 +1,8 @@
+// CyberManju OS — Versions (crates/web/src/api/versions.rs).
+// Role: REST dashboard (:3456): routes, auth, security headers.
+// Exports: list, create, revert, snapshot_all.
+// Integrates: cybermanju_db, cybermanju_types, redb.
+// Contracts: none special (pure logic; errors bubble to caller).
 // CyberManju OS — File version operations (shared by Tauri IPC and REST)
 
 use cybermanju_db::Database;

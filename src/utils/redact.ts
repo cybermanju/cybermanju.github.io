@@ -1,3 +1,4 @@
+// CyberManju OS — Redact (src/utils/redact.ts).
 // Secret redaction for browser-loop tool outputs (mirror of
 // `crates/agent/src/redact.rs` — keep the marker lists in sync).
 //

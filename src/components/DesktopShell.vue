@@ -1,10 +1,19 @@
+<!-- CyberManju OS — DesktopShell (src/components/DesktopShell.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue, ./…. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="desktop-shell" :class="{ 'desktop-shell--glow': theme.settings.glow, 'desktop-shell--plasma': isPlasma, 'desktop-shell--mobile': isMobileViewport }">
     <!-- Mobile always keeps the single unified header (logo + status +
       theme + one clock), on home and over sheets — no duplicate rows. -->
     <TopMenuBar v-if="isMobileViewport || chrome.topBar" />
 
-    <div class="desktop-area" @click="handleWorkspaceClick">
+    <div
+      class="desktop-area"
+      :style="{ '--dock-inset': `${dockInset}px` }"
+      @click="handleWorkspaceClick"
+    >
       <div class="desktop-wallpaper" :class="`wp-${theme.settings.wallpaper || 'slopes-dark'}`">
         <img
           v-if="customWallpaper.source.value"
@@ -102,9 +111,12 @@
           />
         </TransitionGroup>
       </div>
-    </div>
 
-    <Dock v-if="!isMobileViewport && chrome.bottom && !isPlasma" />
+      <!-- Floating dock: absolute overlay at the bottom of the desktop
+           area, so the wallpaper (and windows in centered/autohide modes)
+           run full-screen behind it. -->
+      <Dock v-if="!isMobileViewport && chrome.bottom && !isPlasma" />
+    </div>
 
     <!-- Right-bottom shell dock: shortcuts + tiling, above windows. -->
     <ShellShortcutDock v-if="!isMobileViewport && chrome.shortcutDock" />
@@ -122,15 +134,19 @@
       @contextmenu.prevent="dockMenu.visible = false"
     >
       <div class="dock-context-menu ui-shine" @click.stop>
-        <button
-          v-for="(item, i) in dockMenu.items"
-          :key="i"
-          class="dock-context-item"
-          type="button"
-          @click="item.action(); dockMenu.visible = false"
-        >
-          {{ item.label }}
-        </button>
+        <template v-for="(item, i) in dockMenu.items" :key="i">
+          <div v-if="item.separator" class="dock-context-sep" role="separator" />
+          <button
+            v-else
+            class="dock-context-item"
+            :class="{ checked: item.checked }"
+            type="button"
+            @click="item.action?.(); dockMenu.visible = false"
+          >
+            <span class="dock-context-check" aria-hidden="true">{{ item.checked ? '✓' : '' }}</span>
+            <span>{{ item.label }}</span>
+          </button>
+        </template>
       </div>
     </div>
 
@@ -149,6 +165,7 @@ import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
 import { useCustomWallpaper } from '@/composables/useCustomWallpaper'
 import { useKickoff } from '@/composables/useKickoff'
+import { useDock, DOCK_HEIGHT } from '@/composables/useDock'
 import { SHELL_CHROME } from '@/ui/shells'
 import { computeStripRects, stripColumnWidth } from '@/utils/shellLayout'
 import TopMenuBar from './TopMenuBar.vue'
@@ -162,6 +179,18 @@ const wm = useWindowManager()
 const theme = useTheme()
 const customWallpaper = useCustomWallpaper()
 const kickoff = useKickoff()
+const dock = useDock()
+
+/**
+ * A full-width fixed dock is an opaque edge-to-edge bar — windows must not
+ * slide under it, so the workspace strips inset by the dock height. The
+ * centered pill and auto-hide modes deliberately overlap windows (the
+ * dock floats above them, macOS-style).
+ */
+const dockInset = computed(() =>
+  dock.layout.value === 'full' && dock.visibility.value === 'fixed' ? DOCK_HEIGHT : 0,
+)
+
 const selectShortcut = ref<PanelType | null>(null)
 const mobileShellQuery = typeof window !== 'undefined' ? window.matchMedia?.('(max-width: 768px)') ?? null : null
 const isMobileViewport = ref(mobileShellQuery?.matches ?? false)
@@ -336,13 +365,24 @@ function handleViewportResize() {
   else if (wm.shellLayoutMode.value === 'tiled') wm.tileWindows()
 }
 
+/** Dock layout/visibility changes resize the workspace — re-flow tiles. */
+watch(dockInset, () => { handleViewportResize() })
+
 const focusedWindowId = computed(() => wm.activeWindow.value?.id ?? null)
+
+/** One entry of the dock context menu (separator + checkmark aware). */
+interface DockMenuItem {
+  label: string
+  action?: () => void
+  checked?: boolean
+  separator?: boolean
+}
 
 const dockMenu = ref({
   visible: false,
   x: 0,
   y: 0,
-  items: [] as { label: string; action: () => void }[],
+  items: [] as DockMenuItem[],
 })
 
 function handleDockContext(e: CustomEvent) {
@@ -355,6 +395,12 @@ function handleDockContext(e: CustomEvent) {
 }
 
 function handleClickOutside() {
+  dockMenu.value.visible = false
+}
+
+/** Dismiss the dock menu on any context menu elsewhere (named handler so
+ *  the removal in onUnmounted actually matches the registration). */
+function handleDocumentContextMenu() {
   dockMenu.value.visible = false
 }
 
@@ -374,7 +420,7 @@ onMounted(() => {
   mobileShellQuery?.addEventListener?.('change', onMobileShellChange)
   window.addEventListener('cybermanju:dock-context', handleDockContext as EventListener)
   document.addEventListener('click', handleClickOutside)
-  document.addEventListener('contextmenu', () => { dockMenu.value.visible = false })
+  document.addEventListener('contextmenu', handleDocumentContextMenu)
   window.addEventListener('resize', handleViewportResize)
 })
 
@@ -382,7 +428,7 @@ onUnmounted(() => {
   mobileShellQuery?.removeEventListener?.('change', onMobileShellChange)
   window.removeEventListener('cybermanju:dock-context', handleDockContext as EventListener)
   document.removeEventListener('click', handleClickOutside)
-  document.removeEventListener('contextmenu', () => { dockMenu.value.visible = false })
+  document.removeEventListener('contextmenu', handleDocumentContextMenu)
   window.removeEventListener('resize', handleViewportResize)
 })
 </script>
@@ -467,6 +513,9 @@ onUnmounted(() => {
 .desktop-workspace {
   position: absolute;
   inset: 0;
+  /* Full-width fixed dock: the opaque bar owns the strip below; every
+     other dock mode keeps the workspace full-height and the dock floats. */
+  bottom: var(--dock-inset, 0px);
   z-index: 1;
 }
 
@@ -589,6 +638,23 @@ onUnmounted(() => {
   color: var(--ui-on-accent);
 }
 
+.dock-context-item.checked {
+  font-weight: 600;
+}
+
+.dock-context-check {
+  display: inline-block;
+  width: 14px;
+  color: var(--ui-accent);
+  font-weight: 700;
+}
+
+.dock-context-sep {
+  height: 1px;
+  margin: 3px 6px;
+  background: var(--ui-separator);
+}
+
 /* window open / close transitions */
 .win-enter-active,
 .win-leave-active {
@@ -618,6 +684,7 @@ onUnmounted(() => {
 .desktop-strip {
   position: absolute;
   inset: 0;
+  bottom: var(--dock-inset, 0px);
   z-index: 1;
   overflow-x: auto;
   overflow-y: hidden;
@@ -689,6 +756,7 @@ onUnmounted(() => {
 .desktop-overview {
   position: absolute;
   inset: 0;
+  bottom: var(--dock-inset, 0px);
   z-index: 1;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

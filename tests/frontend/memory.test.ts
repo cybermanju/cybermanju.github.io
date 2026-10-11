@@ -1,3 +1,4 @@
+// CyberManju OS — Memory.test (tests/frontend/memory.test.ts).
 // Semantic memory — TS mirror of `crates/agent/src/memory.rs`.
 // The scoring contract is shared across the FFI: same token rule, same
 // keyword formula, same budgets. If these drift, browser recall and native

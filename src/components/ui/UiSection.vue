@@ -1,3 +1,8 @@
+<!-- CyberManju OS — UiSection (src/components/ui/UiSection.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <section class="ui-section" :class="[`ui-section--${size}`, { 'ui-section--card': card }]">
     <header v-if="title || $slots.header" class="ui-section__header">

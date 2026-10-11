@@ -1,3 +1,8 @@
+// CyberManju OS — UseBreakpoints (src/composables/useBreakpoints.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: useBreakpoints.
+// Integrates: vue.
+// Contracts: none special (pure logic; errors bubble to caller).
 import { computed, ref, watchEffect, type ComputedRef, type Ref } from 'vue'
 
 /**

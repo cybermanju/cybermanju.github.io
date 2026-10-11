@@ -1,3 +1,4 @@
+// CyberManju OS — Agent harness.test (tests/frontend/agent-harness.test.ts).
 // Agent harness helpers — the shared surface AgentPanel + CodeStudio consume.
 import { describe, expect, it } from 'vitest'
 import {

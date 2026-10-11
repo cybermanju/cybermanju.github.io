@@ -1,3 +1,4 @@
+// CyberManju OS — Task (crates/os/src/task.rs).
 //! The process table (AGENT-8 item 6 / MISSING.md F2): every long-running
 //! activity in the OS — a sync run, a scrub, a repair, a GC pass, a compute
 //! job, a shell pipeline — is a **task** with `id, kind, state, progress,

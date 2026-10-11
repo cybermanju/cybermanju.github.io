@@ -1,3 +1,8 @@
+<!-- CyberManju OS — AccountManagerPanel (src/components/AccountManagerPanel.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="am">
     <!-- ── header ─────────────────────────────────────────── -->
@@ -2302,6 +2307,10 @@ async function createDisk(configId: string) {
   try {
     const mb = clampDiskMb(newDiskMb.value[configId], 512)
     const pass = newDiskPass.value[configId] ?? ''
+    if (!pass) {
+      diskMsg.value[configId] = 'Type a passphrase first — the disk is passphrase-encrypted on every device.'
+      return
+    }
     if (cfg.backendType === 'local') {
       await store.createDisk(configId, mb * 1024 * 1024, pass)
       newDiskPass.value[configId] = ''
@@ -2333,6 +2342,8 @@ async function createDisk(configId: string) {
       diskMsg.value[configId] = `Disk created, but the remote seed failed: ${out.remoteWarning}`
     }
     newDiskPass.value[configId] = ''
+  } catch (e) {
+    diskMsg.value[configId] = e instanceof Error ? e.message : String(e)
   } finally {
     diskBusy.value = null
   }

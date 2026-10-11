@@ -1,3 +1,4 @@
+// CyberManju OS — Main (cli/main.go).
 // Command cyb is the universal CyberManju OS terminal: files, disks, sync,
 // OAuth, cybsh and the AI agent over the dashboard REST API, with a Charm
 // (Lipgloss/Bubbles/Huh/Glamour) face.

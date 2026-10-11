@@ -1,3 +1,8 @@
+// CyberManju OS — Lib (crates/os-wasm/src/lib.rs).
+// Role: browser volume backend (OPFS/localStorage) for Pages.
+// Exports: agent, artifact, canal, compression, crypto, db, opfs_backend, os.
+// Integrates: wasm_bindgen.
+// Contracts: none special (pure logic; errors bubble to caller).
 pub mod agent;
 pub mod artifact;
 pub mod canal;

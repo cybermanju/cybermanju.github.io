@@ -1,3 +1,4 @@
+// CyberManju OS — Volume (crates/disk/src/volume.rs).
 //! The merged volume: N attached disks seen as one address space.
 //!
 //! This is where "more providers → more space" becomes a number:

@@ -1,3 +1,8 @@
+<!-- CyberManju OS — DevicesPanel (src/components/DevicesPanel.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="dv">
     <header class="dv-top">
@@ -357,7 +362,10 @@ onMounted(() => {
   void hw.refreshDevices()
   void loadStorage()
   void store.fetchOsTop()
-  statsPoll = window.setInterval(() => { void store.fetchOsTop() }, 4000)
+  statsPoll = window.setInterval(() => {
+    if (document.hidden) return
+    void store.fetchOsTop()
+  }, 4000)
 })
 onUnmounted(() => { if (statsPoll) window.clearInterval(statsPoll) })
 </script>

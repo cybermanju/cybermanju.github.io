@@ -1,3 +1,8 @@
+<!-- CyberManju OS — ShellShortcutDock (src/components/ShellShortcutDock.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue, @vueuse. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div ref="dockRef" class="shell-dock" :class="{ open: expanded }">
     <!-- Expanded cheat-sheet panel -->

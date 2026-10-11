@@ -1,3 +1,8 @@
+// CyberManju OS — Search api (crates/web/src/api/search_api.rs).
+// Role: REST dashboard (:3456): routes, auth, security headers.
+// Exports: SearchHit, PaginatedHits, search, search_paginated, suggest.
+// Integrates: cybermanju_db, cybermanju_search, cybermanju_types, redb.
+// Contracts: none special (pure logic; errors bubble to caller).
 // CyberManju OS — Search (shared by Tauri IPC and REST)
 
 use std::sync::{Arc, RwLock};

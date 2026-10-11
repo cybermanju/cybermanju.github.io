@@ -1,3 +1,4 @@
+// CyberManju OS — Launcher (src/stores/launcher.ts).
 // CyberManju launcher customization store — rename / reorder / custom
 // icons / hide for BOTH Android apps (`android:<package>`) and home tiles
 // (`os:<panel>`). Persisted in localStorage (instant, offline, per-device);

@@ -1,3 +1,8 @@
+<!-- CyberManju OS — UiTitlebarButtons (src/components/ui/UiTitlebarButtons.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="ui-wbtns" :class="{ 'is-focused': focused }" @mousedown.stop>
     <button

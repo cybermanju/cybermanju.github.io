@@ -1,3 +1,4 @@
+// CyberManju OS — Tokens (src/ui/tokens.ts).
 /**
  * Single source of truth for the CyberManju OS design language.
  *

@@ -1,3 +1,4 @@
+// CyberManju OS — Provider ship.test (tests/frontend/provider-ship.test.ts).
 // CONTROL 5.8 — `.cybermanju` ship test: mounts + cache + master passphrase
 // live in the redb `kv` table, so `_save`/`_attach` of the container carries
 // the whole provider namespace. This pins the key-naming contract (pure,

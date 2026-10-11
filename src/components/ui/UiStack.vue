@@ -1,3 +1,8 @@
+<!-- CyberManju OS — UiStack (src/components/ui/UiStack.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <component
     :is="as"

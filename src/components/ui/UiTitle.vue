@@ -1,3 +1,8 @@
+<!-- CyberManju OS — UiTitle (src/components/ui/UiTitle.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: vue, @/…. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <header class="ui-title" :class="{ 'ui-title--compact': compact, 'ui-title--divided': divider }">
     <div class="ui-title__main">
