@@ -99,8 +99,10 @@ jobs:
       - name: Install system dependencies
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
-          packages: libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config build-essential libssl-dev
-          version: "1.0"
+          # libglib2.0-dev explicit: glib-sys build script needs glib-2.0.pc
+          # (tauri → gtk and tauri-plugin-dialog → rfd on Linux).
+          packages: libwebkit2gtk-4.1-dev libgtk-3-dev libglib2.0-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config build-essential libssl-dev
+          version: "1.1"
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
@@ -242,8 +244,10 @@ jobs:
       - name: Install system dependencies
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
-          packages: libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config build-essential libssl-dev
-          version: "1.0"
+          # libglib2.0-dev explicit: glib-sys build script needs glib-2.0.pc
+          # (tauri → gtk and tauri-plugin-dialog → rfd on Linux).
+          packages: libwebkit2gtk-4.1-dev libgtk-3-dev libglib2.0-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config build-essential libssl-dev
+          version: "1.1"
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
