@@ -240,7 +240,22 @@ effects. Implementations: `ui_cmd`/`theme_cmd` per shell, live application in
 | GC | `POST /api/repair/gc {dryRun}` | Refcount authority; never deletes referenced chunk |
 | Lease | `POST /api/lease/acquire|release`, `GET /api/lease/status[/{scope}]` | Single writer TTL + steal-after-expiry; live lease → `conflict:` |
 
-`cybsh`: `scrub`, `repair`, `gc [--dry]`, `lease status`.
+`cybsh`: `scrub`, `repair`, `gc [--dry]`, `lease status`, `backup export|list|verify`.
+
+## 5b. Vault backup (snapshots + restore)
+
+Snapshots are passphrase-sealed CYBMJ01 containers (`.cybermanju` files —
+same bytes on every transport, so a desktop export restores on Pages):
+
+| Task | How | Notes |
+|---|---|---|
+| One-shot export | `backup export [--to /backups] [--name F] [--keep 7] [--plain]` in cybsh, or Disks → BACKUP → Download | `--to /providers/<id>[/dir]` pushes to any provider; default seals with the vault passphrase (`--plain` records a plaintext export) |
+| List / verify | `backup list [dir]`, `backup verify <file> [--deep]` | Header always; `--deep` trial-decrypts (wrong passphrase → `auth:`) |
+| Scheduled | Disks → BACKUP schedule card, or `cron add /.cybermanju/scheduled-backup.cybsh` | Writes the managed script (frontmatter owns the expr); runs fire the same `backup export` unattended |
+| Download (UI) | Disks → BACKUP → Download snapshot | Tauri/REST return the raw image (sealed in-browser, passphrase never leaves); Pages returns the sealed container; trial-decrypt proves it pre-download |
+| Restore (Pages) | BACKUP → Restore wizard → upload/pick → verify → Restore | Replaces the OPFS database + reloads |
+| Restore (desktop/Docker) | Wizard verifies, then: stop app → replace `cybermanju.db` → start → `POST /api/repair/rebuild` | The live redb file cannot be hot-swapped; `scripts/backup.sh` stays the host-level path (redb + tantivy + MANIFEST) |
+| HTTP export | `GET /api/backup/export` (Admin) | Raw image base64'd, 32 MiB cap — bigger vaults use the shell verb or host script |
 
 ## 6. Auth & TLS
 

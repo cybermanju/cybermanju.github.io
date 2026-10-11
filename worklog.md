@@ -1403,3 +1403,36 @@ Stage Summary:
 - Host text writes now quote the path and content as separate shell operands and enforce the 1 MiB ceiling on encoded UTF-8 bytes. The WASM shim preserves empty/quoted/backslash content and leading-hyphen operands. Added regressions for REST routing, roots, traversal, recursion, same-length corruption (including move-source preservation), quoting, empty text, and multibyte size limits.
 - The integrated shell tokenizer had one redundant `quote !== 'single'` comparison rejected by TypeScript narrowing; removed that redundant condition without changing parsing behavior.
 - Verified on this tree: version check, file headers (487 files), `vue-tsc`, 70 frontend files / 781 tests, WASM frontend build at `/develop/`, wiki build at `/develop/`, and staged/unstaged diff checks all passed. The WASM frontend build used the repository stub because the generated Rust WASM package is stale; no Cargo was run, per `AGENTS.md`. Rust/CI validation remains required after syncing the latest main.
+## 2026-10-11 — Scheduled backup UI (ANALYSIS §3 backup-as-feature, phase 2 complete)
+- Format first: new `crates/crypto/src/container.rs` — Rust CYBMJ01 codec
+  byte-identical to `src/utils/container.ts` (PBKDF2-HMAC-SHA512 → HKDF-SHA256,
+  ChaCha20-Poly1305, size-prepended lz4, `+lz4_flex 0.11` line in crypto
+  Cargo.toml). Proved, not asserted: TS encoder vectors generated in node
+  (fixed salt/nonce/passphrase) are embedded in the Rust tests — CI decodes a
+  file the browser wrote. Header-only `parse_header` (no key) + fail-closed
+  `auth:` trial-decrypt.
+- Native `backup` verb (`crates/os/src/backup.rs` + `shell.rs` arm, table,
+  completions, help): `export --to <volume|/providers/…> [--name] [--keep 7]
+  [--plain]` (master passphrase seals, `--plain` is the recorded opt-out,
+  prune never touches non-`cybermanju-*.cybermanju` files), `list`, `verify
+  [--deep]`; same `--json` shapes the static twin answers.
+- Transports: `GET /api/backup/export` (Admin, base64 JSON, 32 MiB honest cap
+  — bigger vaults use the verb or host script) + `ROUTED_SEGMENTS`, Tauri
+  `backup_export` (shared `api::backup`), static `backup_export/_export` +
+  `backup_restore` handlers, `wasmDatabaseRestore` export. os-wasm lists
+  `cron`+`backup` in help/completion with an honest chained-line refusal.
+- Frontend: pure `src/utils/backup.ts` (names/prune/managed script with `#
+  schedule:` frontmatter/header verify) + static `backup` verb (provider
+  destinations only — the browser volume is text-only, refused honestly) +
+  store actions (os_exec-driven list/export/verify, passphrase-local download
+  with trial-decrypt proof, Pages one-click restore, `scheduleBackup` writing
+  the managed script via `os_write` + cron row) + Disks → BACKUP tab
+  (Export/Snapshots/Schedule/Restore wizard with guided desktop/Docker steps
+  + catalog rebuild) + palette entry. `BARE_VERBS` learns `backup`.
+- Docs: OPERATIONS §5b table, SKILL verb line, ANALYSIS backup row ✅.
+- Verified: `vue-tsc` clean, targeted vitest 110 green (new `backup.test.ts`
+  + static backup suite + transport-routes backup case), headers ok. Rust
+  `fmt/clippy/test` left to CI per repo rules (blind-Rust, self-reviewed for
+  col/chain style). NOTE: a parallel session commits this tree (`git add -A`
+  sweeps); the mid-pass revert of two notification files earlier is why
+  disk-state is re-verified before every edit.

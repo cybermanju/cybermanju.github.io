@@ -7,7 +7,7 @@
 > Status refresh 2026-10-11 (measured: 54 components · 34 composables ·
 > 56 utils · 16 crates · 175 Tauri commands · ~37 redb tables): **landed
 > since — scheduler (§3), secrets manager (§4.1), agent-as-UI-pilot (§4.7),
-> notification center (§3)**. Landed rows are tagged ✅ below; everything
+> notification center (§3), scheduled backup UI (§3)**. Landed rows are tagged ✅ below; everything
 > else is unchanged ideation.
 > Grounded in file/line refs; anything aspirational is labeled as such.
 
@@ -105,7 +105,7 @@ same everywhere, all the time.
 | **Cron/scheduler service** ✅ landed 2026-10-09 | ~~`# schedule:` frontmatter parses but *nothing runs it* — only sync has a 10-min tick (`crates/sync/src/scheduler.rs`)~~ `cron` service now runs `.cybsh` scripts on cron/interval schedules | ~~`task.rs`, `compute.rs`, sync scheduler pattern → a `jobs` table + `cron add/ls/rm/run` verbs + a Schedules panel~~ done: `crates/os/src/scheduler.rs` + `schedules`/`schedule_runs` tables + `cron` verb on all transports + Schedules tab |
 | **Notification center** ✅ landed 2026-10-11 | ~~Toasts (`NotificationStack.vue`) vanish; no history, no digests, no "what happened while I was away"~~ Every toast persists to per-device history (`useNotifications.ts`, cap 100) with an unread badge; `MessagesHub.vue` is now the Notification Center with System + (Android) Messages tabs, fed by store events, agent `ui_notify`, and scheduler/sync notices; entry points in TopMenuBar, MobileLauncher, PlasmaPanel tray, CommandPalette | ~~store events, agent job one-shots (`stores/app.ts` 1.10)~~ done — MobileLauncher/TopMenuBar badges reuse the hub's `messagesSeenAt` pattern |
 | **Recovery / key escrow** | Lose the passphrase → lose everything. Undermines the core promise | Argon2id keystore + `set_disk_key_holder` → extend to **Shamir m-of-n recovery** of the master key |
-| **Backup as a *feature*** | `scripts/backup.sh` + `snapshot_bytes()` (≤256 MiB consistent export) are buried | Ship "Export vault" / "Restore wizard" UI + *scheduled* encrypted backup to any provider (scheduler + sync = done) |
+| **Backup as a *feature*** ✅ landed 2026-10-11 | ~~`scripts/backup.sh` + `snapshot_bytes()` (≤256 MiB consistent export) are buried~~ `backup export|list|verify` cybsh verb on all transports (sealed CYBMJ01, provider or volume destinations, `--keep` prune) + Disks → BACKUP tab (Export download / Send to provider / Snapshots / Schedule card writing the managed `scheduled-backup.cybsh` + cron row / Restore wizard with Pages one-click restore + guided desktop/Docker steps) + `GET /api/backup/export` (Admin, 32 MiB cap) | ~~Ship "Export vault" / "Restore wizard" UI + *scheduled* encrypted backup to any provider (scheduler + sync = done)~~ done — scheduler + notification center + provider transports, as predicted |
 | **TLS story** | `P2-15`: you ship ML-KEM while JWTs/bearer tokens are sniffable in cleartext on the LAN — credibility hole | Commit the documented Caddy/nginx compose + HSTS + `X-Forwarded-*` trust policy |
 | **i18n** | Zero. UI strings are hard-coded English (no `vue-i18n`, no `src/locales/`) — yet voice input already ships pt-BR (`speechCorrect`) | — |
 | **Contract parity test** | Three transports drift silently (`os_write` missing route `P1-6`, `isTauri` truthiness `P1-1`, split-brain `REST_FIRST` `P1-5`) | One test booting real `crates/web` asserting every mapped path + shape + the AGENT-1 prefix matrix beats 336 unit tests (P3-5 — do it) |
@@ -179,8 +179,8 @@ same everywhere, all the time.
 1. **Stop the silent drift** — contract parity test (P3-5) + the P0 auth
    cluster (`P0-1`, `P0-2`, `P0-8`, `P0-10`) + stale-count/doc fixes.
 2. **Make everything compound** — scheduler service ✅ + notification center ✅
-   (both landed 2026-10-09/11) + scheduled backup UI (still open). Suddenly every script, sync, and agent run can run
-   unattended.
+   (both landed 2026-10-09/11) + scheduled backup UI ✅ (landed 2026-10-11).
+   Suddenly every script, sync, and agent run can run unattended.
 3. **Make "decentralized" honest** — device identity → LAN sync → CAS leases
    (+ TLS compose, since LAN is exactly where cleartext hurts).
 4. **Daily-driver depth** — secrets manager + notes/knowledge base (+ i18n
