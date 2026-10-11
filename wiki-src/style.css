@@ -41,6 +41,15 @@ body {
   display: block;
 }
 
+/* Cinematic vignette over the 3D view (pure CSS, zero GPU cost). */
+#vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 52%, rgba(5, 2, 10, 0.6) 100%);
+  z-index: 2;
+}
+
 .top {
   position: fixed;
   top: 0;

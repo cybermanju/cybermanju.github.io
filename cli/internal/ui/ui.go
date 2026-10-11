@@ -1,15 +1,20 @@
 // CyberManju OS — Ui (cli/internal/ui/ui.go).
-// Package ui is the Charm face: one Lipgloss theme (hot pink → signal
-// red), gradient banner, Bubble Tea spinner, progress downloads, tables
-// and Glamour markdown shared by every command.
+// Package ui is the Charm face of `cyb`: one Lipgloss cyberpunk-neon theme
+// (hot pink into signal red, neon cyan + hazard yellow accents), a gradient
+// banner, Bubble Tea spinner, gradient progress downloads, neon tables with
+// header rules and zebra rows, syntax-tinted JSON, and width-aware Glamour
+// markdown shared by every command. Informational chrome always goes to
+// stderr; stdout stays pipe-clean.
 package ui
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +23,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/truncate"
 	"github.com/muesli/termenv"
 	"golang.org/x/term"
 )
@@ -67,43 +73,99 @@ func Info(format string, args ...any) {
 	fmt.Fprintln(os.Stdout, Dim.Render("• ")+fmt.Sprintf(format, args...))
 }
 
-// Header prints a section title.
+// Header prints a neon section title.
 func Header(format string, args ...any) {
-	fmt.Fprintln(os.Stdout, Title.Render(fmt.Sprintf(format, args...)))
+	fmt.Fprintln(os.Stdout, Title.Render("◈ "+fmt.Sprintf(format, args...)))
 }
 
-// Table renders padded columns; widths grow to fit cells.
+// Hint prints a dim next-step line to stderr so stdout stays pipe-clean.
+// Wrap `cyb …` references in Chip for scanability.
+func Hint(format string, args ...any) {
+	fmt.Fprintln(os.Stderr, Dim.Render("→  ")+fmt.Sprintf(format, args...))
+}
+
+// Table renders neon columns: pink header row over a neon rule,
+// ice-white cells, faint zebra striping, terminal-width truncation.
 func Table(headers []string, rows [][]string) {
+	fmt.Fprintln(os.Stdout, RenderTable(headers, rows))
+}
+
+// RenderTable is the pure Table builder (stdout-free, unit-testable).
+func RenderTable(headers []string, rows [][]string) string {
 	widths := make([]int, len(headers))
 	for i, h := range headers {
 		widths[i] = lipgloss.Width(h)
 	}
 	for _, row := range rows {
 		for i, cell := range row {
-			if i < len(widths) && lipgloss.Width(cell) > widths[i] {
-				widths[i] = lipgloss.Width(cell)
+			if i < len(widths) {
+				if w := lipgloss.Width(cell); w > widths[i] {
+					widths[i] = w
+				}
 			}
 		}
 	}
+	fitWidths(widths, len(headers))
 	pad := func(s string, w int) string {
-		return s + strings.Repeat(" ", max(0, w-lipgloss.Width(s)+2))
+		// truncate.StringWithTail counts the tail inside the limit, so
+		// only truncate cells that actually overflow (exact fits stay whole).
+		if lipgloss.Width(s) > w {
+			s = truncate.StringWithTail(s, uint(max(1, w)), "…")
+		}
+		return s + strings.Repeat(" ", max(0, w-lipgloss.Width(s)+1))
 	}
 	headStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(PinkHot))
-	var head strings.Builder
+	ruleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(PinkDeep))
+	zebra := lipgloss.NewStyle().Faint(true)
+	var out strings.Builder
+	var head, rule strings.Builder
 	for i, h := range headers {
 		head.WriteString(pad(headStyle.Render(h), widths[i]))
+		rule.WriteString(pad(ruleStyle.Render(strings.Repeat("─", widths[i])), widths[i]))
 	}
-	fmt.Fprintln(os.Stdout, head.String())
-	for _, row := range rows {
+	out.WriteString(strings.TrimRight(head.String(), " ") + "\n")
+	out.WriteString(strings.TrimRight(rule.String(), " ") + "\n")
+	for ri, row := range rows {
 		var line strings.Builder
 		for i := range headers {
 			cell := ""
 			if i < len(row) {
 				cell = row[i]
 			}
+			if ri%2 == 1 {
+				cell = zebra.Render(cell)
+			}
 			line.WriteString(pad(cell, widths[i]))
 		}
-		fmt.Fprintln(os.Stdout, line.String())
+		out.WriteString(strings.TrimRight(line.String(), " "))
+		if ri < len(rows)-1 {
+			out.WriteString("\n")
+		}
+	}
+	return out.String()
+}
+
+// fitWidths shrinks the widest columns (never below 8 cells) until the
+// table fits the terminal.
+func fitWidths(widths []int, ncols int) {
+	total := func() int {
+		n := 0
+		for _, w := range widths {
+			n += w + 1
+		}
+		return n
+	}
+	for total() > TermWidth() {
+		best, bi := 8, -1
+		for i, w := range widths {
+			if w > best {
+				best, bi = w, i
+			}
+		}
+		if bi < 0 {
+			return
+		}
+		widths[bi]--
 	}
 }
 
@@ -121,28 +183,196 @@ func KV(pairs ...[2]string) {
 	}
 }
 
-// PrintJSON pretty-prints raw bytes for --json.
+// JSON tint atoms: pink keys, ice strings, cyan numbers, yellow bools.
+var (
+	jsonKey   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(PinkHot))
+	jsonStr   = lipgloss.NewStyle().Foreground(lipgloss.Color(IceWhite))
+	jsonNum   = lipgloss.NewStyle().Foreground(lipgloss.Color(CyanNeon))
+	jsonBool  = lipgloss.NewStyle().Foreground(lipgloss.Color(YellowHz))
+	jsonNull  = lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(DimGray))
+	jsonDelim = lipgloss.NewStyle().Foreground(lipgloss.Color(PinkDeep))
+	jsonPunct = lipgloss.NewStyle().Foreground(lipgloss.Color(DimGray))
+)
+
+// PrintJSON pretty-prints raw bytes for --json, syntax-tinted on color
+// terminals (plain pretty JSON when --no-color). Non-JSON passes through.
 func PrintJSON(raw []byte) error {
-	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
-		fmt.Println(strings.TrimSpace(string(raw)))
+	if s, ok := RenderJSON(raw); ok {
+		fmt.Println(s)
 		return nil
 	}
-	pretty, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	fmt.Println(string(pretty))
+	fmt.Println(strings.TrimSpace(string(raw)))
 	return nil
 }
 
-// RenderMarkdown glamour-renders agent/LLM output for the terminal.
+// RenderJSON is the pure JSON renderer (stdout-free, unit-testable):
+// pretty-prints and tints; ok=false when raw is not a JSON value.
+func RenderJSON(raw []byte) (out string, ok bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var b strings.Builder
+	if err := writeJSONValue(dec, &b, 0); err != nil {
+		return "", false
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return "", false
+	}
+	return b.String(), true
+}
+
+func writeJSONIndent(b *strings.Builder, indent int) {
+	b.WriteString(strings.Repeat("  ", indent))
+}
+
+func writeJSONValue(dec *json.Decoder, b *strings.Builder, indent int) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	switch t := tok.(type) {
+	case json.Delim:
+		switch t {
+		case '{':
+			b.WriteString(jsonDelim.Render("{"))
+			if !dec.More() {
+				if ct, err := dec.Token(); err != nil {
+					return err
+				} else if d, isDelim := ct.(json.Delim); !isDelim || d != '}' {
+					return fmt.Errorf("ui: unterminated object")
+				}
+				b.WriteString(jsonDelim.Render("}"))
+				return nil
+			}
+			b.WriteString("\n")
+			for dec.More() {
+				writeJSONIndent(b, indent+1)
+				kt, err := dec.Token()
+				if err != nil {
+					return err
+				}
+				ks, isStr := kt.(string)
+				if !isStr {
+					return fmt.Errorf("ui: object key is not a string")
+				}
+				b.WriteString(jsonKey.Render(strconv.Quote(ks)))
+				b.WriteString(jsonPunct.Render(": "))
+				if err := writeJSONValue(dec, b, indent+1); err != nil {
+					return err
+				}
+				if dec.More() {
+					b.WriteString(jsonPunct.Render(","))
+				}
+				b.WriteString("\n")
+			}
+			if ct, err := dec.Token(); err != nil {
+				return err
+			} else if d, isDelim := ct.(json.Delim); !isDelim || d != '}' {
+				return fmt.Errorf("ui: unterminated object")
+			}
+			writeJSONIndent(b, indent)
+			b.WriteString(jsonDelim.Render("}"))
+			return nil
+		case '[':
+			b.WriteString(jsonDelim.Render("["))
+			if !dec.More() {
+				if ct, err := dec.Token(); err != nil {
+					return err
+				} else if d, isDelim := ct.(json.Delim); !isDelim || d != ']' {
+					return fmt.Errorf("ui: unterminated array")
+				}
+				b.WriteString(jsonDelim.Render("]"))
+				return nil
+			}
+			b.WriteString("\n")
+			for dec.More() {
+				writeJSONIndent(b, indent+1)
+				if err := writeJSONValue(dec, b, indent+1); err != nil {
+					return err
+				}
+				if dec.More() {
+					b.WriteString(jsonPunct.Render(","))
+				}
+				b.WriteString("\n")
+			}
+			if ct, err := dec.Token(); err != nil {
+				return err
+			} else if d, isDelim := ct.(json.Delim); !isDelim || d != ']' {
+				return fmt.Errorf("ui: unterminated array")
+			}
+			writeJSONIndent(b, indent)
+			b.WriteString(jsonDelim.Render("]"))
+			return nil
+		default:
+			return fmt.Errorf("ui: unexpected delimiter %v", t)
+		}
+	case string:
+		b.WriteString(jsonStr.Render(strconv.Quote(t)))
+	case json.Number:
+		b.WriteString(jsonNum.Render(t.String()))
+	case bool:
+		b.WriteString(jsonBool.Render(strconv.FormatBool(t)))
+	case nil:
+		b.WriteString(jsonNull.Render("null"))
+	default:
+		return fmt.Errorf("ui: unexpected token %T", tok)
+	}
+	return nil
+}
+
+// TermWidth reports the stdout terminal width clamped to 40..100
+// (80 when stdout is not a terminal, e.g. pipes and CI logs).
+func TermWidth() int {
+	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
+		return min(max(w, 40), 100)
+	}
+	return 80
+}
+
+// GlamourStyle picks the markdown stylesheet for the active color profile:
+// ascii when color is off, the cyberpunk pink style on color terminals.
+func GlamourStyle() string {
+	if lipgloss.ColorProfile() == termenv.Ascii {
+		return "ascii"
+	}
+	return "pink"
+}
+
+// IsMarkdown reports whether name looks like a markdown document.
+func IsMarkdown(name string) bool {
+	lower := strings.ToLower(name)
+	for _, ext := range []string{".md", ".markdown", ".mdown", ".mkd", ".mdx"} {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// Downsample re-emits styled text for the active color profile (strips ANSI
+// entirely when --no-color).
+func Downsample(s string) string {
+	return lipgloss.NewStyle().Render(s)
+}
+
+// RenderMarkdown glamour-renders markdown for the terminal: word-wrapped to
+// the terminal width, styled per the color profile (GLAMOUR_STYLE wins when
+// set), colors downsampled via Lipgloss. Unrenderable input passes through.
 func RenderMarkdown(text string) string {
-	out, err := glamour.Render(text, "dark")
+	opts := []glamour.TermRendererOption{glamour.WithWordWrap(TermWidth())}
+	if os.Getenv("GLAMOUR_STYLE") != "" {
+		opts = append(opts, glamour.WithEnvironmentConfig())
+	} else {
+		opts = append(opts, glamour.WithStandardStyle(GlamourStyle()))
+	}
+	r, err := glamour.NewTermRenderer(opts...)
 	if err != nil {
 		return text
 	}
-	return out
+	out, err := r.Render(text)
+	if err != nil {
+		return text
+	}
+	return Downsample(strings.TrimRight(out, "\n"))
 }
 
 // isTTY reports whether stderr is an interactive terminal.

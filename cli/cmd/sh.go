@@ -210,7 +210,9 @@ func (m replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if line == ":help" {
-				m.emit(ui.Dim.Render("  :help    this help   :clear  clear screen   :quit  leave"))
+				m.emit("  " + ui.Key(":help") + ui.Dim.Render(" this help   ") +
+					ui.Key(":clear") + ui.Dim.Render(" clear screen   ") +
+					ui.Key(":quit") + ui.Dim.Render(" leave"))
 				return m, nil
 			}
 			res, err := m.client.Exec(line)
@@ -267,9 +269,11 @@ func (m *replModel) emit(s string) {
 
 func (m replModel) View() string {
 	if !m.ready {
-		return "starting repl…"
+		return ui.Dim.Render("warming up the neon…")
 	}
-	help := ui.Dim.Render("  :help for commands — ↑/↓ history — esc quits")
+	help := "  " + ui.Key(":help") + ui.Dim.Render(" commands  ") +
+		ui.Key("↑/↓") + ui.Dim.Render(" history  ") +
+		ui.Key("esc") + ui.Dim.Render(" quits")
 	return m.view.View() + "\n" + m.input.View() + "\n" + help
 }
 

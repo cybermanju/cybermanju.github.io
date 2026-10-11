@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/huh"
@@ -49,8 +50,6 @@ Docs:  3D wiki https://cybermanju.github.io/wiki/ · agents: https://cybermanju.
 		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println(ui.Splash(cliVersion))
-		fmt.Println()
 		_ = cmd.Help()
 	},
 }
@@ -63,13 +62,17 @@ func init() {
 	rootCmd.PersistentFlags().DurationVar(&flagTimeout, "timeout", 15*time.Second, "HTTP timeout")
 	rootCmd.PersistentFlags().BoolVarP(&flagYes, "yes", "y", false, "skip confirmations")
 	rootCmd.AddCommand(versionCmd)
+	installHelp()
 }
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the CLI version",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("cyb %s (commit %s)\n", cliVersion, cliCommit)
+		fmt.Printf("%s  %s %s\n",
+			ui.Gradient("◈ cyb", ui.PinkHot, ui.RedHot),
+			ui.Accent.Render("v"+strings.TrimPrefix(cliVersion, "v")),
+			ui.Dim.Render("(commit "+cliCommit+")"))
 	},
 }
 
