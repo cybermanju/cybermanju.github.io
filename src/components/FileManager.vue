@@ -1483,8 +1483,8 @@ async function pickHostFolder() {
   if (!isNative.value) {
     // Dialog browser API: one external SUBfolder per pick (Chrome blocks
     // `$HOME`/system roots) — each lands as `/host/<Label>`.
+    const { pickHostWasmDir, isPickerCancel } = await import('@/utils/hostWasm')
     try {
-      const { pickHostWasmDir, isPickerCancel } = await import('@/utils/hostWasm')
       const picked = await pickHostWasmDir()
       clearDiskScope(true)
       store.selectFile(null)
