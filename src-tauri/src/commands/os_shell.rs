@@ -24,6 +24,7 @@ pub struct ShellResult {
     pub prompt: &'static str,
 }
 
+/// `du` summary for one volume path (bytes + file count).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DuResult {

@@ -9,6 +9,7 @@ import BackupPanel from '@/components/BackupPanel.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { humanBytes, diskPct } from '@/utils/format'
+import { dedupSummary, fromFileNodes, groupDuplicates } from '@/utils/dedup'
 
 const store = useAppStore()
 
@@ -16,9 +17,11 @@ const store = useAppStore()
 // `wm.open('disks', { tab: 'disks', diskId })` focuses one card — FileManager
 // "Manage disk" steers here so the right disk is highlighted + scrolled to.
 // `wm.open('disks', { tab: 'backup' })` lands on snapshot exports + restore.
+// `wm.open('disks', { tab: 'diet' })` lands on the dedup report (ANALYSIS §4.5).
 const props = defineProps<{ tab?: string; diskId?: string; highlightId?: string }>()
-const view = ref<'overview' | 'disks' | 'backup'>(props.tab === 'backup' ? 'backup' : props.tab === 'overview' ? 'overview' : 'disks')
-watch(() => props.tab, (t) => { if (t === 'overview' || t === 'disks' || t === 'backup') view.value = t })
+type DiskView = 'overview' | 'disks' | 'backup' | 'diet'
+const view = ref<DiskView>(props.tab === 'backup' ? 'backup' : props.tab === 'overview' ? 'overview' : props.tab === 'diet' ? 'diet' : 'disks')
+watch(() => props.tab, (t) => { if (t === 'overview' || t === 'disks' || t === 'backup' || t === 'diet') view.value = t })
 const focusDiskId = computed(() => props.highlightId || props.diskId || '')
 watch(focusDiskId, (id) => {
   if (!id) return
@@ -151,6 +154,34 @@ const byType = computed(() => {
   return entries
 })
 
+/* ── storage diet / dedup report (ANALYSIS.md §4.5) ── */
+// BLAKE3 hashes already ride on every FileNode; grouping is pure frontend.
+// Reclaim deletes all but the newest copy via the standard delete path.
+const dupGroups = computed(() => groupDuplicates(fromFileNodes(store.files)))
+const dupSummary = computed(() => dedupSummary(fromFileNodes(store.files), dupGroups.value))
+const reclaimArmed = ref<string | null>(null)
+const reclaiming = ref(false)
+const dietNote = ref('')
+
+async function reclaimGroup(hash: string, keepId: string, victimIds: string[]) {
+  if (reclaimArmed.value !== hash) {
+    reclaimArmed.value = hash
+    dietNote.value = ''
+    return
+  }
+  reclaimArmed.value = null
+  reclaiming.value = true
+  let removed = 0
+  for (const id of victimIds) {
+    if (id === keepId) continue
+    await store.deleteFile(id)
+    removed += 1
+  }
+  reclaiming.value = false
+  dietNote.value = removed > 0 ? `reclaimed ${removed} duplicate${removed === 1 ? '' : 's'} (kept newest)` : ''
+  await store.fetchFiles()
+}
+
 onMounted(async () => {
   await refresh()
   if (focusDiskId.value) {
@@ -179,6 +210,7 @@ onMounted(async () => {
       <button role="tab" :aria-selected="view === 'overview'" :class="{ on: view === 'overview' }" type="button" @click="view = 'overview'">OVERVIEW</button>
       <button role="tab" :aria-selected="view === 'disks'" :class="{ on: view === 'disks' }" type="button" @click="view = 'disks'">DISKS</button>
       <button role="tab" :aria-selected="view === 'backup'" :class="{ on: view === 'backup' }" type="button" @click="view = 'backup'">BACKUP</button>
+      <button role="tab" :aria-selected="view === 'diet'" :class="{ on: view === 'diet' }" type="button" @click="view = 'diet'">DIET</button>
     </div>
 
     <!-- ══ OVERVIEW (merged storage dashboard) ══ -->
@@ -381,6 +413,60 @@ onMounted(async () => {
 
     <template v-if="view === 'backup'">
       <BackupPanel />
+    </template>
+
+    <!-- ══ DIET (storage-diet / dedup report, ANALYSIS.md §4.5) ══ -->
+    <template v-if="view === 'diet'">
+    <div class="section">
+      <h3 class="section-title"><AppIcon name="solar:layers-bold" :size="13" /> DUPLICATES</h3>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-value">{{ dupGroups.length }}</span>
+          <span class="stat-label text-muted">DUP SETS</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value">{{ dupSummary.fileCount }}</span>
+          <span class="stat-label text-muted">DUP FILES</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value">{{ humanBytes(dupSummary.reclaimableBytes) }}</span>
+          <span class="stat-label text-muted">RECLAIMABLE</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value">{{ dupSummary.unhashableCount }}</span>
+          <span class="stat-label text-muted">NO HASH</span>
+        </div>
+      </div>
+      <p v-if="dietNote" class="note">{{ dietNote }}</p>
+      <p class="note text-muted">Grouped by BLAKE3 content hash — files without a recorded hash are invisible to this report, never guessed.</p>
+    </div>
+
+    <div v-if="dupGroups.length === 0" class="section">
+      <p class="note">No duplicates — every hashed file holds unique content.</p>
+    </div>
+
+    <div v-for="group in dupGroups" :key="group.hash" class="section">
+      <h3 class="section-title">
+        <span class="truncate" :title="group.hash">{{ group.files.length }}× {{ group.files[0]?.name }} · {{ humanBytes(group.reclaimableBytes) }} RECLAIMABLE</span>
+      </h3>
+      <div class="info-card">
+        <div
+          v-for="f in group.files"
+          :key="f.id"
+          class="info-row"
+        >
+          <span class="info-key truncate" :title="f.path || f.name">{{ f.name }}</span>
+          <span class="info-value">{{ humanBytes(f.sizeBytes) }}{{ f.id === group.keepId ? ' · KEEP' : '' }}</span>
+        </div>
+      </div>
+      <button
+        class="ghost-btn"
+        :class="reclaimArmed === group.hash ? 'danger' : 'primary'"
+        type="button"
+        :disabled="reclaiming"
+        @click="reclaimGroup(group.hash, group.keepId, group.files.map(f => f.id))"
+      >{{ reclaimArmed === group.hash ? 'CONFIRM RECLAIM' : 'RECLAIM' }}</button>
+    </div>
     </template>
   </div>
 </template>

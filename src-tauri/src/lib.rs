@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 
+/// Shared desktop state: one redb handle + one Tantivy index for IPC and REST.
 pub struct AppState {
     /// Shared with the web dashboard so the redb file is only opened once.
     pub db: Arc<RwLock<Database>>,
@@ -239,6 +240,7 @@ fn open_search_index(index_path: &std::path::Path) -> search::SearchIndex {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Desktop entry point: build state, start the dashboard bridge, run Tauri.
 pub fn run() {
     // Breadcrumb: on mobile a panic before first paint is otherwise a silent
     // "auto-close". The payload goes to stderr (visible in `adb logcat`)

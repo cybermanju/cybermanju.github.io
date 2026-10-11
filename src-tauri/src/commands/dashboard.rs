@@ -30,6 +30,7 @@ pub struct DashboardState {
 }
 
 impl DashboardState {
+    /// Stopped dashboard: no connections, no shutdown channel, no thread.
     pub fn new() -> Self {
         Self {
             running: AtomicBool::new(false),

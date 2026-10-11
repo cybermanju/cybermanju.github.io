@@ -114,7 +114,7 @@ fn pbkdf2_sha512(passphrase: &[u8], salt: &[u8], iterations: u32) -> [u8; PBKDF2
         .expect("hmac takes any key length");
     mac.update(&block);
     let mut acc = mac.finalize().into_bytes();
-    let mut prev = acc.clone();
+    let mut prev = acc;
     for _ in 1..iterations {
         let mut round = <HmacSha512 as Mac>::new_from_slice(passphrase)
             .expect("hmac takes any key length");

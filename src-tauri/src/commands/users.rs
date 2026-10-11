@@ -190,6 +190,7 @@ pub fn register_user(
 }
 
 #[tauri::command(async)]
+/// Verify credentials over IPC and return the session + claims (fail-closed).
 pub fn authenticate_user(
     username: String,
     password: String,
@@ -439,6 +440,7 @@ pub fn update_user_role(
     cybermanju_web::api::users::update_role(&db, &user_id, role)
 }
 #[tauri::command(async)]
+/// List the per-file grants for one file (RBAC inspector + share dialog).
 pub fn get_file_permissions(
     file_id: String,
     state: State<'_, AppState>,

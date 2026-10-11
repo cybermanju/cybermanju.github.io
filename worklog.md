@@ -1287,3 +1287,36 @@ Stage Summary:
   col/chain style). NOTE: a parallel session commits this tree (`git add -A`
   sweeps); the mid-pass revert of two notification files earlier is why
   disk-state is re-verified before every edit.
+
+## 2026-10-11 — System docs generation: additive hoisting + auditor + coverage
+- Found by expanding the `crates/scene` Tables docs: the heuristic extractor
+  kept only the LAST doc line (both `crates/types/src/code.rs` and its JS
+  mirror `scripts/collect-file-context.mjs`), so multi-line `///` blocks
+  lost everything but the final sentence in wiki/code-intel payloads.
+- Fix (both extractors, same semantics): consecutive doc lines accumulate
+  into one space-joined summary (≤400 chars); only blank lines and non-doc
+  code break attachment — `#[…]`/`@…` attributes, `*/`/`-->` closers and
+  plain narration are transparent and slide the window (previously they
+  consumed the ≤4-line budget; e.g. `create_provider_repo`'s docs never
+  attached past its arity note + two attributes). JSDoc `*/` closers no
+  longer reset pending docs. New `slide_window` helper (Rust) /
+  `slideWindow` (JS); behavior change is additive only — no previously
+  attached docs are lost.
+- Tests: new Rust `heuristic_joins_multiline_doc_blocks` (join, blank-break,
+  plain-never-hoists, attribute passthrough, JSDoc closer, narration-slide)
+  + new `tests/frontend/file-context.test.ts` (6 cases pinning the JS mirror).
+- New advisory auditor `scripts/check-symbol-docs.mjs` (public-only default:
+  Rust `pub`, TS `export`, Go exported; skips tests/`impl`/re-export shims;
+  `--all|--dir|--top|--json|--strict`; never a CI gate) + docs-coverage per
+  subject in `generate-wiki.mjs` (txt/JSON/console).
+- Seeded high-value gaps the auditor surfaced: all 14 `schema.rs` structs +
+  `sync.rs` (7) + `secrets.rs` (2 fns) + tauri surface (`AppState`, `run`,
+  `DuResult`, `os_ps/top/workers/jobs`, dashboard `new`, tree-sitter
+  `as_str`, `create_loose_group`, `authenticate_user`,
+  `get_file_permissions`). crates/types + crates/scene + crates/search +
+  src-tauri/src now 100% public-documented.
+- Baseline: public-only 60.5% documented (1217 missing, biggest in
+  src/utils, cli/internal, src/composables); full-symbol 27.5%. AGENTS.md §7
+  tooling + structure-finder contract updated to the new semantics.
+- Verified: headers ok, `vue-tsc` clean, 68 files / 799 tests green, wiki
+  smoke build into /tmp ok. Rust `fmt/clippy/test` left to CI per repo rules.

@@ -5,6 +5,9 @@
 // Contracts: signals: engine.
 use serde::{Deserialize, Serialize};
 
+/// Vault file row: identity, crypto/compression state, tags, groups and GPS.
+/// One `FileNode` per file; the Tantivy BM25 index and scene matcher read
+/// `name` + `tags`, never the encrypted bytes.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FileNode {
@@ -30,6 +33,7 @@ pub struct FileNode {
     pub modified_at: String,
 }
 
+/// Storage account row (local vault, NAS, cloud backend mount point).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Account {
@@ -43,6 +47,7 @@ pub struct Account {
     pub updated_at: String,
 }
 
+/// Named file set (album / smart collection); membership lives in `item_ids`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Collection {
@@ -56,6 +61,7 @@ pub struct Collection {
     pub updated_at: String,
 }
 
+/// One file's membership in a [`Collection`], with an optional note.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CollectionItem {
@@ -66,6 +72,8 @@ pub struct CollectionItem {
     pub added_at: String,
 }
 
+/// Cluster of faces believed to be one person; naming it is how users label people.
+/// Engine-labeled via `detection_engine` — never a fabricated detection.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FaceGroup {
@@ -85,6 +93,7 @@ pub struct FaceGroup {
     pub created_at: String,
 }
 
+/// Stored keypair row (ML-KEM-1024 + X25519 hybrid); private halves stay sealed.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct EncryptionKey {
@@ -96,6 +105,7 @@ pub struct EncryptionKey {
     pub created_at: String,
 }
 
+/// Ad-hoc user group of files (lighter than a [`Collection`], no item rows).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LooseGroup {
@@ -106,6 +116,7 @@ pub struct LooseGroup {
     pub created_at: String,
 }
 
+/// Dashboard user row; `role` drives RBAC (`Claims{role}`), fail-closed.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
@@ -119,6 +130,7 @@ pub struct User {
     pub updated_at: String,
 }
 
+/// Per-file grant row: who may access what, and who granted it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UserFilePermission {
@@ -130,6 +142,7 @@ pub struct UserFilePermission {
     pub granted_at: String,
 }
 
+/// GPS fix attached to a file (EXIF-derived); powers the map view.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Location {
@@ -142,6 +155,7 @@ pub struct Location {
     pub created_at: String,
 }
 
+/// Soft-deleted file snapshot; restore replays `original_file` + `restore_path`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TrashItem {
@@ -152,6 +166,7 @@ pub struct TrashItem {
     pub restore_path: Option<String>,
 }
 
+/// Append-only audit row: every mutating dashboard action lands here.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditEntry {
@@ -164,6 +179,7 @@ pub struct AuditEntry {
     pub timestamp: String,
 }
 
+/// Versioned content snapshot (1 MiB cap); saves bump `version_number`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FileVersion {
@@ -176,6 +192,7 @@ pub struct FileVersion {
     pub created_at: String,
 }
 
+/// Token-gated public download link; `url` is filled per-request by `with_url`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareLink {

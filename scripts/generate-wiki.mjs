@@ -91,6 +91,7 @@ function collectSubject(sub, files) {
   const contractHits = new Map();
   const importCrates = new Set();
   let symbolCount = 0;
+  let documentedCount = 0;
   for (const f of matched) {
     if (!/\.(rs|ts|vue|js|mjs|sh|go)$/.test(f)) continue;
     // Skip generated/vendored trees.
@@ -100,6 +101,7 @@ function collectSubject(sub, files) {
     const ctx = collectFileContext(f, text);
     fileCtx.push({ path: f, header: headerText(ctx), symbols: ctx.symbols.slice(0, 60), imports: ctx.imports.slice(0, 12) });
     symbolCount += ctx.symbols.length;
+    documentedCount += ctx.symbols.filter((s) => s.docs).length;
     for (const imp of ctx.imports) {
       for (const m of imp.raw.matchAll(/cybermanju[-_]([a-z_]+)/g)) {
         importCrates.add(m[1].replace(/-/g, '_'));
@@ -113,7 +115,7 @@ function collectSubject(sub, files) {
   }
   // Richest files first (most symbols) for the .txt module section.
   fileCtx.sort((a, b) => b.symbols.length - a.symbols.length);
-  return { sub, files: fileCtx, fileCount: fileCtx.length, symbolCount, contracts: [...contractHits.entries()], importCrates: [...importCrates] };
+  return { sub, files: fileCtx, fileCount: fileCtx.length, symbolCount, documentedCount, contracts: [...contractHits.entries()], importCrates: [...importCrates] };
 }
 
 // Crate → subject: real dependency edges mined from imports.
@@ -167,14 +169,15 @@ function escHtml(s) {
 }
 
 function subjectTxt(c) {
-  const { sub, files, fileCount, symbolCount, contracts } = c;
+  const { sub, files, fileCount, symbolCount, documentedCount, contracts } = c;
+  const coverage = symbolCount === 0 ? 100 : Math.round((documentedCount / symbolCount) * 100);
   const out = [];
   out.push(`# CyberManju OS wiki — ${sub.title} (v${VERSION})`);
   out.push(`> ${sub.tag}`);
   out.push(`> ${sub.blurb}`);
   out.push(`> App: ${SITE}/wiki/#/ + ${sub.id} | Static: ${SITE}/wiki/${sub.id}.html | JSON: ${SITE}/wiki/${sub.id}.json`);
   out.push('');
-  out.push(`Files: ${fileCount}  |  Symbols: ${symbolCount}`);
+  out.push(`Files: ${fileCount}  |  Symbols: ${symbolCount} (${documentedCount} documented, ${coverage}%) — gaps: \`node scripts/check-symbol-docs.mjs --dir <path>\``);
   if (c.links && c.links.length) out.push(`Links: ${c.links.join(', ')} (see their .txt for the other side)`);
   out.push('');
   out.push('## Modules (merged top-file headers)');
@@ -209,10 +212,12 @@ function subjectTxt(c) {
 }
 
 function subjectJson(c) {
-  const { sub, files, fileCount, symbolCount, contracts } = c;
+  const { sub, files, fileCount, symbolCount, documentedCount, contracts } = c;
   return {
     id: sub.id, title: sub.title, tag: sub.tag, blurb: sub.blurb, color: sub.color,
-    version: VERSION, fileCount, symbolCount, links: c.links || [],
+    version: VERSION, fileCount, symbolCount, documentedCount,
+    docsCoverage: symbolCount === 0 ? 100 : Math.round((documentedCount / symbolCount) * 100),
+    links: c.links || [],
     contracts: contracts.slice(0, 40).map(([sig, where]) => ({ signal: sig, files: where })),
     files: files.map((f) => ({ path: f.path, header: f.header, symbols: f.symbols.slice(0, 40), imports: f.imports })),
   };
@@ -303,7 +308,7 @@ function main() {
   writeFileSync(join(OUT, 'wiki', 'subjects.json'), JSON.stringify({ version: VERSION, subjects: index }, null, 1) + '\n');
   const kb = (p) => (Buffer.byteLength(readFileSync(p, 'utf8')) / 1024).toFixed(1) + ' KB';
   console.log(`wiki: ${collected.length} subjects → ${OUT}/wiki/ (+ ${OUT}/llms.txt ${kb(join(OUT, 'llms.txt'))})`);
-  for (const c of collected) console.log(`  ${c.sub.id}: ${c.fileCount} files, ${c.symbolCount} symbols, ${kb(join(OUT, 'wiki', c.sub.id + '.txt'))}`);
+  for (const c of collected) console.log(`  ${c.sub.id}: ${c.fileCount} files, ${c.symbolCount} symbols (${c.documentedCount} documented), ${kb(join(OUT, 'wiki', c.sub.id + '.txt'))}`);
 }
 
 main();

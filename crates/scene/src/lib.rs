@@ -15,20 +15,53 @@ use std::sync::OnceLock;
 
 // ── tables ────────────────────────────────────────────────────────────────
 
+/// Parsed form of `data/scenes.json` — the scene keyword tables.
+///
+/// This is the analyze-side vocabulary, not the search index itself:
+/// full-text retrieval stays on Tantivy BM25 over
+/// `filename + content_text + tags` (see `cybermanju-search`), while this
+/// struct holds the heuristic classifier's 17 categories × 10 languages
+/// (`en pt es fr de it nl ru zh ja`, ~740 keyword entries) that turns
+/// filename / path / user-tag text into honest bearings (`BEACH 87% —
+/// matched praia`) instead of fake vision.
+///
+/// Shape: `parents` is the child→parent inheritance map (`dog ⇒ animal`,
+/// `wedding ⇒ party`, …) applied at a 0.6 discount; `categories` is the
+/// per-category row parsed below. Loaded once via [`tables()`] from
+/// `include_str!`, so desktop, server and WASM agree byte-for-byte with
+/// the TypeScript twin (`src/utils/scene.ts`) parsing the same JSON.
+/// Vocabulary: 17 categories × 10 languages (~740 keywords) complementing Tantivy BM25; empty evidence stays silent.
 #[derive(Debug, Clone, Deserialize)]
 struct Tables {
+    /// Child→parent category ids (e.g. `"dog" → "animal"`).
     #[serde(default)]
     parents: HashMap<String, String>,
+    /// One row per scene category (17 total); see [`Category`].
     categories: Vec<Category>,
 }
 
+/// One scene-category row inside [`Tables`].
+///
+/// `id` is the stable machine key (`beach`, `dog`, …) reported in
+/// [`SceneScore::category`]; `label` is the display name. `keywords` maps
+/// a language code (`en`, `pt`, … `ja`) to that language's trigger list —
+/// every entry is matched through the analyzer ([`norm`] +
+/// tokenization + scoring in [`classify`]), never raw.
+/// Row: stable `id` + display `label` + per-language keyword lists (10 langs).
 #[derive(Debug, Clone, Deserialize)]
 struct Category {
+    /// Stable key (`human`, `beach`, `dog`, …); parent targets live here too.
     id: String,
+    /// Display label (`Beach`, `Dog`, …) for UI pickers and badges.
     label: String,
+    /// Per-language keyword lists (`lang → phrases/words`).
     keywords: HashMap<String, Vec<String>>,
 }
 
+/// Load (once) the scene tables from `data/scenes.json`.
+///
+/// `OnceLock`-cached `include_str!` parse — panics only when the baked-in
+/// JSON is malformed, which is a build-time bug, never user input.
 fn tables() -> &'static Tables {
     static ONCE: OnceLock<Tables> = OnceLock::new();
     ONCE.get_or_init(|| {
@@ -73,6 +106,13 @@ pub fn norm(s: &str) -> String {
         .collect()
 }
 
+/// Split normalized text into analyzer tokens.
+///
+/// Separators are whitespace plus filename/path punctuation
+/// (`/ \ _ - . , ; : ( ) [ ] ' "`); empty pieces are dropped. This is the
+/// scene analyzer's tokenizer — the counterpart to Tantivy's tokenizer on
+/// the BM25 side — so `praia_grande.jpg` and `praia grande` produce the
+/// same token stream before [`keyword_signal`] runs.
 fn split_tokens(s: &str) -> Vec<String> {
     s.split(|c: char| {
         c.is_whitespace()
@@ -111,15 +151,31 @@ pub struct SceneInput {
     pub mime_type: String,
 }
 
+/// Per-source evidence weights for the analyzer: filename is strongest,
+/// user tags just below it, parent path weakest. Mirrors the TypeScript
+/// twin exactly; tuned so tags alone can carry a match but path alone
+/// rarely does.
 const W_NAME: f32 = 1.0;
+/// See [`W_NAME`]: user-tag evidence weight.
 const W_TAG: f32 = 0.95;
+/// See [`W_NAME`]: parent-folder / full-path evidence weight.
 const W_PATH: f32 = 0.7;
+/// Token == keyword (or whole-string phrase hit) signal strength.
 const S_EXACT: f32 = 0.9; // token == keyword, or whole-string phrase hit
+/// Edge-aligned substring (`praias`, `beaches`) signal strength.
 const S_SUB: f32 = 0.55; // keyword is a strict substring of a longer token
+/// Single-character CJK keyword containment — deliberately weak.
 const S_TINY: f32 = 0.4; // single-character CJK-style keyword substring hit
+/// Minimum noisy-OR accumulation before a category is reported.
 const MIN_REPORT: f32 = 0.30;
+/// Hard confidence ceiling — the matcher never claims 1.0 (honest limits).
 const MAX_SCORE: f32 = 0.97;
 
+/// Noisy-OR accumulation capped at [`MAX_SCORE`].
+///
+/// Each new keyword hit adds `w * s` of the *remaining* doubt
+/// (`1.0 - acc`), so more evidence always ranks higher but can never
+/// reach certainty — the score stays a bearing, not a detection.
 fn combine(acc: f32, w: f32, s: f32) -> f32 {
     (acc + w * s * (1.0 - acc)).min(MAX_SCORE)
 }
@@ -177,12 +233,27 @@ fn is_unsegmented(hay: &str) -> bool {
     })
 }
 
+/// True for image-ish mimetypes (`image/*`, `photo`, `picture`).
+///
+/// Used for the whisper-of-prior step in [`classify`]: visual categories
+/// get +0.02 (never enough to report alone), so `beach.jpg` outranks
+/// `beach.txt` without fabricating signal from the mimetype itself.
 fn is_image_mime(mime: &str) -> bool {
     let m = mime.to_lowercase();
     m.starts_with("image/") || m.contains("photo") || m.contains("picture")
 }
 
 /// Classify evidence → sorted descending scene scores (empty = no signal).
+///
+/// Analyzer pipeline: [`norm`] (lowercase + latin diacritic fold) →
+/// tokenize (filename stem, tags, path) → per-keyword [`keyword_signal`]
+/// (exact 0.9 / edge-aligned-substring 0.55 / CJK-single-char 0.4) folded
+/// with source weights ([`W_NAME`] 1.0 / [`W_TAG`] 0.95 / [`W_PATH`] 0.7)
+/// → noisy-OR [`combine`] capped at [`MAX_SCORE`], reported at
+/// [`MIN_REPORT`] → child→parent inheritance at 0.6 → face-cluster human
+/// boost → image-mime +0.02 whisper → score-descending sort. Complements
+/// Tantivy BM25 (which ranks *documents* for a query); this ranks
+/// *categories* for a file, each with the keywords that fired as receipts.
 pub fn classify(input: &SceneInput) -> Vec<SceneScore> {
     let t = tables();
     let stem = input

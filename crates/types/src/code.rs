@@ -200,17 +200,36 @@ fn doc_text(trimmed: &str) -> Option<&str> {
     Some(body)
 }
 
+/// Slide the doc-attachment window over a transparent line (attribute,
+/// block closer, plain narration): the pending text is kept, only its
+/// anchor moves, so wrappers and trailing notes between docs and item
+/// never starve the attachment.
+fn slide_window(pending_docs: &mut Option<(String, u32)>, line_num: u32) {
+    if let Some((_, anchor)) = pending_docs.as_mut() {
+        *anchor = line_num;
+    }
+}
+
 /// Extract symbols from source code using heuristic line-by-line scanning.
 ///
 /// Same JSON shape as the tree-sitter path (`name/kind/start_line/end_line/
 /// detail/children`, plus an additive `docs` string hoisted from the nearest
-/// doc-comment above the item), source-ordered. Used for extensions without
-/// a bundled grammar and as the fallback when real parsing finds nothing.
+/// doc-comment block above the item), source-ordered. Consecutive doc lines
+/// are joined with a single space (capped at 400 chars) so multi-line
+/// `///` blocks survive as one summary. Only a blank line or a non-doc code
+/// line that yields no symbol breaks attachment — attributes, block closers
+/// and plain narration between the docs and the item are transparent (they
+/// slide the attachment window instead of consuming it), so documented
+/// items with `#[…]` wrappers or trailing `//` notes still report docs.
+/// Used for extensions without a bundled grammar and as the fallback when
+/// real parsing finds nothing.
 pub fn extract_symbols_heuristic(content: &str, language: &str) -> Vec<Value> {
     let mut symbols = Vec::new();
     let mut line_num: u32 = 0;
-    // Nearest doc-comment candidate (text, line); cleared by blank lines and
-    // by code that yields no symbol, kept across `#[…]` / `@…` attributes.
+    // Pending doc-block (joined text, window anchor); cleared by blank lines
+    // and by code that yields no symbol. Consecutive doc lines accumulate;
+    // transparent lines (attributes, closers, plain comments) refresh the
+    // anchor so they never starve the attachment.
     let mut pending_docs: Option<(String, u32)> = None;
 
     // Language-aware keyword sets (matched AFTER qualifier stripping, so
@@ -280,24 +299,41 @@ pub fn extract_symbols_heuristic(content: &str, language: &str) -> Vec<Value> {
             continue;
         }
 
-        // Doc comment directly above an item becomes its `docs` summary.
+        // Consecutive doc-comment lines accumulate into one summary
+        // (blank lines and non-doc code reset it below); attributes keep it.
         if let Some(body) = doc_text(trimmed) {
             let capped: String = body.chars().take(200).collect();
-            pending_docs = Some((capped, line_num));
+            pending_docs = match pending_docs.take() {
+                Some((prev, prev_line)) if line_num == prev_line + 1 => {
+                    let joined = format!("{prev} {capped}");
+                    Some((joined.chars().take(400).collect(), line_num))
+                }
+                _ => Some((capped, line_num)),
+            };
             continue;
         }
 
-        // Skip other comments.
+        // Skip other comments: plain narration is transparent — it refreshes
+        // the attachment window instead of consuming it.
         if trimmed.starts_with("//")
             || trimmed.starts_with('#')
             || trimmed.starts_with("/*")
             || trimmed.starts_with("<!--")
         {
+            slide_window(&mut pending_docs, line_num);
+            continue;
+        }
+
+        // Block-doc closers (`*/`, `-->`) belong to the doc block above —
+        // they are not code, so they must not break doc attachment.
+        if trimmed.starts_with("*/") || trimmed == "-->" {
+            slide_window(&mut pending_docs, line_num);
             continue;
         }
 
         // Attributes / decorators belong to the item below — keep docs.
         if trimmed.starts_with("#[") || trimmed.starts_with('@') {
+            slide_window(&mut pending_docs, line_num);
             continue;
         }
 
@@ -501,5 +537,51 @@ mod tests {
         let syms = extract_symbols_heuristic(sh, "bash");
         let names: Vec<&str> = syms.iter().filter_map(|s| s["name"].as_str()).collect();
         assert_eq!(names, vec!["check"], "got {names:?}");
+    }
+
+    #[test]
+    fn heuristic_joins_multiline_doc_blocks() {
+        // Consecutive `///` lines become one space-joined summary.
+        let rs = "/// First line.\n/// Second line.\npub fn run() {}\n";
+        let syms = extract_symbols_heuristic(rs, "rust");
+        let run = syms.iter().find(|s| s["name"] == "run").unwrap();
+        assert_eq!(run["docs"], "First line. Second line.", "got {}", run["docs"]);
+
+        // A blank line breaks attachment — the docs belong to nothing.
+        let rs = "/// Orphan.\n\npub fn free() {}\n";
+        let syms = extract_symbols_heuristic(rs, "rust");
+        let free = syms.iter().find(|s| s["name"] == "free").unwrap();
+        assert_eq!(free["docs"], "", "got {}", free["docs"]);
+
+        // Plain `//` narration is never hoisted.
+        let rs = "// plain narration\npub fn plain() {}\n";
+        let syms = extract_symbols_heuristic(rs, "rust");
+        let plain = syms.iter().find(|s| s["name"] == "plain").unwrap();
+        assert_eq!(plain["docs"], "", "got {}", plain["docs"]);
+
+        // Docs survive attributes but a code line in between resets them.
+        let rs = "/// Kept.\n#[tauri::command]\npub fn kept() {}\n/// Dropped.\nlet x = 1;\npub fn next() {}\n";
+        let syms = extract_symbols_heuristic(rs, "rust");
+        let kept = syms.iter().find(|s| s["name"] == "kept").unwrap();
+        assert_eq!(kept["docs"], "Kept.", "got {}", kept["docs"]);
+        let next = syms.iter().find(|s| s["name"] == "next").unwrap();
+        assert_eq!(next["docs"], "", "got {}", next["docs"]);
+
+        // JSDoc block closers belong to the doc block, not to code.
+        let ts = "/** First.\n* Second.\n*/\nexport function go() {}\n";
+        let syms = extract_symbols_heuristic(ts, "typescript");
+        let go = syms.iter().find(|s| s["name"] == "go").unwrap();
+        assert_eq!(go["docs"], "First. Second.", "got {}", go["docs"]);
+
+        // Narration + attributes between docs and item are transparent.
+        let rs = "use foo;\n/// Creates a vault repo.\n/// Returns the stored name.\n// Flat arity is the IPC contract.\n#[allow(clippy::too_many_arguments)]\n#[tauri::command(async)]\npub fn make() {}\n";
+        let syms = extract_symbols_heuristic(rs, "rust");
+        let make = syms.iter().find(|s| s["name"] == "make").unwrap();
+        assert_eq!(
+            make["docs"],
+            "Creates a vault repo. Returns the stored name.",
+            "got {}",
+            make["docs"]
+        );
     }
 }

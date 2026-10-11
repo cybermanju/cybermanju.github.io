@@ -5,6 +5,7 @@
 // Contracts: signals: AGENT-, conflict, not_found.
 use serde::{Deserialize, Serialize};
 
+/// Sync destination kind: local disk image or a cloud provider backend.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub enum SyncBackendType {
@@ -34,6 +35,9 @@ impl std::fmt::Display for SyncBackendType {
 // Legacy payloads written by older builds ("done", "syncing") still
 // deserialize via serde aliases; serialization only ever emits the
 // canonical camelCase names. >>>
+/// Async sync-job lifecycle: idle → scanning → {compressing|uploading|
+/// linking|cleaning} → completed, or error / cancelled. Polled via
+/// `GET /api/sync/jobs/{jobId}` after the 202 start.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub enum SyncStatus {
@@ -91,6 +95,7 @@ pub enum PlacementMode {
     Striped,
 }
 
+/// Cloud provider account; tokens never serialize (AGENT-3 secrets rule).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloudAccount {
@@ -110,6 +115,7 @@ pub struct CloudAccount {
 // are omitted from every serialized form (GET /api/sync/configs and the
 // whole-object `SyncConfig`/`CloudAccount` responses). `default` keeps the
 // struct literal round-trip working when the key is absent. >>>
+/// OAuth token set; secrets individually `skip_serializing`, never leave the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthCredentials {
@@ -204,6 +210,8 @@ pub struct SyncRunRecord {
     pub result: Option<SyncResult>,
 }
 
+/// Provider sync profile: placement, encryption, conflict policy and OAuth.
+/// One config per provider; files pick a home config (single-copy default).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncConfig {
@@ -281,6 +289,7 @@ fn default_parity() -> u8 {
     1
 }
 
+/// Live counters for a running sync job; polled until a terminal [`SyncStatus`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncProgress {
@@ -294,6 +303,7 @@ pub struct SyncProgress {
     pub estimated_remaining_seconds: Option<f64>,
 }
 
+/// Terminal outcome of a sync run; per-file failures carry `conflict:` etc.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncResult {
@@ -304,6 +314,7 @@ pub struct SyncResult {
     pub duration_ms: u64,
 }
 
+/// One remote listing row; `path` is provider-relative for pipeline reuse.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteFile {
@@ -318,6 +329,7 @@ pub struct RemoteFile {
 // `Default` is deliberately permissive (no fixed size cap, everything
 // supported except chunking) so an unimplemented backend reports *unknown*
 // rather than lying about a restriction it does not have. >>>
+/// Static per-provider limits and feature flags; `Default` is permissive.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
@@ -360,6 +372,8 @@ impl Default for Capabilities {
     }
 }
 
+/// Object-safe provider surface: upload/download/delete/list plus defaulted
+/// capability, stat, chunked-upload and dir-listing extensions.
 pub trait StorageBackend: Send + Sync {
     fn name(&self) -> &str;
     fn backend_type(&self) -> SyncBackendType;

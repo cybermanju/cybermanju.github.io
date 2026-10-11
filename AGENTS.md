@@ -207,12 +207,17 @@ Secrets mirror GitHub (`TAURI_SIGNING_PRIVATE_KEY`, `ANDROID_KEYSTORE_*`).
   `scripts/generate-file-headers.py --dry-run|--apply` (idempotent filler,
   header-only insertions at line 1 — audit with `git diff`, hunks must sit
   at line 1); `scripts/collect-file-context.mjs` (heuristic
-  symbols/imports/comments JSON mirroring `cybermanju-types::code`).
+  symbols/imports/comments JSON mirroring `cybermanju-types::code`);
+  `scripts/check-symbol-docs.mjs [--all|--dir P|--json|--strict]` (advisory
+  missing-item-docs auditor, public API by default — never a CI gate).
 - Structure finder (`crates/types/src/code.rs::extract_symbols_heuristic`,
   the authoritative fallback for every transport): qualifier stripping
   (`export const`, `pub mod`, `pub(in…)`, `unsafe/async`, Go receiver
   parens), bash `name()` defs, top-level-only `const`/`static`, and
   doc-comment hoisting (`///`/`//!`/`/**`/`##`/`#:`/`"""` → additive
-  `docs` field, ≤4 lines above the item, across `#[…]`/`@…` attributes).
-  Plain `//` narration is never hoisted. Same JSON shape + `docs`;
-  tree-sitter stays primary where grammars are bundled.
+  `docs` field: consecutive lines join with a space, ≤400 chars, no
+  blank/code line between docs and item — `#[…]`/`@…` attributes,
+  `*/`/`-->` closers and plain narration are transparent and slide the
+  window instead of consuming it).
+  Plain `//` narration is never hoisted as docs text. Same JSON shape +
+  `docs`; tree-sitter stays primary where grammars are bundled.

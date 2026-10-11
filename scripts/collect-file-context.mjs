@@ -3,7 +3,8 @@
 // Role: heuristic symbol+import+comment extractor, one JSON per file for the AI merger.
 // Exports: collectFileContext(path) -> {symbols, imports, inlineComments, header}.
 // Integrates: mirrors `cybermanju-types::code::extract_symbols_heuristic` fast path
-//   (qualifier stripping, Go receivers, bash defs, doc hoisting); the Rust
+//   (qualifier stripping, Go receivers, bash defs, additive multi-line doc
+//   hoisting); the Rust
 //   tree-sitter engine (`src-tauri/src/tree_sitter`, real grammars for
 //   rust/python/js/ts/go/bash) is authoritative in CI when cargo runs — this
 //   script is the cargo-free local/CI-meta equivalent so `meta-check` stays fast.
@@ -132,7 +133,13 @@ export function collectFileContext(filePath, text = null) {
   const symbols = [];
   const imports = [];
   const inlineComments = [];
+  // Pending doc-block ({ text, line }); consecutive doc lines accumulate
+  // into one space-joined summary (capped at 400 chars). Cleared by blank
+  // lines and by code that yields no symbol; attributes, block closers and
+  // plain narration are transparent — they slide the window instead of
+  // consuming it, so wrapped/annotated items keep their docs.
   let pendingDocs = null; // { text, line }
+  const slideWindow = (lineNo) => { if (pendingDocs) pendingDocs.line = lineNo; };
 
   // Header = leading comment block after optional shebang (+ vue <script>).
   let i = 0;
@@ -157,12 +164,21 @@ export function collectFileContext(filePath, text = null) {
     const t = line.trim();
     if (!t) { pendingDocs = null; return; }
     const doc = docText(t);
-    if (doc !== null) { pendingDocs = { text: doc, line: lineNo }; return; }
-    if (t.startsWith('//') || t.startsWith('/*') || t.startsWith('<!--') || (t.startsWith('#') && !t.startsWith('#!'))) {
-      if (t.length > 3) inlineComments.push({ line: lineNo, text: t.slice(0, 200) });
+    if (doc !== null) {
+      if (pendingDocs && lineNo === pendingDocs.line + 1) {
+        pendingDocs = { text: (pendingDocs.text + ' ' + doc).slice(0, 400), line: lineNo };
+      } else {
+        pendingDocs = { text: doc, line: lineNo };
+      }
       return;
     }
-    if (t.startsWith('#[') || t.startsWith('@')) return; // attribute: keep docs
+    if (t.startsWith('//') || t.startsWith('/*') || t.startsWith('<!--') || (t.startsWith('#') && !t.startsWith('#!'))) {
+      if (t.length > 3) inlineComments.push({ line: lineNo, text: t.slice(0, 200) });
+      slideWindow(lineNo);
+      return;
+    }
+    if (t.startsWith('#[') || t.startsWith('@')) { slideWindow(lineNo); return; } // attribute: keep docs
+    if (t.startsWith('*/') || t === '-->') { slideWindow(lineNo); return; } // block-doc closer: keep docs
 
     if (lang === 'bash') {
       const name = bashSymbol(stripQualifiers(t, lang));
