@@ -1204,3 +1204,30 @@ Stage Summary:
   FileManager + store via `cybermanju:open-install` (App.vue opens it).
   715 frontend tests green (incl. new `install-links`), vue-tsc + icons +
   headers + versions green.
+- 2026-10-11 — Install window on every native-build `unsupported`: central
+  net in `notifyError` (`isInstallNeededError` + `installReasonFor` in
+  `src/utils/installLinks.ts`) opens the Install window for picker /
+  desktop-app / dashboard wordings — present and future toast sites alike —
+  while provider-shaped `unsupported:` (bad repo/path/layer, locked vault)
+  stays a plain toast (unit-tested both sides). Inline `Install options`
+  affordances added everywhere the state shows without a toast: FileManager
+  DEVICE row when no picker exists, SetupWizard one-folder fallback,
+  ShieldPanel web-locked notes, MobileSetupWizard scoped-storage hints +
+  refusal, AccountManager local-picker hints + refusals, MessagesHub and
+  AppDrawer Android notes. Terminal/agent transcripts stay text-only
+  (command results must not pop windows). 718 frontend tests green,
+  typecheck + headers + versions green.
+- 2026-10-11 — CI build-time optimization (A–J): shared `linux-workspace`
+  rust-cache key across rust-check/linux/wasm + `save-if` main/develop-only
+  (kills ~3x700 MB duplication and per-PR cache churn); Android SDK/NDK +
+  Gradle caches (longest job); Arch job gets rust-cache + npm cache
+  (was full rebuild from zero); dropped duplicate `cargo check` before
+  `wasm-pack build` (ci/release/GitLab); `rust-toolchain.toml` declares
+  channel + targets (all `rustup target add` steps removed); apt caching via
+  pinned cache-apt-pkgs-action; Docker GHA cache scoped + Dockerfile npm
+  cache-mount with `npm ci`; sibling Pages branch reuses last green
+  `dist-wasm` artifact (SHA-guarded, rebuild fallback); rpm-build folded
+  into linux-build (was a rename-only job); release build jobs no longer
+  wait on rust-check (create-release still gates); PRs build Tauri
+  `--debug`, release profile on pushes/releases. Local: versions + headers
+  + vue-tsc + 718 vitest green, both workflows YAML-parse.

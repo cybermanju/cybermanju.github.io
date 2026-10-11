@@ -11,9 +11,11 @@ FROM node:24-alpine AS frontend-builder
 
 WORKDIR /app
 
-# Install dependencies first (layer caching)
+# Install dependencies first (layer caching). The `--mount=type=cache` keeps
+# the npm download cache across builds (it is NOT part of the image layers),
+# and `npm ci` (not `npm install`) makes the layer byte-deterministic.
 COPY package.json package-lock.json* ./
-RUN npm install --frozen-lockfile 2>/dev/null || npm install
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 # Copy frontend source and build for web deployment (no Tauri)
 COPY index.html ./

@@ -168,12 +168,12 @@ wasm-build:
   before_script:
     - curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
     - apt-get install -y nodejs
-    - rustup target add wasm32-unknown-unknown
+    # Targets come from rust-toolchain.toml (rustup auto-installs them).
     - curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
     - export PATH="$HOME/.cargo/bin:$PATH"
   script:
     - export PATH="$HOME/.cargo/bin:$PATH"
-    - cargo check --target wasm32-unknown-unknown -p cybermanju-os-wasm
+    # No separate `cargo check`: wasm-pack compiles the same crate below.
     - wasm-pack build crates/os-wasm --target web --out-dir pkg
     - npm ci
     - npx vue-tsc --noEmit
@@ -234,7 +234,7 @@ android-build:
     - apt-get install -y nodejs
     - curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
     - export PATH="$HOME/.cargo/bin:$PATH"
-    - rustup target add aarch64-linux-android x86_64-linux-android wasm32-unknown-unknown
+    # Targets (incl. android triples) come from rust-toolchain.toml.
     - curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
     - mkdir -p /opt/android-sdk/cmdline-tools
     - curl -sSfL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdtools.zip

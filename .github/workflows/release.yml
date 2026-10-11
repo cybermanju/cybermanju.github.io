@@ -97,24 +97,18 @@ jobs:
         run: bash scripts/check-version.sh --tag "${{ needs.resolve.outputs.tag }}"
 
       - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            pkg-config \
-            build-essential \
-            libssl-dev
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        with:
+          packages: libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config build-essential libssl-dev
+          version: "1.0"
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: "."
           cache-on-failure: true
+          # Shared with the Linux build jobs (same workspace/targets).
+          shared-key: "linux-workspace"
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -136,17 +130,14 @@ jobs:
 
       # Mirrors ci.yml: the Rust half must compile for the browser target,
       # and wasm-pack must exist before `npm run build:wasm` calls it.
-      - name: Install Rust WASM target
-        run: rustup target add wasm32-unknown-unknown
-
+      # Toolchain + targets come from rust-toolchain.toml (no `rustup target
+      # add`); the old `cargo check` duplicate of `wasm-pack build` is gone.
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: "."
           cache-on-failure: true
-
-      - name: cargo check os-wasm for wasm32
-        run: cargo check --target wasm32-unknown-unknown -p cybermanju-os-wasm
+          shared-key: "linux-workspace"
 
       # Prebuilt binary; building wasm-pack from source costs minutes.
       - name: Install wasm-pack
@@ -193,7 +184,10 @@ jobs:
   windows-build:
     name: Build Windows
     runs-on: windows-latest
-    needs: rust-check
+    # No `needs: rust-check`: the build compiles independently and
+    # create-release still gates on rust-check — waiting here was pure
+    # latency on the release critical path. Same for linux/macos/android
+    # below.
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Checkout repository
@@ -240,31 +234,23 @@ jobs:
   linux-build:
     name: Build Linux (deb+AppImage+rpm)
     runs-on: ubuntu-latest
-    needs: rust-check
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            pkg-config \
-            build-essential \
-            libssl-dev
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        with:
+          packages: libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config build-essential libssl-dev
+          version: "1.0"
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: "."
           cache-on-failure: true
+          shared-key: "linux-workspace"
 
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -313,27 +299,14 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  # ─── Linux: Build RPM ────────────────────────────────────────────
-  rpm-build:
-    name: Build Linux (RPM)
-    runs-on: ubuntu-latest
-    # Only waits for the job that produces `release-linux-rpm`, not for lint
-    # (create-release still gates on rust-check). Matches ci.yml.
-    needs: linux-build
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
-    steps:
-      - name: Download RPM from linux-build
-        continue-on-error: true
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: release-linux-rpm
-          path: rpm-out
-
-      - name: Upload RPM artifacts
+      # Folded in from the old standalone `rpm-build` job (download +
+      # re-upload of the identical bytes under another name). Both names are
+      # still produced so `fetch-last-build` pairs keep working.
+      - name: Upload RPM artifacts (release name)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-rpm
-          path: rpm-out/*.rpm
+          path: target/release/bundle/rpm/*.rpm
           retention-days: 30
           if-no-files-found: error
 
@@ -447,8 +420,34 @@ jobs:
           sudo -u builder bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
           sudo -u builder bash -c 'source $HOME/.cargo/env && rustup default stable'
 
+      # rust-cache below runs as root but must see the toolchain (installed
+      # as `builder` above) — link it onto the default PATH.
+      - name: Link cargo into PATH (for rust-cache)
+        run: ln -sf /home/builder/.cargo/bin/cargo /home/builder/.cargo/bin/rustc /usr/local/bin/
+
+      # Without this every run recompiled the whole workspace from zero.
+      # HOME override aligns cargo-home paths with the build step below.
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        env:
+          HOME: /home/builder
+        with:
+          workspaces: "."
+          cache-on-failure: true
+
       - name: Install Node.js
         run: pacman -S --noconfirm nodejs npm
+
+      - name: Cache npm directory
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: /home/builder/.npm
+          key: npm-arch-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-arch-
+
+      - name: Fix npm cache ownership
+        run: chown -R builder:builder /home/builder/.npm 2>/dev/null || true
 
       # NO_STRIP: linuxdeploy's bundled strip cannot read the .relr.dyn
       # sections Arch-built libraries carry (tauri#8929).
@@ -496,7 +495,6 @@ jobs:
   macos-build:
     name: Build macOS
     runs-on: macos-latest
-    needs: rust-check
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Checkout repository
@@ -542,7 +540,6 @@ jobs:
   android-build:
     name: Build Android
     runs-on: ubuntu-latest
-    needs: rust-check
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     env:
       # Pinned to the AGP default (AGP 9.x release notes). The Tauri template
@@ -573,6 +570,24 @@ jobs:
           # Passed explicitly (== the v4 default) so upstream default churn
           # can never reintroduce the removed legacy 'tools' package.
           packages: platform-tools
+
+      # Same as ci.yml: the SDK/NDK (~1 GB) and Gradle artifacts (~500 MB)
+      # were re-downloaded on every run. sdkmanager skips what's present.
+      - name: Cache Android SDK/NDK
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.ANDROID_HOME }}
+          key: android-sdk-36-ndk-${{ env.NDK_VERSION }}-v1
+
+      - name: Cache Gradle
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-v1
+          restore-keys: |
+            gradle-${{ runner.os }}-
 
       - name: Install Android SDK components
         run: |
@@ -605,11 +620,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Rust targets
-        # Release ships arm64-v8a only (ort-sys prebuilts); x86_64 is kept
-        # for the emulator smoke test. armv7/i686 are not built — skip them.
-        run: |
-          rustup target add aarch64-linux-android x86_64-linux-android wasm32-unknown-unknown
+      # Rust targets come from rust-toolchain.toml (rustup auto-installs
+      # listed targets) — no manual `rustup target add` step.
 
       - name: Install wasm-pack
         uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
@@ -791,9 +803,9 @@ jobs:
   docker-build:
     name: Docker Build & Publish
     runs-on: ubuntu-latest
-    needs:
-      - resolve
-      - rust-check
+    # Independent of the lint gate (create-release still requires
+    # rust-check) — builds in parallel with everything else.
+    needs: resolve
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     permissions:
       contents: read
@@ -828,8 +840,10 @@ jobs:
           tags: |
             ${{ steps.image.outputs.name }}:${{ needs.resolve.outputs.tag }}
             ${{ steps.image.outputs.name }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Scoped GHA cache (see ci.yml) — keeps layer blobs out of the
+          # rust-cache quota slot.
+          cache-from: type=gha,scope=cybermanju-docker
+          cache-to: type=gha,mode=max,scope=cybermanju-docker
           # OAuth broker (public URL + anon key) baked into the served
           # bundle. Empty when unset — the app then takes the Settings paste.
           build-args: |
@@ -997,7 +1011,6 @@ jobs:
       - wasm-build
       - windows-build
       - linux-build
-      - rpm-build
       - flatpak-build
       - arch-build
       - macos-build
