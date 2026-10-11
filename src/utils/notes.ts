@@ -4,11 +4,17 @@
 // the Tantivy filename+content+tags BM25 already wired for tags; backlinks
 // are pure frontend per the ANALYSIS note.
 // Exports: NoteDoc, isNoteFile, extractWikilinks, extractMdLinks,
-// buildNoteIndex, NoteIndex.
+// buildNoteIndex, NoteIndex, NoteMemoryPayload, noteToMemory.
 // Integrates: standalone; ArchivePanel NOTES tab renders it over
 // store.files (+ contentText where loaded).
 // Contracts: pure, never throws; links resolve against note basenames
 // case-insensitively, `.md`-suffix-agnostic.
+export interface NoteMemoryPayload {
+  /** Agent-memory text: title + first 1800 chars (2200-char recall budget). */
+  text: string
+  /** Tags carried into the memory row (note + backlink count). */
+  tags: string[]
+}
 export interface NoteDoc {
   id: string
   name: string
@@ -94,4 +100,15 @@ export function buildNoteIndex(notes: NoteDoc[]): NoteIndex {
   }
   const orphans = notes.filter((n) => backlinks[n.id].length === 0).map((n) => n.id)
   return { notes, links, backlinks, orphans, broken }
+}
+
+/** Auto-index bridge (ANALYSIS.md §4.2): a saved note becomes one agent-memory
+ * row. Text is capped for the 2200-char recall budget; empty notes refuse. */
+export function noteToMemory(note: NoteDoc, backlinkCount = 0): NoteMemoryPayload | null {
+  const body = (note.contentText ?? '').trim()
+  if (!body) return null
+  const head = body.length > 1800 ? `${body.slice(0, 1800)}…` : body
+  const tags = ['note']
+  if (backlinkCount > 0) tags.push(`backlinks:${backlinkCount}`)
+  return { text: `${note.name}\n${head}`, tags }
 }

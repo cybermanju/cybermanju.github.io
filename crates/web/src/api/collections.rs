@@ -60,7 +60,11 @@ pub fn create(
             .map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
-
+    let _ = db.record_mutation_op(
+        "collection",
+        None,
+        serde_json::json!({ "id": collection_id, "name": collection.name }),
+    );
     Ok(collection)
 }
 
@@ -143,7 +147,11 @@ pub fn add_item(
             .map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
-
+    let _ = db.record_mutation_op(
+        "collection",
+        Some(file_id),
+        serde_json::json!({ "collection": collection_id, "item": item_id }),
+    );
     Ok(collection_item)
 }
 
@@ -221,6 +229,10 @@ pub fn remove_item(db: &Database, collection_id: &str, file_id: &str) -> Result<
         }
     }
     tx.commit().map_err(|e| e.to_string())?;
-
+    let _ = db.record_mutation_op(
+        "collection",
+        Some(file_id),
+        serde_json::json!({ "collection": collection_id, "removed": true }),
+    );
     Ok(true)
 }

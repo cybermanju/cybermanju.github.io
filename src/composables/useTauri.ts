@@ -1171,6 +1171,25 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     transformResponse: (raw) => transformResponseKeys(raw),
   },
 
+  oplog_resolve: {
+    method: 'POST',
+    buildPath: () => '/api/oplog/resolve',
+    transformRequest: (args) => ({
+      opA: args.opA ?? args.op_a ?? '',
+      opB: args.opB ?? args.op_b ?? '',
+      choice: args.choice ?? 'merge',
+      deviceId: args.deviceId ?? args.device_id ?? '',
+    }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  peer_sync: {
+    method: 'POST',
+    buildPath: (args) => `/api/peers/${encodeURIComponent(String(args.id ?? args.deviceId ?? ''))}/sync`,
+    transformRequest: (args) => ({ ops: args.ops ?? [] }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
   bundle_export: {
     method: 'GET',
     buildPath: (args) => {
@@ -1546,7 +1565,8 @@ export const REST_FIRST = new Set([
   'list_devices', 'register_device', 'register_this_device',
   'revoke_device', 'remove_device', 'list_lan_peers',
   'list_todos', 'create_todo', 'toggle_todo', 'delete_todo',
-  'oplog_since', 'oplog_push', 'oplog_conflicts',
+  'oplog_since', 'oplog_push', 'oplog_conflicts', 'oplog_resolve',
+  'peer_sync',
   'bundle_export', 'bundle_import',
 ])
 

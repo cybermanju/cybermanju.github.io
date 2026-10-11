@@ -680,7 +680,7 @@ impl Database {
             let (_, value) = entry?;
             rows.push(serde_json::from_str(value.value())?);
         }
-        rows.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        rows.sort_by_key(|a| a.name.to_lowercase());
         Ok(rows)
     }
 
@@ -744,7 +744,7 @@ impl Database {
                 rows.push(row);
             }
         }
-        rows.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        rows.sort_by_key(|a| a.created_at.clone());
         Ok(rows)
     }
 
@@ -759,6 +759,14 @@ impl Database {
             table.insert(row.id.as_str(), serialized.as_str())?;
         }
         tx.commit()?;
+        // Op-log (§2C): logged here, not at the API layer — Tauri twins and
+        // agent tools write todos straight through `db`, bypassing the REST
+        // route, and every writer must append.
+        let _ = self.record_mutation_op(
+            "todo",
+            None,
+            serde_json::json!({ "id": row.id, "title": row.title, "done": row.done }),
+        );
         Ok(())
     }
 
@@ -770,6 +778,13 @@ impl Database {
             removed
         };
         tx.commit()?;
+        if removed {
+            let _ = self.record_mutation_op(
+                "todo",
+                None,
+                serde_json::json!({ "id": id, "deleted": true }),
+            );
+        }
         Ok(removed)
     }
 
@@ -893,6 +908,57 @@ impl Database {
             }
         }
         Ok(out)
+    }
+
+    /// Local writer identity for op-log rows: explicit override first, then
+    /// the host — the same rule as `sync::lease::default_holder`, duplicated
+    /// here so `db` stays dependency-free.
+    pub fn local_device_id() -> String {
+        if let Ok(id) = std::env::var("CYBERMANJU_DEVICE") {
+            if !id.trim().is_empty() {
+                return id;
+            }
+        }
+        std::env::var("HOSTNAME")
+            .or_else(|_| std::env::var("COMPUTERNAME"))
+            .unwrap_or_else(|_| format!("device-{}", std::process::id()))
+    }
+
+    /// Mutation hook (§2C rollout): every file/todo/collection mutation
+    /// appends one op so offline queue-and-replay and the conflict UI see
+    /// it. Best-effort by design — the op-log is derived data and must never
+    /// break the mutation itself (append failures return `None`; the caller
+    /// keeps its `let _ =` and moves on).
+    pub fn record_mutation_op(
+        &self,
+        kind: &str,
+        file_id: Option<&str>,
+        payload: serde_json::Value,
+    ) -> Option<OpRow> {
+        if kind.trim().is_empty() {
+            return None;
+        }
+        let row = OpRow {
+            seq: 0,
+            op_id: String::new(),
+            device_id: Self::local_device_id(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+            kind: kind.to_string(),
+            file_id: file_id.map(|s| s.to_string()),
+            payload,
+            bases: Default::default(),
+        };
+        self.append_op(row).ok()
+    }
+
+    /// Look one op up by its global id (resolution validates both forks).
+    pub fn get_op_by_id(&self, op_id: &str) -> Result<Option<OpRow>> {
+        for row in self.list_ops_since(0, 0)? {
+            if row.op_id == op_id {
+                return Ok(Some(row));
+            }
+        }
+        Ok(None)
     }
 
     // ─── Config secrets (AGENT-3 request: token lives beside the row) ──

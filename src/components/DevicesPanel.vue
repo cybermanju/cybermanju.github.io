@@ -148,7 +148,10 @@
           <div v-if="!store.lanPeers.length" class="dv-muted">No peers answering `_cybermanju._tcp.local` right now — same Wi-Fi, no server needed.</div>
           <div v-for="p in store.lanPeers" :key="p.deviceId" class="dv-pair dv-row">
             <span class="dv-line">{{ p.name || p.deviceId }} <span class="dv-muted">{{ p.host }}:{{ p.port }}</span></span>
+            <UiButton size="sm" :disabled="!canSyncPeer(p)" :title="peerSyncTitle(p)" @click="store.syncWithPeer(p.deviceId)">Sync</UiButton>
           </div>
+          <p v-if="store.lanSyncMsg" class="dv-line">{{ store.lanSyncMsg }}</p>
+          <p class="dv-muted">Direct sync is peer-authenticated: only enrolled, non-revoked devices (Registry above) sync — unknown peers stay listed but never merge.</p>
         </UiCard>
       </div>
     </section>
@@ -276,6 +279,8 @@ import {
   isFiniteNum,
 } from '@/utils/deviceStats'
 import type { TopSnapshot } from '@/utils/deviceStats'
+import type { LanPeer } from '@/types'
+import { isPeerSyncable, peerBlockReason } from '@/utils/lanSync'
 
 const hw = useSystemHardware()
 const store = useAppStore()
@@ -292,6 +297,22 @@ async function enrollThis() {
   if (!name) return
   const row = await store.registerThisDevice(name)
   if (row) deviceName.value = ''
+}
+
+/** Direct-sync gate: enrolled + non-revoked registry rows only (fail-closed). */
+function canSyncPeer(p: LanPeer): boolean {
+  return isPeerSyncable(
+    { deviceId: p.deviceId, name: p.name, host: p.host, port: p.port },
+    store.devices.filter((d) => !d.revoked).map((d) => d.id),
+  )
+}
+
+function peerSyncTitle(p: LanPeer): string {
+  const reason = peerBlockReason(
+    { deviceId: p.deviceId, name: p.name, host: p.host, port: p.port },
+    store.devices.filter((d) => !d.revoked).map((d) => d.id),
+  )
+  return reason || 'Sync op-log with this peer now'
 }
 const camVideoRef = ref<HTMLVideoElement | null>(null)
 const shareVideoRef = ref<HTMLVideoElement | null>(null)

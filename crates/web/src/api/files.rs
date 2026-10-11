@@ -40,6 +40,11 @@ pub fn create_folder(db: &Database, name: String, parent_id: String) -> Result<F
     let serialized = serde_json::to_string(&folder).map_err(|e| e.to_string())?;
     db.insert_file_with_index(&folder_id, serialized.as_str(), Some(&parent_id))
         .map_err(|e| e.to_string())?;
+    let _ = db.record_mutation_op(
+        "create",
+        Some(&folder_id),
+        serde_json::json!({ "name": folder.name }),
+    );
 
     Ok(folder)
 }
@@ -53,6 +58,11 @@ pub fn delete(db: &Database, file_id: &str) -> Result<bool, String> {
 
     db.log_audit("delete", "file", file_id, None, None)
         .map_err(|e| e.to_string())?;
+    let _ = db.record_mutation_op(
+        "delete",
+        Some(file_id),
+        serde_json::json!({ "name": node.name }),
+    );
 
     Ok(true)
 }
@@ -60,11 +70,16 @@ pub fn delete(db: &Database, file_id: &str) -> Result<bool, String> {
 /// Rename a file or folder.
 pub fn rename(db: &Database, file_id: &str, new_name: String) -> Result<FileNode, String> {
     let mut file_node = read_file(db, file_id)?;
-
+    let old_name = file_node.name.clone();
     file_node.name = new_name;
     file_node.modified_at = chrono::Utc::now().to_rfc3339();
 
     write_file(db, file_id, &file_node)?;
+    let _ = db.record_mutation_op(
+        "rename",
+        Some(file_id),
+        serde_json::json!({ "from": old_name, "to": file_node.name }),
+    );
     Ok(file_node)
 }
 
@@ -114,6 +129,11 @@ pub fn duplicate(db: &Database, file_id: &str) -> Result<FileNode, String> {
         duplicated.parent_id.as_deref(),
     )
     .map_err(|e| e.to_string())?;
+    let _ = db.record_mutation_op(
+        "create",
+        Some(&new_id),
+        serde_json::json!({ "name": duplicated.name, "from": file_id }),
+    );
 
     Ok(duplicated)
 }
@@ -134,6 +154,11 @@ pub fn move_to(db: &Database, file_id: &str, new_parent_id: String) -> Result<Fi
         &new_parent_id,
     )
     .map_err(|e| e.to_string())?;
+    let _ = db.record_mutation_op(
+        "move",
+        Some(file_id),
+        serde_json::json!({ "from": old_parent, "to": new_parent_id }),
+    );
 
     Ok(file_node)
 }
@@ -258,6 +283,11 @@ pub fn add_to_loose_group(
             .map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
+    let _ = db.record_mutation_op(
+        "group",
+        Some(file_id),
+        serde_json::json!({ "group": group_id }),
+    );
     Ok(group)
 }
 
@@ -284,6 +314,11 @@ pub fn set_tags(db: &Database, file_id: &str, tags: Vec<String>) -> Result<FileN
     file_node.tags = clean;
     file_node.modified_at = chrono::Utc::now().to_rfc3339();
     write_file(db, file_id, &file_node)?;
+    let _ = db.record_mutation_op(
+        "tag",
+        Some(file_id),
+        serde_json::json!({ "tags": file_node.tags }),
+    );
     Ok(file_node)
 }
 
@@ -574,6 +609,11 @@ pub fn write_content(
     node.hash_blake3 = Some(blake3::hash(content.as_bytes()).to_hex().to_string());
     node.modified_at = chrono::Utc::now().to_rfc3339();
     write_file(db, file_id, &node)?;
+    let _ = db.record_mutation_op(
+        "edit",
+        Some(file_id),
+        serde_json::json!({ "sizeBytes": node.size_bytes, "hashBlake3": node.hash_blake3 }),
+    );
 
     Ok(serde_json::json!({
         "fileId": node.id,

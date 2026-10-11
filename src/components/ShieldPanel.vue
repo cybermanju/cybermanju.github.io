@@ -233,6 +233,19 @@
         <UiButton size="sm" icon="solar:check-bold" @click="combineRecovery">{{ t('recovery.combine') }}</UiButton>
         <p v-if="recVerdict" class="rec-verdict" :class="{ ok: recOk }">{{ recVerdict }}</p>
       </section>
+      <section class="sh-section" aria-label="Key rotation">
+        <h3 class="section-title"><AppIcon name="solar:refresh-bold" :size="13" /> Key rotation</h3>
+        <p class="sh-note">Rotating re-wraps the master key, then re-cuts these escrow shares — old shares die with the old secret. Work the list in order.</p>
+        <ol class="rot-list">
+          <li v-for="step in rotationSteps" :key="step.id" class="rot-row">
+            <label class="rot-label">
+              <input v-model="rotationDone" type="checkbox" :value="step.id" />
+              <span><strong>{{ step.title }}.</strong> {{ step.detail }}</span>
+            </label>
+          </li>
+        </ol>
+        <p class="rec-verdict" :class="{ ok: rotationDone.length >= rotationSteps.length }">{{ rotationSummary }}</p>
+      </section>
     </div>
   </div>
 </template>
@@ -250,6 +263,7 @@ import { requestInstallWindow } from '@/utils/installLinks'
 import type { EncryptionAlgo, CompressionType } from '@/types'
 import { ENCRYPTION_INFO, COMPRESSION_INFO } from '@/types'
 import { combineText, splitText, type ShamirShare } from '@/utils/shamir'
+import { rotationChecklist, rotationVerifySummary } from '@/utils/keyRotation'
 import { t } from '@/utils/i18n'
 
 const store = useAppStore()
@@ -280,6 +294,12 @@ const recCombineText = ref('')
 const recError = ref('')
 const recVerdict = ref('')
 const recOk = ref(false)
+
+// ── Key rotation checklist (ANALYSIS.md §3 escrow follow-up) ──────────
+// Ordered + idempotent: re-running never invalidates a completed rotation.
+const rotationSteps = rotationChecklist()
+const rotationDone = ref<string[]>([])
+const rotationSummary = computed(() => rotationVerifySummary(rotationDone.value))
 
 function clampRecNM() {
   recN.value = Math.max(2, Math.min(16, Math.round(recN.value || 0)))
@@ -815,6 +835,9 @@ async function handleCompress() {
 .rec-verdict { font-size: 12px; }
 .rec-verdict.ok { color: var(--ui-accent); }
 .share-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.rot-list { margin: 4px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.rot-row { font-size: 12px; }
+.rot-label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
 .share-hex {
   flex: 1;
   font-size: 11px;

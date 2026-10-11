@@ -4,7 +4,9 @@
 // ship prompts + `.cybsh` scripts. No marketplace infrastructure: a skill is
 // a folder, `SKILL.md` is the manifest, `skill install <url>` copies it.
 // Exports: SkillManifest, parseSkillMd, validateSkill, listSkills,
-// skillSlug (shareable-apps layer) + SKILL_FILE_BUDGET,
+// skillSlug (shareable-apps layer) + SkillPanelTarget, skillPanels
+// (panels-later: `panel:` frontmatter → addressable panels) +
+// SKILL_FILE_BUDGET,
 // SKILL_TOTAL_BUDGET, HermesSkillManifest, ParsedSkill, SkillRecord,
 // parseSkillFrontmatter, assembleStandingOrders, selectSkills (Hermes
 // standing-orders layer: budget-capped prompt assembly + goal selection).

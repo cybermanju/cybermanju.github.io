@@ -646,6 +646,11 @@ pub fn rename_face_group(
             .map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
+    let _ = db.record_mutation_op(
+        "face-rename",
+        None,
+        serde_json::json!({ "group": group_id, "name": group.name }),
+    );
     Ok(())
 }
 
@@ -738,6 +743,11 @@ pub fn merge_face_groups(
         }
     }
     tx.commit().map_err(|e| e.to_string())?;
+    let _ = db.record_mutation_op(
+        "face-rename",
+        None,
+        serde_json::json!({ "merged": source_group_id, "into": target_group_id }),
+    );
 
     Ok(())
 }

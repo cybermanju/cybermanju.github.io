@@ -383,7 +383,7 @@ pub fn discover(dest: SocketAddr, timeout: Duration) -> Result<Vec<LanPeer>, Str
         }
     }
     let mut peers: Vec<LanPeer> = seen.into_values().collect();
-    peers.sort_by(|a, b| a.device_id.cmp(&b.device_id));
+    peers.sort_by_key(|a| a.device_id.clone());
     Ok(peers)
 }
 

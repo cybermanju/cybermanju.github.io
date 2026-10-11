@@ -37,7 +37,9 @@ import {
 } from './cybshScript'
 import { googleDriveAuthErrorSync } from './gitProvision'
 import { nextFire, parseSchedule } from './schedule'
-import { listSkills, parseSkillMd, validateSkill } from './skills'
+import { listSkills, parseSkillMd, skillPanels, validateSkill } from './skills'
+import { resolutionPayload, syncPlanSteps, type ResolutionChoice } from './oplog'
+import { lanSyncSteps, peerBaseUrl } from './lanSync'
 import {
   addTodo,
   clearDone,
@@ -203,7 +205,7 @@ const HANDLED_VERBS = new Set([
   'quota', 'providers', 'oauth', 'disk', 'sync',
   'encrypt', 'decrypt', 'keygen', 'compress', 'decompress',
   'scrub', 'repair', 'gc', 'lease', 'mount', 'umount', 'ai',
-  'run', 'theme', 'ui', 'cron', 'backup', 'skill', 'task',
+  'run', 'theme', 'ui', 'cron', 'backup', 'skill', 'task', 'oplog', 'lan',
 ])
 
 export function handlesStaticVerb(verb: string): boolean {
@@ -2885,7 +2887,7 @@ async function handleCron(
   }
 }
 
-const SKILL_SUBCOMMANDS = ['list', 'show', 'run', 'install'] as const
+const SKILL_SUBCOMMANDS = ['list', 'show', 'run', 'install', 'panel'] as const
 
 /** Skills as shareable apps, day one (ANALYSIS.md §4.8): `.cybermanju/skills/*`
  * folders carried by sync; SKILL.md is the manifest, `run` names the entry
@@ -2946,8 +2948,7 @@ async function handleSkill(args: string[], json: boolean, deps: StaticCybshDeps)
     if (json) return shellOk(JSON.stringify({ slug, lines: out }))
     return shellOk(out.join('\n'))
   }
-  if (sub === 'install') {
-    const url = rest[0]
+  if (sub === 'install') {    const url = rest[0]
     if (!url || !/^https?:\/\//i.test(url)) return shellErr('usage: skill install <https-url-to-SKILL.md>')
     if (typeof fetch === 'undefined') {
       return shellErr('unsupported: skill install has no HTTP client in this context — copy the folder into .cybermanju/skills/ by hand')
@@ -2980,11 +2981,108 @@ async function handleSkill(args: string[], json: boolean, deps: StaticCybshDeps)
     if (problems.length) out += `\nproblems:\n- ${problems.join('\n- ')}`
     return shellOk(out)
   }
+  if (sub === 'panel') {
+    const slug = rest[0]
+    if (!slug) return shellErr('usage: skill panel <slug>')
+    const skills = listSkills(skillFiles)
+    const found = skills.find((s) => s.slug === slug)
+    if (!found) return shellErr(`not_found: no skill '${slug}'`)
+    const targets = skillPanels(skills)
+    const target = targets.find((t) => t.slug === slug)
+    if (!target) return shellErr(`not_found: skill '${slug}' ships no panel (add \`panel: <id>\` to its SKILL.md frontmatter)`)
+    if (json) return shellOk(JSON.stringify(target))
+    const tab = target.tab ? ` tab ${target.tab}` : ''
+    return shellOk(`skill:${slug} → open panel '${target.panel}'${tab} — run \`ui open ${target.panel}\` or click the skill card`)
+  }
   const suggestion = SKILL_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
   return shellErr(
     suggestion
       ? `usage: skill <${SKILL_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
       : `usage: skill <${SKILL_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
+  )
+}
+
+const OPLOG_SUBCOMMANDS = ['plan', 'conflicts', 'resolve'] as const
+
+/** Op-log exchange from the shell (ANALYSIS.md §2C): `plan` prints the
+ * pull→push→render steps (works offline); `conflicts`/`resolve` need the
+ * dashboard, so without a transport fallback they answer `unsupported:`
+ * with the exact REST calls instead of guessing. */
+async function handleOplog(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  const sub = (args[0] ?? 'plan').toLowerCase()
+  const rest = args.slice(1)
+  if (sub === 'plan') {
+    const sinceRaw = rest.find((a) => !a.startsWith('-')) ?? '0'
+    const since = Math.max(0, parseInt(sinceRaw, 10) || 0)
+    const steps = syncPlanSteps(since)
+    if (json) return shellOk(JSON.stringify({ since, steps }))
+    return shellOk(steps.join('\n'))
+  }
+  if (sub === 'conflicts') {
+    if (!deps.execFallback) {
+      return shellErr('unsupported: `oplog conflicts` needs the dashboard — GET /api/oplog/conflicts (Sync → Conflicts shows the same pairs)')
+    }
+    try {
+      return shellOk(await deps.execFallback('oplog conflicts'))
+    } catch (e) {
+      return shellErr(`unsupported: oplog conflicts via fallback failed (${e instanceof Error ? e.message : String(e)})`)
+    }
+  }
+  if (sub === 'resolve') {
+    const [opA, opB, choiceRaw] = rest.filter((a) => !a.startsWith('-'))
+    if (!opA || !opB) return shellErr('usage: oplog resolve <op-a> <op-b> <keep-a|keep-b|merge>')
+    const choice = (['keep-a', 'keep-b', 'merge'].includes(choiceRaw ?? '') ? choiceRaw : 'merge') as ResolutionChoice
+    const payload = resolutionPayload(
+      { a: { seq: 0, opId: opA, deviceId: '', createdAt: '', kind: '' }, b: { seq: 0, opId: opB, deviceId: '', createdAt: '', kind: '' } },
+      choice,
+      '',
+    )
+    if (json) return shellOk(JSON.stringify(payload))
+    return shellOk(`resolve ${opA} × ${opB} as ${choice} — POST /api/oplog/resolve ${JSON.stringify(payload)} (Sync → Conflicts resolves with one click)`)
+  }
+  const suggestion = OPLOG_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
+  return shellErr(
+    suggestion
+      ? `usage: oplog <${OPLOG_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
+      : `usage: oplog <${OPLOG_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
+  )
+}
+
+const LAN_SUBCOMMANDS = ['plan', 'peers', 'sync'] as const
+
+/** Direct LAN sync from the shell (ANALYSIS.md §2B.2 follow-up): `plan`
+ * prints the pull→push→merge→render steps for a peer; `peers`/`sync` need
+ * the dashboard transport, so they forward via the fallback or refuse
+ * honestly with the exact REST calls. */
+async function handleLan(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  const sub = (args[0] ?? 'plan').toLowerCase()
+  const rest = args.slice(1)
+  if (sub === 'plan') {
+    const target = rest.find((a) => !a.startsWith('-')) ?? '127.0.0.1:3456'
+    const [host, portRaw] = target.split(':')
+    const peer = { deviceId: rest[1] ?? 'peer', name: rest[1] ?? 'peer', host: host || '127.0.0.1', port: parseInt(portRaw ?? '', 10) || 3456 }
+    const steps = lanSyncSteps(peer, 0)
+    if (json) return shellOk(JSON.stringify({ base: peerBaseUrl(peer), steps }))
+    return shellOk([`peer: ${peerBaseUrl(peer)}`, ...steps].join('\n'))
+  }
+  if (sub === 'peers' || sub === 'sync') {
+    if (!deps.execFallback) {
+      const hint = sub === 'peers'
+        ? 'GET /api/peers (Devices → LAN peers shows the same scan)'
+        : 'POST /api/peers/{id}/sync (Devices → LAN peers → SYNC does the authenticated exchange)'
+      return shellErr(`unsupported: \`lan ${sub}\` needs the dashboard — ${hint}`)
+    }
+    try {
+      return shellOk(await deps.execFallback(`lan ${rest.join(' ')}`.trim()))
+    } catch (e) {
+      return shellErr(`unsupported: lan ${sub} via fallback failed (${e instanceof Error ? e.message : String(e)})`)
+    }
+  }
+  const suggestion = LAN_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
+  return shellErr(
+    suggestion
+      ? `usage: lan <${LAN_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
+      : `usage: lan <${LAN_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
   )
 }
 
@@ -3193,6 +3291,10 @@ export async function runStaticCybshLine(
         return done(await handleBackup(args, json, deps))
       case 'skill':
         return done(await handleSkill(args, json, deps))
+      case 'oplog':
+        return done(await handleOplog(args, json, deps))
+      case 'lan':
+        return done(await handleLan(args, json, deps))
       case 'task':
         return done(handleTask(args, json))
       default:

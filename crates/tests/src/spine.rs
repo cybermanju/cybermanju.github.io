@@ -1,8 +1,10 @@
 // CyberManju OS — Spine (crates/tests/src/spine.rs).
 // ANALYSIS 100% pass: device identity (§2B.1), server todos (§4.9), op-log
-// exchange (§2C), LAN peers (§2B.2), sneakernet bundles (§2B.4) and the P0-6
-// no-row-token regression — one module pinning the transport: auth gates,
-// body contracts, owner scoping, idempotent merges and error prefixes.
+// exchange (§2C) incl. resolve verdicts + mutation wiring, direct LAN peer
+// sync (§2B.2 follow-up, registry-authenticated), LAN peers, sneakernet
+// bundles (§2B.4) and the P0-6 no-row-token regression — one module pinning
+// the transport: auth gates, body contracts, owner scoping, idempotent
+// merges and error prefixes.
 
 use crate::web::{
     bearer, body_of, bootstrap_session, call, login_session, mint, mk_dashboard, now_secs,
@@ -28,7 +30,9 @@ fn new_families_require_a_session() {
         ("GET", "/api/oplog/since", ""),
         ("POST", "/api/oplog/push", "{}"),
         ("GET", "/api/oplog/conflicts", ""),
+        ("POST", "/api/oplog/resolve", "{}"),
         ("GET", "/api/peers", ""),
+        ("POST", "/api/peers/ghost/sync", "{}"),
         ("GET", "/api/sync/bundle/export", ""),
         ("POST", "/api/sync/bundle/import", "{}"),
     ] {
@@ -212,6 +216,135 @@ fn oplog_push_pull_and_conflicts() {
     let conflicts = call(&d, "GET", "/api/oplog/conflicts", "", Some(&auth));
     let conflicts: serde_json::Value = serde_json::from_str(body_of(&conflicts)).expect("json");
     assert_eq!(conflicts["conflicts"].as_array().map(|a| a.len()), Some(1));
+}
+
+#[test]
+fn oplog_resolve_appends_a_verdict_without_deleting_history() {
+    let (_dir, d) = mk_dashboard(3456);
+    let auth = admin(&d);
+    call(
+        &d,
+        "POST",
+        "/api/oplog/push",
+        r#"{"ops":[
+            {"opId":"r1-0","deviceId":"r1","createdAt":"2026-10-11T00:00:00Z","kind":"rename","fileId":"f9","payload":{}},
+            {"opId":"r2-0","deviceId":"r2","createdAt":"2026-10-11T00:00:00Z","kind":"rename","fileId":"f9","payload":{}}
+        ]}"#,
+        Some(&auth),
+    );
+    // Unknown choices and ghost ops refuse honestly.
+    let bad_choice = call(
+        &d,
+        "POST",
+        "/api/oplog/resolve",
+        r#"{"opA":"r1-0","opB":"r2-0","choice":"delete"}"#,
+        Some(&auth),
+    );
+    assert_eq!(status_of(&bad_choice), 400, "{bad_choice}");
+    let ghost = call(
+        &d,
+        "POST",
+        "/api/oplog/resolve",
+        r#"{"opA":"nope","opB":"r2-0","choice":"merge"}"#,
+        Some(&auth),
+    );
+    assert_eq!(status_of(&ghost), 404, "{ghost}");
+
+    let done = call(
+        &d,
+        "POST",
+        "/api/oplog/resolve",
+        r#"{"opA":"r1-0","opB":"r2-0","choice":"keep-a","deviceId":"laptop"}"#,
+        Some(&auth),
+    );
+    assert_eq!(status_of(&done), 200, "{done}");
+    let verdict: serde_json::Value = serde_json::from_str(body_of(&done)).expect("json");
+    assert_eq!(verdict["resolved"], true);
+    assert_eq!(verdict["op"]["kind"], "resolve");
+    // Both forks survive under the verdict — resolution never deletes.
+    let page = call(&d, "GET", "/api/oplog/since?since=0&limit=500", "", Some(&auth));
+    let page: serde_json::Value = serde_json::from_str(body_of(&page)).expect("json");
+    assert_eq!(page["ops"].as_array().map(|a| a.len()), Some(3));
+}
+
+#[test]
+fn mutations_append_ops_for_queue_and_replay() {
+    // §2C rollout: a todo write (REST, Tauri twin and agent tool share the
+    // `db.save_todo` chokepoint) appends a `todo` op for offline replay.
+    let (_dir, d) = mk_dashboard(3456);
+    let auth = admin(&d);
+    let created = call(
+        &d,
+        "POST",
+        "/api/todos",
+        r#"{"title":"queue me"}"#,
+        Some(&auth),
+    );
+    assert_eq!(status_of(&created), 200, "{created}");
+    let page = call(&d, "GET", "/api/oplog/since?since=0&limit=500", "", Some(&auth));
+    let page: serde_json::Value = serde_json::from_str(body_of(&page)).expect("json");
+    let ops = page["ops"].as_array().expect("ops");
+    assert!(
+        ops.iter().any(|op| op["kind"] == "todo"),
+        "todo write appended no op: {page}"
+    );
+}
+
+#[test]
+fn peer_sync_is_peer_authenticated() {
+    let (_dir, d) = mk_dashboard(3456);
+    let auth = admin(&d);
+    let plain = user(&d);
+    // Unknown peers never merge.
+    let ghost = call(
+        &d,
+        "POST",
+        "/api/peers/ghost/sync",
+        r#"{"ops":[]}"#,
+        Some(&auth),
+    );
+    assert_eq!(status_of(&ghost), 404, "{ghost}");
+    assert!(body_of(&ghost).contains("not_found:"), "{ghost}");
+
+    // Enroll one peer, then revoke it — revoked rows fail closed.
+    let reg = call(
+        &d,
+        "POST",
+        "/api/devices",
+        r#"{"name":"phone"}"#,
+        Some(&auth),
+    );
+    let row: serde_json::Value = serde_json::from_str(body_of(&reg)).expect("json");
+    let id = row["id"].as_str().expect("id").to_string();
+    // Non-admin callers still authenticate (401 shape covered above); a
+    // signed-in non-admin syncs fine against a known peer.
+    let ok = call(
+        &d,
+        "POST",
+        &format!("/api/peers/{id}/sync"),
+        r#"{"ops":[{"opId":"p-0","deviceId":"phone","createdAt":"2026-10-11T00:00:00Z","kind":"star","fileId":"f3","payload":{}}]}"#,
+        Some(&plain),
+    );
+    assert_eq!(status_of(&ok), 200, "{ok}");
+    let report: serde_json::Value = serde_json::from_str(body_of(&ok)).expect("json");
+    assert_eq!(report["appended"], 1);
+
+    call(
+        &d,
+        "POST",
+        &format!("/api/devices/{id}/revoke"),
+        "",
+        Some(&auth),
+    );
+    let shut = call(
+        &d,
+        "POST",
+        &format!("/api/peers/{id}/sync"),
+        r#"{"ops":[]}"#,
+        Some(&auth),
+    );
+    assert_eq!(status_of(&shut), 403, "{shut}");
+    assert!(body_of(&shut).contains("auth:"), "{shut}");
 }
 
 #[test]

@@ -53,3 +53,17 @@ export const ALIAS_TAB_PROPS: Partial<Record<PanelType, Record<string, unknown>>
 export function resolvePanel(panelType: PanelType): PanelType {
   return PANEL_ALIASES[panelType] ?? panelType
 }
+
+/** Prefix for skill-shipped panels (ANALYSIS.md §4.8 panels-later). */
+export const SKILL_PANEL_PREFIX = 'skill:'
+
+/** `true` for `skill:<slug>` addresses (never a canonical window id). */
+export function isSkillPanel(address: string): boolean {
+  return address.startsWith(SKILL_PANEL_PREFIX) && address.length > SKILL_PANEL_PREFIX.length
+}
+
+/** Resolve a `skill:<slug>` address to its skill slug ('' when not one). */
+export function skillSlugForPanel(address: string): string {
+  if (!isSkillPanel(address)) return ''
+  return address.slice(SKILL_PANEL_PREFIX.length).trim()
+}

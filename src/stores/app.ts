@@ -36,6 +36,7 @@ import { MANAGED_SCRIPT_PATH } from '@/utils/backup'
 import { setAuthToken, getAuthToken, isWebMode, isStaticHost } from '@/composables/useTauri'
 import { isInstallNeededError, installReasonFor, requestInstallWindow } from '@/utils/installLinks'
 import { createUiRequestDedupe } from '@/utils/uiRequests'
+import { normalizeConflicts, type OpEntry } from '@/utils/oplog'
 import { useWindowManager } from '@/composables/useWindowManager'
 
 export const useAppStore = defineStore('cybermanju', () => {
@@ -2356,6 +2357,44 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
+  // ── Actions: Op-log conflicts + direct LAN sync (§2B.2/§2C close-out) ──
+  const opConflicts = ref<{ a: OpEntry; b: OpEntry }[]>([])
+  const lanSyncMsg = ref('')
+
+  async function fetchOpConflicts() {
+    try {
+      const res = await invoke<{ conflicts?: { a: OpEntry; b: OpEntry }[] }>('oplog_conflicts')
+      opConflicts.value = normalizeConflicts(res)
+    } catch (e) {
+      notifyError('Failed to load conflicts', e)
+    }
+  }
+
+  async function resolveOpConflict(opA: string, opB: string, choice: 'keep-a' | 'keep-b' | 'merge') {
+    try {
+      const deviceId = devices.value[0]?.id ?? ''
+      await invoke('oplog_resolve', { opA, opB, choice, deviceId })
+      await fetchOpConflicts()
+      notifySuccess(`Conflict resolved (${choice}) — history kept, resolution appended`)
+    } catch (e) {
+      notifyError('Failed to resolve conflict', e)
+    }
+  }
+
+  async function syncWithPeer(deviceId: string, ops: unknown[] = []) {
+    try {
+      lanSyncMsg.value = `Syncing with ${deviceId}… (pull → push → merge)`
+      const res = await invoke<{ appended?: number; skipped?: number; head?: number }>('peer_sync', { id: deviceId, ops })
+      await fetchOpConflicts()
+      lanSyncMsg.value = `Synced with ${deviceId} (appended ${res.appended ?? 0}, skipped ${res.skipped ?? 0})`
+      return res
+    } catch (e) {
+      notifyError('LAN sync failed', e)
+      lanSyncMsg.value = ''
+      return null
+    }
+  }
+
   // ── Actions: Server todos (§4.9 agent bridge — same rows the agent uses) ──
   const serverTodos = ref<ServerTodo[] | null>(null)
 
@@ -3097,6 +3136,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     fetchSecrets, createSecret, updateSecret, deleteSecret, revealSecret,
     devices, lanPeers, fetchDevices, registerDevice, registerThisDevice,
     revokeDevice, removeDevice, fetchLanPeers,
+    opConflicts, lanSyncMsg, fetchOpConflicts, resolveOpConflict, syncWithPeer,
     serverTodos, fetchServerTodos, createServerTodo, toggleServerTodo, deleteServerTodo,
     backupShell, fetchBackupList, exportBackupToProvider, verifyBackupPath,
     downloadBackup, verifyBackupBytes, restoreBackupImage, scheduleBackup,

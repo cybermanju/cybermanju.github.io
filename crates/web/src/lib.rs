@@ -1408,6 +1408,14 @@ fn route_request(
     if method == "GET" && matches!(path_segments.as_slice(), ["api", "peers"]) {
         return lan_peers(origin);
     }
+    if method == "POST"
+        && path_segments.len() == 4
+        && path_segments[0] == "api"
+        && path_segments[1] == "peers"
+        && path_segments[3] == "sync"
+    {
+        return peer_sync(db, path_segments[2], body, origin);
+    }
     if method == "GET"
         && matches!(
             path_segments.as_slice(),
@@ -2959,6 +2967,71 @@ fn lan_peers(origin: Option<&str>) -> String {
     }
 }
 
+/// POST /api/peers/{id}/sync — direct device↔device op-log exchange (§2B.2
+/// follow-up). Peer-authenticated against the device registry: unknown ids
+/// are `not_found:`, revoked rows fail closed with `auth:` — an unknown peer
+/// never merges. Body `{ ops: OpRow[] }` merges idempotently (same semantics
+/// as `/api/oplog/push`); the caller pulls `since` from the peer first and
+/// renders `GET /api/oplog/conflicts` after.
+fn peer_sync(db: &Database, device_id: &str, body: &str, origin: Option<&str>) -> String {
+    let peer = match db.get_device(device_id) {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            return json_error(
+                404,
+                &format!("not_found: no device '{device_id}' — enroll it via POST /api/devices first"),
+                origin,
+            )
+        }
+        Err(e) => return json_error(500, &format!("internal: device lookup failed: {e}"), origin),
+    };
+    if peer.revoked {
+        return json_error(
+            403,
+            &format!("auth: device '{device_id}' is revoked — re-enroll it before syncing"),
+            origin,
+        );
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SyncRequest {
+        #[serde(default)]
+        ops: Vec<cybermanju_types::schema::OpRow>,
+    }
+    let req: SyncRequest = match serde_json::from_str(body) {
+        Ok(req) => req,
+        Err(e) => return json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
+    };
+    if req.ops.len() > 10_000 {
+        return json_error(
+            413,
+            &format!(
+                "too_large: sync holds {} ops (cap 10000 per call — page it)",
+                req.ops.len()
+            ),
+            origin,
+        );
+    }
+    for op in &req.ops {
+        if op.kind.trim().is_empty() {
+            return json_error(400, "invalid: every synced op needs a kind", origin);
+        }
+        if op.device_id.trim().is_empty() {
+            return json_error(400, "invalid: every synced op needs a device_id", origin);
+        }
+    }
+    match db
+        .merge_ops(&req.ops)
+        .and_then(|(appended, skipped)| Ok((appended, skipped, db.oplog_head()?)))
+    {
+        Ok((appended, skipped, head)) => json_ok(
+            &serde_json::json!({ "appended": appended, "skipped": skipped, "head": head }),
+            origin,
+        ),
+        Err(e) => json_error(500, &format!("internal: sync merge failed: {e}"), origin),
+    }
+}
+/// as JSON. Admin-only (it walks the whole op-log); the caller places the
 /// GET /api/sync/bundle/export?since=N&deviceId=X — sneakernet delta (§2B.4)
 /// as JSON. Admin-only (it walks the whole op-log); the caller places the
 /// bytes on the USB stick / provider object.
@@ -2970,8 +3043,9 @@ fn bundle_export(db: &Database, query: &str, origin: Option<&str>) -> String {
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| {
             std::env::var("CYBERMANJU_DEVICE")
+                .ok()
                 .filter(|v| !v.trim().is_empty())
-                .unwrap_or_else(|_| "dashboard".to_string())
+                .unwrap_or_else(|| "dashboard".to_string())
         });
     match cybermanju_sync::bundle::export_bundle(db, &device_id, since) {
         Ok(bundle) => json_ok(&bundle, origin),
