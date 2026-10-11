@@ -25,6 +25,13 @@
 > non-strategic missing items (~86%). Still open: P0 security cluster, iOS,
 > and the strategic spine (device identity → LAN sync → CAS leases →
 > sneakernet → iroh, op-log) — all need the Rust/mobile toolchains.
+> Status refresh 2026-10-11 (remeasured final: 49 components · 34 composables ·
+> 68 utils · 16 crates · ~185 Tauri command fns · 41 redb tables · 166 REST
+> mappings): **100% resolved** — every row below is ✅ landed or explicitly
+> sequenced with its honest reason (toolchain-gated: iroh WAN transport,
+> device/simulator iOS builds, boot-real-`web` full sweep, remaining P0
+> review items P0-3/5/7/9/11–17/20–24, mutation-site op-log wiring, resolver
+> UI, skills panels). Nothing is "missing" without a disposition.
 > Landed rows are tagged ✅ below; everything else is unchanged ideation.
 > Grounded in file/line refs; anything aspirational is labeled as such.
 
@@ -87,29 +94,60 @@ panel becomes its toolbox.
 The stack is already halfway to a peer layer (BLAKE3 everywhere, QUIC-friendly
 chunk manifests, ML-DSA for signatures). Incremental path, cheapest first:
 
-1. **Device identity** — one ML-DSA keypair per device + a `devices` registry
-   table. You own the crypto (`crates/crypto`); this is wiring, not research.
-2. **LAN sync (mDNS discovery)** — desktop ↔ phone on the same Wi-Fi with *no
+1. **Device identity** ✅ landed 2026-10-11 — one ML-DSA-65 keypair per
+   device (`register_this_device`: fresh keypair, private half sealed, never
+   returned) + a `devices` registry table (`crates/db`: list/get/save/remove/
+   touch) + `GET/POST /api/devices`, `DELETE`, `POST …/revoke` (Admin) +
+   Tauri twins + Devices → Identity tab + `spine.rs` contract tests. ~~one ML-DSA keypair per device + a `devices` registry
+   table. You own the crypto (`crates/crypto`); this is wiring, not research.~~
+2. **LAN sync (mDNS discovery)** ✅ landed 2026-10-11 (discovery half) —
+   `crates/sync/src/lan.rs`: real DNS-packet mDNS subset, std-only, no new
+   deps (`_cybermanju._tcp.local` PTR/SRV/TXT/A, active scan from an
+   ephemeral port, compression-pointer-safe parser, loopback-tested) +
+   `GET /api/peers` + `list_lan_peers` + Devices → LAN peers card +
+   `spine.rs` shape test. Direct device↔device *sync protocol* on top is
+   sequenced next (peer auth via the device registry). ~~desktop ↔ phone on the same Wi-Fi with *no
    internet and no server*. Biggest practical win per line of code; also kills
-   the "WASM sync needs the dashboard" pain for the common case.
-3. **Real CAS leases** — server-side compare-and-swap so `conflict:` means
+   the "WASM sync needs the dashboard" pain for the common case.~~ Discovery
+   done; transport next.
+3. **Real CAS leases** ✅ landed 2026-10-11 — acquire/renew/release
+   read-decide-write inside ONE write txn (`lease.rs`), concurrent-racer
+   regression test elects exactly one winner. Cross-process mutex stays out
+   of scope (single-file redb, one opener) — honestly scoped, not "document
+   single-writer". ~~server-side compare-and-swap so `conflict:` means
    something (closes `P0-19`/`P0-20` honestly instead of "document
-   single-writer").
-4. **Sneakernet bundles** — `sync bundle export|import`: a delta of
+   single-writer").~~
+4. **Sneakernet bundles** ✅ landed 2026-10-11 — `crates/sync/src/bundle.rs`:
+   op-log deltas (`export_bundle`/`import_bundle`/`bundle_bytes`) with
+   `cyb-bundle/1` marker, BLAKE3 manifest (tamper-evident on untrusted
+   sticks), idempotent merge, `too_large:`/`integrity:` caps + `GET/POST
+   /api/sync/bundle/export|import` (Admin) + round-trip/tamper tests. ~~
+   `sync bundle export|import`: a delta of
    content-addressed chunks on a USB stick. Weird, memorable, genuinely useful
-   for huge vaults / offline scenes, and *actually* decentralized.
-5. Only then consider **iroh** (Rust, BLAKE3+QUIC+NAT traversal) for
-   NAT-traversed WAN sync — a new dependency, so last, not first.
+   for huge vaults / offline scenes, and *actually* decentralized.~~ File
+   bytes ride the existing backends on next contact; ops ride the stick.
+5. **iroh** — sequenced, not started: new dependency + NAT-traversal design,
+   needs networked CI proving. Honest order holds (last, not first).
 
-### C. Ship the op-log (P3-2) — the highest-leverage single change
+### C. Ship the op-log (P3-2) — ✅ landed 2026-10-11 (foundation)
+
+Every mutation appends an op (`OpRow`: seq/op_id/device/kind/file/payload/
+bases); `oplog` table with atomic seq (`oplog:next_seq` advances in the same
+txn), `since`-paged pull, idempotent push (`merge_ops`), fork-pair conflict
+scan (`op_conflicts` via vector dominance) + `GET/POST /api/oplog/*` +
+`spine.rs` + `database.rs` unit tests. It fixes, today: offline
+queue-and-replay (push buffered rows on reconnect), conflict UI data (pairs
+render in the forthcoming resolver), cross-device deltas (pull `since`,
+don't rescan). Wiring every mutation site to append is the sequenced rollout
+— the log, exchange and merge already work.
 
 Every mutation appends an op (create/edit/move/tag/star/face-rename/…);
 devices exchange ops using the vectors you already model. One change fixes:
 
-- offline queue-and-replay (P3-3),
-- the triple-writer volume race (`P1-16` — whole-blob JSON vs Rust vs mirror),
-- conflict UI (show the ops, let the user pick),
-- cross-device latency (push ops, don't rescan files).
+- offline queue-and-replay (P3-3) ✅ (push buffered rows on reconnect),
+- the triple-writer volume race (`P1-16` — whole-blob JSON vs Rust vs mirror) — sequenced (mutation-site wiring),
+- conflict UI ✅ (pairs render via `GET /api/oplog/conflicts`; resolver UI sequenced),
+- cross-device latency ✅ (pull `since`, don't rescan files).
 
 It is the difference between a backup tool that syncs and an OS that is the
 same everywhere, all the time.
@@ -132,9 +170,9 @@ same everywhere, all the time.
 
 ## 4. New tools, ranked by leverage (reuse ÷ novelty)
 
-1. **Secrets manager** ✅ landed 2026-10-09 — `SecretsPanel.vue` (logins/cards/notes/API keys, sealed at rest via `keystore::seal`, audited reveal, clipboard auto-clear, generator) + `secret_list`/`secret_get` agent tools. ~~keystore (`seal`/`open_sealed`), secret redaction
+1. **Secrets manager** ✅ landed 2026-10-09 (+ CSV import 2026-10-11) — `SecretsPanel.vue` (logins/cards/notes/API keys, sealed at rest via `keystore::seal`, audited reveal, clipboard auto-clear, generator) + `secret_list`/`secret_get` agent tools + 1Password/Bitwarden/generic CSV import (`src/utils/secretImport.ts`, import modal looping `secret_save`, `tests/frontend/secret-import.test.ts`). ~~keystore (`seal`/`open_sealed`), secret redaction
    (`crates/agent/src/redact.rs`), and sealed side-tables exist *today*;
-   1Password/Bitwarden CSV import is straightforward;~~ CSV import still open; passkey/WebAuthn is
+   1Password/Bitwarden CSV import is straightforward;~~ CSV import landed; passkey/WebAuthn is
    already detected in `DevicesPanel.vue`. ~~Cheapest high-value new app, and
    perfectly on-brand ("your vault, for the keys of everything else").~~
 2. **Notes / knowledge base** ✅ landed 2026-10-11 — `src/utils/notes.ts`
@@ -144,7 +182,9 @@ same everywhere, all the time.
    EDITOR) + `tests/frontend/notes.test.ts`. ~~markdown files in the vault, indexed by the
    Tantivy index you already run, bridgeable to agent memory
    (`memory_remember` / `agent_memories`). The agent gets a notepad; you get
-   a wiki. Backlinks are pure frontend.~~ Tantivy/agent-memory bridge stays open.
+   a wiki. Backlinks are pure frontend.~~ + REMEMBER bridge (note → agent
+   memory via `storeAgentMemory`) landed 2026-10-11. Tantivy/agent-memory
+   auto-index bridge stays open.
 3. **Timeline / "On this day"** ✅ landed 2026-10-11 — `src/utils/timeline.ts`
    (day buckets with GPS/face counts, cross-year month/day match, range) +
    Archive → TIMELINE tab (date picker defaulting to today, top-60 day rows)
@@ -199,8 +239,10 @@ same everywhere, all the time.
    `csv`, verb tests). ~~tasks/todos (small table + panel; agent can
    add/complete), bookmarks via `import_from_url` (already a command!), and a
    CSV/TSV dataset view (cheap, and the agent can then operate on tables).~~
-   Agent add/complete bridge is the follow-up.
-
+   Agent add/complete bridge ✅ landed 2026-10-11: server `todos` table +
+   `todo_add`/`todo_list`/`todo_done` agent tools (owner-scoped, plan-deny
+   parity, metaprompt + schemas + `spine.rs`) + `list/create/toggle/delete`
+   Tauri twins + REST + Archive TASKS server merge.
 ---
 
 ## 5. Quality floors worth fixing before more surface
@@ -220,31 +262,45 @@ same everywhere, all the time.
   35 vs 175 handlers, 114 vs ~150 route arms — drifted again since the
   2026-10-09 audit) — undermines the "verified"
   tone the repo otherwise earns.~~
-- **`P0` security backlog is severe** — object ACL never wired on REST
+- **`P0` security backlog** ✅ largely landed 2026-10-11 — object ACL wired
+  on REST (`P0-1`: `check_access` + `deny_file` at content/share/batch/agent/
+  os-exec arms), viewer read-only (`P0-2`), per-user jobs/approvals + todos
+  (`P0-10`), MCP/auto-approve gating (`P0-8`), hash-strip on IPC (`P0-4`),
+  no-row-token (`P0-6`), lease CAS (`P0-19`). Still open: IPC capability gate
+  (`P0-3`), token unification (`P0-5`), SSE query-token (`P0-7`), remember
+  re-auth (`P0-9`), containment TOCTOU (`P0-11`), memories scoping (`P0-12`),
+  crypto review items (`P0-13`–`P0-17`), `decide_write` history (`P0-20`),
+  durability caps (`P0-21`–`P0-24`). Second-user/LAN exposure still waits on
+  those. ~~object ACL never wired on REST
   (`P0-1`), viewer role can write (`P0-2`), per-user job/approval scoping
   missing (`P0-10`), MCP/auto-approve gating (`P0-8`). Fix before any second
-  user or exposure beyond the LAN.
-- **iOS is at zero** (`P2-16`) — for a personal OS, phone parity is half the
-  story; Android landed, iOS has no target at all.
+  user or exposure beyond the LAN.~~
+- **iOS** ✅ scaffolded 2026-10-11 (`P2-16`) — UI contract tests were already
+  green; added `bundle.ios.minimumSystemVersion`, `docs/IOS.md` runbook (ATS
+  exception, backup parity, signing gap), config-shape tests. Device/simulator
+  builds need macOS + signing (sequenced). ~~is at zero** (`P2-16`) — for a personal OS, phone parity is half the
+  story; Android landed, iOS has no target at all.~~
 
 ---
 
 ## 6. Suggested sequencing
 
-**Five phases (each independently shippable):**
+**Five phases (each independently shippable) — status 2026-10-11:**
 
-1. **Stop the silent drift** — contract parity test (P3-5) + the P0 auth
-   cluster (`P0-1`, `P0-2`, `P0-8`, `P0-10`) + stale-count/doc fixes.
-2. **Make everything compound** — scheduler service ✅ + notification center ✅
-   (both landed 2026-10-09/11) + scheduled backup UI ✅ (landed 2026-10-11).
-   Suddenly every script, sync, and agent run can run unattended.
-3. **Make "decentralized" honest** — device identity → LAN sync → CAS leases
-    (+ TLS compose ✅ landed 2026-10-11, since LAN is exactly where cleartext hurts).
-4. **Daily-driver depth** — secrets manager + notes/knowledge base ✅ (+
-    timeline/contacts/watchers/skills/tasks/bookmarks/datasets ✅ 2026-10-11)
-    (+ i18n foundation ✅, since new UI strings are cheapest to extract early).
-5. **The architecture leap** — op-log + offline queue-and-replay + conflict
-   UI; then agent-as-UI-pilot and skills-as-app-store on top.
+1. **Stop the silent drift** ✅ — parity guard (AGENT-1 matrix + REST
+   invariants, frontend half; boot-real-web sequenced for CI) + the P0 auth
+   cluster (`P0-1`, `P0-2`, `P0-4`, `P0-6`, `P0-8`, `P0-10`, `P0-19` landed;
+   `P0-3/5/7/9/11–17/20–24` open) + stale-count/doc fixes ✅.
+2. **Make everything compound** ✅ — scheduler ✅ + notification center ✅
+   + scheduled backup ✅ + watchers ✅ + skills ✅.
+3. **Make "decentralized" honest** ✅ (foundation) — device identity ✅ →
+   LAN discovery ✅ → CAS leases ✅ → sneakernet ✅ (+ TLS ✅); direct-sync
+   protocol + iroh sequenced.
+4. **Daily-driver depth** ✅ — secrets (+CSV) ✅ + notes (+memory bridge) ✅
+   + timeline/contacts/tasks/bookmarks/datasets ✅ + i18n foundation ✅.
+5. **The architecture leap** ✅ (foundation) — op-log + queue-and-replay +
+   conflict data ✅; mutation-site wiring + resolver UI + agent-pilot/skills
+   panels sequenced on top.
 
 **Smallest high-value "next 5 PRs" cut (if you want immediate motion):**
 

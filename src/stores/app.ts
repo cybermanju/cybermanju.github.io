@@ -25,6 +25,7 @@ import type {
   ScheduleRow, ScheduleRun,
   SecretMeta, SecretInput,
   BackupEntry, BackupReport, BackupVerify,
+  DeviceInfo, ServerTodo, LanPeer,
   SyncBackendType,
 } from '@/types'
 import { MODULE_METADATA, oauthSlugForBackend, describeSyncError, agentErrorHint } from '@/types'
@@ -2292,6 +2293,110 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
+  // ── Actions: Device identity (§2B.1) + LAN peers (§2B.2) ──
+  const devices = ref<DeviceInfo[]>([])
+  const lanPeers = ref<LanPeer[]>([])
+
+  async function fetchDevices() {
+    try {
+      devices.value = await invoke<DeviceInfo[]>('list_devices')
+    } catch (e) {
+      notifyError('Failed to fetch devices', e)
+    }
+  }
+
+  async function registerDevice(name: string) {
+    try {
+      const row = await invoke<DeviceInfo>('register_device', { name })
+      await fetchDevices()
+      notifySuccess(`Device '${row.name}' enrolled`)
+      return row
+    } catch (e) {
+      notifyError('Failed to register device', e)
+      return null
+    }
+  }
+
+  async function registerThisDevice(name: string) {
+    try {
+      const row = await invoke<DeviceInfo>('register_this_device', { name })
+      await fetchDevices()
+      notifySuccess(`This device enrolled with a fresh ML-DSA key`)
+      return row
+    } catch (e) {
+      notifyError('Failed to enroll this device', e)
+      return null
+    }
+  }
+
+  async function revokeDevice(id: string) {
+    try {
+      await invoke('revoke_device', { id })
+      await fetchDevices()
+      notifySuccess('Device revoked')
+    } catch (e) {
+      notifyError('Failed to revoke device', e)
+    }
+  }
+
+  async function removeDevice(id: string) {
+    try {
+      await invoke('remove_device', { id })
+      await fetchDevices()
+    } catch (e) {
+      notifyError('Failed to remove device', e)
+    }
+  }
+
+  async function fetchLanPeers() {
+    try {
+      lanPeers.value = await invoke<LanPeer[]>('list_lan_peers')
+    } catch (e) {
+      notifyError('LAN scan failed', e)
+    }
+  }
+
+  // ── Actions: Server todos (§4.9 agent bridge — same rows the agent uses) ──
+  const serverTodos = ref<ServerTodo[] | null>(null)
+
+  async function fetchServerTodos() {
+    try {
+      serverTodos.value = await invoke<ServerTodo[]>('list_todos')
+    } catch {
+      // Static hosts have no dashboard — Archive TASKS falls back to local.
+      serverTodos.value = null
+    }
+  }
+
+  async function createServerTodo(title: string) {
+    try {
+      const row = await invoke<ServerTodo>('create_todo', { title })
+      await fetchServerTodos()
+      return row
+    } catch (e) {
+      notifyError('Failed to create todo', e)
+      return null
+    }
+  }
+
+  async function toggleServerTodo(id: string, done: boolean) {
+    try {
+      await invoke('toggle_todo', { id, done })
+      await fetchServerTodos()
+    } catch (e) {
+      notifyError('Failed to update todo', e)
+    }
+  }
+
+  async function deleteServerTodo(id: string) {
+    try {
+      await invoke('delete_todo', { id })
+      await fetchServerTodos()
+    } catch (e) {
+      notifyError('Failed to delete todo', e)
+    }
+  }
+
   // ── Actions: Vault backup (scheduled + on-demand) ─────────────
   /** Run one `backup …` line everywhere (`os_exec` twin on each transport). */
   async function backupShell(line: string): Promise<string> {
@@ -2990,6 +3095,9 @@ export const useAppStore = defineStore('cybermanju', () => {
     // Scheduler (cron)
     fetchSchedules, cronSave, cronDelete, cronRun, cronSetEnabled, cronHistory,
     fetchSecrets, createSecret, updateSecret, deleteSecret, revealSecret,
+    devices, lanPeers, fetchDevices, registerDevice, registerThisDevice,
+    revokeDevice, removeDevice, fetchLanPeers,
+    serverTodos, fetchServerTodos, createServerTodo, toggleServerTodo, deleteServerTodo,
     backupShell, fetchBackupList, exportBackupToProvider, verifyBackupPath,
     downloadBackup, verifyBackupBytes, restoreBackupImage, scheduleBackup,
     findBackupSchedule, listBackupMounts, fetchBackupBytes,

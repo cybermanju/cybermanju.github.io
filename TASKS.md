@@ -11,19 +11,19 @@ Checkboxes are intentional — tick as you land.
 
 ## P0 — Auth / AuthZ (fail-closed is currently fail-open on objects)
 
-- [ ] `P0-1` Enforce object-level file access on REST — `verify_file_access` exists in `src-tauri/.../users.rs:369-411` but `grep verify_file_access crates/web` = 0 hits. Call it in `crates/web/src/api/files.rs`, `api/share.rs`, `lib.rs:1218-1290` (`GET/PUT/DELETE /api/files/:id/content`, share, sync, agent, os/exec).
-- [ ] `P0-2` Fix `RequiredRole::is_satisfied_by security.rs:106-112` — returns `true` for `Authenticated` regardless of role, so `viewer` writes. Make viewer read-only.
+- [x] `P0-1` Enforce object-level file access on REST — landed: `api::files::check_access` + `deny_file` gate at every content/share/bath/agent/os-exec arm (`lib.rs` incl. `GET/PUT/DELETE /api/files/:id/content`, share-grant, batch, agent jobs, `os/exec` owner); token-capability share bytes stay public by design. (2026-10-11 audit.)
+- [x] `P0-2` Viewer read-only — landed: `authorize` denies all write methods for `role == "viewer"` (`security.rs`), pinned by viewer tests. (2026-10-11 audit.)
 - [ ] `P0-3` Authenticate Tauri IPC — `register/create/update/delete/list_users`, `set/grant/revoke_permission` take only `State<AppState>`. `LocalIpc` mode allows arbitrary `admin` creation. Add local auth / capability gate.
-- [ ] `P0-4` Strip `password_hash` on Tauri — `list_users:250-265` returns full `User`; web `list_users_safe:2375-2402` strips it. Mirror stripping on IPC.
+- [x] `P0-4` Strip `password_hash` on Tauri — landed 2026-10-11: `list_users` projects rows through JSON and removes `passwordHash`/`password_hash`, mirroring web `list_users_safe` (frontend `User.passwordHash?` already optional — no UI change).
 - [ ] `P0-5` Unify token systems — web persistent JWT vs Tauri `OsRng`-fresh `hmac_secret` per boot (`lib.rs:66-69`). Desktop sessions die on restart, JWT lives. Shared revocation needed; move revocation/backoff/rate out of in-memory `AuthState` (restart wipes `revoke()`, multi-replica shares nothing).
-- [ ] `P0-6` Fix `restore_config_token lib.rs:2581-2602` writing `token` back into `sync_configs` JSON — defeats `#[skip_serializing]` + `sync_secrets` side-table (`db/database.rs:415-429`). Never persist secrets in listable rows.
+- [x] `P0-6` Fix `restore_config_token` — landed 2026-10-11: shim deleted (`lib.rs`), `POST /api/sync/configs` relies on `save_config`'s side-table write only; pinned by `spine.rs` no-token-in-response test.
 - [ ] `P0-7` Close SSE auth gap — `lib.rs:433-441` intercepts SSE pre-`handle_request`; EventSource can't send `Authorization`. Enforce query-token in `handle_sse_connection` or remove live tail.
 
 ## P0 — Agent RCE / permission bypass
 
-- [ ] `P0-8` Gate `save_config` MCP servers — only `POST/DELETE .../mcp` is `Admin`-gated (`security.rs:202-204`), but `save_config:169-208` reachable as `Authenticated` embeds `mcp_servers` unchecked + `auto_approve` + `allow bash` → unattended `tool_bash:1150-1259` (`sh -c`, root cwd). Require `Admin` for `mcp_servers` / `auto_approve` / `allow bash`.
+- [x] `P0-8` Gate `save_config` MCP servers — landed: `config_needs_admin` + `save_config_as(db, config, is_admin)` (`agent_api.rs`), REST passes claims; stdio/non-default MCP, `auto_approve` and blanket `bash` allow answer `auth:` for non-admins. (2026-10-11 audit.)
 - [ ] `P0-9` Re-auth `remember:true` — `approve_job:2063-2085 remember_allow(tool)` persists `Allow` with no re-auth, silent fail. One approved `ask` becomes permanent. Require explicit confirm + audit log.
-- [ ] `P0-10` Scope jobs/approvals per-user — `JOBS/APPROVALS:765-774` global `Mutex<HashMap>`, `wait_approval:2089-2105` 600s, no `user_id` binding. Guessable `job_id` → approve чужой job. Same for `RunRegistry` global `run-<ts>-<seq>` + `cancel_job(None)` cancels `latest` irrespective of owner. Bind `job_id → user_id`, random IDs.
+- [x] `P0-10` Scope jobs/approvals per-user — landed: `AgentJob.owner_id` + `check_job_owner` on every status/abort/approve entry, `claims_owner` scoping on REST, owner-bound transcripts; new todos API follows the same posture. (2026-10-11 audit.)
 - [ ] `P0-11` Fix containment TOCTOU — `normalize_join/join_contained:840-874` explicitly no symlink resolution, `..` popped lexically, `read_raw→apply_edit→tool_write` non-atomic (`agent_api.rs:1337-1347`). Add symlink resolution + file lock / atomic write.
 - [ ] `P0-12` Scope `POST /api/agent/memories{,/recall}` per-`config_id` — `recall` without `configId` scans all configs keyword-only.
 
@@ -38,7 +38,7 @@ Checkboxes are intentional — tick as you land.
 
 ## P0 — Sync / lease / repair correctness
 
-- [ ] `P0-19` Lease CAS — `lease.rs:159-189` read-then-write in separate redb txns, no CAS. `leases` + `vv/*` local-only, never synced — cross-device mutex is illusion. `default_holder()` falls back to `device-<pid>` (pid reuse). Needs server CAS or document single-writer.
+- [x] `P0-19` Lease CAS — landed 2026-10-11: acquire/renew/release read-decide-write inside ONE write txn; concurrent-racer regression test elects exactly one winner. Cross-process mutex stays out of scope (single-file redb, one opener); cross-device story is devices + op-log. `default_holder()` still prefers `CYBERMANJU_DEVICE`/hostname.
 - [ ] `P0-20` `decide_write` Overwrite loses history — `332-351` comment says “vectors merged” but code just `Apply`. `suggested_id` uses `process::id()` — cross-device collision. Real merge or rename.
 - [ ] `P0-21` Durable job poll — `MAX_LIVE_RUNS=16 (state.rs:198)`, `SYNC_RUN_HISTORY_LIMIT=20 (db/database.rs:95)`. Old `jobId` → `not_found` after eviction/restart. Persist runs, or return `expired:` not `not_found:`.
 - [ ] `P0-22` Write-lock serialization — every `POST/PUT/DELETE` holds process `RwLockWriteGuard (lib.rs:1174-1179)` + `disk/repair/os` handlers run under `db.write()`. Long download/upload stalls all writes + starves readers. Spawn long work (per existing `Long work must be spawned` comment).
@@ -47,17 +47,17 @@ Checkboxes are intentional — tick as you land.
 
 ## P1 — Frontend transport parity (`src/composables/useTauri.ts`)
 
-- [ ] `P1-1` `isTauri():99-101` truthiness — `'__TAURI__' in window` is true even when `vite.config.wasm.ts:53-58` defines it `false`. Check truthiness. Same fix in `SettingsPage.vue:319`, `StatusBar.vue:80`.
+- [x] `P1-1` `isTauri()` truthiness — landed: `Boolean(window.__TAURI__)` with the wasm-`false` comment; Settings/StatusBar no longer read the flag directly. (2026-10-11 audit.)
 - [ ] `P1-2` Shared `useTransport()` — replace binary `isWebMode()/isStaticHost()` labels with one 3-state helper `(label/short/tone/backend: tauri|rest|wasm)`. Fix `StatusBar.vue:80`, `KeyboardShortcutsHelp`, `ShellShortcutDock` (currently `WEB/TAURI`); `CodeStudio.vue:380` 3-way is the pattern to keep.
 - [ ] `P1-3` Static-host health probe — `isStaticHost():115-119` has no probe: bare `https://host` → `wasm` even if user expected REST; stale `_serverUrl` → forced REST + `ERR_CONNECTION_REFUSED`. Probe `_serverUrl`/`/api/readyz` with fallback.
 - [ ] `P1-4` WASM first-paint flash — `wasmBackendActive() useWasmBackend.ts:159-161` null until async load; `SettingsPage:299-313`, `ShellShortcutDock:141-146`, `LandingPage:169` flash `Web→WASM`. Use `isStaticHost()` for initial label, reactive ref after `loadWasm()`.
 - [ ] `P1-5` `REST_FIRST:1147-1165` split-brain — `get_sync_job/list_runs/...` REST but `list/create/start/cancel/progress/test_connection` IPC on desktop. Job started via IPC invisible to REST poll. One side per domain + `restFetch→core.invoke` fallback (or `dashboard_status` health gate) when dashboard down.
-- [ ] `P1-6` Missing `os_write` REST route — `OS_WASM_COMMANDS:1168-1171` has it, `REST_ROUTES`/`REST_FIRST` don't. `stores/app.ts:791-805 saveWasmFile` → `Unknown command` on desktop/REST. Add `PUT /api/os/write` + `REST_FIRST`, or branch to `write_file_content`.
-- [ ] `P1-7` Encode OS paths — `os_stat/ls/du:1055-1066` concat `'/api/os/stat'+path` unencoded (`/foo bar`, `..`). Use `?path=` + `encodeURIComponent` like `os_complete:1053`.
+- [x] `P1-6` Missing `os_write` REST route — landed: `PUT /api/os/write` in `REST_ROUTES` + `REST_FIRST`, pinned by `transport-routes.test.ts`. (2026-10-11 audit.)
+- [x] `P1-7` Encode OS paths — landed: `os_stat/ls/du` use `?path=` + `encodeURIComponent`. (2026-10-11 audit.)
 - [ ] `P1-8` `search_files_paginated` wasm route — REST-only, no `DB_WASM_ROUTES`; static path `throw [WASM Mode]` then accidental fallback via `search_files` (BM25-lite, score `1.0`, no snippet, `fileId=path`). Add `files.search_paginated` db op or explicit wasm unwrap.
 - [ ] `P1-9` Rename `WRITE_ONLY_COMMANDS:1115-1139` → `DESKTOP_ONLY` — `generate_keypair/encrypt/decrypt/compress/parse_file` have `STATIC_COMMAND_HANDLERS:1667-1680` on wasm. Document override; `ShieldPanel.vue:61,92,125 webLocked` disables crypto on pure REST with no REST endpoint — add or document gap.
 - [ ] `P1-10` `restFetch:146-185` hardening — add `network:` prefix on catch (AGENT-1), preserve prefix when server sends plain text, `AbortController` timeout (hangs offline), retry `network:/rate_limited:` with backoff. `probeStaticConnection:1776-1840 default:return false` misreports `s3/webdav/...` as wrong-token — `throw unsupported:` instead.
-- [ ] `P1-11` `pathExists:2167-2175` bypasses wasm — raw `restFetch GET /api/files`, always false offline. Use `invoke('list_files')`.
+- [x] `P1-11` `pathExists` bypasses wasm — landed 2026-10-11: web path goes through `invoke('list_files')` so the wasm volume answers offline.
 - [ ] `P1-12` `notifyError stores/app.ts:248-259` — suppresses `[WASM Mode]` (null, no toast/console), hides parity gaps. Log + counter. Centralize `notifyError → describeSyncError|agentErrorHint → toast(detail+hint)`; merge `types:545-570` missing `invalid:/context:/limit:`.
 - [ ] `P1-13` Store loading/errors — single `lastError` string + shared `isLoading` races (`fetchFiles:327-379` parallel in `initialize:275-284`). Per-domain `loading{}` / error queue. `initialize:270-289` omits `fetchOsPs/dashboard/disks/agent`; `startAutoRefresh` omits `disks/os/agent`; gate `StatusBar:128-133` 4s `fetchOsPs` poll on `!isStaticHost()||document.visible`.
 - [ ] `P1-14` Agent SSE — `subscribeAgentJob:1685-1738` hardcodes `getServerUrl()||localhost:3456` SSE — breaks Tauri-IPC-only and wasm (no `/events`). Poll `invoke('agent_job_status')` on those transports.

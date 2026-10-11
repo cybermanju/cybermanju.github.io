@@ -80,3 +80,25 @@ describe('iOS tab bar', () => {
     expect(nav).toMatch(/blur\(28px\)/)
   })
 })
+
+describe('iOS native scaffold (P2-16)', () => {
+  const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'))
+  const runbook = fs.readFileSync('docs/IOS.md', 'utf8')
+
+  it('sets the iOS deployment floor', () => {
+    expect(conf.bundle.ios.minimumSystemVersion).toBe('17.0')
+  })
+
+  it('keeps the mobile IPC set transport-complete (no dashboard on iOS)', () => {
+    const tauri = fs.readFileSync('src/composables/useTauri.ts', 'utf8')
+    for (const cmd of ['list_devices', 'list_todos', 'list_lan_peers']) {
+      expect(tauri).toContain(`'${cmd}'`)
+    }
+  })
+
+  it('documents the ATS exception + backup parity + signing gap honestly', () => {
+    expect(runbook).toContain('NSAllowsLocalNetworking')
+    expect(runbook).toContain('NSURLIsExcludedFromBackupKey')
+    expect(runbook).toMatch(/\[ \] .*simulator build/)
+  })
+})

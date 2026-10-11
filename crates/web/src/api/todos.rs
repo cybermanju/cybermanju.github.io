@@ -114,11 +114,7 @@ pub fn route(
             Ok(req) => match scoped(db, id, owner, is_admin) {
                 Ok(mut row) => {
                     row.done = req.done;
-                    row.done_at = if req.done {
-                        Some(now_rfc3339())
-                    } else {
-                        None
-                    };
+                    row.done_at = if req.done { Some(now_rfc3339()) } else { None };
                     match db.save_todo(&row).map_err(|e| e.to_string()) {
                         Ok(()) => respond(Ok(row), origin),
                         Err(e) => respond::<TodoRow>(Err(e), origin),
@@ -132,10 +128,9 @@ pub fn route(
         ["api", "todos", id] if method == "DELETE" => match scoped(db, id, owner, is_admin) {
             Ok(_) => match db.remove_todo(id) {
                 Ok(true) => respond(Ok(serde_json::json!({ "removed": true })), origin),
-                Ok(false) => respond::<serde_json::Value>(
-                    Err(format!("not_found: no todo `{id}`")),
-                    origin,
-                ),
+                Ok(false) => {
+                    respond::<serde_json::Value>(Err(format!("not_found: no todo `{id}`")), origin)
+                }
                 Err(e) => respond::<serde_json::Value>(Err(e.to_string()), origin),
             },
             Err(e) => respond::<serde_json::Value>(Err(e), origin),

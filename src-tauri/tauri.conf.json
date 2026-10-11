@@ -52,6 +52,9 @@
     "android": {
       "minSdkVersion": 24,
       "versionCode": 1000
+    },
+    "ios": {
+      "minimumSystemVersion": "17.0"
     }
   },
   "plugins": {

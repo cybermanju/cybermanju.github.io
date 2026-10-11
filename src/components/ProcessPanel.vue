@@ -99,6 +99,7 @@ const wMime = ref('')
 const wPattern = ref('')
 const wNotify = ref(true)
 const wAddTag = ref('')
+const wAgent = ref('')
 const watchNote = ref('')
 const watchHits = ref(0)
 
@@ -127,7 +128,11 @@ function addWatchRule() {
       ...(wMime.value.trim() ? { mimePrefix: wMime.value.trim() } : {}),
       ...(wPattern.value.trim() ? { namePattern: wPattern.value.trim() } : {}),
     },
-    { notify: wNotify.value, ...(wAddTag.value.trim() ? { addTag: wAddTag.value.trim() } : {}) },
+    {
+      notify: wNotify.value,
+      ...(wAddTag.value.trim() ? { addTag: wAddTag.value.trim() } : {}),
+      ...(wAgent.value ? { agentConfigId: wAgent.value } : {}),
+    },
   )
   if (!created) {
     watchNote.value = 'name the rule first'
@@ -139,6 +144,7 @@ function addWatchRule() {
   wMime.value = ''
   wPattern.value = ''
   wAddTag.value = ''
+  wAgent.value = ''
   watchNote.value = ''
   persistWatchers()
 }
@@ -166,6 +172,7 @@ async function evaluateWatchersNow() {
   const hits = evaluateWatchers(watchRules.value, files)
   watchHits.value = hits.length
   let tagged = 0
+  let classified = 0
   for (const { rule, file } of hits) {
     if (rule.actions.addTag) {
       const node = store.files.find((f) => f.id === file.id)
@@ -178,11 +185,23 @@ async function evaluateWatchersNow() {
     if (rule.actions.notify) {
       notify('info', `watcher '${rule.name}': ${file.name}`, 5000, 'Watcher')
     }
+    // §4.6 classify hook: fire-and-forget agent pass over the new file.
+    if (rule.actions.agentConfigId) {
+      try {
+        await store.startAgentRun(
+          rule.actions.agentConfigId,
+          `Classify this new file and reply with tags + one summary line: ${file.name} (${file.mimeType ?? 'unknown type'})`,
+        )
+        classified += 1
+      } catch {
+        /* a dead assistant must not fail the watcher run */
+      }
+    }
   }
   watchNote.value =
     hits.length === 0
       ? 'no matches in the current vault listing'
-      : `${hits.length} match${hits.length === 1 ? '' : 'es'}${tagged ? ` · ${tagged} tagged` : ''}`
+      : `${hits.length} match${hits.length === 1 ? '' : 'es'}${tagged ? ` · ${tagged} tagged` : ''}${classified ? ` · ${classified} sent to agent` : ''}`
 }
 
 // ── Schedules (cron) ────────────────────────────────────────
@@ -620,6 +639,13 @@ onBeforeUnmount(() => {
             <UiInput v-model="wAddTag" label="Then add tag" placeholder="review" spellcheck="false" />
           </div>
           <UiCheckbox v-model="wNotify" label="Notify in the notification center on match" />
+          <label class="watch-agent">
+            <span class="text-muted">Classify with assistant</span>
+            <select v-model="wAgent" class="watch-select" aria-label="Classify with assistant">
+              <option value="">off</option>
+              <option v-for="c in store.agentConfigs" :key="c.id" :value="c.id">{{ c.name }}</option>
+            </select>
+          </label>
           <button class="ghost-btn" type="button" @click="addWatchRule">{{ t('watchers.add') }}</button>
         </div>
         <p v-if="watchNote" class="note">{{ watchNote }}</p>
@@ -639,7 +665,7 @@ onBeforeUnmount(() => {
               <td data-label="Match" class="truncate">
                 {{ [rule.match.tag && `tag=${rule.match.tag}`, rule.match.mimePrefix && `mime=${rule.match.mimePrefix}`, rule.match.namePattern && `name~${rule.match.namePattern}`].filter(Boolean).join(' · ') || 'everything' }}
               </td>
-              <td data-label="Then">{{ [rule.actions.notify && 'notify', rule.actions.addTag && `tag:${rule.actions.addTag}`].filter(Boolean).join(' · ') }}</td>
+              <td data-label="Then">{{ [rule.actions.notify && 'notify', rule.actions.addTag && `tag:${rule.actions.addTag}`, rule.actions.agentConfigId && 'agent'].filter(Boolean).join(' · ') }}</td>
               <td data-label="State">
                 <button
                   class="ghost-btn state-toggle"
@@ -998,6 +1024,28 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.watch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.watch-agent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.watch-select {
+  background: transparent;
+  border: 1px solid var(--ui-border);
+  color: var(--ui-text);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
 }
 
 .sched-presets {

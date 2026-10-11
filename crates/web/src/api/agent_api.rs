@@ -1739,7 +1739,12 @@ fn tool_todo_list(db: &Database, owner: &str) -> Result<String, String> {
         .join("\n"))
 }
 
-fn tool_todo_add(db: &Database, owner: &str, config_id: &str, title: &str) -> Result<String, String> {
+fn tool_todo_add(
+    db: &Database,
+    owner: &str,
+    config_id: &str,
+    title: &str,
+) -> Result<String, String> {
     let title = title.trim();
     if title.is_empty() {
         return Err("invalid: todo title is required".to_string());

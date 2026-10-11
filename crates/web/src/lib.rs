@@ -1408,10 +1408,20 @@ fn route_request(
     if method == "GET" && matches!(path_segments.as_slice(), ["api", "peers"]) {
         return lan_peers(origin);
     }
-    if method == "GET" && matches!(path_segments.as_slice(), ["api", "sync", "bundle", "export"]) {
+    if method == "GET"
+        && matches!(
+            path_segments.as_slice(),
+            ["api", "sync", "bundle", "export"]
+        )
+    {
         return bundle_export(db, query, origin);
     }
-    if method == "POST" && matches!(path_segments.as_slice(), ["api", "sync", "bundle", "import"]) {
+    if method == "POST"
+        && matches!(
+            path_segments.as_slice(),
+            ["api", "sync", "bundle", "import"]
+        )
+    {
         return bundle_import(db, body, origin);
     }
     // <<< /CYBERMANJU OS PRE-WIRE >>>

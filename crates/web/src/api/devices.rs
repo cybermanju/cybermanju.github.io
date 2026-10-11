@@ -117,10 +117,9 @@ pub fn route(
     origin: Option<&str>,
 ) -> Option<String> {
     let response = match path_segments {
-        ["api", "devices"] if method == "GET" => respond(
-            db.list_devices().map_err(|e| e.to_string()),
-            origin,
-        ),
+        ["api", "devices"] if method == "GET" => {
+            respond(db.list_devices().map_err(|e| e.to_string()), origin)
+        }
 
         ["api", "devices"] if method == "POST" => match parse::<RegisterRequest>(body) {
             Ok(req) => respond(register(db, &req), origin),
@@ -129,10 +128,9 @@ pub fn route(
 
         ["api", "devices", id] if method == "DELETE" => match db.remove_device(id) {
             Ok(true) => respond(Ok(serde_json::json!({ "removed": true })), origin),
-            Ok(false) => respond::<serde_json::Value>(
-                Err(format!("not_found: no device `{id}`")),
-                origin,
-            ),
+            Ok(false) => {
+                respond::<serde_json::Value>(Err(format!("not_found: no device `{id}`")), origin)
+            }
             Err(e) => respond::<serde_json::Value>(Err(e.to_string()), origin),
         },
 
@@ -146,10 +144,9 @@ pub fn route(
                         Err(e) => respond::<DeviceRow>(Err(e), origin),
                     }
                 }
-                Ok(None) => respond::<DeviceRow>(
-                    Err(format!("not_found: no device `{id}`")),
-                    origin,
-                ),
+                Ok(None) => {
+                    respond::<DeviceRow>(Err(format!("not_found: no device `{id}`")), origin)
+                }
                 Err(e) => respond::<DeviceRow>(Err(e), origin),
             }
         }

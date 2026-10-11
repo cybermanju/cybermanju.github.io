@@ -65,6 +65,13 @@
         </div>
         <div v-if="brokenOfSelected.length" class="note text-muted">{{ tr('archive.brokenLinks') }}: {{ brokenOfSelected.join(', ') }}</div>
         <button class="ghost-btn primary" type="button" @click="editInStudio">OPEN IN EDITOR</button>
+        <div class="create-row">
+          <select v-model="memoryConfigId" class="input grow" aria-label="Agent for memory">
+            <option value="">MEMORY → AGENT…</option>
+            <option v-for="c in store.agentConfigs" :key="c.id" :value="c.id">{{ c.name }}</option>
+          </select>
+          <button class="ghost-btn" type="button" :disabled="!memoryConfigId || !selectedContent" @click="rememberNote">REMEMBER</button>
+        </div>
       </div>
     </template>
 
@@ -132,14 +139,20 @@
       </div>
     </template>
 
-    <!-- ══ TASKS ══ -->
+    <!-- ══ TASKS (local + server shared list, §4.9) ══ -->
     <template v-if="view === 'TASKS'">
       <div class="section">
         <form class="create-row" @submit.prevent="pushTodo">
           <input v-model="todoDraft" class="input grow" :placeholder="tr('archive.taskPlaceholder')" aria-label="New task title" />
           <button class="ghost-btn primary" type="submit">{{ tr('archive.addTask') }}</button>
         </form>
-        <div v-if="!todos.length" class="note">{{ tr('archive.noTasks') }}</div>
+        <p v-if="serverTodos === null" class="note text-muted">LOCAL ONLY — no dashboard (static host).</p>
+        <div v-if="!todos.length && !(serverTodos ?? []).length" class="note">{{ tr('archive.noTasks') }}</div>
+        <div v-for="td in serverTodos ?? []" :key="`srv-${td.id}`" class="todo-row">
+          <input type="checkbox" :checked="td.done" :aria-label="`Done: ${td.title}`" @change="flipServerTodo(td.id, !td.done)" />
+          <span class="truncate" :class="{ done: td.done }">{{ td.title }} <span class="text-muted">· {{ td.source }}</span></span>
+          <button type="button" class="todo-x" aria-label="Remove task" @click="dropServerTodo(td.id)">×</button>
+        </div>
         <div v-for="td in todos" :key="td.id" class="todo-row">
           <input type="checkbox" :checked="td.done" :aria-label="`Done: ${td.title}`" @change="flipTodo(td.id)" />
           <span class="truncate" :class="{ done: td.done }">{{ td.title }}</span>
@@ -305,6 +318,14 @@ function editInStudio() {
   if (selectedNote.value) wm.open('editor', { fileId: selectedNote.value.id } as never)
 }
 
+// ── NOTES → agent memory bridge (§4.2: the agent gets a notepad) ──
+const memoryConfigId = ref('')
+async function rememberNote() {
+  if (!selectedNote.value || !memoryConfigId.value || !selectedContent.value) return
+  const text = `Note "${selectedNote.value.name}":\n${selectedContent.value.slice(0, 4000)}`
+  await store.storeAgentMemory(memoryConfigId.value, text)
+}
+
 /* ── TIMELINE ── */
 const today = new Date()
 const onDay = ref(today.toISOString().slice(0, 10))
@@ -395,10 +416,12 @@ async function removeGroup() {
   selectedGroupId.value = ''
 }
 
-/* ── TASKS ── */
+/* ── TASKS (local + server shared list, §4.9) ── */
 const TODOS_KEY = 'cybermanju.todos.v1'
 const todos = ref<TodoItem[]>([])
 const todoDraft = ref('')
+// Server list when a dashboard answers, else null → local-only mode.
+const serverTodos = computed(() => store.serverTodos)
 function persistTodos() {
   try {
     localStorage.setItem(TODOS_KEY, serializeTodosStore(todos.value))
@@ -406,12 +429,24 @@ function persistTodos() {
     /* private mode */
   }
 }
-function pushTodo() {
+async function pushTodo() {
+  if (serverTodos.value !== null) {
+    if (!todoDraft.value.trim()) return
+    await store.createServerTodo(todoDraft.value)
+    todoDraft.value = ''
+    return
+  }
   const res = addTodo(todos.value, todoDraft.value)
   if (!res) return
   todos.value = res.list
   todoDraft.value = ''
   persistTodos()
+}
+async function flipServerTodo(id: string, done: boolean) {
+  await store.toggleServerTodo(id, done)
+}
+async function dropServerTodo(id: string) {
+  await store.deleteServerTodo(id)
 }
 function flipTodo(id: string) {
   todos.value = toggleTodo(todos.value, id)
@@ -507,6 +542,14 @@ onMounted(async () => {
   refreshLocale()
   window.addEventListener('focus', refreshLocale)
   await refresh()
+  await store.fetchServerTodos()
+  if (store.agentConfigs.length === 0) {
+    try {
+      await store.fetchAgentConfigs()
+    } catch {
+      /* static hosts have no agent backend */
+    }
+  }
 })
 </script>
 

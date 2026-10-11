@@ -86,7 +86,9 @@ pub fn route(
                 .and_then(|ops| Ok((ops, db.oplog_head()?)))
                 .map_err(|e| e.to_string())
             {
-                Ok((ops, head)) => respond(Ok(serde_json::json!({ "head": head, "ops": ops })), origin),
+                Ok((ops, head)) => {
+                    respond(Ok(serde_json::json!({ "head": head, "ops": ops })), origin)
+                }
                 Err(e) => respond::<serde_json::Value>(Err(e), origin),
             }
         }

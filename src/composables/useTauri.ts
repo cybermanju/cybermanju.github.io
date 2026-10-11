@@ -1077,6 +1077,118 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     buildPath: (args) => `/api/secrets/${encodeURIComponent(String(args.id ?? ''))}`,
   },
 
+  // ── Device identity (§2B.1) + LAN peers (§2B.2) ──
+  list_devices: {
+    method: 'GET',
+    buildPath: () => '/api/devices',
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  register_device: {
+    method: 'POST',
+    buildPath: () => '/api/devices',
+    transformRequest: (args) => ({
+      id: args.id ?? null,
+      name: args.name,
+      publicKey: args.publicKey ?? args.public_key ?? null,
+      keyAlgorithm: args.keyAlgorithm ?? args.key_algorithm ?? null,
+    }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  register_this_device: {
+    method: 'POST',
+    buildPath: () => '/api/devices',
+    transformRequest: (args) => ({ name: args.name }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  revoke_device: {
+    method: 'POST',
+    buildPath: (args) => `/api/devices/${encodeURIComponent(String(args.id ?? ''))}/revoke`,
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  remove_device: {
+    method: 'DELETE',
+    buildPath: (args) => `/api/devices/${encodeURIComponent(String(args.id ?? ''))}`,
+  },
+
+  list_lan_peers: {
+    method: 'GET',
+    buildPath: () => '/api/peers',
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  // ── Server todos (§4.9 agent bridge — same rows the agent tools use) ──
+  list_todos: {
+    method: 'GET',
+    buildPath: () => '/api/todos',
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  create_todo: {
+    method: 'POST',
+    buildPath: () => '/api/todos',
+    transformRequest: (args) => ({ title: args.title }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  toggle_todo: {
+    method: 'PUT',
+    buildPath: (args) => `/api/todos/${encodeURIComponent(String(args.id ?? ''))}`,
+    transformRequest: (args) => ({ done: Boolean(args.done) }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  delete_todo: {
+    method: 'DELETE',
+    buildPath: (args) => `/api/todos/${encodeURIComponent(String(args.id ?? ''))}`,
+  },
+
+  // ── Op-log exchange (§2C) + sneakernet bundles (§2B.4) ──
+  oplog_since: {
+    method: 'GET',
+    buildPath: (args) => {
+      const params = new URLSearchParams()
+      params.set('since', String(args.since ?? 0))
+      params.set('limit', String(args.limit ?? 500))
+      return `/api/oplog/since?${params.toString()}`
+    },
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  oplog_push: {
+    method: 'POST',
+    buildPath: () => '/api/oplog/push',
+    transformRequest: (args) => ({ ops: args.ops ?? [] }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  oplog_conflicts: {
+    method: 'GET',
+    buildPath: () => '/api/oplog/conflicts',
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  bundle_export: {
+    method: 'GET',
+    buildPath: (args) => {
+      const params = new URLSearchParams()
+      params.set('since', String(args.since ?? 0))
+      if (args.deviceId) params.set('deviceId', String(args.deviceId))
+      return `/api/sync/bundle/export?${params.toString()}`
+    },
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  bundle_import: {
+    method: 'POST',
+    buildPath: () => '/api/sync/bundle/import',
+    transformRequest: (args) => args.bundle ?? args,
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
   // Arming the daemon is a server-side no-op from the client's view; the
   // GET also trips `ensure_started` in `web/lib.rs` on the way past.
   cron_ensure_started: {
@@ -1431,6 +1543,11 @@ export const REST_FIRST = new Set([
   'mcp_add_server', 'mcp_remove_server', 'mcp_list_tools',
   'list_agent_memories', 'store_agent_memory', 'delete_agent_memory',
   'recall_agent_memories',
+  'list_devices', 'register_device', 'register_this_device',
+  'revoke_device', 'remove_device', 'list_lan_peers',
+  'list_todos', 'create_todo', 'toggle_todo', 'delete_todo',
+  'oplog_since', 'oplog_push', 'oplog_conflicts',
+  'bundle_export', 'bundle_import',
 ])
 
 /** Local commands Android/iOS serve over Tauri IPC (no dashboard on mobile).
@@ -1448,6 +1565,9 @@ export const MOBILE_NATIVE_OS_COMMANDS = new Set([
   'backup_export',
   'secret_list', 'secret_save', 'secret_update', 'secret_get',
   'secret_reveal', 'secret_delete',
+  'list_devices', 'register_device', 'register_this_device',
+  'revoke_device', 'remove_device', 'list_lan_peers',
+  'list_todos', 'create_todo', 'toggle_todo', 'delete_todo',
 ])
 
 // Commands the `cybermanju-os-wasm` crate serves on a static host.
@@ -3193,8 +3313,11 @@ export function useTauri() {
 
   async function pathExists(path: string): Promise<boolean> {
     if (isWebMode()) {
+      // P1-11: go through invoke() so the wasm transport answers from its
+      // volume instead of raw-fetching `/api/files` (always false offline).
+      void path
       try {
-        await restFetch<unknown>('GET', `/api/files`)
+        await invoke('list_files')
         return true
       } catch {
         return false

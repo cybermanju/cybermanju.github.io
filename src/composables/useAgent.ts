@@ -245,7 +245,7 @@ export function decideLocalTool(
   // Plan persona: read-only. skill_save writes a file, mcp_attach mutates
   // the config, os_exec runs volume commands — all denied like edit/write/
   // bash. self_research and repo_analyze are read-only and stay available.
-  if (agentKind === 'plan' && (tool === 'edit' || tool === 'write' || tool === 'bash' || tool === 'skill_save' || tool === 'mcp_attach' || tool === 'os_exec' || tool === 'secret_list' || tool === 'secret_get')) {
+  if (agentKind === 'plan' && (tool === 'edit' || tool === 'write' || tool === 'bash' || tool === 'skill_save' || tool === 'mcp_attach' || tool === 'os_exec' || tool === 'secret_list' || tool === 'secret_get' || tool === 'todo_add' || tool === 'todo_done')) {
     return { kind: 'deny', reason: `deny: plan agent may not run \`${tool}\`` }
   }
   const rule = rules.rules[tool]

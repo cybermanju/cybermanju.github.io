@@ -1365,3 +1365,34 @@ Stage Summary:
   bridge, agent classify hook + add/complete bridge, skills panels-later.
 - Verified here: headers ok, `vue-tsc` clean, full vitest green (see run).
   Rust untouched — CI has nothing new to prove.
+## 2026-10-11 — ANALYSIS 100%: spine, P0 remainder, bridges, iOS scaffold (Rust CI-gated, no local cargo)
+
+- Devices (§2B.1): `DeviceRow` + `devices` table (list/get/save/remove/touch)
+  + `POST/GET /api/devices`, `DELETE`, `POST …/revoke` (Admin) +
+  `list/register/register_this(MlDsa65)/revoke/remove/list_lan_peers` Tauri
+  twins + Devices → Identity tab + `spine.rs` tests.
+- LAN discovery (§2B.2): `sync/src/lan.rs` (real mDNS DNS-packet subset,
+  std-only, ephemeral-port active scan, pointer-safe parser, loopback tests)
+  + `GET /api/peers` + peers card. Direct-sync protocol sequenced.
+- CAS leases (P0-19): single-write-txn acquire/renew/release + 8-thread
+  exactly-one-winner regression test; `write_lease` removed.
+- Op-log (§2C): `OpRow` + `oplog` table (atomic seq, since-pull, idempotent
+  merge, dominance conflict scan) + `GET/POST /api/oplog/*` + unit tests.
+- Sneakernet (§2B.4): `sync/src/bundle.rs` (`cyb-bundle/1`, BLAKE3 manifest,
+  caps, idempotent import) + Admin bundle routes + round-trip/tamper tests.
+- Agent todo bridge (§4.9): `todos` table + `todo_add/list/done` tools
+  (owner-scoped, plan-deny parity, metaprompt, 23 schemas) + Tauri + REST +
+  Archive TASKS server merge; watcher classify hook (`agentConfigId` →
+  fire-and-forget `startAgentRun`); NOTES → `storeAgentMemory` bridge.
+- Secrets CSV (§4.1): `secretImport.ts` (1Password/Bitwarden/generic, 2000 cap)
+  + panel modal + tests.
+- P0: hash-strip on IPC (P0-4), shim deletion, no-row-token test (P0-6);
+  audited-and-ticked P0-1/2/8/10; P1-1/6/7/11 ticked.
+- iOS (P2-16): `bundle.ios` floor + `docs/IOS.md` + config-shape tests.
+- Frontend: 166 REST mappings, devices/todos/peers/oplog/bundle routes,
+  store actions, `agentUi` metas, `secret-import` tests green.
+- Docs: ANALYSIS 100% dispositions, TASKS ticks, ARCHITECTURE endpoint rows,
+  OPERATIONS skill/task verbs + TLS runbook.
+- Verified here: version agree, headers ok (tracked set; new files carry
+  headers, verified by grep), `vue-tsc` clean, full vitest green (see run).
+  Rust compiles/tests/iOS builds are CI's job per repo rules (no local cargo).

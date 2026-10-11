@@ -5,7 +5,8 @@
 // body contracts, owner scoping, idempotent merges and error prefixes.
 
 use crate::web::{
-    bearer, body_of, bootstrap_session, call, login_session, mint, mk_dashboard, now_secs, status_of,
+    bearer, body_of, bootstrap_session, call, login_session, mint, mk_dashboard, now_secs,
+    status_of,
 };
 
 fn admin(d: &cybermanju_web::WebDashboard) -> String {
@@ -67,9 +68,21 @@ fn devices_register_idempotently_and_revoke_admin_only() {
 
     // Non-admins cannot revoke or delete.
     let plain = user(&d);
-    let denied = call(&d, "POST", &format!("/api/devices/{id}/revoke"), "", Some(&plain));
+    let denied = call(
+        &d,
+        "POST",
+        &format!("/api/devices/{id}/revoke"),
+        "",
+        Some(&plain),
+    );
     assert_eq!(status_of(&denied), 403, "{denied}");
-    let revoked = call(&d, "POST", &format!("/api/devices/{id}/revoke"), "", Some(&auth));
+    let revoked = call(
+        &d,
+        "POST",
+        &format!("/api/devices/{id}/revoke"),
+        "",
+        Some(&auth),
+    );
     assert_eq!(status_of(&revoked), 200, "{revoked}");
     let row: serde_json::Value = serde_json::from_str(body_of(&revoked)).expect("json");
     assert_eq!(row["revoked"], true);
@@ -97,7 +110,13 @@ fn todos_scope_to_owners_and_validate() {
     }
     let alice = bearer(&login_session(&d, "alice", "correct horse battery"));
     let bob = bearer(&login_session(&d, "bob", "correct horse battery"));
-    let created = call(&d, "POST", "/api/todos", r#"{"title":"Buy milk"}"#, Some(&alice));
+    let created = call(
+        &d,
+        "POST",
+        "/api/todos",
+        r#"{"title":"Buy milk"}"#,
+        Some(&alice),
+    );
     assert_eq!(status_of(&created), 200, "{created}");
     let row: serde_json::Value = serde_json::from_str(body_of(&created)).expect("json");
     let id = row["id"].as_str().expect("id").to_string();
@@ -107,15 +126,23 @@ fn todos_scope_to_owners_and_validate() {
 
     // Bob sees none of Alice's rows; touching them 404s (never 403-leaks).
     let bobs = call(&d, "GET", "/api/todos", "", Some(&bob));
-    assert_eq!(
-        body_of(&bobs),
-        "[]",
-        "cross-owner leak: {bobs}"
+    assert_eq!(body_of(&bobs), "[]", "cross-owner leak: {bobs}");
+    let touch = call(
+        &d,
+        "PUT",
+        &format!("/api/todos/{id}"),
+        r#"{"done":true}"#,
+        Some(&bob),
     );
-    let touch = call(&d, "PUT", &format!("/api/todos/{id}"), r#"{"done":true}"#, Some(&bob));
     assert_eq!(status_of(&touch), 404, "{touch}");
 
-    let done = call(&d, "PUT", &format!("/api/todos/{id}"), r#"{"done":true}"#, Some(&alice));
+    let done = call(
+        &d,
+        "PUT",
+        &format!("/api/todos/{id}"),
+        r#"{"done":true}"#,
+        Some(&alice),
+    );
     assert_eq!(status_of(&done), 200, "{done}");
     let row: serde_json::Value = serde_json::from_str(body_of(&done)).expect("json");
     assert_eq!(row["done"], true);
@@ -132,7 +159,13 @@ fn oplog_push_pull_and_conflicts() {
     assert_eq!(status_of(&empty), 200, "{empty}");
     assert_eq!(body_of(&empty), r#"{"head":0,"ops":[]}"#, "{empty}");
 
-    let bad = call(&d, "POST", "/api/oplog/push", r#"{"ops":[{"kind":""}]}"#, Some(&auth));
+    let bad = call(
+        &d,
+        "POST",
+        "/api/oplog/push",
+        r#"{"ops":[{"kind":""}]}"#,
+        Some(&auth),
+    );
     assert_eq!(status_of(&bad), 400, "{bad}");
 
     let push = call(
@@ -160,9 +193,18 @@ fn oplog_push_pull_and_conflicts() {
         Some(&auth),
     );
     let report: serde_json::Value = serde_json::from_str(body_of(&again)).expect("json");
-    assert_eq!((report["appended"].as_u64(), report["skipped"].as_u64()), (Some(0), Some(1)));
+    assert_eq!(
+        (report["appended"].as_u64(), report["skipped"].as_u64()),
+        (Some(0), Some(1))
+    );
 
-    let page = call(&d, "GET", "/api/oplog/since?since=0&limit=500", "", Some(&auth));
+    let page = call(
+        &d,
+        "GET",
+        "/api/oplog/since?since=0&limit=500",
+        "",
+        Some(&auth),
+    );
     let page: serde_json::Value = serde_json::from_str(body_of(&page)).expect("json");
     assert_eq!(page["ops"].as_array().map(|a| a.len()), Some(1));
 
@@ -177,7 +219,13 @@ fn bundle_export_import_round_trips_admin_only() {
     let (_dir, d) = mk_dashboard(3456);
     let auth = admin(&d);
     let plain = user(&d);
-    let denied = call(&d, "GET", "/api/sync/bundle/export?since=0", "", Some(&plain));
+    let denied = call(
+        &d,
+        "GET",
+        "/api/sync/bundle/export?since=0",
+        "",
+        Some(&plain),
+    );
     assert_eq!(status_of(&denied), 403, "{denied}");
 
     call(
@@ -187,14 +235,26 @@ fn bundle_export_import_round_trips_admin_only() {
         r#"{"ops":[{"opId":"d9-0","deviceId":"d9","createdAt":"2026-10-11T00:00:00Z","kind":"star","fileId":"f2","payload":{}}]}"#,
         Some(&auth),
     );
-    let export = call(&d, "GET", "/api/sync/bundle/export?since=0&deviceId=d9", "", Some(&auth));
+    let export = call(
+        &d,
+        "GET",
+        "/api/sync/bundle/export?since=0&deviceId=d9",
+        "",
+        Some(&auth),
+    );
     assert_eq!(status_of(&export), 200, "{export}");
     let bundle: serde_json::Value = serde_json::from_str(body_of(&export)).expect("json");
     assert_eq!(bundle["format"], "cyb-bundle/1");
 
     // Tampered bytes fail closed with integrity:, never merge.
     let tampered = body_of(&export).replace("\"kind\":\"star\"", "\"kind\":\"delete\"");
-    let bad = call(&d, "POST", "/api/sync/bundle/import", &tampered, Some(&auth));
+    let bad = call(
+        &d,
+        "POST",
+        "/api/sync/bundle/import",
+        &tampered,
+        Some(&auth),
+    );
     assert_eq!(status_of(&bad), 409, "{bad}");
     assert!(body_of(&bad).contains("integrity:"), "{bad}");
 }
@@ -223,10 +283,19 @@ fn sync_config_tokens_never_reach_rows_or_clients() {
         r#"{"config":{"id":"","name":"vault","backendType":"local","token":"sekret-token"}}}"#,
         Some(&auth),
     );
-    assert!(status_of(&saved) == 200 || status_of(&saved) == 400, "{saved}");
+    assert!(
+        status_of(&saved) == 200 || status_of(&saved) == 400,
+        "{saved}"
+    );
     if status_of(&saved) == 200 {
-        assert!(!body_of(&saved).contains("sekret-token"), "token echoed: {saved}");
+        assert!(
+            !body_of(&saved).contains("sekret-token"),
+            "token echoed: {saved}"
+        );
         let listed = call(&d, "GET", "/api/sync/configs", "", Some(&auth));
-        assert!(!body_of(&listed).contains("sekret-token"), "token listed: {listed}");
+        assert!(
+            !body_of(&listed).contains("sekret-token"),
+            "token listed: {listed}"
+        );
     }
 }

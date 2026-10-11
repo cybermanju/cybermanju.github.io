@@ -631,6 +631,19 @@ async function runImport() {
 .sp-strength-label[data-strength='strong'] { color: #3ecf8e; }
 .sp-form-check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .sp-form-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.sp-import-area {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+  background: transparent;
+  color: var(--ui-text);
+  border: 1px solid var(--ui-border, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  padding: 8px;
+  resize: vertical;
+}
+.sp-import-err { color: var(--ui-danger); }
 @media (max-width: 820px) {
   .sp { grid-template-columns: 1fr; }
   .sp-side { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--ui-border, rgba(255, 255, 255, 0.08)); }

@@ -793,6 +793,21 @@ Login via `POST /api/users/login` with `{ "username": "...", "password": "..." }
 | `GET` | `/api/agent/configs/{id}/mcp/tools` | Discover MCP tools |
 | `GET`/`PUT` | `/api/files/{id}/content` | Read/overwrite managed file text (1 MiB cap, versioned saves) |
 | `POST` | `/api/code/parse` | Parse source text (shared heuristic core) |
+| **Devices** | | |
+| `GET`/`POST` | `/api/devices` | List/register device identities (ML-DSA public keys; enrollment idempotent) |
+| `DELETE` | `/api/devices/{id}` | Remove a device row (admin) |
+| `POST` | `/api/devices/{id}/revoke` | Revoke a device — row stays, fails closed (admin) |
+| `GET` | `/api/peers` | Active mDNS LAN scan (`_cybermanju._tcp.local`, 2 s cap) |
+| **Todos** | | |
+| `GET`/`POST` | `/api/todos` | Owner-scoped shared task list (agent tools use the same rows) |
+| `PUT`/`DELETE` | `/api/todos/{id}` | Complete/reopen or delete a todo (owner-scoped, 404 across owners) |
+| **Op-log** | | |
+| `GET` | `/api/oplog/since?since=N&limit=M` | Pull ops after seq N (`{ head, ops }`, idempotent) |
+| `POST` | `/api/oplog/push` | Merge foreign ops (`{ appended, skipped, head }`) |
+| `GET` | `/api/oplog/conflicts` | Fork pairs for the conflict UI |
+| **Sneakernet** | | |
+| `GET` | `/api/sync/bundle/export?since=N` | BLAKE3-manifested op delta (`cyb-bundle/1`, admin) |
+| `POST` | `/api/sync/bundle/import` | Validate + merge a bundle (idempotent, admin) |
 | **Health** | | |
 | `GET` | `/api/health` | Health check (returns `{ service, status, timestamp }`) |
 

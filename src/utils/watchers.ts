@@ -30,6 +30,8 @@ export interface WatchRule {
   actions: {
     notify: boolean
     addTag?: string
+    /** Assistant id for fire-and-forget classification (§4.6 hook). */
+    agentConfigId?: string
   }
   createdAt: string
 }

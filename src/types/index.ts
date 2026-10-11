@@ -856,6 +856,38 @@ export interface SecretInput {
   value?: string | null
 }
 
+/** Device identity row — twin of `DeviceRow` (one ML-DSA keypair per
+ *  device; the private half never leaves the device). */
+export interface DeviceInfo {
+  id: string
+  name: string
+  publicKey?: string
+  keyAlgorithm?: string
+  createdAt: string
+  lastSeenAt: string
+  revoked?: boolean
+}
+
+/** Server-side todo — twin of `TodoRow` (agent + Archive share one list). */
+export interface ServerTodo {
+  id: string
+  title: string
+  done: boolean
+  createdAt: string
+  doneAt?: string
+  ownerId: string
+  source: string
+}
+
+/** One mDNS-discovered LAN peer (`GET /api/peers`, `list_lan_peers`). */
+export interface LanPeer {
+  deviceId: string
+  name: string
+  host: string
+  port: number
+  lastSeenSecs: number
+}
+
 /** One snapshot file (`backup list` — every transport, `--json`). */
 export interface BackupEntry {
   name: string

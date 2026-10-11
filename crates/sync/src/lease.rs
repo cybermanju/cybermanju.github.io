@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 
 use cybermanju_db::Database;
 use cybermanju_types::sync::ConflictPolicy;
+use redb::ReadableTable;
 use serde::{Deserialize, Serialize};
 
 /// Default lease lifetime. Long enough to survive a slow operation, short

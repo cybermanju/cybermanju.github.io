@@ -47,10 +47,7 @@ pub fn register_device(
 /// private half is sealed into the keystore like every other keypair —
 /// `register_this_device` never returns it.
 #[tauri::command(async)]
-pub fn register_this_device(
-    name: String,
-    state: State<'_, AppState>,
-) -> Result<DeviceRow, String> {
+pub fn register_this_device(name: String, state: State<'_, AppState>) -> Result<DeviceRow, String> {
     use crate::crypto::pqc::{algorithm_from_str, PqcEngine};
     let algo = algorithm_from_str("ml_dsa65")
         .ok_or_else(|| "integrity: ml_dsa65 unknown to the PQC engine".to_string())?;
