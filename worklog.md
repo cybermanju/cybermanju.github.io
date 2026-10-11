@@ -1063,3 +1063,10 @@ Stage Summary:
 - Addressed the first part of P1-19: `loadWasm()` no longer retains a rejected import/initialization promise indefinitely. Concurrent callers still share the in-flight attempt and receive its rejection; after failure, the next interaction can retry, while successful initialization remains cached.
 - Added `wasm-load-retry.test.ts`, which simulates one transient initialization failure, verifies the next attempt succeeds, and confirms later calls reuse the initialized module. Updated `TASKS.md` to record this completed subtask while leaving OPFS backend upgrades and worker timeout/offline handling open.
 - Verified with `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, `npm test` (64 files / 712 tests), and `git diff --check`. No local Cargo commands run per `AGENTS.md`.
+
+
+## 2026-10-11 — Keep REST timeouts active through response-body reads
+- Confirmed `origin/main` (`a866573`) is already an ancestor of `develop` (`c534c45`); develop is 14 commits ahead, with no main-only changes to merge. `main` remains untouched.
+- Fixed a remaining P1-10 gap in `restFetch()`: its 15-second `AbortController` deadline previously ended as soon as response headers arrived, so a stalled success/error body could hang indefinitely. The deadline now covers body consumption; an aborted body read is normalized to `network:` and uses the existing one-retry backoff. The 401 event still fires as soon as headers arrive.
+- Added `tests/frontend/rest-fetch-timeout.test.ts`: headers arrive immediately, the first body stalls until the deadline, then a retry succeeds. During the audit, P1-6/7/8 implementations were verified in the source and existing transport tests, and their stale open checkboxes were closed; P1-10 is now complete.
+- Verified: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, `npm test -- --reporter=dot` (65 files / 713 tests), and `git diff --check` all pass. No Cargo commands run, per `AGENTS.md`.

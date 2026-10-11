@@ -196,47 +196,68 @@ async function restFetch<T>(method: string, path: string, body?: unknown): Promi
       init.body = JSON.stringify(body)
     }
     const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      ctrl.abort()
+    }, TIMEOUT_MS)
     init.signal = ctrl.signal
+    const networkError = (err: unknown, stage: 'request' | 'reading response body') => {
+      const reason = err instanceof Error ? err.message : String(err)
+      const aborted = timedOut ||
+        (err instanceof Error && (err.name === 'AbortError' || reason.toLowerCase().includes('abort')))
+      const message = aborted
+        ? `network: request timed out after ${TIMEOUT_MS}ms calling ${method} ${path}: ${reason}`
+        : `network: Network error ${stage} calling ${method} ${path}: ${reason}`
+      return new Error(message)
+    }
 
     let res: Response
     try {
       res = await fetch(url, init)
     } catch (err) {
       clearTimeout(timer)
-      const reason = err instanceof Error ? err.message : String(err)
-      const aborted =
-        err instanceof Error && (err.name === 'AbortError' || reason.includes('abort'))
-      const msg = aborted
-        ? `network: request timed out after ${TIMEOUT_MS}ms calling ${method} ${path}: ${reason}`
-        : `network: Network error calling ${method} ${path}: ${reason}`
-      lastError = new Error(msg)
-      if (attempt + 1 < MAX_ATTEMPTS && isRetriable(msg)) {
+      const requestError = networkError(err, 'request')
+      lastError = requestError
+      if (attempt + 1 < MAX_ATTEMPTS && isRetriable(requestError.message)) {
         await backoff(attempt)
         continue
       }
       throw lastError
     }
+
+    // Fetch resolves when headers arrive, not when the body is consumed. Keep
+    // the same abort deadline through body reading so a stalled JSON stream
+    // cannot leave the caller waiting forever after a prompt HTTP response.
+    if (!res.ok && res.status === 401 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('cybermanju:unauthorized'))
+    }
+    let responseText = ''
+    if (res.status !== 204) {
+      try {
+        responseText = await res.text()
+      } catch (err) {
+        clearTimeout(timer)
+        const bodyError = networkError(err, 'reading response body')
+        lastError = bodyError
+        if (attempt + 1 < MAX_ATTEMPTS && isRetriable(bodyError.message)) {
+          await backoff(attempt)
+          continue
+        }
+        throw lastError
+      }
+    }
     clearTimeout(timer)
 
     if (!res.ok) {
-      // Expired / missing JWT — tell the app to offer a login (F2)
-      if (res.status === 401 && typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('cybermanju:unauthorized'))
-      }
       let message = `HTTP ${res.status} ${res.statusText}`
       try {
-        const errBody = await res.json()
-        if (errBody?.message) message = errBody.message
+        const errBody = JSON.parse(responseText) as Record<string, unknown>
+        if (errBody?.message) message = String(errBody.message)
         else if (errBody?.error) message = `${res.status}: ${errBody.error}`
       } catch {
         // Server sent plain text (or empty) — preserve any AGENT-1 prefix it carries.
-        try {
-          const text = await res.text()
-          if (text.trim()) message = text.trim()
-        } catch {
-          // ignore body read failure
-        }
+        if (responseText.trim()) message = responseText.trim()
       }
       // Normalize bare HTTP failures to AGENT-1 prefixes so callers can hint.
       if (message.startsWith('HTTP 401') || res.status === 401) {
@@ -254,7 +275,7 @@ async function restFetch<T>(method: string, path: string, body?: unknown): Promi
     // 204 No Content
     if (res.status === 204) return undefined as T
 
-    return res.json() as Promise<T>
+    return JSON.parse(responseText) as T
   }
   throw lastError instanceof Error ? lastError : new Error('network: request failed')
 }
