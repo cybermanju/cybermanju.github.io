@@ -74,7 +74,7 @@ redb = "2"
 # Auth & crypto (additional)
 argon2 = "0.5"
 jsonwebtoken = "9"
-hmac = "0.12"
+hmac = "0.13"
 sha2 = "0.10"
 
 # Image & media
