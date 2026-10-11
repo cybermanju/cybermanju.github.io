@@ -89,6 +89,7 @@ function collectSubject(sub, files) {
   const matched = files.filter((f) => sub.paths.some((p) => f === p || f.startsWith(p)));
   const fileCtx = [];
   const contractHits = new Map();
+  const importCrates = new Set();
   let symbolCount = 0;
   for (const f of matched) {
     if (!/\.(rs|ts|vue|js|mjs|sh|go)$/.test(f)) continue;
@@ -99,6 +100,11 @@ function collectSubject(sub, files) {
     const ctx = collectFileContext(f, text);
     fileCtx.push({ path: f, header: headerText(ctx), symbols: ctx.symbols.slice(0, 60), imports: ctx.imports.slice(0, 12) });
     symbolCount += ctx.symbols.length;
+    for (const imp of ctx.imports) {
+      for (const m of imp.raw.matchAll(/cybermanju[-_]([a-z_]+)/g)) {
+        importCrates.add(m[1].replace(/-/g, '_'));
+      }
+    }
     const sigs = new Set((text.match(SIGNAL_RE) || []).map((s) => s.replace(/:$/, '')));
     for (const s of sigs) {
       if (!contractHits.has(s)) contractHits.set(s, []);
@@ -107,7 +113,53 @@ function collectSubject(sub, files) {
   }
   // Richest files first (most symbols) for the .txt module section.
   fileCtx.sort((a, b) => b.symbols.length - a.symbols.length);
-  return { sub, files: fileCtx, fileCount: fileCtx.length, symbolCount, contracts: [...contractHits.entries()] };
+  return { sub, files: fileCtx, fileCount: fileCtx.length, symbolCount, contracts: [...contractHits.entries()], importCrates: [...importCrates] };
+}
+
+// Crate → subject: real dependency edges mined from imports.
+const CRATE_SUBJECT = {
+  agent: 'agent', sync: 'sync', erasure: 'sync', crypto: 'crypto',
+  compression: 'compression', disk: 'disk', web: 'web-api', db: 'db-types',
+  types: 'db-types', search: 'search', scene: 'search', faces: 'faces',
+  os: 'os-shell', os_wasm: 'wasm',
+};
+
+// Inter-subject links: hard import edges first, then reverse "used by"
+// edges (so leaf crates like compression still show who consumes them),
+// then subjects sharing ≥2 contract signals (shared protocols).
+function computeLinks(collected) {
+  const sigSets = new Map(collected.map((c) => [c.sub.id, new Set(c.contracts.map(([s]) => s))]));
+  const impLinks = new Map();
+  for (const c of collected) {
+    const linked = [];
+    for (const crate of c.importCrates) {
+      const target = CRATE_SUBJECT[crate];
+      if (target && target !== c.sub.id && !linked.includes(target)) linked.push(target);
+    }
+    impLinks.set(c.sub.id, linked);
+  }
+  for (const c of collected) {
+    const linked = [...impLinks.get(c.sub.id)];
+    // Reverse: whoever imports me.
+    for (const o of collected) {
+      if (o.sub.id !== c.sub.id && (impLinks.get(o.sub.id) || []).includes(c.sub.id) && !linked.includes(o.sub.id)) {
+        linked.push(o.sub.id);
+      }
+    }
+    if (linked.length < 5) {
+      const mine = sigSets.get(c.sub.id);
+      const scored = collected
+        .filter((o) => o.sub.id !== c.sub.id && !linked.includes(o.sub.id))
+        .map((o) => ({ id: o.sub.id, shared: [...sigSets.get(o.sub.id)].filter((s) => mine.has(s)).length }))
+        .filter((x) => x.shared >= 2)
+        .sort((a, b) => b.shared - a.shared);
+      for (const s of scored) {
+        if (linked.length >= 5) break;
+        linked.push(s.id);
+      }
+    }
+    c.links = linked.slice(0, 5);
+  }
 }
 
 function escHtml(s) {
@@ -123,6 +175,7 @@ function subjectTxt(c) {
   out.push(`> App: ${SITE}/wiki/#/ + ${sub.id} | Static: ${SITE}/wiki/${sub.id}.html | JSON: ${SITE}/wiki/${sub.id}.json`);
   out.push('');
   out.push(`Files: ${fileCount}  |  Symbols: ${symbolCount}`);
+  if (c.links && c.links.length) out.push(`Links: ${c.links.join(', ')} (see their .txt for the other side)`);
   out.push('');
   out.push('## Modules (merged top-file headers)');
   out.push('');
@@ -159,7 +212,7 @@ function subjectJson(c) {
   const { sub, files, fileCount, symbolCount, contracts } = c;
   return {
     id: sub.id, title: sub.title, tag: sub.tag, blurb: sub.blurb, color: sub.color,
-    version: VERSION, fileCount, symbolCount,
+    version: VERSION, fileCount, symbolCount, links: c.links || [],
     contracts: contracts.slice(0, 40).map(([sig, where]) => ({ signal: sig, files: where })),
     files: files.map((f) => ({ path: f.path, header: f.header, symbols: f.symbols.slice(0, 40), imports: f.imports })),
   };
@@ -198,6 +251,7 @@ footer{margin-top:32px;color:var(--mut);font-size:13px}
 <div class="hero"><div class="tag">${escHtml(sub.tag)}</div><h1>${escHtml(sub.title)}</h1>
 <p class="blurb">${escHtml(sub.blurb)}</p>
 <div class="stats"><span>${fileCount} files</span><span>${symbolCount} symbols</span><span>v${VERSION}</span></div></div>
+${(c.links && c.links.length) ? `<h2>Related modules</h2><p class="syms">${c.links.map((id) => `<a href="./${id}.html" style="color:var(--ac);text-decoration:none;border:1px solid #ffffff22;border-radius:8px;padding:2px 10px;margin:2px;display:inline-block">${escHtml(id)}</a>`).join(' ')}</p>` : ''}
 <h2>Modules</h2>${rows}
 <h2>Top symbols</h2><p class="syms">${topSyms.map((s) => `<code title="${escHtml(s.file)}:${s.line}">${escHtml(s.name)}</code>`).join(' ')}</p>
 <h2>Contracts</h2><p>${contracts.length ? contracts.slice(0, 24).map(([s]) => `<code>${escHtml(s)}</code>`).join(' ') : 'none — pure logic'}</p>
@@ -230,6 +284,7 @@ function main() {
   const OUT = outIx !== -1 ? process.argv[outIx + 1] : 'dist-wasm';
   const files = trackedFiles();
   const collected = SUBJECTS.map((sub) => collectSubject(sub, files));
+  computeLinks(collected);
   mkdirSync(join(OUT, 'wiki'), { recursive: true });
 
   writeFileSync(join(OUT, 'llms.txt'), llmsTxt(collected));
@@ -240,9 +295,9 @@ function main() {
     writeFileSync(join(OUT, 'wiki', `${c.sub.id}.json`), JSON.stringify(j, null, 1) + '\n');
     writeFileSync(join(OUT, 'wiki', `${c.sub.id}.html`), subjectHtml(c));
     index.push({ id: c.sub.id, title: c.sub.title, tag: c.sub.tag, blurb: c.sub.blurb, color: c.sub.color,
-      fileCount: c.fileCount, symbolCount: c.symbolCount,
+      fileCount: c.fileCount, symbolCount: c.symbolCount, links: c.links || [],
       contracts: c.contracts.slice(0, 12).map(([sig]) => sig),
-      top: j.files.flatMap((f) => f.symbols.slice(0, 6).map((s) => ({ name: s.name, kind: s.kind, docs: s.docs, file: f.path }))).slice(0, 40) });
+      top: j.files.flatMap((f) => f.symbols.slice(0, 6).map((s) => ({ name: s.name, kind: s.kind, docs: s.docs, file: f.path, line: s.line }))).slice(0, 40) });
   }
   writeFileSync(join(OUT, 'wiki', 'subjects.json'), JSON.stringify({ version: VERSION, subjects: index }, null, 1) + '\n');
   const kb = (p) => (Buffer.byteLength(readFileSync(p, 'utf8')) / 1024).toFixed(1) + ' KB';

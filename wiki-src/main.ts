@@ -17,6 +17,7 @@ interface TopSymbol {
   kind: string;
   docs: string;
   file: string;
+  line: number;
 }
 
 interface Subject {
@@ -28,6 +29,7 @@ interface Subject {
   fileCount: number;
   symbolCount: number;
   contracts: string[];
+  links: string[];
   top: TopSymbol[];
 }
 
@@ -81,7 +83,7 @@ function glowSprite(color: string, size: number, opacity: number): THREE.Sprite 
   return sp;
 }
 
-function textSprite(text: string): THREE.Sprite {
+function textSprite(text: string, h = 1.05): THREE.Sprite {
   const c = document.createElement('canvas');
   const g = c.getContext('2d')!;
   const font = '700 46px "Baloo 2", system-ui, sans-serif';
@@ -107,7 +109,6 @@ function textSprite(text: string): THREE.Sprite {
   const sp = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }),
   );
-  const h = 1.05;
   sp.scale.set((h * w) / 84, h, 1);
   return sp;
 }
@@ -507,8 +508,104 @@ async function boot(): Promise<void> {
   // Mascot blink state (squash-and-stretch, no texture swap needed).
   let blinkAt = 2.5;
 
+  // ── Satellites: mini stars orbiting the selected node ──────────
+  // Real connections only: linked modules (from mined import edges +
+  // shared contract signals) and the module's own top symbols (with docs).
+  // Nothing here is generic — every satellite resolves to project data.
+  interface Sat {
+    mesh: THREE.Mesh;
+    label: THREE.Sprite;
+    link: THREE.Line;
+    linkPos: THREE.BufferAttribute;
+    angle: number;
+    radius: number;
+    speed: number;
+    yOff: number;
+    kind: 'symbol' | 'link';
+    subId: string;
+    symName: string;
+    tip: string;
+  }
+  let sats: Sat[] = [];
+  const satGeo = new THREE.IcosahedronGeometry(0.3, 1);
+
+  function clearSats(): void {
+    for (const s of sats) {
+      scene.remove(s.mesh);
+      scene.remove(s.label);
+      scene.remove(s.link);
+      (s.mesh.material as THREE.Material).dispose();
+      (s.label.material as THREE.SpriteMaterial).map?.dispose();
+      (s.label.material as THREE.Material).dispose();
+      (s.link.material as THREE.Material).dispose();
+      s.link.geometry.dispose();
+    }
+    sats = [];
+  }
+
+  function buildSats(sub: Subject): void {
+    clearSats();
+    const items: {
+      kind: 'symbol' | 'link';
+      subId: string;
+      symName: string;
+      label: string;
+      color: string;
+      tip: string;
+    }[] = [];
+    for (const lid of sub.links.slice(0, 4)) {
+      const l = byId.get(lid);
+      if (!l || lid === sub.id) continue;
+      items.push({
+        kind: 'link', subId: lid, symName: '', label: l.title, color: l.color,
+        tip: `${l.title} — ${l.tag}`,
+      });
+    }
+    for (const s of sub.top) {
+      if (items.length >= 10) break;
+      if (items.some((i) => i.symName === s.name)) continue;
+      items.push({
+        kind: 'symbol', subId: sub.id, symName: s.name, label: s.name, color: sub.color,
+        tip: s.docs ? `${s.name} — ${s.docs}` : `${s.name} (${s.kind}) — ${s.file}:${s.line}`,
+      });
+    }
+    items.forEach((it, k) => {
+      const color = new THREE.Color(it.color);
+      const mesh = new THREE.Mesh(
+        satGeo,
+        new THREE.MeshStandardMaterial({
+          color,
+          emissive: color,
+          emissiveIntensity: 0.9,
+          roughness: 0.35,
+        }),
+      );
+      mesh.userData = { sat: true, kind: it.kind, subId: it.subId, symName: it.symName };
+      scene.add(mesh);
+      const label = textSprite(it.label, 0.62);
+      scene.add(label);
+      const linkPos = new THREE.BufferAttribute(new Float32Array(6), 3);
+      const linkGeo = new THREE.BufferGeometry();
+      linkGeo.setAttribute('position', linkPos);
+      const link = new THREE.Line(
+        linkGeo,
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.4 }),
+      );
+      scene.add(link);
+      sats.push({
+        mesh, label, link, linkPos,
+        angle: (k / Math.max(items.length, 1)) * Math.PI * 2,
+        radius: 2.7 + (k % 3) * 0.6,
+        speed: (0.25 + (k % 4) * 0.06) * (k % 2 ? 1 : -1),
+        yOff: ((k * 37) % 20) / 10 - 1,
+        kind: it.kind, subId: it.subId, symName: it.symName, tip: it.tip,
+      });
+    });
+  }
+
   // ── Reader UI ────────────────────────────────────────────
   let selected: string | null = null;
+  let selectedSym: string | null = null;
   const focusTarget = new THREE.Vector3(0, 1.5, 0);
 
   // Cinematic flight: eased camera glide (easeInOutCubic) instead of a
@@ -601,7 +698,7 @@ async function boot(): Promise<void> {
         ? `<h2>Symbol matches</h2><div class="chips matches">${hits
             .map(
               ({ sub, sym }) =>
-                `<button data-go="${sub.id}" title="${esc(sym.file)}${sym.docs ? ` — ${esc(sym.docs)}` : ''}"><code>${esc(sym.name)}</code><span>${esc(sub.title)}</span></button>`,
+                `<button data-gosym="${sub.id}/${encodeURIComponent(sym.name)}" title="${esc(sym.file)}:${sym.line}${sym.docs ? ` — ${esc(sym.docs)}` : ''}"><code>${esc(sym.name)}</code><span>${esc(sub.title)}</span></button>`,
             )
             .join('')}</div>`
         : '';
@@ -623,6 +720,11 @@ async function boot(): Promise<void> {
           window.location.hash = `#/${(b as HTMLButtonElement).dataset.go}`;
         });
       });
+      panel.querySelectorAll('button[data-gosym]').forEach((b) => {
+        b.addEventListener('click', () => {
+          window.location.hash = `#/${(b as HTMLButtonElement).dataset.gosym}`;
+        });
+      });
       return;
     }
     const sub = byId.get(selected)!;
@@ -630,15 +732,51 @@ async function boot(): Promise<void> {
     const prev = data.subjects[(ix - 1 + data.subjects.length) % data.subjects.length];
     const next = data.subjects[(ix + 1) % data.subjects.length];
     panel.style.setProperty('--ac', sub.color);
+    const pageUrl = `${window.location.origin}${window.location.pathname}#/${sub.id}`;
+
+    // Symbol deep view: the satellite's docs, kind, and exact file:line.
+    const symHit = selectedSym ? sub.top.find((s) => s.name === selectedSym) : undefined;
+    if (symHit) {
+      document.title = `${symHit.name} — ${sub.title} — CyberManju wiki`;
+      const symUrl = `${pageUrl}/${encodeURIComponent(symHit.name)}`;
+      panel.innerHTML = `
+      <div class="crumbs"><button data-go="">wiki</button><span>/</span><button data-go="${sub.id}">${esc(sub.title)}</button><span>/</span><b>${esc(symHit.name)}</b>
+        <button class="copy" data-copy="${esc(symUrl)}" title="Copy link to this symbol">copy link</button></div>
+      <div class="tag">${esc(symHit.kind)} · ${esc(sub.tag)}</div>
+      <h1>${esc(symHit.name)}</h1>
+      <p class="blurb">${symHit.docs ? esc(symHit.docs) : 'No doc-comment on this item — the code at the location below is the documentation.'}</p>
+      <div class="stats"><span>${esc(symHit.file)}:${symHit.line}</span><span>v${esc(data.version)}</span></div>
+      <h2>Connections</h2>
+      <ul class="links">
+        <li><button data-go="${sub.id}" class="linkbtn">← ${esc(sub.title)} module</button></li>
+        <li><a href="./${sub.id}.txt">full ${esc(sub.id)}.txt</a></li>
+      </ul>
+      <div class="pager">
+        <button data-go="${prev.id}">← ${esc(prev.title)}</button>
+        <button data-go="${next.id}">${esc(next.title)} →</button>
+      </div>`;
+      wirePanelButtons(pageUrl);
+      return;
+    }
+
     document.title = `${sub.title} — CyberManju wiki`;
     const syms = sub.top
       .slice(0, 24)
       .map(
         (s) =>
-          `<code title="${esc(s.file)}${s.docs ? ` — ${esc(s.docs)}` : ''}">${esc(s.name)}</code>`,
+          `<button class="symbtn" data-sym="${esc(s.name)}" title="${esc(s.file)}:${s.line}${s.docs ? ` — ${esc(s.docs)}` : ''}"><code>${esc(s.name)}</code></button>`,
       )
       .join('');
-    const pageUrl = `${window.location.origin}${window.location.pathname}#/${sub.id}`;
+    const linksHtml = sub.links.length
+      ? `<h2>Connected modules</h2><div class="chips matches">${sub.links
+          .map((lid) => {
+            const l = byId.get(lid);
+            return l
+              ? `<button data-go="${l.id}" title="${esc(l.tag)}"><code>${esc(l.title)}</code></button>`
+              : '';
+          })
+          .join('')}</div>`
+      : '';
     panel.innerHTML = `
       <div class="crumbs"><button data-go="">wiki</button><span>/</span><b>${esc(sub.title)}</b>
         <button class="copy" data-copy="${esc(pageUrl)}" title="Copy link to this module">copy link</button></div>
@@ -646,7 +784,8 @@ async function boot(): Promise<void> {
       <h1>${esc(sub.title)}</h1>
       <p class="blurb">${esc(sub.blurb)}</p>
       <div class="stats"><span>${sub.fileCount} files</span><span>${sub.symbolCount} symbols</span><span>v${esc(data.version)}</span></div>
-      <h2>Top symbols</h2><div class="chips">${syms}</div>
+      ${linksHtml}
+      <h2>Top symbols</h2><div class="chips symchips">${syms}</div>
       <h2>Contracts</h2><div class="chips">${sub.contracts.length ? sub.contracts.map((c) => `<code>${esc(c)}</code>`).join('') : '<code>none — pure logic</code>'}</div>
       <h2>Read offline</h2>
       <ul class="links">
@@ -658,10 +797,21 @@ async function boot(): Promise<void> {
         <button data-go="${prev.id}">← ${esc(prev.title)}</button>
         <button data-go="${next.id}">${esc(next.title)} →</button>
       </div>`;
+    wirePanelButtons(pageUrl);
+  }
+
+  // Panel-internal navigation: module buttons, symbol buttons, copy-link.
+  function wirePanelButtons(pageUrl: string): void {
     panel.querySelectorAll('button[data-go]').forEach((b) => {
       const go = (b as HTMLButtonElement).dataset.go;
       b.addEventListener('click', () => {
         window.location.hash = go ? `#/${go}` : '#/';
+      });
+    });
+    panel.querySelectorAll('button[data-sym]').forEach((b) => {
+      const sym = (b as HTMLButtonElement).dataset.sym;
+      b.addEventListener('click', () => {
+        if (selected && sym) window.location.hash = `#/${selected}/${encodeURIComponent(sym)}`;
       });
     });
     const copy = panel.querySelector('button[data-copy]');
@@ -681,25 +831,28 @@ async function boot(): Promise<void> {
     }
   }
 
-  function select(id: string | null): void {
+  function select(id: string | null, sym: string | null = null): void {
     selected = id && byId.has(id) ? id : null;
+    hoveredSat = null;
+    const sub = selected ? byId.get(selected) : undefined;
+    selectedSym =
+      sub && sym ? (sub.top.some((s) => s.name === sym) ? sym : null) : null;
     renderRail(search.value);
     renderPanel();
+    clearSats();
     const mesh = selected ? nodeById.get(selected) : undefined;
-    if (mesh) {
+    if (mesh && sub) {
       focusTarget.copy(mesh.position);
       startFly(mesh.position);
-      const sub = byId.get(selected!);
-      if (sub) {
-        beacon.visible = true;
-        pulse.visible = true;
-        beacon.position.copy(mesh.position).add(new THREE.Vector3(0, 1.2, 0));
-        pulse.position.copy(mesh.position).add(new THREE.Vector3(0, -1.4, 0));
-        const c = new THREE.Color(sub.color);
-        (beacon.material as THREE.MeshBasicMaterial).color.copy(c);
-        (pulse.material as THREE.MeshBasicMaterial).color.copy(c);
-        spawnBurst(mesh.position, sub.color);
-      }
+      buildSats(sub);
+      beacon.visible = true;
+      pulse.visible = true;
+      beacon.position.copy(mesh.position).add(new THREE.Vector3(0, 1.2, 0));
+      pulse.position.copy(mesh.position).add(new THREE.Vector3(0, -1.4, 0));
+      const c = new THREE.Color(sub.color);
+      (beacon.material as THREE.MeshBasicMaterial).color.copy(c);
+      (pulse.material as THREE.MeshBasicMaterial).color.copy(c);
+      spawnBurst(mesh.position, sub.color);
     } else {
       focusTarget.set(0, 1.5, 0);
       beacon.visible = false;
@@ -709,8 +862,8 @@ async function boot(): Promise<void> {
   }
 
   function route(): void {
-    const m = window.location.hash.match(/^#\/([\w-]+)/);
-    select(m ? m[1] : null);
+    const m = window.location.hash.match(/^#\/([\w-]+)(?:\/([^/]+))?/);
+    select(m ? m[1] : null, m && m[2] ? decodeURIComponent(m[2]) : null);
   }
   window.addEventListener('hashchange', route);
 
@@ -749,7 +902,8 @@ async function boot(): Promise<void> {
       ix = e.key === 'ArrowDown' ? (ix + 1) % pool.length : (ix - 1 + pool.length) % pool.length;
       window.location.hash = `#/${pool[ix]}`;
     } else if (e.key === 'Escape') {
-      if (window.location.hash) window.location.hash = '#/';
+      if (selectedSym && selected) window.location.hash = `#/${selected}`;
+      else if (window.location.hash) window.location.hash = '#/';
     }
   });
 
@@ -757,29 +911,57 @@ async function boot(): Promise<void> {
   const ray = new THREE.Raycaster();
   const ptr = new THREE.Vector2();
   let hovered: string | null = null;
+  let hoveredSat: Sat | null = null;
   let downAt: [number, number] | null = null;
 
-  function pick(ev: { clientX: number; clientY: number }): string | null {
+  interface PickHit {
+    kind: 'subject' | 'symbol' | 'link';
+    subId: string;
+    symName: string;
+  }
+
+  function pick(ev: { clientX: number; clientY: number }): PickHit | null {
     ptr.x = (ev.clientX / window.innerWidth) * 2 - 1;
     ptr.y = -(ev.clientY / window.innerHeight) * 2 + 1;
     ray.setFromCamera(ptr, camera);
-    const hit = ray.intersectObjects(nodes, false)[0];
-    return hit ? (hit.object.userData.id as string) : null;
+    const targets: THREE.Object3D[] = [...sats.map((s) => s.mesh), ...nodes];
+    const hit = ray.intersectObjects(targets, false)[0];
+    if (!hit) return null;
+    const ud = hit.object.userData as { sat?: boolean; kind?: 'symbol' | 'link'; subId?: string; symName?: string; id?: string };
+    if (ud.sat) {
+      return { kind: ud.kind ?? 'symbol', subId: ud.subId ?? '', symName: ud.symName ?? '' };
+    }
+    return { kind: 'subject', subId: (ud.id as string) ?? '', symName: '' };
   }
 
   renderer.domElement.addEventListener('pointermove', (ev) => {
-    const id = pick(ev);
-    hovered = id;
-    renderer.domElement.style.cursor = id ? 'pointer' : 'grab';
-    if (id && byId.has(id)) {
-      const sub = byId.get(id)!;
+    const h = pick(ev);
+    hoveredSat = null;
+    hovered = h && h.kind === 'subject' ? h.subId : null;
+    renderer.domElement.style.cursor = h ? 'pointer' : 'grab';
+    if (!h) {
+      tooltip.hidden = true;
+      return;
+    }
+    if (h.kind === 'subject' && byId.has(h.subId)) {
+      const sub = byId.get(h.subId)!;
       tooltip.hidden = false;
       tooltip.textContent = `${sub.title} — ${sub.tag}`;
-      tooltip.style.left = `${ev.clientX + 14}px`;
-      tooltip.style.top = `${ev.clientY + 10}px`;
+    } else if (h.kind === 'link' && byId.has(h.subId)) {
+      const sub = byId.get(h.subId)!;
+      hoveredSat = sats.find((s) => s.kind === 'link' && s.subId === h.subId) ?? null;
+      tooltip.hidden = false;
+      tooltip.textContent = `→ ${sub.title} — ${sub.tag}`;
+    } else if (h.kind === 'symbol') {
+      hoveredSat = sats.find((s) => s.kind === 'symbol' && s.symName === h.symName) ?? null;
+      tooltip.hidden = false;
+      tooltip.textContent = hoveredSat ? hoveredSat.tip : h.symName;
     } else {
       tooltip.hidden = true;
+      return;
     }
+    tooltip.style.left = `${ev.clientX + 14}px`;
+    tooltip.style.top = `${ev.clientY + 10}px`;
   });
   renderer.domElement.addEventListener('pointerdown', (ev) => {
     downAt = [ev.clientX, ev.clientY];
@@ -793,8 +975,11 @@ async function boot(): Promise<void> {
     const dy = ev.clientY - downAt[1];
     downAt = null;
     if (dx * dx + dy * dy > 36) return; // was a drag, not a tap
-    const id = pick(ev);
-    window.location.hash = id ? `#/${id}` : '#/';
+    const h = pick(ev);
+    if (!h) window.location.hash = '#/';
+    else if (h.kind === 'subject') window.location.hash = `#/${h.subId}`;
+    else if (h.kind === 'link') window.location.hash = `#/${h.subId}`;
+    else if (h.symName) window.location.hash = `#/${h.subId}/${encodeURIComponent(h.symName)}`;
   });
   renderer.domElement.addEventListener('dblclick', (ev) => {
     if (!pick(ev)) window.location.hash = '#/';
@@ -901,6 +1086,29 @@ async function boot(): Promise<void> {
         nodeRings[ix].rotation.z += 0.004;
       }
     });
+    // Satellites orbit the selected node; tethers follow both endpoints.
+    if (sats.length) {
+      const center = selected ? nodeById.get(selected)?.position : undefined;
+      if (center) {
+        for (const s of sats) {
+          if (!REDUCED) s.angle += s.speed * dt;
+          const px = center.x + Math.cos(s.angle) * s.radius;
+          const pz = center.z + Math.sin(s.angle) * s.radius;
+          const py = center.y + s.yOff + (REDUCED ? 0 : Math.sin(t * 1.6 + s.angle * 2) * 0.15);
+          s.mesh.position.set(px, py, pz);
+          s.label.position.set(px, py + 0.62, pz);
+          const p = s.linkPos.array as Float32Array;
+          p[0] = center.x; p[1] = center.y; p[2] = center.z;
+          p[3] = px; p[4] = py; p[5] = pz;
+          s.linkPos.needsUpdate = true;
+          const hot = hoveredSat === s;
+          const mat = s.mesh.material as THREE.MeshStandardMaterial;
+          mat.emissiveIntensity += ((hot ? 1.6 : 0.9) - mat.emissiveIntensity) * 0.2;
+          s.mesh.scale.setScalar(hot ? 1.35 : 1);
+          s.mesh.rotation.y += 0.01;
+        }
+      }
+    }
     // Highlight the selected module's link back to the manju.
     lines.forEach((link, ix) => {
       const on = data.subjects[ix]?.id === selected;

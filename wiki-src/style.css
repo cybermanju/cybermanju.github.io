@@ -388,6 +388,43 @@ body {
   color: var(--mut);
 }
 
+/* Clickable symbol chips (open the symbol deep view). */
+.chips.symchips .symbtn {
+  background: #ffffff0d;
+  border: 1px solid #ffffff0d;
+  border-radius: 8px;
+  padding: 2px;
+  font: inherit;
+  cursor: pointer;
+  color: var(--tx);
+}
+
+.chips.symchips .symbtn:hover {
+  border-color: var(--ac, var(--pink));
+}
+
+.chips.symchips .symbtn code {
+  background: transparent;
+  border: none;
+  padding: 2px 8px;
+}
+
+ul.links .linkbtn {
+  color: var(--tx);
+  font-size: 13px;
+  font-weight: 700;
+  background: #ffffff10;
+  border: 1px solid var(--line);
+  padding: 7px 13px;
+  border-radius: 10px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+ul.links .linkbtn:hover {
+  border-color: var(--ac, var(--pink));
+}
+
 .keys {
   margin-top: 16px;
   font-size: 12.5px;
