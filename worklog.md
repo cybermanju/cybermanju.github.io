@@ -1273,3 +1273,9 @@ Stage Summary:
 - The `78ff10a` Actions run was cancelled as main advanced again. Integrated `471c089`, which binds the Rust heuristic-test symbol vector before iterating and resolves the reported `E0716`; this merge was automatic with no conflicts. The latest fetched `origin/main` remained at `471c089`.
 - Revalidated the combined tree locally: version/header checks (475 files), `vue-tsc`, 65 frontend files / 716 tests, wiki build at `/develop/`, clean cross-branch diff, and clean worktree. No Cargo was run locally.
 - CI run `38162682023` for `471c089` was still in progress; do not push develop until this latest run completes successfully. `main` remains unchanged.
+
+
+## 2026-10-11 — Integrate main follow-up 3caa6a3
+- The `471c089` CI run was cancelled as main advanced. Integrated `3caa6a3`, a rustfmt-only adjustment that collapses the heuristic test's symbol-name chains; the merge was automatic with no conflicts.
+- Local validation passed again: version checks, 475 file headers, `vue-tsc`, 65 frontend files / 716 tests, wiki build at `/develop/`, cross-branch whitespace check, and clean worktree. No local Cargo commands.
+- The latest main CI run (`38163841181`) was in progress; hold the develop push until it succeeds. `main` remains untouched.
