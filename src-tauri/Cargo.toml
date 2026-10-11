@@ -65,22 +65,22 @@ blake3 = "1"
 log = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-base64 = "0.22"
+base64 = "0.23"
 rand_core = { version = "0.6", features = ["getrandom"] }
 
 # Database (direct for command files)
-redb = "2"
+redb = "4"
 
 # Auth & crypto (additional)
-argon2 = "0.5"
-jsonwebtoken = "9"
+argon2 = "0.6"
+jsonwebtoken = "11"
 hmac = "0.13"
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Image & media
-kamadak-exif = "0.5"
+kamadak-exif = "0.6"
 image = "0.25"
-infer = "0.16"
+infer = "0.22"
 mime_guess = "2"
 
 # Networking
@@ -94,12 +94,12 @@ rayon = "1.10"
 # Code intelligence — real tree-sitter grammars (optional, see [features]).
 # Runtime 0.24 loads the ABI-14 grammars below; versions must stay in this
 # pairing or `cargo check` fails at resolve time (CI proves it).
-tree-sitter = { version = "0.24", optional = true }
-tree-sitter-rust = { version = "0.23", optional = true }
-tree-sitter-python = { version = "0.23", optional = true }
-tree-sitter-javascript = { version = "0.23", optional = true }
+tree-sitter = { version = "0.27", optional = true }
+tree-sitter-rust = { version = "0.24", optional = true }
+tree-sitter-python = { version = "0.25", optional = true }
+tree-sitter-javascript = { version = "0.25", optional = true }
 tree-sitter-typescript = { version = "0.23", optional = true }
-tree-sitter-go = { version = "0.23", optional = true }
+tree-sitter-go = { version = "0.25", optional = true }
 tree-sitter-bash = { version = "0.25", optional = true }
 
 # ─── Platform-gated extras (LAST table in this file) ────────────────
