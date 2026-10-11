@@ -409,19 +409,28 @@ export async function hostWasmRootName(): Promise<string> {
 }
 
 async function requireMount(label: string): Promise<FsDirHandle> {
-  if (!hostWasmSupported()) {
-    throw new Error('unsupported: this browser has no folder picker — use Chrome/Edge over HTTPS')
-  }
   if (testMount && testMount.mount.label === label) return testMount.handle
+  // Test seam active: the injected mount is the whole registry.
+  if (testMount) throw new Error(`not_found: “${label}” is not a mounted folder (mounted: “${testMount.mount.label}”)`)
   await ensureMigrated()
   const index = await readMountIndex()
-  if (!index.length) {
-    throw new Error('not_found: no folder added yet — use “Add folder…” to load an external folder into the app')
-  }
+  // An unknown label is always `not_found:` — even where the picker itself
+  // is missing (node/vitest, non-Chromium): the folder simply isn't mounted.
+  // The injected test mount counts as known here too.
+  const known = [...(testMount ? [testMount.mount.label] : []), ...index.map((m) => m.label)]
   const mount = index.find((m) => m.label === label)
   if (!mount) {
-    const known = index.map((m) => `“${m.label}”`).join(', ')
-    throw new Error(`not_found: “${label}” is not a mounted folder (mounted: ${known || 'none'})`)
+    if (!index.length && !testMount) {
+      if (!hostWasmSupported()) {
+        throw new Error('unsupported: this browser has no folder picker — use Chrome/Edge over HTTPS')
+      }
+      throw new Error('not_found: no folder added yet — use “Add folder…” to load an external folder into the app')
+    }
+    throw new Error(`not_found: “${label}” is not a mounted folder (mounted: ${known.join(', ') || 'none'})`)
+  }
+  // A remembered (non-test) mount needs the real FS from here on.
+  if (!hostWasmSupported()) {
+    throw new Error('unsupported: this browser has no folder picker — use Chrome/Edge over HTTPS')
   }
   const handle = await loadMountHandle(mount)
   if (!handle) {
@@ -448,10 +457,10 @@ export async function listHostWasmDir(vmPath: string): Promise<FileNode[]> {
   // Virtual root: the mounts themselves (parked ones included — opening
   // one explains the one-click re-allow).
   if (norm === HOST_VM_ROOT || norm === `${HOST_VM_ROOT}/`) {
-    if (!hostWasmSupported()) {
+    const mounts = await listHostWasmMounts()
+    if (!mounts.length && !hostWasmSupported()) {
       throw new Error('unsupported: this browser has no folder picker — use Chrome/Edge over HTTPS')
     }
-    const mounts = await listHostWasmMounts()
     if (!mounts.length) {
       throw new Error('not_found: no folder added yet — use “Add folder…” to load an external folder into the app')
     }
