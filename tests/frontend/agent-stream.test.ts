@@ -1,6 +1,6 @@
 // Agent SSE stream parsing — mirrors `crates/agent/src/stream.rs`.
 import { describe, expect, it } from 'vitest'
-import { isStreamDone, parseAgentStreamChunk } from '../../src/utils/agentStream'
+import { isStreamDone, parseAgentStreamChunk, resolveAgentEventsBase } from '../../src/utils/agentStream'
 
 describe('agent SSE stream parsing', () => {
   it('decodes one job event', () => {
@@ -33,5 +33,33 @@ describe('agent SSE stream parsing', () => {
   it('parses a chunk without a trailing blank line', () => {
     const events = parseAgentStreamChunk('event: job\ndata: tail')
     expect(events).toEqual([{ event: 'job', data: 'tail' }])
+  })
+})
+
+describe('agent job stream transport selection', () => {
+  const resolve = (overrides: Partial<Parameters<typeof resolveAgentEventsBase>[0]> = {}) =>
+    resolveAgentEventsBase({
+      serverUrl: '',
+      isTauri: false,
+      isStaticHost: false,
+      origin: 'https://CyberManju.example:3456',
+      ...overrides,
+    })
+
+  it('uses the current dashboard origin rather than assuming localhost', () => {
+    expect(resolve()).toBe('https://CyberManju.example:3456')
+  })
+
+  it('selects invoke polling when native IPC or static WASM has no server URL', () => {
+    expect(resolve({ isTauri: true })).toBeNull()
+    expect(resolve({ isStaticHost: true })).toBeNull()
+  })
+
+  it('uses an explicit server URL on native/static builds and trims trailing slashes', () => {
+    expect(resolve({
+      serverUrl: 'https://api.example/cybermanju///',
+      isTauri: true,
+      isStaticHost: true,
+    })).toBe('https://api.example/cybermanju')
   })
 })

@@ -20,6 +20,25 @@ export function isStreamDone(data: string): boolean {
 }
 
 /**
+ * Resolve the REST origin for agent event streams. Native IPC and a static
+ * WASM host have no local `/events` endpoint; `null` tells the caller to poll
+ * through `invoke()` instead of probing localhost. An explicit server URL
+ * always wins, including on a static page configured to use a remote server.
+ */
+export function resolveAgentEventsBase(target: {
+  serverUrl: string
+  isTauri: boolean
+  isStaticHost: boolean
+  origin: string
+}): string | null {
+  const configured = target.serverUrl.trim().replace(/\/+$/, '')
+  if (configured) return configured
+  if (target.isTauri || target.isStaticHost) return null
+  const origin = target.origin.trim().replace(/\/+$/, '')
+  return origin || 'http://localhost:3456'
+}
+
+/**
  * Decode one SSE chunk into events. Blank lines dispatch; `event:` sets
  * the pending name (last wins); `data:` lines join with `\n`; comments
  * and unknown fields are ignored; dataless dispatches are heartbeats.

@@ -2303,10 +2303,11 @@ export const useAppStore = defineStore('cybermanju', () => {
   }
 
   /**
-   * SSE-first job tail (P2.4): `GET /api/agent/jobs/:id/events` streams
-   * `job` snapshots over a fetch reader — EventSource cannot send the
-   * `Authorization` header, so the poller stays as the fallback. Any
-   * transport failure degrades to the 1.5 s `pollAgentJob` loop.
+   * REST dashboard job tail: `GET /api/agent/jobs/:id/events` streams
+   * snapshots over a fetch reader. Native IPC and static WASM builds without
+   * a configured server have no local `/events` endpoint, so they poll via
+   * `invoke()` directly instead of probing localhost. Any REST stream failure
+   * also degrades to the 1.5 s `pollAgentJob` loop.
    */
   async function subscribeAgentJob(jobId: string) {
     const applySnapshot = (job: AgentJob) => {
@@ -2319,9 +2320,18 @@ export const useAppStore = defineStore('cybermanju', () => {
       return job.status === 'done' || job.status === 'error' || job.status === 'cancelled'
     }
     try {
-      const { getServerUrl, getAuthToken } = await import('@/composables/useTauri')
-      const { parseAgentStreamChunk, isStreamDone } = await import('@/utils/agentStream')
-      const base = getServerUrl() || 'http://localhost:3456'
+      const { getServerUrl, getAuthToken, isStaticHost, isTauri } = await import('@/composables/useTauri')
+      const { parseAgentStreamChunk, isStreamDone, resolveAgentEventsBase } = await import('@/utils/agentStream')
+      const base = resolveAgentEventsBase({
+        serverUrl: getServerUrl(),
+        isTauri: isTauri(),
+        isStaticHost: isStaticHost(),
+        origin: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3456',
+      })
+      if (!base) {
+        await pollAgentJob(jobId)
+        return
+      }
       const headers: Record<string, string> = { Accept: 'text/event-stream' }
       const token = getAuthToken()
       if (token) headers['Authorization'] = `Bearer ${token}`

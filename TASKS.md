@@ -60,7 +60,7 @@ Checkboxes are intentional — tick as you land.
 - [x] `P1-11` `pathExists:2167-2175` bypassed WASM and treated any successful `/api/files` response as an existing path. It now checks the requested path from `invoke('list_files')`, which follows REST or the local WASM DB worker.
 - [ ] `P1-12` `notifyError stores/app.ts:248-259` — suppresses `[WASM Mode]` (null, no toast/console), hides parity gaps. Log + counter. Centralize `notifyError → describeSyncError|agentErrorHint → toast(detail+hint)`; merge `types:545-570` missing `invalid:/context:/limit:`.
 - [ ] `P1-13` Store loading/errors — single `lastError` string + shared `isLoading` races (`fetchFiles:327-379` parallel in `initialize:275-284`). Per-domain `loading{}` / error queue. `initialize:270-289` omits `fetchOsPs/dashboard/disks/agent`; `startAutoRefresh` omits `disks/os/agent`; gate `StatusBar:128-133` 4s `fetchOsPs` poll on `!isStaticHost()||document.visible`.
-- [ ] `P1-14` Agent SSE — `subscribeAgentJob:1685-1738` hardcodes `getServerUrl()||localhost:3456` SSE — breaks Tauri-IPC-only and wasm (no `/events`). Poll `invoke('agent_job_status')` on those transports.
+- [x] `P1-14` Agent job transport — resolve SSE against the configured server or current REST dashboard origin; Tauri-IPC-only and static WASM without a server bypass the dead localhost `/events` probe and poll `invoke('agent_job_status')`. Pure resolver tests cover native/static fallback and explicit/same-origin REST URLs.
 - [ ] `P1-15` Settings display — `SettingsPage.vue:295-339`: `VITE_TRANSPORT` undocumented; `effectiveApiUrl:335-339 .toUpperCase()` breaks copy-paste (`HTTPS://…`); `serverUrlDraft:334` non-reactive (reload covers, fine). Preserve case, document env, reuse `useTransport()`.
 
 ## P1 — Offline / OPFS / volume

@@ -1070,3 +1070,10 @@ Stage Summary:
 - Fixed a remaining P1-10 gap in `restFetch()`: its 15-second `AbortController` deadline previously ended as soon as response headers arrived, so a stalled success/error body could hang indefinitely. The deadline now covers body consumption; an aborted body read is normalized to `network:` and uses the existing one-retry backoff. The 401 event still fires as soon as headers arrive.
 - Added `tests/frontend/rest-fetch-timeout.test.ts`: headers arrive immediately, the first body stalls until the deadline, then a retry succeeds. During the audit, P1-6/7/8 implementations were verified in the source and existing transport tests, and their stale open checkboxes were closed; P1-10 is now complete.
 - Verified: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, `npm test -- --reporter=dot` (65 files / 713 tests), and `git diff --check` all pass. No Cargo commands run, per `AGENTS.md`.
+
+
+## 2026-10-11 — Route agent-job updates by available transport
+- Compared fresh remote refs: `origin/main` at `a866573` is already an ancestor of `develop`; develop is 15 commits ahead and no merge was needed. `main` was not changed.
+- Fixed P1-14: agent event streams now use the configured API URL or the current REST dashboard origin instead of assuming `localhost:3456`. Tauri-IPC-only and static WASM sessions without a configured server skip the unavailable `/events` endpoint and poll `agent_job_status` through `invoke()`; stream failures still fall back to polling.
+- Added resolver regressions for same-origin REST (including host case/port), native/static polling, and explicit remote URLs; updated `TASKS.md`.
+- Verified: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, `npm test -- --reporter=dot` (716 tests), and `git diff --check` all pass. No Cargo commands run, per `AGENTS.md`.
