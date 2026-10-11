@@ -476,7 +476,8 @@ mod tests {
         // `export const` / `export interface` (TS), receivers (Go),
         // `pub mod` + `impl` targets (Rust), `name()` (bash).
         let ts = "export const humanBytes = (n: number) => n;\nexport interface Box {\n}\n";
-        let names: Vec<&str> = extract_symbols_heuristic(ts, "typescript")
+        let ts_syms = extract_symbols_heuristic(ts, "typescript");
+        let names: Vec<&str> = ts_syms
             .iter()
             .filter_map(|s| s["name"].as_str())
             .collect();
@@ -484,7 +485,8 @@ mod tests {
         assert!(names.contains(&"Box"), "got {names:?}");
 
         let go = "func (s *Store) Save() {}\nfunc Top() {}\ntype Store struct {}\n";
-        let names: Vec<&str> = extract_symbols_heuristic(go, "go")
+        let go_syms = extract_symbols_heuristic(go, "go");
+        let names: Vec<&str> = go_syms
             .iter()
             .filter_map(|s| s["name"].as_str())
             .collect();
