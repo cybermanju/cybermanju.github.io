@@ -1,13 +1,16 @@
-// CyberManju OS — host (device) filesystem bridge for Tauri native builds.
+// CyberManju OS — host (device) filesystem bridge for Tauri native builds
+//   (+ WASM delegation to the File System Access API leg).
 //
 // FileManager namespace: `/host` + the absolute host path, so every venue
 // stays addressable in one tree:
 //
 //   /host                  → the `-os` default dir (sdcard on Android, the
-//                            user's home dir on desktop)
+//                            user's home dir on desktop; the picked `$HOME`
+//                            folder on WASM/static builds)
 //   /host/sdcard/Download  → that host dir (Android / Linux / macOS)
 //   /host/C:/Users/me      → that host dir (Windows)
-//   /host/                 → the filesystem root
+//   /host/                 → the filesystem root (native) / the picked root
+//                            (WASM — browsers expose no filesystem root)
 //
 // Metadata ops (`ls/stat/mkdir/cp/mv/rm/write/… -os`) run through cybsh over
 // the existing `os_exec` bridge — desktop IPC-or-REST, Android IPC — so no
@@ -15,6 +18,11 @@
 // Android) speaks the same verbs. Byte transport uses
 // `@tauri-apps/plugin-fs` (binary-safe, no shell caps); vault bytes resolve
 // through each node's `original_path`, provider bytes through the canal.
+//
+// On WASM/static builds (no `window.__TAURI__`) every verb below delegates
+// to `@/utils/hostWasm` — same namespace, same `host:<abs>` ids, real File
+// System Access I/O behind the picked folder — so the FileManager keeps one
+// code path and only the bytes move differently.
 //
 // `moveAnywhere` is the one gesture for "move anything to anywhere":
 // vault ⇄ provider ⇄ host, files and trees, copy or move, with
@@ -25,6 +33,21 @@ import type { FileNode, ShellResult } from '@/types'
 export const HOST_ROOT = '/host'
 
 export type HostRunner = (line: string) => Promise<string>
+
+/**
+ * True on WASM/static builds: a real browser window without Tauri IPC.
+ * Node (no window) stays on the native path so unit tests keep their fake
+ * runners; browsers without a folder picker still route here so the WASM
+ * leg can refuse honestly (`unsupported:`) instead of dying in plugin-fs.
+ */
+function useWasmHost(): boolean {
+  try {
+    if (typeof window === 'undefined') return false
+    return !Boolean((window as unknown as Record<string, unknown>).__TAURI__)
+  } catch {
+    return false
+  }
+}
 
 async function defaultRunner(line: string): Promise<string> {
   const { invoke } = await import('@/composables/useTauri')
@@ -129,6 +152,10 @@ export function hostEntriesToNodes(entries: HostLsEntry[], vmDir: string): FileN
 
 /** Resolve the `-os` default dir (`/host` with no absolute behind it). */
 export async function resolveHostDir(vmPath: string, run: HostRunner = defaultRunner): Promise<string> {
+  if (useWasmHost()) {
+    const { resolveHostWasmDir } = await import('@/utils/hostWasm')
+    return resolveHostWasmDir(vmPath)
+  }
   const abs = hostAbsFromVm(vmPath)
   if (abs) return abs
   const out = (await run('pwd -os')).trim()
@@ -138,6 +165,10 @@ export async function resolveHostDir(vmPath: string, run: HostRunner = defaultRu
 
 /** List one host directory as FileManager rows. */
 export async function listHostDir(vmPath: string, run: HostRunner = defaultRunner): Promise<FileNode[]> {
+  if (useWasmHost()) {
+    const { listHostWasmDir } = await import('@/utils/hostWasm')
+    return listHostWasmDir(vmPath)
+  }
   const abs = await resolveHostDir(vmPath, run)
   const nicerVm = vmForHost(abs)
   const out = await run(`ls --json -os ${shellQuote(abs)}`)
@@ -151,6 +182,10 @@ export async function listHostDir(vmPath: string, run: HostRunner = defaultRunne
 }
 
 export async function statHost(abs: string, run: HostRunner = defaultRunner): Promise<HostLsEntry> {
+  if (useWasmHost()) {
+    const { statHostWasm } = await import('@/utils/hostWasm')
+    return statHostWasm(abs)
+  }
   const out = await run(`stat --json -os ${shellQuote(abs)}`)
   try {
     return JSON.parse(out) as HostLsEntry
@@ -160,10 +195,20 @@ export async function statHost(abs: string, run: HostRunner = defaultRunner): Pr
 }
 
 export async function mkdirHost(abs: string, run: HostRunner = defaultRunner): Promise<void> {
+  if (useWasmHost()) {
+    const { mkdirHostWasm } = await import('@/utils/hostWasm')
+    await mkdirHostWasm(abs)
+    return
+  }
   await run(`mkdir -os -p ${shellQuote(abs)}`)
 }
 
 export async function writeHostText(abs: string, content: string, run: HostRunner = defaultRunner): Promise<void> {
+  if (useWasmHost()) {
+    const { writeHostWasmText } = await import('@/utils/hostWasm')
+    await writeHostWasmText(abs, content)
+    return
+  }
   if (content.length > 1024 * 1024) {
     throw new Error(`too_large: content is ${content.length} bytes, shell write limit is ${1024 * 1024}`)
   }
@@ -175,19 +220,38 @@ export async function writeHostText(abs: string, content: string, run: HostRunne
 }
 
 export async function rmHost(abs: string, recursive: boolean, run: HostRunner = defaultRunner): Promise<void> {
+  if (useWasmHost()) {
+    const { rmHostWasm } = await import('@/utils/hostWasm')
+    await rmHostWasm(abs, recursive)
+    return
+  }
   await run(recursive ? `rm -os -r ${shellQuote(abs)}` : `rm -os ${shellQuote(abs)}`)
 }
 
 export async function cpHost(src: string, dst: string, recursive: boolean, run: HostRunner = defaultRunner): Promise<void> {
+  if (useWasmHost()) {
+    const { cpHostWasm } = await import('@/utils/hostWasm')
+    await cpHostWasm(src, dst, recursive)
+    return
+  }
   await run(recursive ? `cp -os -r ${shellQuote(src)} ${shellQuote(dst)}` : `cp -os ${shellQuote(src)} ${shellQuote(dst)}`)
 }
 
 export async function mvHost(src: string, dst: string, run: HostRunner = defaultRunner): Promise<void> {
+  if (useWasmHost()) {
+    const { mvHostWasm } = await import('@/utils/hostWasm')
+    await mvHostWasm(src, dst)
+    return
+  }
   await run(`mv -os ${shellQuote(src)} ${shellQuote(dst)}`)
 }
 
 /** Binary-safe host read (plugin-fs — no shell caps, no text mangling). */
 export async function readHostBytes(abs: string): Promise<Uint8Array> {
+  if (useWasmHost()) {
+    const { readHostWasmBytes } = await import('@/utils/hostWasm')
+    return readHostWasmBytes(abs)
+  }
   try {
     const { readFile } = await import('@tauri-apps/plugin-fs')
     const data = await readFile(abs)
@@ -199,6 +263,11 @@ export async function readHostBytes(abs: string): Promise<Uint8Array> {
 
 /** Binary-safe host write (parents included). */
 export async function writeHostBytes(abs: string, data: Uint8Array): Promise<void> {
+  if (useWasmHost()) {
+    const { writeHostWasmBytes } = await import('@/utils/hostWasm')
+    await writeHostWasmBytes(abs, data)
+    return
+  }
   try {
     const { mkdir, writeFile } = await import('@tauri-apps/plugin-fs')
     const parent = abs.replace(/\\/g, '/').split('/').slice(0, -1).join('/')
@@ -263,6 +332,10 @@ async function liveCanal(): Promise<CanalDeps> {
 
 /** Default (live) dependency set — dynamic imports keep this tree-shakable. */
 export async function liveMoveDeps(): Promise<MoveDeps> {
+  if (useWasmHost()) {
+    const { liveWasmMoveDeps } = await import('@/utils/hostWasm')
+    return liveWasmMoveDeps()
+  }
   const { invoke } = await import('@/composables/useTauri')
   return {
     run: defaultRunner,
@@ -616,7 +689,10 @@ export function destFromVmPath(vmPath: string): MoveDest | null {
   const norm = String(vmPath ?? '').replace(/\\/g, '/')
   if (isHostPath(norm)) {
     const abs = hostAbsFromVm(norm)
-    if (abs === '') return null // `/host` needs a pwd -os resolve first
+    // Native `/host` carries no absolute — callers resolve the `-os`
+    // default dir first. On WASM `/host` IS the picked `$HOME` root, so it
+    // resolves to `/` directly (the handle root).
+    if (abs === '') return useWasmHost() ? { kind: 'host', absDir: '/' } : null
     return { kind: 'host', absDir: abs }
   }
   if (norm === '/providers' || norm === '/providers/') return null

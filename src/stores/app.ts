@@ -536,11 +536,25 @@ export const useAppStore = defineStore('cybermanju', () => {
       const path = parentPath || currentPath.value
       // Device files (`/host…`) live on the host filesystem, not in the
       // vault: list them through cybsh `-os` verbs over the os_exec bridge
-      // (Tauri IPC/REST on desktop, IPC on Android). Static web builds have
-      // no host — refuse honestly instead of showing an empty folder.
+      // (Tauri IPC/REST on desktop, IPC on Android) or — on WASM/static
+      // builds — through the picked `$HOME` folder (File System Access API,
+      // same `/host` namespace and `host:<abs>` ids).
       if (String(path || '') === '/host' || String(path || '').replace(/\\/g, '/').startsWith('/host/')) {
         const { isTauri } = await import('@/composables/useTauri')
         if (!isTauri()) {
+          try {
+            const { hostWasmSupported } = await import('@/utils/hostWasm')
+            if (hostWasmSupported()) {
+              const { listHostDir } = await import('@/utils/hostBrowse')
+              files.value = await listHostDir(String(path))
+              applyStars()
+              return
+            }
+          } catch (e) {
+            files.value = []
+            notifyError('Device files need a home folder', e)
+            return
+          }
           files.value = []
           notifyError('Device files need the app', 'open this vault in the desktop app or the native Android build to browse the device')
           return
