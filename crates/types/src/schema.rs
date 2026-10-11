@@ -214,3 +214,69 @@ impl ShareLink {
         self
     }
 }
+
+/// Device identity row (§2B.1): one ML-DSA keypair per device plus a registry
+/// entry. The private half never leaves the device (sealed in its keystore);
+/// the row carries the name + public key so peers and the dashboard can
+/// attribute ops, leases and bundles without trusting a bare hostname.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceRow {
+    pub id: String,
+    pub name: String,
+    /// Base64 ML-DSA public key (empty when the device has not attested yet).
+    #[serde(default)]
+    pub public_key: String,
+    /// `ml-dsa-65` today; the string travels so verification never assumes.
+    #[serde(default)]
+    pub key_algorithm: String,
+    pub created_at: String,
+    pub last_seen_at: String,
+    /// Admin-revoked devices keep their rows (history) but fail closed.
+    #[serde(default)]
+    pub revoked: bool,
+}
+
+/// Server-side todo (§4.9 agent bridge): the same shape as the browser
+/// `TodoItem` plus owner + source, so the agent (`todo_add`/`todo_done`)
+/// and the Archive TASKS tab share one list per owner.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoRow {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub done: bool,
+    pub created_at: String,
+    #[serde(default)]
+    pub done_at: Option<String>,
+    #[serde(default)]
+    pub owner_id: String,
+    /// `local` (dashboard UI) or `agent:<config_id>`.
+    #[serde(default)]
+    pub source: String,
+}
+
+/// Op-log entry (§2C/P3-2): every mutation appends one row; devices exchange
+/// rows using the version vectors `leases` already models. `seq` is the
+/// local append order (u64, zero-padded key); `op_id` is globally unique
+/// (`<device_id>-<seq>`); `bases` carries the writer's vector at append
+/// time so a receiver can tell advance from fork without re-reading.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpRow {
+    pub seq: u64,
+    pub op_id: String,
+    pub device_id: String,
+    pub created_at: String,
+    /// `create` | `edit` | `move` | `tag` | `star` | `rename` | `delete` |
+    /// `face-rename` | `todo` … open vocabulary, unknown kinds merge as data.
+    pub kind: String,
+    #[serde(default)]
+    pub file_id: Option<String>,
+    #[serde(default)]
+    pub payload: serde_json::Value,
+    /// Writer's version vector (`{device: counter}`) at append time.
+    #[serde(default)]
+    pub bases: std::collections::BTreeMap<String, u64>,
+}

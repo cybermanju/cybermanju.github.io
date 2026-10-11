@@ -21,13 +21,13 @@
 
 | Layer | Technology | Pinned fact |
 |---|---|---|
-| Desktop | Tauri v2 (`src-tauri/`, `productName` CyberManju OS, 1400×900 window) | 19 command modules in `src-tauri/src/commands/`, 130 handlers wired in `lib.rs` |
-| Backend | Rust 2021 workspace, 17 members (15 `crates/*` + `src-tauri` + `docker/server`) | resolver `2`; dev/test profiles use `line-tables-only`, no workspace deps for third-party |
-| Frontend | Vue 3 Composition API + Pinia + TypeScript 5.8 + Vite 6.3 | 44 top-level `src/components/*.vue` (+21 `ui/` primitives), 28 `src/composables/*.ts`, 28 `src/utils/*.ts`, 1 Pinia store (`stores/app.ts`) |
+| Desktop | Tauri v2 (`src-tauri/`, `productName` CyberManju OS, 1400×900 window) | 26 command modules in `src-tauri/src/commands/`, ~175 handlers wired in `lib.rs` |
+| Backend | Rust 2021 workspace, 18 members (16 `crates/*` + `src-tauri` + `docker/server`) | resolver `2`; dev/test profiles use `line-tables-only`, no workspace deps for third-party |
+| Frontend | Vue 3 Composition API + Pinia + TypeScript 5.8 + Vite 6.3 | 49 top-level `src/components/*.vue` (+26 `ui/` primitives), 34 `src/composables/*.ts`, 67 `src/utils/*.ts`, 1 Pinia store (`stores/app.ts`) |
 | Reactive layer | `@vueuse/core` ^14.4.0 | Single shared hook `useSystemHardware()`; `useTitle`/`useBroadcastChannel`/`useDropZone` in use |
 | Icons | `@iconify/vue` + `@iconify-json/solar` via `scripts/generate-icon-set.mjs` | `npm run typecheck` runs `icons` first — **unknown `solar:*` names fail the build** |
 | Maps | `maplibre-gl` ^6.12.0 | GPS MapView with EXIF clustering |
-| DB | `redb` (single file `cybermanju.db`, JSON rows) | 17+ tables incl. `agent_sessions`, `agent_memories`, `disks/volumes/block_map`, `sync_*`, `leases`, `compute_tasks` |
+| DB | `redb` (single file `cybermanju.db`, JSON rows) | ~38 tables incl. `agent_sessions`, `agent_memories`, `disks/volumes/block_map`, `sync_*`, `leases`, `compute_tasks`, `schedules`, `secrets` |
 | Search | Tantivy 0.22 BM25 + `crates/scene` heuristic | Scene: 17 categories × 10 langs, 740 keywords, weights name 1.0/tags 0.95/path 0.7 |
 | Crypto | ChaCha20Poly1305 + `rustpq` (ML-KEM-1024 FIPS 203, ML-DSA-65 FIPS 204, SLH-DSA-128f FIPS 205) + Argon2id + BLAKE3 | Hybrid ML-KEM+X25519 supported |
 | Compression | LZ4 → ZSTD-15 → Brotli-11 cascade | Per-layer stats, `.cyb3` payloads |
@@ -40,14 +40,14 @@
 `agent` (loop/protocol/config/memory/providers/mcp/edit/redact/stream) ·
 `os` (api/shell/task/compute) · `os-wasm` (browser volume) ·
 `disk` (superblock/disk/allocator/catalog/volume) · `erasure` (RS k+m) ·
-`web` (18 `api/*.rs` + `security.rs`) · `sync` (backends/pipeline/scrub/repair/gc/lease/state) ·
+`web` (22 `api/*.rs` + `security.rs`) · `sync` (backends/pipeline/scrub/repair/gc/lease/state) ·
 `db` · `types` · `crypto` · `compression` · `search` · `faces` · `scene` · `tests`.
 
 ### Frontend transports (`src/composables/useTauri.ts`)
 
 `tauri` IPC (desktop) · `rest` (Docker/web `:3456`) · `wasm` (Pages).
 `os_*/disk/*` are `REST_FIRST`. Settings shows the active transport
-(`VITE_TRANSPORT` override). REST has 114 route arms in `crates/web/src/lib.rs`.
+(`VITE_TRANSPORT` override). REST has 152 mapped commands in `REST_ROUTES` (`src/composables/useTauri.ts`).
 
 ## 2. Toolchain rules (hard)
 

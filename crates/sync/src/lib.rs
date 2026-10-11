@@ -10,6 +10,7 @@
 pub mod backends;
 // <<< AGENT-2 MODS: chunk manifest + striped placement (item 10), >>>
 // <<< AGENT-2 MODS: auto-sync scheduler (item 11) >>>
+pub mod bundle;
 pub mod manifest;
 pub mod oauth;
 pub mod pipeline;
@@ -26,6 +27,7 @@ pub mod transfer;
 // health, chunk GC/eviction/rebalance and multi-writer leases >>>
 pub mod gc;
 pub mod health;
+pub mod lan;
 pub mod lease;
 pub mod repair;
 pub mod scrub;

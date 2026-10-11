@@ -2107,23 +2107,13 @@ fn route_request(
         }
         ["api", "sync", "configs"] if method == "POST" => {
             let req: api::sync_api::ConfigRequest = json_body!(body, origin);
-            // <<< AGENT-3 SECRETS: `SyncConfig.token` is `skip_serializing`
-            // so it can never reach a client (P0-3) — which also means
-            // `save_config`'s JSON write would drop it. Deserialization still
-            // accepts the raw token from the body; put it back into the
-            // stored row after the save. >>>
-            let incoming_token = req.config.token.clone();
-            match api::sync_api::save_config(db, req.config) {
-                Ok(saved) => {
-                    if let Some(token) = incoming_token {
-                        if let Err(e) = restore_config_token(db, &saved.id, &token) {
-                            return json_error(500, &e, origin);
-                        }
-                    }
-                    json_ok(&saved, origin)
-                }
-                Err(e) => api_response::<cybermanju_types::sync::SyncConfig>(Err(e), origin),
-            }
+            // P0-6: the token travels in the request body but is stored ONLY
+            // in the `sync_secrets` side table (`save_config` routes it
+            // there; the row is `skip_serializing`). No row write-back here.
+            api_response::<cybermanju_types::sync::SyncConfig>(
+                api::sync_api::save_config(db, req.config),
+                origin,
+            )
         }
         ["api", "sync", "configs", id] if method == "DELETE" => {
             // Admin-only (RBAC table) and audited — deleting a config
@@ -2896,39 +2886,6 @@ fn register_user_web(
             json_error(status, &e, origin)
         }
     }
-}
-
-// <<< AGENT-3 SECRETS >>>
-/// Write the provider token back into a stored sync configuration.
-///
-/// `SyncConfig.token` carries `#[serde(skip_serializing)]` (P0-3), so
-/// `save_config`'s row write omits it. This re-reads the row, merges the raw
-/// token and writes it back — the token is still only ever *read* from the
-/// database, never serialized to a client.
-///
-/// Temporary: AGENT-2 is moving provider secrets to a side table, after
-/// which this shim (and the call site above) can be deleted.
-fn restore_config_token(db: &Database, config_id: &str, token: &str) -> Result<(), String> {
-    let tx = db.begin_write().map_err(|e| e.to_string())?;
-    {
-        let mut table = tx
-            .open_table(Database::get_sync_configs_table())
-            .map_err(|e| e.to_string())?;
-        let raw = match table.get(config_id).map_err(|e| e.to_string())? {
-            Some(guard) => guard.value().to_string(),
-            None => return Err(format!("Sync config not found: {}", config_id)),
-        };
-        let mut value: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-        if !value.is_object() {
-            return Err("Stored sync configuration is malformed".to_string());
-        }
-        value["token"] = serde_json::Value::String(token.to_string());
-        let patched = serde_json::to_string(&value).map_err(|e| e.to_string())?;
-        table
-            .insert(config_id, patched.as_str())
-            .map_err(|e| e.to_string())?;
-    }
-    tx.commit().map_err(|e| e.to_string())
 }
 
 fn set_permission_web(db: &Database, body: &str, origin: Option<&str>) -> String {

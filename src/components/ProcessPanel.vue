@@ -24,21 +24,29 @@ import { useAppStore } from '@/stores/app'
 import { humanBytes } from '@/utils/format'
 import { formatCpuPercent, formatLoadTriplet } from '@/utils/deviceStats'
 import { formatIn, previewSchedule } from '@/utils/schedule'
+import { createWatcher, evaluateWatchers, parseWatchersStore, serializeWatchersStore, type WatchRule } from '@/utils/watchers'
+import { t } from '@/utils/i18n'
+import { useNotifications } from '@/composables/useNotifications'
 import type { OsTask, ScheduleRow, ScheduleRun } from '@/types'
 
 const store = useAppStore()
+const { notify } = useNotifications()
 const refreshMs = 2000
 let timer = 0
 
 // Merged window: `wm.open('cron' | 'automation' | 'schedules')` lands here
 // with `{ tab: 'schedules' }` (panels.ts ALIAS_TAB_PROPS).
 const props = defineProps<{ tab?: string }>()
-type ProcessTab = 'processes' | 'schedules'
-const activeTab = ref<ProcessTab>(props.tab === 'schedules' ? 'schedules' : 'processes')
+type ProcessTab = 'processes' | 'schedules' | 'watchers'
+function coerceProcessTab(v: unknown): ProcessTab | null {
+  return v === 'processes' || v === 'schedules' || v === 'watchers' ? v : null
+}
+const activeTab = ref<ProcessTab>(coerceProcessTab(props.tab) ?? 'processes')
 watch(
   () => props.tab,
   t => {
-    if (t === 'schedules' || t === 'processes') activeTab.value = t
+    const c = coerceProcessTab(t)
+    if (c) activeTab.value = c
   },
 )
 
@@ -76,6 +84,105 @@ async function startJob(job: string) {
 
 async function refresh() {
   await Promise.all([store.fetchOsPs(), store.fetchOsTop(), store.fetchOsWorkers()])
+}
+
+// ── Watchers (proactive agent watchers, ANALYSIS.md §4.6) ──────────────
+// Rules live in localStorage; EVALUATE NOW runs them against the vault file
+// list (notify via the notification center, tag via setFileTags). The cron
+// scheduler above is the unattended runner — point a schedule at
+// `watchers run` semantics by opening this tab from automation.
+const WATCHERS_KEY = 'cybermanju.watchers.v1'
+const watchRules = ref<WatchRule[]>([])
+const wName = ref('')
+const wTag = ref('')
+const wMime = ref('')
+const wPattern = ref('')
+const wNotify = ref(true)
+const wAddTag = ref('')
+const watchNote = ref('')
+const watchHits = ref(0)
+
+function loadWatchers() {
+  try {
+    watchRules.value = parseWatchersStore(localStorage.getItem(WATCHERS_KEY))
+  } catch {
+    watchRules.value = []
+  }
+}
+
+function persistWatchers() {
+  try {
+    localStorage.setItem(WATCHERS_KEY, serializeWatchersStore(watchRules.value))
+  } catch {
+    /* private mode — session-only */
+  }
+}
+
+function addWatchRule() {
+  const created = createWatcher(
+    watchRules.value,
+    wName.value,
+    {
+      ...(wTag.value.trim() ? { tag: wTag.value.trim() } : {}),
+      ...(wMime.value.trim() ? { mimePrefix: wMime.value.trim() } : {}),
+      ...(wPattern.value.trim() ? { namePattern: wPattern.value.trim() } : {}),
+    },
+    { notify: wNotify.value, ...(wAddTag.value.trim() ? { addTag: wAddTag.value.trim() } : {}) },
+  )
+  if (!created) {
+    watchNote.value = 'name the rule first'
+    return
+  }
+  watchRules.value = created.rules
+  wName.value = ''
+  wTag.value = ''
+  wMime.value = ''
+  wPattern.value = ''
+  wAddTag.value = ''
+  watchNote.value = ''
+  persistWatchers()
+}
+
+function toggleWatchRule(id: string) {
+  watchRules.value = watchRules.value.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r))
+  persistWatchers()
+}
+
+function removeWatchRule(id: string) {
+  watchRules.value = watchRules.value.filter((r) => r.id !== id)
+  persistWatchers()
+}
+
+/** Run every enabled rule against the current vault listing. */
+async function evaluateWatchersNow() {
+  await store.fetchFiles()
+  const files = store.files.map((f) => ({
+    id: f.id,
+    name: f.name,
+    mimeType: f.mimeType,
+    sizeBytes: f.sizeBytes,
+    tags: f.tags,
+  }))
+  const hits = evaluateWatchers(watchRules.value, files)
+  watchHits.value = hits.length
+  let tagged = 0
+  for (const { rule, file } of hits) {
+    if (rule.actions.addTag) {
+      const node = store.files.find((f) => f.id === file.id)
+      const tags = node?.tags ?? []
+      if (!tags.includes(rule.actions.addTag)) {
+        await store.setFileTags(file.id, [...tags, rule.actions.addTag])
+        tagged += 1
+      }
+    }
+    if (rule.actions.notify) {
+      notify('info', `watcher '${rule.name}': ${file.name}`, 5000, 'Watcher')
+    }
+  }
+  watchNote.value =
+    hits.length === 0
+      ? 'no matches in the current vault listing'
+      : `${hits.length} match${hits.length === 1 ? '' : 'es'}${tagged ? ` · ${tagged} tagged` : ''}`
 }
 
 // ── Schedules (cron) ────────────────────────────────────────
@@ -202,6 +309,7 @@ onMounted(() => {
 
 watch(activeTab, tab => {
   if (tab === 'schedules') void store.fetchSchedules()
+  if (tab === 'watchers') loadWatchers()
 })
 
 onBeforeUnmount(() => {
@@ -218,10 +326,11 @@ onBeforeUnmount(() => {
         <span v-if="activeTab === 'processes'" class="text-muted">
           {{ counts ? `${counts.running} running / ${counts.total} total` : '…' }}
         </span>
-        <span v-else class="text-muted">{{ schedules.length }} scheduled</span>
+        <span v-else-if="activeTab === 'schedules'" class="text-muted">{{ schedules.length }} scheduled</span>
+        <span v-else class="text-muted">{{ watchRules.length }} watchers</span>
       </div>
       <div class="header-right">
-        <button class="ghost-btn" type="button" @click="activeTab === 'schedules' ? store.fetchSchedules() : refresh()">
+        <button class="ghost-btn" type="button" @click="activeTab === 'schedules' ? store.fetchSchedules() : activeTab === 'watchers' ? evaluateWatchersNow() : refresh()">
           Refresh
         </button>
       </div>
@@ -242,6 +351,13 @@ onBeforeUnmount(() => {
         :class="{ on: activeTab === 'schedules' }"
         @click="activeTab = 'schedules'"
       >Schedules</button>
+      <button
+        role="tab"
+        type="button"
+        :aria-selected="activeTab === 'watchers'"
+        :class="{ on: activeTab === 'watchers' }"
+        @click="activeTab = 'watchers'; loadWatchers()"
+      >{{ t('watchers.title') }}</button>
     </div>
 
     <template v-if="activeTab === 'processes'">
@@ -344,7 +460,7 @@ onBeforeUnmount(() => {
     </template>
 
     <!-- ══ SCHEDULES (cron) ══ -->
-    <template v-else>
+    <template v-else-if="activeTab === 'schedules'">
       <div class="section">
         <div class="sched-toolbar">
           <h3 class="section-title"><AppIcon name="solar:alarm-bold" :size="13" /> Scheduled scripts</h3>
@@ -485,6 +601,63 @@ onBeforeUnmount(() => {
           <button class="ghost-btn" type="button" @click="historyVisible = false">Close</button>
         </template>
       </UiModal>
+    </template>
+
+    <!-- ══ WATCHERS (proactive agent watchers, ANALYSIS.md §4.6) ══ -->
+    <template v-else>
+      <div class="section">
+        <div class="sched-toolbar">
+          <h3 class="section-title"><AppIcon name="solar:bell-bold" :size="13" /> {{ t('watchers.title') }}</h3>
+          <button class="ghost-btn primary" type="button" @click="evaluateWatchersNow">{{ t('watchers.evaluate') }}</button>
+        </div>
+        <p class="text-muted sched-hint">{{ t('watchers.hint') }}</p>
+        <div class="sched-form">
+          <UiInput v-model="wName" :label="t('watchers.name')" placeholder="New photos" />
+          <div class="watch-grid">
+            <UiInput v-model="wTag" label="Tag equals" placeholder="trip" spellcheck="false" />
+            <UiInput v-model="wMime" label="MIME starts with" placeholder="image/" spellcheck="false" />
+            <UiInput v-model="wPattern" label="Name regex" placeholder="\.(jpg|png)$" spellcheck="false" />
+            <UiInput v-model="wAddTag" label="Then add tag" placeholder="review" spellcheck="false" />
+          </div>
+          <UiCheckbox v-model="wNotify" label="Notify in the notification center on match" />
+          <button class="ghost-btn" type="button" @click="addWatchRule">{{ t('watchers.add') }}</button>
+        </div>
+        <p v-if="watchNote" class="note">{{ watchNote }}</p>
+        <table v-if="watchRules.length" class="task-table sched-table">
+          <thead>
+            <tr>
+              <th>Rule</th>
+              <th>Match</th>
+              <th>Then</th>
+              <th>State</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="rule in watchRules" :key="rule.id">
+              <td data-label="Rule" class="truncate name-cell" :title="rule.name">{{ rule.name }}</td>
+              <td data-label="Match" class="truncate">
+                {{ [rule.match.tag && `tag=${rule.match.tag}`, rule.match.mimePrefix && `mime=${rule.match.mimePrefix}`, rule.match.namePattern && `name~${rule.match.namePattern}`].filter(Boolean).join(' · ') || 'everything' }}
+              </td>
+              <td data-label="Then">{{ [rule.actions.notify && 'notify', rule.actions.addTag && `tag:${rule.actions.addTag}`].filter(Boolean).join(' · ') }}</td>
+              <td data-label="State">
+                <button
+                  class="ghost-btn state-toggle"
+                  type="button"
+                  :class="{ on: rule.enabled }"
+                  :aria-label="`${rule.enabled ? 'Disable' : 'Enable'} watcher ${rule.id}`"
+                  @click="toggleWatchRule(rule.id)"
+                >{{ rule.enabled ? 'on' : 'off' }}</button>
+              </td>
+              <td class="task-action">
+                <button class="ghost-btn danger" type="button" :aria-label="`Delete watcher ${rule.id}`" @click="removeWatchRule(rule.id)">Delete</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else class="text-muted empty">{{ t('watchers.noRules') }}</p>
+        <p v-if="watchHits > 0" class="note">last run: {{ watchHits }} match{{ watchHits === 1 ? '' : 'es' }}</p>
+      </div>
     </template>
   </div>
 </template>

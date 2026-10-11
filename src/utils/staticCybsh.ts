@@ -37,6 +37,15 @@ import {
 } from './cybshScript'
 import { googleDriveAuthErrorSync } from './gitProvision'
 import { nextFire, parseSchedule } from './schedule'
+import { listSkills, parseSkillMd, validateSkill } from './skills'
+import {
+  addTodo,
+  clearDone,
+  parseTodosStore,
+  removeTodo,
+  serializeTodosStore,
+  toggleTodo,
+} from './tasks'
 
 /** The 1 MiB single-write cap mirrors `MAX_WRITE_BYTES` in os.rs. */
 export const STATIC_WRITE_LIMIT = 1024 * 1024
@@ -194,7 +203,7 @@ const HANDLED_VERBS = new Set([
   'quota', 'providers', 'oauth', 'disk', 'sync',
   'encrypt', 'decrypt', 'keygen', 'compress', 'decompress',
   'scrub', 'repair', 'gc', 'lease', 'mount', 'umount', 'ai',
-  'run', 'theme', 'ui', 'cron', 'backup',
+  'run', 'theme', 'ui', 'cron', 'backup', 'skill', 'task',
 ])
 
 export function handlesStaticVerb(verb: string): boolean {
@@ -2876,6 +2885,178 @@ async function handleCron(
   }
 }
 
+const SKILL_SUBCOMMANDS = ['list', 'show', 'run', 'install'] as const
+
+/** Skills as shareable apps, day one (ANALYSIS.md §4.8): `.cybermanju/skills/*`
+ * folders carried by sync; SKILL.md is the manifest, `run` names the entry
+ * `.cybsh`. `install <url>` fetches a SKILL.md (+ its run script) into place. */
+async function handleSkill(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  const sub = (args[0] ?? 'list').toLowerCase()
+  const rest = args.slice(1)
+  const volume = deps.readVolume()
+  const skillFiles = Object.entries(volume)
+    .filter(([path]) => path.includes('.cybermanju/skills/'))
+    .map(([path, content]) => ({ path, content }))
+  if (sub === 'list') {
+    const skills = listSkills(skillFiles)
+    if (json) return shellOk(JSON.stringify(skills))
+    if (!skills.length) {
+      return shellOk('skill: no skills installed under .cybermanju/skills/ — `skill install <url>` copies one in')
+    }
+    return shellOk(skills.map((s) => `${s.slug} ${s.version} — ${s.description}`).join('\n'))
+  }
+  if (sub === 'show') {
+    const slug = rest[0]
+    if (!slug) return shellErr('usage: skill show <slug>')
+    const skills = listSkills(skillFiles)
+    const found = skills.find((s) => s.slug === slug)
+    if (!found) return shellErr(`not_found: no skill '${slug}'`)
+    const problems = validateSkill(
+      found,
+      skillFiles.map((f) => f.path),
+    )
+    if (json) return shellOk(JSON.stringify({ ...found, problems }))
+    let out = `${found.name} ${found.version}\n${found.description}\nrun: ${found.run}`
+    if (problems.length) out += `\nproblems:\n- ${problems.join('\n- ')}`
+    return shellOk(out)
+  }
+  if (sub === 'run') {
+    const slug = rest[0]
+    if (!slug) return shellErr('usage: skill run <slug>')
+    const skills = listSkills(skillFiles)
+    const found = skills.find((s) => s.slug === slug)
+    if (!found) return shellErr(`not_found: no skill '${slug}'`)
+    if (!deps.execFallback) {
+      return shellErr('unsupported: skill run needs the wasm shell fallback — run the same line in the terminal')
+    }
+    const dir = found.path.split('/').slice(0, -1).join('/')
+    const scriptPath = `${dir}/${found.run}`
+    const script = volume[scriptPath]
+    if (typeof script !== 'string') return shellErr(`not_found: missing run script ${scriptPath}`)
+    const lines = script.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'))
+    if (!lines.length) return shellErr(`invalid: ${scriptPath} has no runnable lines`)
+    const out: string[] = []
+    for (const skillLine of lines) {
+      try {
+        out.push(await deps.execFallback(skillLine))
+      } catch (e) {
+        return shellErr(`skill '${slug}' stopped at \`${skillLine}\`: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    if (json) return shellOk(JSON.stringify({ slug, lines: out }))
+    return shellOk(out.join('\n'))
+  }
+  if (sub === 'install') {
+    const url = rest[0]
+    if (!url || !/^https?:\/\//i.test(url)) return shellErr('usage: skill install <https-url-to-SKILL.md>')
+    if (typeof fetch === 'undefined') {
+      return shellErr('unsupported: skill install has no HTTP client in this context — copy the folder into .cybermanju/skills/ by hand')
+    }
+    let text: string
+    try {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      text = await res.text()
+    } catch (e) {
+      return shellErr(`network: skill install fetch failed (${e instanceof Error ? e.message : String(e)})`)
+    }
+    const manifest = parseSkillMd('.cybermanju/skills/install/SKILL.md', text)
+    if (!manifest) return shellErr('invalid: fetched SKILL.md has no usable name/description')
+    const base = url.split('/').slice(0, -1).join('/')
+    const dir = `.cybermanju/skills/${manifest.slug}`
+    await deps.writeVolumeFile(`${dir}/SKILL.md`, text)
+    // Best-effort sibling fetch for the run script (same directory as the URL).
+    if (manifest.run && base) {
+      try {
+        const res = await fetch(`${base}/${manifest.run}`)
+        if (res.ok) await deps.writeVolumeFile(`${dir}/${manifest.run}`, await res.text())
+      } catch {
+        /* manifest without its script still lists; `skill show` reports it */
+      }
+    }
+    const problems = validateSkill(manifest, [...skillFiles.map((f) => f.path), `${dir}/SKILL.md`])
+    if (json) return shellOk(JSON.stringify({ slug: manifest.slug, problems }))
+    let out = `skill: installed '${manifest.slug}' under ${dir}/`
+    if (problems.length) out += `\nproblems:\n- ${problems.join('\n- ')}`
+    return shellOk(out)
+  }
+  const suggestion = SKILL_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
+  return shellErr(
+    suggestion
+      ? `usage: skill <${SKILL_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
+      : `usage: skill <${SKILL_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
+  )
+}
+
+const TODOS_KEY = 'cybermanju.todos.v1'
+
+function readTaskList(): ReturnType<typeof parseTodosStore> {
+  try {
+    if (typeof localStorage === 'undefined') return []
+    return parseTodosStore(localStorage.getItem(TODOS_KEY))
+  } catch {
+    return []
+  }
+}
+
+function writeTaskList(list: ReturnType<typeof parseTodosStore>): void {
+  try {
+    if (typeof localStorage === 'undefined') return
+    localStorage.setItem(TODOS_KEY, serializeTodosStore(list))
+  } catch {
+    /* private mode — session-only */
+  }
+}
+
+/** Round-out daily use in the shell (ANALYSIS.md §4.9): todos share the
+ * Archive TASKS store, so shell and panel stay one list. */
+function handleTask(args: string[], json: boolean): VerbOut {
+  const sub = (args[0] ?? 'list').toLowerCase()
+  const rest = args.slice(1)
+  if (sub === 'list') {
+    const list = readTaskList()
+    if (json) return shellOk(JSON.stringify(list))
+    if (!list.length) return shellOk('task: no todos — `task add <title>`')
+    return shellOk(
+      list.map((item) => `${item.done ? '[x]' : '[ ]'} ${item.id} ${item.title}`).join('\n'),
+    )
+  }
+  if (sub === 'add') {
+    const title = rest.join(' ').trim()
+    const created = addTodo(readTaskList(), title)
+    if (!created) return shellErr('usage: task add <title>')
+    writeTaskList(created.list)
+    if (json) return shellOk(JSON.stringify(created.item))
+    return shellOk(`task: added ${created.item.id}`)
+  }
+  if (sub === 'done' || sub === 'undone') {
+    const prefix = rest[0]
+    if (!prefix) return shellErr(`usage: task ${sub} <id-prefix>`)
+    const list = readTaskList()
+    const found = list.find((item) => item.id.startsWith(prefix))
+    if (!found) return shellErr(`not_found: no todo starting with '${prefix}'`)
+    const wantDone = sub === 'done'
+    const next = wantDone === found.done ? list : toggleTodo(list, found.id)
+    writeTaskList(next)
+    return shellOk(`task: ${found.id} ${wantDone ? 'done' : 'reopened'}`)
+  }
+  if (sub === 'rm') {
+    const prefix = rest[0]
+    if (!prefix) return shellErr('usage: task rm <id-prefix>')
+    const list = readTaskList()
+    const found = list.find((item) => item.id.startsWith(prefix))
+    if (!found) return shellErr(`not_found: no todo starting with '${prefix}'`)
+    writeTaskList(removeTodo(list, found.id))
+    return shellOk(`task: removed ${found.id}`)
+  }
+  if (sub === 'clear') {
+    const { list, cleared } = clearDone(readTaskList())
+    writeTaskList(list)
+    return shellOk(`task: cleared ${cleared} done`)
+  }
+  return shellErr('usage: task <list|add|done|undone|rm|clear> (got `' + sub + '`)')
+}
+
 export async function runStaticCybshLine(
   line: string,
   deps: StaticCybshDeps,
@@ -3010,6 +3191,10 @@ export async function runStaticCybshLine(
         return done(await handleCron(args, json, deps))
       case 'backup':
         return done(await handleBackup(args, json, deps))
+      case 'skill':
+        return done(await handleSkill(args, json, deps))
+      case 'task':
+        return done(handleTask(args, json))
       default:
         return null
     }

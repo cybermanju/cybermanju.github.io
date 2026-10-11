@@ -545,7 +545,11 @@ mod tests {
         let rs = "/// First line.\n/// Second line.\npub fn run() {}\n";
         let syms = extract_symbols_heuristic(rs, "rust");
         let run = syms.iter().find(|s| s["name"] == "run").unwrap();
-        assert_eq!(run["docs"], "First line. Second line.", "got {}", run["docs"]);
+        assert_eq!(
+            run["docs"], "First line. Second line.",
+            "got {}",
+            run["docs"]
+        );
 
         // A blank line breaks attachment — the docs belong to nothing.
         let rs = "/// Orphan.\n\npub fn free() {}\n";
@@ -578,8 +582,7 @@ mod tests {
         let syms = extract_symbols_heuristic(rs, "rust");
         let make = syms.iter().find(|s| s["name"] == "make").unwrap();
         assert_eq!(
-            make["docs"],
-            "Creates a vault repo. Returns the stored name.",
+            make["docs"], "Creates a vault repo. Returns the stored name.",
             "got {}",
             make["docs"]
         );

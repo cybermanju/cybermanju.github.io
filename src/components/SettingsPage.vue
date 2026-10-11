@@ -232,6 +232,16 @@
             @update:model-value="store.sidebarCollapsed = !$event"
           />
         </div>
+        <div class="st-row">
+          <UiText as="span" variant="label" tone="muted">{{ t('settings.language') }}</UiText>
+          <UiSelect
+            :model-value="locale"
+            :options="LOCALES.map((l) => ({ label: l.label, value: l.id }))"
+            aria-label="Interface language"
+            @update:model-value="setLanguage($event as Locale)"
+          />
+        </div>
+        <p class="st-hint text-muted">{{ t('settings.languageHint') }}</p>
       </UiCard>
 
       <!-- ── remote dashboard ── -->
@@ -528,6 +538,7 @@ import { useTouchConfig, type GestureType, type TouchAction } from '@/composable
 import { useTheme } from '@/composables/useTheme'
 import { ACCENT_CHOICES, WALLPAPERS, type ShellStyle } from '@/ui/tokens'
 import { lockMobileVaultMirror, mobileVaultMirrorState, supportsNativeScopedStorage, syncMobileVaultMirrorNow, unlockMobileVaultMirror } from '@/utils/mobileScopedStorage'
+import { LOCALES, getLocale, t, useLocale, type Locale } from '@/utils/i18n'
 
 /**
  * Active transport: tauri IPC, REST dashboard, or local WASM (GitHub Pages).
@@ -550,6 +561,13 @@ const transportTone = computed<'neutral' | 'accent' | 'success' | 'warning' | 'd
 
 const store = useAppStore()
 const theme = useTheme()
+// Interface language (i18n foundation, ANALYSIS.md §3) — new surfaces read
+// it via t(); older panels migrate as they are touched.
+const locale = ref<Locale>(getLocale())
+function setLanguage(next: Locale) {
+  locale.value = next
+  useLocale(next)
+}
 const customWallpaper = useCustomWallpaper()
 const wallpaperUrlDraft = ref('')
 const wallpaperFileInput = ref<HTMLInputElement | null>(null)

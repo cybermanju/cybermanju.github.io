@@ -248,7 +248,7 @@ pub fn verify_token(
 
 /// List all registered users.
 #[tauri::command(async)]
-pub fn list_users(state: State<'_, AppState>) -> Result<Vec<User>, String> {
+pub fn list_users(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     let tx = db.begin_read().map_err(|e| e.to_string())?;
     let table = tx
@@ -259,7 +259,15 @@ pub fn list_users(state: State<'_, AppState>) -> Result<Vec<User>, String> {
     for entry in table.iter().map_err(|e| e.to_string())? {
         let (_, value) = entry.map_err(|e| e.to_string())?;
         let user: User = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
-        results.push(user);
+        // P0-4: mirror the web `list_users_safe` projection — password
+        // hashes never cross IPC, even to the trusted-local frontend.
+        let mut obj =
+            serde_json::to_value(&user).map_err(|e| format!("integrity: user row: {e}"))?;
+        if let Some(map) = obj.as_object_mut() {
+            map.remove("passwordHash");
+            map.remove("password_hash");
+        }
+        results.push(obj);
     }
 
     Ok(results)

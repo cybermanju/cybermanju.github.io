@@ -1320,3 +1320,48 @@ Stage Summary:
   tooling + structure-finder contract updated to the new semantics.
 - Verified: headers ok, `vue-tsc` clean, 68 files / 799 tests green, wiki
   smoke build into /tmp ok. Rust `fmt/clippy/test` left to CI per repo rules.
+## 2026-10-11 — ANALYSIS §4.5 storage diet / dedup report (cargo CI-only for Rust)
+
+- New pure `src/utils/dedup.ts`: BLAKE3 grouping (`normalizeHash` — lowercase/
+  trim, ≥16 hex chars, hex-only), reclaimable = total − one copy, keep-newest
+  suggestion, groups ranked reclaimable-desc; files without a usable hash are
+  `unhashable` and excluded (honest limit, never fabricated).
+- Disks → DIET tab (`DiskManagerPage.vue`, `wm.open('disks', { tab: 'diet' })`):
+  dup-sets / dup-files / reclaimable / no-hash cards + per-group file rows
+  (KEEP badge on the newest copy) + two-click RECLAIM through the standard
+  `store.deleteFile` path + refresh.
+- Tests: `tests/frontend/dedup.test.ts` (10 green: normalize, grouping, math,
+  keep-newest, unhashable, case-folding, ranking, summary, empty-safe).
+- Docs: `ANALYSIS.md` §4.5 ticked ✅ + header remeasured (55 components ·
+  34 composables · 57 utils · 16 crates · ~173 command fns · 38 redb tables).
+- Verified here: dedup suite 10/10 green. Full loop (`vue-tsc`, `npm test`,
+  header/version checks) below; Rust untouched so CI has nothing new to prove.
+## 2026-10-11 — ANALYSIS 80% pass: archive, watchers, skills, recovery, TLS, i18n, parity guard, dead-code purge (cargo CI-only for Rust)
+
+- New `ArchivePanel.vue` (`archive` PanelType + wm registry/sizes + Dock +
+  palette entry): NOTES (vault markdown + `[[wikilink]]` backlink graph,
+  `readManagedContent`/`contentText` loading, OPEN IN EDITOR), TIMELINE (day
+  buckets + on-this-day picker), PEOPLE (FaceGroups++ contact records:
+  aliases/notes/links local, rename/merge/delete via server actions), TASKS
+  (shared localStorage list), BOOKMARKS (IMPORT via `import_from_url`), DATA
+  (CSV/TSV sniff/parse/infer, 5000-row cap). Strings via the new i18n layer.
+- Pure utils + tests: `timeline` (3), `notes` (4), `contacts` (5),
+  `tasks`+`bookmarks` (6), `csv` (6), `watchers` (5), `skills` (4),
+  `shamir` (4 — caught a real GF(256) bug: 0x02 is not primitive, tables now
+  use 0x03), `i18n` (3), AGENT-1/REST parity guard (11), skill/task cybsh
+  verbs (7). Batch total 58 new tests.
+- Processes → WATCHERS tab (rules CRUD, EVALUATE NOW: center notify +
+  `setFileTags`); Shield → RECOVERY tab (Shamir split N/M, copy-once shares,
+  verify-combine; never persisted); Settings → LANGUAGE row (en/pt-BR);
+  `skill list|show|run|install` + `task …` verbs in staticCybsh + OPERATIONS.
+- TLS story shipped: `Caddyfile` + `docker-compose.tls.yml` (auto-ACME,
+  80→443, HSTS, 100 MB cap, single-hop trust policy) + OPERATIONS §6.
+- Dead code verified unreferenced and deleted (Sidebar/TreeNode/FileTooltip/
+  DashboardOverlay/MatrixRain/PrayerFlags + App.vue dead import); README +
+  AGENTS counts refreshed to the verified tree (49 · 34 · 67 · 18 members ·
+  ~175 handlers · 152 REST · ~38 tables).
+- Still open (honest): P0 auth cluster, iOS, device identity → LAN → CAS →
+  sneakernet → iroh, op-log, boot-real-web parity, Tantivy/agent-memory
+  bridge, agent classify hook + add/complete bridge, skills panels-later.
+- Verified here: headers ok, `vue-tsc` clean, full vitest green (see run).
+  Rust untouched — CI has nothing new to prove.

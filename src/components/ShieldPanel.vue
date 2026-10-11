@@ -23,6 +23,9 @@
       <button role="tab" :aria-selected="activeTab === 'compress'" :class="{ on: activeTab === 'compress' }" type="button" @click="activeTab = 'compress'">
         <AppIcon name="solar:archive-bold" :size="13" /> Compress
       </button>
+      <button role="tab" :aria-selected="activeTab === 'recovery'" :class="{ on: activeTab === 'recovery' }" type="button" @click="activeTab = 'recovery'">
+        <AppIcon name="solar:key-bold" :size="13" /> {{ t('recovery.title') }}
+      </button>
     </div>
 
     <!-- ══ SHIELD (merged encryption panel) ══ -->
@@ -124,7 +127,7 @@
     </div>
 
     <!-- ══ COMPRESS (merged compression panel) ══ -->
-    <div v-else class="sh-compress">
+    <div v-else-if="activeTab === 'compress'" class="sh-compress">
       <section class="sh-section" aria-label="Compression algorithm">
         <h3 class="section-title"><AppIcon name="solar:archive-bold" :size="13" /> Algorithm</h3>
         <div class="algo-grid">
@@ -191,6 +194,46 @@
         </div>
       </section>
     </div>
+
+    <!-- ══ RECOVERY (Shamir m-of-n escrow, ANALYSIS.md §3) ══ -->
+    <div v-else class="sh-recovery">
+      <p class="sh-note is-info">
+        <AppIcon name="solar:info-circle-bold" :size="13" />
+        <span>{{ t('recovery.hint') }}</span>
+      </p>
+      <section class="sh-section" aria-label="Split a secret">
+        <h3 class="section-title"><AppIcon name="solar:key-bold" :size="13" /> Split</h3>
+        <label class="rec-field">
+          <span class="rec-label">PASSPHRASE</span>
+          <input v-model="recSecret" class="rec-input" type="password" autocomplete="off" aria-label="Secret to split" />
+        </label>
+        <div class="rec-nm">
+          <label class="rec-field">
+            <span class="rec-label">SHARES (N)</span>
+            <input v-model.number="recN" class="rec-input" type="number" min="2" max="16" aria-label="Total shares" />
+          </label>
+          <label class="rec-field">
+            <span class="rec-label">NEEDED (M)</span>
+            <input v-model.number="recM" class="rec-input" type="number" min="2" max="16" aria-label="Threshold shares" />
+          </label>
+          <UiButton variant="primary" icon="solar:key-bold" :disabled="!recSecret" @click="splitRecovery">{{ t('recovery.split') }}</UiButton>
+        </div>
+        <p v-if="recError" class="rec-error">{{ recError }}</p>
+      </section>
+      <section v-if="recShares.length" class="sh-section" aria-label="Recovery shares">
+        <h3 class="section-title"><AppIcon name="solar:diskette-bold" :size="13" /> {{ recShares.length }} shares — store offline</h3>
+        <div v-for="s in recShares" :key="s.x" class="share-row">
+          <code class="mono share-hex" :title="`Share ${s.x}`">{{ s.x }}:{{ s.hex }}</code>
+          <UiButton size="sm" variant="ghost" @click="copyShare(s)">Copy</UiButton>
+        </div>
+      </section>
+      <section v-if="recShares.length" class="sh-section" aria-label="Verify combine">
+        <h3 class="section-title"><AppIcon name="solar:check-bold" :size="13" /> {{ t('recovery.combine') }}</h3>
+        <textarea v-model="recCombineText" class="rec-input rec-area" rows="4" spellcheck="false" placeholder="x:hex — one share per line" aria-label="Shares to combine" />
+        <UiButton size="sm" icon="solar:check-bold" @click="combineRecovery">{{ t('recovery.combine') }}</UiButton>
+        <p v-if="recVerdict" class="rec-verdict" :class="{ ok: recOk }">{{ recVerdict }}</p>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -206,6 +249,8 @@ import { compressionCapable } from '@/composables/useWasmCrypto'
 import { requestInstallWindow } from '@/utils/installLinks'
 import type { EncryptionAlgo, CompressionType } from '@/types'
 import { ENCRYPTION_INFO, COMPRESSION_INFO } from '@/types'
+import { combineText, splitText, type ShamirShare } from '@/utils/shamir'
+import { t } from '@/utils/i18n'
 
 const store = useAppStore()
 const emit = defineEmits<{ close: [] }>()
@@ -217,8 +262,82 @@ function openInstall() {
 
 // Merged shield window: `compression` opens here on the compress tab.
 const props = defineProps<{ tab?: string }>()
-const activeTab = ref<'shield' | 'compress'>(props.tab === 'compress' ? 'compress' : 'shield')
-watch(() => props.tab, (t) => { if (t === 'shield' || t === 'compress') activeTab.value = t })
+type ShieldTab = 'shield' | 'compress' | 'recovery'
+const activeTab = ref<ShieldTab>(
+  props.tab === 'compress' ? 'compress' : props.tab === 'recovery' ? 'recovery' : 'shield',
+)
+watch(() => props.tab, (t) => { if (t === 'shield' || t === 'compress' || t === 'recovery') activeTab.value = t })
+
+// ── Recovery (Shamir m-of-n escrow, ANALYSIS.md §3) ───────────────────
+// Shares render once and are never stored anywhere (no localStorage, no DB,
+// no transcript). Verification compares against the in-memory split source.
+const recSecret = ref('')
+const recN = ref(5)
+const recM = ref(3)
+const recShares = ref<ShamirShare[]>([])
+const recSource = ref('')
+const recCombineText = ref('')
+const recError = ref('')
+const recVerdict = ref('')
+const recOk = ref(false)
+
+function clampRecNM() {
+  recN.value = Math.max(2, Math.min(16, Math.round(recN.value || 0)))
+  recM.value = Math.max(2, Math.min(16, Math.round(recM.value || 0)))
+}
+
+function splitRecovery() {
+  recError.value = ''
+  recVerdict.value = ''
+  recOk.value = false
+  clampRecNM()
+  try {
+    recShares.value = splitText(recSecret.value, recN.value, recM.value)
+    recSource.value = recSecret.value
+    recCombineText.value = recShares.value.map((s) => `${s.x}:${s.hex}`).join('\n')
+  } catch (e) {
+    recShares.value = []
+    recError.value = e instanceof Error ? e.message : 'split failed'
+  }
+}
+
+function parseShareLines(text: string): ShamirShare[] | null {
+  const out: ShamirShare[] = []
+  for (const line of text.split('\n')) {
+    const clean = line.trim()
+    if (!clean) continue
+    const m = /^(\d+)\s*:\s*([0-9a-fA-F]+)$/.exec(clean)
+    if (!m) return null
+    out.push({ x: Number(m[1]), hex: m[2].toLowerCase() })
+  }
+  return out
+}
+
+function combineRecovery() {
+  recVerdict.value = ''
+  const shares = parseShareLines(recCombineText.value)
+  if (!shares || shares.length < 2) {
+    recOk.value = false
+    recVerdict.value = 'paste at least 2 shares as x:hex lines'
+    return
+  }
+  try {
+    const restored = combineText(shares)
+    recOk.value = restored === recSource.value && recSource.value !== ''
+    recVerdict.value = recOk.value ? t('recovery.roundTrip') : t('recovery.roundTripFail')
+  } catch (e) {
+    recOk.value = false
+    recVerdict.value = e instanceof Error ? e.message : 'combine failed'
+  }
+}
+
+async function copyShare(s: ShamirShare) {
+  try {
+    await navigator.clipboard.writeText(`${s.x}:${s.hex}`)
+  } catch {
+    /* clipboard unavailable — the hex stays visible for manual copy */
+  }
+}
 
 // Static/offline build: the wasm pack runs the real ciphers, keys live in
 // `.cybermanju`. Dashboard build: no crypto/compression endpoint exists there.
@@ -672,6 +791,37 @@ async function handleCompress() {
   .sh-shield > .encrypt-section { order: 2; }
   .sh-shield > .keys-section { order: 3; }
   .sh-shield > .keygen-section { order: 4; }
+}
+
+/* ── recovery (Shamir escrow) ── */
+.sh-recovery { display: flex; flex-direction: column; gap: 2px; }
+.rec-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.rec-label { font-size: 10px; letter-spacing: 1px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
+.rec-input {
+  background: transparent;
+  border: 1px solid var(--ui-border);
+  color: var(--ui-text);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.rec-nm { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.rec-nm .rec-field { flex: 1; min-width: 90px; }
+.rec-area { font-family: var(--ui-font-mono); resize: vertical; }
+.rec-error { color: var(--ui-danger); font-size: 12px; }
+.rec-verdict { font-size: 12px; }
+.rec-verdict.ok { color: var(--ui-accent); }
+.share-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.share-hex {
+  flex: 1;
+  font-size: 11px;
+  word-break: break-all;
+  border: 1px solid var(--ui-border);
+  padding: 6px 8px;
+  min-width: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

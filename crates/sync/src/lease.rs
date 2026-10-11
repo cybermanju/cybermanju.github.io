@@ -125,21 +125,6 @@ fn read_lease(db: &Database, scope: &str) -> Result<Option<Lease>, String> {
     }
 }
 
-fn write_lease(db: &Database, lease: &Lease) -> Result<(), String> {
-    let key = lease_key(&lease.scope);
-    let serialized = serde_json::to_string(lease).map_err(|e| e.to_string())?;
-    let tx = db.begin_write().map_err(|e| e.to_string())?;
-    {
-        let mut table = tx
-            .open_table(Database::get_leases_table())
-            .map_err(|e| e.to_string())?;
-        table
-            .insert(key.as_str(), serialized.as_str())
-            .map_err(|e| e.to_string())?;
-    }
-    tx.commit().map_err(|e| e.to_string())
-}
-
 /// The current lease for `scope`, if any row exists.
 pub fn inspect_lease(db: &Database, scope: &str) -> Result<Option<Lease>, String> {
     read_lease(db, scope)
@@ -156,6 +141,13 @@ pub fn acquire_lease(db: &Database, holder: &str) -> Result<Lease, String> {
 /// * held by `holder` → renewed;
 /// * expired → **stolen** (`stolen_from` records who held it);
 /// * held by someone else → `Err("conflict: …")`, never a silent takeover.
+///
+/// P0-19: the read-decide-write runs inside ONE write txn (compare-and-swap),
+/// so two threads racing to acquire cannot both believe they won — the old
+/// read-then-write across separate txns let the loser silently overwrite the
+/// winner. (Cross-*process* mutual exclusion is still out of scope for a
+/// single-file redb: one opener per file. The `devices` registry + op-log
+/// carry the cross-device story instead.)
 pub fn acquire_lease_in(
     db: &Database,
     holder: &str,
@@ -163,80 +155,136 @@ pub fn acquire_lease_in(
     ttl_secs: u64,
 ) -> Result<Lease, String> {
     let now = now_secs();
-    if let Some(existing) = read_lease(db, scope)? {
-        if existing.is_active(now) {
-            if existing.holder == holder {
-                let mut renewed = existing.clone();
-                renewed.renewed_at = rfc3339(now);
-                renewed.expires_at_secs = now.saturating_add(ttl_secs);
-                renewed.expires_at = rfc3339(renewed.expires_at_secs);
-                write_lease(db, &renewed)?;
-                return Ok(renewed);
+    let key = lease_key(scope);
+    let tx = db.begin_write().map_err(|e| e.to_string())?;
+    let result = (|| {
+        let mut table = tx
+            .open_table(Database::get_leases_table())
+            .map_err(|e| e.to_string())?;
+        let existing: Option<Lease> = match table.get(key.as_str()).map_err(|e| e.to_string())? {
+            Some(value) => Some(
+                serde_json::from_str(value.value())
+                    .map_err(|e| format!("integrity: lease row unreadable: {e}"))?,
+            ),
+            None => None,
+        };
+        if let Some(current) = &existing {
+            if current.is_active(now) {
+                if current.holder == holder {
+                    let mut renewed = current.clone();
+                    renewed.renewed_at = rfc3339(now);
+                    renewed.expires_at_secs = now.saturating_add(ttl_secs);
+                    renewed.expires_at = rfc3339(renewed.expires_at_secs);
+                    let serialized = serde_json::to_string(&renewed).map_err(|e| e.to_string())?;
+                    table
+                        .insert(key.as_str(), serialized.as_str())
+                        .map_err(|e| e.to_string())?;
+                    return Ok(renewed);
+                }
+                return Err(format!(
+                    "conflict: lease '{}' is held by '{}' until {} (holder: {})",
+                    scope, current.holder, current.expires_at, holder
+                ));
             }
-            return Err(format!(
-                "conflict: lease '{}' is held by '{}' until {} (holder: {})",
-                scope, existing.holder, existing.expires_at, holder
-            ));
         }
+        let mut lease = new_lease(holder, scope, ttl_secs, now);
+        lease.stolen_from = existing
+            .filter(|old| old.holder != holder)
+            .map(|old| old.holder);
+        let serialized = serde_json::to_string(&lease).map_err(|e| e.to_string())?;
+        table
+            .insert(key.as_str(), serialized.as_str())
+            .map_err(|e| e.to_string())?;
+        Ok(lease)
+    })();
+    match result {
+        Ok(lease) => {
+            tx.commit().map_err(|e| e.to_string())?;
+            Ok(lease)
+        }
+        Err(e) => Err(e),
     }
-
-    let mut lease = new_lease(holder, scope, ttl_secs, now);
-    lease.stolen_from = read_lease(db, scope)?
-        .filter(|old| old.holder != holder)
-        .map(|old| old.holder);
-    write_lease(db, &lease)?;
-    Ok(lease)
 }
 
 /// Extend an existing lease. Only the current holder may renew; an expired
 /// lease is not yours to renew — acquire (steal) it instead.
+///
+/// Same single-txn CAS discipline as acquire: the holder check and the
+/// renewal write commit atomically.
 pub fn renew_lease(db: &Database, holder: &str, scope: &str) -> Result<Lease, String> {
     let now = now_secs();
-    let existing =
-        read_lease(db, scope)?.ok_or_else(|| format!("conflict: no lease '{}' to renew", scope))?;
-    if !existing.is_active(now) {
-        return Err(format!(
-            "conflict: lease '{}' expired at {} — acquire it instead",
-            scope, existing.expires_at
-        ));
-    }
-    if existing.holder != holder {
-        return Err(format!(
-            "conflict: lease '{}' is held by '{}', not '{}'",
-            scope, existing.holder, holder
-        ));
-    }
-    let mut renewed = existing;
-    renewed.renewed_at = rfc3339(now);
-    renewed.expires_at_secs = now.saturating_add(DEFAULT_LEASE_TTL_SECS);
-    renewed.expires_at = rfc3339(renewed.expires_at_secs);
-    write_lease(db, &renewed)?;
-    Ok(renewed)
-}
-
-/// Release the lease — only its holder. Returns `false` when there was
-/// nothing to release.
-pub fn release_lease(db: &Database, holder: &str, scope: &str) -> Result<bool, String> {
-    let existing = match read_lease(db, scope)? {
-        Some(existing) => existing,
-        None => return Ok(false),
-    };
-    if existing.holder != holder {
-        return Err(format!(
-            "conflict: lease '{}' is held by '{}', not '{}'",
-            scope, existing.holder, holder
-        ));
-    }
     let key = lease_key(scope);
     let tx = db.begin_write().map_err(|e| e.to_string())?;
-    {
+    let result = (|| {
         let mut table = tx
             .open_table(Database::get_leases_table())
             .map_err(|e| e.to_string())?;
-        table.remove(key.as_str()).map_err(|e| e.to_string())?;
+        let existing: Lease = match table.get(key.as_str()).map_err(|e| e.to_string())? {
+            Some(value) => serde_json::from_str(value.value())
+                .map_err(|e| format!("integrity: lease row unreadable: {e}"))?,
+            None => return Err(format!("conflict: no lease '{scope}' to renew")),
+        };
+        if !existing.is_active(now) {
+            return Err(format!(
+                "conflict: lease '{scope}' expired at {} — acquire it instead",
+                existing.expires_at
+            ));
+        }
+        if existing.holder != holder {
+            return Err(format!(
+                "conflict: lease '{scope}' is held by '{}', not '{holder}'",
+                existing.holder
+            ));
+        }
+        let mut renewed = existing;
+        renewed.renewed_at = rfc3339(now);
+        renewed.expires_at_secs = now.saturating_add(DEFAULT_LEASE_TTL_SECS);
+        renewed.expires_at = rfc3339(renewed.expires_at_secs);
+        let serialized = serde_json::to_string(&renewed).map_err(|e| e.to_string())?;
+        table
+            .insert(key.as_str(), serialized.as_str())
+            .map_err(|e| e.to_string())?;
+        Ok(renewed)
+    })();
+    match result {
+        Ok(lease) => {
+            tx.commit().map_err(|e| e.to_string())?;
+            Ok(lease)
+        }
+        Err(e) => Err(e),
     }
-    tx.commit().map_err(|e| e.to_string())?;
-    Ok(true)
+}
+
+/// Release the lease — only its holder. Returns `false` when there was
+/// nothing to release. Holder check + removal commit atomically.
+pub fn release_lease(db: &Database, holder: &str, scope: &str) -> Result<bool, String> {
+    let key = lease_key(scope);
+    let tx = db.begin_write().map_err(|e| e.to_string())?;
+    let result = (|| {
+        let mut table = tx
+            .open_table(Database::get_leases_table())
+            .map_err(|e| e.to_string())?;
+        let existing: Lease = match table.get(key.as_str()).map_err(|e| e.to_string())? {
+            Some(value) => serde_json::from_str(value.value())
+                .map_err(|e| format!("integrity: lease row unreadable: {e}"))?,
+            None => return Ok(false),
+        };
+        if existing.holder != holder {
+            return Err(format!(
+                "conflict: lease '{scope}' is held by '{}', not '{holder}'",
+                existing.holder
+            ));
+        }
+        table.remove(key.as_str()).map_err(|e| e.to_string())?;
+        Ok(true)
+    })();
+    match result {
+        Ok(released) => {
+            tx.commit().map_err(|e| e.to_string())?;
+            Ok(released)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 // ─── Version vectors ────────────────────────────────────────────────────────
@@ -461,6 +509,41 @@ mod tests {
         let err = renew_lease(&f.db, "alice", "vol-c").expect_err("expired");
         assert!(err.starts_with("conflict:"), "{}", err);
         assert!(err.contains("acquire"), "{}", err);
+    }
+
+    #[test]
+    fn concurrent_acquirers_elect_exactly_one_winner() {
+        // P0-19 regression: the read-decide-write is one write txn, so N
+        // racers cannot all believe they won (the old split-txn version let
+        // the loser silently overwrite the winner).
+        let f = fixture("race");
+        let db = std::sync::Arc::new(f.db);
+        let mut handles = Vec::new();
+        for i in 0..8u32 {
+            let db = std::sync::Arc::clone(&db);
+            handles.push(std::thread::spawn(move || {
+                acquire_lease_in(&db, &format!("racer-{i}"), "vol-race", 60)
+                    .map(|l| l.holder)
+                    .unwrap_or_else(|e| format!("lost:{e}"))
+            }));
+        }
+        let outcomes: Vec<String> = handles
+            .into_iter()
+            .map(|h| h.join().expect("thread"))
+            .collect();
+        let winners: Vec<&String> = outcomes.iter().filter(|o| !o.starts_with("lost:")).collect();
+        assert_eq!(winners.len(), 1, "{outcomes:?}");
+        assert!(
+            outcomes
+                .iter()
+                .filter(|o| o.starts_with("lost:"))
+                .all(|o| o.contains("conflict:")),
+            "{outcomes:?}"
+        );
+        let held = inspect_lease(&db, "vol-race")
+            .expect("inspect")
+            .expect("held");
+        assert_eq!(&held.holder, winners[0]);
     }
 
     #[test]

@@ -197,6 +197,10 @@ first; chained lines and unknown verbs fall through to the wasm dispatcher
 - `write` runs in the wasm dispatcher (editor save path, 1 MiB cap).
 - `scrub` (BLAKE3 snapshot vs `cache:cybsh:scrub`), `repair` (prunes the
   record), `gc` (dry-run default, `--apply` deletes), `lease`, `echo`, `kill`, `ai`.
+- `skill list|show|run|install` (shareable skills under `.cybermanju/skills/` —
+  `SKILL.md` manifest + entry `.cybsh`; `install <https-url>` fetches the
+  manifest + sibling run script; `run` executes the entry script line by line).
+- `task list|add|done|undone|rm|clear` (todos sharing the Archive TASKS store).
 
 `sync start|cancel`, the OAuth redirect dance and provider push refuse with
 `unsupported:` pointing at the desktop app / Docker image / dashboard server.
@@ -273,6 +277,7 @@ same bytes on every transport, so a desktop export restores on Pages):
   unlimited — including several accounts on the same provider.
 - `GET /api/sync/configs` never serializes `token` (absent, not null). Private keys sealed (Argon2id + ChaCha20Poly1305, `sealed:v1:`).
 - No TLS in-app (hand-rolled HTTP/1.1). Terminate at Caddy/nginx (HSTS there, not in-app). See `docs/SECURITY.md` for threat model, rotation, OAuth PKCE, rate limits (100 req/60s), parser caps, `security_headers`.
+- Shipped proxy (P2-15): `Caddyfile` + `docker-compose.tls.yml` (Caddy 2 sidecar: 80→443, auto-ACME, HSTS + hardening headers, 100 MB body cap aligned to the API limit). `DOMAIN=vault.example.com ACME_EMAIL=you@example.com docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d`. Caddy is the single upstream — no second proxy in front without updating the `X-Forwarded-For` trust notes in `docs/SECURITY.md` §2 (else one-IP false 429s). Behind TLS set `CYBERMANJU_OAUTH_REDIRECT_URI=https://$DOMAIN/api/sync/oauth/<provider>/callback`.
 
 ## 7. Health, metrics, backup
 

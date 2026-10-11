@@ -300,13 +300,13 @@ disk resize <disk-id> 10G
 
 | Layer | Technology |
 |---|---|
-| 🖥️ Desktop | Tauri v2 (`com.cybermanju.os`, 1400×900) — 20 command modules, 35 handlers |
-| 🦀 Backend | Rust 2021 workspace — **15 crates** + `src-tauri` + `docker/server` |
-| 🎨 Frontend | Vue 3 Composition + Pinia + TS 5.8 + Vite 6.3 — **42 components · 27 composables · 25 utils** |
+| 🖥️ Desktop | Tauri v2 (`com.cybermanju.os`, 1400×900) — 26 command modules, ~175 handlers |
+| 🦀 Backend | Rust 2021 workspace — **16 crates** + `src-tauri` + `docker/server` |
+| 🎨 Frontend | Vue 3 Composition + Pinia + TS 5.8 + Vite 6.3 — **49 components · 34 composables · 67 utils** |
 | ✨ Reactive | `@vueuse/core` 14 — one shared `useSystemHardware()` for the whole OS |
 | 🎨 Icons | `@iconify/vue` Solar set (generated — unknown `solar:*` **fails the build**) |
 | 🗺️ Maps | MapLibre GL 6 |
-| 🗄️ DB | redb single-file `cybermanju.db` (JSON rows, 17+ tables) |
+| 🗄️ DB | redb single-file `cybermanju.db` (JSON rows, ~38 tables) |
 | 🔎 Search | Tantivy 0.22 BM25 + scene heuristic |
 | 🔐 Crypto | ChaCha20Poly1305 · ML-KEM-1024 · ML-DSA-65 · SLH-DSA-128f · Argon2id · BLAKE3 |
 | 🗜️ Pack | LZ4 → ZSTD-15 → Brotli-11 |
@@ -490,13 +490,13 @@ npm run build:wasm:frontend   # → dist-wasm/ (Pages deploys on every main push
 ## 🗂️ Repo map
 
 ```
-├── src/ (42 components · 27 composables · 25 utils · App.vue · main.ts)
-│   ├── components/  FileManager · DesktopShell · AgentPanel · DevicesPanel · TerminalPanel · CodeStudio · OrganizePanel · ShieldPanel · SearchPanel …
+├── src/ (49 components · 34 composables · 67 utils · App.vue · main.ts)
+│   ├── components/  FileManager · DesktopShell · AgentPanel · DevicesPanel · TerminalPanel · CodeStudio · ArchivePanel · ShieldPanel · SearchPanel …
 │   ├── composables/ useTauri (3 transports) · useSystemHardware · useAgent · useProviderCanal …
 │   ├── stores/app.ts · types/ · utils/ · workers/ · keymaps.ts
-├── crates/ (15)  agent · os · os-wasm · disk · erasure · web (18 api) · sync · db
-│                 types · crypto · compression · search · faces · scene · tests
-├── src-tauri/ (20 command modules · lib.rs · tauri.conf.json 1400×900)
+├── crates/ (16)  agent · os · os-wasm · disk · erasure · web (22 api) · sync · db
+│                 types · crypto · compression · search · faces · scene · tests · launcher
+├── src-tauri/ (26 command modules · lib.rs · tauri.conf.json 1400×900)
 ├── cli/ (Go `cyb`: cobra + lipgloss/bubbles/huh/glamour · REST-first)
 ├── install.sh + install.ps1 (checksum-verified universal installer)
 ├── docker/server/ (headless web entrypoint) · Dockerfile · docker-compose.yml
