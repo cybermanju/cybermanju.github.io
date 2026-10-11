@@ -217,8 +217,16 @@ pub fn extract_symbols_heuristic(content: &str, language: &str) -> Vec<Value> {
     // `export const` and `pub mod` are found, not just bare `const`/`mod`).
     let fn_keywords: Vec<&str> = match language {
         "rust" => vec![
-            "fn ", "mod ", "struct ", "enum ", "trait ", "type ", "const ", "static ",
-            "impl ", "macro_rules! ",
+            "fn ",
+            "mod ",
+            "struct ",
+            "enum ",
+            "trait ",
+            "type ",
+            "const ",
+            "static ",
+            "impl ",
+            "macro_rules! ",
         ],
         "python" => vec!["def ", "class "],
         "javascript" | "typescript" | "vue" | "svelte" => vec![

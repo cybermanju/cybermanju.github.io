@@ -75,7 +75,9 @@ No server yet? Run:  cyb serve up   (Docker, one command)`,
 			return err
 		}); err != nil {
 			ui.Failure("no dashboard at %s", server)
-			fmt.Printf("  Start one with:  cyb serve up\n  Or point elsewhere:  cyb setup --server URL\n  (%v)\n", err)
+			ui.Hint("start one with %s", ui.Chip("cyb serve up"))
+			ui.Hint("or point elsewhere with %s", ui.Chip("cyb setup --server URL"))
+			ui.Hint("(%v)", err)
 			return fmt.Errorf("setup aborted")
 		}
 
@@ -104,10 +106,10 @@ No server yet? Run:  cyb serve up   (Docker, one command)`,
 		}
 		ui.Success("signed in as %s (%s) — profile saved", login.Username, login.Role)
 		fmt.Println()
-		fmt.Println(ui.Panel.Render(
-			"Next:  cyb oauth launch google --config <id>   connect a provider\n" +
-				"       cyb disk create <config> 10G              encrypted vault disk\n" +
-				"       cyb sh \"help\"                            the full cybsh verb list",
+		fmt.Println(ui.NextSteps("next",
+			[2]string{"cyb oauth launch google --config <id>", "connect a provider"},
+			[2]string{"cyb disk create <config> 10G", "encrypted vault disk"},
+			[2]string{`cyb sh "help"`, "the full cybsh verb list"},
 		))
 		return nil
 	},

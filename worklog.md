@@ -1074,3 +1074,42 @@ Stage Summary:
 - Verified locally: wiki builds (143 KB gzip, app bundle untouched),
   vue-tsc clean, vitest 60 files / 700 green, headers 461/461 (+5 new files
   carry named headers, covered once staged). Rust tests left to CI (no cargo).
+
+## 2026-10-11 — wiki scenery upgrade from top-starred three.js research
+- Studied mrdoob/three.js (116k), pmndrs/R3F+drei+postprocessing (33k),
+  three-gpu-pathtracer/gkjohnson, 2026 award sites (Oryzo/IVRESS/Cartier pattern:
+  bloom+ACES, one hard idea, scroll/cinematic camera, budgeted scene graph).
+- Applied: UnrealBloomPass+OutputPass chain (skipped <720px), ACESFilmic 1.12,
+  shared glow-texture cache, InstancedMesh lanterns (70→1 draw call),
+  select-burst spark pool, per-node bob/rings/labels, beacon+pulse, shooting
+  stars, mascot blink, eased fly-to + FOV punch, adaptive DPR stepper,
+  tab-hidden render pause, CSS vignette. JS 578→604 KB (152 KB gzip).
+- UX: keyboard (/-arrows-Enter-Esc), live symbol matches, crumbs+copy-link,
+  prev/next pager, skeleton loader, focus-visible rings, dblclick home.
+- Verified: vue-tsc clean, vitest 60/700 green, headers 467/467.
+
+## 2026-10-11 — CLI: neon UI/UX overhaul + `cat -r` markdown
+- Charm deps bumped to latest on the v1 import path (no charm.land
+  migration): bubbletea v1.1.0→v1.3.10, bubbles v0.20.0→v1.0.0,
+  glamour v0.9.1→v1.0.0, huh v0.6.0→v1.0.0 (lipgloss stays v1.1.x).
+  Zero API breakage — build + tests green unmodified.
+- `internal/ui` cyberpunk pass: neon tables (pink header rule, faint
+  zebra, terminal-width truncation via reflow), syntax-tinted `--json`
+  (pink keys / ice strings / cyan numbers / yellow bools), width-aware
+  Glamour markdown (pink style on color terms, ascii when `--no-color`,
+  `GLAMOUR_STYLE` env wins), stderr pipe-safe `Hint`, plus `Badge`,
+  `Chip`, `Key`, `List`, `PanelTitled`, `NextSteps` atoms.
+- `cyb files cat -r/--render` glamour-renders markdown; plain `cat` of a
+  `.md` now hints at `-r` (stderr, stdout stays pipe-clean). AI output
+  keeps rendering through the upgraded path.
+- Styled help everywhere: grouped root atlas + neon per-command pages
+  (usage, subcommands, local + global flags); gradient `version`,
+  aligned `doctor` checks, keycap REPL help, `main` errors via
+  `ui.Failure`.
+- New tests (run on CI via the existing `go test -race ./...` step):
+  `ui` table/JSON/markdown/chrome (15) + `cmd` render-flag wiring,
+  envelope parsing, and a fake-dashboard `cat -r` end-to-end.
+- Verified locally: gofmt clean, `go vet` clean, `go test ./...` green
+  (no cgo/gcc on this box so `-race` is CI-only), readonly
+  `GOPROXY=off` build ok, `cyb --help` + subcommand help smoke-tested,
+  headers 467/467.

@@ -46,17 +46,29 @@ function esc(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+// One shared radial texture per color (award sites never mint a canvas
+// per sprite — this keeps ~100 glow sprites to a handful of textures).
+const glowTexCache = new Map<string, THREE.CanvasTexture>();
+function glowTexture(color: string): THREE.CanvasTexture {
+  let tex = glowTexCache.get(color);
+  if (!tex) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d')!;
+    const grad = g.createRadialGradient(64, 64, 2, 64, 64, 64);
+    grad.addColorStop(0, color);
+    grad.addColorStop(0.35, color + 'aa');
+    grad.addColorStop(1, color + '00');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+    tex = new THREE.CanvasTexture(c);
+    glowTexCache.set(color, tex);
+  }
+  return tex;
+}
+
 function glowSprite(color: string, size: number, opacity: number): THREE.Sprite {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d')!;
-  const grad = g.createRadialGradient(64, 64, 2, 64, 64, 64);
-  grad.addColorStop(0, color);
-  grad.addColorStop(0.35, color + 'aa');
-  grad.addColorStop(1, color + '00');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 128, 128);
-  const tex = new THREE.CanvasTexture(c);
+  const tex = glowTexture(color);
   const mat = new THREE.SpriteMaterial({
     map: tex,
     transparent: true,
@@ -162,8 +174,23 @@ async function boot(): Promise<void> {
 
   // ── Scene ────────────────────────────────────────────────
   const mount = document.getElementById('scene')!;
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: true,
+    powerPreference: 'high-performance',
+    stencil: false,
+  });
+  // Filmic look (the award-site baseline): ACES tone mapping + exposure.
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.12;
+  let dprTier = 0;
+  const DPR_STEPS = [
+    Math.min(window.devicePixelRatio, 2),
+    1.5,
+    1.2,
+    1,
+  ].filter((v, i, a) => a.indexOf(v) === i);
+  renderer.setPixelRatio(DPR_STEPS[dprTier]);
   renderer.setSize(window.innerWidth, window.innerHeight);
   mount.appendChild(renderer.domElement);
 
@@ -190,6 +217,21 @@ async function boot(): Promise<void> {
   renderer.domElement.addEventListener('pointerdown', () => {
     controls.autoRotate = false;
   });
+
+  // Post chain (the signature award-site look): bloom for the neon nodes,
+  // OutputPass so tone mapping + sRGB apply inside the composer.
+  // Small screens skip the chain — half the pixels, same scene.
+  const BLOOM_OK = window.innerWidth >= 720 && !REDUCED;
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  const bloom = new UnrealBloomPass(
+    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    0.85, // strength
+    0.55, // radius
+    0.6, // threshold: only the emissive / bright bits bleed
+  );
+  if (BLOOM_OK) composer.addPass(bloom);
+  composer.addPass(new OutputPass());
 
   scene.add(new THREE.HemisphereLight(0xc4b5fd, 0x1a0f2e, 0.95));
   const key = new THREE.DirectionalLight(0xffffff, 1.5);
@@ -271,6 +313,9 @@ async function boot(): Promise<void> {
 
   // ── Subject nodes on two tilted rings ────────────────────
   const nodes: THREE.Mesh[] = [];
+  const nodeBase: THREE.Vector3[] = [];
+  const nodeLabels: THREE.Sprite[] = [];
+  const nodeRings: THREE.Mesh[] = [];
   const nodeById = new Map<string, THREE.Mesh>();
   const lines: THREE.Line[] = [];
   const ringDefs = [
@@ -302,6 +347,7 @@ async function boot(): Promise<void> {
     mesh.userData.id = sub.id;
     scene.add(mesh);
     nodes.push(mesh);
+    nodeBase.push(pos.clone());
     nodeById.set(sub.id, mesh);
 
     const orbit = new THREE.Mesh(
@@ -315,10 +361,12 @@ async function boot(): Promise<void> {
     orbit.position.copy(pos);
     orbit.rotation.x = Math.PI / 2.4;
     scene.add(orbit);
+    nodeRings.push(orbit);
 
     const label = textSprite(sub.title);
     label.position.copy(pos).add(new THREE.Vector3(0, 1.7, 0));
     scene.add(label);
+    nodeLabels.push(label);
 
     const geo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 1.6, 0),
@@ -336,19 +384,79 @@ async function boot(): Promise<void> {
     lines.push(link);
   });
 
-  // Festival lanterns drifting upward.
-  const lanterns: { sp: THREE.Sprite; speed: number }[] = [];
-  if (!REDUCED) {
-    for (let k = 0; k < 70; k++) {
-      const sp = glowSprite(k % 3 ? '#ffb37a' : '#e879f9', 0.5 + Math.random() * 0.7, 0.5);
-      sp.position.set(
-        (Math.random() - 0.5) * 60,
-        -4 + Math.random() * 16,
-        (Math.random() - 0.5) * 60,
-      );
-      scene.add(sp);
-      lanterns.push({ sp, speed: 0.25 + Math.random() * 0.55 });
+  // Festival lanterns: ONE draw call (InstancedMesh, per-instance color)
+  // instead of one sprite each. Basic material + bloom does the glowing.
+  const LANTERN_N = REDUCED ? 0 : 70;
+  const lanternMesh = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(0.11, 8, 8),
+    new THREE.MeshBasicMaterial({ toneMapped: false }),
+    Math.max(LANTERN_N, 1),
+  );
+  lanternMesh.count = LANTERN_N;
+  lanternMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  const lanternPos = new Float32Array(Math.max(LANTERN_N, 1) * 3);
+  const lanternSpeed = new Float32Array(Math.max(LANTERN_N, 1));
+  {
+    const warm = new THREE.Color('#ffb37a');
+    const pink = new THREE.Color('#e879f9');
+    const dummy = new THREE.Object3D();
+    for (let k = 0; k < LANTERN_N; k++) {
+      lanternPos[k * 3] = (Math.random() - 0.5) * 60;
+      lanternPos[k * 3 + 1] = -4 + Math.random() * 16;
+      lanternPos[k * 3 + 2] = (Math.random() - 0.5) * 60;
+      lanternSpeed[k] = 0.25 + Math.random() * 0.55;
+      dummy.position.set(lanternPos[k * 3], lanternPos[k * 3 + 1], lanternPos[k * 3 + 2]);
+      dummy.updateMatrix();
+      lanternMesh.setMatrixAt(k, dummy.matrix);
+      lanternMesh.setColorAt(k, k % 3 ? warm : pink);
     }
+    lanternMesh.instanceMatrix.needsUpdate = true;
+    if (lanternMesh.instanceColor) lanternMesh.instanceColor.needsUpdate = true;
+  }
+  scene.add(lanternMesh);
+
+  // Select-burst pool: one Points cloud, 160 sparks reused forever.
+  const BURST_N = 160;
+  const burstPos = new Float32Array(BURST_N * 3).fill(-999);
+  const burstVel = new Float32Array(BURST_N * 3);
+  const burstLife = new Float32Array(BURST_N);
+  const burstGeo = new THREE.BufferGeometry();
+  burstGeo.setAttribute('position', new THREE.BufferAttribute(burstPos, 3));
+  burstGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(BURST_N * 3), 3));
+  const burstPts = new THREE.Points(
+    burstGeo,
+    new THREE.PointsMaterial({
+      size: 0.3,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+  );
+  burstPts.frustumCulled = false;
+  scene.add(burstPts);
+  let burstCursor = 0;
+  function spawnBurst(point: THREE.Vector3, colorHex: string): void {
+    if (REDUCED) return;
+    const c = new THREE.Color(colorHex);
+    for (let k = 0; k < 40; k++) {
+      const i = burstCursor;
+      burstCursor = (burstCursor + 1) % BURST_N;
+      burstPos[i * 3] = point.x;
+      burstPos[i * 3 + 1] = point.y;
+      burstPos[i * 3 + 2] = point.z;
+      const th = Math.random() * Math.PI * 2;
+      const ph = Math.acos(2 * Math.random() - 1);
+      const sp = 3 + Math.random() * 5;
+      burstVel[i * 3] = Math.sin(ph) * Math.cos(th) * sp;
+      burstVel[i * 3 + 1] = Math.abs(Math.cos(ph)) * sp * 0.9 + 1.5;
+      burstVel[i * 3 + 2] = Math.sin(ph) * Math.sin(th) * sp;
+      burstLife[i] = 0.9 + Math.random() * 0.5;
+      (burstGeo.getAttribute('color') as THREE.BufferAttribute).setXYZ(i, c.r, c.g, c.b);
+    }
+    (burstGeo.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
   }
 
   // Selection beacon: light pillar + expanding ring, recolored per subject.
@@ -402,20 +510,42 @@ async function boot(): Promise<void> {
   // ── Reader UI ────────────────────────────────────────────
   let selected: string | null = null;
   const focusTarget = new THREE.Vector3(0, 1.5, 0);
-  // Camera fly-to goal; null once the user grabs the camera.
-  let camGoal: THREE.Vector3 | null = null;
 
-  function flyTo(point: THREE.Vector3): void {
+  // Cinematic flight: eased camera glide (easeInOutCubic) instead of a
+  // linear lerp, plus a subtle FOV punch while travelling. Cancelled the
+  // moment the user grabs the camera.
+  interface Flight {
+    fromPos: THREE.Vector3;
+    toPos: THREE.Vector3;
+    t0: number;
+    dur: number;
+  }
+  let fly: Flight | null = null;
+
+  function easeInOutCubic(x: number): number {
+    return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  }
+
+  function startFly(point: THREE.Vector3): void {
     if (REDUCED) return;
     const dir = point.clone().sub(new THREE.Vector3(0, 1.5, 0));
     if (dir.lengthSq() < 0.01) dir.set(0, 0.35, 1);
     dir.normalize();
-    camGoal = point.clone().add(dir.multiplyScalar(9.5)).add(new THREE.Vector3(0, 3.2, 0));
+    const goal = point
+      .clone()
+      .add(dir.multiplyScalar(9.5))
+      .add(new THREE.Vector3(0, 3.2, 0));
+    fly = { fromPos: camera.position.clone(), toPos: goal, t0: performance.now(), dur: 1400 };
   }
 
-  function flyHome(): void {
+  function startFlyHome(): void {
     if (REDUCED) return;
-    camGoal = new THREE.Vector3(0, 8.5, 30);
+    fly = {
+      fromPos: camera.position.clone(),
+      toPos: new THREE.Vector3(0, 8.5, 30),
+      t0: performance.now(),
+      dur: 1400,
+    };
   }
 
   function renderRail(filter = ''): void {
@@ -558,7 +688,7 @@ async function boot(): Promise<void> {
     const mesh = selected ? nodeById.get(selected) : undefined;
     if (mesh) {
       focusTarget.copy(mesh.position);
-      flyTo(mesh.position);
+      startFly(mesh.position);
       const sub = byId.get(selected!);
       if (sub) {
         beacon.visible = true;
@@ -568,12 +698,13 @@ async function boot(): Promise<void> {
         const c = new THREE.Color(sub.color);
         (beacon.material as THREE.MeshBasicMaterial).color.copy(c);
         (pulse.material as THREE.MeshBasicMaterial).color.copy(c);
+        spawnBurst(mesh.position, sub.color);
       }
     } else {
       focusTarget.set(0, 1.5, 0);
       beacon.visible = false;
       pulse.visible = false;
-      flyHome();
+      startFlyHome();
     }
   }
 
@@ -653,7 +784,7 @@ async function boot(): Promise<void> {
   renderer.domElement.addEventListener('pointerdown', (ev) => {
     downAt = [ev.clientX, ev.clientY];
     // The user grabbed the camera: cancel any in-flight fly-to.
-    camGoal = null;
+    fly = null;
     tooltip.hidden = true;
   });
   renderer.domElement.addEventListener('pointerup', (ev) => {
@@ -677,9 +808,16 @@ async function boot(): Promise<void> {
 
   // ── Loop ─────────────────────────────────────────────────
   const clock = new THREE.Clock();
+  const dummy = new THREE.Object3D();
+  let lastFrame = performance.now();
+  let frameAcc = 0;
+  let frameN = 0;
   function tick(): void {
     requestAnimationFrame(tick);
     if (hidden) return;
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - lastFrame) / 1000);
+    lastFrame = now;
     const t = clock.getElapsedTime();
     if (!REDUCED) {
       // Mascot life: bob + slow look-around + a blink (squash) every ~4s.
@@ -694,10 +832,15 @@ async function boot(): Promise<void> {
       nebulae.forEach((n, k) => {
         n.position.y += Math.sin(t * 0.24 + k * 2.1) * 0.0016;
       });
-      for (const { sp, speed } of lanterns) {
-        sp.position.y += speed * 0.016;
-        if (sp.position.y > 13) sp.position.y = -4;
+      // Lantern drift: one matrix compose per lantern, one draw call total.
+      for (let k = 0; k < LANTERN_N; k++) {
+        lanternPos[k * 3 + 1] += lanternSpeed[k] * dt;
+        if (lanternPos[k * 3 + 1] > 13) lanternPos[k * 3 + 1] = -4;
+        dummy.position.set(lanternPos[k * 3], lanternPos[k * 3 + 1], lanternPos[k * 3 + 2]);
+        dummy.updateMatrix();
+        lanternMesh.setMatrixAt(k, dummy.matrix);
       }
+      lanternMesh.instanceMatrix.needsUpdate = true;
       if (t >= nextShooter) spawnShooter(t);
       for (let k = shooters.length - 1; k >= 0; k--) {
         const s = shooters[k];
@@ -711,6 +854,20 @@ async function boot(): Promise<void> {
           shooters.splice(k, 1);
         }
       }
+      // Select-burst sparks: gravity + fade, dead sparks park at y=-999.
+      for (let k = 0; k < BURST_N; k++) {
+        if (burstLife[k] <= 0) continue;
+        burstLife[k] -= dt;
+        if (burstLife[k] <= 0) {
+          burstPos[k * 3 + 1] = -999;
+          continue;
+        }
+        burstVel[k * 3 + 1] -= 4 * dt;
+        burstPos[k * 3] += burstVel[k * 3] * dt;
+        burstPos[k * 3 + 1] += burstVel[k * 3 + 1] * dt;
+        burstPos[k * 3 + 2] += burstVel[k * 3 + 2] * dt;
+      }
+      burstGeo.getAttribute('position').needsUpdate = true;
       // Beacon breathing + expanding pulse ring on the selected node.
       if (beacon.visible) {
         const bm = beacon.material as THREE.MeshBasicMaterial;
@@ -718,9 +875,15 @@ async function boot(): Promise<void> {
         const cycle = (t % 1.6) / 1.6;
         pulse.scale.setScalar(1 + cycle * 2.2);
         (pulse.material as THREE.MeshBasicMaterial).opacity = 0.5 * (1 - cycle);
+        // Ride the bobbing node.
+        const sel = selected ? nodeById.get(selected) : undefined;
+        if (sel) {
+          beacon.position.set(sel.position.x, sel.position.y + 1.2, sel.position.z);
+          pulse.position.set(sel.position.x, sel.position.y - 1.4, sel.position.z);
+        }
       }
     }
-    nodes.forEach((mesh) => {
+    nodes.forEach((mesh, ix) => {
       const mat = mesh.material as THREE.MeshStandardMaterial;
       const id = mesh.userData.id as string;
       const active = id === selected || id === hovered;
@@ -729,6 +892,14 @@ async function boot(): Promise<void> {
       mesh.scale.setScalar(s);
       mesh.rotation.y += active ? 0.012 : 0.003;
       mesh.rotation.x += 0.001;
+      // Gentle per-node bob (phased) + labels and orbit rings follow.
+      if (!REDUCED) {
+        const bob = Math.sin(t * 1.1 + ix * 1.7) * 0.28;
+        mesh.position.y = nodeBase[ix].y + bob;
+        nodeLabels[ix].position.set(mesh.position.x, mesh.position.y + 1.7, mesh.position.z);
+        nodeRings[ix].position.copy(mesh.position);
+        nodeRings[ix].rotation.z += 0.004;
+      }
     });
     // Highlight the selected module's link back to the manju.
     lines.forEach((link, ix) => {
@@ -736,19 +907,46 @@ async function boot(): Promise<void> {
       const lm = link.material as THREE.LineBasicMaterial;
       lm.opacity += ((on ? 0.65 : 0.22) - lm.opacity) * 0.15;
     });
-    if (camGoal) {
-      camera.position.lerp(camGoal, 0.045);
-      if (camera.position.distanceTo(camGoal) < 0.2) camGoal = null;
+    // Eased flight + FOV punch while travelling.
+    if (fly) {
+      const k = Math.min(1, (performance.now() - fly.t0) / fly.dur);
+      camera.position.lerpVectors(fly.fromPos, fly.toPos, easeInOutCubic(k));
+      if (k >= 1) fly = null;
+    }
+    const fovGoal = fly ? 50 : 55;
+    if (Math.abs(camera.fov - fovGoal) > 0.05) {
+      camera.fov += (fovGoal - camera.fov) * 0.08;
+      camera.updateProjectionMatrix();
     }
     controls.target.lerp(focusTarget, 0.06);
     controls.update();
-    renderer.render(scene, camera);
+    if (BLOOM_OK) composer.render();
+    else renderer.render(scene, camera);
+    // Adaptive resolution (production-site staple): sustained slow frames
+    // step DPR down, sustained fast frames step it back up.
+    frameAcc += dt * 1000;
+    frameN++;
+    if (frameN >= 120) {
+      const avg = frameAcc / frameN;
+      if (avg > 26 && dprTier < DPR_STEPS.length - 1) {
+        dprTier++;
+        renderer.setPixelRatio(DPR_STEPS[dprTier]);
+        composer.setSize(window.innerWidth, window.innerHeight);
+      } else if (avg < 12 && dprTier > 0) {
+        dprTier--;
+        renderer.setPixelRatio(DPR_STEPS[dprTier]);
+        composer.setSize(window.innerWidth, window.innerHeight);
+      }
+      frameAcc = 0;
+      frameN = 0;
+    }
   }
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
   });
 
   renderRail();

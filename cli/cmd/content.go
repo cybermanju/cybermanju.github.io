@@ -6,6 +6,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -17,12 +18,18 @@ import (
 var (
 	batchAlgo  string
 	batchLayer string
+	// filesCatRender glamour-renders the content instead of dumping JSON.
+	filesCatRender bool
 )
 
 var filesCatCmd = &cobra.Command{
 	Use:   "cat <file-id>",
 	Short: "Read managed file text (honest encrypted:/binary:/too_large: refusals)",
-	Args:  cobra.ExactArgs(1),
+	Long: `Prints the content envelope as JSON. Pass -r/--render to glamour-render
+markdown straight to the terminal instead:
+
+  cyb files cat <file-id> -r`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := mustClient()
 		if err := requireAuth(c); err != nil {
@@ -39,8 +46,34 @@ var filesCatCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return ui.PrintJSON(raw)
+		if !filesCatRender {
+			if ui.IsMarkdown(contentName(raw)) {
+				ui.Hint("markdown file — render it with %s", ui.Chip("cyb files cat "+args[0]+" -r"))
+			}
+			return ui.PrintJSON(raw)
+		}
+		var payload struct {
+			Name    string `json:"name"`
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal(raw, &payload); err != nil || payload.Content == "" {
+			return ui.PrintJSON(raw)
+		}
+		fmt.Println(ui.RenderMarkdown(payload.Content))
+		return nil
 	},
+}
+
+// contentName best-effort extracts the file name from a content envelope
+// (empty when the shape is unexpected — callers treat that as not-markdown).
+func contentName(raw []byte) string {
+	var payload struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	return payload.Name
 }
 
 var filesWriteCmd = &cobra.Command{
@@ -296,6 +329,7 @@ var cryptoKeysCmd = &cobra.Command{
 }
 
 func init() {
+	filesCatCmd.Flags().BoolVarP(&filesCatRender, "render", "r", false, "glamour-render markdown to the terminal")
 	filesWriteCmd.Flags().StringVar(&filesWriteText, "text", "", "inline text content")
 	filesWriteCmd.Flags().StringVar(&filesWriteFile, "file", "", "read content from a local file")
 	batchEncryptCmd.Flags().StringVar(&batchAlgo, "algo", "", "cipher (default vault cipher)")

@@ -345,9 +345,13 @@ cyb disk create <config> 10G            # encrypted vault disk (passphrase-seale
 cyb sync move <file> <from> <to>        # single-copy move between providers
 cyb sh "disk list" | cyb run job.cybsh | cyb repl   # the same cybsh everywhere
 cyb ai prompt <config> "summarize the vault" --follow
+cyb files cat <id> -r      # glamour-render markdown to the terminal
 ```
 
-Go (cobra + Lipgloss/Bubbles/Huh/Glamour) in `cli/`, checksum-verified
+Every screen is Lipgloss neon (hot pink → signal red, cyan keycaps,
+zebra tables, tinted `--json`); agent answers and `cat -r` render
+markdown via Glamour (`GLAMOUR_STYLE` wins when set). Go
+(cobra + Lipgloss/Bubbles/Huh/Glamour) in `cli/`, checksum-verified
 self-updates (`cyb update`). Releases ship `cyb-<os>-<arch>.tar.gz` × 6,
 `cyb_<ver>_<arch>.deb` × 2, plus `SHA256SUMS` alongside the desktop
 families (`install.sh` uses tarballs; Windows zips carry `cyb.exe`).

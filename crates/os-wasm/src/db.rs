@@ -1019,11 +1019,12 @@ pub fn db_dispatch(op: &str, args_json: &str) -> String {
             // passphrase-derived, so an empty passphrase must fail here too
             // instead of creating a disk on Pages that AppImage then refuses
             // to attach.
-            let passphrase = args.get("passphrase").and_then(|v| v.as_str()).unwrap_or("");
+            let passphrase = args
+                .get("passphrase")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if passphrase.is_empty() {
-                return Err(
-                    "unsupported: a disk passphrase must not be empty".to_string(),
-                );
+                return Err("unsupported: a disk passphrase must not be empty".to_string());
             }
             let size = args
                 .get("sizeBytes")

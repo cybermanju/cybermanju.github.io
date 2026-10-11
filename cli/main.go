@@ -5,10 +5,10 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/cybermanju/cybermanju.github.io/cli/cmd"
+	"github.com/cybermanju/cybermanju.github.io/cli/internal/ui"
 )
 
 var (
@@ -19,7 +19,7 @@ var (
 
 func main() {
 	if err := cmd.Execute(version, commit); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		ui.Failure("%v", err)
 		os.Exit(1)
 	}
 }

@@ -7,7 +7,9 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/config"
@@ -19,7 +21,7 @@ import (
 // doctorSupabase checks the dashboard-less limited backend.
 func doctorSupabase() error {
 	f := profile()
-	ui.Header("◈ system check — supabase-direct (limited, read-only)")
+	ui.Header("system check — supabase-direct (limited, read-only)")
 	fmt.Println(ui.Rule(48))
 	var checks []check
 	fail := func(name, detail string) { checks = append(checks, check{name, false, detail}) }
@@ -76,7 +78,7 @@ var doctorCmd = &cobra.Command{
 		if profile().Backend.TypeOrDefault() == config.BackendSupabase {
 			return doctorSupabase()
 		}
-		ui.Header("◈ system check — %s", c.BaseURL)
+		ui.Header("system check — %s", c.BaseURL)
 		fmt.Println(ui.Rule(48))
 
 		var checks []check
@@ -180,16 +182,19 @@ var doctorCmd = &cobra.Command{
 }
 
 func printChecks(checks []check) {
+	w := 0
 	for _, ch := range checks {
-		mark := ui.OK.Render("✓")
-		if !ch.ok {
-			mark = ui.Err.Render("✗")
+		if n := lipgloss.Width(ch.name); n > w {
+			w = n
 		}
+	}
+	for _, ch := range checks {
+		mark := ui.Badge(ch.ok)
 		detail := ch.detail
 		if detail != "" {
 			detail = " — " + detail
 		}
-		fmt.Printf("%s %s%s\n", mark, ch.name, ui.Dim.Render(detail))
+		fmt.Printf("%s %s%s\n", mark, ch.name+strings.Repeat(" ", max(0, w-lipgloss.Width(ch.name))), ui.Dim.Render(detail))
 	}
 }
 

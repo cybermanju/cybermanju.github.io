@@ -1,8 +1,13 @@
 // CyberManju OS — Theme (cli/internal/ui/theme.go).
-// Role: CLI terminal UI.
-// Exports: Gradient, CharmTheme, NewForm, Logo, Rule, Splash.
-// Integrates: fmt, strings, github.com.
-// Contracts: none special (pure logic; errors bubble to caller).
+// Role: CLI terminal UI — the CyberManju cyberpunk-neon face: one Lipgloss
+// palette (hot pink into signal red on near-black, neon cyan + hazard
+// yellow accents), gradient banner, Huh form theme, and the shared style
+// atoms (badges, chips, keycaps, panels, lists) every command renders with.
+// Exports: palette consts, style vars, Gradient, CharmTheme, NewForm, Logo,
+// Rule, Splash, Badge, Chip, Key, List, PanelTitled, NextSteps, StatusDot.
+// Integrates: fmt, strings, github.com (lipgloss, huh).
+// Contracts: pure rendering — safe on pipes; lipgloss downsamples to the
+// active color profile automatically (Ascii when --no-color).
 package ui
 
 import (
@@ -110,4 +115,103 @@ func Splash(version string) string {
 	return Logo() + "  " + Dim.Render("v"+strings.TrimPrefix(version, "v")) + "\n" +
 		Dim.Render("your vault · your cloud · your terminal") + "\n" +
 		Rule(48)
+}
+
+// ── Style atoms ─────────────────────────────────────────────────────
+
+// Number renders numeric/measured values in neon cyan.
+var Number = lipgloss.NewStyle().Foreground(lipgloss.Color(CyanNeon))
+
+// Subtle renders faint secondary text one step below Dim.
+var Subtle = lipgloss.NewStyle().Foreground(lipgloss.Color("#55555E"))
+
+// BadgeCheck / BadgeCross are the ✓ / ✗ status badges.
+var (
+	BadgeCheck = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(CyanNeon))
+	BadgeCross = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(RedHot))
+)
+
+// Badge renders a status badge: ok → cyan ✓, bad → red ✗.
+func Badge(ok bool) string {
+	if ok {
+		return BadgeCheck.Render("✓")
+	}
+	return BadgeCross.Render("✗")
+}
+
+// Flag renders small status flags (encrypted, enabled, …) as pink chips.
+func Flag(text string) string {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(PinkHot)).
+		Render("‹" + text + "›")
+}
+
+// Chip renders a `cyb …` command reference as an inline pink chip so prose
+// never reads as plain text.
+func Chip(text string) string {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(PinkHot)).
+		Render("`" + text + "`")
+}
+
+// Key renders a keybinding (enter, esc, ↑/↓) as a neon keycap.
+func Key(text string) string {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(CyanNeon)).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(CyanNeon)).
+		Padding(0, 1).
+		Render(text)
+}
+
+// Bullet is the cyan neon list marker.
+var Bullet = lipgloss.NewStyle().Foreground(lipgloss.Color(CyanNeon)).Render("▸")
+
+// List renders bullet lines: cyan ▸ markers, ice-white text.
+func List(items ...string) string {
+	var b strings.Builder
+	for i, it := range items {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(Bullet + " " + it)
+	}
+	return b.String()
+}
+
+// PanelTitled boxes body under a pink title row (notes, next steps,
+// approvals): rounded frame, title in the top border line.
+func PanelTitled(title, body string) string {
+	head := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(PinkHot)).Render("◈ " + title)
+	frame := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(PinkHot)).
+		Padding(0, 1)
+	return head + "\n" + frame.Render(body)
+}
+
+// NextSteps renders a titled panel whose rows are `command — what it does`
+// pairs; commands are underlined pink chips for scanability.
+func NextSteps(title string, steps ...[2]string) string {
+	var b strings.Builder
+	for i, s := range steps {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		cmd := lipgloss.NewStyle().
+			Bold(true).
+			Underline(true).
+			Foreground(lipgloss.Color(PinkHot)).
+			Render(s[0])
+		b.WriteString(cmd + "  " + Dim.Render(s[1]))
+	}
+	return PanelTitled(title, b.String())
+}
+
+// StatusDot renders a ● in ok (cyan) or bad (red) neon.
+func StatusDot(ok bool) string {
+	if ok {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(CyanNeon)).Render("●")
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(RedHot)).Render("●")
 }
