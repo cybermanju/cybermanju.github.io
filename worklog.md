@@ -1305,3 +1305,9 @@ Stage Summary:
   macos/android/wasm, docker, CLI, audit, meta. This also proves the 175
   `#[tauri::command(async)]` conversions + the release LTO profile compile
   and pass on every target.
+
+
+## 2026-10-11 — Final main sync and pre-push verification
+- Integrated `origin/main` through `3fa0c67`; this latest commit is documentation-only and adds the main-side wiki/CI worklog entries. The append-only conflict was resolved by preserving both histories. Main code remains at `3caa6a3`.
+- CI run `38163841181` for `3caa6a3` completed successfully with all 14 jobs green, including Rust Lint & Test, WASM, CLI, and GitHub Pages deployment. Final local checks also passed: version consistency, 475 headers, `vue-tsc`, 65 frontend files / 716 tests, wiki build at `/develop/`, and whitespace checks. No Cargo commands were run locally.
+- The final fetch showed `origin/main` at `3fa0c67`, `origin/develop` unchanged at `dda9b2e`, and local develop 15 commits ahead / 0 behind with main as an ancestor. No force-push, release, or change to `main` was made.
