@@ -95,6 +95,17 @@ var syncCreateCmd = &cobra.Command{
 			"createPreviews": false, "deleteRawAfterSync": false,
 			"maxConcurrentUploads": 4, "encryptBeforeUpload": true,
 		}
+		// Absent beats "": several handlers treat an explicit empty string
+		// as a real value (e.g. paths), while missing keys take defaults.
+		// "id" stays: the server mints one when it arrives empty.
+		for k, v := range cfg {
+			if k == "id" {
+				continue
+			}
+			if s, ok := v.(string); ok && s == "" {
+				delete(cfg, k)
+			}
+		}
 		out, err := c.SyncCreate(cfg)
 		if err != nil {
 			return err
@@ -290,27 +301,21 @@ var syncTestCmd = &cobra.Command{
 		if err := requireAuth(c); err != nil {
 			return err
 		}
-		cfgs, err := c.SyncConfigs()
+		g, err := c.SyncConfigRaw(args[0])
 		if err != nil {
 			return err
 		}
-		for _, g := range cfgs {
-			if g.ID != args[0] {
-				continue
-			}
-			out, terr := c.SyncTest(g)
-			if terr != nil {
-				return terr
-			}
-			if out.OK || out.Message == "" {
-				ui.Success("provider %s reachable", args[0])
-			} else {
-				ui.Failure("provider %s: %s", args[0], out.Message)
-				return fmt.Errorf("probe failed")
-			}
-			return nil
+		out, terr := c.SyncTestMap(g)
+		if terr != nil {
+			return terr
 		}
-		return fmt.Errorf("not_found: no sync config %q", args[0])
+		if out.OK || out.Message == "" {
+			ui.Success("provider %s reachable", args[0])
+		} else {
+			ui.Failure("provider %s: %s", args[0], out.Message)
+			return fmt.Errorf("probe failed")
+		}
+		return nil
 	},
 }
 
@@ -323,21 +328,15 @@ var syncRemoteCmd = &cobra.Command{
 		if err := requireAuth(c); err != nil {
 			return err
 		}
-		cfgs, err := c.SyncConfigs()
+		g, err := c.SyncConfigRaw(args[0])
 		if err != nil {
 			return err
 		}
-		for _, g := range cfgs {
-			if g.ID != args[0] {
-				continue
-			}
-			raw, rerr := c.SyncRemoteFiles(g, syncPrefix)
-			if rerr != nil {
-				return rerr
-			}
-			return ui.PrintJSON(raw)
+		raw, rerr := c.SyncRemoteFilesMap(g, syncPrefix)
+		if rerr != nil {
+			return rerr
 		}
-		return fmt.Errorf("not_found: no sync config %q", args[0])
+		return ui.PrintJSON(raw)
 	},
 }
 

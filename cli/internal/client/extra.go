@@ -28,6 +28,36 @@ func (c *Client) GetRetry(path string) ([]byte, error) {
 	return c.Raw(http.MethodGet, path, nil)
 }
 
+// SyncConfigRaw fetches one stored config as an untyped map, preserving
+// every server field (including ones this CLI doesn't model) for
+// pass-through calls like test / remote-files / upload.
+func (c *Client) SyncConfigRaw(id string) (map[string]any, error) {
+	data, err := c.Raw(http.MethodGet, "/api/sync/configs", nil)
+	if err != nil {
+		return nil, err
+	}
+	var list []map[string]any
+	if err := json.Unmarshal(data, &list); err != nil {
+		return nil, fmt.Errorf("decode sync configs: %w", err)
+	}
+	for _, g := range list {
+		if gid, _ := g["id"].(string); gid == id {
+			return g, nil
+		}
+	}
+	return nil, &APIError{Status: 404, Message: fmt.Sprintf("not_found: no sync config %q", id), Hint: HintFor("not_found:", 404)}
+}
+
+func (c *Client) SyncTestMap(cfg map[string]any) (SyncTestResp, error) {
+	return decodeSyncTest(c, cfg)
+}
+
+func (c *Client) SyncRemoteFilesMap(cfg map[string]any, prefix string) ([]byte, error) {
+	return c.Raw(http.MethodPost, "/api/sync/remote-files", map[string]any{
+		"config": cfg, "prefix": prefix,
+	})
+}
+
 // ── health ────────────────────────────────────────────────────────
 
 func (c *Client) Readyz() error {

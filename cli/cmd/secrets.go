@@ -80,7 +80,7 @@ var secretsSaveCmd = &cobra.Command{
 		raw, err := c.SecretSave(map[string]any{
 			"id": secretID, "kind": secretKind, "title": args[0],
 			"username": secretUsername, "url": secretURL,
-			"category": secretCategory, "tags": secretTags,
+			"category": secretCategory, "tags": orEmptyList(secretTags),
 			"notes": secretNotes, "favorite": secretFavorite,
 			"value": value,
 		})
@@ -93,6 +93,14 @@ var secretsSaveCmd = &cobra.Command{
 }
 
 var secretID string
+
+// orEmptyList keeps JSON arrays as arrays (the server rejects null).
+func orEmptyList(tags []string) []string {
+	if tags == nil {
+		return []string{}
+	}
+	return tags
+}
 
 var secretsGetCmd = &cobra.Command{
 	Use:   "get <id>",

@@ -338,6 +338,9 @@ type StartJobResp struct {
 
 func (c *Client) SyncStart(configID string, fileIDs []string) (StartJobResp, error) {
 	var out StartJobResp
+	if fileIDs == nil {
+		fileIDs = []string{}
+	}
 	err := c.Do(http.MethodPost, "/api/sync/start", map[string]any{
 		"configId": configID, "fileIds": fileIDs,
 	}, &out)
@@ -391,13 +394,28 @@ type SyncTestResp struct {
 }
 
 func (c *Client) SyncTest(cfg SyncConfig) (SyncTestResp, error) {
+	return decodeSyncTest(c, cfg)
+}
+
+// decodeSyncTest tolerates bool | {ok,message} | string shapes.
+func decodeSyncTest(c *Client, cfg any) (SyncTestResp, error) {
 	var out SyncTestResp
 	data, err := c.Raw(http.MethodPost, "/api/sync/test", map[string]any{"config": cfg})
 	if err != nil {
 		return out, err
 	}
+	var b bool
+	if jerr := json.Unmarshal(data, &b); jerr == nil {
+		out.OK = b
+		return out, nil
+	}
 	if jerr := json.Unmarshal(data, &out); jerr != nil {
-		return out, fmt.Errorf("decode sync test: %w", jerr)
+		var s string
+		if serr := json.Unmarshal(data, &s); serr == nil {
+			out.Message = s
+			return out, nil
+		}
+		return out, fmt.Errorf("decode sync test: %s", strings.TrimSpace(string(data)))
 	}
 	if out.Message == "" {
 		out.Message = strings.TrimSpace(string(data))
@@ -491,10 +509,16 @@ func (c *Client) Disk(id string) (DiskRow, error) {
 
 func (c *Client) DiskCreate(configID string, sizeBytes uint64, passphrase, containerPath string) (DiskRow, error) {
 	var out DiskRow
-	err := c.Do(http.MethodPost, "/api/disk/create", map[string]any{
+	req := map[string]any{
 		"configId": configID, "sizeBytes": sizeBytes,
-		"passphrase": passphrase, "containerPath": containerPath,
-	}, &out)
+		"passphrase": passphrase,
+	}
+	// The server defaults absent fields; an explicit "" would win over the
+	// default and fail (e.g. "cannot write ''").
+	if strings.TrimSpace(containerPath) != "" {
+		req["containerPath"] = containerPath
+	}
+	err := c.Do(http.MethodPost, "/api/disk/create", req, &out)
 	return out, err
 }
 

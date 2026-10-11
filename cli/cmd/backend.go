@@ -8,6 +8,7 @@ import (
 
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/client"
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/config"
+	"github.com/cybermanju/cybermanju.github.io/cli/internal/supa"
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/ui"
 )
 
@@ -123,13 +124,19 @@ var backendUseCmd = &cobra.Command{
 			ui.Success("backend → native app (http://127.0.0.1:%d)", port)
 		case config.BackendSupabase:
 			brokerURL, brokerKey := backendURL, backendKey
+			source := "paste"
 			if brokerURL == "" || brokerKey == "" {
-				form := ui.NewForm(huh.NewGroup(
-					huh.NewInput().Title("Supabase project URL").Value(&brokerURL),
-					huh.NewInput().Title("Anon / publishable key").EchoMode(huh.EchoModePassword).Value(&brokerKey),
-				))
-				if err := form.Run(); err != nil {
-					return err
+				if bURL, bKey, src := supa.BrokerPair("", ""); src == "baked into this build" {
+					brokerURL, brokerKey, source = bURL, bKey, src
+					ui.Info("using the broker baked into this build")
+				} else {
+					form := ui.NewForm(huh.NewGroup(
+						huh.NewInput().Title("Supabase project URL").Value(&brokerURL),
+						huh.NewInput().Title("Anon / publishable key").EchoMode(huh.EchoModePassword).Value(&brokerKey),
+					))
+					if err := form.Run(); err != nil {
+						return err
+					}
 				}
 			}
 			if brokerURL == "" || brokerKey == "" {
@@ -144,7 +151,7 @@ var backendUseCmd = &cobra.Command{
 			if err := config.Save(f); err != nil {
 				return err
 			}
-			ui.Success("backend → supabase-direct (limited, read-only)")
+			ui.Success("backend → supabase-direct (limited, read-only; broker %s)", source)
 			fmt.Println(ui.Panel.Render(
 				"Allowlist once in Supabase → Authentication → URL Configuration → Redirect URLs:\n" +
 					"  http://127.0.0.1:54329/callback\n" +

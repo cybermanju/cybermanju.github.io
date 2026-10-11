@@ -76,3 +76,22 @@ func TestRedirectTo(t *testing.T) {
 		t.Fatalf("got %s", got)
 	}
 }
+
+func TestBrokerPairOrder(t *testing.T) {
+	// Flags win over everything.
+	if _, _, src := BrokerPair("u", "k"); src != "flags" {
+		t.Fatalf("src=%s", src)
+	}
+	// Baked pair applies when flags are absent.
+	BakedURL, BakedKey = "https://baked.test", "baked-key"
+	defer func() { BakedURL, BakedKey = "", "" }()
+	u, k, src := BrokerPair("", "")
+	if u != "https://baked.test" || k != "baked-key" || src != "baked into this build" {
+		t.Fatalf("got %q %q %q", u, k, src)
+	}
+	// Nothing anywhere.
+	BakedURL, BakedKey = "", ""
+	if _, _, src := BrokerPair("", ""); src != "none" {
+		t.Fatalf("src=%s", src)
+	}
+}

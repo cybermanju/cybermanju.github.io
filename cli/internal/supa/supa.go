@@ -34,6 +34,23 @@ func New(rawURL, key string) *Client {
 	}
 }
 
+// BakedURL/BakedKey are stamped by CI ldflags from the repo secrets
+// (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY) — the same broker every
+// desktop build bakes. Empty in dev builds; the Settings paste applies.
+var BakedURL, BakedKey string
+
+// BrokerPair resolves the broker: explicit flags > baked pair > "".
+// Source reports where the pair came from for honest UI.
+func BrokerPair(flagURL, flagKey string) (url, key, source string) {
+	if flagURL != "" && flagKey != "" {
+		return flagURL, flagKey, "flags"
+	}
+	if BakedURL != "" && BakedKey != "" {
+		return BakedURL, BakedKey, "baked into this build"
+	}
+	return "", "", "none"
+}
+
 // Session is a Supabase Auth session (provider tokens included when the
 // broker returns them for the OAuth grant).
 type Session struct {

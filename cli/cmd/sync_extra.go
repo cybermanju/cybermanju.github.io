@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cybermanju/cybermanju.github.io/cli/internal/client"
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/ui"
 )
 
@@ -115,33 +114,17 @@ var syncUploadCmd = &cobra.Command{
 		if err := requireAuth(c); err != nil {
 			return err
 		}
-		cfgs, err := c.SyncConfigs()
+		cfgMap, err := c.SyncConfigRaw(args[0])
 		if err != nil {
 			return err
-		}
-		var cfg *client.SyncConfig
-		for i, g := range cfgs {
-			if g.ID == args[0] {
-				cfg = &cfgs[i]
-				break
-			}
-		}
-		if cfg == nil {
-			return fmt.Errorf("not_found: no sync config %q", args[0])
 		}
 		data, err := os.ReadFile(args[1])
 		if err != nil {
 			return err
 		}
-		payload := map[string]any{
-			"id": cfg.ID, "backendType": cfg.BackendType,
-			"enabled": cfg.Enabled, "name": cfg.Name,
-			"basePath": cfg.BasePath, "repoName": cfg.RepoName,
-			"branch": cfg.Branch, "folderId": cfg.FolderID,
-		}
 		var out []byte
 		if err := ui.SpinWhile("Uploading…", func() error {
-			raw, err := c.SyncUpload(payload, args[2], base64.StdEncoding.EncodeToString(data))
+			raw, err := c.SyncUpload(cfgMap, args[2], base64.StdEncoding.EncodeToString(data))
 			if err != nil {
 				return err
 			}

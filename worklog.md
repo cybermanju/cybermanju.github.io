@@ -961,3 +961,24 @@ Stage Summary:
   Tests: RFC-7636 PKCE vector (cross-checked vs Python), broker
   exchange incl. provider_token, backend resolution table, expiry.
   `go test -count=1` green locally (`-race` rides CI, which has gcc).
+
+## 2026-10-11 — cyb E2E against the REAL backend (GHCR image, no mocks)
+- No docker/cargo here, so the real `cybermanju-os-server` was pulled
+  straight from GHCR via the registry API (31 MB Alpine image), extracted,
+  and run (musl static — executes anywhere). Real AppImage also pulled +
+  extracted: `x-scheme-handler/cybermanju` confirmed, but the GUI binary
+  needs glibc 2.38+ (box has 2.35) so it can't execute here.
+- Proven end to end: setup/register/login/JWT · doctor · 2 local
+  providers · sealed disk create (512M) · wrong passphrase FAILS with
+  `auth: superblock did not open (decryption failed…)` · right one
+  attaches · check ok · admin-gated secrets (user role forbidden) ·
+  seal→reveal round-trip (`s3cr3t-nas!`) · sync test/upload bytes land
+  on provider · start 202→completed · cron add/list/rm loop ·
+  code parse reports `"engine": "heuristic"` · audit shows our reveal.
+- E2E caught real CLI bugs, all fixed: omit-empty for `containerPath`
+  (server chokes on `""`), `tags: null` → `[]`, `fileIds: null` → `[]`,
+  raw config pass-through for test/remote/upload (Go struct is a subset —
+  server demands full rows incl. `autoSync`), tolerant test decode
+  (endpoint returns a bare bool).
+- Known server-side gap (not a CLI bug): no public REST creates vault
+  FileNodes, so provider→provider `move` needs a vault file first.
