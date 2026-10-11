@@ -1113,3 +1113,38 @@ Stage Summary:
   (no cgo/gcc on this box so `-race` is CI-only), readonly
   `GOPROXY=off` build ok, `cyb --help` + subcommand help smoke-tested,
   headers 467/467.
+
+## 2026-10-11 — CLI: Charm v2 migration (bubbletea/lipgloss/bubbles/huh/glamour)
+- Full v2 migration on the `charm.land/*/v2` paths: bubbletea v2.1.0,
+  lipgloss v2.0.6, bubbles v2.2.1, huh v2.0.3, glamour v2.0.1
+  (latest as of today); v1 modules fully dropped from go.mod/go.sum.
+  Per the v2 upgrade guides: `View() tea.View`, `KeyPressMsg` +
+  string matching (`ctrl+c`/`esc`/`enter`/`up`/`down`), viewport
+  `WithWidth/WithHeight` + `SetWidth/SetHeight`, textinput `SetStyles`,
+  progress `WithColors` blend, huh `ThemeFunc` (adapts dark/light),
+  glamour API unchanged.
+- v2 output discipline: builders emit full-fidelity ANSI; every print
+  boundary downsamples to `lipgloss.Writer`'s profile, and spinner/Huh/
+  REPL are pinned via `tea.WithColorProfile`. `--no-color` now pins
+  `NoTTY` (byte-clean; v2 Ascii keeps bold SGR, so Ascii is not enough).
+- Verified: gofmt/vet clean, `go test ./...` green incl. new
+  builder-vs-print profile tests, readonly-mode build ok, binary smoke
+  (`--help` atlas, subcommand pages, `version`, zero ESC bytes under
+  `--no-color`/pipes), headers 470/470. `-race` remains CI-only (no
+  gcc on this box).
+
+## 2026-10-11 — CLI: double-review pass (correctness + consistency)
+- Fixed real issues found on re-read: animated spinner dot (frames
+  never advanced), `fitWidths` dead param, subcommand help rows
+  bypassing Downsample, nondeterministic "more" order (sorted),
+  `completion` invisible in the atlas, flag defaults missing from help
+  (`--timeout (default 15s)` …), `backend` panel bypassing Downsample,
+  REPL/viewport negative widths on tiny terminals (clamped), empty
+  tables without guards (`geo`, supa repos/files/projects).
+- Consistency: client-known vocab now decorated (`Flag("encrypted")`,
+  `Flag("key-holder")`, cyan search scores); server strings untouched.
+  Chrome moved to stderr (`serve` next-step, `poll with:`, sync/ai
+  wait ticks, ai follow start) so stdout stays pipe-clean.
+- New `TestRootHelpAtlasComplete`: every visible command must sit in a
+  section (catches unmapped commands), leaf pages show usage + flags.
+  45 CLI tests green; gofmt/vet clean; headers 470/470.

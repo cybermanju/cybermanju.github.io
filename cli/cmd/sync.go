@@ -158,7 +158,7 @@ var syncStartCmd = &cobra.Command{
 		}
 		ui.Success("sync job %s started (202 accepted)", resp.JobID)
 		if !syncWait {
-			ui.Info("poll with: cyb sync job %s", resp.JobID)
+			ui.Hint("poll with %s", ui.Chip("cyb sync job "+resp.JobID))
 			return nil
 		}
 		return waitSyncJob(c, resp.JobID)
@@ -184,7 +184,7 @@ func waitSyncJob(c *client.Client, id string) error {
 			return fmt.Errorf("sync job %s ended: %s", id, msg)
 		}
 		if i%15 == 0 {
-			ui.Info("job %s: %s…", id, j.Status)
+			ui.Hint("job %s: %s…", id, j.Status)
 		}
 		time.Sleep(2 * time.Second)
 	}

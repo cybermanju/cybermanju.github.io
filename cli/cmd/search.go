@@ -46,7 +46,7 @@ var searchCmd = &cobra.Command{
 		}
 		var rows [][]string
 		for _, h := range hits {
-			rows = append(rows, []string{h.FileID, h.FileName, fmt.Sprintf("%.2f", h.Score), truncate(h.Snippet, 72)})
+			rows = append(rows, []string{h.FileID, h.FileName, ui.Number.Render(fmt.Sprintf("%.2f", h.Score)), truncate(h.Snippet, 72)})
 		}
 		ui.Table([]string{"FILE", "NAME", "SCORE", "SNIPPET"}, rows)
 		return nil
@@ -128,6 +128,10 @@ var geoCmd = &cobra.Command{
 				lon = fmt.Sprintf("%.5f", *it.GpsLon)
 			}
 			rows = append(rows, []string{it.ID, it.Name, lat, lon})
+		}
+		if len(rows) == 0 {
+			ui.Info("no files carry GPS coordinates")
+			return nil
 		}
 		ui.Table([]string{"ID", "NAME", "LAT", "LON"}, rows)
 		return nil

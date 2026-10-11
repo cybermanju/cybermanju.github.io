@@ -1,8 +1,10 @@
 // CyberManju OS — Cmd test (cli/cmd/cmd_test.go).
 // Role: CLI command wiring tests — flags newcomers rely on must exist.
-// Exports: TestFilesCatRenderFlag, TestContentName.
-// Integrates: testing, cmd package internals.
-// Contracts: no network, no profile — flag shape and pure helpers only.
+// Exports: TestFilesCatRenderFlag, TestContentName,
+// TestFilesCatRenderEndToEnd, TestRootHelpAtlasComplete.
+// Integrates: testing, httptest, cmd package internals.
+// Contracts: flag shape + pure helpers + fake-dashboard e2e only — no real
+// network, no real profile.
 package cmd
 
 import (
@@ -13,8 +15,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
 func TestFilesCatRenderFlag(t *testing.T) {
@@ -42,7 +44,7 @@ func TestContentName(t *testing.T) {
 // TestFilesCatRenderEndToEnd serves a fake dashboard and asserts `cat -r`
 // glamour-renders the content instead of dumping the JSON envelope.
 func TestFilesCatRenderEndToEnd(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.Ascii)
+	lipgloss.Writer.Profile = colorprofile.Ascii
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/files/note1/content" {
 			http.NotFound(w, r)
@@ -67,6 +69,40 @@ func TestFilesCatRenderEndToEnd(t *testing.T) {
 	}
 	if strings.Contains(out, `"content"`) {
 		t.Fatalf("rendered output leaked the JSON envelope: %q", out)
+	}
+}
+
+// TestRootHelpAtlasComplete guards the neon atlas: every visible top-level
+// command must appear in a section (no silent "more" fallback), every
+// section must render, and a leaf page must show its flags.
+func TestRootHelpAtlasComplete(t *testing.T) {
+	// Mirror production: Execute() lazily adds the completion command.
+	rootCmd.InitDefaultCompletionCmd()
+	out := captureStdout(t, func() { renderRootHelp(rootCmd, nil) })
+	for _, sec := range helpSections {
+		if !strings.Contains(out, sec.title) {
+			t.Fatalf("atlas lost section %q", sec.title)
+		}
+		for _, name := range sec.cmds {
+			if !strings.Contains(out, name) {
+				t.Fatalf("atlas lost command %q", name)
+			}
+		}
+	}
+	if strings.Contains(out, "◈ more") {
+		t.Fatal("atlas grew a 'more' section — map the new command into helpSections")
+	}
+	for _, sub := range rootCmd.Commands() {
+		if sub.Hidden || sub.Deprecated != "" || sub.Name() == "help" || sub.Name() == "completion" {
+			continue
+		}
+		if !strings.Contains(out, sub.Name()) {
+			t.Fatalf("atlas hides top-level command %q", sub.Name())
+		}
+	}
+	leaf := captureStdout(t, func() { renderRootHelp(filesCatCmd, nil) })
+	if !strings.Contains(leaf, "--render") || !strings.Contains(leaf, "cyb files cat") {
+		t.Fatalf("leaf help must show usage + flags, got:\n%s", leaf)
 	}
 }
 

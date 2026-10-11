@@ -58,7 +58,7 @@ var filesLsCmd = &cobra.Command{
 			}
 			enc := ""
 			if n.Encrypted {
-				enc = "encrypted"
+				enc = ui.Flag("encrypted")
 			}
 			rows = append(rows, []string{n.ID, n.Name, n.FileType, util.FormatBytes(n.SizeBytes), enc})
 		}

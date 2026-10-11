@@ -42,7 +42,7 @@ var serveUpCmd = &cobra.Command{
 			return err
 		}
 		ui.Success("dashboard up → http://127.0.0.1:%d", servePort)
-		ui.Info("next: cyb setup --server http://127.0.0.1:%d", servePort)
+		ui.Hint("next: %s", ui.Chip(fmt.Sprintf("cyb setup --server http://127.0.0.1:%d", servePort)))
 		return nil
 	},
 }

@@ -8,7 +8,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/charmbracelet/huh"
+	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/client"
@@ -157,10 +157,9 @@ var backendUseCmd = &cobra.Command{
 				return err
 			}
 			ui.Success("backend → supabase-direct (limited, read-only; broker %s)", source)
-			fmt.Println(ui.Panel.Render(
-				"Allowlist once in Supabase → Authentication → URL Configuration → Redirect URLs:\n" +
-					"  http://127.0.0.1:54329/callback\n" +
-					"Then:  cyb supa login",
+			ui.Emit(ui.NextSteps("supabase allowlist",
+				[2]string{"http://127.0.0.1:54329/callback", "allow under Authentication → URL Configuration → Redirect URLs"},
+				[2]string{"cyb supa login", "sign in through the broker"},
 			))
 		default:
 			return fmt.Errorf("unsupported: backend must be remote|docker|native|supabase (got %q)", args[0])

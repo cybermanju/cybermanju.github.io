@@ -3,13 +3,14 @@
 // and tinted flags, all in the CyberManju neon face.
 // Exports: installHelp.
 // Integrates: fmt, strings, cobra, pflag, ui.
-// Contracts: root help only — subcommand help stays cobra-default; hidden,
-// deprecated and unmapped commands fall into the "more" section so new
-// commands can never vanish from help.
+// Contracts: root help is the neon atlas, subcommand help is a neon page;
+// hidden, deprecated and unmapped commands fall into the "more" section
+// (sorted) so new commands can never vanish from help.
 package cmd
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -29,7 +30,7 @@ var helpSections = []struct {
 	{"intelligence", []string{"ai", "search", "suggest", "geo"}},
 	{"people & secrets", []string{"users", "perms", "collections", "accounts", "groups", "loose", "faces", "secrets", "oauth"}},
 	{"machine", []string{"backend", "supa", "serve", "config"}},
-	{"self care", []string{"setup", "login", "logout", "doctor", "update", "version"}},
+	{"self care", []string{"setup", "login", "logout", "doctor", "update", "version", "completion"}},
 }
 
 // installHelp swaps the root help renderer for the neon atlas.
@@ -44,9 +45,9 @@ func renderRootHelp(c *cobra.Command, _ []string) {
 		renderCmdHelp(c)
 		return
 	}
-	fmt.Println(ui.Splash(cliVersion))
+	ui.Emit(ui.Splash(cliVersion))
 	fmt.Println()
-	fmt.Printf("  %s\n\n", ui.Dim.Render("files, disks, sync, OAuth, cybsh and the AI agent — one terminal."))
+	fmt.Printf("  %s\n\n", ui.Downsample(ui.Dim.Render("files, disks, sync, OAuth, cybsh and the AI agent — one terminal.")))
 
 	byName := map[string]*cobra.Command{}
 	for _, sub := range c.Commands() {
@@ -75,11 +76,11 @@ func renderRootHelp(c *cobra.Command, _ []string) {
 		if len(rows) == 0 {
 			continue
 		}
-		fmt.Printf("  %s\n", ui.Title.Render("◈ "+sec.title))
+		fmt.Printf("  %s\n", ui.Downsample(ui.Title.Render("◈ "+sec.title)))
 		for _, r := range rows {
 			fmt.Printf("    %s  %s\n",
-				ui.Accent.Render(r[0]+strings.Repeat(" ", max(0, nameWidth-len(r[0])))),
-				ui.Dim.Render(r[1]))
+				ui.Downsample(ui.Accent.Render(r[0]+strings.Repeat(" ", max(0, nameWidth-len(r[0]))))),
+				ui.Downsample(ui.Dim.Render(r[1])))
 		}
 		fmt.Println()
 	}
@@ -89,41 +90,39 @@ func renderRootHelp(c *cobra.Command, _ []string) {
 			rest = append(rest, []string{name, sub.Short})
 		}
 	}
+	sort.Slice(rest, func(i, j int) bool { return rest[i][0] < rest[j][0] })
 	if len(rest) > 0 {
-		fmt.Printf("  %s\n", ui.Title.Render("◈ more"))
+		fmt.Printf("  %s\n", ui.Downsample(ui.Title.Render("◈ more")))
 		for _, r := range rest {
 			fmt.Printf("    %s  %s\n",
-				ui.Accent.Render(r[0]+strings.Repeat(" ", max(0, nameWidth-len(r[0])))),
-				ui.Dim.Render(r[1]))
+				ui.Downsample(ui.Accent.Render(r[0]+strings.Repeat(" ", max(0, nameWidth-len(r[0]))))),
+				ui.Downsample(ui.Dim.Render(r[1])))
 		}
 		fmt.Println()
 	}
-	fmt.Printf("  %s  %s\n", ui.Title.Render("◈ flags"), ui.Dim.Render("cyb <command> [flags]"))
+	fmt.Printf("  %s  %s\n", ui.Downsample(ui.Title.Render("◈ flags")), ui.Downsample(ui.Dim.Render("cyb <command> [flags]")))
 	c.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		name := "--" + f.Name
-		if f.Shorthand != "" {
-			name += ", -" + f.Shorthand
-		}
-		fmt.Printf("    %s  %s\n", ui.Chip(name), ui.Dim.Render(f.Usage))
+		name, usage := flagNameUsage(f)
+		fmt.Printf("    %s  %s\n", ui.Downsample(ui.Chip(name)), ui.Downsample(ui.Dim.Render(usage)))
 	})
 	fmt.Println()
-	fmt.Printf("  %s  %s\n", ui.Dim.Render("Start here:"), ui.Chip("cyb setup"))
+	fmt.Printf("  %s  %s\n", ui.Downsample(ui.Dim.Render("Start here:")), ui.Downsample(ui.Chip("cyb setup")))
 }
 
 // renderCmdHelp prints a neon help page for any non-root command.
 func renderCmdHelp(c *cobra.Command) {
 	fmt.Printf("%s  %s\n\n",
-		ui.Gradient("◈ "+c.CommandPath(), ui.PinkHot, ui.RedHot),
-		ui.Dim.Render(c.Short))
+		ui.Downsample(ui.Gradient("◈ "+c.CommandPath(), ui.PinkHot, ui.RedHot)),
+		ui.Downsample(ui.Dim.Render(c.Short)))
 	if c.Long != "" {
-		fmt.Printf("  %s\n\n", ui.Dim.Render(strings.TrimSpace(c.Long)))
+		fmt.Printf("  %s\n\n", ui.Downsample(ui.Dim.Render(strings.TrimSpace(c.Long))))
 	}
-	fmt.Printf("  %s  %s\n\n", ui.Title.Render("usage"), ui.Chip(c.UseLine()))
+	fmt.Printf("  %s  %s\n\n", ui.Downsample(ui.Title.Render("usage")), ui.Downsample(ui.Chip(c.UseLine())))
 	if len(c.Aliases) > 0 {
-		fmt.Printf("  %s  %s\n\n", ui.Title.Render("aliases"), ui.Dim.Render(strings.Join(c.Aliases, ", ")))
+		fmt.Printf("  %s  %s\n\n", ui.Downsample(ui.Title.Render("aliases")), ui.Downsample(ui.Dim.Render(strings.Join(c.Aliases, ", "))))
 	}
 	if c.HasAvailableSubCommands() {
-		fmt.Printf("  %s\n", ui.Title.Render("◈ commands"))
+		fmt.Printf("  %s\n", ui.Downsample(ui.Title.Render("◈ commands")))
 		w := 0
 		for _, sub := range c.Commands() {
 			if sub.Hidden || sub.Deprecated != "" {
@@ -138,8 +137,8 @@ func renderCmdHelp(c *cobra.Command) {
 				continue
 			}
 			fmt.Printf("    %s  %s\n",
-				ui.Accent.Render(sub.Name()+strings.Repeat(" ", max(0, w-len(sub.Name())))),
-				ui.Dim.Render(sub.Short))
+				ui.Downsample(ui.Accent.Render(sub.Name()+strings.Repeat(" ", max(0, w-len(sub.Name()))))),
+				ui.Downsample(ui.Dim.Render(sub.Short)))
 		}
 		fmt.Println()
 	}
@@ -147,25 +146,37 @@ func renderCmdHelp(c *cobra.Command) {
 	printFlagSet("global flags", c.InheritedFlags())
 }
 
+// flagNameUsage renders one flag as --name/-s plus usage with its
+// non-zero default appended, cobra-style.
+func flagNameUsage(f *pflag.Flag) (string, string) {
+	name := "--" + f.Name
+	if f.Shorthand != "" {
+		name += ", -" + f.Shorthand
+	}
+	usage := f.Usage
+	if f.DefValue != "" && f.DefValue != "false" && f.DefValue != "0" {
+		usage += " (default " + f.DefValue + ")"
+	}
+	return name, usage
+}
+
 // printFlagSet renders a titled flag list; empty sets print nothing.
+// Non-zero defaults are shown, cobra-style.
 func printFlagSet(title string, fs *pflag.FlagSet) {
 	var rows [][2]string
 	fs.VisitAll(func(f *pflag.Flag) {
 		if f.Hidden {
 			return
 		}
-		name := "--" + f.Name
-		if f.Shorthand != "" {
-			name += ", -" + f.Shorthand
-		}
-		rows = append(rows, [2]string{name, f.Usage})
+		name, usage := flagNameUsage(f)
+		rows = append(rows, [2]string{name, usage})
 	})
 	if len(rows) == 0 {
 		return
 	}
-	fmt.Printf("  %s\n", ui.Title.Render("◈ "+title))
+	fmt.Printf("  %s\n", ui.Downsample(ui.Title.Render("◈ "+title)))
 	for _, r := range rows {
-		fmt.Printf("    %s  %s\n", ui.Chip(r[0]), ui.Dim.Render(r[1]))
+		fmt.Printf("    %s  %s\n", ui.Downsample(ui.Chip(r[0])), ui.Downsample(ui.Dim.Render(r[1])))
 	}
 	fmt.Println()
 }

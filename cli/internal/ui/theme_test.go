@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
 func TestGradientKeepsText(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	lipgloss.Writer.Profile = colorprofile.TrueColor
 	// Strip ANSI: every rune must survive exactly once in order.
 	got := Gradient("cyb", PinkHot, RedHot)
 	plain := stripANSI(got)
@@ -54,12 +54,12 @@ func stripANSI(s string) string {
 }
 
 func TestCharmThemeIsPink(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.ANSI)
+	lipgloss.Writer.Profile = colorprofile.ANSI
 	th := CharmTheme()
 	if th == nil {
 		t.Fatal("nil theme")
 	}
-	probe := th.Focused.Title.Render("x")
+	probe := th.Theme(true).Focused.Title.Render("x")
 	if !strings.Contains(probe, "\x1b[") {
 		t.Fatal("focused title must carry color")
 	}

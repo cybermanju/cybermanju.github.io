@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/charmbracelet/huh"
+	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/ui"
@@ -85,7 +85,7 @@ var diskListCmd = &cobra.Command{
 		for _, d := range disks {
 			keys := ""
 			if d.HoldsKeys {
-				keys = "key-holder"
+				keys = ui.Flag("key-holder")
 			}
 			rows = append(rows, []string{d.ID, d.Provider, d.State, d.Health,
 				util.FormatBytes(d.UsedBytes) + "/" + util.FormatBytes(d.CapacityBytes), keys})
