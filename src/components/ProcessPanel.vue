@@ -22,6 +22,7 @@ import UiModal from '@/components/ui/UiModal.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { humanBytes } from '@/utils/format'
+import { formatCpuPercent, formatLoadTriplet } from '@/utils/deviceStats'
 import { formatIn, previewSchedule } from '@/utils/schedule'
 import type { OsTask, ScheduleRow, ScheduleRun } from '@/types'
 
@@ -248,12 +249,12 @@ onBeforeUnmount(() => {
         <div class="stat">
           <span class="stat-key">LOAD</span>
           <span class="stat-val">
-            {{ load && load.source === 'proc' ? `${load.load1} ${load.load5} ${load.load15}` : 'n/a' }}
+            {{ load && load.source === 'proc' ? formatLoadTriplet(load) : 'n/a' }}
           </span>
         </div>
         <div class="stat">
           <span class="stat-key">CPU</span>
-          <span class="stat-val">{{ store.osTop ? `${store.osTop.cpuPercent.toFixed(1)}%` : 'n/a' }}</span>
+          <span class="stat-val">{{ formatCpuPercent(store.osTop) }}</span>
         </div>
         <div class="stat">
           <span class="stat-key">RSS</span>

@@ -690,9 +690,9 @@ export function destFromVmPath(vmPath: string): MoveDest | null {
   if (isHostPath(norm)) {
     const abs = hostAbsFromVm(norm)
     // Native `/host` carries no absolute — callers resolve the `-os`
-    // default dir first. On WASM `/host` IS the picked `$HOME` root, so it
-    // resolves to `/` directly (the handle root).
-    if (abs === '') return useWasmHost() ? { kind: 'host', absDir: '/' } : null
+    // default dir first. On WASM `/host` is the virtual folders list
+    // (mounts only) — never a move destination either.
+    if (abs === '') return null
     return { kind: 'host', absDir: abs }
   }
   if (norm === '/providers' || norm === '/providers/') return null

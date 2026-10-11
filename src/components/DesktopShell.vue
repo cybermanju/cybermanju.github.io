@@ -133,7 +133,7 @@
       @click="dockMenu.visible = false"
       @contextmenu.prevent="dockMenu.visible = false"
     >
-      <div class="dock-context-menu ui-shine" @click.stop>
+      <div ref="dockMenuEl" class="dock-context-menu ui-shine" @click.stop>
         <template v-for="(item, i) in dockMenu.items" :key="i">
           <div v-if="item.separator" class="dock-context-sep" role="separator" />
           <button
@@ -385,13 +385,34 @@ const dockMenu = ref({
   items: [] as DockMenuItem[],
 })
 
+const dockMenuEl = ref<HTMLElement | null>(null)
+
 function handleDockContext(e: CustomEvent) {
+  const rawX = typeof e.detail?.x === 'number' ? e.detail.x : 0
+  const rawY = typeof e.detail?.y === 'number' ? e.detail.y : 0
   dockMenu.value = {
     visible: true,
-    x: e.detail.x,
-    y: e.detail.y,
+    x: rawX,
+    y: rawY,
     items: e.detail.items,
   }
+  // The dock sits at the bottom edge, so a menu opening downward would
+  // fall off-screen. Measure after paint and clamp into the viewport
+  // (opens upward / leftward when too close to an edge).
+  void nextTick(() => {
+    const el = dockMenuEl.value
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const margin = 8
+    let x = rawX
+    let y = rawY
+    if (x + r.width + margin > window.innerWidth) x = Math.max(margin, window.innerWidth - r.width - margin)
+    if (y + r.height + margin > window.innerHeight) y = Math.max(margin, window.innerHeight - r.height - margin)
+    if (x < margin) x = margin
+    if (y < margin) y = margin
+    dockMenu.value.x = x
+    dockMenu.value.y = y
+  })
 }
 
 function handleClickOutside() {
@@ -614,6 +635,9 @@ onUnmounted(() => {
   border-radius: var(--ui-radius-lg);
   padding: 4px;
   min-width: 170px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   box-shadow: var(--ui-shadow-menu);
   animation: ui-fade-in var(--ui-dur) ease-out both;
 }

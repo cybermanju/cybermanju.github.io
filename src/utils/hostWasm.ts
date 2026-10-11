@@ -2,24 +2,31 @@
 // Role: File System Access API (`showDirectoryPicker`) backend behind the
 //   same `/host` namespace + `host:<abs>` ids the Tauri bridge uses, so the
 //   FileManager shows identical Host folders on GitHub Pages.
-// Exports: `HOST_WASM_DIR_KEY`, `hostWasmSupported`, `pickHostWasmDir`,
-//   `listHostWasmDir`, byte/dir verbs, `runWasmHostLine` shell shim,
-//   `liveWasmMoveDeps` for `moveAnywhere`.
-// Integrates: `@/utils/localDir` (handle persistence + real FSA I/O),
-//   `@/utils/hostBrowse` types (`MoveDeps`, `FileNode`), `@/composables/useTauri`
-//   (`invoke` for the vault legs of cross-namespace moves).
+// Exports: `HOST_WASM_DIR_KEY` (legacy single, auto-migrated),
+//   `hostWasmSupported`, `pickHostWasmDir` (adds one mount),
+//   `listHostWasmMounts`, `removeHostWasmMount`, `hostWasmStatus`,
+//   `hostWasmReallow`, `listHostWasmDir`, byte/dir verbs,
+//   `runWasmHostLine` shell shim, `liveWasmMoveDeps` for `moveAnywhere`,
+//   pure helpers (`isWasmMountRootAbs`, `isPickerCancel`, `isSystemJunk`).
+// Integrates: `@/utils/localDir` (real FSA I/O), `@/utils/idb` (handle +
+//   registry persistence), `@/utils/hostBrowse` types (`MoveDeps`,
+//   `FileNode`), `@/composables/useTauri` (`invoke` for the vault legs of
+//   cross-namespace moves).
 // Contracts: every failure carries an AGENT-1 prefix (`auth:`/`not_found:`/
-//   `integrity:`/`unsupported:`); binary-safe (Uint8Array, no shell caps);
-//   `/host` + `/host/` both address the picked `$HOME` root.
+//   `invalid:`/`integrity:`/`unsupported:`); binary-safe (Uint8Array, no
+//   shell caps). Chromium BLOCKS the whole `$HOME` and the Documents /
+//   Downloads / Desktop roots themselves (`kDontBlockChildren` — the roots
+//   refuse with "contains system files", children are fine), so this module
+//   mounts SUBfolders: `/host` lists the mounts, `/host/<Label>/…` is one
+//   picked tree. Mount roots are never deleted — unmount forgets the handle,
+//   bytes stay on disk.
 
 import type { FileNode } from '@/types'
 import type { MoveDeps } from '@/utils/hostBrowse'
 import {
   deleteLocalPath,
   dirPickerSupported,
-  ensureLocalDir,
   listLocalDir,
-  liveLocalDir,
   mkdirLocalDir,
   readLocalFile,
   reallowLocalDir,
@@ -27,12 +34,35 @@ import {
   writeLocalFile,
   type FsDirHandle,
 } from '@/utils/localDir'
-import { idbDel } from '@/utils/idb'
+import { idbDel, idbGet, idbSet } from '@/utils/idb'
 
-/** IndexedDB key for the picked `$HOME` folder (the WASM `/host` root). */
+/** Legacy single `$HOME` handle (auto-migrated into the mounts registry). */
 export const HOST_WASM_DIR_KEY = 'cybermanju.hostDir'
+/** One remembered handle per mount (`<prefix><mountId>`). */
+export const HOST_WASM_MOUNT_PREFIX = 'cybermanju.hostDir:'
+/** JSON registry of mounts (`[{ id, label }]`). */
+export const HOST_WASM_MOUNT_INDEX = 'cybermanju.hostDir:index'
 
 const HOST_VM_ROOT = '/host'
+
+export interface HostWasmMount {
+  id: string
+  label: string
+}
+
+export type HostWasmMountStatus = 'ready' | 'needs-permission' | 'missing'
+
+export interface HostWasmMountState extends HostWasmMount {
+  status: HostWasmMountStatus
+  detail: string
+}
+
+export interface HostWasmSummary {
+  status: 'ready' | 'needs-permission' | 'missing' | 'unsupported'
+  detail: string
+  total: number
+  parked: number
+}
 
 /** True when the dialog browser API exists (Chromium + secure context). */
 export function hostWasmSupported(): boolean {
@@ -43,7 +73,59 @@ export function hostWasmSupported(): boolean {
   }
 }
 
-// ── vm path math (mirrors hostBrowse, duplicated to avoid a module cycle) ──
+// ── pure helpers ─────────────────────────────────────────────────────
+
+/** `/Documentos/foto.jpg` → `{ label: 'Documentos', rel: 'foto.jpg' }`. */
+export function splitWasmAbs(abs: string): { label: string; rel: string } | null {
+  const clean = String(abs ?? '').replace(/\\/g, '/')
+  if (!clean || clean === '/') return null
+  const segs = clean.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean)
+  if (!segs.length) return null
+  return { label: segs[0], rel: segs.slice(1).join('/') }
+}
+
+/** True for a mount-root absolute (`/Documentos`, never deeper). */
+export function isWasmMountRootAbs(abs: string): boolean {
+  return /^\/[^/]+$/.test(String(abs ?? '').replace(/\\/g, '/'))
+}
+
+/** True when the user dismissed the picker (silent cancel, never an error). */
+export function isPickerCancel(e: unknown): boolean {
+  return (
+    !!e &&
+    typeof e === 'object' &&
+    (e as { name?: unknown }).name === 'AbortError'
+  )
+}
+
+/**
+ * OS metadata junk never worth showing (`Thumbs.db`, `.DS_Store`,
+ * `desktop.ini`, trash/recycle roots…). Listed rows carry it as
+ * `isHidden`, so the FileManager hides it unless "hidden" is on.
+ */
+const SYSTEM_JUNK = new Set([
+  'thumbs.db',
+  'desktop.ini',
+  '.ds_store',
+  '.spotlight-v100',
+  '.trashes',
+  '.fseventsd',
+  '.temporaryitems',
+  '.apdisk',
+  'system volume information',
+  '$recycle.bin',
+  'lost+found',
+  'network trash folder',
+  'temporary items',
+])
+
+export function isSystemJunk(name: string): boolean {
+  const n = String(name ?? '').toLowerCase()
+  if (!n) return false
+  if (SYSTEM_JUNK.has(n)) return true
+  // Per-volume trash roots (`.Trash-1000`, `.Trash-501`, …).
+  return /^\.trash-\d+$/.test(n)
+}
 
 /** `/host/a/b` → `/a/b`; `/host` → `''`; `/host/` → `/`. */
 function wasmAbsFromVm(vmPath: string): string {
@@ -58,28 +140,16 @@ function wasmAbsFromVm(vmPath: string): string {
   return rest
 }
 
-/** Absolute (`/a/b`, `/`, `''`) → path relative to the picked root. */
-function relFromAbs(abs: string): string {
-  const clean = String(abs ?? '').replace(/\\/g, '/')
-  if (!clean || clean === '/') return ''
-  return clean.replace(/^\/+/, '')
-}
-
-/** vm path → rel inside the picked folder (`/host` → `''`). */
-function relFromVm(vmPath: string): string {
-  return relFromAbs(wasmAbsFromVm(vmPath))
-}
-
-/** rel → absolute (`''` → `/`). */
-function absFromRel(rel: string): string {
+/** Mount label + rel → absolute (`{Documentos, a/b}` → `/Documentos/a/b`). */
+function absFromMountRel(label: string, rel: string): string {
   const clean = String(rel ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
-  return clean ? `/${clean}` : '/'
+  return clean ? `/${label}/${clean}` : `/${label}`
 }
 
-/** rel → vm path (`''` → `/host`). */
-function vmForRel(rel: string): string {
+/** Mount label + rel → vm path (`{Documentos, a/b}` → `/host/Documentos/a/b`). */
+function vmForMountRel(label: string, rel: string): string {
   const clean = String(rel ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
-  return clean ? `${HOST_VM_ROOT}/${clean}` : HOST_VM_ROOT
+  return clean ? `${HOST_VM_ROOT}/${label}/${clean}` : `${HOST_VM_ROOT}/${label}`
 }
 
 function nowIso(): string {
@@ -100,82 +170,309 @@ function guessMime(name: string): string {
   return 'application/octet-stream'
 }
 
-// ── handle lifecycle (dialog browser API) ──
+function slugify(name: string): string {
+  const clean = String(name ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 24)
+  return clean || 'pasta'
+}
 
-async function requireHandle(): Promise<FsDirHandle> {
-  if (!hostWasmSupported()) {
-    throw new Error('unsupported: this browser has no folder picker — use Chrome/Edge over HTTPS')
+function shortId(): string {
+  try {
+    const buf = new Uint32Array(1)
+    crypto.getRandomValues(buf)
+    return (buf[0] % 1296).toString(36).padStart(2, '0') +
+      (Math.floor(buf[0] / 1296) % 1296).toString(36).padStart(2, '0')
+  } catch {
+    return Math.random().toString(36).slice(2, 6)
   }
-  const handle = await liveLocalDir(HOST_WASM_DIR_KEY)
-  if (!handle) {
-    const st = await ensureLocalDir(HOST_WASM_DIR_KEY).catch(() => null)
-    if (st?.status === 'needs-permission') {
-      throw new Error('auth: the remembered home folder needs one click to re-allow — pick it again or press re-allow')
+}
+
+// ── registry + handles ─────────────────────────────────────────────
+
+function isHandle(v: unknown): v is FsDirHandle {
+  return (
+    !!v &&
+    typeof v === 'object' &&
+    typeof (v as FsDirHandle).getFileHandle === 'function' &&
+    typeof (v as FsDirHandle).getDirectoryHandle === 'function'
+  )
+}
+
+async function readMountIndex(): Promise<HostWasmMount[]> {
+  try {
+    const raw = await idbGet<unknown>(HOST_WASM_MOUNT_INDEX)
+    if (!Array.isArray(raw)) return []
+    return raw
+      .filter((r): r is { id: unknown; label: unknown } => !!r && typeof r === 'object')
+      .filter((r) => typeof r.id === 'string' && r.id && typeof r.label === 'string' && r.label)
+      .map((r) => ({ id: r.id as string, label: r.label as string }))
+  } catch {
+    return []
+  }
+}
+
+async function writeMountIndex(mounts: HostWasmMount[]): Promise<void> {
+  await idbSet(HOST_WASM_MOUNT_INDEX, mounts.map((m) => ({ id: m.id, label: m.label })))
+}
+
+async function loadMountHandle(mount: HostWasmMount): Promise<FsDirHandle | null> {
+  try {
+    const raw = await idbGet<unknown>(`${HOST_WASM_MOUNT_PREFIX}${mount.id}`)
+    return isHandle(raw) ? raw : null
+  } catch {
+    return null
+  }
+}
+
+async function queryGranted(handle: FsDirHandle): Promise<boolean> {
+  try {
+    return (await handle.queryPermission?.({ mode: 'readwrite' })) === 'granted'
+  } catch {
+    return false
+  }
+}
+
+/** One-time adoption of the legacy single `$HOME` handle into the registry. */
+async function ensureMigrated(): Promise<void> {
+  try {
+    const legacy = await idbGet<unknown>(HOST_WASM_DIR_KEY)
+    if (!isHandle(legacy)) return
+    const index = await readMountIndex()
+    if (index.length) {
+      // Mounts already exist — the legacy handle is superseded.
+      await idbDel(HOST_WASM_DIR_KEY)
+      return
     }
-    throw new Error('not_found: no home folder picked yet — use “Pick folder…” to load your $HOME into the app')
+    const label = String(legacy.name || 'Home').trim() || 'Home'
+    const id = `${slugify(label)}-${shortId()}`
+    const ok = await idbSet(`${HOST_WASM_MOUNT_PREFIX}${id}`, legacy as unknown as Record<string, unknown>)
+    if (ok) {
+      await writeMountIndex([{ id, label }])
+      await idbDel(HOST_WASM_DIR_KEY)
+    }
+  } catch {
+    // IndexedDB unavailable — mounts simply stay empty.
   }
-  return handle
+}
+
+// ── test seam (node has no picker/IndexedDB; tests inject a fake handle) ──
+
+let testMount: { mount: HostWasmMount; handle: FsDirHandle } | null = null
+
+/** Inject a fake mount for unit tests (bypasses picker + IndexedDB). */
+export function setHostWasmTestHandle(mount: HostWasmMount, handle: FsDirHandle): void {
+  testMount = { mount, handle }
+}
+
+/** Clear the injected test mount + any cached state. */
+export function resetHostWasmTestState(): void {
+  testMount = null
+}
+
+// ── mount lifecycle (dialog browser API) ───────────────────────────
+
+/**
+ * List every added folder with live permission state (never prompts).
+ * Parked handles (`needs-permission`) stay listed — opening one explains
+ * the one-click re-allow instead of failing silently.
+ */
+export async function listHostWasmMounts(): Promise<HostWasmMountState[]> {
+  if (testMount) {
+    return [{ ...testMount.mount, status: 'ready', detail: 'test mount' }]
+  }
+  if (!hostWasmSupported()) return []
+  await ensureMigrated()
+  const index = await readMountIndex()
+  const out: HostWasmMountState[] = []
+  for (const m of index) {
+    const handle = await loadMountHandle(m)
+    if (!handle) {
+      out.push({ ...m, status: 'missing', detail: 'remembered folder is unreadable — remove and re-add it' })
+      continue
+    }
+    if (await queryGranted(handle)) {
+      out.push({ ...m, status: 'ready', detail: 'attached' })
+    } else {
+      out.push({ ...m, status: 'needs-permission', detail: 'remembered — one click re-allows access (no re-pick)' })
+    }
+  }
+  return out
+}
+
+/** Aggregate status for banners (never prompts). */
+export async function hostWasmStatus(): Promise<HostWasmSummary> {
+  if (!hostWasmSupported()) {
+    return { status: 'unsupported', detail: 'no folder picker in this browser', total: 0, parked: 0 }
+  }
+  const mounts = await listHostWasmMounts()
+  if (!mounts.length) {
+    return { status: 'missing', detail: 'no folder added yet — use Add folder', total: 0, parked: 0 }
+  }
+  const parked = mounts.filter((m) => m.status !== 'ready').length
+  if (parked === mounts.length) {
+    return { status: 'needs-permission', detail: 'remembered — one click re-allows access (no re-pick)', total: mounts.length, parked }
+  }
+  return {
+    status: 'ready',
+    detail: parked ? `${mounts.length - parked} of ${mounts.length} attached` : 'attached',
+    total: mounts.length,
+    parked,
+  }
 }
 
 /**
- * Dialog browser API: pick the `$HOME` folder whose whole tree loads into
- * the app behind `/host`. Must run in a user gesture (button click).
- * Remembers the handle in IndexedDB so reloads keep working with one
- * re-allow click instead of a re-pick.
+ * Dialog browser API: add one external folder behind `/host/<Label>`.
+ * Must run in a user gesture (button click). Chromium BLOCKS the whole
+ * `$HOME` and the Documents/Downloads/Desktop roots ("contains system
+ * files") — pick a SUBfolder (e.g. create `CyberManju` inside Documents).
+ * Cancelling rethrows the DOM `AbortError` untouched so callers stay
+ * silent; anything else carries an AGENT-1 prefix with subfolder guidance.
  */
-export async function pickHostWasmDir(): Promise<{ name: string; rel: string }> {
+export async function pickHostWasmDir(): Promise<{ id: string; label: string; name: string }> {
   if (!hostWasmSupported()) {
     throw new Error('unsupported: this browser has no folder picker (showDirectoryPicker) — use Chrome/Edge over HTTPS')
   }
   const w = window as unknown as {
-    showDirectoryPicker?: (opts?: { mode?: string }) => Promise<unknown>
+    showDirectoryPicker?: (opts?: { mode?: string; startIn?: string }) => Promise<unknown>
   }
   if (typeof w.showDirectoryPicker !== 'function') {
     throw new Error('unsupported: this browser has no folder picker (showDirectoryPicker)')
   }
   let picked: unknown
   try {
-    picked = await w.showDirectoryPicker({ mode: 'readwrite' })
+    // `startIn: documents` opens the dialog where subfolders are pickable.
+    picked = await w.showDirectoryPicker({ mode: 'readwrite', startIn: 'documents' })
   } catch (e) {
-    throw new Error(`auth: folder pick was dismissed (${e instanceof Error ? e.message : String(e)})`)
+    // User cancelled — callers (`isPickerCancel`) stay silent, no toast.
+    if (isPickerCancel(e)) throw e
+    const msg = e instanceof Error ? e.message : String(e)
+    if (e instanceof DOMException && (e.name === 'SecurityError' || e.name === 'NotAllowedError')) {
+      throw new Error(
+        `unsupported: Chrome blocked that folder (system folders and the whole $HOME are off-limits) — create/select a SUBfolder instead, e.g. Documents/CyberManju, then pick it (${msg})`,
+      )
+    }
+    throw new Error(`auth: folder pick failed (${msg})`)
   }
-  const ok = await rememberLocalDir(HOST_WASM_DIR_KEY, picked)
-  if (!ok) throw new Error('integrity: the picked folder could not be remembered')
+  if (!isHandle(picked)) throw new Error('integrity: the picked folder is not a directory handle')
   const handle = picked as FsDirHandle
-  return { name: String(handle?.name ?? ''), rel: '' }
+  const name = String(handle.name || '').trim() || 'Folder'
+  await ensureMigrated()
+  const index = await readMountIndex()
+  const taken = new Set(index.map((m) => m.label.toLowerCase()))
+  let label = name
+  for (let n = 2; taken.has(label.toLowerCase()); n++) label = `${name} ${n}`
+  const id = `${slugify(label)}-${shortId()}`
+  const ok = await rememberLocalDir(`${HOST_WASM_MOUNT_PREFIX}${id}`, picked)
+  if (!ok) throw new Error('integrity: the picked folder could not be remembered')
+  await writeMountIndex([...index, { id, label }])
+  return { id, label, name }
 }
 
-/** Boot-time status of the remembered `$HOME` handle (never prompts). */
-export async function hostWasmStatus() {
-  return ensureLocalDir(HOST_WASM_DIR_KEY)
+/** Forget one mount (bytes stay on disk — unmount, never delete). */
+export async function removeHostWasmMount(idOrLabel: string): Promise<void> {
+  const mounts = await listHostWasmMounts()
+  const hit = mounts.find((m) => m.id === idOrLabel || m.label === idOrLabel)
+  if (!hit) throw new Error(`not_found: no mounted folder '${idOrLabel}'`)
+  await idbDel(`${HOST_WASM_MOUNT_PREFIX}${hit.id}`)
+  await writeMountIndex(mounts.filter((m) => m.id !== hit.id).map(({ id, label }) => ({ id, label })))
 }
 
-/** User-gesture re-grant for a parked handle after reload. */
+/** User-gesture re-grant for parked handles. True when none stay parked. */
 export async function hostWasmReallow(): Promise<boolean> {
-  return reallowLocalDir(HOST_WASM_DIR_KEY)
+  if (!hostWasmSupported()) return false
+  await ensureMigrated()
+  const index = await readMountIndex()
+  for (const m of index) {
+    try {
+      await reallowLocalDir(`${HOST_WASM_MOUNT_PREFIX}${m.id}`)
+    } catch {
+      // One denied handle never blocks the rest.
+    }
+  }
+  const after = await hostWasmStatus().catch(() => null)
+  return (after?.parked ?? 1) === 0
 }
 
-export async function hostWasmForget(): Promise<void> {
-  await idbDel(HOST_WASM_DIR_KEY)
-}
-
-/** Display name of the picked `$HOME` folder ('' when nothing picked). */
+/** Display label for the `/host` root banner (`2 folder(s)` / ''). */
 export async function hostWasmRootName(): Promise<string> {
   try {
-    const h = await liveLocalDir(HOST_WASM_DIR_KEY)
-    return String(h?.name ?? '')
+    const mounts = await listHostWasmMounts()
+    return mounts.length ? `${mounts.length} folder(s)` : ''
   } catch {
     return ''
   }
+}
+
+async function requireMount(label: string): Promise<FsDirHandle> {
+  if (!hostWasmSupported()) {
+    throw new Error('unsupported: this browser has no folder picker — use Chrome/Edge over HTTPS')
+  }
+  if (testMount && testMount.mount.label === label) return testMount.handle
+  await ensureMigrated()
+  const index = await readMountIndex()
+  if (!index.length) {
+    throw new Error('not_found: no folder added yet — use “Add folder…” to load an external folder into the app')
+  }
+  const mount = index.find((m) => m.label === label)
+  if (!mount) {
+    const known = index.map((m) => `“${m.label}”`).join(', ')
+    throw new Error(`not_found: “${label}” is not a mounted folder (mounted: ${known || 'none'})`)
+  }
+  const handle = await loadMountHandle(mount)
+  if (!handle) {
+    throw new Error(`not_found: “${label}” is remembered but unreadable — remove it and add the folder again`)
+  }
+  if (!(await queryGranted(handle))) {
+    throw new Error(`auth: “${label}” needs one click to re-allow — press Re-allow and grant access`)
+  }
+  return handle
+}
+
+async function resolveMountRel(abs: string): Promise<{ label: string; handle: FsDirHandle; rel: string }> {
+  const split = splitWasmAbs(abs)
+  if (!split) throw new Error(`invalid: '${abs}' is not inside a mounted folder`)
+  const handle = await requireMount(split.label)
+  return { label: split.label, handle, rel: split.rel }
 }
 
 // ── listing + byte verbs (same shapes as the Tauri bridge) ──
 
 /** List one host directory as FileManager rows (`/host…` → `host:<abs>`). */
 export async function listHostWasmDir(vmPath: string): Promise<FileNode[]> {
-  const handle = await requireHandle()
-  const rel = relFromVm(String(vmPath ?? '/host'))
-  const vmDir = vmForRel(rel)
+  const norm = String(vmPath ?? '/host').replace(/\\/g, '/')
+  // Virtual root: the mounts themselves (parked ones included — opening
+  // one explains the one-click re-allow).
+  if (norm === HOST_VM_ROOT || norm === `${HOST_VM_ROOT}/`) {
+    if (!hostWasmSupported()) {
+      throw new Error('unsupported: this browser has no folder picker — use Chrome/Edge over HTTPS')
+    }
+    const mounts = await listHostWasmMounts()
+    if (!mounts.length) {
+      throw new Error('not_found: no folder added yet — use “Add folder…” to load an external folder into the app')
+    }
+    return mounts.map((m) => ({
+      id: `host:/${m.label}`,
+      name: m.status === 'ready' ? m.label : `${m.label} (${m.status})`,
+      fileType: 'folder',
+      parentId: HOST_VM_ROOT,
+      path: `${HOST_VM_ROOT}/${m.label}`,
+      sizeBytes: 0,
+      encrypted: false,
+      compressionLayers: [],
+      createdAt: nowIso(),
+      modifiedAt: nowIso(),
+      isHidden: false,
+    }) as FileNode)
+  }
+  const abs = wasmAbsFromVm(norm)
+  if (!abs) throw new Error(`not_found: '${vmPath}' is not reachable`)
+  const { label, handle, rel } = await resolveMountRel(abs)
+  const vmDir = vmForMountRel(label, rel)
   let entries: Awaited<ReturnType<typeof listLocalDir>>
   try {
     entries = await listLocalDir(handle, rel)
@@ -186,50 +483,65 @@ export async function listHostWasmDir(vmPath: string): Promise<FileNode[]> {
   }
   return entries.map((en) => {
     const childRel = rel ? `${rel}/${en.name}` : en.name
-    const abs = absFromRel(childRel)
+    const childAbs = absFromMountRel(label, childRel)
+    const junk = !en.isDir && isSystemJunk(en.name)
     return {
-      id: `host:${abs}`,
+      id: `host:${childAbs}`,
       name: en.name,
       fileType: en.isDir ? 'folder' : 'file',
       parentId: vmDir,
-      path: vmForRel(childRel),
+      path: vmForMountRel(label, childRel),
       sizeBytes: Number(en.sizeBytes ?? 0),
       mimeType: en.isDir ? undefined : guessMime(en.name),
       encrypted: false,
       compressionLayers: [],
       createdAt: nowIso(),
       modifiedAt: nowIso(),
-      isHidden: en.name.startsWith('.'),
+      isHidden: en.name.startsWith('.') || junk,
     } as FileNode
   })
 }
 
-/** Resolve the `-os` default dir: the picked root (`/`). */
+/** Resolve an absolute behind a listing (`/host` itself has none — virtual). */
 export async function resolveHostWasmDir(vmPath: string): Promise<string> {
-  await requireHandle()
   const abs = wasmAbsFromVm(vmPath)
-  if (abs) return abs
-  return '/'
+  if (!abs) {
+    throw new Error('invalid: /host lists the added folders — open one of them (or Add folder) instead of resolving the list itself')
+  }
+  return abs
 }
 
 export async function readHostWasmBytes(abs: string): Promise<Uint8Array> {
-  const handle = await requireHandle()
-  return readLocalFile(handle, relFromAbs(abs))
+  const { handle, rel } = await resolveMountRel(abs)
+  if (!rel) throw new Error(`invalid: '${abs}' is a mounted folder — open it instead of reading it`)
+  return readLocalFile(handle, rel)
 }
 
 export async function writeHostWasmBytes(abs: string, data: Uint8Array): Promise<void> {
-  const handle = await requireHandle()
-  await writeLocalFile(handle, relFromAbs(abs), data)
+  const { handle, rel } = await resolveMountRel(abs)
+  if (!rel) throw new Error(`invalid: '${abs}' is a mounted folder — pick a file inside it`)
+  await writeLocalFile(handle, rel, data)
 }
 
 export async function mkdirHostWasm(abs: string): Promise<void> {
-  const handle = await requireHandle()
-  await mkdirLocalDir(handle, relFromAbs(abs))
+  const { handle, rel } = await resolveMountRel(abs)
+  // The mount root is the picked folder itself — nothing to create.
+  if (!rel) return
+  await mkdirLocalDir(handle, rel)
 }
 
 export async function rmHostWasm(abs: string, recursive: boolean): Promise<void> {
-  const handle = await requireHandle()
-  await deleteLocalPath(handle, relFromAbs(abs), recursive)
+  const clean = String(abs ?? '').replace(/\\/g, '/')
+  if (!clean || clean === '/') {
+    throw new Error('invalid: refusing to delete the folders list — unmount one folder instead')
+  }
+  const { handle, rel } = await resolveMountRel(abs)
+  if (!rel) {
+    // A mount root is a whole picked tree — never byte-delete it here.
+    // Unmount (forget the handle, bytes stay on disk) is the safe removal.
+    throw new Error(`invalid: '${abs}' is a mounted folder — unmount it instead of deleting (bytes stay on disk)`)
+  }
+  await deleteLocalPath(handle, rel, recursive)
 }
 
 export async function statHostWasm(abs: string): Promise<{
@@ -240,10 +552,13 @@ export async function statHostWasm(abs: string): Promise<{
   modifiedMs: number
   isDir: boolean
 }> {
-  const handle = await requireHandle()
-  const rel = relFromAbs(abs)
+  const clean = String(abs ?? '').replace(/\\/g, '/')
+  if (!clean || clean === '/') {
+    return { path: '/', name: 'Device', kind: 'dir', sizeBytes: 0, modifiedMs: Date.now(), isDir: true }
+  }
+  const { label, handle, rel } = await resolveMountRel(abs)
   if (!rel) {
-    return { path: '/', name: String(handle.name ?? ''), kind: 'dir', sizeBytes: 0, modifiedMs: Date.now(), isDir: true }
+    return { path: abs, name: label, kind: 'dir', sizeBytes: 0, modifiedMs: Date.now(), isDir: true }
   }
   const segs = rel.split('/').filter(Boolean)
   const name = segs[segs.length - 1] ?? ''
@@ -268,90 +583,86 @@ export async function writeHostWasmText(abs: string, content: string): Promise<v
   await writeHostWasmBytes(abs, new TextEncoder().encode(content))
 }
 
-/** Recursive copy inside the picked tree (files verify on read-back). */
+/** Recursive copy inside/between mounted trees (files verify on read-back). */
 export async function cpHostWasm(src: string, dst: string, recursive: boolean): Promise<void> {
-  const handle = await requireHandle()
-  const srcRel = relFromAbs(src)
-  const dstRel = relFromAbs(dst)
-  if (!srcRel) throw new Error('invalid: refusing to copy the picked root itself')
+  const s = await resolveMountRel(src)
+  if (!s.rel) throw new Error(`invalid: refusing to copy the mounted folder '${src}' itself — copy the files inside it`)
   const st = await statHostWasm(src).catch(() => null)
   if (st?.isDir) {
     if (!recursive) throw new Error(`invalid: '${src}' is a directory (use recursive copy)`)
-    // Destination joins the source basename when it addresses a dir root
-    // that already exists (mirrors `cp -r src dst`).
-    let destBase = dstRel
-    try {
-      const dstStat = await statHostWasm(dst).catch(() => null)
-      if (dstStat?.isDir) destBase = dstRel ? `${dstRel}/${srcRel.split('/').pop()}` : (srcRel.split('/').pop() ?? '')
-    } catch {
-      // Destination missing — created below as the copy target itself.
+    const d = await resolveMountRel(dst)
+    let destBase = d.rel
+    const dstStat = await statHostWasm(dst).catch(() => null)
+    if (dstStat?.isDir) {
+      const base = s.rel.split('/').pop() ?? 'folder'
+      destBase = d.rel ? `${d.rel}/${base}` : base
     }
-    await mkdirLocalDir(handle, destBase)
-    const walk = async (from: string, to: string): Promise<void> => {
-      const kids = await listLocalDir(handle, from)
+    if (!destBase) throw new Error(`invalid: cannot copy a folder onto the folders list`)
+    // Cross-mount copies resolve each side against its own handle.
+    const walk = async (
+      fromHandle: FsDirHandle,
+      from: string,
+      toHandle: FsDirHandle,
+      to: string,
+    ): Promise<void> => {
+      const kids = await listLocalDir(fromHandle, from)
       for (const k of kids) {
-        const s = from ? `${from}/${k.name}` : k.name
-        const d = to ? `${to}/${k.name}` : k.name
+        const ks = from ? `${from}/${k.name}` : k.name
+        const kd = to ? `${to}/${k.name}` : k.name
         if (k.isDir) {
-          await mkdirLocalDir(handle, d)
-          await walk(s, d)
+          await mkdirLocalDir(toHandle, kd)
+          await walk(fromHandle, ks, toHandle, kd)
         } else {
-          const bytes = await readLocalFile(handle, s)
-          await writeLocalFile(handle, d, bytes)
+          const bytes = await readLocalFile(fromHandle, ks)
+          await writeLocalFile(toHandle, kd, bytes)
         }
       }
     }
-    await walk(srcRel, destBase)
+    await mkdirLocalDir(d.handle, destBase)
+    await walk(s.handle, s.rel, d.handle, destBase)
     return
   }
-  // Single file: `dst` may be a dir (join basename) or a file path.
-  let fileDst = dstRel
-  try {
-    const dstStat = await statHostWasm(dst).catch(() => null)
-    if (dstStat?.isDir) {
-      const base = srcRel.split('/').pop() ?? 'file'
-      fileDst = dstRel ? `${dstRel}/${base}` : base
-    }
-  } catch {
-    // Destination missing — treated as the file path itself.
+  const d = await resolveMountRel(dst)
+  let fileDst = d.rel
+  const dstStat = await statHostWasm(dst).catch(() => null)
+  if (dstStat?.isDir) {
+    const base = s.rel.split('/').pop() ?? 'file'
+    fileDst = d.rel ? `${d.rel}/${base}` : base
   }
-  const bytes = await readLocalFile(handle, srcRel)
-  await writeLocalFile(handle, fileDst, bytes)
-  const back = await readLocalFile(handle, fileDst)
+  if (!fileDst) throw new Error(`invalid: cannot copy a file onto the folders list`)
+  const bytes = await readLocalFile(s.handle, s.rel)
+  await writeLocalFile(d.handle, fileDst, bytes)
+  const back = await readLocalFile(d.handle, fileDst)
   if (back.length !== bytes.length) {
     throw new Error(`integrity: '${src}' differs after write — source kept`)
   }
 }
 
 export async function mvHostWasm(src: string, dst: string): Promise<void> {
-  const handle = await requireHandle()
-  const srcRel = relFromAbs(src)
-  const dstRel = relFromAbs(dst)
-  if (!srcRel) throw new Error('invalid: refusing to move the picked root itself')
+  const s = await resolveMountRel(src)
+  if (!s.rel) throw new Error(`invalid: '${src}' is a mounted folder — unmount it instead of moving (bytes stay on disk)`)
   const st = await statHostWasm(src).catch(() => null)
   if (st?.isDir) {
     // Same-tree dir move: recursive copy then delete source (verified).
     await cpHostWasm(src, dst, true)
-    await deleteLocalPath(handle, srcRel, true)
+    await deleteLocalPath(s.handle, s.rel, true)
     return
   }
-  let fileDst = dstRel
-  try {
-    const dstStat = await statHostWasm(dst).catch(() => null)
-    if (dstStat?.isDir) {
-      const base = srcRel.split('/').pop() ?? 'file'
-      fileDst = dstRel ? `${dstRel}/${base}` : base
-    }
-  } catch {
-    // Destination missing — treated as the file path itself.
+  const d = await resolveMountRel(dst)
+  let fileDst = d.rel
+  const dstStat = await statHostWasm(dst).catch(() => null)
+  if (dstStat?.isDir) {
+    const base = s.rel.split('/').pop() ?? 'file'
+    fileDst = d.rel ? `${d.rel}/${base}` : base
   }
-  const bytes = await readLocalFile(handle, srcRel)
-  await writeLocalFile(handle, fileDst, bytes)
-  const back = await readLocalFile(handle, fileDst)
+  if (!fileDst) throw new Error(`invalid: cannot move a file onto the folders list`)
+  const bytes = await readLocalFile(s.handle, s.rel)
+  await writeLocalFile(d.handle, fileDst, bytes)
+  const back = await readLocalFile(d.handle, fileDst)
   if (back.length !== bytes.length || !back.every((b, i) => b === bytes[i])) {
     throw new Error(`integrity: '${src}' differs after write — source kept`)
   }
-  await deleteLocalPath(handle, srcRel, false)
+  await deleteLocalPath(s.handle, s.rel, false)
 }
 
 // ── shell shim: the same `-os` verbs hostBrowse emits, served from FSA ──
@@ -398,31 +709,44 @@ function splitArgs(line: string): string[] {
 }
 
 /**
- * `pwd/ls/stat/mkdir/rm/cp/mv/write -os` against the picked folder, so the
- * shared `moveAnywhere` matrix runs unmodified on WASM (its `deps.run`
- * emits exactly these lines).
+ * `pwd/ls/stat/mkdir/rm/cp/mv/write -os` against the mounted folders, so
+ * the shared `moveAnywhere` matrix runs unmodified on WASM (its `deps.run`
+ * emits exactly these lines). `/` is the virtual folders list.
  */
 export async function runWasmHostLine(line: string): Promise<string> {
   const parts = splitArgs(line)
   const verb = String(parts[0] ?? '')
   const flags = parts.filter((p) => p.startsWith('-'))
   const operands = parts.slice(1).filter((p) => !p.startsWith('-')).map(unquote)
-  const hasOs = flags.includes('-os') || parts.includes('-os')
-  void hasOs
   if (verb === 'pwd') {
-    await requireHandle()
+    if (!hostWasmSupported()) throw new Error('unsupported: this browser has no folder picker')
     return '/'
   }
   if (verb === 'ls') {
     const abs = operands[0] ?? '/'
-    const handle = await requireHandle()
-    const rel = relFromAbs(abs === '' ? '/' : abs)
+    if (abs === '' || abs === '/') {
+      const mounts = await listHostWasmMounts()
+      const ready = mounts.filter((m) => m.status === 'ready')
+      return JSON.stringify({
+        path: '/',
+        host: true,
+        entries: ready.map((m) => ({
+          path: `/${m.label}`,
+          name: m.label,
+          kind: 'dir',
+          sizeBytes: 0,
+          modifiedMs: Date.now(),
+          isDir: true,
+        })),
+      })
+    }
+    const { label, handle, rel } = await resolveMountRel(abs)
     const rows = await listLocalDir(handle, rel)
     return JSON.stringify({
-      path: absFromRel(rel),
+      path: abs,
       host: true,
       entries: rows.map((r) => ({
-        path: absFromRel(rel ? `${rel}/${r.name}` : r.name),
+        path: absFromMountRel(label, rel ? `${rel}/${r.name}` : r.name),
         name: r.name,
         kind: r.isDir ? 'dir' : 'file',
         sizeBytes: Number(r.sizeBytes ?? 0),
