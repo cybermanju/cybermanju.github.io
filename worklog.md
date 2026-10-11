@@ -881,3 +881,33 @@ Stage Summary:
 - Docs: README CLI section + repo map, atlas entry in
   `docs/RELEASE_NOTES.md`. Local: `go build` × 6 targets, `go vet` +
   `go test` green.
+
+## 2026-10-11 — Deep-link follow-up: runtime self-heal + 2nd-process storage guard
+- Symptom (CachyOS, release AppImage): browser OAuth approved (200 OK) but
+  the OS had no handler for the `cybermanju://` return ("Nenhum aplicativo
+  instalado"). Root causes, all desktop-packaging gaps: (a) no
+  `x-scheme-handler/cybermanju` default on bare AppImages without launcher
+  integration, (b) storage/dashboard init ran in `run()` BEFORE the
+  single-instance plugin setup, so the second process opened the live redb
+  exclusive lock and quarantined the vault (`corrupt-<ts>.bak`) before
+  exiting, (c) frontend never called `register()`, (d) capabilities lacked
+  every `deep-link:*` permission (so even `getCurrent()` was denied).
+- Fix: `useSupabase.ts` best-effort `isRegistered()` → `register('cybermanju')`
+  on desktop startup (new `OAUTH_DEEP_LINK_SCHEME`, kept in sync with
+  `tauri.conf.json > plugins.deep-link.desktop.schemes`); capabilities gain
+  `deep-link:default` + `allow-register` + `allow-is-registered`; `lib.rs`
+  moves DB/index/dashboard init into the builder `.setup()` hook (runs after
+  plugin setups, so a second process exits via single-instance before
+  touching storage) with the dashboard Arc ferried out via a holder for the
+  main-thread `stop()` after `.run()`.
+- Verified: `tauri.conf` scheme already ships in every installer (extracted
+  the release AppImage: `MimeType=x-scheme-handler/cybermanju` in the bundled
+  `.desktop`, which deb/rpm/flatpak/AUR all reuse; the pinned CLI binary
+  embeds the NSIS `URL Protocol` registry template; `macos/app.rs` consumes
+  the same key for the dmg plist). `vue-tsc` clean, full `npm test` green
+  (700), `check-version.sh` green. Rust side (fmt/clippy/test + all 8
+  families) rides the next CI run — no local cargo per repo rules.
+- Note: `Cargo.lock` is missing `tauri-plugin-single-instance` (added without
+  a lock update); harmless in CI (no `--locked`) but run `cargo update -w`
+  and commit the lock. Local machine fallback used during triage:
+  `xdg-mime default cybermanju-os.desktop x-scheme-handler/cybermanju`.

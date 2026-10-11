@@ -586,7 +586,8 @@ pub fn run() {
             #[cfg(mobile)]
             let dashboard = {
                 let mut dashboard = web_dashboard::WebDashboard::new_shared(
-                    web_dashboard::DEFAULT_PORT, Arc::clone(&db),
+                    web_dashboard::DEFAULT_PORT,
+                    Arc::clone(&db),
                 );
                 dashboard.sync_state = Arc::clone(&sync_state);
                 dashboard.set_search_index(Arc::clone(&state.tantivy_index));
@@ -599,7 +600,8 @@ pub fn run() {
             #[cfg(not(mobile))]
             let dashboard = {
                 let mut dashboard = web_dashboard::WebDashboard::new_shared(
-                    web_dashboard::DEFAULT_PORT, Arc::clone(&db),
+                    web_dashboard::DEFAULT_PORT,
+                    Arc::clone(&db),
                 );
                 dashboard.sync_state = Arc::clone(&sync_state);
                 dashboard.set_search_index(Arc::clone(&state.tantivy_index));
@@ -618,7 +620,9 @@ pub fn run() {
             app.manage(dashboard_state);
             app.manage(sync_state);
             app.manage(Arc::clone(&dashboard));
-            *dashboard_holder_setup.lock().expect("dashboard holder poisoned") = Some(dashboard);
+            *dashboard_holder_setup
+                .lock()
+                .expect("dashboard holder poisoned") = Some(dashboard);
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -629,7 +633,10 @@ pub fn run() {
     // there — same Drop path). dashboard.stop() runs from the MAIN thread
     // (not from the accept thread's own Drop, which would self-deadlock).
     // The underscore name keeps mobile builds warning-free (deny warnings).
-    let _dashboard = dashboard_holder.lock().expect("dashboard holder poisoned").take();
+    let _dashboard = dashboard_holder
+        .lock()
+        .expect("dashboard holder poisoned")
+        .take();
     #[cfg(not(mobile))]
     if let Some(dashboard) = _dashboard {
         dashboard.stop();
