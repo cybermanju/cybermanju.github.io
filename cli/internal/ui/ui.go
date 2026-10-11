@@ -1,36 +1,43 @@
-// Package ui is the Charm face: one Lipgloss theme, tables, spinners and
-// markdown rendering shared by every command.
+// Package ui is the Charm face: one Lipgloss theme (hot pink → signal
+// red), gradient banner, Bubble Tea spinner, progress downloads, tables
+// and Glamour markdown shared by every command.
 package ui
 
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/progress"
+	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
+	"golang.org/x/term"
 )
 
 var (
-	// Title renders command headers.
-	Title = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
-	// OK renders success lines.
-	OK = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	// Err renders failure lines.
-	Err = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	// Warn renders caution lines.
-	Warn = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	// Title renders command headers in hot pink.
+	Title = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(PinkHot))
+	// OK renders success lines in hot pink.
+	OK = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(PinkHot))
+	// Err renders failure lines in signal red.
+	Err = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(RedHot))
+	// Warn renders caution lines in deep pink.
+	Warn = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF7AB8"))
 	// Dim renders secondary text.
-	Dim = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	// Accent renders ids and highlights.
-	Accent = lipgloss.NewStyle().Foreground(lipgloss.Color("87"))
-	// Panel boxes notes and next steps.
+	Dim = lipgloss.NewStyle().Foreground(lipgloss.Color(DimGray))
+	// Accent renders ids, prompts and highlights in hot pink.
+	Accent = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(PinkHot))
+	// Panel boxes notes and next steps in a pink rounded frame.
 	Panel = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("63")).
+		BorderForeground(lipgloss.Color(PinkHot)).
 		Padding(0, 1)
 )
 
@@ -39,12 +46,12 @@ func NoColor() {
 	lipgloss.SetColorProfile(termenv.Ascii)
 }
 
-// Banner is the `cyb` mark.
+// Banner is the `cyb` mark in a pink → red gradient.
 func Banner(version string) string {
-	return Title.Render("◈ cybermanju") + " " + Dim.Render("v"+strings.TrimPrefix(version, "v"))
+	return Gradient("◈ cybermanju", PinkHot, RedHot) + " " + Dim.Render("v"+strings.TrimPrefix(version, "v"))
 }
 
-// Success prints a green check line.
+// Success prints a pink check line.
 func Success(format string, args ...any) {
 	fmt.Fprintln(os.Stdout, OK.Render("✓ ")+fmt.Sprintf(format, args...))
 }
@@ -80,9 +87,10 @@ func Table(headers []string, rows [][]string) {
 	pad := func(s string, w int) string {
 		return s + strings.Repeat(" ", max(0, w-lipgloss.Width(s)+2))
 	}
+	headStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(PinkHot))
 	var head strings.Builder
 	for i, h := range headers {
-		head.WriteString(pad(Dim.Render(h), widths[i]))
+		head.WriteString(pad(headStyle.Render(h), widths[i]))
 	}
 	fmt.Fprintln(os.Stdout, head.String())
 	for _, row := range rows {
@@ -106,8 +114,9 @@ func KV(pairs ...[2]string) {
 			w = lipgloss.Width(p[0])
 		}
 	}
+	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(PinkHot))
 	for _, p := range pairs {
-		fmt.Fprintf(os.Stdout, "%s  %s\n", Dim.Render(p[0]+strings.Repeat(" ", max(0, w-lipgloss.Width(p[0])))), p[1])
+		fmt.Fprintf(os.Stdout, "%s  %s\n", keyStyle.Render(p[0]+strings.Repeat(" ", max(0, w-lipgloss.Width(p[0])))), p[1])
 	}
 }
 
@@ -135,22 +144,120 @@ func RenderMarkdown(text string) string {
 	return out
 }
 
-// SpinWhile runs fn with a Charm spinner until it returns.
+// isTTY reports whether stderr is an interactive terminal.
+func isTTY() bool {
+	return term.IsTerminal(int(os.Stderr.Fd()))
+}
+
+// ── Bubble Tea spinner ────────────────────────────────────────────
+
+type spinDoneMsg struct{ err error }
+
+type spinModel struct {
+	spinner spinner.Model
+	msg     string
+	done    chan error
+}
+
+func newSpinModel(msg string, done chan error) spinModel {
+	s := spinner.New(
+		spinner.WithSpinner(spinner.Dot),
+		spinner.WithStyle(lipgloss.NewStyle().Foreground(lipgloss.Color(PinkHot))),
+	)
+	return spinModel{spinner: s, msg: msg, done: done}
+}
+
+// pinkFrames pulses the message dot between pink and red.
+var pinkFrames = []string{"◈", "◉", "⬢", "⬣"}
+
+func (m spinModel) Init() tea.Cmd {
+	return tea.Batch(
+		m.spinner.Tick,
+		func() tea.Msg { return spinDoneMsg{<-m.done} },
+	)
+}
+
+func (m spinModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case spinDoneMsg:
+		return m, tea.Quit
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m spinModel) View() string {
+	dot := Gradient(pinkFrames[0], PinkHot, RedHot)
+	return fmt.Sprintf("%s %s  %s", m.spinner.View(), dot, m.msg)
+}
+
+// SpinWhile runs fn under a hot-pink Bubble Tea spinner (plain fallback
+// when stderr is not a TTY, e.g. pipes and CI logs).
 func SpinWhile(msg string, fn func() error) error {
-	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	done := make(chan error, 1)
 	go func() { done <- fn() }()
-	tick := time.NewTicker(80 * time.Millisecond)
-	defer tick.Stop()
-	frame := 0
-	for {
-		select {
-		case err := <-done:
-			fmt.Fprintf(os.Stderr, "\r\033[K")
-			return err
-		case <-tick.C:
-			fmt.Fprintf(os.Stderr, "\r%s %s", Accent.Render(frames[frame%len(frames)]), msg)
-			frame++
-		}
+	if !isTTY() {
+		err := <-done
+		return err
 	}
+	p := tea.NewProgram(newSpinModel(msg, done), tea.WithOutput(os.Stderr))
+	if _, err := p.Run(); err != nil {
+		return <-done
+	}
+	return <-done
+}
+
+// ── Progress download ─────────────────────────────────────────────
+
+type progressReader struct {
+	r     io.Reader
+	n     int64
+	total int64
+	bar   progress.Model
+	last  time.Time
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	p.n += int64(n)
+	if p.total > 0 && time.Since(p.last) > 80*time.Millisecond {
+		p.last = time.Now()
+		fmt.Fprintf(os.Stderr, "\r%s", p.bar.ViewAs(float64(p.n)/float64(p.total)))
+	}
+	return n, err
+}
+
+// Download fetches url to dest with a pink → red progress bar (plain copy
+// when not a TTY). Returns bytes written.
+func Download(url, dest string) (int64, error) {
+	res, err := http.Get(url) //nolint:gosec // release artifact download
+	if err != nil {
+		return -1, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		return -1, fmt.Errorf("network: download %d", res.StatusCode)
+	}
+	f, err := os.Create(dest)
+	if err != nil {
+		return -1, err
+	}
+	defer f.Close()
+	total := res.ContentLength
+	if !isTTY() || total <= 0 {
+		n, err := io.Copy(f, res.Body)
+		return n, err
+	}
+	bar := progress.New(
+		progress.WithGradient(PinkHot, RedHot),
+		progress.WithWidth(40),
+		progress.WithoutPercentage(),
+	)
+	pr := &progressReader{r: res.Body, total: total, bar: bar, last: time.Now()}
+	n, err := io.Copy(f, pr)
+	fmt.Fprintf(os.Stderr, "\r%s\n", bar.ViewAs(1))
+	return n, err
 }

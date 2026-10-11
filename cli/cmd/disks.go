@@ -31,9 +31,9 @@ func passphrase(cmd *cobra.Command) (string, error) {
 		return string(raw), nil
 	}
 	var pw string
-	form := huh.NewForm(huh.NewGroup(
+	form := ui.NewForm(huh.NewGroup(
 		huh.NewInput().Title("Disk passphrase").EchoMode(huh.EchoModePassword).Value(&pw),
-	)).WithShowHelp(false)
+	))
 	if err := form.Run(); err != nil {
 		return "", err
 	}

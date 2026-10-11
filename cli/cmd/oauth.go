@@ -46,36 +46,30 @@ the code itself and seals it (0600) — cyb never sees the secret.`,
 			ui.Info("could not open a browser — visit:\n%s", got.AuthorizeURL)
 		}
 		var done bool
-		form := huh.NewForm(huh.NewGroup(
+		form := ui.NewForm(huh.NewGroup(
 			huh.NewConfirm().
 				Title("Approve at the provider, then confirm here").
 				Value(&done),
-		)).WithShowHelp(false)
+		))
 		if err := form.Run(); err != nil {
 			return err
 		}
 		if !done {
 			return fmt.Errorf("aborted — no credentials stored")
 		}
-		cfgs, cerr := c.SyncConfigs()
+		g, cerr := c.SyncConfigRaw(oauthConfig)
 		if cerr != nil {
 			return cerr
 		}
-		for _, g := range cfgs {
-			if g.ID != oauthConfig {
-				continue
-			}
-			out, terr := c.SyncTest(g)
-			if terr != nil {
-				return fmt.Errorf("approval done but verification failed: %w", terr)
-			}
-			if out.OK || out.Message == "" {
-				ui.Success("provider connected and verified")
-				return nil
-			}
-			return fmt.Errorf("verification said: %s", out.Message)
+		out, terr := c.SyncTestMap(g)
+		if terr != nil {
+			return fmt.Errorf("approval done but verification failed: %w", terr)
 		}
-		return fmt.Errorf("not_found: no sync config %q", oauthConfig)
+		if out.OK || out.Message == "" {
+			ui.Success("provider connected and verified")
+			return nil
+		}
+		return fmt.Errorf("verification said: %s", out.Message)
 	},
 }
 
@@ -88,25 +82,19 @@ var oauthStatusCmd = &cobra.Command{
 		if err := requireAuth(c); err != nil {
 			return err
 		}
-		cfgs, err := c.SyncConfigs()
+		g, err := c.SyncConfigRaw(args[0])
 		if err != nil {
 			return err
 		}
-		for _, g := range cfgs {
-			if g.ID != args[0] {
-				continue
-			}
-			out, terr := c.SyncTest(g)
-			if terr != nil {
-				return terr
-			}
-			if out.OK || out.Message == "" {
-				ui.Success("provider %s reachable", args[0])
-				return nil
-			}
-			return fmt.Errorf("provider %s: %s", args[0], out.Message)
+		out, terr := c.SyncTestMap(g)
+		if terr != nil {
+			return terr
 		}
-		return fmt.Errorf("not_found: no sync config %q", args[0])
+		if out.OK || out.Message == "" {
+			ui.Success("provider %s reachable", args[0])
+			return nil
+		}
+		return fmt.Errorf("provider %s: %s", args[0], out.Message)
 	},
 }
 

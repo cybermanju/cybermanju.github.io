@@ -33,39 +33,48 @@ var serveUpCmd = &cobra.Command{
 	Use:   "up",
 	Short: "Start the dashboard container",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if _, err := exec.LookPath("docker"); err != nil {
-			return fmt.Errorf("docker not found — install Docker or point cyb at a dashboard with --server")
-		}
-		data := serveData
-		if data == "" {
-			home, _ := os.UserHomeDir()
-			data = filepath.Join(home, ".local", "share", "cybermanju-os", "data")
-		}
-		if err := os.MkdirAll(data, 0o700); err != nil {
+		if err := ensureDockerUp(servePort, serveData, serveImageF); err != nil {
 			return err
 		}
-		image := serveImage
-		if serveImageF != "" {
-			image = serveImageF
-		}
-		ui.Info("pulling %s…", image)
-		if out, err := exec.Command("docker", "pull", image).CombinedOutput(); err != nil {
-			return fmt.Errorf("docker pull failed: %v\n%s", err, out)
-		}
-		// Fresh container each up (idempotent): stop+rm a stale one first.
-		exec.Command("docker", "rm", "-f", serveName).Run()
-		run := exec.Command("docker", "run", "-d",
-			"--name", serveName,
-			"-p", fmt.Sprintf("127.0.0.1:%d:3456", servePort),
-			"-v", data+":/data",
-			image)
-		if out, err := run.CombinedOutput(); err != nil {
-			return fmt.Errorf("docker run failed: %v\n%s", err, out)
-		}
-		ui.Success("dashboard up → http://127.0.0.1:%d (data: %s)", servePort, data)
+		ui.Success("dashboard up → http://127.0.0.1:%d", servePort)
 		ui.Info("next: cyb setup --server http://127.0.0.1:%d", servePort)
 		return nil
 	},
+}
+
+// ensureDockerUp pulls and (re)starts the dashboard container. Shared by
+// `serve up` and `backend use docker`.
+func ensureDockerUp(port int, dataDir, image string) error {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return fmt.Errorf("docker not found — install Docker or point cyb at a dashboard with --server")
+	}
+	data := dataDir
+	if data == "" {
+		home, _ := os.UserHomeDir()
+		data = filepath.Join(home, ".local", "share", "cybermanju-os", "data")
+	}
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		return err
+	}
+	if image == "" {
+		image = serveImage
+	}
+	ui.Info("pulling %s…", image)
+	if out, err := exec.Command("docker", "pull", image).CombinedOutput(); err != nil {
+		return fmt.Errorf("docker pull failed: %v\n%s", err, out)
+	}
+	// Fresh container each up (idempotent): stop+rm a stale one first.
+	exec.Command("docker", "rm", "-f", serveName).Run()
+	run := exec.Command("docker", "run", "-d",
+		"--name", serveName,
+		"-p", fmt.Sprintf("127.0.0.1:%d:3456", port),
+		"-v", data+":/data",
+		image)
+	if out, err := run.CombinedOutput(); err != nil {
+		return fmt.Errorf("docker run failed: %v\n%s", err, out)
+	}
+	ui.Success("dashboard container up (data: %s)", data)
+	return nil
 }
 
 var serveStatusCmd = &cobra.Command{

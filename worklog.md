@@ -945,6 +945,13 @@ Stage Summary:
 - Docs: README CLI section + repo map, atlas entry in
   `docs/RELEASE_NOTES.md`. Local: `go build` × 6 targets, `go vet` +
   `go test` green.
+- Charm pink/red pass: bubbletea-native animated spinner (pink dots +
+  gradient ◈) on every `SpinWhile` with a plain fallback off-TTY;
+  pink→red per-rune `Gradient` banner; pink Huh form theme
+  (`ui.NewForm`) on setup/login/passphrase/confirms/approvals; pink
+  REPL prompt + rounded pink viewport border; pink→red `progress`
+  download bar wired into `cyb update`. Pure helpers unit-tested
+  (gradient round-trip, theme, banner); spinner proven under a pty.
 
 ## 2026-10-11 — Deep-link follow-up: runtime self-heal + 2nd-process storage guard
 - Symptom (CachyOS, release AppImage): browser OAuth approved (200 OK) but
@@ -981,3 +988,67 @@ Stage Summary:
 - Merged `origin/main` at `5c3d68d` into `develop`, retaining both branches' commits and worklog entries. The import includes the universal Go `cyb` CLI and installer, Linux desktop OAuth deep links, Supabase broker improvements, mobile launcher/messages, scheduler/secrets, and associated CI/docs updates.
 - Resolved the Settings conflict by preserving develop's wallpaper/settings UI while keeping main's Supabase redirect instructions and per-device storage guidance. Recombined append-only worklog entries from both branches in date order.
 - Local checks passed: `bash scripts/check-version.sh`, `npx vue-tsc --noEmit`, `npm test` (62 files / 708 tests), `npm run build`, and `git diff --check`. Build retains the existing large-chunk advisory. Rust checks are delegated to CI per `AGENTS.md`. CLI Go checks could not run locally: the installed Go is 1.26.8 while `cli/go.mod` requires 1.27.2; the CI job installs the version from `cli/go.mod`. Remote CI will be checked after pushing the merge to develop.
+
+## 2026-10-11 — cyb wave 2: cyberpunk system + full API coverage + doctor
+- Cyberpunk aesthetic: neon cyan (`#00F0FF`) + hazard accents join the
+  pink/red Charm core — ASCII `Logo()`, deterministic neon `Rule()`
+  divider, `Splash()` boot header on `cyb` + `cyb setup`. No new deps.
+- Coverage audit vs the ARCHITECTURE REST table closed the gaps:
+  `search/suggest/geo` · `secrets` (metadata-only list, sealed save,
+  audited reveal) · `cron` (list/add/rm/run/enable/disable/history) ·
+  `repair/scrub/lease` durability trio · `collections/accounts/loose/
+  faces` organizers · `share` + `audit` · `files cat/write/versions/
+  snapshot/revert/snapshot-all` · `batch delete/encrypt/compress` ·
+  `code parse` (engine reported) · `crypto status/keys` ·
+  `users/perms` (admin) · `ai` gains sessions/init/compact/key/models/
+  mcp/memories(recall/export) · `sync` gains runs/restore/remote-rm/
+  create-repo/upload. `--limit` on search/suggest/audit; bare
+  `cyb audit` lists.
+- `cyb doctor`: 7 checks (reachable, readyz, JWT fresh + accepted,
+  crypto, volume, providers, agent, update) with pink ✓ / red ✗.
+- Stability: GET-only single retry with backoff; JWT expiry stamped on
+  login/setup (`ExpiresAt`) and enforced in `requireAuth`; all
+  destructive commands confirm (or `--yes`).
+- CI: Go tests now run `-race -count=1` (GitHub + GitLab).
+  README carries the full command matrix.
+
+## 2026-10-11 — cyb wave 3: selectable backends + Supabase-direct + debs
+- Backends (`cyb backend use/status`): remote (URL) · docker (manages the
+  `cyb serve` container) · native (probes the installed app's localhost
+  dashboard — deb/AppImage/dmg/apk/Windows) · supabase (dashboard-less,
+  read-only). Profile stores the selection; explicit `--server` always
+  wins; dashboard commands refuse in limited mode with guidance.
+- `cyb supa`: real Supabase Auth PKCE (loopback `:54329`, allowlist
+  printed at selection) → session in the 0600 profile; `status` (with
+  one-shot refresh), `repos` read-only across GitHub/Drive/GitLab,
+  `logout` scrubs tokens. No decrypt/encrypt in this mode by design.
+- Shipping answers "exe/deb?": yes — windows tarballs carry `cyb.exe`,
+  plus real `cyb_<ver>_{amd64,arm64}.deb` built by `scripts/cyb-deb.sh`
+  (dpkg-deb, control-validated locally) and shipped as release family
+  members (full + reuse checks, installer unchanged on tarballs).
+- `cyb doctor` covers supabase mode too (broker/session/provider-token).
+  Session `ExpiresAt` enforced; GET-only retry; `--limit` review done.
+  Tests: RFC-7636 PKCE vector (cross-checked vs Python), broker
+  exchange incl. provider_token, backend resolution table, expiry.
+  `go test -count=1` green locally (`-race` rides CI, which has gcc).
+
+## 2026-10-11 — cyb E2E against the REAL backend (GHCR image, no mocks)
+- No docker/cargo here, so the real `cybermanju-os-server` was pulled
+  straight from GHCR via the registry API (31 MB Alpine image), extracted,
+  and run (musl static — executes anywhere). Real AppImage also pulled +
+  extracted: `x-scheme-handler/cybermanju` confirmed, but the GUI binary
+  needs glibc 2.38+ (box has 2.35) so it can't execute here.
+- Proven end to end: setup/register/login/JWT · doctor · 2 local
+  providers · sealed disk create (512M) · wrong passphrase FAILS with
+  `auth: superblock did not open (decryption failed…)` · right one
+  attaches · check ok · admin-gated secrets (user role forbidden) ·
+  seal→reveal round-trip (`s3cr3t-nas!`) · sync test/upload bytes land
+  on provider · start 202→completed · cron add/list/rm loop ·
+  code parse reports `"engine": "heuristic"` · audit shows our reveal.
+- E2E caught real CLI bugs, all fixed: omit-empty for `containerPath`
+  (server chokes on `""`), `tags: null` → `[]`, `fileIds: null` → `[]`,
+  raw config pass-through for test/remote/upload (Go struct is a subset —
+  server demands full rows incl. `autoSync`), tolerant test decode
+  (endpoint returns a bare bool).
+- Known server-side gap (not a CLI bug): no public REST creates vault
+  FileNodes, so provider→provider `move` needs a vault file first.

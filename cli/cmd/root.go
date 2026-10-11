@@ -46,7 +46,7 @@ Start here:  cyb setup`,
 		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println(ui.Banner(cliVersion))
+		fmt.Println(ui.Splash(cliVersion))
 		fmt.Println()
 		_ = cmd.Help()
 	},
@@ -79,21 +79,30 @@ func profile() config.File {
 	return f
 }
 
-// mustClient builds an authenticated client (token may be empty for public
-// endpoints; callers needing auth use requireAuth).
+// mustClient builds a client for the selected backend. In supabase-direct
+// limited mode there is no dashboard (empty base URL) — requireAuth refuses
+// dashboard commands with guidance instead of dialing nowhere.
 func mustClient() *client.Client {
 	f := profile()
 	return client.New(
-		config.ResolveServer(flagServer, f),
+		config.ResolveDashboard(flagServer, f),
 		config.ResolveToken(flagToken, f),
 		flagTimeout,
 	)
 }
 
-// requireAuth errors when no JWT is configured.
+// requireAuth errors when no (or an expired) JWT is configured, or when the
+// selected backend is dashboard-less.
 func requireAuth(c *client.Client) error {
+	if c.BaseURL == "" {
+		return fmt.Errorf("supabase limited mode: this command needs a dashboard — `cyb backend use docker|native|remote` (read-only here: `cyb supa repos`)")
+	}
 	if c.Token == "" {
 		return fmt.Errorf("not logged in — run `cyb login` (server %s)", c.BaseURL)
+	}
+	// Flag/env tokens have unknown age; only the saved profile expires loudly.
+	if flagToken == "" && profile().Expired() {
+		return fmt.Errorf("session expired — run `cyb login` (server %s)", c.BaseURL)
 	}
 	return nil
 }
@@ -115,9 +124,9 @@ func confirmDanger(question string) bool {
 		return true
 	}
 	var ok bool
-	form := huh.NewForm(huh.NewGroup(
+	form := ui.NewForm(huh.NewGroup(
 		huh.NewConfirm().Title(question).Value(&ok),
-	)).WithShowHelp(false)
+	))
 	if err := form.Run(); err != nil {
 		return false
 	}

@@ -138,3 +138,24 @@ func TestJobTerminal(t *testing.T) {
 		}
 	}
 }
+
+func TestJSONField(t *testing.T) {
+	raw := []byte(`{"id":"abc-123","name":"x"}`)
+	if got := JSONField(raw, "id"); got != "abc-123" {
+		t.Fatalf("got %q", got)
+	}
+	if got := JSONField([]byte(`{}`), "id"); got != "" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestDecodeListWrapped(t *testing.T) {
+	raw := []byte(`{"files":[{"id":"a"},{"id":"b"}]}`)
+	type item struct {
+		ID string `json:"id"`
+	}
+	list, err := DecodeList[item](raw)
+	if err != nil || len(list) != 2 || list[1].ID != "b" {
+		t.Fatalf("got %+v %v", list, err)
+	}
+}

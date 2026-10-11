@@ -134,7 +134,7 @@ cli-build:
     - cd cli
     - test -z "$(gofmt -l .)"
     - go vet ./...
-    - go test ./...
+    - go test -race -count=1 ./...
     # Root package.json is the version source of truth (no node here).
     - PKG_VER="$(grep -m1 '"version"' ../package.json | cut -d'"' -f4)"
     - mkdir -p dist-cli
@@ -143,10 +143,11 @@ cli-build:
         set -- $target
         bin="cyb"
         [ "$1" = "windows" ] && bin="cyb.exe"
-        CGO_ENABLED=0 GOOS="$1" GOARCH="$2" go build -trimpath -ldflags "-s -w -X main.version=v$PKG_VER" -o "build-$1-$2/$bin" .
+        CGO_ENABLED=0 GOOS="$1" GOARCH="$2" go build -trimpath -ldflags "-s -w -X main.version=v$PKG_VER -X github.com/cybermanju/cybermanju.github.io/cli/internal/supa.BakedURL=$VITE_SUPABASE_URL -X github.com/cybermanju/cybermanju.github.io/cli/internal/supa.BakedKey=$VITE_SUPABASE_ANON_KEY" -o "build-$1-$2/$bin" .
         tar -czf "dist-cli/cyb-$1-$2.tar.gz" -C "build-$1-$2" "$bin"
       done
     - ls dist-cli/
+    - bash ../scripts/cyb-deb.sh "$PKG_VER" . dist-cli
   artifacts:
     paths: [cli/dist-cli/]
     expire_in: 1 week

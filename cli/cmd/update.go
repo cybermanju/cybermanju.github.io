@@ -52,9 +52,9 @@ var updateCmd = &cobra.Command{
 		}
 		if !flagYes {
 			var ok bool
-			form := huh.NewForm(huh.NewGroup(
+			form := ui.NewForm(huh.NewGroup(
 				huh.NewConfirm().Title(fmt.Sprintf("Install %s %s?", "cyb", tag)).Value(&ok),
-			)).WithShowHelp(false)
+			))
 			if err := form.Run(); err != nil {
 				return err
 			}
@@ -68,14 +68,13 @@ var updateCmd = &cobra.Command{
 		}
 		defer os.RemoveAll(tmp)
 		tarball := filepath.Join(tmp, asset)
-		if err := ui.SpinWhile("Downloading "+asset+"…", func() error {
-			return downloadFile(assetURL, tarball)
-		}); err != nil {
+		ui.Info("downloading %s…", asset)
+		if _, err := ui.Download(assetURL, tarball); err != nil {
 			return err
 		}
 		if sumsURL != "" {
 			sumsFile := filepath.Join(tmp, "SHA256SUMS.txt")
-			if err := downloadFile(sumsURL, sumsFile); err == nil {
+			if _, err := ui.Download(sumsURL, sumsFile); err == nil {
 				if err := verifyChecksum(sumsFile, tarball, asset); err != nil {
 					return fmt.Errorf("integrity: %w", err)
 				}
@@ -135,24 +134,6 @@ func latestRelease() (ghRelease, error) {
 		return rel, err
 	}
 	return rel, nil
-}
-
-func downloadFile(url, dest string) error {
-	res, err := http.Get(url) //nolint:gosec // release artifact download
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	if res.StatusCode != 200 {
-		return fmt.Errorf("network: download %d", res.StatusCode)
-	}
-	f, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = io.Copy(f, res.Body)
-	return err
 }
 
 func verifyChecksum(sumsFile, tarball, asset string) error {

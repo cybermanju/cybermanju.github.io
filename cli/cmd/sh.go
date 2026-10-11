@@ -158,6 +158,8 @@ func newReplModel(c *client.Client, history []string) replModel {
 	ti := textinput.New()
 	ti.Placeholder = "disk list  |  sync move <file> <a> <b>  |  ai ask \"hi\""
 	ti.Prompt = "cybsh> "
+	ti.PromptStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(ui.PinkHot))
+	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.IceWhite))
 	ti.Focus()
 	return replModel{client: c, input: ti, history: history, histIdx: len(history)}
 }
@@ -168,14 +170,18 @@ func (m replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		border := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(ui.PinkDeep))
 		if !m.ready {
-			m.view = viewport.New(msg.Width, msg.Height-3)
+			m.view = viewport.New(msg.Width-2, msg.Height-4)
+			m.view.Style = border
 			m.ready = true
 		} else {
-			m.view.Width = msg.Width
-			m.view.Height = msg.Height - 3
+			m.view.Width = msg.Width - 2
+			m.view.Height = msg.Height - 4
 		}
-		m.input.Width = msg.Width - 8
+		m.input.Width = msg.Width - 10
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:

@@ -750,12 +750,17 @@ jobs:
         working-directory: cli
         run: |
           go vet ./...
-          go test ./...
+          go test -race -count=1 ./...
 
       - name: Cross-compile cyb (linux/darwin/windows × amd64/arm64)
         working-directory: cli
         env:
           CGO_ENABLED: "0"
+          # OAuth broker (public URL + anon key) baked into cyb so
+          # `supa login` works out of the box. Empty when unset — the user
+          # then pastes the same pair Settings shows (no secret value here).
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           PKG_VER="$(node -p "require('../package.json').version")"
           mkdir -p dist-cli
@@ -764,11 +769,15 @@ jobs:
             bin="cyb"
             [ "$1" = "windows" ] && bin="cyb.exe"
             CGO_ENABLED=0 GOOS="$1" GOARCH="$2" go build -trimpath \
-              -ldflags "-s -w -X main.version=v$PKG_VER -X main.commit=$GITHUB_SHA" \
+              -ldflags "-s -w -X main.version=v$PKG_VER -X main.commit=$GITHUB_SHA -X github.com/cybermanju/cybermanju.github.io/cli/internal/supa.BakedURL=$VITE_SUPABASE_URL -X github.com/cybermanju/cybermanju.github.io/cli/internal/supa.BakedKey=$VITE_SUPABASE_ANON_KEY" \
               -o "build-$1-$2/$bin" .
             tar -czf "dist-cli/cyb-$1-$2.tar.gz" -C "build-$1-$2" "$bin"
           done
           ls -la dist-cli/
+
+      - name: Build .debs (linux amd64/arm64)
+        working-directory: cli
+        run: bash ../scripts/cyb-deb.sh "$(node -p "require('../package.json').version")" . dist-cli
 
       - name: Upload CLI artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -882,6 +891,7 @@ jobs:
           need release-android '*.apk'
           need release-android '*.aab'
           need release-cli 'cyb-*.tar.gz'
+          need release-cli 'cyb_*.deb'
           need dist-wasm 'index.html'
           exit $missing
 
@@ -954,6 +964,14 @@ jobs:
         with:
           name: release-android
           path: artifacts/release-android/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Re-upload CLI artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-cli
+          path: artifacts/release-cli/
           retention-days: 30
           if-no-files-found: error
 
@@ -1033,7 +1051,7 @@ jobs:
           check release-arch     "*.AppImage"
           check release-macos    "*.dmg"
           check release-android  "*.apk" "*.aab"
-          check release-cli      "cyb-*.tar.gz"
+          check release-cli      "cyb-*.tar.gz" "cyb_*.deb"
           check dist-wasm        "index.html"
           exit $missing
 
@@ -1134,6 +1152,7 @@ jobs:
           copy_files artifacts/release-macos "" '*.dmg'
           copy_files artifacts/release-android "" '*.apk' '*.aab'
           copy_files artifacts/release-cli "" 'cyb-*.tar.gz'
+          copy_files artifacts/release-cli "" 'cyb_*.deb'
 
           # Web stays a zip: it is a directory tree (index.html + assets),
           # not a single installable file.

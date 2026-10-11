@@ -31,13 +31,17 @@ No server yet? Run:  cyb serve up   (Docker, one command)`,
 
 		var username, password, display string
 		nonInteractive := setupUsername != "" || setupLogin
+		if !nonInteractive {
+			fmt.Println(ui.Splash(cliVersion))
+			fmt.Println()
+		}
 		if nonInteractive {
 			username, password, display = setupUsername, setupPassword, setupDisplay
 			if username == "" || password == "" {
 				return fmt.Errorf("non-interactive setup needs --username and --password")
 			}
 		} else {
-			form := huh.NewForm(
+			form := ui.NewForm(
 				huh.NewGroup(
 					huh.NewInput().
 						Title("Dashboard URL").
@@ -52,7 +56,7 @@ No server yet? Run:  cyb serve up   (Docker, one command)`,
 					huh.NewInput().Title("Password").EchoMode(huh.EchoModePassword).Value(&password),
 					huh.NewInput().Title("Display name (register only, optional)").Value(&display),
 				),
-			).WithShowHelp(false)
+			)
 			if err := form.Run(); err != nil {
 				return err
 			}
@@ -90,7 +94,7 @@ No server yet? Run:  cyb serve up   (Docker, one command)`,
 		}); err != nil {
 			return err
 		}
-		if err := config.Save(config.File{Server: server, Token: login.Token}); err != nil {
+		if err := config.Save(config.File{Server: server, Token: login.Token}.WithExpiry(login.ExpiresIn)); err != nil {
 			return err
 		}
 		ui.Success("signed in as %s (%s) — profile saved", login.Username, login.Role)
