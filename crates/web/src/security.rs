@@ -129,6 +129,7 @@ const ROUTED_SEGMENTS: &[&str] = &[
     "agent",
     "auth",
     "batch",
+    "backup",
     "collection-items",
     "collections",
     "code",
@@ -224,6 +225,9 @@ pub fn required_role(method: &str, segments: &[&str]) -> RequiredRole {
         ["api", "cron"] if method == "POST" => RequiredRole::Admin,
         ["api", "cron", _] if method == "PUT" || method == "DELETE" => RequiredRole::Admin,
         ["api", "cron", _, _] if method == "POST" => RequiredRole::Admin,
+        // Vault snapshot export — the image holds sealed secrets and
+        // transcripts, so reading it is privileged even over GET.
+        ["api", "backup", "export"] => RequiredRole::Admin,
         // Secrets keystore — create/update/delete and the plaintext reveal
         // are dangerous-op posture (Admin); list/meta stay Authenticated.
         ["api", "secrets"] if method == "POST" => RequiredRole::Admin,

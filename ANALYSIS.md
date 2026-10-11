@@ -4,6 +4,11 @@
 > `TASKS.md`). Written from a full pass over the tree on 2026-10-09 (v0.1.1):
 > 49 components · 31 composables · 47 utils · 15 crates · 152 Tauri commands ·
 > ~150 REST route arms · 34 redb tables · 3 transports.
+> Status refresh 2026-10-11 (measured: 54 components · 34 composables ·
+> 56 utils · 16 crates · 175 Tauri commands · ~37 redb tables): **landed
+> since — scheduler (§3), secrets manager (§4.1), agent-as-UI-pilot (§4.7),
+> notification center (§3)**. Landed rows are tagged ✅ below; everything
+> else is unchanged ideation.
 > Grounded in file/line refs; anything aspirational is labeled as such.
 
 ---
@@ -24,11 +29,12 @@ faces, honest limits documented instead of hidden. That is a genuine brand:
 
 The weak spots are not features — they are **spine**:
 
-- **Breadth > depth everywhere.** 49 components, 51 shell verbs, 10 agent
-  providers, 8 build families — yet no scheduler that runs the `.cybsh`
+- **Breadth > depth everywhere.** 54 components, 51 shell verbs, 10 agent
+  providers, 8 build families — yet ~~no scheduler that runs the `.cybsh`
   scripts whose `# schedule:` frontmatter you already parse
-  (`crates/os/src/script.rs`), no notification center, and no recovery story
-  for a vault that promises "lose nothing."
+  (`crates/os/src/script.rs`), no notification center, and~~ no recovery story
+  for a vault that promises "lose nothing." (✅ scheduler + notification
+  center landed — see §3; recovery still missing.)
 - **"Decentralized" is aspirational.** Today it is *centralized redb +
   multi-cloud sync*. `TASKS.md:41` (P0-19) already admits leases are
   local-only, so the cross-device mutex is an illusion. No peer discovery, no
@@ -96,8 +102,8 @@ same everywhere, all the time.
 
 | Missing | Why it matters | What already exists to build on |
 |---|---|---|
-| **Cron/scheduler service** | `# schedule:` frontmatter parses but *nothing runs it* — only sync has a 10-min tick (`crates/sync/src/scheduler.rs`) | `task.rs`, `compute.rs`, sync scheduler pattern → a `jobs` table + `cron add/ls/rm/run` verbs + a Schedules panel |
-| **Notification center** | Toasts (`NotificationStack.vue`) vanish; no history, no digests, no "what happened while I was away" | store events, agent job one-shots (`stores/app.ts` 1.10) |
+| **Cron/scheduler service** ✅ landed 2026-10-09 | ~~`# schedule:` frontmatter parses but *nothing runs it* — only sync has a 10-min tick (`crates/sync/src/scheduler.rs`)~~ `cron` service now runs `.cybsh` scripts on cron/interval schedules | ~~`task.rs`, `compute.rs`, sync scheduler pattern → a `jobs` table + `cron add/ls/rm/run` verbs + a Schedules panel~~ done: `crates/os/src/scheduler.rs` + `schedules`/`schedule_runs` tables + `cron` verb on all transports + Schedules tab |
+| **Notification center** ✅ landed 2026-10-11 | ~~Toasts (`NotificationStack.vue`) vanish; no history, no digests, no "what happened while I was away"~~ Every toast persists to per-device history (`useNotifications.ts`, cap 100) with an unread badge; `MessagesHub.vue` is now the Notification Center with System + (Android) Messages tabs, fed by store events, agent `ui_notify`, and scheduler/sync notices; entry points in TopMenuBar, MobileLauncher, PlasmaPanel tray, CommandPalette | ~~store events, agent job one-shots (`stores/app.ts` 1.10)~~ done — MobileLauncher/TopMenuBar badges reuse the hub's `messagesSeenAt` pattern |
 | **Recovery / key escrow** | Lose the passphrase → lose everything. Undermines the core promise | Argon2id keystore + `set_disk_key_holder` → extend to **Shamir m-of-n recovery** of the master key |
 | **Backup as a *feature*** | `scripts/backup.sh` + `snapshot_bytes()` (≤256 MiB consistent export) are buried | Ship "Export vault" / "Restore wizard" UI + *scheduled* encrypted backup to any provider (scheduler + sync = done) |
 | **TLS story** | `P2-15`: you ship ML-KEM while JWTs/bearer tokens are sniffable in cleartext on the LAN — credibility hole | Commit the documented Caddy/nginx compose + HSTS + `X-Forwarded-*` trust policy |
@@ -108,11 +114,11 @@ same everywhere, all the time.
 
 ## 4. New tools, ranked by leverage (reuse ÷ novelty)
 
-1. **Secrets manager** — keystore (`seal`/`open_sealed`), secret redaction
+1. **Secrets manager** ✅ landed 2026-10-09 — `SecretsPanel.vue` (logins/cards/notes/API keys, sealed at rest via `keystore::seal`, audited reveal, clipboard auto-clear, generator) + `secret_list`/`secret_get` agent tools. ~~keystore (`seal`/`open_sealed`), secret redaction
    (`crates/agent/src/redact.rs`), and sealed side-tables exist *today*;
-   1Password/Bitwarden CSV import is straightforward; passkey/WebAuthn is
-   already detected in `DevicesPanel.vue`. Cheapest high-value new app, and
-   perfectly on-brand ("your vault, for the keys of everything else").
+   1Password/Bitwarden CSV import is straightforward;~~ CSV import still open; passkey/WebAuthn is
+   already detected in `DevicesPanel.vue`. ~~Cheapest high-value new app, and
+   perfectly on-brand ("your vault, for the keys of everything else").~~
 2. **Notes / knowledge base** — markdown files in the vault, indexed by the
    Tantivy index you already run, bridgeable to agent memory
    (`memory_remember` / `agent_memories`). The agent gets a notepad; you get
@@ -130,11 +136,14 @@ same everywhere, all the time.
 6. **Proactive agent watchers** — "new file synced → classify, tag,
    summarize, notify". Needs the scheduler + an event bus; makes the OS feel
    *attended* rather than inert.
-7. **Agent as UI pilot** — every action is already a typed command
+7. **Agent as UI pilot** ✅ landed 2026-10-09 — `os_exec` (pure cybsh, never
+   falls through to `sh -c`) + `ui_open_panel`/`ui_notify` tools on all
+   transports (`UI_PANEL_IDS` allowlist, `JobState.ui_request` + `ui_seq`
+   consumed-once by the frontend). ~~every action is already a typed command
    (Tauri IPC, REST arms, 51 cybsh verbs, `wm.open` panel map). Expose an
    `os.*`/`ui.*` tool family so the agent can drive the actual app, not just
-   files: *"collect my Lisbon photos into an encrypted collection and sync
-   it."*
+   files:~~ *"collect my Lisbon photos into an encrypted collection and sync
+   it"* now works: the agent opens panels and notifies via the center above.
 8. **Skills as shareable apps** — `.cybermanju/skills/*/SKILL.md` + the sync
    layer → `skill install <url>`; skills ship prompts + `.cybsh` scripts (+
    panels later, via the `panels.ts` alias table). Your "app store," zero
@@ -150,8 +159,9 @@ same everywhere, all the time.
 - **Dead code**: `Sidebar.vue`, `TreeNode.vue` (only used by Sidebar),
   `FileTooltip.vue`, `DashboardOverlay.vue`, `MatrixRain.vue`,
   `PrayerFlags.vue` unused; `LoadingSpinner` is a dead import in `App.vue`.
-- **Stale counts** in `README.md`/`AGENTS.md` (42 vs 49 components,
-  35 vs 152 handlers, 114 vs ~150 route arms) — undermines the "verified"
+- **Stale counts** in `README.md`/`AGENTS.md` (42 vs 54 components,
+  35 vs 175 handlers, 114 vs ~150 route arms — drifted again since the
+  2026-10-09 audit) — undermines the "verified"
   tone the repo otherwise earns.
 - **`P0` security backlog is severe** — object ACL never wired on REST
   (`P0-1`), viewer role can write (`P0-2`), per-user job/approval scoping
@@ -168,8 +178,8 @@ same everywhere, all the time.
 
 1. **Stop the silent drift** — contract parity test (P3-5) + the P0 auth
    cluster (`P0-1`, `P0-2`, `P0-8`, `P0-10`) + stale-count/doc fixes.
-2. **Make everything compound** — scheduler service + notification center +
-   scheduled backup UI. Suddenly every script, sync, and agent run can run
+2. **Make everything compound** — scheduler service ✅ + notification center ✅
+   (both landed 2026-10-09/11) + scheduled backup UI (still open). Suddenly every script, sync, and agent run can run
    unattended.
 3. **Make "decentralized" honest** — device identity → LAN sync → CAS leases
    (+ TLS compose, since LAN is exactly where cleartext hurts).

@@ -1583,3 +1583,103 @@ describe('static cron verb', () => {
     await expect(runStaticSchedule('sched-ghost', deps)).rejects.toThrow(/^not_found: no schedule/)
   })
 })
+
+describe('static backup verb', () => {
+  function container(body = 'fake-image'): Uint8Array {
+    const payload = new TextEncoder().encode(body)
+    const out = new Uint8Array(44 + payload.length)
+    new TextEncoder().encodeInto('CYBMJ01', out)
+    out[7] = 1
+    out[8] = 1
+    out[9] = 2
+    out[10] = 16
+    out[11] = 12
+    new DataView(out.buffer).setUint32(12, 100000, true)
+    out.fill(0x42, 16, 32)
+    out.fill(0x24, 32, 44)
+    out.set(payload, 44)
+    return out
+  }
+
+  function backupDeps(passphrase = 's3cret', snapshot = container()) {
+    const { deps, state } = fakeDeps({ providers: { m1: {} } })
+    return {
+      deps: {
+        ...deps,
+        exportDatabase: async () => snapshot,
+        backupPassphrase: async () => passphrase,
+        blake3Bytes: async () => 'fp',
+      } as typeof deps,
+      state,
+    }
+  }
+
+  it('is claimed by the static layer', () => {
+    expect(handlesStaticVerb('backup')).toBe(true)
+    expect(handlesStaticVerb('BACKUP')).toBe(true)
+  })
+
+  it('refuses without the snapshot op', async () => {
+    const { deps } = fakeDeps()
+    const out = await runStaticCybshLine('backup export --to /providers/m1/bk', deps)
+    expect(out?.ok).toBe(false)
+    expect(out?.output).toMatch(/^unsupported: backup needs the database/)
+  })
+
+  it('refuses a locked vault and non-provider destinations', async () => {
+    const locked = backupDeps('')
+    const auth = await runStaticCybshLine('backup export --to /providers/m1/bk', locked.deps)
+    expect(auth?.ok).toBe(false)
+    expect(auth?.output).toMatch(/^auth: unlock the vault/)
+    const { deps } = backupDeps()
+    const local = await runStaticCybshLine('backup export --to /backups', deps)
+    expect(local?.ok).toBe(false)
+    expect(local?.output).toMatch(/^invalid: backup export needs --to \/providers\//)
+  })
+
+  it('exports, lists, verifies and prunes on a provider', async () => {
+    const { deps, state } = backupDeps()
+    const first = await runStaticCybshLine(
+      'backup export --to /providers/m1/bk --name cybermanju-a.cybermanju --json',
+      deps,
+    )
+    expect(first?.ok).toBe(true)
+    const report = JSON.parse(first?.output ?? '{}')
+    expect(report.encrypted).toBe(true)
+    expect(report.bytes).toBeGreaterThan(16)
+    expect(report.blake3).toBe('fp')
+    expect(state.providers.m1['bk/cybermanju-a.cybermanju']).toBeTruthy()
+
+    const second = await runStaticCybshLine(
+      'backup export --to /providers/m1/bk --name cybermanju-b.cybermanju --keep 1',
+      deps,
+    )
+    expect(second?.ok).toBe(true)
+    expect(second?.output).toContain('pruned cybermanju-a.cybermanju')
+    expect(state.providers.m1['bk/cybermanju-a.cybermanju']).toBeUndefined()
+
+    const list = await runStaticCybshLine('backup list /providers/m1/bk --json', deps)
+    const rows = JSON.parse(list?.output ?? '[]')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].name).toBe('cybermanju-b.cybermanju')
+
+    const verify = await runStaticCybshLine(
+      'backup verify /providers/m1/bk/cybermanju-b.cybermanju',
+      deps,
+    )
+    expect(verify?.ok).toBe(true)
+    expect(verify?.output).toContain('CYBMJ01 v1 sealed')
+  })
+
+  it('resolves config ids and refuses unknown mounts', async () => {
+    const { deps } = backupDeps()
+    const byConfig = await runStaticCybshLine(
+      'backup export --to /providers/c1/bk --name cybermanju-c.cybermanju',
+      deps,
+    )
+    expect(byConfig?.ok).toBe(true)
+    const ghost = await runStaticCybshLine('backup list /providers/nope/bk', deps)
+    expect(ghost?.ok).toBe(false)
+    expect(ghost?.output).toMatch(/^not_found: no provider mount/)
+  })
+})

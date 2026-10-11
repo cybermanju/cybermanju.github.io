@@ -212,7 +212,7 @@ const BARE_VERBS = new Set([
   'mkdir', 'touch', 'stat', 'du', 'df', 'mount', 'umount', 'disk', 'providers', 'quota',
   'oauth', 'sync', 'scrub', 'repair', 'gc', 'lease', 'ps', 'top', 'kill', 'jobs', 'compute',
   'workers', 'keygen', 'encrypt', 'decrypt', 'compress', 'decompress', 'search', 'grep',
-  'find', 'head', 'tail', 'wc', 'write', 'edit', 'ai', 'theme', 'ui',
+  'find', 'head', 'tail', 'wc', 'write', 'edit', 'ai', 'theme', 'ui', 'cron', 'backup',
 ])
 
 interface SrcLine {

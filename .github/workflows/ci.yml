@@ -676,6 +676,13 @@ jobs:
       - name: Fix npm cache ownership
         run: chown -R builder:builder /home/builder/.npm 2>/dev/null || true
 
+      # rust-cache above runs as root and restores root-owned files into the
+      # workspace and /home/builder/.cargo — the build below runs as
+      # `builder` and dies with `Permission denied` unpacking the registry
+      # (CI 2026-10-11: `adler2 v2.0.1`). Re-chown right before building.
+      - name: Fix cargo and workspace ownership
+        run: chown -R builder:builder /home/builder/.cargo "$GITHUB_WORKSPACE"
+
       # NO_STRIP: linuxdeploy's bundled strip cannot read the .relr.dyn sections
       # Arch-built libraries carry, which aborts the AppImage bundle with
       # `failed to run linuxdeploy` (tauri#8929 / #13113, reported on Garuda).

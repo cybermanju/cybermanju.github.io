@@ -417,6 +417,11 @@ async function mainRestore(image: Uint8Array): Promise<void> {
   if (!env.ok) throw new Error(String(env.error ?? 'restore failed'))
 }
 
+/** Replace the live database with a verified snapshot image (Pages restore). */
+export async function wasmDatabaseRestore(image: Uint8Array): Promise<void> {
+  await mainRestore(image)
+}
+
 async function mainThreadDbDispatch(op: string, args: Record<string, unknown>): Promise<unknown> {
   if (op === '_status') return mainDiskStatus()
   if (op === '_detach') {

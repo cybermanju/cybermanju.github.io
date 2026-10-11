@@ -21,6 +21,8 @@ mod agent;
 #[cfg(test)]
 mod api_users;
 #[cfg(test)]
+mod backup;
+#[cfg(test)]
 mod share;
 #[cfg(test)]
 mod sync_routes;
