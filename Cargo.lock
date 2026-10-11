@@ -1083,7 +1083,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-agent"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "blake3",
  "chrono",
@@ -1097,7 +1097,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-compression"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-crypto"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1135,7 +1135,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-db"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1150,7 +1150,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-disk"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1171,7 +1171,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-erasure"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "log",
@@ -1182,7 +1182,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-faces"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1199,8 +1199,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cybermanju-launcher"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "jni",
+ "ndk-context",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cybermanju-os"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1225,7 +1236,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-os-desktop"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1238,6 +1249,7 @@ dependencies = [
  "cybermanju-db",
  "cybermanju-disk",
  "cybermanju-faces",
+ "cybermanju-launcher",
  "cybermanju-os",
  "cybermanju-search",
  "cybermanju-sync",
@@ -1267,6 +1279,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-scoped-storage",
  "tauri-plugin-shell",
+ "tauri-plugin-single-instance",
  "tauri-plugin-store",
  "tracing",
  "tracing-subscriber",
@@ -1284,7 +1297,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-os-server"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "cybermanju-db",
  "cybermanju-search",
@@ -1296,7 +1309,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-os-wasm"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "argon2",
  "blake3",
@@ -1330,7 +1343,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-scene"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1338,7 +1351,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-search"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1348,7 +1361,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-sync"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -1371,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-tests"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1394,7 +1407,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-types"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1402,7 +1415,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-web"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -3591,6 +3604,12 @@ dependencies = [
  "raw-window-handle",
  "thiserror 1.0.69",
 ]
+
+[[package]]
+name = "ndk-context"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27b02d87554356db9e9a873add8782d4ea6e3e58ea071a9adb9a2e8ddb884a8b"
 
 [[package]]
 name = "ndk-sys"
@@ -6323,6 +6342,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-single-instance"
+version = "2.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db817fe9295e19b7d8357e900af31edb93703dd9fb6de524b007b47b6afc63b0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin-deep-link",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "windows-sys 0.60.2",
+ "zbus",
+]
+
+[[package]]
 name = "tauri-plugin-store"
 version = "2.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6912,9 +6948,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-bash"
-version = "0.23.3"
+version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "329a4d48623ac337d42b1df84e81a1c9dbb2946907c102ca72db158c1964a52e"
+checksum = "9e5ec769279cc91b561d3df0d8a5deb26b0ad40d183127f409494d6d8fc53062"
 dependencies = [
  "cc",
  "tree-sitter-language",
