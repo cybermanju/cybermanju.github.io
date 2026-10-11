@@ -55,7 +55,7 @@
             class="msw-btn big msw-oauth"
             type="button"
             :disabled="mswSignInBusy === p.id || !mswSbConfigured"
-            :title="mswSbConfigured ? `Continue with ${p.label}` : 'OAuth broker missing from this build'"
+            :title="mswSbConfigured ? `Continue with ${p.label}` : 'OAuth broker not set — add it in Settings → OAuth broker'"
             @click="mswSignIn(p.id)"
           >
             <ProviderLogo :provider="p.logo" :size="30" />
@@ -95,7 +95,7 @@
             <p v-if="mswCloudMsgs[sp.backend]" class="msw-note" :class="mswCloudMsgs[sp.backend].ok ? 'ok' : 'err'">{{ mswCloudMsgs[sp.backend].text }}</p>
           </div>
         </div>
-        <p v-if="!mswSbConfigured" class="msw-note err">OAuth broker missing from this build — sign-in stays off until the app is rebuilt with its broker keys.</p>
+        <p v-if="!mswSbConfigured" class="msw-note err">OAuth broker is not set — sign-in stays off until you add the URL + key in Settings → OAuth broker.</p>
         <button class="msw-btn big" type="button" @click="openAccounts('vaults')">Open Account Manager</button>
         <div class="msw-nav">
           <button class="msw-btn" type="button" @click="go('welcome')">Back</button>

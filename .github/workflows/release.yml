@@ -218,6 +218,11 @@ jobs:
         run: npm run tauri build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # OAuth broker (public URL + anon key) baked into the bundle so
+          # sign-in works out of the box on every device. Empty when unset —
+          # the app then takes the Settings → OAuth broker paste.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -274,6 +279,11 @@ jobs:
         run: npm run tauri build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # OAuth broker (public URL + anon key) baked into the bundle —
+          # linux artifacts (deb/AppImage/rpm, and the Flatpak repackaged
+          # from the deb) sign in out of the box on every device.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -444,12 +454,22 @@ jobs:
       # sections Arch-built libraries carry (tauri#8929).
       # APPIMAGE_EXTRACT_AND_RUN: no /dev/fuse in this container.
       - name: Build Arch package
+        # OAuth broker secrets ride the step env into the inner sudo shell
+        # via the explicit exports below (`sudo` scrubs the environment, so
+        # the inner command would otherwise build broker-less). The two
+        # unescaped `$VARS` expand in the outer shell on purpose; `\$HOME` /
+        # `\$PATH` stay escaped for the inner one.
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           sudo -u builder bash -c "
             export HOME=/home/builder
             export PATH=\$HOME/.cargo/bin:\$PATH
             export NO_STRIP=true
             export APPIMAGE_EXTRACT_AND_RUN=1
+            export VITE_SUPABASE_URL=\"$VITE_SUPABASE_URL\"
+            export VITE_SUPABASE_ANON_KEY=\"$VITE_SUPABASE_ANON_KEY\"
             cd $GITHUB_WORKSPACE
             npm ci
             npm run tauri build || npm run tauri -- build --verbose
@@ -501,6 +521,10 @@ jobs:
         run: npm run tauri build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # OAuth broker (public URL + anon key) baked into the bundle so
+          # sign-in works out of the box on every device.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -744,6 +768,11 @@ jobs:
             ${{ steps.image.outputs.name }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # OAuth broker (public URL + anon key) baked into the served
+          # bundle. Empty when unset — the app then takes the Settings paste.
+          build-args: |
+            VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Verify published image
         run: docker pull "${{ steps.image.outputs.name }}:latest"

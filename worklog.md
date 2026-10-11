@@ -793,3 +793,31 @@ Stage Summary:
   `if: ${{ !cancelled() && !failure() }}` since skipped needs skip
   dependents by default); custom `notes` prepended to the atlas body.
 - `AGENTS.md` §3/§4 document the new flags and dispatch mode.
+
+## 2026-10-09 — Supabase broker: runtime Settings paste + baked into every desktop build
+- `useSupabase.ts`: broker is no longer build-env-only. `getSupabaseConfig()` returns
+  `{url,key,source:'settings'|'build-env'|'none'}` — an explicit Settings paste
+  (`cybermanju.supabaseUrl/Key` in localStorage) wins over the baked pair; half-filled
+  sides surface so the UI can name the missing half. `setSupabaseConfig()` validates
+  (http URL, key length) and returns an error string instead of being a no-op;
+  `clearSupabaseConfig()` forgets the paste and falls back to the baked pair;
+  `hydrateSupabaseConfig()` re-reads and returns the live state. A `storage` listener
+  keeps every window/tab of the same profile in sync. All "rebuild with
+  VITE_SUPABASE_…" throws now point at Settings → OAuth broker. Legacy
+  `VITE_SUPABASE_KEY` alias honoured even when `ANON_KEY` is present-but-empty.
+- Settings → OAuth broker card is honest again: Save persists, Forget falls back,
+  source label reads "saved in Settings on this device" vs "baked into this build",
+  plus a per-device note (paste repeats per device; minted tokens roam via sync).
+- Accounts panel: broker banner gains a working Configure button (`wm.open('settings')`
+  + `cybermanju:settings-focus` deep-link); all "missing from this build" copy in
+  Accounts/Setup/Mobile wizards now names the Settings destination; connected-accounts
+  hint states sign-in is per device.
+- CI/release: `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` now bake into
+  windows/linux/macos/arch builds (`ci.yml` + `release.yml`; arch exports through the
+  sudo shell; Flatpak inherits via the linux deb). `Dockerfile` takes the pair as
+  build-args (empty default = old Settings-paste behaviour); both docker jobs and
+  GitLab `docker-build` pass them. GitLab desktop jobs inherit the mirrored project
+  variables automatically (comments only, per the file's no-same-name rule).
+- `tests/frontend/supabase-config.test.ts` rewritten for settings-over-build
+  precedence, validation, fallback and alias (9 tests). `npm run typecheck` clean,
+  full suite 60 files / 697 tests green.

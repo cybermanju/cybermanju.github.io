@@ -12,9 +12,11 @@
 #   ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD, VITE_SUPABASE_URL,
 #   VITE_SUPABASE_ANON_KEY.
 #   Android release signing is REQUIRE_SIGNING=1: without the keystore that
-#   job fails by design, same as GitHub. The Supabase vars are baked into the
-#   Pages bundle at build time (same as GitHub Secrets); empty when unset —
-#   the app falls back to the manual Settings paste.
+#   job fails by design, same as GitHub. The Supabase vars are baked into
+#   every frontend bundle at build time (Pages, desktop installers, docker
+#   image — project/group CI variables are inherited automatically by every
+#   job, so no same-name assignment is needed); empty when unset — the app
+#   falls back to the manual Settings paste.
 # - gitlab.com SaaS runners require the account to pass identity verification
 #   (credit/debit card or phone). Until that is done every pipeline fails
 #   with "Identity verification is required in order to run CI jobs" before
@@ -169,6 +171,8 @@ linux-build:
       libjavascriptcoregtk-4.1-dev pkg-config build-essential libssl-dev nodejs
   script:
     - npm ci
+    # VITE_SUPABASE_* project variables are inherited automatically, so the
+    # desktop bundle bakes the OAuth broker (empty ⇒ Settings paste on device).
     - npm run tauri build
     - mkdir -p ship/linux/deb ship/linux/appimage ship/linux/rpm
     - cp target/release/bundle/deb/*.deb ship/linux/deb/
@@ -284,7 +288,10 @@ docker-build:
   interruptible: true
   extends: .code-rules
   script:
-    - docker build -t cybermanju-os:latest -f ./Dockerfile .
+    # OAuth broker build-args (public URL + anon key); empty when unset —
+    # the app then takes the Settings paste. Project variables inherited
+    # automatically, no same-name `variables:` assignment (see wasm-build).
+    - docker build -t cybermanju-os:latest -f ./Dockerfile --build-arg VITE_SUPABASE_URL="$VITE_SUPABASE_URL" --build-arg VITE_SUPABASE_ANON_KEY="$VITE_SUPABASE_ANON_KEY" .
     - docker images cybermanju-os:latest
 
 # ─── package ─────────────────────────────────────────────────────────
@@ -344,6 +351,8 @@ arch-build:
     - export PATH="$HOME/.cargo/bin:$PATH"
     - export NO_STRIP=true APPIMAGE_EXTRACT_AND_RUN=1
     - npm ci
+    # VITE_SUPABASE_* project variables are inherited automatically, so the
+    # Arch bundle bakes the OAuth broker (empty ⇒ Settings paste on device).
     - npm run tauri build || npm run tauri -- build --verbose
     - mkdir -p ship/arch
     - cp target/release/bundle/deb/*.deb ship/arch/ 2>/dev/null || true

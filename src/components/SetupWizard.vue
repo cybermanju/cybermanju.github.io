@@ -149,7 +149,7 @@
               class="sw-oauth"
               type="button"
               :disabled="signInBusy === p.id || !sbConfigured"
-              :title="sbConfigured ? `Continue with ${p.label}` : 'OAuth broker missing from this build'"
+              :title="sbConfigured ? `Continue with ${p.label}` : 'OAuth broker not set — add it in Settings → OAuth broker'"
               @click="signIn(p.id)"
             >
               <ProviderLogo :provider="p.logo" :size="30" />
@@ -197,7 +197,7 @@
               <p v-if="cloudMsgs[sp.backend]" class="sw-note" :class="cloudMsgs[sp.backend].ok ? 'ok' : 'err'">{{ cloudMsgs[sp.backend].text }}</p>
             </div>
           </div>
-          <p v-if="!sbConfigured" class="sw-note err">OAuth broker missing from this build — sign-in stays off until the app is rebuilt with its broker keys.</p>
+          <p v-if="!sbConfigured" class="sw-note err">OAuth broker is not set — sign-in stays off until you add the URL + key in Settings → OAuth broker.</p>
           <p class="sw-hint">Each sign-in also creates its provider connection below, so Disks can use it right away. Advanced switching stays in Accounts.</p>
           <div class="sw-row">
             <button class="sw-btn" type="button" @click="openAccounts">Open Account Manager</button>

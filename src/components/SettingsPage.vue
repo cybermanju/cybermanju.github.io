@@ -298,7 +298,9 @@
           <UiText as="p" variant="small" tone="muted">
             Static-build OAuth broker: GitHub / Google / GitLab login without your own server.
             Enable the providers in Supabase → Authentication → Sign-in, and add this page's URL to redirect URLs.
-            <span v-if="supabaseConfiguredNow">Source: {{ supabaseSource }}.</span>
+            <span v-if="supabaseConfiguredNow">Source: {{ supabaseSourceLabel }}.</span>
+            The paste lives on this device only — repeat it on each device.
+            Provider tokens you mint then reach your other devices through your encrypted sync.
             See the <a class="st-legal" :href="legalPageUrl('privacy.html')" target="_blank" rel="noopener">Privacy policy</a>
             and <a class="st-legal" :href="legalPageUrl('terms.html')" target="_blank" rel="noopener">Terms of service</a>
             for how provider data is handled.
@@ -678,8 +680,15 @@ function clearServerUrl() {
 const supabaseUrlDraft = ref(getSupabaseConfig().url)
 const supabaseKeyDraft = ref('')
 const supabaseConfiguredNow = computed(() => supabaseConfigured())
-/** Where the broker credentials came from — shown so Pages deploys can tell baked-in env apart from a manual paste. */
+/** Where the broker credentials came from — a Settings paste or the baked build pair. */
 const supabaseSource = computed(() => getSupabaseConfig().source)
+const supabaseSourceLabel = computed(() =>
+  supabaseSource.value === 'settings'
+    ? 'saved in Settings on this device'
+    : supabaseSource.value === 'build-env'
+      ? 'baked into this build'
+      : 'none',
+)
 /** Inline result of the last Save / Forget (clears as soon as a field is edited). */
 const brokerMsg = ref<{ text: string; tone: 'ok' | 'err' } | null>(null)
 
@@ -688,24 +697,12 @@ function saveSupabase() {
   // Keep the already-stored/baked key when rotating only the URL — the
   // password field stays empty by design (we never echo the secret back).
   const key = supabaseKeyDraft.value.trim() || getSupabaseConfig().key
-  if (!url && !key) {
-    brokerMsg.value = { text: 'Paste the project URL and the anon / publishable key first.', tone: 'err' }
+  const err = setSupabaseConfig(url, key)
+  if (err) {
+    brokerMsg.value = { text: err, tone: 'err' }
     return
   }
-  if (!url) {
-    brokerMsg.value = { text: 'Missing project URL — copy it from Supabase → Project Settings → API.', tone: 'err' }
-    return
-  }
-  if (!url.startsWith('http')) {
-    brokerMsg.value = { text: 'Project URL must be a full https://… address.', tone: 'err' }
-    return
-  }
-  if (!key) {
-    brokerMsg.value = { text: 'Missing key — paste the anon / publishable (sb_publishable_… or eyJ…) key.', tone: 'err' }
-    return
-  }
-  setSupabaseConfig(url, key)
-  supabaseUrlDraft.value = url
+  supabaseUrlDraft.value = getSupabaseConfig().url
   supabaseKeyDraft.value = ''
   brokerMsg.value = { text: 'Broker saved — this window, the Accounts panel and OAuth sign-in pick it up right away.', tone: 'ok' }
   store.notifySuccess('OAuth broker configured')
@@ -714,9 +711,11 @@ function saveSupabase() {
 async function clearSupabase() {
   await supabaseSignOut().catch(() => {})
   clearSupabaseConfig()
-  supabaseUrlDraft.value = ''
+  supabaseUrlDraft.value = getSupabaseConfig().url
   supabaseKeyDraft.value = ''
-  brokerMsg.value = { text: 'Broker forgotten — OAuth sign-in stays off until you save credentials again.', tone: 'ok' }
+  brokerMsg.value = getSupabaseConfig().url || getSupabaseConfig().key
+    ? { text: 'Settings paste forgotten — fell back to the pair baked into this build.', tone: 'ok' }
+    : { text: 'Broker forgotten — OAuth sign-in stays off until you save credentials again.', tone: 'ok' }
 }
 
 // ── section jump bar + scroll spy ──────────────────────────────

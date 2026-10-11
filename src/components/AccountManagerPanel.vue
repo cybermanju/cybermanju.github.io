@@ -157,7 +157,7 @@
 
         <div v-if="connectedAccounts.length && (!identity || accountsOpen)" class="am-card">
           <h3 class="am-card-title">Connected accounts ({{ connectedAccounts.length }})</h3>
-          <p class="am-hint">One active session — the rest stay remembered for one-click switching. Each sign-in creates its provider connection below.</p>
+          <p class="am-hint">One active session — the rest stay remembered for one-click switching. Each sign-in creates its provider connection below. Sign-in is per device — repeat it on each device; saved provider tokens then sync across.</p>
           <div v-for="acc in connectedAccounts" :key="acc.id" class="am-identity-row">
             <img v-if="acc.avatarUrl" class="am-avatar" :src="acc.avatarUrl" alt="" />
             <ProviderLogo v-else :provider="acc.provider" :size="32" />
@@ -191,7 +191,7 @@
               class="am-login"
               type="button"
               :disabled="signInBusy === p.id || !sbConfigured"
-              :title="sbConfigured ? `Continue with ${p.label}` : 'OAuth broker missing from this build'"
+              :title="sbConfigured ? `Continue with ${p.label}` : 'OAuth broker not set — add it in Settings → OAuth broker'"
               @click="signIn(p.id)"
             >
               <ProviderLogo :provider="p.logo" :size="36" />
@@ -202,7 +202,8 @@
           <p v-if="signInMsg" class="am-note">{{ signInMsg }}</p>
           <div v-if="!sbConfigured" class="am-banner warn">
             <AppIcon name="solar:key-bold" :size="15" />
-            <span>OAuth broker missing from this build — sign-in stays off until the app is rebuilt with its broker keys.</span>
+            <span>OAuth broker is not set — sign-in stays off until you add the URL + key in Settings → OAuth broker.</span>
+            <button class="am-btn sm primary" type="button" @click="openBrokerSettings">Configure</button>
           </div>
         </div>
 
@@ -804,6 +805,24 @@ const quotaMsg = ref<Record<string, string>>({})
 const authState = ref<Record<string, { ok: boolean | null; detail: string }>>({})
 const sbAbort = ref<AbortController | null>(null)
 const sbConfigured = computed(() => supabaseConfigured())
+
+/** Jump to Settings → OAuth broker (the deep-link the Settings card listens for). */
+function openBrokerSettings() {
+  try {
+    wm.open('settings')
+  } catch {
+    // Window manager unavailable (embedded contexts) — the banner text
+    // already names the destination.
+  }
+  // SettingsPage mounts on open; let it mount before focusing the card.
+  setTimeout(() => {
+    try {
+      window.dispatchEvent(new CustomEvent('cybermanju:settings-focus', { detail: 'oauth-broker' }))
+    } catch {
+      // Non-DOM context — nothing to focus.
+    }
+  }, 350)
+}
 
 // ── new interactive UI state ──────────────────────────────────
 // Single "Connections" tab merges the old Sign-in + Providers tabs: the
@@ -1453,7 +1472,7 @@ const warnings = computed<Warning[]>(() => {
   }
   const needsBroker = store.syncConfigs.some(c => isOauthCapable(c.backendType))
   if ((needsBroker || !identity.value) && !sbConfigured.value) {
-    out.push({ level: 'warn', text: 'OAuth broker missing from this build — sign-in and provider OAuth stay off until the app is rebuilt with its broker keys.' })
+    out.push({ level: 'warn', text: 'OAuth broker is not set — sign-in and provider OAuth stay off until you add the URL + key in Settings → OAuth broker.' })
   }
   if (staticHost) out.push({ level: 'info', text: 'Offline demo vault — provider network calls need the server; everything else runs locally.' })
   if (!identity.value) out.push({ level: 'info', text: 'Not signed in — pick a provider at the top of the Connections tab.' })
@@ -1968,7 +1987,7 @@ function connectAvailable(cfg: SyncConfig): boolean {
 
 function connectUnavailableReason(cfg: SyncConfig): string {
   if (staticHost && !supabaseConfigured()) {
-    return 'OAuth broker missing from this build — sign-in stays off until the app is rebuilt with its broker keys.'
+    return 'OAuth broker is not set — add the URL + key in Settings → OAuth broker, then connect.'
   }
   return 'OAuth is not available for this provider — paste a token in step 2.'
 }
@@ -2108,7 +2127,7 @@ async function supabaseConnect(cfg: SyncConfig) {
   cancelConnect()
   if (!supabaseConfigured()) {
     connectMsg.value[cfg.id] =
-      'OAuth broker missing from this build — provider OAuth stays off until the app is rebuilt with its broker keys.'
+      'OAuth broker is not set — add the URL + key in Settings → OAuth broker, then connect.'
     return
   }
   setPendingOAuthConfig(cfg.id)

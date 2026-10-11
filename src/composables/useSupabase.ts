@@ -72,20 +72,59 @@ function writeLS(key: string, value: string) {
   }
 }
 
-export function getSupabaseConfig(): { url: string; key: string; source: string } {
-  // Fixed broker: baked at build time via CI secrets
-  // (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY). There is intentionally no
-  // UI to point the app at an arbitrary OAuth endpoint or paste a different
-  // public key — every build talks to the same broker.
-  const envUrl = String(
+export type SupabaseConfigSource = 'settings' | 'build-env' | 'none'
+
+export interface SupabaseConfig {
+  url: string
+  key: string
+  source: SupabaseConfigSource
+}
+
+// Manual override pasted in Settings → OAuth broker. Stored per device /
+// profile (localStorage): the anon key is public by design, but the broker
+// choice roams with NEITHER the vault NOR the OS — every device (and every
+// browser profile) needs the paste once, then provider tokens minted on one
+// device roam to the others through the encrypted sync configs.
+const MANUAL_URL_KEY = 'cybermanju.supabaseUrl'
+const MANUAL_KEY_KEY = 'cybermanju.supabaseKey'
+
+const BROKER_HELP = 'Supabase broker is not configured — set the project URL + anon key in Settings → OAuth broker'
+
+function readBuildEnv(): { url: string; key: string } {
+  const url = String(
     (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? '',
   ).trim().replace(/\/+$/, '')
-  const envKey = String(
-    ((import.meta.env.VITE_SUPABASE_ANON_KEY ??
-      import.meta.env.VITE_SUPABASE_KEY) as string | undefined) ?? '',
-  ).trim()
-  if (envUrl && envKey) return { url: envUrl, key: envKey, source: 'build-env' }
-  if (envUrl || envKey) return { url: envUrl, key: envKey, source: 'build-env' }
+  const envKey =
+    String(
+      (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? '',
+    ).trim() ||
+    // Legacy alias, honoured even when ANON_KEY is present-but-empty (CI
+    // injects unset secrets as empty strings, and `'' ?? x` stays `''`).
+    String((import.meta.env.VITE_SUPABASE_KEY as string | undefined) ?? '').trim()
+  return { url, key: envKey }
+}
+
+function readManualPair(): { url: string; key: string } {
+  const url = readLS(MANUAL_URL_KEY).trim().replace(/\/+$/, '')
+  const key = readLS(MANUAL_KEY_KEY).trim()
+  return { url, key }
+}
+
+export function getSupabaseConfig(): SupabaseConfig {
+  // An explicit Settings paste wins over the baked pair (lets any build —
+  // distro package, older release, CI without secrets — be fixed at runtime,
+  // and lets a rotated broker be picked up without waiting for a release).
+  const manual = readManualPair()
+  if (manual.url && manual.key) return { url: manual.url, key: manual.key, source: 'settings' }
+  const env = readBuildEnv()
+  if (env.url && env.key) return { url: env.url, key: env.key, source: 'build-env' }
+  if (env.url || env.key || manual.url || manual.key) {
+    // Half-filled on one side only — surface what exists so the UI can say
+    // which half is missing instead of a bare "not configured".
+    const url = manual.url || env.url
+    const key = manual.key || env.key
+    return { url, key, source: manual.url || manual.key ? 'settings' : 'build-env' }
+  }
   return { url: '', key: '', source: 'none' }
 }
 
@@ -95,36 +134,63 @@ function readConfiguredFlag(): boolean {
 }
 
 /**
- * Reactive mirror of the fixed build-time broker. It never changes at
- * runtime — there is no settings UI to repoint it.
+ * Reactive mirror of the effective broker. Changes on Save / Forget /
+ * boot-hydrate, and across tabs/windows of the same profile via the
+ * `storage` listener below.
  */
 const configuredFlag = ref(readConfiguredFlag())
+
+function refreshConfiguredFlag(): boolean {
+  configuredFlag.value = readConfiguredFlag()
+  return configuredFlag.value
+}
 
 export function supabaseConfigured(): boolean {
   return configuredFlag.value
 }
 
-/** @deprecated Fixed broker builds ignore runtime overrides — no-op. */
-export function setSupabaseConfig(_url: string, _key: string) {
+/** Persist a Settings paste. Returns an error string, or null on success. */
+export function setSupabaseConfig(url: string, key: string): string | null {
+  const cleanUrl = String(url ?? '').trim().replace(/\/+$/, '')
+  const cleanKey = String(key ?? '').trim()
+  if (!cleanUrl || !cleanKey) return 'Paste the project URL and the anon / publishable key first.'
+  if (!cleanUrl.startsWith('http')) return 'Project URL must be a full https://… address.'
+  if (cleanKey.length < 8) return 'That key looks too short — paste the anon / publishable (sb_publishable_… or eyJ…) key.'
+  writeLS(MANUAL_URL_KEY, cleanUrl)
+  writeLS(MANUAL_KEY_KEY, cleanKey)
   client = null
   clientKey = ''
-  configuredFlag.value = readConfiguredFlag()
+  refreshConfiguredFlag()
+  return null
 }
 
-/** @deprecated Fixed broker builds have nothing to forget — no-op. */
+/** Forget the Settings paste (falls back to the baked pair when one exists). */
 export function clearSupabaseConfig() {
+  writeLS(MANUAL_URL_KEY, '')
+  writeLS(MANUAL_KEY_KEY, '')
   client = null
   clientKey = ''
-  configuredFlag.value = readConfiguredFlag()
+  refreshConfiguredFlag()
 }
 
 /**
- * @deprecated The broker is fixed at build time; nothing to hydrate.
- * Kept as a no-op so boot code keeps compiling.
+ * Re-read the effective broker (build env + Settings paste). Called at boot
+ * and safe to call any time — returns whether the broker is usable now.
  */
 export async function hydrateSupabaseConfig(): Promise<boolean> {
-  configuredFlag.value = readConfiguredFlag()
-  return false
+  return refreshConfiguredFlag()
+}
+
+// Same profile, another window/tab saved or forgot the broker — stay in
+// sync without a reload (badges, buttons and gates read `configuredFlag`).
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === MANUAL_URL_KEY || e.key === MANUAL_KEY_KEY) {
+      client = null
+      clientKey = ''
+      refreshConfiguredFlag()
+    }
+  })
 }
 
 export async function getSupabaseClient(): Promise<SupabaseClient | null> {
@@ -303,7 +369,7 @@ export async function startSupabaseOAuth(backendType: string, popup = true, forc
   const provider = supabaseProviderFor(backendType)
   if (!provider) throw new Error(`unsupported: no Supabase OAuth for '${backendType}'`)
   const sb = await getSupabaseClient()
-  if (!sb) throw new Error('OAuth broker is not configured in this build — rebuild with VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY')
+  if (!sb) throw new Error(BROKER_HELP)
   const redirectTo = supabaseRedirectTo(popup)
   const { data, error } = await sb.auth.signInWithOAuth({
     provider,
@@ -646,7 +712,7 @@ async function exchangeMobileOAuthUrl(value: string): Promise<boolean> {
   if (!code) throw new Error('The OAuth callback did not include an authorization code.')
   if (handledMobileOAuthCodes.has(code)) return true
   const sb = await getSupabaseClient()
-  if (!sb) throw new Error('Supabase is not configured in this app.')
+  if (!sb) throw new Error(BROKER_HELP)
   const { data, error } = await sb.auth.exchangeCodeForSession(code)
   if (error) throw error
   const session = data.session ?? await supabaseSession()
@@ -720,9 +786,7 @@ export async function activateMobileOAuthDeepLinks(): Promise<boolean> {
 export async function startSupabaseSignIn(provider: OAuthBackend, popup = true, forceGoogleConsent = false): Promise<{ url: string }> {
   const sb = await getSupabaseClient()
   if (!sb) {
-    throw new Error(
-      'OAuth broker is not configured in this build — rebuild with VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY'
-    )
+    throw new Error(BROKER_HELP)
   }
   const redirectTo = supabaseRedirectTo(popup)
   const { data, error } = await sb.auth.signInWithOAuth({
