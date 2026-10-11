@@ -1,3 +1,4 @@
+// CyberManju OS — Stars (src/utils/stars.ts).
 // Persisted favorites — star-id list codec.
 //
 // The Rust `FileNode` schema ships no star column on any backend (Tauri,

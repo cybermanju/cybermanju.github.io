@@ -1,3 +1,8 @@
+// CyberManju OS — Sh (cli/cmd/sh.go).
+// Role: cybsh CLI command.
+// Exports: replModel, Init, Update, View.
+// Integrates: bufio, fmt, os, strings, github.com, golang.org.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (
@@ -28,7 +33,8 @@ var shCmd = &cobra.Command{
 	Use:   "sh <cybsh line...>",
 	Short: "Run one cybsh line on the dashboard (same shell everywhere)",
 	Long: `Examples:
-  cyb sh "disk list"  |  cyb sh "sync move <file> <a> <b>"  |  cyb sh "ai ask \"hi\""`,
+  cyb sh "disk list"  |  cyb sh "sync move <file> <a> <b>"  |  cyb sh "ai ask \"hi\""
+Full verb list: cyb sh "help" · 3D wiki https://cybermanju.github.io/wiki/`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := mustClient()

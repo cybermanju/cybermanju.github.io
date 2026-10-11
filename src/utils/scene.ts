@@ -1,3 +1,4 @@
+// CyberManju OS — Scene (src/utils/scene.ts).
 // Scene heuristic matcher — TypeScript twin of `crates/scene`.
 //
 // Parses the SAME `crates/scene/data/scenes.json` tables the Rust classifier

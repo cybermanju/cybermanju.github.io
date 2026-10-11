@@ -1,3 +1,4 @@
+// CyberManju OS — Vitest.config (vitest.config.ts).
 // Vitest config (AGENT-4 item 19). Node environment on purpose: the suite
 // exercises transport/pure logic, not rendered DOM. AGENT-5 adds component
 // tests on top — put them under src/**/*.{test,spec}.ts and they are picked

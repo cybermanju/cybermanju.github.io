@@ -1,3 +1,4 @@
+// CyberManju OS — Static cybsh.test (tests/frontend/static-cybsh.test.ts).
 // Static-host cybsh — vault-aware verbs answer locally, provider file ops
 // cross the merged namespace. All browser effects are faked here (node env,
 // no window); `useTauri.ts` supplies the real deps in production.

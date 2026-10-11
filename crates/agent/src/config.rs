@@ -1,3 +1,4 @@
+// CyberManju OS — Config (crates/agent/src/config.rs).
 // Permission evaluation: opencode/omp-compatible rulesets.
 //
 // Shape: `{"default": "ask", "bash": "allow", "edit": {"*": "deny", …}}`.

@@ -1,3 +1,8 @@
+// CyberManju OS — Accounts (crates/web/src/api/accounts.rs).
+// Role: REST dashboard (:3456): routes, auth, security headers.
+// Exports: list, create, switch, delete.
+// Integrates: cybermanju_db, cybermanju_types, redb.
+// Contracts: none special (pure logic; errors bubble to caller).
 // CyberManju OS — Account switching (shared by Tauri IPC and REST)
 
 use cybermanju_db::Database;

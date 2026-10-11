@@ -1,3 +1,8 @@
+// CyberManju OS — Doctor (cli/cmd/doctor.go).
+// Role: cybsh CLI command.
+// Exports: check.
+// Integrates: fmt, github.com.
+// Contracts: signals: engine.
 package cmd
 
 import (

@@ -1,3 +1,4 @@
+// CyberManju OS — Zstd wasm.test (tests/frontend/zstd-wasm.test.ts).
 // zstd in the browser — `@dweb-browser/zstd-wasm` (wasm-bindgen around
 // zstd-rs) round-trips standard frames, and the cybsh shell + triple chain
 // compose it with lz4/brotli in the desktop order (LZ4 → ZSTD → Brotli).

@@ -982,3 +982,95 @@ Stage Summary:
   (endpoint returns a bare bool).
 - Known server-side gap (not a CLI bug): no public REST creates vault
   FileNodes, so provider→provider `move` needs a vault file first.
+
+## 2026-10-11 — comment triage: top-file headers on 100% of code files
+- Measured: 461 code files / ~174k LOC / 14,652 comment lines (8.4%); ~4,500
+  mid-function narration lines were the slop, TODOs ~0, contracts (~208:
+  SAFETY/error-prefixes/budgets/engine labels) stay inline by rule.
+- New: `scripts/check-file-headers.sh` (shape gate, cargo-free),
+  `scripts/collect-file-context.mjs` (heuristic symbols/imports/comments JSON
+  mirroring `cybermanju-types::code`; Rust tree-sitter stays authoritative),
+  `scripts/generate-file-headers.py` (`--dry-run`/`--apply`, idempotent).
+- Applied: 330 files got merged Role/Exports/Integrates/Contracts headers
+  (200 missing + 113 unnamed + 17 single-line); 131 grandfathered prose
+  headers untouched; 2 hand merges demo the AI step (DiskManagerPage.vue,
+  format.ts). `git diff` hunks are header-only at line 1.
+- CI: `meta-check` now runs `check-file-headers.sh` next to check-version.sh.
+- Verified locally: headers 461/461, check-version ok, vue-tsc clean,
+  vitest 60 files / 700 tests green. Rust fmt/clippy/test left to CI
+  (no local cargo per AGENTS.md). NOTE: tree was already dirty before this
+  pass (`#[tauri::command(async)]` migration, Cargo release profile,
+  SKILL.md/OPERATIONS.md edits) — untouched here, still uncommitted.
+
+## 2026-10-11 — UI jank pass: async IPC, rAF coalescing, lazy panels, hidden-tab gating
+- **All 175 Tauri commands are `#[tauri::command(async)]`** (26 files under
+  `src-tauri/src`): sync commands run on the GTK/WebKit main thread, so any
+  backend call over a few ms froze drag/typing/paint — the root cause of the
+  laggy feel. IPC wire format unchanged; the only 3 non-`Result` handlers
+  (`os_jobs`, `os_complete`, `cron_ensure_started`) now return
+  `Result<_, String>` — `Ok` resolves to the same payload. No Rust callers
+  besides `lib.rs`'s handler list; the frontend invokes by name.
+- **Release profile** added to workspace `Cargo.toml`: `opt-level = 3`,
+  `lto = "thin"`, `codegen-units = 1` (default was no LTO / cgu 16) — cold
+  launch + IPC latency; validated by CI's Rust job (no local cargo per
+  AGENTS.md).
+- **AppWindow**: the full-window 40 px `backdrop-filter` was dead weight
+  (the opaque `.window-content` covered it, only the titlebar ever showed
+  translucency) → blur moved to `.window-titlebar`, frame stays on
+  `var(--ui-window)` to avoid double-compositing the tint. Drag/resize now
+  coalesce pointer events into one `requestAnimationFrame` flush
+  (`stageMove`/`stageResize`/`flushGeometry`) — a high-Hz mouse no longer
+  fires a reactive update + layout per event; plasma snap still runs on
+  `stopDrag`/`stopResize`.
+- **CanvasEngine**: checkerboard/scanline are pre-rendered tiles via
+  `ctx.createPattern` (one fill instead of ~2 600 `fillRect`s/frame, same
+  pixels), op-art rings one path/one stroke, wireframe one path + constant
+  `fillStyle`, particles constant `fillStyle` + `globalAlpha`, the
+  per-frame `initWireframe()` allocations are gone, and the rAF loop pauses
+  on `visibilitychange`.
+- **LandingPage**: the 50 ms `buddhaGlow` timer (20 reactive style
+  writes/second forever) is a CSS `buddha-glow` keyframe now — same sine
+  (0.3–0.9, ≈5.03 s period, ease-in-out ≈ sin). Particle placement/timing
+  is randomized ONCE (`particleStyles`): it used to be `Math.random()` per
+  render, so the 280 ms ASCII frame tick teleported every particle and
+  restarted its animation 3.5×/second. Dead `showCursor`/`cursorTimer`
+  (never referenced by the template) removed.
+- **Hidden-window gating** (`if (document.hidden) return`): StatusBar 4 s
+  ps poll · DevicesPanel 4 s top poll · ProcessPanel refresh + `nowMs` ·
+  CodeStudio 2.5 s explorer sync · AgentPanel + `useStudioAgent` 1.5 s
+  live-thread and 1 s tick · store `startAutoRefresh` (seven fetches) ·
+  schedule tick 30 s · TopMenuBar/PlasmaPanel 1 s clocks. First visible tick
+  refetches everything; `SecretsPanel`'s reveal countdown is deliberately
+  NOT gated (it is a security deadline).
+- **Code split**: 15 static panel imports → `asyncPanel(() => import(…))`
+  (FileManager 99 kB · AccountManagerPanel 81 kB · AgentPanel 75 kB ·
+  CodeStudio 67 kB · SettingsPage 28 kB · MapView + its maplibre/css ·
+  DiskManagerPage, ProcessPanel, SecretsPanel, DevicesPanel, SyncPanel,
+  ShieldPanel, FilePermissionsPanel, FaceGroupingPanel, OrganizePanel,
+  WebDashboardPanel, TransferGraph). 65 chunks total, all local assets —
+  first open of a panel is a disk read, not a network hop; `WindowContent`
+  (the instant search/trash/activity surfaces) stays eager.
+- Verified: `scripts/check-version.sh` ok · `vue-tsc --noEmit` clean ·
+  vitest 60 files / 700 tests green · `npx vite build` ok (29.7 s).
+  Rust fmt/clippy/test left to CI. Tree shared with concurrent passes
+  (file-header sweep, CLI work) — untouched here.
+
+## 2026-10-11 — Pages wiki: improved structure finder + Three.js scenery + llms.txt
+- Structure finder upgraded both sides: `crates/types/src/code.rs`
+  (qualifier stripping, Go receivers, `pub mod`/`impl`/bash defs,
+  top-level-only const/static, doc-comment hoisting into additive `docs`)
+  + mirrored `scripts/collect-file-context.mjs`. New Rust unit test
+  `heuristic_covers_qualified_items`; JSON shape unchanged + `docs`.
+- New `npm run wiki`: `scripts/generate-wiki.mjs` scans the tree into
+  16 subjects → `dist-wasm/llms.txt`, `wiki/<id>.txt/.json/.html`,
+  `wiki/subjects.json`; then `vite.config.wiki.ts` builds the Three.js SPA
+  (purple/red/white/black, manju mascot, orbit nodes, lanterns, search,
+  hash routes `#/id`, reduced-motion safe) into `dist-wasm/wiki/`
+  (emptyOutDir OFF so text artifacts survive). Added `three` (+ types) dep.
+- CI `wasm-build` runs `npm run wiki` after the frontend build (same
+  VITE_BASE), so Pages serves `/wiki/` + `/llms.txt` auto-regenerated.
+  Sitemap + tsconfig include updated; AGENTS.md §7 pins the comment
+  strategy (top-file headers 100% enforced) and §2 loop adds the header gate.
+- Verified locally: wiki builds (143 KB gzip, app bundle untouched),
+  vue-tsc clean, vitest 60 files / 700 green, headers 461/461 (+5 new files
+  carry named headers, covered once staged). Rust tests left to CI (no cargo).

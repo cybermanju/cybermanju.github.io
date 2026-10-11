@@ -1,3 +1,4 @@
+// CyberManju OS — Mobile ios.test (tests/frontend/mobile-ios.test.ts).
 // iOS-aesthetic mobile contract, derived from the iOS4Android reference
 // (cloned to /tmp, never into the repo): paged springboard with dots,
 // three-zone status bar, squircle icons, dock + home indicator, and an

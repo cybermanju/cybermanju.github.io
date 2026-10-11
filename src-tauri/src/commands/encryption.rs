@@ -1,3 +1,8 @@
+// CyberManju OS — Encryption (src-tauri/src/commands/encryption.rs).
+// Role: Tauri IPC commands (19 modules, 130 handlers).
+// Exports: EncryptionStatus, FrontendEncryptionStatus, FrontendKeyInfo, encrypt_file, decrypt_file, get_encryption_status, generate_keypair, list_keys.
+// Integrates: chrono, redb, serde, tauri.
+// Contracts: signals: AGENT-, engine.
 use chrono::Utc;
 use redb::ReadableTable;
 use serde::{Deserialize, Serialize};
@@ -252,7 +257,7 @@ fn seal_legacy_keys(db: &crate::db::Database) {
 ///   4. Write encrypted bytes to `{path}.enc`
 ///   5. Write metadata to `{path}.enc.meta.json`
 ///   6. Update the file node in the database
-#[tauri::command]
+#[tauri::command(async)]
 pub fn encrypt_file(
     file_id: String,
     algorithm: String,
@@ -407,7 +412,7 @@ pub fn encrypt_file(
 ///   4. Call `pqc::decrypt_data()` — performs real ML-KEM decapsulation
 ///   5. Write the decrypted bytes back to the original path
 ///   6. Update the file node in the database
-#[tauri::command]
+#[tauri::command(async)]
 pub fn decrypt_file(
     file_id: String,
     state: State<'_, AppState>,
@@ -504,7 +509,7 @@ pub fn decrypt_file(
 ///
 /// Reads the most recently created key from the database and reports
 /// its algorithm, NIST level, and creation time.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_encryption_status(
     state: State<'_, AppState>,
 ) -> Result<FrontendEncryptionStatus, String> {
@@ -564,7 +569,7 @@ pub fn get_encryption_status(
 /// The returned EncryptionKey contains the public key bytes (base64) and
 /// the private key bytes (base64) — the private key IS stored in the DB
 /// for this local encryption use case.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn generate_keypair(
     algorithm: String,
     state: State<'_, AppState>,
@@ -625,7 +630,7 @@ pub fn generate_keypair(
 ///
 /// Returns only a 16-byte base64 preview of the public key, the algorithm
 /// info, and metadata. The full private key is never included in the response.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_keys(state: State<'_, AppState>) -> Result<Vec<FrontendKeyInfo>, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     let tx = db.begin_read().map_err(|e| e.to_string())?;

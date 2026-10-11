@@ -1,3 +1,8 @@
+// CyberManju OS — Cron (cli/cmd/cron.go).
+// Role: cybsh CLI command.
+// Exports: module root (see items below).
+// Integrates: fmt, github.com, id, description, runOnBoot.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (

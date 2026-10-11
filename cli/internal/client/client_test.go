@@ -1,3 +1,8 @@
+// CyberManju OS — Client test (cli/internal/client/client_test.go).
+// Role: CLI REST client.
+// Exports: TestAuthHeaderAndCamelDecode, TestErrorMapping, TestUnauthorizedHint, TestOAuthStartDecode, TestExecPassthrough, TestOAuthProviderSlugs, TestJobTerminal, TestJSONField.
+// Integrates: encoding, net, strings, testing, time, id.
+// Contracts: none special (pure logic; errors bubble to caller).
 package client
 
 import (

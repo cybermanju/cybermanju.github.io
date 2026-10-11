@@ -1,3 +1,8 @@
+// CyberManju OS — Supa test (cli/internal/supa/supa_test.go).
+// Role: CLI Supabase helper.
+// Exports: TestChallengeRFC7636Vector, TestVerifierShape, TestAuthorizeURL, TestExchangeDecodesProviderToken, TestRedirectTo, TestBrokerPairOrder.
+// Integrates: encoding, net, strings, testing, redirect_to=http%3A%2F%2F127.0.0.1%3A54329%2Fcallback, code_challenge=challenge123.
+// Contracts: none special (pure logic; errors bubble to caller).
 package supa
 
 import (

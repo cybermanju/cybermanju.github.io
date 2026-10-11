@@ -1,3 +1,4 @@
+// CyberManju OS — ShellCwd (src/utils/shellCwd.ts).
 // Client-side mirror of the stateful cybsh working directory.
 //
 // The server shell (`crates/os/src/shell.rs`) keeps a single process-wide cwd,

@@ -1,3 +1,8 @@
+// CyberManju OS — UseTheme (src/composables/useTheme.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: useTheme, ThemeApi.
+// Integrates: vue.
+// Contracts: none special (pure logic; errors bubble to caller).
 import { computed, reactive, ref, watch, type ComputedRef } from 'vue'
 import {
   DEFAULT_SETTINGS,

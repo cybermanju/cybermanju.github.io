@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# CyberManju OS — Android icons (scripts/android-icons.sh).
 # Android launcher icon sync for CyberManju OS.
 #
 # Root cause it fixes: `tauri android init` stamps the Tauri template's

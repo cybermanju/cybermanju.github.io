@@ -1,3 +1,4 @@
+// CyberManju OS — Mount (crates/disk/src/mount.rs).
 //! `cybermanju mount <path>` — make it a disk, not a sync job.
 //!
 //! The portable path is the HTTP block API (item 8): Termux/Android has no

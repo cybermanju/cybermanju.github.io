@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# CyberManju OS — Android smoke (scripts/android-smoke.sh).
 # Android on-device smoke test (CI, best-effort).
 #
 # Zero on-device verification was the gap: `apksigner verify` proves the

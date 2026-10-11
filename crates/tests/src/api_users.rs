@@ -1,3 +1,4 @@
+// CyberManju OS — Api users (crates/tests/src/api_users.rs).
 // AGENT-4 item 9 — user-management REST contract.
 //
 // The route → role table lives in AGENT-3's `security::required_role`; these

@@ -1,3 +1,4 @@
+// CyberManju OS — Os shell (src-tauri/src/commands/os_shell.rs).
 //! Native IPC for the cybsh OS layer (mobile + desktop fallback).
 //!
 //! The Web Dashboard serves these over REST (`POST /api/os/exec`, …) but the
@@ -32,7 +33,7 @@ pub struct DuResult {
 }
 
 /// Run one `cybsh` line against the volume kernel + task table.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn os_exec(line: String, state: State<'_, AppState>) -> Result<ShellResult, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     let owned = line.clone();
@@ -55,26 +56,26 @@ pub fn os_exec(line: String, state: State<'_, AppState>) -> Result<ShellResult, 
 }
 
 /// Tab completion off the live command table.
-#[tauri::command]
-pub fn os_complete(prefix: String) -> Vec<String> {
+#[tauri::command(async)]
+pub fn os_complete(prefix: String) -> Result<Vec<String>, String> {
     let trimmed = prefix.strip_prefix('/').unwrap_or(&prefix);
-    cybermanju_os::completions(trimmed)
+    Ok(cybermanju_os::completions(trimmed))
 }
 
 /// `stat(2)` for one volume path.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn os_stat(path: String) -> Result<cybermanju_os::Stat, String> {
     cybermanju_os::Kernel::global().stat(&path)
 }
 
 /// `readdir(3)` for one volume path.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn os_ls(path: String) -> Result<Vec<cybermanju_os::DirEntry>, String> {
     cybermanju_os::Kernel::global().readdir(&path)
 }
 
 /// `du(1)` for one volume path.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn os_du(path: String) -> Result<DuResult, String> {
     match cybermanju_os::Kernel::global().du(&path) {
         Ok((bytes, files)) => Ok(DuResult { path, bytes, files }),
@@ -85,7 +86,7 @@ pub fn os_du(path: String) -> Result<DuResult, String> {
 const MAX_WRITE_BYTES: usize = 1024 * 1024;
 
 /// Editor save path — same 1 MiB cap + envelope as `PUT /api/os/write`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn os_write(path: String, content: String) -> Result<serde_json::Value, String> {
     if path.trim().is_empty() {
         return Err("invalid: path is required".to_string());
@@ -122,7 +123,7 @@ pub fn os_write(path: String, content: String) -> Result<serde_json::Value, Stri
 }
 
 /// Single disk lookup (frontend `get_disk { id }`).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_disk(
     id: String,
     state: State<'_, AppState>,
@@ -132,7 +133,7 @@ pub fn get_disk(
 }
 
 /// Destroy a disk row (frontend `destroy_disk { id }`).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn destroy_disk(id: String, state: State<'_, AppState>) -> Result<(), String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
     cybermanju_disk::disk::destroy(&db, &id)

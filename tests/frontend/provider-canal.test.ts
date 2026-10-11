@@ -1,3 +1,4 @@
+// CyberManju OS — Provider canal.test (tests/frontend/provider-canal.test.ts).
 // Provider canal orchestration — path mapping, cache TTL, mount validation.
 import { describe, expect, it, vi } from 'vitest'
 import {

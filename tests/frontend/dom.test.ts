@@ -1,3 +1,8 @@
+// CyberManju OS — Dom.test (tests/frontend/dom.test.ts).
+// Role: Vitest frontend suite.
+// Exports: module root (see items below).
+// Integrates: vitest, ../….
+// Contracts: none special (pure logic; errors bubble to caller).
 import { describe, expect, it } from 'vitest'
 import { isEditableTarget } from '../../src/utils/dom'
 

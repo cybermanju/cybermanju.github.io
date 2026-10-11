@@ -1,3 +1,8 @@
+<!-- CyberManju OS — KickoffMenu (src/components/KickoffMenu.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="kickoff-layer" @mousedown.self="kickoff.close()">
     <div ref="menuRef" class="kickoff" role="dialog" aria-label="Application launcher">

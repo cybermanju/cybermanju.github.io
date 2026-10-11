@@ -1,3 +1,4 @@
+// CyberManju OS — Share (crates/tests/src/share.rs).
 // AGENT-4 item 9 — share-link REST contract.
 //
 // Share links are the one deliberately unauthenticated read path, so the

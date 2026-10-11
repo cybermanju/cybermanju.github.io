@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# CyberManju OS — Check all (scripts/check-all.sh).
+# Role: ops script (CI/local runbook).
+# Exports: module root (see items below).
+# Integrates: standalone (no imports).
+# Contracts: none special (pure logic; errors bubble to caller).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

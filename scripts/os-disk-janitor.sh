@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# CyberManju OS — Os disk janitor (scripts/os-disk-janitor.sh).
 # Keep the shared build cache from filling the disk while three agents build.
 #
 #   setsid bash scripts/os-disk-janitor.sh >> logs/janitor.log 2>&1 </dev/null &

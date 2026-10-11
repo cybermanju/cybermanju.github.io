@@ -30,6 +30,7 @@
     "build:wasm": "npm run build:wasm:pkg && vite build --mode production --config vite.config.wasm.ts --outDir dist-wasm",
     "build:wasm:pkg": "wasm-pack build crates/os-wasm --target web --out-dir pkg",
     "build:wasm:frontend": "vite build --mode production --config vite.config.wasm.ts --outDir dist-wasm",
+    "wiki": "node scripts/generate-wiki.mjs && vite build --config vite.config.wiki.ts",
     "test": "vitest run"
   },
   "dependencies": {
@@ -49,6 +50,7 @@
     "maplibre-gl": "^6.12.0",
     "pinia": "^3.0.2",
     "tauri-plugin-scoped-storage-api": "1.5.1",
+    "three": "^0.186.1",
     "vue": "^3.5.43"
   },
   "overrides": {
@@ -59,6 +61,7 @@
   "devDependencies": {
     "@iconify-json/solar": "^1.2.13",
     "@tauri-apps/cli": "^2.5.0",
+    "@types/three": "^0.186.0",
     "@vitejs/plugin-vue": "^5.2.3",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",

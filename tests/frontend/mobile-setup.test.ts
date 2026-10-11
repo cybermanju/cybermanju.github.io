@@ -1,3 +1,4 @@
+// CyberManju OS — Mobile setup.test (tests/frontend/mobile-setup.test.ts).
 // Mobile first-run flow stays honest: step order, partition clamping/validity.
 import { describe, expect, it } from 'vitest'
 import {

@@ -1,3 +1,8 @@
+// CyberManju OS — Mod (src-tauri/src/commands/mod.rs).
+// Role: Tauri IPC commands (19 modules, 130 handlers).
+// Exports: accounts, agent, audit, batch, collections, compression, cron, dashboard.
+// Integrates: standalone (no imports).
+// Contracts: none special (pure logic; errors bubble to caller).
 pub mod accounts;
 pub mod agent;
 pub mod audit;

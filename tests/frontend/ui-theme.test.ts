@@ -1,3 +1,4 @@
+// CyberManju OS — Ui theme.test (tests/frontend/ui-theme.test.ts).
 // Theme registries + accent resolution + WCAG contrast guards.
 // Flat AMOLED remake: 2 themes (os-dark, os-light) + optional os-graphite,
 // one fixed geometry, no neon/glow/aurora. Legacy ids resolve via aliases.

@@ -1,3 +1,8 @@
+// CyberManju OS — MobileScopedStorage (src/utils/mobileScopedStorage.ts).
+// Role: pure TS helpers (unit-tested, transport-agnostic).
+// Exports: MobileFolderHandle, MobileFolderEntry, mobileVaultMirrorState, supportsNativeScopedStorage, normalizeMobileVaultFileName, pickMobileFolder, listMobileFolder, readMobileFolderFile.
+// Integrates: vue, @/….
+// Contracts: none special (pure logic; errors bubble to caller).
 import { reactive } from 'vue'
 import { isAndroidApp, isTauri } from '@/composables/useTauri'
 import {

@@ -1,3 +1,8 @@
+// CyberManju OS — Theme test (cli/internal/ui/theme_test.go).
+// Role: CLI terminal UI.
+// Exports: TestGradientKeepsText, TestCharmThemeIsPink, TestBanner.
+// Integrates: strings, testing, github.com.
+// Contracts: none special (pure logic; errors bubble to caller).
 package ui
 
 import (

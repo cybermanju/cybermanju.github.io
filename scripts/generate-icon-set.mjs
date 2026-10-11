@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// CyberManju OS — Generate icon set (scripts/generate-icon-set.mjs).
 /**
  * Offline Iconify bundle builder.
  *

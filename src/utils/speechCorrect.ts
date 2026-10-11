@@ -1,3 +1,4 @@
+// CyberManju OS — SpeechCorrect (src/utils/speechCorrect.ts).
 // Spoken-word → text normalisation for voice input.
 //
 // Speech recognition returns words ("open bracket", "new line", "see dee").

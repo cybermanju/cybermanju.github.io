@@ -1,3 +1,4 @@
+// CyberManju OS — Root (cli/cmd/root.go).
 // Package cmd is the `cyb` command tree.
 package cmd
 
@@ -37,7 +38,9 @@ var rootCmd = &cobra.Command{
 	Long: `cyb — files, disks, sync, OAuth, cybsh and the AI agent from any terminal.
 
 Talk to a dashboard (local Docker, desktop app, or remote server).
-Start here:  cyb setup`,
+Start here:  cyb setup
+
+Docs:  3D wiki https://cybermanju.github.io/wiki/ · agents: https://cybermanju.github.io/llms.txt`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {

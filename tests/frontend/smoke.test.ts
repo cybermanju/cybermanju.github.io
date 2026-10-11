@@ -1,3 +1,4 @@
+// CyberManju OS — Smoke.test (tests/frontend/smoke.test.ts).
 // Frontend smoke test (AGENT-4 item 19) — proves the test harness runs and
 // that the transport helpers behave outside a browser/Tauri shell. Real
 // component/behaviour tests are AGENT-5's to add.

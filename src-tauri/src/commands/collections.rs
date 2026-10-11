@@ -1,17 +1,22 @@
+// CyberManju OS — Collections (src-tauri/src/commands/collections.rs).
+// Role: Tauri IPC commands (19 modules, 130 handlers).
+// Exports: list_collections, create_collection, add_to_collection, remove_from_collection.
+// Integrates: tauri.
+// Contracts: none special (pure logic; errors bubble to caller).
 use tauri::State;
 
 use crate::db::schema::{Collection, CollectionItem};
 use crate::AppState;
 
 /// List all collections from the database.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_collections(state: State<'_, AppState>) -> Result<Vec<Collection>, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     cybermanju_web::api::collections::list(&db)
 }
 
 /// Create a new collection.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_collection(
     name: String,
     collection_type: String,
@@ -24,7 +29,7 @@ pub fn create_collection(
 }
 
 /// Add a file to a collection.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn add_to_collection(
     collection_id: String,
     file_id: String,
@@ -36,7 +41,7 @@ pub fn add_to_collection(
 }
 
 /// Remove a file from a collection.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn remove_from_collection(
     collection_id: String,
     file_id: String,

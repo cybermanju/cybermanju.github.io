@@ -1,3 +1,8 @@
+// CyberManju OS — UseNotifications (src/composables/useNotifications.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: NotificationType, Notification, useNotifications.
+// Integrates: vue, @vueuse.
+// Contracts: none special (pure logic; errors bubble to caller).
 import { ref } from 'vue'
 import { useWebNotification } from '@vueuse/core'
 

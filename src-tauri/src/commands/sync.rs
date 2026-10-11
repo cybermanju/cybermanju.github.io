@@ -1,3 +1,8 @@
+// CyberManju OS — Sync (src-tauri/src/commands/sync.rs).
+// Role: Tauri IPC commands (19 modules, 130 handlers).
+// Exports: list_sync_configs, create_sync_config, delete_sync_config, start_sync, get_sync_progress, get_sync_status, test_sync_connection, get_sync_usage.
+// Integrates: tauri.
+// Contracts: signals: AGENT-, unsupported.
 use std::sync::Arc;
 use tauri::State;
 
@@ -11,14 +16,14 @@ use crate::AppState;
 // ---------------------------------------------------------------------------
 
 /// List all saved sync configurations.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_sync_configs(state: State<'_, AppState>) -> Result<Vec<SyncConfig>, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     cybermanju_web::api::sync_api::list_configs(&db)
 }
 
 /// Create (or save) a sync configuration.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_sync_config(
     config: SyncConfig,
     state: State<'_, AppState>,
@@ -28,7 +33,7 @@ pub fn create_sync_config(
 }
 
 /// Delete a sync configuration by ID.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_sync_config(config_id: String, state: State<'_, AppState>) -> Result<bool, String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
     cybermanju_web::api::sync_api::delete_config(&db, &config_id)
@@ -39,7 +44,7 @@ pub fn delete_sync_config(config_id: String, state: State<'_, AppState>) -> Resu
 /// The shared implementation releases the database lock before the pipeline
 /// runs: the pipeline acquires its own locks per file, so holding one here
 /// would deadlock.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn start_sync(
     config_id: String,
     file_ids: Vec<String>,
@@ -60,7 +65,7 @@ pub fn start_sync(
 /// Also arms the auto-sync scheduler (item 11) — the desktop polls this
 /// command, so the first poll starts the background scan exactly like the
 /// REST routes do.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_sync_progress(
     sync_state: State<'_, Arc<SyncState>>,
     state: State<'_, AppState>,
@@ -71,7 +76,7 @@ pub fn get_sync_progress(
 }
 
 /// Get the latest sync status summary (the same shape as GET /api/sync/status).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_sync_status(
     sync_state: State<'_, Arc<SyncState>>,
     state: State<'_, AppState>,
@@ -91,7 +96,7 @@ pub fn get_sync_status(
 }
 
 /// Test the connection for a sync configuration.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn test_sync_connection(config: SyncConfig) -> Result<bool, String> {
     cybermanju_web::api::sync_api::test_connection(&config)
 }
@@ -101,7 +106,7 @@ pub fn test_sync_connection(config: SyncConfig) -> Result<bool, String> {
 /// dashboard needed, so Android gets real quota instead of a localhost
 /// connection refusal. (`oauth_start` stays REST-only: it mints dashboard
 /// redirect URLs and needs the server's OAuth client.)
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_sync_usage(
     config_id: String,
     state: State<'_, AppState>,
@@ -114,13 +119,13 @@ pub fn get_sync_usage(
 }
 
 /// Cancel the current sync operation.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn cancel_sync(sync_state: State<'_, Arc<SyncState>>) -> Result<bool, String> {
     Ok(cybermanju_web::api::sync_api::cancel(&sync_state))
 }
 
 /// List files on the remote backend.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_remote_files(config: SyncConfig, prefix: String) -> Result<Vec<RemoteFile>, String> {
     cybermanju_web::api::sync_api::list_remote_files(&config, &prefix)
 }
@@ -130,7 +135,7 @@ pub fn list_remote_files(config: SyncConfig, prefix: String) -> Result<Vec<Remot
 // ---------------------------------------------------------------------------
 
 /// Restore a synced copy: download → verify → decrypt/decompress → write.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn restore_sync_file(
     config_id: String,
     file_id: Option<String>,
@@ -151,7 +156,7 @@ pub fn restore_sync_file(
 
 /// Delete a remote object (`unsupported:` providers surface as an error,
 /// never a fake success).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_remote_file(
     config_id: String,
     remote_path: String,
@@ -167,7 +172,7 @@ pub fn delete_remote_file(
 }
 
 /// Status/progress/result of one run by id (memory, then `sync_runs`).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_sync_job(
     job_id: String,
     state: State<'_, AppState>,
@@ -176,7 +181,7 @@ pub fn get_sync_job(
 }
 
 /// Run history (newest first) for the sync history UI.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_sync_runs(state: State<'_, AppState>) -> Result<Vec<SyncRunRecord>, String> {
     cybermanju_web::api::sync_api::runs(&state.db, 20)
 }
@@ -189,7 +194,7 @@ pub fn list_sync_runs(state: State<'_, AppState>) -> Result<Vec<SyncRunRecord>, 
 // Flat arity is the Tauri IPC + REST contract (store + `useTauri` pass one
 // JSON object per arg); the body funnels everything into `CreateRepoRequest`.
 #[allow(clippy::too_many_arguments)]
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_provider_repo(
     backend_type: String,
     config_id: Option<String>,
@@ -218,7 +223,7 @@ pub fn create_provider_repo(
 
 /// Seed a vault repo with bootstrap files (README, manifest, exported
 /// `.cybermanju` bytes as base64) through the provider sync backend.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn seed_repo_files(
     config: SyncConfig,
     files: Vec<cybermanju_web::api::sync_api::SeedFile>,
@@ -233,7 +238,7 @@ pub fn seed_repo_files(
 
 /// Relocate one file's single copy from provider A to provider B:
 /// download A → upload B → verify B → delete A → retarget record.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn move_sync_file(
     file_id: String,
     from_config_id: String,
@@ -252,7 +257,7 @@ pub fn move_sync_file(
 
 /// Write one file's bytes (base64) to a provider remote path — the VFS
 /// write-through, so provider mounts are read-write on desktop too.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn upload_remote_file(
     config: SyncConfig,
     remote_path: String,

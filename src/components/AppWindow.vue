@@ -1,3 +1,8 @@
+<!-- CyberManju OS — AppWindow (src/components/AppWindow.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div
     ref="rootRef"
@@ -187,6 +192,49 @@ let dragStartY = 0
 let dragOrigX = 0
 let dragOrigY = 0
 
+/**
+ * Drag/resize coalescing: pointer devices fire mousemove far faster than the
+ * display refreshes (a 1000 Hz mouse is 1000 reactive writes + style/layout
+ * passes per second). Geometry is staged here and flushed at most once per
+ * animation frame, so a drag costs one Vue update per frame no matter how
+ * fast the pointer reports — the final position is always flushed
+ * synchronously on mouseup so nothing can be dropped.
+ */
+let geomRaf = 0
+let pendingMove: { x: number; y: number } | null = null
+let pendingSize: { w: number; h: number } | null = null
+
+function flushGeometry() {
+  if (geomRaf) {
+    cancelAnimationFrame(geomRaf)
+    geomRaf = 0
+  }
+  const move = pendingMove
+  const size = pendingSize
+  pendingMove = null
+  pendingSize = null
+  if (move) emit('move', props.win.id, move.x, move.y)
+  if (size) emit('resize', props.win.id, size.w, size.h)
+}
+
+function scheduleGeometry() {
+  if (geomRaf) return
+  geomRaf = requestAnimationFrame(() => {
+    geomRaf = 0
+    flushGeometry()
+  })
+}
+
+function stageMove(x: number, y: number) {
+  pendingMove = { x, y }
+  scheduleGeometry()
+}
+
+function stageResize(w: number, h: number) {
+  pendingSize = { w, h }
+  scheduleGeometry()
+}
+
 function startDrag(e: MouseEvent) {
   if (isMaximized.value || isMobileApp.value) return
   dragging = true
@@ -204,13 +252,15 @@ function onDrag(e: MouseEvent) {
   const dy = e.clientY - dragStartY
   const newX = Math.max(0, dragOrigX + dx)
   const newY = Math.max(0, dragOrigY + dy)
-  emit('move', props.win.id, newX, newY)
+  stageMove(newX, newY)
 }
 
 function stopDrag(e?: MouseEvent) {
   dragging = false
   document.removeEventListener('mousemove', onDrag)
   document.removeEventListener('mouseup', stopDrag)
+  // Land the last staged position before any snap logic reads geometry.
+  flushGeometry()
   // Plasma snap: drag to the top edge maximizes, to a side edge tiles.
   if (isPlasma.value && e && !isMaximized.value) {
     try {
@@ -279,9 +329,9 @@ function onResize(e: MouseEvent) {
   }
 
   if (newX !== resizeOrigX || newY !== resizeOrigY) {
-    emit('move', props.win.id, newX, newY)
+    stageMove(newX, newY)
   }
-  emit('resize', props.win.id, newW, newH)
+  stageResize(newW, newH)
 }
 
 function stopResize() {
@@ -289,6 +339,7 @@ function stopResize() {
   resizeDir = ''
   document.removeEventListener('mousemove', onResize)
   document.removeEventListener('mouseup', stopResize)
+  flushGeometry()
 }
 
 function onClose() {
@@ -388,8 +439,11 @@ onUnmounted(() => {
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-xl);
   overflow: hidden;
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
+  /* Blur lives on the TITLEBAR, not the frame: the body is covered by the
+     opaque .window-content surface, so a window-sized backdrop-filter (up to
+     1240×720 per window, re-blitted whenever the desktop or a sibling moves)
+     bought nothing visually while dominating WebKitGTK compositing cost.
+     The titlebar strip is the only translucent part, so it does the blur. */
   box-shadow: var(--ui-shadow-window);
   transition:
     box-shadow var(--ui-dur) ease-out,
@@ -431,7 +485,11 @@ onUnmounted(() => {
   min-height: 28px;
   padding: 0 12px;
   gap: 8px;
+  /* Transparent on purpose: the frame's own `--ui-window` tint sits directly
+     under it, so colour is unchanged — only the blur pass is added here. */
   background: transparent;
+  backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
   border-bottom: 1px solid var(--ui-separator);
   cursor: default;
   user-select: none;

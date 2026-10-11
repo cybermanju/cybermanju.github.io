@@ -84,6 +84,9 @@
                 <input v-model.number="mswCloudSizes[sp.backend]" class="msw-input" type="number" min="64" max="8192" step="64" placeholder="512" />
               </label>
             </div>
+            <label v-if="sp.config" class="msw-field"><span>Disk passphrase (required)</span>
+              <input v-model="mswCloudPassphrases[sp.backend]" class="msw-input" type="password" autocomplete="new-password" placeholder="required — encrypts the disk" />
+            </label>
             <button
               v-if="sp.config"
               class="msw-btn primary big"
@@ -128,8 +131,8 @@
               </select>
             </label>
           </div>
-          <label class="msw-field"><span>Passphrase (optional, encrypts it)</span>
-            <input v-model="p.passphrase" class="msw-input" type="password" autocomplete="new-password" placeholder="leave empty for now" />
+          <label class="msw-field"><span>Passphrase {{ p.configId === '' ? '(local only — optional)' : '(required — encrypts it)' }}</span>
+            <input v-model="p.passphrase" class="msw-input" type="password" autocomplete="new-password" :placeholder="p.configId === '' ? 'optional on local disk' : 'required'" />
           </label>
           <button
             class="msw-btn primary"
@@ -230,6 +233,9 @@
         </div>
         <label class="msw-field"><span>Token (or reuse saved)</span>
           <input v-model="repoToken" class="msw-input" type="password" placeholder="paste PAT — or leave empty" />
+        </label>
+        <label class="msw-field"><span>Disk passphrase (required — encrypts every disk)</span>
+          <input v-model="repoPassphrase" class="msw-input" type="password" autocomplete="new-password" placeholder="required" />
         </label>
         <div class="msw-row">
           <button class="msw-btn primary big" type="button" :disabled="repoBusy || !repoConfigId" @click="createRepos">{{ repoBusy ? 'Creating…' : repoCount > 1 ? `Create ${repoCount} repos` : 'Create repo' }}</button>
@@ -466,6 +472,7 @@ async function mswSignIn(provider: OAuthBackend) {
 // size card per logged provider (same substep as the desktop wizard).
 const mswCloudFolders = ref<Record<string, string>>({})
 const mswCloudSizes = ref<Record<string, number>>({})
+const mswCloudPassphrases = ref<Record<string, string>>({})
 const mswCloudBusy = ref<Record<string, boolean>>({})
 const mswCloudDone = ref<Record<string, boolean>>({})
 const mswCloudMsgs = ref<Record<string, { ok: boolean; text: string }>>({})
@@ -519,9 +526,14 @@ async function mswProvisionCloudDisk(backend: SyncBackendType) {
   try {
     const folder = (mswCloudFolders.value[backend] ?? '').trim() || 'cybermanju-vault'
     const sizeMb = clampVaultSizeMb(mswCloudSizes.value[backend] ?? 512)
+    const passphrase = (mswCloudPassphrases.value[backend] ?? '')
+    if (!passphrase) {
+      mswCloudMsgs.value[backend] = { ok: false, text: 'Type a disk passphrase first — the disk is passphrase-encrypted on every device.' }
+      return
+    }
     const out = await store.createDiskWithRemote(cfg, {
       sizeMb,
-      passphrase: '',
+      passphrase,
       diskName: folder,
       token: await mswDiskTokenFor(cfg),
     })
@@ -592,6 +604,12 @@ async function createPartition(i: number) {
       if (!target) {
         partitionStatus.value[i] = 'draft'
         vaultMsg.value = `Provider is gone — pick another for “${norm.name}”.`
+        vaultOk.value = false
+        return
+      }
+      if (!norm.passphrase) {
+        partitionStatus.value[i] = 'draft'
+        vaultMsg.value = `Type a passphrase for “${norm.name}” — provider disks are passphrase-encrypted on every device.`
         vaultOk.value = false
         return
       }
@@ -774,6 +792,7 @@ const repoName = ref('cybermanju-vault')
 const repoCount = ref(1)
 const repoDiskMb = ref(512)
 const repoToken = ref('')
+const repoPassphrase = ref('')
 const repoBusy = ref(false)
 const repoMsg = ref('')
 const repoOk = ref<boolean | null>(null)
@@ -798,9 +817,10 @@ async function createRepos() {
     repoBusy.value = true
     repoSteps.value = [`creating Drive folder + disk…`]
     try {
+      if (!repoPassphrase.value) throw new Error('auth: a disk passphrase must not be empty — type one above first')
       const out = await store.createDiskWithRemote(cfg, {
         sizeMb: repoDiskMb.value,
-        passphrase: '',
+        passphrase: repoPassphrase.value,
         diskName: repoName.value.trim() || 'cybermanju-vault',
         token: typeof cfg.token === 'string' ? cfg.token : '',
       })
@@ -823,6 +843,7 @@ async function createRepos() {
   repoBusy.value = true
   repoSteps.value = []
   try {
+    if (!repoPassphrase.value) throw new Error('auth: a disk passphrase must not be empty — type one above first')
     for (let i = 0; i < n; i++) {
       const name = n === 1 ? repoName.value.trim() : `${repoName.value.trim()}-${i + 1}`
       if (!name) throw new Error('Give the repo a base name first.')
@@ -842,7 +863,7 @@ async function createRepos() {
         { ...cfg, repoName: repo.repoName, branch: repo.branch },
         {
           sizeMb: repoDiskMb.value,
-          passphrase: '',
+          passphrase: repoPassphrase.value,
           diskName: name,
           token: repoToken.value.trim() || (typeof cfg.token === 'string' ? cfg.token : ''),
         },

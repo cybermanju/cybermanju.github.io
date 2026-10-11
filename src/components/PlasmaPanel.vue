@@ -1,3 +1,8 @@
+<!-- CyberManju OS — PlasmaPanel (src/components/PlasmaPanel.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <footer class="plasma-panel" :class="{ docked: docked === '1' }">
     <!-- Launcher -->
@@ -276,7 +281,7 @@ const calBlanks = computed(() => {
 
 onMounted(() => {
   updateClock()
-  clockTimer = setInterval(updateClock, 1000)
+  clockTimer = setInterval(() => { if (!document.hidden) updateClock() }, 1000)
 })
 onUnmounted(() => {
   if (clockTimer) clearInterval(clockTimer)

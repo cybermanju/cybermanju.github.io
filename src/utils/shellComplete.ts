@@ -1,3 +1,4 @@
+// CyberManju OS — ShellComplete (src/utils/shellComplete.ts).
 // Tab-completion + history + ghost auto-suggest helpers for the cybsh
 // panels. Pure functions (vitest-covered); the components own the server
 // round-trip (`completeShellLine`) and the DOM overlay.

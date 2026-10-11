@@ -1,3 +1,8 @@
+<!-- CyberManju OS — UiDivider (src/components/ui/UiDivider.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: standalone (no imports). -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="ui-divider" :class="[`ui-divider--${align}`, { 'ui-divider--spaced': spaced }]">
     <span class="ui-divider__line" />

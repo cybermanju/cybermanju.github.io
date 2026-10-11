@@ -1,3 +1,8 @@
+// CyberManju OS — Database (crates/db/src/database.rs).
+// Role: redb store (cybermanju.db): tables + sessions/memories.
+// Exports: SYNC_RUN_HISTORY_LIMIT, Database, new, begin_read, begin_write, get_files_table, get_accounts_table, get_collections_table.
+// Integrates: anyhow, cybermanju_types, base64, rand_core.
+// Contracts: signals: AGENT-.
 use anyhow::Result;
 use cybermanju_types::schema::{AuditEntry, FileNode, FileVersion, ShareLink, TrashItem};
 use cybermanju_types::sync::{SyncFile, SyncRunRecord};

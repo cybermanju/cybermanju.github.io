@@ -1,3 +1,8 @@
+// CyberManju OS — Util test (cli/internal/util/util_test.go).
+// Role: CLI utilities.
+// Exports: TestParseSize, TestFormatBytes, TestCompareVersions, TestAssetName.
+// Integrates: testing, 512, 512M, 10G, 1.5G, 2T.
+// Contracts: none special (pure logic; errors bubble to caller).
 package util
 
 import "testing"

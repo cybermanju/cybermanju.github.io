@@ -1,3 +1,8 @@
+// CyberManju OS — Index (src/types/index.ts).
+// Role: module (see exports below).
+// Exports: ViewMode, PanelType, SidebarSection, ModuleInfo, EncryptionAlgo, CompressionType, AccountType, CollectionType.
+// Integrates: standalone (no imports).
+// Contracts: signals: AGENT-, integrity, conflict.
 export type ViewMode = 'grid' | 'list' | 'masonry' | 'columns' | 'details'
 export type PanelType = 'landing' | 'files' | 'preview' | 'encryption' | 'compression' | 'collections' | 'faces' | 'map' | 'code' | 'editor' | 'agent' | 'search' | 'style' | 'accounts' | 'loose-groups' | 'sync' | 'transfer' | 'webdash' | 'users' | 'dashboard' | 'settings' | 'trash' | 'activity' | 'favorites' | 'recent' | 'storage' | 'terminal' | 'processes' | 'disks' | 'devices' | 'permissions' | 'cron' | 'automation' | 'schedules' | 'secrets' | 'passwords' | 'credentials'
 export type SidebarSection = 'tree' | 'locations' | 'collections' | 'people' | 'styles' | 'loose' | 'users' | 'sync' | 'dashboard' | 'landing' | 'tools'

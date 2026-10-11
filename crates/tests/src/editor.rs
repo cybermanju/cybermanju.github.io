@@ -1,3 +1,4 @@
+// CyberManju OS — Editor (crates/tests/src/editor.rs).
 // Editor + code-parse REST contract.
 //
 // The VS-like editor reads and writes managed file bytes over REST

@@ -1,3 +1,8 @@
+// CyberManju OS — Disks (cli/cmd/disks.go).
+// Role: cybsh CLI command.
+// Exports: module root (see items below).
+// Integrates: fmt, os, github.com.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (

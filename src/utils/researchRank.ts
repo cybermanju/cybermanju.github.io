@@ -1,3 +1,4 @@
+// CyberManju OS — ResearchRank (src/utils/researchRank.ts).
 /**
  * Self-research ranking twin of `rank_research_files` in
  * `crates/agent/src/self_research.rs` — same alias bridge, same scoring

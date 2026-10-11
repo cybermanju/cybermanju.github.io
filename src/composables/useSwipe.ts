@@ -1,3 +1,8 @@
+// CyberManju OS — UseSwipe (src/composables/useSwipe.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: SwipeDirection, TapType, EdgeZone, PinchEvent, LongPressEvent, EdgeSwipeEvent, SwipeOptions, SwipePointer.
+// Integrates: vue, @/….
+// Contracts: none special (pure logic; errors bubble to caller).
 import { onMounted, onUnmounted, type Ref } from 'vue'
 import { swipeDirection, classifyTwoFingerGesture } from '@/utils/shellLayout'
 

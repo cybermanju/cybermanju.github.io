@@ -1,3 +1,4 @@
+// CyberManju OS — File placement.test (tests/frontend/file-placement.test.ts).
 // Unified-disk placement — home choice, mirrors, moves, key holder.
 import { describe, expect, it } from 'vitest'
 import {

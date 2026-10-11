@@ -1,3 +1,4 @@
+// CyberManju OS — Agent loop (crates/agent/src/agent_loop.rs).
 // Turn state machine: pure message bookkeeping around provider calls.
 //
 // The loop itself performs no I/O, spawns no threads, and holds no locks —

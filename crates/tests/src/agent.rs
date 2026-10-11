@@ -1,3 +1,4 @@
+// CyberManju OS — Agent (crates/tests/src/agent.rs).
 // Native agent REST contract: providers, keyless configs, sessions,
 // detached jobs with approvals, and the `cybsh ai` intercept.
 

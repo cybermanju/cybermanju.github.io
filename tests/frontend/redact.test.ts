@@ -1,3 +1,4 @@
+// CyberManju OS — Redact.test (tests/frontend/redact.test.ts).
 // Browser mirror of `crates/agent/src/redact.rs`: tool outputs and memories
 // must not carry secrets into the transcript (localStorage) or the provider.
 import { describe, expect, it } from 'vitest'

@@ -1,3 +1,8 @@
+// CyberManju OS — Theme (cli/internal/ui/theme.go).
+// Role: CLI terminal UI.
+// Exports: Gradient, CharmTheme, NewForm, Logo, Rule, Splash.
+// Integrates: fmt, strings, github.com.
+// Contracts: none special (pure logic; errors bubble to caller).
 package ui
 
 import (

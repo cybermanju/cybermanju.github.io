@@ -1,3 +1,8 @@
+<!-- CyberManju OS — UiEmpty (src/components/ui/UiEmpty.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: vue, @/…. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="ui-empty" :class="[`ui-empty--${size}`]">
     <div class="ui-empty__orb">

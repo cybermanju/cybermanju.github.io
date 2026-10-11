@@ -1,3 +1,4 @@
+// CyberManju OS — Wasm pkg (wasm-pkg.ts).
 // Freshness gate for the wasm-pack output (`crates/os-wasm/pkg`).
 //
 // pkg/ is a gitignored artifact: CI rebuilds it in the wasm job, but a local

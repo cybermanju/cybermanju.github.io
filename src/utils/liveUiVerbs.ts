@@ -1,3 +1,8 @@
+// CyberManju OS — LiveUiVerbs (src/utils/liveUiVerbs.ts).
+// Role: pure TS helpers (unit-tested, transport-agnostic).
+// Exports: tryLiveUiLine.
+// Integrates: @/….
+// Contracts: none special (pure logic; errors bubble to caller).
 import { THEMES, type ThemeId } from '@/ui/tokens'
 import { useTheme } from '@/composables/useTheme'
 import type { ShellResult } from '@/types'

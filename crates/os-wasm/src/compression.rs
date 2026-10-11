@@ -1,3 +1,8 @@
+// CyberManju OS — Compression (crates/os-wasm/src/compression.rs).
+// Role: browser volume backend (OPFS/localStorage) for Pages.
+// Exports: compress_lz4, decompress_lz4, compress_brotli, decompress_brotli, compress_lz4_probe_ratio, decompress_zstd.
+// Integrates: wasm_bindgen.
+// Contracts: none special (pure logic; errors bubble to caller).
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]

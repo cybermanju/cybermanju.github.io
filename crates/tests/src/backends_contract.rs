@@ -1,3 +1,4 @@
+// CyberManju OS — Backends contract (crates/tests/src/backends_contract.rs).
 // AGENT-4 item 10 — provider contract tests against a local mock server.
 //
 // Every HTTP assertion below runs against a mock bound to 127.0.0.1, so the

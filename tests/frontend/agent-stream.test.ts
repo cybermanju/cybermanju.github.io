@@ -1,3 +1,4 @@
+// CyberManju OS — Agent stream.test (tests/frontend/agent-stream.test.ts).
 // Agent SSE stream parsing — mirrors `crates/agent/src/stream.rs`.
 import { describe, expect, it } from 'vitest'
 import { isStreamDone, parseAgentStreamChunk } from '../../src/utils/agentStream'

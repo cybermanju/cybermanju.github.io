@@ -1,3 +1,8 @@
+// CyberManju OS — Shell gestures.test (tests/frontend/shell-gestures.test.ts).
+// Role: Vitest frontend suite.
+// Exports: module root (see items below).
+// Integrates: vitest, ../….
+// Contracts: none special (pure logic; errors bubble to caller).
 import { describe, expect, it } from 'vitest'
 import { useTouchConfig } from '../../src/composables/useTouchConfig'
 

@@ -1,3 +1,4 @@
+// CyberManju OS — Lib (crates/os/src/lib.rs).
 //! CyberManju OS layer (AGENT-8): the system terminal, task table, compute
 //! fan-out and the typed syscall boundary every app-facing surface sits on.
 //!

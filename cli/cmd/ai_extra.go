@@ -1,3 +1,8 @@
+// CyberManju OS — Ai extra (cli/cmd/ai_extra.go).
+// Role: cybsh CLI command.
+// Exports: module root (see items below).
+// Integrates: encoding, fmt, os, github.com, configId.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (

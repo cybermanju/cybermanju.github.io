@@ -58,7 +58,7 @@ fn build_status(state: &DashboardState, dashboard: &WebDashboard) -> DashboardSt
 }
 
 /// Get the current web dashboard status.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn dashboard_status(
     state: tauri::State<'_, Arc<DashboardState>>,
     dashboard: tauri::State<'_, Arc<WebDashboard>>,
@@ -67,7 +67,7 @@ pub fn dashboard_status(
 }
 
 /// Start the web dashboard on the configured port.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn start_dashboard(
     state: tauri::State<'_, Arc<DashboardState>>,
     dashboard: tauri::State<'_, Arc<WebDashboard>>,
@@ -89,7 +89,7 @@ pub fn start_dashboard(
 }
 
 /// Stop the web dashboard.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn stop_dashboard(
     state: tauri::State<'_, Arc<DashboardState>>,
     dashboard: tauri::State<'_, Arc<WebDashboard>>,

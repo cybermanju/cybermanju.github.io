@@ -1,3 +1,8 @@
+// CyberManju OS — Cfg (cli/cmd/cfg.go).
+// Role: cybsh CLI command.
+// Exports: module root (see items below).
+// Integrates: github.com.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (

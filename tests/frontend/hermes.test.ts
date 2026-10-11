@@ -1,3 +1,4 @@
+// CyberManju OS — Hermes.test (tests/frontend/hermes.test.ts).
 // Hermes insights — TS-side recommendations, pinned by tests.
 // Covers the five pillars in docs/HERMES-INSIGHTS.md: skills, memory,
 // permissions (strip/explain), sessions (fork/export/import), gateway.

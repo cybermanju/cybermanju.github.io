@@ -1,3 +1,8 @@
+// CyberManju OS — Update (cli/cmd/update.go).
+// Role: cybsh CLI command.
+// Exports: ghAsset, ghRelease.
+// Integrates: archive, compress, crypto, encoding, fmt, io.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (

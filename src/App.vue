@@ -1,4 +1,9 @@
 <script setup lang="ts">
+// CyberManju OS — App (src/App.vue).
+// Role: Vue view/component (desktop shell UI).
+// Exports: module root (see items below).
+// Integrates: @/…, vue, @vueuse.
+// Contracts: signals: AGENT-.
 import AppIcon from '@/components/AppIcon.vue'
 import { ref, provide, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue'
 import { useTitle, useBroadcastChannel } from '@vueuse/core'

@@ -1,3 +1,4 @@
+// CyberManju OS — UseMessages (src/composables/useMessages.ts).
 // CyberManju messages hub — social quick-launch + stored notifications.
 // Device-local IPC, never REST. Off-device the Rust layer refuses with
 // `unsupported:` (no mock messages).

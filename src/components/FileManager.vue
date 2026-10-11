@@ -1,3 +1,8 @@
+<!-- CyberManju OS — FileManager (src/components/FileManager.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue, @vueuse. -->
+<!-- Contracts: signals: engine. -->
 <template>
   <div ref="rootRef" class="fm" :class="{ 'fm-drop': isOverDropZone }" :style="{ '--fm-zoom': zoom }" tabindex="0" @keydown="onKeydown">
     <div class="fm-aurora" aria-hidden="true" />

@@ -4,7 +4,7 @@
 // stays addressable in one tree:
 //
 //   /host                  → the `-os` default dir (sdcard on Android, the
-//                            backend working directory on desktop)
+//                            user's home dir on desktop)
 //   /host/sdcard/Download  → that host dir (Android / Linux / macOS)
 //   /host/C:/Users/me      → that host dir (Windows)
 //   /host/                 → the filesystem root

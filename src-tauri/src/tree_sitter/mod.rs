@@ -251,7 +251,7 @@ pub fn extract_symbols(content: &str, language: &str) -> (Vec<Value>, ParseEngin
 /// `"engine"` is `"tree-sitter"` when a bundled grammar ran and
 /// `"heuristic"` for the other ~45 extensions or when parsing failed over
 /// to the regex path.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn parse_file(file_path: String) -> Result<Value, String> {
     let start = std::time::Instant::now();
 
@@ -283,7 +283,7 @@ pub fn parse_file(file_path: String) -> Result<Value, String> {
 }
 
 /// Parse a source file and return just the symbols array as JSON values.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_symbols(file_path: String) -> Result<Vec<Value>, String> {
     let content = std::fs::read_to_string(&file_path)
         .map_err(|e| format!("integrity: cannot read file {}: {}", file_path, e))?;
@@ -306,7 +306,7 @@ pub fn get_symbols(file_path: String) -> Result<Vec<Value>, String> {
 /// `POST /api/code/parse` serves the same shape for web/Pages clients.
 /// Same real-engine dispatch as `parse_file`; `file_name` only drives
 /// language detection.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn parse_text(file_name: String, content: String) -> Result<Value, String> {
     const MAX_CONTENT_BYTES: usize = 1024 * 1024;
     if content.len() > MAX_CONTENT_BYTES {

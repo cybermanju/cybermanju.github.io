@@ -1,3 +1,8 @@
+// CyberManju OS — DeploymentScope (src/utils/deploymentScope.ts).
+// Role: pure TS helpers (unit-tested, transport-agnostic).
+// Exports: DEVELOP_STORAGE_PREFIX, IS_DEVELOP_PREVIEW, DEPLOYMENT_STORAGE_PREFIX, deploymentStorageEventKey.
+// Integrates: standalone (no imports).
+// Contracts: none special (pure logic; errors bubble to caller).
 export const DEVELOP_STORAGE_PREFIX = 'cybermanju:develop:'
 
 export const IS_DEVELOP_PREVIEW = import.meta.env.BASE_URL === '/develop/'

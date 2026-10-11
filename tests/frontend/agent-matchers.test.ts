@@ -1,3 +1,4 @@
+// CyberManju OS — Agent matchers.test (tests/frontend/agent-matchers.test.ts).
 // Agent matcher parity (mirrors Rust `config::{match_wildcard,match_glob}`
 // and `decide`). If these drift from the native semantics, the same ruleset
 // allows a tool in one transport and denies it in another.

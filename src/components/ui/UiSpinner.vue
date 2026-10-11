@@ -1,3 +1,8 @@
+<!-- CyberManju OS — UiSpinner (src/components/ui/UiSpinner.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: standalone (no imports). -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <span
     class="ui-spinner"

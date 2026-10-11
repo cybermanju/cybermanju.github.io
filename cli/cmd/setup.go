@@ -1,3 +1,8 @@
+// CyberManju OS — Setup (cli/cmd/setup.go).
+// Role: cybsh CLI command.
+// Exports: module root (see items below).
+// Integrates: fmt, github.com, Next:, cyb.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (

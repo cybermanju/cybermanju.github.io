@@ -1,3 +1,8 @@
+// CyberManju OS — Launcher.test (tests/frontend/launcher.test.ts).
+// Role: Vitest frontend suite.
+// Exports: module root (see items below).
+// Integrates: vitest, @/….
+// Contracts: none special (pure logic; errors bubble to caller).
 import { describe, expect, it } from 'vitest'
 import {
   countUnread,

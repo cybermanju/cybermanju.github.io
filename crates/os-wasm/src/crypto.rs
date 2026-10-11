@@ -1,3 +1,8 @@
+// CyberManju OS — Crypto (crates/os-wasm/src/crypto.rs).
+// Role: browser volume backend (OPFS/localStorage) for Pages.
+// Exports: blake3_hash, chacha20_generate_key, chacha20_generate_nonce, chacha20_encrypt, chacha20_decrypt, hkdf_derive, hmac_sha512, x25519_generate_keypair.
+// Integrates: hkdf, hmac, ml_dsa, sha2, signature, wasm_bindgen.
+// Contracts: signals: engine.
 use chacha20poly1305::{
     aead::{Aead, KeyInit, OsRng},
     ChaCha20Poly1305, Nonce,

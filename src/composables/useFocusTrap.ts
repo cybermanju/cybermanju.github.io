@@ -1,3 +1,8 @@
+// CyberManju OS — UseFocusTrap (src/composables/useFocusTrap.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: useFocusTrap.
+// Integrates: vue.
+// Contracts: none special (pure logic; errors bubble to caller).
 import { ref, watch, onUnmounted, type Ref } from 'vue'
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'

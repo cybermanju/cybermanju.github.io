@@ -13,7 +13,7 @@ use cybermanju_disk::{disk, volume, CheckReport, DiskRow, VolumeDf};
 use crate::AppState;
 
 /// Every `.cybermanju` disk this host knows about, attached or not.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_disks(state: State<'_, AppState>) -> Result<Vec<DiskRow>, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     disk::list(&db)
@@ -23,7 +23,7 @@ pub fn list_disks(state: State<'_, AppState>) -> Result<Vec<DiskRow>, String> {
 ///
 /// `size_bytes` is the choosable size: `0`, sub-block sizes and sizes the
 /// provider cannot actually back are refused here, not later.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_disk(
     config_id: String,
     size_bytes: u64,
@@ -35,7 +35,7 @@ pub fn create_disk(
 }
 
 /// Unlock a disk: verify its sealed container and start counting it in `df`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn attach_disk(
     id: String,
     passphrase: String,
@@ -46,14 +46,14 @@ pub fn attach_disk(
 }
 
 /// Seal a disk's container and take it out of `df`. Idempotent.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn detach_disk(id: String, state: State<'_, AppState>) -> Result<DiskRow, String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
     disk::detach(&db, &id)
 }
 
 /// Grow (or shrink, when the data still fits) a disk's choosable capacity.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn resize_disk(
     id: String,
     size_bytes: u64,
@@ -64,7 +64,7 @@ pub fn resize_disk(
 }
 
 /// `df(1)` for the merged volume — the "more providers, more space" number.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn volume_df(state: State<'_, AppState>) -> Result<VolumeDf, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     volume::df(&db)
@@ -72,14 +72,14 @@ pub fn volume_df(state: State<'_, AppState>) -> Result<VolumeDf, String> {
 
 /// fsck: superblock checksum, catalog vs. sealed container, orphans, and
 /// whether the disk is merely locked.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn check_disk(id: String, state: State<'_, AppState>) -> Result<CheckReport, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     disk::check(&db, &id)
 }
 
 /// Designate the single key-holder disk (clears the flag on all others).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_disk_key_holder(id: String, state: State<'_, AppState>) -> Result<DiskRow, String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
     disk::set_key_holder(&db, &id)

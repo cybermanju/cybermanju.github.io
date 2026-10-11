@@ -1,3 +1,8 @@
+// CyberManju OS — Settings appearance.test (tests/frontend/settings-appearance.test.ts).
+// Role: Vitest frontend suite.
+// Exports: module root (see items below).
+// Integrates: node:fs, vitest.
+// Contracts: none special (pure logic; errors bubble to caller).
 import fs from 'node:fs'
 import { describe, expect, it } from 'vitest'
 

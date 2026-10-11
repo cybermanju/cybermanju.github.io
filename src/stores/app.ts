@@ -1,3 +1,8 @@
+// CyberManju OS — App (src/stores/app.ts).
+// Role: Pinia app store.
+// Exports: useAppStore.
+// Integrates: pinia, vue, @/….
+// Contracts: signals: AGENT-, engine, auth.
 // CyberManju OS — Pinia Store
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
@@ -489,6 +494,9 @@ export const useAppStore = defineStore('cybermanju', () => {
       autoRefreshTimer = setInterval(async () => {
         // Never poll behind the login gate — each tick would 401.
         if (needsAuth.value) return
+        // Same for a hidden window: no reader, no reason to run seven
+        // backend fetches; the first visible tick refetches everything.
+        if (typeof document !== 'undefined' && document.hidden) return
         await Promise.allSettled([
           fetchFiles(),
           fetchAccounts(),
@@ -620,7 +628,7 @@ export const useAppStore = defineStore('cybermanju', () => {
             const mount = mounts.find(m => m.id === parsed.mountId)
             const cfg = mount && syncConfigs.value.find(c => c.id === mount.configId)
             if (!cfg) throw canalErr
-            const remote = await invoke<RemoteFile[]>('list_remote_files', { config: cfg, prefix: parsed.remotePath })
+            const remote = await invoke<RemoteFile[]>('list_remote_files', { config: await withLiveToken(cfg), prefix: parsed.remotePath })
             const { remoteFilesToProviderNodes } = await import('@/utils/providerBrowse')
             files.value = remoteFilesToProviderNodes(remote, parsed.mountId, String(path), canal.providerPathFor)
           }
@@ -1204,13 +1212,38 @@ export const useAppStore = defineStore('cybermanju', () => {
   }
 
   /**
+   * Merge the live Supabase OAuth session token into a config row that has
+   * none saved. Desktop Rust backends resolve credentials as (credential
+   * file → `config.token`) and never see browser-session tokens otherwise —
+   * so Drive list/probe/upload fails with `auth: no token` on AppImage while
+   * the Pages build (direct Drive fetch with the session token) works.
+   * Returns the row unchanged when no session matches.
+   */
+  async function withLiveToken(config: SyncConfig): Promise<SyncConfig> {
+    try {
+      if (typeof config.token === 'string' && config.token.trim()) return config
+      const backend = String(config.backendType ?? '')
+      if (backend !== 'googleDrive' && backend !== 'github' && backend !== 'gitlab') return config
+      const { supabaseSession, supabaseSessionProvider, supabaseProviderFor } = await import('@/composables/useSupabase')
+      const session = await supabaseSession().catch(() => null)
+      const prov = session ? supabaseSessionProvider(session) : null
+      if (prov && session?.provider_token && supabaseProviderFor(backend) === prov) {
+        return { ...config, token: session.provider_token }
+      }
+    } catch {
+      // Session unreadable — the backend error explains itself.
+    }
+    return config
+  }
+
+  /**
    * Quiet connectivity probe — same `test_sync_connection` call the Sync
    * panel uses, but without toast spam so the Account Manager can poll it
    * while an OAuth browser flow completes.
    */
   async function probeSyncConnection(config: SyncConfig): Promise<{ ok: boolean; detail: string }> {
     try {
-      const ok = await invoke<boolean>('test_sync_connection', { config })
+      const ok = await invoke<boolean>('test_sync_connection', { config: await withLiveToken(config) })
       return ok
         ? { ok: true, detail: 'provider answered' }
         : { ok: false, detail: 'provider answered false — check token / OAuth, then retry' }
@@ -1282,7 +1315,7 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function testSyncConnection(config: SyncConfig) {
     try {
-      return await invoke<boolean>('test_sync_connection', { config })
+      return await invoke<boolean>('test_sync_connection', { config: await withLiveToken(config) })
     } catch (e) {
       notifyError('Sync connection test failed', e)
       return false
@@ -1300,7 +1333,7 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function listRemoteFiles(config: SyncConfig, prefix: string) {
     try {
-      return await invoke<RemoteFile[]>('list_remote_files', { config, prefix })
+      return await invoke<RemoteFile[]>('list_remote_files', { config: await withLiveToken(config), prefix })
     } catch (e) {
       notifyError('Failed to list remote files', e)
       return []
@@ -1448,7 +1481,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     files: Array<{ path: string; contentBase64: string }>,
   ) {
     try {
-      return await invoke<string[]>('seed_repo_files', { config, files })
+      return await invoke<string[]>('seed_repo_files', { config: await withLiveToken(config), files })
     } catch (e) {
       notifyError('Repo seed failed', e)
       return null
@@ -1458,7 +1491,7 @@ export const useAppStore = defineStore('cybermanju', () => {
   /** Write one file to a provider remote path (Drive folders are created server-side). */
   async function uploadRemoteFile(config: SyncConfig, remotePath: string, contentBase64: string) {
     try {
-      return await invoke<string>('upload_remote_file', { config, remotePath, contentBase64 })
+      return await invoke<string>('upload_remote_file', { config: await withLiveToken(config), remotePath, contentBase64 })
     } catch (e) {
       notifyError('Remote upload failed', e)
       return null
@@ -1477,7 +1510,17 @@ export const useAppStore = defineStore('cybermanju', () => {
     opts: { sizeMb?: number; passphrase?: string; diskName?: string; token?: string; vaultBytes?: Uint8Array | null },
   ) {
     const { provisionDiskWithRemote } = await import('@/utils/diskProvision')
-    const token = opts.token?.trim() || (typeof config.token === 'string' ? config.token.trim() : '')
+    let token = opts.token?.trim() || (typeof config.token === 'string' ? config.token.trim() : '')
+    if (!token) {
+      // Callers that only pass the saved row (no draft/session lookup) still
+      // get the live OAuth grant — otherwise the Drive seed 401s on desktop
+      // while static direct writes succeed.
+      token = (await withLiveToken(config)).token?.trim() || ''
+    }
+    if (!opts.passphrase) {
+      notifyError('Failed to create disk', 'auth: a disk passphrase must not be empty — type one on the disk card first')
+      throw new Error('auth: a disk passphrase must not be empty — type one on the disk card first')
+    }
     const out = await provisionDiskWithRemote({
       config,
       sizeMb: opts.sizeMb ?? 512,
@@ -1488,6 +1531,10 @@ export const useAppStore = defineStore('cybermanju', () => {
       useDirectSeed: isStaticHost(),
       createDisk: async (configId, sizeBytes, pass) => {
         try {
+          if (!pass) {
+            notifyError('Failed to create disk', 'auth: a disk passphrase must not be empty — type one on the disk card first')
+            return null
+          }
           const row = await invoke<DiskRow>('create_disk', { configId, sizeBytes, passphrase: pass })
           return row ? { id: (row as DiskRow).id, name: (row as DiskRow).name } : null
         } catch (e) {
@@ -1503,10 +1550,25 @@ export const useAppStore = defineStore('cybermanju', () => {
         }
       },
       provisionDeps: {
+        // Desktop/Docker Rust backends read the token OUT of the config —
+        // the OAuth session token never reaches them otherwise. Merge the
+        // resolved token in when the saved row has none (Drive remote seed
+        // 401s without this while static-host direct writes succeed).
         uploadFile: async (cfg, remotePath, contentBase64) =>
-          invoke<string>('upload_remote_file', { config: cfg, remotePath, contentBase64 }),
+          invoke<string>('upload_remote_file', {
+            config: token && !String((cfg as SyncConfig).token ?? '').trim()
+              ? { ...cfg, token }
+              : cfg,
+            remotePath,
+            contentBase64,
+          }),
         seedFiles: async (cfg, files) =>
-          invoke<string[]>('seed_repo_files', { config: cfg, files }),
+          invoke<string[]>('seed_repo_files', {
+            config: token && !String((cfg as SyncConfig).token ?? '').trim()
+              ? { ...cfg, token }
+              : cfg,
+            files,
+          }),
         createRepo: async (input) => createProviderRepo({
           backendType: input.backendType,
           token: input.token || undefined,
@@ -2130,6 +2192,9 @@ export const useAppStore = defineStore('cybermanju', () => {
     if (!isStaticHost()) return
     if (scheduleTickTimer) clearInterval(scheduleTickTimer)
     scheduleTickTimer = setInterval(() => {
+      // Hidden window: nobody can act on a due schedule row, and the
+      // visibilitychange hook above refires it the moment we come back.
+      if (typeof document !== 'undefined' && document.hidden) return
       void tickSchedules()
     }, 30_000)
     if (!scheduleVisibilityHooked && typeof document !== 'undefined') {
@@ -2548,6 +2613,10 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function createDisk(configId: string, sizeBytes: number, passphrase: string) {
     try {
+      if (!passphrase) {
+        notifyError('Failed to create disk', 'auth: a disk passphrase must not be empty — type one on the disk card first')
+        return null
+      }
       const disk = await invoke<DiskRow>('create_disk', { configId, sizeBytes, passphrase })
       await fetchDisks()
       await fetchOsDf()

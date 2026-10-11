@@ -1,3 +1,8 @@
+// CyberManju OS — Install (src/ui/install.ts).
+// Role: shell theme/layout tokens.
+// Exports: uiComponents, installUi.
+// Integrates: vue, @/….
+// Contracts: none special (pure logic; errors bubble to caller).
 import type { App, Component } from 'vue'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'

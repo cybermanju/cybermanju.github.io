@@ -1,3 +1,8 @@
+// CyberManju OS — Batch (crates/web/src/api/batch.rs).
+// Role: REST dashboard (:3456): routes, auth, security headers.
+// Exports: delete, encrypt, compress.
+// Integrates: cybermanju_db, cybermanju_types.
+// Contracts: none special (pure logic; errors bubble to caller).
 // CyberManju OS — Batch operations (shared by Tauri IPC and REST)
 
 use cybermanju_db::Database;

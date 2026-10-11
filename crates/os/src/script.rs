@@ -1,3 +1,4 @@
+// CyberManju OS — Script (crates/os/src/script.rs).
 //! `.cybsh` scripts (interpreted automation, no build step).
 //!
 //! A `.cybsh` file is a flat list of statements run by `run <file.cybsh>`

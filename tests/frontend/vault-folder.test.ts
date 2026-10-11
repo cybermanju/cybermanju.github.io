@@ -1,3 +1,4 @@
+// CyberManju OS — Vault folder.test (tests/frontend/vault-folder.test.ts).
 // One-folder vault layout — loop guards (pure, no browser needed).
 import { describe, expect, it } from 'vitest'
 import {

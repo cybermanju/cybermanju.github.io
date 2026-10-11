@@ -93,12 +93,12 @@ this namespace.
 ## 4a2. Host filesystem (`-os` in cybsh, native app only)
 
 The same file verbs transpose onto the host (device) filesystem with `-os`:
-shared storage on Android (`/sdcard`), the process working directory on
-desktop. Both operands of `cp -os`/`mv -os` are host paths; in `-os` mode
+the user's home directory on desktop (`$HOME` / `%USERPROFILE%`), shared
+storage on Android (`/sdcard`). Both operands of `cp -os`/`mv -os` are host paths; in `-os` mode
 even a literal `/providers/…` is a host path.
 
 ```bash
-ls -os                                # shared-storage root (sdcard on Android)
+ls -os                                # home dir on desktop (sdcard on Android)
 ls -os /sdcard/Download               # absolute or host-relative paths
 cat -os /sdcard/a.txt                 # 1 MiB print cap (cp it to read fully)
 cp -os /sdcard/a.txt /vault-drop/a.txt

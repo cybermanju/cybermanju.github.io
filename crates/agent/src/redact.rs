@@ -1,3 +1,4 @@
+// CyberManju OS — Redact (crates/agent/src/redact.rs).
 // Secret redaction for tool outputs (omp-style stream hygiene).
 //
 // Tool results flow back into the transcript, which persists to disk and

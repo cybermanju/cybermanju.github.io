@@ -1,3 +1,8 @@
+// CyberManju OS — ProviderText (src/utils/providerText.ts).
+// Role: pure TS helpers (unit-tested, transport-agnostic).
+// Exports: MAX_PROVIDER_TEXT_BYTES, isTextEditableProviderName, decodeProviderText.
+// Integrates: standalone (no imports).
+// Contracts: none special (pure logic; errors bubble to caller).
 export const MAX_PROVIDER_TEXT_BYTES = 1024 * 1024
 
 const TEXT_EXTENSIONS = new Set([

@@ -1,3 +1,4 @@
+// CyberManju OS — Supa (cli/internal/supa/supa.go).
 // Package supa speaks Supabase Auth + provider read APIs directly — the
 // limited, dashboard-less backend. READ-ONLY by construction: every
 // provider call here is a GET. Encrypted vault blobs stay opaque in this

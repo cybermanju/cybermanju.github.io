@@ -1,3 +1,8 @@
+// CyberManju OS — Faces (src-tauri/src/commands/faces.rs).
+// Role: Tauri IPC commands (19 modules, 130 handlers).
+// Exports: FaceDetectionResult, ReclusterResult, detect_faces, detect_faces_batch_cmd, recluster_faces, rename_face_group, merge_face_groups, delete_face_group.
+// Integrates: chrono, redb, serde, tauri.
+// Contracts: signals: engine.
 use chrono::Utc;
 use redb::ReadableTable;
 use serde::{Deserialize, Serialize};
@@ -82,7 +87,7 @@ pub struct ReclusterResult {
 }
 
 /// Detect faces on a single file and assign to groups.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn detect_faces(
     file_id: String,
     state: State<'_, AppState>,
@@ -249,7 +254,7 @@ pub fn detect_faces(
 }
 
 /// Batch detect faces across all image files.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn detect_faces_batch_cmd(state: State<'_, AppState>) -> Result<ReclusterResult, String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
 
@@ -419,7 +424,7 @@ pub fn detect_faces_batch_cmd(state: State<'_, AppState>) -> Result<ReclusterRes
 }
 
 /// Re-cluster all faces using a specific strategy.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn recluster_faces(
     strategy: Option<String>,
     state: State<'_, AppState>,
@@ -611,7 +616,7 @@ pub fn recluster_faces(
 }
 
 /// Rename a face group.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn rename_face_group(
     group_id: String,
     new_name: String,
@@ -645,7 +650,7 @@ pub fn rename_face_group(
 }
 
 /// Merge two face groups into one.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn merge_face_groups(
     source_group_id: String,
     target_group_id: String,
@@ -738,7 +743,7 @@ pub fn merge_face_groups(
 }
 
 /// Delete a face group.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_face_group(group_id: String, state: State<'_, AppState>) -> Result<(), String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
 
@@ -790,7 +795,7 @@ pub fn delete_face_group(group_id: String, state: State<'_, AppState>) -> Result
 }
 
 /// Find similar faces to a given face group.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn find_similar_faces(
     group_id: String,
     threshold: Option<f32>,
@@ -832,7 +837,7 @@ pub fn find_similar_faces(
 }
 
 /// List all face groups from the database.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_face_groups(state: State<'_, AppState>) -> Result<Vec<FaceGroup>, String> {
     let db = state.db.read().map_err(|e| e.to_string())?;
     let tx = db.begin_read().map_err(|e| e.to_string())?;
@@ -851,7 +856,7 @@ pub fn list_face_groups(state: State<'_, AppState>) -> Result<Vec<FaceGroup>, St
 }
 
 /// Get all files that belong to a specific face group.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_group_files(
     group_id: String,
     state: State<'_, AppState>,

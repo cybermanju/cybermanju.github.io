@@ -1,3 +1,8 @@
+<!-- CyberManju OS — UiMenu (src/components/ui/UiMenu.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: MenuItem. -->
+<!-- Integrates: @/…. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="ui-menu" role="menu" :aria-label="ariaLabel">
     <template v-for="item in items" :key="item.id">

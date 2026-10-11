@@ -1015,6 +1015,16 @@ pub fn db_dispatch(op: &str, args_json: &str) -> String {
         )),
         "disks.create" => {
             let config_id = arg(&args, "configId")?.to_string();
+            // Parity with `cybermanju-disk::create`: the sealed container is
+            // passphrase-derived, so an empty passphrase must fail here too
+            // instead of creating a disk on Pages that AppImage then refuses
+            // to attach.
+            let passphrase = args.get("passphrase").and_then(|v| v.as_str()).unwrap_or("");
+            if passphrase.is_empty() {
+                return Err(
+                    "unsupported: a disk passphrase must not be empty".to_string(),
+                );
+            }
             let size = args
                 .get("sizeBytes")
                 .and_then(|v| v.as_u64())

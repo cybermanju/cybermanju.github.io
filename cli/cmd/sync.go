@@ -1,3 +1,8 @@
+// CyberManju OS — Sync (cli/cmd/sync.go).
+// Role: cybsh CLI command.
+// Exports: module root (see items below).
+// Integrates: fmt, strings, time, github.com, local, id.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (

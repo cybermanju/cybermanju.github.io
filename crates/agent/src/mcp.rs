@@ -1,3 +1,4 @@
+// CyberManju OS — Mcp (crates/agent/src/mcp.rs).
 // MCP (Model Context Protocol) wire shapes — pure JSON in/out.
 //
 // Covers what the runtime needs: JSON-RPC envelopes, the initialize

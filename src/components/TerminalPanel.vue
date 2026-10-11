@@ -1,4 +1,9 @@
 <script setup lang="ts">
+// CyberManju OS — TerminalPanel (src/components/TerminalPanel.vue).
+// Role: Vue desktop UI: windows, panels, overlays.
+// Exports: module root (see items below).
+// Integrates: @/…, vue.
+// Contracts: signals: AGENT-.
 import AppIcon from '@/components/AppIcon.vue'
 // CyberManju OS — cybsh terminal (AGENT-8)
 //

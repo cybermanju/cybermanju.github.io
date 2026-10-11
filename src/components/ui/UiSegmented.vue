@@ -1,3 +1,8 @@
+<!-- CyberManju OS — UiSegmented (src/components/ui/UiSegmented.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: SegmentOption. -->
+<!-- Integrates: @/…. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div class="ui-segmented" role="group" :aria-label="ariaLabel">
     <button

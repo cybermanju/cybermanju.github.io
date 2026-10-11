@@ -1,3 +1,4 @@
+// CyberManju OS — Stars.test (tests/frontend/stars.test.ts).
 // Persisted favorites — star-id list codec (mirrors localStorage + `.cybermanju` kv).
 import { describe, expect, it } from 'vitest'
 import { parseStarIds, serializeStarIds } from '../../src/utils/stars'

@@ -1,3 +1,8 @@
+// CyberManju OS — Share (cli/cmd/share.go).
+// Role: cybsh CLI command.
+// Exports: module root (see items below).
+// Integrates: github.com, fileId.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (

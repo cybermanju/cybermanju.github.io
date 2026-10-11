@@ -1,3 +1,8 @@
+// CyberManju OS — UseWindowUi (src/composables/useWindowUi.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: WindowUiContext, WindowUiKey, createWindowUi, provideWindowUi, useWindowUi, peekWindowUi.
+// Integrates: @/….
+// Contracts: none special (pure logic; errors bubble to caller).
 import {
   computed,
   inject,

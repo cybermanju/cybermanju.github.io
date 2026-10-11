@@ -1,3 +1,4 @@
+// CyberManju OS — UseVoiceInput (src/composables/useVoiceInput.ts).
 // Voice input for the agent prompt, the code editor, and cybsh.
 //
 // Wraps VueUse `useSpeechRecognition` with a mode-aware correction

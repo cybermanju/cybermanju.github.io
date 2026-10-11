@@ -1,3 +1,8 @@
+<!-- CyberManju OS — CanvasEngine (src/components/CanvasEngine.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <canvas ref="canvasRef" class="canvas-engine" />
 </template>
@@ -26,6 +31,41 @@ let rotX = 0, rotY = 0, rotZ = 0
 let lissajousPhase = 0
 let particles: { x: number; y: number; vx: number; vy: number; life: number }[] = []
 let scanlineOffset = 0
+
+// Tiles built ONCE (on mount / resize) so the per-frame cost is a handful of
+// pattern fills instead of thousands of primitive fills — same pixels, same
+// alpha, ~3 orders of magnitude fewer draw calls.
+const CHECKER_TILE = 40 // size * 2 — one lattice cell of the checkerboard
+let checkerPattern: CanvasPattern | null = null
+let scanPattern: CanvasPattern | null = null
+
+function buildTiles() {
+  if (!ctx) return
+
+  // One 40×40 cell: solid square top-left + diagonal square bottom-right,
+  // exactly the pair the old nested fillRect loop painted per cell.
+  const c = document.createElement('canvas')
+  c.width = CHECKER_TILE
+  c.height = CHECKER_TILE
+  const cc = c.getContext('2d')
+  if (cc) {
+    cc.fillStyle = 'rgba(255, 255, 255, 0.03)'
+    cc.fillRect(0, 0, CHECKER_TILE / 2, CHECKER_TILE / 2)
+    cc.fillRect(CHECKER_TILE / 2, CHECKER_TILE / 2, CHECKER_TILE / 2, CHECKER_TILE / 2)
+  }
+  checkerPattern = ctx.createPattern(c, 'repeat')
+
+  // One 1×4 cell: a single 1px row of alpha 0.015 → the CRT scanline ladder.
+  const s = document.createElement('canvas')
+  s.width = 1
+  s.height = 4
+  const sc = s.getContext('2d')
+  if (sc) {
+    sc.fillStyle = 'rgba(255, 255, 255, 0.015)'
+    sc.fillRect(0, 0, 1, 1)
+  }
+  scanPattern = ctx.createPattern(s, 'repeat')
+}
 
 function resize() {
   const c = canvasRef.value
@@ -98,16 +138,18 @@ function drawWireframe() {
   }
   ctx.strokeStyle = '#FFFFFF'
   ctx.lineWidth = 1.5
+  // One path holding every edge, one stroke (disjoint subpaths render the
+  // same as N separate strokes — without N begin/stroke flushes per frame).
+  ctx.beginPath()
   for (let i = 0; i < edges.length; i += 2) {
     const p1 = projected[edges[i]]
-    const p2 = projected[edges[i+1]]
-    ctx.beginPath()
+    const p2 = projected[edges[i + 1]]
     ctx.moveTo(p1[0], p1[1])
     ctx.lineTo(p2[0], p2[1])
-    ctx.stroke()
   }
+  ctx.stroke()
+  ctx.fillStyle = '#FFFFFF'
   for (const p of projected) {
-    ctx.fillStyle = '#FFFFFF'
     ctx.fillRect(p[0] - 2, p[1] - 2, 4, 4)
   }
 }
@@ -144,6 +186,9 @@ function drawLissajous() {
 
 function drawParticles() {
   if (!ctx) return
+  // One fillStyle for the whole batch; per-particle brightness rides on
+  // globalAlpha (same source-over result, no per-particle style parsing).
+  ctx.fillStyle = '#FFFFFF'
   for (const p of particles) {
     p.x += p.vx
     p.y += p.vy
@@ -155,10 +200,10 @@ function drawParticles() {
       p.vy = -(1 + Math.random() * 2)
       p.life = 0.5 + Math.random() * 0.5
     }
-    const alpha = Math.max(0, p.life)
-    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`
+    ctx.globalAlpha = Math.max(0, p.life)
     ctx.fillRect(p.x, p.y, 3, 3)
   }
+  ctx.globalAlpha = 1
 }
 
 function drawOpArtRings() {
@@ -169,34 +214,35 @@ function drawOpArtRings() {
   const cy = h / 2
   const maxR = Math.sqrt(w * w + h * h) / 2 + 50
   const offset = (t * 0.3) % 40
+  // One path, one stroke: N subpaths render identically to N strokes but
+  // avoid N style/state flushes per frame.
+  ctx.beginPath()
   for (let r = offset; r < maxR; r += 40) {
-    ctx.beginPath()
+    ctx.moveTo(cx + r, cy)
     ctx.arc(cx, cy, r, 0, Math.PI * 2)
-    ctx.stroke()
   }
+  ctx.stroke()
 }
 
 function drawCheckerboard() {
-  if (!ctx) return
-  const size = 20
-  const offX = (t * 0.5) % (size * 2)
-  const offY = (t * 0.3) % (size * 2)
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.03)'
-  for (let x = -size * 2 + offX; x < w + size * 2; x += size * 2) {
-    for (let y = -size * 2 + offY; y < h + size * 2; y += size * 2) {
-      ctx.fillRect(x, y, size, size)
-      ctx.fillRect(x + size, y + size, size, size)
-    }
-  }
+  if (!ctx || !checkerPattern) return
+  const offX = (t * 0.5) % CHECKER_TILE
+  const offY = (t * 0.3) % CHECKER_TILE
+  ctx.save()
+  ctx.translate(offX - CHECKER_TILE, offY - CHECKER_TILE)
+  ctx.fillStyle = checkerPattern
+  ctx.fillRect(0, 0, w + CHECKER_TILE * 2, h + CHECKER_TILE * 2)
+  ctx.restore()
 }
 
 function drawScanlines() {
-  if (!ctx) return
+  if (!ctx || !scanPattern) return
   scanlineOffset = (scanlineOffset + 2) % 4
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.015)'
-  for (let y = scanlineOffset; y < h; y += 4) {
-    ctx.fillRect(0, y, w, 1)
-  }
+  ctx.save()
+  ctx.translate(0, scanlineOffset)
+  ctx.fillStyle = scanPattern
+  ctx.fillRect(0, -4, w, h + 8)
+  ctx.restore()
 }
 
 function draw() {
@@ -215,7 +261,6 @@ function draw() {
   const modeCycle = Math.floor(t / 300) % 3
   switch (modeCycle) {
     case 0:
-      initWireframe()
       drawWireframe()
       break
     case 1:
@@ -248,18 +293,27 @@ function stop() {
   }
 }
 
+/** Backgrounded app → stop burning frames on an invisible wallpaper. */
+function onVisibility() {
+  if (document.hidden) stop()
+  else if (props.enabled) start()
+}
+
 onMounted(() => {
   const c = canvasRef.value
   if (c) {
     ctx = c.getContext('2d')
   }
+  buildTiles()
   if (props.enabled) start()
   window.addEventListener('resize', resize)
+  document.addEventListener('visibilitychange', onVisibility)
 })
 
 onUnmounted(() => {
   stop()
   window.removeEventListener('resize', resize)
+  document.removeEventListener('visibilitychange', onVisibility)
 })
 
 watch(() => props.enabled, (v) => {

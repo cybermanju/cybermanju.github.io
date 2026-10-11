@@ -1,3 +1,8 @@
+// CyberManju OS — Search (src-tauri/src/commands/search.rs).
+// Role: Tauri IPC commands (19 modules, 130 handlers).
+// Exports: search_files, search_files_paginated, suggest.
+// Integrates: cybermanju_web, tauri.
+// Contracts: none special (pure logic; errors bubble to caller).
 // CyberManju OS — Search commands (thin wrappers over the shared API)
 
 use std::sync::Arc;
@@ -15,7 +20,7 @@ pub use cybermanju_web::api::search_api::PaginatedHits as PaginatedSearchResult;
 
 /// Search files using the shared full-text index (falls back to a substring
 /// scan when no index is attached).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn search_files(
     query: String,
     limit: Option<usize>,
@@ -28,7 +33,7 @@ pub fn search_files(
 }
 
 /// Search files with pagination (offset + limit) and total count.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn search_files_paginated(
     query: String,
     limit: usize,
@@ -41,7 +46,7 @@ pub fn search_files_paginated(
 }
 
 /// Get type-ahead suggestions for a prefix query.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn suggest(
     prefix: String,
     limit: usize,

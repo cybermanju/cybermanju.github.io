@@ -46,3 +46,18 @@ incremental = true
 
 [profile.test.package."*"]
 debug = false
+
+# ─── Release runtime ──────────────────────────────────────────────────
+# Cargo's release default ships with `lto = "off"` and `codegen-units = 16`:
+# across ~760 crates that measurably lessens inlining (every command handler,
+# every crypto/hash/compression hot loop runs on this code) and inflates the
+# binary — which the AppImage has to squeeze and then decompress at launch.
+#
+# Thin LTO + a single codegen unit buys back the cross-crate inlining at a
+# link-time cost CI already tolerates. `opt-level = 3` stays explicit so a
+# future `s`-flavoured size tweak can never silently slow the runtime down.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+

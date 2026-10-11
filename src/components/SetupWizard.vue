@@ -186,6 +186,12 @@
                 </label>
               </div>
               <div v-if="sp.config" class="sw-row">
+                <label class="sw-field grow">
+                  <span class="sw-label">Disk passphrase (required — encrypts the disk)</span>
+                  <input v-model="cloudPassphrases[sp.backend]" class="sw-input" type="password" placeholder="required" autocomplete="new-password" />
+                </label>
+              </div>
+              <div v-if="sp.config" class="sw-row">
                 <button
                   class="sw-btn primary"
                   type="button"
@@ -233,7 +239,7 @@
             </label>
             <label class="sw-field grow">
               <span class="sw-label">Passphrase (encrypts the disk)</span>
-              <input v-model="diskPassphrase" class="sw-input" type="password" placeholder="leave empty for now" autocomplete="new-password" />
+              <input v-model="diskPassphrase" class="sw-input" type="password" placeholder="required — encrypts the disk" autocomplete="new-password" />
             </label>
           </div>
 
@@ -791,6 +797,7 @@ async function signIn(provider: OAuthBackend) {
 // remote dir / repo visibly matches what the user picked.
 const cloudFolders = ref<Record<string, string>>({})
 const cloudSizes = ref<Record<string, number>>({})
+const cloudPassphrases = ref<Record<string, string>>({})
 const cloudBusy = ref<Record<string, boolean>>({})
 const cloudDone = ref<Record<string, boolean>>({})
 const cloudMsgs = ref<Record<string, { ok: boolean; text: string }>>({})
@@ -829,9 +836,14 @@ async function provisionCloudDisk(backend: SyncBackendType) {
   try {
     const folder = (cloudFolders.value[backend] ?? '').trim() || 'cybermanju-vault'
     const sizeMb = clampVaultSizeMb(cloudSizes.value[backend] ?? 512)
+    const passphrase = (cloudPassphrases.value[backend] ?? '')
+    if (!passphrase) {
+      cloudMsgs.value[backend] = { ok: false, text: 'Type a disk passphrase first — the disk is passphrase-encrypted on every device.' }
+      return
+    }
     const out = await store.createDiskWithRemote(cfg, {
       sizeMb,
-      passphrase: '',
+      passphrase,
       diskName: folder,
       token: await diskTokenFor(cfg),
     })
@@ -894,6 +906,11 @@ async function createDiskStep() {
   diskMsg.value = ''
   diskOk.value = null
   try {
+    if (!diskPassphrase.value) {
+      diskMsg.value = 'Type a disk passphrase first — the disk is passphrase-encrypted on every device.'
+      diskOk.value = false
+      return
+    }
     const out = await store.createDiskWithRemote(cfg, {
       sizeMb: Math.min(8192, Math.max(64, Math.round(diskSizeMb.value) || 512)),
       passphrase: diskPassphrase.value,
@@ -919,6 +936,9 @@ async function createDiskStep() {
       diskMsg.value = 'Disk attached.'
       diskOk.value = true
     }
+  } catch (e) {
+    diskMsg.value = e instanceof Error ? e.message : String(e)
+    diskOk.value = false
   } finally {
     diskBusy.value = false
   }

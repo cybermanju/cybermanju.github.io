@@ -1,13 +1,26 @@
+<!-- CyberManju OS — Dock (src/components/Dock.vue). -->
+<!-- Role: Vue desktop UI: windows, panels, overlays. -->
+<!-- Exports: module root (see items below). -->
+<!-- Integrates: @/…, vue. -->
+<!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
-  <div class="dock-container">
-    <div class="dock">
+  <div
+    class="dock-container"
+    :class="[`layout-${dock.layout.value}`, `visibility-${dock.visibility.value}`, { revealed: autohideShown }]"
+  >
+    <div
+      ref="dockEl"
+      class="dock"
+      @click.stop
+      @contextmenu.prevent.stop="handleDockSurfaceContext"
+    >
       <div
         v-for="app in pinnedApps"
         :key="app.panelType"
         class="dock-item"
         :class="{ active: isAppActive(app.panelType), open: wm.isOpen(app.panelType) }"
         @click="handleDockClick(app.panelType)"
-        @contextmenu.prevent="handleDockContext($event, app.panelType)"
+        @contextmenu.prevent.stop="handleDockContext($event, app.panelType)"
       >
         <span class="dock-tip" aria-hidden="true">{{ app.label }}</span>
         <div class="dock-icon">
@@ -57,13 +70,31 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
+import { useDock } from '@/composables/useDock'
 import type { PanelType } from '@/types'
 
 const store = useAppStore()
 const wm = useWindowManager()
+const dock = useDock()
+
+const dockEl = ref<HTMLElement | null>(null)
+
+/** One entry of the shell-rendered dock context menu (DesktopShell.vue). */
+interface DockMenuEntry {
+  label: string
+  action?: () => void
+  checked?: boolean
+  separator?: boolean
+}
+
+function emitDockMenu(x: number, y: number, items: DockMenuEntry[]) {
+  window.dispatchEvent(new CustomEvent('cybermanju:dock-context', {
+    detail: { x, y, items },
+  }))
+}
 
 interface DockApp {
   panelType: PanelType
@@ -130,32 +161,84 @@ function handleDockClick(panelType: PanelType) {
 
 function handleDockContext(e: MouseEvent, panelType: PanelType) {
   const existing = wm.windows.value.find(w => w.panelType === panelType)
-  if (existing) {
-    const items = [
-      { label: 'Focus', action: () => wm.focus(existing.id) },
-      { label: 'Minimize', action: () => wm.minimize(existing.id) },
-      { label: 'Close', action: () => wm.close(existing.id) },
-    ]
-    window.dispatchEvent(new CustomEvent('cybermanju:dock-context', {
-      detail: { x: e.clientX, y: e.clientY, items },
-    }))
-  }
+  const items: DockMenuEntry[] = existing
+    ? [
+        { label: 'Focus', action: () => wm.focus(existing.id) },
+        { label: 'Minimize', action: () => wm.minimize(existing.id) },
+        { label: 'Close', action: () => wm.close(existing.id) },
+      ]
+    : [{ label: 'Open', action: () => wm.open(panelType) }]
+  emitDockMenu(e.clientX, e.clientY, items)
 }
+
+/** Right-click the dock surface itself: layout + visibility sub-options. */
+function handleDockSurfaceContext(e: MouseEvent) {
+  emitDockMenu(e.clientX, e.clientY, [
+    { label: 'Full width', checked: dock.layout.value === 'full', action: () => dock.setLayout('full') },
+    { label: 'Centered', checked: dock.layout.value === 'centered', action: () => dock.setLayout('centered') },
+    { label: '', separator: true },
+    { label: 'Fixed', checked: dock.visibility.value === 'fixed', action: () => dock.setVisibility('fixed') },
+    { label: 'Auto-hide', checked: dock.visibility.value === 'autohide', action: () => dock.setVisibility('autohide') },
+  ])
+}
+
+/** Auto-hide: the dock slides away until the pointer kisses the bottom edge. */
+const autohideShown = ref(false)
+
+function onAutohideMove(e: MouseEvent) {
+  if (dock.visibility.value !== 'autohide') {
+    autohideShown.value = false
+    return
+  }
+  if (autohideShown.value) {
+    const r = dockEl.value?.getBoundingClientRect()
+    const inside =
+      !!r &&
+      e.clientX >= r.left - 12 &&
+      e.clientX <= r.right + 12 &&
+      e.clientY >= r.top - 24 &&
+      e.clientY <= r.bottom + 16
+    // Stay up while hovered; retreat once the pointer leaves and rises.
+    if (!inside && e.clientY < window.innerHeight - 8) autohideShown.value = false
+    return
+  }
+  if (e.clientY >= window.innerHeight - 4) autohideShown.value = true
+}
+
+watch(() => dock.visibility.value, (v) => {
+  if (v !== 'autohide') autohideShown.value = false
+})
+
+onMounted(() => {
+  window.addEventListener('mousemove', onAutohideMove, { passive: true })
+})
+
+onUnmounted(() => {
+  window.removeEventListener('mousemove', onAutohideMove)
+})
 </script>
 
 <style scoped>
+/* The container is a transparent overlay pinned to the bottom of the
+   desktop area — the wallpaper (and windows, in centered/autohide modes)
+   run full-screen behind it. Never clip: the shadow must fade smoothly
+   around the dock's rounded surface, not hard-cut into a dark band. */
 .dock-container {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   justify-content: center;
-  align-items: center;
-  height: 62px;
-  padding: 0 16px;
+  align-items: flex-end;
+  height: 72px; /* matches DOCK_HEIGHT — the workspace inset in full+fixed */
+  padding: 0 16px 10px;
   background: transparent;
   z-index: 50;
   pointer-events: none;
   min-width: 0;
   max-width: 100vw;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .dock {
@@ -168,7 +251,12 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
   -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
   border: 1px solid var(--ui-border);
   border-radius: 14px;
-  box-shadow: var(--ui-shadow-menu);
+  /* Directional shadow: biased downward, hugging the rounded dock shape
+     (the hairline ring keeps the silhouette crisp on bright wallpapers). */
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.36),
+    0 4px 12px rgba(0, 0, 0, 0.20),
+    0 0 0 0.5px var(--ui-border);
   pointer-events: auto;
   position: relative;
   max-width: 100%;
@@ -177,6 +265,33 @@ function handleDockContext(e: MouseEvent, panelType: PanelType) {
   touch-action: pan-x pan-y;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
+  transition: transform var(--ui-dur-slow) var(--ui-ease-out);
+}
+
+/* Full-width bar: edge-to-edge, square corners, shadow falls only
+   downward (a floating look would leak darkness above the bar). */
+.dock-container.layout-full {
+  padding: 0 0 10px;
+}
+.dock-container.layout-full .dock {
+  flex: 1;
+  max-width: none;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.34),
+    0 0 0 0.5px var(--ui-border);
+}
+
+/* Auto-hide: slides below the viewport until the pointer reaches the
+   bottom edge (revealed class flips it back up). */
+.dock-container.visibility-autohide .dock {
+  transform: translateY(calc(100% + 48px));
+}
+.dock-container.visibility-autohide.revealed .dock {
+  transform: translateY(0);
 }
 
 /* Auto-hide stylized bar: invisible until hovered, then accent-tinted. */

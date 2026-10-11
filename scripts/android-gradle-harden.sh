@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# CyberManju OS — Android gradle harden (scripts/android-gradle-harden.sh).
 # Harden the Tauri-generated Android project so CI Gradle builds are
 # deterministic.
 #

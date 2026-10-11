@@ -1,3 +1,8 @@
+// CyberManju OS — Dom (src/utils/dom.ts).
+// Role: pure TS helpers (unit-tested, transport-agnostic).
+// Exports: isEditableTarget.
+// Integrates: standalone (no imports).
+// Contracts: none special (pure logic; errors bubble to caller).
 type EditableLike = {
   tagName?: string
   isContentEditable?: boolean

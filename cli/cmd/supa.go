@@ -1,3 +1,8 @@
+// CyberManju OS — Supa (cli/cmd/supa.go).
+// Role: cybsh CLI command.
+// Exports: module root (see items below).
+// Integrates: fmt, time, github.com, absent, present, github.
+// Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
 import (

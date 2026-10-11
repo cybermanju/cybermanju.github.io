@@ -1,3 +1,4 @@
+// CyberManju OS — Panel aliases.test (tests/frontend/panel-aliases.test.ts).
 // Merged-window aliases stay honest: every alias resolves to a real,
 // non-aliased canonical window that exists in the module metadata, and no
 // alias chain can loop back on itself.

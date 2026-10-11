@@ -1,3 +1,8 @@
+// CyberManju OS — UseShellInsets (src/composables/useShellInsets.ts).
+// Role: Vue shared state: transports, wasm backend, vault.
+// Exports: useShellInsets, ShellInsets.
+// Integrates: vue.
+// Contracts: none special (pure logic; errors bubble to caller).
 import { computed, ref } from 'vue'
 
 /**

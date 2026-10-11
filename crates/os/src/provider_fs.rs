@@ -1,3 +1,4 @@
+// CyberManju OS — Provider fs (crates/os/src/provider_fs.rs).
 //! cybsh provider namespace: `/providers/<head>/<remote…>`.
 //!
 //! Everything outside the merged volume — every Google Drive folder and

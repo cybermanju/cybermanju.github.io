@@ -1584,7 +1584,7 @@ const DB_WASM_ROUTES: Record<string, DbWasmRoute> = {
     op: 'disks.create',
     args: (a) => ({ configId: a.configId, sizeBytes: a.sizeBytes, passphrase: a.passphrase ?? '' }),
   },
-  attach_disk: { op: 'disks.attach', args: (a) => ({ id: a.id ?? a.diskId }) },
+  attach_disk: { op: 'disks.attach', args: (a) => ({ id: a.id ?? a.diskId, passphrase: a.passphrase ?? '' }) },
   detach_disk: { op: 'disks.detach', args: (a) => ({ id: a.id ?? a.diskId }) },
   resize_disk: { op: 'disks.resize', args: (a) => ({ id: a.id ?? a.diskId, sizeBytes: a.sizeBytes }) },
   check_disk: { op: 'disks.check', args: (a) => ({ id: a.id ?? a.diskId }) },
@@ -2807,10 +2807,39 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
       return transformResponseKeys(ipc) as T
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      // Unknown-command means no IPC twin — fall through to the REST path
-      // (which errors honestly). Any other IPC failure IS the answer; do not
-      // mask it with a localhost connection refusal.
-      if (!/no command|unknown|not found|unimplemented/i.test(msg)) throw e
+      // No IPC twin — fall through to the REST path (which errors
+      // honestly). Any other IPC failure IS the answer; do not mask it
+      // with a localhost connection refusal. NOTE: match only Tauri's own
+      // unknown-command text — app errors like `not_found:` / `auth:` must
+      // throw here, otherwise a real backend refusal gets buried under a
+      // `POST /api/… failed / network:` connection error.
+      if (!/no command|unknown command|unimplemented/i.test(msg)) throw e
+    }
+  }
+  // Desktop AppImage without an explicit server URL (and not served from the
+  // dashboard origin itself): the native IPC twin owns the same redb, so try
+  // it BEFORE paying the :3456 round-trip. Without this every REST_FIRST disk
+  // / sync op hangs on a refused localhost fetch and surfaces as
+  // `POST /api/disk/create failed` even though Tauri was wired — the exact
+  // AppImage symptom. Unknown-command still falls through to REST.
+  if (isTauri() && !isTauriMobile() && !_serverUrl && mapping && REST_FIRST.has(cmd)) {
+    try {
+      const servedFromDashboard =
+        typeof window !== 'undefined' && (window as unknown as { location?: { port?: string } }).location?.port === '3456'
+      if (!servedFromDashboard) {
+        const core = await import('@tauri-apps/api/core')
+        const ipc = await core.invoke<unknown>(cmd, args ?? {})
+        if (mapping.transformResponse) {
+          return (mapping.transformResponse(ipc, args ?? {})) as T
+        }
+        return transformResponseKeys(ipc) as T
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      // Same unknown-command-only fall-through as the mobile block above:
+      // app-level `not_found:` / `auth:` / `unsupported:` from IPC must
+      // surface, never degrade into a REST connection error.
+      if (!/no command|unknown command|unimplemented/i.test(msg)) throw e
     }
   }
   if (isTauri() && !REST_FIRST.has(cmd)) {
@@ -2935,7 +2964,16 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
             return (mapping.transformResponse(ipc, args ?? {})) as T
           }
           return transformResponseKeys(ipc) as T
-        } catch {
+        } catch (ipcErr) {
+          // Prefer the twin's real answer over a dead-dashboard connection
+          // refusal: e.g. IPC `auth: no token` explains the failure while
+          // REST only says `network: …localhost:3456…`. Unknown-command
+          // still means "no twin" — report the REST failure.
+          const ipcMsg = ipcErr instanceof Error ? ipcErr.message : String(ipcErr)
+          const restMsg = restErr instanceof Error ? restErr.message : String(restErr)
+          const noTwin = /no command|unknown command|unimplemented/i.test(ipcMsg)
+          const restIsConnRefused = /localhost:3456|ERR_CONNECTION_REFUSED|timed out|Network error calling/i.test(restMsg)
+          if (!noTwin && restIsConnRefused) throw ipcErr
           // No usable IPC twin — report the REST failure.
         }
       }

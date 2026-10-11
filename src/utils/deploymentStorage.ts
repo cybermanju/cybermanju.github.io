@@ -1,3 +1,8 @@
+// CyberManju OS — DeploymentStorage (src/utils/deploymentStorage.ts).
+// Role: pure TS helpers (unit-tested, transport-agnostic).
+// Exports: createScopedStorage, installScopedStorage.
+// Integrates: standalone (no imports).
+// Contracts: none special (pure logic; errors bubble to caller).
 import {
   DEPLOYMENT_STORAGE_PREFIX,
   IS_DEVELOP_PREVIEW,
