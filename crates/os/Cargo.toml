@@ -6,7 +6,7 @@ description = "CyberManju OS layer: cybsh terminal, task table, compute fan-out,
 
 [dependencies]
 anyhow = "1"
-base64 = "0.22"
+base64 = "0.23"
 blake3 = "1"
 # RFC3339 timestamps for task rows and shell history (same 0.4 as cybermanju-sync).
 chrono = { version = "0.4", features = ["serde"] }
@@ -22,7 +22,7 @@ log = "0.4"
 rayon = "1.10"
 # Direct table access for the shared `disks`/`compute_tasks`/`shell_history`
 # rows (AGENT-6's registry, AGENT-8's own tables). Same major as cybermanju-db.
-redb = "2"
+redb = "4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
