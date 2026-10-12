@@ -1473,6 +1473,26 @@ fn route_request(
     {
         return peer_sync(db, path_segments[2], body, origin);
     }
+    // Server-assisted presence + NAT rendezvous (§2B.2 PEX — the answer for
+    // android/ios/docker/wasm, where mDNS multicast cannot go).
+    if method == "GET" && matches!(path_segments.as_slice(), ["api", "peers", "known"]) {
+        return peers_known(db, origin);
+    }
+    if method == "POST" && matches!(path_segments.as_slice(), ["api", "peers", "announce"]) {
+        return peers_announce(db, body, origin);
+    }
+    if method == "POST" && matches!(path_segments.as_slice(), ["api", "relay", "drop"]) {
+        return relay_drop(db, body, origin);
+    }
+    if method == "POST" && matches!(path_segments.as_slice(), ["api", "relay", "poll"]) {
+        return relay_poll(db, body, origin);
+    }
+    if method == "POST" && matches!(path_segments.as_slice(), ["api", "relay", "ack"]) {
+        return relay_ack(db, body, origin);
+    }
+    if method == "POST" && matches!(path_segments.as_slice(), ["api", "sync", "bundle", "build"]) {
+        return bundle_build(db, body, origin);
+    }
     if method == "GET"
         && matches!(
             path_segments.as_slice(),
@@ -3051,9 +3071,13 @@ fn lan_peers(origin: Option<&str>) -> String {
 /// POST /api/peers/{id}/sync — direct device↔device op-log exchange (§2B.2
 /// follow-up). Peer-authenticated against the device registry: unknown ids
 /// are `not_found:`, revoked rows fail closed with `auth:` — an unknown peer
-/// never merges. Body `{ ops: OpRow[] }` merges idempotently (same semantics
-/// as `/api/oplog/push`); the caller pulls `since` from the peer first and
-/// renders `GET /api/oplog/conflicts` after.
+/// never merges. Body `{ ops: OpRow[], signature?, algorithm? }` merges
+/// idempotently (same semantics as `/api/oplog/push`); when `signature` is
+/// present it is verified against the sender's registry key
+/// (`auth:` on mismatch — a JWT alone cannot impersonate a device) and the
+/// response reports `verified: true`. Unsigned bodies still merge (legacy
+/// senders) with `verified: false`. The caller pulls `since` from the peer
+/// first and renders `GET /api/oplog/conflicts` after.
 fn peer_sync(db: &Database, device_id: &str, body: &str, origin: Option<&str>) -> String {
     let peer = match db.get_device(device_id) {
         Ok(Some(row)) => row,
@@ -3075,13 +3099,7 @@ fn peer_sync(db: &Database, device_id: &str, body: &str, origin: Option<&str>) -
             origin,
         );
     }
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct SyncRequest {
-        #[serde(default)]
-        ops: Vec<cybermanju_types::schema::OpRow>,
-    }
-    let req: SyncRequest = match serde_json::from_str(body) {
+    let req: cybermanju_sync::auth::SignedSyncBody = match serde_json::from_str(body) {
         Ok(req) => req,
         Err(e) => return json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
     };
@@ -3103,15 +3121,232 @@ fn peer_sync(db: &Database, device_id: &str, body: &str, origin: Option<&str>) -
             return json_error(400, "invalid: every synced op needs a device_id", origin);
         }
     }
+    let verified = match cybermanju_sync::auth::verify_envelope(
+        &req.ops,
+        &req.signature,
+        &req.algorithm,
+        &peer.public_key,
+        &peer.key_algorithm,
+    ) {
+        Ok(v) => v,
+        Err(e) => return json_error(403, &e, origin),
+    };
     match db
         .merge_ops(&req.ops)
         .and_then(|(appended, skipped)| Ok((appended, skipped, db.oplog_head()?)))
     {
         Ok((appended, skipped, head)) => json_ok(
-            &serde_json::json!({ "appended": appended, "skipped": skipped, "head": head }),
+            &serde_json::json!({ "appended": appended, "skipped": skipped, "head": head, "verified": verified }),
             origin,
         ),
         Err(e) => json_error(500, &format!("internal: sync merge failed: {e}"), origin),
+    }
+}
+
+/// GET /api/peers/known — server-assisted presence (§2B.2 PEX): the fresh
+/// (5-minute TTL) `POST /api/peers/announce` heartbeats, newest-reader merge
+/// material for `GET /api/peers` mDNS scans. What makes android/ios/docker
+/// work where multicast cannot.
+fn peers_known(db: &Database, origin: Option<&str>) -> String {
+    let entries = cybermanju_sync::peers::known_presence(
+        db,
+        cybermanju_sync::peers::presence_now(),
+        cybermanju_sync::peers::PRESENCE_TTL_SECS,
+    );
+    // Revoked registry rows fail closed here too (listed never means syncable).
+    let revoked: std::collections::HashSet<String> = db
+        .list_devices()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|d| d.revoked)
+        .map(|d| d.id)
+        .collect();
+    json_ok(
+        &entries
+            .into_iter()
+            .filter(|e| !revoked.contains(&e.device_id))
+            .collect::<Vec<_>>(),
+        origin,
+    )
+}
+
+/// POST /api/peers/announce { deviceId, host, port } — heartbeat this
+/// device's reachable `/api` (call once per launch, refresh every few
+/// minutes). Authenticated; the device id should be enrolled (unknown ids
+/// are still recorded — presence is advisory, sync stays registry-gated).
+fn peers_announce(db: &Database, body: &str, origin: Option<&str>) -> String {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct AnnounceRequest {
+        #[serde(default)]
+        device_id: String,
+        #[serde(default)]
+        host: String,
+        #[serde(default)]
+        port: u16,
+    }
+    let req: AnnounceRequest = match serde_json::from_str(body) {
+        Ok(req) => req,
+        Err(e) => return json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
+    };
+    match cybermanju_sync::peers::announce_presence(
+        db,
+        &req.device_id,
+        &req.host,
+        req.port,
+        cybermanju_sync::peers::presence_now(),
+    ) {
+        Ok(entry) => json_ok(&entry, origin),
+        Err(e) => json_error(400, &e, origin),
+    }
+}
+
+/// POST /api/relay/drop { from, to, kind, payload } — rendezvous a NAT-
+/// traversed envelope (op-log delta or WebRTC handshake fragment). Both
+/// sides make outbound HTTPS here, so no inbound port is needed. Caps:
+/// 256 KiB per message (`too_large:` → ship bulk bytes as bundle payloads).
+fn relay_drop(db: &Database, body: &str, origin: Option<&str>) -> String {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct DropRequest {
+        #[serde(default)]
+        from: String,
+        #[serde(default)]
+        to: String,
+        #[serde(default)]
+        kind: String,
+        #[serde(default)]
+        payload: serde_json::Value,
+    }
+    let req: DropRequest = match serde_json::from_str(body) {
+        Ok(req) => req,
+        Err(e) => return json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
+    };
+    match cybermanju_sync::peers::relay_drop(
+        db,
+        &req.from,
+        &req.to,
+        &req.kind,
+        req.payload,
+        cybermanju_sync::peers::presence_now(),
+    ) {
+        Ok(id) => json_ok(&serde_json::json!({ "accepted": true, "id": id }), origin),
+        Err(e) if e.starts_with("too_large:") => json_error(413, &e, origin),
+        Err(e) => json_error(400, &e, origin),
+    }
+}
+
+/// POST /api/relay/poll { for } — list a recipient's queued envelopes,
+/// oldest first. Non-destructive (messages stay queued until ack), so a
+/// dropped poll never loses mail.
+fn relay_poll(db: &Database, body: &str, origin: Option<&str>) -> String {
+    #[derive(serde::Deserialize)]
+    struct PollRequest {
+        #[serde(default, rename = "for")]
+        for_device: String,
+    }
+    let req: PollRequest = match serde_json::from_str(body) {
+        Ok(req) => req,
+        Err(e) => return json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
+    };
+    match cybermanju_sync::peers::relay_poll(db, &req.for_device) {
+        Ok(messages) => json_ok(&serde_json::json!({ "messages": messages }), origin),
+        Err(e) => json_error(400, &e, origin),
+    }
+}
+
+/// POST /api/relay/ack { for, ids } — clear delivered envelopes. Returns
+/// the cleared count.
+fn relay_ack(db: &Database, body: &str, origin: Option<&str>) -> String {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct AckRequest {
+        #[serde(default, rename = "for")]
+        for_device: String,
+        #[serde(default)]
+        ids: Vec<String>,
+    }
+    let req: AckRequest = match serde_json::from_str(body) {
+        Ok(req) => req,
+        Err(e) => return json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
+    };
+    match cybermanju_sync::peers::relay_ack(db, &req.for_device, &req.ids) {
+        Ok(cleared) => json_ok(&serde_json::json!({ "cleared": cleared }), origin),
+        Err(e) => json_error(400, &e, origin),
+    }
+}
+
+/// POST /api/sync/bundle/build { deviceId, since?, files? } — build a bundle
+/// carrying file bytes (`[{ fileId, name, bytesBase64 }]` supplied by the
+/// caller, which already holds them). Ops-only callers keep using
+/// `GET /api/sync/bundle/export`. Admin-only (same table as the other
+/// bundle routes in `security::required_role`).
+fn bundle_build(db: &Database, body: &str, origin: Option<&str>) -> String {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FileInput {
+        #[serde(default)]
+        file_id: String,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        bytes_base64: String,
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct BuildRequest {
+        #[serde(default)]
+        device_id: String,
+        #[serde(default)]
+        since: u64,
+        #[serde(default)]
+        files: Vec<FileInput>,
+    }
+    let req: BuildRequest = match serde_json::from_str(body) {
+        Ok(req) => req,
+        Err(e) => return json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
+    };
+    if req.files.len() > cybermanju_sync::bundle::BUNDLE_MAX_PAYLOADS {
+        return json_error(
+            413,
+            &format!(
+                "too_large: bundle holds {} files (cap {})",
+                req.files.len(),
+                cybermanju_sync::bundle::BUNDLE_MAX_PAYLOADS
+            ),
+            origin,
+        );
+    }
+    let mut files = Vec::with_capacity(req.files.len());
+    for f in req.files {
+        if f.bytes_base64.len() > 8 * 1024 * 1024 {
+            return json_error(
+                413,
+                &format!(
+                    "too_large: payload '{}' exceeds the 5 MiB file cap — ship it via the sync backends",
+                    f.file_id
+                ),
+                origin,
+            );
+        }
+        match base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            f.bytes_base64.trim(),
+        ) {
+            Ok(bytes) => files.push((f.file_id, f.name, bytes)),
+            Err(e) => {
+                return json_error(
+                    400,
+                    &format!("invalid: payload '{}' is not base64: {e}", f.file_id),
+                    origin,
+                )
+            }
+        }
+    }
+    match cybermanju_sync::bundle::export_bundle_with_files(db, &req.device_id, req.since, files) {
+        Ok(bundle) => json_ok(&bundle, origin),
+        Err(e) if e.starts_with("too_large:") => json_error(413, &e, origin),
+        Err(e) => json_error(400, &e, origin),
     }
 }
 /// as JSON. Admin-only (it walks the whole op-log); the caller places the
@@ -3138,11 +3373,23 @@ fn bundle_export(db: &Database, query: &str, origin: Option<&str>) -> String {
 }
 
 /// POST /api/sync/bundle/import — validate + merge a received bundle
-/// (idempotent; same op_ids skip). Admin-only.
+/// (idempotent; same op_ids skip). Riding file payloads are BLAKE3-verified
+/// and returned as metadata (`payloads: [{ fileId, name, size, blake3 }]`)
+/// for the caller to place — import itself merges ops only. Admin-only.
 fn bundle_import(db: &Database, body: &str, origin: Option<&str>) -> String {
-    match cybermanju_sync::bundle::import_bundle(db, body.as_bytes()) {
-        Ok((appended, skipped, from)) => json_ok(
-            &serde_json::json!({ "appended": appended, "skipped": skipped, "from": from }),
+    match cybermanju_sync::bundle::import_bundle_detailed(db, body.as_bytes()) {
+        Ok(out) => json_ok(
+            &serde_json::json!({
+                "appended": out.appended,
+                "skipped": out.skipped,
+                "from": out.from_device,
+                "payloads": out.payloads.iter().map(|p| serde_json::json!({
+                    "fileId": p.file_id,
+                    "name": p.name,
+                    "size": p.size,
+                    "blake3": p.blake3,
+                })).collect::<Vec<_>>(),
+            }),
             origin,
         ),
         Err(e) if e.starts_with("too_large:") => json_error(413, &e, origin),

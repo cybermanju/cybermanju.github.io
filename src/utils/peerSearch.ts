@@ -88,8 +88,8 @@ export function deduplicatePeers(peers: FederatedPeer[]): FederatedPeer[] {
     } catch {
       continue
     }
-    // Relay tickets are the QUIC future — never fetched over HTTP, so drop
-    // them here instead of burning a fan-out slot on a doomed fetch.
+    // Relay tickets rendezvous via the relay mailbox — never fetched over
+    // direct HTTP, so drop them here instead of burning a fan-out slot.
     if (classifyAddr(base) === 'relay-future') continue
     const key = base.toLowerCase()
     if (seen.has(key)) continue
@@ -200,7 +200,7 @@ export function isLanBase(lowerBaseOrAddr: string): boolean {
   return false
 }
 
-/** Classify a raw addr half without opening any socket (relay = QUIC future). */
+/** Classify a raw addr half without opening any socket (relay = relay mailbox). */
 export function classifyAddr(addr: string): PeerTransportName {
   const low = addr.trim().toLowerCase()
   if (low.startsWith('iroh:') || low.includes('/p2p/') || isRelayToken(low)) {
@@ -480,8 +480,9 @@ export interface SyncExchangeResult {
 /**
  * Execute the direct device↔device op-log exchange against a peer base URL:
  * pull their ops since `since`, push ours, merge their ops locally via
- * `pushOps`, render conflicts via `fetchConflicts`. Relay endpoints refuse
- * with `unsupported:` (QUIC is sequenced); HTTP peers sync today.
+ * `pushOps`, render conflicts via `fetchConflicts`. Relay tickets refuse
+ * with `unsupported:` (they rendezvous via the relay mailbox); HTTP peers
+ * sync today, attested when `deps.signer` is provided.
  */
 export async function syncExchangeWithPeer(
   peer: PeerEndpoint,
@@ -491,11 +492,21 @@ export async function syncExchangeWithPeer(
     fetchJson: (method: string, url: string, body?: unknown) => Promise<unknown>
     pushOps: (ops: unknown[]) => Promise<{ appended: number }>
     fetchConflicts?: () => Promise<unknown>
+    /**
+     * Optional attestation: signs the normalized ops with this device's
+     * ML-DSA seed (desktop: `sign_peer_ops` IPC; Pages: wasm `ml_dsa65_sign`)
+     * so the receiver verifies *which device* sent them (`verified: true`).
+     * Without it the legacy unsigned flow runs (`verified: false`).
+     */
+    signer?: (normalizedOps: Record<string, unknown>[]) => Promise<{
+      signature: string
+      algorithm: string
+    }>
   },
 ): Promise<SyncExchangeResult> {
   if (peer.transport === 'relay-future' || classifyAddr(peer.baseUrl) === 'relay-future') {
     throw new Error(
-      `unsupported: QUIC dial to '${peer.deviceId}' needs the iroh transport (sequenced: new dependency + networked CI proving) — use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle`,
+      `unsupported: relay dial to '${peer.deviceId}' rendezvouses via POST /api/relay/drop|poll (configure a relay_url) — direct HTTP dial, LAN sync and sneakernet bundles stay live`,
     )
   }
   const base = normalizeBaseUrl(peer.baseUrl)
@@ -508,7 +519,23 @@ export async function syncExchangeWithPeer(
     `${base}/api/oplog/since?since=${s}&limit=500`,
   )) as { ops?: unknown[] }
   const theirOps = Array.isArray(pulled?.ops) ? pulled.ops : []
-  await deps.fetchJson('POST', `${base}/api/oplog/push`, { ops: localOps })
+  let pushLine: string
+  if (deps.signer) {
+    // Attested flow: the receiver merges + verifies against the registry.
+    const { buildSignedSyncBody, normalizeOpsForEnvelope } = await import('./p2pPresence')
+    const normalized = normalizeOpsForEnvelope(localOps)
+    const { signature, algorithm } = await deps.signer(normalized)
+    const body = buildSignedSyncBody(localOps, signature, algorithm)
+    const res = (await deps.fetchJson(
+      'POST',
+      `${base}/api/peers/${encodeURIComponent(peer.deviceId)}/sync`,
+      body,
+    )) as { verified?: boolean }
+    pushLine = `push: POST ${base}/api/peers/${peer.deviceId}/sync { ops: ${localOps.length}, verified: ${res.verified === true} }`
+  } else {
+    await deps.fetchJson('POST', `${base}/api/oplog/push`, { ops: localOps })
+    pushLine = `push: POST ${base}/api/oplog/push { ops: ${localOps.length} }`
+  }
   let appended = 0
   if (theirOps.length > 0) {
     appended = (await deps.pushOps(theirOps)).appended
@@ -520,7 +547,7 @@ export async function syncExchangeWithPeer(
     steps: [
       `probe: GET ${base}/api/readyz (15 s abort, fail-closed)`,
       `pull: GET ${base}/api/oplog/since?since=${s} → ${theirOps.length} ops`,
-      `push: POST ${base}/api/oplog/push { ops: ${localOps.length} }`,
+      pushLine,
       `merge: merged ${appended} new ops locally`,
       'render: GET /api/oplog/conflicts',
     ],

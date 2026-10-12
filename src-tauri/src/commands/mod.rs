@@ -21,6 +21,7 @@ pub mod launcher;
 pub mod map;
 pub mod os_metrics;
 pub mod os_shell;
+pub mod p2p;
 pub mod search;
 pub mod secrets;
 pub mod share;

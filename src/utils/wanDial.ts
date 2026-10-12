@@ -1,16 +1,19 @@
 // CyberManju OS — WAN dial seam (src/utils/wanDial.ts).
 // Role: frontend mirror of the iroh seam in crates/sync/src/iroh.rs
-// (ANALYSIS.md §2B.5) — parse `<device>@<addr>` endpoints, answer the QUIC
-// dial plan honestly (`unsupported:` + LAN/bundle way out), and offer a REAL
-// HTTP dial path (op-log pull/push over plain fetch, 15 s abort) that works
-// today wherever the peer exposes `/api`. QUIC/NAT-traversal stays sequenced
-// (new dep + networked CI proving).
+// (ANALYSIS.md §2B.5) — parse `<device>@<addr>` endpoints, return a LIVE dial
+// plan (direct HTTP probe + op-log pull/push; relay-envelope rendezvous when
+// a relay URL is configured), and refuse honestly (`unsupported:` +
+// LAN/bundle way out) only when a relay ticket arrives with no relay set.
+// Only the QUIC *datagram* upgrade stays sequenced — the relay *capability*
+// (outbound HTTPS drop/poll, no inbound port) is live on both seams.
 // Exports: WanEndpoint, parseWanEndpoint, wanDialPlan, wanWayOut,
 // wanHttpBase, wanDialSteps, wanHttpProbe, isRelayAddr, wanPeekUrls,
-// wanFederatedPlan.
+// wanFederatedPlan, buildRelayEnvelope, relayDialSteps, relayDropPath,
+// relayPollPath, parseIrohTicket, buildIrohTicket, ticketRelay.
 // Integrates: DevicesPanel WAN card renders plan + dial steps; `wan plan|dial`
 // cybsh verbs reuse the builders; Rust twin is crates/sync/src/iroh.rs (same
-// grammar, same `unsupported:` prefix, pinned by wan-dial.test.ts).
+// grammar, same plan strings, same `unsupported:` prefix, pinned by
+// wan-dial.test.ts + p2p-live.test.ts).
 // Contracts: pure builders never throw except `invalid:`/`unsupported:` with
 // AGENT-1 prefixes; `wanHttpProbe` never hangs (AbortController 15 s default)
 // and normalizes failures to `network:` — never a guessed address.
@@ -39,20 +42,123 @@ export function checkDialTimeout(secs: number): void {
   }
 }
 
-/** Honest QUIC dial plan: always `unsupported:` with the live way out. */
-export function wanDialPlan(endpoint: WanEndpoint, dialTimeoutSecs = 15): string {
+/**
+ * Live dial plan: direct addrs return the HTTP plan (probe + op-log
+ * pull/push); relay tickets return the relay-envelope plan when `relayUrl`
+ * is set, else throw `unsupported:` with the LAN/bundle way out. Same
+ * strings as Rust `iroh::dial_plan`.
+ */
+export function wanDialPlan(endpoint: WanEndpoint, dialTimeoutSecs = 15, relayUrl = ''): string {
   checkDialTimeout(dialTimeoutSecs)
   if (!endpoint.deviceId.trim()) throw new Error('invalid: dial needs a device id')
-  throw new Error(
-    `unsupported: QUIC dial to '${endpoint.deviceId}' needs the iroh transport (sequenced: new dependency + networked CI proving) — use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle`,
-  )
+  if (isRelayAddr(endpoint.addr)) {
+    // Canonical tickets carry their own relay; the configured URL is the fallback.
+    const relay = ticketRelay(endpoint.addr) || relayUrl.trim().replace(/\/+$/, '')
+    if (!relay) {
+      throw new Error(
+        `unsupported: relay dial to '${endpoint.deviceId}' needs a relay_url (any dashboard serves POST /api/relay/drop|poll — set one, or use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle)`,
+      )
+    }
+    return `relay: POST ${relay}/api/relay/drop { to: '${endpoint.deviceId}', kind: op-envelope } (${dialTimeoutSecs} s abort, outbound HTTPS — no inbound port) + POST ${relay}/api/relay/poll { for: '${endpoint.deviceId}' } for the reply`
+  }
+  const base = wanHttpBase(endpoint)
+  return `http: probe GET ${base}/api/readyz (${dialTimeoutSecs} s abort, fail-closed) + op-log pull/push over ${base}`
 }
 
-/** True when the addr half needs the sequenced QUIC relay (same grammar as Rust `is_relay_addr`). */
+/** Relay envelope `{ v: 1, to, kind, payload }` — identical JSON to Rust `iroh::relay_envelope`. */
+export function buildRelayEnvelope(toDevice: string, kind: string, payload: unknown): string {
+  if (!toDevice.trim()) throw new Error('invalid: relay envelope needs a destination device id')
+  if (!kind.trim()) throw new Error('invalid: relay envelope needs a kind')
+  return JSON.stringify({ v: 1, to: toDevice, kind, payload: payload ?? null })
+}
+
+/** Live relay dial steps (drop → poll → merge → push → render). Same order as Rust `relay_dial_steps`. */
+export function relayDialSteps(endpoint: WanEndpoint, relayUrl: string, since = 0): string[] {
+  if (!isRelayAddr(endpoint.addr)) {
+    throw new Error('invalid: relay steps need a relay ticket addr (direct addrs use wanDialSteps)')
+  }
+  const relay = ticketRelay(endpoint.addr) || relayUrl.trim().replace(/\/+$/, '')
+  if (!relay) {
+    throw new Error(
+      `unsupported: relay dial to '${endpoint.deviceId}' needs a relay_url (any dashboard serves POST /api/relay/drop|poll — set one, or use HTTP dial, direct LAN sync or a sneakernet bundle)`,
+    )
+  }
+  const s = Number.isFinite(since) ? Math.max(0, Math.floor(since)) : 0
+  return [
+    `drop: POST ${relay}/api/relay/drop { to: '${endpoint.deviceId}', kind: op-envelope }`,
+    `poll: POST ${relay}/api/relay/poll { for: '${endpoint.deviceId}' } (15 s abort)`,
+    `pull: merge polled ops since=${s} via POST /api/oplog/push { ops: theirs }`,
+    'push: POST /api/relay/drop { to, kind: op-envelope, payload: ours }',
+    'render: GET /api/oplog/conflicts',
+  ]
+}
+
+/** `POST <relay>/api/relay/drop` for a relay base URL. */
+export function relayDropPath(relayBase: string): string {
+  const base = relayBase.trim().replace(/\/+$/, '')
+  if (!base) throw new Error('invalid: relay address is required')
+  return `${base}/api/relay/drop`
+}
+
+/** `POST <relay>/api/relay/poll` for a relay base URL. */
+export function relayPollPath(relayBase: string): string {
+  const base = relayBase.trim().replace(/\/+$/, '')
+  if (!base) throw new Error('invalid: relay address is required')
+  return `${base}/api/relay/poll`
+}
+
+/** True when the addr half rendezvouses via the relay (same grammar as Rust `is_relay_addr`). */
 export function isRelayAddr(addr: string): boolean {
   const low = addr.trim().toLowerCase()
   if (low.startsWith('iroh:') || low.includes('/p2p/')) return true
   return /(^|[^a-z0-9])relay([^a-z0-9]|$)/.test(low)
+}
+
+/** iroh endpoint id shape (64 hex, or 52 base32 — curve checked natively). */
+const ENDPOINT_ID_RE = /^([0-9a-fA-F]{64}|[A-Za-z2-7]{52})$/
+
+/**
+ * Parse a canonical `iroh:<endpoint-id>@<relay-url>` ticket (shape-checked;
+ * the ed25519 curve itself is validated natively by `iroh::PublicKey`).
+ * Returns `{ endpointId, relayUrl }` with the relay trailing-slash trimmed.
+ */
+export function parseIrohTicket(text: string): { endpointId: string; relayUrl: string } {
+  const raw = text.trim()
+  if (!raw.toLowerCase().startsWith('iroh:')) {
+    throw new Error('invalid: iroh ticket starts with `iroh:`')
+  }
+  const rest = raw.slice('iroh:'.length)
+  const at = rest.indexOf('@')
+  if (at < 0) throw new Error('invalid: iroh ticket is `iroh:<endpoint-id>@<relay-url>`')
+  const endpointId = rest.slice(0, at).trim()
+  const relayUrl = rest.slice(at + 1).trim().replace(/\/+$/, '')
+  if (!ENDPOINT_ID_RE.test(endpointId)) {
+    throw new Error('invalid: iroh ticket endpoint id is 64 hex or 52 base32 chars')
+  }
+  if (!relayUrl || /\s/.test(relayUrl)) {
+    throw new Error('invalid: iroh ticket needs a relay URL')
+  }
+  return { endpointId, relayUrl }
+}
+
+/** Build a canonical ticket string (halves shape-checked, relay normalized). */
+export function buildIrohTicket(endpointId: string, relayUrl: string): string {
+  const id = endpointId.trim()
+  const relay = relayUrl.trim().replace(/\/+$/, '')
+  if (!ENDPOINT_ID_RE.test(id)) {
+    throw new Error('invalid: iroh ticket endpoint id is 64 hex or 52 base32 chars')
+  }
+  if (!relay || /\s/.test(relay)) throw new Error('invalid: iroh ticket needs a relay URL')
+  return `iroh:${id}@${relay}`
+}
+
+/** Relay carried by a ticket addr, or `''` when the addr holds none. */
+export function ticketRelay(addr: string): string {
+  try {
+    return parseIrohTicket(addr).relayUrl
+  } catch {
+    return ''
+  }
 }
 
 /** The three URL shapes one WAN endpoint fans out to (probe/search/op-log). */
@@ -78,7 +184,7 @@ export function wanFederatedPlan(endpoint: WanEndpoint, query: string, limit = 2
   if (!query.trim()) throw new Error('invalid: federated search needs a query')
   if (isRelayAddr(endpoint.addr)) {
     throw new Error(
-      `unsupported: federated search to '${endpoint.deviceId}' needs the iroh transport (sequenced) — use direct host:port peers or POST /api/search/federated with reachable base URLs`,
+      `unsupported: federated search to '${endpoint.deviceId}' is a relay ticket — configure a relay_url and search via the relay envelope, or use direct host:port peers / POST /api/search/federated with reachable base URLs`,
     )
   }
   const capped = Math.max(1, Math.min(Math.floor(limit) || 20, 200))
@@ -123,9 +229,10 @@ export function wanDialSteps(endpoint: WanEndpoint, since = 0): string[] {
 
 /**
  * Execute the WAN op-log exchange against a peer base URL: pull → push →
- * merge → render via `syncExchangeWithPeer`. Relay endpoints refuse with
- * `unsupported:` (QUIC is sequenced); direct HTTP peers sync today on all
- * six targets wherever `/api` is reachable.
+ * merge → render via `syncExchangeWithPeer`. Relay tickets refuse with
+ * `unsupported:` (they rendezvous via `POST /api/relay/drop|poll` — pass a
+ * relay URL through `relayDialSteps` instead); direct HTTP peers sync today
+ * on all six targets wherever `/api` is reachable.
  */
 export async function wanSyncExchange(
   endpoint: WanEndpoint,
@@ -139,7 +246,7 @@ export async function wanSyncExchange(
 ): Promise<{ pulled: number; pushed: number; steps: string[] }> {
   if (isRelayAddr(endpoint.addr)) {
     throw new Error(
-      `unsupported: QUIC dial to '${endpoint.deviceId}' needs the iroh transport (sequenced: new dependency + networked CI proving) — use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle`,
+      `unsupported: relay dial to '${endpoint.deviceId}' needs a relay_url (any dashboard serves POST /api/relay/drop|poll — set one, or use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle)`,
     )
   }
   const { syncExchangeWithPeer } = await import('./peerSearch')

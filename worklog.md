@@ -1776,3 +1776,115 @@ The `Rust Lint & Test` job for main `c948bd8` reached Clippy and failed on one `
 - `develop` remains at remote commit `b33cbe92c6a42de1329390b135744fe9daab2b9f`; `main` was not modified. The develop CI run `38192940869` failed in Rust Lint & Test at `crates/db/src/database.rs:1807` because `unwrap_err()` requires `Database: Debug`. Main added a fix in `fb27bef`, but that commit also introduced a substantial P2P/bundle feature set; main then advanced again to `4a5d182` while this review was in progress. The latest main CI was still in progress at the time of review.
 - Integration/push was paused after static review found material blockers in the new main code: federated search can forward the caller's bearer to an arbitrary peer when `peer.token` is absent (contrary to the explicit-token policy already enforced in develop); server-side peer URLs lack SSRF/private-network and redirect protections; relay drop/poll/ack are not bound to the authenticated device owner; unsigned peer-sync envelopes are still merged; bundle import lacks a per-payload 5 MiB check before base64 decode; and the desktop signing path does not persist/select its private key securely. The latest `4a5d182` changes frontend/docs/tests and does not address the backend blockers reviewed here.
 - No new main changes were merged, no push/release was made after these findings, and no Rust Cargo command was run locally (`AGENTS.md` requires Rust checks through CI). Revisit integration only after the security/compatibility policy is clarified and the required checks are green.
+## 2026-10-12 — P2P 100%: relay live, https probe, payloads, attested sync, presence
+
+- Relay-over-HTTPS NAT traversal is live (no new deps — both sides outbound
+  HTTPS, no inbound port; only the QUIC *datagram* upgrade stays sequenced):
+  `crates/sync/src/iroh.rs` gains `relay_envelope` (`{v:1,to,kind,payload}`),
+  `relay_dial_steps` (drop→poll→merge→push→render), `relay_drop_path`/
+  `relay_poll_path`, `relay_forward` (bounded reqwest POST), and
+  `endpoint_fingerprint` (BLAKE3 of the registry key); `dial_plan` returns a
+  live HTTP plan for direct addrs and a live relay plan when `relay_url` is
+  set (`unsupported:` + way out only with no relay configured).
+- `http_probe` dials `https://` via reqwest+rustls (plain HTTP stays on the
+  TcpStream fast path); relay tickets refuse with the relay hint (shared
+  `classify_addr` grammar everywhere).
+- Server-assisted presence + relay mailbox (`crates/sync/src/peers.rs`,
+  kv-backed, no schema change): `announce_presence`/`known_presence` (5 min
+  TTL) + `relay_drop`/`relay_poll`/`relay_ack` (32 msgs/recipient, 256 KiB
+  cap) + `presence_now`; `platform_setup` per-target notes point at presence.
+- Signed peer sync: `crates/crypto/src/pqc.rs` gains `verify_with_public_key`
+  (ML-DSA-44/65/87, same `KeyInit::new_from_slice` + `Verifier` shape as the
+  wasm twin); new `crates/sync/src/auth.rs` (`ENVELOPE_DOMAIN`,
+  `SignedSyncBody`, canonical bytes via `to_value`+`to_string` so nested keys
+  sort exactly like the TS `stableStringify` twin — pinned cross-language
+  vector in both test suites); `POST /api/peers/{id}/sync` verifies present
+  signatures against the registry (`auth:` fails closed) and reports
+  `verified`, unsigned bodies still merge as legacy; `sign_peer_ops` Tauri
+  command signs on desktop, wasm `ml_dsa65_sign` on Pages.
+- Bundle payloads: `Bundle` gains `payloads` + `payloads_blake3` (ops manifest
+  untouched — legacy bundles verify byte-identically); caps 100 files / 5
+  MiB/file / 50 MiB total; `export_bundle_with_files` + `import_bundle_detailed`
+  (every payload base64-decoded + re-hashed, fail-closed); `POST
+  /api/sync/bundle/build` + payload metadata in the import response.
+- New routes (all Authenticated, additive): `GET /api/peers/known`, `POST
+  /api/peers/announce`, `POST /api/relay/drop|poll|ack` (+ `relay` in
+  `security::ROUTED_SEGMENTS` so the 404-before-401 gate knows it).
+- Frontend: `wanDial.ts` live plans + `buildRelayEnvelope`/`relayDialSteps`/
+  `relayDropPath`/`relayPollPath`; new `p2pPresence.ts` (canonical envelope,
+  signed-body/announce/relay builders, injected-fetch drop/poll/ack clients,
+  `openDataChannelViaRelay` WebRTC handshake via the relay mailbox with an
+  honest `unsupported:` off-browser); `syncExchangeWithPeer` `signer` hook
+  (attested pushes go to `/api/peers/{id}/sync` with `verified` in the steps);
+  `useTauri.ts` 6 new REST-first routes + signature passthrough on
+  `peer_sync`; store `knownPeers`/`fetchKnownPeers`/`announcePresence` +
+  attested `syncWithPeer` (✓ seal); DevicesPanel Presence card + WAN relay
+  URL field (localStorage); cybsh `wan plan|dial [--relay <url>]`, new `pex
+  announce|known` + `relay drop|poll|ack` verbs.
+- Docs: OPERATIONS §4c2 rewritten (live relay/presence/payloads/attestation,
+  per-target table, WebRTC, `https://` probes live); ARCHITECTURE REST table
+  gains presence/relay/bundle-build rows + `verified` on peer sync.
+- Tests: `p2p-live.test.ts` (canonical vector, envelopes, mailbox clients,
+  attested exchange, routes, verbs); `wan-dial.test.ts` updated to live
+  plans; Rust unit tests for verify/envelope/relay/presence/payloads.
+- Verified here: version agree, headers ok (541 files), `vue-tsc` clean,
+  transport parity clean (177 mappings), full vitest green (92 files / 974
+  tests). Rust is CI's job per repo rules (no local cargo) — additive,
+  existing-dep-only changes throughout.
+
+## 2026-10-12 — P2P bonds: pairing codes, RS swarming, rooms + project selections (ANALYSIS.md §2B 6-9)
+
+- Researched online and recorded selections in ANALYSIS.md (licenses +
+  versions verified 2026-10-12): `iroh` 1.x selected for QUIC (MIT/Apache,
+  relay+gossip+BLAKE3-blobs+mobile/WASM, self-hostable relay/dns; dep itself
+  sequenced — heavyweight, needs networked CI + mobile link validation;
+  `rust-libp2p` rejected as over-surface); `raptorq` sequenced for GB-scale
+  fountain codes; `magic-wormhole.rs` rejected as a dep (EUPL-1.2 vs MIT
+  policy), adopted as UX pattern; `librqbit` deferred; Trystero recorded as
+  one-file follow-up; `iroh-webrtc-transport` recorded as the direct
+  browser↔native path.
+- Native pairing codes over the relay mailbox (zero new routes/deps):
+  `peers::{pairing_code, normalize_pairing_code, pairing_recipient,
+  is_pairing_recipient}` (64-word list, OsRng entropy, `pair:<code>`
+  recipients) + `src/utils/pairing.ts` twin (WebCrypto mint, static-read
+  test pins the wordlist cross-language) + `pair make|drop|claim` verb +
+  Tauri `pairing_code` twin.
+- Erasure-coded relay swarming on the in-tree codec: `crates/sync/src/swarm.rs`
+  (`swarm_layout` ~64 KiB shards, `swarm_encode`/`swarm_decode` with
+  per-symbol + whole-object BLAKE3 seals, `kind: swarm-symbol`); Tauri
+  `swarm_encode`/`swarm_decode` twins; wasm `swarm_encode_json`/
+  `swarm_decode_json` exports (new `cybermanju-erasure` + `base64` wasm deps,
+  both pure Rust); `src/utils/p2pSwarm.ts` (layout mirror, envelope
+  validation, backend injection, wasm-loader factory) + `swarm plan` verb.
+- Zero-dep relay rooms: `src/utils/p2pRoom.ts` (`room:<app>/<room>` topics,
+  hello/action kinds, read+ack splits) + `room join|say` verb.
+- Docs: ANALYSIS.md status refresh + §2B items 6-9 (selections, versions,
+  integration plans, honest sequence reasons) + §6 phase-3 update;
+  OPERATIONS §4c2 gains pairing/swarm/rooms paragraphs + verbs.
+- Verified here: headers ok, `vue-tsc` clean, full vitest green. Rust
+  (pairing/swarm/wasm export) is CI's job per repo rules — additive,
+  existing-dep-only code following compiling in-repo patterns.
+
+## 2026-10-12 — P2P deps for CI: iroh + raptorq declared, wired, proving
+
+- `crates/sync/Cargo.toml`: `iroh = "1"` (addressing layer only — no async
+  runtime added) + `raptorq = "2"` (zero mandatory deps); `crates/os-wasm`
+  gains `raptorq` for the Pages twin. All APIs docs-grounded (iroh 1.3.0,
+  raptorq 2.0.1) since nothing here compiles locally per repo rules.
+- iroh addressing live in `crates/sync/src/iroh.rs`: `parse_endpoint_id`
+  (hex-or-base32 in, hex out) + `parse_relay_url` + canonical
+  `iroh:<id>@<relay>` tickets (`iroh_ticket`/`parse_iroh_ticket`, ed25519
+  base point as the deterministic test vector); `dial_plan`/
+  `relay_dial_steps` prefer the ticket relay over the configured one. Async
+  `Endpoint` dial stays sequenced on a tokio runtime decision; `iroh-blobs`
+  excluded (would duplicate redb 4).
+- RaptorQ fountains live in `crates/sync/src/swarm.rs`
+  (`fountain_encode`/`fountain_decode`, OTI-per-symbol, `catch_unwind` on
+  untrusted packet bytes, whole-object re-hash) + Tauri
+  `fountain_encode`/`fountain_decode` twins + wasm `fountain_*_json`
+  exports + `p2pSwarm.ts` envelope validation/plan/backend factories +
+  `swarm fountain` verb + `wanDial.ts` ticket builders (shape-checked; curve
+  checked natively).
+- Docs: ANALYSIS.md §2B items 6-7 rewritten (dep declared, proving in CI);
+  OPERATIONS §4c2 fountain/ticket lines.
+- Verified here: headers ok, `vue-tsc` clean, vitest green. Rust compiles + unit tests are CI's job — watch the Rust Lint & Test job (new deps resolve + build on all targets incl. Android; basepoint-vector and fountain tests are the canaries).

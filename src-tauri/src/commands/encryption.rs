@@ -184,7 +184,9 @@ const SEALED_PREFIX: &str = "sealed:v1:";
 ///
 /// Fails when no master passphrase can be resolved — the contract is to
 /// **refuse to persist a raw private key**, not to fall back to plaintext.
-fn seal_private_key(raw: &[u8]) -> Result<String, String> {
+/// Shared (`pub(crate)`) with the device-identity module, which seals ML-DSA
+/// device seeds under the same posture.
+pub(crate) fn seal_private_key(raw: &[u8]) -> Result<String, String> {
     let passphrase = cybermanju_crypto::keystore::master_passphrase().ok_or_else(|| {
         "No master passphrase available — refusing to store a raw private key".to_string()
     })?;
@@ -200,7 +202,8 @@ fn seal_private_key(raw: &[u8]) -> Result<String, String> {
 ///
 /// Rows written before keys-at-rest landed are still raw base64; they stay
 /// readable and are migrated to the sealed form by [`seal_legacy_keys`].
-fn open_private_key(stored: &str) -> Result<Vec<u8>, String> {
+/// Shared (`pub(crate)`) with the device-identity module for seed signing.
+pub(crate) fn open_private_key(stored: &str) -> Result<Vec<u8>, String> {
     if let Some(payload) = stored.strip_prefix(SEALED_PREFIX) {
         let blob = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, payload)
             .map_err(|e| format!("Failed to decode sealed private key: {}", e))?;

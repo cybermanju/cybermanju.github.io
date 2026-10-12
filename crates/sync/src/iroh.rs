@@ -1,20 +1,25 @@
 // CyberManju OS — WAN transport seam (crates/sync/src/iroh.rs).
-// Role: honest WAN leg of §2B (ANALYSIS.md) — device identity ✅, LAN
-// discovery ✅, CAS leases ✅, sneakernet ✅ and direct LAN sync ✅ are all
-// landed; the HTTP dial path below is REAL (std TcpStream probe + op-log
-// pull/push steps, no new deps) so off-LAN peers sync today wherever `/api`
-// is reachable. Only QUIC/NAT-traversal (`iroh` relay dial) stays sequenced
-// (new dependency + networked CI proving), never pretended.
+// Role: WAN leg of §2B (ANALYSIS.md) — device identity ✅, LAN discovery ✅,
+// CAS leases ✅, sneakernet ✅, direct LAN sync ✅, HTTPS probe ✅, signed
+// envelopes ✅ and relay-over-HTTPS NAT traversal ✅ are all landed. Direct
+// HTTP dial works wherever `/api` is reachable; peers behind NAT rendezvous
+// through any dashboard configured as `relay_url` (both sides make outbound
+// HTTPS — `POST /api/relay/drop`, `POST /api/relay/poll` — so no inbound
+// port is needed). Only the QUIC *datagram* upgrade stays sequenced (new
+// dependency + networked CI proving); the relay *capability* is live.
 // Exports: IrohConfig, IrohEndpoint, parse_endpoint, dial_plan, http_base,
-// http_dial_steps, http_probe, is_relay_addr, normalize_base, wan_way_out,
-// peer_readyz_url, peer_search_url, peer_oplog_since_url,
-// federated_search_plan.
-// Integrates: sync crate (std-only, no new deps); the op-log push/pull
-// payloads ride unchanged on both paths — only `dial` grows a backend.
-// Contracts: every constructor validates; nothing here opens a socket except
-// `http_probe` (bounded timeout, `network:` on failure) — `dial_plan` answers
-// `unsupported:` with the exact reason until the QUIC transport lands, so
-// callers degrade to HTTP/LAN/bundle instead of hanging.
+// http_dial_steps, http_probe, relay_envelope, relay_dial_steps,
+// relay_drop_path, relay_poll_path, endpoint_fingerprint, is_relay_addr,
+// normalize_base, wan_way_out, peer_readyz_url, peer_search_url,
+// peer_oplog_since_url, federated_search_plan.
+// Integrates: sync crate (std + reqwest blocking with rustls-tls for the
+// HTTPS probe/relay forward — no new deps); the op-log push/pull payloads
+// ride unchanged on every path — only `dial` grows a backend.
+// Contracts: every constructor validates; only `http_probe` and
+// `relay_forward` open sockets (bounded timeouts, `network:` on failure) —
+// `dial_plan` answers `unsupported:` with the exact way out only when a
+// relay ticket arrives with no `relay_url` configured, so callers degrade to
+// HTTP/LAN/bundle instead of hanging.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IrohConfig {
     /// Relay URL (e.g. `https://relay.cybermanju.example`). Empty = direct only.
@@ -56,9 +61,13 @@ pub fn parse_endpoint(text: &str) -> Result<IrohEndpoint, String> {
     Ok(IrohEndpoint { device_id, addr })
 }
 
-/// Validate a WAN dial config. Always `Err("unsupported: …")` today — the
-/// iroh QUIC backend is sequenced, not shipped — naming what is missing so the
-/// UI can offer HTTP dial + LAN sync + sneakernet instead of a hang.
+/// Dial plan for a WAN endpoint. Direct `host:port` / URL addrs return the
+/// live HTTP plan (probe + op-log pull/push — same steps as
+/// `http_dial_steps`); relay tickets (`relay…`, `iroh:…`, `/p2p/…`) return
+/// the live relay-envelope plan when `config.relay_url` is set (both sides
+/// rendezvous over outbound HTTPS, no inbound port), and `Err("unsupported:
+/// …")` with the LAN/bundle way out only when no relay is configured — so
+/// the UI offers a next step instead of a hang.
 pub fn dial_plan(endpoint: &IrohEndpoint, config: &IrohConfig) -> Result<String, String> {
     if config.dial_timeout_secs == 0 || config.dial_timeout_secs > 120 {
         return Err("invalid: dial_timeout_secs must be 1..=120".to_string());
@@ -66,10 +75,150 @@ pub fn dial_plan(endpoint: &IrohEndpoint, config: &IrohConfig) -> Result<String,
     if endpoint.device_id.trim().is_empty() {
         return Err("invalid: dial needs a device id".to_string());
     }
-    Err(format!(
-        "unsupported: QUIC dial to '{}' needs the iroh transport (sequenced: new dependency + networked CI proving) — use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle",
-        endpoint.device_id,
+    if is_relay_addr(&endpoint.addr) {
+        // Canonical tickets carry their own relay; the configured URL is
+        // the fallback. Only neither answers `unsupported:`.
+        let Some(relay) = ticket_or_config_relay(&endpoint.addr, config) else {
+            return Err(format!(
+                "unsupported: relay dial to '{}' needs a relay_url (any dashboard serves POST /api/relay/drop|poll — set one, or use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle)",
+                endpoint.device_id,
+            ));
+        };
+        return Ok(format!(
+            "relay: POST {}/api/relay/drop {{ to: '{}', kind: op-envelope }} ({} s abort, outbound HTTPS — no inbound port) + POST {}/api/relay/poll {{ for: '{}' }} for the reply",
+            relay,
+            endpoint.device_id,
+            config.dial_timeout_secs,
+            relay,
+            endpoint.device_id,
+        ));
+    }
+    let base = http_base(endpoint);
+    Ok(format!(
+        "http: probe GET {base}/api/readyz ({} s abort, fail-closed) + op-log pull/push over {base}",
+        config.dial_timeout_secs,
     ))
+}
+
+/// Relay envelope for one NAT-traversed message: `{ v: 1, to, kind,
+/// payload }`. Pure constructor — delivery is `POST <relay>/api/relay/drop`
+/// (see `relay_forward`), pickup is `POST <relay>/api/relay/poll`. The TS
+/// twin `buildRelayEnvelope` pins the identical JSON shape.
+pub fn relay_envelope(
+    to_device: &str,
+    kind: &str,
+    payload: &serde_json::Value,
+) -> Result<String, String> {
+    if to_device.trim().is_empty() {
+        return Err("invalid: relay envelope needs a destination device id".to_string());
+    }
+    if kind.trim().is_empty() {
+        return Err("invalid: relay envelope needs a kind".to_string());
+    }
+    serde_json::to_string(&serde_json::json!({
+        "v": 1,
+        "to": to_device,
+        "kind": kind,
+        "payload": payload,
+    }))
+    .map_err(|e| format!("integrity: relay envelope unserializable: {e}"))
+}
+
+/// Live relay dial steps for a relay-ticket endpoint: drop the envelope at
+/// the relay, poll for the reply, then run the op-log merge locally.
+/// Pure — the TS twin `relayDialSteps` pins the same order.
+pub fn relay_dial_steps(
+    endpoint: &IrohEndpoint,
+    config: &IrohConfig,
+    since: u64,
+) -> Result<Vec<String>, String> {
+    if !is_relay_addr(&endpoint.addr) {
+        return Err(
+            "invalid: relay steps need a relay ticket addr (direct addrs use http_dial_steps)"
+                .to_string(),
+        );
+    }
+    let Some(relay) = ticket_or_config_relay(&endpoint.addr, config) else {
+        return Err(format!(
+            "unsupported: relay dial to '{}' needs a relay_url (any dashboard serves POST /api/relay/drop|poll — set one, or use HTTP dial, direct LAN sync or a sneakernet bundle)",
+            endpoint.device_id,
+        ));
+    };
+    Ok(vec![
+        format!(
+            "drop: POST {}/api/relay/drop {{ to: '{}', kind: op-envelope }}",
+            relay, endpoint.device_id
+        ),
+        format!(
+            "poll: POST {}/api/relay/poll {{ for: '{}' }} ({} s abort)",
+            relay, endpoint.device_id, config.dial_timeout_secs
+        ),
+        format!("pull: merge polled ops since={since} via POST /api/oplog/push {{ ops: theirs }}"),
+        "push: POST /api/relay/drop { to, kind: op-envelope, payload: ours }".to_string(),
+        "render: GET /api/oplog/conflicts".to_string(),
+    ])
+}
+
+/// `POST <relay>/api/relay/drop` path for a relay base URL.
+pub fn relay_drop_path(relay_base: &str) -> Result<String, String> {
+    let base = normalize_base(relay_base)?;
+    Ok(format!("{}/api/relay/drop", base.trim_end_matches('/')))
+}
+
+/// `POST <relay>/api/relay/poll` path for a relay base URL.
+pub fn relay_poll_path(relay_base: &str) -> Result<String, String> {
+    let base = normalize_base(relay_base)?;
+    Ok(format!("{}/api/relay/poll", base.trim_end_matches('/')))
+}
+
+/// Deliver one envelope to a relay over outbound HTTPS (bounded timeout).
+/// Returns the relay's `{ accepted: true, id }` receipt as raw JSON.
+/// `network:` on failure — never a hang, never a panic. Pure-HTTP relays and
+/// plain-HTTP relay URLs both ride here (the TLS decision is the URL's).
+pub fn relay_forward(
+    relay_base: &str,
+    envelope_json: &str,
+    timeout_secs: u64,
+) -> Result<String, String> {
+    if timeout_secs == 0 || timeout_secs > 120 {
+        return Err("invalid: dial_timeout_secs must be 1..=120".to_string());
+    }
+    let url = relay_drop_path(relay_base)?;
+    let body: serde_json::Value = serde_json::from_str(envelope_json)
+        .map_err(|e| format!("invalid: relay envelope is not JSON: {e}"))?;
+    let timeout = std::time::Duration::from_secs(timeout_secs);
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("CyberManjuOS/0.1")
+        .connect_timeout(timeout)
+        .timeout(timeout)
+        .build()
+        .map_err(|e| format!("network: relay client failed for '{url}': {e}"))?;
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .map_err(|e| format!("network: relay drop {url} failed: {e}"))?;
+    let status = resp.status().as_u16();
+    if !(200..300).contains(&status) {
+        return Err(format!("network: relay drop {url} answered HTTP {status}"));
+    }
+    resp.text()
+        .map_err(|e| format!("network: relay drop {url} returned an unreadable body: {e}"))
+}
+
+/// Short identity fingerprint for a device registry key: BLAKE3 hex (full 64
+/// chars) of the decoded public key bytes. Display truncates; comparison
+/// never does. Pure — the TS twin `endpointFingerprint` is byte-identical
+/// (same base64 alphabet, same hash).
+pub fn endpoint_fingerprint(public_key_b64: &str) -> Result<String, String> {
+    use base64::Engine;
+    let raw = base64::engine::general_purpose::STANDARD
+        .decode(public_key_b64.trim())
+        .map_err(|e| format!("invalid: device public key is not base64: {e}"))?;
+    if raw.is_empty() {
+        return Err("invalid: device public key is empty".to_string());
+    }
+    Ok(blake3::hash(&raw).to_hex().to_string())
 }
 
 /// `http(s)://` base for a WAN endpoint. The addr half stays opaque (DNS
@@ -106,16 +255,17 @@ pub fn http_dial_steps(endpoint: &IrohEndpoint, since: u64) -> Vec<String> {
     ]
 }
 
-/// Probe `GET <addr>/api/readyz` over std TcpStream with a bounded timeout.
-/// `addr` accepts `host:port` or a full `http://host:port` URL; the port
-/// defaults to 3456 (the dashboard). Returns `Ok(true)` on any HTTP response
-/// with a 2xx status, else `Err("network: …")` — never a hang, never a panic.
+/// Probe `GET <addr>/api/readyz` with a bounded timeout. `addr` accepts
+/// `host:port`, a full `http(s)://host:port` URL (bare hosts default to the
+/// dashboard `:3456`); relay tickets answer `unsupported:` (they rendezvous
+/// via `relay_forward`, not this socket). Returns `Ok(true)` on any HTTP
+/// response with a 2xx status, else `Err("network: …")` — never a hang,
+/// never a panic.
 ///
-/// Only plain-HTTP `host:port` forms are dialed here: `https://` addrs answer
-/// `unsupported:` (no TLS in std TcpStream — use the fetch-based
-/// `wanHttpProbe` in the browser/WebView, or terminate TLS at a reverse
-/// proxy), and relay tickets stay `unsupported:` until the QUIC backend lands.
-/// IPv6 literals (`[::1]:3456`, `[fe80::1]:3456`) are dialed verbatim.
+/// Plain-HTTP forms ride std TcpStream (no TLS stack in the hot path);
+/// `https://` forms ride the reqwest blocking client with rustls-tls (the
+/// same client `peers::fetch_peer_hits` uses — no new deps). IPv6 literals
+/// (`[::1]:3456`, `[fe80::1]:3456`) are dialed verbatim.
 pub fn http_probe(addr: &str, timeout_secs: u64) -> Result<bool, String> {
     use std::io::{Read, Write};
     use std::net::{TcpStream, ToSocketAddrs};
@@ -127,10 +277,7 @@ pub fn http_probe(addr: &str, timeout_secs: u64) -> Result<bool, String> {
     let raw = addr.trim();
     let is_tls = raw.len() >= 8 && (raw.starts_with("https://") || raw.starts_with("HTTPS://"));
     if is_tls {
-        return Err(
-            "unsupported: https:// probe needs TLS (std TcpStream is plain HTTP) — use the fetch-based WAN probe in the browser/WebView, or terminate TLS at a reverse proxy and probe the http:// backend"
-                .to_string(),
-        );
+        return https_probe(raw, timeout_secs);
     }
     let hostport = raw
         .trim_start_matches("http://")
@@ -146,14 +293,11 @@ pub fn http_probe(addr: &str, timeout_secs: u64) -> Result<bool, String> {
     if hostport.contains(char::is_whitespace) {
         return Err("invalid: probe addr must not contain whitespace".to_string());
     }
-    // Relay tickets / multiaddrs are the QUIC future, not this socket.
-    if hostport.contains('@')
-        || hostport.to_lowercase().contains("relay")
-        || hostport.contains("/p2p/")
-        || hostport.starts_with("iroh:")
-    {
+    // Relay tickets rendezvous via `relay_forward`, not this socket — one
+    // shared grammar (`peers::classify_addr`) so every seam agrees.
+    if is_relay_addr(&hostport) {
         return Err(
-            "unsupported: relay-ticket dial needs the iroh transport — use direct host:port or a sneakernet bundle"
+            "unsupported: relay tickets rendezvous via POST /api/relay/drop|poll (configure a relay_url) — this socket only dials direct host:port peers"
                 .to_string(),
         );
     }
@@ -221,18 +365,132 @@ pub fn http_probe(addr: &str, timeout_secs: u64) -> Result<bool, String> {
     }
 }
 
-/// Classify a raw addr half without opening a socket: relay tickets and
-/// multiaddrs are the QUIC future, everything else is direct HTTP. Pure
+/// HTTPS leg of `http_probe`: `GET <base>/api/readyz` through the reqwest
+/// blocking client with rustls-tls (same client as `peers::fetch_peer_hits`
+/// — no new deps). Bounded by `timeout_secs`, `network:` on every failure.
+fn https_probe(raw: &str, timeout_secs: u64) -> Result<bool, String> {
+    let base = raw.trim().trim_end_matches('/');
+    if base.contains(char::is_whitespace) {
+        return Err("invalid: probe addr must not contain whitespace".to_string());
+    }
+    if is_relay_addr(base) {
+        return Err(
+            "unsupported: relay tickets rendezvous via POST /api/relay/drop|poll (configure a relay_url) — this socket only dials direct host:port peers"
+                .to_string(),
+        );
+    }
+    let url = format!("{}/api/readyz", base.trim_end_matches('/'));
+    let timeout = std::time::Duration::from_secs(timeout_secs);
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("CyberManjuOS/0.1")
+        .connect_timeout(timeout)
+        .timeout(timeout)
+        .build()
+        .map_err(|e| format!("network: WAN probe client failed for '{url}': {e}"))?;
+    let resp = client
+        .get(&url)
+        .send()
+        .map_err(|e| format!("network: WAN probe failed for '{url}': {e}"))?;
+    let status = resp.status().as_u16();
+    if (200..300).contains(&status) {
+        Ok(true)
+    } else {
+        Err(format!("network: WAN probe {url} answered HTTP {status}"))
+    }
+}
+
+/// Classify a raw addr half without opening any socket: relay tickets and
+/// multiaddrs rendezvous via the relay, everything else is direct HTTP. Pure
 /// alias over `peers::classify_addr` so both seams agree on one grammar.
 pub fn classify_addr(addr: &str) -> super::peers::PeerTransport {
     super::peers::classify_addr(addr)
 }
 
-/// True when the addr half needs the sequenced QUIC relay (tickets,
-/// multiaddrs, anything mentioning a relay). Pure — the TS twin
-/// `isRelayAddr` pins the same grammar so the UI refuses before dialing.
+/// True when the addr half rendezvouses via the relay (tickets, multiaddrs,
+/// relay-token hosts). Pure — the TS twin `isRelayAddr` pins the same
+/// grammar so the UI plans before dialing.
 pub fn is_relay_addr(addr: &str) -> bool {
     classify_addr(addr) == super::peers::PeerTransport::RelayFuture
+}
+
+// ─── iroh endpoint addressing (QUIC identity layer, no async runtime) ──
+//
+// The async `Endpoint` dial stays sequenced on a tokio runtime decision;
+// everything here is sync and load-bearing today: strict validation +
+// canonicalization of iroh endpoint IDs (`iroh::PublicKey`: hex-or-base32
+// in, hex out) and relay URLs, plus canonical `iroh:<id>@<relay>` tickets
+// that carry their own rendezvous — a ticketed dial needs no configured
+// `relay_url`. The TS twin validates the same shapes in `wanDial.ts`.
+
+/// Parse + validate an iroh endpoint ID (ed25519 public key). Returns the
+/// canonical hex form. `invalid:` on garbage — never a guess.
+pub fn parse_endpoint_id(text: &str) -> Result<String, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("invalid: endpoint id is required".to_string());
+    }
+    if trimmed.contains(char::is_whitespace) {
+        return Err("invalid: endpoint id must not contain whitespace".to_string());
+    }
+    let key: iroh::PublicKey = trimmed
+        .parse()
+        .map_err(|e: iroh::KeyParsingError| format!("invalid: not an iroh endpoint id: {e:?}"))?;
+    Ok(key.to_string())
+}
+
+/// Parse + validate a relay URL. Returns the canonical form.
+pub fn parse_relay_url(text: &str) -> Result<String, String> {
+    let trimmed = text.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err("invalid: relay URL is required".to_string());
+    }
+    if trimmed.contains(char::is_whitespace) {
+        return Err("invalid: relay URL must not contain whitespace".to_string());
+    }
+    let url: iroh::RelayUrl = trimmed
+        .parse()
+        .map_err(|e: iroh::RelayUrlParseError| format!("invalid: not a relay URL: {e:?}"))?;
+    Ok(url.to_string())
+}
+
+/// Canonical `iroh:<endpoint-id>@<relay-url>` ticket: both halves strictly
+/// validated, both normalized. Tickets are self-contained dials — the
+/// relay travels with the address, so no configured `relay_url` is needed.
+pub fn iroh_ticket(endpoint_id: &str, relay_url: &str) -> Result<String, String> {
+    Ok(format!(
+        "iroh:{}@{}",
+        parse_endpoint_id(endpoint_id)?,
+        parse_relay_url(relay_url)?
+    ))
+}
+
+/// Split a ticket back into `(endpoint-id, relay-url)` (both normalized).
+pub fn parse_iroh_ticket(text: &str) -> Result<(String, String), String> {
+    let rest = text
+        .trim()
+        .strip_prefix("iroh:")
+        .ok_or_else(|| "invalid: iroh ticket starts with `iroh:`".to_string())?;
+    let (id, relay) = rest
+        .split_once('@')
+        .ok_or_else(|| "invalid: iroh ticket is `iroh:<endpoint-id>@<relay-url>`".to_string())?;
+    Ok((parse_endpoint_id(id)?, parse_relay_url(relay)?))
+}
+
+/// Rendezvous for a relay-ticket addr: the ticket's own relay when the addr
+/// is a canonical ticket, else the configured `relay_url`. `None` when
+/// neither exists (callers answer `unsupported:` with the way out).
+fn ticket_or_config_relay(addr: &str, config: &IrohConfig) -> Option<String> {
+    if let Ok((_, relay)) = parse_iroh_ticket(addr) {
+        if !relay.is_empty() {
+            return Some(relay);
+        }
+    }
+    let configured = config.relay_url.trim().trim_end_matches('/');
+    if configured.is_empty() {
+        None
+    } else {
+        Some(configured.to_string())
+    }
 }
 
 /// `http(s)://` base for a raw addr half (addr stays opaque, never guessed).
@@ -289,7 +547,7 @@ pub fn federated_search_plan(
     }
     if is_relay_addr(&endpoint.addr) {
         return Err(format!(
-            "unsupported: federated search to '{}' needs the iroh transport (sequenced) — use direct host:port peers or POST /api/search/federated with reachable base URLs",
+            "unsupported: federated search to '{}' is a relay ticket — configure a relay_url and search via the relay envelope, or use direct host:port peers / POST /api/search/federated with reachable base URLs",
             endpoint.device_id,
         ));
     }
@@ -335,11 +593,27 @@ mod tests {
     }
 
     #[test]
-    fn dial_plan_is_honestly_unsupported_with_a_way_out() {
+    fn dial_plan_is_live_for_direct_and_relay_with_a_way_out() {
+        // Direct addrs dial today (probe + op-log pull/push).
+        let direct = parse_endpoint("phone-7@192.168.1.60:3456").unwrap();
+        let plan = dial_plan(&direct, &IrohConfig::default()).expect("direct is live");
+        assert!(plan.contains("http:"), "{plan}");
+        assert!(plan.contains("/api/readyz"), "{plan}");
+        // Relay tickets without a relay_url refuse honestly with the way out.
         let ep = parse_endpoint("phone-7@relay:443").unwrap();
-        let err = dial_plan(&ep, &IrohConfig::default()).expect_err("no QUIC transport yet");
+        let err = dial_plan(&ep, &IrohConfig::default()).expect_err("no relay configured");
         assert!(err.starts_with("unsupported:"), "{err}");
-        assert!(err.contains("HTTP dial"), "{err}");
+        assert!(err.contains("relay_url"), "{err}");
+        // With a relay_url any dashboard rendezvouses the pair over HTTPS.
+        let relayed = dial_plan(
+            &ep,
+            &IrohConfig {
+                relay_url: "https://relay.example.com".to_string(),
+                dial_timeout_secs: 15,
+            },
+        )
+        .expect("relay is live");
+        assert!(relayed.contains("/api/relay/drop"), "{relayed}");
         let bad = dial_plan(
             &ep,
             &IrohConfig {
@@ -351,6 +625,104 @@ mod tests {
             bad.unwrap_err().starts_with("invalid:"),
             "timeout validated first"
         );
+    }
+
+    #[test]
+    fn relay_envelope_and_steps_round_trip() {
+        let ep = parse_endpoint("phone-7@relay.example.com").unwrap();
+        let config = IrohConfig {
+            relay_url: "https://relay.example.com/".to_string(),
+            dial_timeout_secs: 15,
+        };
+        let env = relay_envelope(
+            &ep.device_id,
+            "op-envelope",
+            &serde_json::json!({"ops": []}),
+        )
+        .expect("envelope");
+        assert!(env.contains("\"to\":\"phone-7\""), "{env}");
+        assert!(env.contains("\"v\":1"), "{env}");
+        let steps = relay_dial_steps(&ep, &config, 41).expect("steps");
+        assert_eq!(steps.len(), 5);
+        assert!(steps[0].contains("/api/relay/drop"), "{steps:?}");
+        assert!(steps[1].contains("/api/relay/poll"), "{steps:?}");
+        assert!(steps[4].contains("/api/oplog/conflicts"), "{steps:?}");
+        assert!(relay_envelope("", "op-envelope", &serde_json::json!({})).is_err());
+        assert!(relay_dial_steps(&ep, &IrohConfig::default(), 0)
+            .unwrap_err()
+            .starts_with("unsupported:"));
+        assert_eq!(
+            relay_drop_path("https://relay.example.com/").unwrap(),
+            "https://relay.example.com/api/relay/drop"
+        );
+        assert_eq!(
+            relay_poll_path("relay.example.com:3456").unwrap(),
+            "http://relay.example.com:3456/api/relay/poll"
+        );
+    }
+
+    #[test]
+    fn endpoint_ids_validate_and_tickets_round_trip() {
+        // Ed25519 base point (compressed Edwards Y) — a real curve point,
+        // no randomness, no SecretKey needed.
+        let mut raw = [0x66u8; 32];
+        raw[0] = 0x58;
+        let key = iroh::PublicKey::from_bytes(&raw).expect("basepoint is on the curve");
+        let text = key.to_string();
+        assert_eq!(text.len(), 64, "{text}");
+        assert_eq!(parse_endpoint_id(&text).unwrap(), text);
+        // Garbage fails closed.
+        assert!(parse_endpoint_id("").unwrap_err().starts_with("invalid:"));
+        assert!(parse_endpoint_id("not-a-key")
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(parse_endpoint_id("has space in it")
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(parse_relay_url("").unwrap_err().starts_with("invalid:"));
+        assert!(parse_relay_url("not a url with spaces")
+            .unwrap_err()
+            .starts_with("invalid:"));
+        let relay = parse_relay_url("https://relay.example.com/").expect("relay");
+        assert!(!relay.is_empty());
+        // Canonical tickets carry their own rendezvous.
+        let ticket = iroh_ticket(&text, "https://relay.example.com").expect("ticket");
+        assert!(ticket.starts_with("iroh:"), "{ticket}");
+        assert!(is_relay_addr(&ticket));
+        let (id, url) = parse_iroh_ticket(&ticket).expect("parse");
+        assert_eq!(id, text);
+        assert_eq!(url, relay);
+        assert!(parse_iroh_ticket("https://relay.example.com")
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(parse_iroh_ticket("iroh:no-at-sign")
+            .unwrap_err()
+            .starts_with("invalid:"));
+        // A ticketed dial needs no configured relay_url.
+        let ep = IrohEndpoint {
+            device_id: "phone-7".to_string(),
+            addr: ticket.clone(),
+        };
+        let plan = dial_plan(&ep, &IrohConfig::default()).expect("ticket is self-contained");
+        assert!(plan.contains("/api/relay/drop"), "{plan}");
+        let steps = relay_dial_steps(&ep, &IrohConfig::default(), 0).expect("steps");
+        assert!(steps[0].contains("https://relay.example.com"), "{steps:?}");
+    }
+
+    #[test]
+    fn endpoint_fingerprint_is_stable_blake3() {
+        use base64::Engine;
+        let raw = b"fake-ml-dsa-public-key-bytes";
+        let b64 = base64::engine::general_purpose::STANDARD.encode(raw);
+        let fp = endpoint_fingerprint(&b64).expect("fingerprint");
+        assert_eq!(fp.len(), 64);
+        assert_eq!(fp, endpoint_fingerprint(&b64).expect("stable"));
+        assert!(endpoint_fingerprint("!!!")
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(endpoint_fingerprint("")
+            .unwrap_err()
+            .starts_with("invalid:"));
     }
 
     #[test]
@@ -373,21 +745,20 @@ mod tests {
     }
 
     #[test]
-    fn http_probe_validates_and_refuses_relays_honestly() {
+    fn http_probe_validates_and_dials_both_schemes() {
         // Invalid timeout first (no socket opened).
         assert!(http_probe("127.0.0.1:9", 0)
             .unwrap_err()
             .starts_with("invalid:"));
-        // Relay tickets are the QUIC future, not this socket.
+        // Relay tickets rendezvous via the relay, not this socket.
         let relay = http_probe("phone-7@relay.example", 2).unwrap_err();
         assert!(relay.starts_with("unsupported:"), "{relay}");
-        // https:// needs TLS — the std probe says so instead of dialing
-        // garbage at 443 with plain HTTP.
-        let tls = http_probe("https://vault.example.com", 2).unwrap_err();
-        assert!(tls.starts_with("unsupported:"), "{tls}");
-        // Closed loopback port answers `network:`, never hangs, never panics.
+        // Closed loopback ports answer `network:` on both schemes — never a
+        // hang, never a panic, never an external network touch.
         let closed = http_probe("127.0.0.1:9", 2).unwrap_err();
         assert!(closed.starts_with("network:"), "{closed}");
+        let closed_tls = http_probe("https://127.0.0.1:9", 2).unwrap_err();
+        assert!(closed_tls.starts_with("network:"), "{closed_tls}");
     }
 
     #[test]

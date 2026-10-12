@@ -80,6 +80,22 @@
 > Landed rows are tagged ✅ below; the only remaining sequences need Apple
 > secrets, a QUIC dependency + networked CI, or both toolchains in one CI job.
 > Grounded in file/line refs; anything aspirational is labeled as such.
+> Status refresh 2026-10-12 (P2P bonds pass — research-grounded expansion of
+> the §2B spine, measured: 49 top-level components · 34 composables · 78 utils ·
+> 17 crates · 40 redb table defs · 177 REST mappings · 93 frontend test files /
+> 974 tests): **adopted external projects where they fit, built natively where
+> they don't** — relay-over-HTTPS live (any dashboard rendezvouses NAT pairs
+> over outbound HTTPS; only the QUIC *datagram* upgrade stays sequenced, with
+> `iroh` 1.x selected below) · HTTPS probes live (reqwest+rustls) · bundle
+> payloads ride the wire (BLAKE3-sealed, 5 MiB/file) · ML-DSA attested sync
+> (`verified` on `peer_sync`) · presence (`announce`/`known`) + relay mailbox
+> (`drop`/`poll`/`ack`) for mobile/docker → **this pass bonds outward**:
+> erasure-coded relay swarming on the in-tree RS codec ✅ (RaptorQ sequenced
+> for GB scale) · wormhole-style pairing codes over the mailbox ✅ (PAKE
+> sequenced behind a crate) · relay rooms ✅ (Trystero strategy stays a
+> one-file follow-up) · `iroh` recorded as the QUIC selection with versions
+> + integration plan (dep itself sequenced: heavyweight, needs networked CI
+> proving + mobile link validation). §2B items 6–9 + project table below.
 
 ---
 
@@ -179,18 +195,73 @@ chunk manifests, ML-DSA for signatures). Incremental path, cheapest first:
    content-addressed chunks on a USB stick. Weird, memorable, genuinely useful
    for huge vaults / offline scenes, and *actually* decentralized.~~ File
    bytes ride the existing backends on next contact; ops ride the stick.
-5. **iroh** ✅ seam + HTTP dial landed 2026-10-11/12 — `crates/sync/src/iroh.rs`
-   (std-only, no new dep): `IrohConfig`, `<device>@<addr>` endpoint parse,
-   QUIC `dial_plan` answering `unsupported:` with the HTTP/LAN/bundle way out +
-   REAL `http_base` / `http_dial_steps` (readyz probe + op-log pull/push/merge,
-   same shape as the frontend) / `http_probe` (bounded TcpStream
-   `GET /api/readyz`, `network:` on failure, relay tickets `unsupported:`) +
-   unit tests. Frontend ✅ 2026-10-12: `src/utils/wanDial.ts`
-   (`wanHttpBase` + `wanDialSteps` + `wanHttpProbe` with 15 s AbortController,
-   tested incl. closed-port `network:`) + Devices → WAN dial card (Plan +
-   live Probe) + `wan plan|dial` cybsh verbs on all transports. The op-log
-   push/pull payloads ride unchanged on both paths. Only QUIC relay dial stays
-   sequenced (new dependency + NAT-traversal design, needs networked CI proving).
+5. **iroh / relay transport** ✅ relay-over-HTTPS live 2026-10-12 (was: seam +
+   HTTP dial only) — `crates/sync/src/iroh.rs`: `dial_plan` returns a LIVE
+   HTTP plan for direct addrs and a LIVE relay plan when `relay_url` is set
+   (`unsupported:` + way out only with no relay); `http_probe` dials
+   `https://` via reqwest+rustls (plain HTTP stays on TcpStream);
+   `relay_envelope` / `relay_dial_steps` / `relay_forward` /
+   `endpoint_fingerprint`; server rendezvous `POST /api/relay/drop|poll|ack`
+   + presence `POST /api/peers/announce` / `GET /api/peers/known` (kv-backed,
+   5-min TTL); ML-DSA `SignedSyncBody` envelopes (`verified` on `peer_sync`);
+   bundle payloads (`POST /api/sync/bundle/build`, BLAKE3-sealed). Frontend:
+   live `wanDialPlan`, `p2pPresence.ts` (envelopes/mailbox/WebRTC handshake),
+   Devices Presence + WAN relay-URL cards, `wan --relay` / `pex` / `relay`
+   verbs. Only the QUIC *datagram* upgrade stays sequenced — and the project
+   is now selected (item 6), not open research.
+6. **QUIC selection: `iroh` (n0-computer)** ✅ dep declared 2026-10-12,
+   proving in CI — `iroh = "1"` in `crates/sync` (MIT OR Apache-2.0,
+   docs-grounded at 1.3.0: `Endpoint::bind(presets::N0)`, `RelayUrl` +
+   `PublicKey` + `RelayUrlParseError` + `KeyParsingError` all root-level).
+   Live today (sync, no runtime): strict `parse_endpoint_id` (hex-or-base32
+   in, hex out) + `parse_relay_url` + canonical `iroh:<id>@<relay>` tickets
+   (`iroh_ticket`/`parse_iroh_ticket`) that carry their own rendezvous —
+   `dial_plan`/`relay_dial_steps` prefer the ticket relay over the configured
+   one, with the ed25519 base point as the deterministic test vector.
+   Research verified: QUIC + hole-punching + relay fallback, **self-hostable
+   `iroh-relay` + `iroh-dns-server` (pkarr)** mapping 1:1 onto our `relay_url`
+   config, **Android + iOS + WASM/browser supported** (relay-only WebSocket
+   subset in the sandbox; Swift/Kotlin/JS bindings via `iroh-ffi`),
+   **`iroh-blobs` is BLAKE3 content-addressed** (same hash as our integrity
+   story), `iroh-gossip` (browser-tested), mainline-BitTorrent-DHT discovery
+   (Sept 2026). Still sequenced: the async `Endpoint` dial (needs a tokio
+   runtime decision — the only new runtime in the tree) + mobile link
+   validation; `iroh-blobs` deliberately excluded (would duplicate redb 4
+   beside our redb 2). Runner-up recorded and rejected: `rust-libp2p`.
+7. **Erasure-coded swarming** ✅ RS layer landed 2026-10-12, **RaptorQ dep
+   declared the same day, proving in CI** — `raptorq = "2"` in `crates/sync`
+   (+ wasm twin dep; Apache-2.0, docs-grounded at 2.0.1: `Encoder::
+   with_defaults` / `get_config` / `get_encoded_packets`,
+   `EncodingPacket::serialize/deserialize`, `Decoder::new`/`decode`,
+   OTI `serialize/deserialize` 12 bytes — zero mandatory deps).
+   `swarm::{fountain_encode, fountain_decode}` spray `kind:
+   fountain-symbol` messages (OTI travels per symbol, any K+h decode,
+   `catch_unwind` around untrusted packet bytes, whole-object re-hash);
+   Tauri `fountain_encode`/`fountain_decode` twins + wasm
+   `fountain_encode_json`/`fountain_decode_json` + `p2pSwarm.ts` envelope
+   validation/plan/backend factories + `swarm fountain` verb. RS stays the
+   default (exact, zero-dep); RQ is the lossy-path sprayer. Deferred (not
+   selected): `librqbit` — public-swarm BitTorrent is overkill for private
+   vault data without private trackers.
+8. **Wormhole-style pairing codes** ✅ rendezvous landed 2026-10-12, PAKE
+   sequenced — `NNN-word-word` codes (`peers::pairing_code`, 64-word list
+   pinned cross-language by static-read test) addressing `pair:<code>`
+   mailboxes over the existing relay routes (zero new routes, zero new deps);
+   `pair make|drop|claim` verb + `src/utils/pairing.ts` + Tauri
+   `pairing_code` twin. Codes are *rendezvous, not PAKE* (4.1M space bounded
+   by the relay JWT gate + depth caps; auth stays ML-DSA) — honestly labeled.
+   `magic-wormhole.rs` evaluated and **rejected as a dependency (EUPL-1.2,
+   incompatible with our MIT policy)**; adopted as UX pattern only.
+9. **Browser rooms** ✅ zero-dep rooms landed 2026-10-12, Trystero optional —
+   `src/utils/p2pRoom.ts`: `(appId, room)` topics, hello/action kinds, and
+   read+ack splits over our relay mailbox (presence + small-data fan-out for
+   the Pages sandbox, no new infrastructure). **`Trystero` (MIT, 2.7k★,
+   active) evaluated**: `createStrategy` custom-signaling adapters would plug
+   our mailbox into its battle-tested datachannels as a one-file follow-up;
+   not adopted today per the no-new-dep discipline (npm install + Pages
+   bundle impact need their own CI proving). Community bridge recorded:
+   `iroh-webrtc-transport` (iroh QUIC over WebRTC datachannel, droppable)
+   is the direct browser↔native path once `iroh` lands.
 
 ### C. Ship the op-log (P3-2) — ✅ landed 2026-10-11 (foundation + wiring + resolver)
 
@@ -417,9 +488,11 @@ stays a CI-side follow-up (needs both toolchains in one job) | ~~One test bootin
    + scheduled backup ✅ + watchers ✅ + skills (+panels) ✅.
 3. **Make "decentralized" honest** ✅ — device identity ✅ →
    LAN discovery ✅ → direct-sync protocol ✅ → CAS leases ✅ →
-   sneakernet ✅ (+ TLS ✅); HTTP WAN dial ✅ (`wanDialSteps`/`wanHttpProbe`
-   + WAN card Probe + `wan dial` verb + Rust `http_probe`), only QUIC relay
-   dial sequenced last.
+   sneakernet ✅ (+ TLS ✅); relay-over-HTTPS ✅ (dial plans, mailbox,
+   presence, attested sync, payloads) + RS-coded swarming ✅ + pairing
+   codes ✅ + relay rooms ✅; sequenced with named owners: QUIC datagrams
+   (`iroh` selected, item 6), GB-scale fountain codes (`raptorq`, item 7),
+   PAKE codes (item 8), Trystero strategy (item 9).
 4. **Daily-driver depth** ✅ — secrets (+CSV) ✅ + notes (+auto-index) ✅
    + timeline/contacts/tasks/bookmarks/datasets ✅ + i18n foundation ✅
    + rotation checklist ✅.

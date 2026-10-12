@@ -968,3 +968,119 @@ impl EncryptedFileMeta {
         })
     }
 }
+
+// ---------------------------------------------------------------------------
+// Verify with a public key only — P2P device attestation (§2B.1/§2B.2)
+// ---------------------------------------------------------------------------
+
+/// Verify an ML-DSA signature against a bare public key (no private half).
+///
+/// This is the receiver side of device attestation: the sender signs with
+/// `sign_message` (private half sealed in its keystore); the receiver checks
+/// here against the `public_key` + `key_algorithm` in its device registry —
+/// so `POST /api/peers/{id}/sync` can prove *which device* sent the ops, not
+/// just that the caller holds a JWT.
+///
+/// `algorithm` accepts the same strings as `algorithm_from_str`
+/// (`ml-dsa-65`, `ml_dsa65`, …). Both key and signature arrive base64
+/// (the registry stores base64). Returns `Ok(true)` when valid, `Ok(false)`
+/// on a clean mismatch, `Err` with an `integrity:`/`invalid:` prefix when the
+/// inputs do not decode (AGENT-1 — callers map prefixes, never raw errors).
+/// The pattern mirrors `crates/os-wasm/src/crypto.rs::ml_dsa65_verify` (same
+/// `KeyInit::new_from_slice` + `Verifier` shape, all three parameter sets).
+pub fn verify_with_public_key(
+    message: &[u8],
+    signature_b64: &str,
+    public_key_b64: &str,
+    algorithm: &str,
+) -> Result<bool, String> {
+    let algo = algorithm_from_str(algorithm.trim())
+        .ok_or_else(|| format!("invalid: unknown signature algorithm '{algorithm}'"))?;
+    let public_key = BASE64
+        .decode(public_key_b64.trim())
+        .map_err(|e| format!("integrity: device public key is not base64: {e}"))?;
+    let signature = BASE64
+        .decode(signature_b64.trim())
+        .map_err(|e| format!("integrity: signature is not base64: {e}"))?;
+    let valid = match algo {
+        EncryptionAlgo::MlDsa44 => {
+            let vk = <VerifyingKey<MlDsa44> as KeyInit>::new_from_slice(&public_key)
+                .map_err(|e| format!("integrity: bad ML-DSA-44 public key: {e}"))?;
+            let sig = ml_dsa::Signature::<MlDsa44>::try_from(signature.as_slice())
+                .map_err(|e| format!("integrity: bad ML-DSA-44 signature: {e:?}"))?;
+            vk.verify(message, &sig).is_ok()
+        }
+        EncryptionAlgo::MlDsa65 => {
+            let vk = <VerifyingKey<MlDsa65> as KeyInit>::new_from_slice(&public_key)
+                .map_err(|e| format!("integrity: bad ML-DSA-65 public key: {e}"))?;
+            let sig = ml_dsa::Signature::<MlDsa65>::try_from(signature.as_slice())
+                .map_err(|e| format!("integrity: bad ML-DSA-65 signature: {e:?}"))?;
+            vk.verify(message, &sig).is_ok()
+        }
+        EncryptionAlgo::MlDsa87 => {
+            let vk = <VerifyingKey<MlDsa87> as KeyInit>::new_from_slice(&public_key)
+                .map_err(|e| format!("integrity: bad ML-DSA-87 public key: {e}"))?;
+            let sig = ml_dsa::Signature::<MlDsa87>::try_from(signature.as_slice())
+                .map_err(|e| format!("integrity: bad ML-DSA-87 signature: {e:?}"))?;
+            vk.verify(message, &sig).is_ok()
+        }
+        _ => {
+            return Err(format!(
+                "invalid: algorithm '{algorithm}' does not support public-key signatures"
+            ))
+        }
+    };
+    Ok(valid)
+}
+
+#[cfg(test)]
+mod public_verify_tests {
+    use super::*;
+
+    fn keypair_for(algo: EncryptionAlgo) -> KeyPair {
+        let mut engine = PqcEngine::new();
+        engine.generate_keypair(algo).expect("keygen")
+    }
+
+    #[test]
+    fn public_key_verify_round_trips_all_parameter_sets() {
+        for (algo, name) in [
+            (EncryptionAlgo::MlDsa44, "ml-dsa-44"),
+            (EncryptionAlgo::MlDsa65, "ml-dsa-65"),
+            (EncryptionAlgo::MlDsa87, "ml-dsa-87"),
+        ] {
+            let kp = keypair_for(algo);
+            let msg = b"peer-sync attestation payload";
+            let sig = sign_message(msg, &kp).expect("sign");
+            let sig_b64 = BASE64.encode(&sig);
+            let pk_b64 = BASE64.encode(&kp.public_key);
+            assert!(
+                verify_with_public_key(msg, &sig_b64, &pk_b64, name).expect("verify"),
+                "{name} must verify"
+            );
+            // A single flipped bit fails closed (clean false, never an error).
+            let mut tampered = msg.to_vec();
+            tampered[0] ^= 1;
+            assert!(
+                !verify_with_public_key(&tampered, &sig_b64, &pk_b64, name).expect("verify"),
+                "{name} must refuse tampered bytes"
+            );
+        }
+    }
+
+    #[test]
+    fn public_key_verify_rejects_garbage_honestly() {
+        let kp = keypair_for(EncryptionAlgo::MlDsa65);
+        let pk_b64 = BASE64.encode(&kp.public_key);
+        let sig_b64 = BASE64.encode(sign_message(b"m", &kp).expect("sign"));
+        assert!(verify_with_public_key(b"m", "!!!", &pk_b64, "ml-dsa-65")
+            .unwrap_err()
+            .starts_with("integrity:"));
+        assert!(verify_with_public_key(b"m", &sig_b64, &pk_b64, "rot13")
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(verify_with_public_key(b"m", &sig_b64, &pk_b64, "aes256")
+            .unwrap_err()
+            .starts_with("invalid:"));
+    }
+}

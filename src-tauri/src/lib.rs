@@ -463,6 +463,14 @@ pub fn run() {
             devices::list_lan_peers,
             devices::probe_peer,
             devices::peer_platform_notes,
+            devices::sign_peer_ops,
+            // P2P compute twins (§2B swarming + pairing + fountain codes —
+            // pure math, no sockets).
+            commands::p2p::swarm_encode,
+            commands::p2p::swarm_decode,
+            commands::p2p::fountain_encode,
+            commands::p2p::fountain_decode,
+            commands::p2p::pairing_code,
             // Server-side todos (§4.9 agent bridge — same rows the agent tools use).
             todos::list_todos,
             todos::create_todo,
