@@ -24,6 +24,7 @@ pub enum SecretKind {
 }
 
 impl SecretKind {
+    /// Wire spelling (`login`, `card`, `note`, `apiKey`) for a stored kind.
     pub fn as_str(&self) -> &'static str {
         match self {
             SecretKind::Login => "login",
@@ -33,6 +34,7 @@ impl SecretKind {
         }
     }
 
+    /// Parse a user/API spelling into a kind; unknown input is `invalid:`.
     pub fn parse(raw: &str) -> Result<Self, String> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "login" | "password" => Ok(SecretKind::Login),

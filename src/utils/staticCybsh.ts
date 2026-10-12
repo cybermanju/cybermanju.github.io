@@ -37,9 +37,24 @@ import {
 } from './cybshScript'
 import { googleDriveAuthErrorSync } from './gitProvision'
 import { nextFire, parseSchedule } from './schedule'
+import { listSkills, parseSkillMd, skillPanels, validateSkill } from './skills'
+import { resolutionPayload, syncPlanSteps, type ResolutionChoice } from './oplog'
+import { lanSyncSteps, peerBaseUrl } from './lanSync'
+import { VOLUME_WRITE_LIMIT } from './volumeCaps'
+import { parseWanEndpoint, wanDialPlan, wanDialSteps, wanWayOut } from './wanDial'
+import {
+  addTodo,
+  clearDone,
+  parseTodosStore,
+  removeTodo,
+  serializeTodosStore,
+  toggleTodo,
+} from './tasks'
 
-/** The 1 MiB single-write cap mirrors `MAX_WRITE_BYTES` in os.rs. */
-export const STATIC_WRITE_LIMIT = 1024 * 1024
+/** The 1 MiB single-write cap — single source of truth lives in volumeCaps
+ * (mirrors `MAX_WRITE_BYTES` in crates/os-wasm/src/os.rs). Kept here as a
+ * re-export so existing imports keep working. */
+export const STATIC_WRITE_LIMIT = VOLUME_WRITE_LIMIT
 
 /** Report footer: provider push always needs the server behind the page. */
 export const DASHBOARD_NOTE =
@@ -194,7 +209,7 @@ const HANDLED_VERBS = new Set([
   'quota', 'providers', 'oauth', 'disk', 'sync',
   'encrypt', 'decrypt', 'keygen', 'compress', 'decompress',
   'scrub', 'repair', 'gc', 'lease', 'mount', 'umount', 'ai',
-  'run', 'theme', 'ui', 'cron', 'backup',
+  'run', 'theme', 'ui', 'cron', 'backup', 'skill', 'task', 'oplog', 'lan', 'wan',
 ])
 
 export function handlesStaticVerb(verb: string): boolean {
@@ -2920,6 +2935,318 @@ async function handleCron(
   }
 }
 
+const SKILL_SUBCOMMANDS = ['list', 'show', 'run', 'install', 'panel'] as const
+
+/** Skills as shareable apps, day one (ANALYSIS.md §4.8): `.cybermanju/skills/*`
+ * folders carried by sync; SKILL.md is the manifest, `run` names the entry
+ * `.cybsh`. `install <url>` fetches a SKILL.md (+ its run script) into place. */
+async function handleSkill(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  const sub = (args[0] ?? 'list').toLowerCase()
+  const rest = args.slice(1)
+  const volume = deps.readVolume()
+  const skillFiles = Object.entries(volume)
+    .filter(([path]) => path.includes('.cybermanju/skills/'))
+    .map(([path, content]) => ({ path, content }))
+  if (sub === 'list') {
+    const skills = listSkills(skillFiles)
+    if (json) return shellOk(JSON.stringify(skills))
+    if (!skills.length) {
+      return shellOk('skill: no skills installed under .cybermanju/skills/ — `skill install <url>` copies one in')
+    }
+    return shellOk(skills.map((s) => `${s.slug} ${s.version} — ${s.description}`).join('\n'))
+  }
+  if (sub === 'show') {
+    const slug = rest[0]
+    if (!slug) return shellErr('usage: skill show <slug>')
+    const skills = listSkills(skillFiles)
+    const found = skills.find((s) => s.slug === slug)
+    if (!found) return shellErr(`not_found: no skill '${slug}'`)
+    const problems = validateSkill(
+      found,
+      skillFiles.map((f) => f.path),
+    )
+    if (json) return shellOk(JSON.stringify({ ...found, problems }))
+    let out = `${found.name} ${found.version}\n${found.description}\nrun: ${found.run}`
+    if (problems.length) out += `\nproblems:\n- ${problems.join('\n- ')}`
+    return shellOk(out)
+  }
+  if (sub === 'run') {
+    const slug = rest[0]
+    if (!slug) return shellErr('usage: skill run <slug>')
+    const skills = listSkills(skillFiles)
+    const found = skills.find((s) => s.slug === slug)
+    if (!found) return shellErr(`not_found: no skill '${slug}'`)
+    if (!deps.execFallback) {
+      return shellErr('unsupported: skill run needs the wasm shell fallback — run the same line in the terminal')
+    }
+    const dir = found.path.split('/').slice(0, -1).join('/')
+    const scriptPath = `${dir}/${found.run}`
+    const script = volume[scriptPath]
+    if (typeof script !== 'string') return shellErr(`not_found: missing run script ${scriptPath}`)
+    const lines = script.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'))
+    if (!lines.length) return shellErr(`invalid: ${scriptPath} has no runnable lines`)
+    const out: string[] = []
+    for (const skillLine of lines) {
+      try {
+        out.push(await deps.execFallback(skillLine))
+      } catch (e) {
+        return shellErr(`skill '${slug}' stopped at \`${skillLine}\`: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    if (json) return shellOk(JSON.stringify({ slug, lines: out }))
+    return shellOk(out.join('\n'))
+  }
+  if (sub === 'install') {    const url = rest[0]
+    if (!url || !/^https?:\/\//i.test(url)) return shellErr('usage: skill install <https-url-to-SKILL.md>')
+    if (typeof fetch === 'undefined') {
+      return shellErr('unsupported: skill install has no HTTP client in this context — copy the folder into .cybermanju/skills/ by hand')
+    }
+    let text: string
+    try {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      text = await res.text()
+    } catch (e) {
+      return shellErr(`network: skill install fetch failed (${e instanceof Error ? e.message : String(e)})`)
+    }
+    const manifest = parseSkillMd('.cybermanju/skills/install/SKILL.md', text)
+    if (!manifest) return shellErr('invalid: fetched SKILL.md has no usable name/description')
+    const base = url.split('/').slice(0, -1).join('/')
+    const dir = `.cybermanju/skills/${manifest.slug}`
+    await deps.writeVolumeFile(`${dir}/SKILL.md`, text)
+    // Best-effort sibling fetch for the run script (same directory as the URL).
+    if (manifest.run && base) {
+      try {
+        const res = await fetch(`${base}/${manifest.run}`)
+        if (res.ok) await deps.writeVolumeFile(`${dir}/${manifest.run}`, await res.text())
+      } catch {
+        /* manifest without its script still lists; `skill show` reports it */
+      }
+    }
+    const problems = validateSkill(manifest, [...skillFiles.map((f) => f.path), `${dir}/SKILL.md`])
+    if (json) return shellOk(JSON.stringify({ slug: manifest.slug, problems }))
+    let out = `skill: installed '${manifest.slug}' under ${dir}/`
+    if (problems.length) out += `\nproblems:\n- ${problems.join('\n- ')}`
+    return shellOk(out)
+  }
+  if (sub === 'panel') {
+    const slug = rest[0]
+    if (!slug) return shellErr('usage: skill panel <slug>')
+    const skills = listSkills(skillFiles)
+    const found = skills.find((s) => s.slug === slug)
+    if (!found) return shellErr(`not_found: no skill '${slug}'`)
+    const targets = skillPanels(skills)
+    const target = targets.find((t) => t.slug === slug)
+    if (!target) return shellErr(`not_found: skill '${slug}' ships no panel (add \`panel: <id>\` to its SKILL.md frontmatter)`)
+    if (json) return shellOk(JSON.stringify(target))
+    const tab = target.tab ? ` tab ${target.tab}` : ''
+    return shellOk(`skill:${slug} → open panel '${target.panel}'${tab} — run \`ui open ${target.panel}\` or click the skill card`)
+  }
+  const suggestion = SKILL_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
+  return shellErr(
+    suggestion
+      ? `usage: skill <${SKILL_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
+      : `usage: skill <${SKILL_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
+  )
+}
+
+const OPLOG_SUBCOMMANDS = ['plan', 'conflicts', 'resolve'] as const
+
+/** Op-log exchange from the shell (ANALYSIS.md §2C): `plan` prints the
+ * pull→push→render steps (works offline); `conflicts`/`resolve` need the
+ * dashboard, so without a transport fallback they answer `unsupported:`
+ * with the exact REST calls instead of guessing. */
+async function handleOplog(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  const sub = (args[0] ?? 'plan').toLowerCase()
+  const rest = args.slice(1)
+  if (sub === 'plan') {
+    const sinceRaw = rest.find((a) => !a.startsWith('-')) ?? '0'
+    const since = Math.max(0, parseInt(sinceRaw, 10) || 0)
+    const steps = syncPlanSteps(since)
+    if (json) return shellOk(JSON.stringify({ since, steps }))
+    return shellOk(steps.join('\n'))
+  }
+  if (sub === 'conflicts') {
+    if (!deps.execFallback) {
+      return shellErr('unsupported: `oplog conflicts` needs the dashboard — GET /api/oplog/conflicts (Sync → Conflicts shows the same pairs)')
+    }
+    try {
+      return shellOk(await deps.execFallback('oplog conflicts'))
+    } catch (e) {
+      return shellErr(`unsupported: oplog conflicts via fallback failed (${e instanceof Error ? e.message : String(e)})`)
+    }
+  }
+  if (sub === 'resolve') {
+    const [opA, opB, choiceRaw] = rest.filter((a) => !a.startsWith('-'))
+    if (!opA || !opB) return shellErr('usage: oplog resolve <op-a> <op-b> <keep-a|keep-b|merge>')
+    const choice = (['keep-a', 'keep-b', 'merge'].includes(choiceRaw ?? '') ? choiceRaw : 'merge') as ResolutionChoice
+    const payload = resolutionPayload(
+      { a: { seq: 0, opId: opA, deviceId: '', createdAt: '', kind: '' }, b: { seq: 0, opId: opB, deviceId: '', createdAt: '', kind: '' } },
+      choice,
+      '',
+    )
+    if (json) return shellOk(JSON.stringify(payload))
+    return shellOk(`resolve ${opA} × ${opB} as ${choice} — POST /api/oplog/resolve ${JSON.stringify(payload)} (Sync → Conflicts resolves with one click)`)
+  }
+  const suggestion = OPLOG_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
+  return shellErr(
+    suggestion
+      ? `usage: oplog <${OPLOG_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
+      : `usage: oplog <${OPLOG_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
+  )
+}
+
+const LAN_SUBCOMMANDS = ['plan', 'peers', 'sync'] as const
+
+/** Direct LAN sync from the shell (ANALYSIS.md §2B.2 follow-up): `plan`
+ * prints the pull→push→merge→render steps for a peer; `peers`/`sync` need
+ * the dashboard transport, so they forward via the fallback or refuse
+ * honestly with the exact REST calls. */
+async function handleLan(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  const sub = (args[0] ?? 'plan').toLowerCase()
+  const rest = args.slice(1)
+  if (sub === 'plan') {
+    const target = rest.find((a) => !a.startsWith('-')) ?? '127.0.0.1:3456'
+    const [host, portRaw] = target.split(':')
+    const peer = { deviceId: rest[1] ?? 'peer', name: rest[1] ?? 'peer', host: host || '127.0.0.1', port: parseInt(portRaw ?? '', 10) || 3456 }
+    const steps = lanSyncSteps(peer, 0)
+    if (json) return shellOk(JSON.stringify({ base: peerBaseUrl(peer), steps }))
+    return shellOk([`peer: ${peerBaseUrl(peer)}`, ...steps].join('\n'))
+  }
+  if (sub === 'peers' || sub === 'sync') {
+    if (!deps.execFallback) {
+      const hint = sub === 'peers'
+        ? 'GET /api/peers (Devices → LAN peers shows the same scan)'
+        : 'POST /api/peers/{id}/sync (Devices → LAN peers → SYNC does the authenticated exchange)'
+      return shellErr(`unsupported: \`lan ${sub}\` needs the dashboard — ${hint}`)
+    }
+    try {
+      return shellOk(await deps.execFallback(`lan ${rest.join(' ')}`.trim()))
+    } catch (e) {
+      return shellErr(`unsupported: lan ${sub} via fallback failed (${e instanceof Error ? e.message : String(e)})`)
+    }
+  }
+  const suggestion = LAN_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
+  return shellErr(
+    suggestion
+      ? `usage: lan <${LAN_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
+      : `usage: lan <${LAN_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
+  )
+}
+
+const WAN_SUBCOMMANDS = ['plan', 'dial'] as const
+
+/** WAN dial seam from the shell (ANALYSIS.md §2B.5): `wan plan
+ * <device>@<addr>` prints the honest QUIC `unsupported:` + LAN/bundle way out;
+ * `wan dial <device>@<addr> [since]` prints the REAL HTTP dial steps
+ * (readyz probe + op-log pull/push/merge, same as Devices → WAN) — works
+ * offline on every transport, never dials from the static shell, never guesses. */
+async function handleWan(args: string[], json: boolean): Promise<VerbOut> {
+  const sub = (args[0] ?? 'plan').toLowerCase()
+  const rest = args.slice(1)
+  if (sub === 'plan' || sub === 'dial') {
+    const raw = rest.find((a) => !a.startsWith('-'))
+    if (!raw) return shellErr(`usage: wan ${sub} <device-id>@<addr> [since]`)
+    let endpoint
+    try {
+      endpoint = parseWanEndpoint(raw)
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+    if (sub === 'dial') {
+      const sinceRaw = rest.filter((a) => !a.startsWith('-'))[1]
+      const since = sinceRaw == null ? 0 : Math.max(0, Math.floor(Number(sinceRaw) || 0))
+      const steps = wanDialSteps(endpoint, since)
+      if (json) return shellOk(JSON.stringify({ endpoint, steps }))
+      return shellOk(steps.join('\n'))
+    }
+    let plan: string
+    try {
+      plan = wanDialPlan(endpoint)
+    } catch (e) {
+      plan = e instanceof Error ? e.message : String(e)
+    }
+    const wayOut = wanWayOut(endpoint)
+    if (json) return shellOk(JSON.stringify({ endpoint, plan, wayOut }))
+    return shellOk([plan, ...wayOut].join('\n'))
+  }
+  const suggestion = WAN_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
+  return shellErr(
+    suggestion
+      ? `usage: wan <${WAN_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
+      : `usage: wan <${WAN_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
+  )
+}
+
+const TODOS_KEY = 'cybermanju.todos.v1'
+
+function readTaskList(): ReturnType<typeof parseTodosStore> {
+  try {
+    if (typeof localStorage === 'undefined') return []
+    return parseTodosStore(localStorage.getItem(TODOS_KEY))
+  } catch {
+    return []
+  }
+}
+
+function writeTaskList(list: ReturnType<typeof parseTodosStore>): void {
+  try {
+    if (typeof localStorage === 'undefined') return
+    localStorage.setItem(TODOS_KEY, serializeTodosStore(list))
+  } catch {
+    /* private mode — session-only */
+  }
+}
+
+/** Round-out daily use in the shell (ANALYSIS.md §4.9): todos share the
+ * Archive TASKS store, so shell and panel stay one list. */
+function handleTask(args: string[], json: boolean): VerbOut {
+  const sub = (args[0] ?? 'list').toLowerCase()
+  const rest = args.slice(1)
+  if (sub === 'list') {
+    const list = readTaskList()
+    if (json) return shellOk(JSON.stringify(list))
+    if (!list.length) return shellOk('task: no todos — `task add <title>`')
+    return shellOk(
+      list.map((item) => `${item.done ? '[x]' : '[ ]'} ${item.id} ${item.title}`).join('\n'),
+    )
+  }
+  if (sub === 'add') {
+    const title = rest.join(' ').trim()
+    const created = addTodo(readTaskList(), title)
+    if (!created) return shellErr('usage: task add <title>')
+    writeTaskList(created.list)
+    if (json) return shellOk(JSON.stringify(created.item))
+    return shellOk(`task: added ${created.item.id}`)
+  }
+  if (sub === 'done' || sub === 'undone') {
+    const prefix = rest[0]
+    if (!prefix) return shellErr(`usage: task ${sub} <id-prefix>`)
+    const list = readTaskList()
+    const found = list.find((item) => item.id.startsWith(prefix))
+    if (!found) return shellErr(`not_found: no todo starting with '${prefix}'`)
+    const wantDone = sub === 'done'
+    const next = wantDone === found.done ? list : toggleTodo(list, found.id)
+    writeTaskList(next)
+    return shellOk(`task: ${found.id} ${wantDone ? 'done' : 'reopened'}`)
+  }
+  if (sub === 'rm') {
+    const prefix = rest[0]
+    if (!prefix) return shellErr('usage: task rm <id-prefix>')
+    const list = readTaskList()
+    const found = list.find((item) => item.id.startsWith(prefix))
+    if (!found) return shellErr(`not_found: no todo starting with '${prefix}'`)
+    writeTaskList(removeTodo(list, found.id))
+    return shellOk(`task: removed ${found.id}`)
+  }
+  if (sub === 'clear') {
+    const { list, cleared } = clearDone(readTaskList())
+    writeTaskList(list)
+    return shellOk(`task: cleared ${cleared} done`)
+  }
+  return shellErr('usage: task <list|add|done|undone|rm|clear> (got `' + sub + '`)')
+}
+
 export async function runStaticCybshLine(
   line: string,
   deps: StaticCybshDeps,
@@ -3098,6 +3425,16 @@ export async function runStaticCybshLine(
         return done(await handleCron(args, json, deps))
       case 'backup':
         return done(await handleBackup(args, json, deps))
+      case 'skill':
+        return done(await handleSkill(args, json, deps))
+      case 'oplog':
+        return done(await handleOplog(args, json, deps))
+      case 'lan':
+        return done(await handleLan(args, json, deps))
+      case 'wan':
+        return done(await handleWan(args, json))
+      case 'task':
+        return done(handleTask(args, json))
       default:
         return null
     }

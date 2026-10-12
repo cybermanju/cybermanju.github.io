@@ -4789,7 +4789,7 @@ fn backup_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<Stri
             } else {
                 crate::backup::export_volume(
                     db,
-                    &kernel,
+                    kernel,
                     &dest_abs,
                     name.as_deref(),
                     keep_n,
@@ -4837,7 +4837,7 @@ fn backup_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<Stri
                     .map(|e| (e.name, e.bytes))
                     .collect()
             } else {
-                crate::backup::list_volume(&kernel, &dir_abs)?
+                crate::backup::list_volume(kernel, &dir_abs)?
                     .into_iter()
                     .map(|e| (e.name, e.bytes))
                     .collect()
@@ -4872,7 +4872,7 @@ fn backup_cmd(args: &[String], db: Option<&Database>, json: bool) -> Result<Stri
                     .ok_or_else(|| format!("invalid: bad provider path `{target}`"))?;
                 crate::backup::verify_provider(db, &head, &rest, &passphrase, deep)?
             } else {
-                crate::backup::verify_volume(&kernel, &target_abs, &passphrase, deep)?
+                crate::backup::verify_volume(kernel, &target_abs, &passphrase, deep)?
             };
             if json {
                 return serde_json::to_string(&serde_json::json!({

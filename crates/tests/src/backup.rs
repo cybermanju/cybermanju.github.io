@@ -36,7 +36,7 @@ fn backup_export_reports_a_verifiable_image() {
     let b64_len = payload["imageB64"].as_str().expect("imageB64").len() as u64;
     assert_eq!(
         b64_len,
-        (image_bytes + 2) / 3 * 4,
+        image_bytes.div_ceil(3) * 4,
         "{image_bytes} vs {b64_len}"
     );
 }

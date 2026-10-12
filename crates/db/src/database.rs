@@ -4,7 +4,9 @@
 // Integrates: anyhow, cybermanju_types, base64, rand_core.
 // Contracts: signals: AGENT-.
 use anyhow::Result;
-use cybermanju_types::schema::{AuditEntry, FileNode, FileVersion, ShareLink, TrashItem};
+use cybermanju_types::schema::{
+    AuditEntry, DeviceRow, FileNode, FileVersion, OpRow, ShareLink, TodoRow, TrashItem,
+};
 use cybermanju_types::sync::{SyncFile, SyncRunRecord};
 use redb::{
     Database as RedbDatabase, ReadTransaction, ReadableTable, TableDefinition, WriteTransaction,
@@ -100,6 +102,22 @@ const SCHEDULE_RUNS_TABLE: TableDefinition<'static, &'static str, &'static str> 
 // only the sealed blob + metadata. List responses never serialize the blob.
 const SECRETS_TABLE: TableDefinition<'static, &'static str, &'static str> =
     TableDefinition::new("secrets");
+// Device identity registry (§2B.1): one row per device (`id` = device id),
+// carrying the display name + ML-DSA public key. The private half never
+// leaves the device; revoked rows stay for history but fail closed.
+const DEVICES_TABLE: TableDefinition<'static, &'static str, &'static str> =
+    TableDefinition::new("devices");
+// Server-side todos (§4.9 agent bridge): same shape as the browser TodoItem
+// plus owner/source, keyed by todo id. Agent tools and the Archive TASKS tab
+// share one list per owner.
+const TODOS_TABLE: TableDefinition<'static, &'static str, &'static str> =
+    TableDefinition::new("todos");
+// Op-log (§2C/P3-2): every mutation appends one JSON row keyed by
+// zero-padded `seq` (local append order). The next-seq counter lives in kv
+// (`oplog:next_seq`) and advances inside the same write txn as the append,
+// so seq assignment is atomic with the row it numbers.
+const OPLOG_TABLE: TableDefinition<'static, &'static str, &'static str> =
+    TableDefinition::new("oplog");
 // Generic key/value blob: vault secrets, app config, shell file content and
 // any other session state the browser build keeps inside `.cybermanju`.
 // Keys are namespaced by convention (`secret:`, `config:`, `content:`,
@@ -116,6 +134,96 @@ pub const SYNC_RUN_HISTORY_LIMIT: usize = 20;
 #[derive(Clone)]
 pub struct Database {
     db: std::sync::Arc<RedbDatabase>,
+    /// Single-opener guard (P0-22/P3-2 close-out): one `cybermanju.db` has ONE
+    /// opener per path. `Arc`-shared so clones never release it early; the
+    /// lockfile is removed when the last clone drops.
+    opener_lock: std::sync::Arc<OpenerLock>,
+}
+
+/// Single-opener lockfile (`<db-path>.lock`, std-only, no new deps).
+///
+/// redb serializes storage txns but cannot stop two *processes* (desktop +
+/// Docker on the same `/data`) from each opening the file and split-braining
+/// the vault. This guard makes the second opener fail closed with
+/// `conflict:` — sync across openers happens via op-log/LAN/bundle, never via
+/// a shared file. Crash-stale locks recover honestly: a lock whose PID is
+/// dead (Linux `/proc` check) is removed and retried once; a live PID — or a
+/// platform without `/proc` — stays `conflict:` with the `rm` recovery path.
+struct OpenerLock {
+    lock_path: std::path::PathBuf,
+}
+
+impl OpenerLock {
+    fn acquire(db_path: &str) -> anyhow::Result<std::sync::Arc<Self>> {
+        let lock_path = std::path::PathBuf::from(format!("{db_path}.lock"));
+        match Self::try_create(&lock_path) {
+            Ok(()) => Ok(std::sync::Arc::new(Self { lock_path })),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // A lockfile is already there: live opener fails closed,
+                // dead (crashed) opener is reaped once, then retried.
+                if pid_live(&lock_path) {
+                    return Err(anyhow::anyhow!(
+                        "conflict: database '{}' is already open by another process (single-opener design — run desktop XOR Docker on the same /data, sync via op-log/LAN/bundle; if no opener is running, remove '{}' after verifying that)",
+                        db_path,
+                        lock_path.display()
+                    ));
+                }
+                let _ = std::fs::remove_file(&lock_path);
+                Self::try_create(&lock_path).map_err(|_| {
+                    anyhow::anyhow!(
+                        "conflict: database '{}' is already open by another process (lost the lock race — sync via op-log/LAN/bundle)",
+                        db_path
+                    )
+                })?;
+                Ok(std::sync::Arc::new(Self { lock_path }))
+            }
+            Err(e) => Err(anyhow::anyhow!(
+                "cannot create opener lock '{}': {e}",
+                lock_path.display()
+            )),
+        }
+    }
+
+    fn try_create(lock_path: &std::path::Path) -> std::io::Result<()> {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(lock_path)?;
+        writeln!(f, "{}", std::process::id())?;
+        Ok(())
+    }
+}
+
+impl Drop for OpenerLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.lock_path);
+    }
+}
+
+/// `true` when the PID recorded in `lock_path` is (or may be) still running.
+/// Own PID always counts as live (same-process double-open is the same
+/// split-brain). On Linux a missing `/proc/<pid>` proves death; platforms
+/// without `/proc` fail closed (live) with the documented `rm` recovery.
+fn pid_live(lock_path: &std::path::Path) -> bool {
+    let content = std::fs::read_to_string(lock_path).unwrap_or_default();
+    let pid: u32 = match content.trim().parse() {
+        Ok(pid) => pid,
+        // Foreign content: never guess — fail closed.
+        Err(_) => return true,
+    };
+    if pid == std::process::id() {
+        return true;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::path::Path::new(&format!("/proc/{pid}")).exists()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        true
+    }
 }
 
 impl Database {
@@ -131,6 +239,10 @@ impl Database {
                 })?;
             }
         }
+        // Single-opener first (P0-22): the second opener fails closed with
+        // `conflict:` here, before redb is ever touched. The guard is stored
+        // on `Self` so the lockfile lives exactly as long as the database.
+        let opener_lock = OpenerLock::acquire(path)?;
         let db = RedbDatabase::create(path)?;
         let write_txn = db.begin_write()?;
         {
@@ -173,6 +285,10 @@ impl Database {
             write_txn.open_table(SCHEDULES_TABLE)?;
             write_txn.open_table(SCHEDULE_RUNS_TABLE)?;
             write_txn.open_table(SECRETS_TABLE)?;
+            // Device identity + agent todos + op-log (ANALYSIS 100% pass).
+            write_txn.open_table(DEVICES_TABLE)?;
+            write_txn.open_table(TODOS_TABLE)?;
+            write_txn.open_table(OPLOG_TABLE)?;
             // Generic kv blob (secrets, config, content) — same table the
             // browser build writes so a `.cybermanju` image opens here too.
             write_txn.open_table(KV_TABLE)?;
@@ -186,7 +302,15 @@ impl Database {
         write_txn.commit()?;
         Ok(Self {
             db: std::sync::Arc::new(db),
+            opener_lock,
         })
+    }
+
+    /// Path of this database's single-opener lockfile (`<db-path>.lock`).
+    /// Exposed so health probes and the P0-22 regression test can assert the
+    /// guard without reaching into internals.
+    pub fn opener_lock_path(&self) -> &std::path::Path {
+        &self.opener_lock.lock_path
     }
 
     pub fn begin_read(&self) -> Result<ReadTransaction> {
@@ -641,6 +765,353 @@ impl Database {
         };
         tx.commit()?;
         Ok(removed)
+    }
+
+    // ─── Device identity registry (§2B.1) ─────────────────────────────
+    // One row per device; the private key half never leaves the device.
+    // Revoked rows stay for history but fail closed at every call site.
+
+    pub fn get_devices_table() -> TableDefinition<'static, &'static str, &'static str> {
+        DEVICES_TABLE
+    }
+
+    pub fn list_devices(&self) -> Result<Vec<DeviceRow>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(DEVICES_TABLE)?;
+        let mut rows: Vec<DeviceRow> = Vec::new();
+        for entry in table.iter()? {
+            let (_, value) = entry?;
+            rows.push(serde_json::from_str(value.value())?);
+        }
+        rows.sort_by_key(|a| a.name.to_lowercase());
+        Ok(rows)
+    }
+
+    pub fn get_device(&self, id: &str) -> Result<Option<DeviceRow>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(DEVICES_TABLE)?;
+        match table.get(id)? {
+            Some(v) => Ok(Some(serde_json::from_str(v.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn save_device(&self, row: &DeviceRow) -> Result<()> {
+        let serialized = serde_json::to_string(row)?;
+        let tx = self.db.begin_write()?;
+        {
+            let mut table = tx.open_table(DEVICES_TABLE)?;
+            table.insert(row.id.as_str(), serialized.as_str())?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn remove_device(&self, id: &str) -> Result<bool> {
+        let tx = self.db.begin_write()?;
+        let removed = {
+            let mut table = tx.open_table(DEVICES_TABLE)?;
+            let removed = table.remove(id)?.is_some();
+            removed
+        };
+        tx.commit()?;
+        Ok(removed)
+    }
+
+    /// Mark last-seen (heartbeat). Missing rows are `not_found:`, never
+    /// auto-created — registration is the explicit entry point.
+    pub fn touch_device(&self, id: &str, at: &str) -> Result<DeviceRow> {
+        let mut row = self
+            .get_device(id)?
+            .ok_or_else(|| anyhow::anyhow!("not_found: no device '{id}'"))?;
+        row.last_seen_at = at.to_string();
+        self.save_device(&row)?;
+        Ok(row)
+    }
+
+    // ─── Server-side todos (§4.9 agent bridge) ────────────────────────
+    // One list per owner shared by the agent tools and the Archive TASKS tab.
+
+    pub fn get_todos_table() -> TableDefinition<'static, &'static str, &'static str> {
+        TODOS_TABLE
+    }
+
+    pub fn list_todos(&self, owner_id: Option<&str>) -> Result<Vec<TodoRow>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(TODOS_TABLE)?;
+        let mut rows: Vec<TodoRow> = Vec::new();
+        for entry in table.iter()? {
+            let (_, value) = entry?;
+            let row: TodoRow = serde_json::from_str(value.value())?;
+            if owner_id.map(|o| row.owner_id == o).unwrap_or(true) {
+                rows.push(row);
+            }
+        }
+        rows.sort_by_key(|a| a.created_at.clone());
+        Ok(rows)
+    }
+
+    pub fn save_todo(&self, row: &TodoRow) -> Result<()> {
+        if row.title.trim().is_empty() {
+            anyhow::bail!("invalid: todo title is required");
+        }
+        let serialized = serde_json::to_string(row)?;
+        let tx = self.db.begin_write()?;
+        {
+            let mut table = tx.open_table(TODOS_TABLE)?;
+            table.insert(row.id.as_str(), serialized.as_str())?;
+        }
+        tx.commit()?;
+        // Op-log (§2C): logged here, not at the API layer — Tauri twins and
+        // agent tools write todos straight through `db`, bypassing the REST
+        // route, and every writer must append.
+        let _ = self.record_mutation_op(
+            "todo",
+            None,
+            serde_json::json!({ "id": row.id, "title": row.title, "done": row.done }),
+        );
+        Ok(())
+    }
+
+    pub fn remove_todo(&self, id: &str) -> Result<bool> {
+        let tx = self.db.begin_write()?;
+        let removed = {
+            let mut table = tx.open_table(TODOS_TABLE)?;
+            let removed = table.remove(id)?.is_some();
+            removed
+        };
+        tx.commit()?;
+        if removed {
+            let _ = self.record_mutation_op(
+                "todo",
+                None,
+                serde_json::json!({ "id": id, "deleted": true }),
+            );
+        }
+        Ok(removed)
+    }
+
+    // ─── Op-log (§2C/P3-2) ───────────────────────────────────────────
+    // Append-only mutation log; devices exchange rows using the version
+    // vectors `leases` already models. Keys are zero-padded seq so range
+    // scans come out in append order.
+
+    pub fn get_oplog_table() -> TableDefinition<'static, &'static str, &'static str> {
+        OPLOG_TABLE
+    }
+
+    fn oplog_key(seq: u64) -> String {
+        format!("{seq:020}")
+    }
+
+    /// Append one op; seq assignment is atomic with the row write (same
+    /// txn as the `oplog:next_seq` counter bump). Returns the stored row.
+    pub fn append_op(&self, mut row: OpRow) -> Result<OpRow> {
+        if row.kind.trim().is_empty() {
+            anyhow::bail!("invalid: op kind is required");
+        }
+        let tx = self.db.begin_write()?;
+        let seq = {
+            let mut kv = tx.open_table(KV_TABLE)?;
+            let next: u64 = match kv.get("oplog:next_seq")? {
+                Some(v) => v.value().parse().unwrap_or(0),
+                None => 0,
+            };
+            kv.insert("oplog:next_seq", (next + 1).to_string().as_str())?;
+            next
+        };
+        row.seq = seq;
+        if row.op_id.trim().is_empty() {
+            row.op_id = format!("{}-{seq}", row.device_id);
+        }
+        let serialized = serde_json::to_string(&row)?;
+        {
+            let mut table = tx.open_table(OPLOG_TABLE)?;
+            table.insert(Self::oplog_key(seq).as_str(), serialized.as_str())?;
+        }
+        tx.commit()?;
+        Ok(row)
+    }
+
+    /// Rows with `seq > since`, oldest first. `limit` caps the page (0 =
+    /// uncapped, but callers paginate — see the pull route default).
+    pub fn list_ops_since(&self, since: u64, limit: usize) -> Result<Vec<OpRow>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(OPLOG_TABLE)?;
+        let mut rows: Vec<OpRow> = Vec::new();
+        for entry in table.iter()? {
+            let (_, value) = entry?;
+            let row: OpRow = serde_json::from_str(value.value())?;
+            if row.seq > since {
+                rows.push(row);
+            }
+            if limit > 0 && rows.len() >= limit {
+                break;
+            }
+        }
+        rows.sort_by_key(|r| r.seq);
+        Ok(rows)
+    }
+
+    /// Highest stored seq (0 when the log is empty).
+    pub fn oplog_head(&self) -> Result<u64> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(OPLOG_TABLE)?;
+        let mut head = 0u64;
+        for entry in table.iter()? {
+            let (_, value) = entry?;
+            let row: OpRow = serde_json::from_str(value.value())?;
+            head = head.max(row.seq);
+        }
+        Ok(head)
+    }
+
+    /// Merge foreign rows: unknown `op_id`s append (new local seq), known
+    /// ids are idempotent no-ops. Returns (appended, skipped).
+    pub fn merge_ops(&self, foreign: &[OpRow]) -> Result<(usize, usize)> {
+        let known: std::collections::HashSet<String> = self
+            .list_ops_since(0, 0)?
+            .into_iter()
+            .map(|r| r.op_id)
+            .collect();
+        let mut appended = 0usize;
+        let mut skipped = 0usize;
+        for op in foreign {
+            if known.contains(&op.op_id) {
+                skipped += 1;
+                continue;
+            }
+            let mut row = op.clone();
+            row.seq = 0;
+            self.append_op(row)?;
+            appended += 1;
+        }
+        Ok((appended, skipped))
+    }
+
+    /// Candidate conflicts: two ops touching the same `file_id` from
+    /// different devices where neither base vector dominates the other.
+    /// Pure scan over stored rows — the conflict UI renders these.
+    pub fn op_conflicts(&self) -> Result<Vec<(OpRow, OpRow)>> {
+        let rows = self.list_ops_since(0, 0)?;
+        let mut out = Vec::new();
+        for (i, a) in rows.iter().enumerate() {
+            let Some(fid) = a.file_id.as_deref() else {
+                continue;
+            };
+            for b in rows.iter().skip(i + 1) {
+                if b.file_id.as_deref() != Some(fid) || a.device_id == b.device_id {
+                    continue;
+                }
+                let a_dom = dominates(&a.bases, &b.bases);
+                let b_dom = dominates(&b.bases, &a.bases);
+                if !a_dom && !b_dom {
+                    out.push((a.clone(), b.clone()));
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Local writer identity for op-log rows: explicit override first, then
+    /// the host — the same rule as `sync::lease::default_holder`, duplicated
+    /// here so `db` stays dependency-free.
+    pub fn local_device_id() -> String {
+        if let Ok(id) = std::env::var("CYBERMANJU_DEVICE") {
+            if !id.trim().is_empty() {
+                return id;
+            }
+        }
+        std::env::var("HOSTNAME")
+            .or_else(|_| std::env::var("COMPUTERNAME"))
+            .unwrap_or_else(|_| format!("device-{}", std::process::id()))
+    }
+
+    /// Mutation hook (§2C rollout): every file/todo/collection mutation
+    /// appends one op so offline queue-and-replay and the conflict UI see
+    /// it. Best-effort by design — the op-log is derived data and must never
+    /// break the mutation itself (append failures return `None`; the caller
+    /// keeps its `let _ =` and moves on).
+    pub fn record_mutation_op(
+        &self,
+        kind: &str,
+        file_id: Option<&str>,
+        payload: serde_json::Value,
+    ) -> Option<OpRow> {
+        if kind.trim().is_empty() {
+            return None;
+        }
+        let row = OpRow {
+            seq: 0,
+            op_id: String::new(),
+            device_id: Self::local_device_id(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+            kind: kind.to_string(),
+            file_id: file_id.map(|s| s.to_string()),
+            payload,
+            bases: Default::default(),
+        };
+        self.append_op(row).ok()
+    }
+
+    /// Look one op up by its global id (resolution validates both forks).
+    pub fn get_op_by_id(&self, op_id: &str) -> Result<Option<OpRow>> {
+        for row in self.list_ops_since(0, 0)? {
+            if row.op_id == op_id {
+                return Ok(Some(row));
+            }
+        }
+        Ok(None)
+    }
+
+    // ─── Persistent revocations (P0-5) ──────────────────────────────
+    // Logout must survive restarts and replica hand-offs: revoked JTIs live
+    // in kv (`revoked:<jti>` → exp epoch secs) next to the rows, not just in
+    // the dashboard's memory. `AuthState` hydrates from here at boot and
+    // every `revoke()` persists here too. Single-file redb has one opener,
+    // so this is the shared revocation list for every transport on the box.
+
+    fn revoked_key(jti: &str) -> String {
+        format!("revoked:{jti}")
+    }
+
+    /// Persist one revocation (idempotent; keeps the farthest expiry).
+    pub fn save_revocation(&self, jti: &str, exp: u64) -> Result<()> {
+        if jti.trim().is_empty() {
+            anyhow::bail!("invalid: jti is required");
+        }
+        let tx = self.db.begin_write()?;
+        {
+            let mut kv = tx.open_table(KV_TABLE)?;
+            let key = Self::revoked_key(jti);
+            let keep = match kv.get(key.as_str())? {
+                Some(v) => v.value().parse::<u64>().unwrap_or(0).max(exp),
+                None => exp,
+            };
+            kv.insert(key.as_str(), keep.to_string().as_str())?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Live revocations (`exp` still in the future) for boot hydration.
+    pub fn list_live_revocations(&self, now_secs: u64) -> Result<Vec<(String, u64)>> {
+        let tx = self.db.begin_read()?;
+        let kv = tx.open_table(KV_TABLE)?;
+        let mut out = Vec::new();
+        for entry in kv.iter()? {
+            let (key, value) = entry?;
+            let key = key.value();
+            let Some(jti) = key.strip_prefix("revoked:") else {
+                continue;
+            };
+            if let Ok(exp) = value.value().parse::<u64>() {
+                if exp > now_secs {
+                    out.push((jti.to_string(), exp));
+                }
+            }
+        }
+        Ok(out)
     }
 
     // ─── Config secrets (AGENT-3 request: token lives beside the row) ──
@@ -1212,6 +1683,31 @@ impl Database {
     }
 }
 
+/// Version-vector dominance for the op-log conflict scan: `a` dominates
+/// `b` when every counter `b` has seen is <= in `a`, and `a` is strictly
+/// ahead somewhere (a device `a` knows that `b` never saw counts too).
+fn dominates(
+    a: &std::collections::BTreeMap<String, u64>,
+    b: &std::collections::BTreeMap<String, u64>,
+) -> bool {
+    let mut ahead = false;
+    for (device, counter) in b {
+        let mine = a.get(device).copied().unwrap_or(0);
+        if mine < *counter {
+            return false;
+        }
+        if mine > *counter {
+            ahead = true;
+        }
+    }
+    for device in a.keys() {
+        if !b.contains_key(device) && a[device] > 0 {
+            ahead = true;
+        }
+    }
+    ahead
+}
+
 #[cfg(test)]
 mod snapshot_tests {
     use super::*;
@@ -1290,6 +1786,158 @@ mod snapshot_tests {
         assert!(!db.kv_delete("volume:/notes.md").unwrap());
         assert_eq!(db.kv_get("volume:/notes.md").unwrap(), None);
 
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn single_opener_second_open_conflicts_and_release_reopens() {
+        // P0-22 close-out: one db path has ONE opener; the second fails
+        // closed with `conflict:`, and dropping the first releases the lock.
+        let path = std::env::temp_dir().join(format!(
+            "cybermanju-single-opener-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let path_str = path.to_str().unwrap();
+        let db = Database::new(path_str).unwrap();
+        assert!(
+            db.opener_lock_path().exists(),
+            "lockfile must exist while open"
+        );
+        let err = Database::new(path_str).unwrap_err().to_string();
+        assert!(
+            err.starts_with("conflict:"),
+            "second opener must fail closed, got: {err}"
+        );
+        drop(db);
+        assert!(
+            !std::path::Path::new(&format!("{path_str}.lock")).exists(),
+            "lockfile must release on close"
+        );
+        let _reopened = Database::new(path_str).unwrap();
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(format!("{path_str}.lock"));
+    }
+}
+
+#[cfg(test)]
+mod registry_oplog_tests {
+    use super::*;
+    use cybermanju_types::schema::{DeviceRow, OpRow, TodoRow};
+
+    fn test_db(name: &str) -> (Database, std::path::PathBuf) {
+        let path =
+            std::env::temp_dir().join(format!("cybermanju-{name}-{}.db", uuid::Uuid::new_v4()));
+        let db = Database::new(path.to_str().unwrap()).unwrap();
+        (db, path)
+    }
+
+    fn device(id: &str) -> DeviceRow {
+        DeviceRow {
+            id: id.to_string(),
+            name: format!("{id} laptop"),
+            public_key: String::new(),
+            key_algorithm: "ml-dsa-65".to_string(),
+            created_at: "2026-10-11T00:00:00Z".to_string(),
+            last_seen_at: "2026-10-11T00:00:00Z".to_string(),
+            revoked: false,
+        }
+    }
+
+    #[test]
+    fn devices_register_touch_and_revoke() {
+        let (db, path) = test_db("devices");
+        assert!(db.get_device("d1").unwrap().is_none());
+        db.save_device(&device("d1")).unwrap();
+        assert_eq!(db.list_devices().unwrap().len(), 1);
+        let touched = db.touch_device("d1", "2026-10-12T00:00:00Z").unwrap();
+        assert_eq!(touched.last_seen_at, "2026-10-12T00:00:00Z");
+        assert!(db.touch_device("ghost", "2026-10-12T00:00:00Z").is_err());
+        let mut revoked = device("d1");
+        revoked.revoked = true;
+        db.save_device(&revoked).unwrap();
+        assert!(db.get_device("d1").unwrap().unwrap().revoked);
+        assert!(db.remove_device("d1").unwrap());
+        assert!(!db.remove_device("d1").unwrap());
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn todos_save_list_scope_and_delete() {
+        let (db, path) = test_db("todos");
+        let row = TodoRow {
+            id: "t1".to_string(),
+            title: "Buy milk".to_string(),
+            done: false,
+            created_at: "2026-10-11T00:00:00Z".to_string(),
+            done_at: None,
+            owner_id: "u1".to_string(),
+            source: "local".to_string(),
+        };
+        db.save_todo(&row).unwrap();
+        assert_eq!(db.list_todos(None).unwrap().len(), 1);
+        assert_eq!(db.list_todos(Some("u1")).unwrap().len(), 1);
+        assert!(db.list_todos(Some("u2")).unwrap().is_empty());
+        let bad = TodoRow {
+            title: "   ".to_string(),
+            ..row.clone()
+        };
+        assert!(db.save_todo(&bad).is_err());
+        assert!(db.remove_todo("t1").unwrap());
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    fn op(device: &str, kind: &str, file: Option<&str>) -> OpRow {
+        OpRow {
+            seq: 0,
+            op_id: String::new(),
+            device_id: device.to_string(),
+            created_at: "2026-10-11T00:00:00Z".to_string(),
+            kind: kind.to_string(),
+            file_id: file.map(str::to_string),
+            payload: serde_json::json!({}),
+            bases: std::collections::BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn oplog_appends_with_atomic_seq_and_merges_idempotently() {
+        let (db, path) = test_db("oplog");
+        let a = db.append_op(op("d1", "tag", Some("f1"))).unwrap();
+        let b = db.append_op(op("d1", "star", Some("f1"))).unwrap();
+        assert_eq!((a.seq, b.seq), (0, 1));
+        assert_eq!(a.op_id, "d1-0");
+        assert!(db
+            .append_op(OpRow {
+                kind: String::new(),
+                ..op("d1", "", None)
+            })
+            .is_err());
+        assert_eq!(db.oplog_head().unwrap(), 1);
+        assert_eq!(db.list_ops_since(0, 0).unwrap().len(), 1);
+        // Merge: same op_id skips, foreign op appends with a fresh local seq.
+        let (appended, skipped) = db
+            .merge_ops(&[a.clone(), op("d2", "tag", Some("f1"))])
+            .unwrap();
+        assert_eq!((appended, skipped), (1, 1));
+        assert_eq!(db.oplog_head().unwrap(), 2);
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn oplog_conflict_scan_flags_forks_only() {
+        let (db, path) = test_db("conflicts");
+        // Same file, both devices advanced independently → conflict.
+        db.append_op(op("d1", "rename", Some("f9"))).unwrap();
+        db.append_op(op("d2", "rename", Some("f9"))).unwrap();
+        // Different files → never a conflict.
+        db.append_op(op("d1", "tag", Some("other"))).unwrap();
+        let conflicts = db.op_conflicts().unwrap();
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].0.file_id.as_deref(), Some("f9"));
         drop(db);
         let _ = std::fs::remove_file(path);
     }

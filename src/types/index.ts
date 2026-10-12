@@ -4,7 +4,7 @@
 // Integrates: standalone (no imports).
 // Contracts: signals: AGENT-, integrity, conflict.
 export type ViewMode = 'grid' | 'list' | 'masonry' | 'columns' | 'details'
-export type PanelType = 'landing' | 'files' | 'preview' | 'encryption' | 'compression' | 'collections' | 'faces' | 'map' | 'code' | 'editor' | 'agent' | 'search' | 'style' | 'accounts' | 'loose-groups' | 'sync' | 'transfer' | 'webdash' | 'users' | 'dashboard' | 'settings' | 'trash' | 'activity' | 'favorites' | 'recent' | 'storage' | 'terminal' | 'processes' | 'disks' | 'devices' | 'permissions' | 'cron' | 'automation' | 'schedules' | 'secrets' | 'passwords' | 'credentials' | 'install'
+export type PanelType = 'landing' | 'files' | 'preview' | 'encryption' | 'compression' | 'collections' | 'faces' | 'map' | 'code' | 'editor' | 'agent' | 'search' | 'style' | 'accounts' | 'loose-groups' | 'sync' | 'transfer' | 'webdash' | 'users' | 'dashboard' | 'settings' | 'trash' | 'activity' | 'favorites' | 'recent' | 'storage' | 'terminal' | 'processes' | 'disks' | 'devices' | 'permissions' | 'cron' | 'automation' | 'schedules' | 'secrets' | 'passwords' | 'credentials' | 'install' | 'archive'
 export type SidebarSection = 'tree' | 'locations' | 'collections' | 'people' | 'styles' | 'loose' | 'users' | 'sync' | 'dashboard' | 'landing' | 'tools'
 
 export interface ModuleInfo {
@@ -337,8 +337,9 @@ export const ENCRYPTION_INFO: Record<EncryptionAlgo, { name: string; nistLevel: 
   },
   hybrid: {
     name: 'Hybrid PQ+Classical',
-    nistLevel: 5,
-    description: 'Combines ML-KEM with X25519 for defense-in-depth transitional security.',
+    // P0-15: ML-KEM-768 is NIST Level 3 — never claim 5.
+    nistLevel: 3,
+    description: 'Combines ML-KEM-768 (Level 3) with X25519 for defense-in-depth transitional security.',
     color: '#FFFFFF',
   },
   aes256: {
@@ -686,6 +687,7 @@ export const MODULE_METADATA: Record<PanelType, ModuleInfo> = {
   devices: { id: 'devices', label: 'DEVICES', icon: 'solar:plug-circle-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000a0d 50%, #000000 100%)', description: 'Plugged hardware, sensors and browser capabilities', requiresAuth: true },
   permissions: { id: 'permissions', label: 'PERMS', icon: 'solar:key-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0000 50%, #000000 100%)', description: 'Per-file access control', requiresAuth: true },
   install: { id: 'install', label: 'INSTALL', icon: 'solar:download-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'Native app + CLI downloads for every platform', requiresAuth: false },
+  archive: { id: 'archive', label: 'ARCHIVE', icon: 'solar:notebook-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'Life archive: notes, timeline, people, tasks, bookmarks, datasets', requiresAuth: false },
 }
 
 // ── OS layer (AGENT-8): cybsh, task table, compute fan-out ───────────────
@@ -853,6 +855,38 @@ export interface SecretInput {
   notes?: string | null
   favorite?: boolean
   value?: string | null
+}
+
+/** Device identity row — twin of `DeviceRow` (one ML-DSA keypair per
+ *  device; the private half never leaves the device). */
+export interface DeviceInfo {
+  id: string
+  name: string
+  publicKey?: string
+  keyAlgorithm?: string
+  createdAt: string
+  lastSeenAt: string
+  revoked?: boolean
+}
+
+/** Server-side todo — twin of `TodoRow` (agent + Archive share one list). */
+export interface ServerTodo {
+  id: string
+  title: string
+  done: boolean
+  createdAt: string
+  doneAt?: string
+  ownerId: string
+  source: string
+}
+
+/** One mDNS-discovered LAN peer (`GET /api/peers`, `list_lan_peers`). */
+export interface LanPeer {
+  deviceId: string
+  name: string
+  host: string
+  port: number
+  lastSeenSecs: number
 }
 
 /** One snapshot file (`backup list` — every transport, `--json`). */
@@ -1103,6 +1137,8 @@ export type MemoryOrigin = 'remember' | 'compactHandoff' | 'import'
 export interface AgentMemory {
   id: string
   configId: string
+  /** Owner user id (`''` on rows predating ownership — readable as legacy). */
+  ownerId?: string
   text: string
   embedding: number[]
   dims: number

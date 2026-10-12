@@ -42,6 +42,9 @@ export const AGENT_TOOL_META: Record<string, ToolMeta> = {
   ui_notify: { name: 'ui_notify', verb: 'Notifying', done: 'Notified', icon: 'solar:bell-bold' },
   secret_list: { name: 'secret_list', verb: 'Listing vault', done: 'Listed vault', icon: 'solar:wallet-bold' },
   secret_get: { name: 'secret_get', verb: 'Revealing secret', done: 'Revealed secret', icon: 'solar:key-bold' },
+  todo_add: { name: 'todo_add', verb: 'Adding todo', done: 'Added todo', icon: 'solar:checklist-bold' },
+  todo_list: { name: 'todo_list', verb: 'Listing todos', done: 'Listed todos', icon: 'solar:checklist-bold' },
+  todo_done: { name: 'todo_done', verb: 'Completing todo', done: 'Completed todo', icon: 'solar:check-circle-bold' },
 }
 
 export function toolMeta(name: string): ToolMeta {
@@ -71,6 +74,7 @@ export function salientArg(input: unknown): string {
     pick('goal') ||
     pick('question') ||
     pick('text') ||
+    pick('title') ||
     ''
   )
 }

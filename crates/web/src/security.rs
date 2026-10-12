@@ -136,6 +136,11 @@ const ROUTED_SEGMENTS: &[&str] = &[
     "dashboard",
     "encryption",
     "face-groups",
+    // Parity sweep (ANALYSIS.md §3): `POST /api/faces/detect*` is served by
+    // the router (`["api", "faces", …]` arms in `route_request`) but was
+    // missing here, so `is_known_route` 404d it before auth ran. Every
+    // `REST_ROUTES` second segment must have an entry in this table.
+    "faces",
     "files",
     "geo-files",
     "health",
@@ -153,6 +158,13 @@ const ROUTED_SEGMENTS: &[&str] = &[
     // scripts, so write/run methods demand Admin in `required_role`.
     "cron",
     // <<< /CYBERMANJU OS PUSH >>>
+    // ANALYSIS 100%: device identity (§2B.1), server todos (§4.9), op-log
+    // exchange (§2C) and LAN peers (§2B.2). Without these, `is_known_route`
+    // 404s the families before auth runs.
+    "devices",
+    "todos",
+    "oplog",
+    "peers",
     "loose-groups",
     "metrics",
     "permissions",
@@ -233,6 +245,14 @@ pub fn required_role(method: &str, segments: &[&str]) -> RequiredRole {
         ["api", "secrets"] if method == "POST" => RequiredRole::Admin,
         ["api", "secrets", _] if method == "PUT" || method == "DELETE" => RequiredRole::Admin,
         ["api", "secrets", _, "reveal"] => RequiredRole::Admin,
+        // Device identity (§2B.1): enrollment is Authenticated (any
+        // signed-in user enrolls their own device); removal and revocation
+        // are Admin — a revoked row fails closed everywhere.
+        ["api", "devices", _] if method == "DELETE" => RequiredRole::Admin,
+        ["api", "devices", _, "revoke"] => RequiredRole::Admin,
+        // Sneakernet bundles (§2B.4): export walks the whole op-log and
+        // import merges foreign rows — Admin, like backup export.
+        ["api", "sync", "bundle", _] => RequiredRole::Admin,
 
         // ── Everything else: any authenticated session ───────────
         _ => RequiredRole::Authenticated,

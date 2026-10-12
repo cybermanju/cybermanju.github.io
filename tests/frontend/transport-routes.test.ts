@@ -132,6 +132,28 @@ describe('REST route coverage', () => {
     expect(r.method).toBe('GET')
     expect(r.buildPath({ query: 'vault', limit: 20, offset: 40 })).toContain('/api/search/paginated')
   })
+
+  it('routes op-log resolve + LAN peer sync over REST (spine close-out)', () => {
+    const resolve = REST_ROUTES.oplog_resolve
+    expect(resolve.method).toBe('POST')
+    expect(resolve.buildPath({})).toBe('/api/oplog/resolve')
+    expect(resolve.transformRequest!({ opA: 'a-1', opB: 'b-2', choice: 'merge' })).toMatchObject({
+      opA: 'a-1',
+      opB: 'b-2',
+      choice: 'merge',
+    })
+    expect(REST_FIRST.has('oplog_resolve')).toBe(true)
+    const sync = REST_ROUTES.peer_sync
+    expect(sync.method).toBe('POST')
+    expect(sync.buildPath({ id: 'phone-7' })).toBe('/api/peers/phone-7/sync')
+    expect(sync.transformRequest!({ id: 'phone-7', ops: [] })).toMatchObject({ ops: [] })
+    expect(REST_FIRST.has('peer_sync')).toBe(true)
+    // Op-log reads stay REST-first alongside the new write arms.
+    for (const cmd of ['oplog_since', 'oplog_push', 'oplog_conflicts']) {
+      expect(REST_ROUTES[cmd], cmd).toBeTruthy()
+      expect(REST_FIRST.has(cmd), cmd).toBe(true)
+    }
+  })
   it('routes the scheduler family over REST + native IPC (Phase 1)', () => {
     const cmds = [
       'cron_list',

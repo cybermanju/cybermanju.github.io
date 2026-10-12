@@ -85,6 +85,11 @@ impl Finding {
 
 static FINDINGS: OnceLock<Mutex<Vec<Finding>>> = OnceLock::new();
 
+/// Upper bound for queued scrub findings (P0-23): findings are regenerable
+/// (scrub re-runs), so overflow drops the oldest instead of growing without
+/// bound while an idle server never drains them.
+const MAX_FINDINGS: usize = 2000;
+
 fn finding_queue() -> &'static Mutex<Vec<Finding>> {
     FINDINGS.get_or_init(|| Mutex::new(Vec::new()))
 }
@@ -93,6 +98,9 @@ fn finding_queue() -> &'static Mutex<Vec<Finding>> {
 pub fn queue_finding(finding: Finding) {
     if let Ok(mut queue) = finding_queue().lock() {
         queue.push(finding);
+        while queue.len() > MAX_FINDINGS {
+            queue.remove(0);
+        }
     }
 }
 
@@ -100,6 +108,9 @@ pub fn queue_finding(finding: Finding) {
 pub fn queue_findings(findings: impl IntoIterator<Item = Finding>) {
     if let Ok(mut queue) = finding_queue().lock() {
         queue.extend(findings);
+        while queue.len() > MAX_FINDINGS {
+            queue.remove(0);
+        }
     }
 }
 
@@ -225,15 +236,28 @@ pub enum PendingOp {
 
 static PENDING: OnceLock<Mutex<Vec<PendingOp>>> = OnceLock::new();
 
+/// Upper bound for parked write-behind ops (P0-23). Overflow refuses with
+/// `false` (backpressure — the caller surfaces `too_large:`) instead of
+/// holding an idle server's repairs in RAM forever or silently dropping
+/// durability results. Flushes drain per request, so sustained overflow
+/// means the server is wedged, not busy.
+const MAX_PENDING_OPS: usize = 10_000;
+
 fn pending_ops() -> &'static Mutex<Vec<PendingOp>> {
     PENDING.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-/// Park an op for the next holder of the database lock.
-pub fn queue_pending(op: PendingOp) {
+/// Park an op for the next holder of the database lock. Returns `false`
+/// when the queue is full (caller must surface the refusal, not drop it).
+pub fn queue_pending(op: PendingOp) -> bool {
     if let Ok(mut queue) = pending_ops().lock() {
+        if queue.len() >= MAX_PENDING_OPS {
+            return false;
+        }
         queue.push(op);
+        return true;
     }
+    false
 }
 
 /// How many ops are waiting to be written.
@@ -443,6 +467,13 @@ fn put_repairs_row(db: &Database, row: &RepairRow) -> Result<(), String> {
 
 /// Every recorded repair, newest id last.
 pub fn list_repairs(db: &Database) -> Result<Vec<RepairRow>, String> {
+    list_repairs_paged(db, 0)
+}
+
+/// Newest unbounded growth guard (P0-23): `limit` caps collected rows
+/// (`0` = uncapped, legacy callers only). Iteration stops early — a 100k-row
+/// table no longer clones itself into every status poll.
+pub fn list_repairs_paged(db: &Database, limit: usize) -> Result<Vec<RepairRow>, String> {
     let tx = db.begin_read().map_err(|e| e.to_string())?;
     let table = tx
         .open_table(Database::get_repairs_table())
@@ -453,6 +484,9 @@ pub fn list_repairs(db: &Database) -> Result<Vec<RepairRow>, String> {
         match serde_json::from_str::<RepairRow>(value.value()) {
             Ok(row) => rows.push(row),
             Err(e) => return Err(format!("integrity: repair row unreadable: {}", e)),
+        }
+        if limit > 0 && rows.len() >= limit {
+            break;
         }
     }
     Ok(rows)
@@ -1229,8 +1263,11 @@ pub fn rebuild_from_remote(db: &Database) -> Result<RebuildReport, String> {
 }
 
 /// Land rebuilt records: the sync-file row plus the file node that makes the
-/// file visible to the rest of the OS (root — the catalog document carries no
-/// parent ids). Returns how many file *nodes* had to be created.
+/// file visible to the rest of the OS. Parent folders are reconstructed from
+/// `original_path` (P0-24) — a rebuild used to flatten every recovered file
+/// to the root. Folder ids are deterministic (`rebuild-dir-<blake3-16>` of
+/// the full dir path), so retries reuse the same folders instead of
+/// duplicating them. Returns how many file *nodes* had to be created.
 fn write_rebuild_records(db: &Database, records: &[SyncFile]) -> Result<usize, String> {
     let mut written = 0usize;
     for record in records {
@@ -1240,6 +1277,7 @@ fn write_rebuild_records(db: &Database, records: &[SyncFile]) -> Result<usize, S
             .map_err(|e| e.to_string())?
             .is_none()
         {
+            let parent_id = ensure_rebuild_parents(db, &record.original_path)?;
             let name = std::path::Path::new(&record.original_path)
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
@@ -1267,12 +1305,74 @@ fn write_rebuild_records(db: &Database, records: &[SyncFile]) -> Result<usize, S
                 modified_at: record.synced_at.clone().unwrap_or_else(now),
             };
             let serialized = serde_json::to_string(&node).map_err(|e| e.to_string())?;
-            db.insert_file_with_index(&record.id, &serialized, None)
+            db.insert_file_with_index(&record.id, &serialized, parent_id.as_deref())
                 .map_err(|e| e.to_string())?;
             written += 1;
         }
     }
     Ok(written)
+}
+
+/// Recreate the folder chain for a rebuilt `original_path`, deepest first.
+/// Returns the deepest folder id (the file's parent). Deterministic ids
+/// make retries idempotent; existing folders (or files) are reused, never
+/// duplicated. Single-component paths (bare filenames) stay root-level.
+fn ensure_rebuild_parents(db: &Database, original_path: &str) -> Result<Option<String>, String> {
+    let path = std::path::Path::new(original_path);
+    let mut dirs: Vec<String> = Vec::new();
+    let mut cursor = path.parent();
+    while let Some(dir) = cursor {
+        let text = dir.to_string_lossy().to_string();
+        if text.is_empty() || text == "/" || text == "." {
+            break;
+        }
+        dirs.push(text);
+        cursor = dir.parent();
+    }
+    if dirs.is_empty() {
+        return Ok(None);
+    }
+    dirs.reverse();
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut parent_id: Option<String> = None;
+    // `dirs` already holds full root-first ancestor paths (`/a`, `/a/b`) —
+    // each becomes one folder row, linked to the previous id.
+    for dir in dirs {
+        let id = format!("rebuild-dir-{}", &crate::blake3_hex(dir.as_bytes())[..16]);
+        if db.get_file_node(&id).map_err(|e| e.to_string())?.is_none() {
+            let name = std::path::Path::new(&dir)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| dir.clone());
+            let node = cybermanju_types::schema::FileNode {
+                id: id.clone(),
+                name,
+                file_type: "folder".to_string(),
+                parent_id: parent_id.clone(),
+                size_bytes: 0,
+                mime_type: None,
+                hash_blake3: None,
+                encrypted: false,
+                encryption_algorithm: None,
+                compression_layers: Vec::new(),
+                thumbnail_path: None,
+                context_data: None,
+                tags: Vec::new(),
+                collection_ids: Vec::new(),
+                face_group_ids: Vec::new(),
+                loose_group_ids: Vec::new(),
+                gps_lat: None,
+                gps_lon: None,
+                created_at: now.clone(),
+                modified_at: now.clone(),
+            };
+            let serialized = serde_json::to_string(&node).map_err(|e| e.to_string())?;
+            db.insert_file_with_index(&id, &serialized, parent_id.as_deref())
+                .map_err(|e| e.to_string())?;
+        }
+        parent_id = Some(id);
+    }
+    Ok(parent_id)
 }
 
 // ─── Status (item 9's payload) ──────────────────────────────────────────────
@@ -1290,11 +1390,33 @@ pub struct RepairStatus {
     pub skipped: usize,
     pub last_scrub: Option<crate::scrub::ScrubRun>,
     pub health: Vec<health::ProviderHealth>,
+    /// `true` when `repairs` was cut at the requested page (P0-23) — counts
+    /// below still cover the collected page only.
+    #[serde(default)]
+    pub repairs_capped: bool,
 }
+
+/// Default page for the status poll (P0-23): enough for the UI, small
+/// enough that a huge repairs table never clones itself per poll.
+pub const REPAIR_STATUS_DEFAULT_LIMIT: usize = 200;
+/// Hard ceiling for `?limit=` on the status poll.
+pub const REPAIR_STATUS_MAX_LIMIT: usize = 2000;
 
 /// Aggregate the durability surfaces for the REST layer.
 pub fn status(db: &Database) -> Result<RepairStatus, String> {
-    let repairs = list_repairs(db)?;
+    status_paged(db, REPAIR_STATUS_DEFAULT_LIMIT)
+}
+
+/// Paged aggregate (P0-23): `limit` caps collected repair rows (`0` =
+/// uncapped). Counts cover the collected page; `repairs_capped` says so.
+pub fn status_paged(db: &Database, limit: usize) -> Result<RepairStatus, String> {
+    let limit = if limit == 0 {
+        0
+    } else {
+        limit.min(REPAIR_STATUS_MAX_LIMIT)
+    };
+    let repairs = list_repairs_paged(db, limit)?;
+    let capped = limit > 0 && repairs.len() >= limit;
     let (repaired, unrecoverable, skipped) = (
         repairs.iter().filter(|r| r.status == "repaired").count(),
         repairs
@@ -1315,6 +1437,7 @@ pub fn status(db: &Database) -> Result<RepairStatus, String> {
         skipped,
         last_scrub: scrub_runs.into_iter().next(),
         health: health::status(db)?,
+        repairs_capped: capped,
     })
 }
 

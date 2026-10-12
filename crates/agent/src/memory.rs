@@ -255,6 +255,7 @@ mod tests {
         AgentMemory {
             id: id.to_string(),
             config_id: "cfg".to_string(),
+            owner_id: String::new(),
             text: text.to_string(),
             dims: embedding.len() as u32,
             embedding,

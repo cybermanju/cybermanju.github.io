@@ -279,6 +279,11 @@ pub enum MemoryOrigin {
 pub struct AgentMemory {
     pub id: String,
     pub config_id: String,
+    /// JWT `user_id` that owns the row (`""` on rows predating ownership).
+    /// Reads behave like sessions (P0-10 posture): the owner or an admin;
+    /// legacy unowned rows stay readable so old memories never vanish.
+    #[serde(default)]
+    pub owner_id: String,
     pub text: String,
     /// Embedding vector; empty when never embedded (keyword-only recall).
     #[serde(default)]

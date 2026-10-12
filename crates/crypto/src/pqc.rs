@@ -61,7 +61,9 @@ impl EncryptionAlgo {
     pub fn nist_level(&self) -> u8 {
         match self {
             Self::Kyber1024 => 5,
-            Self::Hybrid => 5,
+            // ML-KEM-768 is NIST Level 3 — the X25519 half adds classical
+            // defense-in-depth, not a higher PQ level (P0-15: never claim 5).
+            Self::Hybrid => 3,
             Self::MlDsa44 => 2,
             Self::MlDsa65 => 3,
             Self::MlDsa87 => 5,
@@ -72,12 +74,13 @@ impl EncryptionAlgo {
     pub fn display_name(&self) -> &str {
         match self {
             Self::Kyber1024 => "ML-KEM-1024 — FIPS 203",
-            Self::Hybrid => "Hybrid ML-KEM-768 + X25519",
+            Self::Hybrid => "Hybrid ML-KEM-768 (L3) + X25519",
             Self::MlDsa44 => "ML-DSA-44 — FIPS 204 (NIST Level 2)",
             Self::MlDsa65 => "ML-DSA-65 — FIPS 204 (NIST Level 3)",
             Self::MlDsa87 => "ML-DSA-87 — FIPS 204 (NIST Level 5)",
             Self::ClassicalSign => "HMAC-SHA512 (Classical — NOT post-quantum)",
-            Self::Aes256 => "ChaCha20Poly1305 (Classical)",
+            // Named `Aes256` for history; the wire cipher is ChaCha20Poly1305.
+            Self::Aes256 => "ChaCha20Poly1305 (Classical, legacy Aes256 id)",
         }
     }
 
@@ -131,6 +134,19 @@ pub struct KeyPair {
     pub algorithm: EncryptionAlgo,
     pub public_key: Vec<u8>,
     pub private_key: Vec<u8>,
+    /// Independent X25519 static public key for the Hybrid half (P0-13):
+    /// stored at generation time so encryption needs the public key only.
+    /// `None` on rows generated before this field existed — encrypt falls
+    /// back to deriving from the private key when it is present, and refuses
+    /// honestly when it is not.
+    #[serde(default)]
+    pub x25519_public_key: Option<Vec<u8>>,
+    /// Independent X25519 static secret for the Hybrid half (P0-13): a real
+    /// classical keypair, not a derivative of the ML-KEM secret — one
+    /// compromise no longer kills both halves. `None` on legacy rows, whose
+    /// artifacts still decapsulate via the documented derivation fallback.
+    #[serde(default)]
+    pub x25519_private_key: Option<Vec<u8>>,
     pub created_at: String,
 }
 
@@ -203,9 +219,10 @@ fn derive_symmetric_key(
 
 /// Derive an X25519 static secret from the ML-KEM secret key via HKDF.
 ///
-/// This allows us to use the same KeyPair struct for both ML-KEM and X25519
-/// without storing an additional key: the X25519 static key is deterministically
-/// derived from the ML-KEM decapsulation key.
+/// Kept for decrypting artifacts written before the independent X25519
+/// static keypair (P0-13): the static pair never changed, so old and new
+/// ciphertexts decapsulate identically. New code must prefer the stored
+/// `KeyPair::x25519_public_key` on the encrypt path instead.
 fn derive_x25519_static_secret(mlkem_sk: &[u8]) -> X25519StaticSecret {
     let hk = Hkdf::<Sha256>::new(Some(b"cybermanju-x25519-static-derivation"), mlkem_sk);
     let mut okm = [0u8; 32];
@@ -260,10 +277,28 @@ impl PqcEngine {
                 (pk.as_bytes().to_vec(), sk.as_bytes().to_vec())
             }
             EncryptionAlgo::Hybrid => {
-                // Real ML-KEM-768 key generation
-                // X25519 static key is derived from the ML-KEM SK at encrypt/decrypt time
+                // Real ML-KEM-768 keypair + an INDEPENDENT X25519 static
+                // keypair (P0-13): the classical half is generated, never
+                // derived from the ML-KEM secret, so one compromise cannot
+                // kill both halves — and encryption needs the public key
+                // only. Legacy rows (no stored pair) keep working through
+                // the documented derivation fallback on both paths.
                 let (pk, sk) = mlkem768::keypair();
-                (pk.as_bytes().to_vec(), sk.as_bytes().to_vec())
+                let x25519_secret = X25519StaticSecret::random_from_rng(AeadOsRng);
+                let x25519_public = X25519PublicKey::from(&x25519_secret);
+                let keypair = KeyPair {
+                    id: id.clone(),
+                    algorithm: algorithm.clone(),
+                    public_key: pk.as_bytes().to_vec(),
+                    private_key: sk.as_bytes().to_vec(),
+                    x25519_public_key: Some(x25519_public.as_bytes().to_vec()),
+                    x25519_private_key: Some(x25519_secret.to_bytes().to_vec()),
+                    created_at: chrono::Utc::now()
+                        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                };
+                self.active_key_id = Some(id.clone());
+                self.keypairs.insert(id, keypair.clone());
+                return Ok(keypair);
             }
             EncryptionAlgo::MlDsa44 => {
                 // Real ML-DSA-44 key generation (FIPS 204, NIST Level 2)
@@ -308,6 +343,9 @@ impl PqcEngine {
             algorithm: algorithm.clone(),
             public_key,
             private_key,
+            // Only Hybrid stores a classical pair (set + early return above).
+            x25519_public_key: None,
+            x25519_private_key: None,
             // RFC 3339 UTC with the `Z` designator — `to_rfc3339()` renders
             // `+00:00` instead, which no other timestamp in the app emits.
             created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
@@ -430,15 +468,30 @@ pub fn encrypt_data(plaintext: &[u8], keypair: &KeyPair) -> Result<FileEncrypted
                 .map_err(|e| anyhow::anyhow!("Invalid ML-KEM-768 public key: {}", e))?;
             let (shared_secret, kem_ct) = mlkem768::encapsulate(&pk);
 
-            // Derive X25519 static secret deterministically from ML-KEM SK
-            let x25519_static_secret = derive_x25519_static_secret(&keypair.private_key);
+            // P0-13: public-key-only encryption. Prefer the stored
+            // independent X25519 public key; legacy rows (generated before
+            // the field existed) derive it from the private key when
+            // present, and refuse honestly when it is not.
+            let x25519_static_public = match keypair
+                .x25519_public_key
+                .as_ref()
+                .and_then(|b| <&[u8; 32]>::try_from(b.as_slice()).ok())
+                .map(|b| X25519PublicKey::from(*b))
+            {
+                Some(pk) => pk,
+                None if !keypair.private_key.is_empty() => {
+                    X25519PublicKey::from(&derive_x25519_static_secret(&keypair.private_key))
+                }
+                None => anyhow::bail!(
+                    "Hybrid encrypt needs the recipient public key (legacy key with no stored X25519 public and no private key present)"
+                ),
+            };
 
             // Generate ephemeral X25519 keypair for this encryption
             let ephemeral_secret = X25519StaticSecret::random_from_rng(AeadOsRng);
             let ephemeral_public = X25519PublicKey::from(&ephemeral_secret);
 
             // Perform X25519 Diffie-Hellman: ephemeral × static
-            let x25519_static_public = X25519PublicKey::from(&x25519_static_secret);
             let x25519_shared = ephemeral_secret.diffie_hellman(&x25519_static_public);
 
             // Derive symmetric key from BOTH shared secrets
@@ -492,9 +545,10 @@ fn encrypt_with_symmetric_key(plaintext: &[u8], keypair: &KeyPair) -> Result<Fil
             keypair.private_key.len()
         );
     }
-    let derived_key: [u8; 32] = keypair.private_key[..32]
-        .try_into()
-        .context("Failed to extract 32-byte ChaCha20Poly1305 key from private_key")?;
+    // P0-14: per-purpose KDF — the seed doubles as signing seed, so the data
+    // key is HKDF-derived with an algorithm-bound info string, never the raw
+    // seed slice.
+    let derived_key = derive_classical_data_key(&keypair.private_key, &keypair.algorithm);
 
     let cipher = ChaCha20Poly1305::new_from_slice(&derived_key).map_err(|e| {
         anyhow::anyhow!(
@@ -569,8 +623,18 @@ pub fn decrypt_data(encrypted: &FileEncryptedData, keypair: &KeyPair) -> Result<
                 .map_err(|e| anyhow::anyhow!("Invalid ML-KEM-768 secret key: {}", e))?;
             let shared_secret = mlkem768::decapsulate(&ct, &sk);
 
-            // Derive the same X25519 static secret from ML-KEM SK
-            let x25519_static_secret = derive_x25519_static_secret(&keypair.private_key);
+            // P0-13: prefer the stored independent static secret; legacy
+            // rows/artifacts (no stored pair) derive it from the ML-KEM SK
+            // exactly as the encrypt path did before this change.
+            let x25519_static_secret = match keypair
+                .x25519_private_key
+                .as_ref()
+                .and_then(|b| <&[u8; 32]>::try_from(b.as_slice()).ok())
+                .map(|b| X25519StaticSecret::from(*b))
+            {
+                Some(s) => s,
+                None => derive_x25519_static_secret(&keypair.private_key),
+            };
 
             // Recover X25519 shared secret from stored ephemeral public key
             let ephemeral_pk_bytes: [u8; 32] = encrypted
@@ -616,6 +680,42 @@ pub fn decrypt_data(encrypted: &FileEncryptedData, keypair: &KeyPair) -> Result<
     Ok(plaintext)
 }
 
+/// Derive the ChaCha20Poly1305 data key for signature-only / classical
+/// algorithms (P0-14): HKDF-SHA256 over the stored seed with an
+/// algorithm-bound info string, so the same seed yields independent keys per
+/// purpose instead of doubling as signing seed + raw encryption key.
+pub fn derive_classical_data_key(seed: &[u8], algorithm: &EncryptionAlgo) -> [u8; 32] {
+    let algo_tag = match algorithm {
+        EncryptionAlgo::MlDsa44 => "ml-dsa-44",
+        EncryptionAlgo::MlDsa65 => "ml-dsa-65",
+        EncryptionAlgo::MlDsa87 => "ml-dsa-87",
+        EncryptionAlgo::ClassicalSign => "classical-sign",
+        EncryptionAlgo::Aes256 => "aes256-legacy",
+        EncryptionAlgo::Kyber1024 => "kyber1024-data",
+        EncryptionAlgo::Hybrid => "hybrid-data",
+    };
+    let info = format!("cybermanju-classical-data-v1/{algo_tag}");
+    let hk = Hkdf::<Sha256>::new(Some(b"cybermanju-classical-separation"), seed);
+    let mut okm = [0u8; 32];
+    hk.expand(info.as_bytes(), &mut okm)
+        .expect("HKDF expand for 32 bytes should never fail");
+    okm
+}
+
+/// Legacy raw-slice data key (pre-P0-14 artifacts). Decrypt tries the KDF
+/// key first and falls back here so old files still open.
+fn legacy_classical_data_key(private_key: &[u8]) -> Result<[u8; 32]> {
+    if private_key.len() < 32 {
+        anyhow::bail!(
+            "Private key too short for ChaCha20Poly1305: {} bytes",
+            private_key.len()
+        );
+    }
+    private_key[..32]
+        .try_into()
+        .context("Failed to extract 32-byte ChaCha20Poly1305 key from private_key")
+}
+
 /// Decrypt with a symmetric key derived directly from the private key.
 fn decrypt_with_symmetric_key(encrypted: &FileEncryptedData, keypair: &KeyPair) -> Result<Vec<u8>> {
     if keypair.private_key.len() < 32 {
@@ -624,11 +724,24 @@ fn decrypt_with_symmetric_key(encrypted: &FileEncryptedData, keypair: &KeyPair) 
             keypair.private_key.len()
         );
     }
-    let derived_key: [u8; 32] = keypair.private_key[..32]
-        .try_into()
-        .context("Failed to extract 32-byte ChaCha20Poly1305 key from private_key")?;
+    // P0-14: current KDF key first, legacy raw slice second (old files).
+    let candidates = [
+        derive_classical_data_key(&keypair.private_key, &keypair.algorithm),
+        legacy_classical_data_key(&keypair.private_key)?,
+    ];
+    let mut last_err = String::new();
+    for derived_key in candidates {
+        match decrypt_with_key(encrypted, &derived_key) {
+            Ok(plain) => return Ok(plain),
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    Err(anyhow::anyhow!("{last_err}"))
+}
 
-    let cipher = ChaCha20Poly1305::new_from_slice(&derived_key).map_err(|e| {
+/// ChaCha20Poly1305 decrypt + BLAKE3 verify under one explicit 32-byte key.
+fn decrypt_with_key(encrypted: &FileEncryptedData, derived_key: &[u8; 32]) -> Result<Vec<u8>> {
+    let cipher = ChaCha20Poly1305::new_from_slice(derived_key).map_err(|e| {
         anyhow::anyhow!(
             "Failed to create ChaCha20Poly1305 cipher from derived key: {}",
             e
@@ -758,7 +871,14 @@ pub fn verify_signature(message: &[u8], signature_bytes: &[u8], keypair: &KeyPai
 // ---------------------------------------------------------------------------
 
 /// Map a frontend algorithm string (e.g. "kyber1024") to the EncryptionAlgo enum.
-/// Maintains backward compatibility with older algorithm names.
+///
+/// Legacy aliases stay parseable so old rows still open, but they are
+/// honestly documented, not silently upgraded (P0-15):
+/// - `kyber512` predates any Kyber-512 support — it parses as `Hybrid`
+///   (the closest supported KEM) and the UI shows the L3 hybrid label.
+/// - `sphincs+`/`sphincsplus` never was SPHINCS+ — it parses as
+///   `ClassicalSign` (HMAC-SHA512), whose display name says so outright.
+/// - `aes256` is the legacy id for the ChaCha20Poly1305 path.
 pub fn algorithm_from_str(s: &str) -> Option<EncryptionAlgo> {
     match s {
         "kyber1024" => Some(EncryptionAlgo::Kyber1024),

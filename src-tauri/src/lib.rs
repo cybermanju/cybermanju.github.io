@@ -15,14 +15,15 @@ pub mod web_dashboard;
 use commands::faces as face_cmd;
 use commands::sync as sync_cmd;
 use commands::{
-    accounts, audit, batch, collections, dashboard, encryption, files, import as import_cmd, map,
-    search as search_cmd, share, trash, users, versions,
+    accounts, audit, batch, collections, dashboard, devices, encryption, files,
+    import as import_cmd, map, search as search_cmd, share, todos, trash, users, versions,
 };
 use db::Database;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 
+/// Shared desktop state: one redb handle + one Tantivy index for IPC and REST.
 pub struct AppState {
     /// Shared with the web dashboard so the redb file is only opened once.
     pub db: Arc<RwLock<Database>>,
@@ -239,6 +240,7 @@ fn open_search_index(index_path: &std::path::Path) -> search::SearchIndex {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Desktop entry point: build state, start the dashboard bridge, run Tauri.
 pub fn run() {
     // Breadcrumb: on mobile a panic before first paint is otherwise a silent
     // "auto-close". The payload goes to stderr (visible in `adb logcat`)
@@ -364,6 +366,7 @@ pub fn run() {
             // Search
             search_cmd::search_files,
             search_cmd::search_files_paginated,
+            search_cmd::search_files_federated,
             search_cmd::suggest,
             // Encryption
             encryption::encrypt_file,
@@ -451,6 +454,20 @@ pub fn run() {
             commands::cron::cron_history,
             commands::cron::cron_set_enabled,
             commands::cron::cron_ensure_started,
+            // Device identity (§2B.1) + LAN peers (§2B.2).
+            devices::list_devices,
+            devices::register_device,
+            devices::register_this_device,
+            devices::revoke_device,
+            devices::remove_device,
+            devices::list_lan_peers,
+            devices::probe_peer,
+            devices::peer_platform_notes,
+            // Server-side todos (§4.9 agent bridge — same rows the agent tools use).
+            todos::list_todos,
+            todos::create_todo,
+            todos::toggle_todo,
+            todos::delete_todo,
             // Secrets keystore (Phase 3) — sealed password-manager rows
             commands::secrets::secret_list,
             commands::secrets::secret_save,
@@ -557,10 +574,55 @@ pub fn run() {
             // Triple-layer compressor.
             let compressor = compression::TripleCompressor::new();
 
-            // HMAC secret for secure session tokens.
+            // HMAC secret for secure session tokens (P0-5): stable across
+            // restarts, not OsRng-fresh per boot — desktop sessions used to
+            // die on every restart while JWTs lived. Load-or-create at
+            // `<data dir>/ipc_hmac_secret` (0600); when no data dir resolves
+            // (P0-17 fail-closed), fall back to a fresh secret and log it —
+            // sessions become restart-scoped, honestly.
             let mut hmac_secret = [0u8; 32];
-            use rand_core::{OsRng, RngCore};
-            OsRng.fill_bytes(&mut hmac_secret);
+            {
+                use rand_core::{OsRng, RngCore};
+                let stable = cybermanju_crypto::keystore::data_dir().and_then(|dir| {
+                    let path = dir.join("ipc_hmac_secret");
+                    if let Ok(raw) = std::fs::read(&path) {
+                        if raw.len() == 32 {
+                            let mut s = [0u8; 32];
+                            s.copy_from_slice(&raw);
+                            return Some(s);
+                        }
+                    }
+                    let mut fresh = [0u8; 32];
+                    OsRng.fill_bytes(&mut fresh);
+                    let stored = std::fs::create_dir_all(&dir)
+                        .and_then(|_| std::fs::write(&path, fresh))
+                        .map(|_| {
+                            #[cfg(unix)]
+                            {
+                                use std::os::unix::fs::PermissionsExt;
+                                let _ = std::fs::set_permissions(
+                                    &path,
+                                    std::fs::Permissions::from_mode(0o600),
+                                );
+                            }
+                        })
+                        .is_ok()
+                        && path.exists();
+                    if stored {
+                        return Some(fresh);
+                    }
+                    None
+                });
+                match stable {
+                    Some(s) => hmac_secret = s,
+                    None => {
+                        tracing::warn!(
+                            "no data dir for the IPC HMAC secret — sessions are restart-scoped"
+                        );
+                        OsRng.fill_bytes(&mut hmac_secret);
+                    }
+                }
+            }
 
             let state = AppState {
                 db: Arc::clone(&db),

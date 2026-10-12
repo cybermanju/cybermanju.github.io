@@ -763,6 +763,8 @@ Login via `POST /api/users/login` with `{ "username": "...", "password": "..." }
 | `GET` | `/api/geo-files` | List files with GPS coordinates |
 | **Search** | | |
 | `GET` | `/api/search?q={term}` | Search files by name, path, or content |
+| `GET` | `/api/search/paginated?q={term}&limit=&offset=` | Paginated search + total count |
+| `POST` | `/api/search/federated` | Cross-device search port: `{ query, limit?, peers: [{ baseUrl, deviceId?, token? }], timeoutSecs? }` → merged ranked hits (local tagged `local`); ≤8 peers, dead peers degrade to zero hits; per-peer `token` wins, else the caller's bearer is forwarded (single-secret vaults) |
 | **Locations** | | |
 | `GET` | `/api/locations` | List all locations |
 | **Users** | | |
@@ -793,6 +795,23 @@ Login via `POST /api/users/login` with `{ "username": "...", "password": "..." }
 | `GET` | `/api/agent/configs/{id}/mcp/tools` | Discover MCP tools |
 | `GET`/`PUT` | `/api/files/{id}/content` | Read/overwrite managed file text (1 MiB cap, versioned saves) |
 | `POST` | `/api/code/parse` | Parse source text (shared heuristic core) |
+| **Devices** | | |
+| `GET`/`POST` | `/api/devices` | List/register device identities (ML-DSA public keys; enrollment idempotent) |
+| `DELETE` | `/api/devices/{id}` | Remove a device row (admin) |
+| `POST` | `/api/devices/{id}/revoke` | Revoke a device — row stays, fails closed (admin) |
+| `GET` | `/api/peers` | Active mDNS LAN scan (`_cybermanju._tcp.local`, 2 s cap) |
+| **Todos** | | |
+| `GET`/`POST` | `/api/todos` | Owner-scoped shared task list (agent tools use the same rows) |
+| `PUT`/`DELETE` | `/api/todos/{id}` | Complete/reopen or delete a todo (owner-scoped, 404 across owners) |
+| **Op-log** | | |
+| `GET` | `/api/oplog/since?since=N&limit=M` | Pull ops after seq N (`{ head, ops }`, idempotent) |
+| `POST` | `/api/oplog/push` | Merge foreign ops (`{ appended, skipped, head }`) |
+| `GET` | `/api/oplog/conflicts` | Fork pairs for the conflict UI |
+| `POST` | `/api/oplog/resolve` | Append a `resolve` verdict (`keep-a`/`keep-b`/`merge`; history never deleted) |
+| `POST` | `/api/peers/{id}/sync` | Direct device↔device op-log exchange (registry-authenticated: unknown `not_found:`, revoked `auth:`) |
+| **Sneakernet** | | |
+| `GET` | `/api/sync/bundle/export?since=N` | BLAKE3-manifested op delta (`cyb-bundle/1`, admin) |
+| `POST` | `/api/sync/bundle/import` | Validate + merge a bundle (idempotent, admin) |
 | **Health** | | |
 | `GET` | `/api/health` | Health check (returns `{ service, status, timestamp }`) |
 

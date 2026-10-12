@@ -188,6 +188,7 @@ pub enum ParseEngine {
 }
 
 impl ParseEngine {
+    /// Engine label reported on every code-intel result (`tree-sitter` / `heuristic`).
     pub fn as_str(&self) -> &'static str {
         match self {
             ParseEngine::TreeSitter => "tree-sitter",

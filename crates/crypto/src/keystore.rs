@@ -16,6 +16,7 @@ use chacha20poly1305::{
 use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 // ─── Parameters ───────────────────────────────────────────────────────
 
@@ -78,7 +79,11 @@ pub fn data_dir() -> Option<PathBuf> {
     std::env::var("HOME")
         .ok()
         .map(|home| PathBuf::from(home).join(".cybermanju"))
-        .or_else(|| Some(std::env::temp_dir().join("cybermanju")))
+    // P0-17: fail closed when HOME is unset. The old fallback
+    // (`temp_dir()/cybermanju`) was a predictable, world-readable directory —
+    // key material must never land there. Callers already handle `None`
+    // (`master_passphrase` propagates it, `handle_path` errors, disk/os fall
+    // back to an explicit relative dir).
 }
 
 /// Resolve the machine-local master passphrase.
@@ -184,9 +189,11 @@ pub struct KeyHandle {
 
 /// Get the handle for `id`, deriving and persisting one on first use.
 ///
-/// The handle is only accepted back when `passphrase` still opens it; a
-/// changed passphrase re-wraps a freshly generated key (the old key is
-/// unrecoverable without the old passphrase — that is the point).
+/// The handle is only accepted back when `passphrase` still opens it. A
+/// changed passphrase no longer re-wraps silently (P0-17): the old handle is
+/// kept and the call fails with `auth:` — loudly, pointing at explicit
+/// rotation — because re-wrapping under a new passphrase orphans everything
+/// sealed under the old one.
 pub fn get_or_derive(id: &str, passphrase: &str) -> Result<KeyHandle, String> {
     if id.trim().is_empty() {
         return Err("keystore id is required".to_string());
@@ -195,10 +202,14 @@ pub fn get_or_derive(id: &str, passphrase: &str) -> Result<KeyHandle, String> {
         if open(&handle, passphrase).is_ok() {
             return Ok(handle);
         }
-        log::warn!(
-            "keystore entry '{}' did not open with the current passphrase; re-wrapping",
+        log::error!(
+            "keystore entry '{}' did not open with the current passphrase; refusing re-wrap (old handle kept)",
             id
         );
+        return Err(format!(
+            "auth: keystore entry '{id}' does not open with this passphrase — \
+             supply the original passphrase or rotate explicitly (old key kept, nothing overwritten)"
+        ));
     }
 
     let mut salt = [0u8; SALT_LEN];
@@ -265,8 +276,33 @@ pub fn open_sealed(passphrase: &str, blob: &[u8]) -> Result<Vec<u8>, String> {
     }
     let (salt, rest) = blob.split_at(SALT_LEN);
     let (nonce, ciphertext) = rest.split_at(NONCE_LEN);
-    let key = derive_key(passphrase, salt)?;
+    let key = cached_kek(passphrase, salt)?;
     open_with_key(&key, nonce, ciphertext)
+}
+
+/// Bounded KEK cache (P0-16): bulk restores open many blobs sealed under one
+/// passphrase, and a fresh Argon2id per blob turns that into a CPU DoS.
+/// Entries key by `(blake3(passphrase), salt)` — the passphrase itself never
+/// rests — capped at 8 with oldest-first eviction, process-local only.
+/// One KEK cache row: `(blake3(passphrase), salt, derived_key)`.
+type KekCacheEntry = ([u8; 32], Vec<u8>, [u8; 32]);
+
+fn cached_kek(passphrase: &str, salt: &[u8]) -> Result<[u8; 32], String> {
+    static CACHE: OnceLock<Mutex<Vec<KekCacheEntry>>> = OnceLock::new();
+    let tag = *blake3::hash(passphrase.as_bytes()).as_bytes();
+    if let Ok(cache) = CACHE.get_or_init(|| Mutex::new(Vec::new())).lock() {
+        if let Some((_, _, key)) = cache.iter().find(|(t, s, _)| *t == tag && *s == salt) {
+            return Ok(*key);
+        }
+    }
+    let key = derive_key(passphrase, salt)?;
+    if let Ok(mut cache) = CACHE.get_or_init(|| Mutex::new(Vec::new())).lock() {
+        if cache.len() >= 8 {
+            cache.remove(0);
+        }
+        cache.push((tag, salt.to_vec(), key));
+    }
+    Ok(key)
 }
 
 /// [`seal`] with a base64 result — convenient for JSON columns.

@@ -1450,3 +1450,255 @@ Stage Summary:
 
 ## 2026-10-11 — follow-up Rust formatting from develop CI
 The first `develop` CI run (`38174480888`) again failed only in Rust `Check formatting`, now on three expressions added by the container hardening. I applied the exact diff to `crates/crypto/src/container.rs`; no logic changed. The same run passed the WASM crate/frontend, typecheck, frontend tests, wiki build and isolated Pages artifact assembly; deployment was skipped because `rust-check` failed. After the formatter adjustment, version/header checks, `vue-tsc`, all 823 frontend tests, `/develop/` frontend/wiki builds and `git diff --check` pass locally. Rustfmt/Clippy/Rust tests remain to be proven by the next CI.
+
+## 2026-10-11 — System docs generation: additive hoisting + auditor + coverage
+- Found by expanding the `crates/scene` Tables docs: the heuristic extractor
+  kept only the LAST doc line (both `crates/types/src/code.rs` and its JS
+  mirror `scripts/collect-file-context.mjs`), so multi-line `///` blocks
+  lost everything but the final sentence in wiki/code-intel payloads.
+- Fix (both extractors, same semantics): consecutive doc lines accumulate
+  into one space-joined summary (≤400 chars); only blank lines and non-doc
+  code break attachment — `#[…]`/`@…` attributes, `*/`/`-->` closers and
+  plain narration are transparent and slide the window (previously they
+  consumed the ≤4-line budget; e.g. `create_provider_repo`'s docs never
+  attached past its arity note + two attributes). JSDoc `*/` closers no
+  longer reset pending docs. New `slide_window` helper (Rust) /
+  `slideWindow` (JS); behavior change is additive only — no previously
+  attached docs are lost.
+- Tests: new Rust `heuristic_joins_multiline_doc_blocks` (join, blank-break,
+  plain-never-hoists, attribute passthrough, JSDoc closer, narration-slide)
+  + new `tests/frontend/file-context.test.ts` (6 cases pinning the JS mirror).
+- New advisory auditor `scripts/check-symbol-docs.mjs` (public-only default:
+  Rust `pub`, TS `export`, Go exported; skips tests/`impl`/re-export shims;
+  `--all|--dir|--top|--json|--strict`; never a CI gate) + docs-coverage per
+  subject in `generate-wiki.mjs` (txt/JSON/console).
+- Seeded high-value gaps the auditor surfaced: all 14 `schema.rs` structs +
+  `sync.rs` (7) + `secrets.rs` (2 fns) + tauri surface (`AppState`, `run`,
+  `DuResult`, `os_ps/top/workers/jobs`, dashboard `new`, tree-sitter
+  `as_str`, `create_loose_group`, `authenticate_user`,
+  `get_file_permissions`). crates/types + crates/scene + crates/search +
+  src-tauri/src now 100% public-documented.
+- Baseline: public-only 60.5% documented (1217 missing, biggest in
+  src/utils, cli/internal, src/composables); full-symbol 27.5%. AGENTS.md §7
+  tooling + structure-finder contract updated to the new semantics.
+- Verified: headers ok, `vue-tsc` clean, 68 files / 799 tests green, wiki
+  smoke build into /tmp ok. Rust `fmt/clippy/test` left to CI per repo rules.
+## 2026-10-11 — ANALYSIS §4.5 storage diet / dedup report (cargo CI-only for Rust)
+
+- New pure `src/utils/dedup.ts`: BLAKE3 grouping (`normalizeHash` — lowercase/
+  trim, ≥16 hex chars, hex-only), reclaimable = total − one copy, keep-newest
+  suggestion, groups ranked reclaimable-desc; files without a usable hash are
+  `unhashable` and excluded (honest limit, never fabricated).
+- Disks → DIET tab (`DiskManagerPage.vue`, `wm.open('disks', { tab: 'diet' })`):
+  dup-sets / dup-files / reclaimable / no-hash cards + per-group file rows
+  (KEEP badge on the newest copy) + two-click RECLAIM through the standard
+  `store.deleteFile` path + refresh.
+- Tests: `tests/frontend/dedup.test.ts` (10 green: normalize, grouping, math,
+  keep-newest, unhashable, case-folding, ranking, summary, empty-safe).
+- Docs: `ANALYSIS.md` §4.5 ticked ✅ + header remeasured (55 components ·
+  34 composables · 57 utils · 16 crates · ~173 command fns · 38 redb tables).
+- Verified here: dedup suite 10/10 green. Full loop (`vue-tsc`, `npm test`,
+  header/version checks) below; Rust untouched so CI has nothing new to prove.
+## 2026-10-11 — ANALYSIS 80% pass: archive, watchers, skills, recovery, TLS, i18n, parity guard, dead-code purge (cargo CI-only for Rust)
+
+- New `ArchivePanel.vue` (`archive` PanelType + wm registry/sizes + Dock +
+  palette entry): NOTES (vault markdown + `[[wikilink]]` backlink graph,
+  `readManagedContent`/`contentText` loading, OPEN IN EDITOR), TIMELINE (day
+  buckets + on-this-day picker), PEOPLE (FaceGroups++ contact records:
+  aliases/notes/links local, rename/merge/delete via server actions), TASKS
+  (shared localStorage list), BOOKMARKS (IMPORT via `import_from_url`), DATA
+  (CSV/TSV sniff/parse/infer, 5000-row cap). Strings via the new i18n layer.
+- Pure utils + tests: `timeline` (3), `notes` (4), `contacts` (5),
+  `tasks`+`bookmarks` (6), `csv` (6), `watchers` (5), `skills` (4),
+  `shamir` (4 — caught a real GF(256) bug: 0x02 is not primitive, tables now
+  use 0x03), `i18n` (3), AGENT-1/REST parity guard (11), skill/task cybsh
+  verbs (7). Batch total 58 new tests.
+- Processes → WATCHERS tab (rules CRUD, EVALUATE NOW: center notify +
+  `setFileTags`); Shield → RECOVERY tab (Shamir split N/M, copy-once shares,
+  verify-combine; never persisted); Settings → LANGUAGE row (en/pt-BR);
+  `skill list|show|run|install` + `task …` verbs in staticCybsh + OPERATIONS.
+- TLS story shipped: `Caddyfile` + `docker-compose.tls.yml` (auto-ACME,
+  80→443, HSTS, 100 MB cap, single-hop trust policy) + OPERATIONS §6.
+- Dead code verified unreferenced and deleted (Sidebar/TreeNode/FileTooltip/
+  DashboardOverlay/MatrixRain/PrayerFlags + App.vue dead import); README +
+  AGENTS counts refreshed to the verified tree (49 · 34 · 67 · 18 members ·
+  ~175 handlers · 152 REST · ~38 tables).
+- Still open (honest): P0 auth cluster, iOS, device identity → LAN → CAS →
+  sneakernet → iroh, op-log, boot-real-web parity, Tantivy/agent-memory
+  bridge, agent classify hook + add/complete bridge, skills panels-later.
+- Verified here: headers ok, `vue-tsc` clean, full vitest green (see run).
+  Rust untouched — CI has nothing new to prove.
+## 2026-10-11 — ANALYSIS 100%: spine, P0 remainder, bridges, iOS scaffold (Rust CI-gated, no local cargo)
+
+- Devices (§2B.1): `DeviceRow` + `devices` table (list/get/save/remove/touch)
+  + `POST/GET /api/devices`, `DELETE`, `POST …/revoke` (Admin) +
+  `list/register/register_this(MlDsa65)/revoke/remove/list_lan_peers` Tauri
+  twins + Devices → Identity tab + `spine.rs` tests.
+- LAN discovery (§2B.2): `sync/src/lan.rs` (real mDNS DNS-packet subset,
+  std-only, ephemeral-port active scan, pointer-safe parser, loopback tests)
+  + `GET /api/peers` + peers card. Direct-sync protocol sequenced.
+- CAS leases (P0-19): single-write-txn acquire/renew/release + 8-thread
+  exactly-one-winner regression test; `write_lease` removed.
+- Op-log (§2C): `OpRow` + `oplog` table (atomic seq, since-pull, idempotent
+  merge, dominance conflict scan) + `GET/POST /api/oplog/*` + unit tests.
+- Sneakernet (§2B.4): `sync/src/bundle.rs` (`cyb-bundle/1`, BLAKE3 manifest,
+  caps, idempotent import) + Admin bundle routes + round-trip/tamper tests.
+- Agent todo bridge (§4.9): `todos` table + `todo_add/list/done` tools
+  (owner-scoped, plan-deny parity, metaprompt, 23 schemas) + Tauri + REST +
+  Archive TASKS server merge; watcher classify hook (`agentConfigId` →
+  fire-and-forget `startAgentRun`); NOTES → `storeAgentMemory` bridge.
+- Secrets CSV (§4.1): `secretImport.ts` (1Password/Bitwarden/generic, 2000 cap)
+  + panel modal + tests.
+- P0: hash-strip on IPC (P0-4), shim deletion, no-row-token test (P0-6);
+  audited-and-ticked P0-1/2/8/10; P1-1/6/7/11 ticked.
+- iOS (P2-16): `bundle.ios` floor + `docs/IOS.md` + config-shape tests.
+- Frontend: 166 REST mappings, devices/todos/peers/oplog/bundle routes,
+  store actions, `agentUi` metas, `secret-import` tests green.
+- Docs: ANALYSIS 100% dispositions, TASKS ticks, ARCHITECTURE endpoint rows,
+  OPERATIONS skill/task verbs + TLS runbook.
+- Verified here: version agree, headers ok (tracked set; new files carry
+  headers, verified by grep), `vue-tsc` clean, full vitest green (see run).
+  Rust compiles/tests/iOS builds are CI's job per repo rules (no local cargo).
+
+## 2026-10-11 — ANALYSIS close-out: sequenced list landed, P0 cluster closed
+
+- Op-log wiring (§2C): `record_mutation_op` + `get_op_by_id` (`db`) called from
+  every file op, collections, todos chokepoint, face rename/merge; `POST
+  /api/oplog/resolve` verdicts (history never deleted); Sync → CONFLICTS
+  resolver UI (`oplog.ts` + store actions + `oplog` cybsh verb); spine tests
+  (resolve shapes, mutation appends, auth gates).
+- Direct LAN sync (§2B.2 follow-up): `POST /api/peers/{id}/sync`
+  (registry-authenticated, idempotent merge) + Devices SYNC button
+  (fail-closed gate) + `lanSync.ts` + `lan` cybsh verb + spine peer-auth tests.
+- iroh seam (§2B.5): `sync/src/iroh.rs` (config/endpoint/dial-plan +
+  unit tests, std-only); dial backend sequenced (dep + networked CI).
+- Skills panels (§4.8) + notes auto-index (§4.2) + rotation checklist (§3):
+  `panel:` frontmatter → `skill:<slug>` targets + `skill panel` verb;
+  `noteToMemory`; Shield rotation checklist; all in `spine-closeout.test.ts`.
+- P0: P0-3 IPC gate, P0-5 persistent revocation + stable IPC secret, P0-7 SSE
+  `?token=`, P0-9 remember audit, P0-11 symlink/atomic containment, P0-12
+  memory owner-scoping, P0-13 independent Hybrid pair (+sealed persistence),
+  P0-14 KDF separation + legacy fallback, P0-15 honest levels/labels, P0-16
+  KEK cache, P0-17 fail-closed data_dir + no silent re-wrap, P0-20 merged
+  Overwrite + deterministic KeepBoth, P0-21 `expired:`, P0-23 caps/paging,
+  P0-24 hierarchy rebuild; P0-22 documented discipline. TASKS ticked.
+- Docs: ANALYSIS refresh + dispositions, TASKS ticks, ARCHITECTURE endpoint
+  rows, OPERATIONS verbs, AGENTS/README counts (71 utils · 170 REST ·
+  40 tables · 82 files/893 tests).
+- Verified here: headers ok, `vue-tsc` clean, full vitest green (82/893).
+  Rust is CI's job (concurrent fmt-fix agent active; watch the run).
+## 2026-10-12 — ANALYSIS frontend-close-out: WAN plan, volume queue+caps, exhaustive parity (no cargo, no macOS)
+
+- New `src/utils/wanDial.ts` (§2B.5 frontend plan — same `<device>@<addr>`
+  grammar + `unsupported:` plan + `wanWayOut` as `crates/sync/src/iroh.rs`,
+  never dials) + Devices → WAN dial card (plan, never dials) +
+  `wan plan <device>@<addr>` cybsh verb on all transports +
+  `tests/frontend/wan-dial.test.ts` (5 tests).
+- New `src/utils/volumeCaps.ts` (P1-17: shared 1 MiB cap, `STATIC_WRITE_LIMIT`
+  re-export, Rust `MAX_WRITE_BYTES` pinned by static read) +
+  `src/utils/volumeWriteQueue.ts` (P1-16 frontend half: FIFO single-writer
+  queue, generations, `too_large:` gate, chain survival) +
+  `volume-caps` (4) + `volume-queue` (3) tests.
+- New `tests/frontend/transport-exhaustive.test.ts` (§3: every mapping has
+  method + `/api/` path, every `REST_FIRST` resolves, `WRITE_ONLY` disjoint,
+  spine twins pinned by static Rust reads — peer-sync/op-log/bundle are
+  REST-first by design, devices/todos keep Tauri twins; corrected the first
+  draft which wrongly assumed Tauri twins for all).
+- Docs: `ANALYSIS.md` 2026-10-12 refresh + §2B.5/§2C/§3/§6 ticks;
+  `AGENTS.md`/`README.md` counts to the verified tree (74 utils · 170 REST ·
+  40 tables · 86 files/911 tests).
+- Staying sequenced with honest reasons (need Rust/mobile toolchains): iroh
+  QUIC dial backend, iOS device/simulator builds, full TS↔Rust equality sweep,
+  P0-22 rebuild + Rust single-opener (frontend: 15 s abort + backoff in
+  `restFetch` already shipped).
+- Verified here: version agree, headers ok (522 tracked), `vue-tsc` clean,
+  full vitest green (86/911). Rust is CI's job per repo rules (no local cargo).
+
+## 2026-10-12 — ANALYSIS.md close-out part 2 (four sequenced items → landed)
+
+Closed every remaining honest sequence from `ANALYSIS.md` on all layers this
+environment can prove (no local cargo, no macOS signer, no networked QUIC CI):
+
+- WAN HTTP dial (§2B.5): `src/utils/wanDial.ts` gains `wanHttpBase` /
+  `wanDialSteps` (readyz probe + op-log pull/push/merge) / `wanHttpProbe`
+  (fetch + 15 s AbortController, `network:` on failure, `unsupported:`
+  without fetch); Devices → WAN card gains a live Probe button; `wan dial`
+  cybsh verb on all transports; Rust twin in `crates/sync/src/iroh.rs`
+  (`http_base` / `http_dial_steps` / `http_probe` via bounded TcpStream,
+  relay tickets stay `unsupported:`) + unit tests. QUIC `dial_plan` stays
+  honestly `unsupported:` — only relay dial remains sequenced (new dep +
+  networked CI). `wan-dial.test.ts` grows to 8 tests.
+- Full static parity sweep (§3): `scripts/check-transport-parity.mjs` +
+  `npm run check:parity` + CI meta-check gate +
+  `tests/frontend/transport-parity-full.test.ts` (real TS imports, both
+  directions). The sweep caught and fixed a REAL drift: `POST
+  /api/faces/detect*` was 404-before-auth for want of a `faces`
+  ROUTED_SEGMENT in `crates/web/src/security.rs`. Only live-boot shape
+  equality (real `crates/web` + snake→camel) stays a CI follow-up.
+- iOS build path (P2-16): `scripts/ios-configure.sh` (version/floor/
+  identifier/ATS audits) + `scripts/ios-signing.sh` (prepare/verify/cleanup,
+  ephemeral keychain, mirrors Android) + `ios-build` CI job on macos-latest
+  (simulator `.app` every run + signed `.ipa` when secrets exist) +
+  `docs/IOS.md` runbook refresh + `mobile-ios.test.ts` pins. Only Apple
+  secrets + TestFlight stay sequenced.
+- P0-22 + single-opener (§5/§2C): `OpenerLock` in `crates/db`
+  (`<db>.lock` create_new guard, second opener fails closed with
+  `conflict:`, stale-PID reap on Linux, release-on-drop via Arc,
+  `opener_lock_path` accessor + regression test) beside the existing 100 MB
+  `MAX_BODY_SIZE` cap; `tests/frontend/rest-hardening.test.ts` pins the
+  frontend half (15 s abort, one backoff retry on `network:`/`rate_limited:`).
+  `TASKS.md` P0-22 ticked.
+- Docs: `ANALYSIS.md` 2026-10-12 part-2 refresh + §2B.5/§2C/§3/§5/§6 ticks;
+  `TASKS.md` P0-22; `AGENTS.md`/`README.md` counts to the verified tree
+  (74 utils · 170 REST · 40 tables · 88 files/925 tests).
+- Verified here: version agree, headers ok (531 tracked), parity sweep clean
+  (170 mappings, 37 families), `vue-tsc` clean, full vitest green (88/925).
+  Rust is CI's job per repo rules (no local cargo).
+
+## 2026-10-12 — P2P expansion: peer transports + cross-device search port (6 targets)
+
+- New `crates/sync/src/peers.rs`: `PeerTransport` (lan-http/wan-http/bundle
+  live, relay-future sequenced) + `<device>@<addr>` grammar + `normalize` /
+  `classify` / `is_lan_base` + `direct_http_plan` (relay refuses
+  `unsupported:`) + `FederatedHit` + `merge_federated_hits` (dedup by file
+  id, max score wins, desc sort) + `fetch_peer_hits` (reqwest blocking,
+  bounded timeout, `auth:`/`network:` normalization, tolerant hit parsing) +
+  `platform_notes` (android/ios/windows/linux/docker/wasm fallbacks) + tests.
+  No new deps (std + reqwest/serde_json already in the crate).
+- `crates/sync/src/iroh.rs`: additive `classify_addr` + `direct_http_plan`
+  aliases over `peers` (existing `dial_plan`/`http_*` pins untouched).
+- `crates/web/src/api/search_api.rs`: `FederatedPeer`/`FederatedRequest` +
+  `search_federated` (local BM25 tagged `local`, ≤8 peers fanned out, dead
+  peers degrade to zero hits, merged); `crates/web/src/lib.rs`: new
+  `POST /api/search/federated` route (second segment `search` already
+  routed — parity sweep stays clean).
+- Tauri: `search_files_federated` (search.rs) + `probe_peer` /
+  `peer_platform_notes` (devices.rs), wired in `lib.rs`; explicit peer URLs
+  are what make android/ios/docker work where mDNS multicast is blocked.
+- WASM parity: `search_scored` + `search-scored` dispatch arm (real score +
+  ≤200-char snippet + filename/content kind, `search()` path-only output
+  untouched) + `wasmSearchFilesScored` (scored-first, legacy fallback);
+  `search_files`/`_paginated` static handlers now return real scores and
+  snippets instead of `1.0`/`''`.
+- Frontend: new `src/utils/peerSearch.ts` (TS twin of `peers.rs`: same
+  grammar/merge, `peerCapabilityMatrix`, localStorage peer cache for
+  mobile/docker/wasm, `fetchPeerHits`/`federatedSearch`,
+  `syncExchangeWithPeer` pull→push→merge→render executor); `wanDial.ts`
+  `wanSyncExchange` + `lanSync.ts` `lanSyncExchange` reuse it.
+- `useTauri.ts`: `search_files_federated` REST route (POST
+  `/api/search/federated`, 171 mappings), mobile IPC set extended,
+  `peer_platform_notes`/`probe_peer` answered on every transport (IPC twin
+  on Tauri, fetch probe elsewhere), `search_files_federated` static handler
+  fans out to explicit + cached peers, IPC args normalized to twin names.
+- Tests: new `tests/frontend/peer-search.test.ts` (15 tests: grammar,
+  merge order, matrix, cache, fan-out degradation, `auth:`/`network:`,
+  exchange + relay refusal, wrappers, route shape).
+- Verified here: version agree, headers ok (536 files), parity sweep clean
+  (171 mappings, 37 families), `vue-tsc` clean, full vitest green (89/940).
+  Rust is CI's job per repo rules (no local cargo).
+
+## 2026-10-11 — Resume main integration and complete backup safety validation
+- Re-fetched `origin/main` through `7d51fcab` (17 commits absent from `develop` at `d8ec5ab`) and integrated it only into `develop`; `main` remains untouched. The main-side Clippy fix removes `clone()` from the `Copy` PBKDF2 accumulator, so no duplicate fix was added.
+- Resolved `TASKS.md` by keeping the more complete checked-off P1 work already verified on `develop`; kept `pathExists()`'s actual requested-path comparison rather than main's unconditional `true`; combined both append-only worklog histories. P1-14 and backup/filesystem safety changes remain present.
+- Local checks passed: version consistency; all file headers; `vue-tsc`; Vitest (95 files / 977 tests); transport parity (171 mappings / 37 families); WASM frontend and wiki builds with `/develop/`; staged and unstaged `git diff --check`. Rust formatting, Clippy, and Rust tests remain CI-only per `AGENTS.md`.
+- Audited Pages assembly: main stays at `/`, the preview is assembled at `/develop/`, and the wiki uses the matching branch base (`/wiki/` or `/develop/wiki/`). Deployment remains gated on successful `wasm-build` and `rust-check`.

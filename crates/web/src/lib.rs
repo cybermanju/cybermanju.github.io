@@ -195,7 +195,7 @@ impl WebDashboard {
             }
         }
 
-        Self {
+        let dashboard = Self {
             port,
             bind_addr: bind_addr.to_string(),
             jwt_secret,
@@ -209,7 +209,23 @@ impl WebDashboard {
             auth: security::AuthState::new(),
             server_thread: Mutex::new(None),
             shutdown_tx: Mutex::new(None),
+        };
+        // P0-5: revocations persist in the db, not just in memory — hydrate
+        // the in-memory gate at boot so logouts survive restarts. A locked
+        // or unreadable db degrades to an empty gate (fail-open only for
+        // tokens revoked before an unclean shutdown; live revokes persist
+        // on the logout path below).
+        if let Ok(guard) = dashboard.db.read() {
+            match guard.list_live_revocations(security::now_secs()) {
+                Ok(rows) => {
+                    for (jti, exp) in rows {
+                        dashboard.auth.revoke(&jti, exp);
+                    }
+                }
+                Err(e) => warn!("Could not hydrate revocations: {}", e),
+            }
         }
+        dashboard
     }
     // <<< /AGENT-3 JWT SECRET >>>
 
@@ -427,14 +443,24 @@ fn handle_connection(dashboard: &WebDashboard, mut stream: TcpStream) {
     // complete `Content-Length` response) so the stream below owns the
     // socket: headers now, one flushed frame per job change, heartbeat
     // comments while idle. Polling `GET /api/agent/jobs/:id` stays the
-    // fallback — browsers using `EventSource` cannot send the
-    // `Authorization` header, so the panel keeps its 1.5 s poller.
+    // fallback. `EventSource` cannot send the `Authorization` header, so a
+    // `?token=` query credential is accepted here (P0-7) — header first,
+    // query second, never logged — and enforced by the same JWT gate inside
+    // `handle_sse_connection`. A missing credential answers 401, never a
+    // stream.
     if let Some(job_id) = is_sse_events_path(&method, &path) {
+        let authed: Option<String> = auth_header.clone().or_else(|| {
+            path.split('?')
+                .nth(1)
+                .and_then(|q| parse_query_param(q, "token"))
+                .filter(|t| !t.trim().is_empty())
+                .map(|t| format!("Bearer {}", t.trim()))
+        });
         handle_sse_connection(
             dashboard,
             stream,
             &job_id,
-            auth_header.as_deref(),
+            authed.as_deref(),
             effective_origin,
         );
         return;
@@ -1189,14 +1215,18 @@ fn route_request(
         ["api", "agent", "memories"] if method == "GET" => {
             // Newest-first, vectors stripped unless `?vectors=true`
             // (export/sync restores need them; list views never do).
+            // Owner-scoped like sessions (P0-12).
             let config_id = parse_query_param(query, "configId");
             let vectors = parse_query_param(query, "vectors").as_deref() == Some("true");
+            let (owner_id, is_admin) = claims_owner(&claims);
             return match db.read() {
                 Ok(guard) => api_response(
                     api::agent_api::list_memories(
                         &guard,
                         config_id.as_deref().filter(|s| !s.is_empty()),
                         vectors,
+                        &owner_id,
+                        is_admin,
                     ),
                     origin,
                 ),
@@ -1220,14 +1250,25 @@ fn route_request(
                 text: String,
             }
             let req: MemoryStoreBody = json_body!(body, origin);
+            let (owner_id, _) = claims_owner(&claims);
             return api_response(
-                api::agent_api::store_memory_entry(db, &req.config_id, req.session_id, &req.text),
+                api::agent_api::store_memory_entry(
+                    db,
+                    &req.config_id,
+                    req.session_id,
+                    &req.text,
+                    &owner_id,
+                ),
                 origin,
             );
         }
         ["api", "agent", "memories", memory_id] if method == "DELETE" => {
+            let (owner_id, is_admin) = claims_owner(&claims);
             return match db.read() {
-                Ok(guard) => api_response(api::agent_api::delete_memory(&guard, memory_id), origin),
+                Ok(guard) => api_response(
+                    api::agent_api::delete_memory(&guard, memory_id, &owner_id, is_admin),
+                    origin,
+                ),
                 Err(e) => api_response::<bool>(Err(e.to_string()), origin),
             };
         }
@@ -1246,12 +1287,15 @@ fn route_request(
                 top_k: Option<u64>,
             }
             let req: MemoryRecallBody = json_body!(body, origin);
+            let (owner_id, is_admin) = claims_owner(&claims);
             return api_response(
                 api::agent_api::recall_memory_entries(
                     db,
                     req.config_id.as_deref().filter(|s| !s.is_empty()),
                     &req.query,
                     req.top_k.unwrap_or(3) as usize,
+                    &owner_id,
+                    is_admin,
                 ),
                 origin,
             );
@@ -1263,7 +1307,8 @@ fn route_request(
             return match db.read() {
                 Ok(guard) => {
                     let scope = config_id.as_deref().filter(|s| !s.is_empty());
-                    match api::agent_api::list_memories(&guard, scope, true) {
+                    let (owner_id, is_admin) = claims_owner(&claims);
+                    match api::agent_api::list_memories(&guard, scope, true, &owner_id, is_admin) {
                         Ok(memories) => {
                             let markdown =
                                 cybermanju_agent::memory::render_export_markdown(&memories);
@@ -1350,6 +1395,18 @@ fn route_request(
     // the lock; writers (POST/PUT/DELETE) take it exclusively. A poisoned lock
     // is recovered from rather than propagated, so one panicking request can
     // not wedge every later one.
+    //
+    // P0-22 serialization discipline: the transfer paths that move bulk bytes
+    // (sync restore/seed/upload/move/list) and the detached-job paths
+    // (`sync start`, `ai …`, repair/scrub/gc) all run BEFORE this lock is
+    // taken, with brief scoped locks inside — a long download/upload never
+    // stalls writers here. Bundle export/import and the op-log exchange stay
+    // guarded but are capped (10k ops per call, paged pulls), so no guarded
+    // request clones unbounded state. What else stays guarded is deliberate:
+    // os_exec shell lines and disk attach/check are read-modify-write
+    // sequences whose logical atomicity the guard provides (redb serializes
+    // storage txns, not app logic); repair status is capped (`status_paged`)
+    // and the write-behind queues are bounded.
     let lock = if matches!(method, "GET" | "HEAD") {
         match db.read() {
             Ok(guard) => DbLock::Read(guard),
@@ -1383,6 +1440,54 @@ fn route_request(
     }
     if let Some(resp) = api::secrets::route(db, method, &path_segments, body, origin) {
         return resp;
+    }
+    // <<< ANALYSIS 100%: device identity (§2B.1) — enrollment is
+    // idempotent; revocation is Admin-gated in `required_role` below. >>>
+    if let Some(resp) = api::devices::route(db, method, &path_segments, body, origin) {
+        return resp;
+    }
+    // <<< ANALYSIS 100%: server todos (§4.9 agent bridge) — owner-scoped
+    // for non-admins (P0-10 posture); admins see every owner. >>>
+    if let Some(resp) = {
+        let (owner, is_admin) = claims_owner(&claims);
+        api::todos::route(db, method, &path_segments, body, origin, &owner, is_admin)
+    } {
+        return resp;
+    }
+    // <<< ANALYSIS 100%: op-log exchange (§2C) — idempotent push, paged
+    // pull, fork-pair conflicts for the UI. >>>
+    if let Some(resp) = api::oplog::route(db, method, &path_segments, query, body, origin) {
+        return resp;
+    }
+    // <<< ANALYSIS 100%: LAN peers (§2B.2) + sneakernet bundles (§2B.4).
+    // The scan holds only the shared read lock and is capped at 2 s, so a
+    // slow LAN never stalls writers (P0-22 discipline). >>>
+    if method == "GET" && matches!(path_segments.as_slice(), ["api", "peers"]) {
+        return lan_peers(origin);
+    }
+    if method == "POST"
+        && path_segments.len() == 4
+        && path_segments[0] == "api"
+        && path_segments[1] == "peers"
+        && path_segments[3] == "sync"
+    {
+        return peer_sync(db, path_segments[2], body, origin);
+    }
+    if method == "GET"
+        && matches!(
+            path_segments.as_slice(),
+            ["api", "sync", "bundle", "export"]
+        )
+    {
+        return bundle_export(db, query, origin);
+    }
+    if method == "POST"
+        && matches!(
+            path_segments.as_slice(),
+            ["api", "sync", "bundle", "import"]
+        )
+    {
+        return bundle_import(db, body, origin);
     }
     // <<< /CYBERMANJU OS PRE-WIRE >>>
 
@@ -1919,6 +2024,34 @@ fn route_request(
                 origin,
             )
         }
+        // ─── Cross-device search port ───────────────────────────
+        // POST /api/search/federated { query, limit?, peers: [{baseUrl,
+        // deviceId?, token?}], timeoutSecs? } → merged ranked hits (local
+        // tagged `local`, remote tagged per peer). Explicit peer URLs are
+        // what make android/ios/docker/wasm work where mDNS cannot; a dead
+        // peer degrades to zero hits for that peer, never a failure.
+        // Per-peer `token` fields are forwarded as peer bearers; when absent
+        // the caller's own bearer is reused (single-secret vaults).
+        ["api", "search", "federated"] if method == "POST" => {
+            match serde_json::from_str::<api::search_api::FederatedRequest>(body) {
+                Ok(req) => {
+                    let fallback = auth_header
+                        .and_then(|h| h.strip_prefix("Bearer ").or_else(|| h.strip_prefix("bearer ")))
+                        .map(str::trim)
+                        .filter(|t| !t.is_empty());
+                    json_ok(
+                        &api::search_api::search_federated_with_bearer(
+                            &dashboard.search_index,
+                            db,
+                            &req,
+                            fallback,
+                        ),
+                        origin,
+                    )
+                }
+                Err(e) => json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
+            }
+        }
 
         // ─── Code intelligence ────────────────────────────────
         // Source-text parsing for web/Pages clients (the desktop Tauri
@@ -2107,23 +2240,13 @@ fn route_request(
         }
         ["api", "sync", "configs"] if method == "POST" => {
             let req: api::sync_api::ConfigRequest = json_body!(body, origin);
-            // <<< AGENT-3 SECRETS: `SyncConfig.token` is `skip_serializing`
-            // so it can never reach a client (P0-3) — which also means
-            // `save_config`'s JSON write would drop it. Deserialization still
-            // accepts the raw token from the body; put it back into the
-            // stored row after the save. >>>
-            let incoming_token = req.config.token.clone();
-            match api::sync_api::save_config(db, req.config) {
-                Ok(saved) => {
-                    if let Some(token) = incoming_token {
-                        if let Err(e) = restore_config_token(db, &saved.id, &token) {
-                            return json_error(500, &e, origin);
-                        }
-                    }
-                    json_ok(&saved, origin)
-                }
-                Err(e) => api_response::<cybermanju_types::sync::SyncConfig>(Err(e), origin),
-            }
+            // P0-6: the token travels in the request body but is stored ONLY
+            // in the `sync_secrets` side table (`save_config` routes it
+            // there; the row is `skip_serializing`). No row write-back here.
+            api_response::<cybermanju_types::sync::SyncConfig>(
+                api::sync_api::save_config(db, req.config),
+                origin,
+            )
         }
         ["api", "sync", "configs", id] if method == "DELETE" => {
             // Admin-only (RBAC table) and audited — deleting a config
@@ -2225,6 +2348,13 @@ fn route_request(
         ["api", "auth", "logout"] if method == "POST" => match claims {
             Some(claims) => {
                 dashboard.auth.revoke(&claims.jti, claims.exp);
+                // P0-5: persist the revocation — memory alone forgets it on
+                // restart. Best-effort: the in-memory gate above already
+                // holds it for this process lifetime (`db` here is the
+                // request guard's `&Database`, which opens its own txn).
+                if let Err(e) = db.save_revocation(&claims.jti, claims.exp) {
+                    warn!("Could not persist revocation: {}", e);
+                }
                 let _ = db.log_audit(
                     "logout",
                     "user",
@@ -2898,37 +3028,138 @@ fn register_user_web(
     }
 }
 
-// <<< AGENT-3 SECRETS >>>
-/// Write the provider token back into a stored sync configuration.
-///
-/// `SyncConfig.token` carries `#[serde(skip_serializing)]` (P0-3), so
-/// `save_config`'s row write omits it. This re-reads the row, merges the raw
-/// token and writes it back — the token is still only ever *read* from the
-/// database, never serialized to a client.
-///
-/// Temporary: AGENT-2 is moving provider secrets to a side table, after
-/// which this shim (and the call site above) can be deleted.
-fn restore_config_token(db: &Database, config_id: &str, token: &str) -> Result<(), String> {
-    let tx = db.begin_write().map_err(|e| e.to_string())?;
-    {
-        let mut table = tx
-            .open_table(Database::get_sync_configs_table())
-            .map_err(|e| e.to_string())?;
-        let raw = match table.get(config_id).map_err(|e| e.to_string())? {
-            Some(guard) => guard.value().to_string(),
-            None => return Err(format!("Sync config not found: {}", config_id)),
-        };
-        let mut value: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-        if !value.is_object() {
-            return Err("Stored sync configuration is malformed".to_string());
-        }
-        value["token"] = serde_json::Value::String(token.to_string());
-        let patched = serde_json::to_string(&value).map_err(|e| e.to_string())?;
-        table
-            .insert(config_id, patched.as_str())
-            .map_err(|e| e.to_string())?;
+/// GET /api/peers — active mDNS scan for CyberManju devices on the LAN
+/// (§2B.2). Capped at 2 s and lock-free of writers (called under the shared
+/// read lock); an empty list is a real answer (no devices around), never an
+/// error.
+fn lan_peers(origin: Option<&str>) -> String {
+    match cybermanju_sync::lan::discover(
+        std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
+            cybermanju_sync::lan::MDNS_ADDR,
+            cybermanju_sync::lan::MDNS_PORT,
+        )),
+        std::time::Duration::from_secs(2),
+    ) {
+        Ok(peers) => json_ok(
+            &peers
+                .iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "deviceId": p.device_id,
+                        "name": p.name,
+                        "host": p.host,
+                        "port": p.port,
+                        "lastSeenSecs": p.last_seen_secs,
+                    })
+                })
+                .collect::<Vec<_>>(),
+            origin,
+        ),
+        Err(e) => json_error(502, &e, origin),
     }
-    tx.commit().map_err(|e| e.to_string())
+}
+
+/// POST /api/peers/{id}/sync — direct device↔device op-log exchange (§2B.2
+/// follow-up). Peer-authenticated against the device registry: unknown ids
+/// are `not_found:`, revoked rows fail closed with `auth:` — an unknown peer
+/// never merges. Body `{ ops: OpRow[] }` merges idempotently (same semantics
+/// as `/api/oplog/push`); the caller pulls `since` from the peer first and
+/// renders `GET /api/oplog/conflicts` after.
+fn peer_sync(db: &Database, device_id: &str, body: &str, origin: Option<&str>) -> String {
+    let peer = match db.get_device(device_id) {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            return json_error(
+                404,
+                &format!(
+                    "not_found: no device '{device_id}' — enroll it via POST /api/devices first"
+                ),
+                origin,
+            )
+        }
+        Err(e) => return json_error(500, &format!("internal: device lookup failed: {e}"), origin),
+    };
+    if peer.revoked {
+        return json_error(
+            403,
+            &format!("auth: device '{device_id}' is revoked — re-enroll it before syncing"),
+            origin,
+        );
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SyncRequest {
+        #[serde(default)]
+        ops: Vec<cybermanju_types::schema::OpRow>,
+    }
+    let req: SyncRequest = match serde_json::from_str(body) {
+        Ok(req) => req,
+        Err(e) => return json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
+    };
+    if req.ops.len() > 10_000 {
+        return json_error(
+            413,
+            &format!(
+                "too_large: sync holds {} ops (cap 10000 per call — page it)",
+                req.ops.len()
+            ),
+            origin,
+        );
+    }
+    for op in &req.ops {
+        if op.kind.trim().is_empty() {
+            return json_error(400, "invalid: every synced op needs a kind", origin);
+        }
+        if op.device_id.trim().is_empty() {
+            return json_error(400, "invalid: every synced op needs a device_id", origin);
+        }
+    }
+    match db
+        .merge_ops(&req.ops)
+        .and_then(|(appended, skipped)| Ok((appended, skipped, db.oplog_head()?)))
+    {
+        Ok((appended, skipped, head)) => json_ok(
+            &serde_json::json!({ "appended": appended, "skipped": skipped, "head": head }),
+            origin,
+        ),
+        Err(e) => json_error(500, &format!("internal: sync merge failed: {e}"), origin),
+    }
+}
+/// as JSON. Admin-only (it walks the whole op-log); the caller places the
+/// GET /api/sync/bundle/export?since=N&deviceId=X — sneakernet delta (§2B.4)
+/// as JSON. Admin-only (it walks the whole op-log); the caller places the
+/// bytes on the USB stick / provider object.
+fn bundle_export(db: &Database, query: &str, origin: Option<&str>) -> String {
+    let since = parse_query_param(query, "since")
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+    let device_id = parse_query_param(query, "deviceId")
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| {
+            std::env::var("CYBERMANJU_DEVICE")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .unwrap_or_else(|| "dashboard".to_string())
+        });
+    match cybermanju_sync::bundle::export_bundle(db, &device_id, since) {
+        Ok(bundle) => json_ok(&bundle, origin),
+        Err(e) if e.starts_with("too_large:") => json_error(413, &e, origin),
+        Err(e) => json_error(400, &e, origin),
+    }
+}
+
+/// POST /api/sync/bundle/import — validate + merge a received bundle
+/// (idempotent; same op_ids skip). Admin-only.
+fn bundle_import(db: &Database, body: &str, origin: Option<&str>) -> String {
+    match cybermanju_sync::bundle::import_bundle(db, body.as_bytes()) {
+        Ok((appended, skipped, from)) => json_ok(
+            &serde_json::json!({ "appended": appended, "skipped": skipped, "from": from }),
+            origin,
+        ),
+        Err(e) if e.starts_with("too_large:") => json_error(413, &e, origin),
+        Err(e) if e.starts_with("integrity:") => json_error(409, &e, origin),
+        Err(e) => json_error(400, &e, origin),
+    }
 }
 
 fn set_permission_web(db: &Database, body: &str, origin: Option<&str>) -> String {

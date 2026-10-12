@@ -271,22 +271,60 @@ function argsToArgList(cmd: string, args: Record<string, unknown>): string[] {
 /**
  * Search the wasm volume with BM25-lite — the only data-shape API the wasm
  * pack implements, exposed as a source for `search_files` on Pages.
+ * Prefers the scored arm (`search-scored`: real score + snippet + match
+ * kind for the cross-device port) and falls back to the legacy path-only
+ * `search` output for older packs.
  */
-export async function wasmSearchFiles(query: string): Promise<Array<{ path: string; score: number }>> {
+export interface WasmScoredHit {
+  path: string
+  score: number
+  snippet: string
+  matchType: string
+}
+
+export async function wasmSearchFilesScored(query: string): Promise<WasmScoredHit[]> {
   const mod = await loadWasm()
   if (!mod) return []
-  const raw = mod.os_dispatch('search', JSON.stringify({ args: [query] }))
-  try {
-    const parsed = JSON.parse(raw) as { ok?: boolean; output?: string }
-    if (parsed.ok === false || !parsed.output) return []
-    return parsed.output
-      .split('\n')
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(path => ({ path, score: 1.0 }))
-  } catch {
-    return []
+  const parse = (raw: string): WasmScoredHit[] | null => {
+    try {
+      const parsed = JSON.parse(raw) as { ok?: boolean; output?: string }
+      if (parsed.ok === false || !parsed.output) return []
+      if (parsed.output.startsWith('no matches for')) return []
+      return parsed.output
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const parts = line.split('\t')
+          if (parts.length >= 3) {
+            const score = Number(parts[0])
+            return {
+              path: parts[1] || parts[parts.length - 1],
+              score: Number.isFinite(score) ? score : 1.0,
+              snippet: parts.slice(3).join('\t') || '',
+              matchType: parts[2] || 'content',
+            }
+          }
+          return { path: line, score: 1.0, snippet: '', matchType: 'content' }
+        })
+    } catch {
+      return null
+    }
   }
+  try {
+    const raw = mod.os_dispatch('search-scored', JSON.stringify({ args: [query] }))
+    const hits = parse(raw)
+    if (hits) return hits
+  } catch {
+    // Fall through to the legacy arm below.
+  }
+  const raw = mod.os_dispatch('search', JSON.stringify({ args: [query] }))
+  return parse(raw) ?? []
+}
+
+export async function wasmSearchFiles(query: string): Promise<Array<{ path: string; score: number }>> {
+  const hits = await wasmSearchFilesScored(query)
+  return hits.map((h) => ({ path: h.path, score: h.score }))
 }
 
 // ── Database worker (redb in OPFS) ────────────────────────────────────

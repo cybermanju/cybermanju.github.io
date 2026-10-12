@@ -35,6 +35,7 @@
           clearable
         />
         <UiButton size="sm" icon="solar:add-bold" @click="openCreate()">Add</UiButton>
+        <UiButton size="sm" variant="ghost" icon="solar:upload-bold" @click="importOpen = true">Import</UiButton>
       </header>
 
       <UiEmpty
@@ -203,6 +204,38 @@
         </footer>
       </form>
     </UiModal>
+
+    <!-- ── CSV import modal (§4.1: 1Password / Bitwarden) ── -->
+    <UiModal
+      :visible="importOpen"
+      title="Import passwords"
+      size="md"
+      @close="importOpen = false"
+    >
+      <p class="sp-hint">
+        Paste a 1Password or Bitwarden CSV export (unencrypted file only — delete
+        it afterwards). Values seal on write; nothing echoes back.
+      </p>
+      <textarea
+        v-model="csvText"
+        class="sp-import-area"
+        rows="8"
+        spellcheck="false"
+        placeholder="title,username,password,url…"
+        aria-label="CSV to import"
+      />
+      <p v-if="importResult" class="sp-hint">
+        {{ importResult.format }} · {{ importResult.rows.length }} rows
+        <span v-if="importResult.skipped">· {{ importResult.skipped }} skipped (no title)</span>
+        <span v-if="importResult.errors.length" class="sp-import-err"> · {{ importResult.errors.join('; ') }}</span>
+      </p>
+      <footer class="sp-form-foot">
+        <UiButton type="button" variant="ghost" @click="importOpen = false">Cancel</UiButton>
+        <UiButton :disabled="!importResult?.rows.length || importing" :loading="importing" @click="runImport">
+          Import {{ importResult?.rows.length ?? 0 }}
+        </UiButton>
+      </footer>
+    </UiModal>
   </div>
 </template>
 
@@ -217,6 +250,7 @@ import UiInput from '@/components/ui/UiInput.vue'
 import UiModal from '@/components/ui/UiModal.vue'
 import { copySecret, copyText } from '@/utils/clipboard'
 import { generatePassword, passwordEntropyBits, passwordStrength, PASSWORD_DEFAULTS } from '@/utils/password'
+import { parseSecretCsv } from '@/utils/secretImport'
 import type { SecretKind, SecretMeta } from '@/types'
 
 const store = useAppStore()
@@ -437,6 +471,32 @@ function confirmDelete(row: SecretMeta) {
   }
   notify('success', 'Secret deleted')
 }
+
+// ── CSV import (§4.1: 1Password / Bitwarden exports) ──
+const importOpen = ref(false)
+const csvText = ref('')
+const importing = ref(false)
+const importResult = computed(() => (csvText.value.trim() ? parseSecretCsv(csvText.value) : null))
+
+async function runImport() {
+  const rows = importResult.value?.rows ?? []
+  if (!rows.length || importing.value) return
+  importing.value = true
+  let saved = 0
+  try {
+    for (const row of rows) {
+      const done = await store.createSecret(row.input)
+      if (done) saved += 1
+    }
+    notify('success', `Imported ${saved} of ${rows.length} secrets`)
+    if (saved > 0) {
+      csvText.value = ''
+      importOpen.value = false
+    }
+  } finally {
+    importing.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -571,6 +631,19 @@ function confirmDelete(row: SecretMeta) {
 .sp-strength-label[data-strength='strong'] { color: #3ecf8e; }
 .sp-form-check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .sp-form-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.sp-import-area {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+  background: transparent;
+  color: var(--ui-text);
+  border: 1px solid var(--ui-border, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  padding: 8px;
+  resize: vertical;
+}
+.sp-import-err { color: var(--ui-danger); }
 @media (max-width: 820px) {
   .sp { grid-template-columns: 1fr; }
   .sp-side { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--ui-border, rgba(255, 255, 255, 0.08)); }

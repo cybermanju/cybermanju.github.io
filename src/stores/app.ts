@@ -25,6 +25,7 @@ import type {
   ScheduleRow, ScheduleRun,
   SecretMeta, SecretInput,
   BackupEntry, BackupReport, BackupVerify,
+  DeviceInfo, ServerTodo, LanPeer,
   SyncBackendType,
 } from '@/types'
 import { MODULE_METADATA, oauthSlugForBackend, describeSyncError, agentErrorHint } from '@/types'
@@ -35,6 +36,7 @@ import { MANAGED_SCRIPT_PATH } from '@/utils/backup'
 import { setAuthToken, getAuthToken, isWebMode, isStaticHost } from '@/composables/useTauri'
 import { isInstallNeededError, installReasonFor, requestInstallWindow } from '@/utils/installLinks'
 import { createUiRequestDedupe } from '@/utils/uiRequests'
+import { normalizeConflicts, type OpEntry } from '@/utils/oplog'
 import { useWindowManager } from '@/composables/useWindowManager'
 
 export const useAppStore = defineStore('cybermanju', () => {
@@ -266,7 +268,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     authBusy.value = true
     authError.value = null
     try {
-      await invoke('register_user', { username, password, displayName })
+      await invoke('register_user', { username, password, displayName, sessionToken: getAuthToken() })
       // Bootstrap register returns the user, not a token — sign in after.
       return await login(username, password)
     } catch (e) {
@@ -1890,7 +1892,7 @@ export const useAppStore = defineStore('cybermanju', () => {
   // ── Actions: User Management ───────────────────────────────
   async function fetchUsers() {
     try {
-      users.value = await invoke<User[]>('list_users')
+      users.value = await invoke<User[]>('list_users', { sessionToken: getAuthToken() })
     } catch (e) {
       notifyError('Failed to fetch users', e)
     }
@@ -1898,7 +1900,7 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function createUser(username: string, password: string, role: string) {
     try {
-      await invoke('create_user', { username, password, role })
+      await invoke('create_user', { username, password, role, sessionToken: getAuthToken() })
       await fetchUsers()
       notifySuccess(`User '${username}' created`)
     } catch (e) {
@@ -1908,7 +1910,7 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function deleteUser(userId: string) {
     try {
-      await invoke('delete_user', { userId })
+      await invoke('delete_user', { userId, sessionToken: getAuthToken() })
       await fetchUsers()
       notifySuccess('User deleted')
     } catch (e) {
@@ -1918,7 +1920,7 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function updateUserRole(userId: string, role: string) {
     try {
-      await invoke('update_user_role', { userId, role })
+      await invoke('update_user_role', { userId, role, sessionToken: getAuthToken() })
       await fetchUsers()
       notifySuccess('User role updated')
     } catch (e) {
@@ -2289,6 +2291,148 @@ export const useAppStore = defineStore('cybermanju', () => {
     } catch (e) {
       notifyError('Failed to reveal secret', e)
       return null
+    }
+  }
+
+  // ── Actions: Device identity (§2B.1) + LAN peers (§2B.2) ──
+  const devices = ref<DeviceInfo[]>([])
+  const lanPeers = ref<LanPeer[]>([])
+
+  async function fetchDevices() {
+    try {
+      devices.value = await invoke<DeviceInfo[]>('list_devices')
+    } catch (e) {
+      notifyError('Failed to fetch devices', e)
+    }
+  }
+
+  async function registerDevice(name: string) {
+    try {
+      const row = await invoke<DeviceInfo>('register_device', { name })
+      await fetchDevices()
+      notifySuccess(`Device '${row.name}' enrolled`)
+      return row
+    } catch (e) {
+      notifyError('Failed to register device', e)
+      return null
+    }
+  }
+
+  async function registerThisDevice(name: string) {
+    try {
+      const row = await invoke<DeviceInfo>('register_this_device', { name })
+      await fetchDevices()
+      notifySuccess(`This device enrolled with a fresh ML-DSA key`)
+      return row
+    } catch (e) {
+      notifyError('Failed to enroll this device', e)
+      return null
+    }
+  }
+
+  async function revokeDevice(id: string) {
+    try {
+      await invoke('revoke_device', { id })
+      await fetchDevices()
+      notifySuccess('Device revoked')
+    } catch (e) {
+      notifyError('Failed to revoke device', e)
+    }
+  }
+
+  async function removeDevice(id: string) {
+    try {
+      await invoke('remove_device', { id })
+      await fetchDevices()
+    } catch (e) {
+      notifyError('Failed to remove device', e)
+    }
+  }
+
+  async function fetchLanPeers() {
+    try {
+      lanPeers.value = await invoke<LanPeer[]>('list_lan_peers')
+    } catch (e) {
+      notifyError('LAN scan failed', e)
+    }
+  }
+
+  // ── Actions: Op-log conflicts + direct LAN sync (§2B.2/§2C close-out) ──
+  const opConflicts = ref<{ a: OpEntry; b: OpEntry }[]>([])
+  const lanSyncMsg = ref('')
+
+  async function fetchOpConflicts() {
+    try {
+      const res = await invoke<{ conflicts?: { a: OpEntry; b: OpEntry }[] }>('oplog_conflicts')
+      opConflicts.value = normalizeConflicts(res)
+    } catch (e) {
+      notifyError('Failed to load conflicts', e)
+    }
+  }
+
+  async function resolveOpConflict(opA: string, opB: string, choice: 'keep-a' | 'keep-b' | 'merge') {
+    try {
+      const deviceId = devices.value[0]?.id ?? ''
+      await invoke('oplog_resolve', { opA, opB, choice, deviceId })
+      await fetchOpConflicts()
+      notifySuccess(`Conflict resolved (${choice}) — history kept, resolution appended`)
+    } catch (e) {
+      notifyError('Failed to resolve conflict', e)
+    }
+  }
+
+  async function syncWithPeer(deviceId: string, ops: unknown[] = []) {
+    try {
+      lanSyncMsg.value = `Syncing with ${deviceId}… (pull → push → merge)`
+      const res = await invoke<{ appended?: number; skipped?: number; head?: number }>('peer_sync', { id: deviceId, ops })
+      await fetchOpConflicts()
+      lanSyncMsg.value = `Synced with ${deviceId} (appended ${res.appended ?? 0}, skipped ${res.skipped ?? 0})`
+      return res
+    } catch (e) {
+      notifyError('LAN sync failed', e)
+      lanSyncMsg.value = ''
+      return null
+    }
+  }
+
+  // ── Actions: Server todos (§4.9 agent bridge — same rows the agent uses) ──
+  const serverTodos = ref<ServerTodo[] | null>(null)
+
+  async function fetchServerTodos() {
+    try {
+      serverTodos.value = await invoke<ServerTodo[]>('list_todos')
+    } catch {
+      // Static hosts have no dashboard — Archive TASKS falls back to local.
+      serverTodos.value = null
+    }
+  }
+
+  async function createServerTodo(title: string) {
+    try {
+      const row = await invoke<ServerTodo>('create_todo', { title })
+      await fetchServerTodos()
+      return row
+    } catch (e) {
+      notifyError('Failed to create todo', e)
+      return null
+    }
+  }
+
+  async function toggleServerTodo(id: string, done: boolean) {
+    try {
+      await invoke('toggle_todo', { id, done })
+      await fetchServerTodos()
+    } catch (e) {
+      notifyError('Failed to update todo', e)
+    }
+  }
+
+  async function deleteServerTodo(id: string) {
+    try {
+      await invoke('delete_todo', { id })
+      await fetchServerTodos()
+    } catch (e) {
+      notifyError('Failed to delete todo', e)
     }
   }
 
@@ -3002,6 +3146,10 @@ export const useAppStore = defineStore('cybermanju', () => {
     // Scheduler (cron)
     fetchSchedules, cronSave, cronDelete, cronRun, cronSetEnabled, cronHistory,
     fetchSecrets, createSecret, updateSecret, deleteSecret, revealSecret,
+    devices, lanPeers, fetchDevices, registerDevice, registerThisDevice,
+    revokeDevice, removeDevice, fetchLanPeers,
+    opConflicts, lanSyncMsg, fetchOpConflicts, resolveOpConflict, syncWithPeer,
+    serverTodos, fetchServerTodos, createServerTodo, toggleServerTodo, deleteServerTodo,
     backupShell, fetchBackupList, exportBackupToProvider, verifyBackupPath,
     downloadBackup, verifyBackupBytes, restoreBackupImage, scheduleBackup,
     findBackupSchedule, listBackupMounts, fetchBackupBytes,

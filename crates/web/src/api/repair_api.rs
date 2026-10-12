@@ -38,7 +38,9 @@ pub fn route(
 
     match path_segments {
         // ── Durability status ────────────────────────────────────────────
-        ["api", "repair", "status"] if method == "GET" => Some(respond(repair::status(db), origin)),
+        ["api", "repair", "status"] if method == "GET" => {
+            Some(respond(Ok(repair::status(db)), origin))
+        }
         ["api", "repair", "tasks"] if method == "GET" => Some(respond(Ok(repair::tasks()), origin)),
         ["api", "repair", "health"] if method == "GET" => Some(respond(health::status(db), origin)),
 
@@ -127,22 +129,33 @@ fn start_repair(db: &Database, body: &str, origin: Option<&str>) -> Option<Strin
     let detail = format!("{} finding(s)", count);
     let task = match spawn_task("repair", &detail, move |task_id| {
         let outcome = repair::repair_snapshot(&snapshot, &findings);
+        let mut dropped = 0usize;
         for (file, manifest_json) in &outcome.updates {
-            repair::queue_pending(repair::PendingOp::Manifest {
+            if !repair::queue_pending(repair::PendingOp::Manifest {
                 file: file.clone(),
                 manifest_json: manifest_json.clone(),
-            });
+            }) {
+                dropped += 1;
+            }
         }
         for row in &outcome.rows {
-            repair::queue_pending(repair::PendingOp::Repair(row.clone()));
+            if !repair::queue_pending(repair::PendingOp::Repair(row.clone())) {
+                dropped += 1;
+            }
         }
         let (repaired, unrecoverable) = (outcome.repaired(), outcome.unrecoverable());
         repair::finish_task(
             task_id,
             if unrecoverable > 0 { "error" } else { "done" },
             Some(format!(
-                "{} repaired, {} unrecoverable",
-                repaired, unrecoverable
+                "{} repaired, {} unrecoverable{}",
+                repaired,
+                unrecoverable,
+                if dropped > 0 {
+                    format!(", {dropped} results refused (write-behind queue full — retry)")
+                } else {
+                    String::new()
+                }
             )),
         );
     }) {
@@ -168,7 +181,8 @@ fn start_rebuild(db: &Database, origin: Option<&str>) -> Option<String> {
         &format!("{} provider(s)", configs.len()),
         move |task_id| match manifest::rebuild_from_remote(&configs) {
             Ok(report) => {
-                repair::queue_pending(repair::PendingOp::Rebuild(report.files.clone()));
+                let parked =
+                    repair::queue_pending(repair::PendingOp::Rebuild(report.files.clone()));
                 repair::finish_task(
                     task_id,
                     "done",
@@ -179,6 +193,7 @@ fn start_rebuild(db: &Database, origin: Option<&str>) -> Option<String> {
                             "locatorsDropped": report.locators_dropped,
                             "providers": report.providers,
                             "warnings": report.warnings,
+                            "queueFull": !parked,
                         })
                         .to_string(),
                     ),
@@ -270,8 +285,8 @@ fn start_scrub(db: &Database, origin: Option<&str>) -> Option<String> {
             )
         }));
         repair::queue_pending(repair::PendingOp::Scrub(run.clone()));
-        repair::queue_pending(repair::PendingOp::Health(health::all()));
-        let state = if run.corrupt + run.missing > 0 {
+        let health_parked = repair::queue_pending(repair::PendingOp::Health(health::all()));
+        let state = if run.corrupt + run.missing > 0 || !health_parked {
             "error"
         } else {
             "done"
@@ -280,8 +295,15 @@ fn start_scrub(db: &Database, origin: Option<&str>) -> Option<String> {
             task_id,
             state,
             Some(format!(
-                "{} checked, {} corrupt, {} missing",
-                run.checked, run.corrupt, run.missing
+                "{} checked, {} corrupt, {} missing{}",
+                run.checked,
+                run.corrupt,
+                run.missing,
+                if health_parked {
+                    String::new()
+                } else {
+                    " — health rows refused (queue full, retry)".to_string()
+                }
             )),
         );
     }) {

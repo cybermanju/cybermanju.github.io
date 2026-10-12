@@ -120,6 +120,51 @@
       </UiCard>
     </section>
 
+    <!-- ── identity: device registry (§2B.1) + LAN peers (§2B.2) ── -->
+    <section v-else-if="tab === 'identity'" aria-label="Identity">
+      <div class="dv-stack">
+        <UiCard title="This device" icon="solar:key-bold" meta="ML-DSA identity">
+          <div class="dv-pair">
+            <UiInput v-model="deviceName" placeholder="My laptop" aria-label="Device name" />
+            <UiButton size="sm" :disabled="!deviceName.trim()" @click="enrollThis">Enroll this device</UiButton>
+          </div>
+          <p class="dv-muted">Enrollment generates a fresh ML-DSA-65 keypair; the private half stays sealed on this device, the public half registers here.</p>
+        </UiCard>
+        <UiCard title="Registry" icon="solar:users-group-rounded-bold" :meta="`${store.devices.length} known`">
+          <div v-if="!store.devices.length" class="dv-muted">No devices enrolled yet.</div>
+          <div v-for="d in store.devices" :key="d.id" class="dv-pair dv-row">
+            <span class="dv-line">{{ d.name }} <span class="dv-muted">{{ d.id }}{{ d.revoked ? ' · REVOKED' : '' }}</span></span>
+            <UiButton size="sm" variant="ghost" :disabled="d.revoked" @click="store.revokeDevice(d.id)">Revoke</UiButton>
+            <UiButton size="sm" variant="ghost" @click="store.removeDevice(d.id)">Remove</UiButton>
+          </div>
+          <div class="dv-pair">
+            <UiButton size="sm" variant="ghost" @click="store.fetchDevices()">Refresh</UiButton>
+          </div>
+        </UiCard>
+        <UiCard title="LAN peers" icon="solar:global-bold" meta="mDNS scan">
+          <div class="dv-pair">
+            <UiButton size="sm" @click="store.fetchLanPeers()">Scan LAN</UiButton>
+          </div>
+          <div v-if="!store.lanPeers.length" class="dv-muted">No peers answering `_cybermanju._tcp.local` right now — same Wi-Fi, no server needed.</div>
+          <div v-for="p in store.lanPeers" :key="p.deviceId" class="dv-pair dv-row">
+            <span class="dv-line">{{ p.name || p.deviceId }} <span class="dv-muted">{{ p.host }}:{{ p.port }}</span></span>
+            <UiButton size="sm" :disabled="!canSyncPeer(p)" :title="peerSyncTitle(p)" @click="store.syncWithPeer(p.deviceId)">Sync</UiButton>
+          </div>
+          <p v-if="store.lanSyncMsg" class="dv-line">{{ store.lanSyncMsg }}</p>
+          <p class="dv-muted">Direct sync is peer-authenticated: only enrolled, non-revoked devices (Registry above) sync — unknown peers stay listed but never merge.</p>
+        </UiCard>
+        <UiCard title="WAN dial" icon="solar:rocket-bold" meta="http live · quic sequenced">
+          <div class="dv-pair">
+            <UiInput v-model="wanInput" placeholder="phone-7@192.168.1.60:3456" aria-label="WAN endpoint" />
+            <UiButton size="sm" :disabled="!wanInput.trim()" @click="planWan">Plan dial</UiButton>
+            <UiButton size="sm" variant="ghost" :disabled="!wanInput.trim()" @click="probeWan">Probe</UiButton>
+          </div>
+          <p v-if="wanResult" class="dv-line">{{ wanResult }}</p>
+          <p v-else class="dv-muted">Off-LAN HTTP dial is live (readyz probe + op-log pull/push, 15 s abort) — QUIC relay dial stays sequenced (new dep + networked CI). Same grammar as `wan plan|dial` in cybsh.</p>
+        </UiCard>
+      </div>
+    </section>
+
     <!-- ── media: capture + local files + share ── -->
     <section v-else-if="tab === 'media'" aria-label="Media">
       <div class="dv-stack">
@@ -243,6 +288,9 @@ import {
   isFiniteNum,
 } from '@/utils/deviceStats'
 import type { TopSnapshot } from '@/utils/deviceStats'
+import type { LanPeer } from '@/types'
+import { isPeerSyncable, peerBlockReason } from '@/utils/lanSync'
+import { parseWanEndpoint, wanDialPlan, wanDialSteps, wanHttpBase, wanHttpProbe, wanWayOut } from '@/utils/wanDial'
 
 const hw = useSystemHardware()
 const store = useAppStore()
@@ -252,12 +300,79 @@ const storageStat = ref<{ usage: number | null; quota: number | null; percent: n
 })
 const picked = ref('')
 const identityMsg = ref('')
+const deviceName = ref('')
+
+async function enrollThis() {
+  const name = deviceName.value.trim()
+  if (!name) return
+  const row = await store.registerThisDevice(name)
+  if (row) deviceName.value = ''
+}
+
+/** Direct-sync gate: enrolled + non-revoked registry rows only (fail-closed). */
+function canSyncPeer(p: LanPeer): boolean {
+  return isPeerSyncable(
+    { deviceId: p.deviceId, name: p.name, host: p.host, port: p.port },
+    store.devices.filter((d) => !d.revoked).map((d) => d.id),
+  )
+}
+
+function peerSyncTitle(p: LanPeer): string {
+  const reason = peerBlockReason(
+    { deviceId: p.deviceId, name: p.name, host: p.host, port: p.port },
+    store.devices.filter((d) => !d.revoked).map((d) => d.id),
+  )
+  return reason || 'Sync op-log with this peer now'
+}
+
+const wanInput = ref('')
+const wanResult = ref('')
+
+/** WAN dial seam (§2B.5): honest QUIC plan + real HTTP dial steps. */
+function planWan() {
+  const raw = wanInput.value.trim()
+  if (!raw) {
+    wanResult.value = 'usage: <device-id>@<addr> (e.g. phone-7@192.168.1.60:3456)'
+    return
+  }
+  try {
+    const endpoint = parseWanEndpoint(raw)
+    const steps = wanDialSteps(endpoint, 0)
+    try {
+      wanDialPlan(endpoint)
+      wanResult.value = steps.join('\n')
+    } catch (e) {
+      const plan = e instanceof Error ? e.message : String(e)
+      wanResult.value = [plan, ...steps, ...wanWayOut(endpoint)].join('\n')
+    }
+  } catch (e) {
+    wanResult.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+/** Live HTTP probe: GET <base>/api/readyz with a 15 s abort (never hangs). */
+async function probeWan() {
+  const raw = wanInput.value.trim()
+  if (!raw) {
+    wanResult.value = 'usage: <device-id>@<addr> (e.g. phone-7@192.168.1.60:3456)'
+    return
+  }
+  try {
+    const endpoint = parseWanEndpoint(raw)
+    wanResult.value = `probing ${wanHttpBase(endpoint)}/api/readyz …`
+    await wanHttpProbe(wanHttpBase(endpoint))
+    wanResult.value = [`reachable: ${wanHttpBase(endpoint)}`, ...wanDialSteps(endpoint, 0)].join('\n')
+  } catch (e) {
+    wanResult.value = e instanceof Error ? e.message : String(e)
+  }
+}
 const camVideoRef = ref<HTMLVideoElement | null>(null)
 const shareVideoRef = ref<HTMLVideoElement | null>(null)
 const tab = ref('overview')
 const tabOptions = [
   { label: 'Overview', value: 'overview', icon: 'solar:devices-bold' },
   { label: 'Devices', value: 'devices', icon: 'solar:usb-bold' },
+  { label: 'Identity', value: 'identity', icon: 'solar:key-bold' },
   { label: 'Media', value: 'media', icon: 'solar:videocamera-bold' },
   { label: 'System', value: 'system', icon: 'solar:chart-bold' },
 ]
@@ -469,6 +584,7 @@ onMounted(() => {
   void hw.refreshDevices()
   void loadStorage()
   void store.fetchOsTop()
+  void store.fetchDevices()
   statsPoll = window.setInterval(() => {
     if (document.hidden) return
     void store.fetchOsTop()

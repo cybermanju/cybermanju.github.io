@@ -80,3 +80,51 @@ describe('iOS tab bar', () => {
     expect(nav).toMatch(/blur\(28px\)/)
   })
 })
+
+describe('iOS native scaffold (P2-16)', () => {
+  const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'))
+  const runbook = fs.readFileSync('docs/IOS.md', 'utf8')
+
+  it('sets the iOS deployment floor', () => {
+    expect(conf.bundle.iOS.minimumSystemVersion).toBe('17.0')
+  })
+
+  it('keeps the mobile IPC set transport-complete (no dashboard on iOS)', () => {
+    const tauri = fs.readFileSync('src/composables/useTauri.ts', 'utf8')
+    for (const cmd of ['list_devices', 'list_todos', 'list_lan_peers']) {
+      expect(tauri).toContain(`'${cmd}'`)
+    }
+  })
+
+  it('documents the ATS exception + backup parity + signing gap honestly', () => {
+    expect(runbook).toContain('NSAllowsLocalNetworking')
+    expect(runbook).toContain('NSURLIsExcludedFromBackupKey')
+    expect(runbook).toContain('ios-build')
+  })
+
+  it('ships the iOS build path (configure + signing scripts + CI job)', () => {
+    const configure = fs.readFileSync('scripts/ios-configure.sh', 'utf8')
+    expect(configure).toContain('minimumSystemVersion')
+    expect(configure).toContain('NSAllowsLocalNetworking')
+    const signing = fs.readFileSync('scripts/ios-signing.sh', 'utf8')
+    for (const verb of ['prepare)', 'verify)', 'cleanup)']) {
+      expect(signing).toContain(verb)
+    }
+    expect(signing).toContain('REQUIRE_SIGNING')
+    const ci = fs.readFileSync('.github/workflows/ci.yml', 'utf8')
+    expect(ci).toContain('ios-build:')
+    expect(ci).toContain('macos-latest')
+    expect(ci).toContain('tauri ios init')
+    expect(ci).toContain('ios-signing.sh verify')
+  })
+
+  it('always ships an unsigned sideload IPA (no secrets required)', () => {
+    const ci = fs.readFileSync('.github/workflows/ci.yml', 'utf8')
+    // Sideload packaging wraps the simulator .app as Payload/ → unsigned .ipa.
+    expect(ci).toContain('dist-ios-sideload')
+    expect(ci).toContain('Payload')
+    // CI itself never requires signing (green without Apple secrets);
+    // release is the only gate that may demand it.
+    expect(ci).toContain('REQUIRE_SIGNING: "0"')
+  })
+})

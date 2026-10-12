@@ -177,6 +177,7 @@ pub fn write_file_content(
 }
 
 #[tauri::command(async)]
+/// Create an empty ad-hoc file group (see [`LooseGroup`]).
 pub fn create_loose_group(
     name: String,
     color: String,

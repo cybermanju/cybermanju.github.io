@@ -159,12 +159,19 @@ fn test_encryption_key_serde() {
         private_key: "sk_bytes".into(),
         label: Some("Master Key".into()),
         created_at: "2026-06-13".into(),
+        x25519_public_key: None,
+        x25519_private_key: None,
     };
     let json = serde_json::to_string(&k).unwrap();
     assert!(json.contains("\"publicKey\""));
     assert!(json.contains("\"privateKey\""));
     let back: EncryptionKey = serde_json::from_str(&json).unwrap();
     assert_eq!(k, back);
+    // Pre-P0-13 rows (no x25519 keys) still read as `None`.
+    let legacy = r#"{"id":"k0","algorithm":"hybrid","publicKey":"p","privateKey":"s","label":null,"createdAt":"2026-06-13"}"#;
+    let old: EncryptionKey = serde_json::from_str(legacy).unwrap();
+    assert_eq!(old.x25519_public_key, None);
+    assert_eq!(old.x25519_private_key, None);
 }
 
 #[test]

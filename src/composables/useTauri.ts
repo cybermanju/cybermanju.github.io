@@ -12,7 +12,7 @@ import {
   wasmDiskStatus,
   wasmModuleExports,
   wasmOsDispatch,
-  wasmSearchFiles,
+  wasmSearchFilesScored,
   wasmBackendActive,
 } from './useWasmBackend'
 import { vaultGet, vaultSet } from './useVault'
@@ -1098,6 +1098,137 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     buildPath: (args) => `/api/secrets/${encodeURIComponent(String(args.id ?? ''))}`,
   },
 
+  // ── Device identity (§2B.1) + LAN peers (§2B.2) ──
+  list_devices: {
+    method: 'GET',
+    buildPath: () => '/api/devices',
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  register_device: {
+    method: 'POST',
+    buildPath: () => '/api/devices',
+    transformRequest: (args) => ({
+      id: args.id ?? null,
+      name: args.name,
+      publicKey: args.publicKey ?? args.public_key ?? null,
+      keyAlgorithm: args.keyAlgorithm ?? args.key_algorithm ?? null,
+    }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  register_this_device: {
+    method: 'POST',
+    buildPath: () => '/api/devices',
+    transformRequest: (args) => ({ name: args.name }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  revoke_device: {
+    method: 'POST',
+    buildPath: (args) => `/api/devices/${encodeURIComponent(String(args.id ?? ''))}/revoke`,
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  remove_device: {
+    method: 'DELETE',
+    buildPath: (args) => `/api/devices/${encodeURIComponent(String(args.id ?? ''))}`,
+  },
+
+  list_lan_peers: {
+    method: 'GET',
+    buildPath: () => '/api/peers',
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  // ── Server todos (§4.9 agent bridge — same rows the agent tools use) ──
+  list_todos: {
+    method: 'GET',
+    buildPath: () => '/api/todos',
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  create_todo: {
+    method: 'POST',
+    buildPath: () => '/api/todos',
+    transformRequest: (args) => ({ title: args.title }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  toggle_todo: {
+    method: 'PUT',
+    buildPath: (args) => `/api/todos/${encodeURIComponent(String(args.id ?? ''))}`,
+    transformRequest: (args) => ({ done: Boolean(args.done) }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  delete_todo: {
+    method: 'DELETE',
+    buildPath: (args) => `/api/todos/${encodeURIComponent(String(args.id ?? ''))}`,
+  },
+
+  // ── Op-log exchange (§2C) + sneakernet bundles (§2B.4) ──
+  oplog_since: {
+    method: 'GET',
+    buildPath: (args) => {
+      const params = new URLSearchParams()
+      params.set('since', String(args.since ?? 0))
+      params.set('limit', String(args.limit ?? 500))
+      return `/api/oplog/since?${params.toString()}`
+    },
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  oplog_push: {
+    method: 'POST',
+    buildPath: () => '/api/oplog/push',
+    transformRequest: (args) => ({ ops: args.ops ?? [] }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  oplog_conflicts: {
+    method: 'GET',
+    buildPath: () => '/api/oplog/conflicts',
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  oplog_resolve: {
+    method: 'POST',
+    buildPath: () => '/api/oplog/resolve',
+    transformRequest: (args) => ({
+      opA: args.opA ?? args.op_a ?? '',
+      opB: args.opB ?? args.op_b ?? '',
+      choice: args.choice ?? 'merge',
+      deviceId: args.deviceId ?? args.device_id ?? '',
+    }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  peer_sync: {
+    method: 'POST',
+    buildPath: (args) => `/api/peers/${encodeURIComponent(String(args.id ?? args.deviceId ?? ''))}/sync`,
+    transformRequest: (args) => ({ ops: args.ops ?? [] }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  bundle_export: {
+    method: 'GET',
+    buildPath: (args) => {
+      const params = new URLSearchParams()
+      params.set('since', String(args.since ?? 0))
+      if (args.deviceId) params.set('deviceId', String(args.deviceId))
+      return `/api/sync/bundle/export?${params.toString()}`
+    },
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  bundle_import: {
+    method: 'POST',
+    buildPath: () => '/api/sync/bundle/import',
+    transformRequest: (args) => args.bundle ?? args,
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
   // Arming the daemon is a server-side no-op from the client's view; the
   // GET also trips `ensure_started` in `web/lib.rs` on the way past.
   cron_ensure_started: {
@@ -1117,6 +1248,45 @@ export const REST_ROUTES: Record<string, RestMapping> = {
       return `/api/search/paginated?${params.toString()}`
     },
     transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  // ── Cross-device search port ─────────────────────────────
+  // POST /api/search/federated { query, limit, peers, timeoutSecs } →
+  // merged ranked hits (local tagged `local`, remote per peer). Explicit
+  // peer URLs are what make android/ios/docker/wasm work where mDNS
+  // cannot; a dead peer degrades to zero hits for that peer.
+  search_files_federated: {
+    method: 'POST',
+    buildPath: () => '/api/search/federated',
+    transformRequest: (args) => {
+      const seen = new Set<string>()
+      const peers: Array<{ baseUrl: string; deviceId: string; token?: string }> = []
+      for (const p of ((args.peers ?? []) as Array<Record<string, unknown>>)) {
+        const baseUrl = String(p.baseUrl ?? p.base_url ?? '').trim()
+        if (!baseUrl || seen.has(baseUrl.toLowerCase())) continue
+        seen.add(baseUrl.toLowerCase())
+        const deviceId = String(p.deviceId ?? p.device_id ?? '')
+        const token = String(p.token ?? (p as Record<string, unknown>).peerToken ?? '').trim()
+        peers.push(token ? { baseUrl, deviceId, token } : { baseUrl, deviceId })
+        if (peers.length >= 8) break
+      }
+      return {
+        query: args.query ?? '',
+        limit: Math.max(1, Math.min(Number(args.limit ?? 50) || 50, 200)),
+        peers,
+        timeoutSecs: Number(args.timeoutSecs ?? args.timeout_secs ?? 8) || 8,
+      }
+    },
+    transformResponse: (raw) => {
+      const items = (Array.isArray(raw) ? raw : (raw as Record<string, unknown>)?.data ?? (raw as Record<string, unknown>)?.results ?? []) as Array<Record<string, unknown>>
+      return (Array.isArray(items) ? items : []).map((item) => ({
+        fileId: String(item.fileId ?? item.file_id ?? item.id ?? ''),
+        fileName: String(item.fileName ?? item.file_name ?? item.name ?? ''),
+        score: typeof item.score === 'number' ? item.score : 1.0,
+        snippet: typeof item.snippet === 'string' ? item.snippet : '',
+        source: typeof item.source === 'string' ? item.source : 'local',
+      }))
+    },
   },
 
   // ── Code intelligence (transport-agnostic: text in, symbols out) ──
@@ -1452,6 +1622,12 @@ export const REST_FIRST = new Set([
   'mcp_add_server', 'mcp_remove_server', 'mcp_list_tools',
   'list_agent_memories', 'store_agent_memory', 'delete_agent_memory',
   'recall_agent_memories',
+  'list_devices', 'register_device', 'register_this_device',
+  'revoke_device', 'remove_device', 'list_lan_peers',
+  'list_todos', 'create_todo', 'toggle_todo', 'delete_todo',
+  'oplog_since', 'oplog_push', 'oplog_conflicts', 'oplog_resolve',
+  'peer_sync',
+  'bundle_export', 'bundle_import',
 ])
 
 /** Local commands Android/iOS serve over Tauri IPC (no dashboard on mobile).
@@ -1469,6 +1645,10 @@ export const MOBILE_NATIVE_OS_COMMANDS = new Set([
   'backup_export',
   'secret_list', 'secret_save', 'secret_update', 'secret_get',
   'secret_reveal', 'secret_delete',
+  'list_devices', 'register_device', 'register_this_device',
+  'revoke_device', 'remove_device', 'list_lan_peers',
+  'probe_peer', 'peer_platform_notes', 'search_files_federated',
+  'list_todos', 'create_todo', 'toggle_todo', 'delete_todo',
 ])
 
 // Commands the `cybermanju-os-wasm` crate serves on a static host.
@@ -2869,6 +3049,68 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
     )) as T
   }
   const mapping = REST_ROUTES[cmd]
+  // ── P2P pure/local commands (no dashboard needed on any transport) ──
+  // `peer_platform_notes` is pure data (same matrix as Rust
+  // `peers::platform_notes`); `probe_peer` hits the peer directly, so on
+  // Tauri it uses the bounded Rust TCP probe (IPC twin) and elsewhere the
+  // fetch-based `/api/readyz` probe — never localhost:3456.
+  if (cmd === 'peer_platform_notes') {
+    const { peerCapabilityMatrix } = await import('@/utils/peerSearch')
+    return peerCapabilityMatrix() as unknown as T
+  }
+  if (cmd === 'probe_peer') {
+    const baseUrl = String(args?.baseUrl ?? args?.base_url ?? args?.url ?? '')
+    if (!baseUrl.trim()) throw new Error('invalid: baseUrl is required')
+    if (isTauri()) {
+      try {
+        const core = await import('@tauri-apps/api/core')
+        const timeoutSecs = Number(args?.timeoutSecs ?? args?.timeout_secs ?? 15) || 15
+        // Tauri binds by exact param name — send both cases, the twin picks
+        // its own (`base_url`/`timeout_secs` on this backend).
+        return await core.invoke<T>(cmd, {
+          baseUrl, base_url: baseUrl, timeoutSecs, timeout_secs: timeoutSecs,
+        })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (!/no command|unknown command|unimplemented/i.test(msg)) throw e
+        // No IPC twin (older backend) — fall through to the fetch probe.
+      }
+    }
+    const { wanHttpProbe } = await import('@/utils/wanDial')
+    const timeoutMs = Math.max(1000, Math.min(Number(args?.timeoutMs ?? 15000) || 15000, 60000))
+    await wanHttpProbe(baseUrl, timeoutMs)
+    return true as unknown as T
+  }
+  // `search_files_federated` over IPC needs snake_case twin names
+  // (`timeout_secs`, peer `base_url`/`device_id` stay camelCase via the
+  // struct's serde rename). Normalize here so callers stay camelCase on
+  // every transport — Tauri binds by exact param name.
+  if (cmd === 'search_files_federated' && isTauri() && !_serverUrl) {
+    const peers = ((args?.peers ?? []) as Array<Record<string, unknown>>).map((p) => {
+      const token = String(p.token ?? (p as Record<string, unknown>).peerToken ?? '').trim()
+      return {
+        baseUrl: p.baseUrl ?? p.base_url ?? '',
+        deviceId: p.deviceId ?? p.device_id ?? '',
+        ...(token ? { token } : {}),
+      }
+    })
+    const payload = {
+      query: String(args?.query ?? ''),
+      limit: args?.limit ?? 50,
+      peers,
+      timeout_secs: Number(args?.timeoutSecs ?? args?.timeout_secs ?? 8) || 8,
+    }
+    try {
+      const core = await import('@tauri-apps/api/core')
+      const ipc = await core.invoke<unknown>(cmd, payload)
+      return transformResponseKeys(ipc) as T
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      // No IPC twin (older backend) — fall through to the REST path, which
+      // reports honestly. Any real backend refusal surfaces here.
+      if (!/no command|unknown command|unimplemented/i.test(msg)) throw e
+    }
+  }
   // Mobile has no local dashboard, so native IPC is authoritative whenever no
   // remote server URL is configured. The fast set above returns immediately;
   // every other command still tries IPC first (same redb, same sync registry)
@@ -2981,19 +3223,19 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
       return transformResponseKeys(raw) as T
     }
     if (cmd === 'search_files') {
-      const hits = await wasmSearchFiles(String(args?.query ?? ''))
+      const hits = await wasmSearchFilesScored(String(args?.query ?? ''))
       return hits.map(h => ({
         fileId: h.path,
         fileName: h.path.split('/').pop() ?? h.path,
         score: h.score,
-        snippet: '',
+        snippet: h.snippet,
       })) as unknown as T
     }
     // Paginated search answers from the same BM25-lite volume index, sliced
     // server-side-style so the store never throws `[WASM Mode]` here and
     // silently downgrades to the unpaginated shape (P1-8).
     if (cmd === 'search_files_paginated') {
-      const hits = await wasmSearchFiles(String(args?.query ?? ''))
+      const hits = await wasmSearchFilesScored(String(args?.query ?? ''))
       const limit = Math.max(1, Number(args?.limit ?? 20) || 20)
       const offset = Math.max(0, Number(args?.offset ?? 0) || 0)
       const page = hits.slice(offset, offset + limit)
@@ -3002,10 +3244,46 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
           fileId: h.path,
           fileName: h.path.split('/').pop() ?? h.path,
           score: h.score,
-          snippet: '',
+          snippet: h.snippet,
         })),
         total: hits.length,
       } as unknown as T
+    }
+    // Cross-device search port on a static host: local BM25-lite hits plus
+    // one bounded fetch() per peer (explicit URLs + the cached peer list —
+    // there is no mDNS in the sandbox). A dead peer contributes zero hits.
+    if (cmd === 'search_files_federated') {
+      const query = String(args?.query ?? '')
+      const limit = Math.max(1, Math.min(Number(args?.limit ?? 50) || 50, 200))
+      const local = (await wasmSearchFilesScored(query)).map(h => ({
+        fileId: h.path,
+        fileName: h.path.split('/').pop() ?? h.path,
+        score: h.score,
+        snippet: h.snippet,
+        source: 'local',
+      }))
+      const { federatedSearch, loadCachedPeers, deduplicatePeers } = await import('@/utils/peerSearch')
+      const explicit = ((args?.peers ?? []) as Array<Record<string, unknown>>)
+        .map((p) => {
+          const token = String(p.token ?? (p as Record<string, unknown>).peerToken ?? '').trim()
+          return {
+            baseUrl: String(p.baseUrl ?? p.base_url ?? ''),
+            deviceId: String(p.deviceId ?? p.device_id ?? ''),
+            ...(token ? { token } : {}),
+          }
+        })
+        .filter((p) => p.baseUrl.trim())
+      const cached = loadCachedPeers()
+        .filter((p) => !explicit.some((e) => e.baseUrl === p.baseUrl))
+        .map((p) => ({ baseUrl: p.baseUrl, deviceId: p.deviceId }))
+      const peers = deduplicatePeers([...explicit, ...cached])
+      const token = typeof args?.token === 'string' && args.token.trim() ? args.token.trim() : undefined
+      return (await federatedSearch(query, {
+        peers,
+        limit,
+        token,
+        localHits: local,
+      })) as unknown as T
     }
     const dbRoute = DB_WASM_ROUTES[cmd]
     if (dbRoute) {
@@ -3215,6 +3493,8 @@ export function useTauri() {
 
   async function pathExists(path: string): Promise<boolean> {
     if (isWebMode()) {
+      // P1-11: go through invoke() so the wasm transport answers from its
+      // volume instead of raw-fetching `/api/files` (always false offline).
       try {
         const files = await invoke<FileNode[]>('list_files', {})
         return files.some((file) => file.path === path)

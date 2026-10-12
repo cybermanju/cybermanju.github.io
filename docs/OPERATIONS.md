@@ -197,9 +197,53 @@ first; chained lines and unknown verbs fall through to the wasm dispatcher
 - `write` runs in the wasm dispatcher (editor save path, 1 MiB cap).
 - `scrub` (BLAKE3 snapshot vs `cache:cybsh:scrub`), `repair` (prunes the
   record), `gc` (dry-run default, `--apply` deletes), `lease`, `echo`, `kill`, `ai`.
+- `skill list|show|run|install|panel` (shareable skills under `.cybermanju/skills/` —
+  `SKILL.md` manifest + entry `.cybsh`; `install <https-url>` fetches the
+  manifest + sibling run script; `run` executes the entry script line by line;
+  `panel <slug>` resolves a skill's `panel:` frontmatter to its `skill:<slug>` target).
+- `task list|add|done|undone|rm|clear` (todos sharing the Archive TASKS store).
+- `oplog plan|conflicts|resolve` (op-log exchange: `plan` prints the
+  pull→push→render steps offline; `conflicts`/`resolve` need the dashboard —
+  Sync → Conflicts resolves with one click, `POST /api/oplog/resolve`).
+- `lan plan|peers|sync` (direct device sync: `plan` prints the
+  pull→push→merge→render steps for a peer; `peers`/`sync` need the dashboard —
+  Devices → LAN peers → SYNC does the authenticated exchange,
+  `POST /api/peers/{id}/sync`).
 
 `sync start|cancel`, the OAuth redirect dance and provider push refuse with
 `unsupported:` pointing at the desktop app / Docker image / dashboard server.
+
+## 4c2. P2P + cross-device search (android/ios/windows/linux/docker/wasm)
+
+One grammar everywhere: `<device>@<addr>` (`phone-7@192.168.1.60:3456`,
+`vault@https://vault.example.com`). Relay tickets (`relay…`, `iroh:…`,
+`/p2p/…`) parse but refuse with `unsupported:` — the QUIC relay is sequenced,
+never pretended. Every live path is plain HTTP op-log/search (`GET
+/api/readyz` probe → `GET /api/oplog/since` pull → `POST /api/oplog/push`
+push → `POST /api/oplog/push` merge → `GET /api/oplog/conflicts` render),
+plus the search port (`GET /api/search` per peer, merged dedup-by-id /
+max-score-wins via `POST /api/search/federated`).
+
+| Target | Discovery | Sync | Search | Setup |
+|---|---|---|---|---|
+| android | none (multicast lock blocked) — manual peers + cached list | HTTP op-log while foregrounded | HTTP fan-out, ≤8 peers | same Wi-Fi, add `device@host:port`, keep app foregrounded |
+| ios | none (background sockets suspend) — manual peers + cached list | HTTP op-log while foregrounded | HTTP fan-out while foregrounded | Bonjour/multicast entitlement, else manual peers |
+| windows | active scan only (no system mDNS daemon) | LAN + WAN HTTP | local BM25 + peer fan-out | allow UDP 5353 + TCP 3456 at the firewall prompt |
+| linux | active scan (avahi owns 5353, passive answering degrades) | LAN + WAN HTTP | local BM25 + peer fan-out | open UDP 5353 / TCP 3456 in firewalld/ufw |
+| docker | none on bridge networks | explicit peer URLs | `POST /api/search/federated` server-side | `--network host` for mDNS, else explicit URLs; persist `/data` + `SEARCH_INDEX_PATH` |
+| wasm | none (no UDP in sandbox) | needs the dashboard | BM25-lite local + `fetch()` to explicit `https://` peers (CORS + mixed-content apply) | explicit `https://` URLs on the CORS allowlist, or server-side fan-out |
+
+Auth: peers carry their own bearer — set per-peer `token` in
+`POST /api/search/federated { peers: [{ baseUrl, deviceId, token }] }`
+(multi-secret vaults); without it the caller's own bearer is forwarded
+(single-secret vaults). Anonymous peers that require auth degrade to zero
+hits with an `auth:` marker, never a failed search. `https://` probes from
+Rust answer `unsupported:` (no TLS in `TcpStream`) — use the fetch-based
+probe in the browser/WebView or terminate TLS at a reverse proxy.
+
+cybsh: `lan plan|peers|sync`, `wan plan|dial`, `oplog plan|conflicts|resolve`;
+UI: Devices → P2P matrix (`peer_platform_notes`), Devices → LAN peers →
+SYNC, OmniSearch federated mode.
 
 ## 4d. Interface verbs (cybsh customizes the whole UI)
 
@@ -273,6 +317,7 @@ same bytes on every transport, so a desktop export restores on Pages):
   unlimited — including several accounts on the same provider.
 - `GET /api/sync/configs` never serializes `token` (absent, not null). Private keys sealed (Argon2id + ChaCha20Poly1305, `sealed:v1:`).
 - No TLS in-app (hand-rolled HTTP/1.1). Terminate at Caddy/nginx (HSTS there, not in-app). See `docs/SECURITY.md` for threat model, rotation, OAuth PKCE, rate limits (100 req/60s), parser caps, `security_headers`.
+- Shipped proxy (P2-15): `Caddyfile` + `docker-compose.tls.yml` (Caddy 2 sidecar: 80→443, auto-ACME, HSTS + hardening headers, 100 MB body cap aligned to the API limit). `DOMAIN=vault.example.com ACME_EMAIL=you@example.com docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d`. Caddy is the single upstream — no second proxy in front without updating the `X-Forwarded-For` trust notes in `docs/SECURITY.md` §2 (else one-IP false 429s). Behind TLS set `CYBERMANJU_OAUTH_REDIRECT_URI=https://$DOMAIN/api/sync/oauth/<provider>/callback`.
 
 ## 7. Health, metrics, backup
 

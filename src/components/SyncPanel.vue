@@ -94,6 +94,33 @@
     </div>
 
     <div class="section">
+      <h3 class="section-title"><AppIcon name="solar:branching-paths-up-bold" :size="13" /> Conflicts ({{ store.opConflicts.length }})</h3>
+      <p class="text-muted hint">Fork pairs from the op-log exchange — resolving appends a <span class="mono">resolve</span> op, history is never deleted. Queue-and-replay: pull <span class="mono">since</span>, push buffered rows, render here.</p>
+      <div class="w-actions">
+        <UiButton size="sm" @click="store.fetchOpConflicts()">Refresh conflicts</UiButton>
+      </div>
+      <UiEmpty
+        v-if="!store.opConflicts.length"
+        size="sm"
+        icon="solar:check-circle-bold"
+        title="No conflicts"
+        description="Devices agree — every fork dominates or touches a different file."
+      />
+      <div v-for="(pair, i) in store.opConflicts.slice(0, 10)" :key="`${pair.a.opId}:${pair.b.opId}`" class="conflict-card">
+        <div class="cfg-header">
+          <span class="cfg-name">{{ conflictTitle(pair) }}</span>
+        </div>
+        <div class="cfg-meta text-muted">{{ conflictSummary(pair) }}</div>
+        <div class="cfg-actions">
+          <UiButton size="xs" @click="store.resolveOpConflict(pair.a.opId, pair.b.opId, 'keep-a')">Keep first</UiButton>
+          <UiButton size="xs" @click="store.resolveOpConflict(pair.a.opId, pair.b.opId, 'keep-b')">Keep second</UiButton>
+          <UiButton size="xs" variant="primary" @click="store.resolveOpConflict(pair.a.opId, pair.b.opId, 'merge')">Merge</UiButton>
+        </div>
+        <div v-if="i === 9 && store.opConflicts.length > 10" class="cfg-meta text-muted">+ {{ store.opConflicts.length - 10 }} more — resolve these first.</div>
+      </div>
+    </div>
+
+    <div class="section">
       <h3 class="section-title"><AppIcon name="solar:transfer-horizontal-bold" :size="13" /> Move (single-copy home A→B)</h3>
       <div class="w-field">
         <UiInput v-model="moveFileId" placeholder="File ID" aria-label="Move file id" />
@@ -147,12 +174,13 @@ import UiButton from '@/components/ui/UiButton.vue'
 import UiEmpty from '@/components/ui/UiEmpty.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { describeSyncError, isOauthCapable } from '@/types'
 import type { SyncConfig } from '@/types'
 import { humanBytes } from '@/utils/format'
+import { conflictSummary, conflictTitle } from '@/utils/oplog'
 
 const store = useAppStore()
 const wm = useWindowManager()
@@ -171,6 +199,10 @@ const moveFileId = ref('')
 const moveFromId = ref('')
 const moveToId = ref('')
 const moveMsg = ref('')
+
+onMounted(() => {
+  store.fetchOpConflicts().catch(() => {})
+})
 
 /** Provider connections live in Accounts now — this panel runs them. */
 function openProviders() {
@@ -355,6 +387,14 @@ async function browseRemote() {
   margin-bottom: 4px;
   background: var(--ui-glass);
 }
+.conflict-card {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  padding: 8px 10px;
+  margin-top: 6px;
+  background: color-mix(in srgb, var(--ui-glass) 55%, transparent);
+}
+.mono { font-family: var(--ui-mono, monospace); font-size: 0.95em; }
 .remote-list { margin-top: 6px; }
 .remote-row { display: flex; justify-content: space-between; gap: 8px; min-width: 0; font-size: 10px; border-bottom: 1px solid var(--ui-hairline); padding: 2px 0; }
 .remote-row > :first-child { min-width: 0; overflow-wrap: anywhere; }
