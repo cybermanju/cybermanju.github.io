@@ -93,7 +93,16 @@ mod tests {
         let err = dial_plan(&ep, &IrohConfig::default()).expect_err("no transport yet");
         assert!(err.starts_with("unsupported:"), "{err}");
         assert!(err.contains("LAN sync"), "{err}");
-        let bad = dial_plan(&ep, &IrohConfig { relay_url: String::new(), dial_timeout_secs: 0 });
-        assert!(bad.unwrap_err().starts_with("invalid:"), "timeout validated first");
+        let bad = dial_plan(
+            &ep,
+            &IrohConfig {
+                relay_url: String::new(),
+                dial_timeout_secs: 0,
+            },
+        );
+        assert!(
+            bad.unwrap_err().starts_with("invalid:"),
+            "timeout validated first"
+        );
     }
 }

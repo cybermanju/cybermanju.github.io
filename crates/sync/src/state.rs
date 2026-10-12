@@ -248,6 +248,7 @@ impl RunRegistry {
                 runs: HashMap::new(),
                 order: VecDeque::new(),
                 latest: None,
+                expired: VecDeque::new(),
             }),
         }
     }
