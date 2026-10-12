@@ -1574,3 +1574,59 @@ environment can prove (no local cargo, no macOS signer, no networked QUIC CI):
 - Verified here: version agree, headers ok (537 files), `vue-tsc` clean,
   targeted vitest green (6 files/59 tests), full vitest green (90/947).
   Rust is CI's job per repo rules (no local cargo).
+
+## 2026-10-12 — P2P 100%: relay live, https probe, payloads, attested sync, presence
+
+- Relay-over-HTTPS NAT traversal is live (no new deps — both sides outbound
+  HTTPS, no inbound port; only the QUIC *datagram* upgrade stays sequenced):
+  `crates/sync/src/iroh.rs` gains `relay_envelope` (`{v:1,to,kind,payload}`),
+  `relay_dial_steps` (drop→poll→merge→push→render), `relay_drop_path`/
+  `relay_poll_path`, `relay_forward` (bounded reqwest POST), and
+  `endpoint_fingerprint` (BLAKE3 of the registry key); `dial_plan` returns a
+  live HTTP plan for direct addrs and a live relay plan when `relay_url` is
+  set (`unsupported:` + way out only with no relay configured).
+- `http_probe` dials `https://` via reqwest+rustls (plain HTTP stays on the
+  TcpStream fast path); relay tickets refuse with the relay hint (shared
+  `classify_addr` grammar everywhere).
+- Server-assisted presence + relay mailbox (`crates/sync/src/peers.rs`,
+  kv-backed, no schema change): `announce_presence`/`known_presence` (5 min
+  TTL) + `relay_drop`/`relay_poll`/`relay_ack` (32 msgs/recipient, 256 KiB
+  cap) + `presence_now`; `platform_setup` per-target notes point at presence.
+- Signed peer sync: `crates/crypto/src/pqc.rs` gains `verify_with_public_key`
+  (ML-DSA-44/65/87, same `KeyInit::new_from_slice` + `Verifier` shape as the
+  wasm twin); new `crates/sync/src/auth.rs` (`ENVELOPE_DOMAIN`,
+  `SignedSyncBody`, canonical bytes via `to_value`+`to_string` so nested keys
+  sort exactly like the TS `stableStringify` twin — pinned cross-language
+  vector in both test suites); `POST /api/peers/{id}/sync` verifies present
+  signatures against the registry (`auth:` fails closed) and reports
+  `verified`, unsigned bodies still merge as legacy; `sign_peer_ops` Tauri
+  command signs on desktop, wasm `ml_dsa65_sign` on Pages.
+- Bundle payloads: `Bundle` gains `payloads` + `payloads_blake3` (ops manifest
+  untouched — legacy bundles verify byte-identically); caps 100 files / 5
+  MiB/file / 50 MiB total; `export_bundle_with_files` + `import_bundle_detailed`
+  (every payload base64-decoded + re-hashed, fail-closed); `POST
+  /api/sync/bundle/build` + payload metadata in the import response.
+- New routes (all Authenticated, additive): `GET /api/peers/known`, `POST
+  /api/peers/announce`, `POST /api/relay/drop|poll|ack` (+ `relay` in
+  `security::ROUTED_SEGMENTS` so the 404-before-401 gate knows it).
+- Frontend: `wanDial.ts` live plans + `buildRelayEnvelope`/`relayDialSteps`/
+  `relayDropPath`/`relayPollPath`; new `p2pPresence.ts` (canonical envelope,
+  signed-body/announce/relay builders, injected-fetch drop/poll/ack clients,
+  `openDataChannelViaRelay` WebRTC handshake via the relay mailbox with an
+  honest `unsupported:` off-browser); `syncExchangeWithPeer` `signer` hook
+  (attested pushes go to `/api/peers/{id}/sync` with `verified` in the steps);
+  `useTauri.ts` 6 new REST-first routes + signature passthrough on
+  `peer_sync`; store `knownPeers`/`fetchKnownPeers`/`announcePresence` +
+  attested `syncWithPeer` (✓ seal); DevicesPanel Presence card + WAN relay
+  URL field (localStorage); cybsh `wan plan|dial [--relay <url>]`, new `pex
+  announce|known` + `relay drop|poll|ack` verbs.
+- Docs: OPERATIONS §4c2 rewritten (live relay/presence/payloads/attestation,
+  per-target table, WebRTC, `https://` probes live); ARCHITECTURE REST table
+  gains presence/relay/bundle-build rows + `verified` on peer sync.
+- Tests: `p2p-live.test.ts` (canonical vector, envelopes, mailbox clients,
+  attested exchange, routes, verbs); `wan-dial.test.ts` updated to live
+  plans; Rust unit tests for verify/envelope/relay/presence/payloads.
+- Verified here: version agree, headers ok (541 files), `vue-tsc` clean,
+  transport parity clean (177 mappings), full vitest green (92 files / 974
+  tests). Rust is CI's job per repo rules (no local cargo) — additive,
+  existing-dep-only changes throughout.

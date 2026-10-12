@@ -128,8 +128,7 @@ pub fn sign_peer_ops(
 ) -> Result<serde_json::Value, String> {
     let ops: Vec<cybermanju_types::schema::OpRow> =
         serde_json::from_str(&ops_json).map_err(|e| format!("invalid: ops are not JSON: {e}"))?;
-    let signature =
-        cybermanju_sync::auth::sign_envelope(&seed_b64, &algorithm, &ops)?;
+    let signature = cybermanju_sync::auth::sign_envelope(&seed_b64, &algorithm, &ops)?;
     Ok(serde_json::json!({ "signature": signature, "algorithm": algorithm }))
 }
 

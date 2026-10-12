@@ -139,7 +139,7 @@ pub fn relay_dial_steps(
     }
     Ok(vec![
         format!("drop: POST {}/api/relay/drop {{ to: '{}', kind: op-envelope }}", relay, endpoint.device_id),
-        format!("poll: POST {}/api/relay/poll {{ for: '{}' }} ({} s abort)", endpoint.device_id, config.dial_timeout_secs),
+        format!("poll: POST {}/api/relay/poll {{ for: '{}' }} ({} s abort)", relay, endpoint.device_id, config.dial_timeout_secs),
         format!("pull: merge polled ops since={since} via POST /api/oplog/push {{ ops: theirs }}"),
         "push: POST /api/relay/drop { to, kind: op-envelope, payload: ours }".to_string(),
         "render: GET /api/oplog/conflicts".to_string(),

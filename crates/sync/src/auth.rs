@@ -177,8 +177,8 @@ mod tests {
             payload: serde_json::json!({"z": 1, "a": [3, 2]}),
             bases: [("laptop".to_string(), 7u64)].into_iter().collect(),
         }];
-        let canon = String::from_utf8(canonical_envelope_bytes(&fixed).expect("canon"))
-            .expect("utf8");
+        let canon =
+            String::from_utf8(canonical_envelope_bytes(&fixed).expect("canon")).expect("utf8");
         assert_eq!(
             canon,
             "cybermanju-peer-sync/v1:[{\"bases\":{\"laptop\":7},\"createdAt\":\"2026-10-11T00:00:00Z\",\"deviceId\":\"laptop\",\"fileId\":\"f1\",\"kind\":\"tag\",\"opId\":\"laptop-7\",\"payload\":{\"a\":[3,2],\"z\":1},\"seq\":7}]"
@@ -195,8 +195,8 @@ mod tests {
         // Tampered ops fail with auth:, never merge.
         let mut tampered = ops.clone();
         tampered.push(op("mallory", "delete"));
-        let err = verify_envelope(&tampered, &sig, "ml-dsa-65", &publ, "ml-dsa-65")
-            .expect_err("tamper");
+        let err =
+            verify_envelope(&tampered, &sig, "ml-dsa-65", &publ, "ml-dsa-65").expect_err("tamper");
         assert!(err.starts_with("auth:"), "{err}");
         // Signature with no registry key fails with auth:, never a guess.
         let err = verify_envelope(&ops, &sig, "ml-dsa-65", "", "ml-dsa-65").expect_err("nokey");

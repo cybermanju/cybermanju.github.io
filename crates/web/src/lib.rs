@@ -1490,12 +1490,7 @@ fn route_request(
     if method == "POST" && matches!(path_segments.as_slice(), ["api", "relay", "ack"]) {
         return relay_ack(db, body, origin);
     }
-    if method == "POST"
-        && matches!(
-            path_segments.as_slice(),
-            ["api", "sync", "bundle", "build"]
-        )
-    {
+    if method == "POST" && matches!(path_segments.as_slice(), ["api", "sync", "bundle", "build"]) {
         return bundle_build(db, body, origin);
     }
     if method == "GET"

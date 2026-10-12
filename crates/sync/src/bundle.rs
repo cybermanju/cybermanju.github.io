@@ -346,7 +346,11 @@ mod tests {
             &a,
             "laptop",
             0,
-            vec![("f1".to_string(), "photo.jpg".to_string(), b"file bytes here".to_vec())],
+            vec![(
+                "f1".to_string(),
+                "photo.jpg".to_string(),
+                b"file bytes here".to_vec(),
+            )],
         )
         .expect("export");
         assert_eq!(bundle.payloads.len(), 1);
@@ -382,12 +386,21 @@ mod tests {
             &a,
             "laptop",
             0,
-            vec![("f1".to_string(), "big".to_string(), vec![0u8; BUNDLE_MAX_PAYLOAD_BYTES + 1])],
+            vec![(
+                "f1".to_string(),
+                "big".to_string(),
+                vec![0u8; BUNDLE_MAX_PAYLOAD_BYTES + 1]
+            )],
         )
         .unwrap_err()
         .starts_with("too_large:"));
-        assert!(export_bundle_with_files(&a, "laptop", 0, vec![("  ".to_string(), "x".to_string(), vec![])])
-            .unwrap_err()
-            .starts_with("invalid:"));
+        assert!(export_bundle_with_files(
+            &a,
+            "laptop",
+            0,
+            vec![("  ".to_string(), "x".to_string(), vec![])]
+        )
+        .unwrap_err()
+        .starts_with("invalid:"));
     }
 }
