@@ -74,7 +74,7 @@ irm https://cybermanju.github.io/install.ps1 | iex
 Open `http://localhost:3456` from any device on your LAN — same vault, new screen. ✨
 Checksum-verified against the release `SHA256SUMS`; pin a release with `CYB_VERSION=v0.1.1`.
 
-**Android / Termux:** run the same command in Termux to install the Go CLI only (not the Android app). ARM64 is the supported Termux target. It updates an existing writable `cyb` on `PATH`, otherwise installs to `$PREFIX/bin`; re-running replaces it with the latest CLI. Termux skips the desktop Docker/native backend menu and hands setup to `cyb setup`. No root access is needed; install missing prerequisites with `pkg install curl tar coreutils`. The Android tarball starts shipping with the next tagged release; `v0.1.1` predates this support and has no Android asset.
+**Android / Termux:** run the same command in Termux to install the Go CLI only (not the Android app). ARM64 is the supported Termux target. It updates an existing writable `cyb` on `PATH`, otherwise installs to `$PREFIX/bin`; re-running replaces it with the latest CLI. `cyb setup` first asks whether to connect to a Remote Dashboard (full CLI) or use CLI Limited (Supabase direct, read-only), then requests only the details for that setup type. No root access is needed; install missing prerequisites with `pkg install curl tar coreutils`. The Android tarball starts shipping with the next tagged release; `v0.1.1` predates this support and has no Android asset.
 
 <details>
 <summary>⚙️ Preselect / automate the installer (click to expand)</summary>

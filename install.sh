@@ -395,7 +395,7 @@ if [ -n "$BACKEND" ]; then
 elif [ "$WANT_SETUP" = "1" ] && [ "$ASSUME_YES" != "1" ] && [ "$IS_TERMUX" != "1" ]; then
   if _pick="$(choose_backend)"; then BACKEND="$_pick"; run_backend || true; fi
 elif [ "$WANT_SETUP" = "1" ] && [ "$IS_TERMUX" = "1" ]; then
-  say "Termux installs the Go CLI only; configure remote or CLI Limited backends with cyb"
+  say "Termux installs the Go CLI only; choose Remote dashboard or CLI Limited in cyb setup"
 fi
 
 if [ "$WANT_SETUP" = "1" ]; then
