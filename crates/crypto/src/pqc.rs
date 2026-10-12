@@ -24,6 +24,7 @@ use pqcrypto_mlkem::mlkem768;
 // Real ML-DSA from ml-dsa (FIPS 204, formerly CRYSTALS-Dilithium)
 use ml_dsa::{
     Generate, KeyInit, Keypair, MlDsa44, MlDsa65, MlDsa87, SignatureEncoding, SigningKey, Verifier,
+    VerifyingKey,
 };
 use pqcrypto_traits::kem::{Ciphertext as _, PublicKey as _, SecretKey as _, SharedSecret as _};
 use signature::Signer;
