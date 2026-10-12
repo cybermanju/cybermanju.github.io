@@ -415,7 +415,12 @@ pub fn decide_write(
 /// divergence, no PIDs anywhere.
 fn keep_both_id(file_id: &str, local: &VersionVector, incoming: &VersionVector) -> String {
     let digest = crate::blake3_hex(
-        format!("{file_id}|{}|{}", vv_fingerprint(local), vv_fingerprint(incoming)).as_bytes(),
+        format!(
+            "{file_id}|{}|{}",
+            vv_fingerprint(local),
+            vv_fingerprint(incoming)
+        )
+        .as_bytes(),
     );
     format!("{file_id}-keep-{}", &digest[..16])
 }
@@ -638,7 +643,12 @@ mod tests {
                 // Deterministic: the same fork pair re-derives the same id.
                 let again = decide_write("file-1", &local, &incoming, ConflictPolicy::KeepBoth)
                     .expect("keep both again");
-                assert_eq!(WriteDecision::KeepBoth { suggested_id: suggested_id.clone() }, again);
+                assert_eq!(
+                    WriteDecision::KeepBoth {
+                        suggested_id: suggested_id.clone()
+                    },
+                    again
+                );
             }
             other => panic!("expected KeepBoth, got {:?}", other),
         }

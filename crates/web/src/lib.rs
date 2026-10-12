@@ -1252,14 +1252,23 @@ fn route_request(
             let req: MemoryStoreBody = json_body!(body, origin);
             let (owner_id, _) = claims_owner(&claims);
             return api_response(
-                api::agent_api::store_memory_entry(db, &req.config_id, req.session_id, &req.text, &owner_id),
+                api::agent_api::store_memory_entry(
+                    db,
+                    &req.config_id,
+                    req.session_id,
+                    &req.text,
+                    &owner_id,
+                ),
                 origin,
             );
         }
         ["api", "agent", "memories", memory_id] if method == "DELETE" => {
             let (owner_id, is_admin) = claims_owner(&claims);
             return match db.read() {
-                Ok(guard) => api_response(api::agent_api::delete_memory(&guard, memory_id, &owner_id, is_admin), origin),
+                Ok(guard) => api_response(
+                    api::agent_api::delete_memory(&guard, memory_id, &owner_id, is_admin),
+                    origin,
+                ),
                 Err(e) => api_response::<bool>(Err(e.to_string()), origin),
             };
         }
@@ -1386,6 +1395,18 @@ fn route_request(
     // the lock; writers (POST/PUT/DELETE) take it exclusively. A poisoned lock
     // is recovered from rather than propagated, so one panicking request can
     // not wedge every later one.
+    //
+    // P0-22 serialization discipline: the transfer paths that move bulk bytes
+    // (sync restore/seed/upload/move/list) and the detached-job paths
+    // (`sync start`, `ai …`, repair/scrub/gc) all run BEFORE this lock is
+    // taken, with brief scoped locks inside — a long download/upload never
+    // stalls writers here. Bundle export/import and the op-log exchange stay
+    // guarded but are capped (10k ops per call, paged pulls), so no guarded
+    // request clones unbounded state. What else stays guarded is deliberate:
+    // os_exec shell lines and disk attach/check are read-modify-write
+    // sequences whose logical atomicity the guard provides (redb serializes
+    // storage txns, not app logic); repair status is capped (`status_paged`)
+    // and the write-behind queues are bounded.
     let lock = if matches!(method, "GET" | "HEAD") {
         match db.read() {
             Ok(guard) => DbLock::Read(guard),
@@ -2301,11 +2322,10 @@ fn route_request(
                 dashboard.auth.revoke(&claims.jti, claims.exp);
                 // P0-5: persist the revocation — memory alone forgets it on
                 // restart. Best-effort: the in-memory gate above already
-                // holds it for this process lifetime.
-                if let Ok(guard) = db.read() {
-                    if let Err(e) = guard.save_revocation(&claims.jti, claims.exp) {
-                        warn!("Could not persist revocation: {}", e);
-                    }
+                // holds it for this process lifetime (`db` here is the
+                // request guard's `&Database`, which opens its own txn).
+                if let Err(e) = db.save_revocation(&claims.jti, claims.exp) {
+                    warn!("Could not persist revocation: {}", e);
                 }
                 let _ = db.log_audit(
                     "logout",

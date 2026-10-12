@@ -741,8 +741,7 @@ fn decrypt_with_symmetric_key(encrypted: &FileEncryptedData, keypair: &KeyPair) 
 
 /// ChaCha20Poly1305 decrypt + BLAKE3 verify under one explicit 32-byte key.
 fn decrypt_with_key(encrypted: &FileEncryptedData, derived_key: &[u8; 32]) -> Result<Vec<u8>> {
-
-    let cipher = ChaCha20Poly1305::new_from_slice(&derived_key).map_err(|e| {
+    let cipher = ChaCha20Poly1305::new_from_slice(derived_key).map_err(|e| {
         anyhow::anyhow!(
             "Failed to create ChaCha20Poly1305 cipher from derived key: {}",
             e

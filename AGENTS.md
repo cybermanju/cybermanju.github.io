@@ -23,17 +23,17 @@
 |---|---|---|
 | Desktop | Tauri v2 (`src-tauri/`, `productName` CyberManju OS, 1400×900 window) | 26 command modules in `src-tauri/src/commands/`, ~175 handlers wired in `lib.rs` |
 | Backend | Rust 2021 workspace, 18 members (16 `crates/*` + `src-tauri` + `docker/server`) | resolver `2`; dev/test profiles use `line-tables-only`, no workspace deps for third-party |
-| Frontend | Vue 3 Composition API + Pinia + TypeScript 5.8 + Vite 6.3 | 49 top-level `src/components/*.vue` (+26 `ui/` primitives), 34 `src/composables/*.ts`, 67 `src/utils/*.ts`, 1 Pinia store (`stores/app.ts`) |
+| Frontend | Vue 3 Composition API + Pinia + TypeScript 5.8 + Vite 6.3 | 49 top-level `src/components/*.vue` (+26 `ui/` primitives), 34 `src/composables/*.ts`, 71 `src/utils/*.ts`, 1 Pinia store (`stores/app.ts`) |
 | Reactive layer | `@vueuse/core` ^14.4.0 | Single shared hook `useSystemHardware()`; `useTitle`/`useBroadcastChannel`/`useDropZone` in use |
 | Icons | `@iconify/vue` + `@iconify-json/solar` via `scripts/generate-icon-set.mjs` | `npm run typecheck` runs `icons` first — **unknown `solar:*` names fail the build** |
 | Maps | `maplibre-gl` ^6.12.0 | GPS MapView with EXIF clustering |
-| DB | `redb` (single file `cybermanju.db`, JSON rows) | ~38 tables incl. `agent_sessions`, `agent_memories`, `disks/volumes/block_map`, `sync_*`, `leases`, `compute_tasks`, `schedules`, `secrets` |
+| DB | `redb` (single file `cybermanju.db`, JSON rows) | 40 tables incl. `agent_sessions`, `agent_memories`, `disks/volumes/block_map`, `sync_*`, `leases`, `compute_tasks`, `schedules`, `secrets`, `oplog`, `devices`, `todos` |
 | Search | Tantivy 0.22 BM25 + `crates/scene` heuristic | Scene: 17 categories × 10 langs, 740 keywords, weights name 1.0/tags 0.95/path 0.7 |
 | Crypto | ChaCha20Poly1305 + `rustpq` (ML-KEM-1024 FIPS 203, ML-DSA-65 FIPS 204, SLH-DSA-128f FIPS 205) + Argon2id + BLAKE3 | Hybrid ML-KEM+X25519 supported |
 | Compression | LZ4 → ZSTD-15 → Brotli-11 cascade | Per-layer stats, `.cyb3` payloads |
 | Code intel | tree-sitter (rust/python/js/ts/go/bash) + heuristic fallback | Every result reports `"engine"`; heuristic strips qualifiers (`export const`, `pub mod`, Go receivers, bash defs) and hoists doc-comments into an additive `docs` field (`crates/types/src/code.rs`) |
 | WASM | `crates/os-wasm` (agent/artifact/canal/compression/crypto/db/opfs/os) via `wasm-pack` + OPFS/localStorage | Pages transport = local volume + BM25-lite |
-| Tests | Vitest (node env), 28 files / 365 tests in `tests/frontend/` | Includes `scene` (42), `memory`, `provider-canal/ship`, `hermes`, `agent-*`, `panel-aliases` |
+| Tests | Vitest (node env), 82 files / 893 tests in `tests/frontend/` | Includes `scene` (42), `memory`, `provider-canal/ship`, `hermes`, `agent-*`, `panel-aliases`, `spine-closeout` |
 
 ### Crate map (`crates/`)
 
@@ -47,7 +47,7 @@
 
 `tauri` IPC (desktop) · `rest` (Docker/web `:3456`) · `wasm` (Pages).
 `os_*/disk/*` are `REST_FIRST`. Settings shows the active transport
-(`VITE_TRANSPORT` override). REST has 152 mapped commands in `REST_ROUTES` (`src/composables/useTauri.ts`).
+(`VITE_TRANSPORT` override). REST has 170 mapped commands in `REST_ROUTES` (`src/composables/useTauri.ts`).
 
 ## 2. Toolchain rules (hard)
 

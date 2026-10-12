@@ -937,7 +937,9 @@ fn recall_block_for_run(
     }
     let model = embedding_model(config);
     let memories = match db.read() {
-        Ok(guard) => list_memories(&guard, Some(&config.id), true, owner, false).unwrap_or_default(),
+        Ok(guard) => {
+            list_memories(&guard, Some(&config.id), true, owner, false).unwrap_or_default()
+        }
         Err(_) => return String::new(),
     };
     if memories.is_empty() {
@@ -3043,7 +3045,11 @@ pub fn approve_job_for(
                     "remember_allow_skipped",
                     "agent_job",
                     job_id,
-                    if requester.is_empty() { None } else { Some(requester) },
+                    if requester.is_empty() {
+                        None
+                    } else {
+                        Some(requester)
+                    },
                     tool.as_ref().map(|t| serde_json::json!({ "tool": t })),
                 );
             }
@@ -3066,7 +3072,11 @@ pub fn approve_job_for(
                                             "remember_allow",
                                             "agent_config",
                                             &config_id,
-                                            if owner.is_empty() { None } else { Some(owner.as_str()) },
+                                            if owner.is_empty() {
+                                                None
+                                            } else {
+                                                Some(owner.as_str())
+                                            },
                                             Some(serde_json::json!({ "tool": tool })),
                                         );
                                     }
@@ -3076,7 +3086,11 @@ pub fn approve_job_for(
                                             "remember_allow_failed",
                                             "agent_config",
                                             &config_id,
-                                            if owner.is_empty() { None } else { Some(owner.as_str()) },
+                                            if owner.is_empty() {
+                                                None
+                                            } else {
+                                                Some(owner.as_str())
+                                            },
                                             Some(serde_json::json!({ "tool": tool, "error": e })),
                                         );
                                     }

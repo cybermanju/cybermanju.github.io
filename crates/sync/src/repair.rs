@@ -1339,11 +1339,7 @@ fn ensure_rebuild_parents(db: &Database, original_path: &str) -> Result<Option<S
     // each becomes one folder row, linked to the previous id.
     for dir in dirs {
         let id = format!("rebuild-dir-{}", &crate::blake3_hex(dir.as_bytes())[..16]);
-        if db
-            .get_file_node(&id)
-            .map_err(|e| e.to_string())?
-            .is_none()
-        {
+        if db.get_file_node(&id).map_err(|e| e.to_string())?.is_none() {
             let name = std::path::Path::new(&dir)
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
@@ -1414,7 +1410,11 @@ pub fn status(db: &Database) -> Result<RepairStatus, String> {
 /// Paged aggregate (P0-23): `limit` caps collected repair rows (`0` =
 /// uncapped). Counts cover the collected page; `repairs_capped` says so.
 pub fn status_paged(db: &Database, limit: usize) -> Result<RepairStatus, String> {
-    let limit = if limit == 0 { 0 } else { limit.min(REPAIR_STATUS_MAX_LIMIT) };
+    let limit = if limit == 0 {
+        0
+    } else {
+        limit.min(REPAIR_STATUS_MAX_LIMIT)
+    };
     let repairs = list_repairs_paged(db, limit)?;
     let capped = limit > 0 && repairs.len() >= limit;
     let (repaired, unrecoverable, skipped) = (

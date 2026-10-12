@@ -148,11 +148,29 @@ fn reconstruct_keypair(stored: &crate::db::schema::EncryptionKey) -> Result<KeyP
     // <<< AGENT-3 KEYS AT REST: private keys are sealed, never raw base64 >>>
     let private_key = open_private_key(&stored.private_key)?;
 
+    // P0-13: restore the independent Hybrid pair (absent on legacy rows —
+    // encrypt/decrypt fall back to the documented derivation path there).
+    let x25519_public_key = stored
+        .x25519_public_key
+        .as_ref()
+        .map(|b| {
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b)
+                .map_err(|e| format!("Failed to decode X25519 public key: {}", e))
+        })
+        .transpose()?;
+    let x25519_private_key = stored
+        .x25519_private_key
+        .as_ref()
+        .map(open_private_key)
+        .transpose()?;
+
     Ok(KeyPair {
         id: stored.id.clone(),
         algorithm,
         public_key,
         private_key,
+        x25519_public_key,
+        x25519_private_key,
         created_at: stored.created_at.clone(),
     })
 }
@@ -596,6 +614,17 @@ pub fn generate_keypair(
     );
     // <<< AGENT-3 KEYS AT REST: seal before it ever touches the database >>>
     let private_key_b64 = seal_private_key(&keypair.private_key)?;
+    // P0-13: persist the independent Hybrid pair alongside the KEM keys —
+    // the secret half sealed exactly like the private key.
+    let x25519_public_key = keypair
+        .x25519_public_key
+        .as_ref()
+        .map(|b| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b));
+    let x25519_private_key = keypair
+        .x25519_private_key
+        .as_ref()
+        .map(seal_private_key)
+        .transpose()?;
 
     let key = crate::db::schema::EncryptionKey {
         id: keypair.id.clone(),
@@ -604,6 +633,8 @@ pub fn generate_keypair(
         private_key: private_key_b64,
         created_at: now.clone(),
         label: Some(format!("{} keypair", algorithm_info(&algorithm).0)),
+        x25519_public_key,
+        x25519_private_key,
     };
 
     // Store in the database

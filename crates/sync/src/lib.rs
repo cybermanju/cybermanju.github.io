@@ -31,6 +31,9 @@ pub mod lan;
 pub mod lease;
 pub mod repair;
 pub mod scrub;
+// WAN transport seam (§2B.5): config + endpoint parsing land now (std-only,
+// tested); the iroh dial backend is sequenced behind them.
+pub mod iroh;
 
 pub use backends::{create_backend, create_repository, CreateRepoInput, CreatedRepo};
 pub use cybermanju_types::sync::*;

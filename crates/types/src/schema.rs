@@ -103,6 +103,14 @@ pub struct EncryptionKey {
     pub private_key: String,
     pub label: Option<String>,
     pub created_at: String,
+    /// Independent Hybrid X25519 static public key, base64 (P0-13). `None`
+    /// on rows generated before the field existed and on non-Hybrid rows.
+    #[serde(default)]
+    pub x25519_public_key: Option<String>,
+    /// Sealed (`sealed:v1:`) X25519 static secret, base64 (P0-13). Same
+    /// at-rest posture as `private_key`.
+    #[serde(default)]
+    pub x25519_private_key: Option<String>,
 }
 
 /// Ad-hoc user group of files (lighter than a [`Collection`], no item rows).

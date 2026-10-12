@@ -186,8 +186,8 @@ fn ipc_caller(
         .ok_or_else(|| {
             "auth: this action needs a signed-in session (LocalIpc capability gate)".to_string()
         })?;
-    let (username, _) =
-        verify_session_token(&token, hmac_secret).map_err(|e| format!("auth: invalid session: {e}"))?;
+    let (username, _) = verify_session_token(&token, hmac_secret)
+        .map_err(|e| format!("auth: invalid session: {e}"))?;
     let user = cybermanju_web::api::users::find_by_username(db, &username)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "auth: session user no longer exists".to_string())?;
@@ -349,7 +349,12 @@ pub fn set_file_permission(
 ) -> Result<UserFilePermission, String> {
     {
         let db = state.db.read().map_err(|e| e.to_string())?;
-        require_ipc_admin(&db, session_token, &state.hmac_secret, "set_file_permission")?;
+        require_ipc_admin(
+            &db,
+            session_token,
+            &state.hmac_secret,
+            "set_file_permission",
+        )?;
     }
     if !["read", "write", "admin"].contains(&access.as_str()) {
         return Err(format!(
@@ -415,7 +420,12 @@ pub fn revoke_file_permission(
 ) -> Result<bool, String> {
     {
         let db = state.db.read().map_err(|e| e.to_string())?;
-        require_ipc_admin(&db, session_token, &state.hmac_secret, "revoke_file_permission")?;
+        require_ipc_admin(
+            &db,
+            session_token,
+            &state.hmac_secret,
+            "revoke_file_permission",
+        )?;
     }
     let db = state.db.write().map_err(|e| e.to_string())?;
     let tx = db.begin_write().map_err(|e| e.to_string())?;

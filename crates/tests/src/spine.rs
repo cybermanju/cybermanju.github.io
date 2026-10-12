@@ -261,6 +261,7 @@ fn oplog_resolve_appends_a_verdict_without_deleting_history() {
     let verdict: serde_json::Value = serde_json::from_str(body_of(&done)).expect("json");
     assert_eq!(verdict["resolved"], true);
     assert_eq!(verdict["op"]["kind"], "resolve");
+    assert_eq!(verdict["op"]["payload"]["choice"], "keep-a");
     // Both forks survive under the verdict — resolution never deletes.
     let page = call(
         &d,
@@ -340,6 +341,8 @@ fn peer_sync_is_peer_authenticated() {
     assert_eq!(status_of(&ok), 200, "{ok}");
     let report: serde_json::Value = serde_json::from_str(body_of(&ok)).expect("json");
     assert_eq!(report["appended"], 1);
+    assert_eq!(report["skipped"], 0);
+    assert!(report["head"].as_u64().is_some(), "{report}");
 
     call(
         &d,
