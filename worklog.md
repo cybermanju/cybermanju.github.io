@@ -1663,3 +1663,30 @@ environment can prove (no local cargo, no macOS signer, no networked QUIC CI):
 - Verified here: headers ok, `vue-tsc` clean, full vitest green. Rust
   (pairing/swarm/wasm export) is CI's job per repo rules — additive,
   existing-dep-only code following compiling in-repo patterns.
+
+## 2026-10-12 — P2P deps for CI: iroh + raptorq declared, wired, proving
+
+- `crates/sync/Cargo.toml`: `iroh = "1"` (addressing layer only — no async
+  runtime added) + `raptorq = "2"` (zero mandatory deps); `crates/os-wasm`
+  gains `raptorq` for the Pages twin. All APIs docs-grounded (iroh 1.3.0,
+  raptorq 2.0.1) since nothing here compiles locally per repo rules.
+- iroh addressing live in `crates/sync/src/iroh.rs`: `parse_endpoint_id`
+  (hex-or-base32 in, hex out) + `parse_relay_url` + canonical
+  `iroh:<id>@<relay>` tickets (`iroh_ticket`/`parse_iroh_ticket`, ed25519
+  base point as the deterministic test vector); `dial_plan`/
+  `relay_dial_steps` prefer the ticket relay over the configured one. Async
+  `Endpoint` dial stays sequenced on a tokio runtime decision; `iroh-blobs`
+  excluded (would duplicate redb 4).
+- RaptorQ fountains live in `crates/sync/src/swarm.rs`
+  (`fountain_encode`/`fountain_decode`, OTI-per-symbol, `catch_unwind` on
+  untrusted packet bytes, whole-object re-hash) + Tauri
+  `fountain_encode`/`fountain_decode` twins + wasm `fountain_*_json`
+  exports + `p2pSwarm.ts` envelope validation/plan/backend factories +
+  `swarm fountain` verb + `wanDial.ts` ticket builders (shape-checked; curve
+  checked natively).
+- Docs: ANALYSIS.md §2B items 6-7 rewritten (dep declared, proving in CI);
+  OPERATIONS §4c2 fountain/ticket lines.
+- Verified here: headers ok, `vue-tsc` clean, vitest green. Rust compiles +
+  unit tests are CI's job — watch the Rust Lint & Test job (new deps resolve
+  + build on all targets incl. Android; basepoint-vector and fountain tests
+  are the canaries).

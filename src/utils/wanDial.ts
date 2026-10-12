@@ -9,7 +9,7 @@
 // Exports: WanEndpoint, parseWanEndpoint, wanDialPlan, wanWayOut,
 // wanHttpBase, wanDialSteps, wanHttpProbe, isRelayAddr, wanPeekUrls,
 // wanFederatedPlan, buildRelayEnvelope, relayDialSteps, relayDropPath,
-// relayPollPath.
+// relayPollPath, parseIrohTicket, buildIrohTicket, ticketRelay.
 // Integrates: DevicesPanel WAN card renders plan + dial steps; `wan plan|dial`
 // cybsh verbs reuse the builders; Rust twin is crates/sync/src/iroh.rs (same
 // grammar, same plan strings, same `unsupported:` prefix, pinned by
@@ -52,7 +52,8 @@ export function wanDialPlan(endpoint: WanEndpoint, dialTimeoutSecs = 15, relayUr
   checkDialTimeout(dialTimeoutSecs)
   if (!endpoint.deviceId.trim()) throw new Error('invalid: dial needs a device id')
   if (isRelayAddr(endpoint.addr)) {
-    const relay = relayUrl.trim().replace(/\/+$/, '')
+    // Canonical tickets carry their own relay; the configured URL is the fallback.
+    const relay = ticketRelay(endpoint.addr) || relayUrl.trim().replace(/\/+$/, '')
     if (!relay) {
       throw new Error(
         `unsupported: relay dial to '${endpoint.deviceId}' needs a relay_url (any dashboard serves POST /api/relay/drop|poll — set one, or use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle)`,
@@ -76,7 +77,7 @@ export function relayDialSteps(endpoint: WanEndpoint, relayUrl: string, since = 
   if (!isRelayAddr(endpoint.addr)) {
     throw new Error('invalid: relay steps need a relay ticket addr (direct addrs use wanDialSteps)')
   }
-  const relay = relayUrl.trim().replace(/\/+$/, '')
+  const relay = ticketRelay(endpoint.addr) || relayUrl.trim().replace(/\/+$/, '')
   if (!relay) {
     throw new Error(
       `unsupported: relay dial to '${endpoint.deviceId}' needs a relay_url (any dashboard serves POST /api/relay/drop|poll — set one, or use HTTP dial, direct LAN sync or a sneakernet bundle)`,
@@ -111,6 +112,53 @@ export function isRelayAddr(addr: string): boolean {
   const low = addr.trim().toLowerCase()
   if (low.startsWith('iroh:') || low.includes('/p2p/')) return true
   return /(^|[^a-z0-9])relay([^a-z0-9]|$)/.test(low)
+}
+
+/** iroh endpoint id shape (64 hex, or 52 base32 — curve checked natively). */
+const ENDPOINT_ID_RE = /^([0-9a-fA-F]{64}|[A-Za-z2-7]{52})$/
+
+/**
+ * Parse a canonical `iroh:<endpoint-id>@<relay-url>` ticket (shape-checked;
+ * the ed25519 curve itself is validated natively by `iroh::PublicKey`).
+ * Returns `{ endpointId, relayUrl }` with the relay trailing-slash trimmed.
+ */
+export function parseIrohTicket(text: string): { endpointId: string; relayUrl: string } {
+  const raw = text.trim()
+  if (!raw.toLowerCase().startsWith('iroh:')) {
+    throw new Error('invalid: iroh ticket starts with `iroh:`')
+  }
+  const rest = raw.slice('iroh:'.length)
+  const at = rest.indexOf('@')
+  if (at < 0) throw new Error('invalid: iroh ticket is `iroh:<endpoint-id>@<relay-url>`')
+  const endpointId = rest.slice(0, at).trim()
+  const relayUrl = rest.slice(at + 1).trim().replace(/\/+$/, '')
+  if (!ENDPOINT_ID_RE.test(endpointId)) {
+    throw new Error('invalid: iroh ticket endpoint id is 64 hex or 52 base32 chars')
+  }
+  if (!relayUrl || /\s/.test(relayUrl)) {
+    throw new Error('invalid: iroh ticket needs a relay URL')
+  }
+  return { endpointId, relayUrl }
+}
+
+/** Build a canonical ticket string (halves shape-checked, relay normalized). */
+export function buildIrohTicket(endpointId: string, relayUrl: string): string {
+  const id = endpointId.trim()
+  const relay = relayUrl.trim().replace(/\/+$/, '')
+  if (!ENDPOINT_ID_RE.test(id)) {
+    throw new Error('invalid: iroh ticket endpoint id is 64 hex or 52 base32 chars')
+  }
+  if (!relay || /\s/.test(relay)) throw new Error('invalid: iroh ticket needs a relay URL')
+  return `iroh:${id}@${relay}`
+}
+
+/** Relay carried by a ticket addr, or `''` when the addr holds none. */
+export function ticketRelay(addr: string): string {
+  try {
+    return parseIrohTicket(addr).relayUrl
+  } catch {
+    return ''
+  }
 }
 
 /** The three URL shapes one WAN endpoint fans out to (probe/search/op-log). */

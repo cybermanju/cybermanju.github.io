@@ -29,3 +29,12 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 sha2 = "0.10"
 # <<< AGENT-1 TRANSFER: BLAKE3 integrity verification >>>
 blake3 = "1"
+# <<< P2P BONDS (CI proving): RaptorQ fountain codes (RFC 6330, Apache-2.0)
+# for lossy relay bulk — pure Rust, no async runtime, WASM-safe; the RS
+# path in swarm.rs stays the default, RQ is the GB-scale upgrade. >>>
+raptorq = "2"
+# <<< P2P BONDS (CI proving): iroh 1.x addressing (EndpointId/RelayUrl
+# validation + canonical tickets, MIT OR Apache-2.0). Default features =
+# upstream-tested config. Only the sync (non-async) surface is used here;
+# the async Endpoint dial stays sequenced on a tokio runtime decision. >>>
+iroh = "1"

@@ -7,7 +7,10 @@
 // math stays single-sourced in `cybermanju-erasure` on every transport.
 // Exports: SwarmSymbol, SWARM_KIND, swarmLayout, buildSwarmPlan,
 // validateSwarmSymbol, parseSwarmSymbols, swarmBackendFromWasm,
-// encodeSwarm, decodeSwarm, type SwarmBackend.
+// encodeSwarm, decodeSwarm, type SwarmBackend, FountainSymbol,
+// FOUNTAIN_KIND, validateFountainSymbol, parseFountainSymbols,
+// buildFountainPlan, fountainBackendFromWasm, fountainBackendFromTauri,
+// encodeFountain, decodeFountain.
 // Integrates: bundle payload spray (`kind: swarm-symbol` relay messages);
 // DevicesPanel swarm demo; Rust twins are `sync::swarm` + `os-wasm/src/
 // swarm.rs` (same JSON, same caps, pinned by p2p-swarm.test.ts).
@@ -197,3 +200,171 @@ export async function decodeSwarm(
 }
 
 export { base64ToBytes as swarmBase64ToBytes, bytesToBase64 as swarmBytesToBase64 }
+
+// ─── RaptorQ fountain symbols (RFC 6330 twin of native `swarm::fountain_*`) ──
+
+export interface FountainSymbol {
+  object: string
+  otiBase64: string
+  mtu: number
+  blake3: string
+  bytesBase64: string
+}
+
+/** Relay `kind` for fountain symbols (mirrors Rust `swarm::FOUNTAIN_KIND`). */
+export const FOUNTAIN_KIND = 'fountain-symbol'
+
+/** Default fountain MTU (mirrors Rust `swarm::FOUNTAIN_DEFAULT_MTU`). */
+export const FOUNTAIN_DEFAULT_MTU = 32768
+
+/** RaptorQ math backend (native IPC twins or wasm exports — injected). */
+export interface FountainBackend {
+  encode(payload: Uint8Array, mtu: number, repair: number): Promise<FountainSymbol[]>
+  decode(symbols: FountainSymbol[]): Promise<Uint8Array>
+}
+
+/** Validate one fountain symbol envelope (shape, not the bytes — the backend checks those). */
+export function validateFountainSymbol(value: unknown): FountainSymbol {
+  if (!value || typeof value !== 'object') throw new Error('invalid: fountain symbol must be an object')
+  const s = value as Record<string, unknown>
+  const symbol: FountainSymbol = {
+    object: String(s.object ?? ''),
+    otiBase64: String(s.otiBase64 ?? ''),
+    mtu: Number(s.mtu ?? 0),
+    blake3: String(s.blake3 ?? ''),
+    bytesBase64: String(s.bytesBase64 ?? ''),
+  }
+  if (!/^[0-9a-f]{64}$/.test(symbol.object)) throw new Error('invalid: fountain symbol needs a 64-hex object hash')
+  if (!symbol.otiBase64.trim()) throw new Error('invalid: fountain symbol needs its OTI (self-describing subsets)')
+  if (!Number.isInteger(symbol.mtu) || symbol.mtu < 1 || symbol.mtu > 65535) {
+    throw new Error('invalid: fountain symbol MTU must be 1..=65535')
+  }
+  if (!symbol.bytesBase64.trim()) throw new Error('invalid: fountain symbol carries no bytes')
+  return symbol
+}
+
+/** Parse + validate a fountain symbols array (JSON string or parsed value). */
+export function parseFountainSymbols(input: unknown): FountainSymbol[] {
+  let arr: unknown = input
+  if (typeof input === 'string') {
+    try {
+      arr = JSON.parse(input)
+    } catch {
+      throw new Error('invalid: symbols are not JSON')
+    }
+  }
+  if (!Array.isArray(arr)) throw new Error('invalid: fountain decode needs an array of symbols')
+  return arr.map(validateFountainSymbol)
+}
+
+/** Offline dial plan for a fountain send (spray budget, no math). */
+export function buildFountainPlan(payloadLen: number, mtu = FOUNTAIN_DEFAULT_MTU, repair = 64): string[] {
+  const len = Math.max(0, Math.floor(payloadLen) || 0)
+  if (len === 0) throw new Error('invalid: fountain encode needs a non-empty payload')
+  if (len > SWARM_MAX_OBJECT) {
+    throw new Error(
+      `too_large: fountain object is ${len} bytes (cap ${SWARM_MAX_OBJECT} — ship it via the sync backends)`,
+    )
+  }
+  if (!Number.isInteger(mtu) || mtu < 1 || mtu > 65535) {
+    throw new Error('invalid: fountain MTU must be 1..=65535')
+  }
+  if (!Number.isInteger(repair) || repair < 0) {
+    throw new Error('invalid: fountain repair count must be >= 0')
+  }
+  return [
+    `object: ${len} bytes → RaptorQ symbols (~${mtu} B each) + ${repair} repair packets`,
+    `spray: POST /api/relay/drop { kind: ${FOUNTAIN_KIND} } (any peers, any order — fountains never run out)`,
+    `collect: POST /api/relay/poll until decode completes (any K+h symbols suffice)`,
+    `decode: first complete decode wins byte-identically (dropped messages are non-events)`,
+  ]
+}
+
+/**
+ * Build a fountain backend from wasm exports (`fountain_encode_json`/
+ * `fountain_decode_json` string in/out). Loader injected (no cycles).
+ */
+export function fountainBackendFromWasm(
+  loadWasm: () => Promise<{
+    fountain_encode_json: (payload: Uint8Array, mtu: number, repair: number) => string
+    fountain_decode_json: (symbolsJson: string) => Uint8Array
+  }>,
+): FountainBackend {
+  return {
+    async encode(payload: Uint8Array, mtu: number, repair: number): Promise<FountainSymbol[]> {
+      const w = await loadWasm().catch((e) => {
+        throw new Error(
+          `unsupported: fountain encode needs the rebuilt wasm bundle — reconnect after the next Pages deploy (${e instanceof Error ? e.message : String(e)})`,
+        )
+      })
+      return parseFountainSymbols(w.fountain_encode_json(payload, mtu, repair))
+    },
+    async decode(symbols: FountainSymbol[]): Promise<Uint8Array> {
+      const w = await loadWasm().catch((e) => {
+        throw new Error(
+          `unsupported: fountain decode needs the rebuilt wasm bundle — reconnect after the next Pages deploy (${e instanceof Error ? e.message : String(e)})`,
+        )
+      })
+      return w.fountain_decode_json(JSON.stringify(symbols))
+    },
+  }
+}
+
+/**
+ * Build a fountain backend from a Tauri `invoke` function (native
+ * `fountain_encode`/`fountain_decode` twins). Invoke injected (no cycles).
+ */
+export function fountainBackendFromTauri(
+  invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>,
+): FountainBackend {
+  const toB64 = (bytes: Uint8Array): string => bytesToBase64(bytes)
+  const fromB64 = (b64: string): Uint8Array => base64ToBytes(b64)
+  return {
+    async encode(payload: Uint8Array, mtu: number, repair: number): Promise<FountainSymbol[]> {
+      const raw = (await invoke('fountain_encode', {
+        bytesBase64: toB64(payload),
+        mtu,
+        repair,
+        // Tauri binds by exact param name — send both cases.
+        bytes_base64: toB64(payload),
+      })) as unknown
+      return parseFountainSymbols(raw)
+    },
+    async decode(symbols: FountainSymbol[]): Promise<Uint8Array> {
+      const raw = (await invoke('fountain_decode', {
+        symbolsJson: JSON.stringify(symbols),
+        symbols_json: JSON.stringify(symbols),
+      })) as string
+      return fromB64(String(raw ?? ''))
+    },
+  }
+}
+
+/** Encode via an injected fountain backend (Tauri IPC or wasm export). */
+export async function encodeFountain(
+  payload: Uint8Array,
+  backend: FountainBackend | null,
+  mtu = FOUNTAIN_DEFAULT_MTU,
+  repair = 64,
+): Promise<FountainSymbol[]> {
+  if (!backend) {
+    throw new Error(
+      'unsupported: fountain encode needs a backend — desktop/mobile use the `fountain_encode` IPC twin, Pages uses the wasm `fountain_encode_json` export',
+    )
+  }
+  return backend.encode(payload, mtu, repair)
+}
+
+/** Decode via an injected fountain backend (any sufficient subset suffices). */
+export async function decodeFountain(
+  symbols: unknown,
+  backend: FountainBackend | null,
+): Promise<Uint8Array> {
+  const parsed = parseFountainSymbols(symbols)
+  if (!backend) {
+    throw new Error(
+      'unsupported: fountain decode needs a backend — desktop/mobile use the `fountain_decode` IPC twin, Pages uses the wasm `fountain_decode_json` export',
+    )
+  }
+  return backend.decode(parsed)
+}

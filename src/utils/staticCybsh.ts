@@ -3340,12 +3340,14 @@ async function handlePair(args: string[], json: boolean, deps: StaticCybshDeps):
   )
 }
 
-const SWARM_SUBCOMMANDS = ['plan'] as const
+const SWARM_SUBCOMMANDS = ['plan', 'fountain'] as const
 
-/** Erasure-coded swarm planner: `swarm plan <bytes> [k] [m]` prints the
- * layout + spray/collect/decode steps offline (pure math, no RS needed).
- * The actual coding runs natively (`swarm_encode` IPC) or on Pages (wasm
- * `swarm_encode_json`); bulk sends ride `kind: swarm-symbol` messages. */
+/** Erasure-coded swarm planner: `swarm plan <bytes> [k] [m]` prints the RS
+ * layout + spray/collect/decode steps offline (pure math, no codec needed);
+ * `swarm fountain <bytes> [mtu] [repair]` plans the RaptorQ spray instead.
+ * The actual coding runs natively (`swarm_*`/`fountain_*` IPC) or on Pages
+ * (wasm `*_json` exports); bulk sends ride `swarm-symbol`/`fountain-symbol`
+ * relay messages. */
 async function handleSwarm(args: string[], json: boolean): Promise<VerbOut> {
   const sub = (args[0] ?? 'plan').toLowerCase()
   const rest = args.slice(1)
@@ -3365,7 +3367,28 @@ async function handleSwarm(args: string[], json: boolean): Promise<VerbOut> {
       return shellErr(e instanceof Error ? e.message : String(e))
     }
   }
-  return shellErr(`usage: swarm <${SWARM_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`)
+  if (sub === 'fountain') {
+    const [bytesRaw, mtuRaw, repairRaw] = rest.filter((a) => !a.startsWith('-'))
+    if (bytesRaw == null) return shellErr('usage: swarm fountain <bytes> [mtu] [repair]')
+    try {
+      const { buildFountainPlan } = await import('./p2pSwarm')
+      const steps = buildFountainPlan(
+        Number(bytesRaw),
+        mtuRaw == null ? 32768 : Math.floor(Number(mtuRaw)),
+        repairRaw == null ? 64 : Math.floor(Number(repairRaw)),
+      )
+      if (json) return shellOk(JSON.stringify({ steps }))
+      return shellOk(steps.join('\n'))
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+  const suggestion = SWARM_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
+  return shellErr(
+    suggestion
+      ? `usage: swarm <${SWARM_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
+      : `usage: swarm <${SWARM_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
+  )
 }
 
 const ROOM_SUBCOMMANDS = ['join', 'say'] as const

@@ -1,12 +1,14 @@
 // CyberManju OS — Swarm (crates/os-wasm/src/swarm.rs).
 // Role: browser twin of the native relay-swarming math (`sync::swarm`) —
-// Reed–Solomon encode/decode of relay symbols in the Pages sandbox, so a
-// browser collects symbols from the relay mailbox and reconstructs payloads
-// without the dashboard. Same framing, same caps, same error prefixes.
-// Exports: swarm_layout_json, swarm_encode_json, swarm_decode_json.
-// Integrates: cybermanju-erasure (pure Rust, wasm-safe); the TS caller is
-// `src/utils/p2pSwarm.ts` (`swarmBackendFromWasm`), JSON in/out so no
-// serializer glue is needed.
+// Reed–Solomon and RaptorQ fountain encode/decode of relay symbols in the
+// Pages sandbox, so a browser collects symbols from the relay mailbox and
+// reconstructs payloads without the dashboard. Same framing, same caps,
+// same error prefixes.
+// Exports: swarm_layout_json, swarm_encode_json, swarm_decode_json,
+// fountain_encode_json, fountain_decode_json.
+// Integrates: cybermanju-erasure + raptorq (both pure Rust, wasm-safe); the
+// TS caller is `src/utils/p2pSwarm.ts` (`swarmBackendFromWasm` /
+// `fountainBackendFromWasm`), JSON in/out so no serializer glue is needed.
 // Contracts: `invalid:` on bad inputs, `integrity:` on corrupt subsets,
 // `too_large:` beyond the bundle payload caps — never a panic.
 use wasm_bindgen::prelude::*;
@@ -37,6 +39,118 @@ pub fn swarm_encode_json(payload: &[u8], data: u8, parity: u8) -> Result<String,
 #[wasm_bindgen]
 pub fn swarm_decode_json(symbols_json: &str) -> Result<Vec<u8>, JsValue> {
     swarm_decode_inner(symbols_json).map_err(|e| JsValue::from_str(&e))
+}
+
+/// RaptorQ-fountain-encode raw bytes into relay symbols (JSON array out).
+/// `mtu`/`repair` of 0 select the relay defaults (32 KiB symbols, 64 repair).
+#[wasm_bindgen]
+pub fn fountain_encode_json(payload: &[u8], mtu: u16, repair: u32) -> Result<String, JsValue> {
+    fountain_encode_inner(payload, mtu, repair).map_err(|e| JsValue::from_str(&e))
+}
+
+/// Decode collected fountain symbols (JSON array in) back to raw bytes —
+/// any sufficient subset, any order, any peers.
+#[wasm_bindgen]
+pub fn fountain_decode_json(symbols_json: &str) -> Result<Vec<u8>, JsValue> {
+    fountain_decode_inner(symbols_json).map_err(|e| JsValue::from_str(&e))
+}
+
+fn fountain_encode_inner(payload: &[u8], mtu: u16, repair: u32) -> Result<String, String> {
+    use base64::Engine as _;
+    const MAX_TOTAL: u64 = 50 * 1024 * 1024;
+    const MAX_MSG: usize = 256 * 1024;
+    if payload.is_empty() {
+        return Err("invalid: fountain encode needs a non-empty payload".to_string());
+    }
+    let mtu = if mtu == 0 { 32768 } else { mtu };
+    let repair = if repair == 0 { 64 } else { repair };
+    if payload.len() as u64 > MAX_TOTAL {
+        return Err(format!(
+            "too_large: fountain object is {} bytes (cap {MAX_TOTAL} — ship it via the sync backends)",
+            payload.len()
+        ));
+    }
+    let encoder = raptorq::Encoder::with_defaults(payload, mtu);
+    let oti_b64 =
+        base64::engine::general_purpose::STANDARD.encode(encoder.get_config().serialize());
+    let packets = encoder.get_encoded_packets(repair);
+    if packets.is_empty() {
+        return Err("integrity: fountain encoder produced no symbols".to_string());
+    }
+    let object = blake3::hash(payload).to_hex().to_string();
+    let mut symbols = Vec::with_capacity(packets.len());
+    for packet in &packets {
+        let wire = packet.serialize();
+        let symbol = serde_json::json!({
+            "object": object,
+            "otiBase64": oti_b64,
+            "mtu": mtu,
+            "blake3": blake3::hash(&wire).to_hex().to_string(),
+            "bytesBase64": base64::engine::general_purpose::STANDARD.encode(&wire),
+        });
+        let envelope = serde_json::to_string(&symbol)
+            .map_err(|e| format!("integrity: symbol unserializable: {e}"))?;
+        if envelope.len() > MAX_MSG {
+            return Err(format!(
+                "too_large: fountain symbol is {} bytes (cap {MAX_MSG} — lower the MTU for smaller symbols)",
+                envelope.len()
+            ));
+        }
+        symbols.push(symbol);
+    }
+    serde_json::to_string(&symbols).map_err(|e| format!("integrity: symbols unserializable: {e}"))
+}
+
+fn fountain_decode_inner(symbols_json: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine as _;
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Symbol {
+        object: String,
+        oti_base64: String,
+        mtu: u16,
+        blake3: String,
+        bytes_base64: String,
+    }
+    let symbols: Vec<Symbol> = serde_json::from_str(symbols_json)
+        .map_err(|e| format!("invalid: symbols are not JSON: {e}"))?;
+    let first = symbols
+        .first()
+        .ok_or_else(|| "invalid: fountain decode needs at least one symbol".to_string())?;
+    let oti_raw = base64::engine::general_purpose::STANDARD
+        .decode(first.oti_base64.trim())
+        .map_err(|e| format!("integrity: fountain OTI is not base64: {e}"))?;
+    let oti_arr: [u8; 12] = oti_raw
+        .as_slice()
+        .try_into()
+        .map_err(|_| "integrity: fountain OTI is not 12 bytes".to_string())?;
+    let mut decoder =
+        raptorq::Decoder::new(raptorq::ObjectTransmissionInformation::deserialize(&oti_arr));
+    for s in &symbols {
+        if s.object != first.object || s.oti_base64 != first.oti_base64 {
+            return Err(
+                "integrity: fountain symbols mix objects or code params — collect one object's symbols"
+                    .to_string(),
+            );
+        }
+        let wire = base64::engine::general_purpose::STANDARD
+            .decode(s.bytes_base64.trim())
+            .map_err(|e| format!("integrity: fountain symbol is not base64: {e}"))?;
+        if blake3::hash(&wire).to_hex().to_string() != s.blake3.to_ascii_lowercase() {
+            return Err("integrity: fountain symbol failed its BLAKE3 check".to_string());
+        }
+        let packet = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            raptorq::EncodingPacket::deserialize(&wire)
+        }))
+        .map_err(|_| "integrity: fountain packet unreadable".to_string())?;
+        if let Some(payload) = decoder.decode(packet) {
+            if blake3::hash(&payload).to_hex().to_string() != first.object {
+                return Err("integrity: fountain object hash mismatch after decode".to_string());
+            }
+            return Ok(payload);
+        }
+    }
+    Err("integrity: fountain decode needs more symbols — keep polling the mailbox".to_string())
 }
 
 fn swarm_encode_inner(payload: &[u8], data: u8, parity: u8) -> Result<String, String> {
@@ -169,6 +283,37 @@ mod tests {
         // Keep any 4 of 6 (drop two) — still decodes.
         let subset = serde_json::to_string(&symbols[1..5]).expect("subset");
         assert_eq!(swarm_decode_json(&subset).expect("decode"), payload);
-        assert!(swarm_decode_json("[]").unwrap_err().starts_with("invalid:"));
+        assert!(swarm_decode_json("[]")
+            .unwrap_err()
+            .as_string()
+            .expect("str error")
+            .starts_with("invalid:"));
+    }
+
+    #[test]
+    fn wasm_fountain_round_trips_lossy_subsets() {
+        let payload = b"wasm fountain spray across lossy relay paths".to_vec();
+        let json = fountain_encode_json(&payload, 1024, 8).expect("encode");
+        let symbols: Vec<serde_json::Value> = serde_json::from_str(&json).expect("json");
+        assert!(!symbols.is_empty());
+        // Drop every third symbol — the fountain still decodes.
+        let subset: Vec<serde_json::Value> = symbols
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| i % 3 != 0)
+            .map(|(_, v)| v)
+            .collect();
+        let subset_json = serde_json::to_string(&subset).expect("subset");
+        assert_eq!(fountain_decode_json(&subset_json).expect("decode"), payload);
+        assert!(fountain_decode_json("[]")
+            .unwrap_err()
+            .as_string()
+            .expect("str error")
+            .starts_with("invalid:"));
+        assert!(fountain_encode_json(&[], 1024, 8)
+            .unwrap_err()
+            .as_string()
+            .expect("str error")
+            .starts_with("invalid:"));
     }
 }

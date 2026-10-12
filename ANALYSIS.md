@@ -209,38 +209,40 @@ chunk manifests, ML-DSA for signatures). Incremental path, cheapest first:
    Devices Presence + WAN relay-URL cards, `wan --relay` / `pex` / `relay`
    verbs. Only the QUIC *datagram* upgrade stays sequenced — and the project
    is now selected (item 6), not open research.
-6. **QUIC selection: `iroh` (n0-computer)** 🎯 selected 2026-10-12, dep
-   sequenced — research verified: `iroh` 1.x (MIT/Apache, 2026-active),
-   QUIC + hole-punching + relay fallback, **self-hostable `iroh-relay` +
-   `iroh-dns-server` (pkarr)** mapping 1:1 onto our `relay_url` config,
-   **Android + iOS + WASM/browser supported** (relay-only WebSocket subset
-   in the sandbox; Swift/Kotlin/JS bindings via `iroh-ffi`),
+6. **QUIC selection: `iroh` (n0-computer)** ✅ dep declared 2026-10-12,
+   proving in CI — `iroh = "1"` in `crates/sync` (MIT OR Apache-2.0,
+   docs-grounded at 1.3.0: `Endpoint::bind(presets::N0)`, `RelayUrl` +
+   `PublicKey` + `RelayUrlParseError` + `KeyParsingError` all root-level).
+   Live today (sync, no runtime): strict `parse_endpoint_id` (hex-or-base32
+   in, hex out) + `parse_relay_url` + canonical `iroh:<id>@<relay>` tickets
+   (`iroh_ticket`/`parse_iroh_ticket`) that carry their own rendezvous —
+   `dial_plan`/`relay_dial_steps` prefer the ticket relay over the configured
+   one, with the ed25519 base point as the deterministic test vector.
+   Research verified: QUIC + hole-punching + relay fallback, **self-hostable
+   `iroh-relay` + `iroh-dns-server` (pkarr)** mapping 1:1 onto our `relay_url`
+   config, **Android + iOS + WASM/browser supported** (relay-only WebSocket
+   subset in the sandbox; Swift/Kotlin/JS bindings via `iroh-ffi`),
    **`iroh-blobs` is BLAKE3 content-addressed** (same hash as our integrity
-   story, resumable verified streaming), `iroh-gossip` (browser-tested),
-   mainline-BitTorrent-DHT content discovery (Sept 2026). Integration plan:
-   `Endpoint` + relay in `crates/sync` behind `PeerTransport` (new
-   `RelayLive` backend arm; ed25519 endpoint ids bridged to our ML-DSA
-   registry via the existing fingerprint field), our mailbox kept as the
-   fallback for non-UDP peers. Sequenced for three honest reasons: heaviest
-   dep we'd ever add (QUIC stack × 8 release families of CI compile), needs
-   networked CI proving for dial tests, needs mobile link validation.
-   Runner-up recorded and rejected: `rust-libp2p` (MIT; kad/gossipsub/DCUtR/
-   webrtc-websys — more protocols, far bigger API/ops surface for a 2-device
-   sync app; revisit only for public-swarm features).
-7. **Erasure-coded swarming** ✅ RS layer landed 2026-10-12, RaptorQ sequenced —
-   `crates/sync/src/swarm.rs`: payloads coded with the IN-TREE RS codec
-   (`encode_framed`, zero new deps) into self-describing `swarm-symbol`
-   relay messages; any `k` of `k+m` reconstruct (dropped messages are
-   non-events); layout heuristic (~64 KiB shards), per-symbol + whole-object
-   BLAKE3 seals, bundle-scale caps; Tauri `swarm_encode`/`swarm_decode` twins
-   + wasm `swarm_encode_json`/`swarm_decode_json` exports (same math on Pages)
-   + `src/utils/p2pSwarm.ts` framing/backend-injection + `swarm plan` verb.
-   Sequenced upgrade: **`raptorq` (cberner, Apache-2.0, RFC 6330 fountain
-   codes)** for GB scale — any K+h symbols decode, WASM-safe, but a new dep
-   that needs CI proving; RS is exact and sufficient at bundle scale today.
-   Deferred (not selected): `librqbit` (Apache-2.0, DHT, Tauri precedent) —
-   public-swarm BitTorrent is overkill for private vault data without private
-   trackers; revisit for multi-GB family-device distribution.
+   story), `iroh-gossip` (browser-tested), mainline-BitTorrent-DHT discovery
+   (Sept 2026). Still sequenced: the async `Endpoint` dial (needs a tokio
+   runtime decision — the only new runtime in the tree) + mobile link
+   validation; `iroh-blobs` deliberately excluded (would duplicate redb 4
+   beside our redb 2). Runner-up recorded and rejected: `rust-libp2p`.
+7. **Erasure-coded swarming** ✅ RS layer landed 2026-10-12, **RaptorQ dep
+   declared the same day, proving in CI** — `raptorq = "2"` in `crates/sync`
+   (+ wasm twin dep; Apache-2.0, docs-grounded at 2.0.1: `Encoder::
+   with_defaults` / `get_config` / `get_encoded_packets`,
+   `EncodingPacket::serialize/deserialize`, `Decoder::new`/`decode`,
+   OTI `serialize/deserialize` 12 bytes — zero mandatory deps).
+   `swarm::{fountain_encode, fountain_decode}` spray `kind:
+   fountain-symbol` messages (OTI travels per symbol, any K+h decode,
+   `catch_unwind` around untrusted packet bytes, whole-object re-hash);
+   Tauri `fountain_encode`/`fountain_decode` twins + wasm
+   `fountain_encode_json`/`fountain_decode_json` + `p2pSwarm.ts` envelope
+   validation/plan/backend factories + `swarm fountain` verb. RS stays the
+   default (exact, zero-dep); RQ is the lossy-path sprayer. Deferred (not
+   selected): `librqbit` — public-swarm BitTorrent is overkill for private
+   vault data without private trackers.
 8. **Wormhole-style pairing codes** ✅ rendezvous landed 2026-10-12, PAKE
    sequenced — `NNN-word-word` codes (`peers::pairing_code`, 64-word list
    pinned cross-language by static-read test) addressing `pair:<code>`

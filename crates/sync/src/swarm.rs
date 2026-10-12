@@ -166,6 +166,145 @@ pub fn swarm_decode(symbols: &[SwarmSymbol]) -> Result<Vec<u8>, String> {
     Ok(payload)
 }
 
+// ─── RaptorQ fountain symbols (RFC 6330, GB-scale upgrade path) ──
+//
+// Where the RS path above needs exactly `k` of `k + m`, the fountain path
+// needs *any* `K + h` symbols (`h` usually 0–2 — reconstruction probability
+// `1 - 1/256^(h+1)`): the sender sprays `K + repair` symbols across relay
+// messages (possibly via several peers at once) and the receiver decodes
+// from whatever arrives first. Same relay `drop`/`poll` transport, same
+// BLAKE3 seals, new `kind: fountain-symbol`. Pure `raptorq` (no async
+// runtime, no C bindings) — the TS twin validates envelopes in
+// `p2pSwarm.ts`; the math runs natively here and in wasm.
+
+/// Relay `kind` for fountain symbols.
+pub const FOUNTAIN_KIND: &str = "fountain-symbol";
+
+/// Default RaptorQ symbol size for relay spray (~32 KiB symbols stay far
+/// under the 256 KiB relay cap after base64).
+pub const FOUNTAIN_DEFAULT_MTU: u16 = 32768;
+
+/// One fountain symbol: self-describing (object hash + OTI travel with
+/// every symbol) so subsets collected from any peers decode without state.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FountainSymbol {
+    /// BLAKE3 hex of the original (pre-code) payload — the object identity.
+    pub object: String,
+    /// `oti.serialize()` (12 bytes) base64 — identical on every symbol.
+    pub oti_base64: String,
+    /// Encoder MTU the symbols were produced with.
+    pub mtu: u16,
+    /// BLAKE3 hex of the serialized packet bytes (per-symbol tamper seal).
+    pub blake3: String,
+    /// `packet.serialize()` bytes, base64.
+    pub bytes_base64: String,
+}
+
+/// Encode a payload into `K + repair` fountain symbols. `mtu` sizes symbols
+/// (`0` selects the default); `repair_packets` is the extra spray beyond
+/// the source symbols (lossy paths want `repair ≈ K`; pass an explicit
+/// count — fountain codes never run out). Caps mirror the RS path.
+pub fn fountain_encode(
+    payload: &[u8],
+    mtu: u16,
+    repair_packets: u32,
+) -> Result<Vec<FountainSymbol>, String> {
+    use base64::Engine;
+    if payload.is_empty() {
+        return Err("invalid: fountain encode needs a non-empty payload".to_string());
+    }
+    if mtu == 0 {
+        return Err("invalid: fountain MTU must be 1..=65535".to_string());
+    }
+    if payload.len() as u64 > super::bundle::BUNDLE_MAX_PAYLOAD_TOTAL as u64 {
+        return Err(format!(
+            "too_large: fountain object is {} bytes (cap {} — ship it via the sync backends)",
+            payload.len(),
+            super::bundle::BUNDLE_MAX_PAYLOAD_TOTAL
+        ));
+    }
+    let encoder = raptorq::Encoder::with_defaults(payload, mtu);
+    let oti = encoder.get_config();
+    let oti_b64 =
+        base64::engine::general_purpose::STANDARD.encode(oti.serialize());
+    let packets = encoder.get_encoded_packets(repair_packets);
+    if packets.is_empty() {
+        return Err("integrity: fountain encoder produced no symbols".to_string());
+    }
+    let object = blake3::hash(payload).to_hex().to_string();
+    let mut out = Vec::with_capacity(packets.len());
+    for packet in &packets {
+        let wire = packet.serialize();
+        let symbol = FountainSymbol {
+            object: object.clone(),
+            oti_base64: oti_b64.clone(),
+            mtu,
+            blake3: blake3::hash(&wire).to_hex().to_string(),
+            bytes_base64: base64::engine::general_purpose::STANDARD.encode(&wire),
+        };
+        let envelope =
+            serde_json::to_string(&symbol).map_err(|e| format!("integrity: symbol unserializable: {e}"))?;
+        if envelope.len() > super::peers::RELAY_MAX_BYTES {
+            return Err(format!(
+                "too_large: fountain symbol is {} bytes (cap {} — lower the MTU for smaller symbols)",
+                envelope.len(),
+                super::peers::RELAY_MAX_BYTES
+            ));
+        }
+        out.push(symbol);
+    }
+    Ok(out)
+}
+
+/// Decode a payload from collected fountain symbols (any sufficient subset,
+/// any order, any peers). Every symbol is base64-decoded + re-hashed first;
+/// a corrupt, foreign, or mixed subset fails with `integrity:`, never a
+/// mis-decode. Feeding stops at the first complete decode.
+pub fn fountain_decode(symbols: &[FountainSymbol]) -> Result<Vec<u8>, String> {
+    use base64::Engine;
+    let first = symbols
+        .first()
+        .ok_or_else(|| "invalid: fountain decode needs at least one symbol".to_string())?;
+    let oti_raw = base64::engine::general_purpose::STANDARD
+        .decode(first.oti_base64.trim())
+        .map_err(|e| format!("integrity: fountain OTI is not base64: {e}"))?;
+    let oti_arr: [u8; 12] = oti_raw
+        .as_slice()
+        .try_into()
+        .map_err(|_| "integrity: fountain OTI is not 12 bytes".to_string())?;
+    let oti = raptorq::ObjectTransmissionInformation::deserialize(&oti_arr);
+    let mut decoder = raptorq::Decoder::new(oti);
+    for s in symbols {
+        if s.object != first.object || s.oti_base64 != first.oti_base64 {
+            return Err(
+                "integrity: fountain symbols mix objects or code params — collect one object's symbols"
+                    .to_string(),
+            );
+        }
+        let wire = base64::engine::general_purpose::STANDARD
+            .decode(s.bytes_base64.trim())
+            .map_err(|e| format!("integrity: fountain symbol is not base64: {e}"))?;
+        if blake3::hash(&wire).to_hex().to_string() != s.blake3.to_ascii_lowercase() {
+            return Err("integrity: fountain symbol failed its BLAKE3 check".to_string());
+        }
+        // `deserialize` takes raw wire bytes; the BLAKE3 seal above already
+        // proved they are unchanged in transit, but a hostile peer can seal
+        // its own garbage — never let a malformed packet panic the server.
+        let packet = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            raptorq::EncodingPacket::deserialize(&wire)
+        }))
+        .map_err(|_| "integrity: fountain packet unreadable".to_string())?;
+        if let Some(payload) = decoder.decode(packet) {
+            if blake3::hash(&payload).to_hex().to_string() != first.object {
+                return Err("integrity: fountain object hash mismatch after decode".to_string());
+            }
+            return Ok(payload);
+        }
+    }
+    Err("integrity: fountain decode needs more symbols — keep polling the mailbox".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,6 +337,43 @@ mod tests {
         assert!(swarm_decode(&subset).is_err(), "k=4 needs 4 symbols");
         let subset: Vec<SwarmSymbol> = symbols.into_iter().take(4).collect();
         assert_eq!(swarm_decode(&subset).expect("decode"), payload);
+    }
+
+    #[test]
+    fn fountain_round_trips_lossy_subsets() {
+        let payload = b"fountain spray across lossy relay paths".to_vec();
+        let symbols = fountain_encode(&payload, 1024, 8).expect("encode");
+        assert!(symbols.len() > 8, "source + repair symbols");
+        assert_eq!(symbols[0].object.len(), 64);
+        // Feed a lossy subset (drop every third symbol) — still decodes.
+        let subset: Vec<FountainSymbol> = symbols
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| i % 3 != 0)
+            .map(|(_, s)| s.clone())
+            .collect();
+        assert!(!subset.is_empty());
+        assert_eq!(fountain_decode(&subset).expect("decode"), payload);
+        // OTI travels with every symbol (self-describing subsets).
+        assert!(!symbols[0].oti_base64.is_empty());
+    }
+
+    #[test]
+    fn fountain_decode_fails_closed() {
+        let payload = b"tamper-evident fountain".to_vec();
+        let symbols = fountain_encode(&payload, 1024, 4).expect("encode");
+        assert!(fountain_decode(&[]).unwrap_err().starts_with("invalid:"));
+        // Corrupt bytes without touching the hash.
+        let mut bad = symbols.clone();
+        bad[0].bytes_base64 =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b"garbage-garbage");
+        assert!(fountain_decode(&bad).unwrap_err().starts_with("integrity:"));
+        // Mixed objects.
+        let other = fountain_encode(b"another object entirely", 1024, 4).expect("encode");
+        let mixed = vec![symbols[0].clone(), other[0].clone()];
+        assert!(fountain_decode(&mixed).unwrap_err().starts_with("integrity:"));
+        assert!(fountain_encode(&[], 1024, 4).unwrap_err().starts_with("invalid:"));
+        assert!(fountain_encode(&payload, 0, 4).unwrap_err().starts_with("invalid:"));
     }
 
     #[test]

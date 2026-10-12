@@ -242,9 +242,12 @@ Human pairing (wormhole-style, no wormhole server): `pair make` mints a
 `NNN-word-word` code (`482-oak-river`); the sender drops to the
 `pair:<code>` mailbox, the receiver claims it (poll + ack, no replay).
 Codes are rendezvous, not PAKE — attestation stays ML-DSA. Bulk bytes ride
-erasure-coded swarms: `swarm plan <bytes>` shows the layout, then payloads
-spray as `kind: swarm-symbol` messages (any `k` of `k+m` reconstruct —
-dropped messages are non-events). Relay rooms give the sandbox presence +
+erasure-coded swarms: `swarm plan <bytes>` shows the RS layout, then payloads
+spray as `kind: swarm-symbol` messages (any `k` of `k+m` reconstruct);
+`swarm fountain <bytes> [mtu] [repair]` sprays RaptorQ instead (any K+h
+symbols decode — the lossy-path sprayer, natively validated iroh tickets at
+`iroh:<endpoint-id>@<relay-url>` carry their own rendezvous, no configured
+relay needed). Relay rooms give the sandbox presence +
 small-data fan-out: `room join <app> <name>` reads hellos, `room say <app>
 <name> <action> [json]` posts typed actions.
 

@@ -76,13 +76,14 @@ pub fn dial_plan(endpoint: &IrohEndpoint, config: &IrohConfig) -> Result<String,
         return Err("invalid: dial needs a device id".to_string());
     }
     if is_relay_addr(&endpoint.addr) {
-        let relay = config.relay_url.trim().trim_end_matches('/');
-        if relay.is_empty() {
+        // Canonical tickets carry their own relay; the configured URL is
+        // the fallback. Only neither answers `unsupported:`.
+        let Some(relay) = ticket_or_config_relay(&endpoint.addr, config) else {
             return Err(format!(
                 "unsupported: relay dial to '{}' needs a relay_url (any dashboard serves POST /api/relay/drop|poll — set one, or use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle)",
                 endpoint.device_id,
             ));
-        }
+        };
         return Ok(format!(
             "relay: POST {}/api/relay/drop {{ to: '{}', kind: op-envelope }} ({} s abort, outbound HTTPS — no inbound port) + POST {}/api/relay/poll {{ for: '{}' }} for the reply",
             relay,
@@ -137,13 +138,12 @@ pub fn relay_dial_steps(
                 .to_string(),
         );
     }
-    let relay = config.relay_url.trim().trim_end_matches('/');
-    if relay.is_empty() {
+    let Some(relay) = ticket_or_config_relay(&endpoint.addr, config) else {
         return Err(format!(
             "unsupported: relay dial to '{}' needs a relay_url (any dashboard serves POST /api/relay/drop|poll — set one, or use HTTP dial, direct LAN sync or a sneakernet bundle)",
             endpoint.device_id,
         ));
-    }
+    };
     Ok(vec![
         format!(
             "drop: POST {}/api/relay/drop {{ to: '{}', kind: op-envelope }}",
@@ -413,6 +413,86 @@ pub fn is_relay_addr(addr: &str) -> bool {
     classify_addr(addr) == super::peers::PeerTransport::RelayFuture
 }
 
+// ─── iroh endpoint addressing (QUIC identity layer, no async runtime) ──
+//
+// The async `Endpoint` dial stays sequenced on a tokio runtime decision;
+// everything here is sync and load-bearing today: strict validation +
+// canonicalization of iroh endpoint IDs (`iroh::PublicKey`: hex-or-base32
+// in, hex out) and relay URLs, plus canonical `iroh:<id>@<relay>` tickets
+// that carry their own rendezvous — a ticketed dial needs no configured
+// `relay_url`. The TS twin validates the same shapes in `wanDial.ts`.
+
+/// Parse + validate an iroh endpoint ID (ed25519 public key). Returns the
+/// canonical hex form. `invalid:` on garbage — never a guess.
+pub fn parse_endpoint_id(text: &str) -> Result<String, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("invalid: endpoint id is required".to_string());
+    }
+    if trimmed.contains(char::is_whitespace) {
+        return Err("invalid: endpoint id must not contain whitespace".to_string());
+    }
+    let key: iroh::PublicKey = trimmed
+        .parse()
+        .map_err(|e: iroh::KeyParsingError| format!("invalid: not an iroh endpoint id: {e:?}"))?;
+    Ok(key.to_string())
+}
+
+/// Parse + validate a relay URL. Returns the canonical form.
+pub fn parse_relay_url(text: &str) -> Result<String, String> {
+    let trimmed = text.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err("invalid: relay URL is required".to_string());
+    }
+    if trimmed.contains(char::is_whitespace) {
+        return Err("invalid: relay URL must not contain whitespace".to_string());
+    }
+    let url: iroh::RelayUrl = trimmed
+        .parse()
+        .map_err(|e: iroh::RelayUrlParseError| format!("invalid: not a relay URL: {e:?}"))?;
+    Ok(url.to_string())
+}
+
+/// Canonical `iroh:<endpoint-id>@<relay-url>` ticket: both halves strictly
+/// validated, both normalized. Tickets are self-contained dials — the
+/// relay travels with the address, so no configured `relay_url` is needed.
+pub fn iroh_ticket(endpoint_id: &str, relay_url: &str) -> Result<String, String> {
+    Ok(format!(
+        "iroh:{}@{}",
+        parse_endpoint_id(endpoint_id)?,
+        parse_relay_url(relay_url)?
+    ))
+}
+
+/// Split a ticket back into `(endpoint-id, relay-url)` (both normalized).
+pub fn parse_iroh_ticket(text: &str) -> Result<(String, String), String> {
+    let rest = text
+        .trim()
+        .strip_prefix("iroh:")
+        .ok_or_else(|| "invalid: iroh ticket starts with `iroh:`".to_string())?;
+    let (id, relay) = rest
+        .split_once('@')
+        .ok_or_else(|| "invalid: iroh ticket is `iroh:<endpoint-id>@<relay-url>`".to_string())?;
+    Ok((parse_endpoint_id(id)?, parse_relay_url(relay)?))
+}
+
+/// Rendezvous for a relay-ticket addr: the ticket's own relay when the addr
+/// is a canonical ticket, else the configured `relay_url`. `None` when
+/// neither exists (callers answer `unsupported:` with the way out).
+fn ticket_or_config_relay(addr: &str, config: &IrohConfig) -> Option<String> {
+    if let Ok((_, relay)) = parse_iroh_ticket(addr) {
+        if !relay.is_empty() {
+            return Some(relay);
+        }
+    }
+    let configured = config.relay_url.trim().trim_end_matches('/');
+    if configured.is_empty() {
+        None
+    } else {
+        Some(configured.to_string())
+    }
+}
+
 /// `http(s)://` base for a raw addr half (addr stays opaque, never guessed).
 /// Pure alias over `peers::normalize_base_url` so the WAN seam and the peer
 /// seam share one normalizer; `invalid:` when the addr is blank/whitespace.
@@ -579,6 +659,44 @@ mod tests {
             relay_poll_path("relay.example.com:3456").unwrap(),
             "http://relay.example.com:3456/api/relay/poll"
         );
+    }
+
+    #[test]
+    fn endpoint_ids_validate_and_tickets_round_trip() {
+        // Ed25519 base point (compressed Edwards Y) — a real curve point,
+        // no randomness, no SecretKey needed.
+        let mut raw = [0x66u8; 32];
+        raw[0] = 0x58;
+        let key = iroh::PublicKey::from_bytes(&raw).expect("basepoint is on the curve");
+        let text = key.to_string();
+        assert_eq!(text.len(), 64, "{text}");
+        assert_eq!(parse_endpoint_id(&text).unwrap(), text);
+        // Garbage fails closed.
+        assert!(parse_endpoint_id("").unwrap_err().starts_with("invalid:"));
+        assert!(parse_endpoint_id("not-a-key").unwrap_err().starts_with("invalid:"));
+        assert!(parse_endpoint_id("has space in it").unwrap_err().starts_with("invalid:"));
+        assert!(parse_relay_url("").unwrap_err().starts_with("invalid:"));
+        assert!(parse_relay_url("not a url with spaces").unwrap_err().starts_with("invalid:"));
+        let relay = parse_relay_url("https://relay.example.com/").expect("relay");
+        assert!(!relay.is_empty());
+        // Canonical tickets carry their own rendezvous.
+        let ticket = iroh_ticket(&text, "https://relay.example.com").expect("ticket");
+        assert!(ticket.starts_with("iroh:"), "{ticket}");
+        assert!(is_relay_addr(&ticket));
+        let (id, url) = parse_iroh_ticket(&ticket).expect("parse");
+        assert_eq!(id, text);
+        assert_eq!(url, relay);
+        assert!(parse_iroh_ticket("https://relay.example.com").unwrap_err().starts_with("invalid:"));
+        assert!(parse_iroh_ticket("iroh:no-at-sign").unwrap_err().starts_with("invalid:"));
+        // A ticketed dial needs no configured relay_url.
+        let ep = IrohEndpoint {
+            device_id: "phone-7".to_string(),
+            addr: ticket.clone(),
+        };
+        let plan = dial_plan(&ep, &IrohConfig::default()).expect("ticket is self-contained");
+        assert!(plan.contains("/api/relay/drop"), "{plan}");
+        let steps = relay_dial_steps(&ep, &IrohConfig::default(), 0).expect("steps");
+        assert!(steps[0].contains("https://relay.example.com"), "{steps:?}");
     }
 
     #[test]

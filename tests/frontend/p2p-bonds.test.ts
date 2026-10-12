@@ -10,8 +10,8 @@
 // swarm.rs (browser math). Cross-language pins use static Rust reads
 // (node-env safe — full behavior stays a CI job with both toolchains).
 // Contracts: pure builders throw only `invalid:`/`too_large:`/`unsupported:`
-// (AGENT-1); RS math without a backend answers `unsupported:` naming the
-// exact wiring; nothing hangs.
+// (AGENT-1); RS/RaptorQ math without a backend answers `unsupported:` naming
+// the exact wiring; nothing hangs.
 import fs from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
@@ -34,6 +34,22 @@ import {
   validateSwarmSymbol,
 } from '@/utils/p2pSwarm'
 import { postRoomMessage, readRoomMessages, roomHello, roomTopic } from '@/utils/p2pRoom'
+import {
+  buildIrohTicket,
+  parseIrohTicket,
+  ticketRelay,
+  wanDialPlan,
+  parseWanEndpoint,
+  relayDialSteps,
+} from '@/utils/wanDial'
+import {
+  buildFountainPlan,
+  decodeFountain,
+  encodeFountain,
+  FOUNTAIN_KIND,
+  parseFountainSymbols,
+  validateFountainSymbol,
+} from '@/utils/p2pSwarm'
 
 function rustWordlist(): string[] {
   const src = fs.readFileSync('crates/sync/src/peers.rs', 'utf8')
@@ -217,5 +233,86 @@ describe('pair/swarm/room cybsh verbs', () => {
     expect(JSON.stringify(join)).toContain('room:com.example.chat/lobby')
     const say = await runStaticCybshLine('room say com.example.chat lobby draw', deps)
     expect(JSON.stringify(say)).toContain('/api/relay/drop')
+    const fountain = await runStaticCybshLine('swarm fountain 100000', deps)
+    expect(JSON.stringify(fountain)).toContain(FOUNTAIN_KIND)
+    expect(JSON.stringify(await runStaticCybshLine('swarm fountain', deps))).toContain('usage: swarm fountain')
+  })
+})
+
+describe('iroh tickets (self-contained rendezvous)', () => {
+  const ID = 'a'.repeat(64)
+
+  it('builds + parses canonical tickets (shape-checked; curve checked natively)', () => {
+    expect(buildIrohTicket(ID, 'https://relay.example.com/')).toBe(`iroh:${ID}@https://relay.example.com`)
+    expect(parseIrohTicket(`iroh:${ID}@https://relay.example.com/`)).toEqual({
+      endpointId: ID,
+      relayUrl: 'https://relay.example.com',
+    })
+    expect(ticketRelay(`iroh:${ID}@https://relay.example.com`)).toBe('https://relay.example.com')
+    expect(ticketRelay('relay.example.com:3456')).toBe('')
+    for (const bad of ['https://relay.example.com', 'iroh:no-at-sign', `iroh:short@https://r.example`, 'iroh:@https://r.example']) {
+      expect(() => parseIrohTicket(bad)).toThrow(/^invalid:/)
+    }
+    expect(() => buildIrohTicket('short', 'https://r.example')).toThrow(/^invalid:/)
+    // Rust twin pins the same grammar (static read, no cargo).
+    const src = fs.readFileSync('crates/sync/src/iroh.rs', 'utf8')
+    expect(src).toContain('parse_iroh_ticket')
+    expect(src).toContain('ticket_or_config_relay')
+  })
+
+  it('dials ticketed endpoints with no configured relay_url', () => {
+    const ep = parseWanEndpoint(`phone-7@iroh:${ID}@https://relay.example.com`)
+    const plan = wanDialPlan(ep, 15, '')
+    expect(plan.startsWith('relay:')).toBe(true)
+    expect(plan).toContain('https://relay.example.com/api/relay/drop')
+    const steps = relayDialSteps(ep, '', 3)
+    expect(steps[0]).toContain('https://relay.example.com/api/relay/drop')
+  })
+})
+
+describe('fountain envelopes (mirror sync::swarm fountain_*)', () => {
+  it('validates fountain symbol envelopes strictly', () => {
+    const good = {
+      object: 'a'.repeat(64),
+      otiBase64: 'AAAAAAAAAAAAAAAA',
+      mtu: 32768,
+      blake3: 'b'.repeat(64),
+      bytesBase64: 'eA==',
+    }
+    expect(validateFountainSymbol(good).mtu).toBe(32768)
+    expect(parseFountainSymbols(JSON.stringify([good]))).toHaveLength(1)
+    expect(() => validateFountainSymbol({ ...good, object: 'zz' })).toThrow(/^invalid:/)
+    expect(() => validateFountainSymbol({ ...good, otiBase64: '  ' })).toThrow(/^invalid:/)
+    expect(() => validateFountainSymbol({ ...good, mtu: 0 })).toThrow(/^invalid:/)
+    expect(() => parseFountainSymbols('not json')).toThrow(/^invalid:/)
+  })
+
+  it('plans fountain sprays offline and caps objects like the server', () => {
+    const steps = buildFountainPlan(1_000_000)
+    expect(steps.join('\n')).toContain(`kind: ${FOUNTAIN_KIND}`)
+    expect(steps.join('\n')).toContain('/api/relay/drop')
+    expect(() => buildFountainPlan(0)).toThrow(/^invalid:/)
+    expect(() => buildFountainPlan(50 * 1024 * 1024 + 1)).toThrow(/^too_large:/)
+    expect(() => buildFountainPlan(100, 0)).toThrow(/^invalid:/)
+  })
+
+  it('round-trips through an injected backend; refuses without one', async () => {
+    const backend = {
+      encode: async (payload: Uint8Array) => [
+        { object: 'a'.repeat(64), otiBase64: 'AAAAAAAAAAAAAAAA', mtu: 1024, blake3: 'b'.repeat(64), bytesBase64: Buffer.from(payload).toString('base64') },
+      ],
+      decode: async (symbols: { bytesBase64: string }[]) => {
+        if (symbols.length === 0) throw new Error('integrity: empty')
+        return Uint8Array.from(Buffer.from(symbols[0].bytesBase64, 'base64'))
+      },
+    }
+    const payload = new TextEncoder().encode('fountain spray, any subset decodes')
+    const symbols = await encodeFountain(payload, backend, 1024, 4)
+    expect(symbols).toHaveLength(1)
+    expect(new TextDecoder().decode(await decodeFountain(symbols, backend))).toBe(
+      'fountain spray, any subset decodes',
+    )
+    await expect(encodeFountain(payload, null)).rejects.toThrow(/^unsupported:/)
+    await expect(decodeFountain([], backend)).rejects.toThrow()
   })
 })
