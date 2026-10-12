@@ -252,7 +252,7 @@ fn oplog_push_pull_and_conflicts() {
         &d,
         "POST",
         "/api/oplog/push",
-        &signed_envelope("d1", &seed1, &[op1.clone()]),
+        &signed_envelope("d1", &seed1, std::slice::from_ref(&op1)),
         Some(&auth),
     );
     assert_eq!(status_of(&push1), 200, "{push1}");
@@ -427,7 +427,7 @@ fn peer_sync_is_peer_authenticated() {
         &d,
         "POST",
         "/api/peers/phone/sync",
-        &signed_envelope("phone", &seed, &[op.clone()]),
+        &signed_envelope("phone", &seed, std::slice::from_ref(&op)),
         Some(&plain),
     );
     assert_eq!(status_of(&wrong_owner), 403, "{wrong_owner}");
