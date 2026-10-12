@@ -1755,3 +1755,13 @@ environment can prove (no local cargo, no macOS signer, no networked QUIC CI):
 ## 2026-10-12 — CI follow-up: Rust formatting
 
 The CI runs for main `5ef7a83` and develop `30d323b` both failed at the Rust `Check formatting` step on the same match-arm layout in `crates/web/src/lib.rs`; no behavior or test failure was reported. Applied the exact rustfmt shape to the develop copy only. Version metadata and WASM build jobs passed; downstream platform jobs were cancelled after the Rust gate, and Pages deployment was skipped. Revalidation and a new develop CI run are pending; main remains untouched.
+
+## 2026-10-12 — Main P2P parity and CI follow-up
+
+- Integrated `4ca39ac`, `978c7ef`, and `c948bd8` from `main` into `develop`. Preserved main's P2P hardening: host-based LAN classification, token-based relay grammar and relay-free fan-out, IPv6 peer URLs, WAN `:3456` defaults, bounded HTTP status-line reads, timeout clamps, finite sync cursors, and the 10,000-op cap. The new P2P regression suite is included; c948's Rust `Debug` derives for `expect_err` tests are also preserved.
+- Resolved the search API merge by retaining main's relay skip while sending only `peers[].token`; the inbound caller bearer remains local to request authentication and is never forwarded. The REST route calls the no-fallback API. This keeps the security decision recorded above while retaining main's P2P safety fixes.
+- The prior develop CI failed only at Rust formatting; the exact route formatting was committed on develop. The `978c7ef` main CI was cancelled when `c948bd8` arrived; main's latest `c948bd8` CI is in progress. A fresh develop CI will run after the next push. Rust checks remain CI-only per `AGENTS.md`.
+
+## 2026-10-12 — Final local validation
+
+After integrating `main` through `c948bd8`, local checks passed: `check-version.sh`, file headers (545 files), `vue-tsc`, Vitest (96 files / 990 tests), `git diff --check`, and `VITE_BASE=/develop/ npm run build:wasm:frontend` with output assets verified under `/develop/assets/`. A source scan confirmed that no caller-bearer fallback remains. Cargo/rustfmt/Clippy/Rust tests were not run locally, per `AGENTS.md`; `main` CI for `c948bd8` was still in progress, and the next develop CI will run after publishing the validated head.
