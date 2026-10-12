@@ -13,6 +13,7 @@ import {
   wasmModuleExports,
   wasmOsDispatch,
   wasmSearchFiles,
+  wasmSearchFilesScored,
   wasmBackendActive,
 } from './useWasmBackend'
 import { vaultGet, vaultSet } from './useVault'
@@ -1229,6 +1230,35 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     transformResponse: (raw) => transformResponseKeys(raw),
   },
 
+  // ── Cross-device search port ─────────────────────────────
+  // POST /api/search/federated { query, limit, peers, timeoutSecs } →
+  // merged ranked hits (local tagged `local`, remote per peer). Explicit
+  // peer URLs are what make android/ios/docker/wasm work where mDNS
+  // cannot; a dead peer degrades to zero hits for that peer.
+  search_files_federated: {
+    method: 'POST',
+    buildPath: () => '/api/search/federated',
+    transformRequest: (args) => ({
+      query: args.query ?? '',
+      limit: args.limit ?? 50,
+      peers: ((args.peers ?? []) as Array<Record<string, unknown>>).map((p) => ({
+        baseUrl: p.baseUrl ?? p.base_url ?? '',
+        deviceId: p.deviceId ?? p.device_id ?? '',
+      })),
+      timeoutSecs: args.timeoutSecs ?? args.timeout_secs ?? 8,
+    }),
+    transformResponse: (raw) => {
+      const items = (Array.isArray(raw) ? raw : (raw as Record<string, unknown>)?.data ?? (raw as Record<string, unknown>)?.results ?? []) as Array<Record<string, unknown>>
+      return (Array.isArray(items) ? items : []).map((item) => ({
+        fileId: String(item.fileId ?? item.file_id ?? item.id ?? ''),
+        fileName: String(item.fileName ?? item.file_name ?? item.name ?? ''),
+        score: typeof item.score === 'number' ? item.score : 1.0,
+        snippet: typeof item.snippet === 'string' ? item.snippet : '',
+        source: typeof item.source === 'string' ? item.source : 'local',
+      }))
+    },
+  },
+
   // ── Code intelligence (transport-agnostic: text in, symbols out) ──
   parse_text: {
     method: 'POST',
@@ -1587,6 +1617,7 @@ export const MOBILE_NATIVE_OS_COMMANDS = new Set([
   'secret_reveal', 'secret_delete',
   'list_devices', 'register_device', 'register_this_device',
   'revoke_device', 'remove_device', 'list_lan_peers',
+  'probe_peer', 'peer_platform_notes', 'search_files_federated',
   'list_todos', 'create_todo', 'toggle_todo', 'delete_todo',
 ])
 
@@ -2988,6 +3019,64 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
     )) as T
   }
   const mapping = REST_ROUTES[cmd]
+  // ── P2P pure/local commands (no dashboard needed on any transport) ──
+  // `peer_platform_notes` is pure data (same matrix as Rust
+  // `peers::platform_notes`); `probe_peer` hits the peer directly, so on
+  // Tauri it uses the bounded Rust TCP probe (IPC twin) and elsewhere the
+  // fetch-based `/api/readyz` probe — never localhost:3456.
+  if (cmd === 'peer_platform_notes') {
+    const { peerCapabilityMatrix } = await import('@/utils/peerSearch')
+    return peerCapabilityMatrix() as unknown as T
+  }
+  if (cmd === 'probe_peer') {
+    const baseUrl = String(args?.baseUrl ?? args?.base_url ?? args?.url ?? '')
+    if (!baseUrl.trim()) throw new Error('invalid: baseUrl is required')
+    if (isTauri()) {
+      try {
+        const core = await import('@tauri-apps/api/core')
+        const timeoutSecs = Number(args?.timeoutSecs ?? args?.timeout_secs ?? 15) || 15
+        // Tauri binds by exact param name — send both cases, the twin picks
+        // its own (`base_url`/`timeout_secs` on this backend).
+        return await core.invoke<T>(cmd, {
+          baseUrl, base_url: baseUrl, timeoutSecs, timeout_secs: timeoutSecs,
+        })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (!/no command|unknown command|unimplemented/i.test(msg)) throw e
+        // No IPC twin (older backend) — fall through to the fetch probe.
+      }
+    }
+    const { wanHttpProbe } = await import('@/utils/wanDial')
+    const timeoutMs = Math.max(1000, Math.min(Number(args?.timeoutMs ?? 15000) || 15000, 60000))
+    await wanHttpProbe(baseUrl, timeoutMs)
+    return true as unknown as T
+  }
+  // `search_files_federated` over IPC needs snake_case twin names
+  // (`timeout_secs`, peer `base_url`/`device_id` stay camelCase via the
+  // struct's serde rename). Normalize here so callers stay camelCase on
+  // every transport — Tauri binds by exact param name.
+  if (cmd === 'search_files_federated' && isTauri() && !_serverUrl) {
+    const peers = ((args?.peers ?? []) as Array<Record<string, unknown>>).map((p) => ({
+      baseUrl: p.baseUrl ?? p.base_url ?? '',
+      deviceId: p.deviceId ?? p.device_id ?? '',
+    }))
+    const payload = {
+      query: String(args?.query ?? ''),
+      limit: args?.limit ?? 50,
+      peers,
+      timeout_secs: Number(args?.timeoutSecs ?? args?.timeout_secs ?? 8) || 8,
+    }
+    try {
+      const core = await import('@tauri-apps/api/core')
+      const ipc = await core.invoke<unknown>(cmd, payload)
+      return transformResponseKeys(ipc) as T
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      // No IPC twin (older backend) — fall through to the REST path, which
+      // reports honestly. Any real backend refusal surfaces here.
+      if (!/no command|unknown command|unimplemented/i.test(msg)) throw e
+    }
+  }
   // Mobile has no local dashboard, so native IPC is authoritative whenever no
   // remote server URL is configured. The fast set above returns immediately;
   // every other command still tries IPC first (same redb, same sync registry)
@@ -3099,12 +3188,12 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
       return transformResponseKeys(raw) as T
     }
     if (cmd === 'search_files') {
-      const hits = await wasmSearchFiles(String(args?.query ?? ''))
+      const hits = await wasmSearchFilesScored(String(args?.query ?? ''))
       return hits.map(h => ({
         fileId: h.path,
         fileName: h.path.split('/').pop() ?? h.path,
         score: h.score,
-        snippet: '',
+        snippet: h.snippet,
       })) as unknown as T
     }
     // Paginated search answers from the same BM25-lite volume index, sliced

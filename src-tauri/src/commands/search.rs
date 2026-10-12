@@ -45,6 +45,33 @@ pub fn search_files_paginated(
     api::search_api::search_paginated(&index, &db, &query, limit, offset)
 }
 
+/// Cross-device search port: local BM25 plus one bounded `GET /api/search`
+/// per explicit peer base URL (merged, deduped, max score wins). Explicit
+/// URLs are what make android/ios/docker/wasm work where mDNS discovery
+/// cannot — a dead peer degrades to zero hits for that peer, never a
+/// failed search.
+#[tauri::command(async)]
+pub fn search_files_federated(
+    query: String,
+    limit: Option<usize>,
+    peers: Vec<cybermanju_web::api::search_api::FederatedPeer>,
+    timeout_secs: Option<u64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<cybermanju_sync::peers::FederatedHit>, String> {
+    let db = state.db.read().map_err(|e| e.to_string())?;
+    let index = Some(Arc::clone(&state.tantivy_index));
+    Ok(api::search_api::search_federated(
+        &index,
+        &db,
+        &api::search_api::FederatedRequest {
+            query,
+            limit,
+            peers,
+            timeout_secs,
+        },
+    ))
+}
+
 /// Get type-ahead suggestions for a prefix query.
 #[tauri::command(async)]
 pub fn suggest(

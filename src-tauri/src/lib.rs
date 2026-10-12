@@ -366,6 +366,7 @@ pub fn run() {
             // Search
             search_cmd::search_files,
             search_cmd::search_files_paginated,
+            search_cmd::search_files_federated,
             search_cmd::suggest,
             // Encryption
             encryption::encrypt_file,
@@ -460,6 +461,8 @@ pub fn run() {
             devices::revoke_device,
             devices::remove_device,
             devices::list_lan_peers,
+            devices::probe_peer,
+            devices::peer_platform_notes,
             // Server-side todos (§4.9 agent bridge — same rows the agent tools use).
             todos::list_todos,
             todos::create_todo,

@@ -96,6 +96,25 @@ pub fn remove_device(id: String, state: State<'_, AppState>) -> Result<bool, Str
 // LAN peers (§2B.2) — active mDNS scan, 2 s cap
 // ---------------------------------------------------------------------------
 
+/// Probe a peer's `/api/readyz` with a bounded timeout. `Ok(true)` on HTTP
+/// 2xx, else an AGENT-1 `network:` error — never a hang, never a panic.
+/// Works for manual `device@host:port` peers on mobile/docker where mDNS
+/// multicast is blocked.
+#[tauri::command(async)]
+pub fn probe_peer(base_url: String, timeout_secs: Option<u64>) -> Result<bool, String> {
+    cybermanju_sync::iroh::http_probe(&base_url, timeout_secs.unwrap_or(15))
+}
+
+/// Per-platform P2P reality check for the Devices → P2P matrix: every target
+/// names its working fallback (manual peers, host networking, fetch …).
+#[tauri::command(async)]
+pub fn peer_platform_notes() -> Vec<serde_json::Value> {
+    cybermanju_sync::peers::platform_notes()
+        .into_iter()
+        .map(|(target, note)| serde_json::json!({ "target": target, "note": note }))
+        .collect()
+}
+
 /// Devices answering `_cybermanju._tcp.local` on the LAN right now.
 #[tauri::command(async)]
 pub fn list_lan_peers() -> Result<Vec<serde_json::Value>, String> {

@@ -286,9 +286,7 @@ fn start_scrub(db: &Database, origin: Option<&str>) -> Option<String> {
         }));
         repair::queue_pending(repair::PendingOp::Scrub(run.clone()));
         let health_parked = repair::queue_pending(repair::PendingOp::Health(health::all()));
-        let state = if run.corrupt + run.missing > 0 {
-            "error"
-        } else if !health_parked {
+        let state = if run.corrupt + run.missing > 0 || !health_parked {
             "error"
         } else {
             "done"

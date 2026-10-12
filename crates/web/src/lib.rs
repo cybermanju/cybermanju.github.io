@@ -2024,6 +2024,21 @@ fn route_request(
                 origin,
             )
         }
+        // ─── Cross-device search port ───────────────────────────
+        // POST /api/search/federated { query, limit?, peers: [{baseUrl,
+        // deviceId?}], timeoutSecs? } → merged ranked hits (local tagged
+        // `local`, remote tagged per peer). Explicit peer URLs are what
+        // make android/ios/docker/wasm work where mDNS cannot; a dead
+        // peer degrades to zero hits for that peer, never a failure.
+        ["api", "search", "federated"] if method == "POST" => {
+            match serde_json::from_str::<api::search_api::FederatedRequest>(body) {
+                Ok(req) => json_ok(
+                    &api::search_api::search_federated(&dashboard.search_index, db, &req),
+                    origin,
+                ),
+                Err(e) => json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
+            }
+        }
 
         // ─── Code intelligence ────────────────────────────────
         // Source-text parsing for web/Pages clients (the desktop Tauri

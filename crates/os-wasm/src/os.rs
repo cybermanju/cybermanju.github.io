@@ -360,6 +360,16 @@ fn complete_script_keywords(prefix: &str, out: &mut Vec<String>) {
     }
 }
 
+/// One BM25-lite hit with its score, snippet and match kind — the shape the
+/// cross-device search port merges on (`peerSearch.ts` keeps the same order).
+#[derive(Debug)]
+struct ScoredHit {
+    score: f64,
+    path: String,
+    snippet: String,
+    match_type: String,
+}
+
 /// BM25-lite over the stored files: term frequency against the collection.
 fn search(volume: &BTreeMap<String, String>, query: &str, limit: usize) -> Vec<String> {
     let terms: Vec<String> = query
@@ -386,6 +396,78 @@ fn search(volume: &BTreeMap<String, String>, query: &str, limit: usize) -> Vec<S
     }
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
     scored.into_iter().take(limit).map(|(_, p)| p).collect()
+}
+
+/// Scored twin of `search` for the cross-device port: same TF ranking, but
+/// each hit keeps its score, a ≤200-char snippet around the first term hit,
+/// and a `filename | content` match kind. `search()` stays path-only (pinned
+/// by `search_scores_matches`); this is what `search-scored` serves.
+fn search_scored(volume: &BTreeMap<String, String>, query: &str, limit: usize) -> Vec<ScoredHit> {
+    let terms: Vec<String> = query
+        .to_lowercase()
+        .split_whitespace()
+        .map(|t| t.to_string())
+        .collect();
+    if terms.is_empty() {
+        return Vec::new();
+    }
+    let mut scored: Vec<ScoredHit> = Vec::new();
+    for (path, text) in volume {
+        let haystack = format!("{} {}", path.to_lowercase(), text.to_lowercase());
+        let mut score = 0.0f64;
+        for term in &terms {
+            let hits = haystack.matches(term).count() as f64;
+            if hits > 0.0 {
+                score += (hits / (haystack.len() as f64 + 1.0)) * 100.0 + 1.0;
+            }
+        }
+        if score <= 0.0 {
+            continue;
+        }
+        let path_low = path.to_lowercase();
+        let match_type = if terms.iter().any(|t| path_low.contains(t)) {
+            "filename"
+        } else {
+            "content"
+        };
+        // Snippet: first term hit in the body text, ±80 chars, tabs/newlines
+        // flattened (the wire format is tab-separated lines).
+        let text_low = text.to_lowercase();
+        let mut pos = None;
+        for term in &terms {
+            if let Some(p) = text_low.find(term) {
+                pos = Some(p);
+                break;
+            }
+        }
+        let snippet = match pos {
+            Some(p) => {
+                let start = p.saturating_sub(80);
+                let end = (p + 120).min(text.len());
+                text[start..end]
+                    .replace(['\t', '\n', '\r'], " ")
+                    .chars()
+                    .take(200)
+                    .collect::<String>()
+                    .trim()
+                    .to_string()
+            }
+            None => String::new(),
+        };
+        scored.push(ScoredHit {
+            score,
+            path: path.clone(),
+            snippet,
+            match_type: match_type.to_string(),
+        });
+    }
+    scored.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    scored.truncate(limit);
+    scored
 }
 
 /// `*`-only glob match (case-sensitive). `*` spans separators.
@@ -1077,6 +1159,19 @@ fn dispatch(cmd: &str, args: &[String]) -> String {
                 ok(format!("no matches for `{query}`"))
             } else {
                 ok(hits.join("\n"))
+            }
+        }
+        "search-scored" => {
+            let query = args.join(" ");
+            let hits = search_scored(&volume, &query, 50);
+            if hits.is_empty() {
+                ok(format!("no matches for `{query}`"))
+            } else {
+                ok(hits
+                    .iter()
+                    .map(|h| format!("{:.2}\t{}\t{}\t{}", h.score, h.path, h.match_type, h.snippet))
+                    .collect::<Vec<_>>()
+                    .join("\n"))
             }
         }
         "grep" => ok(wasm_grep(&volume, args)),
@@ -5169,6 +5264,23 @@ mod tests {
         let hits = search(&volume, "fox", 10);
         assert_eq!(hits, vec!["/notes.txt".to_string()]);
         assert!(search(&volume, "zebra", 10).is_empty());
+    }
+
+    #[test]
+    fn search_scored_keeps_scores_snippets_and_kinds() {
+        let mut volume = BTreeMap::new();
+        volume.insert("/notes.txt".into(), "the quick brown fox".into());
+        volume.insert("/fox.txt".into(), "lazy dog".into());
+        let hits = search_scored(&volume, "fox", 10);
+        assert_eq!(hits.len(), 2);
+        // Filename hit outranks the body-text hit.
+        assert_eq!(hits[0].path, "/fox.txt");
+        assert_eq!(hits[0].match_type, "filename");
+        assert!(hits[0].score >= hits[1].score);
+        assert_eq!(hits[1].path, "/notes.txt");
+        assert_eq!(hits[1].match_type, "content");
+        assert!(hits[1].snippet.contains("fox"), "{hits:?}");
+        assert!(search_scored(&volume, "zebra", 10).is_empty());
     }
 
     #[test]

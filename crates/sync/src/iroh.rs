@@ -183,6 +183,28 @@ pub fn http_probe(addr: &str, timeout_secs: u64) -> Result<bool, String> {
     }
 }
 
+/// Classify a raw addr half without opening a socket: relay tickets and
+/// multiaddrs are the QUIC future, everything else is direct HTTP. Pure
+/// alias over `peers::classify_addr` so both seams agree on one grammar.
+pub fn classify_addr(addr: &str) -> super::peers::PeerTransport {
+    super::peers::classify_addr(addr)
+}
+
+/// Real direct-HTTP dial plan for off-LAN peers (probe + op-log pull/push).
+/// Relay endpoints refuse with `unsupported:` — pure alias over
+/// `peers::direct_http_plan` so the WAN seam and the peer seam share steps.
+pub fn direct_http_plan(
+    endpoint: &IrohEndpoint,
+    since: u64,
+) -> Result<Vec<String>, String> {
+    let peer = super::peers::PeerEndpoint {
+        device_id: endpoint.device_id.clone(),
+        base_url: http_base(endpoint),
+        transport: super::peers::classify_addr(&endpoint.addr),
+    };
+    super::peers::direct_http_plan(&peer, since)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

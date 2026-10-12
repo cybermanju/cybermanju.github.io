@@ -77,6 +77,30 @@ export function wanDialSteps(endpoint: WanEndpoint, since = 0): string[] {
 }
 
 /**
+ * Execute the WAN op-log exchange against a peer base URL: pull → push →
+ * merge → render via `syncExchangeWithPeer`. Relay endpoints refuse with
+ * `unsupported:` (QUIC is sequenced); direct HTTP peers sync today on all
+ * six targets wherever `/api` is reachable.
+ */
+export async function wanSyncExchange(
+  endpoint: WanEndpoint,
+  since: number,
+  localOps: unknown[],
+  deps: {
+    fetchJson: (method: string, url: string, body?: unknown) => Promise<unknown>
+    pushOps: (ops: unknown[]) => Promise<{ appended: number }>
+    fetchConflicts?: () => Promise<unknown>
+  },
+): Promise<{ pulled: number; pushed: number; steps: string[] }> {
+  const { syncExchangeWithPeer } = await import('./peerSearch')
+  return syncExchangeWithPeer(
+    { deviceId: endpoint.deviceId, baseUrl: endpoint.addr, transport: 'wan-http' },
+    since,
+    localOps,
+    deps,
+  )
+}
+/**
  * Probe a peer's `/api/readyz` with a 15 s abort. Resolves `true` on HTTP 2xx,
  * otherwise throws an AGENT-1 `network:` error (never a hang, never a guess).
  * Node-env safe: without a global `fetch` it answers `unsupported:`.

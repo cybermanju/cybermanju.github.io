@@ -29,6 +29,7 @@ pub mod gc;
 pub mod health;
 pub mod lan;
 pub mod lease;
+pub mod peers;
 pub mod repair;
 pub mod scrub;
 // WAN transport seam (§2B.5): config + endpoint parsing land now (std-only,

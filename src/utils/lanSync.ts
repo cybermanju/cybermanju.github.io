@@ -55,3 +55,27 @@ export function describePeer(peer: PeerDevice): string {
   const name = peer.name.trim() || peer.deviceId
   return `${name} (${peer.host}:${peer.port})`
 }
+
+/**
+ * Execute the direct LAN op-log exchange against a discovered peer: pull →
+ * push → merge → render via `syncExchangeWithPeer`. Same exchange as WAN —
+ * only the base URL comes from mDNS discovery instead of a manual endpoint.
+ */
+export async function lanSyncExchange(
+  peer: PeerDevice,
+  since: number,
+  localOps: unknown[],
+  deps: {
+    fetchJson: (method: string, url: string, body?: unknown) => Promise<unknown>
+    pushOps: (ops: unknown[]) => Promise<{ appended: number }>
+    fetchConflicts?: () => Promise<unknown>
+  },
+): Promise<{ pulled: number; pushed: number; steps: string[] }> {
+  const { syncExchangeWithPeer } = await import('./peerSearch')
+  return syncExchangeWithPeer(
+    { deviceId: peer.deviceId, baseUrl: peerBaseUrl(peer), transport: 'lan-http' },
+    since,
+    localOps,
+    deps,
+  )
+}

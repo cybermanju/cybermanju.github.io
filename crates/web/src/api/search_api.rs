@@ -127,6 +127,80 @@ fn into_hit(r: cybermanju_search::SearchResult) -> SearchHit {
     }
 }
 
+/// One peer to fan a federated search out to (explicit base URL — this is
+/// what makes android/ios/docker/wasm work where mDNS discovery cannot).
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FederatedPeer {
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
+    pub device_id: String,
+}
+
+/// Federated search request — local BM25 first, then peer fan-out.
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FederatedRequest {
+    #[serde(default)]
+    pub query: String,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub peers: Vec<FederatedPeer>,
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+}
+
+/// Federated search: local hits (tagged `local`) plus one bounded
+/// `GET /api/search` per peer (tagged with its base URL), merged with
+/// `peers::merge_federated_hits` (dedup by file id, max score wins). A dead
+/// peer degrades to zero hits for that peer — never a failed search.
+pub fn search_federated(
+    index: &SharedIndex,
+    db: &Database,
+    req: &FederatedRequest,
+) -> Vec<cybermanju_sync::peers::FederatedHit> {
+    let limit = req.limit.unwrap_or(50).clamp(1, 200);
+    let timeout = req.timeout_secs.unwrap_or(8).clamp(1, 30);
+    let mut hits: Vec<cybermanju_sync::peers::FederatedHit> = search(index, db, &req.query, Some(limit), None)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|h| cybermanju_sync::peers::FederatedHit {
+            file_id: h.file_id,
+            file_name: h.file_name,
+            score: h.score,
+            snippet: h.snippet.unwrap_or_default(),
+            source: "local".to_string(),
+        })
+        .collect();
+    for peer in req.peers.iter().take(8) {
+        if peer.base_url.trim().is_empty() {
+            continue;
+        }
+        match cybermanju_sync::peers::fetch_peer_hits(
+            &peer.base_url,
+            &req.query,
+            limit,
+            timeout,
+            None,
+        ) {
+            Ok(mut remote) => {
+                if !peer.device_id.trim().is_empty() {
+                    for hit in &mut remote {
+                        if hit.source == peer.base_url {
+                            hit.source = peer.device_id.clone();
+                        }
+                    }
+                }
+                hits.append(&mut remote);
+            }
+            Err(_) => continue,
+        }
+    }
+    cybermanju_sync::peers::merge_federated_hits(hits, limit)
+}
+
 fn all_files(db: &Database) -> Result<Vec<FileNode>, String> {
     let tx = db.begin_read().map_err(|e| e.to_string())?;
     let table = tx
