@@ -27,8 +27,6 @@ use std::{
 
 use cybermanju_db::Database;
 
-use cybermanju_db::Database;
-
 /// How we reach a peer. Only `RelayFuture` is aspirational — everything else
 /// is live on all six targets (android/ios/windows/linux/docker/wasm-fetch).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

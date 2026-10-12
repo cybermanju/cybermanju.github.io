@@ -1908,3 +1908,8 @@ The `Rust Lint & Test` job for main `c948bd8` reached Clippy and failed on one `
 
 - CI run [38201461668](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38201461668) for `a93e162` failed at Rust compilation: `verify_with_public_key` uses `VerifyingKey` at `crates/crypto/src/pqc.rs:1007,1014,1021`, but the import had been removed in an earlier unused-import cleanup before the latest `main` verifier landed. The same E0425 root cause propagated to Rust Lint & Test, Windows, macOS, iOS, Android, Linux packaging, Arch, and Docker. WASM and Version & Metadata passed; Pages deploy was skipped.
 - Restored `VerifyingKey` to the `ml_dsa` imports and confirmed `cargo fmt --all -- --check` plus `git diff --check`. Rust compile/Clippy/tests and Pages must be rerun in CI on the follow-up `develop` commit; `main` remains untouched.
+
+## 2026-10-12 — CI correction: deduplicate sync Database import
+
+- CI run [38202364081](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38202364081) confirmed the verifier import correction and then stopped on `E0252` in `crates/sync/src/peers.rs`: `cybermanju_db::Database` was imported twice after applying the local hardening snapshot over the newly merged `main` file. The duplicate also triggered `unused-imports`; the same compile error propagated across Rust/native/Docker jobs. WASM and Version & Metadata passed; Pages deploy was skipped.
+- Removed only the duplicate module import. A scan of the 17 changed Rust files found no repeated module-level imports; `cargo fmt --all -- --check` and `git diff --check` pass. Rust CI and Pages must be rerun on the next `develop` commit; `main` remains untouched.
