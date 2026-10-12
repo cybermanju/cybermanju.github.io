@@ -102,7 +102,7 @@ describe('iOS native scaffold (P2-16)', () => {
     expect(runbook).toContain('ios-build')
   })
 
-  it('ships the iOS build path (configure + signing scripts + CI job)', () => {
+  it('ships the iOS native configure + unsigned device build path', () => {
     const configure = fs.readFileSync('scripts/ios-configure.sh', 'utf8')
     expect(configure).toContain('minimumSystemVersion')
     expect(configure).toContain('NSAllowsLocalNetworking')
@@ -112,19 +112,31 @@ describe('iOS native scaffold (P2-16)', () => {
     }
     expect(signing).toContain('REQUIRE_SIGNING')
     const ci = fs.readFileSync('.github/workflows/ci.yml', 'utf8')
-    expect(ci).toContain('ios-build:')
-    expect(ci).toContain('macos-latest')
-    expect(ci).toContain('tauri ios init')
-    expect(ci).toContain('ios-signing.sh verify')
+    const iosJob = ci.slice(
+      ci.indexOf('  ios-build:'),
+      ci.indexOf('  macos-build:'),
+    )
+    expect(iosJob).toContain('ios-build:')
+    expect(iosJob).toContain('macos-latest')
+    expect(iosJob).toContain('tauri ios init')
+    expect(iosJob).toContain(
+      'npx tauri ios build --ci --target aarch64 --no-sign',
+    )
+    expect(iosJob).toContain('xcrun otool -l')
   })
 
-  it('always ships an unsigned sideload IPA (no secrets required)', () => {
+  it('always uploads an unsigned device IPA without App Store export', () => {
     const ci = fs.readFileSync('.github/workflows/ci.yml', 'utf8')
-    // Sideload packaging wraps the simulator .app as Payload/ → unsigned .ipa.
-    expect(ci).toContain('dist-ios-sideload')
-    expect(ci).toContain('Payload')
-    // CI itself never requires signing (green without Apple secrets);
-    // release is the only gate that may demand it.
-    expect(ci).toContain('REQUIRE_SIGNING: "0"')
+    const iosJob = ci.slice(
+      ci.indexOf('  ios-build:'),
+      ci.indexOf('  macos-build:'),
+    )
+    expect(iosJob).toContain('dist-ios-device-unsigned/*.ipa')
+    expect(iosJob).toContain('Payload/')
+    expect(iosJob).toContain('--target aarch64 --no-sign')
+    expect(iosJob).toContain('embedded.mobileprovision')
+    expect(iosJob).toContain('codesign -dv --verbose=4')
+    expect(iosJob).not.toMatch(/^\s*run:\s*.*--export-method/m)
+    expect(iosJob).not.toMatch(/^\s*run:\s*.*--archive-only/m)
   })
 })
