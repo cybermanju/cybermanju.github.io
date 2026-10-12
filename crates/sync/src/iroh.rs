@@ -103,7 +103,11 @@ pub fn dial_plan(endpoint: &IrohEndpoint, config: &IrohConfig) -> Result<String,
 /// payload }`. Pure constructor — delivery is `POST <relay>/api/relay/drop`
 /// (see `relay_forward`), pickup is `POST <relay>/api/relay/poll`. The TS
 /// twin `buildRelayEnvelope` pins the identical JSON shape.
-pub fn relay_envelope(to_device: &str, kind: &str, payload: &serde_json::Value) -> Result<String, String> {
+pub fn relay_envelope(
+    to_device: &str,
+    kind: &str,
+    payload: &serde_json::Value,
+) -> Result<String, String> {
     if to_device.trim().is_empty() {
         return Err("invalid: relay envelope needs a destination device id".to_string());
     }
@@ -128,7 +132,10 @@ pub fn relay_dial_steps(
     since: u64,
 ) -> Result<Vec<String>, String> {
     if !is_relay_addr(&endpoint.addr) {
-        return Err("invalid: relay steps need a relay ticket addr (direct addrs use http_dial_steps)".to_string());
+        return Err(
+            "invalid: relay steps need a relay ticket addr (direct addrs use http_dial_steps)"
+                .to_string(),
+        );
     }
     let relay = config.relay_url.trim().trim_end_matches('/');
     if relay.is_empty() {
@@ -138,8 +145,14 @@ pub fn relay_dial_steps(
         ));
     }
     Ok(vec![
-        format!("drop: POST {}/api/relay/drop {{ to: '{}', kind: op-envelope }}", relay, endpoint.device_id),
-        format!("poll: POST {}/api/relay/poll {{ for: '{}' }} ({} s abort)", relay, endpoint.device_id, config.dial_timeout_secs),
+        format!(
+            "drop: POST {}/api/relay/drop {{ to: '{}', kind: op-envelope }}",
+            relay, endpoint.device_id
+        ),
+        format!(
+            "poll: POST {}/api/relay/poll {{ for: '{}' }} ({} s abort)",
+            relay, endpoint.device_id, config.dial_timeout_secs
+        ),
         format!("pull: merge polled ops since={since} via POST /api/oplog/push {{ ops: theirs }}"),
         "push: POST /api/relay/drop { to, kind: op-envelope, payload: ours }".to_string(),
         "render: GET /api/oplog/conflicts".to_string(),
@@ -162,7 +175,11 @@ pub fn relay_poll_path(relay_base: &str) -> Result<String, String> {
 /// Returns the relay's `{ accepted: true, id }` receipt as raw JSON.
 /// `network:` on failure — never a hang, never a panic. Pure-HTTP relays and
 /// plain-HTTP relay URLs both ride here (the TLS decision is the URL's).
-pub fn relay_forward(relay_base: &str, envelope_json: &str, timeout_secs: u64) -> Result<String, String> {
+pub fn relay_forward(
+    relay_base: &str,
+    envelope_json: &str,
+    timeout_secs: u64,
+) -> Result<String, String> {
     if timeout_secs == 0 || timeout_secs > 120 {
         return Err("invalid: dial_timeout_secs must be 1..=120".to_string());
     }
@@ -537,8 +554,12 @@ mod tests {
             relay_url: "https://relay.example.com/".to_string(),
             dial_timeout_secs: 15,
         };
-        let env = relay_envelope(&ep.device_id, "op-envelope", &serde_json::json!({"ops": []}))
-            .expect("envelope");
+        let env = relay_envelope(
+            &ep.device_id,
+            "op-envelope",
+            &serde_json::json!({"ops": []}),
+        )
+        .expect("envelope");
         assert!(env.contains("\"to\":\"phone-7\""), "{env}");
         assert!(env.contains("\"v\":1"), "{env}");
         let steps = relay_dial_steps(&ep, &config, 41).expect("steps");
@@ -568,8 +589,12 @@ mod tests {
         let fp = endpoint_fingerprint(&b64).expect("fingerprint");
         assert_eq!(fp.len(), 64);
         assert_eq!(fp, endpoint_fingerprint(&b64).expect("stable"));
-        assert!(endpoint_fingerprint("!!!").unwrap_err().starts_with("invalid:"));
-        assert!(endpoint_fingerprint("").unwrap_err().starts_with("invalid:"));
+        assert!(endpoint_fingerprint("!!!")
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(endpoint_fingerprint("")
+            .unwrap_err()
+            .starts_with("invalid:"));
     }
 
     #[test]

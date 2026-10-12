@@ -797,11 +797,7 @@ pub fn relay_poll(db: &Database, recipient: &str) -> Result<Vec<RelayMessage>, S
     }
     let mut out = Vec::new();
     for id in read_index(db, &format!("{RELAY_INDEX_PREFIX}{recipient}")) {
-        let Some(raw) = db
-            .kv_get(&format!("{RELAY_MSG_PREFIX}{id}"))
-            .ok()
-            .flatten()
-        else {
+        let Some(raw) = db.kv_get(&format!("{RELAY_MSG_PREFIX}{id}")).ok().flatten() else {
             continue;
         };
         if let Ok(msg) = serde_json::from_str::<RelayMessage>(&raw) {
@@ -995,9 +991,15 @@ mod tests {
         let known = known_presence(&db, 2_050, PRESENCE_TTL_SECS);
         assert_eq!(known.len(), 1);
         assert_eq!(known[0].host, "192.168.1.61");
-        assert!(announce_presence(&db, "  ", "h", 3456, 0).unwrap_err().starts_with("invalid:"));
-        assert!(announce_presence(&db, "x", "", 3456, 0).unwrap_err().starts_with("invalid:"));
-        assert!(announce_presence(&db, "x", "h", 0, 0).unwrap_err().starts_with("invalid:"));
+        assert!(announce_presence(&db, "  ", "h", 3456, 0)
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(announce_presence(&db, "x", "", 3456, 0)
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(announce_presence(&db, "x", "h", 0, 0)
+            .unwrap_err()
+            .starts_with("invalid:"));
     }
 
     #[test]
@@ -1018,17 +1020,16 @@ mod tests {
         assert_eq!(queued[0].from, "laptop-1");
         // Poll is non-destructive — a dropped poll never loses mail.
         assert_eq!(relay_poll(&db, "phone-7").expect("poll").len(), 1);
-        assert_eq!(
-            relay_ack(&db, "phone-7", &[id.clone()]).expect("ack"),
-            1
-        );
+        assert_eq!(relay_ack(&db, "phone-7", &[id.clone()]).expect("ack"), 1);
         assert!(relay_poll(&db, "phone-7").expect("poll").is_empty());
         // Unknown recipients poll empty; garbage validates first.
         assert!(relay_poll(&db, "nobody").expect("poll").is_empty());
         assert!(relay_poll(&db, "  ").unwrap_err().starts_with("invalid:"));
-        assert!(relay_drop(&db, "", "phone-7", "op-envelope", serde_json::json!({}), 0)
-            .unwrap_err()
-            .starts_with("invalid:"));
+        assert!(
+            relay_drop(&db, "", "phone-7", "op-envelope", serde_json::json!({}), 0)
+                .unwrap_err()
+                .starts_with("invalid:")
+        );
         let big = serde_json::json!({"blob": "x".repeat(RELAY_MAX_BYTES + 1)});
         assert!(relay_drop(&db, "a", "b", "op-envelope", big, 0)
             .unwrap_err()
