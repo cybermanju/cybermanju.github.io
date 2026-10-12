@@ -6131,7 +6131,7 @@ mod tests {
         let deep: serde_json::Value = serde_json::from_str(&out).expect("json");
         assert!(deep["image_bytes"].as_u64().unwrap_or(0) > 0, "got {deep}");
         // Unknown subcommand suggests neighbours; bad keep refuses.
-        let err = backup_cmd(&["frobnicate".to_string()], Some(&db), false).expect_err("unknown");
+        let err = backup_cmd(&["exprot".to_string()], Some(&db), false).expect_err("unknown");
         assert!(err.contains("export"), "got {err}");
         let err = backup_cmd(
             &[
