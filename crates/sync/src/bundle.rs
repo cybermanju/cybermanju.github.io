@@ -258,7 +258,7 @@ pub fn import_bundle_detailed(db: &Database, bytes: &[u8]) -> Result<BundleImpor
                 p.file_id, BUNDLE_MAX_PAYLOAD_BYTES
             ));
         }
-        let expected_b64_len = ((p.size + 2) / 3) * 4;
+        let expected_b64_len = p.size.div_ceil(3) * 4;
         if p.bytes_base64.trim() != p.bytes_base64.as_str()
             || p.bytes_base64.len() as u64 != expected_b64_len
         {
