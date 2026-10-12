@@ -3106,9 +3106,38 @@ async function handleLan(args: string[], json: boolean, deps: StaticCybshDeps): 
   const sub = (args[0] ?? 'plan').toLowerCase()
   const rest = args.slice(1)
   if (sub === 'plan') {
-    const target = rest.find((a) => !a.startsWith('-')) ?? '127.0.0.1:3456'
-    const [host, portRaw] = target.split(':')
-    const peer = { deviceId: rest[1] ?? 'peer', name: rest[1] ?? 'peer', host: host || '127.0.0.1', port: parseInt(portRaw ?? '', 10) || 3456 }
+    const rawTarget = rest.find((a) => !a.startsWith('-')) ?? '127.0.0.1:3456'
+    // Accept `host:port`, `[v6]:port`, bare hosts, and `device@addr` (WAN grammar).
+    let deviceId = 'peer'
+    let target = rawTarget
+    const at = rawTarget.indexOf('@')
+    if (at >= 0 && rawTarget.slice(0, at).trim() && rawTarget.slice(at + 1).trim()) {
+      deviceId = rawTarget.slice(0, at).trim()
+      target = rawTarget.slice(at + 1).trim()
+    } else if (rest.filter((a) => !a.startsWith('-'))[1]) {
+      deviceId = rest.filter((a) => !a.startsWith('-'))[1]
+    }
+    let host = '127.0.0.1'
+    let port = 3456
+    const bracketed = target.match(/^\[([^\]]+)\](?::(\d+))?$/)
+    if (bracketed) {
+      host = bracketed[1] || host
+      port = parseInt(bracketed[2] ?? '', 10) || 3456
+    } else if (target.startsWith('[')) {
+      host = target
+    } else {
+      const lastColon = target.lastIndexOf(':')
+      // One colon = host:port; more = bare IPv6 (no port).
+      if (lastColon >= 0 && target.indexOf(':') === lastColon) {
+        host = target.slice(0, lastColon).trim() || host
+        port = parseInt(target.slice(lastColon + 1), 10) || 3456
+      } else if (lastColon < 0) {
+        host = target.trim() || host
+      } else {
+        host = target.trim()
+      }
+    }
+    const peer = { deviceId, name: deviceId, host, port }
     const steps = lanSyncSteps(peer, 0)
     if (json) return shellOk(JSON.stringify({ base: peerBaseUrl(peer), steps }))
     return shellOk([`peer: ${peerBaseUrl(peer)}`, ...steps].join('\n'))
