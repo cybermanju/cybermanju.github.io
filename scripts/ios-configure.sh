@@ -8,18 +8,19 @@
 #      (Tauri stamps the version into Info.plist at build time).
 #   2. bundle floor — `bundle.iOS.minimumSystemVersion` must be 17.0+
 #      (NSAllowsLocalNetworking needs iOS 17+; see docs/IOS.md).
-#   3. ATS note — LAN dashboard over plain http:// needs
-#      NSAllowsLocalNetworking; HTTPS behind the Caddy sidecar needs no
-#      exception. This script only AUDITS the Xcode project for the key when
-#      it exists (fresh `init` has no Info.plist yet) and prints the exact
-#      procedure otherwise — never silently patches a generated plist.
+#   3. framework link — `SystemConfiguration.framework` must be linked by the
+#      generated iOS target because `netdev` references its native symbols.
 #   4. identifier audit — tauri.conf.json identifier must be com.cybermanju.os
 #      (matches the provisioning profile + deep-link scheme).
+#   5. ATS note — LAN dashboard over plain http:// needs
+#      NSAllowsLocalNetworking; HTTPS behind the Caddy sidecar needs no
+#      exception. This script only AUDITS the Xcode project for the key when
+#      it exists and prints the procedure otherwise — never patches a plist.
 #
 # Usage: bash scripts/ios-configure.sh [gen/apple-dir]
-# Idempotent: audits only, never writes into `gen/` (signing writes via
-# ios-signing.sh). macOS-only for the Xcode-project checks; version/bundle
-# audits run on any OS so Linux meta-checks stay honest.
+# Idempotent: patches the generated Xcode linker flags and audits settings;
+# signing changes remain owned by ios-signing.sh. macOS-only for Xcode;
+# version/bundle audits run on any OS so Linux meta-checks stay honest.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -57,19 +58,28 @@ if [ "$identifier" != "com.cybermanju.os" ]; then
 fi
 echo "identifier ok: $identifier"
 
-# ─── 3. ATS audit (only when the Xcode project exists) ─────────────
+# ─── project-specific settings (only when the Xcode project exists) ─
 if [ ! -d "$APPLE_DIR" ]; then
-  echo "$MARK: $APPLE_DIR not found — run \`tauri ios init\` on macOS first; ATS exception applies at that point (docs/IOS.md §2)"
-  echo "iOS configure complete (audits only, no Xcode project yet)"
+  echo "$MARK: $APPLE_DIR not found — run \`tauri ios init\` on macOS first; linker config and ATS exception apply after init (docs/IOS.md §2)"
+  echo "iOS configure complete (basic checks; no Xcode project yet)"
   exit 0
 fi
 
 if [ "$(uname -s)" != "Darwin" ]; then
-  echo "$MARK: Xcode project present but ATS audit needs macOS — skipping plist check on $(uname -s)"
+  echo "$MARK: Xcode project checks require macOS — skipping framework link and plist checks on $(uname -s)"
   echo "iOS configure complete"
   exit 0
 fi
 
+# ─── 3. native framework link ──────────────────────────────────────
+pbxproj="$(find "$APPLE_DIR" -type f -name project.pbxproj -print -quit 2>/dev/null || true)"
+if [ -z "$pbxproj" ]; then
+  echo "::error::$MARK: generated Xcode project has no project.pbxproj under $APPLE_DIR" >&2
+  exit 1
+fi
+python3 scripts/ios-link-frameworks.py "$pbxproj"
+
+# ─── 5. ATS audit ──────────────────────────────────────────────────
 plist="$(find "$APPLE_DIR" -name 'Info.plist' 2>/dev/null | head -1 || true)"
 if [ -z "$plist" ]; then
   echo "$MARK: no Info.plist under $APPLE_DIR yet — add NSAppTransportSecurity/NSAllowsLocalNetworking per docs/IOS.md §2 when it appears"

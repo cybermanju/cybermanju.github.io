@@ -1046,8 +1046,9 @@ jobs:
       - name: Initialize iOS project
         run: npm run tauri ios init
 
-      # In-tree iOS settings `tauri ios init` does not generate: version +
-      # deployment-floor + identifier audits, ATS guidance (docs/IOS.md §2).
+      # In-tree iOS settings `tauri ios init` does not generate: link
+      # SystemConfiguration for netdev, version/deployment/identifier audits,
+      # and ATS guidance (docs/IOS.md §2).
       - name: Configure iOS project
         run: bash scripts/ios-configure.sh
 

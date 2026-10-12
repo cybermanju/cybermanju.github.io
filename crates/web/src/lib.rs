@@ -1476,8 +1476,10 @@ fn route_request(
         &path_segments,
         query,
         body,
-        &owner_id,
-        is_admin,
+        api::oplog::OplogAuth {
+            owner_id: &owner_id,
+            is_admin,
+        },
         origin,
     ) {
         return resp;

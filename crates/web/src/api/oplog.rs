@@ -178,6 +178,13 @@ pub fn resolve_op(
     Ok(serde_json::json!({ "resolved": true, "op": stored }))
 }
 
+/// Authenticated owner/admin context supplied by the HTTP auth gate.
+#[derive(Clone, Copy)]
+pub struct OplogAuth<'a> {
+    pub owner_id: &'a str,
+    pub is_admin: bool,
+}
+
 /// Dispatch `/api/oplog/*`.
 pub fn route(
     db: &Database,
@@ -185,8 +192,7 @@ pub fn route(
     path_segments: &[&str],
     query: &str,
     body: &str,
-    owner_id: &str,
-    is_admin: bool,
+    auth: OplogAuth<'_>,
     origin: Option<&str>,
 ) -> Option<String> {
     let response = match path_segments {
@@ -198,16 +204,16 @@ pub fn route(
                 .and_then(|v| v.parse::<usize>().ok())
                 .unwrap_or(500);
             let limit = limit.clamp(1, 5000);
-            let result = if is_admin {
+            let result = if auth.is_admin {
                 db.list_ops_since(since, limit)
                     .and_then(|ops| Ok((ops, db.oplog_head()?)))
-            } else if owner_id.trim().is_empty() {
+            } else if auth.owner_id.trim().is_empty() {
                 Err(anyhow::anyhow!("auth: authenticated owner is required"))
             } else {
                 db.list_devices().and_then(|rows| {
                     let ids: std::collections::HashSet<String> = rows
                         .into_iter()
-                        .filter(|d| !d.revoked && d.owner_id == owner_id)
+                        .filter(|d| !d.revoked && d.owner_id == auth.owner_id)
                         .map(|d| d.id)
                         .collect();
                     db.list_ops_since_for_devices(since, limit, &ids)
@@ -227,20 +233,20 @@ pub fn route(
         }
 
         ["api", "oplog", "push"] if method == "POST" => match parse::<PushRequest>(body) {
-            Ok(req) => respond(push(db, &req, owner_id), origin),
+            Ok(req) => respond(push(db, &req, auth.owner_id), origin),
             Err(e) => respond::<serde_json::Value>(Err(e), origin),
         },
 
         ["api", "oplog", "conflicts"] if method == "GET" => {
-            let result = if is_admin {
+            let result = if auth.is_admin {
                 db.op_conflicts()
-            } else if owner_id.trim().is_empty() {
+            } else if auth.owner_id.trim().is_empty() {
                 Err(anyhow::anyhow!("auth: authenticated owner is required"))
             } else {
                 db.list_devices().and_then(|rows| {
                     let ids: std::collections::HashSet<String> = rows
                         .into_iter()
-                        .filter(|d| !d.revoked && d.owner_id == owner_id)
+                        .filter(|d| !d.revoked && d.owner_id == auth.owner_id)
                         .map(|d| d.id)
                         .collect();
                     db.op_conflicts_for_devices(&ids)
@@ -259,7 +265,7 @@ pub fn route(
         }
 
         ["api", "oplog", "resolve"] if method == "POST" => match parse::<ResolveRequest>(body) {
-            Ok(req) => respond(resolve_op(db, &req, owner_id), origin),
+            Ok(req) => respond(resolve_op(db, &req, auth.owner_id), origin),
             Err(e) => respond::<serde_json::Value>(Err(e), origin),
         },
 
@@ -320,8 +326,10 @@ mod tests {
             &["api", "oplog", "since"],
             "since=0&limit=50",
             "",
-            "owner-a",
-            false,
+            OplogAuth {
+                owner_id: "owner-a",
+                is_admin: false,
+            },
             None,
         )
         .unwrap();
@@ -334,8 +342,10 @@ mod tests {
             &["api", "oplog", "conflicts"],
             "",
             "",
-            "owner-a",
-            false,
+            OplogAuth {
+                owner_id: "owner-a",
+                is_admin: false,
+            },
             None,
         )
         .unwrap();
