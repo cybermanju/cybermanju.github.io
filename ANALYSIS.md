@@ -486,9 +486,11 @@ stays a CI-side follow-up (needs both toolchains in one job) | ~~One test bootin
    + scheduled backup ✅ + watchers ✅ + skills (+panels) ✅.
 3. **Make "decentralized" honest** ✅ — device identity ✅ →
    LAN discovery ✅ → direct-sync protocol ✅ → CAS leases ✅ →
-   sneakernet ✅ (+ TLS ✅); HTTP WAN dial ✅ (`wanDialSteps`/`wanHttpProbe`
-   + WAN card Probe + `wan dial` verb + Rust `http_probe`), only QUIC relay
-   dial sequenced last.
+   sneakernet ✅ (+ TLS ✅); relay-over-HTTPS ✅ (dial plans, mailbox,
+   presence, attested sync, payloads) + RS-coded swarming ✅ + pairing
+   codes ✅ + relay rooms ✅; sequenced with named owners: QUIC datagrams
+   (`iroh` selected, item 6), GB-scale fountain codes (`raptorq`, item 7),
+   PAKE codes (item 8), Trystero strategy (item 9).
 4. **Daily-driver depth** ✅ — secrets (+CSV) ✅ + notes (+auto-index) ✅
    + timeline/contacts/tasks/bookmarks/datasets ✅ + i18n foundation ✅
    + rotation checklist ✅.

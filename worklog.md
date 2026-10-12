@@ -1630,3 +1630,36 @@ environment can prove (no local cargo, no macOS signer, no networked QUIC CI):
   transport parity clean (177 mappings), full vitest green (92 files / 974
   tests). Rust is CI's job per repo rules (no local cargo) — additive,
   existing-dep-only changes throughout.
+
+## 2026-10-12 — P2P bonds: pairing codes, RS swarming, rooms + project selections (ANALYSIS.md §2B 6-9)
+
+- Researched online and recorded selections in ANALYSIS.md (licenses +
+  versions verified 2026-10-12): `iroh` 1.x selected for QUIC (MIT/Apache,
+  relay+gossip+BLAKE3-blobs+mobile/WASM, self-hostable relay/dns; dep itself
+  sequenced — heavyweight, needs networked CI + mobile link validation;
+  `rust-libp2p` rejected as over-surface); `raptorq` sequenced for GB-scale
+  fountain codes; `magic-wormhole.rs` rejected as a dep (EUPL-1.2 vs MIT
+  policy), adopted as UX pattern; `librqbit` deferred; Trystero recorded as
+  one-file follow-up; `iroh-webrtc-transport` recorded as the direct
+  browser↔native path.
+- Native pairing codes over the relay mailbox (zero new routes/deps):
+  `peers::{pairing_code, normalize_pairing_code, pairing_recipient,
+  is_pairing_recipient}` (64-word list, OsRng entropy, `pair:<code>`
+  recipients) + `src/utils/pairing.ts` twin (WebCrypto mint, static-read
+  test pins the wordlist cross-language) + `pair make|drop|claim` verb +
+  Tauri `pairing_code` twin.
+- Erasure-coded relay swarming on the in-tree codec: `crates/sync/src/swarm.rs`
+  (`swarm_layout` ~64 KiB shards, `swarm_encode`/`swarm_decode` with
+  per-symbol + whole-object BLAKE3 seals, `kind: swarm-symbol`); Tauri
+  `swarm_encode`/`swarm_decode` twins; wasm `swarm_encode_json`/
+  `swarm_decode_json` exports (new `cybermanju-erasure` + `base64` wasm deps,
+  both pure Rust); `src/utils/p2pSwarm.ts` (layout mirror, envelope
+  validation, backend injection, wasm-loader factory) + `swarm plan` verb.
+- Zero-dep relay rooms: `src/utils/p2pRoom.ts` (`room:<app>/<room>` topics,
+  hello/action kinds, read+ack splits) + `room join|say` verb.
+- Docs: ANALYSIS.md status refresh + §2B items 6-9 (selections, versions,
+  integration plans, honest sequence reasons) + §6 phase-3 update;
+  OPERATIONS §4c2 gains pairing/swarm/rooms paragraphs + verbs.
+- Verified here: headers ok, `vue-tsc` clean, full vitest green. Rust
+  (pairing/swarm/wasm export) is CI's job per repo rules — additive,
+  existing-dep-only code following compiling in-repo patterns.

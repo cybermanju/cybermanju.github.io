@@ -54,8 +54,7 @@ fn swarm_encode_inner(payload: &[u8], data: u8, parity: u8) -> Result<String, St
     } else {
         swarm_layout_of(payload.len() as u64)
     };
-    let encoded =
-        cybermanju_erasure::encode_framed(payload, k, m).map_err(|e| e.to_string())?;
+    let encoded = cybermanju_erasure::encode_framed(payload, k, m).map_err(|e| e.to_string())?;
     let object = blake3::hash(payload).to_hex().to_string();
     let shard_len = encoded.shard_len();
     let mut symbols = Vec::with_capacity(encoded.shards.len());
@@ -142,8 +141,9 @@ fn swarm_decode_inner(symbols_json: &str) -> Result<Vec<u8>, String> {
             present.len()
         ));
     }
-    let payload = cybermanju_erasure::decode_framed(first.data_shards, first.parity_shards, &present)
-        .map_err(|e| e.to_string())?;
+    let payload =
+        cybermanju_erasure::decode_framed(first.data_shards, first.parity_shards, &present)
+            .map_err(|e| e.to_string())?;
     if blake3::hash(&payload).to_hex().to_string() != first.object {
         return Err("integrity: swarm object hash mismatch after decode".to_string());
     }

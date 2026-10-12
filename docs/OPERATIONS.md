@@ -238,6 +238,16 @@ TTL) and readers merge `GET /api/peers/known` with the mDNS scan. WebRTC
 datachannels rendezvous their offer/answer/ICE through the same relay
 mailbox (`kind: offer|answer|ice`).
 
+Human pairing (wormhole-style, no wormhole server): `pair make` mints a
+`NNN-word-word` code (`482-oak-river`); the sender drops to the
+`pair:<code>` mailbox, the receiver claims it (poll + ack, no replay).
+Codes are rendezvous, not PAKE — attestation stays ML-DSA. Bulk bytes ride
+erasure-coded swarms: `swarm plan <bytes>` shows the layout, then payloads
+spray as `kind: swarm-symbol` messages (any `k` of `k+m` reconstruct —
+dropped messages are non-events). Relay rooms give the sandbox presence +
+small-data fan-out: `room join <app> <name>` reads hellos, `room say <app>
+<name> <action> [json]` posts typed actions.
+
 | Target | Discovery | Sync | Search | Setup |
 |---|---|---|---|---|
 | android | presence (`announce`/`known`) — multicast lock blocked | HTTP op-log + relay envelopes while foregrounded | HTTP fan-out, ≤8 peers | same Wi-Fi, announce once per launch, keep app foregrounded |
@@ -258,7 +268,8 @@ is ML-DSA against the registry (`sign_peer_ops` on desktop, wasm
 `auth:`, never merged.
 
 cybsh: `lan plan|peers|sync`, `wan plan|dial [--relay <url>]`, `pex
-announce|known`, `relay drop|poll|ack`, `oplog plan|conflicts|resolve`;
+announce|known`, `relay drop|poll|ack`, `pair make|drop|claim`, `swarm plan`,
+`room join|say`, `oplog plan|conflicts|resolve`;
 UI: Devices → P2P matrix (`peer_platform_notes`), Devices → LAN peers →
 SYNC (attested ✓ when signed), Devices → Presence, Devices → WAN dial
 (relay URL field), OmniSearch federated mode.
