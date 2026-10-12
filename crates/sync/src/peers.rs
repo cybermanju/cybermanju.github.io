@@ -7,7 +7,10 @@
 // max score wins, stable desc sort).
 // Exports: PeerTransport, PeerEndpoint, parse_peer_endpoint, normalize_base_url,
 // classify_addr, is_lan_base, direct_http_plan, FederatedHit,
-// merge_federated_hits, fetch_peer_hits, platform_notes.
+// merge_federated_hits, fetch_peer_hits, platform_notes, platform_setup,
+// peer_readyz_url, peer_search_url, peer_oplog_since_url, peer_oplog_push_url,
+// peer_conflicts_url, deduplicate_peers, wasm_peer_warning,
+// MAX_FEDERATED_PEERS, FEDERATED_MARKER_HEADER.
 // Integrates: sync crate (std + reqwest blocking + serde_json already deps);
 // `POST /api/search/federated` and the `search_files_federated` Tauri command
 // ride on `merge_federated_hits` + `fetch_peer_hits`; the TS twin is
@@ -361,6 +364,131 @@ pub fn platform_notes() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
+/// Maximum peers fanned out per federated search (server + TS twin agree).
+/// More than this is a latency cliff on mobile (8 × 8 s serial would exceed
+/// every foreground budget); extra peers are dropped, never queued.
+pub const MAX_FEDERATED_PEERS: usize = 8;
+
+/// Marker header sent on server-side peer fetches so a peer can tell a
+/// federated fan-out from a direct user search. Peers serve plain
+/// `GET /api/search` for these (never re-fan-out), so loops are impossible
+/// by construction; the header exists for logs/rate-limit triage.
+pub const FEDERATED_MARKER_HEADER: &str = "x-cybermanju-federated";
+
+fn trim_base(base_url: &str) -> String {
+    normalize_base_url(base_url).unwrap_or_else(|_| base_url.trim().to_string())
+}
+
+/// `GET <base>/api/readyz` — the fail-closed liveness probe every dial plan
+/// starts with. Single source of truth for the URL shape (TS twin
+/// `peerReadyzUrl` pins the same string).
+pub fn peer_readyz_url(base_url: &str) -> String {
+    format!("{}/api/readyz", trim_base(base_url).trim_end_matches('/'))
+}
+
+/// `GET <base>/api/search?q=&limit=` — the cross-device search port. Single
+/// source of truth (TS twin `peerSearchUrl` pins the same shape).
+pub fn peer_search_url(base_url: &str, query: &str, limit: usize) -> String {
+    format!(
+        "{}/api/search?q={}&limit={}",
+        trim_base(base_url).trim_end_matches('/'),
+        encode_query(query),
+        limit.clamp(1, 200)
+    )
+}
+
+/// `GET <base>/api/oplog/since?since=&limit=` — pull half of the op-log
+/// exchange (TS twin `peerOplogSinceUrl`).
+pub fn peer_oplog_since_url(base_url: &str, since: u64, limit: usize) -> String {
+    format!(
+        "{}/api/oplog/since?since={}&limit={}",
+        trim_base(base_url).trim_end_matches('/'),
+        since,
+        limit.clamp(1, 500)
+    )
+}
+
+/// `POST <base>/api/oplog/push` — push half of the op-log exchange.
+pub fn peer_oplog_push_url(base_url: &str) -> String {
+    format!("{}/api/oplog/push", trim_base(base_url).trim_end_matches('/'))
+}
+
+/// `GET /api/oplog/conflicts` is always local (render half) — kept here so
+/// dial-step builders on every transport spell it identically.
+pub fn peer_conflicts_url() -> &'static str {
+    "/api/oplog/conflicts"
+}
+
+/// Dedup peer endpoints by normalized `base_url` (first wins), drop blanks,
+/// cap at `MAX_FEDERATED_PEERS`. Pure — the TS twin `deduplicatePeers` pins
+/// the same order (explicit peers first, cached peers after).
+pub fn deduplicate_peers(peers: Vec<PeerEndpoint>) -> Vec<PeerEndpoint> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for peer in peers {
+        let base = match normalize_base_url(&peer.base_url) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        if base.trim().is_empty() {
+            continue;
+        }
+        if !seen.insert(base.clone()) {
+            continue;
+        }
+        out.push(PeerEndpoint {
+            device_id: peer.device_id,
+            base_url: base,
+            transport: peer.transport,
+        });
+        if out.len() >= MAX_FEDERATED_PEERS {
+            break;
+        }
+    }
+    out
+}
+
+/// Browser-side warning for a peer base URL, or `None` when the fetch should
+/// just work. `page_is_https` is true when the local page itself is
+/// `https://` (Pages): then any `http://` peer is mixed-content-blocked
+/// before our code ever runs. `localhost` peers from a remote page are
+/// similarly unreachable (they point at the *viewer's* machine, not ours).
+/// Pure — the TS twin `wasmPeerWarning` pins the same strings.
+pub fn wasm_peer_warning(base_url: &str, page_is_https: bool) -> Option<String> {
+    let low = base_url.trim().to_lowercase();
+    if low.is_empty() {
+        return Some("invalid: peer address is required".to_string());
+    }
+    if page_is_https && low.starts_with("http://") {
+        return Some(
+            "mixed-content: this page is https:// but the peer is http:// — the browser blocks the fetch; serve the peer over https or use the server-side POST /api/search/federated fan-out"
+                .to_string(),
+        );
+    }
+    if low.contains("localhost") || low.contains("127.") || low.contains("[::1]") {
+        return Some(
+            "loopback: a remote page's localhost peer points at the viewer, not this device — use the peer's LAN address (e.g. 192.168.1.60:3456) instead"
+                .to_string(),
+        );
+    }
+    None
+}
+
+/// Actionable per-target setup for the Devices → P2P matrix (the *how* to go
+/// with `platform_notes`' *what*). One `; `-joined command list per target —
+/// copy-pasteable in OPERATIONS.md and the UI tooltip.
+pub fn platform_setup(target: &str) -> &'static str {
+    match target {
+        "android" => "grant Nearby/MulticastLock via Tauri manifest; else add manual peers device@host:port (same Wi-Fi), keep the app foregrounded during sync",
+        "ios" => "enable Bonjour/multicast entitlement; else add manual peers device@host:port, keep the app foregrounded (background sockets suspend)",
+        "windows" => "allow UDP 5353 + TCP 3456 at the firewall prompt; active scan only (no system mDNS daemon)",
+        "linux" => "open UDP 5353 / TCP 3456 in firewalld/ufw; avahi owns 5353 so passive answering degrades — active scan still finds peers",
+        "docker" => "run --network host for mDNS, else set explicit peer base URLs; persist SEARCH_INDEX_PATH + /data or the index rebuilds",
+        "wasm" => "no setup on-device: use explicit https:// peer URLs (CORS allowlist + no mixed-content) or POST /api/search/federated server-side",
+        _ => "add an explicit device@host:port peer — it works on every target",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,6 +562,61 @@ mod tests {
         let notes = platform_notes();
         for target in ["android", "ios", "windows", "linux", "docker", "wasm"] {
             assert!(notes.iter().any(|(t, _)| *t == target), "{notes:?}");
+        }
+    }
+
+    #[test]
+    fn peer_url_builders_share_one_shape() {
+        assert_eq!(
+            peer_readyz_url("192.168.1.60:3456"),
+            "http://192.168.1.60:3456/api/readyz"
+        );
+        assert_eq!(
+            peer_search_url("http://192.168.1.60:3456/", "hello world", 20),
+            "http://192.168.1.60:3456/api/search?q=hello%20world&limit=20"
+        );
+        assert_eq!(
+            peer_oplog_since_url("http://vault.example/", 41, 500),
+            "http://vault.example/api/oplog/since?since=41&limit=500"
+        );
+        assert_eq!(
+            peer_oplog_push_url("vault.example:3456"),
+            "http://vault.example:3456/api/oplog/push"
+        );
+        assert_eq!(peer_conflicts_url(), "/api/oplog/conflicts");
+    }
+
+    #[test]
+    fn dedup_keeps_first_base_and_caps_at_eight() {
+        let mk = |id: &str, base: &str| PeerEndpoint {
+            device_id: id.to_string(),
+            base_url: base.to_string(),
+            transport: PeerTransport::LanHttp,
+        };
+        let mut peers = vec![mk("a", "http://10.0.0.1:3456")];
+        peers.push(mk("a2", "http://10.0.0.1:3456/"));
+        peers.push(mk("b", "  "));
+        for i in 0..20 {
+            peers.push(mk(&format!("p{i}"), &format!("http://10.0.0.{i}:3456")));
+        }
+        let out = deduplicate_peers(peers);
+        assert_eq!(out.len(), MAX_FEDERATED_PEERS);
+        assert_eq!(out[0].device_id, "a");
+    }
+
+    #[test]
+    fn wasm_warnings_name_mixed_content_and_loopback() {
+        let mixed = wasm_peer_warning("http://192.168.1.60:3456", true).unwrap();
+        assert!(mixed.starts_with("mixed-content:"), "{mixed}");
+        assert!(wasm_peer_warning("https://vault.example.com", true).is_none());
+        let loopback = wasm_peer_warning("http://localhost:3456", false).unwrap();
+        assert!(loopback.starts_with("loopback:"), "{loopback}");
+    }
+
+    #[test]
+    fn every_target_has_setup() {
+        for target in ["android", "ios", "windows", "linux", "docker", "wasm"] {
+            assert!(!platform_setup(target).is_empty(), "{target}");
         }
     }
 }

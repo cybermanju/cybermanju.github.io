@@ -213,6 +213,38 @@ first; chained lines and unknown verbs fall through to the wasm dispatcher
 `sync start|cancel`, the OAuth redirect dance and provider push refuse with
 `unsupported:` pointing at the desktop app / Docker image / dashboard server.
 
+## 4c2. P2P + cross-device search (android/ios/windows/linux/docker/wasm)
+
+One grammar everywhere: `<device>@<addr>` (`phone-7@192.168.1.60:3456`,
+`vault@https://vault.example.com`). Relay tickets (`relay…`, `iroh:…`,
+`/p2p/…`) parse but refuse with `unsupported:` — the QUIC relay is sequenced,
+never pretended. Every live path is plain HTTP op-log/search (`GET
+/api/readyz` probe → `GET /api/oplog/since` pull → `POST /api/oplog/push`
+push → `POST /api/oplog/push` merge → `GET /api/oplog/conflicts` render),
+plus the search port (`GET /api/search` per peer, merged dedup-by-id /
+max-score-wins via `POST /api/search/federated`).
+
+| Target | Discovery | Sync | Search | Setup |
+|---|---|---|---|---|
+| android | none (multicast lock blocked) — manual peers + cached list | HTTP op-log while foregrounded | HTTP fan-out, ≤8 peers | same Wi-Fi, add `device@host:port`, keep app foregrounded |
+| ios | none (background sockets suspend) — manual peers + cached list | HTTP op-log while foregrounded | HTTP fan-out while foregrounded | Bonjour/multicast entitlement, else manual peers |
+| windows | active scan only (no system mDNS daemon) | LAN + WAN HTTP | local BM25 + peer fan-out | allow UDP 5353 + TCP 3456 at the firewall prompt |
+| linux | active scan (avahi owns 5353, passive answering degrades) | LAN + WAN HTTP | local BM25 + peer fan-out | open UDP 5353 / TCP 3456 in firewalld/ufw |
+| docker | none on bridge networks | explicit peer URLs | `POST /api/search/federated` server-side | `--network host` for mDNS, else explicit URLs; persist `/data` + `SEARCH_INDEX_PATH` |
+| wasm | none (no UDP in sandbox) | needs the dashboard | BM25-lite local + `fetch()` to explicit `https://` peers (CORS + mixed-content apply) | explicit `https://` URLs on the CORS allowlist, or server-side fan-out |
+
+Auth: peers carry their own bearer — set per-peer `token` in
+`POST /api/search/federated { peers: [{ baseUrl, deviceId, token }] }`
+(multi-secret vaults); without it the caller's own bearer is forwarded
+(single-secret vaults). Anonymous peers that require auth degrade to zero
+hits with an `auth:` marker, never a failed search. `https://` probes from
+Rust answer `unsupported:` (no TLS in `TcpStream`) — use the fetch-based
+probe in the browser/WebView or terminate TLS at a reverse proxy.
+
+cybsh: `lan plan|peers|sync`, `wan plan|dial`, `oplog plan|conflicts|resolve`;
+UI: Devices → P2P matrix (`peer_platform_notes`), Devices → LAN peers →
+SYNC, OmniSearch federated mode.
+
 ## 4d. Interface verbs (cybsh customizes the whole UI)
 
 `theme [<id>|get]` and `ui …` read/write the full interface settings mirror

@@ -9,7 +9,6 @@
 use tauri::State;
 
 use crate::AppState;
-use base64::Engine as _;
 use cybermanju_types::schema::DeviceRow;
 
 // ---------------------------------------------------------------------------
@@ -121,11 +120,10 @@ pub fn list_lan_peers() -> Result<Vec<serde_json::Value>, String> {
     let peers = cybermanju_sync::lan::discover(
         std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
             cybermanju_sync::lan::MDNS_ADDR,
-            cybermanju_sync::lan::MDNS_PORT,
-        )),
+        cybermanju_sync::lan::MDNS_PORT,
+        ),
         std::time::Duration::from_secs(2),
-    )
-    .map_err(|e| e)?;
+    )?;
     Ok(peers
         .iter()
         .map(|p| {

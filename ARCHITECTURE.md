@@ -763,6 +763,8 @@ Login via `POST /api/users/login` with `{ "username": "...", "password": "..." }
 | `GET` | `/api/geo-files` | List files with GPS coordinates |
 | **Search** | | |
 | `GET` | `/api/search?q={term}` | Search files by name, path, or content |
+| `GET` | `/api/search/paginated?q={term}&limit=&offset=` | Paginated search + total count |
+| `POST` | `/api/search/federated` | Cross-device search port: `{ query, limit?, peers: [{ baseUrl, deviceId?, token? }], timeoutSecs? }` → merged ranked hits (local tagged `local`); ≤8 peers, dead peers degrade to zero hits; per-peer `token` wins, else the caller's bearer is forwarded (single-secret vaults) |
 | **Locations** | | |
 | `GET` | `/api/locations` | List all locations |
 | **Users** | | |

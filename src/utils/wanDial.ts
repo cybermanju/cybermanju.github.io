@@ -6,7 +6,8 @@
 // today wherever the peer exposes `/api`. QUIC/NAT-traversal stays sequenced
 // (new dep + networked CI proving).
 // Exports: WanEndpoint, parseWanEndpoint, wanDialPlan, wanWayOut,
-// wanHttpBase, wanDialSteps, wanHttpProbe.
+// wanHttpBase, wanDialSteps, wanHttpProbe, isRelayAddr, wanPeekUrls,
+// wanFederatedPlan.
 // Integrates: DevicesPanel WAN card renders plan + dial steps; `wan plan|dial`
 // cybsh verbs reuse the builders; Rust twin is crates/sync/src/iroh.rs (same
 // grammar, same `unsupported:` prefix, pinned by wan-dial.test.ts).
@@ -45,6 +46,46 @@ export function wanDialPlan(endpoint: WanEndpoint, dialTimeoutSecs = 15): string
   throw new Error(
     `unsupported: QUIC dial to '${endpoint.deviceId}' needs the iroh transport (sequenced: new dependency + networked CI proving) — use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle`,
   )
+}
+
+/** True when the addr half needs the sequenced QUIC relay (same grammar as Rust `is_relay_addr`). */
+export function isRelayAddr(addr: string): boolean {
+  const low = addr.trim().toLowerCase()
+  return low.includes('relay') || low.startsWith('iroh:') || low.includes('/p2p/')
+}
+
+/** The three URL shapes one WAN endpoint fans out to (probe/search/op-log). */
+export function wanPeekUrls(endpoint: WanEndpoint): { readyz: string; search: (q: string, limit?: number) => string; oplogSince: (since: number) => string } {
+  const base = wanHttpBase(endpoint)
+  return {
+    readyz: `${base.replace(/\/+$/, '')}/api/readyz`,
+    search: (q: string, limit = 20) => {
+      const capped = Math.max(1, Math.min(Math.floor(limit) || 20, 200))
+      return `${base.replace(/\/+$/, '')}/api/search?q=${encodeURIComponent(q)}&limit=${capped}`
+    },
+    oplogSince: (since: number) =>
+      `${base.replace(/\/+$/, '')}/api/oplog/since?since=${Math.max(0, Math.floor(since) || 0)}&limit=500`,
+  }
+}
+
+/**
+ * Federated-search plan for a WAN endpoint (local BM25 + one bounded peer
+ * fetch). Relay endpoints refuse with `unsupported:` — same gate as Rust
+ * `federated_search_plan`.
+ */
+export function wanFederatedPlan(endpoint: WanEndpoint, query: string, limit = 20): string[] {
+  if (!query.trim()) throw new Error('invalid: federated search needs a query')
+  if (isRelayAddr(endpoint.addr)) {
+    throw new Error(
+      `unsupported: federated search to '${endpoint.deviceId}' needs the iroh transport (sequenced) — use direct host:port peers or POST /api/search/federated with reachable base URLs`,
+    )
+  }
+  const capped = Math.max(1, Math.min(Math.floor(limit) || 20, 200))
+  const urls = wanPeekUrls(endpoint)
+  return [
+    `local: BM25 \`${query}\` (limit ${capped}, tagged \`local\`)`,
+    `peer: GET ${urls.search(query, capped)} (timeout 8 s, dead peer → zero hits)`,
+  ]
 }
 
 /** The way out offered alongside the `unsupported:` plan (never guessed). */

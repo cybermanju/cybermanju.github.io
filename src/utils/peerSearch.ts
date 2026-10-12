@@ -8,7 +8,9 @@
 // Exports: PeerTransportName, PeerEndpoint, FederatedHit, FederatedPeer,
 // parsePeerEndpoint, normalizeBaseUrl, classifyAddr, isLanBase, mergeFederatedHits,
 // peerCapabilityMatrix, loadCachedPeers, saveCachedPeers, federatedSearch,
-// syncExchangeWithPeer.
+// syncExchangeWithPeer, peerReadyzUrl, peerSearchUrl, peerOplogSinceUrl,
+// peerOplogPushUrl, deduplicatePeers, wasmPeerWarning, buildFederatedBody,
+// MAX_FEDERATED_PEERS, FEDERATED_MARKER_HEADER.
 // Integrates: DevicesPanel P2P card + OmniSearch federated mode; `useTauri`
 // `search_files_federated` static handler fans out through this; Rust twins
 // are crates/sync/src/peers.rs (same grammar, same merge) and
@@ -36,6 +38,109 @@ export interface FederatedHit {
 export interface FederatedPeer {
   baseUrl: string
   deviceId?: string
+  /** The peer's own bearer (per-device credentials; empty = anonymous). */
+  token?: string
+}
+
+/** Max peers per fan-out (agrees with Rust `MAX_FEDERATED_PEERS`). */
+export const MAX_FEDERATED_PEERS = 8
+
+/** Marker header on server-side peer fetches (log triage; never re-fanned). */
+export const FEDERATED_MARKER_HEADER = 'x-cybermanju-federated'
+
+/** `GET <base>/api/readyz` — single source of truth for the probe URL. */
+export function peerReadyzUrl(baseUrl: string): string {
+  return `${normalizeBaseUrl(baseUrl).replace(/\/+$/, '')}/api/readyz`
+}
+
+/** `GET <base>/api/search?q=&limit=` — the cross-device search port URL. */
+export function peerSearchUrl(baseUrl: string, query: string, limit = 20): string {
+  const base = normalizeBaseUrl(baseUrl).replace(/\/+$/, '')
+  const capped = Math.max(1, Math.min(Math.floor(limit) || 20, 200))
+  return `${base}/api/search?q=${encodeURIComponent(query)}&limit=${capped}`
+}
+
+/** `GET <base>/api/oplog/since?since=&limit=` — pull half of the exchange. */
+export function peerOplogSinceUrl(baseUrl: string, since: number, limit = 500): string {
+  const base = normalizeBaseUrl(baseUrl).replace(/\/+$/, '')
+  const s = Math.max(0, Math.floor(since) || 0)
+  const capped = Math.max(1, Math.min(Math.floor(limit) || 500, 500))
+  return `${base}/api/oplog/since?since=${s}&limit=${capped}`
+}
+
+/** `POST <base>/api/oplog/push` — push half of the exchange. */
+export function peerOplogPushUrl(baseUrl: string): string {
+  return `${normalizeBaseUrl(baseUrl).replace(/\/+$/, '')}/api/oplog/push`
+}
+
+/**
+ * Dedup peers by normalized base URL (first wins), drop blanks, cap at
+ * `MAX_FEDERATED_PEERS`. Same order as Rust `deduplicate_peers` (explicit
+ * peers first, cached peers after).
+ */
+export function deduplicatePeers(peers: FederatedPeer[]): FederatedPeer[] {
+  const seen = new Set<string>()
+  const out: FederatedPeer[] = []
+  for (const p of peers) {
+    let base = ''
+    try {
+      base = normalizeBaseUrl(p.baseUrl ?? '')
+    } catch {
+      continue
+    }
+    if (seen.has(base)) continue
+    seen.add(base)
+    out.push({ ...p, baseUrl: base })
+    if (out.length >= MAX_FEDERATED_PEERS) break
+  }
+  return out
+}
+
+/**
+ * Browser-side warning for a peer base URL (`null` = should just work).
+ * Same strings as Rust `wasm_peer_warning`: mixed-content when an https://
+ * page targets http://, loopback when a remote page targets localhost.
+ */
+export function wasmPeerWarning(baseUrl: string, pageIsHttps: boolean): string | null {
+  const low = (baseUrl ?? '').trim().toLowerCase()
+  if (!low) return 'invalid: peer address is required'
+  if (pageIsHttps && low.startsWith('http://')) {
+    return 'mixed-content: this page is https:// but the peer is http:// — the browser blocks the fetch; serve the peer over https or use the server-side POST /api/search/federated fan-out'
+  }
+  if (low.includes('localhost') || low.includes('127.') || low.includes('[::1]')) {
+    return 'loopback: a remote page\u2019s localhost peer points at the viewer, not this device — use the peer\u2019s LAN address (e.g. 192.168.1.60:3456) instead'
+  }
+  return null
+}
+
+/**
+ * Build the `POST /api/search/federated` body (single source of truth for
+ * the REST shape): camelCase peer twins + `timeoutSecs`, blanks dropped,
+ * peers deduped/capped. Per-peer `token` fields pass through untouched.
+ */
+export function buildFederatedBody(args: {
+  query: string
+  limit?: number
+  peers?: Array<Record<string, unknown>>
+  timeoutSecs?: number
+  timeout_secs?: number
+}): { query: string; limit: number; peers: FederatedPeer[]; timeoutSecs: number } {
+  const peers = deduplicatePeers(
+    ((args.peers ?? []) as Array<Record<string, unknown>>).map((p) => ({
+      baseUrl: String(p.baseUrl ?? p.base_url ?? ''),
+      deviceId: String(p.deviceId ?? p.device_id ?? ''),
+      ...(typeof (p.token ?? (p as Record<string, unknown>).peerToken) === 'string' &&
+      String(p.token ?? (p as Record<string, unknown>).peerToken).trim()
+        ? { token: String(p.token ?? (p as Record<string, unknown>).peerToken) }
+        : {}),
+    })).filter((p) => p.baseUrl.trim()),
+  )
+  return {
+    query: args.query ?? '',
+    limit: Math.max(1, Math.min(Number(args.limit ?? 50) || 50, 200)),
+    peers,
+    timeoutSecs: Number(args.timeoutSecs ?? args.timeout_secs ?? 8) || 8,
+  }
 }
 
 /** `http(s)://` base for a raw addr half (addr stays opaque, never guessed). */
@@ -263,9 +368,12 @@ export async function fetchPeerHits(
   if (!query.trim()) return []
   const base = normalizeBaseUrl(baseUrl)
   const capped = Math.max(1, Math.min(Math.floor(limit) || 20, 200))
-  const url = `${base}/api/search?q=${encodeURIComponent(query)}&limit=${capped}`
-  const headers: Record<string, string> = { Accept: 'application/json' }
-  if (token) headers.Authorization = `Bearer ${token}`
+  const url = peerSearchUrl(base, query, capped)
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    [FEDERATED_MARKER_HEADER]: '1',
+  }
+  if (token?.trim()) headers.Authorization = `Bearer ${token.trim()}`
   const res = await fetchWithTimeout(url, { method: 'GET', headers }, timeoutMs)
   if (res.status === 401 || res.status === 403) {
     throw new Error(`auth: peer search ${base} refused (HTTP ${res.status})`)
@@ -301,8 +409,9 @@ export interface FederatedSearchOptions {
 
 /**
  * Cross-device search port: local hits plus one bounded peer fetch each
- * (max 8 peers), merged with `mergeFederatedHits`. A dead peer contributes
- * zero hits — never a failed search.
+ * (max `MAX_FEDERATED_PEERS`), merged with `mergeFederatedHits`. A dead
+ * peer contributes zero hits — never a failed search. Per-peer `token`
+ * fields win over the shared `token` option (multi-secret vaults).
  */
 export async function federatedSearch(
   query: string,
@@ -315,9 +424,13 @@ export async function federatedSearch(
     ...h,
     source: h.source || 'local',
   }))
-  const peers = options.peers.filter((p) => p.baseUrl && p.baseUrl.trim()).slice(0, 8)
+  const peers = deduplicatePeers(
+    options.peers.filter((p) => p.baseUrl && p.baseUrl.trim()),
+  ).slice(0, MAX_FEDERATED_PEERS)
   const settled = await Promise.allSettled(
-    peers.map((p) => fetchPeerHits(p.baseUrl, query, limit, timeoutMs, options.token)),
+    peers.map((p) =>
+      fetchPeerHits(p.baseUrl, query, limit, timeoutMs, p.token?.trim() ? p.token : options.token),
+    ),
   )
   settled.forEach((result, i) => {
     if (result.status !== 'fulfilled') return

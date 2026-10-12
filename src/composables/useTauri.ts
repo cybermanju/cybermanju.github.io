@@ -1237,15 +1237,25 @@ export const REST_ROUTES: Record<string, RestMapping> = {
   search_files_federated: {
     method: 'POST',
     buildPath: () => '/api/search/federated',
-    transformRequest: (args) => ({
-      query: args.query ?? '',
-      limit: args.limit ?? 50,
-      peers: ((args.peers ?? []) as Array<Record<string, unknown>>).map((p) => ({
-        baseUrl: p.baseUrl ?? p.base_url ?? '',
-        deviceId: p.deviceId ?? p.device_id ?? '',
-      })),
-      timeoutSecs: args.timeoutSecs ?? args.timeout_secs ?? 8,
-    }),
+    transformRequest: (args) => {
+      const seen = new Set<string>()
+      const peers: Array<{ baseUrl: string; deviceId: string; token?: string }> = []
+      for (const p of ((args.peers ?? []) as Array<Record<string, unknown>>)) {
+        const baseUrl = String(p.baseUrl ?? p.base_url ?? '').trim()
+        if (!baseUrl || seen.has(baseUrl.toLowerCase())) continue
+        seen.add(baseUrl.toLowerCase())
+        const deviceId = String(p.deviceId ?? p.device_id ?? '')
+        const token = String(p.token ?? (p as Record<string, unknown>).peerToken ?? '').trim()
+        peers.push(token ? { baseUrl, deviceId, token } : { baseUrl, deviceId })
+        if (peers.length >= 8) break
+      }
+      return {
+        query: args.query ?? '',
+        limit: Math.max(1, Math.min(Number(args.limit ?? 50) || 50, 200)),
+        peers,
+        timeoutSecs: Number(args.timeoutSecs ?? args.timeout_secs ?? 8) || 8,
+      }
+    },
     transformResponse: (raw) => {
       const items = (Array.isArray(raw) ? raw : (raw as Record<string, unknown>)?.data ?? (raw as Record<string, unknown>)?.results ?? []) as Array<Record<string, unknown>>
       return (Array.isArray(items) ? items : []).map((item) => ({
@@ -3055,10 +3065,14 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
   // struct's serde rename). Normalize here so callers stay camelCase on
   // every transport — Tauri binds by exact param name.
   if (cmd === 'search_files_federated' && isTauri() && !_serverUrl) {
-    const peers = ((args?.peers ?? []) as Array<Record<string, unknown>>).map((p) => ({
-      baseUrl: p.baseUrl ?? p.base_url ?? '',
-      deviceId: p.deviceId ?? p.device_id ?? '',
-    }))
+    const peers = ((args?.peers ?? []) as Array<Record<string, unknown>>).map((p) => {
+      const token = String(p.token ?? (p as Record<string, unknown>).peerToken ?? '').trim()
+      return {
+        baseUrl: p.baseUrl ?? p.base_url ?? '',
+        deviceId: p.deviceId ?? p.device_id ?? '',
+        ...(token ? { token } : {}),
+      }
+    })
     const payload = {
       query: String(args?.query ?? ''),
       limit: args?.limit ?? 50,
@@ -3226,19 +3240,26 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
         snippet: h.snippet,
         source: 'local',
       }))
-      const { federatedSearch, loadCachedPeers } = await import('@/utils/peerSearch')
+      const { federatedSearch, loadCachedPeers, deduplicatePeers } = await import('@/utils/peerSearch')
       const explicit = ((args?.peers ?? []) as Array<Record<string, unknown>>)
-        .map((p) => ({
-          baseUrl: String(p.baseUrl ?? p.base_url ?? ''),
-          deviceId: String(p.deviceId ?? p.device_id ?? ''),
-        }))
+        .map((p) => {
+          const token = String(p.token ?? (p as Record<string, unknown>).peerToken ?? '').trim()
+          return {
+            baseUrl: String(p.baseUrl ?? p.base_url ?? ''),
+            deviceId: String(p.deviceId ?? p.device_id ?? ''),
+            ...(token ? { token } : {}),
+          }
+        })
         .filter((p) => p.baseUrl.trim())
       const cached = loadCachedPeers()
         .filter((p) => !explicit.some((e) => e.baseUrl === p.baseUrl))
         .map((p) => ({ baseUrl: p.baseUrl, deviceId: p.deviceId }))
+      const peers = deduplicatePeers([...explicit, ...cached])
+      const token = typeof args?.token === 'string' && args.token.trim() ? args.token.trim() : undefined
       return (await federatedSearch(query, {
-        peers: [...explicit, ...cached],
+        peers,
         limit,
+        token,
         localHits: local,
       })) as unknown as T
     }
