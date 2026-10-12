@@ -1360,7 +1360,10 @@ mod tests {
         assert_eq!(queued[0].from, "laptop-1");
         // Poll is non-destructive — a dropped poll never loses mail.
         assert_eq!(relay_poll(&db, "phone-7").expect("poll").len(), 1);
-        assert_eq!(relay_ack(&db, "phone-7", &[id.clone()]).expect("ack"), 1);
+        assert_eq!(
+            relay_ack(&db, "phone-7", std::slice::from_ref(&id)).expect("ack"),
+            1
+        );
         assert!(relay_poll(&db, "phone-7").expect("poll").is_empty());
         // Unknown recipients poll empty; garbage validates first.
         assert!(relay_poll(&db, "nobody").expect("poll").is_empty());

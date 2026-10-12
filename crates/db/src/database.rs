@@ -1856,7 +1856,7 @@ mod snapshot_tests {
             "lockfile must release on close"
         );
         let _reopened = Database::new(path_str).unwrap();
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path_str}.lock"));
     }
 }

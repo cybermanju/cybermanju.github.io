@@ -313,8 +313,8 @@ mod tests {
         assert_eq!(swarm_layout(0), (1, 1));
         assert_eq!(swarm_layout(100), (1, 1));
         let (k, m) = swarm_layout(1024 * 1024);
-        assert!(k >= 16 && k <= 32, "k={k}");
-        assert!(m >= 1 && m <= 8, "m={m}");
+        assert!((16..=32).contains(&k), "k={k}");
+        assert!((1..=8).contains(&m), "m={m}");
         assert!((k as usize) + (m as usize) <= cybermanju_erasure::MAX_TOTAL_SHARDS);
     }
 
