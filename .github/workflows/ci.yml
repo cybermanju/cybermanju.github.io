@@ -1069,7 +1069,7 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
 
       - name: Build iOS simulator app (unsigned, no device needed)
-        run: npx tauri ios build --debug --target aarch64-apple-ios-sim
+        run: npx tauri ios build --debug --target aarch64-sim
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}

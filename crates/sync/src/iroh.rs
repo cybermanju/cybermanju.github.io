@@ -177,7 +177,9 @@ pub fn http_probe(addr: &str, timeout_secs: u64) -> Result<bool, String> {
     if (200..300).contains(&status) {
         Ok(true)
     } else {
-        Err(format!("network: WAN probe {socket_addr} answered HTTP {status}"))
+        Err(format!(
+            "network: WAN probe {socket_addr} answered HTTP {status}"
+        ))
     }
 }
 
