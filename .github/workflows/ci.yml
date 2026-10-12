@@ -1019,12 +1019,11 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # ─── iOS: unsigned simulator IPA (P2-16) ──────────────────────────
-  # macOS-only (Xcode + `tauri ios`). CI builds a simulator `.app` and packages
-  # it as an unsigned simulator IPA. It does not export a device/App Store IPA
-  # or use Apple signing secrets; release signing is handled separately.
+  # ─── iOS: unsigned device IPA (P2-16) ─────────────────────────────
+  # macOS-only (Xcode + `tauri ios`). Build the aarch64 device target with
+  # signing disabled; do not invoke Xcode's App Store/TestFlight export.
   ios-build:
-    name: Build iOS (unsigned simulator IPA)
+    name: Build iOS (unsigned device IPA)
     runs-on: macos-latest
     steps:
       - name: Checkout repository
@@ -1056,42 +1055,29 @@ jobs:
       - name: Configure iOS project
         run: bash scripts/ios-configure.sh
 
-      # Simulator output only: no device archive, export method or Apple
-      # distribution signing is requested by this CI job.
-      - name: Build unsigned iOS simulator app
-        run: npx tauri ios build --debug --target aarch64-sim
+      # Tauri's --no-sign device branch creates an arm64 IPA directly from the
+      # archive. Do not add --archive-only (it suppresses IPA generation) or
+      # --export-method (it invokes a distribution export such as App Store).
+      - name: Build unsigned iOS device IPA
+        run: npx tauri ios build --ci --target aarch64 --no-sign
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-      # Sideload artifact: a raw simulator `.app` does not sideload — wrap it
-      # as `Payload/<app>.app` and zip it to an unsigned `.ipa` (AltStore /
-      # Sideloadly installable). Only consume the simulator build directory;
-      # fail instead of silently publishing without the requested IPA.
-      - name: Package unsigned simulator IPA (sideload)
-        run: |
-          APP_PATH="$(find src-tauri/gen/apple/build/arm64-sim -name '*.app' -type d -print -quit 2>/dev/null || true)"
-          if [ -z "$APP_PATH" ]; then
-            echo "::error::no simulator .app found under src-tauri/gen/apple/build/arm64-sim"
-            exit 1
-          fi
-          echo "packaging simulator app: $APP_PATH"
-          PKG_DIR="$RUNNER_TEMP/ios-sideload"
-          rm -rf "$PKG_DIR"
-          mkdir -p "$PKG_DIR/Payload"
-          cp -r "$APP_PATH" "$PKG_DIR/Payload/"
-          VERSION="$(node -p "require('./package.json').version")"
-          (cd "$PKG_DIR" && zip -r -y "CyberManju-OS-$VERSION-sim-unsigned.ipa" Payload)
-          mkdir -p dist-ios-sideload
-          mv "$PKG_DIR/CyberManju-OS-$VERSION-sim-unsigned.ipa" dist-ios-sideload/
-          ls -la dist-ios-sideload/
-
-      - name: Verify unsigned simulator IPA
+      - name: Verify unsigned iOS device IPA
         shell: bash
         run: |
           set -euo pipefail
+          shopt -s nullglob
+          IPA_CANDIDATES=(src-tauri/gen/apple/build/arm64/*.ipa)
+          if [ "${#IPA_CANDIDATES[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one device IPA under src-tauri/gen/apple/build/arm64; found ${#IPA_CANDIDATES[@]}"
+            exit 1
+          fi
           VERSION="$(node -p "require('./package.json').version")"
-          IPA_PATH="dist-ios-sideload/CyberManju-OS-${VERSION}-sim-unsigned.ipa"
+          mkdir -p dist-ios-device-unsigned
+          IPA_PATH="dist-ios-device-unsigned/CyberManju-OS-${VERSION}-ios-device-unsigned.ipa"
+          mv "${IPA_CANDIDATES[0]}" "$IPA_PATH"
           test -s "$IPA_PATH"
           python3 - "$IPA_PATH" <<'PY'
           import sys
@@ -1099,20 +1085,58 @@ jobs:
 
           path = sys.argv[1]
           with ZipFile(path) as ipa:
-              assert ipa.testzip() is None, "corrupt simulator IPA archive"
               names = ipa.namelist()
-              assert any(name.startswith("Payload/") and name.endswith(".app/Info.plist") for name in names), "simulator app missing from IPA"
-              assert not any(name.endswith("embedded.mobileprovision") for name in names), "unexpected signed device provisioning profile in simulator IPA"
-          print(f"verified unsigned simulator IPA: {path}")
+              app_plists = [name for name in names if name.startswith("Payload/") and name.endswith(".app/Info.plist")]
+              assert len(app_plists) == 1, f"expected one Payload app Info.plist, found {len(app_plists)}"
+              assert not any(name.endswith("embedded.mobileprovision") for name in names), "unexpected provisioning profile in unsigned IPA"
+          print(f"verified IPA container and unsigned profile state: {path}")
           PY
+          VERIFY_DIR="$RUNNER_TEMP/ios-device-ipa-inspect"
+          mkdir -p "$VERIFY_DIR"
+          unzip -q "$IPA_PATH" -d "$VERIFY_DIR"
+          APPS=("$VERIFY_DIR"/Payload/*.app)
+          if [ "${#APPS[@]}" -ne 1 ]; then
+            echo "::error::expected one device app in IPA; found ${#APPS[@]}"
+            exit 1
+          fi
+          APP_PATH="${APPS[0]}"
+          EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")"
+          BINARY_PATH="$APP_PATH/$EXECUTABLE"
+          test -s "$BINARY_PATH"
+          ARCHS="$(xcrun lipo -archs "$BINARY_PATH")"
+          echo "IPA binary architectures: $ARCHS"
+          case " $ARCHS " in
+            *" arm64 "*) ;;
+            *) echo "::error::device IPA must contain arm64; got $ARCHS"; exit 1 ;;
+          esac
+          PLATFORM="$(xcrun otool -l "$BINARY_PATH" | awk '
+            $1 == "cmd" { in_build_version = ($2 == "LC_BUILD_VERSION"); next }
+            in_build_version && $1 == "platform" { print $2; exit }
+          ')"
+          echo "IPA Mach-O platform: $PLATFORM (2=IOS device; 7=IOSSIMULATOR)"
+          if [ "$PLATFORM" != "2" ]; then
+            echo "::error::IPA executable is not built for iOS device platform 2 (IOSSIMULATOR is 7)"
+            exit 1
+          fi
+          SIGNATURE_LOG="$RUNNER_TEMP/ios-device-codesign-check.log"
+          if codesign -dv --verbose=4 "$APP_PATH" >"$SIGNATURE_LOG" 2>&1; then
+            echo "::error::expected an unsigned IPA but the app bundle has a code signature"
+            cat "$SIGNATURE_LOG"
+            exit 1
+          fi
+          if ! grep -Fqi 'code object is not signed at all' "$SIGNATURE_LOG"; then
+            echo "::error::could not confirm that the device app is unsigned"
+            cat "$SIGNATURE_LOG"
+            exit 1
+          fi
+          echo "verified unsigned iOS device IPA: $IPA_PATH"
 
       - name: Upload iOS artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: dist-ios
+          name: dist-ios-device-unsigned
           path: |
-            src-tauri/gen/apple/build/arm64-sim/*.app
-            dist-ios-sideload/*.ipa
+            dist-ios-device-unsigned/*.ipa
           retention-days: 7
           if-no-files-found: error
 
