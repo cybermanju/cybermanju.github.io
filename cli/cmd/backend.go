@@ -31,7 +31,7 @@ var backendCmd = &cobra.Command{
   remote    dashboard URL (server flag / CYBERMANJU_SERVER / saved)
   docker    container managed by cyb (cyb serve up under the hood)
   native    installed CyberManju OS app (its localhost dashboard)
-  supabase  broker-direct limited mode: read-only, no decrypt/encrypt`,
+  CLI Limited (supabase)  broker-direct: read-only, no decrypt/encrypt`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return backendStatusCmd.RunE(cmd, args)
 	},
@@ -156,7 +156,7 @@ var backendUseCmd = &cobra.Command{
 			if err := config.Save(f); err != nil {
 				return err
 			}
-			ui.Success("backend → supabase-direct (limited, read-only; broker %s)", source)
+			ui.Success("backend → CLI Limited (Supabase direct, read-only; broker %s)", source)
 			ui.Emit(ui.NextSteps("supabase allowlist",
 				[2]string{"http://127.0.0.1:54329/callback", "allow under Authentication → URL Configuration → Redirect URLs"},
 				[2]string{"cyb supa login", "sign in through the broker"},

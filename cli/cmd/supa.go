@@ -1,7 +1,7 @@
 // CyberManju OS — Supa (cli/cmd/supa.go).
 // Role: cybsh CLI command.
 // Exports: module root (see items below).
-// Integrates: fmt, time, github.com, absent, present, github.
+// Integrates: fmt, time, github.com, absent, present, github, openURL.
 // Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
 
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/client"
@@ -26,7 +25,7 @@ var (
 
 var supaCmd = &cobra.Command{
 	Use:   "supa",
-	Short: "Supabase-direct limited mode (read-only, no dashboard)",
+	Short: "CLI Limited — Supabase direct, read-only (no dashboard)",
 	Long: `Broker-direct access without any dashboard: Supabase Auth in the
 terminal, then read-only provider APIs (repos, files, projects).
 Encrypted vault blobs stay opaque here — no decrypt/encrypt.`,
@@ -63,7 +62,7 @@ var supaLoginCmd = &cobra.Command{
 		authURL := c.AuthorizeURL(provider, redirect, supa.Challenge(verifier))
 		ui.Info("opening approval in your browser…")
 		ui.Info("allowlisted callback must be: %s", redirect)
-		if berr := browser.OpenURL(authURL); berr != nil {
+		if berr := openURL(authURL); berr != nil {
 			ui.Info("could not open a browser — visit:\n%s", authURL)
 		}
 		var code string

@@ -57,4 +57,7 @@ func TestAssetName(t *testing.T) {
 	if got := AssetName("windows", "arm64"); got != "cyb-windows-arm64.tar.gz" {
 		t.Fatalf("got %s", got)
 	}
+	if got := AssetName("android", "arm64"); got != "cyb-android-arm64.tar.gz" {
+		t.Fatalf("got %s", got)
+	}
 }

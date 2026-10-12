@@ -21,7 +21,7 @@ import (
 // doctorSupabase checks the dashboard-less limited backend.
 func doctorSupabase() error {
 	f := profile()
-	ui.Header("system check — supabase-direct (limited, read-only)")
+	ui.Header("system check — CLI Limited (Supabase direct, read-only)")
 	ui.Emit(ui.Rule(48))
 	var checks []check
 	fail := func(name, detail string) { checks = append(checks, check{name, false, detail}) }

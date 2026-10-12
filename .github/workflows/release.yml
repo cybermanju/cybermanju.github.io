@@ -892,7 +892,7 @@ jobs:
           if-no-files-found: error
 
   # ─── Go: universal `cyb` CLI (Charm UI) ──────────────────────────
-  # Pure Go (no cgo): one runner cross-compiles all six OS/arch pairs.
+  # Pure Go (no cgo): one runner cross-compiles desktop and Termux targets.
   # Deliberately waits on nothing (no downloads from other jobs).
   cli-build:
     name: Build CLI (cyb)
@@ -918,19 +918,19 @@ jobs:
           go vet ./...
           go test -race -count=1 ./...
 
-      - name: Cross-compile cyb (linux/darwin/windows × amd64/arm64)
+      - name: Cross-compile cyb (desktop amd64/arm64; Android/Termux arm64)
         working-directory: cli
         env:
           CGO_ENABLED: "0"
-          # OAuth broker (public URL + anon key) baked into cyb so
-          # `supa login` works out of the box. Empty when unset — the user
-          # then pastes the same pair Settings shows (no secret value here).
+          # Same OAuth broker secrets used by WASM, Android and iOS builds;
+          # bake them into every cyb target so `supa login` works directly.
+          # Empty when unset — the user can paste the pair from Settings.
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           PKG_VER="$(node -p "require('../package.json').version")"
           mkdir -p dist-cli
-          for target in "linux amd64" "linux arm64" "darwin amd64" "darwin arm64" "windows amd64" "windows arm64"; do
+          for target in "linux amd64" "linux arm64" "darwin amd64" "darwin arm64" "windows amd64" "windows arm64" "android arm64"; do
             set -- $target
             bin="cyb"
             [ "$1" = "windows" ] && bin="cyb.exe"

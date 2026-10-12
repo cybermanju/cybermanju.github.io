@@ -37,7 +37,7 @@ func New(rawURL, key string) *Client {
 
 // BakedURL/BakedKey are stamped by CI ldflags from the repo secrets
 // (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY) — the same broker every
-// desktop build bakes. Empty in dev builds; the Settings paste applies.
+// desktop and Android CLI build bakes. Empty in dev builds; Settings paste applies.
 var BakedURL, BakedKey string
 
 // BrokerPair resolves the broker: explicit flags > baked pair > "".

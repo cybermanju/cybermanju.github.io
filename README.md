@@ -61,7 +61,7 @@
 ```bash
 curl -fsSL https://cybermanju.github.io/install.sh | bash
 # installs `cyb`, then walks you through it: pick a backend
-# (docker · native app · remote · supabase) and run `cyb setup`
+# (docker · native app · remote · CLI Limited) and run `cyb setup`
 ```
 
 Windows PowerShell (native):
@@ -73,6 +73,8 @@ irm https://cybermanju.github.io/install.ps1 | iex
 
 Open `http://localhost:3456` from any device on your LAN — same vault, new screen. ✨
 Checksum-verified against the release `SHA256SUMS`; pin a release with `CYB_VERSION=v0.1.1`.
+
+**Android / Termux:** run the same command in Termux to install the Go CLI only (not the Android app). ARM64 is the supported Termux target. It updates an existing writable `cyb` on `PATH`, otherwise installs to `$PREFIX/bin`; re-running replaces it with the latest CLI. Termux skips the desktop Docker/native backend menu and hands setup to `cyb setup`. No root access is needed; install missing prerequisites with `pkg install curl tar coreutils`. The Android tarball starts shipping with the next tagged release; `v0.1.1` predates this support and has no Android asset.
 
 <details>
 <summary>⚙️ Preselect / automate the installer (click to expand)</summary>
@@ -94,7 +96,7 @@ curl -fsSL https://cybermanju.github.io/install.sh | bash -s -- --backend docker
 | Knob | Values | Purpose |
 |---|---|---|
 | `CYB_SETUP` | `1` / `0` / `auto` (default) | run / skip / offer `cyb setup` |
-| `CYB_BACKEND` | `docker` · `native` · `remote` · `supabase` | `serve up` / app dashboard / URL / read-only broker |
+| `CYB_BACKEND` | `docker` · `native` · `remote` · `supabase` (CLI Limited) | `serve up` / app dashboard / URL / read-only broker |
 | `CYB_SERVE` | `1` | shorthand for `CYB_BACKEND=docker` |
 | `CYB_SERVER` | URL | dashboard for `remote` + `setup` |
 | `CYB_PORT` / `CYB_DATA` / `CYB_IMAGE` | port / dir / image | `serve up` + `native` customization |
@@ -420,14 +422,15 @@ Every screen is Lipgloss neon (hot pink → signal red, cyan keycaps,
 zebra tables, tinted `--json`); agent answers and `cat -r` render
 markdown via Glamour (`GLAMOUR_STYLE` wins when set). Go
 (cobra + Charm v2: Bubble Tea, Lipgloss, Bubbles, Huh, Glamour) in `cli/`, checksum-verified
-self-updates (`cyb update`). Releases ship `cyb-<os>-<arch>.tar.gz` × 6,
+self-updates (`cyb update`). Releases ship seven `cyb-<os>-<arch>.tar.gz`
+archives (six desktop targets plus Android/Termux arm64),
 `cyb_<ver>_<arch>.deb` × 2, plus `SHA256SUMS` alongside the desktop
 families (`install.sh` uses tarballs; Windows zips carry `cyb.exe`).
 
 Backends (`cyb backend use …`) — one CLI, four ways to reach a vault:
 `remote` (any dashboard URL) · `docker` (`cyb serve up` under the hood) ·
 `native` (installed deb/AppImage/dmg/apk/Windows app's localhost
-dashboard, auto-probed) · `supabase` (broker-direct, read-only: Supabase
+dashboard, auto-probed) · `CLI Limited` (`supabase`, broker-direct, read-only: Supabase
 Auth + provider repo/file/project lists, encrypted blobs stay opaque —
 full power needs a dashboard). `cyb doctor` checks all of them.
 
@@ -447,7 +450,7 @@ full power needs a dashboard). `cyb doctor` checks all of them.
 CI builds **Windows** (MSI/NSIS) · **Linux** (deb + AppImage + rpm) · **RPM** ·
 **Flatpak** (`com.cybermanju.os`) · **Arch** · **macOS** (dmg) · **Android**
 (signed arm64 APK, NDK `28.2.13676358`) · **CLI** (`cyb` × linux/darwin/windows
-amd64+arm64) — releases ship all 9 families + `SHA256SUMS`. Tags `v*` trigger
+amd64+arm64 plus Android/Termux arm64) — releases ship all 9 families + `SHA256SUMS`. Tags `v*` trigger
 `release.yml` (Docker → GHCR included).
 
 #### Linux graphics checks (AppImage / .deb on Wayland, X11, VMs)

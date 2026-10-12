@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # CyberManju OS — universal `cyb` installer.
 #   curl -fsSL https://cybermanju.github.io/install.sh | bash
-# Installs the `cyb` terminal (Charm UI) for Linux, macOS and Windows
-# (Git Bash / MSYS2 / WSL). Checksum-verified against the release SHA256SUMS.
+# Installs the `cyb` terminal (Charm UI) for Linux, macOS, Windows
+# (Git Bash / MSYS2 / WSL) and Android (Termux). Verifies release SHA256SUMS.
 #
 # Env knobs:
 #   CYB_VERSION   release tag (default: latest). Example: CYB_VERSION=v0.2.0
@@ -28,7 +28,7 @@
 set -u
 
 REPO="${REPO:-cybermanju/cybermanju.github.io}"
-INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
+INSTALL_DIR="${INSTALL_DIR:-}"
 WANT_VERSION="${CYB_VERSION:-latest}"
 SETUP_PREF="${CYB_SETUP:-auto}"
 BACKEND="${CYB_BACKEND:-}"
@@ -108,17 +108,52 @@ case "$BACKEND" in ""|remote|docker|native|supabase) ;; *) die "unknown backend:
 
 OS="$(uname -s)"
 ARCH="$(uname -m)"
+IS_TERMUX=0
+if [ -n "${TERMUX_VERSION:-}" ]; then
+  IS_TERMUX=1
+else
+  case "${PREFIX:-}" in
+    */com.termux/files/usr) IS_TERMUX=1 ;;
+  esac
+fi
 case "$OS" in
-  Linux) GOOS=linux ;;
+  Linux)
+    if [ "$IS_TERMUX" = "1" ]; then GOOS=android; else GOOS=linux; fi
+    ;;
   Darwin) GOOS=darwin ;;
   MINGW*|MSYS*|CYGWIN*) GOOS=windows ;;
-  *) die "unsupported OS: $OS (cyb ships linux/darwin/windows — see the release page for alternatives)" ;;
+  *) die "unsupported OS: $OS (cyb ships linux/darwin/windows/android-Termux — see the release page for alternatives)" ;;
 esac
 case "$ARCH" in
-  x86_64|amd64) GOARCH=amd64 ;;
+  x86_64|amd64)
+    [ "$GOOS" != "android" ] || die "Termux prebuilt CLI currently supports Android arm64 only (device reports $ARCH)"
+    GOARCH=amd64
+    ;;
   arm64|aarch64) GOARCH=arm64 ;;
-  *) die "unsupported arch: $ARCH (cyb ships amd64/arm64 — see the release page for alternatives)" ;;
+  *)
+    if [ "$GOOS" = "android" ]; then
+      die "Termux prebuilt CLI currently supports Android arm64 only (device reports $ARCH)"
+    fi
+    die "unsupported arch: $ARCH (cyb ships amd64/arm64 for this OS)"
+    ;;
 esac
+
+# Termux installs are per-app and writable without root. If cyb is already on
+# PATH, update that same writable location; otherwise use Termux's own bin dir.
+if [ -z "$INSTALL_DIR" ]; then
+  if [ "$IS_TERMUX" = "1" ]; then
+    EXISTING_CYB="$(command -v cyb 2>/dev/null || true)"
+    if [ -n "$EXISTING_CYB" ] && [ -f "$EXISTING_CYB" ] && [ -w "$(dirname "$EXISTING_CYB")" ]; then
+      INSTALL_DIR="$(dirname "$EXISTING_CYB")"
+    elif [ -n "${PREFIX:-}" ]; then
+      INSTALL_DIR="$PREFIX/bin"
+    else
+      INSTALL_DIR="$HOME/.local/bin"
+    fi
+  else
+    INSTALL_DIR="$HOME/.local/bin"
+  fi
+fi
 
 # Per-OS install hint for a missing tool (package name may differ from the
 # tool name, e.g. sha256sum lives in coreutils). Distro detection reads
@@ -128,6 +163,10 @@ pkg_hint() {
   case "$OS" in
     Darwin) printf 'brew install %s' "$pkg" ;;
     Linux)
+      if [ "$IS_TERMUX" = "1" ]; then
+        printf 'pkg install %s' "$pkg"
+        return
+      fi
       dist_id=""
       if [ -r /etc/os-release ]; then
         dist_id="$( ( . /etc/os-release 2>/dev/null; printf '%s %s' "${ID:-}" "${ID_LIKE:-}" ) )"
@@ -137,7 +176,7 @@ pkg_hint() {
         *fedora*|*rhel*|*centos*|*rocky*|*alma*) printf 'sudo dnf install -y %s' "$pkg" ;;
         *arch*|*cachyos*|*manjaro*|*endeavouros*) printf 'sudo pacman -S --needed %s' "$pkg" ;;
         *alpine*) printf 'sudo apk add %s' "$pkg" ;;
-        *suse*|*opensuse*) printf 'sudo zypper install -y %s' "$pkg" ;;
+        *suse*) printf 'sudo zypper install -y %s' "$pkg" ;;
         *) printf 'your package manager (%s)' "$pkg" ;;
       esac
       ;;
@@ -175,7 +214,12 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 say "installing cyb $TAG ($GOOS/$GOARCH)…"
-curl -fsSL -o "$TMP/$ASSET" "$BASE/$ASSET" || die "download failed: $BASE/$ASSET"
+if ! curl -fsSL -o "$TMP/$ASSET" "$BASE/$ASSET"; then
+  if [ "$GOOS" = "android" ]; then
+    die "download failed: $BASE/$ASSET — older releases may not include the Termux binary; use a release published after Termux support was added"
+  fi
+  die "download failed: $BASE/$ASSET"
+fi
 curl -fsSL -o "$TMP/SHA256SUMS.txt" "$BASE/SHA256SUMS.txt" || die "checksum file download failed"
 
 # Verify against the published sums with the tool detected up front.
@@ -193,15 +237,19 @@ tar -xzf "$TMP/$ASSET" -C "$TMP" || die "extract failed"
 BIN="$TMP/cyb"
 [ "$GOOS" = "windows" ] && BIN="$TMP/cyb.exe"
 [ -f "$BIN" ] || die "tarball contains no cyb binary"
+DEST_NAME=cyb
+[ "$GOOS" = "windows" ] && DEST_NAME=cyb.exe
 
 mkdir -p "$INSTALL_DIR" || die "cannot create $INSTALL_DIR"
-mv "$BIN" "$INSTALL_DIR/" || die "cannot write to $INSTALL_DIR"
-chmod +x "$INSTALL_DIR/cyb"* 2>/dev/null || true
+if [ -e "$INSTALL_DIR/$DEST_NAME" ]; then
+  say "updating existing installation in $INSTALL_DIR"
+fi
+mv -f "$BIN" "$INSTALL_DIR/$DEST_NAME" || die "cannot write to $INSTALL_DIR"
+chmod +x "$INSTALL_DIR/$DEST_NAME" 2>/dev/null || true
 
 # On Windows shells the binary is cyb.exe — report the real path so the
 # version probe below actually executes it instead of falling back.
-CYB_BIN="$INSTALL_DIR/cyb"
-[ "$GOOS" = "windows" ] && CYB_BIN="$INSTALL_DIR/cyb.exe"
+CYB_BIN="$INSTALL_DIR/$DEST_NAME"
 say "installed: $CYB_BIN ($("$CYB_BIN" version 2>/dev/null || echo "$TAG"))"
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
@@ -251,7 +299,7 @@ choose_backend() { # prints remote|docker|native|supabase, 1 on skip/headless
   1) docker    local dashboard container — recommended (`cyb serve up`)
   2) native    installed CyberManju OS app dashboard (localhost)
   3) remote    dashboard URL you already run
-  4) supabase  broker-direct, read-only (limited mode)
+  4) CLI Limited  Supabase broker-direct, read-only
   5) skip      configure later with `cyb backend use`
 MENU
   printf '◈ backend [1]: ' > /dev/tty
@@ -266,6 +314,14 @@ MENU
 }
 
 run_backend() {
+  if [ "$IS_TERMUX" = "1" ]; then
+    case "$BACKEND" in
+      docker|native)
+        say "$BACKEND is not part of the Termux CLI-only install; configure a remote or CLI Limited backend with cyb"
+        return 1
+        ;;
+    esac
+  fi
   case "$BACKEND" in
     docker)
       say "starting local dashboard (cyb serve up)…"
@@ -336,8 +392,10 @@ esac
 
 if [ -n "$BACKEND" ]; then
   run_backend || true
-elif [ "$WANT_SETUP" = "1" ] && [ "$ASSUME_YES" != "1" ]; then
+elif [ "$WANT_SETUP" = "1" ] && [ "$ASSUME_YES" != "1" ] && [ "$IS_TERMUX" != "1" ]; then
   if _pick="$(choose_backend)"; then BACKEND="$_pick"; run_backend || true; fi
+elif [ "$WANT_SETUP" = "1" ] && [ "$IS_TERMUX" = "1" ]; then
+  say "Termux installs the Go CLI only; configure remote or CLI Limited backends with cyb"
 fi
 
 if [ "$WANT_SETUP" = "1" ]; then

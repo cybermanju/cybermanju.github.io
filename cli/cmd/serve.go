@@ -1,7 +1,7 @@
 // CyberManju OS — Serve (cli/cmd/serve.go).
 // Role: cybsh CLI command.
 // Exports: module root (see items below).
-// Integrates: fmt, os, path, strings, github.com, --name.
+// Integrates: fmt, os, os/exec, filepath, runtime, strings, github.com, --name.
 // Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -50,6 +51,9 @@ var serveUpCmd = &cobra.Command{
 // ensureDockerUp pulls and (re)starts the dashboard container. Shared by
 // `serve up` and `backend use docker`.
 func ensureDockerUp(port int, dataDir, image string) error {
+	if runtime.GOOS == "android" {
+		return fmt.Errorf("unsupported: Docker is unavailable in Android/Termux; use remote or CLI Limited")
+	}
 	if _, err := exec.LookPath("docker"); err != nil {
 		return fmt.Errorf("docker not found — install Docker or point cyb at a dashboard with --server")
 	}
@@ -100,9 +104,11 @@ var serveStatusCmd = &cobra.Command{
 		ui.KV(
 			[2]string{"registration", map[bool]string{true: "open (first run)", false: "closed"}[st.RegistrationOpen]},
 		)
-		if out, err := exec.Command("docker", "ps", "--filter", "name="+serveName, "--format", "{{.Status}}").Output(); err == nil {
-			if s := strings.TrimSpace(string(out)); s != "" {
-				ui.Info("container: %s", s)
+		if runtime.GOOS != "android" {
+			if out, err := exec.Command("docker", "ps", "--filter", "name="+serveName, "--format", "{{.Status}}").Output(); err == nil {
+				if s := strings.TrimSpace(string(out)); s != "" {
+					ui.Info("container: %s", s)
+				}
 			}
 		}
 		return nil
@@ -113,6 +119,9 @@ var serveStopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "Stop and remove the dashboard container",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if runtime.GOOS == "android" {
+			return fmt.Errorf("unsupported: Docker is unavailable in Android/Termux; use remote or CLI Limited")
+		}
 		if out, err := exec.Command("docker", "rm", "-f", serveName).CombinedOutput(); err != nil {
 			return fmt.Errorf("docker rm failed: %v\n%s", err, out)
 		}

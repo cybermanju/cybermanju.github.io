@@ -9,7 +9,6 @@ import (
 	"fmt"
 
 	"charm.land/huh/v2"
-	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
 
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/client"
@@ -47,7 +46,7 @@ the code itself and seals it (0600) — cyb never sees the secret.`,
 			return serr
 		}
 		ui.Info("opening approval in your browser…")
-		if berr := browser.OpenURL(got.AuthorizeURL); berr != nil {
+		if berr := openURL(got.AuthorizeURL); berr != nil {
 			ui.Info("could not open a browser — visit:\n%s", got.AuthorizeURL)
 		}
 		var done bool
