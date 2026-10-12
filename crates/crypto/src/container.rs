@@ -43,6 +43,7 @@ const HKDF_INFO: &[u8] = b"cybermanju-container-v1";
 type HmacSha512 = Hmac<sha2::Sha512>;
 
 /// Image bytes plus the flags the container carried.
+#[derive(Debug)]
 pub struct DecodedContainer {
     pub image: Vec<u8>,
     pub legacy: bool,
@@ -51,6 +52,7 @@ pub struct DecodedContainer {
 }
 
 /// Header-only view — no key needed, so callers can report before asking.
+#[derive(Debug)]
 pub struct ContainerMeta {
     pub version: u8,
     pub kdf: u8,
