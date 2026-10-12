@@ -1751,3 +1751,7 @@ environment can prove (no local cargo, no macOS signer, no networked QUIC CI):
 - Added a frontend regression test proving an explicitly assigned peer token is sent only to its peer and a legacy shared caller token is not forwarded.
 - Local verification passed: version check, file-header check, `vue-tsc`, Vitest (95 files / 978 tests), and staged/unstaged diff whitespace checks. `VITE_BASE=/develop/ npm run build:wasm:frontend` also passed, with generated asset URLs under `/develop/assets/`. Rust formatting/Clippy/tests remain CI-only as required by `AGENTS.md`; latest main CI was still running when recorded.
 - Pages assembly remains main at `/`, develop preview at `/develop/`, and wiki paths preserved. No release or main-branch change.
+
+## 2026-10-12 — CI follow-up: Rust formatting
+
+The CI runs for main `5ef7a83` and develop `30d323b` both failed at the Rust `Check formatting` step on the same match-arm layout in `crates/web/src/lib.rs`; no behavior or test failure was reported. Applied the exact rustfmt shape to the develop copy only. Version metadata and WASM build jobs passed; downstream platform jobs were cancelled after the Rust gate, and Pages deployment was skipped. Revalidation and a new develop CI run are pending; main remains untouched.

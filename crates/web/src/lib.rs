@@ -2034,12 +2034,10 @@ fn route_request(
         // caller bearer authorizes this request and is never forwarded.
         ["api", "search", "federated"] if method == "POST" => {
             match serde_json::from_str::<api::search_api::FederatedRequest>(body) {
-                Ok(req) => {
-                    json_ok(
-                        &api::search_api::search_federated(&dashboard.search_index, db, &req),
-                        origin,
-                    )
-                }
+                Ok(req) => json_ok(
+                    &api::search_api::search_federated(&dashboard.search_index, db, &req),
+                    origin,
+                ),
                 Err(e) => json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
             }
         }
