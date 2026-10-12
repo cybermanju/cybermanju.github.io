@@ -394,15 +394,13 @@ impl Kernel {
             .create(flags.create)
             .truncate(flags.truncate && !flags.append)
             .append(flags.append);
-        let file = opts
-            .open(&host)
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    format!("not_found: {}", self.display(&host))
-                } else {
-                    format!("io error: cannot open {path}: {e}")
-                }
-            })?;
+        let file = opts.open(&host).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                format!("not_found: {}", self.display(&host))
+            } else {
+                format!("io error: cannot open {path}: {e}")
+            }
+        })?;
         let fd = self.next_fd.fetch_add(1, Ordering::Relaxed);
         let pos = file.metadata().map(|m| m.len()).unwrap_or(0);
         let pos = if flags.append { pos } else { 0 };
