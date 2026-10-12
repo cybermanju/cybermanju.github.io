@@ -1765,3 +1765,7 @@ The CI runs for main `5ef7a83` and develop `30d323b` both failed at the Rust `Ch
 ## 2026-10-12 — Final local validation
 
 After integrating `main` through `c948bd8`, local checks passed: `check-version.sh`, file headers (545 files), `vue-tsc`, Vitest (96 files / 990 tests), `git diff --check`, and `VITE_BASE=/develop/ npm run build:wasm:frontend` with output assets verified under `/develop/assets/`. A source scan confirmed that no caller-bearer fallback remains. Cargo/rustfmt/Clippy/Rust tests were not run locally, per `AGENTS.md`; `main` CI for `c948bd8` was still in progress, and the next develop CI will run after publishing the validated head.
+
+## 2026-10-12 — Clippy follow-up after c948bd8
+
+The `Rust Lint & Test` job for main `c948bd8` reached Clippy and failed on one `unused import: VerifyingKey` in `crates/crypto/src/pqc.rs:27` (the remaining occurrence is documentation only). Removed that unused import on develop only; this is behavior-neutral. The Rust gate for the corrected develop head must be rechecked in CI; Cargo/Clippy are not run locally by repository rule.
