@@ -12,7 +12,6 @@ import {
   wasmDiskStatus,
   wasmModuleExports,
   wasmOsDispatch,
-  wasmSearchFiles,
   wasmSearchFilesScored,
   wasmBackendActive,
 } from './useWasmBackend'
@@ -3200,7 +3199,7 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
     // server-side-style so the store never throws `[WASM Mode]` here and
     // silently downgrades to the unpaginated shape (P1-8).
     if (cmd === 'search_files_paginated') {
-      const hits = await wasmSearchFiles(String(args?.query ?? ''))
+      const hits = await wasmSearchFilesScored(String(args?.query ?? ''))
       const limit = Math.max(1, Number(args?.limit ?? 20) || 20)
       const offset = Math.max(0, Number(args?.offset ?? 0) || 0)
       const page = hits.slice(offset, offset + limit)
@@ -3209,10 +3208,39 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
           fileId: h.path,
           fileName: h.path.split('/').pop() ?? h.path,
           score: h.score,
-          snippet: '',
+          snippet: h.snippet,
         })),
         total: hits.length,
       } as unknown as T
+    }
+    // Cross-device search port on a static host: local BM25-lite hits plus
+    // one bounded fetch() per peer (explicit URLs + the cached peer list —
+    // there is no mDNS in the sandbox). A dead peer contributes zero hits.
+    if (cmd === 'search_files_federated') {
+      const query = String(args?.query ?? '')
+      const limit = Math.max(1, Math.min(Number(args?.limit ?? 50) || 50, 200))
+      const local = (await wasmSearchFilesScored(query)).map(h => ({
+        fileId: h.path,
+        fileName: h.path.split('/').pop() ?? h.path,
+        score: h.score,
+        snippet: h.snippet,
+        source: 'local',
+      }))
+      const { federatedSearch, loadCachedPeers } = await import('@/utils/peerSearch')
+      const explicit = ((args?.peers ?? []) as Array<Record<string, unknown>>)
+        .map((p) => ({
+          baseUrl: String(p.baseUrl ?? p.base_url ?? ''),
+          deviceId: String(p.deviceId ?? p.device_id ?? ''),
+        }))
+        .filter((p) => p.baseUrl.trim())
+      const cached = loadCachedPeers()
+        .filter((p) => !explicit.some((e) => e.baseUrl === p.baseUrl))
+        .map((p) => ({ baseUrl: p.baseUrl, deviceId: p.deviceId }))
+      return (await federatedSearch(query, {
+        peers: [...explicit, ...cached],
+        limit,
+        localHits: local,
+      })) as unknown as T
     }
     const dbRoute = DB_WASM_ROUTES[cmd]
     if (dbRoute) {

@@ -163,17 +163,18 @@ pub fn search_federated(
 ) -> Vec<cybermanju_sync::peers::FederatedHit> {
     let limit = req.limit.unwrap_or(50).clamp(1, 200);
     let timeout = req.timeout_secs.unwrap_or(8).clamp(1, 30);
-    let mut hits: Vec<cybermanju_sync::peers::FederatedHit> = search(index, db, &req.query, Some(limit), None)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|h| cybermanju_sync::peers::FederatedHit {
-            file_id: h.file_id,
-            file_name: h.file_name,
-            score: h.score,
-            snippet: h.snippet.unwrap_or_default(),
-            source: "local".to_string(),
-        })
-        .collect();
+    let mut hits: Vec<cybermanju_sync::peers::FederatedHit> =
+        search(index, db, &req.query, Some(limit), None)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|h| cybermanju_sync::peers::FederatedHit {
+                file_id: h.file_id,
+                file_name: h.file_name,
+                score: h.score,
+                snippet: h.snippet.unwrap_or_default(),
+                source: "local".to_string(),
+            })
+            .collect();
     for peer in req.peers.iter().take(8) {
         if peer.base_url.trim().is_empty() {
             continue;

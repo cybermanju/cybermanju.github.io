@@ -193,10 +193,7 @@ pub fn classify_addr(addr: &str) -> super::peers::PeerTransport {
 /// Real direct-HTTP dial plan for off-LAN peers (probe + op-log pull/push).
 /// Relay endpoints refuse with `unsupported:` — pure alias over
 /// `peers::direct_http_plan` so the WAN seam and the peer seam share steps.
-pub fn direct_http_plan(
-    endpoint: &IrohEndpoint,
-    since: u64,
-) -> Result<Vec<String>, String> {
+pub fn direct_http_plan(endpoint: &IrohEndpoint, since: u64) -> Result<Vec<String>, String> {
     let peer = super::peers::PeerEndpoint {
         device_id: endpoint.device_id.clone(),
         base_url: http_base(endpoint),

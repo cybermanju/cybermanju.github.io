@@ -1491,3 +1491,45 @@ environment can prove (no local cargo, no macOS signer, no networked QUIC CI):
 - Verified here: version agree, headers ok (531 tracked), parity sweep clean
   (170 mappings, 37 families), `vue-tsc` clean, full vitest green (88/925).
   Rust is CI's job per repo rules (no local cargo).
+
+## 2026-10-12 — P2P expansion: peer transports + cross-device search port (6 targets)
+
+- New `crates/sync/src/peers.rs`: `PeerTransport` (lan-http/wan-http/bundle
+  live, relay-future sequenced) + `<device>@<addr>` grammar + `normalize` /
+  `classify` / `is_lan_base` + `direct_http_plan` (relay refuses
+  `unsupported:`) + `FederatedHit` + `merge_federated_hits` (dedup by file
+  id, max score wins, desc sort) + `fetch_peer_hits` (reqwest blocking,
+  bounded timeout, `auth:`/`network:` normalization, tolerant hit parsing) +
+  `platform_notes` (android/ios/windows/linux/docker/wasm fallbacks) + tests.
+  No new deps (std + reqwest/serde_json already in the crate).
+- `crates/sync/src/iroh.rs`: additive `classify_addr` + `direct_http_plan`
+  aliases over `peers` (existing `dial_plan`/`http_*` pins untouched).
+- `crates/web/src/api/search_api.rs`: `FederatedPeer`/`FederatedRequest` +
+  `search_federated` (local BM25 tagged `local`, ≤8 peers fanned out, dead
+  peers degrade to zero hits, merged); `crates/web/src/lib.rs`: new
+  `POST /api/search/federated` route (second segment `search` already
+  routed — parity sweep stays clean).
+- Tauri: `search_files_federated` (search.rs) + `probe_peer` /
+  `peer_platform_notes` (devices.rs), wired in `lib.rs`; explicit peer URLs
+  are what make android/ios/docker work where mDNS multicast is blocked.
+- WASM parity: `search_scored` + `search-scored` dispatch arm (real score +
+  ≤200-char snippet + filename/content kind, `search()` path-only output
+  untouched) + `wasmSearchFilesScored` (scored-first, legacy fallback);
+  `search_files`/`_paginated` static handlers now return real scores and
+  snippets instead of `1.0`/`''`.
+- Frontend: new `src/utils/peerSearch.ts` (TS twin of `peers.rs`: same
+  grammar/merge, `peerCapabilityMatrix`, localStorage peer cache for
+  mobile/docker/wasm, `fetchPeerHits`/`federatedSearch`,
+  `syncExchangeWithPeer` pull→push→merge→render executor); `wanDial.ts`
+  `wanSyncExchange` + `lanSync.ts` `lanSyncExchange` reuse it.
+- `useTauri.ts`: `search_files_federated` REST route (POST
+  `/api/search/federated`, 171 mappings), mobile IPC set extended,
+  `peer_platform_notes`/`probe_peer` answered on every transport (IPC twin
+  on Tauri, fetch probe elsewhere), `search_files_federated` static handler
+  fans out to explicit + cached peers, IPC args normalized to twin names.
+- Tests: new `tests/frontend/peer-search.test.ts` (15 tests: grammar,
+  merge order, matrix, cache, fan-out degradation, `auth:`/`network:`,
+  exchange + relay refusal, wrappers, route shape).
+- Verified here: version agree, headers ok (536 files), parity sweep clean
+  (171 mappings, 37 families), `vue-tsc` clean, full vitest green (89/940).
+  Rust is CI's job per repo rules (no local cargo).

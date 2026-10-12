@@ -181,16 +181,15 @@ pub fn merge_federated_hits(mut hits: Vec<FederatedHit>, limit: usize) -> Vec<Fe
         if hit.file_id.trim().is_empty() {
             continue;
         }
-        match best.get(&hit.file_id) {
-            Some(cur)
-                if cur.score > hit.score
-                    || (cur.score == hit.score && cur.snippet.len() >= hit.snippet.len()) =>
-            {
-                // keep incumbent
+        let replace = match best.get(&hit.file_id) {
+            Some(cur) => {
+                hit.score > cur.score
+                    || (hit.score == cur.score && hit.snippet.len() > cur.snippet.len())
             }
-            _ => {
-                best.insert(hit.file_id.clone(), hit);
-            }
+            None => true,
+        };
+        if replace {
+            best.insert(hit.file_id.clone(), hit);
         }
     }
     let mut out: Vec<FederatedHit> = best.into_values().collect();
@@ -210,7 +209,8 @@ fn encode_query(query: &str) -> String {
             'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => out.push(ch),
             ' ' => out.push_str("%20"),
             _ => {
-                for b in ch.to_string().as_bytes() {
+                let encoded = ch.to_string();
+                for b in encoded.as_bytes() {
                     out.push_str(&format!("%{b:02X}"));
                 }
             }
@@ -236,12 +236,14 @@ fn hit_from_value(value: &serde_json::Value, source: &str) -> Option<FederatedHi
         .or_else(|| obj.get("file_name"))
         .or_else(|| obj.get("name"))
         .and_then(|v| v.as_str())
-        .unwrap_or(&file_id)
+        .unwrap_or("")
         .to_string();
-    let score = obj
-        .get("score")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(1.0);
+    let file_name = if file_name.is_empty() {
+        file_id.clone()
+    } else {
+        file_name
+    };
+    let score = obj.get("score").and_then(|v| v.as_f64()).unwrap_or(1.0);
     let snippet = obj
         .get("snippet")
         .and_then(|v| v.as_str())
@@ -305,7 +307,9 @@ pub fn fetch_peer_hits(
         return Err(format!("auth: peer search {base} refused (HTTP {status})"));
     }
     if !(200..300).contains(&status) {
-        return Err(format!("network: peer search {base} answered HTTP {status}"));
+        return Err(format!(
+            "network: peer search {base} answered HTTP {status}"
+        ));
     }
     let body: serde_json::Value = resp
         .json()
