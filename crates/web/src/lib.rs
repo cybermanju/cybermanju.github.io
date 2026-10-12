@@ -2036,7 +2036,10 @@ fn route_request(
             match serde_json::from_str::<api::search_api::FederatedRequest>(body) {
                 Ok(req) => {
                     let fallback = auth_header
-                        .and_then(|h| h.strip_prefix("Bearer ").or_else(|| h.strip_prefix("bearer ")))
+                        .and_then(|h| {
+                            h.strip_prefix("Bearer ")
+                                .or_else(|| h.strip_prefix("bearer "))
+                        })
                         .map(str::trim)
                         .filter(|t| !t.is_empty());
                     json_ok(
