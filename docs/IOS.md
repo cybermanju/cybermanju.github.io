@@ -34,9 +34,11 @@ ephemeral CI keychain (`scripts/ios-signing.sh prepare`, secrets
 verified after the build (`verify`: `codesign --verify` on the `.ipa`,
 fail-closed when signing was expected) and shredded before artifact upload
 (`cleanup`) — mirroring `scripts/android-signing.sh`
-(prepare/verify/cleanup). Simulator `.app` builds need no signing and run on
-every PR/push; `REQUIRE_SIGNING=1` (push/release) turns "no secrets" into an
-error so release never ships an uninstallable IPA.
+(prepare/verify/cleanup). CI (`ios-build` job) never requires signing
+(`REQUIRE_SIGNING=0`) so the unsigned simulator IPA for sideload always ships
+green; when Apple secrets exist the device `.ipa` builds and verifies in the
+same job. Release sets `REQUIRE_SIGNING=1` so an uninstallable IPA never
+publishes.
 
 ## 3. Transport notes (same as Android)
 

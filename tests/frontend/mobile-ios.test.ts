@@ -117,4 +117,14 @@ describe('iOS native scaffold (P2-16)', () => {
     expect(ci).toContain('tauri ios init')
     expect(ci).toContain('ios-signing.sh verify')
   })
+
+  it('always ships an unsigned sideload IPA (no secrets required)', () => {
+    const ci = fs.readFileSync('.github/workflows/ci.yml', 'utf8')
+    // Sideload packaging wraps the simulator .app as Payload/ → unsigned .ipa.
+    expect(ci).toContain('dist-ios-sideload')
+    expect(ci).toContain('Payload')
+    // CI itself never requires signing (green without Apple secrets);
+    // release is the only gate that may demand it.
+    expect(ci).toContain('REQUIRE_SIGNING: "0"')
+  })
 })

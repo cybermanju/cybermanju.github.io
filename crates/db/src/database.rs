@@ -1775,7 +1775,10 @@ mod snapshot_tests {
         ));
         let path_str = path.to_str().unwrap();
         let db = Database::new(path_str).unwrap();
-        assert!(db.opener_lock_path().exists(), "lockfile must exist while open");
+        assert!(
+            db.opener_lock_path().exists(),
+            "lockfile must exist while open"
+        );
         let err = Database::new(path_str).unwrap_err().to_string();
         assert!(
             err.starts_with("conflict:"),
