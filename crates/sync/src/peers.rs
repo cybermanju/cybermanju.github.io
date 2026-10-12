@@ -1062,9 +1062,15 @@ mod tests {
         assert!(is_pairing_recipient("pair:482-oak-river"));
         assert!(!is_pairing_recipient("phone-7"));
         assert!(!is_pairing_recipient("pair:nope"));
-        assert!(normalize_pairing_code("").unwrap_err().starts_with("invalid:"));
-        assert!(normalize_pairing_code("48-oak-river").unwrap_err().starts_with("invalid:"));
-        assert!(normalize_pairing_code("482-oak-nope").unwrap_err().starts_with("invalid:"));
+        assert!(normalize_pairing_code("")
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(normalize_pairing_code("48-oak-river")
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(normalize_pairing_code("482-oak-nope")
+            .unwrap_err()
+            .starts_with("invalid:"));
     }
 
     fn presence_db(tag: &str) -> (std::path::PathBuf, Database) {

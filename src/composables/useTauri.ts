@@ -1690,7 +1690,9 @@ export const MOBILE_NATIVE_OS_COMMANDS = new Set([
   'secret_reveal', 'secret_delete',
   'list_devices', 'register_device', 'register_this_device',
   'revoke_device', 'remove_device', 'list_lan_peers',
-  'probe_peer', 'peer_platform_notes', 'search_files_federated',
+  'probe_peer', 'peer_platform_notes', 'sign_peer_ops',
+  'swarm_encode', 'swarm_decode', 'pairing_code',
+  'search_files_federated',
   'list_todos', 'create_todo', 'toggle_todo', 'delete_todo',
 ])
 

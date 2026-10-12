@@ -30,9 +30,9 @@ pub fn swarm_encode(
     serde_json::to_value(&symbols)
         .map_err(|e| format!("integrity: symbols unserializable: {e}"))
         .and_then(|v| {
-            v.as_array().cloned().ok_or_else(|| {
-                "integrity: symbols did not serialize as an array".to_string()
-            })
+            v.as_array()
+                .cloned()
+                .ok_or_else(|| "integrity: symbols did not serialize as an array".to_string())
         })
 }
 
@@ -41,8 +41,8 @@ pub fn swarm_encode(
 #[tauri::command(async)]
 pub fn swarm_decode(symbols_json: String) -> Result<String, String> {
     use base64::Engine;
-    let symbols: Vec<cybermanju_sync::swarm::SwarmSymbol> =
-        serde_json::from_str(&symbols_json).map_err(|e| format!("invalid: symbols are not JSON: {e}"))?;
+    let symbols: Vec<cybermanju_sync::swarm::SwarmSymbol> = serde_json::from_str(&symbols_json)
+        .map_err(|e| format!("invalid: symbols are not JSON: {e}"))?;
     let bytes = cybermanju_sync::swarm::swarm_decode(&symbols)?;
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }

@@ -205,11 +205,15 @@ mod tests {
         let payload = b"tamper-evident".to_vec();
         let symbols = swarm_encode(&payload, 2, 1).expect("encode");
         // Too few symbols.
-        assert!(swarm_decode(&symbols[..1]).unwrap_err().starts_with("integrity:"));
+        assert!(swarm_decode(&symbols[..1])
+            .unwrap_err()
+            .starts_with("integrity:"));
         // Corrupt bytes without touching the hash.
         let mut bad = symbols.clone();
-        bad[0].bytes_base64 =
-            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b"nope-nope-nope-nope");
+        bad[0].bytes_base64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            b"nope-nope-nope-nope",
+        );
         assert!(swarm_decode(&bad).unwrap_err().starts_with("integrity:"));
         // Mixed objects.
         let other = swarm_encode(b"another object", 2, 1).expect("encode");

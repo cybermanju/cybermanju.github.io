@@ -210,7 +210,7 @@ const HANDLED_VERBS = new Set([
   'encrypt', 'decrypt', 'keygen', 'compress', 'decompress',
   'scrub', 'repair', 'gc', 'lease', 'mount', 'umount', 'ai',
   'run', 'theme', 'ui', 'cron', 'backup', 'skill', 'task', 'oplog', 'lan', 'wan',
-  'pex', 'relay',
+  'pex', 'relay', 'pair', 'swarm', 'room',
 ])
 
 export function handlesStaticVerb(verb: string): boolean {
@@ -3279,6 +3279,141 @@ async function handleRelay(args: string[], json: boolean, deps: StaticCybshDeps)
   )
 }
 
+const PAIR_SUBCOMMANDS = ['make', 'drop', 'claim'] as const
+
+/** Human pairing codes from the shell: `pair make` mints a code offline
+ * (WebCrypto entropy); `pair drop <code> <kind> [json]` builds the mailbox
+ * envelope offline; `pair claim <code>` needs the dashboard (Devices →
+ * pair card polls the same mailbox). */
+async function handlePair(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  const sub = (args[0] ?? 'make').toLowerCase()
+  const rest = args.slice(1)
+  if (sub === 'make') {
+    try {
+      const { makePairingCode, pairingTarget } = await import('./pairing')
+      const code = makePairingCode()
+      if (json) return shellOk(JSON.stringify({ code, target: pairingTarget(code) }))
+      return shellOk(`code: ${code} (read it aloud; the other side runs \`pair claim ${code}\`)`)
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+  if (sub === 'drop') {
+    const [code, kind, payloadRaw] = rest.filter((a) => !a.startsWith('-'))
+    const from = rest.find((a) => a.startsWith('--from='))?.slice('--from='.length) ?? 'here'
+    if (!code || !kind) return shellErr('usage: pair drop <code> <kind> [payload-json] [--from=<device>]')
+    let payload: unknown = null
+    if (payloadRaw) {
+      try {
+        payload = JSON.parse(payloadRaw)
+      } catch {
+        payload = payloadRaw
+      }
+    }
+    try {
+      const { pairingTarget } = await import('./pairing')
+      const { buildRelayEnvelope } = await import('./wanDial')
+      const target = pairingTarget(code)
+      const envelope = buildRelayEnvelope(target, kind, payload)
+      void from
+      if (json) return shellOk(JSON.stringify({ target, envelope: JSON.parse(envelope) }))
+      return shellOk(`POST /api/relay/drop ${envelope}`)
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+  if (sub === 'claim') {
+    if (!deps.execFallback) {
+      return shellErr('unsupported: `pair claim` needs the dashboard — POST /api/relay/poll { for: "pair:<code>" } then ack (Devices → pair card does the clicks)')
+    }
+    try {
+      return shellOk(await deps.execFallback(`pair ${rest.join(' ')}`.trim()))
+    } catch (e) {
+      return shellErr(`unsupported: pair claim via fallback failed (${e instanceof Error ? e.message : String(e)})`)
+    }
+  }
+  const suggestion = PAIR_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
+  return shellErr(
+    suggestion
+      ? `usage: pair <${PAIR_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
+      : `usage: pair <${PAIR_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
+  )
+}
+
+const SWARM_SUBCOMMANDS = ['plan'] as const
+
+/** Erasure-coded swarm planner: `swarm plan <bytes> [k] [m]` prints the
+ * layout + spray/collect/decode steps offline (pure math, no RS needed).
+ * The actual coding runs natively (`swarm_encode` IPC) or on Pages (wasm
+ * `swarm_encode_json`); bulk sends ride `kind: swarm-symbol` messages. */
+async function handleSwarm(args: string[], json: boolean): Promise<VerbOut> {
+  const sub = (args[0] ?? 'plan').toLowerCase()
+  const rest = args.slice(1)
+  if (sub === 'plan') {
+    const [bytesRaw, kRaw, mRaw] = rest.filter((a) => !a.startsWith('-'))
+    if (bytesRaw == null) return shellErr('usage: swarm plan <bytes> [k] [m]')
+    try {
+      const { buildSwarmPlan } = await import('./p2pSwarm')
+      const steps = buildSwarmPlan(
+        Number(bytesRaw),
+        kRaw == null ? undefined : Math.floor(Number(kRaw)),
+        mRaw == null ? undefined : Math.floor(Number(mRaw)),
+      )
+      if (json) return shellOk(JSON.stringify({ steps }))
+      return shellOk(steps.join('\n'))
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+  return shellErr(`usage: swarm <${SWARM_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`)
+}
+
+const ROOM_SUBCOMMANDS = ['join', 'say'] as const
+
+/** Relay rooms from the shell: `room join <app> <name>` + `room say
+ * <app> <name> <action> [json]` print the exact mailbox calls (sending
+ * needs the dashboard or the Devices → room demo; reading lives there too).
+ * Offline-safe: both subcommands validate + print without sending. */
+async function handleRoom(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  void deps
+  const sub = (args[0] ?? 'join').toLowerCase()
+  const rest = args.slice(1)
+  if (sub === 'join' || sub === 'say') {
+    const [app, name, action, bodyRaw] = rest.filter((a) => !a.startsWith('-'))
+    if (!app || !name || (sub === 'say' && !action)) {
+      return shellErr(`usage: room ${sub} <app> <room>${sub === 'say' ? ' <action> [body-json]' : ''}`)
+    }
+    try {
+      const { roomTopic } = await import('./p2pRoom')
+      const topic = roomTopic(app, name)
+      if (sub === 'join') {
+        const line = `room ${topic} (POST /api/relay/poll { for: "${topic}" } reads; hello via kind room-hello)`
+        if (json) return shellOk(JSON.stringify({ topic }))
+        return shellOk(line)
+      }
+      let body: unknown = null
+      if (bodyRaw) {
+        try {
+          body = JSON.parse(bodyRaw)
+        } catch {
+          body = bodyRaw
+        }
+      }
+      const line = `POST /api/relay/drop { to: "${topic}", kind: room-action, payload: ${JSON.stringify({ action, body })} }`
+      if (json) return shellOk(JSON.stringify({ topic, action, body }))
+      return shellOk(line)
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+  const suggestion = ROOM_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
+  return shellErr(
+    suggestion
+      ? `usage: room <${ROOM_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
+      : `usage: room <${ROOM_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
+  )
+}
+
 const TODOS_KEY = 'cybermanju.todos.v1'
 
 function readTaskList(): ReturnType<typeof parseTodosStore> {
@@ -3494,6 +3629,12 @@ export async function runStaticCybshLine(
         return done(await handlePex(args, json, deps))
       case 'relay':
         return done(await handleRelay(args, json, deps))
+      case 'pair':
+        return done(await handlePair(args, json, deps))
+      case 'swarm':
+        return done(await handleSwarm(args, json))
+      case 'room':
+        return done(await handleRoom(args, json, deps))
       case 'task':
         return done(handleTask(args, json))
       default:
