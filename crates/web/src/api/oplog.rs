@@ -206,14 +206,13 @@ pub fn route(
                 .unwrap_or(500);
             let limit = limit.clamp(1, 5000);
             let result = if auth.is_admin {
-                db.list_ops_since(since, limit)
-                    .map(|ops| {
-                        let head = ops
-                            .last()
-                            .map(|op| op.seq.saturating_add(1))
-                            .unwrap_or(since);
-                        (ops, head)
-                    })
+                db.list_ops_since(since, limit).map(|ops| {
+                    let head = ops
+                        .last()
+                        .map(|op| op.seq.saturating_add(1))
+                        .unwrap_or(since);
+                    (ops, head)
+                })
             } else if auth.owner_id.trim().is_empty() {
                 Err(anyhow::anyhow!("auth: authenticated owner is required"))
             } else {

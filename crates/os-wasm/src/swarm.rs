@@ -309,7 +309,10 @@ mod tests {
             .map(|(_, v)| v)
             .collect();
         let subset_json = serde_json::to_string(&subset).expect("subset");
-        assert_eq!(fountain_decode_inner(&subset_json).expect("decode"), payload);
+        assert_eq!(
+            fountain_decode_inner(&subset_json).expect("decode"),
+            payload
+        );
         assert!(fountain_decode_inner("[]")
             .unwrap_err()
             .starts_with("invalid:"));

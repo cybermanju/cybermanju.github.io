@@ -914,8 +914,8 @@ impl Database {
         let seq = {
             let stored_next = {
                 let kv = tx.open_table(KV_TABLE)?;
-                kv.get("oplog:next_seq")?
-                    .map(|value| value.value().to_string())
+                let entry = kv.get("oplog:next_seq")?;
+                entry.map(|value| value.value().to_string())
             };
             match stored_next {
                 Some(value) => value.parse::<u64>().map_err(|e| {
@@ -1007,13 +1007,13 @@ impl Database {
         let tx = self.db.begin_read()?;
         let stored_next = {
             let kv = tx.open_table(KV_TABLE)?;
-            kv.get("oplog:next_seq")?
-                .map(|value| value.value().to_string())
+            let entry = kv.get("oplog:next_seq")?;
+            entry.map(|value| value.value().to_string())
         };
         if let Some(value) = stored_next {
-            return value.parse::<u64>().map_err(|e| {
-                anyhow::anyhow!("integrity: invalid op-log sequence counter: {e}")
-            });
+            return value
+                .parse::<u64>()
+                .map_err(|e| anyhow::anyhow!("integrity: invalid op-log sequence counter: {e}"));
         }
         // Compatibility with databases written before the counter existed.
         let table = tx.open_table(OPLOG_TABLE)?;
