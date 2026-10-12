@@ -12,8 +12,8 @@
 // cybsh verbs; `syncExchangeWithPeer` signer hook; Rust twins are
 // crates/sync/src/peers.rs + auth.rs (same JSON shapes, same caps, pinned by
 // p2p-live.test.ts). Signing itself stays platform-injected (desktop: the
-// `sign_peer_ops` Tauri command; Pages: wasm `ml_dsa65_sign`) so this module
-// imports no composable and creates no cycle.
+// `sign_peer_ops_for_device` Tauri command (sealed key; no seed IPC); Pages:
+// wasm `ml_dsa65_sign`) so this module imports no composable and creates no cycle.
 // Contracts: pure builders throw only `invalid:` (AGENT-1); network failures
 // normalize to `network:`; nothing hangs (every fetch races an
 // AbortController timeout); canonical bytes are byte-identical to Rust
@@ -36,7 +36,7 @@ export interface RelayMessage {
   createdAtSecs: number
 }
 
-/** Wire body for `POST /api/peers/{id}/sync` (unsigned = legacy sender). */
+/** Wire body for `POST /api/peers/{id}/sync`; signature is mandatory. */
 export interface SignedSyncBody {
   ops: Record<string, unknown>[]
   signature: string
@@ -99,14 +99,17 @@ export function canonicalOpsEnvelope(ops: unknown[]): string {
   return ENVELOPE_DOMAIN + stableStringify(normalizeOpsForEnvelope(ops))
 }
 
-/** Build the `POST /api/peers/{id}/sync` body (normalized ops + optional attestation). */
+/** Build the signed `POST /api/peers/{id}/sync` body. */
 export function buildSignedSyncBody(
   ops: unknown[],
-  signature = '',
-  algorithm = '',
+  signature: string,
+  algorithm: string,
 ): SignedSyncBody {
   if (ops.length > 10_000) {
     throw new Error(`too_large: sync holds ${ops.length} ops (cap 10000 per call — page it)`)
+  }
+  if (!signature.trim() || !algorithm.trim()) {
+    throw new Error('auth: signed peer sync requires a signature and algorithm')
   }
   return { ops: normalizeOpsForEnvelope(ops), signature, algorithm }
 }

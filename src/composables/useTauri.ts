@@ -1240,7 +1240,12 @@ export const REST_ROUTES: Record<string, RestMapping> = {
   oplog_push: {
     method: 'POST',
     buildPath: () => '/api/oplog/push',
-    transformRequest: (args) => ({ ops: args.ops ?? [] }),
+    transformRequest: (args) => ({
+      deviceId: args.deviceId ?? args.device_id ?? '',
+      ops: args.ops ?? [],
+      signature: args.signature ?? '',
+      algorithm: args.algorithm ?? '',
+    }),
     transformResponse: (raw) => transformResponseKeys(raw),
   },
 
@@ -1711,7 +1716,7 @@ export const MOBILE_NATIVE_OS_COMMANDS = new Set([
   'secret_reveal', 'secret_delete',
   'list_devices', 'register_device', 'register_this_device',
   'revoke_device', 'remove_device', 'list_lan_peers',
-  'probe_peer', 'peer_platform_notes', 'sign_peer_ops',
+  'probe_peer', 'peer_platform_notes', 'sign_peer_ops_for_device',
   'swarm_encode', 'swarm_decode', 'fountain_encode', 'fountain_decode',
   'pairing_code',
   'search_files_federated',

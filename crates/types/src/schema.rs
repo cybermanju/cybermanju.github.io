@@ -232,6 +232,10 @@ impl ShareLink {
 pub struct DeviceRow {
     pub id: String,
     pub name: String,
+    /// Authenticated account that enrolled this device; empty legacy rows
+    /// are not authorized for peer-sync or relay until explicitly claimed.
+    #[serde(default)]
+    pub owner_id: String,
     /// Base64 ML-DSA public key (empty when the device has not attested yet).
     #[serde(default)]
     pub public_key: String,

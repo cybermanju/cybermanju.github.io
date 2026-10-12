@@ -63,6 +63,7 @@ describe('canonical envelope (byte-identical to Rust)', () => {
     const body = buildSignedSyncBody([{ kind: 'tag' }], 'sig-b64', 'ml-dsa-65')
     expect(body.signature).toBe('sig-b64')
     expect(body.ops[0]).toMatchObject({ kind: 'tag', fileId: null })
+    expect(() => buildSignedSyncBody([], '', '')).toThrow(/^auth:/)
     expect(() => buildSignedSyncBody(new Array(10_001).fill({}), '', '')).toThrow(/^too_large:/)
   })
 })
@@ -134,44 +135,44 @@ describe('WebRTC handshake helper', () => {
 
 describe('attested op-log exchange', () => {
   const deps = (seen: { posts: unknown[][] }) => ({
-    fetchJson: async (method: string, url: string, body?: unknown) => {
-      seen.posts.push([method, url, body])
+    localDeviceId: 'laptop-1',
+    peerToken: 'token-for-phone-7',
+    signer: async (deviceId: string, normalized: Record<string, unknown>[]) => {
+      expect(deviceId).toBe('laptop-1')
+      expect(normalized.every((op) => op.deviceId === deviceId)).toBe(true)
+      return { signature: 'sig-b64', algorithm: 'ml-dsa-65' }
+    },
+    fetchJson: async (method: string, url: string, body?: unknown, peerToken?: string) => {
+      seen.posts.push([method, url, body, peerToken])
       if (url.includes('/api/oplog/since')) return { head: 1, ops: [] }
       return { appended: 1, verified: true }
     },
     pushOps: async (ops: unknown[]) => ({ appended: ops.length }),
   })
 
-  it('pushes unsigned to /api/oplog/push by default (legacy flow)', async () => {
+  it('refuses ops not owned by the local signing device before network access', async () => {
     const seen = { posts: [] } as { posts: unknown[][] }
-    const out = await syncExchangeWithPeer(
+    await expect(syncExchangeWithPeer(
       { deviceId: 'phone-7', baseUrl: 'http://192.168.1.60:3456', transport: 'lan-http' },
       0,
-      [{ opId: 'ours' }],
+      [{ opId: 'ours', deviceId: 'other-device' }],
       deps(seen),
-    )
-    expect(out.pushed).toBe(1)
-    expect(out.steps.join('\n')).toContain('/api/oplog/push')
-    expect(out.steps.join('\n')).not.toContain('verified:')
+    )).rejects.toThrow(/^auth:/)
+    expect(seen.posts).toHaveLength(0)
   })
 
-  it('pushes signed envelopes to /api/peers/{id}/sync when a signer is present', async () => {
+  it('pushes signed envelopes under the local sender device id', async () => {
     const seen = { posts: [] } as { posts: unknown[][] }
     const out = await syncExchangeWithPeer(
       { deviceId: 'phone-7', baseUrl: 'http://192.168.1.60:3456', transport: 'lan-http' },
       0,
-      [{ opId: 'ours', kind: 'tag' }],
-      {
-        ...deps(seen),
-        signer: async (normalized) => {
-          expect(normalized[0]).toMatchObject({ opId: 'ours', fileId: null })
-          return { signature: 'sig-b64', algorithm: 'ml-dsa-65' }
-        },
-      },
+      [{ opId: 'ours', kind: 'tag', deviceId: 'laptop-1' }],
+      deps(seen),
     )
-    const push = seen.posts.find(([, url]) => String(url).includes('/api/peers/phone-7/sync'))
+    const push = seen.posts.find(([, url]) => String(url).includes('/api/peers/laptop-1/sync'))
     expect(push).toBeTruthy()
     expect((push![2] as Record<string, unknown>).signature).toBe('sig-b64')
+    expect(seen.posts.every(([, , , token]) => token === 'token-for-phone-7')).toBe(true)
     expect(out.steps.join('\n')).toContain('verified: true')
   })
 })
@@ -198,6 +199,14 @@ describe('new REST routes + cybsh verbs', () => {
     expect(
       REST_ROUTES.peer_sync.transformRequest!({ id: 'p', ops: [], signature: 's', algorithm: 'a' }),
     ).toMatchObject({ ops: [], signature: 's', algorithm: 'a' })
+    expect(
+      REST_ROUTES.oplog_push.transformRequest!({
+        deviceId: 'laptop-1',
+        ops: [],
+        signature: 's',
+        algorithm: 'ml-dsa-65',
+      }),
+    ).toMatchObject({ deviceId: 'laptop-1', signature: 's', algorithm: 'ml-dsa-65' })
   })
 
   it('serves pex + relay verbs from the static shell', async () => {

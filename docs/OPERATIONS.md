@@ -217,15 +217,20 @@ first; chained lines and unknown verbs fall through to the wasm dispatcher
 
 One grammar everywhere: `<device>@<addr>` (`phone-7@192.168.1.60:3456`,
 `vault@https://vault.example.com`). Direct addrs dial live over HTTP(S)
-(`GET /api/readyz` probe → `GET /api/oplog/since` pull → `POST
-/api/oplog/push` push → merge → `GET /api/oplog/conflicts` render). Relay
+(`GET /api/readyz` probe → owner-scoped `GET /api/oplog/since` pull → signed
+`POST /api/peers/{localDeviceId}/sync` push → local merge → owner-scoped
+`GET /api/oplog/conflicts` render). Relay
 tickets (`relay…`, `iroh:…`, `/p2p/…`) rendezvous through any dashboard set
 as `relay_url` — both sides make outbound HTTPS (`POST /api/relay/drop` +
 `POST /api/relay/poll`, `POST /api/relay/ack` to clear), so no inbound port
-is needed; only the QUIC *datagram* upgrade stays sequenced. Attested
-devices sign the ops (`auth::SignedSyncBody`, ML-DSA over the canonical
-envelope) and `POST /api/peers/{id}/sync` reports `verified: true`;
-unsigned bodies still merge with `verified: false`. File bytes ride
+is needed. Every mailbox operation is owner-bound: the caller must own both
+devices to enqueue, and only the recipient's owner can poll/ack; presence is
+likewise filtered to the caller's active devices. Only the QUIC *datagram*
+upgrade stays sequenced. Attested
+devices sign every op (`auth::SignedSyncBody`, ML-DSA over the canonical
+envelope); unsigned, revoked, mismatched-owner, wrong-device and bad-signature
+requests fail closed. The receiver's path id is the sender's device id, and
+every signed op must name that device. File bytes ride
 sneakernet bundles (`POST /api/sync/bundle/build` with `files:
 [{ fileId, name, bytesBase64 }]` — 5 MiB/file, 100 files, 50 MiB total,
 every payload BLAKE3-verified on import), larger files ride the sync
@@ -260,15 +265,15 @@ small-data fan-out: `room join <app> <name>` reads hellos, `room say <app>
 | docker | presence on bridge networks | explicit peer URLs + relay | `POST /api/search/federated` server-side | `--network host` for mDNS, else announce the reachable host:port; persist `/data` + `SEARCH_INDEX_PATH` |
 | wasm | none (no UDP in sandbox) — explicit peers + server fan-out | relay envelopes + WebRTC datachannels via the relay mailbox | BM25-lite local + `fetch()` to explicit `https://` peers (CORS + mixed-content apply) | explicit `https://` URLs on the CORS allowlist, or server-side fan-out |
 
-Auth: peers carry their own bearer — set per-peer `token` in
-`POST /api/search/federated { peers: [{ baseUrl, deviceId, token }] }`
-(multi-secret vaults); without it the caller's own bearer is forwarded
-(single-secret vaults). Anonymous peers that require auth degrade to zero
-hits with an `auth:` marker, never a failed search. `https://` probes work
-everywhere (Rust rides reqwest+rustls, browsers fetch). Device attestation
-is ML-DSA against the registry (`sign_peer_ops` on desktop, wasm
-`ml_dsa65_sign` on Pages); a present-but-bad signature fails closed with
-`auth:`, never merged.
+Auth: every peer operation requires a token explicitly configured for that
+peer. `POST /api/search/federated { peers: [{ baseUrl, deviceId, token }] }`
+never forwards the caller's bearer; peers without their own token are skipped.
+Direct sync likewise requires the target peer's scoped token plus a local
+device signer. Anonymous or unconfigured peers fail closed; no implicit
+credential fallback exists. `https://` probes work everywhere (Rust rides
+reqwest+rustls, browsers fetch). Device attestation is ML-DSA against the
+registry (`sign_peer_ops_for_device` on desktop loads the sealed key from the
+vault; Pages uses wasm `ml_dsa65_sign`); raw private seed never crosses IPC.
 
 cybsh: `lan plan|peers|sync`, `wan plan|dial [--relay <url>]`, `pex
 announce|known`, `relay drop|poll|ack`, `pair make|drop|claim`, `swarm plan`,

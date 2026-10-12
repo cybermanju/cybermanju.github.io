@@ -30,10 +30,15 @@ encryption keys that also syncs ciphertext to third-party providers.
 2. **App ↔ provider API** — semi-trusted. The app sends *ciphertext* only
    (AGENT-2 encrypts before upload; AGENT-3 seals private keys at rest), and
    the bearer token is the only thing a provider can correlate to an account.
-3. **Server ↔ P2P peer** — untrusted destination. Federated search sends a
-   bearer only when it is explicitly assigned to that peer; the caller's
+3. **Server ↔ P2P peer** — untrusted destination. Federated search and direct
+   sync send only a token explicitly assigned to that peer; the caller's
    inbound `Authorization` token is never reused or forwarded. Treat each
-   configured peer token as a secret scoped to that peer URL.
+   configured peer token as a secret scoped to that peer URL. Sync writes are
+   accepted only with an ML-DSA signature from an active registered device;
+   the signed ops must all name that device and its registered algorithm.
+   Op-log pulls, conflict scans, resolution, presence and relay mailboxes are
+   scoped to active devices owned by the authenticated account (admins may
+   audit where the route permits it).
 4. **Process ↔ disk** — trusted at runtime, untrusted at rest. Anything
    persisted that is secret is either 0600 (JWT secret, master passphrase) or
    encrypted with an Argon2id-derived key (private keys, OAuth credentials).
@@ -49,6 +54,10 @@ directory but **not** the master passphrase.
 passphrase (they own the machine); physical DMA/side-channel attacks; supply
 chain compromise of a dependency; a malicious desktop user running as the
 same OS account (the Tauri IPC surface is trusted by design).
+
+The desktop signing command accepts a device id and op list, loads the sealed
+seed from the local vault, verifies the active local device registry binding,
+and never accepts or returns raw seed material over IPC.
 
 ---
 

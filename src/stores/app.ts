@@ -2384,13 +2384,22 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function syncWithPeer(deviceId: string, ops: unknown[] = [], attestation?: { signature: string; algorithm: string }) {
     try {
+      if (
+        typeof attestation?.signature !== 'string' ||
+        !attestation.signature.trim() ||
+        typeof attestation.algorithm !== 'string' ||
+        !attestation.algorithm.trim()
+      ) {
+        throw new Error('auth: peer sync requires an ML-DSA attestation from an enrolled device; unsigned sync is disabled')
+      }
       lanSyncMsg.value = `Syncing with ${deviceId}… (pull → push → merge)`
       const res = await invoke<{ appended?: number; skipped?: number; head?: number; verified?: boolean }>(
         'peer_sync',
-        attestation ? { id: deviceId, ops, ...attestation } : { id: deviceId, ops },
+        { id: deviceId, ops, ...attestation },
       )
+      if (res.verified !== true) throw new Error('auth: peer did not verify the signed sync envelope')
       await fetchOpConflicts()
-      const seal = res.verified === true ? ' · attested ✓' : ' · unsigned'
+      const seal = ' · attested ✓'
       lanSyncMsg.value = `Synced with ${deviceId} (appended ${res.appended ?? 0}, skipped ${res.skipped ?? 0}${seal})`
       return res
     } catch (e) {

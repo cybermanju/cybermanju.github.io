@@ -7,13 +7,13 @@
 // Exports: ENVELOPE_DOMAIN, canonical_envelope_bytes, sign_envelope,
 // verify_envelope, SignedSyncBody.
 // Integrates: sync crate (cybermanju-crypto + types already deps);
-// `POST /api/peers/{id}/sync` verifies when `signature`+`algorithm` are
-// present and reports `verified`; the TS twin is `src/utils/p2pPresence.ts`
+// `POST /api/peers/{id}/sync` requires `signature`+`algorithm` and reports
+// `verified`; the TS twin is `src/utils/p2pPresence.ts`
 // (`canonicalOpsEnvelope`, `SignedSyncBody`); signing on desktop rides the
-// `sign_peer_ops` Tauri command, on Pages the wasm `ml_dsa65_sign`.
+// `sign_peer_ops_for_device` Tauri command, on Pages the wasm `ml_dsa65_sign`.
 // Contracts: canonical bytes are `ENVELOPE_DOMAIN + serde_json(ops)` on every
 // transport (no whitespace/pretty variants — `serde_json::to_string` only);
-// `invalid:` on bad inputs, `auth:` when a signature is present but fails,
+// `invalid:` on bad inputs, `auth:` on missing/mismatched/invalid signatures,
 // never a panic, never a key logged.
 use cybermanju_types::schema::OpRow;
 
@@ -21,9 +21,8 @@ use cybermanju_types::schema::OpRow;
 /// (bundles, challenges, files). Both sides prepend these exact bytes.
 pub const ENVELOPE_DOMAIN: &str = "cybermanju-peer-sync/v1:";
 
-/// Wire body for `POST /api/peers/{id}/sync`: the ops plus an optional
-/// attestation. `signature`/`algorithm` absent = unattested (legacy) sender —
-/// the server merges but reports `verified: false`.
+/// Wire body for `POST /api/peers/{id}/sync`: the ops plus a mandatory
+/// device attestation. Missing `signature`/`algorithm` is rejected.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignedSyncBody {
@@ -81,10 +80,8 @@ pub fn sign_envelope(seed_b64: &str, algorithm: &str, ops: &[OpRow]) -> Result<S
 }
 
 /// Verify a received envelope against the sender registry row. Returns
-/// `Ok(true)` when a present signature checks out, `Ok(false)` when no
-/// signature was supplied (unattested legacy sender — merge, report
-/// `verified: false`), `Err("auth: …")` when a signature is present but
-/// fails or the row carries no usable key.
+/// `Ok(true)` only when a mandatory signature matches the registered public
+/// key and algorithm; all missing or mismatched attestations fail closed.
 pub fn verify_envelope(
     ops: &[OpRow],
     signature: &str,
@@ -93,7 +90,7 @@ pub fn verify_envelope(
     registry_algorithm: &str,
 ) -> Result<bool, String> {
     if signature.trim().is_empty() {
-        return Ok(false);
+        return Err("auth: signed peer-sync attestation is required".to_string());
     }
     if registry_public_key_b64.trim().is_empty() {
         return Err(
@@ -101,17 +98,24 @@ pub fn verify_envelope(
                 .to_string(),
         );
     }
-    let algo_name = if algorithm.trim().is_empty() {
-        registry_algorithm
-    } else {
-        algorithm
-    };
+    let supplied =
+        cybermanju_crypto::pqc::algorithm_from_str(algorithm.trim()).ok_or_else(|| {
+            "auth: peer-sync signature algorithm is required or unsupported".to_string()
+        })?;
+    let registered = cybermanju_crypto::pqc::algorithm_from_str(registry_algorithm.trim())
+        .ok_or_else(|| "auth: device registry has no supported signature algorithm".to_string())?;
+    if supplied != registered {
+        return Err(
+            "auth: peer-sync signature algorithm does not match the registered device key"
+                .to_string(),
+        );
+    }
     let message = canonical_envelope_bytes(ops)?;
     let valid = cybermanju_crypto::pqc::verify_with_public_key(
         &message,
         signature,
         registry_public_key_b64,
-        algo_name,
+        registry_algorithm,
     )
     .map_err(|e| {
         if e.starts_with("auth:") || e.starts_with("invalid:") || e.starts_with("integrity:") {
@@ -190,8 +194,15 @@ mod tests {
         let (seed, publ) = device_seed();
         let ops = vec![op("laptop", "tag")];
         let sig = sign_envelope(&seed, "ml-dsa-65", &ops).expect("sign");
-        // Unsigned = Ok(false), never an error (legacy senders keep working).
-        assert!(!verify_envelope(&ops, "", "", &publ, "ml-dsa-65").expect("unsigned"));
+        // Unsigned legacy senders are rejected rather than merged.
+        assert!(verify_envelope(&ops, "", "", &publ, "ml-dsa-65")
+            .unwrap_err()
+            .starts_with("auth:"));
+        // A valid signature cannot select an algorithm different from the
+        // one bound to the registered public key.
+        let err = verify_envelope(&ops, &sig, "ml-dsa-44", &publ, "ml-dsa-65")
+            .expect_err("algorithm mismatch");
+        assert!(err.starts_with("auth:"), "{err}");
         // Tampered ops fail with auth:, never merge.
         let mut tampered = ops.clone();
         tampered.push(op("mallory", "delete"));

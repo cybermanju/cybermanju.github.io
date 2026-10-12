@@ -26,4 +26,5 @@ cybermanju-sync = { path = "../sync" }
 cybermanju-disk = { path = "../disk" }
 cybermanju-erasure = { path = "../erasure" }
 cybermanju-os = { path = "../os" }
+base64 = "0.22"
 jsonwebtoken = "9"

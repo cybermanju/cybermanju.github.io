@@ -87,8 +87,8 @@ export function relayDialSteps(endpoint: WanEndpoint, relayUrl: string, since = 
   return [
     `drop: POST ${relay}/api/relay/drop { to: '${endpoint.deviceId}', kind: op-envelope }`,
     `poll: POST ${relay}/api/relay/poll { for: '${endpoint.deviceId}' } (15 s abort)`,
-    `pull: merge polled ops since=${s} via POST /api/oplog/push { ops: theirs }`,
-    'push: POST /api/relay/drop { to, kind: op-envelope, payload: ours }',
+    `pull: verify polled signed envelope since=${s} against registered device key, then append locally`,
+    'push: POST /api/relay/drop { to, kind: op-envelope, payload: signed envelope }',
     'render: GET /api/oplog/conflicts',
   ]
 }
@@ -214,15 +214,15 @@ export function wanHttpBase(endpoint: WanEndpoint): string {
   return `http://${addr}`
 }
 
-/** Real HTTP dial steps: op-log pull → push → merge → render over the base. */
+/** Real HTTP dial steps: op-log pull → signed push → verify/merge → render. */
 export function wanDialSteps(endpoint: WanEndpoint, since = 0): string[] {
   const base = wanHttpBase(endpoint)
   const s = Math.max(0, Math.floor(since))
   return [
     `probe: GET ${base}/api/readyz (15 s abort, fail-closed)`,
     `pull: GET ${base}/api/oplog/since?since=${s}`,
-    `push: POST ${base}/api/oplog/push { ops: ours }`,
-    `merge: POST /api/oplog/push { ops: theirs }`,
+    `push: POST ${base}/api/oplog/push { deviceId, ops, signature, algorithm } (ML-DSA required)`,
+    'merge: verify peer envelope against its registered key, then append locally',
     'render: GET /api/oplog/conflicts',
   ]
 }
@@ -239,9 +239,16 @@ export async function wanSyncExchange(
   since: number,
   localOps: unknown[],
   deps: {
-    fetchJson: (method: string, url: string, body?: unknown) => Promise<unknown>
+    localDeviceId: string
+    /** Explicit credential for this target peer; never fall back to caller auth. */
+    peerToken: string
+    fetchJson: (method: string, url: string, body: unknown, peerToken: string) => Promise<unknown>
     pushOps: (ops: unknown[]) => Promise<{ appended: number }>
-    fetchConflicts?: () => Promise<unknown>
+    fetchConflicts?: (peerToken: string) => Promise<unknown>
+    signer: (deviceId: string, normalizedOps: Record<string, unknown>[]) => Promise<{
+      signature: string
+      algorithm: string
+    }>
   },
 ): Promise<{ pulled: number; pushed: number; steps: string[] }> {
   if (isRelayAddr(endpoint.addr)) {

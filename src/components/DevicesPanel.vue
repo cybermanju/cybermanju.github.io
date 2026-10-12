@@ -151,7 +151,7 @@
             <UiButton size="sm" :disabled="!canSyncPeer(p)" :title="peerSyncTitle(p)" @click="store.syncWithPeer(p.deviceId)">Sync</UiButton>
           </div>
           <p v-if="store.lanSyncMsg" class="dv-line">{{ store.lanSyncMsg }}</p>
-          <p class="dv-muted">Direct sync is peer-authenticated: only enrolled, non-revoked devices (Registry above) sync — unknown peers stay listed but never merge.</p>
+          <p class="dv-muted">Direct sync accepts only a signed ML-DSA envelope from an enrolled, non-revoked device. Unsigned, revoked, unknown, or wrong-owner peers fail closed and never merge.</p>
         </UiCard>
         <UiCard title="Presence (no-mDNS peers)" icon="solar:radar-bold" meta="announce · known">
           <div class="dv-pair">

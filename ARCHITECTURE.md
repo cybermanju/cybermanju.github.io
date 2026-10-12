@@ -800,21 +800,21 @@ Login via `POST /api/users/login` with `{ "username": "...", "password": "..." }
 | `DELETE` | `/api/devices/{id}` | Remove a device row (admin) |
 | `POST` | `/api/devices/{id}/revoke` | Revoke a device — row stays, fails closed (admin) |
 | `GET` | `/api/peers` | Active mDNS LAN scan (`_cybermanju._tcp.local`, 2 s cap) |
-| `GET` | `/api/peers/known` | Server-assisted presence: fresh `announce` heartbeats (5 min TTL, revoked filtered) |
-| `POST` | `/api/peers/announce` | Heartbeat `{ deviceId, host, port }` (once per launch; presence is advisory, sync stays registry-gated) |
+| `GET` | `/api/peers/known` | Server-assisted presence: fresh heartbeats for active devices owned by the caller (5 min TTL; admins may audit all) |
+| `POST` | `/api/peers/announce` | Heartbeat `{ deviceId, host, port }` for an active device owned by the caller (once per launch; sync still verifies signatures) |
 | **Todos** | | |
 | `GET`/`POST` | `/api/todos` | Owner-scoped shared task list (agent tools use the same rows) |
 | `PUT`/`DELETE` | `/api/todos/{id}` | Complete/reopen or delete a todo (owner-scoped, 404 across owners) |
 | **Op-log** | | |
-| `GET` | `/api/oplog/since?since=N&limit=M` | Pull ops after seq N (`{ head, ops }`, idempotent) |
-| `POST` | `/api/oplog/push` | Merge foreign ops (`{ appended, skipped, head }`) |
-| `GET` | `/api/oplog/conflicts` | Fork pairs for the conflict UI |
-| `POST` | `/api/oplog/resolve` | Append a `resolve` verdict (`keep-a`/`keep-b`/`merge`; history never deleted) |
-| `POST` | `/api/peers/{id}/sync` | Attested device↔device op-log exchange (`{ ops, signature?, algorithm? }` → `{ appended, skipped, head, verified }`; unknown `not_found:`, revoked/bad-signature `auth:`) |
+| `GET` | `/api/oplog/since?since=N&limit=M` | Pull ops after seq N for the authenticated owner's active devices (`{ head, ops }`, page capped at 5,000) |
+| `POST` | `/api/oplog/push` | Merge only a signed envelope from the registered owner device (`{ deviceId, ops, signature, algorithm }`; unsigned/bad signature rejected) |
+| `GET` | `/api/oplog/conflicts` | Fork pairs from the authenticated owner's devices only (admins may audit all) |
+| `POST` | `/api/oplog/resolve` | Append a `resolve` verdict only when both ops and the resolving device belong to the caller (`keep-a`/`keep-b`/`merge`; history never deleted) |
+| `POST` | `/api/peers/{deviceId}/sync` | Attested device↔device op-log exchange; signature/algorithm/device id must match an active owner registry row (`{ ops, signature, algorithm }` → `{ appended, skipped, head, verified: true }`; unsigned, unknown or revoked sender rejected) |
 | **Relay (NAT rendezvous)** | | |
-| `POST` | `/api/relay/drop` | Drop `{ from, to, kind, payload }` into a recipient mailbox (256 KiB cap; both sides outbound HTTPS) |
-| `POST` | `/api/relay/poll` | List a recipient's queued envelopes, oldest first (non-destructive — ack clears) |
-| `POST` | `/api/relay/ack` | Clear delivered envelopes (`{ cleared }`) |
+| `POST` | `/api/relay/drop` | Drop `{ from, to, kind, payload }` only when both devices belong to the authenticated owner (256 KiB cap; both sides outbound HTTPS) |
+| `POST` | `/api/relay/poll` | List only the caller-owned recipient's queued envelopes, oldest first (non-destructive — ack clears) |
+| `POST` | `/api/relay/ack` | Clear only the caller-owned recipient's delivered envelopes (`{ cleared }`) |
 | **Sneakernet** | | |
 | `GET` | `/api/sync/bundle/export?since=N` | BLAKE3-manifested op delta (`cyb-bundle/1`, admin) |
 | `POST` | `/api/sync/bundle/build` | Build a bundle carrying file bytes (`files: [{ fileId, name, bytesBase64 }]`; 5 MiB/file, 100 files, 50 MiB total, admin) |

@@ -862,6 +862,7 @@ export interface SecretInput {
 export interface DeviceInfo {
   id: string
   name: string
+  ownerId?: string
   publicKey?: string
   keyAlgorithm?: string
   createdAt: string

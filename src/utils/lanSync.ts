@@ -50,8 +50,8 @@ export function lanSyncSteps(peer: PeerDevice, since: number): string[] {
   const s = Number.isFinite(since) ? Math.max(0, Math.floor(since)) : 0
   return [
     `pull: GET ${base}/api/oplog/since?since=${s}`,
-    `push: POST ${base}/api/oplog/push { ops: ours }`,
-    `merge: POST /api/oplog/push { ops: theirs }`,
+    `push: POST ${base}/api/peers/{localDeviceId}/sync { signed ops }`,
+    'merge: append verified peer ops locally',
     'render: GET /api/oplog/conflicts',
   ]
 }
@@ -72,9 +72,15 @@ export async function lanSyncExchange(
   since: number,
   localOps: unknown[],
   deps: {
-    fetchJson: (method: string, url: string, body?: unknown) => Promise<unknown>
+    localDeviceId: string
+    peerToken: string
+    fetchJson: (method: string, url: string, body: unknown, peerToken: string) => Promise<unknown>
     pushOps: (ops: unknown[]) => Promise<{ appended: number }>
-    fetchConflicts?: () => Promise<unknown>
+    fetchConflicts?: (peerToken: string) => Promise<unknown>
+    signer: (deviceId: string, normalizedOps: Record<string, unknown>[]) => Promise<{
+      signature: string
+      algorithm: string
+    }>
   },
 ): Promise<{ pulled: number; pushed: number; steps: string[] }> {
   const { syncExchangeWithPeer } = await import('./peerSearch')

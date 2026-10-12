@@ -19,7 +19,13 @@
 // `unsupported:` with the HTTP/LAN/bundle way out, never a hang;
 // `fetch_peer_hits` never exceeds its timeout and normalizes failures to
 // `network:` / `auth:` — never a guessed address, never a panic.
-use std::time::Duration;
+use std::{
+    io::Read,
+    net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
+    time::Duration,
+};
+
+use cybermanju_db::Database;
 
 use cybermanju_db::Database;
 
@@ -236,8 +242,8 @@ pub fn direct_http_plan(peer: &PeerEndpoint, since: u64) -> Result<Vec<String>, 
     Ok(vec![
         format!("probe: GET {base}/api/readyz (15 s abort, fail-closed)"),
         format!("pull: GET {base}/api/oplog/since?since={since}"),
-        format!("push: POST {base}/api/oplog/push {{ ops: ours }}"),
-        "merge: POST /api/oplog/push { ops: theirs }".to_string(),
+        format!("push: POST {base}/api/oplog/push {{ deviceId, ops, signature, algorithm }} (ML-DSA required)"),
+        "merge: verify peer envelope against its registered key, then append locally".to_string(),
         "render: GET /api/oplog/conflicts".to_string(),
     ])
 }
@@ -348,10 +354,143 @@ fn hit_from_value(value: &serde_json::Value, source: &str) -> Option<FederatedHi
     })
 }
 
+const MAX_PEER_SEARCH_RESPONSE_BYTES: u64 = 2 * 1024 * 1024;
+
+fn peer_ip_allowed(ip: IpAddr, allow_private: bool) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            let [a, b, c, _] = ip.octets();
+            if a == 0 || a == 127 || (a == 169 && b == 254) || a >= 224 {
+                return false;
+            }
+            let private = a == 10 || (a == 172 && (16..=31).contains(&b)) || (a == 192 && b == 168);
+            if private {
+                return allow_private;
+            }
+            let shared = a == 100 && (64..=127).contains(&b);
+            let reserved = (a == 192 && b == 0)
+                || (a == 198 && (b == 18 || b == 19 || (b == 51 && c == 100)))
+                || (a == 203 && b == 0 && c == 113)
+                || u32::from(ip) == u32::MAX;
+            !shared && !reserved
+        }
+        IpAddr::V6(ip) => {
+            if ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                || ip.is_unicast_link_local()
+            {
+                return false;
+            }
+            let segments = ip.segments();
+            if segments[0] & 0xffc0 == 0xfec0 {
+                return false; // deprecated site-local
+            }
+            if segments[..5] == [0, 0, 0, 0, 0] && segments[5] == 0xffff {
+                let mapped = Ipv4Addr::new(
+                    (segments[6] >> 8) as u8,
+                    segments[6] as u8,
+                    (segments[7] >> 8) as u8,
+                    segments[7] as u8,
+                );
+                return peer_ip_allowed(IpAddr::V4(mapped), allow_private);
+            }
+            if ip.is_unique_local() {
+                return allow_private;
+            }
+            let global_unicast = segments[0] & 0xe000 == 0x2000;
+            let documentation = segments[0] == 0x2001 && segments[1] == 0x0db8;
+            global_unicast && !documentation
+        }
+    }
+}
+
+fn resolve_peer_target(
+    url: &reqwest::Url,
+    allow_private: bool,
+) -> Result<(String, Vec<SocketAddr>, bool), String> {
+    let host = url
+        .host_str()
+        .ok_or_else(|| "invalid: peer URL must include a hostname".to_string())?;
+    let bare_host = host.trim_start_matches('[').trim_end_matches(']');
+    let lower = bare_host.to_ascii_lowercase();
+    if lower == "localhost"
+        || lower.ends_with(".localhost")
+        || lower == "metadata"
+        || lower == "metadata.google.internal"
+    {
+        return Err("invalid: peer host is a loopback or cloud-metadata target".to_string());
+    }
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| "invalid: peer URL must use HTTP or HTTPS".to_string())?;
+    if let Ok(ip) = bare_host.parse::<IpAddr>() {
+        if !peer_ip_allowed(ip, allow_private) {
+            return Err(
+                "invalid: peer address is not an allowed public or authorized LAN target"
+                    .to_string(),
+            );
+        }
+        return Ok((bare_host.to_string(), vec![SocketAddr::new(ip, port)], true));
+    }
+    let addrs = (bare_host, port)
+        .to_socket_addrs()
+        .map_err(|e| format!("invalid: peer DNS resolution failed: {e}"))?
+        .collect::<Vec<_>>();
+    if addrs.is_empty() {
+        return Err("invalid: peer hostname resolved to no addresses".to_string());
+    }
+    if addrs
+        .iter()
+        .any(|addr| !peer_ip_allowed(addr.ip(), allow_private))
+    {
+        return Err(
+            "invalid: peer hostname resolves to a blocked or unauthorized address".to_string(),
+        );
+    }
+    Ok((bare_host.to_string(), addrs, false))
+}
+
+/// Match a peer URL to an authenticated presence announcement. Used by the
+/// web layer before enabling private-address dialing; comparison ignores
+/// hostname case/trailing dots but requires the exact announced port.
+pub fn peer_base_matches_presence(
+    base_url: &str,
+    announced_host: &str,
+    announced_port: u16,
+) -> bool {
+    let Ok(base) = normalize_base_url(base_url) else {
+        return false;
+    };
+    let Ok(url) = reqwest::Url::parse(&base) else {
+        return false;
+    };
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return false;
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let normalize = |value: &str| {
+        value
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .trim_end_matches('.')
+            .to_ascii_lowercase()
+    };
+    normalize(host) == normalize(announced_host)
+        && url.port_or_known_default() == Some(announced_port)
+}
+
 /// Query one peer's `GET /api/search?q=&limit=` with a bounded timeout.
-/// Returns source-tagged hits (empty when the peer has no match). Errors are
-/// `invalid:` (bad args), `auth:` (401/403), or `network:` (everything else)
-/// — never a hang, never a panic, never a guessed address.
+/// Private/LAN addresses are rejected unless the caller has independently
+/// verified a matching, owner-scoped device presence; DNS answers are pinned
+/// and redirects/proxies are disabled to prevent SSRF bypasses.
 pub fn fetch_peer_hits(
     base_url: &str,
     query: &str,
@@ -359,25 +498,62 @@ pub fn fetch_peer_hits(
     timeout_secs: u64,
     bearer: Option<&str>,
 ) -> Result<Vec<FederatedHit>, String> {
+    fetch_peer_hits_with_policy(base_url, query, limit, timeout_secs, bearer, false)
+}
+
+/// LAN-enabled twin; callers must verify the URL matches a registered,
+/// owner-scoped peer presence before passing `allow_private = true`.
+pub fn fetch_peer_hits_with_policy(
+    base_url: &str,
+    query: &str,
+    limit: usize,
+    timeout_secs: u64,
+    bearer: Option<&str>,
+    allow_private: bool,
+) -> Result<Vec<FederatedHit>, String> {
     if timeout_secs == 0 || timeout_secs > 120 {
         return Err("invalid: timeout_secs must be 1..=120".to_string());
     }
     if query.trim().is_empty() {
         return Ok(Vec::new());
     }
+    if let Some((scheme, _)) = base_url.trim().split_once("://") {
+        if !matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https") {
+            return Err("invalid: peer URL must use HTTP or HTTPS".to_string());
+        }
+    }
     let base = normalize_base_url(base_url)?;
+    let parsed =
+        reqwest::Url::parse(&base).map_err(|e| format!("invalid: malformed peer URL: {e}"))?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(
+            "invalid: peer URL must be HTTP(S), without credentials, query or fragment".to_string(),
+        );
+    }
+    let (host, addresses, is_ip) = resolve_peer_target(&parsed, allow_private)?;
     let limit = limit.clamp(1, 200);
     let url = format!(
         "{}/api/search?q={}&limit={}",
-        base.trim_end_matches('/'),
+        parsed.as_str().trim_end_matches('/'),
         encode_query(query),
         limit
     );
     let timeout = Duration::from_secs(timeout_secs);
-    let client = reqwest::blocking::Client::builder()
+    let mut builder = reqwest::blocking::Client::builder()
         .user_agent("CyberManjuOS/0.1")
         .connect_timeout(timeout)
         .timeout(timeout)
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy();
+    if !is_ip {
+        builder = builder.resolve_to_addrs(&host, &addresses);
+    }
+    let client = builder
         .build()
         .map_err(|e| format!("network: peer search client failed for '{base}': {e}"))?;
     let mut req = client.get(&url);
@@ -396,8 +572,16 @@ pub fn fetch_peer_hits(
             "network: peer search {base} answered HTTP {status}"
         ));
     }
-    let body: serde_json::Value = resp
-        .json()
+    let mut body_bytes = Vec::new();
+    resp.take(MAX_PEER_SEARCH_RESPONSE_BYTES + 1)
+        .read_to_end(&mut body_bytes)
+        .map_err(|e| format!("network: peer search {base} response read failed: {e}"))?;
+    if body_bytes.len() as u64 > MAX_PEER_SEARCH_RESPONSE_BYTES {
+        return Err(format!(
+            "too_large: peer search response exceeds {MAX_PEER_SEARCH_RESPONSE_BYTES} bytes"
+        ));
+    }
+    let body: serde_json::Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| format!("network: peer search {base} returned bad JSON: {e}"))?;
     let items: &[serde_json::Value] = if let Some(arr) = body.as_array() {
         arr
@@ -490,7 +674,7 @@ pub fn peer_oplog_since_url(base_url: &str, since: u64, limit: usize) -> String 
     )
 }
 
-/// `POST <base>/api/oplog/push` — push half of the op-log exchange.
+/// `POST <base>/api/oplog/push` — signed envelope push; unsigned ops are rejected.
 pub fn peer_oplog_push_url(base_url: &str) -> String {
     format!(
         "{}/api/oplog/push",
@@ -935,6 +1119,8 @@ mod tests {
         assert_eq!(steps.len(), 5);
         assert!(steps[0].contains("/api/readyz"), "{steps:?}");
         assert!(steps[1].contains("/api/oplog/since?since=41"), "{steps:?}");
+        assert!(steps[2].contains("signature, algorithm"), "{steps:?}");
+        assert!(steps[3].contains("verify peer envelope"), "{steps:?}");
         let relay = parse_peer_endpoint("phone-7@relay.example").unwrap();
         let err = direct_http_plan(&relay, 0).expect_err("relay is QUIC future");
         assert!(err.starts_with("unsupported:"), "{err}");
@@ -974,7 +1160,51 @@ mod tests {
             .unwrap()
             .is_empty());
         let closed = fetch_peer_hits("http://127.0.0.1:9", "photo", 5, 2, None).unwrap_err();
-        assert!(closed.starts_with("network:"), "{closed}");
+        assert!(closed.starts_with("invalid:"), "{closed}");
+    }
+
+    #[test]
+    fn peer_search_blocks_ssrf_and_allows_private_only_under_policy() {
+        assert!(!peer_ip_allowed(IpAddr::V4(Ipv4Addr::LOCALHOST), true));
+        assert!(!peer_ip_allowed(
+            IpAddr::V4(Ipv4Addr::new(169, 254, 169, 254)),
+            true
+        ));
+        assert!(!peer_ip_allowed(
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 20)),
+            false
+        ));
+        assert!(peer_ip_allowed(
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 20)),
+            true
+        ));
+        assert!(peer_ip_allowed(
+            IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+            false
+        ));
+        assert!(!peer_ip_allowed(IpAddr::V6("::1".parse().unwrap()), true));
+
+        let private = reqwest::Url::parse("http://192.168.1.20:3456").unwrap();
+        assert!(resolve_peer_target(&private, false).is_err());
+        assert!(resolve_peer_target(&private, true).is_ok());
+        assert!(peer_base_matches_presence(
+            "http://PHONE.local:3456/",
+            "phone.local",
+            3456
+        ));
+        assert!(!peer_base_matches_presence(
+            "http://phone.local:3457",
+            "phone.local",
+            3456
+        ));
+        assert!(
+            fetch_peer_hits("http://169.254.169.254/latest/meta-data", "q", 5, 2, None)
+                .unwrap_err()
+                .starts_with("invalid:")
+        );
+        assert!(fetch_peer_hits("ftp://example.com", "q", 5, 2, None)
+            .unwrap_err()
+            .starts_with("invalid:"));
     }
 
     #[test]

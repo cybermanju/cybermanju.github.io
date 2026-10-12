@@ -463,7 +463,7 @@ pub fn run() {
             devices::list_lan_peers,
             devices::probe_peer,
             devices::peer_platform_notes,
-            devices::sign_peer_ops,
+            devices::sign_peer_ops_for_device,
             // P2P compute twins (§2B swarming + pairing + fountain codes —
             // pure math, no sockets).
             commands::p2p::swarm_encode,

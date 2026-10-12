@@ -19,6 +19,67 @@ fn user(d: &cybermanju_web::WebDashboard) -> String {
     bearer(&mint(d, "user", now_secs() + 3600, "spine-user"))
 }
 
+fn signing_identity() -> (String, String) {
+    use base64::Engine;
+    let mut engine = cybermanju_crypto::pqc::PqcEngine::new();
+    let keypair = engine
+        .generate_keypair(cybermanju_crypto::pqc::EncryptionAlgo::MlDsa65)
+        .expect("ML-DSA keygen");
+    (
+        base64::engine::general_purpose::STANDARD.encode(&keypair.private_key),
+        base64::engine::general_purpose::STANDARD.encode(&keypair.public_key),
+    )
+}
+
+fn enroll_signing_device(d: &cybermanju_web::WebDashboard, auth: &str, id: &str) -> String {
+    let (seed, public_key) = signing_identity();
+    let response = call(
+        d,
+        "POST",
+        "/api/devices",
+        &serde_json::json!({
+            "id": id,
+            "name": id,
+            "publicKey": public_key,
+            "keyAlgorithm": "ml-dsa-65"
+        })
+        .to_string(),
+        Some(auth),
+    );
+    assert_eq!(status_of(&response), 200, "{response}");
+    seed
+}
+
+fn op_row(
+    device_id: &str,
+    op_id: &str,
+    kind: &str,
+    file_id: &str,
+) -> cybermanju_types::schema::OpRow {
+    cybermanju_types::schema::OpRow {
+        seq: 0,
+        op_id: op_id.to_string(),
+        device_id: device_id.to_string(),
+        created_at: "2026-10-11T00:00:00Z".to_string(),
+        kind: kind.to_string(),
+        file_id: Some(file_id.to_string()),
+        payload: serde_json::json!({}),
+        bases: Default::default(),
+    }
+}
+
+fn signed_envelope(device_id: &str, seed: &str, ops: &[cybermanju_types::schema::OpRow]) -> String {
+    let signature =
+        cybermanju_sync::auth::sign_envelope(seed, "ml-dsa-65", ops).expect("sign ML-DSA envelope");
+    serde_json::json!({
+        "deviceId": device_id,
+        "ops": ops,
+        "signature": signature,
+        "algorithm": "ml-dsa-65"
+    })
+    .to_string()
+}
+
 #[test]
 fn new_families_require_a_session() {
     let (_dir, d) = mk_dashboard(3456);
@@ -172,30 +233,51 @@ fn oplog_push_pull_and_conflicts() {
     );
     assert_eq!(status_of(&bad), 400, "{bad}");
 
-    let push = call(
+    let seed1 = enroll_signing_device(&d, &auth, "d1");
+    let seed2 = enroll_signing_device(&d, &auth, "d2");
+    let op1 = op_row("d1", "d1-0", "tag", "f1");
+    let op2 = op_row("d2", "d2-0", "rename", "f1");
+    let unsigned = call(
         &d,
         "POST",
         "/api/oplog/push",
-        r#"{"ops":[
-            {"opId":"d1-0","deviceId":"d1","createdAt":"2026-10-11T00:00:00Z","kind":"tag","fileId":"f1","payload":{}},
-            {"opId":"d2-0","deviceId":"d2","createdAt":"2026-10-11T00:00:00Z","kind":"rename","fileId":"f1","payload":{}}
-        ]}"#,
+        &serde_json::json!({ "deviceId": "d1", "ops": [op1.clone()], "algorithm": "ml-dsa-65" })
+            .to_string(),
         Some(&auth),
     );
-    assert_eq!(status_of(&push), 200, "{push}");
-    let report: serde_json::Value = serde_json::from_str(body_of(&push)).expect("json");
-    assert_eq!(report["appended"], 2);
+    assert_eq!(status_of(&unsigned), 403, "{unsigned}");
+    assert!(body_of(&unsigned).contains("auth:"), "{unsigned}");
+
+    let push1 = call(
+        &d,
+        "POST",
+        "/api/oplog/push",
+        &signed_envelope("d1", &seed1, &[op1.clone()]),
+        Some(&auth),
+    );
+    assert_eq!(status_of(&push1), 200, "{push1}");
+    let report: serde_json::Value = serde_json::from_str(body_of(&push1)).expect("json");
+    assert_eq!(report["appended"], 1);
+    assert_eq!(report["verified"], true);
+
+    let push2 = call(
+        &d,
+        "POST",
+        "/api/oplog/push",
+        &signed_envelope("d2", &seed2, &[op2]),
+        Some(&auth),
+    );
+    assert_eq!(status_of(&push2), 200, "{push2}");
 
     // Re-push is idempotent.
     let again = call(
         &d,
         "POST",
         "/api/oplog/push",
-        r#"{"ops":[
-            {"opId":"d1-0","deviceId":"d1","createdAt":"2026-10-11T00:00:00Z","kind":"tag","fileId":"f1","payload":{}}
-        ]}"#,
+        &signed_envelope("d1", &seed1, &[op1]),
         Some(&auth),
     );
+    assert_eq!(status_of(&again), 200, "{again}");
     let report: serde_json::Value = serde_json::from_str(body_of(&again)).expect("json");
     assert_eq!(
         (report["appended"].as_u64(), report["skipped"].as_u64()),
@@ -210,7 +292,7 @@ fn oplog_push_pull_and_conflicts() {
         Some(&auth),
     );
     let page: serde_json::Value = serde_json::from_str(body_of(&page)).expect("json");
-    assert_eq!(page["ops"].as_array().map(|a| a.len()), Some(1));
+    assert_eq!(page["ops"].as_array().map(|a| a.len()), Some(2));
 
     // Same file, two devices, neither vector dominates → one fork pair.
     let conflicts = call(&d, "GET", "/api/oplog/conflicts", "", Some(&auth));
@@ -222,16 +304,24 @@ fn oplog_push_pull_and_conflicts() {
 fn oplog_resolve_appends_a_verdict_without_deleting_history() {
     let (_dir, d) = mk_dashboard(3456);
     let auth = admin(&d);
-    call(
+    let seed1 = enroll_signing_device(&d, &auth, "r1");
+    let seed2 = enroll_signing_device(&d, &auth, "r2");
+    let first = call(
         &d,
         "POST",
         "/api/oplog/push",
-        r#"{"ops":[
-            {"opId":"r1-0","deviceId":"r1","createdAt":"2026-10-11T00:00:00Z","kind":"rename","fileId":"f9","payload":{}},
-            {"opId":"r2-0","deviceId":"r2","createdAt":"2026-10-11T00:00:00Z","kind":"rename","fileId":"f9","payload":{}}
-        ]}"#,
+        &signed_envelope("r1", &seed1, &[op_row("r1", "r1-0", "rename", "f9")]),
         Some(&auth),
     );
+    assert_eq!(status_of(&first), 200, "{first}");
+    let second = call(
+        &d,
+        "POST",
+        "/api/oplog/push",
+        &signed_envelope("r2", &seed2, &[op_row("r2", "r2-0", "rename", "f9")]),
+        Some(&auth),
+    );
+    assert_eq!(status_of(&second), 200, "{second}");
     // Unknown choices and ghost ops refuse honestly.
     let bad_choice = call(
         &d,
@@ -254,7 +344,7 @@ fn oplog_resolve_appends_a_verdict_without_deleting_history() {
         &d,
         "POST",
         "/api/oplog/resolve",
-        r#"{"opA":"r1-0","opB":"r2-0","choice":"keep-a","deviceId":"laptop"}"#,
+        r#"{"opA":"r1-0","opB":"r2-0","choice":"keep-a","deviceId":"r1"}"#,
         Some(&auth),
     );
     assert_eq!(status_of(&done), 200, "{done}");
@@ -319,47 +409,101 @@ fn peer_sync_is_peer_authenticated() {
     assert_eq!(status_of(&ghost), 404, "{ghost}");
     assert!(body_of(&ghost).contains("not_found:"), "{ghost}");
 
-    // Enroll one peer, then revoke it — revoked rows fail closed.
-    let reg = call(
+    // Enroll a device with a real keypair, then reject unsigned and
+    // cross-owner requests before accepting its verified envelope.
+    let seed = enroll_signing_device(&d, &auth, "phone");
+    let op = op_row("phone", "p-0", "star", "f3");
+    let unsigned = call(
         &d,
         "POST",
-        "/api/devices",
-        r#"{"name":"phone"}"#,
+        "/api/peers/phone/sync",
+        r#"{"ops":[]}"#,
         Some(&auth),
     );
-    let row: serde_json::Value = serde_json::from_str(body_of(&reg)).expect("json");
-    let id = row["id"].as_str().expect("id").to_string();
-    // Non-admin callers still authenticate (401 shape covered above); a
-    // signed-in non-admin syncs fine against a known peer.
+    assert_eq!(status_of(&unsigned), 403, "{unsigned}");
+    assert!(body_of(&unsigned).contains("auth:"), "{unsigned}");
+
+    let wrong_owner = call(
+        &d,
+        "POST",
+        "/api/peers/phone/sync",
+        &signed_envelope("phone", &seed, &[op.clone()]),
+        Some(&plain),
+    );
+    assert_eq!(status_of(&wrong_owner), 403, "{wrong_owner}");
+
     let ok = call(
         &d,
         "POST",
-        &format!("/api/peers/{id}/sync"),
-        r#"{"ops":[{"opId":"p-0","deviceId":"phone","createdAt":"2026-10-11T00:00:00Z","kind":"star","fileId":"f3","payload":{}}]}"#,
-        Some(&plain),
+        "/api/peers/phone/sync",
+        &signed_envelope("phone", &seed, &[op]),
+        Some(&auth),
     );
     assert_eq!(status_of(&ok), 200, "{ok}");
     let report: serde_json::Value = serde_json::from_str(body_of(&ok)).expect("json");
     assert_eq!(report["appended"], 1);
     assert_eq!(report["skipped"], 0);
     assert!(report["head"].as_u64().is_some(), "{report}");
+    assert_eq!(report["verified"], true);
 
-    call(
-        &d,
-        "POST",
-        &format!("/api/devices/{id}/revoke"),
-        "",
-        Some(&auth),
-    );
+    call(&d, "POST", "/api/devices/phone/revoke", "", Some(&auth));
     let shut = call(
         &d,
         "POST",
-        &format!("/api/peers/{id}/sync"),
+        "/api/peers/phone/sync",
         r#"{"ops":[]}"#,
         Some(&auth),
     );
     assert_eq!(status_of(&shut), 403, "{shut}");
     assert!(body_of(&shut).contains("auth:"), "{shut}");
+}
+
+#[test]
+fn relay_mailboxes_are_owner_scoped() {
+    let (_dir, d) = mk_dashboard(3456);
+    let admin = admin(&d);
+    let plain = user(&d);
+    enroll_signing_device(&d, &admin, "relay-sender");
+    enroll_signing_device(&d, &admin, "relay-receiver");
+    enroll_signing_device(&d, &plain, "other-owner-device");
+
+    let cross_owner = call(
+        &d,
+        "POST",
+        "/api/relay/drop",
+        r#"{"from":"relay-sender","to":"other-owner-device","kind":"offer","payload":{}}"#,
+        Some(&admin),
+    );
+    assert_eq!(status_of(&cross_owner), 403, "{cross_owner}");
+    assert!(body_of(&cross_owner).contains("auth:"), "{cross_owner}");
+
+    let accepted = call(
+        &d,
+        "POST",
+        "/api/relay/drop",
+        r#"{"from":"relay-sender","to":"relay-receiver","kind":"offer","payload":{}}"#,
+        Some(&admin),
+    );
+    assert_eq!(status_of(&accepted), 200, "{accepted}");
+
+    let cross_poll = call(
+        &d,
+        "POST",
+        "/api/relay/poll",
+        r#"{"for":"other-owner-device"}"#,
+        Some(&admin),
+    );
+    assert_eq!(status_of(&cross_poll), 403, "{cross_poll}");
+
+    let poll = call(
+        &d,
+        "POST",
+        "/api/relay/poll",
+        r#"{"for":"relay-receiver"}"#,
+        Some(&admin),
+    );
+    assert_eq!(status_of(&poll), 200, "{poll}");
+    assert!(body_of(&poll).contains("offer"), "{poll}");
 }
 
 #[test]
@@ -376,13 +520,15 @@ fn bundle_export_import_round_trips_admin_only() {
     );
     assert_eq!(status_of(&denied), 403, "{denied}");
 
-    call(
+    let seed = enroll_signing_device(&d, &auth, "d9");
+    let push = call(
         &d,
         "POST",
         "/api/oplog/push",
-        r#"{"ops":[{"opId":"d9-0","deviceId":"d9","createdAt":"2026-10-11T00:00:00Z","kind":"star","fileId":"f2","payload":{}}]}"#,
+        &signed_envelope("d9", &seed, &[op_row("d9", "d9-0", "star", "f2")]),
         Some(&auth),
     );
+    assert_eq!(status_of(&push), 200, "{push}");
     let export = call(
         &d,
         "GET",

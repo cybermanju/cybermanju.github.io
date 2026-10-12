@@ -153,7 +153,7 @@ pub fn relay_dial_steps(
             "poll: POST {}/api/relay/poll {{ for: '{}' }} ({} s abort)",
             relay, endpoint.device_id, config.dial_timeout_secs
         ),
-        format!("pull: merge polled ops since={since} via POST /api/oplog/push {{ ops: theirs }}"),
+        format!("pull: verify polled signed envelope (since={since}) against registered device key, then append locally"),
         "push: POST /api/relay/drop { to, kind: op-envelope, payload: ours }".to_string(),
         "render: GET /api/oplog/conflicts".to_string(),
     ])
@@ -249,8 +249,8 @@ pub fn http_dial_steps(endpoint: &IrohEndpoint, since: u64) -> Vec<String> {
     vec![
         format!("probe: GET {base}/api/readyz ({} s abort, fail-closed)", 15),
         format!("pull: GET {base}/api/oplog/since?since={since}"),
-        format!("push: POST {base}/api/oplog/push {{ ops: ours }}"),
-        "merge: POST /api/oplog/push { ops: theirs }".to_string(),
+        format!("push: POST {base}/api/oplog/push {{ deviceId, ops, signature, algorithm }} (ML-DSA required)"),
+        "merge: verify peer envelope against its registered key, then append locally".to_string(),
         "render: GET /api/oplog/conflicts".to_string(),
     ]
 }
@@ -741,6 +741,8 @@ mod tests {
         assert!(steps[0].contains("/api/readyz"), "{steps:?}");
         assert!(steps[1].contains("/api/oplog/since?since=41"), "{steps:?}");
         assert!(steps[2].contains("/api/oplog/push"), "{steps:?}");
+        assert!(steps[2].contains("signature, algorithm"), "{steps:?}");
+        assert!(steps[3].contains("verify peer envelope"), "{steps:?}");
         assert!(steps[4].contains("/api/oplog/conflicts"), "{steps:?}");
     }
 

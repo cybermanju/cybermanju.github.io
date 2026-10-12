@@ -1,8 +1,8 @@
 // CyberManju OS — Devices (src-tauri/src/commands/devices.rs).
 // Role: Tauri IPC commands for device identity (§2B.1) + LAN peers (§2B.2).
 // Exports: list_devices, register_device, register_this_device,
-// revoke_device, remove_device, list_lan_peers, sign_peer_ops,
-// sign_peer_ops_for_device, device_seed_key_id.
+// revoke_device, remove_device, list_lan_peers, sign_peer_ops_for_device,
+// device_seed_key_id.
 // Integrates: shared web API (devices), PQC engine (ML-DSA attestation),
 // sync lan scanner; State<AppState> locks mirror the cron module.
 // Contracts: trusted-local transport (same posture as the rest of IPC);
@@ -40,6 +40,8 @@ pub fn register_device(
             public_key,
             key_algorithm,
         },
+        "local",
+        true,
     )
 }
 
@@ -52,10 +54,8 @@ pub fn device_seed_key_id(device_id: &str) -> String {
 /// half sealed into the encryption-keys table (same at-rest posture as every
 /// other keypair — `seal_private_key` refuses raw persistence). The seed
 /// never crosses IPC: attested sync signs server-side via
-/// `sign_peer_ops_for_device`. When the vault is locked the seed cannot be
-/// sealed, so enrollment still succeeds but stays unattested until
-/// re-enrollment (documented, never a silent raw write) —
-/// `register_this_device` never returns the seed either way.
+/// `sign_peer_ops_for_device`. If the vault is locked or persistence fails,
+/// enrollment fails closed and removes the just-created device row.
 #[tauri::command(async)]
 pub fn register_this_device(name: String, state: State<'_, AppState>) -> Result<DeviceRow, String> {
     use crate::crypto::pqc::{algorithm_from_str, PqcEngine};
@@ -69,48 +69,60 @@ pub fn register_this_device(name: String, state: State<'_, AppState>) -> Result<
         &base64::engine::general_purpose::STANDARD,
         &keypair.public_key,
     );
+    let sealed = super::encryption::seal_private_key(&keypair.private_key)
+        .map_err(|e| format!("auth: cannot seal device identity seed: {e}"))?;
     let row = {
         let db = state.db.write().map_err(|e| e.to_string())?;
         cybermanju_web::api::devices::register(
             &db,
             &cybermanju_web::api::devices::RegisterRequest {
-                id: None,
+                // The op-log writer uses this same stable local identity;
+                // registering a random UUID here would make every local op
+                // fail the signer/device binding check during peer sync.
+                id: Some(cybermanju_db::Database::local_device_id()),
                 name,
                 public_key: Some(public_key_b64.clone()),
                 key_algorithm: Some("ml-dsa-65".to_string()),
             },
+            "local",
+            true,
         )?
     };
-    // Persist the seed for later attestation (sealed; skipped when locked).
-    if let Ok(sealed) = super::encryption::seal_private_key(&keypair.private_key) {
-        let stored = crate::db::schema::EncryptionKey {
-            id: device_seed_key_id(&row.id),
-            algorithm: "ml-dsa-65".to_string(),
-            public_key: public_key_b64,
-            private_key: sealed,
-            created_at: chrono::Utc::now().to_rfc3339(),
-            label: Some(format!("device identity seed for {}", row.name)),
-            x25519_public_key: None,
-            x25519_private_key: None,
-        };
-        if let Ok(db) = state.db.write() {
-            if let Ok(serialized) = serde_json::to_string(&stored) {
-                if let Ok(tx) = db.begin_write() {
-                    let done = (|| -> Result<(), String> {
-                        let mut table = tx
-                            .open_table(crate::db::Database::get_encryption_keys_table())
-                            .map_err(|e| e.to_string())?;
-                        table
-                            .insert(stored.id.as_str(), serialized.as_str())
-                            .map_err(|e| e.to_string())?;
-                        Ok(())
-                    })();
-                    if done.is_ok() {
-                        let _ = tx.commit();
-                    }
-                }
-            }
+    // Persist the seed for later attestation. Do not report success if either
+    // the keystore write or commit fails; remove the row to avoid an
+    // apparently enrolled but unusable identity.
+    let stored = crate::db::schema::EncryptionKey {
+        id: device_seed_key_id(&row.id),
+        algorithm: "ml-dsa-65".to_string(),
+        public_key: public_key_b64,
+        private_key: sealed,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        label: Some(format!("device identity seed for {}", row.name)),
+        x25519_public_key: None,
+        x25519_private_key: None,
+    };
+    let persist_result = (|| -> Result<(), String> {
+        let db = state.db.write().map_err(|e| e.to_string())?;
+        let serialized = serde_json::to_string(&stored).map_err(|e| e.to_string())?;
+        let tx = db.begin_write().map_err(|e| e.to_string())?;
+        {
+            let mut table = tx
+                .open_table(crate::db::Database::get_encryption_keys_table())
+                .map_err(|e| e.to_string())?;
+            table
+                .insert(stored.id.as_str(), serialized.as_str())
+                .map_err(|e| e.to_string())?;
         }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+    if let Err(err) = persist_result {
+        if let Ok(db) = state.db.write() {
+            let _ = db.remove_device(&row.id);
+        }
+        return Err(format!(
+            "integrity: device identity seed could not be saved: {err}"
+        ));
     }
     Ok(row)
 }
@@ -128,6 +140,20 @@ pub fn sign_peer_ops_for_device(
 ) -> Result<serde_json::Value, String> {
     let seed_b64 = {
         let db = state.db.read().map_err(|e| e.to_string())?;
+        let device = db
+            .get_device(device_id.trim())
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| {
+                format!(
+                    "not_found: no device '{}'; enroll this device first",
+                    device_id.trim()
+                )
+            })?;
+        if device.revoked || device.owner_id != "local" {
+            return Err(
+                "auth: signing requires an active device owned by this local vault".to_string(),
+            );
+        }
         let tx = db.begin_read().map_err(|e| e.to_string())?;
         let table = tx
             .open_table(crate::db::Database::get_encryption_keys_table())
@@ -145,6 +171,11 @@ pub fn sign_peer_ops_for_device(
                 ))
             }
         };
+        if stored.public_key != device.public_key || stored.algorithm != device.key_algorithm {
+            return Err(
+                "integrity: sealed signing key does not match the device registry".to_string(),
+            );
+        }
         let seed = super::encryption::open_private_key(&stored.private_key).map_err(|e| {
             format!("auth: vault is locked or the seed is unreadable — unlock to sign ({e})")
         })?;
@@ -152,8 +183,10 @@ pub fn sign_peer_ops_for_device(
     };
     let ops: Vec<cybermanju_types::schema::OpRow> =
         serde_json::from_str(&ops_json).map_err(|e| format!("invalid: ops are not JSON: {e}"))?;
-    let signature =
-        cybermanju_sync::auth::sign_envelope(&seed_b64, "ml-dsa-65", &ops)?;
+    if ops.iter().any(|op| op.device_id != device_id) {
+        return Err("auth: every signed op must belong to the requested device".to_string());
+    }
+    let signature = cybermanju_sync::auth::sign_envelope(&seed_b64, "ml-dsa-65", &ops)?;
     Ok(serde_json::json!({ "signature": signature, "algorithm": "ml-dsa-65" }))
 }
 
@@ -199,24 +232,6 @@ pub fn peer_platform_notes() -> Vec<serde_json::Value> {
         .into_iter()
         .map(|(target, note)| serde_json::json!({ "target": target, "note": note }))
         .collect()
-}
-
-/// Sign op-log rows with this device's ML-DSA seed for attested peer sync.
-/// `seed_b64` is the base64 seed the keystore sealed at enrollment (trusted-
-/// local IPC, same posture as the rest of this module — the seed never
-/// leaves the device); `ops_json` is the compact ops array. Returns
-/// `{ signature, algorithm }` for `SignedSyncBody`. Pages signs in-browser
-/// via the wasm `ml_dsa65_sign` twin instead.
-#[tauri::command(async)]
-pub fn sign_peer_ops(
-    seed_b64: String,
-    algorithm: String,
-    ops_json: String,
-) -> Result<serde_json::Value, String> {
-    let ops: Vec<cybermanju_types::schema::OpRow> =
-        serde_json::from_str(&ops_json).map_err(|e| format!("invalid: ops are not JSON: {e}"))?;
-    let signature = cybermanju_sync::auth::sign_envelope(&seed_b64, &algorithm, &ops)?;
-    Ok(serde_json::json!({ "signature": signature, "algorithm": algorithm }))
 }
 
 /// Devices answering `_cybermanju._tcp.local` on the LAN right now.

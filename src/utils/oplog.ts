@@ -75,7 +75,7 @@ export function resolveLabel(choice: ResolutionChoice): string {
 export function syncPlanSteps(since: number): string[] {
   return [
     `pull: GET /api/oplog/since?since=${Math.max(0, since)}`,
-    'push: POST /api/oplog/push { ops: buffered }',
+    'push: POST /api/oplog/push { deviceId, ops, signature, algorithm } (ML-DSA required)',
     'render: GET /api/oplog/conflicts',
   ]
 }

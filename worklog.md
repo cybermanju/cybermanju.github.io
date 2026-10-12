@@ -1776,6 +1776,7 @@ The `Rust Lint & Test` job for main `c948bd8` reached Clippy and failed on one `
 - `develop` remains at remote commit `b33cbe92c6a42de1329390b135744fe9daab2b9f`; `main` was not modified. The develop CI run `38192940869` failed in Rust Lint & Test at `crates/db/src/database.rs:1807` because `unwrap_err()` requires `Database: Debug`. Main added a fix in `fb27bef`, but that commit also introduced a substantial P2P/bundle feature set; main then advanced again to `4a5d182` while this review was in progress. The latest main CI was still in progress at the time of review.
 - Integration/push was paused after static review found material blockers in the new main code: federated search can forward the caller's bearer to an arbitrary peer when `peer.token` is absent (contrary to the explicit-token policy already enforced in develop); server-side peer URLs lack SSRF/private-network and redirect protections; relay drop/poll/ack are not bound to the authenticated device owner; unsigned peer-sync envelopes are still merged; bundle import lacks a per-payload 5 MiB check before base64 decode; and the desktop signing path does not persist/select its private key securely. The latest `4a5d182` changes frontend/docs/tests and does not address the backend blockers reviewed here.
 - No new main changes were merged, no push/release was made after these findings, and no Rust Cargo command was run locally (`AGENTS.md` requires Rust checks through CI). Revisit integration only after the security/compatibility policy is clarified and the required checks are green.
+
 ## 2026-10-12 — P2P 100%: relay live, https probe, payloads, attested sync, presence
 
 - Relay-over-HTTPS NAT traversal is live (no new deps — both sides outbound
@@ -1887,4 +1888,18 @@ The `Rust Lint & Test` job for main `c948bd8` reached Clippy and failed on one `
   checked natively).
 - Docs: ANALYSIS.md §2B items 6-7 rewritten (dep declared, proving in CI);
   OPERATIONS §4c2 fountain/ticket lines.
-- Verified here: headers ok, `vue-tsc` clean, vitest green. Rust compiles + unit tests are CI's job — watch the Rust Lint & Test job (new deps resolve + build on all targets incl. Android; basepoint-vector and fountain tests are the canaries).
+- Verified here: headers ok, `vue-tsc` clean, vitest green. Rust compiles +
+  unit tests are CI's job — watch the Rust Lint & Test job (new deps resolve
+  + build on all targets incl. Android; basepoint-vector and fountain tests
+  are the canaries).
+
+## 2026-10-12 — Strict P2P/Sync hardening + main integrated through a2b2c09
+
+- Integrated the latest 10 commits from `origin/main` through `a2b2c09` into `develop`; merge commit `ad0294c`. The sole history conflict was `worklog.md`; both branch histories were retained. `main` was not modified.
+- Strict sync authentication is fail-closed: `/api/oplog/push` and `/api/peers/{id}/sync` require a valid ML-DSA envelope, the registered active device must belong to the authenticated owner, and every signed op must name that device. Unsigned, revoked, wrong-owner, mismatched-device, and invalid-signature requests are rejected.
+- Removed caller-bearer fallback: outbound federated search/sync uses only a non-empty token explicitly assigned to that peer. The WAN exchange API now requires a local signer and explicit peer token; preflight limits/auth checks occur before network access.
+- Server-side peer search validates HTTP(S) destinations, rejects loopback/link-local/metadata/reserved or unauthorized private targets, checks all DNS answers and pins the approved resolutions; redirects and proxy use are disabled. Private/LAN dialing is enabled only after matching owner-scoped device presence.
+- Relay mailboxes are tenant-bound: both sender and recipient must belong to the authenticated owner to enqueue; poll/ack and presence are restricted to that owner's active devices. Added an integration regression for cross-owner relay denial.
+- Bundle imports enforce safe basenames and per-payload 5 MiB limits before base64 decoding. Device registration stores `owner_id`; Tauri signing uses keystore-sealed seeds, ties the signer to the op-log device identity, and removes the raw-seed IPC path.
+- Updated `ARCHITECTURE.md`, `docs/SECURITY.md`, and `docs/OPERATIONS.md`; stale unsigned-sync/legacy bearer descriptions were removed. Rust integration fixtures now generate ML-DSA keys and exercise signed pushes, wrong-owner rejection, idempotence, conflicts, and bundle export.
+- Local verification passed: `check-version.sh`; file headers (555 files); `vue-tsc --noEmit`; Vitest (98 files / 1,023 tests); `VITE_BASE=/develop/ npm run build:wasm:frontend`; `cargo fmt --all -- --check`; staged/unstaged whitespace checks. Rust Clippy/tests and the actual GitHub Pages deployment remain pending CI after the develop push. Workflow assembly was checked: main remains at `/` and develop is isolated at `/develop/`.

@@ -69,6 +69,7 @@ pub fn search_files_federated(
             peers,
             timeout_secs,
         },
+        "local",
     ))
 }
 

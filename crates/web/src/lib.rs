@@ -1419,6 +1419,7 @@ fn route_request(
         }
     };
     let db: &Database = lock.db();
+    let (owner_id, is_admin) = claims_owner(&claims);
 
     // <<< CYBERMANJU OS PRE-WIRE: three route families, one file each >>>
     // Each `route()` returns `Some(response)` only for paths it owns and
@@ -1443,20 +1444,42 @@ fn route_request(
     }
     // <<< ANALYSIS 100%: device identity (§2B.1) — enrollment is
     // idempotent; revocation is Admin-gated in `required_role` below. >>>
-    if let Some(resp) = api::devices::route(db, method, &path_segments, body, origin) {
+    if let Some(resp) = api::devices::route(
+        db,
+        method,
+        &path_segments,
+        body,
+        &owner_id,
+        is_admin,
+        origin,
+    ) {
         return resp;
     }
     // <<< ANALYSIS 100%: server todos (§4.9 agent bridge) — owner-scoped
     // for non-admins (P0-10 posture); admins see every owner. >>>
-    if let Some(resp) = {
-        let (owner, is_admin) = claims_owner(&claims);
-        api::todos::route(db, method, &path_segments, body, origin, &owner, is_admin)
-    } {
+    if let Some(resp) = api::todos::route(
+        db,
+        method,
+        &path_segments,
+        body,
+        origin,
+        &owner_id,
+        is_admin,
+    ) {
         return resp;
     }
     // <<< ANALYSIS 100%: op-log exchange (§2C) — idempotent push, paged
     // pull, fork-pair conflicts for the UI. >>>
-    if let Some(resp) = api::oplog::route(db, method, &path_segments, query, body, origin) {
+    if let Some(resp) = api::oplog::route(
+        db,
+        method,
+        &path_segments,
+        query,
+        body,
+        &owner_id,
+        is_admin,
+        origin,
+    ) {
         return resp;
     }
     // <<< ANALYSIS 100%: LAN peers (§2B.2) + sneakernet bundles (§2B.4).
@@ -1471,24 +1494,24 @@ fn route_request(
         && path_segments[1] == "peers"
         && path_segments[3] == "sync"
     {
-        return peer_sync(db, path_segments[2], body, origin);
+        return peer_sync(db, path_segments[2], body, &owner_id, origin);
     }
     // Server-assisted presence + NAT rendezvous (§2B.2 PEX — the answer for
     // android/ios/docker/wasm, where mDNS multicast cannot go).
     if method == "GET" && matches!(path_segments.as_slice(), ["api", "peers", "known"]) {
-        return peers_known(db, origin);
+        return peers_known(db, &owner_id, is_admin, origin);
     }
     if method == "POST" && matches!(path_segments.as_slice(), ["api", "peers", "announce"]) {
-        return peers_announce(db, body, origin);
+        return peers_announce(db, body, &owner_id, origin);
     }
     if method == "POST" && matches!(path_segments.as_slice(), ["api", "relay", "drop"]) {
-        return relay_drop(db, body, origin);
+        return relay_drop(db, body, &owner_id, origin);
     }
     if method == "POST" && matches!(path_segments.as_slice(), ["api", "relay", "poll"]) {
-        return relay_poll(db, body, origin);
+        return relay_poll(db, body, &owner_id, origin);
     }
     if method == "POST" && matches!(path_segments.as_slice(), ["api", "relay", "ack"]) {
-        return relay_ack(db, body, origin);
+        return relay_ack(db, body, &owner_id, origin);
     }
     if method == "POST" && matches!(path_segments.as_slice(), ["api", "sync", "bundle", "build"]) {
         return bundle_build(db, body, origin);
@@ -2055,7 +2078,12 @@ fn route_request(
         ["api", "search", "federated"] if method == "POST" => {
             match serde_json::from_str::<api::search_api::FederatedRequest>(body) {
                 Ok(req) => json_ok(
-                    &api::search_api::search_federated(&dashboard.search_index, db, &req),
+                    &api::search_api::search_federated(
+                        &dashboard.search_index,
+                        db,
+                        &req,
+                        &owner_id,
+                    ),
                     origin,
                 ),
                 Err(e) => json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
@@ -3068,37 +3096,49 @@ fn lan_peers(origin: Option<&str>) -> String {
     }
 }
 
+fn require_owned_device(
+    db: &Database,
+    device_id: &str,
+    owner_id: &str,
+) -> Result<cybermanju_types::schema::DeviceRow, String> {
+    if device_id.trim().is_empty() || owner_id.trim().is_empty() {
+        return Err("auth: an authenticated owner and registered device are required".to_string());
+    }
+    let row = db
+        .get_device(device_id)
+        .map_err(|e| format!("internal: device lookup failed: {e}"))?
+        .ok_or_else(|| format!("not_found: no device '{device_id}'"))?;
+    if row.revoked {
+        return Err(format!("auth: device '{device_id}' is revoked"));
+    }
+    if row.owner_id.is_empty() || row.owner_id != owner_id {
+        return Err("auth: device is not owned by the authenticated account".to_string());
+    }
+    Ok(row)
+}
+
 /// POST /api/peers/{id}/sync — direct device↔device op-log exchange (§2B.2
 /// follow-up). Peer-authenticated against the device registry: unknown ids
 /// are `not_found:`, revoked rows fail closed with `auth:` — an unknown peer
-/// never merges. Body `{ ops: OpRow[], signature?, algorithm? }` merges
-/// idempotently (same semantics as `/api/oplog/push`); when `signature` is
-/// present it is verified against the sender's registry key
-/// (`auth:` on mismatch — a JWT alone cannot impersonate a device) and the
-/// response reports `verified: true`. Unsigned bodies still merge (legacy
-/// senders) with `verified: false`. The caller pulls `since` from the peer
+/// never merges. Body `{ ops: OpRow[], signature, algorithm }` is mandatory
+/// and is verified against the active sender's registry key; every op must
+/// name that device. Unsigned bodies, owner mismatches and bad signatures are
+/// rejected (`auth:`) — a JWT alone cannot impersonate a device. A successful
+/// response reports `verified: true`. The caller pulls `since` from the peer
 /// first and renders `GET /api/oplog/conflicts` after.
-fn peer_sync(db: &Database, device_id: &str, body: &str, origin: Option<&str>) -> String {
-    let peer = match db.get_device(device_id) {
-        Ok(Some(row)) => row,
-        Ok(None) => {
-            return json_error(
-                404,
-                &format!(
-                    "not_found: no device '{device_id}' — enroll it via POST /api/devices first"
-                ),
-                origin,
-            )
-        }
-        Err(e) => return json_error(500, &format!("internal: device lookup failed: {e}"), origin),
+fn peer_sync(
+    db: &Database,
+    device_id: &str,
+    body: &str,
+    owner_id: &str,
+    origin: Option<&str>,
+) -> String {
+    let peer = match require_owned_device(db, device_id, owner_id) {
+        Ok(row) => row,
+        Err(e) if e.starts_with("not_found:") => return json_error(404, &e, origin),
+        Err(e) if e.starts_with("internal:") => return json_error(500, &e, origin),
+        Err(e) => return json_error(403, &e, origin),
     };
-    if peer.revoked {
-        return json_error(
-            403,
-            &format!("auth: device '{device_id}' is revoked — re-enroll it before syncing"),
-            origin,
-        );
-    }
     let req: cybermanju_sync::auth::SignedSyncBody = match serde_json::from_str(body) {
         Ok(req) => req,
         Err(e) => return json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
@@ -3119,6 +3159,13 @@ fn peer_sync(db: &Database, device_id: &str, body: &str, origin: Option<&str>) -
         }
         if op.device_id.trim().is_empty() {
             return json_error(400, "invalid: every synced op needs a device_id", origin);
+        }
+        if op.device_id != device_id {
+            return json_error(
+                403,
+                "auth: every synced op must belong to the attested device",
+                origin,
+            );
         }
     }
     let verified = match cybermanju_sync::auth::verify_envelope(
@@ -3147,24 +3194,27 @@ fn peer_sync(db: &Database, device_id: &str, body: &str, origin: Option<&str>) -
 /// (5-minute TTL) `POST /api/peers/announce` heartbeats, newest-reader merge
 /// material for `GET /api/peers` mDNS scans. What makes android/ios/docker
 /// work where multicast cannot.
-fn peers_known(db: &Database, origin: Option<&str>) -> String {
+fn peers_known(db: &Database, owner_id: &str, is_admin: bool, origin: Option<&str>) -> String {
     let entries = cybermanju_sync::peers::known_presence(
         db,
         cybermanju_sync::peers::presence_now(),
         cybermanju_sync::peers::PRESENCE_TTL_SECS,
     );
-    // Revoked registry rows fail closed here too (listed never means syncable).
-    let revoked: std::collections::HashSet<String> = db
-        .list_devices()
-        .unwrap_or_default()
+    // Presence reveals network locations; return only this account's active
+    // devices (admins may audit all active devices).
+    let devices = match db.list_devices() {
+        Ok(rows) => rows,
+        Err(e) => return json_error(500, &format!("internal: device list failed: {e}"), origin),
+    };
+    let visible: std::collections::HashSet<String> = devices
         .into_iter()
-        .filter(|d| d.revoked)
+        .filter(|d| !d.revoked && (is_admin || (!owner_id.is_empty() && d.owner_id == owner_id)))
         .map(|d| d.id)
         .collect();
     json_ok(
         &entries
             .into_iter()
-            .filter(|e| !revoked.contains(&e.device_id))
+            .filter(|e| visible.contains(&e.device_id))
             .collect::<Vec<_>>(),
         origin,
     )
@@ -3172,9 +3222,9 @@ fn peers_known(db: &Database, origin: Option<&str>) -> String {
 
 /// POST /api/peers/announce { deviceId, host, port } — heartbeat this
 /// device's reachable `/api` (call once per launch, refresh every few
-/// minutes). Authenticated; the device id should be enrolled (unknown ids
-/// are still recorded — presence is advisory, sync stays registry-gated).
-fn peers_announce(db: &Database, body: &str, origin: Option<&str>) -> String {
+/// minutes). Authenticated and restricted to an active device owned by the
+/// caller; presence is advisory, sync still verifies the device signature.
+fn peers_announce(db: &Database, body: &str, owner_id: &str, origin: Option<&str>) -> String {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct AnnounceRequest {
@@ -3189,6 +3239,14 @@ fn peers_announce(db: &Database, body: &str, origin: Option<&str>) -> String {
         Ok(req) => req,
         Err(e) => return json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
     };
+    if let Err(e) = require_owned_device(db, &req.device_id, owner_id) {
+        let status = if e.starts_with("not_found:") {
+            404
+        } else {
+            403
+        };
+        return json_error(status, &e, origin);
+    }
     match cybermanju_sync::peers::announce_presence(
         db,
         &req.device_id,
@@ -3205,7 +3263,7 @@ fn peers_announce(db: &Database, body: &str, origin: Option<&str>) -> String {
 /// traversed envelope (op-log delta or WebRTC handshake fragment). Both
 /// sides make outbound HTTPS here, so no inbound port is needed. Caps:
 /// 256 KiB per message (`too_large:` → ship bulk bytes as bundle payloads).
-fn relay_drop(db: &Database, body: &str, origin: Option<&str>) -> String {
+fn relay_drop(db: &Database, body: &str, owner_id: &str, origin: Option<&str>) -> String {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct DropRequest {
@@ -3222,6 +3280,24 @@ fn relay_drop(db: &Database, body: &str, origin: Option<&str>) -> String {
         Ok(req) => req,
         Err(e) => return json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
     };
+    if let Err(e) = require_owned_device(db, &req.from, owner_id) {
+        let status = if e.starts_with("not_found:") {
+            404
+        } else {
+            403
+        };
+        return json_error(status, &e, origin);
+    }
+    // Mailboxes are tenant-private: an account cannot enqueue messages for a
+    // different owner's device, even when its id is known.
+    if let Err(e) = require_owned_device(db, &req.to, owner_id) {
+        let status = if e.starts_with("not_found:") {
+            404
+        } else {
+            403
+        };
+        return json_error(status, &e, origin);
+    }
     match cybermanju_sync::peers::relay_drop(
         db,
         &req.from,
@@ -3239,7 +3315,7 @@ fn relay_drop(db: &Database, body: &str, origin: Option<&str>) -> String {
 /// POST /api/relay/poll { for } — list a recipient's queued envelopes,
 /// oldest first. Non-destructive (messages stay queued until ack), so a
 /// dropped poll never loses mail.
-fn relay_poll(db: &Database, body: &str, origin: Option<&str>) -> String {
+fn relay_poll(db: &Database, body: &str, owner_id: &str, origin: Option<&str>) -> String {
     #[derive(serde::Deserialize)]
     struct PollRequest {
         #[serde(default, rename = "for")]
@@ -3249,6 +3325,14 @@ fn relay_poll(db: &Database, body: &str, origin: Option<&str>) -> String {
         Ok(req) => req,
         Err(e) => return json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
     };
+    if let Err(e) = require_owned_device(db, &req.for_device, owner_id) {
+        let status = if e.starts_with("not_found:") {
+            404
+        } else {
+            403
+        };
+        return json_error(status, &e, origin);
+    }
     match cybermanju_sync::peers::relay_poll(db, &req.for_device) {
         Ok(messages) => json_ok(&serde_json::json!({ "messages": messages }), origin),
         Err(e) => json_error(400, &e, origin),
@@ -3257,7 +3341,7 @@ fn relay_poll(db: &Database, body: &str, origin: Option<&str>) -> String {
 
 /// POST /api/relay/ack { for, ids } — clear delivered envelopes. Returns
 /// the cleared count.
-fn relay_ack(db: &Database, body: &str, origin: Option<&str>) -> String {
+fn relay_ack(db: &Database, body: &str, owner_id: &str, origin: Option<&str>) -> String {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct AckRequest {
@@ -3270,6 +3354,14 @@ fn relay_ack(db: &Database, body: &str, origin: Option<&str>) -> String {
         Ok(req) => req,
         Err(e) => return json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
     };
+    if let Err(e) = require_owned_device(db, &req.for_device, owner_id) {
+        let status = if e.starts_with("not_found:") {
+            404
+        } else {
+            403
+        };
+        return json_error(status, &e, origin);
+    }
     match cybermanju_sync::peers::relay_ack(db, &req.for_device, &req.ids) {
         Ok(cleared) => json_ok(&serde_json::json!({ "cleared": cleared }), origin),
         Err(e) => json_error(400, &e, origin),

@@ -953,6 +953,30 @@ impl Database {
         Ok(rows)
     }
 
+    /// Owner-scoped op-log page. Filtering happens before applying `limit`,
+    /// so unrelated tenants neither leak rows nor starve this owner's page.
+    pub fn list_ops_since_for_devices(
+        &self,
+        since: u64,
+        limit: usize,
+        device_ids: &std::collections::HashSet<String>,
+    ) -> Result<Vec<OpRow>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(OPLOG_TABLE)?;
+        let mut rows: Vec<OpRow> = Vec::new();
+        for entry in table.iter()? {
+            let (_, value) = entry?;
+            let row: OpRow = serde_json::from_str(value.value())?;
+            if row.seq > since && device_ids.contains(&row.device_id) {
+                rows.push(row);
+                if limit > 0 && rows.len() >= limit {
+                    break;
+                }
+            }
+        }
+        Ok(rows)
+    }
+
     /// Highest stored seq (0 when the log is empty).
     pub fn oplog_head(&self) -> Result<u64> {
         let tx = self.db.begin_read()?;
@@ -992,8 +1016,7 @@ impl Database {
     /// Candidate conflicts: two ops touching the same `file_id` from
     /// different devices where neither base vector dominates the other.
     /// Pure scan over stored rows — the conflict UI renders these.
-    pub fn op_conflicts(&self) -> Result<Vec<(OpRow, OpRow)>> {
-        let rows = self.list_ops_since(0, 0)?;
+    fn op_conflicts_from_rows(rows: &[OpRow]) -> Vec<(OpRow, OpRow)> {
         let mut out = Vec::new();
         for (i, a) in rows.iter().enumerate() {
             let Some(fid) = a.file_id.as_deref() else {
@@ -1010,7 +1033,22 @@ impl Database {
                 }
             }
         }
-        Ok(out)
+        out
+    }
+
+    pub fn op_conflicts(&self) -> Result<Vec<(OpRow, OpRow)>> {
+        let rows = self.list_ops_since(0, 0)?;
+        Ok(Self::op_conflicts_from_rows(&rows))
+    }
+
+    /// Conflict scan over only the supplied devices, keeping tenant data out
+    /// of both the response and the quadratic comparison set.
+    pub fn op_conflicts_for_devices(
+        &self,
+        device_ids: &std::collections::HashSet<String>,
+    ) -> Result<Vec<(OpRow, OpRow)>> {
+        let rows = self.list_ops_since_for_devices(0, 0, device_ids)?;
+        Ok(Self::op_conflicts_from_rows(&rows))
     }
 
     /// Local writer identity for op-log rows: explicit override first, then
@@ -1839,6 +1877,7 @@ mod registry_oplog_tests {
         DeviceRow {
             id: id.to_string(),
             name: format!("{id} laptop"),
+            owner_id: "test-owner".to_string(),
             public_key: String::new(),
             key_algorithm: "ml-dsa-65".to_string(),
             created_at: "2026-10-11T00:00:00Z".to_string(),
@@ -1941,6 +1980,26 @@ mod registry_oplog_tests {
         let conflicts = db.op_conflicts().unwrap();
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].0.file_id.as_deref(), Some("f9"));
+        let only_d1 = ["d1".to_string()].into_iter().collect();
+        assert!(db.op_conflicts_for_devices(&only_d1).unwrap().is_empty());
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn owner_scoped_oplog_filters_before_applying_page_limit() {
+        let (db, path) = test_db("oplog-owner-page");
+        let first = db.append_op(op("owner-a", "tag", Some("f1"))).unwrap();
+        db.append_op(op("owner-b", "rename", Some("secret-file")))
+            .unwrap();
+        let third = db.append_op(op("owner-a", "star", Some("f2"))).unwrap();
+        let owner_a = ["owner-a".to_string()].into_iter().collect();
+        let page = db.list_ops_since_for_devices(0, 2, &owner_a).unwrap();
+        assert_eq!(
+            page.iter().map(|op| op.seq).collect::<Vec<_>>(),
+            vec![first.seq, third.seq]
+        );
+        assert!(page.iter().all(|op| op.device_id == "owner-a"));
         drop(db);
         let _ = std::fs::remove_file(path);
     }

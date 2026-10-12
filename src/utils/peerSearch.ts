@@ -38,7 +38,7 @@ export interface FederatedHit {
 export interface FederatedPeer {
   baseUrl: string
   deviceId?: string
-  /** The peer's own bearer (per-device credentials; empty = anonymous). */
+  /** The peer's own bearer; required before a network request is issued. */
   token?: string
 }
 
@@ -68,7 +68,7 @@ export function peerOplogSinceUrl(baseUrl: string, since: number, limit = 500): 
   return `${base}/api/oplog/since?since=${s}&limit=${capped}`
 }
 
-/** `POST <base>/api/oplog/push` — push half of the exchange. */
+/** `POST <base>/api/oplog/push` — only a device-signed envelope is accepted. */
 export function peerOplogPushUrl(baseUrl: string): string {
   return `${normalizeBaseUrl(baseUrl).replace(/\/+$/, '')}/api/oplog/push`
 }
@@ -390,17 +390,42 @@ export async function fetchPeerHits(
   limit = 20,
   timeoutMs = 8000,
   token?: string,
+  deviceId?: string,
 ): Promise<FederatedHit[]> {
   if (!query.trim()) return []
+  const rawBase = baseUrl.trim()
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(rawBase) && !/^https?:\/\//i.test(rawBase)) {
+    throw new Error('invalid: peer URL must use HTTP or HTTPS')
+  }
   const base = normalizeBaseUrl(baseUrl)
+  const parsed = new URL(base)
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error('invalid: peer URL must be HTTP(S), without credentials, query or fragment')
+  }
+  const host = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  const ipv4 = host.split('.').map((part) => Number(part))
+  const isIpv4 = ipv4.length === 4 && ipv4.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)
+  const blocked =
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.startsWith('::') ||
+    (host.includes(':') && host.startsWith('ff')) ||
+    host.startsWith('fe80:') ||
+    (isIpv4 && (ipv4[0] === 0 || ipv4[0] === 127 || (ipv4[0] === 169 && ipv4[1] === 254) || ipv4[0] >= 224))
+  if (blocked) throw new Error('invalid: loopback, link-local and metadata destinations are blocked')
+  const isPrivateV6 = host.includes(':') && (host.startsWith('fc') || host.startsWith('fd'))
+  if ((isLanBase(base) || isPrivateV6) && (!deviceId?.trim() || !token?.trim())) {
+    throw new Error('auth: LAN peers require an explicit device id and per-peer token')
+  }
+  if (!token?.trim()) throw new Error('auth: an explicit per-peer token is required')
   const capped = Math.max(1, Math.min(Math.floor(limit) || 20, 200))
   const url = peerSearchUrl(base, query, capped)
   const headers: Record<string, string> = {
     Accept: 'application/json',
     [FEDERATED_MARKER_HEADER]: '1',
   }
-  if (token?.trim()) headers.Authorization = `Bearer ${token.trim()}`
-  const res = await fetchWithTimeout(url, { method: 'GET', headers }, timeoutMs)
+  headers.Authorization = `Bearer ${token.trim()}`
+  const res = await fetchWithTimeout(url, { method: 'GET', headers, redirect: 'error' }, timeoutMs)
   if (res.status === 401 || res.status === 403) {
     throw new Error(`auth: peer search ${base} refused (HTTP ${res.status})`)
   }
@@ -436,7 +461,7 @@ export interface FederatedSearchOptions {
  * Cross-device search port: local hits plus one bounded peer fetch each
  * (max `MAX_FEDERATED_PEERS`), merged with `mergeFederatedHits`. A dead
  * peer contributes zero hits — never a failed search. Only an explicit
- * per-peer `token` is sent; the caller bearer is never used as a fallback.
+ * per-peer `token` is required and sent; the caller bearer is never used.
  */
 export async function federatedSearch(
   query: string,
@@ -450,11 +475,11 @@ export async function federatedSearch(
     source: h.source || 'local',
   }))
   const peers = deduplicatePeers(
-    options.peers.filter((p) => p.baseUrl && p.baseUrl.trim()),
+    options.peers.filter((p) => p.baseUrl && p.baseUrl.trim() && p.token?.trim()),
   ).slice(0, MAX_FEDERATED_PEERS)
   const settled = await Promise.allSettled(
     peers.map((p) =>
-      fetchPeerHits(p.baseUrl, query, limit, timeoutMs, p.token?.trim() ? p.token.trim() : undefined),
+      fetchPeerHits(p.baseUrl, query, limit, timeoutMs, p.token!.trim(), p.deviceId),
     ),
   )
   settled.forEach((result, i) => {
@@ -481,24 +506,22 @@ export interface SyncExchangeResult {
  * Execute the direct device↔device op-log exchange against a peer base URL:
  * pull their ops since `since`, push ours, merge their ops locally via
  * `pushOps`, render conflicts via `fetchConflicts`. Relay tickets refuse
- * with `unsupported:` (they rendezvous via the relay mailbox); HTTP peers
- * sync today, attested when `deps.signer` is provided.
+ * with `unsupported:` (they rendezvous via the relay mailbox); HTTP sync is
+ * fail-closed and requires a signature from the explicitly named local device.
  */
 export async function syncExchangeWithPeer(
   peer: PeerEndpoint,
   since: number,
   localOps: unknown[],
   deps: {
-    fetchJson: (method: string, url: string, body?: unknown) => Promise<unknown>
+    localDeviceId: string
+    /** Token configured for this peer only; never reuse the caller's bearer. */
+    peerToken: string
+    fetchJson: (method: string, url: string, body: unknown, peerToken: string) => Promise<unknown>
     pushOps: (ops: unknown[]) => Promise<{ appended: number }>
-    fetchConflicts?: () => Promise<unknown>
-    /**
-     * Optional attestation: signs the normalized ops with this device's
-     * ML-DSA seed (desktop: `sign_peer_ops` IPC; Pages: wasm `ml_dsa65_sign`)
-     * so the receiver verifies *which device* sent them (`verified: true`).
-     * Without it the legacy unsigned flow runs (`verified: false`).
-     */
-    signer?: (normalizedOps: Record<string, unknown>[]) => Promise<{
+    fetchConflicts?: (peerToken: string) => Promise<unknown>
+    /** Signs normalized operations using the sealed key for this device. */
+    signer: (deviceId: string, normalizedOps: Record<string, unknown>[]) => Promise<{
       signature: string
       algorithm: string
     }>
@@ -509,38 +532,43 @@ export async function syncExchangeWithPeer(
       `unsupported: relay dial to '${peer.deviceId}' rendezvouses via POST /api/relay/drop|poll (configure a relay_url) — direct HTTP dial, LAN sync and sneakernet bundles stay live`,
     )
   }
-  const base = normalizeBaseUrl(peer.baseUrl)
   if (localOps.length > 10_000) {
     throw new Error(`too_large: sync holds ${localOps.length} ops (cap 10000 per call — page it)`)
+  }
+  const base = normalizeBaseUrl(peer.baseUrl)
+  const localDeviceId = typeof deps.localDeviceId === 'string' ? deps.localDeviceId.trim() : ''
+  if (!localDeviceId) throw new Error('auth: a registered local device id is required for signed sync')
+  const peerToken = typeof deps.peerToken === 'string' ? deps.peerToken.trim() : ''
+  if (!peerToken) throw new Error('auth: sync requires a token explicitly configured for this peer')
+  const { buildSignedSyncBody, normalizeOpsForEnvelope } = await import('./p2pPresence')
+  const normalized = normalizeOpsForEnvelope(localOps)
+  if (normalized.some((op) => op.deviceId !== localDeviceId)) {
+    throw new Error('auth: every outgoing op must belong to the local signing device')
   }
   const s = Math.max(0, Math.floor(since) || 0)
   const pulled = (await deps.fetchJson(
     'GET',
     `${base}/api/oplog/since?since=${s}&limit=500`,
+    undefined,
+    peerToken,
   )) as { ops?: unknown[] }
   const theirOps = Array.isArray(pulled?.ops) ? pulled.ops : []
-  let pushLine: string
-  if (deps.signer) {
-    // Attested flow: the receiver merges + verifies against the registry.
-    const { buildSignedSyncBody, normalizeOpsForEnvelope } = await import('./p2pPresence')
-    const normalized = normalizeOpsForEnvelope(localOps)
-    const { signature, algorithm } = await deps.signer(normalized)
-    const body = buildSignedSyncBody(localOps, signature, algorithm)
-    const res = (await deps.fetchJson(
-      'POST',
-      `${base}/api/peers/${encodeURIComponent(peer.deviceId)}/sync`,
-      body,
-    )) as { verified?: boolean }
-    pushLine = `push: POST ${base}/api/peers/${peer.deviceId}/sync { ops: ${localOps.length}, verified: ${res.verified === true} }`
-  } else {
-    await deps.fetchJson('POST', `${base}/api/oplog/push`, { ops: localOps })
-    pushLine = `push: POST ${base}/api/oplog/push { ops: ${localOps.length} }`
-  }
+  // Attested flow only: the receiving server binds this path id to its
+  // registered public key and the authenticated account.
+  const { signature, algorithm } = await deps.signer(localDeviceId, normalized)
+  const body = buildSignedSyncBody(localOps, signature, algorithm)
+  const res = (await deps.fetchJson(
+    'POST',
+    `${base}/api/peers/${encodeURIComponent(localDeviceId)}/sync`,
+    body,
+    peerToken,
+  )) as { verified?: boolean }
+  const pushLine = `push: POST ${base}/api/peers/${localDeviceId}/sync { ops: ${localOps.length}, verified: ${res.verified === true} }`
   let appended = 0
   if (theirOps.length > 0) {
     appended = (await deps.pushOps(theirOps)).appended
   }
-  if (deps.fetchConflicts) await deps.fetchConflicts().catch(() => undefined)
+  if (deps.fetchConflicts) await deps.fetchConflicts(peerToken).catch(() => undefined)
   return {
     pulled: theirOps.length,
     pushed: localOps.length,

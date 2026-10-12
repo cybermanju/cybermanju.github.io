@@ -113,6 +113,28 @@ describe('relay peers never dial or fan out', () => {
     ).rejects.toThrow(/^too_large:/)
   })
 
+  it('syncExchangeWithPeer refuses an unconfigured peer token before any fetch', async () => {
+    let fetched = 0
+    await expect(
+      syncExchangeWithPeer(
+        { deviceId: 'p', baseUrl: 'https://peer.example', transport: 'wan-http' },
+        0,
+        [],
+        {
+          localDeviceId: 'local-device',
+          peerToken: '',
+          fetchJson: async () => {
+            fetched += 1
+            return { ops: [] }
+          },
+          pushOps: async () => ({ appended: 0 }),
+          signer: async () => ({ signature: 'unused', algorithm: 'ml-dsa-65' }),
+        },
+      ),
+    ).rejects.toThrow(/^auth:/)
+    expect(fetched).toBe(0)
+  })
+
   it('federatedSearch skips relay peers without fetching', async () => {
     let fetched = 0
     ;(globalThis as { fetch?: unknown }).fetch = (async () => {

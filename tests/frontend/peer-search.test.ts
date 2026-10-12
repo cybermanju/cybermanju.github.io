@@ -126,7 +126,7 @@ describe('peer fetch fan-out', () => {
   it('tags peer hits with the base url and merges with local hits', async () => {
     stubFetch(() => [{ fileId: 'p1', fileName: 'p1.txt', score: 7.0, snippet: 'peer hit' }])
     const hits = await federatedSearch('photo', {
-      peers: [{ baseUrl: 'http://192.168.1.60:3456', deviceId: 'phone-7' }],
+      peers: [{ baseUrl: 'http://192.168.1.60:3456', deviceId: 'phone-7', token: 'peer-token' }],
       limit: 10,
       localHits: [{ fileId: 'l1', fileName: 'l1.txt', score: 3.0, snippet: '', source: 'local' }],
     })
@@ -141,7 +141,7 @@ describe('peer fetch fan-out', () => {
       throw new Error('connection refused')
     }) as typeof fetch
     const hits = await federatedSearch('photo', {
-      peers: [{ baseUrl: 'http://192.168.1.60:3456' }],
+      peers: [{ baseUrl: 'http://192.168.1.60:3456', deviceId: 'phone-7', token: 'peer-token' }],
       localHits: [{ fileId: 'l1', fileName: 'l1.txt', score: 3.0, snippet: '', source: 'local' }],
     })
     expect(hits.map((h) => h.fileId)).toEqual(['l1'])
@@ -156,7 +156,8 @@ describe('peer fetch fan-out', () => {
     const legacyOptions = {
       peers: [
         { baseUrl: 'https://peer-a.example', token: 'peer-a-secret' },
-        { baseUrl: 'https://peer-b.example' },
+        { baseUrl: 'https://peer-b.example', token: 'peer-b-secret' },
+        { baseUrl: 'https://peer-c.example' },
       ],
       token: 'caller-secret',
     } as unknown as Parameters<typeof federatedSearch>[1]
@@ -164,7 +165,21 @@ describe('peer fetch fan-out', () => {
     await federatedSearch('photo', legacyOptions)
 
     expect(headersSeen[0]?.Authorization).toBe('Bearer peer-a-secret')
-    expect(headersSeen[1]?.Authorization).toBeUndefined()
+    expect(headersSeen[1]?.Authorization).toBe('Bearer peer-b-secret')
+    expect(headersSeen).toHaveLength(2)
+    expect(JSON.stringify(headersSeen)).not.toContain('caller-secret')
+  })
+
+  it('does not issue a request to peers without their own token', async () => {
+    let calls = 0
+    stubFetch(() => {
+      calls += 1
+      return []
+    })
+    await federatedSearch('photo', {
+      peers: [{ baseUrl: 'https://peer.example', deviceId: 'peer-1' }],
+    })
+    expect(calls).toBe(0)
   })
 
   it('answers auth: on 401/403 and network: otherwise', async () => {
@@ -173,13 +188,19 @@ describe('peer fetch fan-out', () => {
       status: 401,
       json: async () => [],
     })) as typeof fetch
-    await expect(fetchPeerHits('http://10.0.0.9:3456', 'photo')).rejects.toThrow(/^auth:/)
+    await expect(fetchPeerHits('http://10.0.0.9:3456', 'photo', 20, 8000, 'peer-token', 'peer-1')).rejects.toThrow(/^auth:/)
     expect(await fetchPeerHits('http://10.0.0.9:3456', '   ')).toEqual([])
   })
 })
 
 describe('executable op-log exchange', () => {
   const deps = (seen: { pushed: unknown[][]; merged: unknown[][] }) => ({
+    localDeviceId: 'laptop-1',
+    peerToken: 'token-for-phone-7',
+    signer: async (deviceId: string) => ({
+      signature: `sig-${deviceId}`,
+      algorithm: 'ml-dsa-65',
+    }),
     fetchJson: async (method: string, url: string, body?: unknown) => {
       if (url.includes('/api/oplog/since')) return { head: 2, ops: [{ op_id: 'op-1' }] }
       seen.pushed.push([method, url, body])
@@ -196,7 +217,7 @@ describe('executable op-log exchange', () => {
     const out = await syncExchangeWithPeer(
       { deviceId: 'phone-7', baseUrl: 'http://192.168.1.60:3456', transport: 'lan-http' },
       0,
-      [{ op_id: 'ours' }],
+      [{ op_id: 'ours', device_id: 'laptop-1' }],
       deps(seen),
     )
     expect(out.pulled).toBe(1)

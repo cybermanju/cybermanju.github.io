@@ -129,9 +129,8 @@ pub fn export_bundle_with_files(
     let mut total: usize = 0;
     let mut payloads = Vec::with_capacity(files.len());
     for (file_id, name, bytes) in files {
-        if file_id.trim().is_empty() {
-            return Err("invalid: every bundle payload needs a file_id".to_string());
-        }
+        validate_payload_component(&file_id, "fileId")?;
+        validate_payload_component(&name, "name")?;
         if bytes.len() > BUNDLE_MAX_PAYLOAD_BYTES {
             return Err(format!(
                 "too_large: payload '{file_id}' is {} bytes (cap {BUNDLE_MAX_PAYLOAD_BYTES} — ship it via the sync backends)",
@@ -177,6 +176,23 @@ pub fn bundle_bytes(bundle: &Bundle) -> Result<Vec<u8>, String> {
 pub fn import_bundle(db: &Database, bytes: &[u8]) -> Result<(usize, usize, String), String> {
     let out = import_bundle_detailed(db, bytes)?;
     Ok((out.appended, out.skipped, out.from_device))
+}
+
+fn validate_payload_component(value: &str, field: &str) -> Result<(), String> {
+    if value.is_empty()
+        || value.trim() != value
+        || value.len() > 255
+        || value.contains('/')
+        || value.contains('\\')
+        || value == "."
+        || value == ".."
+        || value.chars().any(char::is_control)
+    {
+        return Err(format!(
+            "invalid: bundle payload {field} must be a safe basename"
+        ));
+    }
+    Ok(())
 }
 
 /// Validate + merge a received bundle, detaching the verified payloads for
@@ -227,10 +243,44 @@ pub fn import_bundle_detailed(db: &Database, bytes: &[u8]) -> Result<BundleImpor
             );
         }
     }
+    // Check metadata and encoded lengths before allocating decoded payloads.
+    let mut total_declared: u64 = 0;
+    let mut seen_ids = std::collections::HashSet::new();
+    for p in &bundle.payloads {
+        validate_payload_component(&p.file_id, "fileId")?;
+        validate_payload_component(&p.name, "name")?;
+        if !seen_ids.insert(p.file_id.as_str()) {
+            return Err("invalid: bundle contains duplicate payload fileId values".to_string());
+        }
+        if p.size > BUNDLE_MAX_PAYLOAD_BYTES as u64 {
+            return Err(format!(
+                "too_large: payload '{}' exceeds the {} byte per-file cap",
+                p.file_id, BUNDLE_MAX_PAYLOAD_BYTES
+            ));
+        }
+        let expected_b64_len = ((p.size + 2) / 3) * 4;
+        if p.bytes_base64.trim() != p.bytes_base64.as_str()
+            || p.bytes_base64.len() as u64 != expected_b64_len
+        {
+            return Err(format!(
+                "integrity: payload '{}' has an invalid encoded size",
+                p.file_id
+            ));
+        }
+        total_declared = total_declared
+            .checked_add(p.size)
+            .ok_or_else(|| "too_large: bundle payload byte count overflow".to_string())?;
+        if total_declared > BUNDLE_MAX_PAYLOAD_TOTAL as u64 {
+            return Err(format!(
+                "too_large: bundle payloads exceed {BUNDLE_MAX_PAYLOAD_TOTAL} bytes total"
+            ));
+        }
+    }
+
     let mut total: usize = 0;
     for p in &bundle.payloads {
         let bytes = base64::engine::general_purpose::STANDARD
-            .decode(p.bytes_base64.trim())
+            .decode(&p.bytes_base64)
             .map_err(|e| format!("integrity: payload '{}' is not base64: {e}", p.file_id))?;
         if bytes.len() as u64 != p.size {
             return Err(format!(
@@ -258,8 +308,8 @@ pub fn import_bundle_detailed(db: &Database, bytes: &[u8]) -> Result<BundleImpor
     Ok(BundleImport {
         appended,
         skipped,
-        from_device: bundle.from_device.clone(),
-        payloads: bundle.payloads.clone(),
+        from_device: bundle.from_device,
+        payloads: bundle.payloads,
     })
 }
 
@@ -402,5 +452,35 @@ mod tests {
         )
         .unwrap_err()
         .starts_with("invalid:"));
+    }
+
+    #[test]
+    fn import_rejects_oversize_metadata_and_unsafe_names_before_decode() {
+        let (_dir, db) = fixture("payload-metadata");
+        let make_bundle = || {
+            export_bundle_with_files(
+                &db,
+                "laptop",
+                0,
+                vec![("f1".to_string(), "safe.bin".to_string(), b"ok".to_vec())],
+            )
+            .expect("export")
+        };
+
+        let mut oversize = make_bundle();
+        oversize.payloads[0].size = (BUNDLE_MAX_PAYLOAD_BYTES + 1) as u64;
+        let canonical = canonical_payloads_json(&oversize.payloads).expect("canonical payloads");
+        oversize.payloads_blake3 = blake3::hash(canonical.as_bytes()).to_hex().to_string();
+        let err = import_bundle_detailed(&db, &bundle_bytes(&oversize).expect("serialize"))
+            .expect_err("oversize declared size");
+        assert!(err.starts_with("too_large:"), "{err}");
+
+        let mut traversal = make_bundle();
+        traversal.payloads[0].name = "../escape.bin".to_string();
+        let canonical = canonical_payloads_json(&traversal.payloads).expect("canonical payloads");
+        traversal.payloads_blake3 = blake3::hash(canonical.as_bytes()).to_hex().to_string();
+        let err = import_bundle_detailed(&db, &bundle_bytes(&traversal).expect("serialize"))
+            .expect_err("unsafe payload name");
+        assert!(err.starts_with("invalid:"), "{err}");
     }
 }

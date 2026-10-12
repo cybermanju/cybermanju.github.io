@@ -81,6 +81,7 @@ describe('wan dial plan (direct + relay live)', () => {
     expect(steps[0]).toContain('/api/readyz')
     expect(steps[1]).toContain('/api/oplog/since?since=41')
     expect(steps[2]).toContain('/api/oplog/push')
+    expect(steps[2]).toContain('signature, algorithm')
     expect(steps[4]).toContain('/api/oplog/conflicts')
   })
 
@@ -118,6 +119,7 @@ describe('wan cybsh verb', () => {
     expect(text).toContain('/api/readyz')
     expect(text).toContain('/api/oplog/since?since=41')
     expect(text).toContain('/api/oplog/push')
+    expect(text).toContain('signature, algorithm')
     const usage = await runStaticCybshLine('wan dial', deps)
     expect(JSON.stringify(usage)).toContain('usage: wan dial')
   })

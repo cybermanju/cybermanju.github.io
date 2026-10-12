@@ -74,7 +74,7 @@ describe('op-log resolver data', () => {
   it('plans queue-and-replay pulls', () => {
     expect(syncPlanSteps(12)).toEqual([
       'pull: GET /api/oplog/since?since=12',
-      'push: POST /api/oplog/push { ops: buffered }',
+      'push: POST /api/oplog/push { deviceId, ops, signature, algorithm } (ML-DSA required)',
       'render: GET /api/oplog/conflicts',
     ])
   })
