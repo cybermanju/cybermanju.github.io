@@ -1396,3 +1396,31 @@ Stage Summary:
 - Verified here: version agree, headers ok (tracked set; new files carry
   headers, verified by grep), `vue-tsc` clean, full vitest green (see run).
   Rust compiles/tests/iOS builds are CI's job per repo rules (no local cargo).
+
+## 2026-10-11 — ANALYSIS close-out: sequenced list landed, P0 cluster closed
+
+- Op-log wiring (§2C): `record_mutation_op` + `get_op_by_id` (`db`) called from
+  every file op, collections, todos chokepoint, face rename/merge; `POST
+  /api/oplog/resolve` verdicts (history never deleted); Sync → CONFLICTS
+  resolver UI (`oplog.ts` + store actions + `oplog` cybsh verb); spine tests
+  (resolve shapes, mutation appends, auth gates).
+- Direct LAN sync (§2B.2 follow-up): `POST /api/peers/{id}/sync`
+  (registry-authenticated, idempotent merge) + Devices SYNC button
+  (fail-closed gate) + `lanSync.ts` + `lan` cybsh verb + spine peer-auth tests.
+- iroh seam (§2B.5): `sync/src/iroh.rs` (config/endpoint/dial-plan +
+  unit tests, std-only); dial backend sequenced (dep + networked CI).
+- Skills panels (§4.8) + notes auto-index (§4.2) + rotation checklist (§3):
+  `panel:` frontmatter → `skill:<slug>` targets + `skill panel` verb;
+  `noteToMemory`; Shield rotation checklist; all in `spine-closeout.test.ts`.
+- P0: P0-3 IPC gate, P0-5 persistent revocation + stable IPC secret, P0-7 SSE
+  `?token=`, P0-9 remember audit, P0-11 symlink/atomic containment, P0-12
+  memory owner-scoping, P0-13 independent Hybrid pair (+sealed persistence),
+  P0-14 KDF separation + legacy fallback, P0-15 honest levels/labels, P0-16
+  KEK cache, P0-17 fail-closed data_dir + no silent re-wrap, P0-20 merged
+  Overwrite + deterministic KeepBoth, P0-21 `expired:`, P0-23 caps/paging,
+  P0-24 hierarchy rebuild; P0-22 documented discipline. TASKS ticked.
+- Docs: ANALYSIS refresh + dispositions, TASKS ticks, ARCHITECTURE endpoint
+  rows, OPERATIONS verbs, AGENTS/README counts (71 utils · 170 REST ·
+  40 tables · 82 files/893 tests).
+- Verified here: headers ok, `vue-tsc` clean, full vitest green (82/893).
+  Rust is CI's job (concurrent fmt-fix agent active; watch the run).

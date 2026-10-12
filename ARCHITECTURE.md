@@ -805,6 +805,8 @@ Login via `POST /api/users/login` with `{ "username": "...", "password": "..." }
 | `GET` | `/api/oplog/since?since=N&limit=M` | Pull ops after seq N (`{ head, ops }`, idempotent) |
 | `POST` | `/api/oplog/push` | Merge foreign ops (`{ appended, skipped, head }`) |
 | `GET` | `/api/oplog/conflicts` | Fork pairs for the conflict UI |
+| `POST` | `/api/oplog/resolve` | Append a `resolve` verdict (`keep-a`/`keep-b`/`merge`; history never deleted) |
+| `POST` | `/api/peers/{id}/sync` | Direct device↔device op-log exchange (registry-authenticated: unknown `not_found:`, revoked `auth:`) |
 | **Sneakernet** | | |
 | `GET` | `/api/sync/bundle/export?since=N` | BLAKE3-manifested op delta (`cyb-bundle/1`, admin) |
 | `POST` | `/api/sync/bundle/import` | Validate + merge a bundle (idempotent, admin) |

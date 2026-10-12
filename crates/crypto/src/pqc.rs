@@ -292,7 +292,7 @@ impl PqcEngine {
                     public_key: pk.as_bytes().to_vec(),
                     private_key: sk.as_bytes().to_vec(),
                     x25519_public_key: Some(x25519_public.as_bytes().to_vec()),
-                    x25519_private_key: Some(x25519_secret.as_bytes().to_vec()),
+                    x25519_private_key: Some(x25519_secret.to_bytes().to_vec()),
                     created_at: chrono::Utc::now()
                         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
                 };

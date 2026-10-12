@@ -197,10 +197,18 @@ first; chained lines and unknown verbs fall through to the wasm dispatcher
 - `write` runs in the wasm dispatcher (editor save path, 1 MiB cap).
 - `scrub` (BLAKE3 snapshot vs `cache:cybsh:scrub`), `repair` (prunes the
   record), `gc` (dry-run default, `--apply` deletes), `lease`, `echo`, `kill`, `ai`.
-- `skill list|show|run|install` (shareable skills under `.cybermanju/skills/` —
+- `skill list|show|run|install|panel` (shareable skills under `.cybermanju/skills/` —
   `SKILL.md` manifest + entry `.cybsh`; `install <https-url>` fetches the
-  manifest + sibling run script; `run` executes the entry script line by line).
+  manifest + sibling run script; `run` executes the entry script line by line;
+  `panel <slug>` resolves a skill's `panel:` frontmatter to its `skill:<slug>` target).
 - `task list|add|done|undone|rm|clear` (todos sharing the Archive TASKS store).
+- `oplog plan|conflicts|resolve` (op-log exchange: `plan` prints the
+  pull→push→render steps offline; `conflicts`/`resolve` need the dashboard —
+  Sync → Conflicts resolves with one click, `POST /api/oplog/resolve`).
+- `lan plan|peers|sync` (direct device sync: `plan` prints the
+  pull→push→merge→render steps for a peer; `peers`/`sync` need the dashboard —
+  Devices → LAN peers → SYNC does the authenticated exchange,
+  `POST /api/peers/{id}/sync`).
 
 `sync start|cancel`, the OAuth redirect dance and provider push refuse with
 `unsupported:` pointing at the desktop app / Docker image / dashboard server.
