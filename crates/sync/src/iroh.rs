@@ -673,10 +673,16 @@ mod tests {
         assert_eq!(parse_endpoint_id(&text).unwrap(), text);
         // Garbage fails closed.
         assert!(parse_endpoint_id("").unwrap_err().starts_with("invalid:"));
-        assert!(parse_endpoint_id("not-a-key").unwrap_err().starts_with("invalid:"));
-        assert!(parse_endpoint_id("has space in it").unwrap_err().starts_with("invalid:"));
+        assert!(parse_endpoint_id("not-a-key")
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(parse_endpoint_id("has space in it")
+            .unwrap_err()
+            .starts_with("invalid:"));
         assert!(parse_relay_url("").unwrap_err().starts_with("invalid:"));
-        assert!(parse_relay_url("not a url with spaces").unwrap_err().starts_with("invalid:"));
+        assert!(parse_relay_url("not a url with spaces")
+            .unwrap_err()
+            .starts_with("invalid:"));
         let relay = parse_relay_url("https://relay.example.com/").expect("relay");
         assert!(!relay.is_empty());
         // Canonical tickets carry their own rendezvous.
@@ -686,8 +692,12 @@ mod tests {
         let (id, url) = parse_iroh_ticket(&ticket).expect("parse");
         assert_eq!(id, text);
         assert_eq!(url, relay);
-        assert!(parse_iroh_ticket("https://relay.example.com").unwrap_err().starts_with("invalid:"));
-        assert!(parse_iroh_ticket("iroh:no-at-sign").unwrap_err().starts_with("invalid:"));
+        assert!(parse_iroh_ticket("https://relay.example.com")
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(parse_iroh_ticket("iroh:no-at-sign")
+            .unwrap_err()
+            .starts_with("invalid:"));
         // A ticketed dial needs no configured relay_url.
         let ep = IrohEndpoint {
             device_id: "phone-7".to_string(),

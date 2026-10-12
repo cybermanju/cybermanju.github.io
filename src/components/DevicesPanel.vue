@@ -165,6 +165,23 @@
           </div>
           <p v-if="store.presenceMsg" class="dv-line">{{ store.presenceMsg }}</p>
         </UiCard>
+        <UiCard title="Pairing codes" icon="solar:key-bold" meta="wormhole-style · no server">
+          <div class="dv-pair">
+            <UiButton size="sm" @click="makeCode">Make code</UiButton>
+            <UiInput v-model="claimInput" placeholder="482-oak-river" aria-label="Pairing code to claim" />
+            <UiButton size="sm" variant="ghost" :disabled="!claimInput.trim()" @click="claimCode">Claim</UiButton>
+          </div>
+          <p v-if="store.pairingMsg" class="dv-line">{{ store.pairingMsg }}</p>
+          <p v-else class="dv-muted">Read the code aloud — the other side claims <span class="dv-line">pair:&lt;code&gt;</span> from any relay. Same grammar as `pair make|drop|claim` in cybsh.</p>
+        </UiCard>
+        <UiCard title="Swarm demo" icon="solar:layers-bold" meta="RS + fountain · lossy-proof">
+          <div class="dv-pair">
+            <UiInput v-model="swarmText" placeholder="Some bytes to spray…" aria-label="Swarm demo text" />
+            <UiButton size="sm" :disabled="!swarmText" @click="runSwarmDemo">Spray + collect</UiButton>
+          </div>
+          <p v-if="swarmResult" class="dv-line">{{ swarmResult }}</p>
+          <p v-else class="dv-muted">Encodes via IPC twins, sprays symbols through the relay mailbox (dropping every third on purpose), decodes from the survivors. Same math as `swarm plan` in cybsh.</p>
+        </UiCard>
         <UiCard title="WAN dial" icon="solar:rocket-bold" meta="http live · relay live">
           <div class="dv-pair">
             <UiInput v-model="wanInput" placeholder="phone-7@192.168.1.60:3456" aria-label="WAN endpoint" />
@@ -353,6 +370,61 @@ watch(relayUrl, (v) => {
     // Private mode — the relay URL simply does not persist.
   }
 })
+
+const claimInput = ref('')
+const swarmText = ref('')
+const swarmResult = ref('')
+
+async function makeCode() {
+  await store.makePairingCode()
+}
+
+async function claimCode() {
+  const code = claimInput.value.trim()
+  if (!code) return
+  await store.claimPairingCode(code)
+  if (store.pairingMsg) claimInput.value = ''
+}
+
+/** Swarm demo: encode → spray (dropping every third symbol on purpose) →
+ * collect → decode. Proves lossy-path reconstruction end to end. */
+async function runSwarmDemo() {
+  const text = swarmText.value
+  if (!text) return
+  try {
+    swarmResult.value = 'encoding…'
+    const bytes = new TextEncoder().encode(text)
+    let bin = ''
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+    const b64 = btoa(bin)
+    const symbols = (await store.swarmEncode(b64, 4, 2)) as Array<Record<string, unknown>> | null
+    if (!symbols?.length) {
+      swarmResult.value = 'encode needs the dashboard (swarm_encode IPC twin)'
+      return
+    }
+    const me = store.devices[0]?.id ?? 'here'
+    const kept = symbols.filter((_, i) => i % 3 !== 0)
+    for (const s of kept) {
+      await store.relayDropMsg(me, 'swarm-symbol', s, me)
+    }
+    const messages = await store.relayPollMsg(me)
+    const got = messages
+      .map((m) => m.payload)
+      .filter((p) => p && typeof p === 'object')
+    const back = await store.swarmDecode(got.length >= 4 ? got : kept)
+    if (typeof back !== 'string') {
+      swarmResult.value = 'decode needs the dashboard (swarm_decode IPC twin)'
+      return
+    }
+    const out = atob(back)
+    swarmResult.value =
+      out === text
+        ? `reconstructed byte-identically from ${got.length} of ${symbols.length} sprayed symbols ✓`
+        : 'mismatch — the round trip did not survive (see relay log)'
+  } catch (e) {
+    swarmResult.value = e instanceof Error ? e.message : String(e)
+  }
+}
 
 /** This device's first enrolled id (presence announce defaults to it). */
 const canAnnounce = computed(() => store.devices.length > 0)

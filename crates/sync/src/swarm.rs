@@ -226,8 +226,7 @@ pub fn fountain_encode(
     }
     let encoder = raptorq::Encoder::with_defaults(payload, mtu);
     let oti = encoder.get_config();
-    let oti_b64 =
-        base64::engine::general_purpose::STANDARD.encode(oti.serialize());
+    let oti_b64 = base64::engine::general_purpose::STANDARD.encode(oti.serialize());
     let packets = encoder.get_encoded_packets(repair_packets);
     if packets.is_empty() {
         return Err("integrity: fountain encoder produced no symbols".to_string());
@@ -243,8 +242,8 @@ pub fn fountain_encode(
             blake3: blake3::hash(&wire).to_hex().to_string(),
             bytes_base64: base64::engine::general_purpose::STANDARD.encode(&wire),
         };
-        let envelope =
-            serde_json::to_string(&symbol).map_err(|e| format!("integrity: symbol unserializable: {e}"))?;
+        let envelope = serde_json::to_string(&symbol)
+            .map_err(|e| format!("integrity: symbol unserializable: {e}"))?;
         if envelope.len() > super::peers::RELAY_MAX_BYTES {
             return Err(format!(
                 "too_large: fountain symbol is {} bytes (cap {} — lower the MTU for smaller symbols)",
@@ -365,15 +364,23 @@ mod tests {
         assert!(fountain_decode(&[]).unwrap_err().starts_with("invalid:"));
         // Corrupt bytes without touching the hash.
         let mut bad = symbols.clone();
-        bad[0].bytes_base64 =
-            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b"garbage-garbage");
+        bad[0].bytes_base64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            b"garbage-garbage",
+        );
         assert!(fountain_decode(&bad).unwrap_err().starts_with("integrity:"));
         // Mixed objects.
         let other = fountain_encode(b"another object entirely", 1024, 4).expect("encode");
         let mixed = vec![symbols[0].clone(), other[0].clone()];
-        assert!(fountain_decode(&mixed).unwrap_err().starts_with("integrity:"));
-        assert!(fountain_encode(&[], 1024, 4).unwrap_err().starts_with("invalid:"));
-        assert!(fountain_encode(&payload, 0, 4).unwrap_err().starts_with("invalid:"));
+        assert!(fountain_decode(&mixed)
+            .unwrap_err()
+            .starts_with("integrity:"));
+        assert!(fountain_encode(&[], 1024, 4)
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(fountain_encode(&payload, 0, 4)
+            .unwrap_err()
+            .starts_with("invalid:"));
     }
 
     #[test]

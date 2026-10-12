@@ -37,6 +37,7 @@ import { setAuthToken, getAuthToken, isWebMode, isStaticHost } from '@/composabl
 import { isInstallNeededError, installReasonFor, requestInstallWindow } from '@/utils/installLinks'
 import { createUiRequestDedupe } from '@/utils/uiRequests'
 import { normalizeConflicts, type OpEntry } from '@/utils/oplog'
+import type { RelayMessage } from '@/utils/p2pPresence'
 import { useWindowManager } from '@/composables/useWindowManager'
 
 export const useAppStore = defineStore('cybermanju', () => {
@@ -2426,6 +2427,118 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
+  // ── Actions: relay mailbox + pairing + swarm compute (§2B bonds) ──
+  const relayMsg = ref('')
+  const pairingMsg = ref('')
+
+  async function relayDropMsg(to: string, kind: string, payload: unknown, from = '') {
+    try {
+      const res = await invoke<{ accepted?: boolean; id?: string }>('relay_drop', {
+        from: from || devices.value[0]?.id || 'here',
+        to,
+        kind,
+        payload: payload ?? null,
+      })
+      return res
+    } catch (e) {
+      notifyError('Relay drop failed', e)
+      return null
+    }
+  }
+
+  async function relayPollMsg(forDevice: string) {
+    try {
+      const res = await invoke<{ messages?: RelayMessage[] }>('relay_poll', { for: forDevice })
+      return Array.isArray(res.messages) ? res.messages : []
+    } catch (e) {
+      notifyError('Relay poll failed', e)
+      return []
+    }
+  }
+
+  async function relayAckMsg(forDevice: string, ids: string[]) {
+    try {
+      const res = await invoke<{ cleared?: number }>('relay_ack', { for: forDevice, ids })
+      return Number(res.cleared ?? 0)
+    } catch (e) {
+      notifyError('Relay ack failed', e)
+      return 0
+    }
+  }
+
+  async function makePairingCode() {
+    try {
+      const code = await invoke<string>('pairing_code')
+      pairingMsg.value = `Code: ${code} — read it aloud; the other side claims pair:${code}`
+      return code
+    } catch (e) {
+      notifyError('Pairing code failed', e)
+      return null
+    }
+  }
+
+  async function claimPairingCode(code: string) {
+    try {
+      const { pairingTarget } = await import('@/utils/pairing')
+      const target = pairingTarget(code)
+      const messages = await relayPollMsg(target)
+      const ids = messages.map((m) => m.id).filter((id) => id.trim())
+      if (ids.length > 0) await relayAckMsg(target, ids)
+      pairingMsg.value =
+        messages.length > 0
+          ? `Claimed ${messages.length} envelope(s) from pair:${code}`
+          : `Nothing waiting at pair:${code} yet — sender drops first`
+      return messages
+    } catch (e) {
+      notifyError('Pairing claim failed', e)
+      return []
+    }
+  }
+
+  /** Pure-compute swarm/fountain coding (native IPC twins; Pages uses wasm exports directly). */
+  async function swarmEncode(payloadBase64: string, data = 0, parity = 0) {
+    try {
+      // Tauri binds by exact param name — send both cases, the twin picks its own.
+      return await invoke<unknown[]>('swarm_encode', {
+        bytesBase64: payloadBase64, bytes_base64: payloadBase64, data, parity,
+      })
+    } catch (e) {
+      notifyError('Swarm encode failed', e)
+      return null
+    }
+  }
+
+  async function swarmDecode(symbols: unknown) {
+    try {
+      const json = JSON.stringify(symbols)
+      return await invoke<string>('swarm_decode', { symbolsJson: json, symbols_json: json })
+    } catch (e) {
+      notifyError('Swarm decode failed', e)
+      return null
+    }
+  }
+
+  async function fountainEncode(payloadBase64: string, mtu = 0, repair = 0) {
+    try {
+      return await invoke<unknown[]>('fountain_encode', {
+        bytesBase64: payloadBase64, bytes_base64: payloadBase64, mtu, repair,
+      })
+    } catch (e) {
+      notifyError('Fountain encode failed', e)
+      return null
+    }
+  }
+
+  async function fountainDecode(symbols: unknown) {
+    try {
+      const json = JSON.stringify(symbols)
+      return await invoke<string>('fountain_decode', { symbolsJson: json, symbols_json: json })
+    } catch (e) {
+      notifyError('Fountain decode failed', e)
+      return null
+    }
+  }
+
   // ── Actions: Server todos (§4.9 agent bridge — same rows the agent uses) ──
   const serverTodos = ref<ServerTodo[] | null>(null)
 
@@ -3168,6 +3281,9 @@ export const useAppStore = defineStore('cybermanju', () => {
     devices, lanPeers, fetchDevices, registerDevice, registerThisDevice,
     revokeDevice, removeDevice, fetchLanPeers,
     knownPeers, presenceMsg, fetchKnownPeers, announcePresence,
+    relayMsg, pairingMsg, relayDropMsg, relayPollMsg, relayAckMsg,
+    makePairingCode, claimPairingCode,
+    swarmEncode, swarmDecode, fountainEncode, fountainDecode,
     opConflicts, lanSyncMsg, fetchOpConflicts, resolveOpConflict, syncWithPeer,
     serverTodos, fetchServerTodos, createServerTodo, toggleServerTodo, deleteServerTodo,
     backupShell, fetchBackupList, exportBackupToProvider, verifyBackupPath,

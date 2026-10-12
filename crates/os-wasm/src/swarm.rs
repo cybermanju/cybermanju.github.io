@@ -124,8 +124,9 @@ fn fountain_decode_inner(symbols_json: &str) -> Result<Vec<u8>, String> {
         .as_slice()
         .try_into()
         .map_err(|_| "integrity: fountain OTI is not 12 bytes".to_string())?;
-    let mut decoder =
-        raptorq::Decoder::new(raptorq::ObjectTransmissionInformation::deserialize(&oti_arr));
+    let mut decoder = raptorq::Decoder::new(raptorq::ObjectTransmissionInformation::deserialize(
+        &oti_arr,
+    ));
     for s in &symbols {
         if s.object != first.object || s.oti_base64 != first.oti_base64 {
             return Err(
