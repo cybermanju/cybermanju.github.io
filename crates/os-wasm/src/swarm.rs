@@ -108,7 +108,9 @@ fn fountain_decode_inner(symbols_json: &str) -> Result<Vec<u8>, String> {
     struct Symbol {
         object: String,
         oti_base64: String,
-        mtu: u16,
+        // Required by the wire format; decoding parameters come from the OTI.
+        #[serde(rename = "mtu")]
+        _mtu: u16,
         blake3: String,
         bytes_base64: String,
     }
