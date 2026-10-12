@@ -683,6 +683,44 @@ jobs:
       - name: Fix cargo and workspace ownership
         run: chown -R builder:builder /home/builder/.cargo "$GITHUB_WORKSPACE"
 
+      # ort-sys `download-binaries` (via cybermanju-faces default
+      # `onnx-face`) extracts the ONNX Runtime outside `target/`, which
+      # rust-cache never restores — warm cache + cold dir fails the link
+      # with `could not find native static library onnxruntime` (same
+      # signature as Android CI 2026-10-08; Arch CI 2026-10-12). Pin the
+      # dir to the builder home the build step uses and persist it below.
+      # Literal path on purpose: this step runs as root ($HOME=/root) while
+      # the build runs as `builder`.
+      - name: Pin ONNX Runtime download cache
+        run: echo "ORT_CACHE_DIR=/home/builder/.cache/ort" >> "$GITHUB_ENV"
+
+      - name: Cache ONNX Runtime prebuilt binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /home/builder/.cache/ort
+          # Stable across lock churn on purpose: the dfbin layout is keyed
+          # by target triple + dist hash internally, so old entries are
+          # harmless. Bump the suffix if the ort version ever changes.
+          key: ort-dfbin-arch-x86_64-v1
+          restore-keys: |
+            ort-dfbin-arch-x86_64-
+
+      # Self-healing warm-cache poison: if the static lib is absent the
+      # build script MUST run, but a warm rust-cache would skip it — drop
+      # its cached state in that case only, so `download-binaries`
+      # re-downloads into the pinned dir above.
+      - name: Force ort-sys rebuild when its binaries are missing
+        run: |
+          ORT_DFBIN="/home/builder/.cache/ort"
+          if ! find "$ORT_DFBIN" -name libonnxruntime.a 2>/dev/null | grep -q .; then
+            echo "onnxruntime.a absent — dropping cached ort-sys state so download-binaries re-runs fresh"
+            rm -rf "$ORT_DFBIN"
+            rm -rf target/release/build/ort-sys-* target/release/.fingerprint/ort-sys-*
+            rm -rf target/debug/build/ort-sys-* target/debug/.fingerprint/ort-sys-*
+          else
+            echo "onnxruntime.a present — incremental build is safe"
+          fi
+
       # NO_STRIP: linuxdeploy's bundled strip cannot read the .relr.dyn sections
       # Arch-built libraries carry, which aborts the AppImage bundle with
       # `failed to run linuxdeploy` (tauri#8929 / #13113, reported on Garuda).
@@ -971,6 +1009,88 @@ jobs:
             src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
           retention-days: 7
           if-no-files-found: error
+
+  # ─── iOS: simulator build + signed device IPA (P2-16) ─────────────
+  # macOS-only (Xcode + `tauri ios`). Simulator `.app` needs no signing and
+  # runs on every PR/push; the device `.ipa` is built in the same job and is
+  # signed only when Apple secrets exist (PRs from forks ship the simulator
+  # artifact explicitly). Release requires signing (REQUIRE_SIGNING=1).
+  ios-build:
+    name: Build iOS (simulator + device)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: "."
+          cache-on-failure: true
+          # PRs read the branch cache but don't write per-PR duplicates.
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Initialize iOS project
+        run: npm run tauri ios init
+
+      # In-tree iOS settings `tauri ios init` does not generate: version +
+      # deployment-floor + identifier audits, ATS guidance (docs/IOS.md §2).
+      - name: Configure iOS project
+        run: bash scripts/ios-configure.sh
+
+      # Without this a device IPA cannot be installed. Simulator builds skip
+      # gracefully without secrets — only require signing on push (main has
+      # secrets), mirroring the Android signing parity (P2-8).
+      - name: Configure iOS signing
+        run: bash scripts/ios-signing.sh prepare
+        env:
+          REQUIRE_SIGNING: ${{ github.event_name == 'push' && '1' || '0' }}
+          APPLE_CERTIFICATE_P12_B64: ${{ secrets.APPLE_CERTIFICATE_P12_B64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE_B64: ${{ secrets.APPLE_PROVISIONING_PROFILE_B64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+
+      - name: Build iOS simulator app (unsigned, no device needed)
+        run: npx tauri ios build --debug --target aarch64-apple-ios-sim
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Build iOS device IPA (signed when secrets exist)
+        run: npx tauri ios build --export-method app-store
+        continue-on-error: true
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Verify iOS artifacts
+        run: bash scripts/ios-signing.sh verify
+        env:
+          REQUIRE_SIGNING: ${{ github.event_name == 'push' && '1' || '0' }}
+
+      # Shred the ephemeral keychain + installed profiles before archiving
+      # so runner images / debug bundles never retain Apple signing secrets.
+      - name: Shred iOS signing secrets
+        run: bash scripts/ios-signing.sh cleanup
+
+      - name: Upload iOS artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-ios
+          path: |
+            src-tauri/gen/apple/**/*.app
+            src-tauri/gen/apple/**/*.ipa
+          retention-days: 7
+          if-no-files-found: warn
 
   # ─── macOS: Build Desktop ────────────────────────────────────────
   macos-build:

@@ -284,8 +284,11 @@ pub fn open_sealed(passphrase: &str, blob: &[u8]) -> Result<Vec<u8>, String> {
 /// passphrase, and a fresh Argon2id per blob turns that into a CPU DoS.
 /// Entries key by `(blake3(passphrase), salt)` — the passphrase itself never
 /// rests — capped at 8 with oldest-first eviction, process-local only.
+/// One KEK cache row: `(blake3(passphrase), salt, derived_key)`.
+type KekCacheEntry = ([u8; 32], Vec<u8>, [u8; 32]);
+
 fn cached_kek(passphrase: &str, salt: &[u8]) -> Result<[u8; 32], String> {
-    static CACHE: OnceLock<Mutex<Vec<([u8; 32], Vec<u8>, [u8; 32])>>> = OnceLock::new();
+    static CACHE: OnceLock<Mutex<Vec<KekCacheEntry>>> = OnceLock::new();
     let tag = *blake3::hash(passphrase.as_bytes()).as_bytes();
     if let Ok(cache) = CACHE.get_or_init(|| Mutex::new(Vec::new())).lock() {
         if let Some((_, _, key)) = cache.iter().find(|(t, s, _)| *t == tag && *s == salt) {

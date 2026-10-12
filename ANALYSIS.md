@@ -43,7 +43,22 @@
 > networked CI), iOS device/simulator builds (macOS + signing), full
 > TS↔Rust path-equality sweep (CI-side follow-up; spine shape sweep +
 > frontend matrix landed), P0-22 os_exec guard (documented discipline).
-> Landed rows are tagged ✅ below; everything else is unchanged ideation.
+> Status refresh 2026-10-12 (measured: 49 top-level components ·
+> 34 composables · 74 utils · 16 crates · 40 redb table defs · 170 REST
+> mappings · 86 frontend test files / 911 tests): **frontend-close-out** — the four
+> honest sequences above are now landed on every layer this environment can
+> prove (no local cargo per repo rules, no macOS signer): WAN dial plan
+> (§2B.5: `src/utils/wanDial.ts` + Devices WAN card + `wan plan` verb,
+> tested) · volume single-writer frontend half + shared 1 MiB cap (§2C /
+> P1-16/P1-17: `volumeCaps.ts` + `volumeWriteQueue.ts`, `STATIC_WRITE_LIMIT`
+> re-export, tested) · exhaustive transport pins (§3: `transport-exhaustive`
+> — every mapping method+/api/, REST_FIRST resolution, WRITE_ONLY
+> disjointness, Rust spine twins by static read). Staying sequenced with
+> their honest reasons: iroh QUIC dial backend (new dep + networked CI),
+> iOS device/simulator builds (macOS + signing), full TS↔Rust equality sweep
+> (needs both toolchains in one CI job), P0-22 rebuild + Rust single-opener
+> (needs the lock redesign, frontend mitigations already in: 15 s abort +
+> backoff retry in `restFetch`).
 > Landed rows are tagged ✅ below; everything else is unchanged ideation.
 > Grounded in file/line refs; anything aspirational is labeled as such.
 
@@ -148,9 +163,13 @@ chunk manifests, ML-DSA for signatures). Incremental path, cheapest first:
 5. **iroh** ✅ seam landed 2026-10-11 — `crates/sync/src/iroh.rs`
    (std-only, no new dep): `IrohConfig`, `<device>@<addr>` endpoint parse,
    `dial_plan` answering `unsupported:` with the LAN/bundle way out +
-   unit tests. The op-log push/pull payloads ride unchanged when a real
-   endpoint arrives. The dial backend itself stays sequenced (new
-   dependency + NAT-traversal design, needs networked CI proving). ~~— sequenced, not started: new dependency + NAT-traversal design,
+   unit tests. Frontend plan ✅ landed 2026-10-12: `src/utils/wanDial.ts`
+   (same grammar + `unsupported:` plan + `wanWayOut`, tested in
+   `wan-dial.test.ts`) + Devices → WAN dial card (plan, never dials) +
+   `wan plan <device>@<addr>` cybsh verb on all transports. The op-log
+   push/pull payloads ride unchanged when a real endpoint arrives. The dial
+   backend itself stays sequenced (new dependency + NAT-traversal design,
+   needs networked CI proving). ~~— sequenced, not started: new dependency + NAT-traversal design,
    needs networked CI proving. Honest order holds (last, not first).~~
 
 ### C. Ship the op-log (P3-2) — ✅ landed 2026-10-11 (foundation + wiring + resolver)
@@ -171,14 +190,18 @@ resolver UI (`src/utils/oplog.ts`, keep-first/keep-second/merge, tested) +
 `oplog plan|conflicts|resolve` cybsh verb. It fixes, today: offline
 queue-and-replay (push buffered rows on reconnect), conflict UI data (pairs
 render in the resolver), cross-device deltas (pull `since`, don't rescan).
-The triple-writer volume race (`P1-16`) stays sequenced (needs the
-single-writer design, not more log call sites).
+The triple-writer volume race (`P1-16`) — frontend half ✅ landed 2026-10-12
+(`src/utils/volumeCaps.ts`: shared 1 MiB cap, `STATIC_WRITE_LIMIT` re-export,
+Rust `MAX_WRITE_BYTES` pinned by static read; `src/utils/volumeWriteQueue.ts`:
+FIFO single-writer queue with generations, `too_large:` gate, chain survival;
+`volume-caps` + `volume-queue` tests): the browser-side racer is serialized
+today; the Rust single-opener design stays sequenced (not more log call sites).
 
 Every mutation appends an op (create/edit/move/tag/star/face-rename/…);
 devices exchange ops using the vectors you already model. One change fixes:
 
 - offline queue-and-replay (P3-3) ✅ (push buffered rows on reconnect),
-- the triple-writer volume race (`P1-16` — whole-blob JSON vs Rust vs mirror) — sequenced (single-writer design),
+- the triple-writer volume race (`P1-16` — whole-blob JSON vs Rust vs mirror) ✅ frontend half (single-writer queue + shared cap; Rust single-opener sequenced),
 - conflict UI ✅ (Sync → CONFLICTS resolver + `POST /api/oplog/resolve`; data via `GET /api/oplog/conflicts`),
 - cross-device latency ✅ (pull `since`, don't rescan files).
 
@@ -200,8 +223,11 @@ same everywhere, all the time.
 | **Contract parity test** ✅ landed 2026-10-11 (frontend matrix + spine shape sweep) | ~~Three transports drift silently (`os_write` missing route `P1-6`, `isTauri` truthiness `P1-1`, split-brain `REST_FIRST` `P1-5`)~~ `tests/frontend/error-prefix.test.ts`: full AGENT-1 prefix→hint matrix over both describers + REST invariants (every mapping has method+buildPath, every `REST_FIRST` resolves); `transport-routes.test.ts` pins the op-log
 resolve + peer-sync mappings; `spine.rs` boots real `crates/web` and pins
 the new arms' shapes + prefix matrix (`not_found:`/`auth:`/`invalid:`).
-The exhaustive every-path TS↔Rust equality sweep stays a CI-side follow-up
-(needs both toolchains in one job) | ~~One test booting real `crates/web` asserting every mapped path + shape + the AGENT-1 prefix matrix beats 336 unit tests (P3-5 — do it)~~ shape sweep landed, exhaustive sweep sequenced |
+Exhaustive frontend pins ✅ landed 2026-10-12
+(`tests/frontend/transport-exhaustive.test.ts`: every mapping has
+method + `/api/` path, every `REST_FIRST` resolves, `WRITE_ONLY` stays
+disjoint, spine twins pinned by static Rust reads). The full TS↔Rust
+equality sweep stays a CI-side follow-up (needs both toolchains in one job) | ~~One test booting real `crates/web` asserting every mapped path + shape + the AGENT-1 prefix matrix beats 336 unit tests (P3-5 — do it)~~ shape sweep landed, exhaustive sweep sequenced |
 
 ---
 
@@ -340,24 +366,27 @@ The exhaustive every-path TS↔Rust equality sweep stays a CI-side follow-up
 
 ## 6. Suggested sequencing
 
-**Five phases (each independently shippable) — status 2026-10-11 (close-out):**
+**Five phases (each independently shippable) — status 2026-10-12 (frontend-close-out):**
 
 1. **Stop the silent drift** ✅ — parity guard (AGENT-1 matrix + REST
-   invariants + transport-routes pins + spine shape sweep; exhaustive
-   TS↔Rust equality stays a CI follow-up) + the P0 auth cluster (all landed:
-   `P0-1`–`P0-21`, `P0-23`, `P0-24`; `P0-22` disciplined + documented) +
-   stale-count/doc fixes ✅.
+   invariants + transport-routes pins + spine shape sweep + exhaustive
+   frontend pins 2026-10-12; full TS↔Rust equality stays a CI follow-up) +
+   the P0 auth cluster (all landed: `P0-1`–`P0-21`, `P0-23`, `P0-24`;
+   `P0-22` disciplined + documented) + stale-count/doc fixes ✅.
 2. **Make everything compound** ✅ — scheduler ✅ + notification center ✅
    + scheduled backup ✅ + watchers ✅ + skills (+panels) ✅.
 3. **Make "decentralized" honest** ✅ — device identity ✅ →
    LAN discovery ✅ → direct-sync protocol ✅ → CAS leases ✅ →
-   sneakernet ✅ (+ TLS ✅); iroh seam ✅, dial backend sequenced last.
+   sneakernet ✅ (+ TLS ✅); iroh seam + frontend dial plan ✅ (`wanDial.ts`
+   + WAN card + `wan plan` verb), QUIC dial backend sequenced last.
 4. **Daily-driver depth** ✅ — secrets (+CSV) ✅ + notes (+auto-index) ✅
    + timeline/contacts/tasks/bookmarks/datasets ✅ + i18n foundation ✅
    + rotation checklist ✅.
 5. **The architecture leap** ✅ — op-log + mutation wiring +
-   queue-and-replay + conflict data + resolver UI ✅; iroh dial + `P1-16`
-   single-writer + full path-equality sweep sequenced on top.
+   queue-and-replay + conflict data + resolver UI ✅; volume single-writer
+   frontend half ✅ (`volumeCaps` + `volumeWriteQueue`); iroh dial + Rust
+   single-opener + full path-equality sweep sequenced on top (all need the
+   Rust/mobile toolchains, none is implementable blind per repo rules).
 
 **Smallest high-value "next 5 PRs" cut (if you want immediate motion):**
 

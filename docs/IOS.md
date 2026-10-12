@@ -1,11 +1,17 @@
-# iOS runbook (P2-16 scaffold)
+# iOS runbook (P2-16 — landed: simulator CI job + signing/configure scripts)
 
-Native iOS target: scaffolded, not yet built. The UI contract is pinned
+Native iOS target: simulator builds in CI, device IPAs sign when Apple
+secrets exist. The UI contract is pinned
 (`tests/frontend/mobile-ios.test.ts` — springboard pager, safe-area,
 squircle icons), the config floor is set (`bundle.ios.minimumSystemVersion`
-in `src-tauri/tauri.conf.json`), and this file is the build checklist. The
-first device build needs a macOS runner with Xcode + signing; nothing here
-pretends otherwise.
+in `src-tauri/tauri.conf.json`), `scripts/ios-configure.sh` audits
+version/floor/identifier/ATS, `scripts/ios-signing.sh`
+(prepare/verify/cleanup) manages the ephemeral keychain + provisioning
+profile mirroring `scripts/android-signing.sh`, and the `ios-build` CI job
+(macos-latest) ships the simulator `.app` on every run plus the signed `.ipa`
+when secrets exist. The first *device* build still needs Apple Developer
+secrets (`APPLE_CERTIFICATE_P12_B64` / `APPLE_PROVISIONING_PROFILE_B64` alongside
+`ANDROID_KEYSTORE_*`); nothing here pretends otherwise.
 
 ## 1. Scaffold the Xcode project
 

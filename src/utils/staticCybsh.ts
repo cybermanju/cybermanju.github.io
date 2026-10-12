@@ -40,6 +40,8 @@ import { nextFire, parseSchedule } from './schedule'
 import { listSkills, parseSkillMd, skillPanels, validateSkill } from './skills'
 import { resolutionPayload, syncPlanSteps, type ResolutionChoice } from './oplog'
 import { lanSyncSteps, peerBaseUrl } from './lanSync'
+import { VOLUME_WRITE_LIMIT } from './volumeCaps'
+import { parseWanEndpoint, wanDialPlan, wanDialSteps, wanWayOut } from './wanDial'
 import {
   addTodo,
   clearDone,
@@ -49,8 +51,10 @@ import {
   toggleTodo,
 } from './tasks'
 
-/** The 1 MiB single-write cap mirrors `MAX_WRITE_BYTES` in os.rs. */
-export const STATIC_WRITE_LIMIT = 1024 * 1024
+/** The 1 MiB single-write cap — single source of truth lives in volumeCaps
+ * (mirrors `MAX_WRITE_BYTES` in crates/os-wasm/src/os.rs). Kept here as a
+ * re-export so existing imports keep working. */
+export const STATIC_WRITE_LIMIT = VOLUME_WRITE_LIMIT
 
 /** Report footer: provider push always needs the server behind the page. */
 export const DASHBOARD_NOTE =
@@ -205,7 +209,7 @@ const HANDLED_VERBS = new Set([
   'quota', 'providers', 'oauth', 'disk', 'sync',
   'encrypt', 'decrypt', 'keygen', 'compress', 'decompress',
   'scrub', 'repair', 'gc', 'lease', 'mount', 'umount', 'ai',
-  'run', 'theme', 'ui', 'cron', 'backup', 'skill', 'task', 'oplog', 'lan',
+  'run', 'theme', 'ui', 'cron', 'backup', 'skill', 'task', 'oplog', 'lan', 'wan',
 ])
 
 export function handlesStaticVerb(verb: string): boolean {
@@ -3086,6 +3090,50 @@ async function handleLan(args: string[], json: boolean, deps: StaticCybshDeps): 
   )
 }
 
+const WAN_SUBCOMMANDS = ['plan', 'dial'] as const
+
+/** WAN dial seam from the shell (ANALYSIS.md §2B.5): `wan plan
+ * <device>@<addr>` prints the honest QUIC `unsupported:` + LAN/bundle way out;
+ * `wan dial <device>@<addr> [since]` prints the REAL HTTP dial steps
+ * (readyz probe + op-log pull/push/merge, same as Devices → WAN) — works
+ * offline on every transport, never dials from the static shell, never guesses. */
+async function handleWan(args: string[], json: boolean): Promise<VerbOut> {
+  const sub = (args[0] ?? 'plan').toLowerCase()
+  const rest = args.slice(1)
+  if (sub === 'plan' || sub === 'dial') {
+    const raw = rest.find((a) => !a.startsWith('-'))
+    if (!raw) return shellErr(`usage: wan ${sub} <device-id>@<addr> [since]`)
+    let endpoint
+    try {
+      endpoint = parseWanEndpoint(raw)
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+    if (sub === 'dial') {
+      const sinceRaw = rest.filter((a) => !a.startsWith('-'))[1]
+      const since = sinceRaw == null ? 0 : Math.max(0, Math.floor(Number(sinceRaw) || 0))
+      const steps = wanDialSteps(endpoint, since)
+      if (json) return shellOk(JSON.stringify({ endpoint, steps }))
+      return shellOk(steps.join('\n'))
+    }
+    let plan: string
+    try {
+      plan = wanDialPlan(endpoint)
+    } catch (e) {
+      plan = e instanceof Error ? e.message : String(e)
+    }
+    const wayOut = wanWayOut(endpoint)
+    if (json) return shellOk(JSON.stringify({ endpoint, plan, wayOut }))
+    return shellOk([plan, ...wayOut].join('\n'))
+  }
+  const suggestion = WAN_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
+  return shellErr(
+    suggestion
+      ? `usage: wan <${WAN_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
+      : `usage: wan <${WAN_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
+  )
+}
+
 const TODOS_KEY = 'cybermanju.todos.v1'
 
 function readTaskList(): ReturnType<typeof parseTodosStore> {
@@ -3295,6 +3343,8 @@ export async function runStaticCybshLine(
         return done(await handleOplog(args, json, deps))
       case 'lan':
         return done(await handleLan(args, json, deps))
+      case 'wan':
+        return done(await handleWan(args, json))
       case 'task':
         return done(handleTask(args, json))
       default:

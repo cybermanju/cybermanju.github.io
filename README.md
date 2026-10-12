@@ -302,7 +302,7 @@ disk resize <disk-id> 10G
 |---|---|
 | 🖥️ Desktop | Tauri v2 (`com.cybermanju.os`, 1400×900) — 26 command modules, ~175 handlers |
 | 🦀 Backend | Rust 2021 workspace — **16 crates** + `src-tauri` + `docker/server` |
-| 🎨 Frontend | Vue 3 Composition + Pinia + TS 5.8 + Vite 6.3 — **49 components · 34 composables · 71 utils** |
+| 🎨 Frontend | Vue 3 Composition + Pinia + TS 5.8 + Vite 6.3 — **49 components · 34 composables · 74 utils** |
 | ✨ Reactive | `@vueuse/core` 14 — one shared `useSystemHardware()` for the whole OS |
 | 🎨 Icons | `@iconify/vue` Solar set (generated — unknown `solar:*` **fails the build**) |
 | 🗺️ Maps | MapLibre GL 6 |
@@ -312,7 +312,7 @@ disk resize <disk-id> 10G
 | 🗜️ Pack | LZ4 → ZSTD-15 → Brotli-11 |
 | </> Parse | tree-sitter (6 real grammars) + heuristic fallback |
 | 🌐 WASM | `crates/os-wasm` via `wasm-pack` + OPFS — full OS in the browser |
-| ✅ Tests | Vitest **82 files / 893 tests** + Rust workspace tests in CI |
+| ✅ Tests | Vitest **86 files / 911 tests** + Rust workspace tests in CI |
 
 ---
 

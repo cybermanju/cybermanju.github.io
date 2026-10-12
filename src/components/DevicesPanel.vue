@@ -153,6 +153,15 @@
           <p v-if="store.lanSyncMsg" class="dv-line">{{ store.lanSyncMsg }}</p>
           <p class="dv-muted">Direct sync is peer-authenticated: only enrolled, non-revoked devices (Registry above) sync — unknown peers stay listed but never merge.</p>
         </UiCard>
+        <UiCard title="WAN dial" icon="solar:rocket-bold" meta="http live · quic sequenced">
+          <div class="dv-pair">
+            <UiInput v-model="wanInput" placeholder="phone-7@192.168.1.60:3456" aria-label="WAN endpoint" />
+            <UiButton size="sm" :disabled="!wanInput.trim()" @click="planWan">Plan dial</UiButton>
+            <UiButton size="sm" variant="ghost" :disabled="!wanInput.trim()" @click="probeWan">Probe</UiButton>
+          </div>
+          <p v-if="wanResult" class="dv-line">{{ wanResult }}</p>
+          <p v-else class="dv-muted">Off-LAN HTTP dial is live (readyz probe + op-log pull/push, 15 s abort) — QUIC relay dial stays sequenced (new dep + networked CI). Same grammar as `wan plan|dial` in cybsh.</p>
+        </UiCard>
       </div>
     </section>
 
@@ -281,6 +290,7 @@ import {
 import type { TopSnapshot } from '@/utils/deviceStats'
 import type { LanPeer } from '@/types'
 import { isPeerSyncable, peerBlockReason } from '@/utils/lanSync'
+import { parseWanEndpoint, wanDialPlan, wanDialSteps, wanHttpBase, wanHttpProbe, wanWayOut } from '@/utils/wanDial'
 
 const hw = useSystemHardware()
 const store = useAppStore()
@@ -313,6 +323,48 @@ function peerSyncTitle(p: LanPeer): string {
     store.devices.filter((d) => !d.revoked).map((d) => d.id),
   )
   return reason || 'Sync op-log with this peer now'
+}
+
+const wanInput = ref('')
+const wanResult = ref('')
+
+/** WAN dial seam (§2B.5): honest QUIC plan + real HTTP dial steps. */
+function planWan() {
+  const raw = wanInput.value.trim()
+  if (!raw) {
+    wanResult.value = 'usage: <device-id>@<addr> (e.g. phone-7@192.168.1.60:3456)'
+    return
+  }
+  try {
+    const endpoint = parseWanEndpoint(raw)
+    const steps = wanDialSteps(endpoint, 0)
+    try {
+      wanDialPlan(endpoint)
+      wanResult.value = steps.join('\n')
+    } catch (e) {
+      const plan = e instanceof Error ? e.message : String(e)
+      wanResult.value = [plan, ...steps, ...wanWayOut(endpoint)].join('\n')
+    }
+  } catch (e) {
+    wanResult.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+/** Live HTTP probe: GET <base>/api/readyz with a 15 s abort (never hangs). */
+async function probeWan() {
+  const raw = wanInput.value.trim()
+  if (!raw) {
+    wanResult.value = 'usage: <device-id>@<addr> (e.g. phone-7@192.168.1.60:3456)'
+    return
+  }
+  try {
+    const endpoint = parseWanEndpoint(raw)
+    wanResult.value = `probing ${wanHttpBase(endpoint)}/api/readyz …`
+    await wanHttpProbe(wanHttpBase(endpoint))
+    wanResult.value = [`reachable: ${wanHttpBase(endpoint)}`, ...wanDialSteps(endpoint, 0)].join('\n')
+  } catch (e) {
+    wanResult.value = e instanceof Error ? e.message : String(e)
+  }
 }
 const camVideoRef = ref<HTMLVideoElement | null>(null)
 const shareVideoRef = ref<HTMLVideoElement | null>(null)

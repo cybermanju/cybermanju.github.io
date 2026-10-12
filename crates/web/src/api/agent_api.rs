@@ -3067,7 +3067,7 @@ pub fn approve_job_for(
                             drop(guard);
                             if let Ok(guard) = db.read() {
                                 match save_config(&guard, config) {
-                                    Ok(()) => {
+                                    Ok(_) => {
                                         let _ = guard.log_audit(
                                             "remember_allow",
                                             "agent_config",

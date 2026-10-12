@@ -1424,3 +1424,29 @@ Stage Summary:
   40 tables · 82 files/893 tests).
 - Verified here: headers ok, `vue-tsc` clean, full vitest green (82/893).
   Rust is CI's job (concurrent fmt-fix agent active; watch the run).
+## 2026-10-12 — ANALYSIS frontend-close-out: WAN plan, volume queue+caps, exhaustive parity (no cargo, no macOS)
+
+- New `src/utils/wanDial.ts` (§2B.5 frontend plan — same `<device>@<addr>`
+  grammar + `unsupported:` plan + `wanWayOut` as `crates/sync/src/iroh.rs`,
+  never dials) + Devices → WAN dial card (plan, never dials) +
+  `wan plan <device>@<addr>` cybsh verb on all transports +
+  `tests/frontend/wan-dial.test.ts` (5 tests).
+- New `src/utils/volumeCaps.ts` (P1-17: shared 1 MiB cap, `STATIC_WRITE_LIMIT`
+  re-export, Rust `MAX_WRITE_BYTES` pinned by static read) +
+  `src/utils/volumeWriteQueue.ts` (P1-16 frontend half: FIFO single-writer
+  queue, generations, `too_large:` gate, chain survival) +
+  `volume-caps` (4) + `volume-queue` (3) tests.
+- New `tests/frontend/transport-exhaustive.test.ts` (§3: every mapping has
+  method + `/api/` path, every `REST_FIRST` resolves, `WRITE_ONLY` disjoint,
+  spine twins pinned by static Rust reads — peer-sync/op-log/bundle are
+  REST-first by design, devices/todos keep Tauri twins; corrected the first
+  draft which wrongly assumed Tauri twins for all).
+- Docs: `ANALYSIS.md` 2026-10-12 refresh + §2B.5/§2C/§3/§6 ticks;
+  `AGENTS.md`/`README.md` counts to the verified tree (74 utils · 170 REST ·
+  40 tables · 86 files/911 tests).
+- Staying sequenced with honest reasons (need Rust/mobile toolchains): iroh
+  QUIC dial backend, iOS device/simulator builds, full TS↔Rust equality sweep,
+  P0-22 rebuild + Rust single-opener (frontend: 15 s abort + backoff in
+  `restFetch` already shipped).
+- Verified here: version agree, headers ok (522 tracked), `vue-tsc` clean,
+  full vitest green (86/911). Rust is CI's job per repo rules (no local cargo).
