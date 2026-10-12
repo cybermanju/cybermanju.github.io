@@ -221,8 +221,13 @@ pub fn search_federated_with_bearer(
         ) {
             Ok(mut remote) => {
                 if !peer.device_id.trim().is_empty() {
+                    // Compare against the normalized base (callers may send a
+                    // trailing slash; `fetch_peer_hits` tags the normalized
+                    // form) so device-id retagging works on every transport.
+                    let normalized = cybermanju_sync::peers::normalize_base_url(&peer.base_url)
+                        .unwrap_or_else(|_| peer.base_url.clone());
                     for hit in &mut remote {
-                        if hit.source == peer.base_url {
+                        if hit.source == peer.base_url || hit.source == normalized {
                             hit.source = peer.device_id.clone();
                         }
                     }
