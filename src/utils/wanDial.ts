@@ -106,7 +106,7 @@ export function relayPollPath(relayBase: string): string {
   return `${base}/api/relay/poll`
 }
 
-/** True when the addr half needs the sequenced QUIC relay (same grammar as Rust `is_relay_addr`). */
+/** True when the addr half rendezvouses via the relay (same grammar as Rust `is_relay_addr`). */
 export function isRelayAddr(addr: string): boolean {
   const low = addr.trim().toLowerCase()
   if (low.startsWith('iroh:') || low.includes('/p2p/')) return true
@@ -136,7 +136,7 @@ export function wanFederatedPlan(endpoint: WanEndpoint, query: string, limit = 2
   if (!query.trim()) throw new Error('invalid: federated search needs a query')
   if (isRelayAddr(endpoint.addr)) {
     throw new Error(
-      `unsupported: federated search to '${endpoint.deviceId}' needs the iroh transport (sequenced) — use direct host:port peers or POST /api/search/federated with reachable base URLs`,
+      `unsupported: federated search to '${endpoint.deviceId}' is a relay ticket — configure a relay_url and search via the relay envelope, or use direct host:port peers / POST /api/search/federated with reachable base URLs`,
     )
   }
   const capped = Math.max(1, Math.min(Math.floor(limit) || 20, 200))
@@ -181,9 +181,10 @@ export function wanDialSteps(endpoint: WanEndpoint, since = 0): string[] {
 
 /**
  * Execute the WAN op-log exchange against a peer base URL: pull → push →
- * merge → render via `syncExchangeWithPeer`. Relay endpoints refuse with
- * `unsupported:` (QUIC is sequenced); direct HTTP peers sync today on all
- * six targets wherever `/api` is reachable.
+ * merge → render via `syncExchangeWithPeer`. Relay tickets refuse with
+ * `unsupported:` (they rendezvous via `POST /api/relay/drop|poll` — pass a
+ * relay URL through `relayDialSteps` instead); direct HTTP peers sync today
+ * on all six targets wherever `/api` is reachable.
  */
 export async function wanSyncExchange(
   endpoint: WanEndpoint,
@@ -197,7 +198,7 @@ export async function wanSyncExchange(
 ): Promise<{ pulled: number; pushed: number; steps: string[] }> {
   if (isRelayAddr(endpoint.addr)) {
     throw new Error(
-      `unsupported: QUIC dial to '${endpoint.deviceId}' needs the iroh transport (sequenced: new dependency + networked CI proving) — use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle`,
+      `unsupported: relay dial to '${endpoint.deviceId}' needs a relay_url (any dashboard serves POST /api/relay/drop|poll — set one, or use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle)`,
     )
   }
   const { syncExchangeWithPeer } = await import('./peerSearch')

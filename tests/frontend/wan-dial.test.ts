@@ -1,15 +1,17 @@
 // CyberManju OS — wan-dial.test (tests/frontend/wan-dial.test.ts).
-// Role: pin the WAN dial seam (§2B.5) — same grammar + honest QUIC
-// `unsupported:` plan as crates/sync/src/iroh.rs, the REAL HTTP dial steps
-// (readyz probe + op-log pull/push, no new deps), and the `wan plan|dial`
-// cybsh verbs.
+// Role: pin the WAN dial seam (§2B.5) — same grammar + live dial plans as
+// crates/sync/src/iroh.rs (direct HTTP live, relay live with a relay_url,
+// honest `unsupported:` + way out only with no relay set), the REAL HTTP
+// dial steps (readyz probe + op-log pull/push) and relay steps, and the
+// `wan plan|dial` cybsh verbs.
 // Exports: none (vitest suite).
 // Integrates: src/utils/wanDial.ts; src/utils/staticCybsh.ts (`wan` verb).
-// Contracts: pure builders + node-env safe probe; QUIC answers `unsupported:`
-// with the HTTP/LAN/bundle way out; bad endpoints are `invalid:`; the probe
-// normalizes failures to `network:` and never hangs (AbortController).
+// Contracts: pure builders + node-env safe probe; relay-without-relay
+// answers `unsupported:` with the HTTP/LAN/bundle way out; bad endpoints
+// are `invalid:`; the probe normalizes failures to `network:` and never
+// hangs (AbortController).
 import { describe, expect, it } from 'vitest'
-import { parseWanEndpoint, wanDialPlan, wanDialSteps, wanHttpBase, wanHttpProbe, wanWayOut } from '@/utils/wanDial'
+import { parseWanEndpoint, relayDialSteps, wanDialPlan, wanDialSteps, wanHttpBase, wanHttpProbe, wanWayOut } from '@/utils/wanDial'
 
 describe('wan endpoint grammar (mirrors iroh.rs)', () => {
   it('parses <device>@<addr>', () => {
@@ -26,8 +28,15 @@ describe('wan endpoint grammar (mirrors iroh.rs)', () => {
   })
 })
 
-describe('wan dial plan (QUIC sequenced, HTTP live)', () => {
-  it('answers unsupported: with the HTTP/LAN/bundle way out', () => {
+describe('wan dial plan (direct + relay live)', () => {
+  it('returns a live HTTP plan for direct addrs', () => {
+    const ep = parseWanEndpoint('phone-7@192.168.1.60:3456')
+    const plan = wanDialPlan(ep)
+    expect(plan.startsWith('http:')).toBe(true)
+    expect(plan).toContain('/api/readyz')
+  })
+
+  it('answers unsupported: for relay tickets with no relay set (way out included)', () => {
     const ep = parseWanEndpoint('phone-7@relay:443')
     let plan = ''
     try {
@@ -36,10 +45,23 @@ describe('wan dial plan (QUIC sequenced, HTTP live)', () => {
       plan = e instanceof Error ? e.message : String(e)
     }
     expect(plan.startsWith('unsupported:')).toBe(true)
-    expect(plan).toContain('HTTP dial')
+    expect(plan).toContain('relay_url')
     const wayOut = wanWayOut(ep)
     expect(wayOut.join('\n')).toContain('/api/peers/phone-7/sync')
     expect(wayOut.join('\n')).toContain('/api/sync/bundle/export')
+  })
+
+  it('returns a live relay plan when a relay_url is set', () => {
+    const ep = parseWanEndpoint('phone-7@relay:443')
+    const plan = wanDialPlan(ep, 15, 'https://relay.example.com')
+    expect(plan.startsWith('relay:')).toBe(true)
+    expect(plan).toContain('/api/relay/drop')
+    const steps = relayDialSteps(ep, 'https://relay.example.com', 41)
+    expect(steps).toHaveLength(5)
+    expect(steps[0]).toContain('/api/relay/drop')
+    expect(steps[1]).toContain('/api/relay/poll')
+    expect(steps[4]).toContain('/api/oplog/conflicts')
+    expect(() => relayDialSteps(ep, '', 0)).toThrow(/^unsupported:/)
   })
 
   it('validates the dial timeout first (invalid:)', () => {
@@ -68,14 +90,22 @@ describe('wan dial plan (QUIC sequenced, HTTP live)', () => {
 })
 
 describe('wan cybsh verb', () => {
-  it('is a handled static verb and plans offline', async () => {
+  it('is a handled static verb and plans offline (live direct, honest relay)', async () => {
     const { handlesStaticVerb, runStaticCybshLine } = await import('@/utils/staticCybsh')
     expect(handlesStaticVerb('wan')).toBe(true)
+    expect(handlesStaticVerb('pex')).toBe(true)
+    expect(handlesStaticVerb('relay')).toBe(true)
     const deps = { execFallback: undefined } as never
     const out = await runStaticCybshLine('wan plan phone-7@192.168.1.60:3456', deps)
     const text = JSON.stringify(out)
-    expect(text).toContain('unsupported:')
-    expect(text).toContain('/api/peers/phone-7/sync')
+    expect(text).toContain('http:')
+    expect(text).toContain('/api/readyz')
+    const relay = await runStaticCybshLine('wan plan phone-7@relay:443', deps)
+    const relayText = JSON.stringify(relay)
+    expect(relayText).toContain('unsupported:')
+    expect(relayText).toContain('/api/peers/phone-7/sync')
+    const withRelay = await runStaticCybshLine('wan plan phone-7@relay:443 --relay https://relay.example.com', deps)
+    expect(JSON.stringify(withRelay)).toContain('/api/relay/drop')
     const usage = await runStaticCybshLine('wan plan', deps)
     expect(JSON.stringify(usage)).toContain('usage: wan plan')
   })

@@ -216,34 +216,52 @@ first; chained lines and unknown verbs fall through to the wasm dispatcher
 ## 4c2. P2P + cross-device search (android/ios/windows/linux/docker/wasm)
 
 One grammar everywhere: `<device>@<addr>` (`phone-7@192.168.1.60:3456`,
-`vault@https://vault.example.com`). Relay tickets (`relay…`, `iroh:…`,
-`/p2p/…`) parse but refuse with `unsupported:` — the QUIC relay is sequenced,
-never pretended. Every live path is plain HTTP op-log/search (`GET
-/api/readyz` probe → `GET /api/oplog/since` pull → `POST /api/oplog/push`
-push → `POST /api/oplog/push` merge → `GET /api/oplog/conflicts` render),
-plus the search port (`GET /api/search` per peer, merged dedup-by-id /
-max-score-wins via `POST /api/search/federated`).
+`vault@https://vault.example.com`). Direct addrs dial live over HTTP(S)
+(`GET /api/readyz` probe → `GET /api/oplog/since` pull → `POST
+/api/oplog/push` push → merge → `GET /api/oplog/conflicts` render). Relay
+tickets (`relay…`, `iroh:…`, `/p2p/…`) rendezvous through any dashboard set
+as `relay_url` — both sides make outbound HTTPS (`POST /api/relay/drop` +
+`POST /api/relay/poll`, `POST /api/relay/ack` to clear), so no inbound port
+is needed; only the QUIC *datagram* upgrade stays sequenced. Attested
+devices sign the ops (`auth::SignedSyncBody`, ML-DSA over the canonical
+envelope) and `POST /api/peers/{id}/sync` reports `verified: true`;
+unsigned bodies still merge with `verified: false`. File bytes ride
+sneakernet bundles (`POST /api/sync/bundle/build` with `files:
+[{ fileId, name, bytesBase64 }]` — 5 MiB/file, 100 files, 50 MiB total,
+every payload BLAKE3-verified on import), larger files ride the sync
+backends on next contact. Search fans out per peer (`GET /api/search`,
+merged dedup-by-id / max-score-wins via `POST /api/search/federated`).
+
+Server-assisted presence covers every target mDNS cannot reach: peers
+`POST /api/peers/announce { deviceId, host, port }` once per launch (5 min
+TTL) and readers merge `GET /api/peers/known` with the mDNS scan. WebRTC
+datachannels rendezvous their offer/answer/ICE through the same relay
+mailbox (`kind: offer|answer|ice`).
 
 | Target | Discovery | Sync | Search | Setup |
 |---|---|---|---|---|
-| android | none (multicast lock blocked) — manual peers + cached list | HTTP op-log while foregrounded | HTTP fan-out, ≤8 peers | same Wi-Fi, add `device@host:port`, keep app foregrounded |
-| ios | none (background sockets suspend) — manual peers + cached list | HTTP op-log while foregrounded | HTTP fan-out while foregrounded | Bonjour/multicast entitlement, else manual peers |
-| windows | active scan only (no system mDNS daemon) | LAN + WAN HTTP | local BM25 + peer fan-out | allow UDP 5353 + TCP 3456 at the firewall prompt |
-| linux | active scan (avahi owns 5353, passive answering degrades) | LAN + WAN HTTP | local BM25 + peer fan-out | open UDP 5353 / TCP 3456 in firewalld/ufw |
-| docker | none on bridge networks | explicit peer URLs | `POST /api/search/federated` server-side | `--network host` for mDNS, else explicit URLs; persist `/data` + `SEARCH_INDEX_PATH` |
-| wasm | none (no UDP in sandbox) | needs the dashboard | BM25-lite local + `fetch()` to explicit `https://` peers (CORS + mixed-content apply) | explicit `https://` URLs on the CORS allowlist, or server-side fan-out |
+| android | presence (`announce`/`known`) — multicast lock blocked | HTTP op-log + relay envelopes while foregrounded | HTTP fan-out, ≤8 peers | same Wi-Fi, announce once per launch, keep app foregrounded |
+| ios | presence (`announce`/`known`) — background sockets suspend | HTTP op-log + relay envelopes while foregrounded | HTTP fan-out while foregrounded | Bonjour/multicast entitlement, else presence |
+| windows | active scan only (no system mDNS daemon) + presence | LAN + WAN HTTP + relay | local BM25 + peer fan-out | allow UDP 5353 + TCP 3456 at the firewall prompt (`known` needs no rule) |
+| linux | active scan (avahi owns 5353, passive answering degrades) + presence | LAN + WAN HTTP + relay | local BM25 + peer fan-out | open UDP 5353 / TCP 3456 in firewalld/ufw (`known` needs nothing) |
+| docker | presence on bridge networks | explicit peer URLs + relay | `POST /api/search/federated` server-side | `--network host` for mDNS, else announce the reachable host:port; persist `/data` + `SEARCH_INDEX_PATH` |
+| wasm | none (no UDP in sandbox) — explicit peers + server fan-out | relay envelopes + WebRTC datachannels via the relay mailbox | BM25-lite local + `fetch()` to explicit `https://` peers (CORS + mixed-content apply) | explicit `https://` URLs on the CORS allowlist, or server-side fan-out |
 
 Auth: peers carry their own bearer — set per-peer `token` in
 `POST /api/search/federated { peers: [{ baseUrl, deviceId, token }] }`
 (multi-secret vaults); without it the caller's own bearer is forwarded
 (single-secret vaults). Anonymous peers that require auth degrade to zero
-hits with an `auth:` marker, never a failed search. `https://` probes from
-Rust answer `unsupported:` (no TLS in `TcpStream`) — use the fetch-based
-probe in the browser/WebView or terminate TLS at a reverse proxy.
+hits with an `auth:` marker, never a failed search. `https://` probes work
+everywhere (Rust rides reqwest+rustls, browsers fetch). Device attestation
+is ML-DSA against the registry (`sign_peer_ops` on desktop, wasm
+`ml_dsa65_sign` on Pages); a present-but-bad signature fails closed with
+`auth:`, never merged.
 
-cybsh: `lan plan|peers|sync`, `wan plan|dial`, `oplog plan|conflicts|resolve`;
+cybsh: `lan plan|peers|sync`, `wan plan|dial [--relay <url>]`, `pex
+announce|known`, `relay drop|poll|ack`, `oplog plan|conflicts|resolve`;
 UI: Devices → P2P matrix (`peer_platform_notes`), Devices → LAN peers →
-SYNC, OmniSearch federated mode.
+SYNC (attested ✓ when signed), Devices → Presence, Devices → WAN dial
+(relay URL field), OmniSearch federated mode.
 
 ## 4d. Interface verbs (cybsh customizes the whole UI)
 

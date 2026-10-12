@@ -41,7 +41,7 @@ import { listSkills, parseSkillMd, skillPanels, validateSkill } from './skills'
 import { resolutionPayload, syncPlanSteps, type ResolutionChoice } from './oplog'
 import { lanSyncSteps, peerBaseUrl } from './lanSync'
 import { VOLUME_WRITE_LIMIT } from './volumeCaps'
-import { parseWanEndpoint, wanDialPlan, wanDialSteps, wanWayOut } from './wanDial'
+import { isRelayAddr, parseWanEndpoint, relayDialSteps, wanDialPlan, wanDialSteps, wanWayOut } from './wanDial'
 import {
   addTodo,
   clearDone,
@@ -3123,16 +3123,22 @@ async function handleLan(args: string[], json: boolean, deps: StaticCybshDeps): 
 const WAN_SUBCOMMANDS = ['plan', 'dial'] as const
 
 /** WAN dial seam from the shell (ANALYSIS.md §2B.5): `wan plan
- * <device>@<addr>` prints the honest QUIC `unsupported:` + LAN/bundle way out;
- * `wan dial <device>@<addr> [since]` prints the REAL HTTP dial steps
- * (readyz probe + op-log pull/push/merge, same as Devices → WAN) — works
- * offline on every transport, never dials from the static shell, never guesses. */
+ * <device>@<addr>` prints the LIVE dial plan (direct HTTP, or the relay
+ * envelope when `--relay <url>` is set and the addr is a relay ticket —
+ * `unsupported:` + LAN/bundle way out only with no relay configured);
+ * `wan dial <device>@<addr> [since]` prints the REAL dial steps (readyz
+ * probe + op-log pull/push/merge, same as Devices → WAN) — works offline on
+ * every transport, never dials from the static shell, never guesses. */
 async function handleWan(args: string[], json: boolean): Promise<VerbOut> {
   const sub = (args[0] ?? 'plan').toLowerCase()
   const rest = args.slice(1)
+  const relayFlag = rest.find((a, i) => a === '--relay' && rest[i + 1]) as string | undefined
+  const relayIdx = rest.indexOf('--relay')
+  const relayUrl = relayIdx >= 0 ? (rest[relayIdx + 1] ?? '') : ''
+  void relayFlag
   if (sub === 'plan' || sub === 'dial') {
     const raw = rest.find((a) => !a.startsWith('-'))
-    if (!raw) return shellErr(`usage: wan ${sub} <device-id>@<addr> [since]`)
+    if (!raw) return shellErr(`usage: wan ${sub} <device-id>@<addr> [since] [--relay <url>]`)
     let endpoint
     try {
       endpoint = parseWanEndpoint(raw)
@@ -3142,25 +3148,134 @@ async function handleWan(args: string[], json: boolean): Promise<VerbOut> {
     if (sub === 'dial') {
       const sinceRaw = rest.filter((a) => !a.startsWith('-'))[1]
       const since = sinceRaw == null ? 0 : Math.max(0, Math.floor(Number(sinceRaw) || 0))
-      const steps = wanDialSteps(endpoint, since)
-      if (json) return shellOk(JSON.stringify({ endpoint, steps }))
-      return shellOk(steps.join('\n'))
+      try {
+        const steps = isRelayAddr(endpoint.addr)
+          ? relayDialSteps(endpoint, relayUrl, since)
+          : wanDialSteps(endpoint, since)
+        if (json) return shellOk(JSON.stringify({ endpoint, steps }))
+        return shellOk(steps.join('\n'))
+      } catch (e) {
+        return shellErr(e instanceof Error ? e.message : String(e))
+      }
     }
     let plan: string
     try {
-      plan = wanDialPlan(endpoint)
+      plan = wanDialPlan(endpoint, 15, relayUrl)
     } catch (e) {
       plan = e instanceof Error ? e.message : String(e)
     }
-    const wayOut = wanWayOut(endpoint)
-    if (json) return shellOk(JSON.stringify({ endpoint, plan, wayOut }))
-    return shellOk([plan, ...wayOut].join('\n'))
+    const steps = (() => {
+      try {
+        return isRelayAddr(endpoint.addr) ? relayDialSteps(endpoint, relayUrl, 0) : wanDialSteps(endpoint, 0)
+      } catch {
+        return [] as string[]
+      }
+    })()
+    const wayOut = plan.startsWith('unsupported:') ? wanWayOut(endpoint) : []
+    if (json) return shellOk(JSON.stringify({ endpoint, plan, steps, wayOut }))
+    return shellOk([plan, ...steps, ...wayOut].join('\n'))
   }
   const suggestion = WAN_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
   return shellErr(
     suggestion
       ? `usage: wan <${WAN_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
       : `usage: wan <${WAN_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
+  )
+}
+
+const PEX_SUBCOMMANDS = ['announce', 'known'] as const
+
+/** Server-assisted presence from the shell: `pex announce
+ * <device> <host> [port]` + `pex known` print the exact REST calls (they run
+ * where the dashboard is reachable — Devices → Presence does the clicks).
+ * Offline-safe: `announce` validates + prints the body without sending. */
+async function handlePex(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  const sub = (args[0] ?? 'known').toLowerCase()
+  const rest = args.slice(1)
+  if (sub === 'announce') {
+    const [deviceId, host, portRaw] = rest.filter((a) => !a.startsWith('-'))
+    if (!deviceId || !host) return shellErr('usage: pex announce <device-id> <host> [port]')
+    const port = portRaw == null ? 3456 : Math.floor(Number(portRaw) || 0)
+    try {
+      const { buildAnnounceBody } = await import('./p2pPresence')
+      const body = buildAnnounceBody(deviceId, host, port)
+      if (!deps.execFallback) {
+        const line = `POST /api/peers/announce ${JSON.stringify(body)} (Devices → Presence announces where the dashboard is reachable)`
+        if (json) return shellOk(JSON.stringify({ body }))
+        return shellOk(line)
+      }
+      return shellOk(await deps.execFallback(`pex announce ${deviceId} ${host} ${port}`.trim()))
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+  if (sub === 'known') {
+    if (!deps.execFallback) {
+      if (json) return shellOk(JSON.stringify({ url: 'GET /api/peers/known' }))
+      return shellOk('GET /api/peers/known (Devices → Presence shows the same heartbeats)')
+    }
+    try {
+      return shellOk(await deps.execFallback('pex known'))
+    } catch (e) {
+      return shellErr(`unsupported: pex known via fallback failed (${e instanceof Error ? e.message : String(e)})`)
+    }
+  }
+  const suggestion = PEX_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
+  return shellErr(
+    suggestion
+      ? `usage: pex <${PEX_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
+      : `usage: pex <${PEX_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
+  )
+}
+
+const RELAY_SUBCOMMANDS = ['drop', 'poll', 'ack'] as const
+
+/** Relay mailbox from the shell: `relay drop <to> <kind> [json]` builds the
+ * envelope offline; `poll`/`ack` need the dashboard (fallback or the exact
+ * REST calls). Never dials from the static shell. */
+async function handleRelay(args: string[], json: boolean, deps: StaticCybshDeps): Promise<VerbOut> {
+  const sub = (args[0] ?? 'drop').toLowerCase()
+  const rest = args.slice(1)
+  if (sub === 'drop') {
+    const [to, kind, payloadRaw] = rest.filter((a) => !a.startsWith('-'))
+    const from = rest.find((a) => a.startsWith('--from='))?.slice('--from='.length) ?? 'here'
+    if (!to || !kind) return shellErr('usage: relay drop <to-device> <kind> [payload-json] [--from=<device>]')
+    let payload: unknown = null
+    if (payloadRaw) {
+      try {
+        payload = JSON.parse(payloadRaw)
+      } catch {
+        payload = payloadRaw
+      }
+    }
+    try {
+      const { buildRelayEnvelope } = await import('./wanDial')
+      const envelope = buildRelayEnvelope(to, kind, payload)
+      void from
+      if (json) return shellOk(JSON.stringify({ envelope: JSON.parse(envelope) }))
+      return shellOk(`POST /api/relay/drop ${envelope}`)
+    } catch (e) {
+      return shellErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+  if (sub === 'poll' || sub === 'ack') {
+    if (!deps.execFallback) {
+      const hint = sub === 'poll'
+        ? 'POST /api/relay/poll { for: <device-id> } (non-destructive — ack clears)'
+        : 'POST /api/relay/ack { for: <device-id>, ids: [...] }'
+      return shellErr(`unsupported: \`relay ${sub}\` needs the dashboard — ${hint}`)
+    }
+    try {
+      return shellOk(await deps.execFallback(`relay ${rest.join(' ')}`.trim()))
+    } catch (e) {
+      return shellErr(`unsupported: relay ${sub} via fallback failed (${e instanceof Error ? e.message : String(e)})`)
+    }
+  }
+  const suggestion = RELAY_SUBCOMMANDS.find((c) => c.startsWith(sub) || sub.startsWith(c))
+  return shellErr(
+    suggestion
+      ? `usage: relay <${RELAY_SUBCOMMANDS.join('|')}> (did you mean \`${suggestion}\`?)`
+      : `usage: relay <${RELAY_SUBCOMMANDS.join('|')}> (got \`${sub}\`)`,
   )
 }
 

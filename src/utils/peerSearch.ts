@@ -88,8 +88,8 @@ export function deduplicatePeers(peers: FederatedPeer[]): FederatedPeer[] {
     } catch {
       continue
     }
-    // Relay tickets are the QUIC future — never fetched over HTTP, so drop
-    // them here instead of burning a fan-out slot on a doomed fetch.
+    // Relay tickets rendezvous via the relay mailbox — never fetched over
+    // direct HTTP, so drop them here instead of burning a fan-out slot.
     if (classifyAddr(base) === 'relay-future') continue
     const key = base.toLowerCase()
     if (seen.has(key)) continue
@@ -200,7 +200,7 @@ export function isLanBase(lowerBaseOrAddr: string): boolean {
   return false
 }
 
-/** Classify a raw addr half without opening any socket (relay = QUIC future). */
+/** Classify a raw addr half without opening any socket (relay = relay mailbox). */
 export function classifyAddr(addr: string): PeerTransportName {
   const low = addr.trim().toLowerCase()
   if (low.startsWith('iroh:') || low.includes('/p2p/') || isRelayToken(low)) {
@@ -481,8 +481,9 @@ export interface SyncExchangeResult {
 /**
  * Execute the direct device↔device op-log exchange against a peer base URL:
  * pull their ops since `since`, push ours, merge their ops locally via
- * `pushOps`, render conflicts via `fetchConflicts`. Relay endpoints refuse
- * with `unsupported:` (QUIC is sequenced); HTTP peers sync today.
+ * `pushOps`, render conflicts via `fetchConflicts`. Relay tickets refuse
+ * with `unsupported:` (they rendezvous via the relay mailbox); HTTP peers
+ * sync today, attested when `deps.signer` is provided.
  */
 export async function syncExchangeWithPeer(
   peer: PeerEndpoint,
