@@ -23,6 +23,7 @@ pub mod retry;
 // <<< AGENT-2 MODS: auto-sync scheduler >>>
 pub mod scheduler;
 pub mod state;
+pub mod swarm;
 pub mod transfer;
 // <<< AGENT-7 MODS: durability, repair, erasure coding, catalog, provider
 // health, chunk GC/eviction/rebalance and multi-writer leases >>>

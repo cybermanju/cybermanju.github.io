@@ -672,7 +672,10 @@ pub fn announce_presence(
     if device_id.contains(char::is_whitespace) {
         return Err("invalid: device id must not contain whitespace".to_string());
     }
-    let host = host.trim().trim_matches(|c| c == '[' || c == ']').to_string();
+    let host = host
+        .trim()
+        .trim_matches(|c| c == '[' || c == ']')
+        .to_string();
     if host.is_empty() {
         return Err("invalid: announce needs a host".to_string());
     }
@@ -688,8 +691,8 @@ pub fn announce_presence(
         port,
         seen_at_secs: now_secs,
     };
-    let raw =
-        serde_json::to_string(&entry).map_err(|e| format!("integrity: entry unserializable: {e}"))?;
+    let raw = serde_json::to_string(&entry)
+        .map_err(|e| format!("integrity: entry unserializable: {e}"))?;
     db.kv_set(&format!("{PRESENCE_PREFIX}{device_id}"), &raw)
         .map_err(|e| e.to_string())?;
     let mut index = read_index(db, PRESENCE_INDEX);
@@ -744,8 +747,8 @@ pub fn relay_drop(
     let envelope = serde_json::json!({
         "v": 1u32, "from": from, "to": to, "kind": kind, "payload": payload,
     });
-    let wire =
-        serde_json::to_string(&envelope).map_err(|e| format!("integrity: envelope unserializable: {e}"))?;
+    let wire = serde_json::to_string(&envelope)
+        .map_err(|e| format!("integrity: envelope unserializable: {e}"))?;
     if wire.len() > RELAY_MAX_BYTES {
         return Err(format!(
             "too_large: relay message is {} bytes (cap {RELAY_MAX_BYTES} — ship bulk bytes as bundle payloads over direct HTTP)",
@@ -766,8 +769,8 @@ pub fn relay_drop(
         payload,
         created_at_secs: now_secs,
     };
-    let raw =
-        serde_json::to_string(&msg).map_err(|e| format!("integrity: message unserializable: {e}"))?;
+    let raw = serde_json::to_string(&msg)
+        .map_err(|e| format!("integrity: message unserializable: {e}"))?;
     db.kv_set(&format!("{RELAY_MSG_PREFIX}{id}"), &raw)
         .map_err(|e| e.to_string())?;
     let index_key = format!("{RELAY_INDEX_PREFIX}{to}");
@@ -828,6 +831,82 @@ pub fn relay_ack(db: &Database, recipient: &str, ids: &[String]) -> Result<usize
     }
     write_index(db, &index_key, &index)?;
     Ok(cleared)
+}
+
+// ─── Human pairing codes (wormhole-style rendezvous, no new deps) ──
+//
+// Short `NNN-word-word` codes two humans read aloud (`482-oak-river`):
+// the sender drops to the code-derived recipient, the receiver polls it.
+// Codes are *rendezvous*, not PAKE — guessing is bounded by the 4M code
+// space, the relay's JWT gate (only vault users reach the mailbox at all),
+// per-recipient depth caps and short code TTLs. Attestation still comes
+// from ML-DSA envelopes (`auth`), never from the code. The TS twin is
+// `src/utils/pairing.ts` (same grammar, same wordlist).
+
+/// Code wordlist (64 short words — `1000 × 64 × 64 ≈ 4.1M` codes).
+pub const PAIRING_WORDS: &[&str; 64] = &[
+    "oak", "river", "stone", "birch", "comet", "harbor", "meadow", "ridge", "willow", "flint",
+    "grove", "summit", "brook", "cedar", "dune", "ember", "fjord", "glacier", "heath", "inlet",
+    "juniper", "kelp", "lagoon", "maple", "north", "otter", "pine", "quarry", "reef", "spruce",
+    "tundra", "umber", "vale", "wolf", "yonder", "zinc", "acorn", "basalt", "cliff", "drift",
+    "elm", "fern", "granite", "holly", "iris", "jade", "kestrel", "lichen", "moss", "nimbus",
+    "onyx", "prairie", "quartz", "robin", "sage", "thistle", "upland", "vetch", "wren", "yarrow",
+    "alder", "beacon", "cinder", "dawn",
+];
+
+/// Recipient prefix for code-derived mailboxes (`pair:482-oak-river`).
+pub const PAIRING_PREFIX: &str = "pair:";
+
+/// Mint a fresh pairing code (`NNN-word-word`, lowercase). Randomness comes
+/// from the OS (same `OsRng` the OAuth + state modules use) — never
+/// `Math.random`-grade, never logged.
+pub fn pairing_code() -> Result<String, String> {
+    use rand_core::RngCore;
+    let mut buf = [0u8; 4];
+    rand_core::OsRng
+        .try_fill_bytes(&mut buf)
+        .map_err(|e| format!("invalid: pairing entropy failed: {e}"))?;
+    let n = u32::from_le_bytes(buf);
+    Ok(format!(
+        "{:03}-{}-{}",
+        n % 1000,
+        PAIRING_WORDS[(n >> 10) as usize % PAIRING_WORDS.len()],
+        PAIRING_WORDS[(n >> 16) as usize % PAIRING_WORDS.len()],
+    ))
+}
+
+/// Validate + normalize a pairing code (case-insensitive in, lowercase out).
+pub fn normalize_pairing_code(code: &str) -> Result<String, String> {
+    let low = code.trim().to_lowercase();
+    let parts: Vec<&str> = low.split('-').collect();
+    if parts.len() != 3 {
+        return Err("invalid: pairing code is NNN-word-word (e.g. 482-oak-river)".to_string());
+    }
+    if parts[0].len() != 3 || !parts[0].bytes().all(|b| b.is_ascii_digit()) {
+        return Err("invalid: pairing code starts with 3 digits (e.g. 482-oak-river)".to_string());
+    }
+    for w in [&parts[1], &parts[2]] {
+        if !PAIRING_WORDS.contains(w) {
+            return Err(format!(
+                "invalid: pairing word '{w}' is not in the code wordlist"
+            ));
+        }
+    }
+    Ok(low)
+}
+
+/// Mailbox recipient for a code (`pair:482-oak-river`) — what the sender
+/// drops to and the receiver polls. Validates first (`invalid:` on typos).
+pub fn pairing_recipient(code: &str) -> Result<String, String> {
+    Ok(format!("{PAIRING_PREFIX}{}", normalize_pairing_code(code)?))
+}
+
+/// True when a mailbox id is a code-derived recipient (never a device id).
+pub fn is_pairing_recipient(to: &str) -> bool {
+    let Some(code) = to.trim().strip_prefix(PAIRING_PREFIX) else {
+        return false;
+    };
+    normalize_pairing_code(code).is_ok()
 }
 
 #[cfg(test)]
@@ -959,6 +1038,33 @@ mod tests {
         for target in ["android", "ios", "windows", "linux", "docker", "wasm"] {
             assert!(!platform_setup(target).is_empty(), "{target}");
         }
+    }
+
+    #[test]
+    fn pairing_codes_mint_validate_and_route() {
+        // 100 draws: shape holds, all distinct.
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..100 {
+            let code = pairing_code().expect("mint");
+            let parts: Vec<&str> = code.split('-').collect();
+            assert_eq!(parts.len(), 3, "{code}");
+            assert_eq!(parts[0].len(), 3, "{code}");
+            assert!(parts[0].bytes().all(|b| b.is_ascii_digit()), "{code}");
+            assert!(PAIRING_WORDS.contains(&parts[1]), "{code}");
+            assert!(PAIRING_WORDS.contains(&parts[2]), "{code}");
+            assert!(seen.insert(code));
+        }
+        // Normalizes case, routes to the pair: namespace.
+        assert_eq!(
+            pairing_recipient("482-OAK-River").unwrap(),
+            "pair:482-oak-river"
+        );
+        assert!(is_pairing_recipient("pair:482-oak-river"));
+        assert!(!is_pairing_recipient("phone-7"));
+        assert!(!is_pairing_recipient("pair:nope"));
+        assert!(normalize_pairing_code("").unwrap_err().starts_with("invalid:"));
+        assert!(normalize_pairing_code("48-oak-river").unwrap_err().starts_with("invalid:"));
+        assert!(normalize_pairing_code("482-oak-nope").unwrap_err().starts_with("invalid:"));
     }
 
     fn presence_db(tag: &str) -> (std::path::PathBuf, Database) {

@@ -72,6 +72,9 @@ wasm-bindgen-futures = "0.4"
 redb = "2"
 cybermanju-db = { path = "../db" }
 cybermanju-types = { path = "../types" }
+# Erasure-coded relay swarming (pure Rust: reed-solomon-erasure has no C
+# bindings, so the wasm build keeps working — same math as native sync).
+cybermanju-erasure = { path = "../erasure" }
 
 # Argon2id password hashing (pure Rust, wasm-safe), same pinned parameters
 # as the server (m=19456, t=2, p=1, 32-byte tag).
