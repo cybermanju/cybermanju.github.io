@@ -99,6 +99,22 @@ describe('iOS native scaffold (P2-16)', () => {
   it('documents the ATS exception + backup parity + signing gap honestly', () => {
     expect(runbook).toContain('NSAllowsLocalNetworking')
     expect(runbook).toContain('NSURLIsExcludedFromBackupKey')
-    expect(runbook).toMatch(/\[ \] .*simulator build/)
+    expect(runbook).toContain('ios-build')
+  })
+
+  it('ships the iOS build path (configure + signing scripts + CI job)', () => {
+    const configure = fs.readFileSync('scripts/ios-configure.sh', 'utf8')
+    expect(configure).toContain('minimumSystemVersion')
+    expect(configure).toContain('NSAllowsLocalNetworking')
+    const signing = fs.readFileSync('scripts/ios-signing.sh', 'utf8')
+    for (const verb of ['prepare)', 'verify)', 'cleanup)']) {
+      expect(signing).toContain(verb)
+    }
+    expect(signing).toContain('REQUIRE_SIGNING')
+    const ci = fs.readFileSync('.github/workflows/ci.yml', 'utf8')
+    expect(ci).toContain('ios-build:')
+    expect(ci).toContain('macos-latest')
+    expect(ci).toContain('tauri ios init')
+    expect(ci).toContain('ios-signing.sh verify')
   })
 })

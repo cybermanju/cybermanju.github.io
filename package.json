@@ -24,6 +24,7 @@
     "rust:fmt:fix": "cargo fmt --all",
     "rust:test": "cargo test --workspace --no-fail-fast",
     "check:all": "npm run typecheck && npm run rust:check && npm run rust:clippy",
+    "check:parity": "node scripts/check-transport-parity.mjs",
     "clean": "rm -rf dist target src-tauri/target cybermanju.db tantivy_index",
     "db:reset": "rm -f cybermanju.db tantivy_index",
     "prebuild:wasm:frontend": "npm run icons",

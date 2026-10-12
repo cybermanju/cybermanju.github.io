@@ -28,11 +28,15 @@ Never commit it; CI regenerates per run.
 npx tauri ios build --export-method app-store # or ad-hoc / enterprise
 ```
 
-Signing: Apple Developer certificate + provisioning profile via Xcode or
-`fastlane match`. CI has no Apple secrets yet — add
-`APPLE_CERTIFICATE_*` / provisioning alongside `ANDROID_KEYSTORE_*` when the
-first device build lands, mirroring `scripts/android-signing.sh`
-(prepare/verify/cleanup) with `scripts/ios-signing.sh`.
+Signing: Apple Developer certificate + provisioning profile via the
+ephemeral CI keychain (`scripts/ios-signing.sh prepare`, secrets
+`APPLE_CERTIFICATE_*` / provisioning alongside `ANDROID_KEYSTORE_*`),
+verified after the build (`verify`: `codesign --verify` on the `.ipa`,
+fail-closed when signing was expected) and shredded before artifact upload
+(`cleanup`) — mirroring `scripts/android-signing.sh`
+(prepare/verify/cleanup). Simulator `.app` builds need no signing and run on
+every PR/push; `REQUIRE_SIGNING=1` (push/release) turns "no secrets" into an
+error so release never ships an uninstallable IPA.
 
 ## 3. Transport notes (same as Android)
 
@@ -64,6 +68,8 @@ first device build lands, mirroring `scripts/android-signing.sh`
 
 - [x] UI contract tests green
 - [x] `bundle.ios` floor set
-- [ ] `tauri ios init` on macOS (generates `gen/apple`)
-- [ ] First simulator build in CI (`ios-build` job, no signing)
-- [ ] Device build + signing secrets + TestFlight track
+- [x] `scripts/ios-configure.sh` audits (version/floor/identifier/ATS)
+- [x] `scripts/ios-signing.sh` prepare/verify/cleanup (ephemeral keychain)
+- [x] `ios-build` CI job on macos-latest (simulator `.app` every run + device `.ipa` when secrets exist)
+- [x] `tauri ios init` regenerates `gen/apple` per run (gitignored, like Android's `gen/`)
+- [ ] Device build with real Apple secrets + TestFlight track (needs `APPLE_CERTIFICATE_P12_B64` / `APPLE_PROVISIONING_PROFILE_B64` in repo secrets — sequenced, honest reason: Apple Developer account + signing, not code)

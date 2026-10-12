@@ -42,6 +42,9 @@ jobs:
       - name: Versions agree everywhere
         run: bash scripts/check-version.sh
 
+      - name: Transport parity (static TS↔Rust sweep)
+        run: node scripts/check-transport-parity.mjs
+
       - name: Top-file headers present
         run: bash scripts/check-file-headers.sh
 

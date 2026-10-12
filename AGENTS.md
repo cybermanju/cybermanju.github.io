@@ -33,7 +33,7 @@
 | Compression | LZ4 → ZSTD-15 → Brotli-11 cascade | Per-layer stats, `.cyb3` payloads |
 | Code intel | tree-sitter (rust/python/js/ts/go/bash) + heuristic fallback | Every result reports `"engine"`; heuristic strips qualifiers (`export const`, `pub mod`, Go receivers, bash defs) and hoists doc-comments into an additive `docs` field (`crates/types/src/code.rs`) |
 | WASM | `crates/os-wasm` (agent/artifact/canal/compression/crypto/db/opfs/os) via `wasm-pack` + OPFS/localStorage | Pages transport = local volume + BM25-lite |
-| Tests | Vitest (node env), 86 files / 911 tests in `tests/frontend/` | Includes `scene` (42), `memory`, `provider-canal/ship`, `hermes`, `agent-*`, `panel-aliases`, `spine-closeout` |
+| Tests | Vitest (node env), 88 files / 925 tests in `tests/frontend/` | Includes `scene` (42), `memory`, `provider-canal/ship`, `hermes`, `agent-*`, `panel-aliases`, `spine-closeout`, `transport-parity-full`, `rest-hardening` |
 
 ### Crate map (`crates/`)
 

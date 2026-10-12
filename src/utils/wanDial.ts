@@ -38,12 +38,12 @@ export function checkDialTimeout(secs: number): void {
   }
 }
 
-/** Honest dial plan: always `unsupported:` with the LAN/bundle way out. */
+/** Honest QUIC dial plan: always `unsupported:` with the live way out. */
 export function wanDialPlan(endpoint: WanEndpoint, dialTimeoutSecs = 15): string {
   checkDialTimeout(dialTimeoutSecs)
   if (!endpoint.deviceId.trim()) throw new Error('invalid: dial needs a device id')
   throw new Error(
-    `unsupported: WAN dial to '${endpoint.deviceId}' needs the iroh transport (sequenced: new dependency + networked CI proving) — use direct LAN sync or a sneakernet bundle`,
+    `unsupported: QUIC dial to '${endpoint.deviceId}' needs the iroh transport (sequenced: new dependency + networked CI proving) — use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle`,
   )
 }
 

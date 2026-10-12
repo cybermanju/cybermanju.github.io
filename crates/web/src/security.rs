@@ -136,6 +136,11 @@ const ROUTED_SEGMENTS: &[&str] = &[
     "dashboard",
     "encryption",
     "face-groups",
+    // Parity sweep (ANALYSIS.md §3): `POST /api/faces/detect*` is served by
+    // the router (`["api", "faces", …]` arms in `route_request`) but was
+    // missing here, so `is_known_route` 404d it before auth ran. Every
+    // `REST_ROUTES` second segment must have an entry in this table.
+    "faces",
     "files",
     "geo-files",
     "health",

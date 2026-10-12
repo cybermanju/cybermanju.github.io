@@ -161,7 +161,7 @@ fn reconstruct_keypair(stored: &crate::db::schema::EncryptionKey) -> Result<KeyP
     let x25519_private_key = stored
         .x25519_private_key
         .as_ref()
-        .map(open_private_key)
+        .map(|s| open_private_key(s))
         .transpose()?;
 
     Ok(KeyPair {
@@ -623,7 +623,7 @@ pub fn generate_keypair(
     let x25519_private_key = keypair
         .x25519_private_key
         .as_ref()
-        .map(seal_private_key)
+        .map(|b| seal_private_key(b))
         .transpose()?;
 
     let key = crate::db::schema::EncryptionKey {

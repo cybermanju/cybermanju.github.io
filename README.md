@@ -312,7 +312,7 @@ disk resize <disk-id> 10G
 | 🗜️ Pack | LZ4 → ZSTD-15 → Brotli-11 |
 | </> Parse | tree-sitter (6 real grammars) + heuristic fallback |
 | 🌐 WASM | `crates/os-wasm` via `wasm-pack` + OPFS — full OS in the browser |
-| ✅ Tests | Vitest **86 files / 911 tests** + Rust workspace tests in CI |
+| ✅ Tests | Vitest **88 files / 925 tests** + Rust workspace tests in CI |
 
 ---
 

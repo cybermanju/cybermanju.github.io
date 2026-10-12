@@ -133,6 +133,96 @@ pub const SYNC_RUN_HISTORY_LIMIT: usize = 20;
 #[derive(Clone)]
 pub struct Database {
     db: std::sync::Arc<RedbDatabase>,
+    /// Single-opener guard (P0-22/P3-2 close-out): one `cybermanju.db` has ONE
+    /// opener per path. `Arc`-shared so clones never release it early; the
+    /// lockfile is removed when the last clone drops.
+    opener_lock: std::sync::Arc<OpenerLock>,
+}
+
+/// Single-opener lockfile (`<db-path>.lock`, std-only, no new deps).
+///
+/// redb serializes storage txns but cannot stop two *processes* (desktop +
+/// Docker on the same `/data`) from each opening the file and split-braining
+/// the vault. This guard makes the second opener fail closed with
+/// `conflict:` — sync across openers happens via op-log/LAN/bundle, never via
+/// a shared file. Crash-stale locks recover honestly: a lock whose PID is
+/// dead (Linux `/proc` check) is removed and retried once; a live PID — or a
+/// platform without `/proc` — stays `conflict:` with the `rm` recovery path.
+struct OpenerLock {
+    lock_path: std::path::PathBuf,
+}
+
+impl OpenerLock {
+    fn acquire(db_path: &str) -> anyhow::Result<std::sync::Arc<Self>> {
+        let lock_path = std::path::PathBuf::from(format!("{db_path}.lock"));
+        match Self::try_create(&lock_path) {
+            Ok(()) => Ok(std::sync::Arc::new(Self { lock_path })),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // A lockfile is already there: live opener fails closed,
+                // dead (crashed) opener is reaped once, then retried.
+                if pid_live(&lock_path) {
+                    return Err(anyhow::anyhow!(
+                        "conflict: database '{}' is already open by another process (single-opener design — run desktop XOR Docker on the same /data, sync via op-log/LAN/bundle; if no opener is running, remove '{}' after verifying that)",
+                        db_path,
+                        lock_path.display()
+                    ));
+                }
+                let _ = std::fs::remove_file(&lock_path);
+                Self::try_create(&lock_path).map_err(|_| {
+                    anyhow::anyhow!(
+                        "conflict: database '{}' is already open by another process (lost the lock race — sync via op-log/LAN/bundle)",
+                        db_path
+                    )
+                })?;
+                Ok(std::sync::Arc::new(Self { lock_path }))
+            }
+            Err(e) => Err(anyhow::anyhow!(
+                "cannot create opener lock '{}': {e}",
+                lock_path.display()
+            )),
+        }
+    }
+
+    fn try_create(lock_path: &std::path::Path) -> std::io::Result<()> {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(lock_path)?;
+        writeln!(f, "{}", std::process::id())?;
+        Ok(())
+    }
+}
+
+impl Drop for OpenerLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.lock_path);
+    }
+}
+
+/// `true` when the PID recorded in `lock_path` is (or may be) still running.
+/// Own PID always counts as live (same-process double-open is the same
+/// split-brain). On Linux a missing `/proc/<pid>` proves death; platforms
+/// without `/proc` fail closed (live) with the documented `rm` recovery.
+fn pid_live(lock_path: &std::path::Path) -> bool {
+    let content = std::fs::read_to_string(lock_path).unwrap_or_default();
+    let pid: u32 = match content.trim().parse() {
+        Ok(pid) => pid,
+        // Foreign content: never guess — fail closed.
+        Err(_) => return true,
+    };
+    if pid == std::process::id() {
+        return true;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::path::Path::new(&format!("/proc/{pid}")).exists()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        true
+    }
 }
 
 impl Database {
@@ -148,6 +238,10 @@ impl Database {
                 })?;
             }
         }
+        // Single-opener first (P0-22): the second opener fails closed with
+        // `conflict:` here, before redb is ever touched. The guard is stored
+        // on `Self` so the lockfile lives exactly as long as the database.
+        let opener_lock = OpenerLock::acquire(path)?;
         let db = RedbDatabase::create(path)?;
         let write_txn = db.begin_write()?;
         {
@@ -207,7 +301,15 @@ impl Database {
         write_txn.commit()?;
         Ok(Self {
             db: std::sync::Arc::new(db),
+            opener_lock,
         })
+    }
+
+    /// Path of this database's single-opener lockfile (`<db-path>.lock`).
+    /// Exposed so health probes and the P0-22 regression test can assert the
+    /// guard without reaching into internals.
+    pub fn opener_lock_path(&self) -> &std::path::Path {
+        &self.opener_lock.lock_path
     }
 
     pub fn begin_read(&self) -> Result<ReadTransaction> {
@@ -1661,6 +1763,32 @@ mod snapshot_tests {
 
         drop(db);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn single_opener_second_open_conflicts_and_release_reopens() {
+        // P0-22 close-out: one db path has ONE opener; the second fails
+        // closed with `conflict:`, and dropping the first releases the lock.
+        let path = std::env::temp_dir().join(format!(
+            "cybermanju-single-opener-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let path_str = path.to_str().unwrap();
+        let db = Database::new(path_str).unwrap();
+        assert!(db.opener_lock_path().exists(), "lockfile must exist while open");
+        let err = Database::new(path_str).unwrap_err().to_string();
+        assert!(
+            err.starts_with("conflict:"),
+            "second opener must fail closed, got: {err}"
+        );
+        drop(db);
+        assert!(
+            !std::path::Path::new(&format!("{path_str}.lock")).exists(),
+            "lockfile must release on close"
+        );
+        let _reopened = Database::new(path_str).unwrap();
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(format!("{path_str}.lock"));
     }
 }
 

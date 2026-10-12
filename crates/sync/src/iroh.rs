@@ -159,7 +159,8 @@ pub fn http_probe(addr: &str, timeout_secs: u64) -> Result<bool, String> {
     stream
         .set_write_timeout(Some(timeout))
         .map_err(|e| format!("network: WAN probe failed for '{socket_addr}': {e}"))?;
-    let req = format!("GET /api/readyz HTTP/1.0\r\nHost: {socket_addr}\r\nConnection: close\r\n\r\n");
+    let req =
+        format!("GET /api/readyz HTTP/1.0\r\nHost: {socket_addr}\r\nConnection: close\r\n\r\n");
     stream
         .write_all(req.as_bytes())
         .map_err(|e| format!("network: WAN probe failed for '{socket_addr}': {e}"))?;
@@ -242,7 +243,9 @@ mod tests {
     #[test]
     fn http_probe_validates_and_refuses_relays_honestly() {
         // Invalid timeout first (no socket opened).
-        assert!(http_probe("127.0.0.1:9", 0).unwrap_err().starts_with("invalid:"));
+        assert!(http_probe("127.0.0.1:9", 0)
+            .unwrap_err()
+            .starts_with("invalid:"));
         // Relay tickets are the QUIC future, not this socket.
         let relay = http_probe("phone-7@relay.example", 2).unwrap_err();
         assert!(relay.starts_with("unsupported:"), "{relay}");

@@ -59,7 +59,26 @@
 > (needs both toolchains in one CI job), P0-22 rebuild + Rust single-opener
 > (needs the lock redesign, frontend mitigations already in: 15 s abort +
 > backoff retry in `restFetch`).
-> Landed rows are tagged ✅ below; everything else is unchanged ideation.
+> Status refresh 2026-10-12 (close-out part 2, measured: 49 top-level
+> components · 34 composables · 74 utils · 16 crates · 40 redb table defs ·
+> 170 REST mappings · 88 frontend test files / 925 tests): **all four honest
+> sequences closed on every layer this environment can prove** (no local cargo
+> per repo rules, no macOS signer, no networked QUIC CI) — WAN HTTP dial
+> (§2B.5: `wanHttpBase`/`wanDialSteps`/`wanHttpProbe` + Devices Probe button +
+> `wan dial` verb + Rust `http_base`/`http_dial_steps`/`http_probe` in
+> `iroh.rs`; only QUIC relay dial stays sequenced) · full static parity sweep
+> (§3: `scripts/check-transport-parity.mjs` + `npm run check:parity` + CI
+> meta-check gate + `transport-parity-full.test.ts`; the sweep caught and fixed
+> a real drift — `POST /api/faces/detect*` was 404-before-auth for want of a
+> `faces` ROUTED_SEGMENT; only live-boot shape equality stays a CI follow-up) ·
+> iOS build path (§5: `ios-configure.sh` + `ios-signing.sh` + `ios-build` CI job
+> on macos-latest, simulator every run + signed IPA when secrets exist; only
+> Apple secrets + TestFlight stay sequenced) · P0-22 + single-opener (§5/§2C:
+> `OpenerLock` `<db>.lock` guard in `crates/db` — second opener fails closed
+> with `conflict:`, stale-PID reap, release-on-drop, regression test — beside
+> the existing 100 MB body cap + `rest-hardening.test.ts` pins).
+> Landed rows are tagged ✅ below; the only remaining sequences need Apple
+> secrets, a QUIC dependency + networked CI, or both toolchains in one CI job.
 > Grounded in file/line refs; anything aspirational is labeled as such.
 
 ---
@@ -160,17 +179,18 @@ chunk manifests, ML-DSA for signatures). Incremental path, cheapest first:
    content-addressed chunks on a USB stick. Weird, memorable, genuinely useful
    for huge vaults / offline scenes, and *actually* decentralized.~~ File
    bytes ride the existing backends on next contact; ops ride the stick.
-5. **iroh** ✅ seam landed 2026-10-11 — `crates/sync/src/iroh.rs`
+5. **iroh** ✅ seam + HTTP dial landed 2026-10-11/12 — `crates/sync/src/iroh.rs`
    (std-only, no new dep): `IrohConfig`, `<device>@<addr>` endpoint parse,
-   `dial_plan` answering `unsupported:` with the LAN/bundle way out +
-   unit tests. Frontend plan ✅ landed 2026-10-12: `src/utils/wanDial.ts`
-   (same grammar + `unsupported:` plan + `wanWayOut`, tested in
-   `wan-dial.test.ts`) + Devices → WAN dial card (plan, never dials) +
-   `wan plan <device>@<addr>` cybsh verb on all transports. The op-log
-   push/pull payloads ride unchanged when a real endpoint arrives. The dial
-   backend itself stays sequenced (new dependency + NAT-traversal design,
-   needs networked CI proving). ~~— sequenced, not started: new dependency + NAT-traversal design,
-   needs networked CI proving. Honest order holds (last, not first).~~
+   QUIC `dial_plan` answering `unsupported:` with the HTTP/LAN/bundle way out +
+   REAL `http_base` / `http_dial_steps` (readyz probe + op-log pull/push/merge,
+   same shape as the frontend) / `http_probe` (bounded TcpStream
+   `GET /api/readyz`, `network:` on failure, relay tickets `unsupported:`) +
+   unit tests. Frontend ✅ 2026-10-12: `src/utils/wanDial.ts`
+   (`wanHttpBase` + `wanDialSteps` + `wanHttpProbe` with 15 s AbortController,
+   tested incl. closed-port `network:`) + Devices → WAN dial card (Plan +
+   live Probe) + `wan plan|dial` cybsh verbs on all transports. The op-log
+   push/pull payloads ride unchanged on both paths. Only QUIC relay dial stays
+   sequenced (new dependency + NAT-traversal design, needs networked CI proving).
 
 ### C. Ship the op-log (P3-2) — ✅ landed 2026-10-11 (foundation + wiring + resolver)
 
@@ -207,6 +227,11 @@ devices exchange ops using the vectors you already model. One change fixes:
 
 It is the difference between a backup tool that syncs and an OS that is the
 same everywhere, all the time.
+The single-opener half ✅ landed 2026-10-12 (`OpenerLock` in `crates/db`:
+`<db>.lock` create_new guard, second opener fails closed with `conflict:`,
+stale-PID reap on Linux, release-on-drop, `opener_lock_path` accessor +
+regression test) — desktop XOR Docker on the same `/data` can no longer
+split-brain silently; cross-opener sync rides op-log/LAN/bundle.
 
 ---
 
@@ -220,14 +245,20 @@ same everywhere, all the time.
 | **Backup as a *feature*** ✅ landed 2026-10-11 | ~~`scripts/backup.sh` + `snapshot_bytes()` (≤256 MiB consistent export) are buried~~ `backup export|list|verify` cybsh verb on all transports (sealed CYBMJ01, provider or volume destinations, `--keep` prune) + Disks → BACKUP tab (Export download / Send to provider / Snapshots / Schedule card writing the managed `scheduled-backup.cybsh` + cron row / Restore wizard with Pages one-click restore + guided desktop/Docker steps) + `GET /api/backup/export` (Admin, 32 MiB cap) | ~~Ship "Export vault" / "Restore wizard" UI + *scheduled* encrypted backup to any provider (scheduler + sync = done)~~ done — scheduler + notification center + provider transports, as predicted |
 | **TLS story** ✅ landed 2026-10-11 | ~~`P2-15`: you ship ML-KEM while JWTs/bearer tokens are sniffable in cleartext on the LAN — credibility hole~~ Closed with a committed proxy: `Caddyfile` (auto-ACME, 80→443, HSTS + hardening headers, 100 MB body cap) + `docker-compose.tls.yml` sidecar + `X-Forwarded-*` single-hop trust policy + `OPERATIONS.md` §6 runbook | ~~Commit the documented Caddy/nginx compose + HSTS + `X-Forwarded-*` trust policy~~ done |
 | **i18n** ✅ landed 2026-10-11 (foundation) | ~~Zero. UI strings are hard-coded English (no `vue-i18n`, no `src/locales/`) — yet voice input already ships pt-BR (`speechCorrect`)~~ `src/utils/i18n.ts` + `src/locales/{en,pt}.json` (`t()` with en-fallback, persisted locale, `<html lang>`) + Settings → LANGUAGE row; Archive/Watchers/Recovery dogfood it, older panels migrate as touched (no new dep — hand-rolled, node-env-safe) | ~~—~~ done, foundation scope |
-| **Contract parity test** ✅ landed 2026-10-11 (frontend matrix + spine shape sweep) | ~~Three transports drift silently (`os_write` missing route `P1-6`, `isTauri` truthiness `P1-1`, split-brain `REST_FIRST` `P1-5`)~~ `tests/frontend/error-prefix.test.ts`: full AGENT-1 prefix→hint matrix over both describers + REST invariants (every mapping has method+buildPath, every `REST_FIRST` resolves); `transport-routes.test.ts` pins the op-log
+| **Contract parity test** ✅ landed 2026-10-11 (frontend matrix + spine shape sweep) + full static sweep ✅ 2026-10-12 | ~~Three transports drift silently (`os_write` missing route `P1-6`, `isTauri` truthiness `P1-1`, split-brain `REST_FIRST` `P1-5`)~~ `tests/frontend/error-prefix.test.ts`: full AGENT-1 prefix→hint matrix over both describers + REST invariants (every mapping has method+buildPath, every `REST_FIRST` resolves); `transport-routes.test.ts` pins the op-log
 resolve + peer-sync mappings; `spine.rs` boots real `crates/web` and pins
 the new arms' shapes + prefix matrix (`not_found:`/`auth:`/`invalid:`).
 Exhaustive frontend pins ✅ landed 2026-10-12
 (`tests/frontend/transport-exhaustive.test.ts`: every mapping has
 method + `/api/` path, every `REST_FIRST` resolves, `WRITE_ONLY` stays
-disjoint, spine twins pinned by static Rust reads). The full TS↔Rust
-equality sweep stays a CI-side follow-up (needs both toolchains in one job) | ~~One test booting real `crates/web` asserting every mapped path + shape + the AGENT-1 prefix matrix beats 336 unit tests (P3-5 — do it)~~ shape sweep landed, exhaustive sweep sequenced |
+disjoint, spine twins pinned by static Rust reads). Full static sweep ✅
+2026-10-12 (`scripts/check-transport-parity.mjs` + `npm run check:parity` +
+CI meta-check gate + `tests/frontend/transport-parity-full.test.ts` with real
+TS imports: both directions — every REST second segment is a known Rust
+route; the sweep caught and fixed a real drift, `POST /api/faces/detect*`
+404-before-auth for want of a `faces` ROUTED_SEGMENT in `security.rs`).
+Only the live-boot shape-equality sweep (real `crates/web` + snake→camel)
+stays a CI-side follow-up (needs both toolchains in one job) | ~~One test booting real `crates/web` asserting every mapped path + shape + the AGENT-1 prefix matrix beats 336 unit tests (P3-5 — do it)~~ static sweep landed, live-boot equality sequenced |
 
 ---
 
@@ -333,60 +364,71 @@ equality sweep stays a CI-side follow-up (needs both toolchains in one job) | ~~
   2026-10-09 audit) — undermines the "verified"
   tone the repo otherwise earns.~~
 - **`P0` security backlog** ✅ landed 2026-10-11 — object ACL wired
-  on REST (`P0-1`: `check_access` + `deny_file` at content/share/batch/agent/
-  os-exec arms), viewer read-only (`P0-2`), per-user jobs/approvals + todos
-  (`P0-10`), MCP/auto-approve gating (`P0-8`), hash-strip on IPC (`P0-4`),
-  no-row-token (`P0-6`), lease CAS (`P0-19`) — plus the close-out pass:
-  IPC capability gate (`P0-3`: session-token gate on every identity/ACL
-  Tauri command, bootstrap-open), persistent revocation + stable IPC secret
-  (`P0-5`: `revoked:*` kv rows hydrated at boot, persisted on logout),
-  SSE `?token=` (`P0-7`, same JWT gate), remember audit (`P0-9`:
-  allow/skip/fail all hit the audit log), symlink + atomic-write
-  containment (`P0-11`), memory owner-scoping (`P0-12`: `owner_id` rows,
-  legacy-readable, route-scoped), independent Hybrid pair (`P0-13`,
-  public-key-only encrypt), KDF separation with legacy fallback (`P0-14`),
-  honest labels/levels (`P0-15`: Hybrid L3), KEK cache (`P0-16`),
-  fail-closed `data_dir` + no silent re-wrap (`P0-17`), merged-vector
-  Overwrite + deterministic KeepBoth ids (`P0-20`), `expired:` polls
-  (`P0-21`), bounded queues + paged status (`P0-23`), hierarchy-preserving
-  rebuild (`P0-24`). `P0-22` is disciplined, not rebuilt: bulk-transfer +
-  detached-job paths already run pre-lock with scoped locks; os_exec/disk
-  stay guarded for logical atomicity (documented at the lock site).
-  Second-user/LAN exposure is unblocked. ~~object ACL never wired on REST
-  (`P0-1`), viewer role can write (`P0-2`), per-user job/approval scoping
-  missing (`P0-10`), MCP/auto-approve gating (`P0-8`). Fix before any second
-  user or exposure beyond the LAN.~~
-- **iOS** ✅ scaffolded 2026-10-11 (`P2-16`) — UI contract tests were already
-  green; added `bundle.ios.minimumSystemVersion`, `docs/IOS.md` runbook (ATS
-  exception, backup parity, signing gap), config-shape tests. Device/simulator
-  builds need macOS + signing (sequenced). ~~is at zero** (`P2-16`) — for a personal OS, phone parity is half the
+   on REST (`P0-1`: `check_access` + `deny_file` at content/share/batch/agent/
+   os-exec arms), viewer read-only (`P0-2`), per-user jobs/approvals + todos
+   (`P0-10`), MCP/auto-approve gating (`P0-8`), hash-strip on IPC (`P0-4`),
+   no-row-token (`P0-6`), lease CAS (`P0-19`) — plus the close-out pass:
+   IPC capability gate (`P0-3`: session-token gate on every identity/ACL
+   Tauri command, bootstrap-open), persistent revocation + stable IPC secret
+   (`P0-5`: `revoked:*` kv rows hydrated at boot, persisted on logout),
+   SSE `?token=` (`P0-7`, same JWT gate), remember audit (`P0-9`:
+   allow/skip/fail all hit the audit log), symlink + atomic-write
+   containment (`P0-11`), memory owner-scoping (`P0-12`: `owner_id` rows,
+   legacy-readable, route-scoped), independent Hybrid pair (`P0-13`,
+   public-key-only encrypt), KDF separation with legacy fallback (`P0-14`),
+   honest labels/levels (`P0-15`: Hybrid L3), KEK cache (`P0-16`),
+   fail-closed `data_dir` + no silent re-wrap (`P0-17`), merged-vector
+   Overwrite + deterministic KeepBoth ids (`P0-20`), `expired:` polls
+   (`P0-21`), bounded queues + paged status (`P0-23`), hierarchy-preserving
+   rebuild (`P0-24`). `P0-22` ✅ closed 2026-10-12, not just disciplined:
+   bulk-transfer + detached-job paths run pre-lock with scoped locks (as
+   before), os_exec/disk stay guarded for logical atomicity (documented at
+   the lock site), request bodies are capped at 100 MB (`MAX_BODY_SIZE`,
+   aligned with the Caddy sidecar), the single-opener `OpenerLock` refuses
+   second openers with `conflict:`, and the frontend pins 15 s abort +
+   backoff retry (`rest-hardening.test.ts`).
+   Second-user/LAN exposure is unblocked. ~~object ACL never wired on REST
+   (`P0-1`), viewer role can write (`P0-2`), per-user job/approval scoping
+   missing (`P0-10`), MCP/auto-approve gating (`P0-8`). Fix before any second
+   user or exposure beyond the LAN.~~
+- **iOS** ✅ build path landed 2026-10-12 (`P2-16`) — UI contract tests were already
+  green; `scripts/ios-configure.sh` audits version/floor/identifier/ATS,
+  `scripts/ios-signing.sh` (prepare/verify/cleanup) manages the ephemeral
+  keychain + provisioning profile mirroring Android, the `ios-build` CI job
+  (macos-latest) ships the simulator `.app` every run + the signed `.ipa`
+  when secrets exist, `docs/IOS.md` is the runbook (ATS exception, backup
+  parity). Only Apple secrets + TestFlight stay sequenced (Apple Developer
+  account + signing, not code). ~~is at zero** (`P2-16`) — for a personal OS, phone parity is half the
   story; Android landed, iOS has no target at all.~~
 
 ---
 
 ## 6. Suggested sequencing
 
-**Five phases (each independently shippable) — status 2026-10-12 (frontend-close-out):**
+**Five phases (each independently shippable) — status 2026-10-12 (close-out part 2):**
 
 1. **Stop the silent drift** ✅ — parity guard (AGENT-1 matrix + REST
    invariants + transport-routes pins + spine shape sweep + exhaustive
-   frontend pins 2026-10-12; full TS↔Rust equality stays a CI follow-up) +
-   the P0 auth cluster (all landed: `P0-1`–`P0-21`, `P0-23`, `P0-24`;
-   `P0-22` disciplined + documented) + stale-count/doc fixes ✅.
+   frontend pins + full static sweep 2026-10-12 with the `faces` drift fix +
+   CI meta-check gate; only live-boot shape equality stays a CI follow-up) +
+   the P0 auth cluster (all landed: `P0-1`–`P0-24` incl. `P0-22` single-opener
+   + body cap + frontend pins) + stale-count/doc fixes ✅.
 2. **Make everything compound** ✅ — scheduler ✅ + notification center ✅
    + scheduled backup ✅ + watchers ✅ + skills (+panels) ✅.
 3. **Make "decentralized" honest** ✅ — device identity ✅ →
    LAN discovery ✅ → direct-sync protocol ✅ → CAS leases ✅ →
-   sneakernet ✅ (+ TLS ✅); iroh seam + frontend dial plan ✅ (`wanDial.ts`
-   + WAN card + `wan plan` verb), QUIC dial backend sequenced last.
+   sneakernet ✅ (+ TLS ✅); HTTP WAN dial ✅ (`wanDialSteps`/`wanHttpProbe`
+   + WAN card Probe + `wan dial` verb + Rust `http_probe`), only QUIC relay
+   dial sequenced last.
 4. **Daily-driver depth** ✅ — secrets (+CSV) ✅ + notes (+auto-index) ✅
    + timeline/contacts/tasks/bookmarks/datasets ✅ + i18n foundation ✅
    + rotation checklist ✅.
 5. **The architecture leap** ✅ — op-log + mutation wiring +
    queue-and-replay + conflict data + resolver UI ✅; volume single-writer
-   frontend half ✅ (`volumeCaps` + `volumeWriteQueue`); iroh dial + Rust
-   single-opener + full path-equality sweep sequenced on top (all need the
-   Rust/mobile toolchains, none is implementable blind per repo rules).
+   frontend half ✅ (`volumeCaps` + `volumeWriteQueue`) + Rust single-opener
+   ✅ (`OpenerLock`); iOS build path ✅ (simulator CI + signing scripts);
+   remaining sequences need Apple secrets, a QUIC dependency + networked CI,
+   or both toolchains in one CI job — none is implementable blind per repo rules.
 
 **Smallest high-value "next 5 PRs" cut (if you want immediate motion):**
 

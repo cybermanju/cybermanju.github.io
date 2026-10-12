@@ -1450,3 +1450,44 @@ Stage Summary:
   `restFetch` already shipped).
 - Verified here: version agree, headers ok (522 tracked), `vue-tsc` clean,
   full vitest green (86/911). Rust is CI's job per repo rules (no local cargo).
+
+## 2026-10-12 — ANALYSIS.md close-out part 2 (four sequenced items → landed)
+
+Closed every remaining honest sequence from `ANALYSIS.md` on all layers this
+environment can prove (no local cargo, no macOS signer, no networked QUIC CI):
+
+- WAN HTTP dial (§2B.5): `src/utils/wanDial.ts` gains `wanHttpBase` /
+  `wanDialSteps` (readyz probe + op-log pull/push/merge) / `wanHttpProbe`
+  (fetch + 15 s AbortController, `network:` on failure, `unsupported:`
+  without fetch); Devices → WAN card gains a live Probe button; `wan dial`
+  cybsh verb on all transports; Rust twin in `crates/sync/src/iroh.rs`
+  (`http_base` / `http_dial_steps` / `http_probe` via bounded TcpStream,
+  relay tickets stay `unsupported:`) + unit tests. QUIC `dial_plan` stays
+  honestly `unsupported:` — only relay dial remains sequenced (new dep +
+  networked CI). `wan-dial.test.ts` grows to 8 tests.
+- Full static parity sweep (§3): `scripts/check-transport-parity.mjs` +
+  `npm run check:parity` + CI meta-check gate +
+  `tests/frontend/transport-parity-full.test.ts` (real TS imports, both
+  directions). The sweep caught and fixed a REAL drift: `POST
+  /api/faces/detect*` was 404-before-auth for want of a `faces`
+  ROUTED_SEGMENT in `crates/web/src/security.rs`. Only live-boot shape
+  equality (real `crates/web` + snake→camel) stays a CI follow-up.
+- iOS build path (P2-16): `scripts/ios-configure.sh` (version/floor/
+  identifier/ATS audits) + `scripts/ios-signing.sh` (prepare/verify/cleanup,
+  ephemeral keychain, mirrors Android) + `ios-build` CI job on macos-latest
+  (simulator `.app` every run + signed `.ipa` when secrets exist) +
+  `docs/IOS.md` runbook refresh + `mobile-ios.test.ts` pins. Only Apple
+  secrets + TestFlight stay sequenced.
+- P0-22 + single-opener (§5/§2C): `OpenerLock` in `crates/db`
+  (`<db>.lock` create_new guard, second opener fails closed with
+  `conflict:`, stale-PID reap on Linux, release-on-drop via Arc,
+  `opener_lock_path` accessor + regression test) beside the existing 100 MB
+  `MAX_BODY_SIZE` cap; `tests/frontend/rest-hardening.test.ts` pins the
+  frontend half (15 s abort, one backoff retry on `network:`/`rate_limited:`).
+  `TASKS.md` P0-22 ticked.
+- Docs: `ANALYSIS.md` 2026-10-12 part-2 refresh + §2B.5/§2C/§3/§5/§6 ticks;
+  `TASKS.md` P0-22; `AGENTS.md`/`README.md` counts to the verified tree
+  (74 utils · 170 REST · 40 tables · 88 files/925 tests).
+- Verified here: version agree, headers ok (531 tracked), parity sweep clean
+  (170 mappings, 37 families), `vue-tsc` clean, full vitest green (88/925).
+  Rust is CI's job per repo rules (no local cargo).
