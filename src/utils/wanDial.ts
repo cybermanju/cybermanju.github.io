@@ -51,7 +51,8 @@ export function wanDialPlan(endpoint: WanEndpoint, dialTimeoutSecs = 15): string
 /** True when the addr half needs the sequenced QUIC relay (same grammar as Rust `is_relay_addr`). */
 export function isRelayAddr(addr: string): boolean {
   const low = addr.trim().toLowerCase()
-  return low.includes('relay') || low.startsWith('iroh:') || low.includes('/p2p/')
+  if (low.startsWith('iroh:') || low.includes('/p2p/')) return true
+  return /(^|[^a-z0-9])relay([^a-z0-9]|$)/.test(low)
 }
 
 /** The three URL shapes one WAN endpoint fans out to (probe/search/op-log). */
@@ -97,10 +98,13 @@ export function wanWayOut(endpoint: WanEndpoint): string[] {
   ]
 }
 
-/** `http(s)://` base for a WAN endpoint (addr stays opaque, never guessed). */
+/** `http(s)://` base for a WAN endpoint (bare http hosts default to :3456, like the Rust probe). */
 export function wanHttpBase(endpoint: WanEndpoint): string {
-  const addr = endpoint.addr.trim()
-  if (/^https?:\/\//i.test(addr)) return addr.replace(/\/+$/, '')
+  const addr = endpoint.addr.trim().replace(/\/+$/, '')
+  if (/^https?:\/\//i.test(addr)) return addr
+  // Bare `host` without a port means the dashboard — same default as
+  // `iroh::http_probe` (`host:port` stays verbatim, IPv6 keeps brackets).
+  if (!addr.includes(':')) return `http://${addr}:3456`
   return `http://${addr}`
 }
 
@@ -133,9 +137,14 @@ export async function wanSyncExchange(
     fetchConflicts?: () => Promise<unknown>
   },
 ): Promise<{ pulled: number; pushed: number; steps: string[] }> {
+  if (isRelayAddr(endpoint.addr)) {
+    throw new Error(
+      `unsupported: QUIC dial to '${endpoint.deviceId}' needs the iroh transport (sequenced: new dependency + networked CI proving) — use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle`,
+    )
+  }
   const { syncExchangeWithPeer } = await import('./peerSearch')
   return syncExchangeWithPeer(
-    { deviceId: endpoint.deviceId, baseUrl: endpoint.addr, transport: 'wan-http' },
+    { deviceId: endpoint.deviceId, baseUrl: wanHttpBase(endpoint), transport: 'wan-http' },
     since,
     localOps,
     deps,

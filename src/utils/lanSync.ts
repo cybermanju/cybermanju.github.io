@@ -15,35 +15,41 @@ export interface PeerDevice {
   revoked?: boolean
 }
 
-/** `http://<host>:<port>` for a discovered peer (port always explicit). */
+/** `http://<host>:<port>` for a discovered peer (port always explicit, IPv6 bracketed). */
 export function peerBaseUrl(peer: PeerDevice): string {
-  const host = (peer.host || '').trim() || '127.0.0.1'
-  const port = peer.port > 0 ? peer.port : 3456
+  let host = (peer.host || '').trim() || '127.0.0.1'
+  // Bare IPv6 literals (`::1`, `fe80::1`) need brackets in a URL; already
+  // bracketed forms (`[::1]`) pass through untouched.
+  if (host.includes(':') && !host.startsWith('[')) host = `[${host}]`
+  const port = Number.isInteger(peer.port) && peer.port > 0 && peer.port <= 65535 ? peer.port : 3456
   return `http://${host}:${port}`
 }
 
 /** Fail-closed gate: a peer syncs only with a known, non-revoked device row. */
 export function isPeerSyncable(peer: PeerDevice, knownDeviceIds: Set<string> | string[]): boolean {
   if (peer.revoked) return false
-  if (!peer.deviceId.trim()) return false
-  const known = Array.isArray(knownDeviceIds) ? new Set(knownDeviceIds) : knownDeviceIds
-  return known.has(peer.deviceId)
+  const id = peer.deviceId.trim()
+  if (!id) return false
+  const known = Array.isArray(knownDeviceIds) ? new Set(knownDeviceIds.map((v) => v.trim())) : knownDeviceIds
+  return known.has(id)
 }
 
 /** Why a peer cannot sync (empty = syncable). */
 export function peerBlockReason(peer: PeerDevice, knownDeviceIds: Set<string> | string[]): string {
   if (peer.revoked) return 'device revoked — re-enroll it first'
-  if (!peer.deviceId.trim()) return 'peer has no device id'
-  const known = Array.isArray(knownDeviceIds) ? new Set(knownDeviceIds) : knownDeviceIds
-  if (!known.has(peer.deviceId)) return 'unknown device — enroll it via Devices → Identity first'
+  const id = peer.deviceId.trim()
+  if (!id) return 'peer has no device id'
+  const known = Array.isArray(knownDeviceIds) ? new Set(knownDeviceIds.map((v) => v.trim())) : knownDeviceIds
+  if (!known.has(id)) return 'unknown device — enroll it via Devices → Identity first'
   return ''
 }
 
 /** Explicit direct-sync steps (pull peer ops, push ours, render conflicts). */
 export function lanSyncSteps(peer: PeerDevice, since: number): string[] {
   const base = peerBaseUrl(peer)
+  const s = Number.isFinite(since) ? Math.max(0, Math.floor(since)) : 0
   return [
-    `pull: GET ${base}/api/oplog/since?since=${Math.max(0, since)}`,
+    `pull: GET ${base}/api/oplog/since?since=${s}`,
     `push: POST ${base}/api/oplog/push { ops: ours }`,
     `merge: POST /api/oplog/push { ops: theirs }`,
     'render: GET /api/oplog/conflicts',

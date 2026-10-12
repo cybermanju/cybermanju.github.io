@@ -1253,7 +1253,7 @@ export const REST_ROUTES: Record<string, RestMapping> = {
         query: args.query ?? '',
         limit: Math.max(1, Math.min(Number(args.limit ?? 50) || 50, 200)),
         peers,
-        timeoutSecs: Number(args.timeoutSecs ?? args.timeout_secs ?? 8) || 8,
+        timeoutSecs: Math.max(1, Math.min(Number(args.timeoutSecs ?? args.timeout_secs ?? 8) || 8, 30)),
       }
     },
     transformResponse: (raw) => {

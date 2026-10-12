@@ -88,8 +88,12 @@ export function deduplicatePeers(peers: FederatedPeer[]): FederatedPeer[] {
     } catch {
       continue
     }
-    if (seen.has(base)) continue
-    seen.add(base)
+    // Relay tickets are the QUIC future — never fetched over HTTP, so drop
+    // them here instead of burning a fan-out slot on a doomed fetch.
+    if (classifyAddr(base) === 'relay-future') continue
+    const key = base.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
     out.push({ ...p, baseUrl: base })
     if (out.length >= MAX_FEDERATED_PEERS) break
   }
@@ -139,7 +143,7 @@ export function buildFederatedBody(args: {
     query: args.query ?? '',
     limit: Math.max(1, Math.min(Number(args.limit ?? 50) || 50, 200)),
     peers,
-    timeoutSecs: Number(args.timeoutSecs ?? args.timeout_secs ?? 8) || 8,
+    timeoutSecs: Math.max(1, Math.min(Number(args.timeoutSecs ?? args.timeout_secs ?? 8) || 8, 30)),
   }
 }
 
@@ -152,32 +156,54 @@ export function normalizeBaseUrl(addr: string): string {
   return `http://${base}`
 }
 
-/** True when a lower-cased base/addr looks like same-network HTTP. */
+/** True when `relay` appears as a standalone token (not inside `relayx`). */
+export function isRelayToken(lowerAddr: string): boolean {
+  return /(^|[^a-z0-9])relay([^a-z0-9]|$)/.test(lowerAddr)
+}
+
+/** Host half of a base/addr (scheme + port + path stripped, lower-cased). */
+export function extractPeerHost(lowerBaseOrAddr: string): string {
+  let h = lowerBaseOrAddr.toLowerCase().trim()
+  h = h.replace(/^https?:\/\//, '')
+  const slash = h.indexOf('/')
+  if (slash >= 0) h = h.slice(0, slash)
+  // IPv6 literals keep brackets: [::1]:3456 → [::1].
+  if (h.startsWith('[')) {
+    const close = h.indexOf(']')
+    if (close >= 0) return h.slice(0, close + 1)
+    return h
+  }
+  const colon = h.lastIndexOf(':')
+  // Single colon = host:port; strip the port (bare IPv6 without brackets
+  // is not dialable here and stays opaque for the relay/HTTP gates).
+  if (colon >= 0 && h.indexOf(':') === colon) h = h.slice(0, colon)
+  return h
+}
+
+/** True when a base/addr looks like same-network HTTP (host-based, no `110.` false positives). */
 export function isLanBase(lowerBaseOrAddr: string): boolean {
   const b = lowerBaseOrAddr.toLowerCase()
-  return (
-    b.includes('localhost') ||
-    b.includes('127.') ||
-    b.includes('[::1]') ||
-    b.includes('10.') ||
-    b.includes('192.168.') ||
-    b.includes('172.16.') ||
-    b.includes('172.17.') ||
-    b.includes('172.18.') ||
-    b.includes('172.19.') ||
-    b.includes('172.2') ||
-    b.includes('172.30.') ||
-    b.includes('172.31.') ||
-    b.includes('169.254.') ||
-    b.includes('.local') ||
-    b.includes('0.0.0.0')
-  )
+  if (b.includes('localhost') || b.includes('[::1]')) return true
+  const host = extractPeerHost(b)
+  if (!host) return false
+  if (host === 'localhost' || host.endsWith('.localhost')) return true
+  if (host === '0.0.0.0') return true
+  if (host.endsWith('.local') || host === 'local') return true
+  if (host === '10' || host.startsWith('10.')) return true
+  if (host.startsWith('192.168.')) return true
+  if (host.startsWith('127.')) return true
+  if (host.startsWith('169.254.')) return true
+  if (host.startsWith('172.')) {
+    const second = Number(host.split('.')[1] ?? '')
+    if (Number.isInteger(second) && second >= 16 && second <= 31) return true
+  }
+  return false
 }
 
 /** Classify a raw addr half without opening any socket (relay = QUIC future). */
 export function classifyAddr(addr: string): PeerTransportName {
   const low = addr.trim().toLowerCase()
-  if (low.includes('relay') || low.startsWith('iroh:') || low.includes('/p2p/')) {
+  if (low.startsWith('iroh:') || low.includes('/p2p/') || isRelayToken(low)) {
     return 'relay-future'
   }
   return isLanBase(low) ? 'lan-http' : 'wan-http'
@@ -468,12 +494,15 @@ export async function syncExchangeWithPeer(
     fetchConflicts?: () => Promise<unknown>
   },
 ): Promise<SyncExchangeResult> {
-  if (peer.transport === 'relay-future') {
+  if (peer.transport === 'relay-future' || classifyAddr(peer.baseUrl) === 'relay-future') {
     throw new Error(
       `unsupported: QUIC dial to '${peer.deviceId}' needs the iroh transport (sequenced: new dependency + networked CI proving) — use HTTP dial (GET /api/readyz + op-log pull/push), direct LAN sync or a sneakernet bundle`,
     )
   }
   const base = normalizeBaseUrl(peer.baseUrl)
+  if (localOps.length > 10_000) {
+    throw new Error(`too_large: sync holds ${localOps.length} ops (cap 10000 per call — page it)`)
+  }
   const s = Math.max(0, Math.floor(since) || 0)
   const pulled = (await deps.fetchJson(
     'GET',

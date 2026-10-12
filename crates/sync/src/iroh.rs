@@ -73,8 +73,9 @@ pub fn dial_plan(endpoint: &IrohEndpoint, config: &IrohConfig) -> Result<String,
 }
 
 /// `http(s)://` base for a WAN endpoint. The addr half stays opaque (DNS
-/// name, `host:port`, or a full URL); nothing is guessed — a bare addr
-/// becomes `http://<addr>`, an existing scheme is kept verbatim.
+/// name, `host:port`, or a full URL); a bare `host` without a port defaults
+/// to the dashboard `:3456` (same default as `http_probe`), an existing
+/// scheme is kept verbatim — mirrors TS `wanHttpBase`.
 pub fn http_base(endpoint: &IrohEndpoint) -> String {
     let addr = endpoint.addr.trim().trim_end_matches('/');
     if addr.len() >= 7
@@ -83,10 +84,12 @@ pub fn http_base(endpoint: &IrohEndpoint) -> String {
             || addr.starts_with("https://")
             || addr.starts_with("HTTPS://"))
     {
-        addr.to_string()
-    } else {
-        format!("http://{addr}")
+        return addr.to_string();
     }
+    if addr.contains(':') || addr.contains('/') {
+        return format!("http://{addr}");
+    }
+    format!("http://{addr}:3456")
 }
 
 /// Real HTTP dial steps for an off-LAN peer: probe `/api/readyz`, then the
@@ -122,9 +125,7 @@ pub fn http_probe(addr: &str, timeout_secs: u64) -> Result<bool, String> {
         return Err("invalid: dial_timeout_secs must be 1..=120".to_string());
     }
     let raw = addr.trim();
-    let is_tls = raw.len() >= 8
-        && (raw.starts_with("https://")
-            || raw.starts_with("HTTPS://"));
+    let is_tls = raw.len() >= 8 && (raw.starts_with("https://") || raw.starts_with("HTTPS://"));
     if is_tls {
         return Err(
             "unsupported: https:// probe needs TLS (std TcpStream is plain HTTP) — use the fetch-based WAN probe in the browser/WebView, or terminate TLS at a reverse proxy and probe the http:// backend"
@@ -146,7 +147,11 @@ pub fn http_probe(addr: &str, timeout_secs: u64) -> Result<bool, String> {
         return Err("invalid: probe addr must not contain whitespace".to_string());
     }
     // Relay tickets / multiaddrs are the QUIC future, not this socket.
-    if hostport.contains('@') || hostport.to_lowercase().contains("relay") || hostport.contains("/p2p/") || hostport.starts_with("iroh:") {
+    if hostport.contains('@')
+        || hostport.to_lowercase().contains("relay")
+        || hostport.contains("/p2p/")
+        || hostport.starts_with("iroh:")
+    {
         return Err(
             "unsupported: relay-ticket dial needs the iroh transport — use direct host:port or a sneakernet bundle"
                 .to_string(),
@@ -185,11 +190,23 @@ pub fn http_probe(addr: &str, timeout_secs: u64) -> Result<bool, String> {
     stream
         .write_all(req.as_bytes())
         .map_err(|e| format!("network: WAN probe failed for '{socket_addr}': {e}"))?;
+    // Read until the status line arrives (up to 4 KiB) — a single 512 B
+    // `read` can split `HTTP/1.1 200` across packets on slow links.
+    let mut head_bytes: Vec<u8> = Vec::with_capacity(1024);
     let mut buf = [0u8; 512];
-    let n = stream
-        .read(&mut buf)
-        .map_err(|e| format!("network: WAN probe failed for '{socket_addr}': {e}"))?;
-    let head = String::from_utf8_lossy(&buf[..n]);
+    for _ in 0..8 {
+        let n = stream
+            .read(&mut buf)
+            .map_err(|e| format!("network: WAN probe failed for '{socket_addr}': {e}"))?;
+        if n == 0 {
+            break;
+        }
+        head_bytes.extend_from_slice(&buf[..n]);
+        if head_bytes.windows(2).any(|w| w == b"\r\n") || head_bytes.len() >= 4096 {
+            break;
+        }
+    }
+    let head = String::from_utf8_lossy(&head_bytes);
     let status: u16 = head
         .split_whitespace()
         .nth(1)
@@ -262,7 +279,11 @@ pub fn peer_oplog_since_url(endpoint: &IrohEndpoint, since: u64) -> String {
 /// Federated-search plan for a WAN endpoint: local BM25 first, then one
 /// bounded peer fetch (the exact two lines the server + TS fan-out run).
 /// Relay endpoints refuse with `unsupported:` — same gate as the sync plan.
-pub fn federated_search_plan(endpoint: &IrohEndpoint, query: &str, limit: usize) -> Result<Vec<String>, String> {
+pub fn federated_search_plan(
+    endpoint: &IrohEndpoint,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<String>, String> {
     if query.trim().is_empty() {
         return Err("invalid: federated search needs a query".to_string());
     }
@@ -395,10 +416,7 @@ mod tests {
     #[test]
     fn wan_peer_urls_and_search_plan_agree_with_peers() {
         let ep = parse_endpoint("phone-7@192.168.1.60:3456").unwrap();
-        assert_eq!(
-            peer_readyz_url(&ep),
-            "http://192.168.1.60:3456/api/readyz"
-        );
+        assert_eq!(peer_readyz_url(&ep), "http://192.168.1.60:3456/api/readyz");
         assert!(
             peer_search_url(&ep, "photo", 20).contains("/api/search?q=photo"),
             "{}",

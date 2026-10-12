@@ -78,12 +78,72 @@ pub fn normalize_base_url(addr: &str) -> Result<String, String> {
     }
 }
 
+/// True when `relay` appears as a standalone token (`relay:443`,
+/// `my-relay-host`) — not inside `relayx`. Shared with the TS twins
+/// `isRelayToken` / `isRelayAddr` so every transport agrees on one grammar.
+pub fn is_relay_token(lower_addr: &str) -> bool {
+    let bytes = lower_addr.as_bytes();
+    if !lower_addr.contains("relay") {
+        return false;
+    }
+    let mut i = 0;
+    while i + 5 <= bytes.len() {
+        if &bytes[i..i + 5] == b"relay" {
+            let before_ok = if i == 0 {
+                true
+            } else {
+                !bytes[i - 1].is_ascii_alphanumeric()
+            };
+            let after_ok = if i + 5 >= bytes.len() {
+                true
+            } else {
+                !bytes[i + 5].is_ascii_alphanumeric()
+            };
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+/// Host half of a base/addr (scheme + port + path stripped, lower-cased).
+/// IPv6 literals keep brackets (`[::1]:3456` → `[::1]`).
+pub fn extract_peer_host(lower_base_or_addr: &str) -> String {
+    let mut h = lower_base_or_addr.trim().to_lowercase();
+    for prefix in ["http://", "https://"] {
+        if h.starts_with(prefix) {
+            h = h[prefix.len()..].to_string();
+            break;
+        }
+    }
+    if let Some(slash) = h.find('/') {
+        h.truncate(slash);
+    }
+    if h.starts_with('[') {
+        if let Some(close) = h.find(']') {
+            h.truncate(close + 1);
+            return h;
+        }
+        return h;
+    }
+    // One colon = host:port; strip the port. Bare multi-colon IPv6 without
+    // brackets stays opaque for the relay/HTTP gates.
+    if h.contains(':') && h.matches(':').count() == 1 {
+        if let Some(colon) = h.rfind(':') {
+            h.truncate(colon);
+        }
+    }
+    h
+}
+
 /// Classify a raw addr half without opening any socket. Relay tickets and
-/// multiaddrs (`relay`, `iroh:`, `@`-tickets) are the QUIC future; everything
+/// multiaddrs (`relay`-token, `iroh:`, `/p2p/`) are the QUIC future; everything
 /// else is direct HTTP (LAN vs WAN is decided by `is_lan_base` on the base).
 pub fn classify_addr(addr: &str) -> PeerTransport {
     let low = addr.trim().to_lowercase();
-    if low.contains("relay") || low.starts_with("iroh:") || low.contains("/p2p/") {
+    if low.starts_with("iroh:") || low.contains("/p2p/") || is_relay_token(&low) {
         return PeerTransport::RelayFuture;
     }
     if is_lan_base(&low) {
@@ -93,24 +153,44 @@ pub fn classify_addr(addr: &str) -> PeerTransport {
 }
 
 /// True when a (lower-cased) base/addr looks like same-network HTTP:
-/// localhost, RFC-1918, link-local, `.local` mDNS names, or the 3456 default.
+/// localhost, RFC-1918 (`10/8`, `192.168/16`, `172.16/12`), link-local,
+/// `.local` mDNS names, or the 3456 default. Host-based (no `110.` false
+/// positives) — mirrors TS `isLanBase`.
 pub fn is_lan_base(lower_base_or_addr: &str) -> bool {
-    let b = lower_base_or_addr;
-    b.contains("localhost")
-        || b.contains("127.")
-        || b.contains("[::1]")
-        || b.contains("10.")
-        || b.contains("192.168.")
-        || b.contains("172.16.")
-        || b.contains("172.17.")
-        || b.contains("172.18.")
-        || b.contains("172.19.")
-        || b.contains("172.2")
-        || b.contains("172.30.")
-        || b.contains("172.31.")
-        || b.contains("169.254.")
-        || b.contains(".local")
-        || b.contains("0.0.0.0")
+    let b = lower_base_or_addr.to_lowercase();
+    if b.contains("localhost") || b.contains("[::1]") {
+        return true;
+    }
+    let host = extract_peer_host(&b);
+    if host.is_empty() {
+        return false;
+    }
+    if host == "localhost" || host.ends_with(".localhost") {
+        return true;
+    }
+    if host == "0.0.0.0" {
+        return true;
+    }
+    if host == "local" || host.ends_with(".local") {
+        return true;
+    }
+    if host == "10" || host.starts_with("10.") {
+        return true;
+    }
+    if host.starts_with("192.168.") || host.starts_with("127.") || host.starts_with("169.254.") {
+        return true;
+    }
+    if host.starts_with("172.") {
+        let second: i32 = host
+            .split('.')
+            .nth(1)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(-1);
+        if (16..=31).contains(&second) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Parse `<device-id>@<addr>` into a dialable endpoint. Both halves required,
@@ -410,7 +490,10 @@ pub fn peer_oplog_since_url(base_url: &str, since: u64, limit: usize) -> String 
 
 /// `POST <base>/api/oplog/push` — push half of the op-log exchange.
 pub fn peer_oplog_push_url(base_url: &str) -> String {
-    format!("{}/api/oplog/push", trim_base(base_url).trim_end_matches('/'))
+    format!(
+        "{}/api/oplog/push",
+        trim_base(base_url).trim_end_matches('/')
+    )
 }
 
 /// `GET /api/oplog/conflicts` is always local (render half) — kept here so
@@ -419,7 +502,8 @@ pub fn peer_conflicts_url() -> &'static str {
     "/api/oplog/conflicts"
 }
 
-/// Dedup peer endpoints by normalized `base_url` (first wins), drop blanks,
+/// Dedup peer endpoints by normalized `base_url` (first wins, case-insensitive),
+/// drop blanks and relay tickets (QUIC future — never fetched over HTTP),
 /// cap at `MAX_FEDERATED_PEERS`. Pure — the TS twin `deduplicatePeers` pins
 /// the same order (explicit peers first, cached peers after).
 pub fn deduplicate_peers(peers: Vec<PeerEndpoint>) -> Vec<PeerEndpoint> {
@@ -433,7 +517,11 @@ pub fn deduplicate_peers(peers: Vec<PeerEndpoint>) -> Vec<PeerEndpoint> {
         if base.trim().is_empty() {
             continue;
         }
-        if !seen.insert(base.clone()) {
+        if classify_addr(&base) == PeerTransport::RelayFuture {
+            continue;
+        }
+        let key = base.to_lowercase();
+        if !seen.insert(key) {
             continue;
         }
         out.push(PeerEndpoint {

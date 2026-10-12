@@ -204,6 +204,13 @@ pub fn search_federated_with_bearer(
         if peer.base_url.trim().is_empty() {
             continue;
         }
+        // Relay tickets are the QUIC future — never fetched over HTTP.
+        // They degrade to zero hits like any dead peer, without a doomed fetch.
+        if cybermanju_sync::peers::classify_addr(&peer.base_url)
+            == cybermanju_sync::peers::PeerTransport::RelayFuture
+        {
+            continue;
+        }
         // Explicit per-peer token wins; otherwise the caller's own bearer
         // (single-secret vaults) is forwarded. Neither is ever logged —
         // `fetch_peer_hits` only surfaces `auth:`/`network:` prefixes.
