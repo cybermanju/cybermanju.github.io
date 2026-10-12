@@ -112,9 +112,9 @@ describe('capability matrix + peer cache', () => {
 })
 
 describe('peer fetch fan-out', () => {
-  function stubFetch(handler: (url: string) => unknown): void {
-    ;(globalThis as { fetch?: unknown }).fetch = (async (url: string) => {
-      const body = handler(url)
+  function stubFetch(handler: (url: string, init?: RequestInit) => unknown): void {
+    ;(globalThis as { fetch?: unknown }).fetch = (async (url: string, init?: RequestInit) => {
+      const body = handler(url, init)
       return {
         ok: true,
         status: 200,
@@ -145,6 +145,26 @@ describe('peer fetch fan-out', () => {
       localHits: [{ fileId: 'l1', fileName: 'l1.txt', score: 3.0, snippet: '', source: 'local' }],
     })
     expect(hits.map((h) => h.fileId)).toEqual(['l1'])
+  })
+
+  it('sends only an explicitly assigned peer token and ignores a legacy shared token', async () => {
+    const headersSeen: Array<Record<string, string> | undefined> = []
+    stubFetch((_url, init) => {
+      headersSeen.push(init?.headers as Record<string, string> | undefined)
+      return []
+    })
+    const legacyOptions = {
+      peers: [
+        { baseUrl: 'https://peer-a.example', token: 'peer-a-secret' },
+        { baseUrl: 'https://peer-b.example' },
+      ],
+      token: 'caller-secret',
+    } as unknown as Parameters<typeof federatedSearch>[1]
+
+    await federatedSearch('photo', legacyOptions)
+
+    expect(headersSeen[0]?.Authorization).toBe('Bearer peer-a-secret')
+    expect(headersSeen[1]?.Authorization).toBeUndefined()
   })
 
   it('answers auth: on 401/403 and network: otherwise', async () => {

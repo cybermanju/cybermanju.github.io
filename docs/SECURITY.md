@@ -30,7 +30,11 @@ encryption keys that also syncs ciphertext to third-party providers.
 2. **App ↔ provider API** — semi-trusted. The app sends *ciphertext* only
    (AGENT-2 encrypts before upload; AGENT-3 seals private keys at rest), and
    the bearer token is the only thing a provider can correlate to an account.
-3. **Process ↔ disk** — trusted at runtime, untrusted at rest. Anything
+3. **Server ↔ P2P peer** — untrusted destination. Federated search sends a
+   bearer only when it is explicitly assigned to that peer; the caller's
+   inbound `Authorization` token is never reused or forwarded. Treat each
+   configured peer token as a secret scoped to that peer URL.
+4. **Process ↔ disk** — trusted at runtime, untrusted at rest. Anything
    persisted that is secret is either 0600 (JWT secret, master passphrase) or
    encrypted with an Argon2id-derived key (private keys, OAuth credentials).
 

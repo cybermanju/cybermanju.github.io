@@ -79,8 +79,10 @@ describe('federated body builder', () => {
     const shaped = REST_ROUTES.search_files_federated.transformRequest!({
       query: 'photo',
       peers: [{ baseUrl: 'http://10.0.0.1:3456', deviceId: 'a', token: 'peer-secret' }],
+      token: 'caller-secret',
     }) as { peers: Array<Record<string, unknown>> }
     expect(shaped.peers[0]).toMatchObject({ baseUrl: 'http://10.0.0.1:3456', token: 'peer-secret' })
+    expect(shaped).not.toHaveProperty('token')
   })
 })
 

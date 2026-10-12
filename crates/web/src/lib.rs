@@ -2030,22 +2030,13 @@ fn route_request(
         // tagged `local`, remote tagged per peer). Explicit peer URLs are
         // what make android/ios/docker/wasm work where mDNS cannot; a dead
         // peer degrades to zero hits for that peer, never a failure.
-        // Per-peer `token` fields are forwarded as peer bearers; when absent
-        // the caller's own bearer is reused (single-secret vaults).
+        // Only an explicit per-peer token is sent to that peer. The inbound
+        // caller bearer authorizes this request and is never forwarded.
         ["api", "search", "federated"] if method == "POST" => {
             match serde_json::from_str::<api::search_api::FederatedRequest>(body) {
                 Ok(req) => {
-                    let fallback = auth_header
-                        .and_then(|h| h.strip_prefix("Bearer ").or_else(|| h.strip_prefix("bearer ")))
-                        .map(str::trim)
-                        .filter(|t| !t.is_empty());
                     json_ok(
-                        &api::search_api::search_federated_with_bearer(
-                            &dashboard.search_index,
-                            db,
-                            &req,
-                            fallback,
-                        ),
+                        &api::search_api::search_federated(&dashboard.search_index, db, &req),
                         origin,
                     )
                 }

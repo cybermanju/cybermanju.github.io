@@ -410,7 +410,10 @@ pub fn peer_oplog_since_url(base_url: &str, since: u64, limit: usize) -> String 
 
 /// `POST <base>/api/oplog/push` — push half of the op-log exchange.
 pub fn peer_oplog_push_url(base_url: &str) -> String {
-    format!("{}/api/oplog/push", trim_base(base_url).trim_end_matches('/'))
+    format!(
+        "{}/api/oplog/push",
+        trim_base(base_url).trim_end_matches('/')
+    )
 }
 
 /// `GET /api/oplog/conflicts` is always local (render half) — kept here so

@@ -3277,11 +3277,9 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
         .filter((p) => !explicit.some((e) => e.baseUrl === p.baseUrl))
         .map((p) => ({ baseUrl: p.baseUrl, deviceId: p.deviceId }))
       const peers = deduplicatePeers([...explicit, ...cached])
-      const token = typeof args?.token === 'string' && args.token.trim() ? args.token.trim() : undefined
       return (await federatedSearch(query, {
         peers,
         limit,
-        token,
         localHits: local,
       })) as unknown as T
     }

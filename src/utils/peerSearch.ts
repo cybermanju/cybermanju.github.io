@@ -402,7 +402,6 @@ export interface FederatedSearchOptions {
   peers: FederatedPeer[]
   limit?: number
   timeoutMs?: number
-  token?: string
   /** Local hits (already searched); tagged `local` when source is empty. */
   localHits?: FederatedHit[]
 }
@@ -410,8 +409,8 @@ export interface FederatedSearchOptions {
 /**
  * Cross-device search port: local hits plus one bounded peer fetch each
  * (max `MAX_FEDERATED_PEERS`), merged with `mergeFederatedHits`. A dead
- * peer contributes zero hits — never a failed search. Per-peer `token`
- * fields win over the shared `token` option (multi-secret vaults).
+ * peer contributes zero hits — never a failed search. Only an explicit
+ * per-peer `token` is sent; the caller bearer is never used as a fallback.
  */
 export async function federatedSearch(
   query: string,
@@ -429,7 +428,7 @@ export async function federatedSearch(
   ).slice(0, MAX_FEDERATED_PEERS)
   const settled = await Promise.allSettled(
     peers.map((p) =>
-      fetchPeerHits(p.baseUrl, query, limit, timeoutMs, p.token?.trim() ? p.token : options.token),
+      fetchPeerHits(p.baseUrl, query, limit, timeoutMs, p.token?.trim() ? p.token.trim() : undefined),
     ),
   )
   settled.forEach((result, i) => {

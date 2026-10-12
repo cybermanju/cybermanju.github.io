@@ -1702,3 +1702,52 @@ environment can prove (no local cargo, no macOS signer, no networked QUIC CI):
 - Resolved `TASKS.md` by keeping the more complete checked-off P1 work already verified on `develop`; kept `pathExists()`'s actual requested-path comparison rather than main's unconditional `true`; combined both append-only worklog histories. P1-14 and backup/filesystem safety changes remain present.
 - Local checks passed: version consistency; all file headers; `vue-tsc`; Vitest (95 files / 977 tests); transport parity (171 mappings / 37 families); WASM frontend and wiki builds with `/develop/`; staged and unstaged `git diff --check`. Rust formatting, Clippy, and Rust tests remain CI-only per `AGENTS.md`.
 - Audited Pages assembly: main stays at `/`, the preview is assembled at `/develop/`, and the wiki uses the matching branch base (`/wiki/` or `/develop/wiki/`). Deployment remains gated on successful `wasm-build` and `rust-check`.
+
+## 2026-10-12 — P2P expansion-2: shared URL builders, per-peer auth, 6-target runbook
+
+- `crates/sync/src/peers.rs`: additive `MAX_FEDERATED_PEERS` (8) +
+  `FEDERATED_MARKER_HEADER` (`x-cybermanju-federated`, log triage only —
+  peers serve plain `/api/search`, loops impossible by construction) +
+  `peer_readyz_url`/`peer_search_url`/`peer_oplog_since_url`/
+  `peer_oplog_push_url`/`peer_conflicts_url` (single source of truth for the
+  URL shapes) + `deduplicate_peers` (first-wins by normalized base, cap 8) +
+  `wasm_peer_warning` (mixed-content/loopback/invalid, same strings as TS) +
+  `platform_setup` (copy-pasteable per-target commands) + 4 tests.
+- `crates/sync/src/iroh.rs`: additive `is_relay_addr` (one relay grammar
+  shared with `peers::classify_addr`) + `normalize_base` + `wan_way_out`
+  (LAN/bundle/op-log, same 3 lines as TS) + `peer_readyz_url`/
+  `peer_search_url`/`peer_oplog_since_url` + `federated_search_plan`
+  (local BM25 + one bounded peer fetch, relay → `unsupported:`); `http_probe`
+  now refuses `https://` with `unsupported:` (no TLS in `TcpStream` — use the
+  fetch probe or terminate TLS at a proxy) and dials IPv6 literals verbatim.
+- `crates/web/src/api/search_api.rs`: `FederatedPeer.token` (per-peer bearer,
+  serde-default so old bodies still parse) + `search_federated_with_bearer`
+  (explicit token wins, else caller-bearer fallback; neither logged) +
+  device-id retag now compares the normalized base too (trailing-slash safe).
+  `crates/web/src/lib.rs`: federated arm forwards the caller's bearer as the
+  fallback (single-secret vaults fan out with zero per-peer config).
+- Frontend: `peerSearch.ts` twins (`peerReadyzUrl`/`peerSearchUrl`/
+  `peerOplogSinceUrl`/`peerOplogPushUrl`, `deduplicatePeers`,
+  `wasmPeerWarning`, `buildFederatedBody`, `MAX_FEDERATED_PEERS`/
+  `FEDERATED_MARKER_HEADER`; `fetchPeerHits` sends the marker header;
+  `federatedSearch` dedups + prefers per-peer tokens); `wanDial.ts`
+  `isRelayAddr`/`wanPeekUrls`/`wanFederatedPlan`; `useTauri.ts` federated
+  REST/IPC/static paths all pass per-peer tokens through, dedup/cap peers,
+  and forward the shared fallback token on static hosts.
+- Docs: ARCHITECTURE REST table gains `GET /api/search/paginated` +
+  `POST /api/search/federated` (token + fallback semantics); OPERATIONS
+  gains §4c2 (6-target P2P + search matrix, auth model, cybsh verbs).
+- Tests: new `tests/frontend/peer-search-expansion.test.ts` (5 suites:
+  URL shapes, dedup/cap, wasm warnings, body builder + route token
+  passthrough, relay gate + federated plan + peek URLs).
+- Verified here: version agree, headers ok (537 files), `vue-tsc` clean,
+  targeted vitest green (6 files/59 tests), full vitest green (90/947).
+  Rust is CI's job per repo rules (no local cargo).
+
+## 2026-10-12 — Security follow-up: explicit peer credentials only
+
+- Integrated the current `origin/main` changes through `5ef7a83` into `develop`; `main` remains untouched. The latest main commit restored the missing closing delimiter in the Tauri LAN discovery call. Applied only the remaining rustfmt diffs reported by the preceding main CI in `crates/sync/{iroh,peers}.rs` and `crates/web/src/lib.rs`.
+- Removed caller-bearer fallback from federated search: the inbound `Authorization` header authenticates only the local request; REST/Rust and WASM/browser fan-out send a bearer only when explicitly assigned as that peer's `token`. Legacy top-level shared-token options are ignored. Updated `ARCHITECTURE.md` and `docs/SECURITY.md` to state the trust boundary.
+- Added a frontend regression test proving an explicitly assigned peer token is sent only to its peer and a legacy shared caller token is not forwarded.
+- Local verification passed: version check, file-header check, `vue-tsc`, Vitest (95 files / 978 tests), and staged/unstaged diff whitespace checks. `VITE_BASE=/develop/ npm run build:wasm:frontend` also passed, with generated asset URLs under `/develop/assets/`. Rust formatting/Clippy/tests remain CI-only as required by `AGENTS.md`; latest main CI was still running when recorded.
+- Pages assembly remains main at `/`, develop preview at `/develop/`, and wiki paths preserved. No release or main-branch change.

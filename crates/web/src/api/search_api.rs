@@ -1,8 +1,7 @@
 // CyberManju OS — Search api (crates/web/src/api/search_api.rs).
 // Role: REST dashboard (:3456): routes, auth, security headers.
 // Exports: SearchHit, PaginatedHits, search, search_paginated, suggest,
-// FederatedPeer, FederatedRequest, search_federated,
-// search_federated_with_bearer.
+// FederatedPeer, FederatedRequest, search_federated.
 // Integrates: cybermanju_db, cybermanju_search, cybermanju_types, redb.
 // Contracts: none special (pure logic; errors bubble to caller).
 // CyberManju OS — Search (shared by Tauri IPC and REST)
@@ -164,27 +163,12 @@ pub struct FederatedRequest {
 /// `GET /api/search` per peer (tagged with its base URL), merged with
 /// `peers::merge_federated_hits` (dedup by file id, max score wins). A dead
 /// peer degrades to zero hits for that peer — never a failed search.
-/// Per-peer `token` fields are forwarded as peer bearers; `fallback_bearer`
-/// (the caller's own token, when the operator runs one secret everywhere)
-/// covers peers without an explicit token. Use `search_federated` when no
-/// fallback applies.
+/// Only an explicit per-peer `token` is sent to that peer; the caller's
+/// inbound bearer is never reused or forwarded.
 pub fn search_federated(
     index: &SharedIndex,
     db: &Database,
     req: &FederatedRequest,
-) -> Vec<cybermanju_sync::peers::FederatedHit> {
-    search_federated_with_bearer(index, db, req, None)
-}
-
-/// Same as `search_federated` with a fallback bearer for peers that carry
-/// no explicit `token`. The router passes the caller's `Authorization`
-/// bearer here so single-secret vaults fan out without per-peer config;
-/// multi-secret vaults set per-peer `token` fields instead (explicit wins).
-pub fn search_federated_with_bearer(
-    index: &SharedIndex,
-    db: &Database,
-    req: &FederatedRequest,
-    fallback_bearer: Option<&str>,
 ) -> Vec<cybermanju_sync::peers::FederatedHit> {
     let limit = req.limit.unwrap_or(50).clamp(1, 200);
     let timeout = req.timeout_secs.unwrap_or(8).clamp(1, 30);
@@ -204,14 +188,10 @@ pub fn search_federated_with_bearer(
         if peer.base_url.trim().is_empty() {
             continue;
         }
-        // Explicit per-peer token wins; otherwise the caller's own bearer
-        // (single-secret vaults) is forwarded. Neither is ever logged —
-        // `fetch_peer_hits` only surfaces `auth:`/`network:` prefixes.
-        let bearer: Option<&str> = if peer.token.trim().is_empty() {
-            fallback_bearer.filter(|t| !t.trim().is_empty())
-        } else {
-            Some(peer.token.as_str())
-        };
+        // Never reuse the incoming request's bearer. Only an explicit token
+        // scoped to this peer may be attached to its outbound request.
+        let token = peer.token.trim();
+        let bearer = if token.is_empty() { None } else { Some(token) };
         match cybermanju_sync::peers::fetch_peer_hits(
             &peer.base_url,
             &req.query,
@@ -221,8 +201,13 @@ pub fn search_federated_with_bearer(
         ) {
             Ok(mut remote) => {
                 if !peer.device_id.trim().is_empty() {
+                    // Compare against the normalized base (callers may send a
+                    // trailing slash; `fetch_peer_hits` tags the normalized
+                    // form) so device-id retagging works on every transport.
+                    let normalized = cybermanju_sync::peers::normalize_base_url(&peer.base_url)
+                        .unwrap_or_else(|_| peer.base_url.clone());
                     for hit in &mut remote {
-                        if hit.source == peer.base_url {
+                        if hit.source == peer.base_url || hit.source == normalized {
                             hit.source = peer.device_id.clone();
                         }
                     }

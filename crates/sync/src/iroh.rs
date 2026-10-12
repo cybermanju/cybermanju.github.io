@@ -122,9 +122,7 @@ pub fn http_probe(addr: &str, timeout_secs: u64) -> Result<bool, String> {
         return Err("invalid: dial_timeout_secs must be 1..=120".to_string());
     }
     let raw = addr.trim();
-    let is_tls = raw.len() >= 8
-        && (raw.starts_with("https://")
-            || raw.starts_with("HTTPS://"));
+    let is_tls = raw.len() >= 8 && (raw.starts_with("https://") || raw.starts_with("HTTPS://"));
     if is_tls {
         return Err(
             "unsupported: https:// probe needs TLS (std TcpStream is plain HTTP) — use the fetch-based WAN probe in the browser/WebView, or terminate TLS at a reverse proxy and probe the http:// backend"
@@ -146,7 +144,11 @@ pub fn http_probe(addr: &str, timeout_secs: u64) -> Result<bool, String> {
         return Err("invalid: probe addr must not contain whitespace".to_string());
     }
     // Relay tickets / multiaddrs are the QUIC future, not this socket.
-    if hostport.contains('@') || hostport.to_lowercase().contains("relay") || hostport.contains("/p2p/") || hostport.starts_with("iroh:") {
+    if hostport.contains('@')
+        || hostport.to_lowercase().contains("relay")
+        || hostport.contains("/p2p/")
+        || hostport.starts_with("iroh:")
+    {
         return Err(
             "unsupported: relay-ticket dial needs the iroh transport — use direct host:port or a sneakernet bundle"
                 .to_string(),
@@ -262,7 +264,11 @@ pub fn peer_oplog_since_url(endpoint: &IrohEndpoint, since: u64) -> String {
 /// Federated-search plan for a WAN endpoint: local BM25 first, then one
 /// bounded peer fetch (the exact two lines the server + TS fan-out run).
 /// Relay endpoints refuse with `unsupported:` — same gate as the sync plan.
-pub fn federated_search_plan(endpoint: &IrohEndpoint, query: &str, limit: usize) -> Result<Vec<String>, String> {
+pub fn federated_search_plan(
+    endpoint: &IrohEndpoint,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<String>, String> {
     if query.trim().is_empty() {
         return Err("invalid: federated search needs a query".to_string());
     }
@@ -395,10 +401,7 @@ mod tests {
     #[test]
     fn wan_peer_urls_and_search_plan_agree_with_peers() {
         let ep = parse_endpoint("phone-7@192.168.1.60:3456").unwrap();
-        assert_eq!(
-            peer_readyz_url(&ep),
-            "http://192.168.1.60:3456/api/readyz"
-        );
+        assert_eq!(peer_readyz_url(&ep), "http://192.168.1.60:3456/api/readyz");
         assert!(
             peer_search_url(&ep, "photo", 20).contains("/api/search?q=photo"),
             "{}",
