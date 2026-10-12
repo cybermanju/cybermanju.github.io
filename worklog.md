@@ -1769,3 +1769,10 @@ After integrating `main` through `c948bd8`, local checks passed: `check-version.
 ## 2026-10-12 — Clippy follow-up after c948bd8
 
 The `Rust Lint & Test` job for main `c948bd8` reached Clippy and failed on one `unused import: VerifyingKey` in `crates/crypto/src/pqc.rs:27` (the remaining occurrence is documentation only). Removed that unused import on develop only; this is behavior-neutral. The Rust gate for the corrected develop head must be rechecked in CI; Cargo/Clippy are not run locally by repository rule.
+
+
+## 2026-10-12 — Hold: main P2P integration blocked by security review
+
+- `develop` remains at remote commit `b33cbe92c6a42de1329390b135744fe9daab2b9f`; `main` was not modified. The develop CI run `38192940869` failed in Rust Lint & Test at `crates/db/src/database.rs:1807` because `unwrap_err()` requires `Database: Debug`. Main added a fix in `fb27bef`, but that commit also introduced a substantial P2P/bundle feature set; main then advanced again to `4a5d182` while this review was in progress. The latest main CI was still in progress at the time of review.
+- Integration/push was paused after static review found material blockers in the new main code: federated search can forward the caller's bearer to an arbitrary peer when `peer.token` is absent (contrary to the explicit-token policy already enforced in develop); server-side peer URLs lack SSRF/private-network and redirect protections; relay drop/poll/ack are not bound to the authenticated device owner; unsigned peer-sync envelopes are still merged; bundle import lacks a per-payload 5 MiB check before base64 decode; and the desktop signing path does not persist/select its private key securely. The latest `4a5d182` changes frontend/docs/tests and does not address the backend blockers reviewed here.
+- No new main changes were merged, no push/release was made after these findings, and no Rust Cargo command was run locally (`AGENTS.md` requires Rust checks through CI). Revisit integration only after the security/compatibility policy is clarified and the required checks are green.
