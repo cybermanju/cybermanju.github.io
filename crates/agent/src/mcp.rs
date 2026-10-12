@@ -66,7 +66,7 @@ pub fn initialize_params(client_name: &str) -> serde_json::Value {
     serde_json::json!({
         "protocolVersion": "2024-11-05",
         "capabilities": { "tools": {} },
-        "clientInfo": { "name": client_name, "version": "0.1.0" },
+        "clientInfo": { "name": client_name, "version": "0.1.1" },
     })
 }
 

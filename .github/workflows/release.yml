@@ -778,6 +778,119 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+  # ─── iOS: unsigned device IPA ─────────────────────────────────────
+  # Mirrors ci.yml: build the arm64 device target and verify that it remains
+  # unsigned. Users must sign it with their Apple profile before installation.
+  ios-build:
+    name: Build iOS (unsigned device IPA)
+    runs-on: macos-latest
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: "."
+          cache-on-failure: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Initialize iOS project
+        run: npm run tauri ios init
+
+      - name: Configure iOS project
+        run: bash scripts/ios-configure.sh
+
+      - name: Build unsigned iOS device IPA
+        run: npx tauri ios build --ci --target aarch64 --no-sign
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Verify unsigned iOS device IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          IPA_CANDIDATES=(src-tauri/gen/apple/build/arm64/*.ipa)
+          if [ "${#IPA_CANDIDATES[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one device IPA under src-tauri/gen/apple/build/arm64; found ${#IPA_CANDIDATES[@]}"
+            exit 1
+          fi
+          VERSION="$(node -p "require('./package.json').version")"
+          mkdir -p dist-ios-device-unsigned
+          IPA_PATH="dist-ios-device-unsigned/CyberManju-OS-${VERSION}-ios-device-unsigned.ipa"
+          mv "${IPA_CANDIDATES[0]}" "$IPA_PATH"
+          test -s "$IPA_PATH"
+          python3 - "$IPA_PATH" <<'PY'
+          import sys
+          from zipfile import ZipFile
+
+          path = sys.argv[1]
+          with ZipFile(path) as ipa:
+              names = ipa.namelist()
+              app_plists = [name for name in names if name.startswith("Payload/") and name.endswith(".app/Info.plist")]
+              assert len(app_plists) == 1, f"expected one Payload app Info.plist, found {len(app_plists)}"
+              assert not any(name.endswith("embedded.mobileprovision") for name in names), "unexpected provisioning profile in unsigned IPA"
+          print(f"verified IPA container and unsigned profile state: {path}")
+          PY
+          VERIFY_DIR="$RUNNER_TEMP/ios-device-ipa-inspect"
+          mkdir -p "$VERIFY_DIR"
+          unzip -q "$IPA_PATH" -d "$VERIFY_DIR"
+          APPS=("$VERIFY_DIR"/Payload/*.app)
+          if [ "${#APPS[@]}" -ne 1 ]; then
+            echo "::error::expected one device app in IPA; found ${#APPS[@]}"
+            exit 1
+          fi
+          APP_PATH="${APPS[0]}"
+          EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")"
+          BINARY_PATH="$APP_PATH/$EXECUTABLE"
+          test -s "$BINARY_PATH"
+          ARCHS="$(xcrun lipo -archs "$BINARY_PATH")"
+          echo "IPA binary architectures: $ARCHS"
+          case " $ARCHS " in
+            *" arm64 "*) ;;
+            *) echo "::error::device IPA must contain arm64; got $ARCHS"; exit 1 ;;
+          esac
+          PLATFORM="$(xcrun otool -l "$BINARY_PATH" | awk '
+            $1 == "cmd" { in_build_version = ($2 == "LC_BUILD_VERSION"); next }
+            in_build_version && $1 == "platform" { print $2; exit }
+          ')"
+          echo "IPA Mach-O platform: $PLATFORM (2=IOS device; 7=IOSSIMULATOR)"
+          if [ "$PLATFORM" != "2" ]; then
+            echo "::error::IPA executable is not built for iOS device platform 2 (IOSSIMULATOR is 7)"
+            exit 1
+          fi
+          SIGNATURE_LOG="$RUNNER_TEMP/ios-device-codesign-check.log"
+          if codesign -dv --verbose=4 "$APP_PATH" >"$SIGNATURE_LOG" 2>&1; then
+            echo "::error::expected an unsigned IPA but the app bundle has a code signature"
+            cat "$SIGNATURE_LOG"
+            exit 1
+          fi
+          if ! grep -Fqi 'code object is not signed at all' "$SIGNATURE_LOG"; then
+            echo "::error::could not confirm that the device app is unsigned"
+            cat "$SIGNATURE_LOG"
+            exit 1
+          fi
+          echo "verified unsigned iOS device IPA: $IPA_PATH"
+
+      - name: Upload iOS artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-ios
+          path: dist-ios-device-unsigned/*.ipa
+          retention-days: 30
+          if-no-files-found: error
+
   # ─── Go: universal `cyb` CLI (Charm UI) ──────────────────────────
   # Pure Go (no cgo): one runner cross-compiles all six OS/arch pairs.
   # Deliberately waits on nothing (no downloads from other jobs).
@@ -914,7 +1027,7 @@ jobs:
     steps:
       - name: Download dist-* artifacts of the CI run
         run: |
-          pairs="dist-windows:release-windows dist-linux:release-linux dist-linux-deb:release-linux-deb dist-linux-rpm:release-linux-rpm dist-rpm:release-rpm dist-flatpak:release-flatpak dist-arch:release-arch dist-macos:release-macos dist-android:release-android dist-wasm:dist-wasm dist-cli:release-cli"
+          pairs="dist-windows:release-windows dist-linux:release-linux dist-linux-deb:release-linux-deb dist-linux-rpm:release-linux-rpm dist-rpm:release-rpm dist-flatpak:release-flatpak dist-arch:release-arch dist-macos:release-macos dist-android:release-android dist-ios-device-unsigned:release-ios dist-wasm:dist-wasm dist-cli:release-cli"
           mkdir -p artifacts
           for pair in $pairs; do
             src="${pair%%:*}"; dst="${pair##*:}"
@@ -945,6 +1058,7 @@ jobs:
           need release-macos '*.dmg'
           need release-android '*.apk'
           need release-android '*.aab'
+          need release-ios '*.ipa'
           need release-cli 'cyb-*.tar.gz'
           need release-cli 'cyb_*.deb'
           need dist-wasm 'index.html'
@@ -1022,6 +1136,14 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      - name: Re-upload iOS artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-ios
+          path: artifacts/release-ios/
+          retention-days: 30
+          if-no-files-found: error
+
       - name: Re-upload CLI artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -1056,6 +1178,7 @@ jobs:
       - arch-build
       - macos-build
       - android-build
+      - ios-build
       - cli-build
       - docker-build
       - fetch-last-build
@@ -1105,6 +1228,7 @@ jobs:
           check release-arch     "*.AppImage"
           check release-macos    "*.dmg"
           check release-android  "*.apk" "*.aab"
+          check release-ios      "*.ipa"
           check release-cli      "cyb-*.tar.gz" "cyb_*.deb"
           check dist-wasm        "index.html"
           exit $missing
@@ -1145,6 +1269,7 @@ jobs:
           echo "| Linux (Arch) | \`*-arch.deb\` / \`*-arch.AppImage\` built on Arch |" >> release_notes.md
           echo "| macOS | \`.dmg\` (app inside) |" >> release_notes.md
           echo "| Android | signed \`.apk\` (arm64-v8a) + \`.aab\` (Play upload) |" >> release_notes.md
+          echo "| iOS | unsigned arm64 device \`.ipa\` (sign before installation) |" >> release_notes.md
           echo "| Terminal | \`cyb-*.tar.gz\` universal CLI (\`curl -fsSL https://cybermanju.github.io/install.sh \| bash\`) |" >> release_notes.md
           echo "| Web (WASM) | \`dist-wasm.zip\` (static files for any web server) |" >> release_notes.md
           echo "| Docker | \`docker pull ${IMAGE}:latest\` |" >> release_notes.md
@@ -1165,6 +1290,7 @@ jobs:
           echo "- **Linux (Arch/CachyOS)**: Run the \`.AppImage\` or build from AUR" >> release_notes.md
           echo "- **macOS**: Open the \`.dmg\` and drag to Applications" >> release_notes.md
           echo "- **Android**: Enable unknown sources, install the \`.apk\` (arm64-v8a devices only)" >> release_notes.md
+          echo "- **iOS**: Sign the unsigned arm64 device \`.ipa\` with your Apple certificate and provisioning profile before installation" >> release_notes.md
           echo "- **Web**: Extract \`.zip\` and serve with any static file server" >> release_notes.md
           echo "" >> release_notes.md
           echo "### Verify downloads" >> release_notes.md
@@ -1205,6 +1331,7 @@ jobs:
           copy_files artifacts/release-arch "-arch" '*.deb' '*.AppImage'
           copy_files artifacts/release-macos "" '*.dmg'
           copy_files artifacts/release-android "" '*.apk' '*.aab'
+          copy_files artifacts/release-ios "" '*.ipa'
           copy_files artifacts/release-cli "" 'cyb-*.tar.gz'
           copy_files artifacts/release-cli "" 'cyb_*.deb'
 

@@ -1,6 +1,6 @@
 [package]
 name = "cybermanju-os-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "CyberManju OS — Quantum-resistant encrypted file manager"
 authors = ["CyberManju Team"]
 edition = "2021"

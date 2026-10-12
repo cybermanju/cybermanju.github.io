@@ -1125,7 +1125,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-agent"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "chrono",
@@ -1139,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-compression"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1152,7 +1152,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1177,7 +1177,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-db"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1192,7 +1192,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-disk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1213,7 +1213,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-erasure"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "log",
@@ -1224,7 +1224,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-faces"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1242,7 +1242,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-launcher"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "jni",
@@ -1253,7 +1253,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-os"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1278,7 +1278,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-os-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1339,7 +1339,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-os-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cybermanju-db",
  "cybermanju-search",
@@ -1351,7 +1351,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-os-wasm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "argon2",
  "blake3",
@@ -1385,7 +1385,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-scene"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1393,7 +1393,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-search"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1403,7 +1403,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-sync"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -1426,7 +1426,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-tests"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1449,7 +1449,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-types"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1457,7 +1457,7 @@ dependencies = [
 
 [[package]]
 name = "cybermanju-web"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "argon2",

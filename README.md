@@ -19,7 +19,7 @@
 [![Rust](https://img.shields.io/badge/backend-Rust_2021-dea584?style=for-the-badge&logo=rust)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-00FF41?style=for-the-badge)](LICENSE)
 
-**Version:** 0.1.0 \
+**Version:** 0.1.1 \
 **Identifier:** `com.cybermanju.os` \
 **License:** MIT
 
@@ -72,7 +72,7 @@ irm https://cybermanju.github.io/install.ps1 | iex
 ```
 
 Open `http://localhost:3456` from any device on your LAN — same vault, new screen. ✨
-Checksum-verified against the release `SHA256SUMS`; pin a release with `CYB_VERSION=v0.1.0`.
+Checksum-verified against the release `SHA256SUMS`; pin a release with `CYB_VERSION=v0.1.1`.
 
 <details>
 <summary>⚙️ Preselect / automate the installer (click to expand)</summary>
@@ -391,7 +391,7 @@ threat model → [`docs/SECURITY.md`](docs/SECURITY.md).
 
 Paste-ready install — checksum-verified against the release `SHA256SUMS`.
 The binary lands in `~/.local/bin` (`%LOCALAPPDATA%\cybermanju\bin` on
-Windows); pin a release with `CYB_VERSION=v0.1.0` (`$env:CYB_VERSION`).
+Windows); pin a release with `CYB_VERSION=v0.1.1` (`$env:CYB_VERSION`).
 
 Linux / macOS (also Git-Bash/MSYS2 on Windows):
 
