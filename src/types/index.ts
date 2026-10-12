@@ -889,6 +889,15 @@ export interface LanPeer {
   lastSeenSecs: number
 }
 
+/** One presence heartbeat (`GET /api/peers/known`, `peers_known`) — the
+ * server-assisted peer list for targets without mDNS (mobile/docker). */
+export interface PresencePeer {
+  deviceId: string
+  host: string
+  port: number
+  seenAtSecs: number
+}
+
 /** One snapshot file (`backup list` — every transport, `--json`). */
 export interface BackupEntry {
   name: string

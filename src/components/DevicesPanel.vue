@@ -153,14 +153,29 @@
           <p v-if="store.lanSyncMsg" class="dv-line">{{ store.lanSyncMsg }}</p>
           <p class="dv-muted">Direct sync is peer-authenticated: only enrolled, non-revoked devices (Registry above) sync — unknown peers stay listed but never merge.</p>
         </UiCard>
-        <UiCard title="WAN dial" icon="solar:rocket-bold" meta="http live · quic sequenced">
+        <UiCard title="Presence (no-mDNS peers)" icon="solar:radar-bold" meta="announce · known">
+          <div class="dv-pair">
+            <UiButton size="sm" @click="store.fetchKnownPeers()">Refresh known</UiButton>
+            <UiButton size="sm" variant="ghost" :disabled="!canAnnounce" @click="announceHere">Announce here</UiButton>
+          </div>
+          <div v-if="!store.knownPeers.length" class="dv-muted">No heartbeats yet — peers `POST /api/peers/announce` once per launch (5 min TTL); this is what mobile/docker read where multicast cannot go.</div>
+          <div v-for="p in store.knownPeers" :key="p.deviceId" class="dv-pair dv-row">
+            <span class="dv-line">{{ p.deviceId }} <span class="dv-muted">{{ p.host }}:{{ p.port }}</span></span>
+            <UiButton size="sm" @click="store.syncWithPeer(p.deviceId)">Sync</UiButton>
+          </div>
+          <p v-if="store.presenceMsg" class="dv-line">{{ store.presenceMsg }}</p>
+        </UiCard>
+        <UiCard title="WAN dial" icon="solar:rocket-bold" meta="http live · relay live">
           <div class="dv-pair">
             <UiInput v-model="wanInput" placeholder="phone-7@192.168.1.60:3456" aria-label="WAN endpoint" />
             <UiButton size="sm" :disabled="!wanInput.trim()" @click="planWan">Plan dial</UiButton>
             <UiButton size="sm" variant="ghost" :disabled="!wanInput.trim()" @click="probeWan">Probe</UiButton>
           </div>
+          <div class="dv-pair">
+            <UiInput v-model="relayUrl" placeholder="https://relay.example.com (optional)" aria-label="Relay URL" />
+          </div>
           <p v-if="wanResult" class="dv-line">{{ wanResult }}</p>
-          <p v-else class="dv-muted">Off-LAN HTTP dial is live (readyz probe + op-log pull/push, 15 s abort) — QUIC relay dial stays sequenced (new dep + networked CI). Same grammar as `wan plan|dial` in cybsh.</p>
+          <p v-else class="dv-muted">Direct HTTP dial is live (readyz probe + op-log pull/push, 15 s abort); relay tickets rendezvous via the relay URL above (outbound HTTPS drop/poll, no inbound port). Same grammar as `wan plan|dial` in cybsh.</p>
         </UiCard>
       </div>
     </section>
@@ -290,7 +305,7 @@ import {
 import type { TopSnapshot } from '@/utils/deviceStats'
 import type { LanPeer } from '@/types'
 import { isPeerSyncable, peerBlockReason } from '@/utils/lanSync'
-import { parseWanEndpoint, wanDialPlan, wanDialSteps, wanHttpBase, wanHttpProbe, wanWayOut } from '@/utils/wanDial'
+import { isRelayAddr, parseWanEndpoint, relayDialSteps, wanDialPlan, wanDialSteps, wanHttpBase, wanHttpProbe, wanWayOut } from '@/utils/wanDial'
 
 const hw = useSystemHardware()
 const store = useAppStore()
@@ -327,8 +342,29 @@ function peerSyncTitle(p: LanPeer): string {
 
 const wanInput = ref('')
 const wanResult = ref('')
+const relayUrl = ref(
+  typeof localStorage === 'undefined' ? '' : (localStorage.getItem('cybermanju.relayUrl') ?? ''),
+)
 
-/** WAN dial seam (§2B.5): honest QUIC plan + real HTTP dial steps. */
+watch(relayUrl, (v) => {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('cybermanju.relayUrl', v)
+  } catch {
+    // Private mode — the relay URL simply does not persist.
+  }
+})
+
+/** This device's first enrolled id (presence announce defaults to it). */
+const canAnnounce = computed(() => store.devices.length > 0)
+
+async function announceHere() {
+  const id = store.devices[0]?.id ?? ''
+  if (!id) return
+  const host = typeof location !== 'undefined' ? location.hostname : '127.0.0.1'
+  await store.announcePresence(id, host || '127.0.0.1', 3456)
+}
+
+/** WAN dial seam (§2B.5): live HTTP plan, live relay plan, honest fallback. */
 function planWan() {
   const raw = wanInput.value.trim()
   if (!raw) {
@@ -337,10 +373,12 @@ function planWan() {
   }
   try {
     const endpoint = parseWanEndpoint(raw)
-    const steps = wanDialSteps(endpoint, 0)
+    const steps = isRelayAddr(endpoint.addr)
+      ? relayDialSteps(endpoint, relayUrl.value, 0)
+      : wanDialSteps(endpoint, 0)
     try {
-      wanDialPlan(endpoint)
-      wanResult.value = steps.join('\n')
+      const plan = wanDialPlan(endpoint, 15, relayUrl.value)
+      wanResult.value = [plan, ...steps].join('\n')
     } catch (e) {
       const plan = e instanceof Error ? e.message : String(e)
       wanResult.value = [plan, ...steps, ...wanWayOut(endpoint)].join('\n')

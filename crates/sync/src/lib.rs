@@ -7,6 +7,7 @@
 //   * the OAuth2 token refresh helpers
 //   * the scan → compress → upload → link pipeline
 
+pub mod auth;
 pub mod backends;
 // <<< AGENT-2 MODS: chunk manifest + striped placement (item 10), >>>
 // <<< AGENT-2 MODS: auto-sync scheduler (item 11) >>>

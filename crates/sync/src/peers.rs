@@ -21,6 +21,8 @@
 // `network:` / `auth:` — never a guessed address, never a panic.
 use std::time::Duration;
 
+use cybermanju_db::Database;
+
 /// How we reach a peer. Only `RelayFuture` is aspirational — everything else
 /// is live on all six targets (android/ios/windows/linux/docker/wasm-fetch).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -567,14 +569,269 @@ pub fn wasm_peer_warning(base_url: &str, page_is_https: bool) -> Option<String> 
 /// copy-pasteable in OPERATIONS.md and the UI tooltip.
 pub fn platform_setup(target: &str) -> &'static str {
     match target {
-        "android" => "grant Nearby/MulticastLock via Tauri manifest; else add manual peers device@host:port (same Wi-Fi), keep the app foregrounded during sync",
-        "ios" => "enable Bonjour/multicast entitlement; else add manual peers device@host:port, keep the app foregrounded (background sockets suspend)",
-        "windows" => "allow UDP 5353 + TCP 3456 at the firewall prompt; active scan only (no system mDNS daemon)",
-        "linux" => "open UDP 5353 / TCP 3456 in firewalld/ufw; avahi owns 5353 so passive answering degrades — active scan still finds peers",
-        "docker" => "run --network host for mDNS, else set explicit peer base URLs; persist SEARCH_INDEX_PATH + /data or the index rebuilds",
-        "wasm" => "no setup on-device: use explicit https:// peer URLs (CORS allowlist + no mixed-content) or POST /api/search/federated server-side",
+        "android" => "grant Nearby/MulticastLock via Tauri manifest; else POST /api/peers/announce once per launch and read GET /api/peers/known (same Wi-Fi), keep the app foregrounded during sync",
+        "ios" => "enable Bonjour/multicast entitlement; else POST /api/peers/announce once per launch and read GET /api/peers/known, keep the app foregrounded (background sockets suspend)",
+        "windows" => "allow UDP 5353 + TCP 3456 at the firewall prompt; active scan only (no system mDNS daemon); /api/peers/known works without any firewall rule",
+        "linux" => "open UDP 5353 / TCP 3456 in firewalld/ufw; avahi owns 5353 so passive answering degrades — active scan still finds peers, /api/peers/known needs nothing",
+        "docker" => "run --network host for mDNS, else POST /api/peers/announce with the container's reachable host:port and read GET /api/peers/known; persist SEARCH_INDEX_PATH + /data or the index rebuilds",
+        "wasm" => "no setup on-device: POST /api/peers/announce is unreachable from the sandbox — use explicit https:// peer URLs (CORS allowlist + no mixed-content) or POST /api/search/federated server-side; WebRTC datachannels rendezvous via POST /api/relay/drop|poll",
         _ => "add an explicit device@host:port peer — it works on every target",
     }
+}
+
+// ─── Server-assisted presence + relay mailbox (kv-backed, no schema change) ──
+//
+// mDNS multicast cannot cross subnets and never reaches mobile/docker/wasm,
+// so any dashboard doubles as a rendezvous: peers `POST /api/peers/announce`
+// once per launch (5-minute TTL heartbeat) and readers merge
+// `GET /api/peers/known` with the mDNS scan. NAT-traversed op envelopes and
+// WebRTC handshake messages ride the same kv mailbox (`POST /api/relay/drop`,
+// `POST /api/relay/poll`, `POST /api/relay/ack`) — both sides make outbound
+// HTTPS, no inbound port needed. All functions are pure kv logic (no
+// sockets); the TS twins live in `src/utils/p2pPresence.ts`.
+
+/// kv key holding one presence entry.
+pub const PRESENCE_PREFIX: &str = "peer/addr/";
+/// kv key holding the presence index (JSON array of device ids).
+pub const PRESENCE_INDEX: &str = "peer/addr/index";
+/// Heartbeat TTL: entries older than this are invisible to readers.
+pub const PRESENCE_TTL_SECS: u64 = 300;
+/// kv prefix holding one relay message per key.
+pub const RELAY_MSG_PREFIX: &str = "peer/relay/msg/";
+/// kv prefix holding one recipient index per key (JSON array of message ids).
+pub const RELAY_INDEX_PREFIX: &str = "peer/relay/index/";
+/// Mailbox depth per recipient (oldest dropped first, never unbounded).
+pub const RELAY_MAX_PER_RECIPIENT: usize = 32;
+/// Largest single relay message (envelope JSON, bytes on the wire).
+pub const RELAY_MAX_BYTES: usize = 256 * 1024;
+/// Largest presence index (never an unbounded array in kv).
+pub const PRESENCE_MAX_DEVICES: usize = 128;
+
+/// One announced peer: who it is, where its `/api` lives, when it checked in.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PresenceEntry {
+    pub device_id: String,
+    pub host: String,
+    pub port: u16,
+    pub seen_at_secs: u64,
+}
+
+/// One relay mailbox message (op envelope or WebRTC handshake fragment).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayMessage {
+    pub id: String,
+    pub from: String,
+    pub to: String,
+    pub kind: String,
+    pub payload: serde_json::Value,
+    pub created_at_secs: u64,
+}
+
+fn unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Wall-clock seconds for presence/relay calls (single source so route
+/// handlers and tests share one clock; tests inject their own).
+pub fn presence_now() -> u64 {
+    unix_secs()
+}
+
+fn read_index(db: &Database, key: &str) -> Vec<String> {
+    db.kv_get(key)
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn write_index(db: &Database, key: &str, ids: &[String]) -> Result<(), String> {
+    let raw =
+        serde_json::to_string(ids).map_err(|e| format!("integrity: index unserializable: {e}"))?;
+    db.kv_set(key, &raw).map_err(|e| e.to_string())
+}
+
+/// Announce this device's reachable `/api` (`POST /api/peers/announce`).
+/// `now_secs` is injected so tests pin TTL without sleeping.
+pub fn announce_presence(
+    db: &Database,
+    device_id: &str,
+    host: &str,
+    port: u16,
+    now_secs: u64,
+) -> Result<PresenceEntry, String> {
+    let device_id = device_id.trim().to_string();
+    if device_id.is_empty() {
+        return Err("invalid: announce needs a device id".to_string());
+    }
+    if device_id.contains(char::is_whitespace) {
+        return Err("invalid: device id must not contain whitespace".to_string());
+    }
+    let host = host.trim().trim_matches(|c| c == '[' || c == ']').to_string();
+    if host.is_empty() {
+        return Err("invalid: announce needs a host".to_string());
+    }
+    if host.contains(char::is_whitespace) || host.contains('/') {
+        return Err("invalid: announce host must be a bare host or IP".to_string());
+    }
+    if port == 0 {
+        return Err("invalid: announce needs a port (1..=65535)".to_string());
+    }
+    let entry = PresenceEntry {
+        device_id: device_id.clone(),
+        host,
+        port,
+        seen_at_secs: now_secs,
+    };
+    let raw =
+        serde_json::to_string(&entry).map_err(|e| format!("integrity: entry unserializable: {e}"))?;
+    db.kv_set(&format!("{PRESENCE_PREFIX}{device_id}"), &raw)
+        .map_err(|e| e.to_string())?;
+    let mut index = read_index(db, PRESENCE_INDEX);
+    if !index.iter().any(|id| id == &device_id) {
+        index.push(device_id);
+        index.truncate(PRESENCE_MAX_DEVICES);
+        write_index(db, PRESENCE_INDEX, &index)?;
+    }
+    Ok(entry)
+}
+
+/// Read the fresh (TTL-unexpired) presence entries, sorted by device id.
+/// Read-only (safe under the shared lock on the `GET` route).
+pub fn known_presence(db: &Database, now_secs: u64, max_age_secs: u64) -> Vec<PresenceEntry> {
+    let mut out = Vec::new();
+    for id in read_index(db, PRESENCE_INDEX) {
+        let Some(raw) = db.kv_get(&format!("{PRESENCE_PREFIX}{id}")).ok().flatten() else {
+            continue;
+        };
+        let Ok(entry) = serde_json::from_str::<PresenceEntry>(&raw) else {
+            continue;
+        };
+        if now_secs.saturating_sub(entry.seen_at_secs) <= max_age_secs {
+            out.push(entry);
+        }
+    }
+    out.sort_by(|a, b| a.device_id.cmp(&b.device_id));
+    out
+}
+
+/// Drop one envelope into a recipient's mailbox (`POST /api/relay/drop`).
+/// Returns the message id (the sender polls nothing — delivery is the
+/// relay's receipt; the recipient polls). Payloads beyond `RELAY_MAX_BYTES`
+/// refuse with `too_large:` (ship them as bundle payloads over direct HTTP).
+pub fn relay_drop(
+    db: &Database,
+    from: &str,
+    to: &str,
+    kind: &str,
+    payload: serde_json::Value,
+    now_secs: u64,
+) -> Result<String, String> {
+    let from = from.trim().to_string();
+    let to = to.trim().to_string();
+    let kind = kind.trim().to_string();
+    if from.is_empty() || to.is_empty() {
+        return Err("invalid: relay drop needs from and to device ids".to_string());
+    }
+    if kind.is_empty() {
+        return Err("invalid: relay drop needs a kind (op-envelope|offer|answer|ice)".to_string());
+    }
+    let envelope = serde_json::json!({
+        "v": 1u32, "from": from, "to": to, "kind": kind, "payload": payload,
+    });
+    let wire =
+        serde_json::to_string(&envelope).map_err(|e| format!("integrity: envelope unserializable: {e}"))?;
+    if wire.len() > RELAY_MAX_BYTES {
+        return Err(format!(
+            "too_large: relay message is {} bytes (cap {RELAY_MAX_BYTES} — ship bulk bytes as bundle payloads over direct HTTP)",
+            wire.len()
+        ));
+    }
+    let id = blake3::hash(format!("{from}\0{to}\0{kind}\0{now_secs}\0{wire}").as_bytes())
+        .to_hex()
+        .to_string()
+        .chars()
+        .take(16)
+        .collect::<String>();
+    let msg = RelayMessage {
+        id: id.clone(),
+        from,
+        to: to.clone(),
+        kind,
+        payload,
+        created_at_secs: now_secs,
+    };
+    let raw =
+        serde_json::to_string(&msg).map_err(|e| format!("integrity: message unserializable: {e}"))?;
+    db.kv_set(&format!("{RELAY_MSG_PREFIX}{id}"), &raw)
+        .map_err(|e| e.to_string())?;
+    let index_key = format!("{RELAY_INDEX_PREFIX}{to}");
+    let mut index = read_index(db, &index_key);
+    if !index.iter().any(|m| m == &id) {
+        index.push(id.clone());
+    }
+    while index.len() > RELAY_MAX_PER_RECIPIENT {
+        if let Some(old) = index.first().cloned() {
+            let _ = db.kv_delete(&format!("{RELAY_MSG_PREFIX}{old}"));
+            index.remove(0);
+        } else {
+            break;
+        }
+    }
+    write_index(db, &index_key, &index)?;
+    Ok(id)
+}
+
+/// List a recipient's queued messages, oldest first (`POST /api/relay/poll`).
+/// Read-only — messages stay queued until `relay_ack` clears them, so a
+/// dropped poll never loses mail.
+pub fn relay_poll(db: &Database, recipient: &str) -> Result<Vec<RelayMessage>, String> {
+    let recipient = recipient.trim();
+    if recipient.is_empty() {
+        return Err("invalid: relay poll needs a device id".to_string());
+    }
+    let mut out = Vec::new();
+    for id in read_index(db, &format!("{RELAY_INDEX_PREFIX}{recipient}")) {
+        let Some(raw) = db
+            .kv_get(&format!("{RELAY_MSG_PREFIX}{id}"))
+            .ok()
+            .flatten()
+        else {
+            continue;
+        };
+        if let Ok(msg) = serde_json::from_str::<RelayMessage>(&raw) {
+            out.push(msg);
+        }
+    }
+    out.sort_by_key(|m| (m.created_at_secs, m.id.clone()));
+    Ok(out)
+}
+
+/// Clear delivered messages (`POST /api/relay/ack`). Returns cleared count.
+pub fn relay_ack(db: &Database, recipient: &str, ids: &[String]) -> Result<usize, String> {
+    let recipient = recipient.trim();
+    if recipient.is_empty() {
+        return Err("invalid: relay ack needs a device id".to_string());
+    }
+    let index_key = format!("{RELAY_INDEX_PREFIX}{recipient}");
+    let mut index = read_index(db, &index_key);
+    let mut cleared = 0;
+    for id in ids {
+        let id = id.trim();
+        if id.is_empty() || !index.iter().any(|m| m == id) {
+            continue;
+        }
+        let _ = db.kv_delete(&format!("{RELAY_MSG_PREFIX}{id}"));
+        index.retain(|m| m != id);
+        cleared += 1;
+    }
+    write_index(db, &index_key, &index)?;
+    Ok(cleared)
 }
 
 #[cfg(test)]
@@ -706,5 +963,75 @@ mod tests {
         for target in ["android", "ios", "windows", "linux", "docker", "wasm"] {
             assert!(!platform_setup(target).is_empty(), "{target}");
         }
+    }
+
+    fn presence_db(tag: &str) -> (std::path::PathBuf, Database) {
+        let dir = std::env::temp_dir().join(format!(
+            "cybermanju-presence-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let db = Database::new(dir.join("presence.redb").to_str().unwrap()).expect("db");
+        (dir, db)
+    }
+
+    #[test]
+    fn presence_announce_known_ttl() {
+        let (_dir, db) = presence_db("ttl");
+        announce_presence(&db, "phone-7", "192.168.1.60", 3456, 1_000).expect("announce");
+        announce_presence(&db, "laptop-1", "10.0.0.9", 3456, 1_000).expect("announce");
+        let known = known_presence(&db, 1_100, PRESENCE_TTL_SECS);
+        assert_eq!(known.len(), 2);
+        assert_eq!(known[0].device_id, "laptop-1");
+        // Stale heartbeats are invisible, never an error.
+        let known = known_presence(&db, 1_000 + PRESENCE_TTL_SECS + 1, PRESENCE_TTL_SECS);
+        assert!(known.is_empty(), "{known:?}");
+        // Re-announce refreshes the heartbeat.
+        announce_presence(&db, "phone-7", "192.168.1.61", 3456, 2_000).expect("announce");
+        let known = known_presence(&db, 2_050, PRESENCE_TTL_SECS);
+        assert_eq!(known.len(), 1);
+        assert_eq!(known[0].host, "192.168.1.61");
+        assert!(announce_presence(&db, "  ", "h", 3456, 0).unwrap_err().starts_with("invalid:"));
+        assert!(announce_presence(&db, "x", "", 3456, 0).unwrap_err().starts_with("invalid:"));
+        assert!(announce_presence(&db, "x", "h", 0, 0).unwrap_err().starts_with("invalid:"));
+    }
+
+    #[test]
+    fn relay_mailbox_round_trips_and_acks() {
+        let (_dir, db) = presence_db("relay");
+        let id = relay_drop(
+            &db,
+            "laptop-1",
+            "phone-7",
+            "op-envelope",
+            serde_json::json!({"ops": []}),
+            5_000,
+        )
+        .expect("drop");
+        assert_eq!(id.len(), 16);
+        let queued = relay_poll(&db, "phone-7").expect("poll");
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].from, "laptop-1");
+        // Poll is non-destructive — a dropped poll never loses mail.
+        assert_eq!(relay_poll(&db, "phone-7").expect("poll").len(), 1);
+        assert_eq!(
+            relay_ack(&db, "phone-7", &[id.clone()]).expect("ack"),
+            1
+        );
+        assert!(relay_poll(&db, "phone-7").expect("poll").is_empty());
+        // Unknown recipients poll empty; garbage validates first.
+        assert!(relay_poll(&db, "nobody").expect("poll").is_empty());
+        assert!(relay_poll(&db, "  ").unwrap_err().starts_with("invalid:"));
+        assert!(relay_drop(&db, "", "phone-7", "op-envelope", serde_json::json!({}), 0)
+            .unwrap_err()
+            .starts_with("invalid:"));
+        let big = serde_json::json!({"blob": "x".repeat(RELAY_MAX_BYTES + 1)});
+        assert!(relay_drop(&db, "a", "b", "op-envelope", big, 0)
+            .unwrap_err()
+            .starts_with("too_large:"));
     }
 }

@@ -1779,7 +1779,10 @@ mod snapshot_tests {
             db.opener_lock_path().exists(),
             "lockfile must exist while open"
         );
-        let err = Database::new(path_str).unwrap_err().to_string();
+        let err = Database::new(path_str)
+            .err()
+            .expect("second opener must fail")
+            .to_string();
         assert!(
             err.starts_with("conflict:"),
             "second opener must fail closed, got: {err}"

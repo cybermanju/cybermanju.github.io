@@ -1120,6 +1120,64 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     transformResponse: (raw) => transformResponseKeys(raw),
   },
 
+  // ── Server-assisted presence + NAT rendezvous (§2B.2 PEX) ──
+  // Any dashboard doubles as a rendezvous: announce once per launch, read
+  // known alongside the mDNS scan; op envelopes + WebRTC handshake ride the
+  // relay mailbox (both sides outbound HTTPS, no inbound port).
+  peers_known: {
+    method: 'GET',
+    buildPath: () => '/api/peers/known',
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  peers_announce: {
+    method: 'POST',
+    buildPath: () => '/api/peers/announce',
+    transformRequest: (args) => ({
+      deviceId: args.deviceId ?? args.device_id ?? '',
+      host: args.host ?? '',
+      port: args.port ?? 3456,
+    }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  relay_drop: {
+    method: 'POST',
+    buildPath: () => '/api/relay/drop',
+    transformRequest: (args) => ({
+      from: args.from ?? '',
+      to: args.to ?? '',
+      kind: args.kind ?? 'op-envelope',
+      payload: args.payload ?? null,
+    }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  relay_poll: {
+    method: 'POST',
+    buildPath: () => '/api/relay/poll',
+    transformRequest: (args) => ({ for: args.for ?? args.forDevice ?? args.deviceId ?? '' }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  relay_ack: {
+    method: 'POST',
+    buildPath: () => '/api/relay/ack',
+    transformRequest: (args) => ({ for: args.for ?? args.forDevice ?? args.deviceId ?? '', ids: args.ids ?? [] }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  bundle_build: {
+    method: 'POST',
+    buildPath: () => '/api/sync/bundle/build',
+    transformRequest: (args) => ({
+      deviceId: args.deviceId ?? args.device_id ?? '',
+      since: args.since ?? 0,
+      files: args.files ?? [],
+    }),
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
   // ── Server todos (§4.9 agent bridge — same rows the agent tools use) ──
   list_todos: {
     method: 'GET',
@@ -1186,7 +1244,11 @@ export const REST_ROUTES: Record<string, RestMapping> = {
   peer_sync: {
     method: 'POST',
     buildPath: (args) => `/api/peers/${encodeURIComponent(String(args.id ?? args.deviceId ?? ''))}/sync`,
-    transformRequest: (args) => ({ ops: args.ops ?? [] }),
+    transformRequest: (args) => ({
+      ops: args.ops ?? [],
+      ...(typeof args.signature === 'string' && args.signature ? { signature: args.signature } : {}),
+      ...(typeof args.algorithm === 'string' && args.algorithm ? { algorithm: args.algorithm } : {}),
+    }),
     transformResponse: (raw) => transformResponseKeys(raw),
   },
 
@@ -1606,7 +1668,9 @@ export const REST_FIRST = new Set([
   'list_todos', 'create_todo', 'toggle_todo', 'delete_todo',
   'oplog_since', 'oplog_push', 'oplog_conflicts', 'oplog_resolve',
   'peer_sync',
-  'bundle_export', 'bundle_import',
+  'peers_known', 'peers_announce',
+  'relay_drop', 'relay_poll', 'relay_ack',
+  'bundle_export', 'bundle_import', 'bundle_build',
 ])
 
 /** Local commands Android/iOS serve over Tauri IPC (no dashboard on mobile).

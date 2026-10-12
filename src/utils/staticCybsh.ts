@@ -210,6 +210,7 @@ const HANDLED_VERBS = new Set([
   'encrypt', 'decrypt', 'keygen', 'compress', 'decompress',
   'scrub', 'repair', 'gc', 'lease', 'mount', 'umount', 'ai',
   'run', 'theme', 'ui', 'cron', 'backup', 'skill', 'task', 'oplog', 'lan', 'wan',
+  'pex', 'relay',
 ])
 
 export function handlesStaticVerb(verb: string): boolean {
@@ -3374,6 +3375,10 @@ export async function runStaticCybshLine(
         return done(await handleLan(args, json, deps))
       case 'wan':
         return done(await handleWan(args, json))
+      case 'pex':
+        return done(await handlePex(args, json, deps))
+      case 'relay':
+        return done(await handleRelay(args, json, deps))
       case 'task':
         return done(handleTask(args, json))
       default:

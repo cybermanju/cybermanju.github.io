@@ -1,7 +1,7 @@
 // CyberManju OS — Devices (src-tauri/src/commands/devices.rs).
 // Role: Tauri IPC commands for device identity (§2B.1) + LAN peers (§2B.2).
 // Exports: list_devices, register_device, register_this_device,
-// revoke_device, remove_device, list_lan_peers.
+// revoke_device, remove_device, list_lan_peers, sign_peer_ops.
 // Integrates: shared web API (devices), PQC engine (ML-DSA attestation),
 // sync lan scanner; State<AppState> locks mirror the cron module.
 // Contracts: trusted-local transport (same posture as the rest of IPC);
@@ -112,6 +112,25 @@ pub fn peer_platform_notes() -> Vec<serde_json::Value> {
         .into_iter()
         .map(|(target, note)| serde_json::json!({ "target": target, "note": note }))
         .collect()
+}
+
+/// Sign op-log rows with this device's ML-DSA seed for attested peer sync.
+/// `seed_b64` is the base64 seed the keystore sealed at enrollment (trusted-
+/// local IPC, same posture as the rest of this module — the seed never
+/// leaves the device); `ops_json` is the compact ops array. Returns
+/// `{ signature, algorithm }` for `SignedSyncBody`. Pages signs in-browser
+/// via the wasm `ml_dsa65_sign` twin instead.
+#[tauri::command(async)]
+pub fn sign_peer_ops(
+    seed_b64: String,
+    algorithm: String,
+    ops_json: String,
+) -> Result<serde_json::Value, String> {
+    let ops: Vec<cybermanju_types::schema::OpRow> =
+        serde_json::from_str(&ops_json).map_err(|e| format!("invalid: ops are not JSON: {e}"))?;
+    let signature =
+        cybermanju_sync::auth::sign_envelope(&seed_b64, &algorithm, &ops)?;
+    Ok(serde_json::json!({ "signature": signature, "algorithm": algorithm }))
 }
 
 /// Devices answering `_cybermanju._tcp.local` on the LAN right now.

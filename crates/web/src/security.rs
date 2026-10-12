@@ -169,6 +169,7 @@ const ROUTED_SEGMENTS: &[&str] = &[
     "metrics",
     "permissions",
     "readyz",
+    "relay",
     "search",
     // Secrets keystore (Phase 3) — sealed values, master-passphrase gated.
     // Stays `Authenticated` (default): the blob is useless without the

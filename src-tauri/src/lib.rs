@@ -463,6 +463,7 @@ pub fn run() {
             devices::list_lan_peers,
             devices::probe_peer,
             devices::peer_platform_notes,
+            devices::sign_peer_ops,
             // Server-side todos (§4.9 agent bridge — same rows the agent tools use).
             todos::list_todos,
             todos::create_todo,

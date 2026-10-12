@@ -25,7 +25,7 @@ import type {
   ScheduleRow, ScheduleRun,
   SecretMeta, SecretInput,
   BackupEntry, BackupReport, BackupVerify,
-  DeviceInfo, ServerTodo, LanPeer,
+  DeviceInfo, ServerTodo, LanPeer, PresencePeer,
   SyncBackendType,
 } from '@/types'
 import { MODULE_METADATA, oauthSlugForBackend, describeSyncError, agentErrorHint } from '@/types'
@@ -2381,16 +2381,47 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
-  async function syncWithPeer(deviceId: string, ops: unknown[] = []) {
+  async function syncWithPeer(deviceId: string, ops: unknown[] = [], attestation?: { signature: string; algorithm: string }) {
     try {
       lanSyncMsg.value = `Syncing with ${deviceId}… (pull → push → merge)`
-      const res = await invoke<{ appended?: number; skipped?: number; head?: number }>('peer_sync', { id: deviceId, ops })
+      const res = await invoke<{ appended?: number; skipped?: number; head?: number; verified?: boolean }>(
+        'peer_sync',
+        attestation ? { id: deviceId, ops, ...attestation } : { id: deviceId, ops },
+      )
       await fetchOpConflicts()
-      lanSyncMsg.value = `Synced with ${deviceId} (appended ${res.appended ?? 0}, skipped ${res.skipped ?? 0})`
+      const seal = res.verified === true ? ' · attested ✓' : ' · unsigned'
+      lanSyncMsg.value = `Synced with ${deviceId} (appended ${res.appended ?? 0}, skipped ${res.skipped ?? 0}${seal})`
       return res
     } catch (e) {
       notifyError('LAN sync failed', e)
       lanSyncMsg.value = ''
+      return null
+    }
+  }
+
+  // ── Actions: server-assisted presence (§2B.2 PEX — mobile/docker answer) ──
+  const knownPeers = ref<PresencePeer[]>([])
+  const presenceMsg = ref('')
+
+  async function fetchKnownPeers() {
+    try {
+      knownPeers.value = await invoke<PresencePeer[]>('peers_known')
+      return knownPeers.value
+    } catch (e) {
+      notifyError('Presence read failed', e)
+      return []
+    }
+  }
+
+  async function announcePresence(deviceId: string, host: string, port: number) {
+    try {
+      const entry = await invoke<PresencePeer>('peers_announce', { deviceId, host, port })
+      presenceMsg.value = `Announced as ${entry.deviceId} @ ${entry.host}:${entry.port} (5 min TTL)`
+      await fetchKnownPeers()
+      return entry
+    } catch (e) {
+      notifyError('Presence announce failed', e)
+      presenceMsg.value = ''
       return null
     }
   }
@@ -3136,6 +3167,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     fetchSecrets, createSecret, updateSecret, deleteSecret, revealSecret,
     devices, lanPeers, fetchDevices, registerDevice, registerThisDevice,
     revokeDevice, removeDevice, fetchLanPeers,
+    knownPeers, presenceMsg, fetchKnownPeers, announcePresence,
     opConflicts, lanSyncMsg, fetchOpConflicts, resolveOpConflict, syncWithPeer,
     serverTodos, fetchServerTodos, createServerTodo, toggleServerTodo, deleteServerTodo,
     backupShell, fetchBackupList, exportBackupToProvider, verifyBackupPath,
