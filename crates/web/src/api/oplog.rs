@@ -7,7 +7,8 @@
 // is never deleted — both forks stay readable under the resolution.
 //
 // Contract:
-//   - GET /api/oplog/since?since=N&limit=M → `{ head, ops }`
+//   - GET /api/oplog/since?since=N&limit=M → `{ head, ops }`; `since` is an
+//     inclusive next-sequence cursor and `head` is the next cursor for paging.
 //   - POST /api/oplog/push { deviceId, ops, signature, algorithm } → verified merge
 //   - GET /api/oplog/conflicts → `{ conflicts: [{a, b}] }`
 //   - POST /api/oplog/resolve { opA, opB, choice, deviceId? } → `{ resolved, op }`
@@ -206,7 +207,13 @@ pub fn route(
             let limit = limit.clamp(1, 5000);
             let result = if auth.is_admin {
                 db.list_ops_since(since, limit)
-                    .and_then(|ops| Ok((ops, db.oplog_head()?)))
+                    .map(|ops| {
+                        let head = ops
+                            .last()
+                            .map(|op| op.seq.saturating_add(1))
+                            .unwrap_or(since);
+                        (ops, head)
+                    })
             } else if auth.owner_id.trim().is_empty() {
                 Err(anyhow::anyhow!("auth: authenticated owner is required"))
             } else {
@@ -218,7 +225,10 @@ pub fn route(
                         .collect();
                     db.list_ops_since_for_devices(since, limit, &ids)
                         .map(|ops| {
-                            let head = ops.last().map(|op| op.seq).unwrap_or(since);
+                            let head = ops
+                                .last()
+                                .map(|op| op.seq.saturating_add(1))
+                                .unwrap_or(since);
                             (ops, head)
                         })
                 })

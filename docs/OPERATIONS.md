@@ -237,6 +237,11 @@ every payload BLAKE3-verified on import), larger files ride the sync
 backends on next contact. Search fans out per peer (`GET /api/search`,
 merged dedup-by-id / max-score-wins via `POST /api/search/federated`).
 
+Op-log pagination treats `since` as an inclusive next-sequence cursor (`0`
+includes the first `seq=0` operation); continue from each page's returned
+`head`. This preserves existing signed sequence IDs and avoids skipping the
+first operation or rows beyond a capped page.
+
 Server-assisted presence covers every target mDNS cannot reach: peers
 `POST /api/peers/announce { deviceId, host, port }` once per launch (5 min
 TTL) and readers merge `GET /api/peers/known` with the mDNS scan. WebRTC

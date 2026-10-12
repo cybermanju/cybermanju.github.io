@@ -90,8 +90,9 @@ fn canonical_payloads_json(payloads: &[BundlePayload]) -> Result<String, String>
         .map_err(|e| format!("integrity: bundle payloads unserializable: {e}"))
 }
 
-/// Collect ops with `seq > since` into an exportable bundle. Nothing is
-/// written — the caller places the bytes (USB path, provider file, …).
+/// Collect ops with `seq >= since` into an exportable bundle. `since` is the
+/// next-sequence cursor; nothing is written — the caller places the bytes
+/// (USB path, provider file, …).
 pub fn export_bundle(db: &Database, device_id: &str, since: u64) -> Result<Bundle, String> {
     export_bundle_with_files(db, device_id, since, Vec::new())
 }
@@ -382,7 +383,7 @@ mod tests {
         assert!(export_bundle(&a, "  ", 0).is_err());
         a.append_op(op("laptop", "tag")).unwrap();
         let bundle = export_bundle(&a, "laptop", 0).unwrap();
-        assert_eq!(bundle.head, 0);
+        assert_eq!(bundle.head, 1);
         let empty = export_bundle(&a, "laptop", 99).unwrap();
         assert!(empty.ops.is_empty());
     }

@@ -508,6 +508,7 @@ export interface SyncExchangeResult {
  * `pushOps`, render conflicts via `fetchConflicts`. Relay tickets refuse
  * with `unsupported:` (they rendezvous via the relay mailbox); HTTP sync is
  * fail-closed and requires a signature from the explicitly named local device.
+ * `since` is an inclusive next-sequence cursor; start at 0 and continue at `head`.
  */
 export async function syncExchangeWithPeer(
   peer: PeerEndpoint,

@@ -912,14 +912,39 @@ impl Database {
         }
         let tx = self.db.begin_write()?;
         let seq = {
-            let mut kv = tx.open_table(KV_TABLE)?;
-            let next: u64 = match kv.get("oplog:next_seq")? {
-                Some(v) => v.value().parse().unwrap_or(0),
-                None => 0,
+            let stored_next = {
+                let kv = tx.open_table(KV_TABLE)?;
+                kv.get("oplog:next_seq")?
+                    .map(|value| value.value().to_string())
             };
-            kv.insert("oplog:next_seq", (next + 1).to_string().as_str())?;
-            next
+            match stored_next {
+                Some(value) => value.parse::<u64>().map_err(|e| {
+                    anyhow::anyhow!("integrity: invalid op-log sequence counter: {e}")
+                })?,
+                None => {
+                    // Older databases may have rows but no counter. Continue
+                    // after the last stored row instead of overwriting seq 0.
+                    let table = tx.open_table(OPLOG_TABLE)?;
+                    let mut next = 0u64;
+                    for entry in table.iter()? {
+                        let (_, value) = entry?;
+                        let row: OpRow = serde_json::from_str(value.value())?;
+                        let after = row.seq.checked_add(1).ok_or_else(|| {
+                            anyhow::anyhow!("too_large: op-log sequence exhausted")
+                        })?;
+                        next = next.max(after);
+                    }
+                    next
+                }
+            }
         };
+        let following = seq
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("too_large: op-log sequence exhausted"))?;
+        {
+            let mut kv = tx.open_table(KV_TABLE)?;
+            kv.insert("oplog:next_seq", following.to_string().as_str())?;
+        }
         row.seq = seq;
         if row.op_id.trim().is_empty() {
             row.op_id = format!("{}-{seq}", row.device_id);
@@ -933,8 +958,8 @@ impl Database {
         Ok(row)
     }
 
-    /// Rows with `seq > since`, oldest first. `limit` caps the page (0 =
-    /// uncapped, but callers paginate — see the pull route default).
+    /// Rows with `seq >= since`, oldest first. `since` is the next-sequence
+    /// cursor (0 reads the first row); `limit` caps the page (0 = uncapped).
     pub fn list_ops_since(&self, since: u64, limit: usize) -> Result<Vec<OpRow>> {
         let tx = self.db.begin_read()?;
         let table = tx.open_table(OPLOG_TABLE)?;
@@ -942,7 +967,7 @@ impl Database {
         for entry in table.iter()? {
             let (_, value) = entry?;
             let row: OpRow = serde_json::from_str(value.value())?;
-            if row.seq > since {
+            if row.seq >= since {
                 rows.push(row);
             }
             if limit > 0 && rows.len() >= limit {
@@ -967,7 +992,7 @@ impl Database {
         for entry in table.iter()? {
             let (_, value) = entry?;
             let row: OpRow = serde_json::from_str(value.value())?;
-            if row.seq > since && device_ids.contains(&row.device_id) {
+            if row.seq >= since && device_ids.contains(&row.device_id) {
                 rows.push(row);
                 if limit > 0 && rows.len() >= limit {
                     break;
@@ -977,17 +1002,32 @@ impl Database {
         Ok(rows)
     }
 
-    /// Highest stored seq (0 when the log is empty).
+    /// Next sequence cursor (0 when the log is empty).
     pub fn oplog_head(&self) -> Result<u64> {
         let tx = self.db.begin_read()?;
+        let stored_next = {
+            let kv = tx.open_table(KV_TABLE)?;
+            kv.get("oplog:next_seq")?
+                .map(|value| value.value().to_string())
+        };
+        if let Some(value) = stored_next {
+            return value.parse::<u64>().map_err(|e| {
+                anyhow::anyhow!("integrity: invalid op-log sequence counter: {e}")
+            });
+        }
+        // Compatibility with databases written before the counter existed.
         let table = tx.open_table(OPLOG_TABLE)?;
-        let mut head = 0u64;
+        let mut next = 0u64;
         for entry in table.iter()? {
             let (_, value) = entry?;
             let row: OpRow = serde_json::from_str(value.value())?;
-            head = head.max(row.seq);
+            let after = row
+                .seq
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("too_large: op-log sequence exhausted"))?;
+            next = next.max(after);
         }
-        Ok(head)
+        Ok(next)
     }
 
     /// Merge foreign rows: unknown `op_id`s append (new local seq), known
@@ -1957,14 +1997,14 @@ mod registry_oplog_tests {
                 ..op("d1", "", None)
             })
             .is_err());
-        assert_eq!(db.oplog_head().unwrap(), 1);
-        assert_eq!(db.list_ops_since(0, 0).unwrap().len(), 1);
+        assert_eq!(db.oplog_head().unwrap(), 2);
+        assert_eq!(db.list_ops_since(1, 0).unwrap().len(), 1);
         // Merge: same op_id skips, foreign op appends with a fresh local seq.
         let (appended, skipped) = db
             .merge_ops(&[a.clone(), op("d2", "tag", Some("f1"))])
             .unwrap();
         assert_eq!((appended, skipped), (1, 1));
-        assert_eq!(db.oplog_head().unwrap(), 2);
+        assert_eq!(db.oplog_head().unwrap(), 3);
         drop(db);
         let _ = std::fs::remove_file(path);
     }

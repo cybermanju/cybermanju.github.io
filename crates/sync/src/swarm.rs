@@ -273,7 +273,7 @@ pub fn fountain_decode(symbols: &[FountainSymbol]) -> Result<Vec<u8>, String> {
         .try_into()
         .map_err(|_| "integrity: fountain OTI is not 12 bytes".to_string())?;
     let oti = raptorq::ObjectTransmissionInformation::deserialize(&oti_arr);
-    let mut decoder = raptorq::Decoder::new(oti);
+    let mut wires = Vec::with_capacity(symbols.len());
     for s in symbols {
         if s.object != first.object || s.oti_base64 != first.oti_base64 {
             return Err(
@@ -287,6 +287,12 @@ pub fn fountain_decode(symbols: &[FountainSymbol]) -> Result<Vec<u8>, String> {
         if blake3::hash(&wire).to_hex().to_string() != s.blake3.to_ascii_lowercase() {
             return Err("integrity: fountain symbol failed its BLAKE3 check".to_string());
         }
+        wires.push(wire);
+    }
+    // Validate the entire set before decoding: a short object can complete
+    // from its first symbol, but trailing mixed or corrupt symbols still fail.
+    let mut decoder = raptorq::Decoder::new(oti);
+    for wire in wires {
         // `deserialize` takes raw wire bytes; the BLAKE3 seal above already
         // proved they are unchanged in transit, but a hostile peer can seal
         // its own garbage — never let a malformed packet panic the server.

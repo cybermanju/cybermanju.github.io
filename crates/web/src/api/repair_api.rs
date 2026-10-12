@@ -39,7 +39,7 @@ pub fn route(
     match path_segments {
         // ── Durability status ────────────────────────────────────────────
         ["api", "repair", "status"] if method == "GET" => {
-            Some(respond(Ok(repair::status(db)), origin))
+            Some(respond(repair::status(db), origin))
         }
         ["api", "repair", "tasks"] if method == "GET" => Some(respond(Ok(repair::tasks()), origin)),
         ["api", "repair", "health"] if method == "GET" => Some(respond(health::status(db), origin)),

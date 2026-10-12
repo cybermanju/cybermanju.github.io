@@ -5,7 +5,7 @@
 // `crypto` (PBKDF2-HMAC-SHA512 + ChaCha20-Poly1305) instead of the wasm
 // bundle: the *format* (header, flags, legacy pass-through) is what is under
 // test, and the wasm binding is exercised in the browser build.
-import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, hkdfSync, pbkdf2Sync, randomBytes } from 'node:crypto'
 import { deflateRawSync, inflateRawSync } from 'node:zlib'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import {
@@ -40,8 +40,18 @@ const nodePrimitives: ContainerPrimitives = {
     if (inflated.length !== size) throw new Error('declared image length mismatch')
     return inflated
   },
-  deriveKey: (passphrase, salt, length, iterations) =>
-    new Uint8Array(pbkdf2Sync(passphrase, Buffer.from(salt), iterations, length, 'sha512')),
+  deriveKey: (passphrase, salt, length, iterations) => {
+    const stretched = pbkdf2Sync(passphrase, Buffer.from(salt), iterations, 64, 'sha512')
+    return new Uint8Array(
+      hkdfSync(
+        'sha256',
+        stretched,
+        Buffer.from(salt),
+        Buffer.from('cybermanju-container-v1'),
+        length,
+      ),
+    )
+  },
   encrypt: (key, nonce, plaintext) => {
     const cipher = createCipheriv('chacha20-poly1305', Buffer.from(key), Buffer.from(nonce), {
       authTagLength: 16,

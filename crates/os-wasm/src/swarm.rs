@@ -126,9 +126,8 @@ fn fountain_decode_inner(symbols_json: &str) -> Result<Vec<u8>, String> {
         .as_slice()
         .try_into()
         .map_err(|_| "integrity: fountain OTI is not 12 bytes".to_string())?;
-    let mut decoder = raptorq::Decoder::new(raptorq::ObjectTransmissionInformation::deserialize(
-        &oti_arr,
-    ));
+    let oti = raptorq::ObjectTransmissionInformation::deserialize(&oti_arr);
+    let mut wires = Vec::with_capacity(symbols.len());
     for s in &symbols {
         if s.object != first.object || s.oti_base64 != first.oti_base64 {
             return Err(
@@ -142,6 +141,11 @@ fn fountain_decode_inner(symbols_json: &str) -> Result<Vec<u8>, String> {
         if blake3::hash(&wire).to_hex().to_string() != s.blake3.to_ascii_lowercase() {
             return Err("integrity: fountain symbol failed its BLAKE3 check".to_string());
         }
+        wires.push(wire);
+    }
+    // Check all supplied symbols before the decoder can complete early.
+    let mut decoder = raptorq::Decoder::new(oti);
+    for wire in wires {
         let packet = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             raptorq::EncodingPacket::deserialize(&wire)
         }))
@@ -280,23 +284,21 @@ mod tests {
     #[test]
     fn wasm_round_trips_lossy_subsets() {
         let payload = b"wasm collects symbols from the relay mailbox".to_vec();
-        let json = swarm_encode_json(&payload, 4, 2).expect("encode");
+        let json = swarm_encode_inner(&payload, 4, 2).expect("encode");
         let symbols: Vec<serde_json::Value> = serde_json::from_str(&json).expect("json");
         assert_eq!(symbols.len(), 6);
         // Keep any 4 of 6 (drop two) — still decodes.
         let subset = serde_json::to_string(&symbols[1..5]).expect("subset");
-        assert_eq!(swarm_decode_json(&subset).expect("decode"), payload);
-        assert!(swarm_decode_json("[]")
+        assert_eq!(swarm_decode_inner(&subset).expect("decode"), payload);
+        assert!(swarm_decode_inner("[]")
             .unwrap_err()
-            .as_string()
-            .expect("str error")
             .starts_with("invalid:"));
     }
 
     #[test]
     fn wasm_fountain_round_trips_lossy_subsets() {
         let payload = b"wasm fountain spray across lossy relay paths".to_vec();
-        let json = fountain_encode_json(&payload, 1024, 8).expect("encode");
+        let json = fountain_encode_inner(&payload, 1024, 8).expect("encode");
         let symbols: Vec<serde_json::Value> = serde_json::from_str(&json).expect("json");
         assert!(!symbols.is_empty());
         // Drop every third symbol — the fountain still decodes.
@@ -307,16 +309,12 @@ mod tests {
             .map(|(_, v)| v)
             .collect();
         let subset_json = serde_json::to_string(&subset).expect("subset");
-        assert_eq!(fountain_decode_json(&subset_json).expect("decode"), payload);
-        assert!(fountain_decode_json("[]")
+        assert_eq!(fountain_decode_inner(&subset_json).expect("decode"), payload);
+        assert!(fountain_decode_inner("[]")
             .unwrap_err()
-            .as_string()
-            .expect("str error")
             .starts_with("invalid:"));
-        assert!(fountain_encode_json(&[], 1024, 8)
+        assert!(fountain_encode_inner(&[], 1024, 8)
             .unwrap_err()
-            .as_string()
-            .expect("str error")
             .starts_with("invalid:"));
     }
 }

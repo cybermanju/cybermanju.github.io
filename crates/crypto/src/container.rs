@@ -182,6 +182,8 @@ fn assemble(image: &[u8], passphrase: &str, salt: &[u8], nonce: &[u8]) -> Result
         return Err("too_large: backup image exceeds the 256 MiB container cap".to_string());
     }
     let encrypted = !passphrase.is_empty();
+    let salt = if encrypted { salt } else { &[][..] };
+    let nonce = if encrypted { nonce } else { &[][..] };
     let iterations = if encrypted { DEFAULT_ITERATIONS } else { 0 };
     let mut payload = image.to_vec();
     let mut compressed = false;
@@ -330,7 +332,7 @@ mod tests {
     /// 64-byte fixed image the TS encoder produced the vectors from.
     const VEC_IMG: &str = "0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc0126";
     /// `encodeContainer(image, 'vector-pass', deterministic-primitives)`.
-    const VEC_ENC: &str = "4359424d4a3031010102100ca08601004242424242424242424242424242424224242424242424242424242494d875d4493b44e6725a0d83112be30c194812be966b5b2051fbfb95a9981d5acf2460606846235575b48629bc705e240b9fab2768ddf0153512ecc9c8d0ee6f716cd964184be523b7ae1341db9a84b5";
+    const VEC_ENC: &str = "4359424d4a3031010102100ca0860100424242424242424242424242424242422424242424242424242424243146d778b80d801a9bdd2b6a97eac7928473e841dcc92abc26e652e0f577d772d8af9c92a3a527fac0b9df98c4d6e38e3b27c451cb16998b238297ee72e399537076e896845425cdef1bf5a342ba8723";
     /// `encodeContainer(image, '', deterministic-primitives)`.
     const VEC_PLAIN: &str = "4359424d4a30310100000000000000000b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc0126";
 
@@ -413,7 +415,9 @@ mod tests {
 
     #[test]
     fn round_trip_sealed_and_plain() {
-        let image: Vec<u8> = (0..1024u32).map(|i| (i * 2654435761 % 251) as u8).collect();
+        let image: Vec<u8> = (0..1024u32)
+            .map(|i| (i.wrapping_mul(2654435761) % 251) as u8)
+            .collect();
         let sealed = encode_container(&image, "round-trip").expect("encode");
         assert!(is_container(&sealed));
         let back = decode_container(&sealed, "round-trip").expect("decode");

@@ -20,7 +20,7 @@
 export interface ContainerPrimitives {
   compress(data: Uint8Array): Uint8Array
   decompress(data: Uint8Array): Uint8Array
-  /** PBKDF2-HMAC-SHA512 → `length` bytes. */
+  /** Full format KDF: PBKDF2-HMAC-SHA512 (64 bytes), then HKDF-SHA256. */
   deriveKey(passphrase: string, salt: Uint8Array, length: number, iterations: number): Uint8Array
   encrypt(key: Uint8Array, nonce: Uint8Array, plaintext: Uint8Array): Uint8Array
   decrypt(key: Uint8Array, nonce: Uint8Array, ciphertext: Uint8Array): Uint8Array
