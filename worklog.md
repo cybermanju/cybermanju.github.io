@@ -1966,4 +1966,4 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Added explicit dynamic `aria-label` names to the five icon-only Plasma system-tray actions (transport, sync, notifications, volume, and appearance), retaining their existing visual tooltips.
 - Added `tests/frontend/plasma-panel-a11y.test.ts` to ensure every tray action keeps an explicit accessible name.
 - Local checks passed: `check-version.sh`, file-header check (562 files), `vue-tsc --noEmit`, Vitest (99 files / 1,024 tests), and `git diff --check`. No Rust/Cargo or Go source changed.
-- CI/Pages status is pending publication of this develop-only code change; no release or tag was created.
+- CI run [38470920674](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38470920674) for commit [`98f240c`](https://github.com/cybermanju/cybermanju.github.io/commit/98f240c67fc9f9b07216b25e20489e9e8aa820e4) passed all 14 jobs, including Rust Lint & Test, Build WASM, platform builds, and Deploy to GitHub Pages. The preview at https://cybermanju.github.io/develop/ returned HTTP 200 with `/develop/` assets; `main` stayed at `1920ee2`. No release or tag was created.
