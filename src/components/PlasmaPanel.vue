@@ -69,6 +69,7 @@
         class="pp-tray-btn"
         type="button"
         :title="`Transport: ${transportLabel}`"
+        :aria-label="`Transport: ${transportLabel}`"
         @click="togglePopover('net')"
       >
         <AppIcon name="solar:server-bold" :size="16" />
@@ -78,6 +79,7 @@
         type="button"
         :class="{ active: syncBusy }"
         :title="syncBusy ? 'Sync running' : 'Sync idle'"
+        :aria-label="syncBusy ? 'Sync running' : 'Sync idle'"
         @click="togglePopover('sync')"
       >
         <AppIcon name="solar:refresh-bold" :size="16" />
@@ -86,6 +88,7 @@
         class="pp-tray-btn"
         type="button"
         :title="`${unreadCount} notifications — open notification center`"
+        :aria-label="`${unreadCount} notifications — open notification center`"
         @click="openCenter()"
       >
         <AppIcon name="solar:bell-bold" :size="16" />
@@ -95,6 +98,7 @@
         class="pp-tray-btn"
         type="button"
         title="Volume (placeholder)"
+        aria-label="Volume (placeholder)"
         @click="togglePopover('vol')"
       >
         <AppIcon name="solar:music-note-bold" :size="16" />
@@ -103,6 +107,7 @@
         class="pp-tray-btn"
         type="button"
         :title="theme.mode.value === 'light' ? 'Switch to dark' : 'Switch to light'"
+        :aria-label="theme.mode.value === 'light' ? 'Switch to dark' : 'Switch to light'"
         @click="toggleAppearance()"
       >
         <AppIcon :name="theme.mode.value === 'light' ? 'solar:moon-bold' : 'solar:sun-bold'" :size="16" />

@@ -1958,3 +1958,12 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - `cyb setup` now preserves existing profile/backend/session fields when saving dashboard login. The installer message and Termux README describe the new selection flow; setup tests cover Android choices, selector conditions, Supabase profile preservation, and required broker fields.
 - Local validation passed: `go vet ./...`, `go test -race -count=1 ./...`, Android/arm64 cross-build, installer Termux smoke test, ShellCheck, shell syntax, file-header check, and `git diff --check`. GitHub CI for this change is pending.
 - CI run [38308964630](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38308964630) for code commit [`5614bb9`](https://github.com/cybermanju/cybermanju.github.io/commit/5614bb9ec1717a914470ac4d8761b222380d3eba) completed successfully across all jobs, including Build CLI, Android, iOS, Rust Lint & Test, and WASM. This follow-up records the green result; no release or tag was created.
+
+
+## 2026-10-13 — Plasma tray accessibility
+
+- Confirmed the live GitHub refs `main` and `develop` both at `1920ee2080910f7f885ab7862ee6614d0ecc537e`; no main-only commits were missing, and all work stayed on `develop`.
+- Added explicit dynamic `aria-label` names to the five icon-only Plasma system-tray actions (transport, sync, notifications, volume, and appearance), retaining their existing visual tooltips.
+- Added `tests/frontend/plasma-panel-a11y.test.ts` to ensure every tray action keeps an explicit accessible name.
+- Local checks passed: `check-version.sh`, file-header check (562 files), `vue-tsc --noEmit`, Vitest (99 files / 1,024 tests), and `git diff --check`. No Rust/Cargo or Go source changed.
+- CI/Pages status is pending publication of this develop-only code change; no release or tag was created.
