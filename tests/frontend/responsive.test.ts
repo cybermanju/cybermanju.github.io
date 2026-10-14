@@ -112,6 +112,14 @@ describe('mobile home + nav wiring', () => {
   })
 })
 
+describe('global motion accessibility policy', () => {
+  it('registers reduced-motion handling at application startup', () => {
+    const app = fs.readFileSync('src/App.vue', 'utf8')
+    expect(app).toContain("import { useMotion } from '@/composables/useMotion'")
+    expect(app).toMatch(/const wm = useWindowManager\(\)[\s\S]{0,120}useMotion\(\)/)
+  })
+})
+
 describe('mobile onboarding surface', () => {
   it('uses an opaque full-screen sheet without CRT scanlines', () => {
     const wizard = fs.readFileSync('src/components/MobileSetupWizard.vue', 'utf8')

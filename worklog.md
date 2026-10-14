@@ -2012,3 +2012,10 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (563 files), `vue-tsc --noEmit`, full Vitest (99 files / 1,029 tests), and `git diff --check`. No Rust/Cargo code changed.
 - Pushed code commit [`ae05887`](https://github.com/cybermanju/cybermanju.github.io/commit/ae05887) to `develop` only. CI run [38606617225](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38606617225) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
 - Verified https://cybermanju.github.io/develop/ returned HTTP 200 and all 7 checked local asset references used `/develop/`. The post-CI authenticated fetch confirmed `main` remained at `1920ee2`, no commits were missing from `develop`, and no concurrent develop commit had appeared.
+
+## 2026-10-14 — Install reduced-motion policy at app root
+
+- Compared authenticated refs at start and after local validation: `origin/main` remained at `1920ee2`, no commits were missing from `develop`, and `origin/develop` stayed at `5215fc3` during the work. No main integration was needed; all edits remain on `develop`.
+- Found that the global `data-ui-motion` CSS policy was activated only through `useMotion()` calls inside `UiToolbar`'s `useWindowUi` path. Before any such toolbar mounted, the app root had no reduced-motion marker, so global CSS animations could ignore the user's OS/theme preference on the initial surface.
+- Called `useMotion()` at `App.vue` startup so reduced-motion policy is installed before windows/toolbars mount; added a regression assertion in `tests/frontend/responsive.test.ts` for root initialization.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (563 files), `vue-tsc --noEmit`, full Vitest (99 files / 1,030 tests), and `git diff --check`. No Rust/Cargo code changed.

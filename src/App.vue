@@ -9,6 +9,7 @@ import { ref, provide, onMounted, onBeforeUnmount, watch, nextTick, computed } f
 import { useTitle, useBroadcastChannel } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'
 import { useKeyboardShortcuts, getGlobalShortcuts } from '@/composables/useKeyboardShortcuts'
+import { useMotion } from '@/composables/useMotion'
 import { useShortcuts } from '@/composables/useShortcuts'
 import { useContextMenu } from '@/composables/useContextMenu'
 import { useDrag } from '@/composables/useDrag'
@@ -43,6 +44,8 @@ import type { PanelType } from '@/types'
 
 const store = useAppStore()
 const wm = useWindowManager()
+// Install the global motion policy before any window toolbar is mounted.
+useMotion()
 const kickoff = useKickoff()
 
 /**
