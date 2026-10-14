@@ -1994,3 +1994,10 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Added regression coverage for the malformed density/boolean combination, preserved manual theme selection, and confirmed CSS token generation remains valid.
 - Local checks passed: version check (`0.1.1`), file headers (563 files), `vue-tsc --noEmit`, targeted theme tests (16), full Vitest (99 files / 1,028 tests), and `git diff --check`. No Rust/Cargo code changed.
 - CI run [38542219051](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38542219051) for commit [`d9027a9`](https://github.com/cybermanju/cybermanju.github.io/commit/d9027a95f263580126a5b9caa5b84ee1b6768ca9) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages. The preview at https://cybermanju.github.io/develop/ returned HTTP 200 and exposed 7/7 checked assets under `/develop/`; `main` stayed at `1920ee2`. No release or tag was created.
+
+## 2026-10-14 — Validate persisted wallpaper IDs
+
+- Refreshed `origin` before implementation: `origin/main` had **0 commits missing from `develop`**; `develop` was 8 commits ahead. No main integration was needed, and all changes stayed on `develop`.
+- Hardened appearance recovery so persisted wallpaper IDs are accepted only when they exist in the static `WALLPAPERS` catalogue; malformed or stale values now recover to the configured default. `setWallpaper()` also ignores unknown IDs, preventing callers from placing unsupported values into shared theme state.
+- Added regression assertions for an invalid persisted ID and an invalid setter call; valid catalogued wallpaper changes continue to persist normally.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (563 files), `vue-tsc --noEmit`, full Vitest (99 files / 1,028 tests), and `git diff --check`. No Rust/Cargo code changed.

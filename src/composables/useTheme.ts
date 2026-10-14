@@ -8,6 +8,7 @@ import {
   DEFAULT_SETTINGS,
   LEGACY_THEME_ALIASES,
   THEMES,
+  WALLPAPERS,
   buildCssVars,
   type GlassLevel,
   type Density,
@@ -76,6 +77,9 @@ function loadSettings(): ThemeSettings {
       ? parsed.density
       : DEFAULT_SETTINGS.density
     const followSystem = typeof parsed.followSystem === 'boolean' ? parsed.followSystem : false
+    const wallpaper = typeof parsed.wallpaper === 'string' && WALLPAPERS.some(({ id }) => id === parsed.wallpaper)
+      ? parsed.wallpaper
+      : DEFAULT_SETTINGS.wallpaper
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
@@ -84,6 +88,7 @@ function loadSettings(): ThemeSettings {
       glass,
       density,
       followSystem,
+      wallpaper,
     }
   } catch {
     // Corrupt or unavailable storage should recover like a first run.
@@ -247,7 +252,7 @@ export function useTheme() {
     state.glow = value
   }
   function setWallpaper(id: string) {
-    state.wallpaper = id
+    if (WALLPAPERS.some((wallpaper) => wallpaper.id === id)) state.wallpaper = id
   }
   function cycleTheme() {
     const ids = Object.keys(THEMES) as ThemeId[]

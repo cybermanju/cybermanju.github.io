@@ -162,11 +162,16 @@ describe('theme preference recovery', () => {
     }
   })
 
-  it('normalizes invalid persisted density and follow-system values', async () => {
+  it('normalizes invalid persisted appearance values', async () => {
     vi.resetModules()
     vi.stubGlobal('localStorage', {
       getItem: (key: string) => key === 'cybermanju_theme_v1'
-        ? JSON.stringify({ theme: 'os-light', density: 'expanded', followSystem: 'false' })
+        ? JSON.stringify({
+            theme: 'os-light',
+            density: 'expanded',
+            followSystem: 'false',
+            wallpaper: '../unlisted-wallpaper',
+          })
         : null,
       setItem: vi.fn(),
     })
@@ -180,6 +185,7 @@ describe('theme preference recovery', () => {
       expect(theme.themeId.value).toBe('os-light')
       expect(theme.settings.density).toBe(DEFAULT_SETTINGS.density)
       expect(theme.settings.followSystem).toBe(false)
+      expect(theme.settings.wallpaper).toBe(DEFAULT_SETTINGS.wallpaper)
       expect(() => buildCssVars(theme.settings)).not.toThrow()
     } finally {
       vi.unstubAllGlobals()
@@ -206,6 +212,10 @@ describe('wallpaper persistence', () => {
 
       const saved = values.get('cybermanju_theme_v1')
       expect(saved).toBeDefined()
+      expect(JSON.parse(saved!).wallpaper).toBe(next)
+
+      theme.setWallpaper('../unlisted-wallpaper')
+      expect(theme.settings.wallpaper).toBe(next)
       expect(JSON.parse(saved!).wallpaper).toBe(next)
     } finally {
       vi.unstubAllGlobals()
