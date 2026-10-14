@@ -167,8 +167,12 @@ if (typeof window !== 'undefined' && window.matchMedia) {
           : (plasma ? 'plasma-dark' : 'os-dark')
       }
     }
-    mq.addEventListener?.('change', onChange)
-  } catch { /* older browsers — stored theme stands */ }
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', onChange)
+    } else {
+      mq.addListener?.(onChange)
+    }
+  } catch { /* unsupported media-query API — stored theme stands */ }
 }
 
 export function useTheme() {

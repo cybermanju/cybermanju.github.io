@@ -1976,3 +1976,12 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Added regressions for corrupt JSON and storage access errors with a simulated light system preference.
 - Local checks passed: version check (`0.1.1`), file headers (563 files), `vue-tsc --noEmit`, targeted theme tests, full Vitest (99 files / 1,026 tests), and `git diff --check`. No Rust/Cargo code changed.
 - CI run [38495625087](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38495625087) for commit [`0b0e302`](https://github.com/cybermanju/cybermanju.github.io/commit/0b0e3029b4733b17eb356b9a58add5be2eadd3af) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages. The preview at https://cybermanju.github.io/develop/ returned HTTP 200 and exposed 7/7 checked assets under `/develop/`; `main` stayed at `1920ee2`. No release or tag was created.
+
+
+## 2026-10-14 — Legacy media-query listener compatibility
+
+- Compared live `main` and `develop` before implementation and after local checks: `main` remained at `1920ee2080910f7f885ab7862ee6614d0ecc537e`, `develop` at `849f422d54c46e5030d01310af2edb216a976293`; no main-only commits were missing, and all work stayed on `develop`.
+- Added a `MediaQueryList.addListener` fallback when `addEventListener('change', ...)` is unavailable, so Auto appearance can continue tracking OS light/dark changes on older browsers and embedded WebViews. Modern browsers still use the standard event API.
+- Added a regression simulating the legacy listener; it verifies OS changes update Auto mode and do not override a later manual theme choice.
+- Local checks passed: version check (`0.1.1`), file headers (563 files), `vue-tsc --noEmit`, targeted theme tests (15), full Vitest (99 files / 1,027 tests), and `git diff --check`. No Rust/Cargo code changed.
+- CI is pending publication of this develop-only code change; no release or tag was created.

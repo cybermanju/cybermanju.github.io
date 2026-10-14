@@ -125,6 +125,42 @@ describe('theme preference recovery', () => {
       vi.resetModules()
     }
   })
+
+  it('tracks OS changes through the legacy MediaQueryList listener', async () => {
+    const listeners: Array<(event: MediaQueryListEvent) => void> = []
+    vi.resetModules()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => key === 'cybermanju_theme_v1'
+        ? JSON.stringify({ theme: 'os-dark', followSystem: true })
+        : null,
+      setItem: vi.fn(),
+    })
+    vi.stubGlobal('window', {
+      matchMedia: () => ({
+        matches: false,
+        addListener: (
+          listener: (event: MediaQueryListEvent) => void,
+        ) => listeners.push(listener),
+      }),
+    })
+
+    try {
+      const { useTheme: useFreshTheme } = await import('@/composables/useTheme')
+      const theme = useFreshTheme()
+      expect(theme.themeId.value).toBe('os-dark')
+      expect(listeners).toHaveLength(1)
+
+      listeners[0]({ matches: true } as MediaQueryListEvent)
+      expect(theme.themeId.value).toBe('os-light')
+
+      theme.setTheme('os-dark')
+      listeners[0]({ matches: true } as MediaQueryListEvent)
+      expect(theme.themeId.value).toBe('os-dark')
+    } finally {
+      vi.unstubAllGlobals()
+      vi.resetModules()
+    }
+  })
 })
 
 describe('wallpaper persistence', () => {
