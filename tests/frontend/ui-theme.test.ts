@@ -104,6 +104,29 @@ describe('theme registries', () => {
   })
 })
 
+describe('theme preference recovery', () => {
+  it.each([
+    { name: 'malformed settings', getItem: () => 'not-json' },
+    { name: 'blocked local storage', getItem: () => { throw new Error('blocked') } },
+  ])('follows the OS when $name is encountered', async ({ getItem }) => {
+    vi.resetModules()
+    vi.stubGlobal('localStorage', { getItem, setItem: vi.fn() })
+    vi.stubGlobal('window', {
+      matchMedia: () => ({ matches: true, addEventListener: vi.fn() }),
+    })
+
+    try {
+      const { useTheme: useFreshTheme } = await import('@/composables/useTheme')
+      const theme = useFreshTheme()
+      expect(theme.themeId.value).toBe('os-light')
+      expect(theme.settings.followSystem).toBe(true)
+    } finally {
+      vi.unstubAllGlobals()
+      vi.resetModules()
+    }
+  })
+})
+
 describe('wallpaper persistence', () => {
   it('saves preset changes through the shared theme settings watcher', async () => {
     const values = new Map<string, string>()

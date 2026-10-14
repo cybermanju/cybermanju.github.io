@@ -38,12 +38,16 @@ function systemTheme(): ThemeId {
   return plasma ? 'plasma-dark' : 'os-dark'
 }
 
+function defaultSettingsFollowingSystem(): ThemeSettings {
+  return { ...DEFAULT_SETTINGS, theme: systemTheme(), followSystem: true }
+}
+
 function loadSettings(): ThemeSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) {
       // First run: follow the host OS preference (auto appearance).
-      return { ...DEFAULT_SETTINGS, theme: systemTheme(), followSystem: true }
+      return defaultSettingsFollowingSystem()
     }
     const parsed = JSON.parse(raw) as Partial<ThemeSettings> & { theme?: string }
     const rawTheme = parsed.theme as string | undefined
@@ -78,7 +82,8 @@ function loadSettings(): ThemeSettings {
       followSystem,
     }
   } catch {
-    return { ...DEFAULT_SETTINGS }
+    // Corrupt or unavailable storage should recover like a first run.
+    return defaultSettingsFollowingSystem()
   }
 }
 
