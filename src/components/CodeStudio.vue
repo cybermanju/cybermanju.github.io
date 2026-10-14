@@ -228,7 +228,7 @@
           <button class="cs-btn xs" @click="replaceAll">All</button>
           <button class="cs-ibtn" title="Go to line" @click="gotoOpen = !gotoOpen">:ln</button>
           <input v-if="gotoOpen" v-model="gotoLine" class="cs-input sm" placeholder="line…" @keyup.enter="jumpToLine(Number(gotoLine))" />
-          <button class="cs-ibtn" @click="findOpen = false"><AppIcon name="solar:close-bold" :size="12" /></button>
+          <button class="cs-ibtn" aria-label="Close find bar" @click="findOpen = false"><AppIcon name="solar:close-bold" :size="12" /></button>
         </div>
 
         <!-- BOTTOM PANEL -->
@@ -237,7 +237,7 @@
             <button :class="{ active: bottomTab === 'term' }" @click="bottomTab = 'term'">TERMINAL</button>
             <button :class="{ active: bottomTab === 'problems' }" @click="bottomTab = 'problems'">PROBLEMS · {{ problems.length }}</button>
             <span class="cs-spacer" />
-            <button class="cs-ibtn" @click="bottomOpen = false"><AppIcon name="solar:close-bold" :size="12" /></button>
+            <button class="cs-ibtn" aria-label="Close bottom panel" @click="bottomOpen = false"><AppIcon name="solar:close-bold" :size="12" /></button>
           </div>
           <div v-if="bottomTab === 'term'" class="cs-termwrap">
             <div ref="termScrollRef" class="cs-term">

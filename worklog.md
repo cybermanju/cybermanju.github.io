@@ -2003,3 +2003,10 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (563 files), `vue-tsc --noEmit`, full Vitest (99 files / 1,028 tests), and `git diff --check`. No Rust/Cargo code changed.
 - Pushed code commit [`48237c7`](https://github.com/cybermanju/cybermanju.github.io/commit/48237c7f665e52719723ab526e81e6b0613a2928) to `develop` only. CI run [38571933623](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38571933623) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
 - Verified the deployed preview at https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked local asset references under `/develop/`. A final authenticated ref check found 0 commits missing from `develop`, with local `develop` aligned to `origin/develop`; `main` was not modified.
+
+## 2026-10-14 — Name CodeStudio icon-only controls
+
+- Compared refreshed refs before the change and before commit: `origin/main` remained at `1920ee2`, no commits were missing from `develop`, and `origin/develop` stayed at `5b95d2c` during the work. No main integration was needed; all edits are on `develop`.
+- Added explicit accessible names to CodeStudio's icon-only close buttons for the Find bar and bottom panel. `AppIcon` is `aria-hidden`, so these buttons otherwise had no accessible name for screen-reader and voice-control users.
+- Added a regression assertion to `tests/frontend/responsive.test.ts` pinning both labels.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (563 files), `vue-tsc --noEmit`, full Vitest (99 files / 1,029 tests), and `git diff --check`. No Rust/Cargo code changed.

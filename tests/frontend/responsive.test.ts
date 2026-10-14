@@ -80,6 +80,12 @@ describe('narrow windows (container)', () => {
     expect(studio).toContain("'is-mobile-drawer': isMobileLayout")
     expect(narrowBlock()).toMatch(/\.app-window--narrow\s+\.cs-side\.is-mobile-drawer\s*\{\s*display:\s*flex/)
   })
+
+  it('names icon-only close buttons in the editor panels', () => {
+    const studio = fs.readFileSync('src/components/CodeStudio.vue', 'utf8')
+    expect(studio).toMatch(/<button class="cs-ibtn" aria-label="Close find bar" @click="findOpen = false">/)
+    expect(studio).toMatch(/<button class="cs-ibtn" aria-label="Close bottom panel" @click="bottomOpen = false">/)
+  })
 })
 
 describe('mobile home + nav wiring', () => {
