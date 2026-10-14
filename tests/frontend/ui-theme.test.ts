@@ -161,6 +161,31 @@ describe('theme preference recovery', () => {
       vi.resetModules()
     }
   })
+
+  it('normalizes invalid persisted density and follow-system values', async () => {
+    vi.resetModules()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => key === 'cybermanju_theme_v1'
+        ? JSON.stringify({ theme: 'os-light', density: 'expanded', followSystem: 'false' })
+        : null,
+      setItem: vi.fn(),
+    })
+    vi.stubGlobal('window', {
+      matchMedia: () => ({ matches: false, addEventListener: vi.fn() }),
+    })
+
+    try {
+      const { useTheme: useFreshTheme } = await import('@/composables/useTheme')
+      const theme = useFreshTheme()
+      expect(theme.themeId.value).toBe('os-light')
+      expect(theme.settings.density).toBe(DEFAULT_SETTINGS.density)
+      expect(theme.settings.followSystem).toBe(false)
+      expect(() => buildCssVars(theme.settings)).not.toThrow()
+    } finally {
+      vi.unstubAllGlobals()
+      vi.resetModules()
+    }
+  })
 })
 
 describe('wallpaper persistence', () => {

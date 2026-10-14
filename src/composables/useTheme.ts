@@ -72,13 +72,17 @@ function loadSettings(): ThemeSettings {
     let glass = parsed.glass
     if (glass === 1 || glass === 3) glass = 2
     if (glass !== 0 && glass !== 2) glass = DEFAULT_SETTINGS.glass
-    const followSystem = parsed.followSystem ?? false
+    const density = parsed.density === 'compact' || parsed.density === 'comfortable'
+      ? parsed.density
+      : DEFAULT_SETTINGS.density
+    const followSystem = typeof parsed.followSystem === 'boolean' ? parsed.followSystem : false
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
       theme: followSystem ? systemTheme() : theme,
       accents,
       glass,
+      density,
       followSystem,
     }
   } catch {

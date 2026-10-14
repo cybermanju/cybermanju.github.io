@@ -1985,3 +1985,12 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Added a regression simulating the legacy listener; it verifies OS changes update Auto mode and do not override a later manual theme choice.
 - Local checks passed: version check (`0.1.1`), file headers (563 files), `vue-tsc --noEmit`, targeted theme tests (15), full Vitest (99 files / 1,027 tests), and `git diff --check`. No Rust/Cargo code changed.
 - CI run [38516512349](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38516512349) for commit [`af77ba1`](https://github.com/cybermanju/cybermanju.github.io/commit/af77ba129137a52d1912fdb215d6a2429ec81230) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages. The preview at https://cybermanju.github.io/develop/ returned HTTP 200 and exposed 7/7 checked assets under `/develop/`; `main` stayed at `1920ee2`. No release or tag was created.
+
+
+## 2026-10-14 — Normalize malformed persisted appearance values
+
+- Compared live refs before implementation and after local checks: `main` stayed at `1920ee2080910f7f885ab7862ee6614d0ecc537e`, `develop` at `dfbf25d8026b0833fee6bf8d281ae2f05fb46433`; `main` had no commits missing from `develop`, and all work remained on `develop`.
+- Hardened theme preference loading against valid JSON with invalid field types: unknown `density` falls back to the supported default, and non-boolean `followSystem` is treated as false so a string such as `"false"` cannot force OS-following mode. This prevents invalid density from reaching `buildCssVars()` and breaking appearance rendering.
+- Added regression coverage for the malformed density/boolean combination, preserved manual theme selection, and confirmed CSS token generation remains valid.
+- Local checks passed: version check (`0.1.1`), file headers (563 files), `vue-tsc --noEmit`, targeted theme tests (16), full Vitest (99 files / 1,028 tests), and `git diff --check`. No Rust/Cargo code changed.
+- CI is pending publication of this develop-only code change; no release or tag was created.
