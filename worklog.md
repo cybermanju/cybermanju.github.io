@@ -2028,3 +2028,5 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Corrected the notification stack's conflicting `role="alert"` / `aria-live="polite"` pair to `role="status"`, matching the intended polite announcement and avoiding assertive interruptions for non-blocking toasts.
 - Added a regression assertion in `tests/frontend/notification-center.test.ts` for the status/polite semantics.
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (563 files), `vue-tsc --noEmit`, full Vitest (99 files / 1,031 tests), and `git diff --check`. No Rust/Cargo code changed.
+- Pushed code commit [`ec02acd`](https://github.com/cybermanju/cybermanju.github.io/commit/ec02acd) to `develop` only. CI run [38809694150](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38809694150) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
+- Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. The post-CI ref check found `origin/main` still at `1920ee2`, no commits missing from `develop`, and no concurrent develop commit.
