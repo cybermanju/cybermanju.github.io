@@ -2021,3 +2021,10 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (563 files), `vue-tsc --noEmit`, full Vitest (99 files / 1,030 tests), and `git diff --check`. No Rust/Cargo code changed.
 - Pushed code commit [`e75abd5`](https://github.com/cybermanju/cybermanju.github.io/commit/e75abd5) to `develop` only. CI run [38640147825](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38640147825) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
 - Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. The post-CI ref check found `origin/main` still at `1920ee2`, no commits missing from `develop`, and no concurrent develop commit.
+
+## 2026-10-15 — Align toast role with polite announcements
+
+- Compared authenticated refs before and after validation: `origin/main` stayed at `1920ee2`, no commits were missing from `develop`, and `origin/develop` remained at `2ba9f80` during the work. No main integration was needed; changes stay on `develop`.
+- Corrected the notification stack's conflicting `role="alert"` / `aria-live="polite"` pair to `role="status"`, matching the intended polite announcement and avoiding assertive interruptions for non-blocking toasts.
+- Added a regression assertion in `tests/frontend/notification-center.test.ts` for the status/polite semantics.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (563 files), `vue-tsc --noEmit`, full Vitest (99 files / 1,031 tests), and `git diff --check`. No Rust/Cargo code changed.

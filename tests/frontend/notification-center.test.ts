@@ -4,6 +4,7 @@
 // Integrates: vitest, @/….
 // Contracts: none special (pure logic; errors bubble to caller).
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import fs from 'node:fs'
 
 function memStorage(seed: Record<string, string> = {}): Storage {
   const jar = new Map(Object.entries(seed))
@@ -18,6 +19,14 @@ function memStorage(seed: Record<string, string> = {}): Storage {
 }
 
 const KEY = 'cybermanju.notifications.history.v1'
+
+describe('notification announcements', () => {
+  it('announces in-app toasts politely rather than as assertive alerts', () => {
+    const component = fs.readFileSync('src/components/NotificationStack.vue', 'utf8')
+    expect(component).toMatch(/class="notification-stack" role="status" aria-live="polite"/)
+    expect(component).not.toMatch(/class="notification-stack" role="alert"/)
+  })
+})
 
 describe('notification history', () => {
   beforeEach(() => {

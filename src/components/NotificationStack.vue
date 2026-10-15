@@ -5,7 +5,7 @@
 <!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <Teleport to="body">
-    <div class="notification-stack" role="alert" aria-live="polite">
+    <div class="notification-stack" role="status" aria-live="polite">
       <TransitionGroup name="nstack">
         <div
           v-for="n in notifications"
