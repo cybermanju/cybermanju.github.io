@@ -47,13 +47,13 @@
       <div class="section grant-section">
         <h3 class="section-title"><AppIcon name="solar:add-bold" :size="13" /> GRANT ACCESS</h3>
         <div class="grant-row">
-          <select v-model="grantUserId" class="bw-input" style="flex:1;">
+          <select aria-label="User to grant access" v-model="grantUserId" class="bw-input" style="flex:1;">
             <option value="" disabled>SELECT USER</option>
             <option v-for="u in store.users" :key="u.id" :value="u.id">{{ u.username }} ({{ u.role }})</option>
           </select>
         </div>
         <div class="grant-row">
-          <select v-model="grantAccess" class="bw-input" style="flex:1;">
+          <select aria-label="Access level" v-model="grantAccess" class="bw-input" style="flex:1;">
             <option value="read">READ</option>
             <option value="write">WRITE</option>
             <option value="admin">ADMIN</option>

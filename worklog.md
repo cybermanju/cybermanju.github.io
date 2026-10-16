@@ -2057,3 +2057,10 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (565 files), `vue-tsc --noEmit`, full Vitest (102 files / 1,035 tests), and `git diff --check`. No Rust/Cargo code changed.
 - Pushed code commit [`f37fea2`](https://github.com/cybermanju/cybermanju.github.io/commit/f37fea2) to `develop` only. CI run [38880279123](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38880279123) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
 - Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. The post-CI ref check found `origin/main` still at `1920ee2`, no commits missing from `develop`, and no concurrent develop commit.
+
+## 2026-10-16 — Name grant-access selectors
+
+- Compared authenticated refs before and after validation: `origin/main` remained at `1920ee2`, no commits were missing from `develop`, and `origin/develop` stayed at `f59133a` during the work. No main integration was needed; changes remain on `develop`.
+- Added explicit accessible names to the user and access-level selectors in `FilePermissionsPanel`; previously, neither select had a programmatic name.
+- Extended `tests/frontend/file-permissions-a11y.test.ts` to cover both selectors alongside the read-only share URL label.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (566 files), `vue-tsc --noEmit`, full Vitest (102 files / 1,036 tests), and `git diff --check`. No Rust/Cargo code changed.
