@@ -2030,3 +2030,10 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (563 files), `vue-tsc --noEmit`, full Vitest (99 files / 1,031 tests), and `git diff --check`. No Rust/Cargo code changed.
 - Pushed code commit [`ec02acd`](https://github.com/cybermanju/cybermanju.github.io/commit/ec02acd) to `develop` only. CI run [38809694150](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38809694150) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
 - Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. The post-CI ref check found `origin/main` still at `1920ee2`, no commits missing from `develop`, and no concurrent develop commit.
+
+## 2026-10-15 — Name the shared file URL field
+
+- Compared authenticated refs before and after validation: `origin/main` stayed at `1920ee2`, no commits were missing from `develop`, and `origin/develop` remained at `65cf324` during the work. No main integration was needed; changes stay on `develop`.
+- The read-only share URL input in `FilePermissionsPanel` had no accessible name. Associated it with the visible `SHARE LINK` heading via `aria-labelledby`.
+- Added `tests/frontend/file-permissions-a11y.test.ts` to guard the heading/input association.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (564 files), `vue-tsc --noEmit`, full Vitest (100 files / 1,032 tests), and `git diff --check`. No Rust/Cargo code changed.

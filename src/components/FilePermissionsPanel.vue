@@ -36,9 +36,9 @@
       </div>
 
       <div class="section grant-section">
-        <h3 class="section-title"><AppIcon name="solar:share-bold" :size="13" /> SHARE LINK</h3>
+        <h3 id="share-link-heading" class="section-title"><AppIcon name="solar:share-bold" :size="13" /> SHARE LINK</h3>
         <div class="share-row">
-          <input :value="shareLink" class="bw-input" readonly style="flex:1;" @click="($event.target as HTMLInputElement).select()" />
+          <input aria-labelledby="share-link-heading" :value="shareLink" class="bw-input" readonly style="flex:1;" @click="($event.target as HTMLInputElement).select()" />
           <button class="bw-btn" @click="copyShareLink" :disabled="!shareLink" title="COPY LINK" aria-label="COPY LINK"><AppIcon name="solar:copy-bold" :size="13" /></button>
         </div>
         <div v-if="shareCopied" class="share-copied text-muted">LINK COPIED TO CLIPBOARD</div>
