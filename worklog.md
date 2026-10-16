@@ -2046,3 +2046,5 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Added the accessible name `Choose backup snapshot file` to the restore wizard's `.cybermanju` file picker, which previously had no programmatic label.
 - Added `tests/frontend/backup-panel-a11y.test.ts` to guard the picker name and accepted backup format.
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (564 files), `vue-tsc --noEmit`, full Vitest (101 files / 1,033 tests), and `git diff --check`. No Rust/Cargo code changed.
+- Pushed code commit [`aeafaab`](https://github.com/cybermanju/cybermanju.github.io/commit/aeafaab) to `develop` only. CI run [38855638372](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38855638372) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
+- Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. The post-CI ref check found `origin/main` still at `1920ee2`, no commits missing from `develop`, and no concurrent develop commit.
