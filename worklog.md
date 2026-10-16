@@ -2066,3 +2066,10 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (566 files), `vue-tsc --noEmit`, full Vitest (102 files / 1,036 tests), and `git diff --check`. No Rust/Cargo code changed.
 - Pushed code commit [`588d0d0`](https://github.com/cybermanju/cybermanju.github.io/commit/588d0d0) to `develop` only. CI run [38907743336](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38907743336) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
 - Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. The post-CI ref check found `origin/main` still at `1920ee2`, no commits missing from `develop`, and no concurrent develop commit.
+
+## 2026-10-16 — Forward UiSelect accessibility attributes
+
+- Compared authenticated refs before and after validation: `origin/main` stayed at `1920ee2`, no commits were missing from `develop`, and `origin/develop` remained at `a432e05` during the work. No main integration was needed; changes remain on `develop`.
+- Fixed `UiSelect` fallthrough so caller attributes such as `aria-label` and `title` reach the native `<select>` instead of the wrapping `<label>`. This makes the existing `OrganizePanel` accessible-name attribute effective without changing visible layout.
+- Added `tests/frontend/ui-select-a11y.test.ts` to guard native-control attribute forwarding.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (566 files), `vue-tsc --noEmit`, full Vitest (103 files / 1,037 tests), and `git diff --check`. No Rust/Cargo code changed.

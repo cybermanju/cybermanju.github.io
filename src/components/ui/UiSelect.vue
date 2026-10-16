@@ -2,12 +2,13 @@
 <!-- Role: Vue desktop UI: windows, panels, overlays. -->
 <!-- Exports: module root (see items below). -->
 <!-- Integrates: vue, @/…. -->
-<!-- Contracts: none special (pure logic; errors bubble to caller). -->
+<!-- Contracts: fallthrough attributes such as aria-label/title are applied to the native select. -->
 <template>
   <label class="ui-select" :class="{ 'ui-select--inline': inline }">
     <span v-if="label" class="ui-select__label">{{ label }}</span>
     <span class="ui-select__control">
       <select
+        v-bind="$attrs"
         ref="selectRef"
         class="ui-select__native"
         :value="modelValue"
@@ -26,6 +27,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
+
+defineOptions({ inheritAttrs: false })
 
 type Option = string | { label: string; value: string | number }
 
