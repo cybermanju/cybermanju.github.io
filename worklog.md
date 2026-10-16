@@ -2075,3 +2075,10 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (566 files), `vue-tsc --noEmit`, full Vitest (103 files / 1,037 tests), and `git diff --check`. No Rust/Cargo code changed.
 - Pushed code commit [`e998ac5`](https://github.com/cybermanju/cybermanju.github.io/commit/e998ac5) to `develop` only. CI run [38939609195](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38939609195) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
 - Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. The post-CI ref check found `origin/main` still at `1920ee2`, no commits missing from `develop`, and no concurrent develop commit.
+
+## 2026-10-16 — Name Sync configuration selectors
+
+- Compared authenticated refs before and after validation: `origin/main` remained at `1920ee2`, no commits were missing from `develop`, and `origin/develop` stayed at `c40be52` during the work. No main integration was needed; changes remain on `develop`.
+- Added accessible names to the configuration selector used to start a sync run and the source/destination selectors used for file moves. The names are forwarded to native selects through the `UiSelect` fix from the preceding round; no visible layout changes.
+- Added `tests/frontend/sync-panel-a11y.test.ts` to guard all three selector names.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (567 files), `vue-tsc --noEmit`, full Vitest (104 files / 1,039 tests), and `git diff --check`. No Rust/Cargo code changed.

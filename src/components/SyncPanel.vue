@@ -60,6 +60,7 @@
       <div class="w-row">
         <div class="w-field grow">
           <UiSelect
+            aria-label="Sync configuration to run"
             :model-value="runConfigId"
             :options="runConfigOptions"
             @update:model-value="runConfigId = $event"
@@ -128,6 +129,7 @@
       <div class="w-row">
         <div class="w-field grow">
           <UiSelect
+            aria-label="Move source configuration"
             :model-value="moveFromId"
             :options="runConfigOptions"
             @update:model-value="moveFromId = $event"
@@ -135,6 +137,7 @@
         </div>
         <div class="w-field grow">
           <UiSelect
+            aria-label="Move destination configuration"
             :model-value="moveToId"
             :options="runConfigOptions"
             @update:model-value="moveToId = $event"
