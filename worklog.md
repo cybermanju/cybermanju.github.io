@@ -2039,3 +2039,10 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (564 files), `vue-tsc --noEmit`, full Vitest (100 files / 1,032 tests), and `git diff --check`. No Rust/Cargo code changed.
 - Pushed code commit [`e9a36d0`](https://github.com/cybermanju/cybermanju.github.io/commit/e9a36d0) to `develop` only. CI run [38835099700](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38835099700) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
 - Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. The post-CI ref check found `origin/main` still at `1920ee2`, no commits missing from `develop`, and no concurrent develop commit.
+
+## 2026-10-16 — Label backup restore file picker
+
+- Compared authenticated refs before and after local validation: `origin/main` remained at `1920ee2`, no commits were missing from `develop`, and `origin/develop` stayed at `fa5957b` during the work. No main integration was needed; changes remain on `develop`.
+- Added the accessible name `Choose backup snapshot file` to the restore wizard's `.cybermanju` file picker, which previously had no programmatic label.
+- Added `tests/frontend/backup-panel-a11y.test.ts` to guard the picker name and accepted backup format.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (564 files), `vue-tsc --noEmit`, full Vitest (101 files / 1,033 tests), and `git diff --check`. No Rust/Cargo code changed.

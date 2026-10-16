@@ -111,7 +111,7 @@
           <label class="bk-radio"><input v-model="wizSource" type="radio" value="provider" /> Provider file</label>
         </p>
         <div v-if="wizSource === 'upload'" class="bk-row">
-          <input type="file" accept=".cybermanju" @change="pickFile" />
+          <input type="file" aria-label="Choose backup snapshot file" accept=".cybermanju" @change="pickFile" />
         </div>
         <div v-else class="bk-grid">
           <label class="field">
