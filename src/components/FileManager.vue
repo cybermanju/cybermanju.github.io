@@ -801,14 +801,14 @@
       <div v-if="dlgFolder" class="fm-ov" @click.self="dlgFolder = false">
         <div class="fm-modal">
           <h3>New folder</h3>
-          <input ref="folderRef" v-model="dlgFolderName" placeholder="folder name" @keyup.enter="doMkdir" />
+          <input ref="folderRef" v-model="dlgFolderName" placeholder="folder name" aria-label="Folder name" @keyup.enter="doMkdir" />
           <div class="fm-mrow"><button class="fm-pill ghost" @click="dlgFolder = false">Cancel</button><button class="fm-pill" @click="doMkdir">Create</button></div>
         </div>
       </div>
       <div v-if="dlgRename" class="fm-ov" @click.self="dlgRename = null">
         <div class="fm-modal">
           <h3>Rename</h3>
-          <input ref="renameRef" v-model="dlgRenameName" @keyup.enter="doRename" />
+          <input ref="renameRef" v-model="dlgRenameName" aria-label="New name" @keyup.enter="doRename" />
           <div class="fm-mrow"><button class="fm-pill ghost" @click="dlgRename = null">Cancel</button><button class="fm-pill" @click="doRename">Rename</button></div>
         </div>
       </div>
