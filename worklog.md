@@ -2101,3 +2101,10 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (569 files), `vue-tsc --noEmit`, full Vitest (106 files / 1,051 tests), and `git diff --check`. No Rust/Cargo code changed.
 - Pushed code commit [`dc31709`](https://github.com/cybermanju/cybermanju.github.io/commit/dc31709) to `develop` only. CI run [39006255799](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39006255799) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
 - Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. Post-CI refs remained `origin/main=dafde93` and `origin/develop=dc31709`, with no commits missing from develop.
+
+## 2026-10-17 — Name the Account Manager token visibility toggle
+
+- Compared authenticated refs before and after local validation: `origin/main` remained at `dafde93`, no commits were missing from `develop`, and `origin/develop` stayed at `93a6998`. No main integration was needed.
+- Added a state-aware `aria-label` (“Show token” / “Hide token”) to the provider-token visibility control in the Account Manager wizard. The visual icon and existing show/hide behavior are unchanged.
+- Added `tests/frontend/account-manager-a11y.test.ts` to guard the accessible name and password/text toggle.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (570 files), `vue-tsc --noEmit`, full Vitest (107 files / 1,052 tests), and `git diff --check`. No Rust/Cargo code changed.
