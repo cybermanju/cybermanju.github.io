@@ -2129,3 +2129,11 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Local checks passed: version consistency (0.1.1), file headers (571 files), `vue-tsc --noEmit`, Vitest (108 files / 1,059 tests), and `git diff --check`. No Rust/Cargo commands, release, force-push, or main edits.
 - Pushed code commit [`e5e41b9`](https://github.com/cybermanju/cybermanju.github.io/commit/e5e41b9) to develop only. [CI run 39053829899](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39053829899) passed all 14 jobs, including Rust, WASM, Android, iOS, desktop builds and Pages deployment.
 - Verified HTTP 200 for https://cybermanju.github.io/develop/ and all 7 referenced `/develop/` assets. Post-CI fetch confirmed `origin/main=dafde93`, `origin/develop=e5e41b9`, no missing main commits, and no concurrent develop changes.
+
+## 2026-10-17 — Keep Code Intel technical fields accessible and literal
+
+- Compared main/develop using a remote fetch and authenticated API reads before and after local work. `origin/main=dafde93` is already contained in develop; `origin/develop=cb12fd7` remained unchanged. No merge or conflict resolution was needed; main remains untouched.
+- Reviewed shared controls and CodeStudio input markup, then selected a direct, low-risk compatibility fix: the Code Intel snippet filename, pasted source and local-path fields had no explicit accessible names and did not opt out of mobile keyboard capitalization/correction. Added concise `aria-label` names plus `autocapitalize="off"`, `autocorrect="off"` and `autocomplete="off"`, retaining existing spellcheck, bindings, desktop-only path visibility and Enter-to-parse behavior. These hints request literal technical text without changing parsing or backend contracts.
+- Added `tests/frontend/code-studio-intel-input.test.ts` with three executable regressions that compile and SSR-render the actual field markup, checking accessible names, keyboard hints and model values. No dependencies or Vitest configuration changes.
+- Local checks passed: version consistency (0.1.1), file headers (572 files), `vue-tsc --noEmit`, Vitest (109 files / 1,062 tests), and `git diff --check`. No local Rust/Cargo, release, force-push or production-branch changes.
+- Develop-only push, CI monitoring and `/develop/` preview verification pending.
