@@ -2,9 +2,13 @@
 <!-- Role: Vue desktop UI: windows, panels, overlays. -->
 <!-- Exports: module root (see items below). -->
 <!-- Integrates: vue, @/…. -->
-<!-- Contracts: none special (pure logic; errors bubble to caller). -->
+<!-- Contracts: native attrs/listeners target the input; caller class/style stay on the label. -->
 <template>
-  <label class="ui-field" :class="{ 'ui-field--inline': inline, 'ui-field--error': Boolean(error) }">
+  <label
+    class="ui-field"
+    :class="[$attrs.class, { 'ui-field--inline': inline, 'ui-field--error': Boolean(error) }]"
+    :style="$attrs.style"
+  >
     <span v-if="label || $slots.label" class="ui-field__label">
       <slot name="label">{{ label }}</slot>
       <span v-if="required" class="ui-field__required">*</span>
@@ -13,6 +17,7 @@
     <span class="ui-field__control" :class="{ 'ui-field__control--focused': focused }">
       <AppIcon v-if="prefixIcon" :name="prefixIcon" :size="14" class="ui-field__prefix" />
       <input
+        v-bind="inputAttrs()"
         ref="inputRef"
         class="ui-field__input"
         :type="type"
@@ -50,8 +55,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, useAttrs } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+// Layout belongs to the wrapper; native attributes/listeners belong to the input.
+function inputAttrs() {
+  const forwarded = { ...attrs }
+  delete forwarded.class
+  delete forwarded.style
+  return forwarded
+}
 
 withDefaults(
   defineProps<{

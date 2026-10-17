@@ -2119,3 +2119,12 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Local checks passed: version consistency (0.1.1), file headers (570 files), `vue-tsc --noEmit`, Vitest (107 files / 1,057 tests), and `git diff --check`. No local Cargo commands, release, force-push, or production-branch edits.
 - Pushed code commit [`53dee82`](https://github.com/cybermanju/cybermanju.github.io/commit/53dee82) to develop only. [CI run 39036448909](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39036448909) passed all 14 jobs, including Rust, WASM, Android, desktop builds and Pages deployment.
 - Verified HTTP 200 for https://cybermanju.github.io/develop/ and all 7 referenced `/develop/` assets. Post-CI refs remained `origin/main=dafde93`, `origin/develop=53dee82`; there were no concurrent changes or missing main commits.
+
+## 2026-10-17 — Forward UiInput accessibility attributes without moving layout
+
+- Authenticated remote comparison and fetch found `origin/main=dafde93` already contained in develop and `origin/develop=00b0d17` unchanged. No integration was needed; main remains untouched.
+- Audited UiInput fallthrough: caller attributes such as `aria-label`, `aria-labelledby`, `aria-describedby`, `id` and native listeners previously reached the wrapping label instead of the input. Disabled automatic fallthrough and now forward native attributes/listeners explicitly to the input. Caller class/style remain on the wrapper to preserve existing search and folder-name layouts; declared props and model events retain their existing bindings.
+- A parallel read-only review found 25 existing aria-label consumers affected across AgentPanel, DevicesPanel, OrganizePanel and SyncPanel. Autocomplete already used an explicit input binding and remains unchanged.
+- Added executable regression coverage in `tests/frontend/ui-input-a11y.test.ts`: compiles the real production SFC and renders it with Vue SSR in Node, verifying accessible names/descriptions/ids, declared props, and class/style placement without adding dependencies or modifying Vitest configuration.
+- Local checks passed: version consistency (0.1.1), file headers (571 files), `vue-tsc --noEmit`, Vitest (108 files / 1,059 tests), and `git diff --check`. No Rust/Cargo commands, release, force-push, or main edits.
+- CI and isolated `/develop/` deployment verification pending the develop-only code push.
