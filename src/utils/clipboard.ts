@@ -24,6 +24,10 @@ export interface CopyToClipboardDeps {
 
 function copyWithExecCommand(text: string): boolean {
   if (typeof document === 'undefined' || !document.body || typeof document.execCommand !== 'function') return false
+  const previous = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null
+  const selectionStart = previous?.selectionStart
+  const selectionEnd = previous?.selectionEnd
+  const selectionDirection = previous?.selectionDirection
   const textarea = document.createElement('textarea')
   textarea.value = text
   textarea.setAttribute('readonly', '')
@@ -35,6 +39,22 @@ function copyWithExecCommand(text: string): boolean {
     return document.execCommand('copy')
   } finally {
     textarea.remove()
+    // Copying must not leave keyboard users outside their editor/composer.
+    // Focus restoration is best-effort and must not mask the copy result.
+    try {
+      if (previous?.isConnected !== false && typeof previous?.focus === 'function') {
+        try {
+          previous.focus({ preventScroll: true })
+        } catch {
+          previous.focus()
+        }
+        if (typeof selectionStart === 'number' && typeof selectionEnd === 'number' && typeof previous.setSelectionRange === 'function') {
+          previous.setSelectionRange(selectionStart, selectionEnd, selectionDirection ?? undefined)
+        }
+      }
+    } catch {
+      // Detached or unsupported controls cannot always be focused again.
+    }
   }
 }
 

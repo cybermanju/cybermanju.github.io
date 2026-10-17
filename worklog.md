@@ -2110,3 +2110,10 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (570 files), `vue-tsc --noEmit`, full Vitest (107 files / 1,052 tests), and `git diff --check`. No Rust/Cargo code changed.
 - Pushed code commit [`25445b7`](https://github.com/cybermanju/cybermanju.github.io/commit/25445b7) to `develop` only. CI run [39021005534](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39021005534) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
 - Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. Post-CI refs remained `origin/main=dafde93` and `origin/develop=25445b7`, with no commits missing from develop.
+
+## 2026-10-17 — Preserve editing focus after legacy clipboard copies
+
+- Authenticated main/develop comparisons before and after validation found `origin/main=dafde93` already fully contained in develop and `origin/develop=1574ac0` unchanged. No merge was necessary; main remains untouched.
+- The shared clipboard fallback selected a temporary textarea without restoring the user's editor/composer focus. It now restores the previously focused control and its text selection/direction after removing the temporary field, including failed/throwing copy commands. Detached controls are skipped; focus options have a legacy fallback; restoration errors cannot mask the copy result. Secret auto-clear behavior is unchanged.
+- Expanded executable clipboard tests from 3 to 8 cases covering success/failure focus restoration, thrown copy commands, legacy focus options, and failed selection restoration. A separate read-only review checked the cleanup and compatibility risks.
+- Local checks passed: version consistency (0.1.1), file headers (570 files), `vue-tsc --noEmit`, Vitest (107 files / 1,057 tests), and `git diff --check`. No local Cargo commands, release, force-push, or production-branch edits.
