@@ -2108,3 +2108,5 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Added a state-aware `aria-label` (“Show token” / “Hide token”) to the provider-token visibility control in the Account Manager wizard. The visual icon and existing show/hide behavior are unchanged.
 - Added `tests/frontend/account-manager-a11y.test.ts` to guard the accessible name and password/text toggle.
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (570 files), `vue-tsc --noEmit`, full Vitest (107 files / 1,052 tests), and `git diff --check`. No Rust/Cargo code changed.
+- Pushed code commit [`25445b7`](https://github.com/cybermanju/cybermanju.github.io/commit/25445b7) to `develop` only. CI run [39021005534](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39021005534) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
+- Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. Post-CI refs remained `origin/main=dafde93` and `origin/develop=25445b7`, with no commits missing from develop.
