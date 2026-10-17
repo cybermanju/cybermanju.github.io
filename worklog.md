@@ -2084,3 +2084,10 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (567 files), `vue-tsc --noEmit`, full Vitest (104 files / 1,039 tests), and `git diff --check`. No Rust/Cargo code changed.
 - Pushed code commit [`8f0f953`](https://github.com/cybermanju/cybermanju.github.io/commit/8f0f953) to `develop` only. CI run [38969116484](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38969116484) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
 - Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. The post-CI ref check found `origin/main` still at `1920ee2`, no commits missing from `develop`, and no concurrent develop commit.
+
+## 2026-10-16 — Name AgentPanel configuration selectors
+
+- Compared authenticated refs before and after validation: `origin/main` remained at `1920ee2`, no commits were missing from `develop`, and `origin/develop` stayed at `dafde93` during the work. No main integration was needed; changes remain on `develop`.
+- Added purpose-specific accessible names to all nine `UiSelect` controls in `AgentPanel` (assistant configuration, agent mode, API dialect/auth, shell, permission preset, MCP transport, fallback assistant, and per-tool permissions). They use the native-select attribute forwarding fixed in the previous round; visible layout is unchanged.
+- Added `tests/frontend/agent-panel-a11y.test.ts` covering all nine names.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (568 files), `vue-tsc --noEmit`, full Vitest (105 files / 1,048 tests), and `git diff --check`. No Rust/Cargo code changed.
