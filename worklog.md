@@ -2099,3 +2099,5 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Reused the helper in the agent harness, File Permissions share-link action, and File Manager path/text copy actions. Secret auto-clear logic remains unchanged.
 - Added `tests/frontend/clipboard-fallback.test.ts` for successful modern writes, denied modern writes with successful fallback, and cleanup/reporting when fallback fails.
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (569 files), `vue-tsc --noEmit`, full Vitest (106 files / 1,051 tests), and `git diff --check`. No Rust/Cargo code changed.
+- Pushed code commit [`dc31709`](https://github.com/cybermanju/cybermanju.github.io/commit/dc31709) to `develop` only. CI run [39006255799](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39006255799) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
+- Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. Post-CI refs remained `origin/main=dafde93` and `origin/develop=dc31709`, with no commits missing from develop.
