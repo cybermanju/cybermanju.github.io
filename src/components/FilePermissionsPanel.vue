@@ -70,6 +70,7 @@ import AppIcon from '@/components/AppIcon.vue'
 import { ref, computed, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { invoke, getAuthToken } from '@/composables/useTauri'
+import { copyToClipboard } from '@/utils/clipboard'
 import type { FilePermission } from '@/types'
 
 defineEmits<{ close: [] }>()
@@ -124,7 +125,7 @@ async function handleGrant() {
 async function copyShareLink() {
   if (!shareLink.value) return
   try {
-    await navigator.clipboard.writeText(shareLink.value)
+    if (!await copyToClipboard(shareLink.value)) throw new Error('Clipboard unavailable')
     shareCopied.value = true
     setTimeout(() => { shareCopied.value = false }, 2000)
   } catch {

@@ -2091,3 +2091,11 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Added purpose-specific accessible names to all nine `UiSelect` controls in `AgentPanel` (assistant configuration, agent mode, API dialect/auth, shell, permission preset, MCP transport, fallback assistant, and per-tool permissions). They use the native-select attribute forwarding fixed in the previous round; visible layout is unchanged.
 - Added `tests/frontend/agent-panel-a11y.test.ts` covering all nine names.
 - Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (568 files), `vue-tsc --noEmit`, full Vitest (105 files / 1,048 tests), and `git diff --check`. No Rust/Cargo code changed.
+
+## 2026-10-17 — Add a shared legacy clipboard fallback
+
+- Compared authenticated refs before and after local validation: `origin/main` remained at `dafde93`, no commits were missing from `develop`, and `origin/develop` stayed at `cb71771`. The prior main advance was already contained in develop; no new integration was needed.
+- Added `copyToClipboard`, preferring the Async Clipboard API and falling back to a temporary, read-only textarea plus `execCommand('copy')`; the fallback removes the textarea in a `finally` block and reports failure accurately.
+- Reused the helper in the agent harness, File Permissions share-link action, and File Manager path/text copy actions. Secret auto-clear logic remains unchanged.
+- Added `tests/frontend/clipboard-fallback.test.ts` for successful modern writes, denied modern writes with successful fallback, and cleanup/reporting when fallback fails.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (569 files), `vue-tsc --noEmit`, full Vitest (106 files / 1,051 tests), and `git diff --check`. No Rust/Cargo code changed.

@@ -945,6 +945,7 @@ import { requestInstallWindow } from '@/utils/installLinks'
 import { humanBytes, diskPct } from '@/utils/format'
 import { trackShellCwd } from '@/utils/shellCwd'
 import { decodeProviderText, isTextEditableProviderName, MAX_PROVIDER_TEXT_BYTES } from '@/utils/providerText'
+import { copyToClipboard } from '@/utils/clipboard'
 import { ENCRYPTION_INFO, COMPRESSION_INFO, SYNC_BACKEND_INFO } from '@/types'
 import type { DiskRow, FileNode, SyncBackendType } from '@/types'
 
@@ -2228,8 +2229,8 @@ async function onFilesPicked(e: Event) {
   await store.fetchFiles(store.currentPath)
   store.notifySuccess('Upload complete')
 }
-async function copyPath(f: FileNode) { try { await navigator.clipboard.writeText(f.path || f.name) } catch {} }
-async function copyText(t: string) { try { await navigator.clipboard.writeText(t) } catch {} }
+async function copyPath(f: FileNode) { await copyToClipboard(f.path || f.name) }
+async function copyText(t: string) { await copyToClipboard(t) }
 
 // ── crypto quick actions ──
 const activeAlgoName = computed(() => {
