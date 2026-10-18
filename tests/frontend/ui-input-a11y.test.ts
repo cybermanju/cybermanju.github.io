@@ -66,4 +66,62 @@ describe('UiInput native attributes', () => {
     expect(input).toContain('autocomplete="username"')
     expect(html.replace(/<!--[\s\S]*?-->/g, '')).toContain('Search</span>')
   })
+
+  it('describes the native input with its visible hint', async () => {
+    const html = await renderToString(Vue.createSSRApp(UiInput, {
+      label: 'Repository URL', hint: 'Use an HTTPS URL',
+    }))
+    const hintId = html.match(/<span\b[^>]*\bid="([^"]+)"[^>]*>/)?.[1]
+    const input = html.match(/<input\b[^>]*>/)?.[0] ?? ''
+    expect(hintId).toBeTruthy()
+    expect(input).toContain(`aria-describedby="${hintId}"`)
+    expect(input).not.toContain('aria-invalid=')
+    expect(html).toContain('Use an HTTPS URL')
+  })
+
+  it('describes an error instead of the hint and marks the field invalid', async () => {
+    const html = await renderToString(Vue.createSSRApp(UiInput, {
+      hint: 'Regular help', error: 'Invalid URL',
+    }))
+    const errorId = html.match(/<span\b[^>]*\bid="([^"]+)"[^>]*>/)?.[1]
+    const input = html.match(/<input\b[^>]*>/)?.[0] ?? ''
+    expect(errorId).toBeTruthy()
+    expect(input).toContain(`aria-describedby="${errorId}"`)
+    expect(input).toContain('aria-invalid="true"')
+    expect(html).toContain('Invalid URL')
+    expect(html).not.toContain('Regular help')
+  })
+
+  it('does not reference help text or declare an error when neither is present', async () => {
+    const html = await renderToString(Vue.createSSRApp(UiInput))
+    const input = html.match(/<input\b[^>]*>/)?.[0] ?? ''
+    expect(input).not.toContain('aria-describedby=')
+    expect(input).not.toContain('aria-invalid=')
+    expect(html).not.toContain('ui-field__hint')
+  })
+
+  it('preserves explicit caller description and validity attributes', async () => {
+    const html = await renderToString(Vue.createSSRApp(UiInput, {
+      error: 'Local error',
+      'aria-describedby': 'external-description',
+      'aria-invalid': 'false',
+    }))
+    const input = html.match(/<input\b[^>]*>/)?.[0] ?? ''
+    expect(input).toContain('aria-describedby="external-description"')
+    expect(input).toContain('aria-invalid="false"')
+    expect(html).toContain('Local error')
+  })
+
+  it('assigns distinct help ids to multiple inputs in the same app', async () => {
+    const html = await renderToString(Vue.createSSRApp({
+      render: () => Vue.h('div', [
+        Vue.h(UiInput, { label: 'First', hint: 'First help' }),
+        Vue.h(UiInput, { label: 'Second', hint: 'Second help' }),
+      ]),
+    }))
+    const ids = [...html.matchAll(/<span\b[^>]*\bid="([^"]+)"[^>]*>/g)].map(match => match[1])
+    expect(ids).toHaveLength(2)
+    expect(new Set(ids).size).toBe(2)
+    for (const id of ids) expect(html).toContain(`aria-describedby="${id}"`)
+  })
 })

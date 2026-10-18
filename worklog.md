@@ -2148,3 +2148,12 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Local checks passed: version consistency (0.1.1), file headers (573 files), `vue-tsc --noEmit`, Vitest (110 files / 1,068 tests), and `git diff --check`. No local Rust/Cargo commands, release, force-push or main edits.
 - Pushed code commit [`e127105`](https://github.com/cybermanju/cybermanju.github.io/commit/e127105) to develop only. [CI run 39086443498](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39086443498) passed all 14 jobs, including Rust, WASM, Android, iOS, desktop builds and Pages deployment.
 - Verified HTTP 200 for https://cybermanju.github.io/develop/ and all 7 referenced `/develop/` assets. Post-CI fetch confirmed `origin/main=dafde93`, `origin/develop=e127105`, no missing main commits and no concurrent develop changes.
+
+## 2026-10-18 — Describe input help and errors on the native control
+
+- Remote fetch and authenticated API comparisons found `origin/main=dafde93` already contained in develop and `origin/develop=a0654bb` unchanged during local work. No merge or uncertain resolution was required; main remains untouched.
+- UiInput displayed hint/error text without associating it with the native input. Added a stable per-instance `useId()` id to the existing message span and default `aria-describedby` while that text is visible. An error additionally supplies default `aria-invalid="true"`; errors retain their existing visual precedence over hints. Empty messages produce no dangling description or default invalid state.
+- Kept explicit caller ARIA attributes authoritative by placing defaults before the existing native attribute forwarding. Wrapper class/style, model events, labels, focus and validation logic are unchanged. A parallel review confirmed precedence and compatibility: the two current hint consumers are ProcessPanel's script-path and cron-expression fields; there are no current production error-prop or ARIA-override consumers.
+- Extended the real-SFC SSR suite with five regressions: visible hint, error replacing hint, absent message, explicit caller overrides and unique ids across inputs. No dependency or Vitest configuration changes.
+- Local checks passed: version consistency (0.1.1), file headers (574 files), `vue-tsc --noEmit`, Vitest (110 files / 1,073 tests), and `git diff --check`. Independent `npm run typecheck` and full tests also passed. No local Rust/Cargo commands, release, force-push or main edits.
+- Develop-only push, CI monitoring and `/develop/` preview verification pending.

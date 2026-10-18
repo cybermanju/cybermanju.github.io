@@ -3,6 +3,7 @@
 <!-- Exports: module root (see items below). -->
 <!-- Integrates: vue, @/…. -->
 <!-- Contracts: native attrs/listeners target the input; caller class/style stay on the label. -->
+<!-- Visible help/error text supplies default ARIA description/validity; explicit caller attrs win. -->
 <template>
   <label
     class="ui-field"
@@ -17,6 +18,8 @@
     <span class="ui-field__control" :class="{ 'ui-field__control--focused': focused }">
       <AppIcon v-if="prefixIcon" :name="prefixIcon" :size="14" class="ui-field__prefix" />
       <input
+        :aria-describedby="error || hint ? hintId : undefined"
+        :aria-invalid="error ? true : undefined"
         v-bind="inputAttrs()"
         ref="inputRef"
         class="ui-field__input"
@@ -48,18 +51,19 @@
       </button>
     </span>
 
-    <span v-if="error || hint" class="ui-field__hint" :class="{ 'ui-field__hint--error': Boolean(error) }">
+    <span v-if="error || hint" :id="hintId" class="ui-field__hint" :class="{ 'ui-field__hint--error': Boolean(error) }">
       {{ error || hint }}
     </span>
   </label>
 </template>
 
 <script setup lang="ts">
-import { ref, useAttrs } from 'vue'
+import { ref, useAttrs, useId } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 
 defineOptions({ inheritAttrs: false })
 
+const hintId = useId()
 const attrs = useAttrs()
 // Layout belongs to the wrapper; native attributes/listeners belong to the input.
 function inputAttrs() {
