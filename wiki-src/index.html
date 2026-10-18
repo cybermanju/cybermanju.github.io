@@ -1,8 +1,8 @@
 <!doctype html>
 <!-- CyberManju OS — wiki app shell (wiki-src/index.html). -->
-<!-- Role: mounts the Three.js scenery + reader panels; data comes from subjects.json. -->
-<!-- Exports: #scene canvas mount, #rail, #panel, #tooltip mounts. -->
-<!-- Integrates: built by vite.config.wiki.ts into dist-wasm/wiki/; fetches ./subjects.json. -->
+<!-- Role: mounts the Three.js scenery + reader panels + the 2D graphify graph overlay; data comes from subjects.json. -->
+<!-- Exports: #scene canvas mount, #rail, #panel, #tooltip, #toggle2d, #graph2d iframe mounts. -->
+<!-- Integrates: built by vite.config.wiki.ts into dist-wasm/wiki/; fetches ./subjects.json; the hidden #toggle2d/#graph2d pair activates only when the graph payload exists (engine: graphify) and lazy-loads ./graph.html. -->
 <!-- Contracts: fully static, no backend; hash routes (#/id) mirror wiki/<id>.html. -->
 <html lang="en">
   <head>
@@ -35,10 +35,24 @@
       <input id="search" type="search" placeholder="Search modules + symbols…" autocomplete="off" />
       <nav class="toplinks">
         <a href="./agent.html">static</a>
+        <button id="toggle2d" hidden aria-pressed="false" title="Switch between the 3D wiki and the 2D graphify knowledge graph">2D graph</button>
         <a href="../llms.txt">llms.txt</a>
         <a href="../">app</a>
       </nav>
     </header>
+
+    <!-- 2D knowledge graph (graphify's interactive graph.html) overlay:
+         lazy-loaded once on first toggle; hidden until then so the 3D
+         scene never pays for it. Only unhidden when subjects.json carries
+         a graph payload (engine: graphify). -->
+    <div id="graph2d" hidden aria-hidden="true">
+      <iframe
+        id="graph2dframe"
+        title="Knowledge graph (graphify, 2D)"
+        src="about:blank"
+        loading="lazy"
+      ></iframe>
+    </div>
 
     <aside class="rail" id="rail" aria-label="Wiki subjects"></aside>
 

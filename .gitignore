@@ -35,6 +35,9 @@ logs/
 # Tool results
 tool-results/
 
+# Knowledge graph (graphify — regenerate with `npm run wiki:graph`)
+graphify-out/
+
 # Download artifacts
 download/
 

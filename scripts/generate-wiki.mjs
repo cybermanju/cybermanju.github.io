@@ -6,19 +6,33 @@
 //   fetches at runtime.
 // Exports: SUBJECTS table; main `--out <dir>` (default dist-wasm).
 // Integrates: reads `scripts/collect-file-context.mjs` (heuristic fast path;
-//   the Rust tree-sitter engine stays authoritative for code-intel payloads);
+//   the Rust tree-sitter engine stays authoritative for code-intel payloads)
+//   and `scripts/wiki-graph.mjs` (graphify graph.json → subject edges/god
+//   nodes/communities/paths, when present — `npm run wiki:graph` or CI's
+//   `graphify extract . --code-only` produces it);
 //   output lands in dist-wasm/{llms.txt,wiki/} so the Pages artifact serves it
 //   with zero extra deploy steps. `npm run wiki` chains this + the vite build.
 // Contracts: read-only w.r.t. source; only writes under --out (created with
 //   mkdir -p). Caps keep every .txt LLM-friendly (< ~40 KB).
+//   Knowledge-graph enrichment is OPTIONAL: no graphify-out/graph.json means
+//   the heuristic link miner runs and every artifact reports engine
+//   "heuristic" — never fabricated EXTRACTED/INFERRED provenance.
+//   Every artifact stamps the build commit + live-update rules (CI
+//   regenerates them each push — curl consumers re-fetch, don't cache).
 
 import { execSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { collectFileContext } from './collect-file-context.mjs';
+import { aggregateGraph } from './wiki-graph.mjs';
 
 const SITE = 'https://cybermanju.github.io';
 const VERSION = JSON.parse(readFileSync('package.json', 'utf8')).version;
+// Build provenance every artifact stamps: consumers pin/clobber-cache on it,
+// and it proves which commit a curl'd .txt describes.
+const GIT_COMMIT = (() => {
+  try { return execSync('git rev-parse --short=12 HEAD', { encoding: 'utf8' }).trim(); } catch { return null; }
+})();
 
 // id, title, tagline, blurb, accent color, path prefixes.
 export const SUBJECTS = [
@@ -168,6 +182,30 @@ function escHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Cross-subject knowledge-graph summary for .txt (engine-labeled: only ever
+// claims EXTRACTED/INFERRED provenance when graphify actually ran).
+function graphTxt(c) {
+  if (c.engine !== 'graphify') {
+    return ['## Related modules (engine: heuristic)', '',
+      'No graphify graph present at build time — links come from mined crate imports + shared contract signals.', ''];
+  }
+  const out = ['## Knowledge graph (engine: graphify — EXTRACTED/INFERRED edges)', ''];
+  if (c.community) out.push(`- Community: #${c.community.id} (${c.community.nodes} symbols in cluster)`);
+  if (c.edges?.length) {
+    out.push('- Strongest cross-subject edges:');
+    for (const e of c.edges) {
+      const rels = Object.entries(e.relations).map(([r, n]) => `${r} ×${n}`).join(', ');
+      out.push(`  - → ${e.to} (w${e.weight}; EXTRACTED ${e.extracted} / INFERRED ${e.inferred}${rels ? `; ${rels}` : ''})${e.sample ? ` — e.g. ${e.sample}` : ''}`);
+    }
+  }
+  if (c.godNodes?.length) {
+    out.push('- God nodes here (most-connected hubs):');
+    for (const g of c.godNodes) out.push(`  - ${g.name} — ${g.file}:${g.line} (degree ${g.degree}, community #${g.community})`);
+  }
+  out.push('- Query it: `graphify query "<question>" --graph graphify-out/graph.json` · `graphify path A B`', '');
+  return out;
+}
+
 function subjectTxt(c) {
   const { sub, files, fileCount, symbolCount, documentedCount, contracts } = c;
   const coverage = symbolCount === 0 ? 100 : Math.round((documentedCount / symbolCount) * 100);
@@ -176,10 +214,12 @@ function subjectTxt(c) {
   out.push(`> ${sub.tag}`);
   out.push(`> ${sub.blurb}`);
   out.push(`> App: ${SITE}/wiki/#/ + ${sub.id} | Static: ${SITE}/wiki/${sub.id}.html | JSON: ${SITE}/wiki/${sub.id}.json`);
+  out.push(`> Live artifact: CI regenerates this file on every push (build commit ${GIT_COMMIT ?? 'unknown'}). Re-fetch instead of caching; the architecture map + update rules live in ${SITE}/llms.txt.`);
   out.push('');
   out.push(`Files: ${fileCount}  |  Symbols: ${symbolCount} (${documentedCount} documented, ${coverage}%) — gaps: \`node scripts/check-symbol-docs.mjs --dir <path>\``);
   if (c.links && c.links.length) out.push(`Links: ${c.links.join(', ')} (see their .txt for the other side)`);
   out.push('');
+  out.push(...graphTxt(c));
   out.push('## Modules (merged top-file headers)');
   out.push('');
   for (const f of files.slice(0, 40)) {
@@ -217,6 +257,10 @@ function subjectJson(c) {
     id: sub.id, title: sub.title, tag: sub.tag, blurb: sub.blurb, color: sub.color,
     version: VERSION, fileCount, symbolCount, documentedCount,
     docsCoverage: symbolCount === 0 ? 100 : Math.round((documentedCount / symbolCount) * 100),
+    engine: c.engine || 'heuristic',
+    community: c.community ?? null,
+    edges: c.edges || [],
+    godNodes: c.godNodes || [],
     links: c.links || [],
     contracts: contracts.slice(0, 40).map(([sig, where]) => ({ signal: sig, files: where })),
     files: files.map((f) => ({ path: f.path, header: f.header, symbols: f.symbols.slice(0, 40), imports: f.imports })),
@@ -232,6 +276,14 @@ function subjectHtml(c) {
       ${f.header.map((h) => `<p class="h">${escHtml(h)}</p>`).join('')}
       <p class="syms">${f.symbols.slice(0, 12).map((s) => `<code>${escHtml(s.name)}</code>`).join(' ')}</p>
       </details>`).join('');
+  const graphNav = c.engine === 'graphify' ? `<a href="./graph.html">graph</a>` : '';
+  const graphSec = c.engine === 'graphify'
+    ? `<h2>Knowledge graph <span style="color:var(--mut);font-size:12px">engine: graphify · EXTRACTED/INFERRED</span></h2>
+${c.community ? `<p>Community <code>#${c.community.id}</code> (${c.community.nodes} symbols).</p>` : ''}
+${(c.edges && c.edges.length) ? `<p class="syms">${c.edges.map((e) => `<code title="${escHtml(e.sample)}">${escHtml(e.to)}</code><span class="n"> w${e.weight} · E${e.extracted}/I${e.inferred}</span>`).join('<br>')}</p>` : ''}
+${(c.godNodes && c.godNodes.length) ? `<p class="syms">★ god nodes: ${c.godNodes.map((g) => `<code title="${escHtml(g.file)}:${g.line} · degree ${g.degree}">${escHtml(g.name)}</code>`).join(' ')}</p>` : ''}
+<p class="h">Full interactive graph: <a href="./graph.html" style="color:var(--ac)">graph.html</a> · query locally with <code>graphify query "…"</code>.</p>`
+    : '';
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -253,7 +305,7 @@ summary{cursor:pointer}summary code{color:var(--ac)}.n{color:var(--mut);font-siz
 ul.links{list-style:none;padding:0;display:flex;gap:10px;flex-wrap:wrap}ul.links a{color:var(--tx);background:#ffffff10;border:2px solid var(--line,#ffffff1f);border-radius:0;box-shadow:3px 3px 0 rgba(0,0,0,.55);padding:6px 12px;text-decoration:none;font-size:13px}
 footer{margin-top:32px;color:var(--mut);font-size:13px}
 </style></head><body><div class="wrap">
-<nav><a href="${SITE}/wiki/">✦ 3D wiki</a><a href="${SITE}/llms.txt">llms.txt</a><a href="./${sub.id}.txt">.txt</a><a href="./${sub.id}.json">.json</a></nav>
+<nav><a href="${SITE}/wiki/">✦ 3D wiki</a>${graphNav}<a href="${SITE}/llms.txt">llms.txt</a><a href="./${sub.id}.txt">.txt</a><a href="./${sub.id}.json">.json</a></nav>
 <div class="hero"><div class="tag">${escHtml(sub.tag)}</div><h1>${escHtml(sub.title)}</h1>
 <p class="blurb">${escHtml(sub.blurb)}</p>
 <div class="stats"><span>${fileCount} files</span><span>${symbolCount} symbols</span><span>v${VERSION}</span></div></div>
@@ -261,27 +313,53 @@ ${(c.links && c.links.length) ? `<h2>Related modules</h2><p class="syms">${c.lin
 <h2>Modules</h2>${rows}
 <h2>Top symbols</h2><p class="syms">${topSyms.map((s) => `<code title="${escHtml(s.file)}:${s.line}">${escHtml(s.name)}</code>`).join(' ')}</p>
 <h2>Contracts</h2><p>${contracts.length ? contracts.slice(0, 24).map(([s]) => `<code>${escHtml(s)}</code>`).join(' ') : 'none — pure logic'}</p>
+${graphSec}
 <ul class="links"><li><a href="./${sub.id}.txt">LLM text</a></li><li><a href="./${sub.id}.json">JSON</a></li><li><a href="${SITE}/wiki/#/${sub.id}">Open in 3D wiki</a></li></ul>
 <footer>CyberManju OS v${VERSION} — auto-generated wiki. Prefer the <a href="${SITE}/wiki/">interactive 3D wiki</a> for humans, <a href="${SITE}/llms.txt">llms.txt</a> for agents.</footer>
 </div></div></body></html>
 `;
 }
 
-function llmsTxt(collected) {
+function llmsTxt(collected, kg) {
   const out = [
     '# CyberManju OS',
     `> Quantum-resistant encrypted file manager + decentralized OS layer (v${VERSION}).`,
     '> Interactive wiki for humans: https://cybermanju.github.io/wiki/',
     '> This file is the agent entry point: one line per subject, then fetch the .txt you need.',
+    `> Live build: commit ${GIT_COMMIT ?? 'unknown'} — CI regenerates every wiki file on each push (see "Live updates" below).`,
     '',
     ...collected.map((c) => `- [${c.sub.title}](https://cybermanju.github.io/wiki/${c.sub.id}.txt): ${c.sub.tag} — ${c.fileCount} files, ${c.symbolCount} symbols.`),
     '',
+  ];
+  out.push(
+    '## Live updates (read before caching)',
+    '- Everything under https://cybermanju.github.io/wiki/ and this file are auto-generated by CI (`.github/workflows/ci.yml`, the "Build wiki" step, chained after the graphify knowledge-graph step) on every push to main/develop, then served statically from GitHub Pages.',
+    `- Each file stamps the commit it describes (currently ${GIT_COMMIT ?? 'unknown'}). Do not cache long-term: re-fetch per session, or cache-bust with the commit (…/wiki/agent.txt?v=${GIT_COMMIT ?? 'HEAD'}).`,
+    '- The knowledge graph (EXTRACTED/INFERRED edges, god nodes, communities) is rebuilt from source in the same CI run — edge provenance in these files always matches the stamped commit, never a stale local copy.',
+    '',
+    '## Architecture (one-screen system model)',
+    '- Shape: one Vue 3 + Pinia SPA (`src/`) that runs over three transports chosen by `src/composables/useTauri.ts` — Tauri IPC on desktop, REST against the :3456 dashboard (`crates/web` + `docker/server`) on server, and a WASM OPFS volume (`crates/os-wasm`) on GitHub Pages. `os_*`/`disk_*` calls are REST_FIRST; the Go `cli/` speaks the same REST API.',
+    '- Request flow: component → composable → transport → handler (a Tauri command module or a `crates/web` route arm) → service crate → persistence (single-file redb `cybermanju.db` or the virtual disk). Errors always carry the fixed prefixes (`auth:` `rate_limited:` `not_found:` `unsupported:` `too_large:` `integrity:` `network:` `disk_full:` `conflict:`) that map to UI hints — never raw messages.',
+    '- Service crates and their contracts: `agent` (LLM loop, allow/ask/deny permissions, two-layer memory, provider failover chains) → `web` (fail-closed auth, 404-before-401, RBAC, async jobs: POST → 202 {jobId} + poll, asks auto-deny after ≤10 min) → `sync` (scan → compress → encrypt → upload → verify → link → clean, Reed-Solomon k+m placement, scrub/repair/gc/lease workers; failures keep the local original and record a WARNING) → `disk` (superblock + block allocator + catalog + mountable volumes) → `crypto` (hybrid ML-KEM-1024+X25519 KEM, ChaCha20Poly1305, ML-DSA/SLH-DSA signatures, Argon2id, BLAKE3 hash-anchored edits) → `compression` (LZ4 → ZSTD-15 → Brotli-11 cascade in `.cyb3` frames) → `search`+`scene` (Tantivy BM25 + 17-category heuristic classifier) → `os`/`os-wasm` (the identical `cybsh` shell on server, desktop and in the browser).',
+    '- Data truth: `package.json` is the single version source (`scripts/check-version.sh`); every code file carries the merged top-file header; every result that depends on a tool reports its `engine` (`graphify`/`heuristic`, `onnx`/`heuristic-v2`, tree-sitter/heuristic) — unlabeled provenance is a bug.',
+    '- Deep dive: fetch each subject .txt linked above; its "Knowledge graph" section gives the cross-subject EXTRACTED/INFERRED edges, god nodes and community, and `graphify query "…" --graph graphify-out/graph.json` answers questions against the same graph locally.',
+    '',
+  );
+  if (kg) {
+    out.push(
+      `## Knowledge graph (engine: graphify — ${kg.stats.nodes} nodes, ${kg.stats.edges} edges, EXTRACTED ${kg.stats.extracted} / INFERRED ${kg.stats.inferred})`,
+      '- Query it locally: `graphify query "<question>" --graph graphify-out/graph.json`, `graphify path A B`, `graphify explain X`.',
+      ...kg.godNodes.slice(0, 8).map((g) => `- God node: ${g.name} (${g.file}:${g.line}, degree ${g.degree})`),
+      '',
+    );
+  }
+  out.push(
     '## Conventions (must-read before editing code)',
     '- Transports: tauri IPC (desktop) / REST :3456 (server) / WASM volume (Pages). os_*/disk/* are REST_FIRST.',
     '- Async jobs: 202 + poll; asks park ≤10 min then auto-deny. Error prefixes: auth:/rate_limited:/not_found:/unsupported:(→501)/too_large:/integrity:/network:/disk_full:/conflict:.',
     '- Every code file carries a merged top-file header (Role/Exports/Integrates/Contracts); scripts/check-file-headers.sh enforces it.',
     '- No local cargo/Rust toolchain; Rust validation happens in CI. Local loop: check-version → vue-tsc → npm test.',
-  ];
+  );
   return out.join('\n') + '\n';
 }
 
@@ -291,9 +369,31 @@ function main() {
   const files = trackedFiles();
   const collected = SUBJECTS.map((sub) => collectSubject(sub, files));
   computeLinks(collected);
+
+  // Optional knowledge-graph pass: fold graphify's graph.json over the
+  // heuristic links (EXTRACTED/INFERRED edges, god nodes, communities,
+  // module paths). Absent file → heuristic engine label everywhere.
+  let kg = null;
+  try {
+    kg = aggregateGraph(JSON.parse(readFileSync('graphify-out/graph.json', 'utf8')), SUBJECTS);
+  } catch {
+    kg = null;
+  }
+  if (kg) {
+    for (const c of collected) {
+      const edges = kg.subjectEdges.get(c.sub.id) || [];
+      // Graph edges win when they exist; subjects the AST found no
+      // cross-links for keep the heuristic miner's suggestions.
+      if (edges.length) c.links = edges.map((e) => e.to);
+      c.engine = 'graphify';
+      c.edges = edges;
+      c.godNodes = kg.subjectGods.get(c.sub.id) || [];
+      c.community = kg.subjectCommunity.get(c.sub.id) ?? null;
+    }
+  }
   mkdirSync(join(OUT, 'wiki'), { recursive: true });
 
-  writeFileSync(join(OUT, 'llms.txt'), llmsTxt(collected));
+  writeFileSync(join(OUT, 'llms.txt'), llmsTxt(collected, kg));
   const index = [];
   for (const c of collected) {
     writeFileSync(join(OUT, 'wiki', `${c.sub.id}.txt`), subjectTxt(c));
@@ -301,13 +401,30 @@ function main() {
     writeFileSync(join(OUT, 'wiki', `${c.sub.id}.json`), JSON.stringify(j, null, 1) + '\n');
     writeFileSync(join(OUT, 'wiki', `${c.sub.id}.html`), subjectHtml(c));
     index.push({ id: c.sub.id, title: c.sub.title, tag: c.sub.tag, blurb: c.sub.blurb, color: c.sub.color,
-      fileCount: c.fileCount, symbolCount: c.symbolCount, links: c.links || [],
+      fileCount: c.fileCount, symbolCount: c.symbolCount,
+      engine: c.engine || 'heuristic', community: c.community?.id ?? null,
+      edges: (c.edges || []).map((e) => ({ to: e.to, weight: e.weight, extracted: e.extracted, inferred: e.inferred, relations: e.relations, sample: e.sample })),
+      godNodes: (c.godNodes || []).map((g) => ({ name: g.name, degree: g.degree, file: g.file, line: g.line })),
+      links: c.links || [],
       contracts: c.contracts.slice(0, 12).map(([sig]) => sig),
       top: j.files.flatMap((f) => f.symbols.slice(0, 6).map((s) => ({ name: s.name, kind: s.kind, docs: s.docs, file: f.path, line: s.line }))).slice(0, 40) });
   }
-  writeFileSync(join(OUT, 'wiki', 'subjects.json'), JSON.stringify({ version: VERSION, subjects: index }, null, 1) + '\n');
+  // Graph summary rides along so the SPA can render provenance badges, god
+  // nodes, communities and the path tracer without fetching anything else.
+  const graphPayload = kg
+    ? { engine: kg.engine, commit: kg.commit, stats: kg.stats,
+        godNodes: kg.godNodes.slice(0, 15), communities: kg.communities, paths: kg.paths }
+    : null;
+  writeFileSync(join(OUT, 'wiki', 'subjects.json'), JSON.stringify({ version: VERSION, commit: GIT_COMMIT, graph: graphPayload, subjects: index }, null, 1) + '\n');
+  // graphify's own clickable symbol-level view ships next to our pages.
+  let graphHtml = false;
+  if (existsSync('graphify-out/graph.html')) {
+    copyFileSync('graphify-out/graph.html', join(OUT, 'wiki', 'graph.html'));
+    graphHtml = true;
+  }
   const kb = (p) => (Buffer.byteLength(readFileSync(p, 'utf8')) / 1024).toFixed(1) + ' KB';
   console.log(`wiki: ${collected.length} subjects → ${OUT}/wiki/ (+ ${OUT}/llms.txt ${kb(join(OUT, 'llms.txt'))})`);
+  console.log(`  engine: ${kg ? `graphify (${kg.stats.nodes} nodes, ${kg.stats.edges} edges, EXTRACTED ${kg.stats.extracted} / INFERRED ${kg.stats.inferred}${kg.commit ? `, ${kg.commit.slice(0, 8)}` : ''}${graphHtml ? ', graph.html ✓' : ''})` : 'heuristic (no graphify-out/graph.json — run `npm run wiki:graph` to enrich)'}`);
   for (const c of collected) console.log(`  ${c.sub.id}: ${c.fileCount} files, ${c.symbolCount} symbols (${c.documentedCount} documented), ${kb(join(OUT, 'wiki', c.sub.id + '.txt'))}`);
 }
 

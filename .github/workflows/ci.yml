@@ -241,7 +241,27 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-      # Wiki: structure data (improved heuristic finder) + llms.txt +
+      # Knowledge graph for the wiki (graphify): local tree-sitter AST pass,
+      # --code-only keeps it deterministic + key-free (no LLM). graph.json
+      # feeds generate-wiki.mjs (cross-subject EXTRACTED/INFERRED edges, god
+      # nodes, communities, module paths — via scripts/wiki-graph.mjs), and
+      # the interactive symbol-level graph.html ships at /wiki/graph.html.
+      # The generator falls back to the heuristic link miner when the graph
+      # is absent, so this is the only place that needs graphify.
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install graphify
+        run: pipx install graphifyy==0.9.92
+
+      - name: Build knowledge graph
+        run: |
+          graphify extract . --code-only
+          graphify export html
+
+      # Wiki: structure data (heuristic finder + graphify graph) + llms.txt +
       # per-subject .txt/.json/.html + the Three.js SPA, all into dist-wasm/
       # (wiki build never empties it). Same VITE_BASE so the wiki serves
       # under /wiki/ on main and /develop/wiki/ on the preview path.

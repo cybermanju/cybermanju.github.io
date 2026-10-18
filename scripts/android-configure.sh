@@ -408,6 +408,59 @@ class CybermanjuMessages : NotificationListenerService() {
 KTEOF
 echo "messages service ok: $SERVICE_FILE"
 
+# ─── 5. Scoped-storage runtime dependency (androidx.documentfile) ──
+# tauri-plugin-scoped-storage 1.5.1 (crates.io) imports
+# androidx.documentfile.provider.DocumentFile in its Android plugin
+# (ScopedStoragePlugin.kt) but its library build.gradle.kts never declares
+# androidx.documentfile — the class is present on the compile classpath
+# (transitive) yet missing at RUNTIME, so tauri's PluginManager.load dies
+# with `NoClassDefFoundError: androidx/documentfile/provider/DocumentFile`
+# the instant the app opens (2026-10-18, v0.1.1 release APK on a Galaxy A50,
+# Android 11: splash → FATAL EXCEPTION main → process dead). The app module
+# owns its runtime classpath, so the dependency lands in
+# gen/android/app/build.gradle.kts. Marker-guarded and idempotent; drop it
+# when the plugin starts shipping the dependency itself (upstream report).
+APP_GRADLE="$ANDROID_DIR/app/build.gradle.kts"
+if [ ! -f "$APP_GRADLE" ]; then
+  echo "::error::$APP_GRADLE not found — unexpected Tauri template layout" >&2
+  exit 1
+fi
+
+if grep -q "androidx.documentfile" "$APP_GRADLE"; then
+  echo "scoped-storage runtime dep already present — leaving $APP_GRADLE alone"
+else
+  python3 - "$APP_GRADLE" "$MARK" <<'PYEOF'
+import re
+import sys
+
+path, mark = sys.argv[1], sys.argv[2]
+src = open(path).read()
+# Idempotent at this level too: the bash guard above already skips, but a
+# second insert would silently duplicate the dependency line.
+if "androidx.documentfile" in src:
+    print("already present: " + path)
+    sys.exit(0)
+# Top-level `dependencies {` first (the template writes it at column 0);
+# any indented one is the fallback.
+m = re.search(r"(?m)^(dependencies\s*\{)", src)
+if not m:
+    m = re.search(r"(?m)^(\s*)(dependencies\s*\{)", src)
+assert m, "no dependencies { } block in %s" % path
+# Indent one level past the `dependencies` line itself.
+indent = re.match(r"\s*", m.group(0)).group(0) + "    "
+dep = (
+    "\n%s// %s: androidx.documentfile is imported by tauri-plugin-scoped-storage's"
+    "\n%s// ScopedStoragePlugin.kt but not declared by that plugin — without it the"
+    "\n%s// class is absent at runtime and plugin load crashes the app at launch."
+    "\n%simplementation(\"androidx.documentfile:documentfile:1.0.1\")\n"
+    % (indent, mark, indent, indent, indent)
+)
+src = src[: m.end()] + dep + src[m.end():]
+open(path, "w").write(src)
+print("patched " + path)
+PYEOF
+fi
+
 # ─── 3. ABI / artifact policy note ─────────────────────────────────
 # ort-sys ships prebuilt ONNX Runtime only for aarch64-linux-android, so
 # release artifacts are arm64-v8a-only. x86_64 exists for the emulator smoke

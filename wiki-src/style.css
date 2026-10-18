@@ -1,6 +1,6 @@
 /* CyberManju OS — wiki app styles (wiki-src/style.css). */
 /* Role: charm-style purple/red/white/black reader UI over the 3D scenery. */
-/* Exports: .top/.rail/.panel/.hint layout, cards, chips, tooltip. */
+/* Exports: .top/.rail/.panel/.hint layout, cards, chips, tooltip, graph bits (.badge/.trace/#graph2d overlay/legend). */
 /* Integrates: linked from wiki-src/index.html; fonts fall back to system rounded. */
 /* Contracts: none (pure CSS); mobile collapses rail to a horizontal strip. */
 
@@ -149,7 +149,8 @@ body {
   gap: 8px;
 }
 
-.toplinks a {
+.toplinks a,
+.toplinks button {
   color: var(--tx);
   text-decoration: none;
   font-family: var(--font-px);
@@ -162,11 +163,13 @@ body {
   box-shadow: var(--hard-sm);
 }
 
-.toplinks a:hover {
+.toplinks a:hover,
+.toplinks button:hover {
   border-color: var(--pink);
 }
 
-.toplinks a:active {
+.toplinks a:active,
+.toplinks button:active {
   transform: translate(2px, 2px);
   box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.55);
 }
@@ -498,6 +501,138 @@ ul.links .linkbtn:active {
   padding: 0 6px;
   font-family: var(--font-px);
   font-size: 10px;
+}
+
+/* ── Knowledge-graph bits (engine: graphify) ─────────────────── */
+.mut {
+  color: var(--mut);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Edge weight badge on connected-module chips; .inf = INFERRED-dominant. */
+.badge {
+  margin-left: 6px;
+  background: #ffffff14;
+  border: 1px solid var(--line);
+  padding: 0 5px;
+  font-family: var(--font-px);
+  font-size: 9px;
+  color: var(--mut);
+}
+
+.badge.inf {
+  border-style: dashed;
+  color: #fda4af;
+}
+
+/* Path tracer: two controls + the rendered chain of module chips. */
+.trace {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.trace select {
+  flex: 1;
+  background: #ffffff10;
+  color: var(--tx);
+  border: 2px solid var(--line);
+  border-radius: 0;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.trace button {
+  background: var(--ac, var(--pink));
+  color: #0a0514;
+  border: 2px solid var(--line);
+  border-radius: 0;
+  box-shadow: var(--hard-sm);
+  padding: 6px 14px;
+  font-family: var(--font-px);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.traced {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.traced .linkbtn {
+  color: var(--tx);
+  background: #ffffff10;
+  border: 2px solid var(--line);
+  border-radius: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.traced .linkbtn:hover {
+  border-color: var(--ac, var(--pink));
+}
+
+.traced .arrow {
+  color: var(--mut);
+}
+
+/* Header switch button (2D graph ⇄ 3D view). */
+.toplinks button {
+  background: #ffffff10;
+  cursor: pointer;
+}
+
+.toplinks button[aria-pressed='true'] {
+  background: var(--pink);
+  color: #0a0514;
+  border-color: var(--pink);
+}
+
+/* 2D graph overlay: graphify's graph.html in a full-screen iframe. */
+#graph2d {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: #0d0714;
+  display: flex;
+}
+
+#graph2d[hidden] {
+  display: none;
+}
+
+#graph2d iframe {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #0d0714;
+}
+
+/* Community legend chips (orbit-frame colors). */
+.chips.legend .comm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff10;
+  border: 2px solid var(--line);
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--tx);
+}
+
+.chips.legend .comm i {
+  width: 10px;
+  height: 10px;
+  display: inline-block;
+  border: 1px solid #ffffff55;
 }
 
 /* Loading skeleton shimmer (kept square for the pixel look). */
