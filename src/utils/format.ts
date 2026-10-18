@@ -4,9 +4,9 @@
 // Integrates: standalone (no imports); used by DiskManagerPage + panels.
 // Contracts: none special (pure; zero/NaN-safe, never throws).
 
-/** `1536` → `"1.5 KB"`, `0`/null → `"0 B"`. Binary (1024) units. */
+/** `1536` → `"1.5 KB"`; missing/invalid/nonpositive sizes → `"0 B"`. Binary units. */
 export function humanBytes(bytes: number | null | undefined): string {
-  if (!bytes) return '0 B'
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let value = bytes
   let unit = 0
