@@ -1,17 +1,22 @@
-# iOS runbook (P2-16 — landed: simulator CI job + signing/configure scripts)
+# iOS runbook (P2-16 — landed: unsigned device IPA CI + configure script)
 
-Native iOS target: simulator builds in CI, device IPAs sign when Apple
-secrets exist. The UI contract is pinned
+Native iOS target: CI ships an **unconditional unsigned arm64 device IPA**
+on every run — both `ios-build` jobs (`ci.yml` + `release.yml`,
+macos-latest) run `npm run tauri ios init` → `scripts/ios-configure.sh` →
+`npx tauri ios build --ci --target aarch64 --no-sign`, then verify the IPA
+stayed unsigned (no `embedded.mobileprovision`, Mach-O platform 2 = iOS
+device, `codesign` reports the app bundle unsigned) and upload it as
+`CyberManju-OS-<ver>-ios-device-unsigned.ipa`. The UI contract is pinned
 (`tests/frontend/mobile-ios.test.ts` — springboard pager, safe-area,
 squircle icons), the config floor is set (`bundle.ios.minimumSystemVersion`
-in `src-tauri/tauri.conf.json`), `scripts/ios-configure.sh` audits
-version/floor/identifier/ATS, `scripts/ios-signing.sh`
-(prepare/verify/cleanup) manages the ephemeral keychain + provisioning
-profile mirroring `scripts/android-signing.sh`, and the `ios-build` CI job
-(macos-latest) ships the simulator `.app` on every run plus the signed `.ipa`
-when secrets exist. The first *device* build still needs Apple Developer
-secrets (`APPLE_CERTIFICATE_P12_B64` / `APPLE_PROVISIONING_PROFILE_B64` alongside
-`ANDROID_KEYSTORE_*`); nothing here pretends otherwise.
+in `src-tauri/tauri.conf.json`), and `scripts/ios-configure.sh` audits
+version/floor/identifier/ATS.
+`scripts/ios-signing.sh` (prepare/verify/cleanup) mirrors
+`scripts/android-signing.sh`, but it is **manual/unused today**: no
+workflow invokes it and there is no iOS `REQUIRE_SIGNING` anywhere. Users
+sign the shipped IPA with their own Apple profile before installation; a
+signed-when-secrets-exist flow is the remaining work (Status below), not
+something this runbook pretends exists.
 
 ## 1. Scaffold the Xcode project
 
@@ -24,21 +29,38 @@ Never commit it; CI regenerates per run.
 
 ## 2. Device build (macOS only)
 
+What CI actually runs (`ios-build` in `ci.yml` + `release.yml`):
+
 ```sh
-npx tauri ios build --export-method app-store # or ad-hoc / enterprise
+npx tauri ios init                # regenerate src-tauri/gen/apple (gitignored)
+bash scripts/ios-configure.sh    # link SystemConfiguration + audits
+npx tauri ios build --ci --target aarch64 --no-sign
 ```
 
-Signing: Apple Developer certificate + provisioning profile via the
-ephemeral CI keychain (`scripts/ios-signing.sh prepare`, secrets
-`APPLE_CERTIFICATE_*` / provisioning alongside `ANDROID_KEYSTORE_*`),
-verified after the build (`verify`: `codesign --verify` on the `.ipa`,
-fail-closed when signing was expected) and shredded before artifact upload
-(`cleanup`) — mirroring `scripts/android-signing.sh`
-(prepare/verify/cleanup). CI (`ios-build` job) never requires signing
-(`REQUIRE_SIGNING=0`) so the unsigned simulator IPA for sideload always ships
-green; when Apple secrets exist the device `.ipa` builds and verifies in the
-same job. Release sets `REQUIRE_SIGNING=1` so an uninstallable IPA never
-publishes.
+The `--no-sign` device branch creates the arm64 device IPA directly from
+the archive (do NOT add `--archive-only` — it suppresses IPA generation —
+or `--export-method` — it invokes a distribution export such as App Store).
+The job then asserts the IPA stayed unsigned (container has exactly one
+`Payload/*.app` and no `embedded.mobileprovision`; binary is arm64 built
+for platform 2, not the simulator's 7; `codesign -dv` must report "code
+object is not signed at all") and renames it
+`CyberManju-OS-<ver>-ios-device-unsigned.ipa` — **unsigned artifacts always
+say `unsigned` in the file name** (the Android contract,
+docs/ANDROID.md §2).
+
+A signed build (ad-hoc / app-store / TestFlight) is manual today:
+`scripts/ios-signing.sh prepare` / `verify` / `cleanup` exists and mirrors
+`scripts/android-signing.sh` (ephemeral CI keychain, fail-closed `verify`
+under `REQUIRE_SIGNING=1`, shred before upload), but no workflow wires it
+in — there is no iOS `REQUIRE_SIGNING` in `ci.yml`/`release.yml`, so the
+job never signs and never requires Apple secrets:
+
+```sh
+npx tauri ios build --export-method app-store # or ad-hoc / enterprise
+# + scripts/ios-signing.sh prepare/verify/cleanup, secrets
+#   APPLE_CERTIFICATE_P12_B64 / APPLE_CERTIFICATE_PASSWORD /
+#   APPLE_PROVISIONING_PROFILE_B64 / KEYCHAIN_PASSWORD
+```
 
 ## 3. Transport notes (same as Android)
 
@@ -70,8 +92,8 @@ publishes.
 
 - [x] UI contract tests green
 - [x] `bundle.ios` floor set
-- [x] `scripts/ios-configure.sh` audits (version/floor/identifier/ATS)
-- [x] `scripts/ios-signing.sh` prepare/verify/cleanup (ephemeral keychain)
-- [x] `ios-build` CI job on macos-latest (simulator `.app` every run + device `.ipa` when secrets exist)
+- [x] `scripts/ios-configure.sh` audits (version/floor/identifier/ATS) — wired into `ios-build` in `ci.yml` + `release.yml`
+- [x] `ios-build` CI job on macos-latest: unsigned arm64 **device** IPA every run, `-ios-device-unsigned.ipa` naming, container + Mach-O platform + codesign assertions (no simulator job/artifact)
 - [x] `tauri ios init` regenerates `gen/apple` per run (gitignored, like Android's `gen/`)
-- [ ] Device build with real Apple secrets + TestFlight track (needs `APPLE_CERTIFICATE_P12_B64` / `APPLE_PROVISIONING_PROFILE_B64` in repo secrets — sequenced, honest reason: Apple Developer account + signing, not code)
+- [x] `scripts/ios-signing.sh` prepare/verify/cleanup written (ephemeral keychain) — manual/unused until a workflow wires it in
+- [ ] Signed device build with real Apple secrets + TestFlight track (wire `ios-signing.sh` into `release.yml` first; needs `APPLE_CERTIFICATE_P12_B64` / `APPLE_PROVISIONING_PROFILE_B64` in repo secrets — sequenced, honest reason: Apple Developer account + signing, not code)

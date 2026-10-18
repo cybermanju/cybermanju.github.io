@@ -111,7 +111,7 @@
           @pointerup="onHomePressEnd"
           @pointerleave="onHomePressEnd"
           @pointercancel="onHomePressEnd"
-          @contextmenu.prevent="customHome = app; homeAliasDraft = launcher.overrides[launcherKeyForPanel(app.panel)]?.alias ?? ''; homeMsg = ''"
+          @contextmenu.prevent="onHomeContextMenu(app)"
         >
           <span class="mla-tile" :class="{ 'has-photo': homeTile(app).kind === 'image' }" :style="{ '--app-tint': app.tint }">
             <img
@@ -210,8 +210,8 @@
         <div class="mla-custom-row">
           <span class="mla-custom-label">Icon</span>
           <div class="mla-custom-icon-row">
-            <span class="mla-tile sm has-photo" v-if="homeTile(customHome).kind === 'image'">
-              <img class="mla-photo" :src="homeTile(customHome).src" alt="" draggable="false" />
+            <span class="mla-tile sm has-photo" v-if="customHomeTile.kind === 'image'">
+              <img class="mla-photo" :src="customHomeTile.src" alt="" draggable="false" />
             </span>
             <button class="mla-mini-btn" type="button" @click="pickHomeGallery">
               <AppIcon name="solar:folder-bold" :size="15" /> Gallery
@@ -267,7 +267,10 @@ const wm = useWindowManager()
 const launcher = useLauncherStore()
 const androidApps = useAndroidApps()
 const msgHub = useMessages()
-const sysUnread = computed(() => useNotifications().unreadCount.value)
+// One composable instance for setup scope — instantiating it inside a
+// computed would re-run it on every recompute.
+const sys = useNotifications()
+const sysUnread = computed(() => sys.unreadCount.value)
 const query = ref('')
 const dateStr = ref('')
 const greeting = ref('')
@@ -295,10 +298,17 @@ function tickClock() {
 /** A downward gesture from the top edge focuses the app search, like system search. */
 let touchY: number | null = null
 let touchX: number | null = null
+/** Swipe-up (→ Gaveta drawer) anchors: kept for the whole gesture, because
+ *  `touchY` is deliberately cleared mid-move by the pull-to-search path —
+ *  reusing it for the end-check made the drawer gesture dead code. */
+let drawerStartY: number | null = null
+let drawerStartX: number | null = null
 let swipeUpArmed = false
 function onTouchStart(event: TouchEvent) {
   touchY = event.touches[0]?.clientY ?? null
   touchX = event.touches[0]?.clientX ?? null
+  drawerStartY = touchY
+  drawerStartX = touchX
   // Swipe-up-to-drawer only arms near the bottom of the screen so normal
   // vertical scrolling of the home never triggers the Gaveta by accident.
   try {
@@ -312,11 +322,11 @@ function onTouchStart(event: TouchEvent) {
   }
 }
 function onTouchEnd(event: TouchEvent) {
-  if (swipeUpArmed && touchY != null && touchX != null && !launcher.drawerOpen) {
-    const endY = event.changedTouches[0]?.clientY ?? touchY
-    const endX = event.changedTouches[0]?.clientX ?? touchX
-    const vertical = touchY - endY
-    const horizontal = Math.abs(endX - touchX)
+  if (swipeUpArmed && drawerStartY != null && drawerStartX != null && !launcher.drawerOpen) {
+    const endY = event.changedTouches[0]?.clientY ?? drawerStartY
+    const endX = event.changedTouches[0]?.clientX ?? drawerStartX
+    const vertical = drawerStartY - endY
+    const horizontal = Math.abs(endX - drawerStartX)
     const tag = (event.target as HTMLElement | null)?.tagName ?? ''
     if (vertical >= 96 && horizontal < 60 && tag !== 'INPUT' && tag !== 'TEXTAREA') {
       launcher.setDrawer(true)
@@ -328,11 +338,16 @@ function onTouchEnd(event: TouchEvent) {
   swipeUpArmed = false
   touchY = null
   touchX = null
+  drawerStartY = null
+  drawerStartX = null
 }
 function onTouchMove(event: TouchEvent) {
+  const root = rootRef.value
+  // Once the home list itself scrolls, the gesture belongs to content —
+  // never the drawer.
+  if ((root?.scrollTop ?? 0) > 0) swipeUpArmed = false
   if (touchY == null) return
   const y = event.touches[0]?.clientY ?? touchY
-  const root = rootRef.value
   if (y - touchY > 72 && (root?.scrollTop ?? 0) <= 0 && document.activeElement !== searchRef.value) {
     touchY = null
     searchRef.value?.focus()
@@ -342,8 +357,15 @@ function onTouchMove(event: TouchEvent) {
 }
 
 function handleMsgVisible() {
-  if (document.visibilityState === 'visible' && msgHub.supported) {
-    void msgHub.refresh().catch(() => {})
+  if (document.visibilityState !== 'visible') return
+  // `refresh()` early-returns on a cached 'ready' — force so returning to the
+  // app actually updates the badge.
+  if (msgHub.supported) void msgHub.refresh(true).catch(() => {})
+  // Resume hook (existing visibility listener): the system uninstall sheet
+  // backgrounds the app, so re-list while the drawer is on screen instead of
+  // leaving uninstalled rows stale.
+  if (launcher.drawerOpen && androidApps.supported) {
+    void androidApps.refresh(true).catch(() => {})
   }
 }
 
@@ -479,6 +501,12 @@ function isPanelOpen(panel: PanelType): boolean {
 }
 
 function open(panel: PanelType) {
+  if (contextMenuFired) {
+    // The contextmenu already opened the customize sheet for this gesture —
+    // swallow the click that follows instead of launching the app under it.
+    contextMenuFired = false
+    return
+  }
   if (longPressedHome) {
     longPressedHome = false
     return
@@ -499,23 +527,46 @@ function openDrawer() {
 // Rename / gallery icon / move / hide / reset, stored per `os:<panel>`.
 let homePressTimer: ReturnType<typeof setTimeout> | null = null
 let longPressedHome = false
+/** Android WebView fires `contextmenu` at ~500ms — BEFORE the 550ms
+ * long-press timer. Without this flag a release in the 500-550ms window lets
+ * the follow-up `click` run `open()` and launch the app under the sheet. */
+let contextMenuFired = false
 const customHome = ref<LauncherApp | null>(null)
 const homeAliasDraft = ref('')
 const homeMsg = ref('')
+/** Staged gallery icon for the open sheet — component-local only; the store
+ * deep-watch would persist `launcher.setIcon` instantly. `saveHomeCustom()`
+ * is the single commit point (closing without Save discards it). */
+const homeIconDraft = ref('')
 const homeFileRef = ref<HTMLInputElement | null>(null)
+
+/** Sheet preview: the staged gallery icon wins over the stored override. */
+const customHomeTile = computed(() => {
+  const staged = homeIconDraft.value.trim()
+  if (staged) return { kind: 'image' as const, src: staged }
+  return customHome.value
+    ? homeTile(customHome.value)
+    : { kind: 'icon' as const, src: 'solar:settings-bold' }
+})
+
+function openHomeCustom(app: LauncherApp) {
+  customHome.value = app
+  homeAliasDraft.value = launcher.overrides[launcherKeyForPanel(app.panel)]?.alias ?? ''
+  homeMsg.value = ''
+  homeIconDraft.value = ''
+}
 
 function onHomePressStart(app: LauncherApp, e: PointerEvent) {
   if (e.pointerType === 'mouse' && e.button !== 0) return
   longPressedHome = false
+  contextMenuFired = false
   if (homePressTimer) clearTimeout(homePressTimer)
   homePressTimer = setTimeout(() => {
     longPressedHome = true
     try {
       ;(navigator as Navigator & { vibrate?: (pattern: number) => boolean }).vibrate?.(15)
     } catch { /* optional */ }
-    customHome.value = app
-    homeAliasDraft.value = launcher.overrides[launcherKeyForPanel(app.panel)]?.alias ?? ''
-    homeMsg.value = ''
+    openHomeCustom(app)
   }, 550)
 }
 
@@ -526,6 +577,19 @@ function onHomePressEnd() {
   }
 }
 
+/** Right-click / Android touch long-press: `contextmenu` arrives at ~500ms,
+ * before the 550ms timer — cancel the timer (so it cannot arm
+ * `longPressedHome` for the next click) and flag the gesture as consumed. */
+function onHomeContextMenu(app: LauncherApp) {
+  if (homePressTimer) {
+    clearTimeout(homePressTimer)
+    homePressTimer = null
+  }
+  longPressedHome = false
+  contextMenuFired = true
+  openHomeCustom(app)
+}
+
 function homeKey(app: LauncherApp): string {
   return launcherKeyForPanel(app.panel)
 }
@@ -534,9 +598,13 @@ function saveHomeCustom() {
   const app = customHome.value
   if (!app) return
   const key = homeKey(app)
+  // Staged icon commits here too — the sheet closes below, so the confirmation
+  // leaves with it as a transient toast (the in-sheet `homeMsg` line could
+  // never render once `customHome` is null).
+  if (homeIconDraft.value) launcher.setIcon(key, homeIconDraft.value)
   launcher.rename(key, homeAliasDraft.value)
   launcher.pinToEnd(key)
-  homeMsg.value = `Saved “${homeName(app)}”.`
+  store.notifySuccess(`Saved “${homeName(app)}”.`)
   customHome.value = null
 }
 
@@ -551,7 +619,8 @@ async function onHomeGalleryFile(e: Event) {
   if (!file || !app) return
   try {
     const url = await fileToLauncherIcon(file)
-    launcher.setIcon(homeKey(app), url)
+    // Staged only — `saveHomeCustom()` commits it (closing discards).
+    homeIconDraft.value = url
     homeMsg.value = 'Gallery icon staged — Save to keep it.'
   } catch (err) {
     store.notifyError('Could not read that image', err)
@@ -689,7 +758,7 @@ function resetAllHome() {
 .mla-search-input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--ui-text); font: inherit; font-size: 16px; }
 .mla-search-input::placeholder { color: var(--ui-text-3); opacity: 0.9; }
 .mla-search-hint { color: var(--ui-text-3); font-family: inherit; font-size: 16px; font-weight: 600; opacity: 0.62; }
-.mla-search-clear { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--ui-surface-2); color: var(--ui-text-3); cursor: pointer; }
+.mla-search-clear { width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--ui-surface-2); color: var(--ui-text-3); cursor: pointer; }
 
 /* Springboard pager: horizontal PageView with iOS bounce
    (cf. iOS4Android PageView.builder, scrollDirection horizontal). */
@@ -806,10 +875,13 @@ function resetAllHome() {
   display: block;
 }
 /* Floating top-right messages button (home has no header bar when no
-   window is open; the tray button in TopMenuBar covers open apps). */
+   window is open; the tray button in TopMenuBar covers open apps). The
+   launcher sits below TopMenuBar inside the shell, which already carries
+   the notch inset — no safe-area here (it double-counted and sank the
+   buttons below the status strip). */
 .mla-topbtns {
   position: absolute;
-  top: calc(10px + env(safe-area-inset-top, 0px));
+  top: 10px;
   right: 12px;
   z-index: 5;
   display: flex;
@@ -817,8 +889,8 @@ function resetAllHome() {
 }
 .mla-msgbtn {
   position: relative;
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--ui-border-strong) 64%, transparent);
@@ -872,6 +944,9 @@ function resetAllHome() {
 .mla-reset {
   align-self: center;
   margin-top: -4px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
   padding: 4px 10px;
   border: 0;
   background: none;
@@ -892,8 +967,13 @@ function resetAllHome() {
   justify-content: center;
   background: color-mix(in srgb, var(--ui-bg-deep) 55%, transparent);
 }
+/* Home tile customization sheet — capped so landscape phones (short
+   viewport) scroll the sheet instead of clipping Save/Close off-screen. */
 .mla-custom {
   width: min(480px, 100vw);
+  max-height: min(68dvh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -953,8 +1033,8 @@ function resetAllHome() {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 36px;
-  padding: 0 12px;
+  min-height: 44px;
+  padding: 0 14px;
   border: 1px solid var(--ui-border-strong);
   border-radius: 12px;
   background: var(--ui-surface);

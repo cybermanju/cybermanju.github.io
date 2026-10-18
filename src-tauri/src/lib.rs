@@ -281,6 +281,23 @@ pub fn run() {
     // exclusive redb lock and quarantine the LIVE vault before exiting.
     // The dashboard Arc is ferried out via a holder for the clean shutdown
     // after `.run()` returns.
+    // Android: publish ONE probed app-private files dir to every data-dir
+    // consumer (keystore master passphrase, sync OAuth sealing, disk, OS
+    // volume root, JWT secret). `HOME` is unset in Android app processes,
+    // so without this they all resolve None and fail closed on device —
+    // sync OAuth refuses with "No master passphrase available to encrypt
+    // OAuth credentials". The probe writes only its own probe file (never
+    // the DB), so the second-process invariant above still holds. No-op when
+    // an operator already exported CYBERMANJU_DATA_DIR.
+    #[cfg(target_os = "android")]
+    {
+        let already = std::env::var("CYBERMANJU_DATA_DIR").unwrap_or_default();
+        if already.trim().is_empty() {
+            let dir = probe_android_files_dir();
+            tracing::info!("Android data dir: {}", dir.display());
+            std::env::set_var("CYBERMANJU_DATA_DIR", &dir);
+        }
+    }
     let dashboard_holder: Arc<Mutex<Option<Arc<web_dashboard::WebDashboard>>>> =
         Arc::new(Mutex::new(None));
     let dashboard_holder_setup = Arc::clone(&dashboard_holder);

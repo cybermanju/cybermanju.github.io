@@ -248,25 +248,6 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
   -webkit-backdrop-filter: blur(14px) saturate(130%);
 }
 
-@media (max-width: 560px) {
-  .cp-overlay {
-    align-items: center;
-    padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
-  }
-  .cp-modal {
-    width: 100%;
-    max-width: 100%;
-    max-height: calc(100dvh - max(16px, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px)));
-  }
-  .cp-input {
-    font-size: 16px;
-  }
-  .cp-item {
-    min-height: 44px;
-    padding-block: 8px;
-  }
-}
-
 .cp-modal {width: 560px;
   max-width: 90vw;
   max-height: 440px;
@@ -481,5 +462,28 @@ watch(() => store.commandPaletteOpen, async (v: boolean) => {
 
 [data-ui-shell='plasma'] .cp-item {
   border-radius: var(--ui-radius-sm);
+}
+
+/* Phone overrides — deliberately LAST: when this block sat before the base
+   `.cp-modal` / `.cp-item` / `.cp-input` rules, equal-specificity cascade
+   made it dead code: rows stayed 22px, the modal stayed 90vw, and the input
+   kept its desktop font size. */
+@media (max-width: 560px) {
+  .cp-overlay {
+    align-items: center;
+    padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
+  }
+  .cp-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - max(16px, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px)));
+  }
+  .cp-input {
+    font-size: 16px;
+  }
+  .cp-item {
+    min-height: 44px;
+    padding-block: 8px;
+  }
 }
 </style>

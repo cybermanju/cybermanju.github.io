@@ -52,9 +52,12 @@
           </div>
 
           <div v-else-if="browser.status.value === 'error'" class="drawer-state" role="alert">
-            <p class="drawer-error">{{ browser.lastError.value || 'Could not list apps.' }}</p>
+            <p class="drawer-error">{{ browserErrorHint }}</p>
             <button class="drawer-btn" type="button" @click="retry">
               <AppIcon name="solar:refresh-bold" :size="15" /> Retry
+            </button>
+            <button v-if="errorNeedsInstall" class="drawer-btn" type="button" @click="openInstall">
+              Install options
             </button>
           </div>
 
@@ -82,7 +85,7 @@
                 @pointerup="onPressEnd"
                 @pointerleave="onPressEnd"
                 @pointercancel="onPressEnd"
-                @contextmenu.prevent="openSheet(row)"
+                @contextmenu.prevent="onContextMenu(row)"
               >
                 <span class="drawer-tile">
                   <img
@@ -193,8 +196,8 @@ import {
   orderAndroidApps,
   type OrderedApp,
 } from '@/utils/launcher'
-import { requestInstallWindow } from '@/utils/installLinks'
-import type { IconPack } from '@/types'
+import { requestInstallWindow, isInstallNeededError } from '@/utils/installLinks'
+import { describeSyncError, type IconPack } from '@/types'
 
 const browser = useAndroidApps()
 const launcher = useLauncherStore()
@@ -217,10 +220,28 @@ const gridRef = ref<HTMLElement | null>(null)
 
 let pressTimer: ReturnType<typeof setTimeout> | null = null
 let longPressed = false
+/** Android WebView fires `contextmenu` at ~500ms — BEFORE the 550ms
+ * long-press timer. Without this flag a release in the 500-550ms window lets
+ * the follow-up `click` run `onTap` and launch the app under the sheet. */
+let contextMenuFired = false
 let sheetStartY: number | null = null
 
 const ordered = computed(() => orderAndroidApps(browser.apps.value, launcher.overrides))
 const visible = computed(() => filterOrderedApps(ordered.value, query.value))
+
+/** AGENT-1 hint for the app-list error — the raw `network:`/`unsupported:`
+ * prefix is never rendered alone (same `describeSyncError` mapping the
+ * central `notifyError` toast uses). */
+const browserErrorHint = computed(() => {
+  const detail = browser.lastError.value || ''
+  if (!detail) return 'Could not list apps.'
+  const { hint } = describeSyncError(detail)
+  return hint === 'See logs for detail.' ? detail : `${detail} — ${hint}`
+})
+
+/** Install-shaped failures (native-build-only capability) get the same
+ * `isInstallNeededError` remedy as the toast net, not just text. */
+const errorNeedsInstall = computed(() => isInstallNeededError(browser.lastError.value || ''))
 
 function tileFor(row: OrderedApp) {
   const ov = launcher.overrides[row.key]
@@ -230,7 +251,7 @@ function tileFor(row: OrderedApp) {
 const sheetTile = computed(() => {
   if (!active.value) return { kind: 'letter' as const, src: '?' }
   const ov = launcher.overrides[active.value.key]
-  const preview = packPreviewHolder.value.trim()
+  const preview = stagedIcon.value.trim()
   if (preview) return { kind: 'image' as const, src: preview }
   const base = ov?.customIcon?.trim() || active.value.app.iconBase64
   return displayIcon(base, active.value.app.label, undefined)
@@ -241,10 +262,12 @@ const hasOverride = computed(() => {
   return active.value.key in launcher.overrides
 })
 
-/** Pack-apply preview (resolved data URL, saved on Save). */
-const packPreviewHolder = ref('')
+/** Staged icon — a gallery pick OR a pack-apply preview. Component-local
+ * only: `saveActive()` is the single commit point into the launcher store
+ * (the store deep-watch persists on write), so closing without Save discards. */
+const stagedIcon = ref('')
 watch(active, () => {
-  packPreviewHolder.value = ''
+  stagedIcon.value = ''
   sheetMsg.value = ''
   if (active.value) {
     const ov = launcher.overrides[active.value.key]
@@ -298,6 +321,12 @@ function onSheetTouchEnd(e: TouchEvent) {
 }
 
 async function onTap(row: OrderedApp) {
+  if (contextMenuFired) {
+    // The contextmenu already opened the sheet for this gesture — swallow the
+    // click that follows it instead of launching the app under the sheet.
+    contextMenuFired = false
+    return
+  }
   if (longPressed) {
     longPressed = false
     return
@@ -312,6 +341,7 @@ async function onTap(row: OrderedApp) {
 function onPressStart(row: OrderedApp, e: PointerEvent) {
   if (e.pointerType === 'mouse' && e.button !== 0) return
   longPressed = false
+  contextMenuFired = false
   if (pressTimer) clearTimeout(pressTimer)
   pressTimer = setTimeout(() => {
     longPressed = true
@@ -329,6 +359,19 @@ function onPressEnd() {
   }
 }
 
+/** Right-click / Android touch long-press — the WebView's `contextmenu`
+ * arrives at ~500ms, before the 550ms timer: cancel the timer (so it cannot
+ * arm `longPressed` for the next click) and flag the gesture as consumed. */
+function onContextMenu(row: OrderedApp) {
+  if (pressTimer) {
+    clearTimeout(pressTimer)
+    pressTimer = null
+  }
+  longPressed = false
+  contextMenuFired = true
+  openSheet(row)
+}
+
 function openSheet(row: OrderedApp) {
   active.value = row
 }
@@ -343,7 +386,9 @@ async function onGalleryFile(e: Event) {
   if (!file || !active.value) return
   try {
     const url = await fileToLauncherIcon(file)
-    launcher.setIcon(active.value.key, url)
+    // Staged only — the store deep-watch would persist it instantly, which
+    // would make the "Save to keep it" copy a lie. Save commits it.
+    stagedIcon.value = url
     sheetMsg.value = 'Gallery icon staged — Save to keep it.'
   } catch (err) {
     store.notifyError('Could not read that image', err)
@@ -358,8 +403,9 @@ async function applyPackIcon() {
   sheetMsg.value = ''
   try {
     const url = await browser.packIcon(packDraft.value, active.value.app.packageName)
-    packPreviewHolder.value = url
-    launcher.setIconPack(active.value.key, packDraft.value)
+    // Both halves (resolved image + pack name) stay local until Save — an
+    // early `setIconPack` would store an `iconPack` with no `customIcon`.
+    stagedIcon.value = url
     sheetMsg.value = 'Pack icon staged — Save to keep it.'
   } catch (e) {
     store.notifyError('That pack has no icon for this app', e)
@@ -373,10 +419,14 @@ function saveActive() {
   const key = active.value.key
   if (aliasDraft.value.trim()) launcher.rename(key, aliasDraft.value)
   else launcher.patch(key, { alias: '' })
-  if (packPreviewHolder.value) launcher.setIcon(key, packPreviewHolder.value)
-  if (packDraft.value) launcher.setIconPack(key, packDraft.value)
+  // Single commit point for everything staged in this sheet (icon, pack
+  // name) — closing without Save discards it all.
+  if (stagedIcon.value) launcher.setIcon(key, stagedIcon.value)
+  launcher.setIconPack(key, packDraft.value)
   launcher.pinToEnd(key)
-  sheetMsg.value = `Saved “${launcher.get(key).alias || active.value.app.label}”.`
+  // The sheet closes right away, so the confirmation has to leave the sheet
+  // with it — a transient toast (same pattern as hideActive).
+  store.notifySuccess(`Saved “${launcher.get(key).alias || active.value.app.label}”.`)
   active.value = null
 }
 
@@ -468,8 +518,8 @@ function resetActive() {
   font-weight: 600;
 }
 .drawer-close {
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   border: 0;
@@ -506,6 +556,9 @@ function resetActive() {
   cursor: pointer;
   display: grid;
   place-items: center;
+  /* Phone tap floor — the icon stays small, the hit area doesn't. */
+  min-width: 44px;
+  min-height: 44px;
 }
 .drawer-note {
   margin: 0;
@@ -625,6 +678,12 @@ function resetActive() {
   gap: 10px;
   background: color-mix(in srgb, var(--ui-surface-2) 55%, transparent);
   border-radius: 16px 16px 0 0;
+  /* The app grid owns the drawer's scroll; in landscape the sheet must
+     scroll itself or Save/Close sit below the fold with no way to reach. */
+  max-height: min(58dvh, 460px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 .custom-head {
   display: flex;
@@ -653,7 +712,7 @@ function resetActive() {
 .custom-input {
   flex: 1;
   min-width: 0;
-  min-height: 38px;
+  min-height: 44px;
   padding: 0 10px;
   border: 1px solid var(--ui-border);
   border-radius: 10px;
@@ -682,7 +741,7 @@ function resetActive() {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 12px;
   border: 1px solid var(--ui-border-strong);
   border-radius: 12px;

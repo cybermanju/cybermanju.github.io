@@ -2996,7 +2996,8 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
     cmd === 'launcher_uninstall_app' || cmd === 'launcher_list_icon_packs' ||
     cmd === 'launcher_pack_icon' || cmd === 'launcher_list_social_apps' ||
     cmd === 'launcher_list_messages' || cmd === 'launcher_clear_messages' ||
-    cmd === 'launcher_notification_state' || cmd === 'launcher_open_notification_settings') {
+    cmd === 'launcher_notification_state' || cmd === 'launcher_open_notification_settings' ||
+    cmd === 'launcher_open_url' || cmd === 'launcher_open_file') {
     if (!isTauri()) {
       throw new Error('unsupported: Android apps need the native Android build — open this vault in the Android app')
     }

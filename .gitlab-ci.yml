@@ -232,13 +232,26 @@ android-build:
   variables:
     ANDROID_HOME: /opt/android-sdk
     ANDROID_SDK_ROOT: /opt/android-sdk
+    # ort-sys `download-binaries` extracts ONNX Runtime OUTSIDE target/ —
+    # same correctness-critical pin as ci.yml (`$HOME/.cache/ort`; cold dir +
+    # warm build-script output = "could not find native static library
+    # onnxruntime" at link time). GitLab does NOT shell-expand `variables:`
+    # values, so the script re-exports the expanded path at startup.
+    ORT_CACHE_DIR: $HOME/.cache/ort
   cache:
     key:
       files: [Cargo.lock, package-lock.json]
       prefix: cargo-android
-    paths: [target/, $HOME/.cargo/registry/, $HOME/.cargo/git/, $HOME/.npm/, $HOME/.gradle/]
+    paths: [target/, $HOME/.cargo/registry/, $HOME/.cargo/git/, $HOME/.npm/, $HOME/.gradle/, $HOME/.cache/ort/]
+  # Runs even when the job fails: a failed verify/abort above must not leave
+  # a decoded keystore on a (potentially long-lived) runner — same shred as
+  # the GitHub `Shred Android signing secrets` step (`if: always()`).
+  after_script:
+    - bash scripts/android-signing.sh cleanup || true
   before_script:
-    - apt-get update && apt-get install -y curl unzip zip pkg-config build-essential libssl-dev
+    # python3 is NOT in eclipse-temurin:17-jdk-noble and android-configure.sh
+    # runs python3 heredocs — without this the job dies at the first patch.
+    - apt-get update && apt-get install -y curl unzip zip pkg-config build-essential libssl-dev python3
     - curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
     - apt-get install -y nodejs
     - curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
@@ -253,6 +266,9 @@ android-build:
     - yes | sdkmanager --licenses > /dev/null || true
     - sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;$NDK_VERSION"
   script:
+    # GitLab passes `variables:` literally (no shell expansion), so the
+    # `$HOME` in ORT_CACHE_DIR must be expanded here for ort-sys.
+    - export ORT_CACHE_DIR="$HOME/.cache/ort"
     - export PATH="$HOME/.cargo/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:$PATH"
     - export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
     - export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
@@ -264,15 +280,17 @@ android-build:
     - bash scripts/android-icons.sh
     # A release APK must be installable: missing keystore is a hard failure
     # here (REQUIRE_SIGNING), same as GitHub — signing secrets required.
+    # Ordering mirrors GitHub (ci.yml / release.yml): configure → gradle
+    # harden → signing prepare → build → verify → smoke → upload.
     - |
       export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
       export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
       bash scripts/android-configure.sh
+      bash scripts/android-gradle-harden.sh
       REQUIRE_SIGNING=1 bash scripts/android-signing.sh prepare
       npx tauri android build --target aarch64 --apk --aab --split-per-abi
       REQUIRE_SIGNING=1 bash scripts/android-signing.sh verify
       bash scripts/android-smoke.sh || echo "smoke skipped/failed (non-blocking)"
-      bash scripts/android-signing.sh cleanup
     - mkdir -p ship/android && find src-tauri/gen/android/app/build/outputs \( -name '*.apk' -o -name '*.aab' \) -exec cp {} ship/android/ \;
     - ls ship/android/
   artifacts:

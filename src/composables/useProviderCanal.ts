@@ -304,6 +304,7 @@ export async function listVfsDir(mountId: string, remotePath = ''): Promise<VfsE
   const mount = mounts.find(m => m.id === mountId)
   if (!mount) throw new Error(`not_found: provider mount ${mountId}`)
   const rel = String(remotePath ?? '').replace(/^\/+/, '')
+  if (/(^|\/)\.\.(\/|$)/.test(rel)) throw new Error(`unsupported: provider path '${rel}' escapes the mount`)
   const key = cacheKey(mountId, rel)
   const config = await canalConfigFor(mount)
   const cacheable = shouldCacheVfsListing(String(config.backendType ?? ''))
@@ -365,8 +366,10 @@ export async function readVfsFile(
   if (!mount) throw new Error(`not_found: provider mount ${mountId}`)
   const rel = String(remotePath ?? '').replace(/^\/+/, '')
   if (!rel) throw new Error('invalid: remotePath is required')
+  if (/(^|\/)\.\.(\/|$)/.test(rel)) throw new Error(`unsupported: provider path '${rel}' escapes the mount`)
   const config = await canalConfigFor(mount)
   const locator = opts.locator || rel
+  if (/(^|\/)\.\.(\/|$)/.test(locator)) throw new Error(`unsupported: provider path '${locator}' escapes the mount`)
   const bytes = config.backendType === 'scopedStorage'
     ? await (await import('@/utils/mobileScopedStorage')).readMobileFolderFile(String(config.folderId), locator)
     : await wasmCanalFetch(config, locator)

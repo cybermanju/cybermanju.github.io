@@ -58,7 +58,10 @@ export function useAndroidApps() {
     try {
       const rows = await invoke<IconPack[]>('launcher_list_icon_packs')
       iconPacks.value = Array.isArray(rows) ? rows : []
-    } catch {
+    } catch (e) {
+      // Silent UX fallback (no packs), but never invisible: a real
+      // `network:`/`unsupported:` refusal still lands in the console.
+      console.debug('launcher_list_icon_packs failed:', e instanceof Error ? e.message : String(e))
       iconPacks.value = []
     }
     return iconPacks.value

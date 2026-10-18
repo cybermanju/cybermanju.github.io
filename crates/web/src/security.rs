@@ -661,6 +661,9 @@ fn blake3_key(material: &[u8]) -> [u8; 32] {
 /// Resolve the directory used for persisted secrets.
 ///
 /// Order: `CYBERMANJU_DATA_DIR` → parent of `DB_PATH` → platform data dir.
+/// On Android the first branch is the normal answer: `run()` in src-tauri
+/// exports it once from the probed app-private files dir (multi-user safe),
+/// so this never has to trust the unprobed hardcoded path below.
 /// Returns `None` when nothing can be resolved (the caller then falls back
 /// to a per-process random secret rather than writing into the CWD).
 pub fn default_secret_dir() -> Option<PathBuf> {
@@ -692,6 +695,11 @@ pub fn default_secret_dir() -> Option<PathBuf> {
     {
         // App-private files dir: always writable under scoped storage, no
         // permission needed. External dirs are intentionally NOT used.
+        // Normally the startup probe already exported CYBERMANJU_DATA_DIR
+        // (see the resolution order above); the hardcoded path is only the
+        // pre-startup last resort — wrong under work profiles (where
+        // /data/data is user 0's dir) and debug applicationId suffixes, so
+        // the DB probe never trusts it without proving writability.
         if let Ok(d) = std::env::var("CYBERMANJU_ANDROID_FILES_DIR") {
             if !d.trim().is_empty() {
                 return Some(PathBuf::from(d));

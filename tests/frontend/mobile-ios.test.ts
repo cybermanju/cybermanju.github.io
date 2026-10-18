@@ -43,8 +43,19 @@ describe('iOS status bar + icons + dock', () => {
     expect(launcher).not.toContain('mla-vault-count')
   })
 
-  it('respects the notch/safe-area at the top', () => {
-    expect(topbar).toContain('env(safe-area-inset-top')
+  it('respects the notch/safe-area at the top (shell owns the inset)', () => {
+    // The bar is the slim `--mobile-header-h` status strip; the notch itself
+    // is `.cybermanju-shell`'s safe-area padding, so the bar never grows
+    // around it — and every fixed sheet top lands exactly on its bottom edge.
+    expect(topbar).toContain('var(--mobile-header-h)')
+    expect(topbar).not.toMatch(/height:\s*calc\(\d+px \+ env\(safe-area-inset-top/)
+    const shell = fs.readFileSync('src/App.vue', 'utf8')
+    expect(shell).toContain('class="cybermanju-shell"')
+    const ui = fs.readFileSync('src/assets/ui.css', 'utf8')
+    expect(ui).toMatch(/\.cybermanju-shell\s*\{[\s\S]*?padding-top:\s*env\(safe-area-inset-top/)
+    expect(ui).toMatch(
+      /top:\s*calc\(env\(safe-area-inset-top, 0px\) \+ var\(--mobile-header-h\)\)/,
+    )
   })
 
   it('uses squircle icon corners with a top-light gloss', () => {

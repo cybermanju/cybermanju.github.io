@@ -18,93 +18,162 @@
           <header class="msg-head">
             <div class="msg-title">
               <h2>Messages</h2>
-              <span v-if="hub.unread.value > 0" class="msg-unread">{{ hub.unread.value > 99 ? '99+' : hub.unread.value }} new</span>
+              <span v-if="totalUnread > 0" class="msg-unread">{{ totalUnread > 99 ? '99+' : totalUnread }} new</span>
             </div>
             <button class="msg-close" type="button" aria-label="Close messages" @click="close">
               <AppIcon name="solar:close-circle-bold" :size="20" />
             </button>
           </header>
 
-          <p v-if="!hub.supported" class="msg-note">
-            Stored chats and mails live in the native Android build. This device shows the CyberManju panels instead.
-            <button class="msg-btn" type="button" @click="openInstall">Install options</button>
-          </p>
+          <nav class="msg-tabs" aria-label="Message center tabs">
+            <button
+              class="msg-tab"
+              :class="{ active: tab === 'messages' }"
+              type="button"
+              :aria-pressed="tab === 'messages'"
+              @click="setTab('messages')"
+            >
+              Chats &amp; mails
+              <span v-if="hub.supported && hub.unread.value > 0" class="msg-tab-badge">{{ hub.unread.value > 99 ? '99+' : hub.unread.value }}</span>
+            </button>
+            <button
+              class="msg-tab"
+              :class="{ active: tab === 'system' }"
+              type="button"
+              :aria-pressed="tab === 'system'"
+              @click="setTab('system')"
+            >
+              System
+              <span v-if="sysUnread > 0" class="msg-tab-badge">{{ sysUnread > 99 ? '99+' : sysUnread }}</span>
+            </button>
+          </nav>
 
-          <template v-else>
-            <div v-if="hub.notifState.value && !hub.notifState.value.enabled" class="msg-enable" role="alert">
-              <AppIcon name="solar:chat-round-dots-bold" :size="22" />
-              <p>{{ hub.notifState.value.detail }}</p>
-              <button class="msg-btn primary" type="button" @click="enableAccess">Enable access</button>
-            </div>
-
-            <div v-if="hub.socialApps.value.length" class="msg-social" aria-label="Social apps">
+          <!-- System notification history is per-device localStorage, so this
+            pane renders on EVERY platform — only the chats pane is gated on
+            the launcher's native-support flag (Android builds). -->
+          <template v-if="tab === 'system'">
+            <div v-if="sysHistory.length" class="msg-list">
               <button
-                v-for="app in hub.socialApps.value"
-                :key="app.packageName"
-                class="msg-soc"
-                type="button"
-                :title="app.packageName"
-                @click="openApp(app.packageName, app.label)"
-              >
-                <span class="msg-soc-tile">
-                  <img v-if="app.iconBase64" class="msg-img" :src="app.iconBase64" :alt="`${socialName(app)} icon`" loading="lazy" draggable="false" />
-                  <span v-else class="msg-letter" aria-hidden="true">{{ socialName(app).slice(0, 1).toUpperCase() }}</span>
-                </span>
-                <span class="msg-soc-name">{{ socialName(app) }}</span>
-              </button>
-            </div>
-
-            <div v-if="hub.status.value === 'loading'" class="msg-state" role="status">
-              <span class="msg-spinner" aria-hidden="true" />
-              <p>Loading stored messages…</p>
-            </div>
-
-            <div v-else-if="hub.status.value === 'error'" class="msg-state" role="alert">
-              <p class="msg-error">{{ hub.lastError.value || 'Could not load messages.' }}</p>
-              <button class="msg-btn" type="button" @click="retry">
-                <AppIcon name="solar:refresh-bold" :size="15" /> Retry
-              </button>
-            </div>
-
-            <div v-else-if="hub.messages.value.length" class="msg-list">
-              <button
-                v-for="m in hub.messages.value"
-                :key="m.key || `${m.packageName}-${m.timestamp}`"
+                v-for="h in sysHistory"
+                :key="h.id"
                 class="msg-row"
                 type="button"
-                @click="openApp(m.packageName, m.appLabel)"
+                :title="h.read ? 'Read' : 'Mark as read'"
+                @click="readRow(h.id)"
               >
-                <span class="msg-row-tile">
-                  <img v-if="iconFor(m.packageName)" class="msg-img" :src="iconFor(m.packageName)" alt="" loading="lazy" draggable="false" />
-                  <span v-else class="msg-letter sm" aria-hidden="true">{{ (m.appLabel || m.packageName).slice(0, 1).toUpperCase() }}</span>
-                  <span v-if="m.timestamp > launcher.messagesSeenAt" class="msg-dot" aria-label="Unread" />
+                <span class="msg-row-tile" :class="`sys-${h.type}`">
+                  <AppIcon :name="SYS_ICONS[h.type]" :size="18" />
+                  <span v-if="!h.read" class="msg-dot" aria-label="Unread" />
                 </span>
                 <span class="msg-row-copy">
                   <span class="msg-row-top">
-                    <strong>{{ m.appLabel || m.packageName }}</strong>
-                    <time>{{ formatMessageTime(m.timestamp) }}</time>
+                    <strong>{{ h.title || SYS_TITLES[h.type] }}</strong>
+                    <time>{{ formatMessageTime(h.createdAt) }}</time>
                   </span>
-                  <span v-if="m.title" class="msg-row-title">{{ m.title }}</span>
-                  <span v-if="m.text" class="msg-row-text">{{ m.text }}</span>
+                  <span class="msg-row-text">{{ h.message }}</span>
                 </span>
               </button>
             </div>
-            <p v-else class="msg-state">No stored messages yet — chats and mails appear here once they notify.</p>
+            <p v-else class="msg-state">No system notifications yet — toasts and warnings are kept here.</p>
 
             <footer class="msg-foot">
-              <button class="msg-btn" type="button" @click="retry">
-                <AppIcon name="solar:refresh-bold" :size="15" /> Refresh
+              <button class="msg-btn" type="button" :disabled="sysUnread === 0" @click="markAll">
+                <AppIcon name="solar:check-circle-bold" :size="15" /> Mark all read
               </button>
               <button
                 class="msg-btn"
                 type="button"
-                title="Dismiss all notifications and clear the stored history"
-                :disabled="!hub.messages.value.length"
-                @click="clearAll"
+                title="Remove the stored system notification history"
+                :disabled="!sysHistory.length"
+                @click="clearSystem"
               >
-                <AppIcon name="solar:trash-bin-trash-bold" :size="15" /> Clear all
+                <AppIcon name="solar:trash-bin-trash-bold" :size="15" /> Clear
               </button>
             </footer>
+          </template>
+
+          <template v-else>
+            <p v-if="!hub.supported" class="msg-note">
+              Stored chats and mails live in the native Android build. This device shows the CyberManju panels instead.
+              <button class="msg-btn" type="button" @click="openInstall">Install options</button>
+            </p>
+
+            <template v-else>
+              <div v-if="hub.notifState.value && !hub.notifState.value.enabled" class="msg-enable" role="alert">
+                <AppIcon name="solar:chat-round-dots-bold" :size="22" />
+                <p>{{ hub.notifState.value.detail }}</p>
+                <button class="msg-btn primary" type="button" @click="enableAccess">Enable access</button>
+              </div>
+
+              <div v-if="hub.socialApps.value.length" class="msg-social" aria-label="Social apps">
+                <button
+                  v-for="app in hub.socialApps.value"
+                  :key="app.packageName"
+                  class="msg-soc"
+                  type="button"
+                  :title="app.packageName"
+                  @click="openApp(app.packageName, app.label)"
+                >
+                  <span class="msg-soc-tile">
+                    <img v-if="app.iconBase64" class="msg-img" :src="app.iconBase64" :alt="`${socialName(app)} icon`" loading="lazy" draggable="false" />
+                    <span v-else class="msg-letter" aria-hidden="true">{{ socialName(app).slice(0, 1).toUpperCase() }}</span>
+                  </span>
+                  <span class="msg-soc-name">{{ socialName(app) }}</span>
+                </button>
+              </div>
+
+              <div v-if="hub.status.value === 'loading'" class="msg-state" role="status">
+                <span class="msg-spinner" aria-hidden="true" />
+                <p>Loading stored messages…</p>
+              </div>
+
+              <div v-else-if="hub.status.value === 'error'" class="msg-state" role="alert">
+                <p class="msg-error">{{ hub.lastError.value || 'Could not load messages.' }}</p>
+                <button class="msg-btn" type="button" @click="retry">
+                  <AppIcon name="solar:refresh-bold" :size="15" /> Retry
+                </button>
+              </div>
+
+              <div v-else-if="hub.messages.value.length" class="msg-list">
+                <button
+                  v-for="m in hub.messages.value"
+                  :key="m.key || `${m.packageName}-${m.timestamp}`"
+                  class="msg-row"
+                  type="button"
+                  @click="openApp(m.packageName, m.appLabel)"
+                >
+                  <span class="msg-row-tile">
+                    <img v-if="iconFor(m.packageName)" class="msg-img" :src="iconFor(m.packageName)" alt="" loading="lazy" draggable="false" />
+                    <span v-else class="msg-letter sm" aria-hidden="true">{{ (m.appLabel || m.packageName).slice(0, 1).toUpperCase() }}</span>
+                    <span v-if="m.timestamp > launcher.messagesSeenAt" class="msg-dot" aria-label="Unread" />
+                  </span>
+                  <span class="msg-row-copy">
+                    <span class="msg-row-top">
+                      <strong>{{ m.appLabel || m.packageName }}</strong>
+                      <time>{{ formatMessageTime(m.timestamp) }}</time>
+                    </span>
+                    <span v-if="m.title" class="msg-row-title">{{ m.title }}</span>
+                    <span v-if="m.text" class="msg-row-text">{{ m.text }}</span>
+                  </span>
+                </button>
+              </div>
+              <p v-else class="msg-state">No stored messages yet — chats and mails appear here once they notify.</p>
+
+              <footer class="msg-foot">
+                <button class="msg-btn" type="button" @click="retry">
+                  <AppIcon name="solar:refresh-bold" :size="15" /> Refresh
+                </button>
+                <button
+                  class="msg-btn"
+                  type="button"
+                  title="Dismiss all notifications and clear the stored history"
+                  :disabled="!hub.messages.value.length"
+                  @click="clearAll"
+                >
+                  <AppIcon name="solar:trash-bin-trash-bold" :size="15" /> Clear all
+                </button>
+              </footer>
+            </template>
           </template>
         </section>
       </div>
@@ -131,9 +200,10 @@ const store = useAppStore()
 const sys = useNotifications()
 
 const tab = computed(() => launcher.centerTab)
+/** Switching tabs never marks anything read — only the explicit per-row /
+ * "Mark all read" actions below clear the system badge. */
 function setTab(t: 'system' | 'messages') {
   launcher.centerTab = t
-  if (t === 'system') sys.markAllRead()
 }
 
 const sysHistory = computed(() => sys.history.value)
@@ -186,6 +256,9 @@ function iconFor(packageName: string): string {
 }
 
 async function openApp(packageName: string, label: string) {
+  // Row interaction is the read event: the digest badge stays until the
+  // user actually opens a row (opening the center alone never clears it).
+  hub.markSeen()
   try {
     await browser.openApp(packageName)
   } catch (e) {
@@ -195,6 +268,8 @@ async function openApp(packageName: string, label: string) {
 
 async function retry() {
   try {
+    // Explicit Refresh button — the user's own action, so it may settle the
+    // digest; a bare `messagesOpen` watch no longer does (see below).
     await hub.refresh(true)
     hub.markSeen()
   } catch (e) {
@@ -225,13 +300,13 @@ watch(
   () => launcher.messagesOpen,
   (open) => {
     if (!open) return
-    // The badge is the "while you were away" digest: opening the center on
-    // the system tab marks it seen; the messages tab keeps its own refresh
-    // + markSeen flow below.
-    if (launcher.centerTab === 'system') sys.markAllRead()
+    // Opening the center NEVER marks anything read: the system badge clears
+    // only via readRow()/markAll() and the message digest only via a row tap
+    // or the explicit Refresh action (the "while you were away" digest must
+    // survive an open/close). Data load only.
     if (!hub.supported) return
     void hub.refreshSocial().catch(() => {})
-    void hub.refresh(true).then(() => hub.markSeen()).catch(() => {})
+    void hub.refresh(true).catch(() => {})
   },
 )
 </script>

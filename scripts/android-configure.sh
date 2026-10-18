@@ -57,8 +57,17 @@ fi
 
 # ─── 1. versionCode audit ──────────────────────────────────────────
 version="$(node -p "require('./package.json').version")"
-major="${version%%.*}"
-rest="${version#*.}"
+# package.json may carry a semver prerelease/build suffix (0.2.0-rc.1) —
+# computing versionCode from the raw suffix yields a cryptic bash
+# `invalid arithmetic operator` ("patch" = "0-rc.1"). Validate, then strip.
+if ! printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
+  echo "::error::version: '$version' is not a plain X.Y.Z version (optionally suffixed -pre/+build)" >&2
+  exit 1
+fi
+core="${version%%-*}"
+core="${core%%+*}"
+major="${core%%.*}"
+rest="${core#*.}"
 minor="${rest%%.*}"
 patch="${rest#*.}"
 expected=$((major * 1000000 + minor * 1000 + patch))
@@ -76,68 +85,86 @@ if [ ! -f "$MANIFEST" ]; then
 fi
 
 if grep -q "$MARK" "$MANIFEST"; then
-  echo "AndroidManifest already configured — leaving it alone"
+  echo "AndroidManifest marker present — §2a–§2c already applied; re-checking §2d–§2f"
 else
-  python3 - "$MANIFEST" "$MARK" <<'PYEOF'
+  echo "patching AndroidManifest ($MANIFEST)"
+fi
+
+# Section-aware marker guard: the global $MARK only gates the sections that
+# are NOT idempotent on their own (§2a permissions, §2b application attrs,
+# §2c intents). §2d–§2f carry their own content-aware presence checks below,
+# so a manifest stamped by an OLDER script version still receives newly-added
+# sections (e.g. §2f's FileProvider <provider>) instead of being skipped
+# wholesale — a marker-only skip ships the androidx.core dependency without
+# the manifest <provider> entry and OPEN WITH SYSTEM then dies with
+# FileProvider.getUriForFile's IllegalArgumentException. Every insert is
+# individually idempotent; the file is rewritten only when something changed.
+python3 - "$MANIFEST" "$MARK" <<'PYEOF'
 import re
 import sys
 import xml.dom.minidom
 
 path, mark = sys.argv[1], sys.argv[2]
 src = open(path).read()
-
-# 2a. Permissions (before <application>): INTERNET is required for the LAN
-# REST transport / OAuth; location/camera/mic are optional hardware features
-# (GPS MapView, voice input) — declared here so the WebView permission
-# bridge and the Permissions-Policy override (docs/ANDROID.md) have manifest
-# backing. Scoped storage is the default: no MANAGE_EXTERNAL_STORAGE, the
-# app only writes its app-private files dir.
-perms = """
-    <!-- %s: network + optional hardware (MapView GPS, voice). No
-         MANAGE_EXTERNAL_STORAGE by design — app-private files dir only. -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-""" % mark
+original = src
 anchor = "<application"
-assert anchor in src, "no <application> in AndroidManifest"
-src = src.replace(anchor, perms + "    " + anchor, 1)
 
-# 2b. application attributes: cleartext for http://nas:3456 LAN servers +
-# explicit backup policy (fail-closed; manual export is the backup path).
-# The Tauri template pins android:usesCleartextTraffic="${usesCleartextTraffic}"
-# (a manifestPlaceholder); prepending ours without removing it yields a
-# duplicate attribute — not well-formed XML — and manifest merging fails.
-# Strip any template-set copies first, then set ours exactly once.
-m = re.search(r"<application\b[^>]*>", src)
-assert m, "no <application> tag in AndroidManifest"
-tag = m.group(0)
-for attr in ("android:usesCleartextTraffic", "android:allowBackup", "android:fullBackupOnly"):
-    tag = re.sub(r'\s+' + attr + r'="[^"]*"', "", tag)
-tag = tag.replace(
-    "<application",
-    "<application "
-    'android:usesCleartextTraffic="true" '
-    'android:allowBackup="false" '
-    'android:fullBackupOnly="false"',
-    1,
-)
-src = (
-    src[: m.start()]
-    + "<!-- %s: cleartext=LAN http dashboard, allowBackup=false (manual export only) -->\n    " % mark
-    + tag
-    + src[m.end():]
-)
+if mark in src:
+    # 2a–2c insert unconditionally — the marker means a previous run already
+    # applied them (§2d–§2f below still re-check their own content).
+    print("marker present: §2a–§2c already applied")
+else:
+    # 2a. Permissions (before <application>): INTERNET is required for the LAN
+    # REST transport / OAuth; location/camera/mic are optional hardware features
+    # (GPS MapView, voice input) — declared here so the WebView permission
+    # bridge and the Permissions-Policy override (docs/ANDROID.md) have manifest
+    # backing. Scoped storage is the default: no MANAGE_EXTERNAL_STORAGE, the
+    # app only writes its app-private files dir.
+    perms = """
+        <!-- %s: network + optional hardware (MapView GPS, voice). No
+             MANAGE_EXTERNAL_STORAGE by design — app-private files dir only. -->
+        <uses-permission android:name="android.permission.INTERNET" />
+        <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+        <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+        <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+        <uses-permission android:name="android.permission.CAMERA" />
+        <uses-permission android:name="android.permission.RECORD_AUDIO" />
+        <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    """ % mark
+    assert anchor in src, "no <application> in AndroidManifest"
+    src = src.replace(anchor, perms + "    " + anchor, 1)
 
-# 2c. Deep link + .cyb3 association inside the main activity. Tauri's
-# deep-link plugin may already add the scheme filter from tauri.conf.json.
-link_intent = ""
-if 'android:scheme="cybermanju"' not in src:
-    link_intent = """
+    # 2b. application attributes: cleartext for http://nas:3456 LAN servers +
+    # explicit backup policy (fail-closed; manual export is the backup path).
+    # The Tauri template pins android:usesCleartextTraffic="${usesCleartextTraffic}"
+    # (a manifestPlaceholder); prepending ours without removing it yields a
+    # duplicate attribute — not well-formed XML — and manifest merging fails.
+    # Strip any template-set copies first, then set ours exactly once.
+    m = re.search(r"<application\b[^>]*>", src)
+    assert m, "no <application> tag in AndroidManifest"
+    tag = m.group(0)
+    for attr in ("android:usesCleartextTraffic", "android:allowBackup", "android:fullBackupOnly"):
+        tag = re.sub(r'\s+' + attr + r'="[^"]*"', "", tag)
+    tag = tag.replace(
+        "<application",
+        "<application "
+        'android:usesCleartextTraffic="true" '
+        'android:allowBackup="false" '
+        'android:fullBackupOnly="false"',
+        1,
+    )
+    src = (
+        src[: m.start()]
+        + "<!-- %s: cleartext=LAN http dashboard, allowBackup=false (manual export only) -->\n    " % mark
+        + tag
+        + src[m.end():]
+    )
+
+    # 2c. Deep link + .cyb3 association inside the main activity. Tauri's
+    # deep-link plugin may already add the scheme filter from tauri.conf.json.
+    link_intent = ""
+    if 'android:scheme="cybermanju"' not in src:
+        link_intent = """
             <!-- %s: cybermanju:// deep link. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -145,8 +172,8 @@ if 'android:scheme="cybermanju"' not in src:
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="cybermanju" />
             </intent-filter>
-""" % mark
-file_intent = """
+    """ % mark
+    file_intent = """
             <!-- %s: .cyb3 payload association. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -154,17 +181,49 @@ file_intent = """
                 <data android:scheme="content" android:mimeType="*/*" android:pathPattern=".*\\.cyb3" />
                 <data android:scheme="file" android:mimeType="*/*" android:pathPattern=".*\\.cyb3" />
             </intent-filter>
-""" % mark
-intent = link_intent + file_intent
-close = "</activity>"
-assert close in src, "no </activity> in AndroidManifest"
-src = src.replace(close, intent + "        " + close, 1)
+    """ % mark
+    intent = link_intent + file_intent
+    close = "</activity>"
+    assert close in src, "no </activity> in AndroidManifest"
+    src = src.replace(close, intent + "        " + close, 1)
 
 # 2d. Launcher bridge: package-visibility <queries> (Android 11+) + HOME
 # filter so the app can serve as the device Home. The <queries> block is
 # what makes queryIntentActivities(MAIN/LAUNCHER) return the full Gaveta
 # without QUERY_ALL_PACKAGES (Play-restricted, deliberately not requested).
-if "android.intent.category.LAUNCHER" not in src or "<queries>" not in src:
+# Content-aware, NOT a bare "<queries> exists" test: the element can already
+# be in the manifest (Tauri deep-link template or an older script run)
+# WITHOUT the MAIN/LAUNCHER intent, and a presence-only guard silently skips
+# the bridge — empty app drawer on Android 11+. Look INSIDE
+# <queries>…</queries> for an intent that pairs MAIN with LAUNCHER, and
+# merge one in when it is missing (same way §2e merges <package> rows).
+close = "</activity>"
+queries_intent = """
+        <!-- %s: launcher bridge — see every MAIN/LAUNCHER activity (Android 11+ visibility). -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+""" % mark
+
+
+def has_launcher_intent(block):
+    for im in re.finditer(r"<intent\b[^>]*>.*?</intent>", block, re.S):
+        if (
+            "android.intent.action.MAIN" in im.group(0)
+            and "android.intent.category.LAUNCHER" in im.group(0)
+        ):
+            return True
+    return False
+
+
+qm = re.search(r"(<queries\b[^>]*>)(.*?)(</queries>)", src, re.S)
+if qm is None:
+    if "<queries" in src:
+        sys.exit(
+            "::error::%s: <queries> is present but not well-formed (no </queries>) — "
+            "cannot place the launcher MAIN/LAUNCHER intent" % path
+        )
     queries = """
     <!-- %s: launcher bridge — see every MAIN/LAUNCHER activity (Android 11+ visibility). -->
     <queries>
@@ -174,8 +233,9 @@ if "android.intent.category.LAUNCHER" not in src or "<queries>" not in src:
         </intent>
     </queries>
 """ % mark
-    if "<queries>" not in src:
-        src = src.replace(anchor, queries + "    " + anchor, 1)
+    src = src.replace(anchor, queries + "    " + anchor, 1)
+elif not has_launcher_intent(qm.group(0)):
+    src = src[: qm.start(3)] + queries_intent + "    " + src[qm.start(3):]
 home_intent = """
             <!-- %s: Home intent — offer CyberManju OS as the device launcher. -->
             <intent-filter>
@@ -261,10 +321,12 @@ try:
 except Exception as e:
     sys.exit("AndroidManifest.xml is not well-formed after patching: %s" % e)
 
-open(path, "w").write(src)
-print("patched " + path)
+if src == original:
+    print("already configured: " + path)
+else:
+    open(path, "w").write(src)
+    print("patched " + path)
 PYEOF
-fi
 
 # ─── 4. Messages-hub listener service (§2c) ────────────────────────
 # `gen/` is gitignored and regenerated by `tauri android init`, so the
@@ -340,11 +402,20 @@ class CybermanjuMessages : NotificationListenerService() {
         return START_NOT_STICKY
     }
 
+    // Mirrors Rust is_social_package (crates/launcher/src/lib.rs): exact
+    // package match -> token contains -> dot-segment match, then the
+    // notification category as the Kotlin-only extra. Keep the three lists
+    // in the companion object in sync with the Rust source of truth —
+    // tests/frontend/launcher-social-parity.test.ts asserts the parity.
     private fun isSocial(pkg: String, n: Notification): Boolean {
         if (pkg == packageName) return false
-        val p = pkg.lowercase()
+        val p = pkg.trim().lowercase()
+        if (p.isEmpty()) return false
         if (p in SOCIAL) return true
         for (t in TOKENS) if (p.contains(t)) return true
+        // Rust SOCIAL_SEGMENTS: short tokens (line must not fire inside
+        // offline) only match a whole dot-segment of the package.
+        if (p.split('.').any { it in SEGMENTS }) return true
         val c = n.category
         return c == Notification.CATEGORY_MESSAGE || c == Notification.CATEGORY_EMAIL
     }
@@ -416,20 +487,44 @@ class CybermanjuMessages : NotificationListenerService() {
     companion object {
         private val LOCK = Any()
         const val ACTION_CLEAR = "com.cybermanju.os.action.CLEAR_NOTIFICATIONS"
+        // SOCIAL / TOKENS / SEGMENTS mirror the Rust source of truth in
+        // crates/launcher/src/lib.rs (SOCIAL_PACKAGES / SOCIAL_TOKENS /
+        // SOCIAL_SEGMENTS) verbatim — the hub must never silently drop a
+        // app the launcher crate mirrors. Asserted by
+        // tests/frontend/launcher-social-parity.test.ts.
         private val SOCIAL = setOf(
             "com.whatsapp", "com.whatsapp.w4b", "org.telegram.messenger",
+            "org.telegram.plus", "org.thunderdog.challegram", "tw.nekomimi.nekogram",
             "org.signal.private.messenger", "com.instagram.android",
             "com.instagram.barcelona", "com.facebook.orca", "com.facebook.katana",
-            "com.google.android.gm", "com.microsoft.office.outlook",
-            "com.discord", "com.twitter.android", "com.snapchat.android",
-            "jp.naver.line.android", "com.tencent.mm", "com.kakao.talk",
-            "com.google.android.apps.messaging", "eu.faircode.email", "com.fsck.k9"
+            "com.facebook.lite", "com.facebook.mlite", "com.google.android.gm",
+            "com.microsoft.office.outlook", "com.yahoo.mobile.client.android.mail",
+            "ch.protonmail.android", "com.tutanota.android", "eu.faircode.email",
+            "com.fsck.k9", "com.readdle.spark", "me.bluemail.mail",
+            "com.ninefolders.hd3", "org.kman.aquamail", "de.gmx.mobile.android.mail",
+            "de.web.mobile.android.mail", "com.samsung.android.email.provider",
+            "com.samsung.android.messaging", "com.google.android.apps.messaging",
+            "com.google.android.apps.tachyon", "com.google.android.apps.meet",
+            "com.discord", "com.slack", "com.microsoft.teams", "com.twitter.android",
+            "com.zhiliaoapp.musically", "com.ss.android.ugc.trill",
+            "com.snapchat.android", "com.linkedin.android", "com.reddit.frontpage",
+            "com.pinterest", "com.skype.raider", "com.viber.voip",
+            "jp.naver.line.android", "com.tencent.mm", "com.tencent.mobileqq",
+            "com.vk.android", "com.kakao.talk", "com.imo.android.imoim",
+            "com.zing.zalo", "com.tumblr", "xyz.blueskyweb.app",
+            "org.joinmastodon.android", "com.keylesspalace.tusky",
+            "com.truthsocial.android.app"
         )
         private val TOKENS = listOf(
             "whatsapp", "telegram", "messenger", "instagram", "facebook",
             "snapchat", "discord", "signal", "viber", "kakao", "wechat",
-            "outlook", "reddit", "skype", "teams", "slack", "twitter", "tiktok"
+            "weixin", "outlook", "tumblr", "reddit", "skype", "teams", "slack",
+            "pinterest", "linkedin", "twitter", "tiktok", "mastodon", "tusky",
+            "bluesky", "proton", "tutanota", "yahoo", "threads", "musical",
+            "trill", "zalo", "challegram", "nekomimi", "orca", "katana",
+            "faircode"
         )
+        private val SEGMENTS = listOf("line", "mail", "sms", "mms", "talk", "chat")
     }
 }
 KTEOF
@@ -487,17 +582,23 @@ if not m:
 assert m, "no dependencies { } block in %s" % path
 # Indent one level past the `dependencies` line itself.
 indent = re.match(r"\s*", m.group(0)).group(0) + "    "
-lines = [
-    "",
-    "%s// %s: runtime deps the manifest/plugin code names but no in-tree"
-    % (indent, mark),
-    "%s// artifact declares: androidx.documentfile (tauri-plugin-scoped-storage's"
-    % indent,
-    "%s// ScopedStoragePlugin.kt — absent at runtime it crashes app launch) and"
-    % indent,
-    "%s// androidx.core (androidx.core.content.FileProvider, §2f manifest entry)."
-    % indent,
-]
+# The explanatory comment carries the $MARK, so it doubles as its own
+# marker: it is emitted once only — a partial-state rerun (e.g.
+# documentfile already landed from an older script, core still missing)
+# inserts just the missing implementation line, never a stacked duplicate
+# comment block.
+lines = [""]
+if mark not in src:
+    lines += [
+        "%s// %s: runtime deps the manifest/plugin code names but no in-tree"
+        % (indent, mark),
+        "%s// artifact declares: androidx.documentfile (tauri-plugin-scoped-storage's"
+        % indent,
+        "%s// ScopedStoragePlugin.kt — absent at runtime it crashes app launch) and"
+        % indent,
+        "%s// androidx.core (androidx.core.content.FileProvider, §2f manifest entry)."
+        % indent,
+    ]
 lines += ['%simplementation("%s")' % (indent, d) for d in deps]
 lines.append("")
 src = src[: m.end()] + "\n".join(lines) + src[m.end():]

@@ -85,15 +85,26 @@ const openSubmenuId = ref<string | null>(null)
 
 const visibleItems = computed(() => ctx.state.items)
 
+/** Row height the positioning math must budget for: touch menus use the
+ *  44px tap floor, so the viewport clamp below would otherwise let a menu
+ *  run off the bottom of a phone screen. */
+const ROW_H = (() => {
+  try {
+    return window.matchMedia?.('(pointer: coarse)').matches ? 44 : 28
+  } catch {
+    return 28
+  }
+})()
+
 const menuStyle = computed(() => {
   const vw = window.innerWidth
   const vh = window.innerHeight
   const estW = 200
-  const estH = visibleItems.value.length * 28 + 8
+  const estH = visibleItems.value.length * ROW_H + 8
   let x = ctx.state.x
   let y = ctx.state.y
   if (x + estW > vw) x = vw - estW - 4
-  if (y + estH > vh) y = vh - estH - 4
+  if (y + estH > vh) y = Math.max(4, vh - estH - 4)
   if (x < 4) x = 4
   if (y < 4) y = 4
   return { left: x + 'px', top: y + 'px' }
@@ -104,9 +115,9 @@ function submenuStyle(entries: ContextMenuEntry[]) {
   const vh = window.innerHeight
   let x = ctx.state.x + 190
   let y = ctx.state.y
-  const estH = entries.length * 28 + 8
+  const estH = entries.length * ROW_H + 8
   if (x + 180 > vw) x = ctx.state.x - 190
-  if (y + estH > vh) y = vh - estH - 4
+  if (y + estH > vh) y = Math.max(4, vh - estH - 4)
   return { left: x + 'px', top: y + 'px' }
 }
 
@@ -121,7 +132,13 @@ function onItemHover(i: number, item: ContextMenuEntry) {
 
 function onItemClick(item: ContextMenuEntry) {
   if (item.disabled) return
-  if (item.submenu?.length) return
+  if (item.submenu?.length) {
+    // Touch has no hover: the first tap opens the submenu (mouse users get
+    // the same result from mouseenter), a second tap on the parent folds it
+    // back. Rows inside the submenu fall through to their own handler.
+    openSubmenuId.value = openSubmenuId.value === item.id ? null : item.id
+    return
+  }
   ctx.triggerAction(item)
   openSubmenuId.value = null
 }
@@ -168,6 +185,11 @@ function closeOnResize() {
   if (ctx.state.visible) ctx.close()
 }
 
+/** Named so the paired removal in `onUnmounted` can actually find it. */
+function closeOnOutsideClick() {
+  if (ctx.state.visible) ctx.close()
+}
+
 watch(() => ctx.state.visible, (v) => {
   if (v) {
     nextTick(() => menuRef.value?.focus())
@@ -180,19 +202,20 @@ watch(() => ctx.state.visible, (v) => {
 onMounted(() => {
   document.addEventListener('scroll', closeOnScroll, true)
   window.addEventListener('resize', closeOnResize)
-  document.addEventListener('click', (e) => {
-    if (ctx.state.visible) ctx.close()
-  })
+  document.addEventListener('click', closeOnOutsideClick)
 })
 
 onUnmounted(() => {
   document.removeEventListener('scroll', closeOnScroll, true)
   window.removeEventListener('resize', closeOnResize)
+  document.removeEventListener('click', closeOnOutsideClick)
 })
 </script>
 
 <style scoped>.ctx-menu {position: fixed;
-  z-index: 9999;
+  /* Above modals/palette (10000): a menu opened from inside a dialog has
+     to be visible and tappable — both teleport to body. */
+  z-index: 10100;
   background: var(--ui-glass-2);
   border: 1px solid var(--ui-border);
   min-width: 200px;
@@ -209,7 +232,7 @@ onUnmounted(() => {
 }
 
 .ctx-submenu {position: fixed;
-  z-index: 10000;
+  z-index: 10101;
   border-radius: var(--ui-radius-lg);
 }
 
@@ -296,5 +319,15 @@ onUnmounted(() => {
 .ctx-fade-enter-from,
 .ctx-fade-leave-to {
   opacity: 0;
+}
+
+/* Touch: the 22px desktop row is untappable — hold the 44px floor (the
+   script's ROW_H budget uses the same value for viewport clamping). */
+@media (pointer: coarse) {
+  .ctx-item {
+    min-height: 44px;
+    padding: 8px 10px;
+    font-size: 15px;
+  }
 }
 </style>

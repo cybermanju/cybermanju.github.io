@@ -153,9 +153,24 @@ shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
 ## 8. Verification
 
 1. `bash scripts/check-version.sh` (versionCode pinned + derived).
-2. CI `android-build`: init → icons (`android-icons.sh`) → configure → sign → `--apk --aab --split-per-abi` →
-   `apksigner verify` → on-device smoke (`continue-on-error`, skips without
-   an arm64 emulator) → shred secrets → upload APK+AAB.
+2. CI `android-build` (ci.yml, release.yml, GitLab mirror) — the real
+   sequence: `tauri android init` → icons (`android-icons.sh`) → configure
+   (`android-configure.sh`) → Gradle harden (`android-gradle-harden.sh`) →
+   signing prepare (`android-signing.sh prepare`, `REQUIRE_SIGNING=1` on
+   release + GitLab) → build (`--apk --aab --split-per-abi`) →
+   `apksigner verify` (`android-signing.sh verify`) → on-device smoke
+   (`android-smoke.sh`; `continue-on-error` on GitHub, best-effort on
+   GitLab — skips without an arm64 emulator) → cleanup
+   (`android-signing.sh cleanup`, shreds the keystore — `if: always()` on
+   GitHub, `after_script` on GitLab, so a failed build/verify shreds too) →
+   upload APK+AAB.
+
+   Required secrets (exact names read by `scripts/android-signing.sh`):
+   * `ANDROID_KEYSTORE_B64` — the release keystore, base64
+   * `ANDROID_KEYSTORE_PASSWORD` — the keystore password
+   * `ANDROID_KEY_ALIAS` — the key entry alias (defaults to `cybermanju-os`)
+   * `ANDROID_KEY_PASSWORD` — the key password (defaults to the store
+     password when unset)
 3. Manual: `adb install CyberManju-OS-<ver>-arm64-v8a.apk` or
    `bash scripts/android-smoke.sh <apk>`.
 

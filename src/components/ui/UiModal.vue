@@ -6,7 +6,7 @@
 <template>
   <Teleport to="body">
     <Transition name="ui-modal">
-      <div v-if="visible" class="ui-modal-layer" @mousedown.self="onBackdrop">
+      <div v-if="visible" class="ui-modal-layer" @click.self="onBackdrop">
         <div
           ref="dialogRef"
           class="ui-modal"
@@ -288,6 +288,11 @@ watch(
   .ui-modal__footer {
     flex-wrap: wrap;
     padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  /* Footer-less sheets sit flush to the bottom edge — keep their last row
+     above the home indicator (footers already carry their own inset). */
+  .ui-modal:not(:has(.ui-modal__footer)) .ui-modal__body {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   }
 }
 </style>

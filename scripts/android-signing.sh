@@ -31,6 +31,21 @@ UNSIGNED_MARK="Android release signing (CI)"
 
 require_signing() { [ "${REQUIRE_SIGNING:-0}" = "1" ]; }
 
+# ABI token of a Gradle output name (`app-arm64-v8a-release.apk`,
+# `app-x86_64-release.apk`, `app-universal-release.apk`): read it from the
+# ORIGINAL filename so a rename never stamps arm64-v8a onto another ABI.
+# `arm64-v8a` is the fallback only when the name carries no ABI token — it
+# is the one shipped release ABI (ort-sys ships no other Android dist).
+abi_of() {
+  case "$(basename "$1")" in
+    *arm64-v8a*) echo "arm64-v8a" ;;
+    *armeabi-v7a*) echo "armeabi-v7a" ;;
+    *x86_64*) echo "x86_64" ;;
+    *x86*) echo "x86" ;;
+    *) echo "arm64-v8a" ;;
+  esac
+}
+
 prepare() {
   if [ ! -f "$GRADLE_FILE" ]; then
     echo "::error::$GRADLE_FILE not found — run \`tauri android init\` first" >&2
@@ -219,28 +234,51 @@ verify() {
     find "$bundle_dir" -name '*.aab' 2>/dev/null || true
   fi
 
-  local apk
-  apk="$(find "$apk_dir" -name '*.apk' ! -name '*-unsigned.apk' 2>/dev/null | head -1 || true)"
+  # Every signed APK (split-per-abi can emit more than one) — never assume
+  # a single artifact.
+  local signed
+  signed="$(find "$apk_dir" -name '*.apk' ! -name '*-unsigned.apk' 2>/dev/null || true)"
 
-  if [ -z "$apk" ]; then
+  if [ -z "$signed" ]; then
     if [ "$signing_expected" = "1" ]; then
       echo "::error::no signed APK produced under $apk_dir" >&2
       find "$apk_dir" -name '*.apk' 2>/dev/null || true
       exit 1
     fi
     # Signing parity (P2-8): an unsigned artifact must SAY unsigned — never
-    # ship `app-universal-release-unsigned.apk` under a neutral name.
-    local unsigned
-    unsigned="$(find "$apk_dir" -name '*-unsigned.apk' 2>/dev/null | head -1 || true)"
-    if [ -n "$unsigned" ] && [ -n "$version" ]; then
-      local renamed
-      renamed="$(dirname "$unsigned")/CyberManju-OS-$version-arm64-v8a-unsigned.apk"
-      if [ "$unsigned" != "$renamed" ]; then
-        mv "$unsigned" "$renamed"
-        echo "::warning::APK is UNSIGNED (keystore secrets unavailable): $renamed" >&2
+    # ship `app-universal-release-unsigned.apk` under a neutral name. Every
+    # unsigned APK gets renamed, with the ABI read from the original
+    # filename (fallback arm64-v8a) so an x86_64/emulator artifact is never
+    # mislabeled; a name collision never overwrites another artifact.
+    local unsigned renamed renamed_aab abi found=0
+    while IFS= read -r unsigned; do
+      [ -n "$unsigned" ] || continue
+      found=1
+      if [ -n "$version" ]; then
+        abi="$(abi_of "$unsigned")"
+        renamed="$(dirname "$unsigned")/CyberManju-OS-$version-$abi-unsigned.apk"
+        if [ "$unsigned" != "$renamed" ] && [ ! -e "$renamed" ]; then
+          mv "$unsigned" "$renamed"
+          echo "::warning::APK is UNSIGNED (keystore secrets unavailable): $renamed" >&2
+        fi
       fi
-    else
-      echo "::warning::APK is unsigned (keystore secrets unavailable)" >&2
+    done <<< "$(find "$apk_dir" -name '*-unsigned.apk' 2>/dev/null || true)"
+    # Same contract for the bundle: an unsigned AAB would otherwise ship
+    # under the neutral `app-release.aab` (docs/ANDROID.md §2 — unsigned
+    # artifacts always say `unsigned` in the file name).
+    while IFS= read -r unsigned; do
+      [ -n "$unsigned" ] || continue
+      found=1
+      if [ -n "$version" ]; then
+        renamed_aab="$(dirname "$unsigned")/CyberManju-OS-$version-unsigned.aab"
+        if [ "$unsigned" != "$renamed_aab" ] && [ ! -e "$renamed_aab" ]; then
+          mv "$unsigned" "$renamed_aab"
+          echo "::warning::AAB is UNSIGNED (keystore secrets unavailable): $renamed_aab" >&2
+        fi
+      fi
+    done <<< "$(find "$bundle_dir" -name '*.aab' 2>/dev/null || true)"
+    if [ "$found" != "1" ] || [ -z "$version" ]; then
+      echo "::warning::APK/AAB is unsigned (keystore secrets unavailable)" >&2
     fi
     return 0
   fi
@@ -252,22 +290,32 @@ verify() {
     exit 1
   fi
 
-  "$apksigner" verify --verbose --print-certs "$apk"
+  local apk
+  while IFS= read -r apk; do
+    [ -n "$apk" ] || continue
+    "$apksigner" verify --verbose --print-certs "$apk"
+  done <<< "$signed"
   # The unsigned twin (if any) must not ship in the artifact.
   find "$apk_dir" -name '*-unsigned.apk' -delete
 
   # Gradle's `app-universal-release.apk` tells nobody which device it fits;
   # the build only contains arm64-v8a (ort-sys ships no other Android ABI).
+  # The ABI is read from the original filename (arm64-v8a fallback only
+  # when the name carries no ABI token), every signed APK is renamed, and a
+  # name collision (universal + per-abi twin) never overwrites an artifact.
   if [ -n "$version" ]; then
     local friendly
-    friendly="$(dirname "$apk")/CyberManju-OS-$version-arm64-v8a.apk"
-    if [ "$apk" != "$friendly" ]; then
-      mv "$apk" "$friendly"
-      apk="$friendly"
-    fi
+    while IFS= read -r apk; do
+      [ -n "$apk" ] || continue
+      friendly="$(dirname "$apk")/CyberManju-OS-$version-$(abi_of "$apk").apk"
+      if [ "$apk" != "$friendly" ] && [ ! -e "$friendly" ]; then
+        mv "$apk" "$friendly"
+        echo "renamed signed APK: $friendly"
+      fi
+    done <<< "$signed"
   fi
 
-  echo "verified signed APK: $apk"
+  echo "verified signed APKs under $apk_dir"
 }
 
 # Secret hygiene: shred the keystore + signing properties before artifact

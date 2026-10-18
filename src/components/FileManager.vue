@@ -127,6 +127,35 @@
 
     <!-- ══ SUB BAR: live volume / sync / selection ══ -->
     <div class="fm-sub">
+      <!-- Scope tabs: Vault vs the aggregated Google Drive view.
+           The Drive tab mounts every googleDrive config and lists all
+           external Drive files (not vault yet) under /providers. -->
+      <div class="fm-scopetabs" role="tablist" aria-label="File scope">
+        <button
+          role="tab"
+          :aria-selected="scopeTab === 'vault'"
+          class="fm-scopetab"
+          :class="{ active: scopeTab === 'vault' }"
+          title="Vault files (.cybermanju home — merged across disks)"
+          @click="openVaultTab"
+        >
+          <AppIcon name="solar:ssd-square-bold" :size="12" />
+          <span>Vault</span>
+        </button>
+        <button
+          role="tab"
+          :aria-selected="scopeTab === 'gdrive'"
+          class="fm-scopetab"
+          :class="{ active: scopeTab === 'gdrive' }"
+          :title="gdriveConfigs.length ? `All Google Drive files (${gdriveConfigs.length} account${gdriveConfigs.length === 1 ? '' : 's'}) — not vault yet` : 'No Google Drive connected — add one in Accounts → Connections'"
+          @click="openGdriveTab"
+        >
+          <AppIcon name="solar:cloud-storage-bold" :size="12" />
+          <span>Google Drive</span>
+          <span v-if="gdriveConfigs.length" class="fm-scopetab-n">{{ gdriveConfigs.length }}</span>
+        </button>
+      </div>
+      <span class="fm-dot" />
       <span class="fm-stat"><b>{{ sortedFiles.length }}</b> items</span>
       <span class="fm-dot" />
       <span class="fm-stat"><b>{{ selCount }}</b> selected · <b>{{ humanBytes(selBytes) }}</b></span>
@@ -209,6 +238,17 @@
         </div>
         <div class="fm-side-sec">
           <div class="fm-side-h">PROVIDERS · {{ store.syncConfigs.length }}</div>
+          <!-- Pinned aggregate: every Google Drive account's external files in one tab. -->
+          <button
+            class="fm-srow"
+            :class="{ active: scopeTab === 'gdrive' }"
+            :title="gdriveConfigs.length ? `All Google Drive files (${gdriveConfigs.length} account${gdriveConfigs.length === 1 ? '' : 's'}) — browse every connected Drive here` : 'No Google Drive connected — add one in Accounts → Connections'"
+            @click="openGdriveTab"
+          >
+            <AppIcon name="solar:cloud-storage-bold" :size="14" style="color: #34a853" />
+            <span class="t">Google Drive</span>
+            <span class="m mono">{{ gdriveConfigs.length || '—' }}</span>
+          </button>
           <button
             v-for="c in store.syncConfigs"
             :key="c.id"
@@ -453,7 +493,7 @@
           </button>
           <div v-if="!renderFiles.length && !store.isLoading" class="fm-empty">
             <AppIcon name="solar:folder-open-bold" :size="30" />
-            <p>{{ filterQuery ? 'No files match' : (store.currentPath === '/' ? 'Vault is empty' : 'Empty folder') }}</p>
+            <p>{{ filterQuery ? 'No files match' : (scopeTab === 'gdrive' && !gdriveConfigs.length ? 'No Google Drive connected — add one in Accounts → Connections' : (store.currentPath === '/' ? 'Vault is empty' : 'Empty folder')) }}</p>
             <span>{{ filterQuery ? 'Try a different filter, or ⏎ for global search.' : (store.currentPath === '/' ? 'This home shows everything merged across your disks — create your first folder to begin.' : 'Drop files, paste, upload — or create something new.') }}</span>
           </div>
           <div v-if="store.isLoading" class="fm-empty"><span class="fm-spin" /> Loading…</div>
@@ -507,7 +547,7 @@
                 <AppIcon v-if="f.isStarred" name="solar:star-bold" :size="11" title="Starred" />
               </span>
             </div>
-            <div v-if="!renderFiles.length && !store.isLoading" class="fm-empty"><p>{{ filterQuery ? 'No files match.' : (store.currentPath === '/' ? 'Vault is empty — this home shows everything merged across your disks.' : 'Empty folder.') }}</p></div>
+            <div v-if="!renderFiles.length && !store.isLoading" class="fm-empty"><p>{{ filterQuery ? 'No files match.' : (scopeTab === 'gdrive' && !gdriveConfigs.length ? 'No Google Drive connected — add one in Accounts → Connections.' : (store.currentPath === '/' ? 'Vault is empty — this home shows everything merged across your disks.' : 'Empty folder.')) }}</p></div>
             <button v-if="renderLimit < sortedFiles.length" class="fm-more" @click="renderLimit += 300">Show more ({{ sortedFiles.length - renderLimit }} left)</button>
           </div>
         </div>
@@ -1033,6 +1073,8 @@ function closeMobilePanels() {
 }
 function handleMobileBack(event: Event) {
   if (!isMobileView.value) return
+  // Only the sheet on top claims the press — background sheets stay mounted.
+  if ((event as CustomEvent<{ panel?: string }>).detail?.panel !== 'files') return
   if (providerEditor.value) void closeLocalProviderEditor()
   else if (hostEditor.value) void closeHostEditor()
   else if (mobileToolsOpen.value) mobileToolsOpen.value = false
@@ -1105,12 +1147,18 @@ const scopeFolder = computed(() => {
   return s && s.fileType === 'folder' ? s : null
 })
 const baseFiles = computed(() => {
+  let src = store.files
   if (scopeFolder.value) {
     const folderId = scopeFolder.value.id
     const kids = store.files.filter(f => f.parentId === folderId)
-    if (kids.length) return kids
+    if (kids.length) src = kids
   }
-  return store.files
+  // Google Drive tab at the /providers root: only googleDrive mounts and
+  // their pending placeholders (GitHub/GitLab stay reachable via sidebar).
+  if (gdriveOnly.value && store.currentPath.replace(/\\/g, '/') === '/providers') {
+    src = src.filter(f => rowBackend(f) === 'googleDrive')
+  }
+  return src
 })
 const folders = computed(() => baseFiles.value.filter(f => f.fileType === 'folder').sort((a, b) => a.name.localeCompare(b.name)))
 const sortedFiles = computed(() => {
@@ -1163,6 +1211,41 @@ const providerChips = computed(() => store.syncConfigs.map(c => ({
   enabled: c.enabled,
   detail: c.repoName || c.basePath || '',
 })))
+
+// ── Google Drive scope tab ────────────────────────────────────
+// Aggregates every googleDrive sync config's external files in one
+// tab: mounts all Drive configs, lists them under /providers (Drive
+// mounts only), and reuses the provider banner (↓ Vault / ⇄ Move).
+const gdriveOnly = ref(false)
+const gdriveConfigs = computed(() => store.syncConfigs.filter(c => c.backendType === 'googleDrive'))
+/** Backend of a `/providers/<mountId>` root row (mount or pending placeholder). */
+function rowBackend(f: FileNode): string | null {
+  const segs = String(f.path || f.id || '').replace(/\\/g, '/').split('/').filter(Boolean)
+  if (segs[0] !== 'providers' || segs.length < 2) return null
+  const mountId = segs[1]
+  let cfgId = ''
+  if (mountId.startsWith('pending-')) cfgId = mountId.slice('pending-'.length)
+  else cfgId = vfsMounts.value.find(m => m.id === mountId)?.configId || ''
+  return cfgId ? (store.syncConfigs.find(c => c.id === cfgId)?.backendType ?? null) : null
+}
+/** Active scope tab: 'gdrive' inside the Drive view, 'vault' on vault paths, null elsewhere. */
+const scopeTab = computed<'vault' | 'gdrive' | null>(() => {
+  const p = store.currentPath.replace(/\\/g, '/')
+  if (!p.startsWith('/providers')) return 'vault'
+  if (p === '/providers') return gdriveOnly.value ? 'gdrive' : null
+  const segs = p.split('/').filter(Boolean)
+  return rowBackend({ id: '', path: `/providers/${segs[1] || ''}` } as FileNode) === 'googleDrive' ? 'gdrive' : null
+})
+async function openGdriveTab() {
+  clearDiskScope(true)
+  gdriveOnly.value = true
+  for (const c of store.syncConfigs.filter(c => c.enabled && c.backendType === 'googleDrive')) {
+    try { await ensureMountForConfig(c.id) } catch (e) { store.notifyError('Mount failed: Google Drive', e) }
+  }
+  store.selectFile(null)
+  await navTo('/providers')
+}
+function openVaultTab() { gdriveOnly.value = false; goHomeVault() }
 
 // ── providers in the file manager ─────────────────────────────
 // Every connected Google Drive / GitHub / GitLab repo is browsable
@@ -2878,6 +2961,16 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--ui-surface) 70%, transparent); font-size: 10.5px; overflow-x: auto; }
 .fm-stat { color: var(--ui-text-3); white-space: nowrap; } .fm-stat b { color: var(--ui-text); }
 .fm-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--ui-text-faint); flex-shrink: 0; }
+/* scope tabs (Vault | Google Drive) */
+.fm-scopetabs { display: flex; align-items: center; gap: 2px; flex-shrink: 0; padding: 2px; border-radius: 8px;
+  background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
+.fm-scopetab { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--ui-text-3); font-size: 10.5px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.fm-scopetab:hover { color: var(--ui-text); background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
+.fm-scopetab.active { background: var(--ui-surface); color: var(--ui-text); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); }
+.fm-scopetab-n { font-size: 9px; font-weight: 800; padding: 0 4px; border-radius: 99px; min-width: 14px; text-align: center;
+  background: color-mix(in srgb, var(--ui-text) 12%, transparent); color: var(--ui-text-2); }
+.fm-scopetab.active .fm-scopetab-n { background: color-mix(in srgb, #34a853 25%, transparent); color: var(--ui-text); }
 .fm-spacer { flex: 1; }
 .fm-vol { display: flex; align-items: center; gap: 6px; }
 .fm-volbar { width: 90px; height: 6px; border-radius: 99px; background: color-mix(in srgb, var(--ui-text) 10%, transparent); overflow: hidden; }
@@ -3176,19 +3269,19 @@ onBeforeUnmount(() => {
   .fm-local-editor__foot .fm-mrow { display: grid; grid-template-columns: 1fr 1fr; }
   .fm-local-editor__foot .fm-pill { min-height: 44px; justify-content: center; }
   .fm-top {
-    display: grid; grid-template-columns: 40px minmax(0, 1fr) 42px;
+    display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px;
     grid-template-areas: 'nav crumbs tools' 'search search search';
     gap: 6px; padding: 7px 8px; position: relative; z-index: 20;
   }
   .fm-nav { grid-area: nav; min-width: 0; overflow-x: auto; }
-  .fm-nav .fm-ibtn { width: 38px; min-width: 38px; height: 40px; }
+  .fm-nav .fm-ibtn { width: 44px; min-width: 44px; height: 44px; }
   .fm-nav .fm-ibtn:not(:first-child) { display: none; }
-  .fm-crumbs { grid-area: crumbs; order: 0; flex-basis: auto; min-width: 0; min-height: 40px; padding-inline: 4px; }
-  .fm-crumb { gap: 4px; padding-inline: 5px; font-size: 10.5px; }
+  .fm-crumbs { grid-area: crumbs; order: 0; flex-basis: auto; min-width: 0; min-height: 44px; padding-inline: 4px; }
+  .fm-crumb { gap: 4px; padding-inline: 5px; font-size: 10.5px; min-height: 40px; }
   .fm-search { grid-area: search; width: 100%; max-width: none; min-width: 0; height: 44px; box-sizing: border-box; }
   .fm-search input { font-size: 16px; }
   .fm-topactions { grid-area: tools; min-width: 0; max-width: 100%; justify-content: flex-end; }
-  .fm-topactions .fm-mobile-more { width: 42px; min-width: 42px; min-height: 42px; justify-content: center; padding: 0; }
+  .fm-topactions .fm-mobile-more { width: 44px; min-width: 44px; min-height: 44px; justify-content: center; padding: 0; }
   .fm-mobile-more span { display: none; }
   .fm-sub { gap: 6px; padding: 5px 8px; font-size: 10px; }
   .fm-sub .fm-dot, .fm-sub .hide-sm, .fm-sub .fm-vol, .fm-sub .fm-pchip, .fm-sub .fm-pill { display: none; }
@@ -3197,10 +3290,10 @@ onBeforeUnmount(() => {
   .fm-ctool { min-height: 48px; flex-shrink: 0; gap: 7px; overflow-x: auto; padding: 5px 8px; touch-action: pan-x; }
   .fm-ctool .fm-spacer { display: none; }
   .fm-ctool > :nth-child(n + 4) { display: none; }
-  .fm-ctool .fm-ibtn { min-width: 40px; min-height: 40px; }
+  .fm-ctool .fm-ibtn { min-width: 44px; min-height: 44px; }
   .fm-select, .fm-chipbtn, .fm-ctool .fm-pill { min-height: 38px; flex-shrink: 0; }
   .fm-bulk { min-height: 48px; flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto; }
-  .fm-bulk button { flex: 0 0 40px; min-height: 40px; justify-content: center; }
+  .fm-bulk button { flex: 0 0 44px; min-height: 44px; justify-content: center; }
   .fm-bulk-n { flex: 0 0 auto; white-space: nowrap; }
   .fm-diskscope { flex-wrap: wrap; }
   .fm-diskscope-t { max-width: calc(100% - 30px); }
@@ -3225,7 +3318,7 @@ onBeforeUnmount(() => {
   .fm-status { min-height: 40px; gap: 7px; overflow-x: auto; padding: 6px 8px; }
   .fm-status > :first-child { max-width: 42vw; }
   .fm-term { position: absolute; inset: auto 0 0; z-index: 30; height: min(48dvh, 420px); max-height: min(48dvh, calc(100% - 180px)); border-radius: 18px 18px 0 0; box-shadow: var(--ui-shadow-3); }
-  .fm-term-h button { min-width: 40px; min-height: 40px; }
+  .fm-term-h button { min-width: 44px; min-height: 44px; }
   .fm-term-in { min-height: 52px; }
   .fm-term-in input { min-height: 44px; font-size: 16px; }
   .fm-ihead { padding: 10px 12px; }
@@ -3256,16 +3349,16 @@ onBeforeUnmount(() => {
 }
 
 @container file-manager (max-width: 560px) {
-  .fm-top { display: grid; grid-template-columns: 40px minmax(0, 1fr) 42px; grid-template-areas: 'nav crumbs tools' 'search search search'; gap: 6px; padding: 7px 8px; position: relative; z-index: 20; }
+  .fm-top { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; grid-template-areas: 'nav crumbs tools' 'search search search'; gap: 6px; padding: 7px 8px; position: relative; z-index: 20; }
   .fm-nav { grid-area: nav; min-width: 0; overflow-x: auto; }
-  .fm-nav .fm-ibtn { width: 38px; min-width: 38px; height: 40px; }
+  .fm-nav .fm-ibtn { width: 44px; min-width: 44px; height: 44px; }
   .fm-nav .fm-ibtn:not(:first-child) { display: none; }
-  .fm-crumbs { grid-area: crumbs; order: 0; flex-basis: auto; min-width: 0; min-height: 40px; padding-inline: 4px; }
-  .fm-crumb { gap: 4px; padding-inline: 5px; font-size: 10.5px; }
+  .fm-crumbs { grid-area: crumbs; order: 0; flex-basis: auto; min-width: 0; min-height: 44px; padding-inline: 4px; }
+  .fm-crumb { gap: 4px; padding-inline: 5px; font-size: 10.5px; min-height: 40px; }
   .fm-search { grid-area: search; width: 100%; max-width: none; min-width: 0; height: 44px; box-sizing: border-box; }
   .fm-search input { font-size: 16px; }
   .fm-topactions { grid-area: tools; min-width: 0; max-width: 100%; justify-content: flex-end; }
-  .fm-topactions .fm-mobile-more { width: 42px; min-width: 42px; min-height: 42px; justify-content: center; padding: 0; }
+  .fm-topactions .fm-mobile-more { width: 44px; min-width: 44px; min-height: 44px; justify-content: center; padding: 0; }
   .fm-mobile-more span { display: none; }
   .fm-sub { gap: 6px; padding: 5px 8px; font-size: 10px; }
   .fm-sub .fm-dot, .fm-sub .hide-sm, .fm-sub .fm-vol, .fm-sub .fm-pchip, .fm-sub .fm-pill { display: none; }
@@ -3273,7 +3366,7 @@ onBeforeUnmount(() => {
   .fm-ctool { min-height: 48px; flex-shrink: 0; gap: 7px; overflow-x: auto; padding: 5px 8px; touch-action: pan-x; }
   .fm-ctool .fm-spacer { display: none; }
   .fm-ctool > :nth-child(n + 4) { display: none; }
-  .fm-ctool .fm-ibtn { min-width: 40px; min-height: 40px; }
+  .fm-ctool .fm-ibtn { min-width: 44px; min-height: 44px; }
   .fm-select, .fm-chipbtn, .fm-ctool .fm-pill { min-height: 38px; flex-shrink: 0; }
   .fm-mobile-tools-menu { position: fixed; inset: 8px; z-index: 80; max-height: none; overflow-y: auto; overscroll-behavior: contain; padding: 10px 10px max(12px, env(safe-area-inset-bottom)); border: 1px solid var(--ui-border-strong); border-radius: 20px; background: var(--ui-surface-2); color: var(--ui-text); box-shadow: var(--ui-shadow-3); }
 }

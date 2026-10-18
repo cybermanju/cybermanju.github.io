@@ -371,6 +371,16 @@ body.cybermanju-offline .server-only {
    a time: no desktop icons, no floating drag/resize, bottom nav owns the
    last 64px + safe-area. Form fields stay at 16px to prevent WebView zoom;
    compact icon controls keep their intended dimensions. */
+
+/* Phone header height — status-bar sized, NOT a desktop menu bar. The
+   notch/system status bar is already absorbed by `.cybermanju-shell`'s
+   safe-area padding (the shell starts below the OS status bar), so this is
+   the whole top chrome: one slim strip + its one shared sheet offset.
+   TopMenuBar renders it; every fixed sheet top's off it (below). */
+:root {
+  --mobile-header-h: 26px;
+}
+
 @media (max-width: 768px) {
   /* Perf: phones get zero backdrop-blur (GPU killer) — vibrancy surfaces
      fall back to near-opaque tints, so solid fills look identical. */
@@ -390,10 +400,11 @@ body.cybermanju-offline .server-only {
 
   /* Single unified mobile header (logo + status + theme + one clock) on
      every surface. Desktop menus/search stay in the launcher and palette.
-     Height includes the notch so sheets (top: 52px + safe-area) never expose
-     a gap row behind them. */
+     Slim status-bar strip: the notch is the shell's safe-area padding, so
+     the bar never grows around it — sheets (top = inset + --mobile-header-h)
+     start exactly at its bottom edge. */
   .top-menu-bar {
-    min-height: calc(52px + env(safe-area-inset-top, 0px));
+    min-height: var(--mobile-header-h);
     flex-wrap: nowrap !important;
     overflow: hidden !important;
   }
@@ -427,7 +438,7 @@ body.cybermanju-offline .server-only {
   .app-window {
     position: fixed !important;
     inset: auto !important;
-    top: calc(52px + env(safe-area-inset-top, 0px)) !important;
+    top: calc(env(safe-area-inset-top, 0px) + var(--mobile-header-h)) !important;
     right: env(safe-area-inset-right, 0px) !important;
     bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
     left: env(safe-area-inset-left, 0px) !important;
@@ -448,7 +459,8 @@ body.cybermanju-offline .server-only {
   [data-ui-shell='plasma'] .top-menu-bar { display: flex !important; }
 
   .window-titlebar {
-    min-height: 48px;
+    /* Standard phone nav bar height (iOS 44px / Android ~48dp bar). */
+    min-height: 44px;
     border-radius: 0 !important;
     flex-shrink: 0;
   }

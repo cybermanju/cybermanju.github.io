@@ -4,9 +4,24 @@
 <!-- Integrates: @/…, vue. -->
 <!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
-  <div class="st">
+  <div class="st" :class="{ 'st--mobile': isMobile }">
+    <!-- ── header ──────────────────────────────────────────────
+         Desktop: one scroll page (brand header · status strip · jump rail).
+         Phone: the standard settings STACK instead — a large-title root that
+         lists the sections, and a pushed detail behind a back bar. The sheet
+         drops its generic titlebar there (AppWindow `--bare-title`), so this
+         header is the only chrome under the status strip. -->
+    <header v-if="isMobile && mobileSection" class="st-top st-top--mobile is-detail">
+      <button class="st-back" type="button" @click="closeMobileSection">
+        <AppIcon name="solar:alt-arrow-left-bold" :size="17" />
+        <span>Settings</span>
+      </button>
+      <h2 class="st-detail-title">{{ mobileSection.title }}</h2>
+      <UiButton size="sm" icon="solar:restart-bold" aria-label="Refresh all data" @click="handleRefresh" />
+    </header>
+
     <!-- ── header (same visual language as Accounts) ─────────── -->
-    <header class="st-top">
+    <header v-else class="st-top" :class="{ 'st-top--mobile': isMobile }">
       <div class="st-brand">
         <span class="st-brand-mark"><AppIcon name="solar:settings-bold" :size="20" /></span>
         <div class="st-brand-text">
@@ -20,8 +35,10 @@
       </div>
     </header>
 
-    <!-- ── one-line status strip (connection · broker · endpoint) ─ -->
-    <section class="st-strip" aria-label="Connection summary">
+    <!-- ── one-line status strip (connection · broker · endpoint) ─
+         Desktop keeps it pinned above the jump rail; phones fold the same
+         summary into the root list as its own group (rendered inside main). -->
+    <section v-if="!isMobile" class="st-strip" aria-label="Connection summary">
       <span class="st-strip-k">Connection</span>
       <span class="st-strip-v">{{ activeTransport }}</span>
       <UiBadge
@@ -32,8 +49,9 @@
       <span class="st-mono st-strip-url">{{ effectiveApiUrl }}</span>
     </section>
 
-    <!-- ── section jump bar (always visible, works in small windows) ─ -->
-    <nav class="st-jumps" aria-label="Settings sections">
+    <!-- ── section jump bar (always visible, works in small windows) ─
+         Desktop only: phones navigate through the root list below. -->
+    <nav v-if="!isMobile" class="st-jumps" aria-label="Settings sections">
       <input
         v-model="sectionQuery"
         class="st-jump-search"
@@ -54,9 +72,54 @@
       </button>
     </nav>
 
-    <main ref="bodyEl" class="st-body" @scroll.passive="onBodyScroll">
+    <main
+      ref="bodyEl"
+      class="st-body"
+      :class="{ 'is-detail': isMobile && !!mobileSection }"
+      @scroll.passive="onBodyScroll"
+    >
+      <!-- ── phone root: section index (iOS/Android Settings list) ── -->
+      <template v-if="isMobile && !mobileSection">
+        <div class="st-search">
+          <AppIcon name="solar:magnifer-bold" :size="16" class="st-search-icon" />
+          <input
+            v-model="sectionQuery"
+            type="search"
+            placeholder="Search"
+            aria-label="Search settings sections"
+          />
+        </div>
+
+        <ul class="st-list" role="list">
+          <li v-for="s in filteredSections" :key="s.id">
+            <button class="st-list-row" type="button" @click="openMobileSection(s)">
+              <span class="st-list-icon"><AppIcon :name="s.icon" :size="17" /></span>
+              <span class="st-list-text">
+                <span class="st-list-title">{{ s.title }}</span>
+                <span class="st-list-sub">{{ s.sub }}</span>
+              </span>
+              <span class="st-list-value">{{ sectionValue(s.id) }}</span>
+              <AppIcon class="st-list-chevron" name="solar:arrow-right-bold" :size="15" />
+            </button>
+          </li>
+        </ul>
+
+        <div class="st-strip st-strip--mobile" aria-label="Connection summary">
+          <span class="st-strip-k">Connection</span>
+          <span class="st-strip-v">{{ activeTransport }}</span>
+          <UiBadge
+            :label="supabaseConfiguredNow ? 'Broker ready' : 'Broker not set'"
+            :tone="supabaseConfiguredNow ? 'success' : 'warning'"
+            :dot="true"
+          />
+          <span class="st-mono st-strip-url">{{ effectiveApiUrl }}</span>
+        </div>
+
+        <p class="st-foot">CyberManju OS · {{ APP_VERSION }}</p>
+      </template>
+
       <!-- ── appearance ── -->
-      <UiCard v-show="sectionVisible('appearance')" id="st-sec-appearance" title="Appearance" icon="solar:monitor-bold" meta="View">
+      <UiCard v-show="sectionVisible('appearance') && inSection('appearance')" id="st-sec-appearance" title="Appearance" icon="solar:monitor-bold" meta="View">
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Appearance</UiText>
           <UiSegmented
@@ -245,7 +308,7 @@
       </UiCard>
 
       <!-- ── remote dashboard ── -->
-      <UiCard v-show="sectionVisible('remote')" id="st-sec-remote" title="Remote dashboard" icon="solar:server-bold" meta="Connection">
+      <UiCard v-show="sectionVisible('remote') && inSection('remote')" id="st-sec-remote" title="Remote dashboard" icon="solar:server-bold" meta="Connection">
         <div class="st-field-row">
           <UiInput
             v-model="serverUrlDraft"
@@ -267,7 +330,7 @@
 
       <!-- ── supabase broker ── -->
       <UiCard
-        v-show="sectionVisible('broker')"
+        v-show="sectionVisible('broker') && inSection('broker')"
         id="oauth-broker-card"
         :class="{ 'is-target': focusFlash }"
         title="OAuth broker"
@@ -329,7 +392,7 @@
       </UiCard>
 
       <!-- ── auto-refresh + data ── -->
-      <UiCard v-show="sectionVisible('sync')" id="st-sec-sync" title="Sync behaviour" icon="solar:refresh-bold" meta="Refresh">
+      <UiCard v-show="sectionVisible('sync') && inSection('sync')" id="st-sec-sync" title="Sync behaviour" icon="solar:refresh-bold" meta="Refresh">
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Auto-refresh</UiText>
           <UiSelect
@@ -399,7 +462,7 @@
       </UiCard>
 
       <!-- ── gestures ── -->
-      <UiCard v-if="touchConfig" v-show="sectionVisible('gestures')" id="st-sec-gestures" title="Gestures" icon="solar:cursor-square-bold" :meta="touchMeta">
+      <UiCard v-if="touchConfig" v-show="sectionVisible('gestures') && inSection('gestures')" id="st-sec-gestures" title="Gestures" icon="solar:cursor-square-bold" :meta="touchMeta">
         <UiText as="p" variant="small" tone="muted">
           Device: {{ touchConfig.state.touchSupported ? 'touch enabled' : 'no touch' }} ·
           {{ touchConfig.state.isMobile ? 'mobile' : 'desktop' }}
@@ -459,7 +522,7 @@
       </UiCard>
 
       <!-- ── keyboard ── -->
-      <UiCard v-if="shortcuts" v-show="sectionVisible('keys')" id="st-sec-keys" title="Keyboard bindings" icon="solar:keyboard-bold" :meta="keyMeta">
+      <UiCard v-if="shortcuts" v-show="sectionVisible('keys') && inSection('keys')" id="st-sec-keys" title="Keyboard bindings" icon="solar:keyboard-bold" :meta="keyMeta">
         <UiText as="p" variant="small" tone="muted">
           {{ isBrowserKeys ? 'Browser tab: Ctrl+T / Ctrl+W / Ctrl+Tab never reach the page — Alt+ fallbacks are listed.' : 'Tauri desktop: every binding fires, including Ctrl+T / Ctrl+W.' }}
           Window layout lives under WINDOWS / WORKSPACE · LAYOUT.
@@ -499,9 +562,9 @@
       </UiCard>
 
       <!-- ── about ── -->
-      <UiCard v-show="sectionVisible('about')" id="st-sec-about" title="About" icon="solar:info-circle-bold" meta="0.1.0">
+      <UiCard v-show="sectionVisible('about') && inSection('about')" id="st-sec-about" title="About" icon="solar:info-circle-bold" :meta="APP_VERSION">
         <dl class="st-info">
-          <div class="st-info-row"><dt>Version</dt><dd>0.1.0</dd></div>
+          <div class="st-info-row"><dt>Version</dt><dd>{{ APP_VERSION }}</dd></div>
           <div class="st-info-row"><dt>Framework</dt><dd>Vue 3 + Pinia</dd></div>
           <div class="st-info-row"><dt>Desktop</dt><dd>Tauri v2</dd></div>
           <div class="st-info-row"><dt>Search</dt><dd>Tantivy BM25</dd></div>
@@ -509,8 +572,9 @@
           <div class="st-info-row"><dt>Database</dt><dd>redb</dd></div>
         </dl>
       </UiCard>
-      <!-- iOS "No Results": the filter hid every group. -->
-      <p v-if="filteredSections.length === 0" class="st-empty" role="status">
+      <!-- iOS "No Results": the filter hid every group (root list on phones,
+           the whole card stack on desktop). -->
+      <p v-if="filteredSections.length === 0 && (!isMobile || !mobileSection)" class="st-empty" role="status">
         No results for “{{ sectionQuery }}”.
         <button class="st-link" type="button" @click="sectionQuery = ''">Clear search</button>
       </p>
@@ -539,6 +603,11 @@ import { useTheme } from '@/composables/useTheme'
 import { ACCENT_CHOICES, WALLPAPERS, type ShellStyle } from '@/ui/tokens'
 import { lockMobileVaultMirror, mobileVaultMirrorState, supportsNativeScopedStorage, syncMobileVaultMirrorNow, unlockMobileVaultMirror } from '@/utils/mobileScopedStorage'
 import { LOCALES, getLocale, t, useLocale, type Locale } from '@/utils/i18n'
+import pkg from '../../package.json'
+
+/** package.json is the single source of truth for the version (AGENTS §0) —
+  About, the phone root footer and the list cell all read it from there. */
+const APP_VERSION = pkg.version
 
 /**
  * Active transport: tauri IPC, REST dashboard, or local WASM (GitHub Pages).
@@ -751,20 +820,25 @@ async function clearSupabase() {
 }
 
 // ── section jump bar + scroll spy ──────────────────────────────
+/** One settings group: `label` is the short chip name (desktop jump rail),
+  `title` the full row/nav name, `icon`/`sub` the phone list cell. */
 interface Section {
   id: string
   el: string
   label: string
+  title: string
+  icon: string
+  sub: string
 }
 
 const SECTIONS: Section[] = [
-  { id: 'appearance', el: 'st-sec-appearance', label: 'Appearance' },
-  { id: 'remote', el: 'st-sec-remote', label: 'Dashboard' },
-  { id: 'broker', el: 'oauth-broker-card', label: 'Broker' },
-  { id: 'sync', el: 'st-sec-sync', label: 'Sync' },
-  { id: 'gestures', el: 'st-sec-gestures', label: 'Gestures' },
-  { id: 'keys', el: 'st-sec-keys', label: 'Keys' },
-  { id: 'about', el: 'st-sec-about', label: 'About' },
+  { id: 'appearance', el: 'st-sec-appearance', label: 'Appearance', title: 'Appearance', icon: 'solar:monitor-bold', sub: 'Theme · wallpaper · language' },
+  { id: 'remote', el: 'st-sec-remote', label: 'Dashboard', title: 'Remote dashboard', icon: 'solar:server-bold', sub: 'Server URL · OAuth redirect' },
+  { id: 'broker', el: 'oauth-broker-card', label: 'Broker', title: 'OAuth broker', icon: 'solar:key-bold', sub: 'Sign-in without your own server' },
+  { id: 'sync', el: 'st-sec-sync', label: 'Sync', title: 'Sync behaviour', icon: 'solar:refresh-bold', sub: 'Auto-refresh · vault mirror' },
+  { id: 'gestures', el: 'st-sec-gestures', label: 'Gestures', title: 'Gestures', icon: 'solar:cursor-square-bold', sub: 'Touch, swipe, long press' },
+  { id: 'keys', el: 'st-sec-keys', label: 'Keys', title: 'Keyboard bindings', icon: 'solar:keyboard-bold', sub: 'Shortcuts and rebinds' },
+  { id: 'about', el: 'st-sec-about', label: 'About', title: 'About', icon: 'solar:info-circle-bold', sub: 'Version & stack' },
 ]
 
 const bodyEl = ref<HTMLElement | null>(null)
@@ -796,6 +870,105 @@ function sectionVisible(id: string): boolean {
   return filteredSections.value.some((s) => s.id === id)
 }
 
+// ── phone stack: root section index → pushed detail ─────────────
+/**
+ * On phones the sheet is full-screen, so it uses the standard settings
+ * navigation every platform app uses: a root list of groups, and exactly one
+ * pushed detail behind a back bar (`.st-top.is-detail`) — instead of the
+ * desktop jump rail + one long scroll. Driven by the same ≤768px viewport
+ * query as the shell, so a resized desktop window keeps the full page.
+ */
+const mobileShellQuery =
+  typeof window !== 'undefined' ? window.matchMedia?.('(max-width: 768px)') ?? null : null
+const isMobile = ref(mobileShellQuery?.matches ?? false)
+/** Currently pushed section id; `null` = root index. */
+const mobileSectionId = ref<string | null>(null)
+const mobileSection = computed(() => SECTIONS.find((s) => s.id === mobileSectionId.value) ?? null)
+
+function onMobileShellChange(event: MediaQueryListEvent) {
+  isMobile.value = event.matches
+  // Leaving/entering the phone layout re-roots the stack (desktop has no stack).
+  if (!event.matches) mobileSectionId.value = null
+}
+
+/** One card is in the DOM flow only where its section is reachable. */
+function inSection(id: string): boolean {
+  return !isMobile.value || mobileSectionId.value === id
+}
+
+function openMobileSection(s: Section) {
+  mobileSectionId.value = s.id
+  activeSection.value = s.id
+  // Every push starts at the top of the group, like a native detail page.
+  bodyEl.value?.scrollTo({ top: 0 })
+}
+
+function closeMobileSection() {
+  mobileSectionId.value = null
+  bodyEl.value?.scrollTo({ top: 0 })
+}
+
+/** Human label for each appearance preset (root list right-hand value). */
+const APPEARANCE_LABELS: Record<string, string> = {
+  'os-light': 'Light',
+  'os-dark': 'Dark',
+  'os-graphite': 'Graphite',
+  'plasma-light': 'Plasma light',
+  'plasma-dark': 'Plasma dark',
+  auto: 'Auto',
+}
+
+/** Right-hand value shown on the root list cell (iOS chevron row). */
+function sectionValue(id: string): string {
+  switch (id) {
+    case 'appearance':
+      return theme.settings.followSystem
+        ? 'Auto'
+        : APPEARANCE_LABELS[theme.settings.theme] ?? 'Custom'
+    case 'remote':
+      return currentServerUrl.value ? 'Custom URL' : 'Auto'
+    case 'broker':
+      return supabaseConfiguredNow.value ? 'Configured' : 'Not set'
+    case 'sync':
+      return store.autoRefreshInterval === 0
+        ? 'Off'
+        : store.autoRefreshInterval >= 60
+          ? `${store.autoRefreshInterval / 60}m`
+          : `${store.autoRefreshInterval}s`
+    case 'gestures':
+      return touchMeta.value
+    case 'keys':
+      return `${shortcuts?.getAllShortcuts().length ?? 0} bindings`
+    default:
+      return APP_VERSION
+  }
+}
+
+/** Android system back / Esc: pop the detail first, never the whole sheet. */
+function handleMobileBack(e: Event) {
+  if (!isMobile.value || !mobileSectionId.value) return
+  // Background sheets stay mounted: only the sheet on top claims the press.
+  if ((e as CustomEvent<{ panel?: string }>).detail?.panel !== 'settings') return
+  e.preventDefault()
+  closeMobileSection()
+}
+
+function handleStackEscape(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || !isMobile.value || !mobileSectionId.value) return
+  closeMobileSection()
+}
+
+onMounted(() => {
+  mobileShellQuery?.addEventListener?.('change', onMobileShellChange)
+  window.addEventListener('cybermanju:mobile-back', handleMobileBack)
+  document.addEventListener('keydown', handleStackEscape)
+})
+onBeforeUnmount(() => {
+  mobileShellQuery?.removeEventListener?.('change', onMobileShellChange)
+  window.removeEventListener('cybermanju:mobile-back', handleMobileBack)
+  document.removeEventListener('keydown', handleStackEscape)
+})
+
 function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
@@ -809,6 +982,9 @@ function scrollToSection(s: Section, smooth = true): boolean {
 }
 
 function onBodyScroll() {
+  // The phone stack picks the section explicitly (push/back), and its root
+  // list has no cards to spy on.
+  if (isMobile.value) return
   const body = bodyEl.value
   if (!body) return
   const base = body.getBoundingClientRect().top
@@ -830,7 +1006,10 @@ let flashTimer: ReturnType<typeof setTimeout> | null = null
 function focusSection(e: Event) {
   if ((e as CustomEvent<string>).detail !== 'oauth-broker') return
   const broker = SECTIONS.find(s => s.id === 'broker')
-  if (!broker || !scrollToSection(broker)) return
+  if (!broker) return
+  // Phones have no jump rail to scroll: push the detail instead.
+  if (isMobile.value) openMobileSection(broker)
+  else if (!scrollToSection(broker)) return
   if (flashTimer) clearTimeout(flashTimer)
   focusFlash.value = false
   // Reset first so the glow replays when this card is requested twice.
@@ -1376,6 +1555,186 @@ async function handleRefresh() {
 .st-info-row dd { margin: 0; font-weight: 700; }
 .st-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
+/* ── phone settings stack (root section index → pushed detail) ──────────
+   Gated on the `.st--mobile` root class (same ≤768px JS query as the shell),
+   so a narrow DESKTOP window keeps the jump rail + one scroll page above.
+   The ≤560px block below layers the iOS voice (SF stack, 44px rhythm) on top. */
+.st--mobile .st-top--mobile { padding: 12px 14px 10px; gap: 10px; }
+
+/* Large title on the root; the pushed detail is a compact 44px nav bar. */
+.st--mobile .st-top--mobile:not(.is-detail) .st-title {
+  font-size: 26px;
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+.st--mobile .st-top--mobile:not(.is-detail) .st-subtitle { font-size: 12px; }
+
+.st--mobile .st-top.is-detail {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  justify-content: normal;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 8px;
+}
+.st-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 36px;
+  padding: 0 8px 0 4px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ui-accent);
+  font-family: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.st-back:active {
+  background: color-mix(in srgb, var(--ui-accent) 12%, transparent);
+}
+.st-detail-title {
+  margin: 0;
+  min-width: 0;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ui-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Grouped background on both levels of the stack (tinted scroller, groups
+   stay surface) — matches the ≤560px iOS block at tablet phone widths too. */
+.st--mobile .st-body {
+  padding: 12px 12px 28px;
+  background: color-mix(in srgb, var(--ui-text) 5%, var(--ui-surface));
+}
+.st--mobile .st-body > * + * { margin-top: 14px; }
+.st--mobile .st-body > :deep(.ui-card) {
+  background: var(--ui-surface);
+  border-radius: 14px;
+}
+
+/* iOS-style rounded search field; 16px input keeps iOS from zooming. */
+.st-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px;
+  background: var(--ui-surface-2);
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+}
+.st-search:focus-within {
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-focus-ring);
+}
+.st-search-icon { color: var(--ui-text-3); flex-shrink: 0; }
+.st-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text);
+  font-family: var(--ui-font);
+  font-size: 16px;
+  outline: none;
+}
+.st-search input::placeholder { color: var(--ui-text-3); }
+
+/* Section index: one inset-rounded group of ≥52px cells (icon tile ·
+   title/sub · live value · chevron) — the standard app settings row. */
+.st-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 14px;
+  overflow: hidden;
+  animation: ui-rise var(--ui-dur-slow) var(--ui-ease-out) both;
+}
+.st-list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px;
+  border: 0;
+  border-top: 1px solid var(--ui-hairline);
+  background: transparent;
+  color: var(--ui-text);
+  font-family: inherit;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.st-list li:first-child .st-list-row { border-top: 0; }
+.st-list-row:active { background: var(--ui-hover); }
+.st-list-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--ui-accent) 78%, #fff), var(--ui-accent));
+  color: #fff;
+}
+.st-list-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.st-list-title {
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st-list-sub {
+  font-size: 12px;
+  color: var(--ui-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st-list-value {
+  flex-shrink: 1;
+  max-width: 42%;
+  font-size: 13px;
+  color: var(--ui-text-3);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st-list-chevron { flex-shrink: 0; color: var(--ui-text-3); }
+
+/* Root-only helpers: the connection summary becomes the last group and the
+   version footer replaces the desktop strip that lives outside <main>.
+   Scoped through `.st--mobile` so the ≤560px block's `.st-strip` margins
+   (which come later in this file) cannot re-inset it inside the body. */
+.st--mobile .st-strip--mobile { margin: 0; }
+.st--mobile .st-strip-url { margin-left: 0; flex-basis: 100%; }
+.st-foot { margin: 0; text-align: center; font-size: 11px; color: var(--ui-text-3); }
+
+/* Push transition: detail slides in from the right (native stack feel). */
+@keyframes st-push-in {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: none; }
+}
+.st--mobile .st-body.is-detail > :deep(.ui-card) {
+  animation: st-push-in 200ms var(--ui-ease-out) both;
+}
+
 @media (max-width: 560px) {
   /* iOS Settings voice: SF stack, large title, grouped-list rhythm. */
   .st { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--ui-font), sans-serif; }
@@ -1467,5 +1826,7 @@ async function handleRefresh() {
 @media (prefers-reduced-motion: reduce) {
   .st-jump { transition: none; }
   #oauth-broker-card.is-target { animation: none; }
+  .st-list,
+  .st-body.is-detail > :deep(.ui-card) { animation: none; }
 }
 </style>
