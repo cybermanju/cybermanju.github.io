@@ -1,6 +1,6 @@
 /* CyberManju OS — wiki app styles (wiki-src/style.css). */
 /* Role: charm-style purple/red/white/black reader UI over the 3D scenery. */
-/* Exports: .top/.rail/.panel/.hint layout, cards, chips, tooltip, symbol deep view (pre.code/.explain), graph bits (.badge/.trace/#graph2d overlay/legend). */
+/* Exports: .top/.rail/.panel/.hint layout, cards, chips, tooltip, symbol deep view (pre.code/.explain), module form note (.formnote), graph bits (.badge/.trace/#graph2d overlay/legend). */
 /* Integrates: linked from wiki-src/index.html; fonts fall back to system rounded. */
 /* Contracts: none (pure CSS); mobile collapses rail to a horizontal strip. */
 
@@ -284,6 +284,20 @@ body {
 .panel .blurb {
   color: var(--mut);
   font-size: 15px;
+}
+
+/* Build-time form note: the module's 3D silhouette (shape key from
+   wiki-src/shapes.ts) + the honest reason it fits the code it names. */
+.panel .formnote {
+  color: var(--mut);
+  font-size: 13px;
+  margin: 6px 0 0;
+}
+
+.panel .formnote code {
+  color: var(--ac);
+  background: #ffffff12;
+  padding: 1px 6px;
 }
 
 .panel .stats {
