@@ -109,8 +109,9 @@ audit:
   image: rust:latest
   interruptible: true
   extends: .code-rules
-  # Advisory until the tree is clean (mirrors continue-on-error).
-  allow_failure: true
+  # Blocking — mirrors GitHub's audit job (advisory list cleaned 2026-10-18:
+  # quinn-proto 0.11.19 / rustls 0.23.46 / ruzstd 0.9.1 lock bump fixed the
+  # 10 RustSec vulns; npm production audit is clean).
   before_script:
     - curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
     - apt-get install -y nodejs
@@ -119,9 +120,9 @@ audit:
     # crates from source on every run for no reason.
     - curl -sSfL https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
     - cargo binstall -y cargo-audit || cargo install cargo-audit --locked
-    - cargo audit || true
+    - cargo audit
     - npm ci
-    - npm audit --omit=dev || true
+    - npm audit --omit=dev
 
 # ─── build ───────────────────────────────────────────────────────────
 cli-build:

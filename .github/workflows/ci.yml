@@ -99,6 +99,14 @@ jobs:
           shared-key: "linux-workspace"
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
 
+      # Lockfile integrity gate: fails loudly when Cargo.lock no longer
+      # matches the manifest resolution (hand-maintained advisory bumps —
+      # quinn-proto/rustls/ruzstd, 2026-10-18 — must be resolution-exact),
+      # instead of every build silently rewriting the lock inside the runner
+      # and shipping a stale one in the repo.
+      - name: Verify Cargo.lock is resolution-exact
+        run: cargo metadata --locked --format-version 1 > /dev/null
+
       # Workspace-wide: `src-tauri` alone has no tests, so a current-package-only
       # run silently executed zero tests (all crates/tests live outside it).
       - name: Check formatting
@@ -158,10 +166,13 @@ jobs:
         with:
           tool: cargo-audit
 
-      # Findings are reported but not blocking yet — remove
-      # `continue-on-error` once the advisory list is clean.
+      # Blocking: the advisory list was cleaned on 2026-10-18 by the
+      # quinn-proto 0.11.19 / rustls 0.23.46 / ruzstd 0.9.1 lock bump
+      # (10 RustSec vulns: RUSTSEC-2026-0338..0342, 0344, 0346..0349).
+      # Remaining findings are warnings only (unmaintained/unsound), which
+      # `cargo audit` reports without failing. A new advisory now fails CI
+      # instead of hiding behind continue-on-error.
       - name: cargo audit
-        continue-on-error: true
         run: cargo audit
 
       - name: Setup Node.js
@@ -170,8 +181,8 @@ jobs:
           node-version: "24"
           cache: "npm"
 
+      # Blocking: 0 production vulnerabilities (verified clean 2026-10-18).
       - name: npm audit (production)
-        continue-on-error: true
         run: npm audit --omit=dev
 
   # ─── WASM: Rust crate + web bundle ────────────────────────────────
@@ -572,8 +583,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Load-bearing: the manifest stages the app FROM this deb
+      # (type: dir → ../../artifacts). Never tolerate a failure here —
+      # an empty artifacts/ would only explode later inside flatpak-builder
+      # with a confusing missing-source error instead of failing fast.
       - name: Download Debian package
-        continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist-linux-deb

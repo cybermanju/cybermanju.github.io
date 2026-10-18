@@ -101,9 +101,12 @@
 ## 4. CI rules (`.github/workflows/ci.yml` + `release.yml`)
 
 CI jobs (`ci.yml`, concurrency `CI-<ref>`, cancel-in-progress):
-`meta-check` (versions + file headers + LICENSE) · `rust-check` (fmt → clippy `-D warnings`
+`meta-check` (versions + file headers + LICENSE) · `rust-check` (lock gate
+`cargo metadata --locked` → fmt → clippy `-D warnings`
 → `cargo test --workspace --no-fail-fast`) · `docker-build` ·
-`audit` (advisory, `continue-on-error`) ·
+`audit` (**blocking** since 2026-10-18 — 10 RustSec vulns fixed via the
+quinn-proto 0.11.19 / rustls 0.23.46 / ruzstd 0.9.1 lock bump; GitLab mirror
+drops `allow_failure` too) ·
 `wasm-build` (wasm32 check → `wasm-pack` → `npm ci` → `vue-tsc` → `npm test`
 → `build:wasm:frontend` → `dist-wasm/`) · `windows-build` · `linux-build`
 (deb+AppImage+rpm) · `rpm-build` + `flatpak-build` (from linux artifacts) ·
