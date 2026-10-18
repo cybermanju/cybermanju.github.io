@@ -32,6 +32,7 @@
     "build:wasm:pkg": "wasm-pack build crates/os-wasm --target web --out-dir pkg",
     "build:wasm:frontend": "vite build --mode production --config vite.config.wasm.ts --outDir dist-wasm",
     "wiki": "node scripts/generate-wiki.mjs && vite build --config vite.config.wiki.ts",
+    "wiki:graph": "graphify extract . --code-only && graphify export html",
     "test": "vitest run"
   },
   "dependencies": {

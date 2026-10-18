@@ -4,7 +4,7 @@
 //! does (Lawnchair/Launcher3, KISS, Unlauncher):
 //!
 //! * list: `Intent(ACTION_MAIN).addCategory(CATEGORY_LAUNCHER)` +
-//!   `queryIntentActivities(..., MATCH_DEFAULT_ONLY)`, label via
+//!   `queryIntentActivities(..., 0)` (see `QUERY_ACTIVITY_FLAGS`), label via
 //!   `loadLabel`, icon via `loadIcon` rastered to a 96px PNG data URL.
 //! * open: `getLaunchIntentForPackage(pkg)` + `FLAG_ACTIVITY_NEW_TASK`,
 //!   falling back to an explicit `ComponentName` intent resolved through a
@@ -291,6 +291,16 @@ mod android_impl {
     pub const FLAG_ACTIVITY_NEW_TASK: i32 = 0x1000_0000;
     const FLAG_SYSTEM: i32 = 1; // ApplicationInfo.FLAG_SYSTEM
 
+    /// Flags for every `queryIntentActivities` call — `0`, exactly what
+    /// `getLaunchIntentForPackage` uses internally. Deliberately NOT
+    /// `MATCH_DEFAULT_ONLY` (0x0001_0000): that flag only returns activities
+    /// whose intent filter declares `CATEGORY_DEFAULT`, which stock
+    /// MAIN/LAUNCHER filters never do (only HOME filters do), so it would
+    /// blank the Gaveta drawer. The JNI signature is two-arg
+    /// `(Intent, int)` — omitting this int makes every query fail with
+    /// `Invalid number or type of arguments passed to java method`.
+    const QUERY_ACTIVITY_FLAGS: i32 = 0;
+
     fn is_null(o: &JObject) -> bool {
         o.as_raw().is_null()
     }
@@ -414,7 +424,7 @@ mod android_impl {
                 pm,
                 "queryIntentActivities",
                 "(Landroid/content/Intent;I)Ljava/util/List;",
-                &[JValue::Object(&local)],
+                &[JValue::Object(&local), JValue::Int(QUERY_ACTIVITY_FLAGS)],
             )
             .map_err(|e| fail(env, format!("network: app query failed: {e}")))?;
         v.l()

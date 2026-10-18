@@ -1,9 +1,17 @@
 // CyberManju OS — wiki 3D app (wiki-src/main.ts).
-// Role: Three.js scenery (orbiting module nodes around a manju mascot) + reader panels.
-// Exports: boot() — fetches subjects.json, builds scene + rail + panel + hash routing.
+// Role: Three.js scenery (orbiting module nodes around a manju mascot) +
+//   reader panels; the scene renders the graphify knowledge graph live
+//   (subject↔subject EXTRACTED/INFERRED edges, ★ god-node satellites,
+//   community-colored orbit frames, traced-path highlighting) with a 2D
+//   switch to graphify's graph.html overlay.
+// Exports: boot() — fetches subjects.json, builds scene + rail + panel +
+//   hash routing + the 2D/3D toggle.
 // Integrates: built by vite.config.wiki.ts into dist-wasm/wiki/; data from
-//   scripts/generate-wiki.mjs (subjects.json); static twins at wiki/<id>.html.
-// Contracts: fully static (no backend); honors prefers-reduced-motion; read-only fetch.
+//   scripts/generate-wiki.mjs (subjects.json incl. graph payload); static
+//   twins at wiki/<id>.html; 2D overlay loads ./graph.html (graphify).
+// Contracts: fully static (no backend); honors prefers-reduced-motion;
+//   read-only fetch; graph UI only appears when the payload says engine
+//   graphify — heuristic builds show no fabricated provenance.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -20,6 +28,44 @@ interface TopSymbol {
   line: number;
 }
 
+// Cross-subject knowledge-graph edge (graphify engine): provenance stays
+// split — EXTRACTED (read from the source AST) never merges with INFERRED
+// (resolved by the extractor), same honesty rule as faces/code-intel.
+interface GraphEdge {
+  to: string;
+  weight: number;
+  extracted: number;
+  inferred: number;
+  relations: Record<string, number>;
+  sample?: string;
+}
+
+interface GodNode {
+  name: string;
+  file: string;
+  line: number;
+  degree: number;
+  subject?: string;
+  community?: number;
+}
+
+interface GraphInfo {
+  engine: string;
+  commit: string | null;
+  stats: {
+    nodes: number;
+    edges: number;
+    mapped: number;
+    extracted: number;
+    inferred: number;
+    communities: number;
+    subjects: number;
+  };
+  godNodes: GodNode[];
+  communities: { id: number; size: number; subjects: string[] }[];
+  paths: Record<string, string[]>;
+}
+
 interface Subject {
   id: string;
   title: string;
@@ -31,10 +77,15 @@ interface Subject {
   contracts: string[];
   links: string[];
   top: TopSymbol[];
+  engine?: string;
+  community?: number | null;
+  edges?: GraphEdge[];
+  godNodes?: GodNode[];
 }
 
 interface WikiData {
   version: string;
+  graph?: GraphInfo | null;
   subjects: Subject[];
 }
 
@@ -46,6 +97,13 @@ function esc(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// Community palette (graphify Leiden clusters): one hue per community id so
+// modules of the same subsystem share an orbit-frame color at a glance.
+const COMM_PALETTE = ['#34d399', '#60a5fa', '#fbbf24', '#f472b6', '#a78bfa', '#fb7185', '#22d3ee', '#4ade80'];
+function commColor(id: number | null | undefined): string {
+  return id == null || id < 0 ? '#ffffff' : COMM_PALETTE[Math.abs(id) % COMM_PALETTE.length];
 }
 
 // One shared radial texture per color (award sites never mint a canvas
@@ -217,6 +275,31 @@ async function boot(): Promise<void> {
     return;
   }
   const byId = new Map(data.subjects.map((s) => [s.id, s]));
+
+  // ── 2D/3D switch: graphify's graph.html in an overlay ─────
+  // The 2D view only exists when the graph built in CI; the iframe loads
+  // once on first use and rendering pauses underneath it (battery/GPU).
+  const toggle2d = document.getElementById('toggle2d') as HTMLButtonElement | null;
+  const graph2d = document.getElementById('graph2d')!;
+  const graphFrame = document.getElementById('graph2dframe') as HTMLIFrameElement;
+  let twoD = false;
+  function set2D(on: boolean): void {
+    if (!data.graph || !toggle2d) return;
+    twoD = on;
+    graph2d.hidden = !on;
+    graph2d.setAttribute('aria-hidden', String(!on));
+    toggle2d.setAttribute('aria-pressed', String(on));
+    toggle2d.textContent = on ? '3D view' : '2D graph';
+    document.title = on ? 'Knowledge graph — CyberManju wiki' : 'CyberManju OS — 3D wiki';
+    if (on && graphFrame.dataset.loaded !== '1') {
+      graphFrame.src = './graph.html';
+      graphFrame.dataset.loaded = '1';
+    }
+  }
+  if (toggle2d && data.graph) {
+    toggle2d.hidden = false;
+    toggle2d.addEventListener('click', () => set2D(!twoD));
+  }
 
   // Pixel-art type: wait (briefly) for the bitmap font so canvas nameplates
   // are measured and rasterized in Silkscreen. Offline/slow fonts fall back
@@ -400,11 +483,6 @@ async function boot(): Promise<void> {
     new THREE.Vector3(1.55, 0, 1.55),
     new THREE.Vector3(-1.55, 0, 1.55),
   ]);
-  const squareMat = new THREE.LineBasicMaterial({
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0.5,
-  });
   const ringDefs = [
     { r: 15.5, y: 4.4, tilt: 0.12 },
     { r: 20.5, y: -1.4, tilt: -0.1 },
@@ -440,8 +518,16 @@ async function boot(): Promise<void> {
     nodeBase.push(pos.clone());
     nodeById.set(sub.id, mesh);
 
-    // Voxel orbit frame: a spinning white pixel-square, not a torus.
-    const orbit = new THREE.LineLoop(squareGeo, squareMat);
+    // Voxel orbit frame: a spinning pixel-square, tinted by the module's
+    // Leiden community (graphify) so same-subsystem colors group at a glance.
+    const orbit = new THREE.LineLoop(
+      squareGeo,
+      new THREE.LineBasicMaterial({
+        color: new THREE.Color(commColor(sub.community)),
+        transparent: true,
+        opacity: 0.5,
+      }),
+    );
     orbit.position.copy(pos);
     orbit.rotation.x = Math.PI / 2.4;
     scene.add(orbit);
@@ -469,6 +555,56 @@ async function boot(): Promise<void> {
     scene.add(link);
     lines.push(link);
   });
+
+  // ── Knowledge-graph edges between subject nodes ─────────────
+  // The scene IS the graph: every cross-subject EXTRACTED/INFERRED edge
+  // from subjects.json draws a tether between the two orbiting modules
+  // (solid = EXTRACTED-dominant, dashed = INFERRED-dominant). Edges follow
+  // the bobbing nodes every frame; hovering/selecting a module or tracing
+  // a path brightens its edges.
+  interface SubEdge {
+    a: string;
+    b: string;
+    line: THREE.Line;
+    dashed: boolean;
+  }
+  const subEdges: SubEdge[] = [];
+  {
+    const seen = new Set<string>();
+    for (const sub of data.subjects) {
+      for (const e of sub.edges ?? []) {
+        if (!nodeById.has(sub.id) || !nodeById.has(e.to)) continue;
+        const key = sub.id < e.to ? `${sub.id}|${e.to}` : `${e.to}|${sub.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+        const dashed = e.inferred > e.extracted;
+        const line = new THREE.Line(
+          geo,
+          dashed
+            ? new THREE.LineDashedMaterial({ color: 0xffffff, transparent: true, opacity: 0.12, dashSize: 0.45, gapSize: 0.3 })
+            : new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.16 }),
+        );
+        line.frustumCulled = false;
+        scene.add(line);
+        subEdges.push({ a: sub.id, b: e.to, line, dashed });
+      }
+    }
+  }
+
+  // Active traced path (module hops); brightens the chain's edges + nodes
+  // until the next selection. Set by the panel's path tracer.
+  let pathHighlight: string[] = [];
+  let pathPairs = new Set<string>();
+  function setPath(path?: string[]): void {
+    pathHighlight = path ?? [];
+    pathPairs = new Set();
+    for (let i = 0; i + 1 < pathHighlight.length; i++) {
+      const a = pathHighlight[i];
+      const b = pathHighlight[i + 1];
+      pathPairs.add(a < b ? `${a}|${b}` : `${b}|${a}`);
+    }
+  }
 
   // Voxel lanterns: ONE draw call (InstancedMesh, per-instance color)
   // instead of one sprite each. Basic material + bloom does the glowing.
@@ -600,9 +736,11 @@ async function boot(): Promise<void> {
   let blinkAt = 2.5;
 
   // ── Satellites: mini stars orbiting the selected node ──────────
-  // Real connections only: linked modules (from mined import edges +
-  // shared contract signals) and the module's own top symbols (with docs).
-  // Nothing here is generic — every satellite resolves to project data.
+  // Real connections only: linked modules (graphify EXTRACTED/INFERRED
+  // edges when the graph ran at build time, mined import + shared-signal
+  // links as heuristic fallback) and the module's own top symbols
+  // (★ god nodes first — the AST's most-connected hubs). Nothing here
+  // is generic — every satellite resolves to project data.
   interface Sat {
     mesh: THREE.Mesh;
     label: THREE.Sprite;
@@ -616,6 +754,8 @@ async function boot(): Promise<void> {
     subId: string;
     symName: string;
     tip: string;
+    god: boolean;
+    inferred: boolean;
   }
   let sats: Sat[] = [];
   // Shared voxel kit for satellites (mirrors the node kit above).
@@ -650,13 +790,32 @@ async function boot(): Promise<void> {
       label: string;
       color: string;
       tip: string;
+      god: boolean;
+      inferred: boolean;
     }[] = [];
-    for (const lid of sub.links.slice(0, 4)) {
+    const edgeByTo = new Map((sub.edges ?? []).map((e) => [e.to, e]));
+    const linkIds = (sub.edges?.length ? sub.edges.map((e) => e.to) : sub.links).slice(0, 4);
+    for (const lid of linkIds) {
       const l = byId.get(lid);
       if (!l || lid === sub.id) continue;
+      const e = edgeByTo.get(lid);
       items.push({
         kind: 'link', subId: lid, symName: '', label: l.title, color: l.color,
-        tip: `${l.title} — ${l.tag}`,
+        god: false,
+        inferred: !!e && e.inferred > e.extracted,
+        tip: e
+          ? `${l.title} — w${e.weight}, EXTRACTED ${e.extracted} / INFERRED ${e.inferred} (${Object.entries(e.relations).map(([r, n]) => `${r} ×${n}`).join(', ')})`
+          : `${l.title} — ${l.tag}`,
+      });
+    }
+    // ★ god nodes: the AST's most-connected hubs inside this module.
+    for (const g of sub.godNodes ?? []) {
+      if (items.length >= 10) break;
+      if (items.some((i) => i.symName === g.name)) continue;
+      items.push({
+        kind: 'symbol', subId: sub.id, symName: g.name, label: `★${g.name}`, color: '#f5f3ff',
+        god: true, inferred: false,
+        tip: `★ god node — ${g.name} (${g.file}:${g.line}, degree ${g.degree})`,
       });
     }
     for (const s of sub.top) {
@@ -664,6 +823,7 @@ async function boot(): Promise<void> {
       if (items.some((i) => i.symName === s.name)) continue;
       items.push({
         kind: 'symbol', subId: sub.id, symName: s.name, label: s.name, color: sub.color,
+        god: false, inferred: false,
         tip: s.docs ? `${s.name} — ${s.docs}` : `${s.name} (${s.kind}) — ${s.file}:${s.line}`,
       });
     }
@@ -680,16 +840,22 @@ async function boot(): Promise<void> {
         }),
       );
       mesh.add(new THREE.LineSegments(satEdgeGeo, satEdgeMat));
+      mesh.scale.setScalar(it.god ? 1.5 : 1);
       mesh.userData = { sat: true, kind: it.kind, subId: it.subId, symName: it.symName };
       scene.add(mesh);
-      const label = textSprite(it.label, 0.62, it.color);
+      const label = textSprite(it.label, it.god ? 0.72 : 0.62, it.color);
       labelScene.add(label);
       const linkPos = new THREE.BufferAttribute(new Float32Array(6), 3);
       const linkGeo = new THREE.BufferGeometry();
       linkGeo.setAttribute('position', linkPos);
+      // Tether style carries the provenance: solid = EXTRACTED-dominant,
+      // dashed = INFERRED-dominant (LineDashedMaterial needs line distances
+      // refreshed as the satellite orbits — done in the loop below).
       const link = new THREE.Line(
         linkGeo,
-        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.4 }),
+        it.inferred
+          ? new THREE.LineDashedMaterial({ color, transparent: true, opacity: 0.32, dashSize: 0.35, gapSize: 0.25 })
+          : new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.4 }),
       );
       scene.add(link);
       sats.push({
@@ -699,6 +865,7 @@ async function boot(): Promise<void> {
         speed: (0.25 + (k % 4) * 0.06) * (k % 2 ? 1 : -1),
         yOff: ((k * 37) % 20) / 10 - 1,
         kind: it.kind, subId: it.subId, symName: it.symName, tip: it.tip,
+        god: it.god, inferred: it.inferred,
       });
     });
   }
@@ -754,7 +921,9 @@ async function boot(): Promise<void> {
         !sub.title.toLowerCase().includes(q) &&
         !sub.tag.toLowerCase().includes(q) &&
         !sub.id.includes(q) &&
-        !sub.top.some((t) => t.name.toLowerCase().includes(q))
+        !sub.top.some((t) => t.name.toLowerCase().includes(q)) &&
+        !(sub.godNodes ?? []).some((g) => g.name.toLowerCase().includes(q)) &&
+        !sub.contracts.some((c) => c.toLowerCase().includes(q))
       ) {
         continue;
       }
@@ -776,6 +945,15 @@ async function boot(): Promise<void> {
     const out: { sub: Subject; sym: TopSymbol }[] = [];
     if (!q) return out;
     for (const sub of data.subjects) {
+      for (const g of sub.godNodes ?? []) {
+        if (g.name.toLowerCase().includes(q)) {
+          out.push({
+            sub,
+            sym: { name: g.name, kind: 'god node', docs: `★ degree ${g.degree}`, file: g.file, line: g.line },
+          });
+          if (out.length >= cap) return out;
+        }
+      }
       for (const sym of sub.top) {
         if (sym.name.toLowerCase().includes(q)) {
           out.push({ sub, sym });
@@ -802,6 +980,33 @@ async function boot(): Promise<void> {
             )
             .join('')}</div>`
         : '';
+      // Knowledge-graph summary (only when graphify ran at build time —
+      // never claim a graph that isn't there). Communities are the Leiden
+      // clusters; the orbit-frame color of each module matches its chip.
+      const g = data.graph;
+      const legendHtml = g
+        ? `<div class="chips legend">${g.communities
+            .map(
+              (c) =>
+                `<span class="comm" title="community #${c.id} — ${c.size} symbols (graphify Leiden)"><i style="background:${commColor(c.id)}"></i>${c.subjects.map((s) => byId.get(s)?.title ?? s).join(' + ')}</span>`,
+            )
+            .join('')}</div>`
+        : '';
+      const graphHtml = g
+        ? `<h2>Knowledge graph <span class="mut">engine: ${esc(g.engine)} · solid = EXTRACTED · dashed = INFERRED</span></h2>
+        <div class="stats"><span>${g.stats.nodes} nodes</span><span>${g.stats.edges} edges</span><span>EXTRACTED ${g.stats.extracted} / INFERRED ${g.stats.inferred}</span></div>
+        <h2>★ God nodes <span class="mut">most-connected hubs</span></h2>
+        <div class="chips matches">${g.godNodes
+          .slice(0, 8)
+          .map((n) => {
+            const s = n.subject ? byId.get(n.subject) : undefined;
+            return `<button ${s ? `data-go="${s.id}"` : 'disabled'} title="${esc(n.file)}:${n.line} — degree ${n.degree}"><code>★${esc(n.name)}</code></button>`;
+          })
+          .join('')}</div>
+        <h2>Communities <span class="mut">orbit-frame colors</span></h2>
+        ${legendHtml}
+        <ul class="links"><li><button class="linkbtn" id="open2d">switch to 2D graph</button></li><li><a href="./graph.html">graph.html direct</a></li></ul>`
+        : '';
       panel.innerHTML = `
         <div class="tag">quantum-resistant file manager + OS layer · v${esc(data.version)}</div>
         <h1>CyberManju wiki</h1>
@@ -810,6 +1015,7 @@ async function boot(): Promise<void> {
         and how it plugs into the whole.</p>
         <div class="stats"><span>${data.subjects.length} subjects</span><span>${totalFiles} files</span><span>${totalSyms} symbols</span></div>
         ${hitsHtml}
+        ${graphHtml}
         <h2>For agents</h2>
         <ul class="links"><li><a href="../llms.txt">llms.txt</a></li><li><a href="./overview.txt">overview.txt</a></li></ul>
         <h2>For humans</h2>
@@ -825,6 +1031,7 @@ async function boot(): Promise<void> {
           window.location.hash = `#/${(b as HTMLButtonElement).dataset.gosym}`;
         });
       });
+      panel.querySelector('button#open2d')?.addEventListener('click', () => set2D(true));
       return;
     }
     const sub = byId.get(selected)!;
@@ -835,7 +1042,20 @@ async function boot(): Promise<void> {
     const pageUrl = `${window.location.origin}${window.location.pathname}#/${sub.id}`;
 
     // Symbol deep view: the satellite's docs, kind, and exact file:line.
-    const symHit = selectedSym ? sub.top.find((s) => s.name === selectedSym) : undefined;
+    // God nodes resolve too (they may sit outside the top-symbols slice).
+    const topHit = selectedSym ? sub.top.find((s) => s.name === selectedSym) : undefined;
+    const godHit = selectedSym ? (sub.godNodes ?? []).find((g) => g.name === selectedSym) : undefined;
+    const symHit = topHit
+      ? { ...topHit }
+      : godHit
+        ? {
+            name: godHit.name,
+            kind: 'god node (graphify)',
+            docs: `Most-connected hub of ${sub.title} — degree ${godHit.degree}, community #${godHit.community ?? sub.community ?? '?'}.`,
+            file: godHit.file,
+            line: godHit.line,
+          }
+        : undefined;
     if (symHit) {
       document.title = `${symHit.name} — ${sub.title} — CyberManju wiki`;
       const symUrl = `${pageUrl}/${encodeURIComponent(symHit.name)}`;
@@ -867,37 +1087,66 @@ async function boot(): Promise<void> {
           `<button class="symbtn" data-sym="${esc(s.name)}" title="${esc(s.file)}:${s.line}${s.docs ? ` — ${esc(s.docs)}` : ''}"><code>${esc(s.name)}</code></button>`,
       )
       .join('');
-    const linksHtml = sub.links.length
-      ? `<h2>Connected modules</h2><div class="chips matches">${sub.links
+    // Connected modules: graphify edges carry weight + EXTRACTED/INFERRED
+    // provenance in the tooltip and badge; heuristic links stay bare.
+    const edgeByTo = new Map((sub.edges ?? []).map((e) => [e.to, e]));
+    const linkIds = sub.edges?.length ? sub.edges.map((e) => e.to) : sub.links;
+    const linksHtml = linkIds.length
+      ? `<h2>Connected modules ${sub.engine === 'graphify' ? '<span class="mut">solid = EXTRACTED · dashed = INFERRED</span>' : ''}</h2><div class="chips matches">${linkIds
           .map((lid) => {
             const l = byId.get(lid);
-            return l
-              ? `<button data-go="${l.id}" title="${esc(l.tag)}"><code>${esc(l.title)}</code></button>`
-              : '';
+            const e = edgeByTo.get(lid);
+            if (!l) return '';
+            const tip = e
+              ? `w${e.weight} · EXTRACTED ${e.extracted} / INFERRED ${e.inferred} (${Object.entries(e.relations).map(([r, n]) => `${r} ×${n}`).join(', ')})${e.sample ? `\n${e.sample}` : ''}`
+              : l.tag;
+            const badge = e ? `<span class="badge${e.inferred > e.extracted ? ' inf' : ''}">w${e.weight}</span>` : '';
+            return `<button data-go="${l.id}" title="${esc(tip)}"><code>${esc(l.title)}</code>${badge}</button>`;
           })
           .join('')}</div>`
+      : '';
+    const godsHtml = sub.godNodes?.length
+      ? `<h2>★ God nodes <span class="mut">most-connected hubs (graphify)</span></h2><div class="chips">${sub.godNodes
+          .map((n) => `<code title="${esc(n.file)}:${n.line} — degree ${n.degree}">${esc(n.name)}</code>`)
+          .join('')}</div>`
+      : '';
+    // Path tracer: precomputed all-pairs module hops from the graph.
+    const traceHtml = data.graph
+      ? `<h2>Path trace <span class="mut">graphify hops, undirected</span></h2>
+      <div class="trace">
+        <select id="traceTo" aria-label="Trace path to module">${data.subjects
+          .filter((o) => o.id !== sub.id)
+          .map((o) => `<option value="${o.id}">${esc(o.title)}</option>`)
+          .join('')}</select>
+        <button id="traceGo">trace</button>
+      </div>
+      <div id="traceOut" class="traced"></div>`
       : '';
     panel.innerHTML = `
       <div class="crumbs"><button data-go="">wiki</button><span>/</span><b>${esc(sub.title)}</b>
         <button class="copy" data-copy="${esc(pageUrl)}" title="Copy link to this module">copy link</button></div>
-      <div class="tag">${esc(sub.tag)}</div>
+      <div class="tag">${esc(sub.tag)}${sub.engine === 'graphify' ? ' · graph: graphify' : ''}</div>
       <h1>${esc(sub.title)}</h1>
       <p class="blurb">${esc(sub.blurb)}</p>
-      <div class="stats"><span>${sub.fileCount} files</span><span>${sub.symbolCount} symbols</span><span>v${esc(data.version)}</span></div>
+      <div class="stats"><span>${sub.fileCount} files</span><span>${sub.symbolCount} symbols</span>${sub.community != null ? `<span>community #${sub.community}</span>` : ''}<span>v${esc(data.version)}</span></div>
       ${linksHtml}
+      ${godsHtml}
       <h2>Top symbols</h2><div class="chips symchips">${syms}</div>
       <h2>Contracts</h2><div class="chips">${sub.contracts.length ? sub.contracts.map((c) => `<code>${esc(c)}</code>`).join('') : '<code>none — pure logic</code>'}</div>
+      ${traceHtml}
       <h2>Read offline</h2>
       <ul class="links">
         <li><a href="./${sub.id}.txt">.txt for LLMs</a></li>
         <li><a href="./${sub.id}.json">.json</a></li>
         <li><a href="./${sub.id}.html">static page</a></li>
+        ${data.graph ? '<li><a href="./graph.html">graph.html</a></li>' : ''}
       </ul>
       <div class="pager">
         <button data-go="${prev.id}">← ${esc(prev.title)}</button>
         <button data-go="${next.id}">${esc(next.title)} →</button>
       </div>`;
     wirePanelButtons(pageUrl);
+    wireTrace(sub);
   }
 
   // Panel-internal navigation: module buttons, symbol buttons, copy-link.
@@ -931,12 +1180,51 @@ async function boot(): Promise<void> {
     }
   }
 
+  // Path tracer: renders the precomputed shortest module chain as clickable
+  // chips (graphify's subject graph, undirected hops).
+  function wireTrace(sub: Subject): void {
+    const go = panel.querySelector<HTMLButtonElement>('#traceGo');
+    const toSel = panel.querySelector<HTMLSelectElement>('#traceTo');
+    const out = panel.querySelector<HTMLElement>('#traceOut');
+    if (!go || !toSel || !out) return;
+    go.addEventListener('click', () => {
+      const to = toSel.value;
+      const path = data.graph?.paths[`${sub.id}>${to}`];
+      const target = byId.get(to);
+      if (!path || !target) {
+        setPath();
+        out.innerHTML = '<p class="empty">No path — different graph components.</p>';
+        return;
+      }
+      // Light the chain up in the 3D scene while rendering it in the panel.
+      setPath(path);
+      out.innerHTML = path
+        .map((id) => {
+          const s = byId.get(id);
+          return s ? `<button data-go="${s.id}" class="linkbtn">${esc(s.title)}</button>` : '';
+        })
+        .join('<span class="arrow"> → </span>');
+      out.querySelectorAll('button[data-go]').forEach((b) => {
+        b.addEventListener('click', () => {
+          window.location.hash = `#/${(b as HTMLButtonElement).dataset.go}`;
+        });
+      });
+    });
+  }
+
   function select(id: string | null, sym: string | null = null): void {
     selected = id && byId.has(id) ? id : null;
     hoveredSat = null;
+    setPath(); // any traced path dies with the next navigation
     const sub = selected ? byId.get(selected) : undefined;
+    // Accept top symbols AND god nodes as deep-view targets (satellite
+    // clicks land here either way; god hubs may sit outside top).
     selectedSym =
-      sub && sym ? (sub.top.some((s) => s.name === sym) ? sym : null) : null;
+      sub && sym
+        ? sub.top.some((s) => s.name === sym) || (sub.godNodes ?? []).some((g) => g.name === sym)
+          ? sym
+          : null
+        : null;
     renderRail(search.value);
     renderPanel();
     clearSats();
@@ -983,6 +1271,11 @@ async function boot(): Promise<void> {
   // (Skipped while typing anywhere except the search box itself.)
   window.addEventListener('keydown', (e) => {
     const tag = (e.target as HTMLElement | null)?.tagName;
+    // Esc exits the 2D graph overlay before it does anything else.
+    if (e.key === 'Escape' && twoD) {
+      set2D(false);
+      return;
+    }
     if (e.key === '/' && tag !== 'INPUT' && tag !== 'TEXTAREA') {
       e.preventDefault();
       search.focus();
@@ -1046,7 +1339,7 @@ async function boot(): Promise<void> {
     if (h.kind === 'subject' && byId.has(h.subId)) {
       const sub = byId.get(h.subId)!;
       tooltip.hidden = false;
-      tooltip.textContent = `${sub.title} — ${sub.tag}`;
+      tooltip.textContent = `${sub.title} — ${sub.tag}${sub.community != null ? ` · community #${sub.community}` : ''}${sub.engine === 'graphify' ? ' · graphify' : ''}`;
     } else if (h.kind === 'link' && byId.has(h.subId)) {
       const sub = byId.get(h.subId)!;
       hoveredSat = sats.find((s) => s.kind === 'link' && s.subId === h.subId) ?? null;
@@ -1099,7 +1392,7 @@ async function boot(): Promise<void> {
   let frameN = 0;
   function tick(): void {
     requestAnimationFrame(tick);
-    if (hidden) return;
+    if (hidden || twoD) return;
     const now = performance.now();
     const dt = Math.min(0.05, (now - lastFrame) / 1000);
     lastFrame = now;
@@ -1171,9 +1464,15 @@ async function boot(): Promise<void> {
     nodes.forEach((mesh, ix) => {
       const mat = mesh.material as THREE.MeshStandardMaterial;
       const id = mesh.userData.id as string;
-      const active = id === selected || id === hovered;
+      const onPath = pathHighlight.includes(id);
+      const active = id === selected || id === hovered || onPath;
       mat.emissiveIntensity += ((active ? 1.25 : 0.55) - mat.emissiveIntensity) * 0.15;
-      const s = id === selected ? 1 + Math.sin(t * 4) * 0.1 : 1;
+      const s =
+        id === selected
+          ? 1 + Math.sin(t * 4) * 0.1
+          : onPath
+            ? 1.08 + Math.sin(t * 4) * 0.03
+            : 1;
       mesh.scale.setScalar(s);
       mesh.rotation.y += active ? 0.012 : 0.003;
       mesh.rotation.x += 0.001;
@@ -1207,6 +1506,8 @@ async function boot(): Promise<void> {
           p[0] = center.x; p[1] = center.y; p[2] = center.z;
           p[3] = px; p[4] = py; p[5] = pz;
           s.linkPos.needsUpdate = true;
+          // Dashed tethers need fresh line distances as they swing.
+          if (s.inferred) s.link.computeLineDistances();
           const hot = hoveredSat === s;
           const mat = s.mesh.material as THREE.MeshStandardMaterial;
           mat.emissiveIntensity += ((hot ? 1.6 : 0.9) - mat.emissiveIntensity) * 0.2;
@@ -1221,6 +1522,24 @@ async function boot(): Promise<void> {
       const lm = link.material as THREE.LineBasicMaterial;
       lm.opacity += ((on ? 0.7 : 0.3) - lm.opacity) * 0.15;
     });
+    // Graph edges ride the bobbing nodes; brighten on selection/hover and
+    // blaze (full opacity) along a traced path.
+    for (const se of subEdges) {
+      const ma = nodeById.get(se.a);
+      const mb = nodeById.get(se.b);
+      if (!ma || !mb) continue;
+      const attr = se.line.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const arr = attr.array as Float32Array;
+      arr[0] = ma.position.x; arr[1] = ma.position.y; arr[2] = ma.position.z;
+      arr[3] = mb.position.x; arr[4] = mb.position.y; arr[5] = mb.position.z;
+      attr.needsUpdate = true;
+      if (se.dashed) se.line.computeLineDistances();
+      const onPath = pathPairs.has(se.a < se.b ? `${se.a}|${se.b}` : `${se.b}|${se.a}`);
+      const hot = se.a === selected || se.b === selected || se.a === hovered || se.b === hovered;
+      const goal = onPath ? 0.95 : hot ? 0.55 : 0.16;
+      const lm = se.line.material as THREE.LineBasicMaterial | THREE.LineDashedMaterial;
+      lm.opacity += (goal - lm.opacity) * 0.15;
+    }
     // Eased flight + FOV punch while travelling.
     if (fly) {
       const k = Math.min(1, (performance.now() - fly.t0) / fly.dur);
