@@ -1217,8 +1217,14 @@ async function boot(): Promise<void> {
     hoveredSat = null;
     setPath(); // any traced path dies with the next navigation
     const sub = selected ? byId.get(selected) : undefined;
+    // Accept top symbols AND god nodes as deep-view targets (satellite
+    // clicks land here either way; god hubs may sit outside top).
     selectedSym =
-      sub && sym ? (sub.top.some((s) => s.name === sym) ? sym : null) : null;
+      sub && sym
+        ? sub.top.some((s) => s.name === sym) || (sub.godNodes ?? []).some((g) => g.name === sym)
+          ? sym
+          : null
+        : null;
     renderRail(search.value);
     renderPanel();
     clearSats();
