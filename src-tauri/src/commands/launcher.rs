@@ -76,3 +76,27 @@ pub fn launcher_notification_state() -> Result<NotificationState, String> {
 pub fn launcher_open_notification_settings() -> Result<(), String> {
     cybermanju_launcher::open_notification_settings()
 }
+
+/// Hand an external link to the system resolver (`Intent.ACTION_VIEW`).
+///
+/// Android-only path behind `src/utils/openExternal.ts`: the WebView cannot
+/// launch a browser itself and `plugin-shell open` spawns `xdg-open`, which
+/// Android does not ship — that failure surfaced as
+/// `Scoped shell IO error: No such file or directory (os error 2)` on every
+/// Google/GitHub/GitLab sign-in button. Desktop builds keep the shell opener
+/// in the frontend, so they never reach this command (`unsupported:` there).
+#[tauri::command(async)]
+pub fn launcher_open_url(url: String) -> Result<(), String> {
+    cybermanju_launcher::open_url(url.trim())
+}
+
+/// Hand one device file to a viewer/editor (`OPEN WITH SYSTEM`).
+///
+/// Same Android-only story as `launcher_open_url`, over a FileProvider
+/// `content://` URI — Android 7+ refuses `file://` data
+/// (`FileUriExposedException`). Directories refuse with `unsupported:` (no
+/// app-to-app folder hand-off on Android).
+#[tauri::command(async)]
+pub fn launcher_open_file(path: String) -> Result<(), String> {
+    cybermanju_launcher::open_file(path.trim())
+}

@@ -15,6 +15,11 @@
 //!   `scripts/android-configure.sh`) mirrors messaging/social notifications
 //!   into `cybermanju-messages.json` in the app-private files dir; this crate
 //!   only *reads* that file — no notification permission lives in Rust.
+//! * links/files: `open_url` (allow-listed schemes → `Intent.ACTION_VIEW`) and
+//!   `open_file` (FileProvider `content://` hand-off) are the Android answer to
+//!   `plugin-shell open`, which spawns `xdg-open` and dies on Android with
+//!   `Scoped shell IO error: No such file or directory (os error 2)` — the
+//!   WebView has no browser/file opener of its own.
 //!
 //! The JNI layer lives behind `#[cfg(target_os = "android")]` and uses only
 //! `jni` + `ndk-context` (no Kotlin, no `gen/android` coupling), so the crate
@@ -271,6 +276,33 @@ pub fn pack_icon_candidates(package: &str) -> Vec<String> {
     out.dedup();
     out.retain(|s| !s.is_empty());
     out
+}
+
+/// Link schemes an external open may hand to the system resolver — the same
+/// set the desktop shell-open scope accepts (`tauri.conf.json > plugins >
+/// shell > open`), so the Android Intent bridge never widens it. Everything
+/// else (`intent:`, `file:`, `javascript:`, …) stays refused with `invalid:`
+/// so a hostile link cannot be routed into the package resolver.
+pub const OPEN_SCHEMES: [&str; 5] = ["https://", "http://", "mailto:", "tel:", "cybermanju://"];
+
+/// True when `url` starts with one of `OPEN_SCHEMES` and carries a non-empty
+/// target after it (a bare `https://` is not openable).
+pub fn is_openable_url(url: &str) -> bool {
+    let u = url.trim();
+    OPEN_SCHEMES.iter().any(|s| has_scheme(u, s))
+}
+
+/// True when `u` starts with `scheme` (case-insensitive) plus more text.
+fn has_scheme(u: &str, scheme: &str) -> bool {
+    let head = u.get(..scheme.len());
+    u.len() > scheme.len() && head.is_some_and(|p| p.eq_ignore_ascii_case(scheme))
+}
+
+/// Human label for one link in errors: scheme + path only — OAuth `?code=`
+/// / `?state=` (and any token query) never reach an error string.
+pub fn link_label(url: &str) -> String {
+    let cut = url.find(['?', '#']).unwrap_or(url.len());
+    url[..cut].to_string()
 }
 
 // ─── Android implementation (JNI, no Kotlin) ──────────────────────────
@@ -1158,12 +1190,149 @@ mod android_impl {
             start(env, activity, intent, "notification settings")
         })
     }
+
+    /// `Intent.FLAG_GRANT_READ_URI_PERMISSION` — one hand-off, one file.
+    const GRANT_READ_URI_PERMISSION: i32 = 0x0000_0001;
+
+    /// `Intent.ACTION_VIEW` whose data is one already-built URI.
+    fn view_intent<'a>(env: &mut JNIEnv<'a>, uri: JObject<'a>) -> Result<JObject<'a>, String> {
+        let action = new_obj(env, "android.intent.action.VIEW")?;
+        let intent: JObject = env
+            .new_object(
+                "android/content/Intent",
+                "(Ljava/lang/String;)V",
+                &[JValue::Object(&action)],
+            )
+            .map_err(|e| fail(env, format!("invalid: cannot build intent: {e}")))?;
+        env.call_method(
+            &intent,
+            "setData",
+            "(Landroid/net/Uri;)Landroid/content/Intent;",
+            &[JValue::Object(&uri)],
+        )
+        .map_err(|e| fail(env, format!("invalid: cannot set intent data: {e}")))?;
+        Ok(intent)
+    }
+
+    /// `Intent.ACTION_VIEW` whose data is one string URI (`Uri.parse`).
+    fn view_uri<'a>(env: &mut JNIEnv<'a>, data: &str) -> Result<JObject<'a>, String> {
+        let spec = new_obj(env, data)?;
+        let uri: JObject = env
+            .call_static_method(
+                "android/net/Uri",
+                "parse",
+                "(Ljava/lang/String;)Landroid/net/Uri;",
+                &[JValue::Object(&spec)],
+            )
+            .map_err(|e| fail(env, format!("invalid: bad uri: {e}")))?
+            .l()
+            .map_err(|e| fail(env, format!("invalid: bad uri: {e}")))?;
+        view_intent(env, uri)
+    }
+
+    /// `content://` URI for one absolute path, minted by our FileProvider.
+    ///
+    /// The authority is read from the Activity (`<applicationId>.fileprovider`)
+    /// so debug application-id suffixes stay in sync with the manifest entry
+    /// `scripts/android-configure.sh` writes.
+    fn file_uri<'a>(
+        env: &mut JNIEnv<'a>,
+        activity: &JObject,
+        path: &str,
+    ) -> Result<JObject<'a>, String> {
+        let pkg_obj: JObject = env
+            .call_method(activity, "getPackageName", "()Ljava/lang/String;", &[])
+            .map_err(|e| fail(env, format!("network: cannot read the app id: {e}")))?
+            .l()
+            .map_err(|e| fail(env, format!("network: cannot read the app id: {e}")))?;
+        let pkg = jstr(env, &pkg_obj)?;
+        let authority = format!("{pkg}.fileprovider");
+        let authority_obj = new_obj(env, authority.as_str())?;
+        let file_obj = new_obj(env, path)?;
+        let java_file: JObject = env
+            .new_object("java/io/File", "(Ljava/lang/String;)V", &[JValue::Object(&file_obj)])
+            .map_err(|e| fail(env, format!("invalid: cannot address the file: {e}")))?;
+        env.call_static_method(
+            "androidx/core/content/FileProvider",
+            "getUriForFile",
+            "(Landroid/content/Context;Ljava/lang/String;Ljava/io/File;)Landroid/net/Uri;",
+            &[
+                JValue::Object(activity),
+                JValue::Object(&authority_obj),
+                JValue::Object(&java_file),
+            ],
+        )
+        .map_err(|e| fail(env, share_fail(path, e)))?
+        .l()
+        .map_err(|e| fail(env, share_fail(path, e)))
+    }
+
+    /// Honest FileProvider failure (path outside the configured roots,
+    /// `androidx.core` missing, …) — never a bare JNI code in the UI.
+    /// The pending Java exception is cleared by `fail` before this surfaces.
+    fn share_fail(path: &str, e: JniError) -> String {
+        format!("not_found: cannot hand {path} to another app ({e}) — check cybermanju_paths.xml")
+    }
+
+    /// Open one link with the system resolver (`Intent.ACTION_VIEW`).
+    ///
+    /// This is Android's answer to `plugin-shell open`, which spawns
+    /// `xdg-open` and fails on Android with `Scoped shell IO error: No such
+    /// file or directory (os error 2)` — a WebView has no browser opener of
+    /// its own, so the Activity intent is the only way out (the same route
+    /// the CLI takes through the Activity Manager).
+    pub fn open_url(url: &str) -> Result<(), String> {
+        let url = url.trim();
+        let label = super::link_label(url);
+        if !super::is_openable_url(url) {
+            return Err(format!(
+                "invalid: cannot open {label} (allowed: https, http, mailto, tel, cybermanju)"
+            ));
+        }
+        with_env(|env, activity| {
+            let intent = view_uri(env, url)?;
+            start(env, activity, intent, label.as_str())
+        })
+    }
+
+    /// Hand one local file to a viewer/editor (`ACTION_VIEW` over a
+    /// `content://` URI from our FileProvider).
+    ///
+    /// `file://` data is refused by Android 7+ (`FileUriExposedException`),
+    /// so bytes travel through `androidx.core.content.FileProvider`
+    /// (manifest `<provider>` + `res/xml/cybermanju_paths.xml` + the
+    /// `androidx.core` dependency, all injected by
+    /// `scripts/android-configure.sh`) with `FLAG_GRANT_READ_URI_PERMISSION`
+    /// for this single hand-off.
+    pub fn open_file(path: &str) -> Result<(), String> {
+        let path = path.trim();
+        let meta = std::fs::metadata(path)
+            .map_err(|e| format!("not_found: cannot open {path}: {e}"))?;
+        if meta.is_dir() {
+            return Err(format!(
+                "unsupported: {path} is a folder — Android hands files, not folders, to other apps"
+            ));
+        }
+        with_env(|env, activity| {
+            let uri = file_uri(env, activity, path)?;
+            let intent = view_intent(env, uri)?;
+            env.call_method(
+                &intent,
+                "addFlags",
+                "(I)Landroid/content/Intent;",
+                &[JValue::Int(GRANT_READ_URI_PERMISSION)],
+            )
+            .map_err(|e| fail(env, format!("invalid: cannot grant read access: {e}")))?;
+            start(env, activity, intent, path)
+        })
+    }
 }
 
 #[cfg(target_os = "android")]
 pub use android_impl::{
     clear_messages, list_apps, list_icon_packs, list_messages, list_social_apps,
-    notification_state, open_app, open_notification_settings, pack_icon, uninstall_app,
+    notification_state, open_app, open_file, open_notification_settings, open_url, pack_icon,
+    uninstall_app,
 };
 
 // ─── Non-Android: honest refusal, never mock rows ─────────────────────
@@ -1219,6 +1388,20 @@ pub fn notification_state() -> Result<NotificationState, String> {
 #[cfg(not(target_os = "android"))]
 pub fn open_notification_settings() -> Result<(), String> {
     Err("unsupported: notification settings need the native Android build".to_string())
+}
+
+/// The Intent link bridge is Android-only: desktop, REST, Docker and WASM
+/// builds hand links to the system opener in the frontend instead
+/// (`src/utils/openExternal.ts` routes on `isAndroidApp()`).
+#[cfg(not(target_os = "android"))]
+pub fn open_url(_url: &str) -> Result<(), String> {
+    Err("unsupported: the Intent link bridge needs the native Android build".to_string())
+}
+
+/// Same honest refusal for `OPEN WITH SYSTEM` outside Android.
+#[cfg(not(target_os = "android"))]
+pub fn open_file(_path: &str) -> Result<(), String> {
+    Err("unsupported: sharing files with other apps needs the native Android build".to_string())
 }
 
 #[cfg(test)]
@@ -1308,6 +1491,41 @@ mod tests {
         assert!(!is_social_package(""));
     }
 
+    #[test]
+    fn opens_only_allowlisted_link_schemes() {
+        for ok in [
+            "https://accounts.google.com/o/oauth2/v2/auth?x=1",
+            "HTTP://example.com/a",
+            "mailto:a@b.c",
+            "tel:+15551234",
+            "cybermanju://oauth/callback?code=s",
+        ] {
+            assert!(is_openable_url(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "   ",
+            "https://",
+            "javascript:alert(1)",
+            "intent://scan/#Intent;scheme=zxing;end",
+            "file:///etc/passwd",
+            "data:text/html,<b>x</b>",
+            "ftp://example.com",
+        ] {
+            assert!(!is_openable_url(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn link_labels_never_carry_oauth_secrets() {
+        assert_eq!(
+            link_label("cybermanju://oauth/callback?code=SECRET&state=ST"),
+            "cybermanju://oauth/callback"
+        );
+        assert_eq!(link_label("https://x.dev/a#frag"), "https://x.dev/a");
+        assert_eq!(link_label("mailto:a@b.c"), "mailto:a@b.c");
+    }
+
     #[cfg(not(target_os = "android"))]
     #[test]
     fn non_android_refuses_honestly() {
@@ -1316,6 +1534,8 @@ mod tests {
             list_social_apps().unwrap_err(),
             list_messages(10).unwrap_err(),
             notification_state().unwrap_err(),
+            open_url("https://example.com").unwrap_err(),
+            open_file("/tmp/cybermanju").unwrap_err(),
         ] {
             assert!(err.starts_with("unsupported:"), "{err}");
         }

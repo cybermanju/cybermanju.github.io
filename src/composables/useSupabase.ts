@@ -40,6 +40,7 @@
 import { ref } from 'vue'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { isTauri } from './useTauri'
+import { openExternalUrl } from '@/utils/openExternal'
 
 const PENDING_CFG_KEY = 'cybermanju.oauthConfigId'
 const TOKEN_STASH_KEY = 'cybermanju.providerToken'
@@ -867,8 +868,10 @@ export async function signInWithPopup(provider: OAuthBackend): Promise<CyberIden
     await supabaseSignOut().catch(() => {})
     identity.value = null
     const { url } = await startSupabaseSignIn(provider, false, provider === 'google')
-    const { open } = await import('@tauri-apps/plugin-shell')
-    await open(url)
+    // System browser via the platform opener — never `plugin-shell open` on
+    // Android (it shells out to `xdg-open`: `Scoped shell IO error: No such
+    // file or directory (os error 2)`).
+    await openExternalUrl(url)
     const deadline = Date.now() + 180_000
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 700))

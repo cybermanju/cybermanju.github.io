@@ -767,6 +767,7 @@ import {
 } from '@/utils/providers'
 import type { CredentialDraft } from '@/utils/providers'
 import { pollUntilTrue } from '@/utils/poll'
+import { openExternalUrl } from '@/utils/openExternal'
 
 const store = useAppStore()
 const wm = useWindowManager()
@@ -2179,8 +2180,10 @@ async function supabaseConnect(cfg: SyncConfig) {
     if (nativeApp) await installMobileOAuthDeepLinks()
     ;({ url } = await startSupabaseOAuth(cfg.backendType, !!popup, cfg.backendType === 'googleDrive'))
     if (nativeApp) {
-      const { open } = await import('@tauri-apps/plugin-shell')
-      await open(url)
+      // Platform opener: Android goes through the Intent bridge (the shell
+      // opener has no `xdg-open` there — `Scoped shell IO error: … os error 2`),
+      // desktop keeps the system browser + `cybermanju://` return.
+      await openExternalUrl(url)
     }
   } catch (e) {
     try { if (popup && !popup.closed) popup.close() } catch { /* best effort */ }
