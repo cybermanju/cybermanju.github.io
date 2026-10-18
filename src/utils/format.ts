@@ -17,11 +17,12 @@ export function humanBytes(bytes: number | null | undefined): string {
   return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`
 }
 
-/** Used/capacity as a 0–100 percentage; zero capacity is 0, never NaN. */
+/** Finite 0–100 percentage; missing/invalid capacity or usage falls back to 0. */
 export function diskPct(
   used: number | null | undefined,
   capacity: number | null | undefined,
 ): number {
-  if (!capacity) return 0
-  return Math.min(100, ((used || 0) / capacity) * 100)
+  if (typeof capacity !== 'number' || !Number.isFinite(capacity) || capacity <= 0) return 0
+  const safeUsed = typeof used === 'number' && Number.isFinite(used) ? used : 0
+  return Math.max(0, Math.min(100, (safeUsed / capacity) * 100))
 }
