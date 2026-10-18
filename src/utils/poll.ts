@@ -9,13 +9,29 @@ export interface PollOptions {
   intervalMs: number
   /** Give up after this many attempts (returns false). */
   maxAttempts: number
-  /** Abort in-flight polling (cancel buttons, unmount). */
+  /** Cancel between checks and interrupt waits; checks own their in-flight cancellation. */
   signal?: AbortSignal
   /** Progress callback with the 1-based attempt number. */
   onAttempt?: (attempt: number) => void
 }
 
-const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+/** Cancel the inter-attempt wait without leaving a timer or abort listener behind. */
+const delay = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal?.aborted) {
+    reject(new Error('cancelled'))
+    return
+  }
+  const onAbort = () => {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', onAbort)
+    reject(new Error('cancelled'))
+  }
+  const timer = setTimeout(() => {
+    signal?.removeEventListener('abort', onAbort)
+    resolve()
+  }, ms)
+  signal?.addEventListener('abort', onAbort, { once: true })
+})
 
 /**
  * Resolve `true` on the first passing check, `false` after `maxAttempts`.
@@ -35,7 +51,7 @@ export async function pollUntilTrue(
       ok = false
     }
     if (ok) return true
-    if (attempt < opts.maxAttempts) await delay(opts.intervalMs)
+    if (attempt < opts.maxAttempts) await delay(opts.intervalMs, opts.signal)
   }
   return false
 }
