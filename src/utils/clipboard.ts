@@ -17,6 +17,67 @@ export interface ClipboardDeps {
   schedule?: (fn: () => void, ms: number) => () => void
 }
 
+export interface CopyToClipboardDeps {
+  writeText?: (text: string) => Promise<void> | void
+  fallbackCopy?: (text: string) => boolean
+}
+
+function copyWithExecCommand(text: string): boolean {
+  if (typeof document === 'undefined' || !document.body || typeof document.execCommand !== 'function') return false
+  const previous = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null
+  const selectionStart = previous?.selectionStart
+  const selectionEnd = previous?.selectionEnd
+  const selectionDirection = previous?.selectionDirection
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  try {
+    textarea.select()
+    return document.execCommand('copy')
+  } finally {
+    textarea.remove()
+    // Copying must not leave keyboard users outside their editor/composer.
+    // Focus restoration is best-effort and must not mask the copy result.
+    try {
+      if (previous?.isConnected !== false && typeof previous?.focus === 'function') {
+        try {
+          previous.focus({ preventScroll: true })
+        } catch {
+          previous.focus()
+        }
+        if (typeof selectionStart === 'number' && typeof selectionEnd === 'number' && typeof previous.setSelectionRange === 'function') {
+          previous.setSelectionRange(selectionStart, selectionEnd, selectionDirection ?? undefined)
+        }
+      }
+    } catch {
+      // Detached or unsupported controls cannot always be focused again.
+    }
+  }
+}
+
+/** Copy non-secret text via the Async Clipboard API, with a legacy browser fallback. */
+export async function copyToClipboard(text: string, deps: CopyToClipboardDeps = {}): Promise<boolean> {
+  const writeText = deps.writeText ?? (async (value: string) => {
+    if (typeof navigator === 'undefined' || typeof navigator.clipboard?.writeText !== 'function') {
+      throw new Error('Clipboard API unavailable')
+    }
+    await navigator.clipboard.writeText(value)
+  })
+  try {
+    await writeText(text)
+    return true
+  } catch {
+    try {
+      return (deps.fallbackCopy ?? copyWithExecCommand)(text)
+    } catch {
+      return false
+    }
+  }
+}
+
 let pendingClear: (() => void) | null = null
 
 /** Copy a secret and auto-clear the clipboard after 30 s. Cancels any

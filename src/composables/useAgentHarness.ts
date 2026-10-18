@@ -24,6 +24,7 @@ import {
   type ToolPermission,
 } from '@/utils/agentUi'
 import type { AgentConfig, AgentSession } from '@/types'
+import { copyToClipboard } from '@/utils/clipboard'
 
 export type AgentTransport = 'tauri' | 'rest' | 'wasm'
 
@@ -164,22 +165,7 @@ export function contextPctOf(messages: AgentSession['messages'], model: string):
 }
 
 export async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    try {
-      const el = document.createElement('textarea')
-      el.value = text
-      document.body.appendChild(el)
-      el.select()
-      document.execCommand('copy')
-      el.remove()
-      return true
-    } catch {
-      return false
-    }
-  }
+  return copyToClipboard(text)
 }
 
 // ─── single-import surface ───────────────────────────────────────────

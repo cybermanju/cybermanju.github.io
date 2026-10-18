@@ -310,7 +310,7 @@
                   <span class="am-field-label">{{ f.label }}</span>
                   <span class="am-input-wrap" v-if="f.secret">
                     <input v-model="(wiz as any)[f.key]" class="am-input" :type="showWizToken ? 'text' : 'password'" :placeholder="f.placeholder" autocomplete="off" />
-                    <button class="am-icon-btn" type="button" @click="showWizToken = !showWizToken" :title="showWizToken ? 'Hide' : 'Show'"><AppIcon :name="showWizToken ? 'solar:eye-closed-bold' : 'solar:eye-bold'" :size="14" /></button>
+                    <button class="am-icon-btn" type="button" @click="showWizToken = !showWizToken" :title="showWizToken ? 'Hide' : 'Show'" :aria-label="showWizToken ? 'Hide token' : 'Show token'"><AppIcon :name="showWizToken ? 'solar:eye-closed-bold' : 'solar:eye-bold'" :size="14" /></button>
                   </span>
                   <span class="am-input-wrap" v-else-if="f.key === 'basePath' && wiz.backendType === 'local'">
                     <input v-model="(wiz as any)[f.key]" class="am-input" :placeholder="f.placeholder" autocomplete="off" />

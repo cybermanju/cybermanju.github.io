@@ -117,8 +117,8 @@
             <button v-if="isDesktop" :class="{ on: intelSource === 'path' }" role="tab" @click="intelSource = 'path'">PATH</button>
           </div>
           <template v-if="intelSource === 'paste'">
-            <input v-model="intelFileName" class="cs-input" placeholder="snippet.rs (drives language)…" spellcheck="false" />
-            <textarea v-model="intelPaste" class="cs-input cs-intel-paste" rows="5" placeholder="fn main() { … }" spellcheck="false" />
+            <input v-model="intelFileName" class="cs-input" aria-label="Snippet file name" placeholder="snippet.rs (drives language)…" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off" />
+            <textarea v-model="intelPaste" class="cs-input cs-intel-paste" aria-label="Code snippet" rows="5" placeholder="fn main() { … }" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off" />
             <div class="cs-pathrow">
               <span class="mono dim">{{ intelPaste.length }} CHARS / 1 MiB</span>
               <span class="cs-spacer" />
@@ -127,7 +127,7 @@
           </template>
           <template v-else-if="intelSource === 'path'">
             <div class="cs-pathrow">
-              <input v-model="intelPath" class="cs-input" placeholder="/home/user/main.rs" spellcheck="false" @keyup.enter="runIntelPath" />
+              <input v-model="intelPath" class="cs-input" aria-label="Local file path" placeholder="/home/user/main.rs" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off" @keyup.enter="runIntelPath" />
             </div>
             <div class="cs-pathrow">
               <span class="dim">DESKTOP ONLY — reads from disk via Tauri.</span>

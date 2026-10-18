@@ -128,6 +128,7 @@
           </div>
           <div class="agent-side-row">
             <UiSelect
+              aria-label="Assistant configuration"
               :model-value="chatConfigId"
               :options="sessionConfigOptions"
               @update:model-value="chatConfigId = $event"
@@ -265,6 +266,7 @@
             <div class="w-field">
               <span class="w-label">Style</span>
               <UiSelect
+                aria-label="Agent mode"
                 :model-value="form.agentKind"
                 :options="[
                   { label: 'Build — can edit & run', value: 'build' },
@@ -282,6 +284,7 @@
             <div class="w-field">
               <span class="w-label">Dialect</span>
               <UiSelect
+                aria-label="API dialect"
                 :model-value="form.dialectOverride"
                 :options="[
                   { label: 'OpenAI-compatible', value: 'openAi' },
@@ -293,6 +296,7 @@
             <div class="w-field">
               <span class="w-label">Auth</span>
               <UiSelect
+                aria-label="Authentication scheme"
                 :model-value="form.authSchemeOverride"
                 :options="[
                   { label: 'Bearer', value: 'bearer' },
@@ -329,6 +333,7 @@
             <div v-if="!wasmMode" class="w-field">
               <span class="w-label">Shell</span>
               <UiSelect
+                aria-label="Shell mode"
                 :model-value="form.shellMode"
                 :options="[
                   { label: 'Auto (recommended)', value: 'auto' },
@@ -343,6 +348,7 @@
             <div class="w-field">
               <span class="w-label">Permissions</span>
               <UiSelect
+                aria-label="Permission preset"
                 :model-value="permPreset"
                 :options="[
                   { label: 'Strict — ask for everything', value: 'strict' },
@@ -401,6 +407,7 @@
               </div>
               <div class="w-field grow">
                 <UiSelect
+                  aria-label="MCP transport"
                   :model-value="mcpForm.transport"
                   :options="[
                     { label: 'Local command', value: 'stdio' },
@@ -455,6 +462,7 @@
             <div class="w-row">
               <div class="w-field grow">
                 <UiSelect
+                  aria-label="Fallback assistant"
                   :model-value="fallbackPick"
                   :options="fallbackOptions"
                   @update:model-value="fallbackPick = $event"
@@ -482,6 +490,7 @@
                 <AppIcon :name="toolMeta(t.tool).icon" :size="12" />
                 <span class="ct-name">{{ t.tool }}</span>
                 <UiSelect
+                  :aria-label="'Permission for ' + t.tool"
                   :model-value="t.action"
                   :options="[
                     { label: 'Allow', value: 'allow' },

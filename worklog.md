@@ -2085,6 +2085,99 @@ Clarification: commit [`d0a49df`](https://github.com/cybermanju/cybermanju.githu
 - Pushed code commit [`8f0f953`](https://github.com/cybermanju/cybermanju.github.io/commit/8f0f953) to `develop` only. CI run [38969116484](https://github.com/cybermanju/cybermanju.github.io/actions/runs/38969116484) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
 - Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. The post-CI ref check found `origin/main` still at `1920ee2`, no commits missing from `develop`, and no concurrent develop commit.
 
+## 2026-10-16 — Name AgentPanel configuration selectors
+
+- Compared authenticated refs before and after validation: `origin/main` remained at `1920ee2`, no commits were missing from `develop`, and `origin/develop` stayed at `dafde93` during the work. No main integration was needed; changes remain on `develop`.
+- Added purpose-specific accessible names to all nine `UiSelect` controls in `AgentPanel` (assistant configuration, agent mode, API dialect/auth, shell, permission preset, MCP transport, fallback assistant, and per-tool permissions). They use the native-select attribute forwarding fixed in the previous round; visible layout is unchanged.
+- Added `tests/frontend/agent-panel-a11y.test.ts` covering all nine names.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (568 files), `vue-tsc --noEmit`, full Vitest (105 files / 1,048 tests), and `git diff --check`. No Rust/Cargo code changed.
+
+## 2026-10-17 — Add a shared legacy clipboard fallback
+
+- Compared authenticated refs before and after local validation: `origin/main` remained at `dafde93`, no commits were missing from `develop`, and `origin/develop` stayed at `cb71771`. The prior main advance was already contained in develop; no new integration was needed.
+- Added `copyToClipboard`, preferring the Async Clipboard API and falling back to a temporary, read-only textarea plus `execCommand('copy')`; the fallback removes the textarea in a `finally` block and reports failure accurately.
+- Reused the helper in the agent harness, File Permissions share-link action, and File Manager path/text copy actions. Secret auto-clear logic remains unchanged.
+- Added `tests/frontend/clipboard-fallback.test.ts` for successful modern writes, denied modern writes with successful fallback, and cleanup/reporting when fallback fails.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (569 files), `vue-tsc --noEmit`, full Vitest (106 files / 1,051 tests), and `git diff --check`. No Rust/Cargo code changed.
+- Pushed code commit [`dc31709`](https://github.com/cybermanju/cybermanju.github.io/commit/dc31709) to `develop` only. CI run [39006255799](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39006255799) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
+- Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. Post-CI refs remained `origin/main=dafde93` and `origin/develop=dc31709`, with no commits missing from develop.
+
+## 2026-10-17 — Name the Account Manager token visibility toggle
+
+- Compared authenticated refs before and after local validation: `origin/main` remained at `dafde93`, no commits were missing from `develop`, and `origin/develop` stayed at `93a6998`. No main integration was needed.
+- Added a state-aware `aria-label` (“Show token” / “Hide token”) to the provider-token visibility control in the Account Manager wizard. The visual icon and existing show/hide behavior are unchanged.
+- Added `tests/frontend/account-manager-a11y.test.ts` to guard the accessible name and password/text toggle.
+- Local validation passed: `check-version.sh` (0.1.1), `check-file-headers.sh` (570 files), `vue-tsc --noEmit`, full Vitest (107 files / 1,052 tests), and `git diff --check`. No Rust/Cargo code changed.
+- Pushed code commit [`25445b7`](https://github.com/cybermanju/cybermanju.github.io/commit/25445b7) to `develop` only. CI run [39021005534](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39021005534) passed all 14 jobs, including Rust Lint & Test, Build WASM, and Deploy to GitHub Pages.
+- Verified https://cybermanju.github.io/develop/ returned HTTP 200 with 7/7 checked asset references under `/develop/`. Post-CI refs remained `origin/main=dafde93` and `origin/develop=25445b7`, with no commits missing from develop.
+
+## 2026-10-17 — Preserve editing focus after legacy clipboard copies
+
+- Authenticated main/develop comparisons before and after validation found `origin/main=dafde93` already fully contained in develop and `origin/develop=1574ac0` unchanged. No merge was necessary; main remains untouched.
+- The shared clipboard fallback selected a temporary textarea without restoring the user's editor/composer focus. It now restores the previously focused control and its text selection/direction after removing the temporary field, including failed/throwing copy commands. Detached controls are skipped; focus options have a legacy fallback; restoration errors cannot mask the copy result. Secret auto-clear behavior is unchanged.
+- Expanded executable clipboard tests from 3 to 8 cases covering success/failure focus restoration, thrown copy commands, legacy focus options, and failed selection restoration. A separate read-only review checked the cleanup and compatibility risks.
+- Local checks passed: version consistency (0.1.1), file headers (570 files), `vue-tsc --noEmit`, Vitest (107 files / 1,057 tests), and `git diff --check`. No local Cargo commands, release, force-push, or production-branch edits.
+- Pushed code commit [`53dee82`](https://github.com/cybermanju/cybermanju.github.io/commit/53dee82) to develop only. [CI run 39036448909](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39036448909) passed all 14 jobs, including Rust, WASM, Android, desktop builds and Pages deployment.
+- Verified HTTP 200 for https://cybermanju.github.io/develop/ and all 7 referenced `/develop/` assets. Post-CI refs remained `origin/main=dafde93`, `origin/develop=53dee82`; there were no concurrent changes or missing main commits.
+
+## 2026-10-17 — Forward UiInput accessibility attributes without moving layout
+
+- Authenticated remote comparison and fetch found `origin/main=dafde93` already contained in develop and `origin/develop=00b0d17` unchanged. No integration was needed; main remains untouched.
+- Audited UiInput fallthrough: caller attributes such as `aria-label`, `aria-labelledby`, `aria-describedby`, `id` and native listeners previously reached the wrapping label instead of the input. Disabled automatic fallthrough and now forward native attributes/listeners explicitly to the input. Caller class/style remain on the wrapper to preserve existing search and folder-name layouts; declared props and model events retain their existing bindings.
+- A parallel read-only review found 25 existing aria-label consumers affected across AgentPanel, DevicesPanel, OrganizePanel and SyncPanel. Autocomplete already used an explicit input binding and remains unchanged.
+- Added executable regression coverage in `tests/frontend/ui-input-a11y.test.ts`: compiles the real production SFC and renders it with Vue SSR in Node, verifying accessible names/descriptions/ids, declared props, and class/style placement without adding dependencies or modifying Vitest configuration.
+- Local checks passed: version consistency (0.1.1), file headers (571 files), `vue-tsc --noEmit`, Vitest (108 files / 1,059 tests), and `git diff --check`. No Rust/Cargo commands, release, force-push, or main edits.
+- Pushed code commit [`e5e41b9`](https://github.com/cybermanju/cybermanju.github.io/commit/e5e41b9) to develop only. [CI run 39053829899](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39053829899) passed all 14 jobs, including Rust, WASM, Android, iOS, desktop builds and Pages deployment.
+- Verified HTTP 200 for https://cybermanju.github.io/develop/ and all 7 referenced `/develop/` assets. Post-CI fetch confirmed `origin/main=dafde93`, `origin/develop=e5e41b9`, no missing main commits, and no concurrent develop changes.
+
+## 2026-10-17 — Keep Code Intel technical fields accessible and literal
+
+- Compared main/develop using a remote fetch and authenticated API reads before and after local work. `origin/main=dafde93` is already contained in develop; `origin/develop=cb12fd7` remained unchanged. No merge or conflict resolution was needed; main remains untouched.
+- Reviewed shared controls and CodeStudio input markup, then selected a direct, low-risk compatibility fix: the Code Intel snippet filename, pasted source and local-path fields had no explicit accessible names and did not opt out of mobile keyboard capitalization/correction. Added concise `aria-label` names plus `autocapitalize="off"`, `autocorrect="off"` and `autocomplete="off"`, retaining existing spellcheck, bindings, desktop-only path visibility and Enter-to-parse behavior. These hints request literal technical text without changing parsing or backend contracts.
+- Added `tests/frontend/code-studio-intel-input.test.ts` with three executable regressions that compile and SSR-render the actual field markup, checking accessible names, keyboard hints and model values. No dependencies or Vitest configuration changes.
+- Local checks passed: version consistency (0.1.1), file headers (572 files), `vue-tsc --noEmit`, Vitest (109 files / 1,062 tests), and `git diff --check`. No local Rust/Cargo, release, force-push or production-branch changes.
+- Pushed code commit [`a9b9d94`](https://github.com/cybermanju/cybermanju.github.io/commit/a9b9d94) to develop only. [CI run 39070928161](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39070928161) passed all 14 jobs, including Rust, WASM, Android, iOS, desktop builds and Pages deployment.
+- Verified HTTP 200 for https://cybermanju.github.io/develop/ and all 7 referenced `/develop/` assets. Post-CI fetch confirmed `origin/main=dafde93`, `origin/develop=a9b9d94`, no missing main commits and no concurrent develop changes.
+
+## 2026-10-17 — Forward dialog attributes and announce modal subtitles
+
+- Compared remote refs by fetch and authenticated API reads: `origin/main=dafde93` is already contained in develop, and `origin/develop=462c7bc` remained unchanged during local work. No merge or uncertain conflict resolution was needed; main remains untouched.
+- UiModal's Teleport root discarded caller attributes instead of placing them on the actual dialog. Disabled automatic fallthrough and explicitly bound caller attrs to the dialog; class/style merge there, not on the backdrop, and explicit caller attributes override component defaults. Existing consumers use declared props/events and require no migration.
+- Associated nonempty subtitles with the dialog using `aria-describedby` and Vue `useId()`. Existing delete confirmations now expose their target/context as a description, with unique ids across modal instances. Empty subtitles create no dangling default reference; callers may explicitly replace the description or name. A parallel read-only review confirmed the installed Vue supports useId and that the focus ref, trap, Escape/backdrop handling and declared model/close events are unchanged.
+- Added six executable SSR regressions in `tests/frontend/ui-modal-a11y.test.ts`, compiling the real SFC and reading its teleported output: native attributes/layout, default title/subtitle, empty subtitle, caller overrides, distinct ids, and hidden-dialog behavior. Browser-only focus effects and decorative children are stubbed; no dependencies or Vitest configuration changes.
+- Local checks passed: version consistency (0.1.1), file headers (573 files), `vue-tsc --noEmit`, Vitest (110 files / 1,068 tests), and `git diff --check`. No local Rust/Cargo commands, release, force-push or main edits.
+- Pushed code commit [`e127105`](https://github.com/cybermanju/cybermanju.github.io/commit/e127105) to develop only. [CI run 39086443498](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39086443498) passed all 14 jobs, including Rust, WASM, Android, iOS, desktop builds and Pages deployment.
+- Verified HTTP 200 for https://cybermanju.github.io/develop/ and all 7 referenced `/develop/` assets. Post-CI fetch confirmed `origin/main=dafde93`, `origin/develop=e127105`, no missing main commits and no concurrent develop changes.
+
+## 2026-10-18 — Describe input help and errors on the native control
+
+- Remote fetch and authenticated API comparisons found `origin/main=dafde93` already contained in develop and `origin/develop=a0654bb` unchanged during local work. No merge or uncertain resolution was required; main remains untouched.
+- UiInput displayed hint/error text without associating it with the native input. Added a stable per-instance `useId()` id to the existing message span and default `aria-describedby` while that text is visible. An error additionally supplies default `aria-invalid="true"`; errors retain their existing visual precedence over hints. Empty messages produce no dangling description or default invalid state.
+- Kept explicit caller ARIA attributes authoritative by placing defaults before the existing native attribute forwarding. Wrapper class/style, model events, labels, focus and validation logic are unchanged. A parallel review confirmed precedence and compatibility: the two current hint consumers are ProcessPanel's script-path and cron-expression fields; there are no current production error-prop or ARIA-override consumers.
+- Extended the real-SFC SSR suite with five regressions: visible hint, error replacing hint, absent message, explicit caller overrides and unique ids across inputs. No dependency or Vitest configuration changes.
+- Local checks passed: version consistency (0.1.1), file headers (574 files), `vue-tsc --noEmit`, Vitest (110 files / 1,073 tests), and `git diff --check`. Independent `npm run typecheck` and full tests also passed. No local Rust/Cargo commands, release, force-push or main edits.
+- Pushed code commit [`7389421`](https://github.com/cybermanju/cybermanju.github.io/commit/7389421) to develop only. [CI run 39100438229](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39100438229) passed all 14 jobs, including Rust, WASM, Android, iOS, desktop builds and Pages deployment.
+- Verified HTTP 200 for https://cybermanju.github.io/develop/ and all 7 referenced `/develop/` assets. Post-CI fetch confirmed `origin/main=dafde93`, `origin/develop=7389421`, no missing main commits and no concurrent develop changes.
+
+## 2026-10-18 — Keep storage percentages finite and within UI bounds
+
+- Compared main/develop using a remote fetch and authenticated API reads. `origin/main=dafde93` is already contained in develop and `origin/develop=a82751f` remained unchanged during local work. No integration or uncertain conflict resolution was required; main remains untouched.
+- An independent read-only utility audit found `diskPct()` violated its documented 0–100 contract: negative disk usage/capacity could produce negative percentages, and non-finite telemetry could yield NaN. DiskManagerPage, AccountManagerPanel and FileManager use this value for progress-bar widths and labels.
+- Hardened only the shared percentage formatter: require positive finite capacity, normalize missing/non-finite usage to zero, and clamp both ends to 0–100. Existing ordinary/fractional percentages and over-capacity saturation are preserved, including extreme finite operands that overflow during division. No persisted data, backend commands, storage accounting, byte formatting or product behavior beyond display sanitization changed.
+- Added `tests/frontend/format-disk-pct.test.ts` with 21 pure regression cases covering normal/fractional use, negative values, missing/non-finite input, arithmetic overflow and a representative input-combination invariant. No dependencies or test configuration changes.
+- Local checks passed: version consistency (0.1.1), file headers (574 files), `vue-tsc --noEmit`, Vitest (111 files / 1,094 tests), and `git diff --check`. No local Rust/Cargo commands, release, force-push or main edits.
+- Pushed code commit [`c85f5b3`](https://github.com/cybermanju/cybermanju.github.io/commit/c85f5b3) to develop only. [CI run 39115377282](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39115377282) passed all 14 jobs, including Rust, WASM, Android, iOS, desktop builds and Pages deployment.
+- Verified HTTP 200 for https://cybermanju.github.io/develop/ and all 7 referenced `/develop/` assets. Post-CI fetch confirmed `origin/main=dafde93`, `origin/develop=c85f5b3`, no missing main commits and no concurrent develop changes.
+
+## 2026-10-18 — Cancel polling waits promptly and release their resources
+
+- Remote fetch and authenticated API comparisons found `origin/main=dafde93` already contained in develop and `origin/develop=30f6903` unchanged during local work. No merge or uncertain resolution was needed; main remains untouched.
+- The shared polling helper used a non-cancellable timeout between checks. Cancelling an OAuth connection or unmounting AccountManagerPanel during that interval left the wait alive until its 2–3 second deadline. Made only the inter-attempt delay signal-aware: abort now rejects with the existing `Error('cancelled')`, clears the timeout and removes its listener; normal timeout completion also removes the listener.
+- An independent read-only review confirmed both current consumers (dashboard OAuth and Supabase OAuth in AccountManagerPanel) already handle cancellation and share cancel/unmount hooks. No consumer changes, callback signature changes, network cancellation, token handling or success/timeout precedence changes. Clarified the signal documentation: in-flight checks continue to own their own cancellation.
+- Added eight fake-timer regressions in `tests/frontend/poll.test.ts`: pre-aborted signals, immediate success, pending-wait cancellation/resource cleanup/no later attempt, abort during a failed check, completed-wait listener cleanup and progress, exhaustion without a signal, transient errors and zero attempts. No real network/browser waits, dependencies or test configuration changes.
+- Local checks passed: version consistency (0.1.1), file headers (575 files), `vue-tsc --noEmit`, Vitest (112 files / 1,102 tests), and `git diff --check`. No local Rust/Cargo commands, release, force-push or main edits.
+- Pushed code commit [`1917a4f`](https://github.com/cybermanju/cybermanju.github.io/commit/1917a4f) to develop only. [CI run 39131426006](https://github.com/cybermanju/cybermanju.github.io/actions/runs/39131426006) passed all 14 jobs, including Rust, WASM, Android, iOS, desktop builds and Pages deployment.
+- Verified HTTP 200 for https://cybermanju.github.io/develop/ and all 7 referenced `/develop/` assets. Post-CI fetch confirmed `origin/main=dafde93`, `origin/develop=1917a4f`, no missing main commits and no concurrent develop changes.
 ## 2026-10-18 — Wiki knowledge graph (graphify)
 
 - Replaced the wiki's heuristic-only inter-subject links with a real knowledge graph from [graphify](https://github.com/Graphify-Labs/graphify) (`pipx install graphifyy`, local tree-sitter AST, `--code-only` = deterministic, no LLM, no API keys). One extraction pass over the repo yields 11,267 nodes / 25,550 edges (EXTRACTED 24,851 / INFERRED 699) in ~14 s.

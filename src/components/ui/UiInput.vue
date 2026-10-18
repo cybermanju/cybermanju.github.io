@@ -2,9 +2,14 @@
 <!-- Role: Vue desktop UI: windows, panels, overlays. -->
 <!-- Exports: module root (see items below). -->
 <!-- Integrates: vue, @/…. -->
-<!-- Contracts: none special (pure logic; errors bubble to caller). -->
+<!-- Contracts: native attrs/listeners target the input; caller class/style stay on the label. -->
+<!-- Visible help/error text supplies default ARIA description/validity; explicit caller attrs win. -->
 <template>
-  <label class="ui-field" :class="{ 'ui-field--inline': inline, 'ui-field--error': Boolean(error) }">
+  <label
+    class="ui-field"
+    :class="[$attrs.class, { 'ui-field--inline': inline, 'ui-field--error': Boolean(error) }]"
+    :style="$attrs.style"
+  >
     <span v-if="label || $slots.label" class="ui-field__label">
       <slot name="label">{{ label }}</slot>
       <span v-if="required" class="ui-field__required">*</span>
@@ -13,6 +18,9 @@
     <span class="ui-field__control" :class="{ 'ui-field__control--focused': focused }">
       <AppIcon v-if="prefixIcon" :name="prefixIcon" :size="14" class="ui-field__prefix" />
       <input
+        :aria-describedby="error || hint ? hintId : undefined"
+        :aria-invalid="error ? true : undefined"
+        v-bind="inputAttrs()"
         ref="inputRef"
         class="ui-field__input"
         :type="type"
@@ -43,15 +51,27 @@
       </button>
     </span>
 
-    <span v-if="error || hint" class="ui-field__hint" :class="{ 'ui-field__hint--error': Boolean(error) }">
+    <span v-if="error || hint" :id="hintId" class="ui-field__hint" :class="{ 'ui-field__hint--error': Boolean(error) }">
       {{ error || hint }}
     </span>
   </label>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, useAttrs, useId } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
+
+defineOptions({ inheritAttrs: false })
+
+const hintId = useId()
+const attrs = useAttrs()
+// Layout belongs to the wrapper; native attributes/listeners belong to the input.
+function inputAttrs() {
+  const forwarded = { ...attrs }
+  delete forwarded.class
+  delete forwarded.style
+  return forwarded
+}
 
 withDefaults(
   defineProps<{
