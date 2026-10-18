@@ -1250,7 +1250,11 @@ mod android_impl {
         let authority_obj = new_obj(env, authority.as_str())?;
         let file_obj = new_obj(env, path)?;
         let java_file: JObject = env
-            .new_object("java/io/File", "(Ljava/lang/String;)V", &[JValue::Object(&file_obj)])
+            .new_object(
+                "java/io/File",
+                "(Ljava/lang/String;)V",
+                &[JValue::Object(&file_obj)],
+            )
             .map_err(|e| fail(env, format!("invalid: cannot address the file: {e}")))?;
         env.call_static_method(
             "androidx/core/content/FileProvider",
@@ -1306,8 +1310,8 @@ mod android_impl {
     /// for this single hand-off.
     pub fn open_file(path: &str) -> Result<(), String> {
         let path = path.trim();
-        let meta = std::fs::metadata(path)
-            .map_err(|e| format!("not_found: cannot open {path}: {e}"))?;
+        let meta =
+            std::fs::metadata(path).map_err(|e| format!("not_found: cannot open {path}: {e}"))?;
         if meta.is_dir() {
             return Err(format!(
                 "unsupported: {path} is a folder — Android hands files, not folders, to other apps"
