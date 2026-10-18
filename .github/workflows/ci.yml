@@ -103,9 +103,18 @@ jobs:
       # matches the manifest resolution (hand-maintained advisory bumps —
       # quinn-proto/rustls/ruzstd, 2026-10-18 — must be resolution-exact),
       # instead of every build silently rewriting the lock inside the runner
-      # and shipping a stale one in the repo.
+      # and shipping a stale one in the repo. On failure it re-runs unlocked
+      # to print cargo's exact intended rewrite (git diff) before failing,
+      # so the fix needs no local Cargo: read the delta and mirror it.
       - name: Verify Cargo.lock is resolution-exact
-        run: cargo metadata --locked --format-version 1 > /dev/null
+        run: |
+          if ! cargo metadata --locked --format-version 1 > /dev/null 2> /tmp/lock-err.txt; then
+            echo "::error::Cargo.lock is not resolution-exact — showing cargo's intended delta below"
+            cat /tmp/lock-err.txt
+            cargo metadata --format-version 1 > /dev/null || true
+            git diff -- Cargo.lock
+            exit 1
+          fi
 
       # Workspace-wide: `src-tauri` alone has no tests, so a current-package-only
       # run silently executed zero tests (all crates/tests live outside it).
