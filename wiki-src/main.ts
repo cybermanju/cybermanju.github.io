@@ -3,12 +3,16 @@
 //   reader panels; the scene renders the graphify knowledge graph live
 //   (subject↔subject EXTRACTED/INFERRED edges, ★ god-node satellites,
 //   community-colored orbit frames, traced-path highlighting) with a 2D
-//   switch to graphify's graph.html overlay.
+//   switch to graphify's graph.html overlay. Satellites are MAGNETIC —
+//   they lean toward the cursor and are pickable by screen proximity —
+//   and clicking one opens the real source block + auto explanation from
+//   the lazily fetched symbols-<id>.json payload.
 // Exports: boot() — fetches subjects.json, builds scene + rail + panel +
 //   hash routing + the 2D/3D toggle.
 // Integrates: built by vite.config.wiki.ts into dist-wasm/wiki/; data from
-//   scripts/generate-wiki.mjs (subjects.json incl. graph payload); static
-//   twins at wiki/<id>.html; 2D overlay loads ./graph.html (graphify).
+//   scripts/generate-wiki.mjs (subjects.json incl. graph payload +
+//   symbols-<id>.json deep-view payload); static twins at wiki/<id>.html;
+//   2D overlay loads ./graph.html (graphify).
 // Contracts: fully static (no backend); honors prefers-reduced-motion;
 //   read-only fetch; graph UI only appears when the payload says engine
 //   graphify — heuristic builds show no fabricated provenance.
@@ -49,6 +53,33 @@ interface GodNode {
   community?: number;
 }
 
+// One graphify symbol-edge neighbor (real repo connection, provenance kept).
+interface SymbolNeighbor {
+  name: string;
+  file: string;
+  line: number;
+  relation: string;
+  confidence: string;
+  weight: number;
+  via: 'out' | 'in';
+}
+
+// Deep-view entry from symbols-<id>.json: real extracted source + auto
+// explanation assembled at build time (engine-labeled, no LLM).
+interface SymbolEntry {
+  name: string;
+  kind: string;
+  docs: string;
+  file: string;
+  line: number;
+  code: string;
+  codeLines: number;
+  explanation: string;
+  degree?: number;
+  community?: number;
+  connections?: SymbolNeighbor[];
+}
+
 interface GraphInfo {
   engine: string;
   commit: string | null;
@@ -81,6 +112,7 @@ interface Subject {
   community?: number | null;
   edges?: GraphEdge[];
   godNodes?: GodNode[];
+  symbolsUrl?: string | null;
 }
 
 interface WikiData {
@@ -275,6 +307,32 @@ async function boot(): Promise<void> {
     return;
   }
   const byId = new Map(data.subjects.map((s) => [s.id, s]));
+
+  // ── Symbol deep-view store ───────────────────────────────
+  // symbols-<id>.json carries the REAL source block + explanation per
+  // symbol, fetched on demand when a planet is opened (cached forever —
+  // the payload is a build artifact, rebuilt with the wiki each push).
+  const symStores = new Map<string, Map<string, SymbolEntry>>();
+  const symPending = new Map<string, Promise<void>>();
+  function loadSymbols(sub: Subject): Promise<Map<string, SymbolEntry>> {
+    const cached = symStores.get(sub.id);
+    if (cached) return Promise.resolve(cached);
+    const store = new Map<string, SymbolEntry>();
+    symStores.set(sub.id, store);
+    if (!sub.symbolsUrl) return Promise.resolve(store);
+    const pending = symPending.get(sub.id);
+    if (pending) return pending.then(() => store);
+    const p = fetch(sub.symbolsUrl, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : { symbols: [] }))
+      .then((payload: { symbols?: SymbolEntry[] }) => {
+        for (const e of payload.symbols ?? []) store.set(e.name, e);
+      })
+      .catch(() => {
+        /* offline / missing payload — deep view degrades to docs only */
+      });
+    symPending.set(sub.id, p);
+    return p.then(() => store);
+  }
 
   // ── 2D/3D switch: graphify's graph.html in an overlay ─────
   // The 2D view only exists when the graph built in CI; the iframe loads
@@ -756,6 +814,7 @@ async function boot(): Promise<void> {
     tip: string;
     god: boolean;
     inferred: boolean;
+    mag: THREE.Vector3;
   }
   let sats: Sat[] = [];
   // Shared voxel kit for satellites (mirrors the node kit above).
@@ -866,6 +925,7 @@ async function boot(): Promise<void> {
         yOff: ((k * 37) % 20) / 10 - 1,
         kind: it.kind, subId: it.subId, symName: it.symName, tip: it.tip,
         god: it.god, inferred: it.inferred,
+        mag: new THREE.Vector3(),
       });
     });
   }
@@ -873,6 +933,7 @@ async function boot(): Promise<void> {
   // ── Reader UI ────────────────────────────────────────────
   let selected: string | null = null;
   let selectedSym: string | null = null;
+  let panelToken = 0; // guards async deep-view fills against stale renders
   const focusTarget = new THREE.Vector3(0, 1.5, 0);
 
   // Cinematic flight: eased camera glide (easeInOutCubic) instead of a
@@ -1064,9 +1125,15 @@ async function boot(): Promise<void> {
         <button class="copy" data-copy="${esc(symUrl)}" title="Copy link to this symbol">copy link</button></div>
       <div class="tag">${esc(symHit.kind)} · ${esc(sub.tag)}</div>
       <h1>${esc(symHit.name)}</h1>
-      <p class="blurb">${symHit.docs ? esc(symHit.docs) : 'No doc-comment on this item — the code at the location below is the documentation.'}</p>
+      <p class="blurb">${symHit.docs ? esc(symHit.docs) : 'No doc-comment on this item — the code below is the documentation.'}</p>
       <div class="stats"><span>${esc(symHit.file)}:${symHit.line}</span><span>v${esc(data.version)}</span></div>
-      <h2>Connections</h2>
+      <h2>How it works <span class="mut">auto explanation · engine: heuristic</span></h2>
+      <div class="explain" id="symExplain">loading explanation…</div>
+      <h2>Source <span class="mut">real repo code</span></h2>
+      <pre class="code" id="symCode">loading source…</pre>
+      <h2>Connections <span class="mut">graphify symbol edges</span></h2>
+      <div class="chips matches" id="symConns"><code>loading…</code></div>
+      <h2>Navigate</h2>
       <ul class="links">
         <li><button data-go="${sub.id}" class="linkbtn">← ${esc(sub.title)} module</button></li>
         <li><a href="./${sub.id}.txt">full ${esc(sub.id)}.txt</a></li>
@@ -1076,6 +1143,49 @@ async function boot(): Promise<void> {
         <button data-go="${next.id}">${esc(next.title)} →</button>
       </div>`;
       wirePanelButtons(pageUrl);
+      // Fill code + explanation + connections from the lazily fetched
+      // payload (token-guarded so a fast second click can't be overwritten).
+      const token = ++panelToken;
+      void loadSymbols(sub).then((store) => {
+        if (token !== panelToken || !panel.isConnected) return;
+        const entry = store.get(symHit.name);
+        const explainEl = panel.querySelector('#symExplain');
+        const codeEl = panel.querySelector('#symCode');
+        const connsEl = panel.querySelector('#symConns');
+        if (!entry) {
+          if (explainEl) {
+            explainEl.innerHTML =
+              'No symbol payload for this item — run <code>npm run wiki:graph && npm run wiki</code> so CI can attach the code + graph edges.';
+          }
+          if (codeEl) codeEl.textContent = `// source not bundled — open ${symHit.file}:${symHit.line}`;
+          if (connsEl) connsEl.innerHTML = '<code>no symbol payload</code>';
+          return;
+        }
+        if (explainEl) explainEl.innerHTML = esc(entry.explanation).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/_([^_]+)_/g, '<i>$1</i>');
+        if (codeEl) codeEl.textContent = entry.code || `// no body extracted — see ${entry.file}:${entry.line}`;
+        if (connsEl) {
+          const conns = entry.connections ?? [];
+          if (!conns.length) {
+            connsEl.innerHTML = '<code>no graph edges for this symbol</code>';
+          } else {
+            connsEl.innerHTML = conns
+              .map((c) => {
+                const inSubject = store.has(c.name);
+                const badge = `<span class="badge${c.confidence === 'INFERRED' ? ' inf' : ''}" title="${esc(c.confidence)} w${c.weight}">${esc(c.via === 'in' ? `← ${c.relation}` : `→ ${c.relation}`)}</span>`;
+                const tip = `${c.name} — ${c.file}:${c.line} · ${c.relation} · ${c.confidence} w${c.weight}`;
+                return inSubject
+                  ? `<button data-sym="${esc(c.name)}" title="${esc(tip)}"><code>${esc(c.name)}</code>${badge}</button>`
+                  : `<span title="${esc(tip)}"><code>${esc(c.name)}</code>${badge}</span>`;
+              })
+              .join('');
+            connsEl.querySelectorAll('button[data-sym]').forEach((b) => {
+              b.addEventListener('click', () => {
+                window.location.hash = `#/${sub.id}/${encodeURIComponent((b as HTMLButtonElement).dataset.sym ?? '')}`;
+              });
+            });
+          }
+        }
+      });
       return;
     }
 
@@ -1233,6 +1343,7 @@ async function boot(): Promise<void> {
       focusTarget.copy(mesh.position);
       startFly(mesh.position);
       buildSats(sub);
+      void loadSymbols(sub); // prefetch source blocks so satellite clicks open instantly
       beacon.visible = true;
       pulse.visible = true;
       beacon.position.copy(mesh.position).add(new THREE.Vector3(0, 1.2, 0));
@@ -1300,17 +1411,73 @@ async function boot(): Promise<void> {
     }
   });
 
-  // ── Picking ──────────────────────────────────────────────
+  // ── Picking + magnetic hover ─────────────────────────────
+  // Satellites and module nodes are MAGNETIC: within MAGNET_R world units
+  // of the cursor ray they lean toward the cursor, glow up, and become
+  // clickable by screen proximity (PICK_PX) — not only by exact face hit,
+  // so the small orbiting sub-files stay easy to grab. Dragging the camera
+  // and prefers-reduced-motion both disable the pull.
   const ray = new THREE.Raycaster();
   const ptr = new THREE.Vector2();
+  const ptrNdc = new THREE.Vector2();
+  let ptrActive = false;
   let hovered: string | null = null;
   let hoveredSat: Sat | null = null;
   let downAt: [number, number] | null = null;
+  const MAGNET_R = 2.6;
+  const PICK_PX = 56;
+  const nodeMag: THREE.Vector3[] = nodeBase.map(() => new THREE.Vector3());
+  const magTmp = new THREE.Vector3();
+  const magDelta = new THREE.Vector3();
+  const mpos = new THREE.Vector3(); // caller scratch — never magnetPull's
+  const nearV = new THREE.Vector3();
+
+  // Pull `out` toward the closest point of the cursor ray; returns 0..1
+  // proximity strength (1 = cursor ray passes through the object).
+  function magnetPull(worldPos: THREE.Vector3, out: THREE.Vector3): number {
+    out.set(0, 0, 0);
+    if (REDUCED || !ptrActive || downAt) return 0;
+    ray.setFromCamera(ptrNdc, camera);
+    const origin = ray.ray.origin;
+    const dir = ray.ray.direction;
+    const t = Math.max(0, magTmp.copy(worldPos).sub(origin).dot(dir));
+    magTmp.copy(dir).multiplyScalar(t).add(origin);
+    magDelta.copy(magTmp).sub(worldPos);
+    const dist = magDelta.length();
+    if (dist >= MAGNET_R || dist < 1e-4) return dist >= MAGNET_R ? 0 : 1;
+    const strength = 1 - dist / MAGNET_R;
+    out.copy(magDelta.normalize().multiplyScalar(Math.min(0.7, dist * 0.55) * strength));
+    return strength;
+  }
 
   interface PickHit {
     kind: 'subject' | 'symbol' | 'link';
     subId: string;
     symName: string;
+  }
+
+  // Screen-proximity fallback when the exact raycast misses.
+  function pickNear(px: number, py: number): PickHit | null {
+    let bestD = PICK_PX;
+    let best: PickHit | null = null;
+    const consider = (obj: THREE.Object3D, hit: PickHit): void => {
+      nearV.copy(obj.position).project(camera);
+      if (nearV.z > 1 || nearV.z < -1) return;
+      const sx = (nearV.x * 0.5 + 0.5) * window.innerWidth;
+      const sy = (-nearV.y * 0.5 + 0.5) * window.innerHeight;
+      const d = Math.hypot(sx - px, sy - py);
+      if (d < bestD) {
+        bestD = d;
+        best = hit;
+      }
+    };
+    for (const s of sats) {
+      consider(s.mesh, { kind: s.kind, subId: s.subId, symName: s.symName });
+    }
+    for (const m of nodes) {
+      consider(m, { kind: 'subject', subId: (m.userData.id as string) ?? '', symName: '' });
+    }
+    return best;
   }
 
   function pick(ev: { clientX: number; clientY: number }): PickHit | null {
@@ -1319,7 +1486,7 @@ async function boot(): Promise<void> {
     ray.setFromCamera(ptr, camera);
     const targets: THREE.Object3D[] = [...sats.map((s) => s.mesh), ...nodes];
     const hit = ray.intersectObjects(targets, false)[0];
-    if (!hit) return null;
+    if (!hit) return pickNear(ev.clientX, ev.clientY);
     const ud = hit.object.userData as { sat?: boolean; kind?: 'symbol' | 'link'; subId?: string; symName?: string; id?: string };
     if (ud.sat) {
       return { kind: ud.kind ?? 'symbol', subId: ud.subId ?? '', symName: ud.symName ?? '' };
@@ -1328,6 +1495,8 @@ async function boot(): Promise<void> {
   }
 
   renderer.domElement.addEventListener('pointermove', (ev) => {
+    ptrNdc.set((ev.clientX / window.innerWidth) * 2 - 1, -(ev.clientY / window.innerHeight) * 2 + 1);
+    ptrActive = true;
     const h = pick(ev);
     hoveredSat = null;
     hovered = h && h.kind === 'subject' ? h.subId : null;
@@ -1376,6 +1545,10 @@ async function boot(): Promise<void> {
   });
   renderer.domElement.addEventListener('dblclick', (ev) => {
     if (!pick(ev)) window.location.hash = '#/';
+  });
+  renderer.domElement.addEventListener('pointerleave', () => {
+    ptrActive = false;
+    tooltip.hidden = true;
   });
 
   // Pause rendering when the tab is hidden (battery + GPU).
@@ -1465,33 +1638,43 @@ async function boot(): Promise<void> {
       const mat = mesh.material as THREE.MeshStandardMaterial;
       const id = mesh.userData.id as string;
       const onPath = pathHighlight.includes(id);
-      const active = id === selected || id === hovered || onPath;
+      // Magnetic lean: pull toward the cursor ray when it passes close.
+      let mag = 0;
+      if (!REDUCED) {
+        const bob = Math.sin(t * 1.1 + ix * 1.7) * 0.28;
+        mpos.set(nodeBase[ix].x, nodeBase[ix].y + bob, nodeBase[ix].z);
+        mag = magnetPull(mpos, nodeMag[ix]);
+        mesh.position.copy(mpos).add(nodeMag[ix]);
+      }
+      const active = id === selected || id === hovered || onPath || mag > 0.55;
       mat.emissiveIntensity += ((active ? 1.25 : 0.55) - mat.emissiveIntensity) * 0.15;
       const s =
         id === selected
           ? 1 + Math.sin(t * 4) * 0.1
           : onPath
             ? 1.08 + Math.sin(t * 4) * 0.03
-            : 1;
+            : mag > 0.05
+              ? 1 + mag * 0.3
+              : 1;
       mesh.scale.setScalar(s);
       mesh.rotation.y += active ? 0.012 : 0.003;
       mesh.rotation.x += 0.001;
-      // Gentle per-node bob (phased) + nameplates and orbit frames follow.
+      // Nameplates and orbit frames follow the (possibly magnetic) node.
       if (!REDUCED) {
-        const bob = Math.sin(t * 1.1 + ix * 1.7) * 0.28;
-        mesh.position.y = nodeBase[ix].y + bob;
         nodeLabels[ix].position.set(mesh.position.x, mesh.position.y + 2.05, mesh.position.z);
         nodeRings[ix].position.copy(mesh.position);
         nodeRings[ix].rotation.z += 0.004;
       }
-      // Selected / hovered nameplates pop (HUD-scale punch, never bloom).
+      // Selected / hovered / magnetically-near nameplates pop.
       const lab = nodeLabels[ix];
       const base = lab.userData.baseScale as THREE.Vector3;
       const boost =
-        id === selected ? 1.14 + Math.sin(t * 4) * 0.04 : id === hovered ? 1.07 : 1;
+        id === selected ? 1.14 + Math.sin(t * 4) * 0.04 : id === hovered || mag > 0.55 ? 1.07 + mag * 0.08 : 1;
       lab.scale.set(base.x * boost, base.y * boost, 1);
     });
     // Satellites orbit the selected node; tethers follow both endpoints.
+    // Magnetic: near the cursor ray they lean out of the orbit, glow up
+    // and (with the pick proximity fallback) stay clickable at any speed.
     if (sats.length) {
       const center = selected ? nodeById.get(selected)?.position : undefined;
       if (center) {
@@ -1500,18 +1683,27 @@ async function boot(): Promise<void> {
           const px = center.x + Math.cos(s.angle) * s.radius;
           const pz = center.z + Math.sin(s.angle) * s.radius;
           const py = center.y + s.yOff + (REDUCED ? 0 : Math.sin(t * 1.6 + s.angle * 2) * 0.15);
-          s.mesh.position.set(px, py, pz);
-          s.label.position.set(px, py + 0.72, pz);
+          let mag = 0;
+          if (!REDUCED) {
+            mpos.set(px, py, pz);
+            mag = magnetPull(mpos, s.mag);
+            mpos.add(s.mag);
+            s.mesh.position.copy(mpos);
+            s.label.position.set(mpos.x, mpos.y + 0.72, mpos.z);
+          } else {
+            s.mesh.position.set(px, py, pz);
+            s.label.position.set(px, py + 0.72, pz);
+          }
           const p = s.linkPos.array as Float32Array;
           p[0] = center.x; p[1] = center.y; p[2] = center.z;
-          p[3] = px; p[4] = py; p[5] = pz;
+          p[3] = s.mesh.position.x; p[4] = s.mesh.position.y; p[5] = s.mesh.position.z;
           s.linkPos.needsUpdate = true;
           // Dashed tethers need fresh line distances as they swing.
           if (s.inferred) s.link.computeLineDistances();
-          const hot = hoveredSat === s;
+          const hot = hoveredSat === s || mag > 0.55;
           const mat = s.mesh.material as THREE.MeshStandardMaterial;
           mat.emissiveIntensity += ((hot ? 1.6 : 0.9) - mat.emissiveIntensity) * 0.2;
-          s.mesh.scale.setScalar(hot ? 1.35 : 1);
+          s.mesh.scale.setScalar(hot ? 1.35 + mag * 0.25 : 1 + mag * 0.3);
           s.mesh.rotation.y += 0.01;
         }
       }

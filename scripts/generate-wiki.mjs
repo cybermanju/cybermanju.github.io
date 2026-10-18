@@ -9,7 +9,8 @@
 //   the Rust tree-sitter engine stays authoritative for code-intel payloads)
 //   and `scripts/wiki-graph.mjs` (graphify graph.json → subject edges/god
 //   nodes/communities/paths, when present — `npm run wiki:graph` or CI's
-//   `graphify extract . --code-only` produces it);
+//   `graphify extract . --code-only` produces it) plus `scripts/wiki-symbols.mjs`
+//   (per-subject symbols-<id>.json: real source blocks + auto explanations);
 //   output lands in dist-wasm/{llms.txt,wiki/} so the Pages artifact serves it
 //   with zero extra deploy steps. `npm run wiki` chains this + the vite build.
 // Contracts: read-only w.r.t. source; only writes under --out (created with
@@ -25,6 +26,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { join } from 'node:path';
 import { collectFileContext } from './collect-file-context.mjs';
 import { aggregateGraph } from './wiki-graph.mjs';
+import { buildSymbolEntries } from './wiki-symbols.mjs';
 
 const SITE = 'https://cybermanju.github.io';
 const VERSION = JSON.parse(readFileSync('package.json', 'utf8')).version;
@@ -393,6 +395,22 @@ function main() {
   }
   mkdirSync(join(OUT, 'wiki'), { recursive: true });
 
+  // Per-subject symbol deep-view payload (engine graphify only): union of
+  // god nodes + top symbols + graphify subject symbols, each with the REAL
+  // source block extracted from the repo + an auto explanation. The SPA
+  // fetches symbols-<id>.json on demand when a planet is opened.
+  const readFileSafe = (f) => {
+    try { return readFileSync(f, 'utf8'); } catch { return null; }
+  };
+  const symbolsUrl = new Map();
+  if (kg) {
+    for (const c of collected) {
+      const entries = buildSymbolEntries(c, kg.subjectSymbols.get(c.sub.id) ?? [], readFileSafe);
+      writeFileSync(join(OUT, 'wiki', `symbols-${c.sub.id}.json`), JSON.stringify({ subject: c.sub.id, engine: 'graphify', symbols: entries }) + '\n');
+      symbolsUrl.set(c.sub.id, `./symbols-${c.sub.id}.json`);
+    }
+  }
+
   writeFileSync(join(OUT, 'llms.txt'), llmsTxt(collected, kg));
   const index = [];
   for (const c of collected) {
@@ -403,6 +421,7 @@ function main() {
     index.push({ id: c.sub.id, title: c.sub.title, tag: c.sub.tag, blurb: c.sub.blurb, color: c.sub.color,
       fileCount: c.fileCount, symbolCount: c.symbolCount,
       engine: c.engine || 'heuristic', community: c.community?.id ?? null,
+      symbolsUrl: symbolsUrl.get(c.sub.id) ?? null,
       edges: (c.edges || []).map((e) => ({ to: e.to, weight: e.weight, extracted: e.extracted, inferred: e.inferred, relations: e.relations, sample: e.sample })),
       godNodes: (c.godNodes || []).map((g) => ({ name: g.name, degree: g.degree, file: g.file, line: g.line })),
       links: c.links || [],

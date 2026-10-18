@@ -1369,7 +1369,9 @@ mod android_impl {
                 .collect();
             ids.sort();
             for id in ids {
-                raw.push(PathBuf::from(format!("/data/user/{id}/com.cybermanju.os/files")));
+                raw.push(PathBuf::from(format!(
+                    "/data/user/{id}/com.cybermanju.os/files"
+                )));
             }
         }
         // `/data/data` symlinks to `/data/user/0/…` — canonicalize so both
@@ -1381,7 +1383,9 @@ mod android_impl {
 
     /// True when the canonical path sits inside an app-private files dir.
     fn in_app_private(canon: &Path) -> bool {
-        app_private_roots().iter().any(|root| canon.starts_with(root))
+        app_private_roots()
+            .iter()
+            .any(|root| canon.starts_with(root))
     }
 
     /// Hand one local file to a viewer/editor (`ACTION_VIEW` over a
@@ -1411,7 +1415,9 @@ mod android_impl {
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("cyb3"));
         if in_app_private(&canon) && !is_vault {
-            return Err(format!("invalid: refusing to share app-private {path} (.cyb3 vaults only)"));
+            return Err(format!(
+                "invalid: refusing to share app-private {path} (.cyb3 vaults only)"
+            ));
         }
         with_env(|env, activity| {
             let uri = file_uri(env, activity, path)?;
