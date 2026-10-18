@@ -2,7 +2,7 @@
 <!-- Role: Vue desktop UI: windows, panels, overlays. -->
 <!-- Exports: module root (see items below). -->
 <!-- Integrates: vue, @/…. -->
-<!-- Contracts: none special (pure logic; errors bubble to caller). -->
+<!-- Contracts: caller attrs target the dialog and override defaults; subtitles are its default description. -->
 <template>
   <Teleport to="body">
     <Transition name="ui-modal">
@@ -14,6 +14,8 @@
           role="dialog"
           aria-modal="true"
           :aria-label="title || undefined"
+          :aria-describedby="subtitle ? subtitleId : undefined"
+          v-bind="$attrs"
           @keydown.esc="onClose"
         >
           <header class="ui-modal__header">
@@ -23,7 +25,7 @@
               </span>
               <div class="ui-modal__titles">
                 <h2 class="ui-modal__title">{{ title }}</h2>
-                <p v-if="subtitle" class="ui-modal__subtitle">{{ subtitle }}</p>
+                <p v-if="subtitle" :id="subtitleId" class="ui-modal__subtitle">{{ subtitle }}</p>
               </div>
             </div>
             <UiButton
@@ -50,10 +52,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, toRef } from 'vue'
+import { ref, watch, toRef, useId } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import { useFocusTrap } from '@/composables/useFocusTrap'
+
+defineOptions({ inheritAttrs: false })
+const subtitleId = useId()
 
 const props = withDefaults(
   defineProps<{
