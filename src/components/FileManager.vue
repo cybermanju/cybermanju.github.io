@@ -946,6 +946,7 @@ import { humanBytes, diskPct } from '@/utils/format'
 import { trackShellCwd } from '@/utils/shellCwd'
 import { decodeProviderText, isTextEditableProviderName, MAX_PROVIDER_TEXT_BYTES } from '@/utils/providerText'
 import { copyToClipboard } from '@/utils/clipboard'
+import { openLocalFile } from '@/utils/openExternal'
 import { ENCRYPTION_INFO, COMPRESSION_INFO, SYNC_BACKEND_INFO } from '@/types'
 import type { DiskRow, FileNode, SyncBackendType } from '@/types'
 
@@ -1563,8 +1564,10 @@ async function openHostWithSystem(f: FileNode) {
     return
   }
   try {
-    const { open } = await import('@tauri-apps/plugin-shell')
-    await open(abs)
+    // Platform opener: Android hands the file to a viewer through the
+    // Intent/FileProvider bridge — `plugin-shell open` has no `xdg-open` on
+    // Android (`Scoped shell IO error: No such file or directory (os error 2)`).
+    await openLocalFile(abs)
   } catch (e) {
     store.notifyError('Cannot open with system', e)
   }

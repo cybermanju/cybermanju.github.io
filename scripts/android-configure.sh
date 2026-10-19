@@ -32,6 +32,10 @@
 #      explicit `<package>` queries for the top social apps (visibility for
 #      labels/icons on Android 11+). The user still grants notification
 #      access in system settings (runtime, per-device).
+#   2f. FileProvider (OPEN WITH SYSTEM → `launcher_open_file`): manifest
+#      `<provider>` + androidx.core in build.gradle.kts (§5) + res/xml
+#      cybermanju_paths.xml roots (§6), so files open via content:// grants
+#      instead of the file:// URIs Android 7+ refuses.
 #   3. ABI / artifact notes — arm64-v8a is the only shipped ABI (ort-sys
 #      prebuilts); x86_64 is emulator-smoke only. AAB is built alongside APK
 #      (`--apk --aab --split-per-abi`, see CI).
@@ -227,6 +231,29 @@ if "CybermanjuMessages" not in src:
     assert "</application>" in src, "no </application> in AndroidManifest"
     src = src.replace("</application>", service + "    </application>", 1)
 
+# 2f. FileProvider behind OPEN WITH SYSTEM (`src/utils/openExternal.ts` ->
+# launcher_open_file -> cybermanju-launcher::open_file): content:// grants
+# instead of the file:// URIs Android 7+ refuses (FileUriExposedException).
+# The Rust side rebuilds the same authority from the Activity package name
+# ("<applicationId>.fileprovider"); roots live in res/xml/cybermanju_paths.xml
+# (§6) and androidx.core is declared in §5.
+provider = """
+        <!-- %s: FileProvider for OPEN WITH SYSTEM — content:// grants instead of
+             the file:// URIs Android 7+ refuses (FileUriExposedException). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/cybermanju_paths" />
+        </provider>
+""" % mark
+if "androidx.core.content.FileProvider" not in src:
+    assert "</application>" in src, "no </application> in AndroidManifest"
+    src = src.replace("</application>", provider + "    </application>", 1)
+
 # Fail fast: the merger's "Error parsing" surfaces after minutes of Gradle.
 # Well-formedness here keeps a broken patch from ever reaching the build.
 try:
@@ -408,7 +435,7 @@ class CybermanjuMessages : NotificationListenerService() {
 KTEOF
 echo "messages service ok: $SERVICE_FILE"
 
-# ─── 5. Scoped-storage runtime dependency (androidx.documentfile) ──
+# ─── 5. Runtime deps the manifest/plugin code names (androidx) ──────
 # tauri-plugin-scoped-storage 1.5.1 (crates.io) imports
 # androidx.documentfile.provider.DocumentFile in its Android plugin
 # (ScopedStoragePlugin.kt) but its library build.gradle.kts never declares
@@ -420,24 +447,36 @@ echo "messages service ok: $SERVICE_FILE"
 # owns its runtime classpath, so the dependency lands in
 # gen/android/app/build.gradle.kts. Marker-guarded and idempotent; drop it
 # when the plugin starts shipping the dependency itself (upstream report).
+# §2f's FileProvider adds androidx.core the same way (see the guard below).
 APP_GRADLE="$ANDROID_DIR/app/build.gradle.kts"
 if [ ! -f "$APP_GRADLE" ]; then
   echo "::error::$APP_GRADLE not found — unexpected Tauri template layout" >&2
   exit 1
 fi
 
-if grep -q "androidx.documentfile" "$APP_GRADLE"; then
-  echo "scoped-storage runtime dep already present — leaving $APP_GRADLE alone"
+# §5 deps, each independent: androidx.core hosts the FileProvider class §2f
+# declares (core-ktx pulls it in transitively, but the manifest names it —
+# an explicit line keeps the classpath honest if the ktx pin ever moves).
+MISSING_DEPS=""
+grep -q "androidx.documentfile:documentfile" "$APP_GRADLE" \
+  || MISSING_DEPS="$MISSING_DEPS androidx.documentfile:documentfile:1.0.1"
+grep -q "androidx.core:core:" "$APP_GRADLE" \
+  || MISSING_DEPS="$MISSING_DEPS androidx.core:core:1.13.1"
+
+if [ -z "$MISSING_DEPS" ]; then
+  echo "runtime deps already present — leaving $APP_GRADLE alone"
 else
-  python3 - "$APP_GRADLE" "$MARK" <<'PYEOF'
+  # shellcheck disable=SC2086  # intentional word split on dep coordinates
+  python3 - "$APP_GRADLE" "$MARK" $MISSING_DEPS <<'PYEOF'
 import re
 import sys
 
 path, mark = sys.argv[1], sys.argv[2]
 src = open(path).read()
 # Idempotent at this level too: the bash guard above already skips, but a
-# second insert would silently duplicate the dependency line.
-if "androidx.documentfile" in src:
+# second insert would silently duplicate a dependency line.
+deps = [d for d in sys.argv[3:] if d not in src]
+if not deps:
     print("already present: " + path)
     sys.exit(0)
 # Top-level `dependencies {` first (the template writes it at column 0);
@@ -448,18 +487,56 @@ if not m:
 assert m, "no dependencies { } block in %s" % path
 # Indent one level past the `dependencies` line itself.
 indent = re.match(r"\s*", m.group(0)).group(0) + "    "
-dep = (
-    "\n%s// %s: androidx.documentfile is imported by tauri-plugin-scoped-storage's"
-    "\n%s// ScopedStoragePlugin.kt but not declared by that plugin — without it the"
-    "\n%s// class is absent at runtime and plugin load crashes the app at launch."
-    "\n%simplementation(\"androidx.documentfile:documentfile:1.0.1\")\n"
-    % (indent, mark, indent, indent, indent)
-)
-src = src[: m.end()] + dep + src[m.end():]
+lines = [
+    "",
+    "%s// %s: runtime deps the manifest/plugin code names but no in-tree"
+    % (indent, mark),
+    "%s// artifact declares: androidx.documentfile (tauri-plugin-scoped-storage's"
+    % indent,
+    "%s// ScopedStoragePlugin.kt — absent at runtime it crashes app launch) and"
+    % indent,
+    "%s// androidx.core (androidx.core.content.FileProvider, §2f manifest entry)."
+    % indent,
+]
+lines += ['%simplementation("%s")' % (indent, d) for d in deps]
+lines.append("")
+src = src[: m.end()] + "\n".join(lines) + src[m.end():]
 open(path, "w").write(src)
-print("patched " + path)
+print("patched: " + " ".join(deps))
 PYEOF
 fi
+
+# ─── 6. FileProvider paths (@xml/cybermanju_paths, §2f) ─────────────
+# The manifest's <provider> meta-data points at this resource; without it
+# FileProvider.getUriForFile throws IllegalArgumentException and OPEN WITH
+# SYSTEM surfaces an honest error instead of opening. gen/ is regenerated,
+# so the XML is written here — marker-guarded like §4 (a foreign file is
+# never touched) and refreshed in place when it is ours. <root-path>
+# covers the vault wherever it lives (shared storage, SD card, app-private);
+# each open grants read on that one content:// URI, nothing persistent.
+PROVIDER_XML_DIR="$ANDROID_DIR/app/src/main/res/xml"
+PROVIDER_XML="$PROVIDER_XML_DIR/cybermanju_paths.xml"
+
+mkdir -p "$PROVIDER_XML_DIR"
+if [ -f "$PROVIDER_XML" ] && ! grep -q "$MARK" "$PROVIDER_XML"; then
+  echo "::error::$PROVIDER_XML exists without our marker — refusing to overwrite a foreign file" >&2
+  exit 1
+fi
+
+cat > "$PROVIDER_XML" <<XMLEOF
+<?xml version="1.0" encoding="utf-8"?>
+<!-- $MARK: FileProvider roots for launcher_open_file (§2f manifest entry).
+     root-path spans the filesystem so a vault on shared/external storage
+     resolves; every open grants FLAG_GRANT_READ_URI_PERMISSION on that one
+     content:// URI (file:// is refused on Android 7+). -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <root-path name="cybermanju-root" path="/" />
+</paths>
+XMLEOF
+
+# Fail fast on malformed XML before Gradle's merger reports it minutes later.
+python3 -c 'import sys, xml.dom.minidom; xml.dom.minidom.parse(sys.argv[1])' "$PROVIDER_XML"
+echo "fileprovider paths ok: $PROVIDER_XML"
 
 # ─── 3. ABI / artifact policy note ─────────────────────────────────
 # ort-sys ships prebuilt ONNX Runtime only for aarch64-linux-android, so

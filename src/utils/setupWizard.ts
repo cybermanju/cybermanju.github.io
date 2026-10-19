@@ -1,9 +1,10 @@
 // CyberManju OS — first-run setup wizard state (pure, unit-tested).
 //
-// The wizard itself lives in `SetupWizard.vue` (vault folder + cloud +
-// disks + agent AI + appearance, every step skippable). This module owns the browser-free parts:
-// the "seen" flag in localStorage and the step order, so both stay honest
-// without a browser.
+// The wizards live in `SetupWizard.vue` (desktop) and
+// `MobileSetupWizard.vue` (phone — the merged 5-step flow): vault folder +
+// cloud + disks + agent AI + appearance, every step skippable. This module
+// owns the browser-free parts: the "seen" flag in localStorage and both
+// step orders, so they stay honest without a browser.
 
 export const SETUP_SEEN_KEY = 'cybermanju.setupSeen.v1'
 export const SETUP_RESUME_STEP_KEY = 'cybermanju.setup.resumeStep'
@@ -107,19 +108,19 @@ export function setupStepIndex(step: SetupStep): number {
 }
 
 // ── Mobile first-run (Android) ─────────────────────────────────────
-// Desktop keeps the steps above (pinned by tests). Mobile gets its
-// own 7-step flow: identity → vault partitions → providers → repos, so a
-// phone can create an account, N `.cybermanju` partitions on any provider
-// (or local disk), and N provider repos in one pass. Pure + unit-tested.
+// Desktop keeps the steps above (pinned by tests). Mobile ships a merged
+// 5-step flow where every concern appears exactly once — the old 8-step
+// wizard asked for providers, disks and repos in three different places:
+//   welcome → connect (OAuth + provider rows, one place) →
+//   storage (every disk / partition / repo creation path, one list) →
+//   personalize (appearance + optional agent) → done.
+// Pure + unit-tested.
 
 export const MOBILE_SETUP_STEPS = [
   'welcome',
-  'account',
-  'vaults',
-  'providers',
-  'repos',
-  'agent',
-  'appearance',
+  'connect',
+  'storage',
+  'personalize',
   'done',
 ] as const
 
@@ -127,13 +128,30 @@ export type MobileSetupStep = (typeof MOBILE_SETUP_STEPS)[number]
 
 export const MOBILE_SETUP_STEP_LABELS: Record<MobileSetupStep, string> = {
   welcome: 'Welcome',
-  account: 'Accounts',
-  vaults: 'Vault partitions',
-  providers: 'Providers',
-  repos: 'Repos + disks',
-  agent: 'Agent AI (optional)',
-  appearance: 'Appearance',
+  connect: 'Accounts & providers',
+  storage: 'Vaults & storage',
+  personalize: 'Personalize',
   done: 'Done',
+}
+
+/**
+ * Steps written by the pre-merge 8-step wizard, mapped onto the merged
+ * step that now owns them — resume keys from older builds stay valid.
+ */
+export const MOBILE_LEGACY_STEP_ALIAS: Record<string, MobileSetupStep> = {
+  account: 'connect',
+  providers: 'connect',
+  vaults: 'storage',
+  repos: 'storage',
+  agent: 'personalize',
+  appearance: 'personalize',
+}
+
+/** Validate a saved step; legacy names resolve onto their merged step. */
+export function resolveMobileSetupStep(saved: string | null): MobileSetupStep | null {
+  if (!saved) return null
+  if ((MOBILE_SETUP_STEPS as readonly string[]).includes(saved)) return saved as MobileSetupStep
+  return MOBILE_LEGACY_STEP_ALIAS[saved] ?? null
 }
 
 export function mobileSetupStepIndex(step: MobileSetupStep): number {
@@ -185,10 +203,12 @@ export function partitionDraftValid(d: VaultPartitionDraft): boolean {
 }
 
 // ── OAuth substep: folder + `.cybermanju` size per logged provider ───
-// After a 200-OK sign-in both wizards (desktop `SetupWizard.vue`, mobile
-// `MobileSetupWizard.vue`) show one card per logged provider: a folder
-// input (Drive folder / repo name seed) + a `.cybermanju` size input +
-// a create button. Pure so both wizards and tests share it.
+// After a 200-OK sign-in the desktop wizard (`SetupWizard.vue`) shows one
+// card per logged provider: a folder input (Drive folder / repo name seed)
+// + a `.cybermanju` size input + a create button. Mobile reaches the same
+// disk through a one-tap prefilled vault row in its merged `storage` step
+// (chips per connected provider), so the shared helper below still feeds
+// the desktop cards and the tests. Pure so both agree.
 
 export type SignedProviderBackend = 'googleDrive' | 'github' | 'gitlab'
 

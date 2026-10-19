@@ -1,11 +1,13 @@
 <!-- CyberManju OS — mobile first-run wizard (Android / small screens).
   //
-  // Full-screen sheet, 44px+ touch targets, 16px inputs (no iOS zoom):
-  // welcome → account manager hand-off →
-  // vaults (N `.cybermanju` partitions on any provider or local disk) →
-  // providers (add N sync configs) → repos (N private vault repos) →
-  // agent (optional) → appearance (theme + wallpaper, live preview) →
-  // done. Every step skippable; Finish marks seen. -->
+  // Full-screen sheet, 44px+ touch targets, 16px inputs (no iOS zoom).
+  // Merged 5-step flow — every concern appears exactly once (the older
+  // 8-step build asked for providers, disks and repos three times over):
+  // welcome → connect (OAuth sign-in + provider rows, incl. phone-folder
+  // mounts) → storage (one vault list: local + provider partitions, each
+  // row one `.cybermanju` disk, plus an optional GitHub/GitLab repo
+  // batch) → personalize (theme + wallpaper, live preview, and the
+  // optional agent) → done. Every step skippable; Finish marks seen. -->
 <template>
   <div class="msw" role="dialog" aria-modal="true" aria-labelledby="msw-title">
     <header class="msw-head">
@@ -31,22 +33,21 @@
         <div class="msw-welcome">
           <p class="msw-eyebrow">WELCOME TO CYBERMANJU</p>
           <h3 class="msw-welcome-title">Your private workspace, ready on this phone.</h3>
-          <p class="msw-lead">Set up sign-in, local vaults and the services you actually use. Everything else can wait.</p>
+          <p class="msw-lead">Four short screens: sign in, add vaults, make it yours. Everything is skippable and stays one tap away later.</p>
         </div>
         <ul class="msw-list" aria-label="What you can set up">
-          <li><AppIcon name="solar:user-circle-bold" :size="16" /><span><strong>Sign in</strong> — Google, GitHub or GitLab through the built-in sign-in broker.</span></li>
-          <li><AppIcon name="solar:diskette-bold" :size="16" /><span><strong>Vaults</strong> — encrypted <code>.cybermanju</code> partitions, on a provider or this phone.</span></li>
-          <li><AppIcon name="solar:cloud-bold" :size="16" /><span><strong>Providers + repos</strong> — GitHub, GitLab, Drive, local — then create private vault repos.</span></li>
-          <li><AppIcon name="solar:monitor-bold" :size="16" /><span><strong>Appearance</strong> — theme + wallpaper, previewed live.</span></li>
+          <li><AppIcon name="solar:user-circle-bold" :size="16" /><span><strong>Accounts &amp; providers</strong> — Google, GitHub, GitLab or a phone folder, in one place.</span></li>
+          <li><AppIcon name="solar:diskette-bold" :size="16" /><span><strong>Vaults</strong> — encrypted <code>.cybermanju</code> disks on a provider or this phone, plus optional private repos.</span></li>
+          <li><AppIcon name="solar:monitor-bold" :size="16" /><span><strong>Personalize</strong> — theme + wallpaper, previewed live, and an optional agent.</span></li>
         </ul>
-        <button class="msw-btn primary big" type="button" @click="go('account')">Continue</button>
+        <button class="msw-btn primary big" type="button" @click="go('connect')">Get started</button>
         <button class="msw-link" type="button" @click="skipAll">Skip setup entirely</button>
       </section>
 
-      <!-- account -->
-      <section v-if="step === 'account'" class="msw-section">
-        <h3 class="msw-h">Your cloud account</h3>
-        <p v-if="identity" class="msw-hint">Signed in as <strong>{{ identity.name || identity.email }}</strong> via {{ identity.provider }}.</p>
+      <!-- connect: OAuth sign-in + provider rows (one place for both) -->
+      <section v-if="step === 'connect'" class="msw-section">
+        <h3 class="msw-h">Accounts &amp; providers <span v-if="providerCount" class="msw-count">{{ providerCount }} connected</span></h3>
+        <p v-if="identity" class="msw-hint">Signed in as <strong>{{ identity.name || identity.email }}</strong> via {{ identity.provider }} — its vault row is waiting in the next step.</p>
         <p v-else class="msw-hint">One tap per provider — no Account Manager detour needed.</p>
         <div class="msw-oauth-grid">
           <button
@@ -63,59 +64,85 @@
           </button>
         </div>
         <p v-if="mswSignInMsg" class="msw-note" :class="mswSignInOk === false ? 'err' : mswSignInOk ? 'ok' : ''">{{ mswSignInMsg }}</p>
-        <!-- substep · after sign-in OK: folder + .cybermanju size per logged provider -->
-        <div v-if="mswSignInOk || identity" class="msw-substep">
-          <h4 class="msw-substep-title">Vault home per provider</h4>
-          <p class="msw-hint">Signed in — pick where each provider keeps its <code>.cybermanju</code> files and how big the disk is. Drive gets a folder, GitHub/GitLab a private repo (created when missing).</p>
-          <div v-for="sp in mswSignedProviders" :key="sp.backend" class="msw-prov-card">
-            <div class="msw-prov-head">
-              <ProviderLogo :provider="sp.logo" :size="26" />
-              <div class="msw-prov-meta">
-                <strong>{{ sp.label }}</strong>
-                <small>{{ sp.accountName }}</small>
-              </div>
-              <span v-if="mswCloudDone[sp.backend]" class="msw-note ok" style="margin:0">ready ✓</span>
-            </div>
-            <div v-if="sp.config" class="msw-grid2">
-              <label class="msw-field"><span>Folder</span>
-                <input v-model="mswCloudFolders[sp.backend]" class="msw-input" placeholder="cybermanju-vault" autocomplete="off" />
-              </label>
-              <label class="msw-field"><span>Size (MB)</span>
-                <input v-model.number="mswCloudSizes[sp.backend]" class="msw-input" type="number" min="64" max="8192" step="64" placeholder="512" />
-              </label>
-            </div>
-            <label v-if="sp.config" class="msw-field"><span>Disk passphrase (required)</span>
-              <input v-model="mswCloudPassphrases[sp.backend]" class="msw-input" type="password" autocomplete="new-password" placeholder="required — encrypts the disk" />
-            </label>
-            <button
-              v-if="sp.config"
-              class="msw-btn primary big"
-              type="button"
-              :disabled="!!mswCloudBusy[sp.backend] || mswCloudDone[sp.backend]"
-              @click="mswProvisionCloudDisk(sp.backend)"
-            >{{ mswCloudBusy[sp.backend] ? 'Creating…' : mswCloudDone[sp.backend] ? 'Created ✓' : `Create in ${sp.label}` }}</button>
-            <p v-else class="msw-note">No {{ sp.label }} connection yet — sign in again above to create it.</p>
-            <p v-if="mswCloudMsgs[sp.backend]" class="msw-note" :class="mswCloudMsgs[sp.backend].ok ? 'ok' : 'err'">{{ mswCloudMsgs[sp.backend].text }}</p>
-          </div>
-        </div>
         <p v-if="!mswSbConfigured" class="msw-note err">OAuth broker is not set — sign-in stays off until you add the URL + key in Settings → OAuth broker.</p>
-        <button class="msw-btn big" type="button" @click="openAccounts('vaults')">Open Account Manager</button>
+
+        <span class="msw-sub-label">Add a connection</span>
+        <div class="msw-logo-row" role="radiogroup" aria-label="Provider type">
+          <button
+            v-for="b in ['github', 'gitlab', 'googleDrive', 'local']"
+            :key="b"
+            type="button"
+            role="radio"
+            :aria-checked="prov.backendType === b"
+            class="msw-logo"
+            :class="{ on: prov.backendType === b }"
+            @click="prov.backendType = b"
+          >{{ shortProv(b) }}</button>
+        </div>
+        <label class="msw-field"><span>Display name</span>
+          <input v-model="prov.name" class="msw-input" placeholder="e.g. Work GitHub" />
+        </label>
+        <template v-if="prov.backendType === 'local'">
+          <p class="msw-hint">Android opens the system folder picker. Access remains limited to the folder you choose.</p>
+          <button class="msw-btn big" type="button" :disabled="provBusy || folderBusy" @click="chooseLocalFolder">{{ folderBusy ? 'Opening picker…' : selectedFolder ? `Selected: ${selectedFolder.name}` : 'Choose a folder' }}</button>
+          <p v-if="!scopedFolderAvailable" class="msw-hint">Persistent folder access is available in the native Android/iOS app, not a mobile browser tab.
+            <button class="msw-link" type="button" @click="openInstall">Install options</button>
+          </p>
+          <div v-if="selectedFolder" class="msw-substep">
+            <p class="msw-hint">Create a live mirror in this folder. The <code>.cybermanju</code> file uses the web-compatible ChaCha20-Poly1305 + PBKDF2 format, not ML-KEM. The passphrase is never saved by the app.</p>
+            <label class="msw-field"><span>Live Sync file name</span>
+              <input v-model="mirrorFileName" class="msw-input" type="text" autocomplete="off" placeholder="cybermanju-vault.cybermanju" />
+            </label>
+            <label class="msw-field"><span>Vault passphrase (8+ characters)</span>
+              <input v-model="mirrorPassphrase" class="msw-input" type="password" autocomplete="new-password" />
+            </label>
+            <label class="msw-field"><span>Confirm passphrase</span>
+              <input v-model="mirrorPassphraseConfirm" class="msw-input" type="password" autocomplete="new-password" />
+            </label>
+          </div>
+        </template>
+        <template v-else>
+          <p class="msw-hint">{{ matchingSessionToken ? `Your ${shortProv(prov.backendType)} session is available; Accounts manages OAuth connections.` : 'Connect this provider in Accounts first, or paste a personal access token.' }}</p>
+          <button class="msw-btn big" type="button" @click="openAccounts('connect')">Manage accounts &amp; sign in</button>
+          <label class="msw-field"><span>Personal access token (optional when the session provides one)</span>
+            <input v-model="prov.secret" class="msw-input" :type="showSecret ? 'text' : 'password'" autocomplete="off" placeholder="Paste a token, or connect in Accounts" />
+          </label>
+          <label class="msw-check"><input v-model="showSecret" type="checkbox" /> Show token</label>
+        </template>
+        <div class="msw-row">
+          <button class="msw-btn primary big" type="button" :disabled="provBusy" @click="saveProvider">{{ provBusy ? 'Saving…' : 'Save provider' }}</button>
+        </div>
+        <p v-if="provMsg" class="msw-note" :class="provOk === false ? 'err' : 'ok'">{{ provMsg }}
+          <button v-if="provMsgNeedsApp" class="msw-link" type="button" @click="openInstall">Install options</button>
+        </p>
+        <ul v-if="providerCount" class="msw-provs">
+          <li v-for="c in store.syncConfigs" :key="c.id"><strong>{{ c.name || c.backendType }}</strong> <span class="muted">{{ c.backendType }}</span></li>
+          <li v-for="mount in localFolderMounts" :key="mount.id"><strong>{{ mount.name }}</strong> <span class="muted">Phone folder · Files</span></li>
+        </ul>
+        <button class="msw-btn big" type="button" @click="openAccounts('connect')">Open Account Manager</button>
         <div class="msw-nav">
           <button class="msw-btn" type="button" @click="go('welcome')">Back</button>
-          <button class="msw-btn primary" type="button" @click="go('vaults')">Next</button>
-          <button class="msw-link" type="button" @click="go('vaults')">Skip</button>
+          <button class="msw-btn primary" type="button" @click="go('storage')">Next</button>
+          <button class="msw-link" type="button" @click="go('storage')">Skip</button>
         </div>
       </section>
 
-      <!-- vaults: N partitions -->
-      <section v-if="step === 'vaults'" class="msw-section">
-        <h3 class="msw-h">Vault partitions <span v-if="partitions.length" class="msw-count">{{ createdCount }} / {{ partitions.length }} created</span></h3>
-        <p class="msw-hint">Each partition is a <code>.cybermanju</code> disk: pick a name, size and where it lives (local disk or any connected provider). Add as many as you want.</p>
+      <!-- storage: every disk creation path, one list -->
+      <section v-if="step === 'storage'" class="msw-section">
+        <h3 class="msw-h">Vaults &amp; storage <span v-if="partitions.length" class="msw-count">{{ createdCount }} / {{ partitions.length }} created</span></h3>
+        <p class="msw-hint">One list, one job: every row is a <code>.cybermanju</code> disk — local on this phone, or on a connected provider (Drive folder / private repo are created when missing). Tap a provider to prefill a row.</p>
+        <div class="msw-chips" role="group" aria-label="Quick-add a vault">
+          <button v-for="c in providerChips" :key="c.id" class="msw-chip" type="button" @click="addProviderVault(c.id)">＋ {{ c.label }}</button>
+          <button class="msw-chip add" type="button" @click="addLocalVault">＋ Local vault</button>
+        </div>
+        <p v-if="!providerChips.length" class="msw-hint">No provider connected yet — a local vault works offline.
+          <button class="msw-link" type="button" @click="openAccounts('storage')">Connect a provider</button>
+        </p>
         <div v-for="(p, i) in partitions" :key="i" class="msw-card">
           <div class="msw-card-head">
             <strong>#{{ i + 1 }} {{ p.name || 'Unnamed vault' }}</strong>
             <span class="msw-status" :class="partitionStatus[i]">{{ partitionStatus[i] === 'done' ? 'CREATED' : partitionStatus[i] === 'busy' ? '…' : 'DRAFT' }}</span>
-            <button v-if="partitions.length > 1" class="msw-x sm" type="button" :aria-label="`Remove partition ${i + 1}`" @click="removePartition(i)">✕</button>
+            <button v-if="partitions.length > 1" class="msw-x sm" type="button" :aria-label="`Remove vault ${i + 1}`" @click="removePartition(i)">✕</button>
           </div>
           <label class="msw-field"><span>Name</span>
             <input v-model="p.name" class="msw-input" placeholder="e.g. photos-vault" />
@@ -140,154 +167,55 @@
             :disabled="!partitionDraftValid(normalizePartitionDraft(p)) || partitionStatus[i] === 'busy' || partitionStatus[i] === 'done' || !canCreatePartition(p)"
             @click="createPartition(i)"
           >{{ partitionStatus[i] === 'done' ? 'Created ✓' : partitionStatus[i] === 'busy' ? 'Creating…' : `Create “${p.name || 'vault'}”` }}</button>
-          <p v-if="!canCreatePartition(p)" class="msw-hint">Local-disk partitions need no provider. Provider partitions need that provider saved first (previous step creates them, or add one in Providers).</p>
+          <p v-if="!canCreatePartition(p)" class="msw-hint">That provider connection is gone — pick another, or connect one in Accounts (previous step).</p>
         </div>
         <button class="msw-btn" type="button" @click="addPartition">+ Add another vault</button>
         <p v-if="vaultMsg" class="msw-note" :class="vaultOk === false ? 'err' : 'ok'">{{ vaultMsg }}</p>
-        <div class="msw-nav">
-          <button class="msw-btn" type="button" @click="go('account')">Back</button>
-          <button class="msw-btn primary" type="button" @click="go('providers')">Next</button>
-          <button class="msw-link" type="button" @click="go('providers')">Skip</button>
-        </div>
-      </section>
-
-      <!-- providers -->
-      <section v-if="step === 'providers'" class="msw-section">
-        <h3 class="msw-h">Providers <span v-if="providerCount" class="msw-count">{{ providerCount }} connected</span></h3>
-        <p class="msw-hint">Manage OAuth sign-in and cloud connections in Accounts, or grant Files access to a folder on this phone.</p>
-        <div class="msw-logo-row" role="radiogroup" aria-label="Provider type">
-          <button
-            v-for="b in ['github', 'gitlab', 'googleDrive', 'local']"
-            :key="b"
-            type="button"
-            role="radio"
-            :aria-checked="prov.backendType === b"
-            class="msw-logo"
-            :class="{ on: prov.backendType === b }"
-            @click="prov.backendType = b"
-          >{{ shortProv(b) }}</button>
-        </div>
-        <label class="msw-field"><span>Display name</span>
-          <input v-model="prov.name" class="msw-input" placeholder="e.g. Work GitHub" />
-        </label>
-        <template v-if="prov.backendType === 'local'">
-          <p class="msw-hint">Android opens the system folder picker. Access remains limited to the folder you choose.</p>
-          <button class="msw-btn big" type="button" :disabled="provBusy || folderBusy" @click="chooseLocalFolder">{{ folderBusy ? 'Opening picker…' : selectedFolder ? `Selected: ${selectedFolder.name}` : 'Choose a folder' }}</button>
-          <p v-if="!scopedFolderAvailable" class="msw-hint">Persistent folder access is available in the native Android/iOS app, not a mobile browser tab.
-            <button class="msw-link" type="button" @click="openInstall">Install options</button>
-          </p>
-          <div v-if="selectedFolder" class="msw-mirror-setup">
-            <p class="msw-hint">Create a live mirror in this folder. The <code>.cybermanju</code> file uses the web-compatible ChaCha20-Poly1305 + PBKDF2 format, not ML-KEM. The passphrase is never saved by the app.</p>
-            <label class="msw-field"><span>Live Sync file name</span>
-              <input v-model="mirrorFileName" class="msw-input" type="text" autocomplete="off" placeholder="cybermanju-vault.cybermanju" />
+        <details class="msw-broker">
+          <summary>Batch: up to 8 private repos + a disk each (optional)</summary>
+          <p class="msw-hint">GitHub / GitLab only — each fresh repo is seeded with your encrypted vault and gets its own attached disk. Drive vaults come from the rows above.</p>
+          <label class="msw-field"><span>Provider</span>
+            <select v-model="repoConfigId" class="msw-input">
+              <option value="">Pick a saved provider…</option>
+              <option v-for="c in repoCapableConfigs" :key="c.id" :value="c.id">{{ c.name || c.backendType }} ({{ c.backendType }})</option>
+            </select>
+          </label>
+          <label class="msw-field"><span>Base repo name</span>
+            <input v-model="repoName" class="msw-input" placeholder="cybermanju-vault" />
+          </label>
+          <div class="msw-grid2">
+            <label class="msw-field"><span>Count (1–8)</span>
+              <input v-model.number="repoCount" class="msw-input" type="number" min="1" max="8" />
             </label>
-            <label class="msw-field"><span>Vault passphrase (8+ characters)</span>
-              <input v-model="mirrorPassphrase" class="msw-input" type="password" autocomplete="new-password" />
-            </label>
-            <label class="msw-field"><span>Confirm passphrase</span>
-              <input v-model="mirrorPassphraseConfirm" class="msw-input" type="password" autocomplete="new-password" />
+            <label class="msw-field"><span>Disk each (MB)</span>
+              <input v-model.number="repoDiskMb" class="msw-input" type="number" min="64" max="8192" step="64" />
             </label>
           </div>
-        </template>
-        <template v-else>
-          <p class="msw-hint">{{ matchingSessionToken ? `Your ${shortProv(prov.backendType)} session is available; Accounts manages OAuth connections.` : 'Connect this provider in Accounts first, or paste a personal access token.' }}</p>
-          <button class="msw-btn big" type="button" @click="openAccounts(step)">Manage accounts &amp; sign in</button>
-          <label class="msw-field"><span>Personal access token (optional when the session provides one)</span>
-            <input v-model="prov.secret" class="msw-input" :type="showSecret ? 'text' : 'password'" autocomplete="off" placeholder="Paste a token, or connect in Accounts" />
+          <label class="msw-field"><span>Token (or reuse saved)</span>
+            <input v-model="repoToken" class="msw-input" type="password" placeholder="paste PAT — or leave empty" />
           </label>
-          <label class="msw-check"><input v-model="showSecret" type="checkbox" /> Show token</label>
-        </template>
-        <div class="msw-row">
-          <button class="msw-btn primary big" type="button" :disabled="provBusy" @click="saveProvider">{{ provBusy ? 'Saving…' : 'Save provider' }}</button>
-        </div>
-        <p v-if="provMsg" class="msw-note" :class="provOk === false ? 'err' : 'ok'">{{ provMsg }}
-          <button v-if="provMsgNeedsApp" class="msw-link" type="button" @click="openInstall">Install options</button>
-        </p>
-        <ul v-if="providerCount" class="msw-provs">
-          <li v-for="c in store.syncConfigs" :key="c.id"><strong>{{ c.name || c.backendType }}</strong> <span class="muted">{{ c.backendType }}</span></li>
-          <li v-for="mount in localFolderMounts" :key="mount.id"><strong>{{ mount.name }}</strong> <span class="muted">Phone folder · Files</span></li>
-        </ul>
+          <label class="msw-field"><span>Disk passphrase (required — encrypts every disk)</span>
+            <input v-model="repoPassphrase" class="msw-input" type="password" autocomplete="new-password" placeholder="required" />
+          </label>
+          <div class="msw-row">
+            <button class="msw-btn primary big" type="button" :disabled="repoBusy || !repoConfigId" @click="createRepos">{{ repoBusy ? 'Creating…' : repoCount > 1 ? `Create ${repoCount} repos` : 'Create repo' }}</button>
+          </div>
+          <p v-if="repoMsg" class="msw-note" :class="repoOk === false ? 'err' : 'ok'">{{ repoMsg }}</p>
+          <ul v-if="repoSteps.length" class="msw-steps">
+            <li v-for="(s, i) in repoSteps.slice(-6)" :key="i">{{ s }}</li>
+          </ul>
+        </details>
         <div class="msw-nav">
-          <button class="msw-btn" type="button" @click="go('vaults')">Back</button>
-          <button class="msw-btn primary" type="button" @click="go('repos')">Next</button>
-          <button class="msw-link" type="button" @click="go('repos')">Skip</button>
+          <button class="msw-btn" type="button" @click="go('connect')">Back</button>
+          <button class="msw-btn primary" type="button" @click="go('personalize')">Next</button>
+          <button class="msw-link" type="button" @click="go('personalize')">Skip</button>
         </div>
       </section>
 
-      <!-- repos + disks -->
-      <section v-if="step === 'repos'" class="msw-section">
-        <h3 class="msw-h">Private vault repos + disks</h3>
-        <p class="msw-hint">GitHub / GitLab: create 1–8 private repos at once, each seeded with your encrypted vault + its own disk (substep 2 below attaches every disk). Drive: a <code>cybermanju-disks/&lt;disk&gt;</code> folder with its <code>.cybermanju</code> files plus the disk.</p>
-        <label class="msw-field"><span>Provider</span>
-          <select v-model="repoConfigId" class="msw-input">
-            <option value="">Pick a saved provider…</option>
-            <option v-for="c in repoCapableConfigs" :key="c.id" :value="c.id">{{ c.name || c.backendType }} ({{ c.backendType }})</option>
-          </select>
-        </label>
-        <label class="msw-field"><span>Base repo name</span>
-          <input v-model="repoName" class="msw-input" placeholder="cybermanju-vault" />
-        </label>
-        <div class="msw-grid2">
-          <label class="msw-field"><span>Count (1–8)</span>
-            <input v-model.number="repoCount" class="msw-input" type="number" min="1" max="8" />
-          </label>
-          <label class="msw-field"><span>Disk each (MB)</span>
-            <input v-model.number="repoDiskMb" class="msw-input" type="number" min="64" max="8192" step="64" />
-          </label>
-        </div>
-        <label class="msw-field"><span>Token (or reuse saved)</span>
-          <input v-model="repoToken" class="msw-input" type="password" placeholder="paste PAT — or leave empty" />
-        </label>
-        <label class="msw-field"><span>Disk passphrase (required — encrypts every disk)</span>
-          <input v-model="repoPassphrase" class="msw-input" type="password" autocomplete="new-password" placeholder="required" />
-        </label>
-        <div class="msw-row">
-          <button class="msw-btn primary big" type="button" :disabled="repoBusy || !repoConfigId" @click="createRepos">{{ repoBusy ? 'Creating…' : repoCount > 1 ? `Create ${repoCount} repos` : 'Create repo' }}</button>
-        </div>
-        <p v-if="repoMsg" class="msw-note" :class="repoOk === false ? 'err' : 'ok'">{{ repoMsg }}</p>
-        <ul v-if="repoSteps.length" class="msw-steps">
-          <li v-for="(s, i) in repoSteps.slice(-6)" :key="i">{{ s }}</li>
-        </ul>
-        <div class="msw-nav">
-          <button class="msw-btn" type="button" @click="go('providers')">Back</button>
-          <button class="msw-btn primary" type="button" @click="go('agent')">Next</button>
-          <button class="msw-link" type="button" @click="go('agent')">Skip</button>
-        </div>
-      </section>
-
-      <!-- agent -->
-      <section v-if="step === 'agent'" class="msw-section">
-        <h3 class="msw-h">Agent AI <em class="muted">(optional)</em></h3>
-        <p class="msw-hint">{{ isStatic ? 'Saved locally in this browser — key held in memory only (re-enter after reload).' : 'Pick a provider and seal a key — or skip and do it later in Agent.' }}</p>
-        <label v-if="agentProviderOptions.length" class="msw-field"><span>Provider</span>
-          <select v-model="agentProviderId" class="msw-input">
-            <option v-for="p in agentProviderOptions" :key="p.id" :value="p.id">{{ p.label }} · {{ p.defaultModel }}</option>
-          </select>
-        </label>
-        <label class="msw-field"><span>Assistant name</span>
-          <input v-model="agentName" class="msw-input" placeholder="My assistant" />
-        </label>
-        <label class="msw-field"><span>Model</span>
-          <input v-model="agentModel" class="msw-input" :placeholder="agentProviderDefaultModel" />
-        </label>
-        <label class="msw-field"><span>API key (sealed, never shown back)</span>
-          <input v-model="agentKey" class="msw-input" type="password" placeholder="paste key — optional now" />
-        </label>
-        <div class="msw-row">
-          <button class="msw-btn primary big" type="button" :disabled="agentBusy" @click="saveAgent">{{ agentBusy ? 'Saving…' : 'Save assistant' }}</button>
-        </div>
-        <p v-if="agentMsg" class="msw-note" :class="agentOk === false ? 'err' : 'ok'">{{ agentMsg }}</p>
-        <div class="msw-nav">
-          <button class="msw-btn" type="button" @click="go('repos')">Back</button>
-          <button class="msw-btn primary" type="button" @click="go('appearance')">Next</button>
-          <button class="msw-link" type="button" @click="go('appearance')">Skip</button>
-        </div>
-      </section>
-
-      <!-- appearance -->
-      <section v-if="step === 'appearance'" class="msw-section">
-        <h3 class="msw-h">Appearance</h3>
-        <p class="msw-hint">Pick a look — it applies instantly, and Settings → Appearance can change it later.</p>
+      <!-- personalize: appearance + the optional agent, in one place -->
+      <section v-if="step === 'personalize'" class="msw-section">
+        <h3 class="msw-h">Personalize</h3>
+        <p class="msw-hint">Pick a look — it applies instantly, and Settings → Appearance can change it later. The agent below is optional.</p>
         <span class="msw-sub-label">Theme</span>
         <div class="msw-theme-grid" role="radiogroup" aria-label="Theme">
           <button
@@ -322,8 +250,30 @@
         </div>
         <p v-if="mswCustomWallpaper.kind.value" class="msw-note">Custom image active — picking a preset above switches back to it.</p>
         <p v-else class="msw-hint">A custom image (URL or file) stays in Settings → Appearance.</p>
+        <div class="msw-substep">
+          <h4 class="msw-substep-title">Agent AI <em class="muted">(optional)</em></h4>
+          <p class="msw-hint">{{ isStatic ? 'Saved locally in this browser — key held in memory only (re-enter after reload).' : 'Pick a provider and seal a key — or skip and do it later in Agent.' }}</p>
+          <label v-if="agentProviderOptions.length" class="msw-field"><span>Provider</span>
+            <select v-model="agentProviderId" class="msw-input">
+              <option v-for="p in agentProviderOptions" :key="p.id" :value="p.id">{{ p.label }} · {{ p.defaultModel }}</option>
+            </select>
+          </label>
+          <label class="msw-field"><span>Assistant name</span>
+            <input v-model="agentName" class="msw-input" placeholder="My assistant" />
+          </label>
+          <label class="msw-field"><span>Model</span>
+            <input v-model="agentModel" class="msw-input" :placeholder="agentProviderDefaultModel" />
+          </label>
+          <label class="msw-field"><span>API key (sealed, never shown back)</span>
+            <input v-model="agentKey" class="msw-input" type="password" placeholder="paste key — optional now" />
+          </label>
+          <div class="msw-row">
+            <button class="msw-btn primary big" type="button" :disabled="agentBusy" @click="saveAgent">{{ agentBusy ? 'Saving…' : 'Save assistant' }}</button>
+          </div>
+          <p v-if="agentMsg" class="msw-note" :class="agentOk === false ? 'err' : 'ok'">{{ agentMsg }}</p>
+        </div>
         <div class="msw-nav">
-          <button class="msw-btn" type="button" @click="go('agent')">Back</button>
+          <button class="msw-btn" type="button" @click="go('storage')">Back</button>
           <button class="msw-btn primary" type="button" @click="go('done')">Next</button>
           <button class="msw-link" type="button" @click="go('done')">Skip</button>
         </div>
@@ -333,15 +283,15 @@
       <section v-if="step === 'done'" class="msw-section">
         <ul class="msw-summary">
           <li>Account: <strong>{{ identity ? (identity.email || identity.name) : 'skipped' }}</strong></li>
-          <li>Vaults: <strong>{{ createdCount ? `${createdCount} partition${createdCount > 1 ? 's' : ''} created` : 'skipped' }}</strong></li>
           <li>Providers: <strong>{{ providerCount ? `${providerCount} connected` : 'skipped' }}</strong></li>
+          <li>Vaults: <strong>{{ createdCount ? `${createdCount} partition${createdCount > 1 ? 's' : ''} created` : 'skipped' }}</strong></li>
           <li>Repos: <strong>{{ reposCreated ? `${reposCreated} created` : 'skipped' }}</strong></li>
           <li>Agent: <strong>{{ agentSavedName ? `“${agentSavedName}” ready` : 'skipped' }}</strong></li>
           <li>Appearance: <strong>{{ mswAppearanceSummary }}</strong></li>
         </ul>
         <p class="msw-hint">Everything skipped stays one tap away in Accounts, Disks and Agent.</p>
         <button class="msw-btn primary big" type="button" @click="finish">Enter CyberManju →</button>
-        <button class="msw-link" type="button" @click="go('appearance')">Back</button>
+        <button class="msw-link" type="button" @click="go('personalize')">Back</button>
       </section>
     </main>
   </div>
@@ -353,7 +303,7 @@ import ProviderLogo from '@/components/ProviderLogo.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { isStaticHost } from '@/composables/useTauri'
-import { identity, connectedAccounts, refreshIdentity, signInWithPopup, supabaseConfigured, supabaseProviderFor, supabaseSession, supabaseSessionProvider, type OAuthBackend } from '@/composables/useSupabase'
+import { identity, refreshIdentity, signInWithPopup, supabaseConfigured, supabaseProviderFor, supabaseSession, supabaseSessionProvider, type OAuthBackend } from '@/composables/useSupabase'
 import { configureMobileVaultMirror, normalizeMobileVaultFileName, pickMobileFolder, supportsNativeScopedStorage, type MobileFolderHandle } from '@/utils/mobileScopedStorage'
 import { listVfsMounts, saveVfsMount } from '@/composables/useProviderCanal'
 import type { ProviderMount } from '@/composables/useProviderCanal'
@@ -361,12 +311,11 @@ import {
   MOBILE_SETUP_STEPS,
   MOBILE_SETUP_STEP_LABELS,
   blankPartitionDraft,
-  clampVaultSizeMb,
   mobileSetupStepIndex,
   markSetupSeen,
   normalizePartitionDraft,
   partitionDraftValid,
-  signedProviderCards,
+  resolveMobileSetupStep,
   type MobileSetupStep,
   type VaultPartitionDraft,
 } from '@/utils/setupWizard'
@@ -381,10 +330,10 @@ import type { AgentConfig, SyncBackendType, SyncConfig } from '@/types'
 const emit = defineEmits<{ close: [] }>()
 const store = useAppStore()
 const SETUP_STEP_KEY = 'cybermanju.mobileSetup.step'
+/** Resume at a live step; pre-merge names (account/repos/…) map onto it. */
 function initialStep(): MobileSetupStep {
   try {
-    const saved = localStorage.getItem(SETUP_STEP_KEY)
-    return MOBILE_SETUP_STEPS.find(s => s === saved) ?? 'welcome'
+    return resolveMobileSetupStep(localStorage.getItem(SETUP_STEP_KEY)) ?? 'welcome'
   } catch {
     return 'welcome'
   }
@@ -413,7 +362,7 @@ function openAccounts(returnStep: MobileSetupStep) {
   window.dispatchEvent(new CustomEvent('cybermanju:open-accounts', { detail: { resumeSetup: true } }))
 }
 
-// ── account step: inline OAuth (same broker as Account Manager) ──
+// ── connect step · inline OAuth (same broker as Account Manager) ──
 const MOBILE_LOGIN_CARDS: Array<{ id: OAuthBackend; label: string; logo: string }> = [
   { id: 'google', label: 'Google', logo: 'google' },
   { id: 'github', label: 'GitHub', logo: 'github' },
@@ -438,7 +387,7 @@ async function mswSignIn(provider: OAuthBackend) {
   try {
     const who = await signInWithPopup(provider)
     // Same as Account Manager: provision the matching provider row so the
-    // vault/provider steps can use it immediately.
+    // storage step's vault chips can use it immediately.
     try {
       const backend = mswBackendForOAuth(provider)
       if (!store.syncConfigs.some(c => c.backendType === backend)) {
@@ -473,182 +422,7 @@ async function mswSignIn(provider: OAuthBackend) {
   }
 }
 
-// ── account substep: after 200-OK sign-in, one folder + `.cybermanju`
-// size card per logged provider (same substep as the desktop wizard).
-const mswCloudFolders = ref<Record<string, string>>({})
-const mswCloudSizes = ref<Record<string, number>>({})
-const mswCloudPassphrases = ref<Record<string, string>>({})
-const mswCloudBusy = ref<Record<string, boolean>>({})
-const mswCloudDone = ref<Record<string, boolean>>({})
-const mswCloudMsgs = ref<Record<string, { ok: boolean; text: string }>>({})
-
-const mswSignedProviders = computed(() => {
-  const accounts = connectedAccounts.value.map(a => ({
-    provider: a.provider,
-    name: a.name,
-    email: a.email,
-  }))
-  if (identity.value) {
-    accounts.unshift({
-      provider: identity.value.provider,
-      name: identity.value.name,
-      email: identity.value.email,
-    })
-  }
-  return signedProviderCards(
-    accounts,
-    store.syncConfigs.map(c => ({ backendType: c.backendType })),
-  ).map(card => ({
-    ...card,
-    config: store.syncConfigs.find(c => c.backendType === card.backend) ?? null,
-  }))
-})
-
-/** Saved secret first, live OAuth session second (same precedence as desktop). */
-async function mswDiskTokenFor(cfg: SyncConfig): Promise<string> {
-  if (typeof cfg.token === 'string' && cfg.token.trim()) return cfg.token.trim()
-  try {
-    const session = await supabaseSession()
-    const prov = session ? supabaseSessionProvider(session) : null
-    if (prov && supabaseProviderFor(cfg.backendType) === prov) {
-      return session?.provider_token ?? ''
-    }
-  } catch {
-    // Session unreadable — the disk still gets created, remote warns.
-  }
-  return ''
-}
-
-async function mswProvisionCloudDisk(backend: SyncBackendType) {
-  if (mswCloudBusy.value[backend] || mswCloudDone.value[backend]) return
-  const cfg = store.syncConfigs.find(c => c.backendType === backend) ?? null
-  if (!cfg) {
-    mswCloudMsgs.value[backend] = { ok: false, text: 'No connection yet — sign in again above to create it.' }
-    return
-  }
-  mswCloudBusy.value[backend] = true
-  delete mswCloudMsgs.value[backend]
-  try {
-    const folder = (mswCloudFolders.value[backend] ?? '').trim() || 'cybermanju-vault'
-    const sizeMb = clampVaultSizeMb(mswCloudSizes.value[backend] ?? 512)
-    const passphrase = (mswCloudPassphrases.value[backend] ?? '')
-    if (!passphrase) {
-      mswCloudMsgs.value[backend] = { ok: false, text: 'Type a disk passphrase first — the disk is passphrase-encrypted on every device.' }
-      return
-    }
-    const out = await store.createDiskWithRemote(cfg, {
-      sizeMb,
-      passphrase,
-      diskName: folder,
-      token: await mswDiskTokenFor(cfg),
-    })
-    if (!out?.disk) {
-      mswCloudMsgs.value[backend] = { ok: false, text: 'Could not create the disk — retry.' }
-      return
-    }
-    mswCloudDone.value[backend] = true
-    if (out.remote) {
-      const where = backend === 'googleDrive'
-        ? `Drive folder \`${out.remote.remoteDir}\``
-        : `private repo \`${out.remote.config.repoName}\``
-      mswCloudMsgs.value[backend] = { ok: true, text: `“${folder}” live (${sizeMb} MB) — ${where} holds its .cybermanju files.` }
-    } else if (out.remoteWarning) {
-      mswCloudMsgs.value[backend] = { ok: false, text: `Disk attached, but the remote seed failed: ${out.remoteWarning}` }
-    } else {
-      mswCloudMsgs.value[backend] = { ok: true, text: `“${folder}” created (${sizeMb} MB).` }
-    }
-  } catch (e) {
-    mswCloudMsgs.value[backend] = { ok: false, text: e instanceof Error ? e.message : String(e) }
-  } finally {
-    mswCloudBusy.value[backend] = false
-  }
-}
-
-// ── vault partitions (N disks) ──
-const partitions = ref<VaultPartitionDraft[]>([blankPartitionDraft('vault-1')])
-const partitionStatus = ref<Array<'draft' | 'busy' | 'done'>>(['draft'])
-const vaultMsg = ref('')
-const vaultOk = ref<boolean | null>(null)
-const createdCount = computed(() => partitionStatus.value.filter(s => s === 'done').length)
-
-function addPartition() {
-  partitions.value.push(blankPartitionDraft(`vault-${partitions.value.length + 1}`))
-  partitionStatus.value.push('draft')
-}
-function removePartition(i: number) {
-  partitions.value.splice(i, 1)
-  partitionStatus.value.splice(i, 1)
-}
-/** Local-disk always works; provider partitions need a config id. */
-function canCreatePartition(p: VaultPartitionDraft): boolean {
-  return p.configId === '' ? true : store.syncConfigs.some(c => c.id === p.configId)
-}
-
-async function createPartition(i: number) {
-  const raw = partitions.value[i]
-  const norm = normalizePartitionDraft(raw)
-  partitions.value[i] = { ...raw, ...norm }
-  if (!partitionDraftValid(norm)) {
-    vaultMsg.value = 'Name (2+ chars) + size 64–8192 MB required.'
-    vaultOk.value = false
-    return
-  }
-  partitionStatus.value[i] = 'busy'
-  try {
-    if (norm.configId === '') {
-      // Local partition on this phone: the native redb volume grows with
-      // files; record the intent as a disk row when a provider exists, else
-      // count the vault itself as the partition (no native call needed).
-      // When at least one provider exists we still create a real disk row
-      // on the chosen… here local = just mark done (DB is app-private).
-      partitionStatus.value[i] = 'done'
-      vaultMsg.value = `“${norm.name}” ready on local disk (${norm.sizeMb} MB budget).`
-      vaultOk.value = true
-    } else {
-      const target = store.syncConfigs.find(c => c.id === norm.configId)
-      if (!target) {
-        partitionStatus.value[i] = 'draft'
-        vaultMsg.value = `Provider is gone — pick another for “${norm.name}”.`
-        vaultOk.value = false
-        return
-      }
-      if (!norm.passphrase) {
-        partitionStatus.value[i] = 'draft'
-        vaultMsg.value = `Type a passphrase for “${norm.name}” — provider disks are passphrase-encrypted on every device.`
-        vaultOk.value = false
-        return
-      }
-      // Provider partition: sealed container + the provider-visible side
-      // (Drive folder + `.cybermanju` files, or a private repo + seed for
-      // git configs missing one). The disk survives a remote failure.
-      const out = await store.createDiskWithRemote(target, {
-        sizeMb: norm.sizeMb,
-        passphrase: norm.passphrase,
-        diskName: norm.name,
-        token: typeof target.token === 'string' ? target.token : '',
-      })
-      if (out?.disk) {
-        partitionStatus.value[i] = 'done'
-        vaultMsg.value = out.remote
-          ? `“${norm.name}” created on provider (${norm.sizeMb} MB) + remote files seeded.`
-          : out.remoteWarning
-            ? `“${norm.name}” created (${norm.sizeMb} MB), but the remote seed failed: ${out.remoteWarning}`
-            : `“${norm.name}” created on provider (${norm.sizeMb} MB).`
-        vaultOk.value = !out.remoteWarning
-      } else {
-        partitionStatus.value[i] = 'draft'
-        vaultMsg.value = `Could not create “${norm.name}” — retry.`
-        vaultOk.value = false
-      }
-    }
-  } catch (e) {
-    partitionStatus.value[i] = 'draft'
-    vaultMsg.value = e instanceof Error ? e.message : String(e)
-    vaultOk.value = false
-  }
-}
-
-// ── providers ──
+// ── connect step · one manual provider row (OAuth session or PAT) ──
 const prov = ref({ backendType: 'github', name: '', secret: '' })
 const showSecret = ref(false)
 const provBusy = ref(false)
@@ -795,11 +569,121 @@ async function saveProvider() {
   }
 }
 
-// ── repos + disks ──
-// GitHub/GitLab keep the full repo-set flow (private repos + vault seed +
-// a disk each). Drive has no repos: the same substep provisions a folder +
-// `.cybermanju` files + the disk through the shared helper.
-const repoCapableConfigs = computed(() => store.syncConfigs.filter(c => c.backendType === 'github' || c.backendType === 'gitlab' || c.backendType === 'googleDrive'))
+// ── storage step · one vault list (every disk path, no duplicates) ──
+const partitions = ref<VaultPartitionDraft[]>([blankPartitionDraft('vault-1')])
+const partitionStatus = ref<Array<'draft' | 'busy' | 'done'>>(['draft'])
+const vaultMsg = ref('')
+const vaultOk = ref<boolean | null>(null)
+const createdCount = computed(() => partitionStatus.value.filter(s => s === 'done').length)
+
+/** One chip per connected provider = a prefilled row already aimed at it. */
+const providerChips = computed(() => store.syncConfigs.map(c => ({
+  id: c.id,
+  label: c.name || backendLabel(c.backendType),
+})))
+
+function suggestedVaultName(label: string): string {
+  const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return `${slug || 'provider'}-vault`.slice(0, 64)
+}
+
+function pushPartition(draft: VaultPartitionDraft) {
+  tap()
+  partitions.value.push(draft)
+  partitionStatus.value.push('draft')
+}
+
+function addPartition() {
+  pushPartition(blankPartitionDraft(`vault-${partitions.value.length + 1}`))
+}
+
+function addProviderVault(configId: string) {
+  const cfg = store.syncConfigs.find(c => c.id === configId)
+  if (!cfg) return
+  const draft = blankPartitionDraft(suggestedVaultName(cfg.name || backendLabel(cfg.backendType)))
+  draft.configId = cfg.id
+  pushPartition(draft)
+}
+
+function addLocalVault() {
+  pushPartition(blankPartitionDraft(`local-vault-${partitions.value.length + 1}`))
+}
+
+function removePartition(i: number) {
+  partitions.value.splice(i, 1)
+  partitionStatus.value.splice(i, 1)
+}
+/** Local-disk always works; provider partitions need a config id. */
+function canCreatePartition(p: VaultPartitionDraft): boolean {
+  return p.configId === '' ? true : store.syncConfigs.some(c => c.id === p.configId)
+}
+
+async function createPartition(i: number) {
+  const raw = partitions.value[i]
+  const norm = normalizePartitionDraft(raw)
+  partitions.value[i] = { ...raw, ...norm }
+  if (!partitionDraftValid(norm)) {
+    vaultMsg.value = 'Name (2+ chars) + size 64–8192 MB required.'
+    vaultOk.value = false
+    return
+  }
+  partitionStatus.value[i] = 'busy'
+  try {
+    if (norm.configId === '') {
+      // Local partition on this phone: the native redb volume grows with
+      // files (DB is app-private), so no backend call — record the intent
+      // as a ready vault with its size budget.
+      partitionStatus.value[i] = 'done'
+      vaultMsg.value = `“${norm.name}” ready on local disk (${norm.sizeMb} MB budget).`
+      vaultOk.value = true
+    } else {
+      const target = store.syncConfigs.find(c => c.id === norm.configId)
+      if (!target) {
+        partitionStatus.value[i] = 'draft'
+        vaultMsg.value = `Provider is gone — pick another for “${norm.name}”.`
+        vaultOk.value = false
+        return
+      }
+      if (!norm.passphrase) {
+        partitionStatus.value[i] = 'draft'
+        vaultMsg.value = `Type a passphrase for “${norm.name}” — provider disks are passphrase-encrypted on every device.`
+        vaultOk.value = false
+        return
+      }
+      // Provider partition: sealed container + the provider-visible side
+      // (Drive folder + `.cybermanju` files, or a private repo + seed for
+      // git configs missing one). The disk survives a remote failure.
+      const out = await store.createDiskWithRemote(target, {
+        sizeMb: norm.sizeMb,
+        passphrase: norm.passphrase,
+        diskName: norm.name,
+        token: typeof target.token === 'string' ? target.token : '',
+      })
+      if (out?.disk) {
+        partitionStatus.value[i] = 'done'
+        vaultMsg.value = out.remote
+          ? `“${norm.name}” created on provider (${norm.sizeMb} MB) + remote files seeded.`
+          : out.remoteWarning
+            ? `“${norm.name}” created (${norm.sizeMb} MB), but the remote seed failed: ${out.remoteWarning}`
+            : `“${norm.name}” created on provider (${norm.sizeMb} MB).`
+        vaultOk.value = !out.remoteWarning
+      } else {
+        partitionStatus.value[i] = 'draft'
+        vaultMsg.value = `Could not create “${norm.name}” — retry.`
+        vaultOk.value = false
+      }
+    }
+  } catch (e) {
+    partitionStatus.value[i] = 'draft'
+    vaultMsg.value = e instanceof Error ? e.message : String(e)
+    vaultOk.value = false
+  }
+}
+
+// ── storage step · optional batch: N private repos + a disk each ──
+// GitHub/GitLab only — Drive folders + disks already come from a vault row
+// with a Drive config, so the old Drive branch here was pure duplication.
+const repoCapableConfigs = computed(() => store.syncConfigs.filter(c => c.backendType === 'github' || c.backendType === 'gitlab'))
 const repoConfigId = ref('')
 const repoName = ref('cybermanju-vault')
 const repoCount = ref(1)
@@ -819,37 +703,9 @@ async function createRepos() {
     repoOk.value = false
     return
   }
-  if (cfg.backendType !== 'github' && cfg.backendType !== 'gitlab' && cfg.backendType !== 'googleDrive') {
-    repoMsg.value = 'Repos + disks need a GitHub, GitLab or Drive provider.'
+  if (cfg.backendType !== 'github' && cfg.backendType !== 'gitlab') {
+    repoMsg.value = 'Batch repos need a GitHub or GitLab connection — Drive vaults come from the rows above.'
     repoOk.value = false
-    return
-  }
-  // Drive substep: no repos to create — one folder + `.cybermanju` files +
-  // one attached disk through the shared provisioning helper.
-  if (cfg.backendType === 'googleDrive') {
-    repoBusy.value = true
-    repoSteps.value = [`creating Drive folder + disk…`]
-    try {
-      if (!repoPassphrase.value) throw new Error('auth: a disk passphrase must not be empty — type one above first')
-      const out = await store.createDiskWithRemote(cfg, {
-        sizeMb: repoDiskMb.value,
-        passphrase: repoPassphrase.value,
-        diskName: repoName.value.trim() || 'cybermanju-vault',
-        token: typeof cfg.token === 'string' ? cfg.token : '',
-      })
-      if (!out?.disk) throw new Error('Disk creation failed — retry.')
-      reposCreated.value++
-      repoSteps.value.push(`ok: ${out.remote?.remoteDir ?? out.disk.id} (folder + .cybermanju files + disk)`)
-      repoMsg.value = out.remote
-        ? 'Drive folder + .cybermanju files live, disk attached.'
-        : `Disk attached, but the Drive seed failed: ${out.remoteWarning}`
-      repoOk.value = !out.remoteWarning
-    } catch (e) {
-      repoMsg.value = e instanceof Error ? e.message : String(e)
-      repoOk.value = false
-    } finally {
-      repoBusy.value = false
-    }
     return
   }
   const n = Math.max(1, Math.min(8, Math.round(repoCount.value) || 1))
@@ -870,8 +726,8 @@ async function createRepos() {
         description: 'CyberManju OS vault',
       })
       if (!repo) throw new Error(`provider refused ${name}`)
-      // Substep: every fresh repo gets its own attached system disk plus
-      // the disk's remote file seed (private repo + `.cybermanju` files).
+      // Every fresh repo gets its own attached system disk plus the disk's
+      // remote file seed (private repo + `.cybermanju` files).
       const out = await store.createDiskWithRemote(
         { ...cfg, repoName: repo.repoName, branch: repo.branch },
         {
@@ -895,7 +751,7 @@ async function createRepos() {
   }
 }
 
-// ── agent ──
+// ── personalize step · optional agent ──
 const agentName = ref('')
 const agentModel = ref('')
 const agentKey = ref('')
@@ -1006,7 +862,7 @@ async function saveAgent() {
   }
 }
 
-// ── appearance: theme + wallpaper (same store as Settings, live preview) ──
+// ── personalize step · theme + wallpaper (same store as Settings, live preview) ──
 const mswTheme = useTheme()
 const mswCustomWallpaper = useCustomWallpaper()
 
@@ -1173,6 +1029,19 @@ onMounted(async () => {
 .msw-status { font-size: 10px; font-weight: 800; letter-spacing: 0.6px; padding: 2px 8px; border-radius: var(--ui-radius-md); background: color-mix(in srgb, var(--ui-text) 10%, transparent); }
 .msw-status.done { color: var(--ui-accent); }
 .msw-status.busy { color: var(--ui-info); }
+.msw-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.msw-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 44px; padding: 8px 14px; border-radius: 999px;
+  border: 1px solid var(--ui-border); background: var(--ui-surface);
+  color: var(--ui-text); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.msw-chip:active { transform: scale(0.97); }
+.msw-chip.add {
+  border-color: var(--ui-accent);
+  background: color-mix(in srgb, var(--ui-accent) 10%, transparent);
+  color: var(--ui-accent);
+}
 .msw-logo-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .msw-logo { min-height: 48px; border-radius: var(--ui-radius-md); border: 1px solid var(--ui-border); background: transparent; color: var(--ui-text); font-weight: 700; font-size: 13px; cursor: pointer; }
 .msw-logo.on { border-color: var(--ui-accent); background: color-mix(in srgb, var(--ui-accent) 10%, transparent); }
@@ -1198,15 +1067,6 @@ onMounted(async () => {
   padding: 12px;
 }
 .msw-substep-title { margin: 0; font-size: 14px; font-weight: 700; }
-.msw-prov-card {
-  display: flex; flex-direction: column; gap: 10px;
-  border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md);
-  background: var(--ui-surface); padding: 12px;
-}
-.msw-prov-head { display: flex; align-items: center; gap: 10px; }
-.msw-prov-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
-.msw-prov-meta strong { font-size: 14px; }
-.msw-prov-meta small { font-size: 12px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msw-broker { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .msw-broker summary { cursor: pointer; min-height: 28px; display: flex; align-items: center; font-size: 13px; font-weight: 700; color: var(--ui-text-2); }
 .msw-broker[open] summary { margin-bottom: 2px; }

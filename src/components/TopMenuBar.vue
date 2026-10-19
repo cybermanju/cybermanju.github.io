@@ -187,6 +187,7 @@ import { useMessages } from '@/composables/useMessages'
 import { useNotifications } from '@/composables/useNotifications'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
+import { openExternalUrl } from '@/utils/openExternal'
 
 const store = useAppStore()
 const launcher = useLauncherStore()
@@ -328,7 +329,7 @@ const menuStructure = computed<MenuGroup[]>(() => [
     label: 'Help',
     children: [
       { id: 'about', label: 'About CyberManju OS', icon: 'solar:info-circle-bold', action: () => {} },
-      { id: 'docs', label: 'Documentation', icon: 'solar:book-bookmark-bold', action: () => { window.open('https://github.com/cybermanju/cybermanju.github.io', '_blank') } },
+      { id: 'docs', label: 'Documentation', icon: 'solar:book-bookmark-bold', action: () => { void openExternalUrl('https://github.com/cybermanju/cybermanju.github.io').catch((e) => store.notifyError('Cannot open the documentation', e)) } },
       { id: 'setup', label: 'Setup wizard', icon: 'solar:magic-wand-bold', action: () => { window.dispatchEvent(new CustomEvent('cybermanju:open-setup')) } },
       { id: 'div1', divider: true },
       { id: 'matrix', label: 'Toggle Matrix Rain', icon: 'solar:widget-bold', checked: store.matrixRainEnabled, action: () => { store.matrixRainEnabled = !store.matrixRainEnabled } },

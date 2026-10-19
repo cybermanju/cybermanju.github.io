@@ -356,6 +356,8 @@ pub fn run() {
             commands::launcher::launcher_clear_messages,
             commands::launcher::launcher_notification_state,
             commands::launcher::launcher_open_notification_settings,
+            commands::launcher::launcher_open_url,
+            commands::launcher::launcher_open_file,
             // Point-in-time redb image used by the web-compatible mobile vault mirror
             commands::vault_snapshot::snapshot_native_database,
             commands::vault_snapshot::backup_export,

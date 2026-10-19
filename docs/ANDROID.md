@@ -71,6 +71,13 @@ shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
   + keys to Google cloud is a key-exfiltration risk. Backup path = manual
   encrypted export (Settings → Export), verified by restore test.
 * Intents: `cybermanju://` deep link + `.cyb3` payload `VIEW` association.
+* FileProvider (`OPEN WITH SYSTEM`): `<provider>` with authority
+  `${applicationId}.fileprovider`, `res/xml/cybermanju_paths.xml` roots
+  (`<root-path path="/"`, written fresh by §6 each configure run) and an
+  explicit `androidx.core:core` dependency — local files travel as
+  grantable `content://` URIs with `FLAG_GRANT_READ_URI_PERMISSION`
+  because `file://` data throws `FileUriExposedException` on Android 7+.
+  Marker-guarded + idempotent like every other manifest patch.
 
 ## 4. Storage model (scoped storage)
 
@@ -127,6 +134,15 @@ shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
   https://asset.localhost`, plus an explicit `connect-src` (LAN dashboard
   over plain http, provider APIs, Supabase) so the WebView is allowed to
   reach the network it is designed to talk to.
+* One opener seam for links and device files — `src/utils/openExternal.ts`
+  routes per runtime: Android → `launcher_open_url` / `launcher_open_file`
+  (Intent bridge in `cybermanju-launcher`, scheme allow-list
+  `https/http/mailto/tel/cybermanju://`, OAuth `?code=`/`?state=` never
+  echoed into errors), desktop Tauri → `@tauri-apps/plugin-shell`
+  `open()`, plain browser → `window.open` (tabs). `plugin-shell open`
+  cannot work on Android: it spawns `xdg-open`, which the OS does not
+  ship — every Google/GitHub/GitLab sign-in button used to die with
+  `Scoped shell IO error: No such file or directory (os error 2)`.
 
 ## 7. Update channel
 

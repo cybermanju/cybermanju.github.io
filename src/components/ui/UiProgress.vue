@@ -2,7 +2,7 @@
 <!-- Role: Vue desktop UI: windows, panels, overlays. -->
 <!-- Exports: module root (see items below). -->
 <!-- Integrates: vue. -->
-<!-- Contracts: none special (pure logic; errors bubble to caller). -->
+<!-- Contracts: determinate values are finite integers between 0 and 100; invalid telemetry falls back to 0. -->
 <template>
   <div class="ui-progress" :class="[`ui-progress--${tone}`, { 'ui-progress--indeterminate': indeterminate }]">
     <div v-if="label || $slots.label || showValue" class="ui-progress__meta">
@@ -24,7 +24,7 @@ import { computed } from 'vue'
 
 const props = withDefaults(
   defineProps<{
-    /** 0 – 100 */
+    /** 0 – 100; non-finite readings display as 0. */
     value?: number
     label?: string
     tone?: 'accent' | 'success' | 'warning' | 'danger' | 'info'
@@ -34,7 +34,9 @@ const props = withDefaults(
   { value: 0, label: '', tone: 'accent', indeterminate: false, showValue: false }
 )
 
-const clamped = computed(() => Math.max(0, Math.min(100, Math.round(props.value))))
+const clamped = computed(() => Number.isFinite(props.value)
+  ? Math.max(0, Math.min(100, Math.round(props.value)))
+  : 0)
 </script>
 
 <style scoped>
