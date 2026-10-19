@@ -17,13 +17,21 @@ export interface DatasetTable {
 const MAX_ROWS = 5000
 const MAX_COLS = 100
 
-/** Sniff `,` vs `\t` vs `;` from the first non-empty line. */
+/** Sniff `,` vs `\t` vs `;` outside quoted cells on the first non-empty line. */
 export function sniffDelimiter(text: string): string {
   const first = text.split(/\r?\n/).find((l) => l.trim().length > 0) ?? ''
-  const counts = [',', '\t', ';'].map((d) => ({
-    d,
-    n: first.split(d).length - 1,
-  }))
+  const counts = [',', '\t', ';'].map((d) => ({ d, n: 0 }))
+  let quoted = false
+  for (let i = 0; i < first.length; i++) {
+    const char = first[i]
+    if (char === '"') {
+      if (quoted && first[i + 1] === '"') i++
+      else quoted = !quoted
+    } else if (!quoted) {
+      const count = counts.find(({ d }) => d === char)
+      if (count) count.n++
+    }
+  }
   counts.sort((a, b) => b.n - a.n)
   return counts[0].n > 0 ? counts[0].d : ','
 }

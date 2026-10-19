@@ -10,6 +10,21 @@ describe('sniffDelimiter', () => {
     expect(sniffDelimiter('a,b\n')).toBe(',')
     expect(sniffDelimiter('')).toBe(',')
   })
+
+  it.each([
+    ['"Last, first, title";Age', ';'],
+    ['"Last, first, title"\tAge', '\t'],
+    ['"Many; semicolons; here",Age', ','],
+    ['"Many\ttabs\there",Age', ','],
+    ['"Say ""hello, there, friend""";Age', ';'],
+    ['"Only; quoted; punctuation"', ','],
+  ])('ignores quoted punctuation in %s', (header, delimiter) => {
+    expect(sniffDelimiter(header)).toBe(delimiter)
+  })
+
+  it('keeps ignoring leading blank lines and CRLF endings', () => {
+    expect(sniffDelimiter('\r\n  \r\n"Name, aliases, tags";Age\r\nAda;36')).toBe(';')
+  })
 })
 
 describe('parseDelimited', () => {
@@ -20,6 +35,16 @@ describe('parseDelimited', () => {
       ['a, b', 'say "hi"'],
       ['c', 'line1\nline2'],
     ])
+  })
+
+  it.each([';', '\t'])('auto-detects %s despite commas in a quoted header', (delimiter) => {
+    const table = parseDelimited(`"Last, first, title"${delimiter}Age\r\n"Lovelace, Ada"${delimiter}36\r\n`)
+    expect(table).toEqual({
+      columns: ['Last, first, title', 'Age'],
+      rows: [['Lovelace, Ada', '36']],
+      delimiter,
+      truncated: false,
+    })
   })
 
   it('refuses NUL/binary input', () => {
