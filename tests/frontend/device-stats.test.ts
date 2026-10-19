@@ -103,6 +103,29 @@ describe('formatCoord / formatBytesDec', () => {
     expect(formatCoord(undefined)).toBe('—')
     expect(formatCoord(Infinity)).toBe('—')
   })
+
+  it.each([-1, -20, -Number.MAX_VALUE])('clamps negative coordinate precision %s to zero', (digits) => {
+    expect(formatCoord(12.5, digits)).toBe((12.5).toFixed(0))
+  })
+
+  it.each([101, 1000, Number.MAX_VALUE])('caps coordinate precision %s at the native maximum', (digits) => {
+    expect(formatCoord(1.25, digits)).toBe((1.25).toFixed(100))
+  })
+
+  it.each([0, 4, 5, 20, 100, 4.9, -0.5])('preserves native formatting for valid precision %s', (digits) => {
+    expect(formatCoord(12.34567, digits)).toBe((12.34567).toFixed(digits))
+  })
+
+  it.each([NaN, Infinity, -Infinity, null, '4', {}])('uses default precision for invalid input %s', (digits) => {
+    expect(formatCoord(12.34567, digits as never)).toBe((12.34567).toFixed(5))
+  })
+
+  it('keeps invalid coordinates unavailable even when precision is invalid', () => {
+    for (const value of [undefined, null, NaN, Infinity, -Infinity, '12.5']) {
+      expect(formatCoord(value, Infinity)).toBe('—')
+    }
+  })
+
   it('guards byte counts', () => {
     expect(formatBytesDec(1_500_000_000)).toBe('1.5 GB')
     expect(formatBytesDec(undefined)).toBe('n/a')

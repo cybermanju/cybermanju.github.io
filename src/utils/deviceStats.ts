@@ -93,7 +93,10 @@ export function formatHeapLine(
   return `JS heap ${(used / 1048576).toFixed(0)} MB${limPart}`
 }
 
-/** Safe coordinate: finite → fixed decimals, anything else → `'—'`. */
+/** Safe coordinate: finite → fixed decimals, anything else → `'—'`.
+ * Precision is truncated/clamped to 0–100; non-numeric/non-finite input uses 5. */
 export function formatCoord(v: unknown, digits = 5): string {
-  return isFiniteNum(v) ? (v as number).toFixed(digits) : '—'
+  if (!isFiniteNum(v)) return '—'
+  const precision = isFiniteNum(digits) ? Math.max(0, Math.min(100, Math.trunc(digits))) : 5
+  return v.toFixed(precision)
 }
