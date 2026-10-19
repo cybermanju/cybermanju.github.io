@@ -3,10 +3,23 @@
 <!-- Exports: module root (see items below). -->
 <!-- Integrates: vue. -->
 <!-- Contracts: determinate values are finite integers between 0 and 100; invalid telemetry falls back to 0. -->
+<!-- Accessibility: expose the same bounded value; explicit accessible names override the visible-label default. -->
 <template>
-  <div class="ui-progress" :class="[`ui-progress--${tone}`, { 'ui-progress--indeterminate': indeterminate }]">
+  <div
+    class="ui-progress"
+    :class="[`ui-progress--${tone}`, { 'ui-progress--indeterminate': indeterminate }]"
+    role="progressbar"
+    :aria-valuemin="0"
+    :aria-valuemax="100"
+    :aria-valuenow="indeterminate ? undefined : clamped"
+    :aria-labelledby="
+      $attrs['aria-label'] == null && $attrs['aria-labelledby'] == null && (label || $slots.label)
+        ? labelId
+        : undefined
+    "
+  >
     <div v-if="label || $slots.label || showValue" class="ui-progress__meta">
-      <span class="ui-progress__label"><slot name="label">{{ label }}</slot></span>
+      <span :id="labelId" class="ui-progress__label"><slot name="label">{{ label }}</slot></span>
       <span v-if="showValue && !indeterminate" class="ui-progress__value">{{ clamped }}%</span>
     </div>
     <div class="ui-progress__track">
@@ -20,7 +33,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
+
+const labelId = useId()
 
 const props = withDefaults(
   defineProps<{
