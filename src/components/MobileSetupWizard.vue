@@ -473,6 +473,16 @@ async function chooseLocalFolder() {
     provOk.value = null
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') return
+    // SAF picker cancel rejects with `ScopedStorageError { code: 'CANCELLED' }`
+    // (NOT a DOMException AbortError) — a cancel is not a failure, so it must
+    // never paint an error row. `isScopedStorageError` is the plugin's own
+    // guard; the duck-typed fallback keeps the check working if the plugin
+    // bundle failed to load.
+    try {
+      const { isScopedStorageError } = await import('tauri-plugin-scoped-storage-api')
+      if (isScopedStorageError(e) && e.code === 'CANCELLED') return
+    } catch { /* fall through to the duck-typed check */ }
+    if (typeof e === 'object' && e !== null && (e as { code?: unknown }).code === 'CANCELLED') return
     provMsg.value = e instanceof Error ? e.message : String(e)
     provOk.value = false
   } finally {

@@ -40,6 +40,9 @@ const SALT_LEN: usize = 16;
 ///
 /// Order: `CYBERMANJU_DATA_DIR` → parent of `DB_PATH` → platform data dir →
 /// `~/.cybermanju`. `None` when nothing resolves (nothing can be persisted).
+/// On Android `run()` exports `CYBERMANJU_DATA_DIR` from the probed
+/// app-private files dir before any use (`HOME` is unset in app processes),
+/// so the first branch answers there too instead of failing closed.
 pub fn data_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("CYBERMANJU_DATA_DIR") {
         if !dir.trim().is_empty() {

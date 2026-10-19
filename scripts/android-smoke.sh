@@ -22,14 +22,15 @@ cd "$(dirname "$0")/.."
 
 APK="${1:-$(find src-tauri/gen/android/app/build/outputs/apk -name 'CyberManju-OS-*-arm64-v8a.apk' 2>/dev/null | head -1)}"
 ACTIVITY="${ANDROID_ACTIVITY:-com.cybermanju.os/.MainActivity}"
+# Package for pidof/ps derived from the ACTIVITY we launch (honors
+# ANDROID_ACTIVITY instead of hardcoding com.cybermanju.os).
+PKG="${ACTIVITY%%/*}"
 
 skip() { echo "android smoke: SKIP — $1"; exit 0; }
 fail() { echo "::error::android smoke: $1" >&2; exit 1; }
 
 command -v adb > /dev/null || skip "adb not installed"
 [ -n "$APK" ] && [ -f "$APK" ] || skip "no built APK found (build first)"
-adb devices -l | grep -q " device\b" || adb devices | grep -qv "List of devices" \
-  || true
 if ! adb devices | awk 'NR>1 && $2=="device" {found=1} END {exit !found}'; then
   skip "no emulator/device attached (start one with an arm64-v8a system image)"
 fi
@@ -50,9 +51,9 @@ adb shell am start -n "$ACTIVITY" || fail "am start failed for $ACTIVITY"
 # Process pid, `pidof` first with a `ps` fallback (very old images).
 app_pid() {
   local p
-  p="$(adb shell pidof com.cybermanju.os 2>/dev/null | tr -d '\r' || true)"
+  p="$(adb shell pidof "$PKG" 2>/dev/null | tr -d '\r' || true)"
   if [ -n "$p" ]; then echo "$p"; return 0; fi
-  adb shell ps -A 2>/dev/null | grep "com\.cybermanju\.os" | awk '{print $2}' | tr -d '\r' | head -1 || true
+  adb shell ps -A 2>/dev/null | awk -v p="$PKG" 'index($0, p) {print $2}' | tr -d '\r' | head -1 || true
 }
 
 dump_markers() {

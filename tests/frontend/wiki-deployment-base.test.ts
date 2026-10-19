@@ -52,6 +52,7 @@ describe.each(cases)('$name', ({ name, prefix }) => {
     const text = readFileSync(join(outputs.get(name)!, 'llms.txt'), 'utf8')
     expect(text).toContain(`Interactive wiki for humans: ${origin}${prefix}wiki/`)
     expect(text).toContain(`${origin}${prefix}wiki/agent.txt`)
+    expect(text).toContain(`Symbol deep view: ${origin}${prefix}wiki/symbols-<id>.json`)
     const urls = ownWikiUrls(text)
     expect(urls.length).toBeGreaterThan(10)
     for (const url of urls) expectScoped(url, prefix)

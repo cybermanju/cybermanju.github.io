@@ -2,15 +2,24 @@
 // CyberManju OS — wiki generator (Pages wiki + llms.txt).
 // Role: scan the tree with the improved structure finder, group files into
 //   subjects, and emit LLM artifacts (llms.txt, per-subject .txt/.json) plus
-//   static per-subject .html and the subjects.json payload the Three.js SPA
-//   fetches at runtime.
-// Exports: SUBJECTS table; main `--out <dir>` (default dist-wasm).
+//   static per-subject .html, the subjects.json payload the Three.js SPA
+//   fetches at runtime, and the per-subject FORM assignment (shape/glyph/
+//   shapeWhy — a distinct, function-themed 3D component per module, never a
+//   bare cube/circle) that both the SPA and the injected graph.html script
+//   consume.
+// Exports: SUBJECTS table (id/title/tag/color/shape/glyph/shapeWhy/paths);
+//   main `--out <dir>` (default dist-wasm) — importable without side effects
+//   (CLI guard), so tests can pin the form table.
 // Integrates: reads `scripts/collect-file-context.mjs` (heuristic fast path;
 //   the Rust tree-sitter engine stays authoritative for code-intel payloads)
 //   and `scripts/wiki-graph.mjs` (graphify graph.json → subject edges/god
 //   nodes/communities/paths, when present — `npm run wiki:graph` or CI's
-//   `graphify extract . --code-only` produces it);
-//   output lands in dist-wasm/{llms.txt,wiki/} so the Pages artifact serves it
+//   `graphify extract . --code-only` produces it) plus `scripts/wiki-symbols.mjs`
+//   (per-subject symbols-<id>.json: real source blocks + auto explanations)
+//   and `scripts/wiki-graph-html.mjs` (symbol-level interactive graph.html —
+//   real symbol/module nodes with docs, never "Community {n}" meta-circles);
+//   `wiki-src/shapes.ts` owns the matching 3D/clip forms.
+//   Output lands in dist-wasm/{llms.txt,wiki/} so the Pages artifact serves it
 //   with zero extra deploy steps. `npm run wiki` chains this + the vite build.
 // Contracts: read-only w.r.t. source; only writes under --out (created with
 //   mkdir -p). Caps keep every .txt LLM-friendly (< ~40 KB).
@@ -21,10 +30,13 @@
 //   regenerates them each push — curl consumers re-fetch, don't cache).
 
 import { execSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { collectFileContext } from './collect-file-context.mjs';
 import { aggregateGraph } from './wiki-graph.mjs';
+import { buildSymbolEntries } from './wiki-symbols.mjs';
+import { buildGraphHtml } from './wiki-graph-html.mjs';
 
 // Match the app/wiki Vite deployment root: production /, preview /develop/.
 // Strip the trailing slash because artifact paths below start with one.
@@ -38,52 +50,52 @@ const GIT_COMMIT = (() => {
 
 // id, title, tagline, blurb, accent color, path prefixes.
 export const SUBJECTS = [
-  { id: 'overview', title: 'Overview', tag: 'start here: identity, stack, transports', color: '#c084fc',
+  { id: 'overview', title: 'Overview', tag: 'start here: identity, stack, transports', color: '#c084fc', shape: 'facet', glyph: '🌐', shapeWhy: 'one faceted crystal — the whole system seen as a single object',
     paths: ['src/main.ts', 'src-tauri/src/main.rs', 'src-tauri/src/lib.rs', 'docker/server/src/main.rs'],
     blurb: 'CyberManju OS is a quantum-resistant encrypted file manager plus a decentralized OS layer. One Vue 3 + Pinia frontend runs over three transports — Tauri IPC on desktop, REST against the :3456 dashboard, and a WASM volume on GitHub Pages — while 15 Rust crates own agent, sync, crypto, compression, disk, search and OS services.' },
-  { id: 'agent', title: 'Agent System', tag: 'loop, permissions, memory, failover', color: '#a855f7',
+  { id: 'agent', title: 'Agent System', tag: 'loop, permissions, memory, failover', color: '#a855f7', shape: 'knot', glyph: '🤖', shapeWhy: 'the agentic loop woven into a torus knot — config → providers → edit → stream',
     paths: ['crates/agent/', 'crates/types/src/agent.rs'],
     blurb: 'The agentic loop (config → providers → MCP → edit → redact → stream) with opencode-style allow/ask/deny permissions, two-layer memory (transcripts in agent_sessions plus semantic rows in agent_memories, 2200-char recall budget), and provider failover chains that continue the same transcript on terminal auth/rate-limit/network errors.' },
-  { id: 'sync', title: 'Sync Pipeline', tag: 'scan, erasure, backends, repair', color: '#ff4d6d',
+  { id: 'sync', title: 'Sync Pipeline', tag: 'scan, erasure, backends, repair', color: '#ff4d6d', shape: 'orbit', glyph: '🔄', shapeWhy: 'an open ring — the scan → compress → encrypt → upload → verify cycle',
     paths: ['crates/sync/', 'crates/erasure/'],
     blurb: 'Async sync jobs (202 + poll, ≤10 min parked asks) run scan → compress → encrypt → upload → verify → link → clean, with Reed-Solomon k+m striped placement, quota/rate-limit/retry guards, and scrub/repair/gc/lease workers. Failures keep the local original and record a WARNING — never silent loss.' },
-  { id: 'crypto', title: 'Crypto', tag: 'ML-KEM, ChaCha20, Argon2id, BLAKE3', color: '#ef4444',
+  { id: 'crypto', title: 'Crypto', tag: 'ML-KEM, ChaCha20, Argon2id, BLAKE3', color: '#ef4444', shape: 'diamond', glyph: '💎', shapeWhy: 'an octahedral key diamond — post-quantum hardness, facet = KEM/MAU/sign layers',
     paths: ['crates/crypto/'],
     blurb: 'Hybrid post-quantum encryption: ML-KEM-1024 key encapsulation plus X25519, ChaCha20Poly1305 data encryption, ML-DSA/SLH-DSA signatures, Argon2id key derivation and BLAKE3 hash-anchored edits. Secrets are sealed per config (hasKey only, never echoed).' },
-  { id: 'compression', title: 'Compression', tag: 'LZ4, ZSTD-15, Brotli-11, .cyb3', color: '#e879f9',
+  { id: 'compression', title: 'Compression', tag: 'LZ4, ZSTD-15, Brotli-11, .cyb3', color: '#e879f9', shape: 'funnel', glyph: '🗜️', shapeWhy: 'a funnel — LZ4 → ZSTD → Brotli cascade narrowing bytes to a .cyb3 payload',
     paths: ['crates/compression/'],
     blurb: 'The TripleCompressor cascade (LZ4 → ZSTD-15 → Brotli-11) with per-layer stats and .cyb3 payloads. Incompressible input short-circuits after LZ4 (ratio > 0.98). The browser mirrors the chain with zstd-wasm so Pages reads and writes the same frames.' },
-  { id: 'disk', title: 'Virtual Disk', tag: 'volumes, catalog, allocator', color: '#a855f7',
+  { id: 'disk', title: 'Virtual Disk', tag: 'volumes, catalog, allocator', color: '#a855f7', shape: 'platter', glyph: '💾', shapeWhy: 'a 12-sided platter — the single-file virtual disk and its block allocator',
     paths: ['crates/disk/'],
     blurb: 'A single-file virtual disk with superblock, block allocator, file catalog and mountable volumes — the durable home for the vault, the redb database and sync state, shared by desktop, server and the browser volume.' },
-  { id: 'search', title: 'Search + Scene', tag: 'Tantivy BM25, 17 categories', color: '#f0abfc',
+  { id: 'search', title: 'Search + Scene', tag: 'Tantivy BM25, 17 categories', color: '#f0abfc', shape: 'lens', glyph: '🔍', shapeWhy: 'a magnifier ring + handle — Tantivy BM25 lens over the scene classifier',
     paths: ['crates/search/', 'crates/scene/'],
     blurb: 'Full-text search over a Tantivy BM25 index (filename, content, tags, metadata) with faceted and fuzzy queries, paired with a heuristic scene classifier (17 categories × 10 languages, weighted name/tags/path) that also powers the Pages BM25-lite transport.' },
-  { id: 'faces', title: 'Faces', tag: 'onnx, heuristic-v2, none', color: '#fda4af',
+  { id: 'faces', title: 'Faces', tag: 'onnx, heuristic-v2, none', color: '#fda4af', shape: 'star', glyph: '🎭', shapeWhy: 'a five-point spotlight — detection regions, engine-labeled honestly',
     paths: ['crates/faces/'],
     blurb: 'Face detection with honest engine labels: onnx where the model runs, a labeled skin-segmentation heuristic-v2 fallback, and silence (never fabricated boxes) where neither applies. Every result reports its engine.' },
-  { id: 'os-shell', title: 'OS + cybsh', tag: 'shell, tasks, compute, schedule', color: '#ff4d6d',
+  { id: 'os-shell', title: 'OS + cybsh', tag: 'shell, tasks, compute, schedule', color: '#ff4d6d', shape: 'chevron', glyph: '⌨️', shapeWhy: 'the cybsh prompt chevron — the shell `>` on every transport',
     paths: ['crates/os/', 'crates/types/src/schedule.rs'],
     blurb: 'The server-side shell (POST /api/os/exec with --json, pipes, history, completion) is identical on desktop, web and Pages via the WASM dispatcher, plus background tasks, compute dispatch and cron-style schedules.' },
-  { id: 'web-api', title: 'Web API', tag: '114 routes, auth, security', color: '#c084fc',
+  { id: 'web-api', title: 'Web API', tag: '114 routes, auth, security', color: '#c084fc', shape: 'globe', glyph: '🔌', shapeWhy: 'a faceted globe — the :3456 dashboard speaking REST to every client',
     paths: ['crates/web/', 'docker/server/'],
     blurb: 'The :3456 dashboard backend: 114 REST route arms, fail-closed auth with 404-before-401 and role RBAC, sealed secrets, scrubbed device-shell spawn, and the async job contracts (sync start 202, agent prompt 202, approve/abort). Ships as Docker/ZimaOS and CasaOS images.' },
-  { id: 'db-types', title: 'Database + Types', tag: 'redb, 17+ tables, schemas', color: '#a855f7',
+  { id: 'db-types', title: 'Database + Types', tag: 'redb, 17+ tables, schemas', color: '#a855f7', shape: 'hex', glyph: '🗄️', shapeWhy: 'a hex prism — redb tables and the serde schemas every crate agrees on',
     paths: ['crates/db/', 'crates/types/'],
     blurb: 'One redb file (cybermanju.db) with JSON rows across 17+ tables — agent sessions/memories, disks/volumes/block_map, sync state, leases, compute tasks — and the shared serde schemas every crate and the frontend agree on.' },
-  { id: 'frontend', title: 'Frontend', tag: 'Vue 3, Pinia, transports', color: '#e879f9',
+  { id: 'frontend', title: 'Frontend', tag: 'Vue 3, Pinia, transports', color: '#e879f9', shape: 'pill', glyph: '🧩', shapeWhy: 'a component pill — Vue SFCs and composables snapping together',
     paths: ['src/composables/', 'src/components/', 'src/utils/', 'src/stores/', 'src/ui/', 'src/App.vue', 'src/main.ts'],
     blurb: '44 top-level Vue components plus ui primitives, 28 composables and 28 pure utils over a single Pinia store. The transport layer (tauri IPC / REST / WASM volume, REST-first for os/disk) is a pure, unit-tested decision matrix so the gateway cannot drift per call site.' },
-  { id: 'tauri', title: 'Tauri Desktop', tag: '19 modules, 130 handlers', color: '#ef4444',
+  { id: 'tauri', title: 'Tauri Desktop', tag: '19 modules, 130 handlers', color: '#ef4444', shape: 'shield', glyph: '🛡️', shapeWhy: 'a desktop shield — the Tauri v2 shell guarding IPC + code-intel',
     paths: ['src-tauri/src/'],
     blurb: 'The Tauri v2 desktop shell: 19 command modules with 130 IPC handlers, the incremental tree-sitter code-intel engine (6 real grammars plus heuristic fallback, every result engine-labeled), and the web-dashboard bridge.' },
-  { id: 'cli', title: 'CLI (cyb)', tag: 'Go client, every verb', color: '#f5f3ff',
+  { id: 'cli', title: 'CLI (cyb)', tag: 'Go client, every verb', color: '#f5f3ff', shape: 'cursor', glyph: '▶️', shapeWhy: 'the ▶ pointer — one cyb verb per server endpoint',
     paths: ['cli/'],
     blurb: 'The Go cyb CLI: one command per server verb (files, sync, agent, secrets, disks, doctor, setup), a shared REST client with tolerant decoding, terminal UI helpers, and the Supabase OAuth broker for Pages sign-in.' },
-  { id: 'wasm', title: 'WASM + Pages', tag: 'OPFS volume, offline-first', color: '#c084fc',
+  { id: 'wasm', title: 'WASM + Pages', tag: 'OPFS volume, offline-first', color: '#c084fc', shape: 'spindle', glyph: '⚡', shapeWhy: 'an hourglass spindle — the browser volume flipping Pages into a full peer',
     paths: ['crates/os-wasm/', 'src/composables/useWasm', 'wasm-pkg.ts', 'vite.config.wasm.ts', 'vite-plugin-wasm-stub.ts'],
     blurb: 'The browser volume backend (OPFS/localStorage) that makes GitHub Pages a full peer: file pipeline, search, crypto and sync-reader run locally, fetch-free and offline-friendly, with the same error prefixes as the server.' },
-  { id: 'ops', title: 'Ops + CI', tag: 'scripts, releases, android', color: '#ff4d6d',
+  { id: 'ops', title: 'Ops + CI', tag: 'scripts, releases, android', color: '#ff4d6d', shape: 'gear', glyph: '⚙️', shapeWhy: 'a working gear — version checks, the CI matrix and the release atlas',
     paths: ['scripts/', '.github/workflows/', 'docker-compose.yml', 'docs/OPERATIONS.md', 'docs/SECURITY.md', 'docs/ANDROID.md'],
     blurb: 'Everything around the code: version single-source checks, the ~15 min CI matrix (rust, wasm, windows, linux, rpm, flatpak, arch, android, macos, pages), the 8-family release atlas, Android signing runbooks, and the Docker/ZimaOS operations guide.' },
 ];
@@ -215,11 +227,13 @@ function subjectTxt(c) {
   out.push(`# CyberManju OS wiki — ${sub.title} (v${VERSION})`);
   out.push(`> ${sub.tag}`);
   out.push(`> ${sub.blurb}`);
+  if (sub.shape) out.push(`> Form: ${sub.glyph} ${sub.shape} — ${sub.shapeWhy}`);
   out.push(`> App: ${SITE}/wiki/#/${sub.id} | Static: ${SITE}/wiki/${sub.id}.html | JSON: ${SITE}/wiki/${sub.id}.json`);
   out.push(`> Live artifact: CI regenerates this file on every push (build commit ${GIT_COMMIT ?? 'unknown'}). Re-fetch instead of caching; the architecture map + update rules live in ${SITE}/llms.txt.`);
   out.push('');
   out.push(`Files: ${fileCount}  |  Symbols: ${symbolCount} (${documentedCount} documented, ${coverage}%) — gaps: \`node scripts/check-symbol-docs.mjs --dir <path>\``);
   if (c.links && c.links.length) out.push(`Links: ${c.links.join(', ')} (see their .txt for the other side)`);
+  if (c.engine === 'graphify') out.push(`Symbol payload: symbols-${sub.id}.json (real source block + auto explanation + graph edges per symbol)`);
   out.push('');
   out.push(...graphTxt(c));
   out.push('## Modules (merged top-file headers)');
@@ -257,6 +271,7 @@ function subjectJson(c) {
   const { sub, files, fileCount, symbolCount, documentedCount, contracts } = c;
   return {
     id: sub.id, title: sub.title, tag: sub.tag, blurb: sub.blurb, color: sub.color,
+    shape: sub.shape ?? null, glyph: sub.glyph ?? null, shapeWhy: sub.shapeWhy ?? null,
     version: VERSION, fileCount, symbolCount, documentedCount,
     docsCoverage: symbolCount === 0 ? 100 : Math.round((documentedCount / symbolCount) * 100),
     engine: c.engine || 'heuristic',
@@ -300,6 +315,7 @@ nav a{color:var(--ac);text-decoration:none;border:2px solid #ffffff22;padding:6p
 .hero{border:2px solid #ffffff1e;border-left:8px solid var(--ac);border-radius:0;box-shadow:5px 5px 0 rgba(0,0,0,.55);padding:24px;background:var(--card)}
 .hero h1{margin:0 0 4px;font-size:30px;font-family:"Silkscreen","Pixelify Sans",monospace;line-height:1.3}.tag{color:var(--ac);font-weight:700;font-family:"Silkscreen","Pixelify Sans",monospace;font-size:12px}.blurb{color:var(--mut)}
 .stats{display:flex;gap:16px;margin:16px 0;color:var(--mut);font-size:14px}
+.form{margin:6px 0 0;color:var(--mut);font-size:13px}.form code{color:var(--ac);background:#ffffff12;padding:1px 6px}
 h2{font-family:"Silkscreen","Pixelify Sans",monospace;font-size:15px;letter-spacing:.06em}
 details{background:#ffffff08;border:2px solid #ffffff14;border-radius:0;padding:8px 12px;margin:8px 0}
 summary{cursor:pointer}summary code{color:var(--ac)}.n{color:var(--mut);font-size:12px}
@@ -308,8 +324,9 @@ ul.links{list-style:none;padding:0;display:flex;gap:10px;flex-wrap:wrap}ul.links
 footer{margin-top:32px;color:var(--mut);font-size:13px}
 </style></head><body><div class="wrap">
 <nav><a href="${SITE}/wiki/">✦ 3D wiki</a>${graphNav}<a href="${SITE}/llms.txt">llms.txt</a><a href="./${sub.id}.txt">.txt</a><a href="./${sub.id}.json">.json</a></nav>
-<div class="hero"><div class="tag">${escHtml(sub.tag)}</div><h1>${escHtml(sub.title)}</h1>
+<div class="hero"><div class="tag">${escHtml(sub.tag)}</div><h1>${sub.glyph ? escHtml(sub.glyph) + ' ' : ''}${escHtml(sub.title)}</h1>
 <p class="blurb">${escHtml(sub.blurb)}</p>
+${sub.shape ? `<p class="form">${sub.glyph} form: <code>${escHtml(sub.shape)}</code> — ${escHtml(sub.shapeWhy)}</p>` : ''}
 <div class="stats"><span>${fileCount} files</span><span>${symbolCount} symbols</span><span>v${VERSION}</span></div></div>
 ${(c.links && c.links.length) ? `<h2>Related modules</h2><p class="syms">${c.links.map((id) => `<a href="./${id}.html" style="color:var(--ac);text-decoration:none;border:2px solid #ffffff22;border-radius:0;box-shadow:2px 2px 0 rgba(0,0,0,.55);padding:2px 10px;margin:2px;display:inline-block">${escHtml(id)}</a>`).join(' ')}</p>` : ''}
 <h2>Modules</h2>${rows}
@@ -345,6 +362,7 @@ function llmsTxt(collected, kg) {
     '- Service crates and their contracts: `agent` (LLM loop, allow/ask/deny permissions, two-layer memory, provider failover chains) → `web` (fail-closed auth, 404-before-401, RBAC, async jobs: POST → 202 {jobId} + poll, asks auto-deny after ≤10 min) → `sync` (scan → compress → encrypt → upload → verify → link → clean, Reed-Solomon k+m placement, scrub/repair/gc/lease workers; failures keep the local original and record a WARNING) → `disk` (superblock + block allocator + catalog + mountable volumes) → `crypto` (hybrid ML-KEM-1024+X25519 KEM, ChaCha20Poly1305, ML-DSA/SLH-DSA signatures, Argon2id, BLAKE3 hash-anchored edits) → `compression` (LZ4 → ZSTD-15 → Brotli-11 cascade in `.cyb3` frames) → `search`+`scene` (Tantivy BM25 + 17-category heuristic classifier) → `os`/`os-wasm` (the identical `cybsh` shell on server, desktop and in the browser).',
     '- Data truth: `package.json` is the single version source (`scripts/check-version.sh`); every code file carries the merged top-file header; every result that depends on a tool reports its `engine` (`graphify`/`heuristic`, `onnx`/`heuristic-v2`, tree-sitter/heuristic) — unlabeled provenance is a bug.',
     '- Deep dive: fetch each subject .txt linked above; its "Knowledge graph" section gives the cross-subject EXTRACTED/INFERRED edges, god nodes and community, and `graphify query "…" --graph graphify-out/graph.json` answers questions against the same graph locally.',
+    `- Symbol deep view: ${SITE}/wiki/symbols-<id>.json (engine graphify builds) — per-symbol {code, explanation, connections} with the real source block and graphify neighbors; the 3D wiki fetches it when a module opens.`,
     '',
   );
   if (kg) {
@@ -395,6 +413,22 @@ function main() {
   }
   mkdirSync(join(OUT, 'wiki'), { recursive: true });
 
+  // Per-subject symbol deep-view payload (engine graphify only): union of
+  // god nodes + top symbols + graphify subject symbols, each with the REAL
+  // source block extracted from the repo + an auto explanation. The SPA
+  // fetches symbols-<id>.json on demand when a planet is opened.
+  const readFileSafe = (f) => {
+    try { return readFileSync(f, 'utf8'); } catch { return null; }
+  };
+  const symbolsUrl = new Map();
+  if (kg) {
+    for (const c of collected) {
+      const entries = buildSymbolEntries(c, kg.subjectSymbols.get(c.sub.id) ?? [], readFileSafe);
+      writeFileSync(join(OUT, 'wiki', `symbols-${c.sub.id}.json`), JSON.stringify({ subject: c.sub.id, engine: 'graphify', symbols: entries }) + '\n');
+      symbolsUrl.set(c.sub.id, `./symbols-${c.sub.id}.json`);
+    }
+  }
+
   writeFileSync(join(OUT, 'llms.txt'), llmsTxt(collected, kg));
   const index = [];
   for (const c of collected) {
@@ -403,8 +437,11 @@ function main() {
     writeFileSync(join(OUT, 'wiki', `${c.sub.id}.json`), JSON.stringify(j, null, 1) + '\n');
     writeFileSync(join(OUT, 'wiki', `${c.sub.id}.html`), subjectHtml(c));
     index.push({ id: c.sub.id, title: c.sub.title, tag: c.sub.tag, blurb: c.sub.blurb, color: c.sub.color,
+      shape: c.sub.shape ?? null, glyph: c.sub.glyph ?? null, shapeWhy: c.sub.shapeWhy ?? null,
+      paths: c.sub.paths ?? [],
       fileCount: c.fileCount, symbolCount: c.symbolCount,
       engine: c.engine || 'heuristic', community: c.community?.id ?? null,
+      symbolsUrl: symbolsUrl.get(c.sub.id) ?? null,
       edges: (c.edges || []).map((e) => ({ to: e.to, weight: e.weight, extracted: e.extracted, inferred: e.inferred, relations: e.relations, sample: e.sample })),
       godNodes: (c.godNodes || []).map((g) => ({ name: g.name, degree: g.degree, file: g.file, line: g.line })),
       links: c.links || [],
@@ -418,10 +455,18 @@ function main() {
         godNodes: kg.godNodes.slice(0, 15), communities: kg.communities, paths: kg.paths }
     : null;
   writeFileSync(join(OUT, 'wiki', 'subjects.json'), JSON.stringify({ version: VERSION, commit: GIT_COMMIT, graph: graphPayload, subjects: index }, null, 1) + '\n');
-  // graphify's own clickable symbol-level view ships next to our pages.
+  // Symbol-level interactive graph page (engine graphify only). Built from
+  // graph.json via scripts/wiki-graph-html.mjs — every node is a real code
+  // symbol or subject module (never a "Community {n}" meta-circle), drawn
+  // with its module's vis-network silhouette and carrying file:line +
+  // doc-comment tooltips. The old path copied graphify's community-hub
+  // export; that collapsed the 11k-symbol graph into opaque cluster nodes.
   let graphHtml = false;
-  if (existsSync('graphify-out/graph.html')) {
-    copyFileSync('graphify-out/graph.html', join(OUT, 'wiki', 'graph.html'));
+  if (kg) {
+    writeFileSync(
+      join(OUT, 'wiki', 'graph.html'),
+      buildGraphHtml({ subjects: SUBJECTS, collected, kg, version: VERSION, commit: GIT_COMMIT }),
+    );
     graphHtml = true;
   }
   const kb = (p) => (Buffer.byteLength(readFileSync(p, 'utf8')) / 1024).toFixed(1) + ' KB';
@@ -430,4 +475,6 @@ function main() {
   for (const c of collected) console.log(`  ${c.sub.id}: ${c.fileCount} files, ${c.symbolCount} symbols (${c.documentedCount} documented), ${kb(join(OUT, 'wiki', c.sub.id + '.txt'))}`);
 }
 
-main();
+// Run only as a CLI (`node scripts/generate-wiki.mjs`) — importing the
+// module (tests pinning the SUBJECTS form table) must not generate.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

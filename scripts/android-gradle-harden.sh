@@ -23,6 +23,10 @@
 #      except `$NDK_VERSION` before calling it); it only fixes repositories.
 #
 # Usage: bash scripts/android-gradle-harden.sh [gen/android-dir]
+# NB: section 3 also installs a GLOBAL Gradle init script at
+#     ~/.gradle/init.d/cybermanju-repos.gradle (it applies to EVERY Gradle
+#     build on the machine) — remove it with
+#     `rm ~/.gradle/init.d/cybermanju-repos.gradle`.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -131,7 +135,9 @@ if [ -s "$GRADLE_PROPS" ] && [ -n "$(tail -c 1 "$GRADLE_PROPS")" ]; then
 fi
 for prop in "org.gradle.internal.network.retry.maxAttempts=5" "org.gradle.internal.repository.max.tentatives=5"; do
   key="${prop%%=*}"
-  if ! grep -q "^$key=" "$GRADLE_PROPS"; then
+  # Dots escaped in the BRE anchor: a bare `^org.gradle...=` would also
+  # match e.g. `orgxgradle...=`.
+  if ! grep -q "^${key//./\\.}=" "$GRADLE_PROPS"; then
     echo "$prop" >> "$GRADLE_PROPS"
   fi
 done

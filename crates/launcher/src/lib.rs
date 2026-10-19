@@ -19,7 +19,8 @@
 //!   `open_file` (FileProvider `content://` hand-off) are the Android answer to
 //!   `plugin-shell open`, which spawns `xdg-open` and dies on Android with
 //!   `Scoped shell IO error: No such file or directory (os error 2)` — the
-//!   WebView has no browser/file opener of its own.
+//!   WebView has no browser/file opener of its own. Only `.cyb3` vault
+//!   payloads may leave the app-private secrets dir through `open_file`.
 //!
 //! The JNI layer lives behind `#[cfg(target_os = "android")]` and uses only
 //! `jni` + `ndk-context` (no Kotlin, no `gen/android` coupling), so the crate
@@ -316,7 +317,7 @@ mod android_impl {
     use jni::errors::Error as JniError;
     use jni::objects::{JObject, JValue};
     use jni::JNIEnv;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use base64::Engine as _;
 
@@ -593,7 +594,17 @@ mod android_impl {
         if package_name.trim().is_empty() {
             return Ok(None);
         }
-        let activity_class = field_str(env, &ai, "name").unwrap_or_default();
+        // A failing field read leaves the Java exception pending: `?` would
+        // drop the whole row, while a bare `unwrap_or_default()` fails the
+        // NEXT JNI call instead (and with it the row anyway). Degrade to
+        // "" AND clear, which is what the default was meant to do.
+        let activity_class = match field_str(env, &ai, "name") {
+            Ok(name) => name,
+            Err(_) => {
+                let _ = env.exception_clear();
+                String::new()
+            }
+        };
         let app_info: JObject = env
             .get_field(
                 &ai,
@@ -797,6 +808,12 @@ mod android_impl {
                         let _ = env.exception_clear();
                         format!("network: app row failed: {e}")
                     });
+                // `get`'s ref belongs to the OUTER frame (JObject has no
+                // Drop) — reclaim it every row or ~500 launchable apps
+                // overflow ART's 512-entry local-reference table and abort
+                // the VM. The per-row frame only frees what `read_app`
+                // allocates inside itself.
+                let _ = env.delete_local_ref(item);
                 match row {
                     Ok(Some(app)) => apps.push(app),
                     Ok(None) => {}
@@ -1017,7 +1034,20 @@ mod android_impl {
                         if drawable.as_raw().is_null() {
                             return Ok(None);
                         }
-                        Ok(raster(f, &drawable, super::ICON_PX).ok())
+                        // A raster failure leaves a Java exception pending —
+                        // clear it HERE. `.ok()` would pop the frame with the
+                        // exception live whenever the LAST candidate fails
+                        // (the outer map_err only runs when the closure
+                        // itself errs), poisoning the next JNI user of this
+                        // tokio thread. Same contract read_app honors.
+                        let icon = raster(f, &drawable, super::ICON_PX);
+                        match icon {
+                            Ok(url) => Ok(Some(url)),
+                            Err(_) => {
+                                let _ = f.exception_clear();
+                                Ok(None)
+                            }
+                        }
                     })
                     .map_err(|_| {
                         let _ = env.exception_clear();
@@ -1097,7 +1127,12 @@ mod android_impl {
                     "(Ljava/lang/String;)V",
                     &[JValue::Object(&action)],
                 )
-                .map_err(|e| fail(env, format!("intent: {e}")))?;
+                .map_err(|e| {
+                    fail(
+                        env,
+                        format!("unsupported: cannot build the clear-notification intent: {e}"),
+                    )
+                })?;
             let p = new_obj(env, own.as_str())?;
             let c = new_obj(env, format!("{own}.CybermanjuMessages").as_str())?;
             let comp: JObject = env
@@ -1106,14 +1141,24 @@ mod android_impl {
                     "(Ljava/lang/String;Ljava/lang/String;)V",
                     &[JValue::Object(&p), JValue::Object(&c)],
                 )
-                .map_err(|e| fail(env, format!("component: {e}")))?;
+                .map_err(|e| {
+                    fail(
+                        env,
+                        format!("unsupported: cannot target the messages service: {e}"),
+                    )
+                })?;
             env.call_method(
                 &intent,
                 "setComponent",
                 "(Landroid/content/ComponentName;)Landroid/content/Intent;",
                 &[JValue::Object(&comp)],
             )
-            .map_err(|e| fail(env, format!("component: {e}")))?;
+            .map_err(|e| {
+                fail(
+                    env,
+                    format!("unsupported: cannot target the messages service: {e}"),
+                )
+            })?;
             // The ComponentName return is irrelevant (null when the service
             // is absent) — never let it throw.
             match env.call_method(
@@ -1299,6 +1344,50 @@ mod android_impl {
         })
     }
 
+    /// App-private files-dir roots (canonicalized when they exist). The
+    /// vault's secrets live here — `master.passphrase`, `cybermanju.db`,
+    /// `ipc_hmac_secret`, the OAuth side-store — so `open_file` may only
+    /// hand `.cyb3` vault payloads out of them. Shared-storage vaults are
+    /// untouched by this rule.
+    fn app_private_roots() -> Vec<PathBuf> {
+        let mut raw: Vec<PathBuf> = Vec::new();
+        for key in ["CYBERMANJU_DATA_DIR", "CYBERMANJU_ANDROID_FILES_DIR"] {
+            if let Ok(d) = std::env::var(key) {
+                if !d.trim().is_empty() {
+                    raw.push(PathBuf::from(d));
+                }
+            }
+        }
+        // Release package path. Debug applicationIdSuffix builds never use
+        // this entry — their dir arrives via CYBERMANJU_DATA_DIR above.
+        raw.push(PathBuf::from("/data/data/com.cybermanju.os/files"));
+        if let Ok(entries) = std::fs::read_dir("/data/user") {
+            let mut ids: Vec<String> = entries
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| !n.is_empty() && n.as_bytes().iter().all(u8::is_ascii_digit))
+                .collect();
+            ids.sort();
+            for id in ids {
+                raw.push(PathBuf::from(format!(
+                    "/data/user/{id}/com.cybermanju.os/files"
+                )));
+            }
+        }
+        // `/data/data` symlinks to `/data/user/0/…` — canonicalize so both
+        // spellings of one dir compare equal and `..` cannot slip past.
+        raw.into_iter()
+            .map(|p| std::fs::canonicalize(&p).unwrap_or(p))
+            .collect()
+    }
+
+    /// True when the canonical path sits inside an app-private files dir.
+    fn in_app_private(canon: &Path) -> bool {
+        app_private_roots()
+            .iter()
+            .any(|root| canon.starts_with(root))
+    }
+
     /// Hand one local file to a viewer/editor (`ACTION_VIEW` over a
     /// `content://` URI from our FileProvider).
     ///
@@ -1315,6 +1404,19 @@ mod android_impl {
         if meta.is_dir() {
             return Err(format!(
                 "unsupported: {path} is a folder — Android hands files, not folders, to other apps"
+            ));
+        }
+        // Defense in depth: the app-private dir holds every secret the vault
+        // owns, so a compromised WebView must not turn ACTION_VIEW into an
+        // exfil channel. Extension is checked on the CANONICAL path — a
+        // `secret.cyb3` symlink at the secret does not open it.
+        let canon = std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
+        let is_vault = canon
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("cyb3"));
+        if in_app_private(&canon) && !is_vault {
+            return Err(format!(
+                "invalid: refusing to share app-private {path} (.cyb3 vaults only)"
             ));
         }
         with_env(|env, activity| {

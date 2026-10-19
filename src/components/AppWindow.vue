@@ -13,14 +13,15 @@
       blurred: !isFocused,
       maximized: isMaximized,
       'app-window--narrow': isNarrow,
+      'app-window--bare-title': isBareTitle,
     }"
     :style="windowStyle"
-    @mousedown="onFocus"
+    @pointerdown="onFocus"
   >
     <div
       class="window-titlebar"
       :class="{ 'window-titlebar--narrow': isNarrow, 'window-titlebar--plasma': isPlasma }"
-      @mousedown.prevent="startDrag"
+      @pointerdown.prevent="startDrag"
       @dblclick="toggleMaximize"
       @contextmenu.prevent="openWindowMenu($event)"
     >
@@ -45,6 +46,19 @@
           @minimize="onMinimize"
           @zoom="toggleMaximize"
         />
+        <!-- Phone sheets hide the 12px traffic lights (CSS) — without this
+             the only exit would be the Home tab's closeAll(). One 44px close
+             per sheet, iOS-style. -->
+        <button
+          v-if="isMobileApp"
+          class="titlebar-mobile-close"
+          type="button"
+          aria-label="Close window"
+          @pointerdown.stop
+          @click.stop="onClose"
+        >
+          <AppIcon name="solar:close-bold" :size="18" />
+        </button>
 
         <div class="titlebar-spacer" />
 
@@ -64,14 +78,17 @@
       <component v-else :is="win.component" v-bind="win.props" @close="onClose" />
     </div>
 
-    <div class="resize-handle n" @mousedown.prevent.stop="startResize('n', $event)"></div>
-    <div class="resize-handle s" @mousedown.prevent.stop="startResize('s', $event)"></div>
-    <div class="resize-handle e" @mousedown.prevent.stop="startResize('e', $event)"></div>
-    <div class="resize-handle w" @mousedown.prevent.stop="startResize('w', $event)"></div>
-    <div class="resize-handle ne" @mousedown.prevent.stop="startResize('ne', $event)"></div>
-    <div class="resize-handle nw" @mousedown.prevent.stop="startResize('nw', $event)"></div>
-    <div class="resize-handle se" @mousedown.prevent.stop="startResize('se', $event)"></div>
-    <div class="resize-handle sw" @mousedown.prevent.stop="startResize('sw', $event)"></div>
+    <!-- Pointer Events (not mouse): one code path for mouse, touch and pen,
+         so tablets and phones in landscape (>768px, desktop metaphor) can
+         drag/resize too. pointercancel = the browser claimed the gesture. -->
+    <div class="resize-handle n" @pointerdown.prevent.stop="startResize('n', $event)"></div>
+    <div class="resize-handle s" @pointerdown.prevent.stop="startResize('s', $event)"></div>
+    <div class="resize-handle e" @pointerdown.prevent.stop="startResize('e', $event)"></div>
+    <div class="resize-handle w" @pointerdown.prevent.stop="startResize('w', $event)"></div>
+    <div class="resize-handle ne" @pointerdown.prevent.stop="startResize('ne', $event)"></div>
+    <div class="resize-handle nw" @pointerdown.prevent.stop="startResize('nw', $event)"></div>
+    <div class="resize-handle se" @pointerdown.prevent.stop="startResize('se', $event)"></div>
+    <div class="resize-handle sw" @pointerdown.prevent.stop="startResize('sw', $event)"></div>
   </div>
 </template>
 
@@ -149,6 +166,14 @@ const winUi = provideWindowUi(
 
 const isNarrow = computed(() => winUi.isNarrow.value)
 
+/**
+ * Settings on a phone owns its whole header (large-title root + back bar for
+ * the pushed section), so the generic sheet title would be a second, purely
+ * decorative row — 44px the standard stack already spends. Every other panel
+ * keeps the shared mobile titlebar.
+ */
+const isBareTitle = computed(() => isMobileApp.value && props.win.panelType === 'settings')
+
 /** Setup/render crashes in the hosted panel (e.g. a TDZ in a panel's
  * setup()) otherwise leave a blank window with only a console error. */
 const panelError = ref('')
@@ -187,18 +212,19 @@ const windowStyle = computed(() => {
 })
 
 let dragging = false
+let dragPointerId: number | null = null
 let dragStartX = 0
 let dragStartY = 0
 let dragOrigX = 0
 let dragOrigY = 0
 
 /**
- * Drag/resize coalescing: pointer devices fire mousemove far faster than the
- * display refreshes (a 1000 Hz mouse is 1000 reactive writes + style/layout
- * passes per second). Geometry is staged here and flushed at most once per
- * animation frame, so a drag costs one Vue update per frame no matter how
- * fast the pointer reports — the final position is always flushed
- * synchronously on mouseup so nothing can be dropped.
+ * Drag/resize coalescing: pointer devices fire pointermove far faster than
+ * the display refreshes (a 1000 Hz mouse is 1000 reactive writes + style/
+ * layout passes per second). Geometry is staged here and flushed at most
+ * once per animation frame, so a drag costs one Vue update per frame no
+ * matter how fast the pointer reports — the final position is always
+ * flushed synchronously on pointerup so nothing can be dropped.
  */
 let geomRaf = 0
 let pendingMove: { x: number; y: number } | null = null
@@ -235,34 +261,48 @@ function stageResize(w: number, h: number) {
   scheduleGeometry()
 }
 
-function startDrag(e: MouseEvent) {
+function startDrag(e: PointerEvent) {
   if (isMaximized.value || isMobileApp.value) return
   dragging = true
+  dragPointerId = e.pointerId
   dragStartX = e.clientX
   dragStartY = e.clientY
   dragOrigX = props.win.x
   dragOrigY = props.win.y
-  document.addEventListener('mousemove', onDrag)
-  document.addEventListener('mouseup', stopDrag)
+  document.addEventListener('pointermove', onDrag)
+  document.addEventListener('pointerup', stopDrag)
+  // A system gesture (back swipe, notification shade) claims the pointer:
+  // land the last staged position, skip snap logic — the drop wasn't ours.
+  document.addEventListener('pointercancel', onDragCancel)
 }
 
-function onDrag(e: MouseEvent) {
-  if (!dragging) return
+function onDrag(e: PointerEvent) {
+  if (!dragging || e.pointerId !== dragPointerId) return
   const dx = e.clientX - dragStartX
   const dy = e.clientY - dragStartY
+  const ws = getWorkspaceSize()
   const newX = Math.max(0, dragOrigX + dx)
-  const newY = Math.max(0, dragOrigY + dy)
+  // Keep the titlebar reachable: never let the window sink so far that its
+  // only drag handle leaves the workspace (rotating a tablet used to strand
+  // floating windows off-screen with no recovery).
+  const newY = Math.min(Math.max(0, dragOrigY + dy), Math.max(0, ws.h - 40))
   stageMove(newX, newY)
 }
 
-function stopDrag(e?: MouseEvent) {
+function onDragCancel() {
+  stopDrag(undefined, true)
+}
+
+function stopDrag(e?: PointerEvent, cancelled = false) {
   dragging = false
-  document.removeEventListener('mousemove', onDrag)
-  document.removeEventListener('mouseup', stopDrag)
+  dragPointerId = null
+  document.removeEventListener('pointermove', onDrag)
+  document.removeEventListener('pointerup', stopDrag)
+  document.removeEventListener('pointercancel', onDragCancel)
   // Land the last staged position before any snap logic reads geometry.
   flushGeometry()
   // Plasma snap: drag to the top edge maximizes, to a side edge tiles.
-  if (isPlasma.value && e && !isMaximized.value) {
+  if (isPlasma.value && e && !cancelled && !isMaximized.value) {
     try {
       if (e.clientY <= 2) {
         toggleMaximize()
@@ -274,6 +314,7 @@ function stopDrag(e?: MouseEvent) {
 }
 
 let resizing = false
+let resizePointerId: number | null = null
 let resizeDir = ''
 let resizeStartX = 0
 let resizeStartY = 0
@@ -282,9 +323,10 @@ let resizeOrigY = 0
 let resizeOrigW = 0
 let resizeOrigH = 0
 
-function startResize(dir: string, e?: MouseEvent) {
+function startResize(dir: string, e?: PointerEvent) {
   if (isMaximized.value || isMobileApp.value) return
   resizing = true
+  resizePointerId = e ? e.pointerId : null
   resizeDir = dir
   resizeStartX = e ? e.clientX : 0
   resizeStartY = e ? e.clientY : 0
@@ -292,12 +334,13 @@ function startResize(dir: string, e?: MouseEvent) {
   resizeOrigY = props.win.y
   resizeOrigW = props.win.width
   resizeOrigH = props.win.height
-  document.addEventListener('mousemove', onResize)
-  document.addEventListener('mouseup', stopResize)
+  document.addEventListener('pointermove', onResize)
+  document.addEventListener('pointerup', stopResize)
+  document.addEventListener('pointercancel', stopResize)
 }
 
-function onResize(e: MouseEvent) {
-  if (!resizing) return
+function onResize(e: PointerEvent) {
+  if (!resizing || (resizePointerId != null && e.pointerId !== resizePointerId)) return
   const dx = e.clientX - resizeStartX
   const dy = e.clientY - resizeStartY
   let newX = resizeOrigX
@@ -337,8 +380,10 @@ function onResize(e: MouseEvent) {
 function stopResize() {
   resizing = false
   resizeDir = ''
-  document.removeEventListener('mousemove', onResize)
-  document.removeEventListener('mouseup', stopResize)
+  resizePointerId = null
+  document.removeEventListener('pointermove', onResize)
+  document.removeEventListener('pointerup', stopResize)
+  document.removeEventListener('pointercancel', stopResize)
   flushGeometry()
 }
 
@@ -403,10 +448,22 @@ function handleViewportResize() {
 }
 
 function handleGlobalKeydown(e: KeyboardEvent) {
+  if (e.defaultPrevented) return
+  // A teleported modal (ConfirmDialog, UiModal, …) owns Escape while it is
+  // open — never let it fall through to "unmaximize the window behind it".
+  if (document.querySelector('.confirm-overlay, .ui-modal-layer')) return
   if (!isFocused.value) return
   if (e.key === 'Escape' && isMaximized.value) {
     toggleMaximize()
   }
+}
+
+/** `maximize_toggle` shortcut: App dispatches here with the active id. */
+function handleMaximizeRequest(e: Event) {
+  const id = (e as CustomEvent<{ id?: string } | undefined>)?.detail?.id
+  if (id && id !== props.win.id) return
+  if (!isFocused.value) return
+  toggleMaximize()
 }
 
 onMounted(() => {
@@ -417,6 +474,7 @@ onMounted(() => {
   }
   document.addEventListener('keydown', handleGlobalKeydown)
   window.addEventListener('resize', handleViewportResize)
+  window.addEventListener('cybermanju:maximize-focused', handleMaximizeRequest)
   // Hand the live element to the window context so descendants get real geometry.
   winUi.observe(rootRef.value)
 })
@@ -425,6 +483,7 @@ onUnmounted(() => {
   mobileWindowQuery?.removeEventListener?.('change', onMobileWindowChange)
   document.removeEventListener('keydown', handleGlobalKeydown)
   window.removeEventListener('resize', handleViewportResize)
+  window.removeEventListener('cybermanju:maximize-focused', handleMaximizeRequest)
   stopDrag()
   stopResize()
 })
@@ -495,6 +554,30 @@ onUnmounted(() => {
   user-select: none;
   flex-shrink: 0;
   position: relative;
+  /* Drag by touch: without this the browser starts a scroll and the pointer
+     is cancelled before the window ever moves. */
+  touch-action: none;
+}
+
+/* Phone sheets: the per-sheet close (traffic lights are CSS-hidden ≤768). */
+.titlebar-mobile-close {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  margin-left: -8px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ui-text-2);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.titlebar-mobile-close:active {
+  background: color-mix(in srgb, var(--ui-text) 10%, transparent);
 }
 
 /* Centered 13px/600 title, no icon. Dimmed when the window is inactive. */
@@ -566,15 +649,22 @@ onUnmounted(() => {
 /* Mobile sheets: use a clean centered title and no draggable desktop chrome. */
 @media (max-width: 768px) {
   .window-titlebar {
-    height: 40px;
-    min-height: 40px;
+    height: 44px;
+    min-height: 44px;
     padding: 0 12px;
     cursor: default;
   }
   .window-titlebar .ui-lights {
     display: none;
   }
+  .titlebar-mobile-close {
+    display: flex;
+  }
   .window-titlebar .titlebar-spacer:first-of-type {
+    display: none;
+  }
+  /* Settings renders its own nav bar (root large title / back stack). */
+  .app-window--bare-title .window-titlebar {
     display: none;
   }
 }
@@ -606,6 +696,8 @@ onUnmounted(() => {
 .resize-handle {
   position: absolute;
   z-index: 10;
+  /* Touch resize: keep the browser from stealing the gesture as a scroll. */
+  touch-action: none;
 }
 
 .resize-handle.n { top: -3px; left: 4px; right: 4px; height: 6px; cursor: n-resize; }

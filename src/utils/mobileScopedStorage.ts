@@ -1,8 +1,20 @@
 // CyberManju OS — MobileScopedStorage (src/utils/mobileScopedStorage.ts).
-// Role: pure TS helpers (unit-tested, transport-agnostic).
-// Exports: MobileFolderHandle, MobileFolderEntry, mobileVaultMirrorState, supportsNativeScopedStorage, normalizeMobileVaultFileName, pickMobileFolder, listMobileFolder, readMobileFolderFile.
-// Integrates: vue, @/….
-// Contracts: none special (pure logic; errors bubble to caller).
+// Role: native SAF bridge + live vault mirror state — scoped-folder CRUD
+// through `tauri-plugin-scoped-storage-api` (dynamic import, native builds
+// only) plus the debounced `.cybermanju` mirror snapshot over
+// `snapshot_native_database`.
+// Exports: MobileFolderHandle, MobileFolderEntry, mobileVaultMirrorState,
+// supportsNativeScopedStorage, normalizeMobileVaultFileName, pickMobileFolder,
+// listMobileFolder, readMobileFolderFile, writeMobileFolderFile,
+// removeMobileFolderEntry, configureMobileVaultMirror, unlockMobileVaultMirror,
+// lockMobileVaultMirror, syncMobileVaultMirrorNow, scheduleMobileVaultMirrorSync,
+// flushMobileVaultMirror.
+// Integrates: vue (reactive), @/composables/useTauri, @/utils/container,
+// tauri-plugin-scoped-storage-api + @tauri-apps/api/core (dynamic imports).
+// Contracts: SAF picker cancel rejects with `ScopedStorageError
+// { code: 'CANCELLED' }` (not a DOMException AbortError) — callers must treat
+// cancel as a no-op; the mirror passphrase lives in memory only (never
+// persisted) and errors surface as plain messages for the UI to map.
 import { reactive } from 'vue'
 import { isAndroidApp, isTauri } from '@/composables/useTauri'
 import {

@@ -5,14 +5,14 @@
 <!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <!-- Keep app tabs for open sheets; on the home surface the launcher dock
-    is the only bottom control, like a native phone home screen. -->
+    is the only bottom control, like a native phone home screen. The Home
+    tab always coexists with the open sheets, so only app tabs can be
+    `active` here (there is no "no-window" state to mark). -->
   <nav v-if="hasOpenWindows" class="mobile-nav" role="navigation" aria-label="Mobile navigation">
     <button
       class="mn-btn"
-      :class="{ active: !hasOpenWindows }"
       type="button"
       aria-label="Home"
-      :aria-current="!hasOpenWindows ? 'page' : undefined"
       @click="goHome"
     >
       <AppIcon name="solar:home-bold" :size="20" />

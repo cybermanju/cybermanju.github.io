@@ -1,7 +1,8 @@
 // CyberManju OS — Wiki knowledge-graph aggregator test (tests/frontend/wiki-graph.test.ts).
 // Role: pin the graphify graph.json → subject-level fold: provenance split
 //   (EXTRACTED never merges with INFERRED), symmetric cross-subject edges,
-//   god-node ranking, dominant communities, and all-pairs module paths.
+//   god-node ranking, dominant communities, all-pairs module paths, and the
+//   symbol-level neighbor fold (subjectSymbols) the SPA deep view consumes.
 // Exports: subject matching, edge aggregation, god node, community, path cases.
 // Integrates: scripts/wiki-graph.mjs (pure module, no fs/network).
 // Contracts: engine stays "graphify"; unmapped files contribute no edges;
@@ -105,5 +106,32 @@ describe('aggregateGraph', () => {
     expect(kg.paths['alpha>gamma']).toEqual(['alpha', 'beta', 'gamma'])
     expect(kg.paths['gamma>alpha']).toEqual(['gamma', 'beta', 'alpha'])
     expect(kg.paths['alpha>alpha']).toBeUndefined()
+  })
+
+  it('folds symbol-level neighbors per subject (real repo edges)', () => {
+    const alpha = kg.subjectSymbols.get('alpha')!
+    expect(alpha.map((s) => s.name)).toEqual(['a1', 'a2']) // degree order
+    const a1 = alpha[0]
+    expect(a1.degree).toBe(15)
+    expect(a1.file).toBe('src/alpha/one.rs')
+    // a1's neighbors: b1 via the EXTRACTED calls (w2), the INFERRED
+    // references (w1) and the unmapped edge (w3) — strongest first, cap 6.
+    const nb = a1.neighbors.find((n) => n.name === 'b1')!
+    expect(nb.relation).toBe('calls')
+    expect(nb.confidence).toBe('EXTRACTED')
+    expect(nb.weight).toBe(2)
+    expect(nb.via).toBe('out')
+    // Intra-subject neighbor a2 keeps direction out (a1 calls a2).
+    const intra = a1.neighbors.find((n) => n.name === 'a2')!
+    expect(intra.via).toBe('out')
+    // Reverse edges surface with via 'in' (b1 is reached from a1/a2).
+    const b1 = kg.subjectSymbols.get('beta')![0]
+    const fromA1 = b1.neighbors.find((n) => n.name === 'a1' && n.via === 'in')!
+    expect(fromA1.confidence).toBe('EXTRACTED')
+    // Unmapped node 'out' contributes neighbors but is never a subject symbol.
+    expect(kg.subjectSymbols.get('gamma')!.map((s) => s.name)).toEqual(['c1'])
+    for (const list of kg.subjectSymbols.values()) {
+      for (const s of list) expect(s.name).not.toBe('out')
+    }
   })
 })

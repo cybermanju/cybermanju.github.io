@@ -274,9 +274,19 @@ function workspaceSize(): { w: number; h: number } {
     const cs = getComputedStyle(document.documentElement)
     const top = parseFloat(cs.getPropertyValue('--ui-menubar-h')) || 0
     const bottom = parseFloat(cs.getPropertyValue('--ui-panel-h')) || 0
-    return { w: window.innerWidth, h: Math.max(400, window.innerHeight - top - bottom) }
+    // The 400px floor exists so bad inset reads never produce slivers, but
+    // it must not exceed the viewport either — a phone landscape window is
+    // ~390px tall, and a "workspace" taller than the screen (P2) pushed
+    // every tile/snap below the fold. Cap at the real innerHeight.
+    return {
+      w: window.innerWidth,
+      h: Math.min(window.innerHeight, Math.max(400, window.innerHeight - top - bottom)),
+    }
   } catch {
-    return { w: window.innerWidth, h: Math.max(400, window.innerHeight - 120) }
+    return {
+      w: window.innerWidth,
+      h: Math.min(window.innerHeight, Math.max(400, window.innerHeight - 120)),
+    }
   }
 }
 
@@ -318,6 +328,16 @@ export function useWindowManager() {
     const meta = MODULE_METADATA[target] || { label: target.toUpperCase(), icon: 'solar:grid-2x2-bold' }
     const size = defaultSizes[target] || { width: 520, height: 440 }
     const pos = cascadePosition(windows.value.length)
+    // Viewport clamp: desktop defaults (1240×720, 1280×740…) would open
+    // mostly off-screen on a phone landscape / small laptop viewport where
+    // the desktop metaphor still runs (769–1024px wide). Fit the size to
+    // the workspace box and keep the cascade offset + titlebar inside it;
+    // min sizes match `updateSize` so later resizes don't fight the open.
+    const ws = workspaceSize()
+    const width = Math.min(size.width, Math.max(320, ws.w - 16))
+    const height = Math.min(size.height, Math.max(240, ws.h - 16))
+    const maxX = Math.max(0, ws.w - width)
+    const maxY = Math.max(0, ws.h - 40)
     const id = `win-${++windowCounter}`
     const comp = getComponent(target)
 
@@ -331,10 +351,10 @@ export function useWindowManager() {
       panelType: target,
       title: meta.label,
       icon: meta.icon,
-      x: pos.x,
-      y: pos.y,
-      width: size.width,
-      height: size.height,
+      x: Math.max(0, Math.min(pos.x, maxX)),
+      y: Math.max(0, Math.min(pos.y, maxY)),
+      width,
+      height,
       minimized: false,
       zIndex: nextZIndex.value++,
       component: comp,

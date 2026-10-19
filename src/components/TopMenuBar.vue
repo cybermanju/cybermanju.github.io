@@ -863,13 +863,15 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
-  /* Single-line mobile header: logo + status + theme + one clock.
-     Nothing wraps — extra tray icons stay hidden, meta ellipsizes. */
+  /* Single-line status-bar header: logo + status + theme + one clock in a
+     slim `--mobile-header-h` strip (the shell owns the notch inset, so this
+     bar never grows around it). Nothing wraps — extra tray icons stay
+     hidden, meta ellipsizes. */
   .top-menu-bar {
     box-sizing: border-box;
-    height: calc(52px + env(safe-area-inset-top, 0px));
-    min-height: calc(52px + env(safe-area-inset-top, 0px));
-    padding: env(safe-area-inset-top, 0px) 8px 4px;
+    height: var(--mobile-header-h);
+    min-height: var(--mobile-header-h);
+    padding: 0 8px;
     gap: 6px;
     flex-wrap: nowrap;
     overflow: hidden;
@@ -879,8 +881,8 @@ onUnmounted(() => {
     display: none !important;
   }
   .tmb-left { flex: 0 0 auto; min-width: 0; }
-  .app-logo { width: 40px; height: 40px; justify-content: center; padding: 0; flex-shrink: 0; }
-  .logo-mark img { width: 22px; height: 22px; }
+  .app-logo { width: 34px; height: var(--mobile-header-h); justify-content: center; padding: 0; flex-shrink: 0; }
+  .logo-mark img { width: 16px; height: 16px; }
   .tmb-right { flex: 1; min-width: 0; justify-content: flex-end; align-items: center; gap: 4px; flex-wrap: nowrap; overflow: hidden; }
   .tmb-mobile-meta {
     display: inline-flex;
@@ -889,13 +891,14 @@ onUnmounted(() => {
     min-width: 0;
     flex: 1 1 auto;
     overflow: hidden;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--ui-text-2);
   }
   .tmb-vaults { color: var(--ui-text-3); font-weight: 500; }
-  .sys-tray { flex: 0 0 auto; gap: 4px; overflow: visible; }
-  .tray-icon { flex: 0 0 40px; width: 40px; height: 40px; border-radius: 14px; }
+  .tmb-dot { width: 6px; height: 6px; }
+  .sys-tray { flex: 0 0 auto; gap: 2px; overflow: visible; }
+  .tray-icon { flex: 0 0 26px; width: 26px; height: 26px; border-radius: 8px; }
   .tray-icon--encryption,
   .tray-icon--compression,
   .tray-icon--effects,
@@ -903,7 +906,7 @@ onUnmounted(() => {
   .tray-icon--account,
   .tray-icon--commands { display: none; }
   .tmb-separator { display: none; }
-  .clock { min-height: 40px; padding: 0 8px; flex-shrink: 0; }
-  .clock-time { font-size: 13px; }
+  .clock { min-height: var(--mobile-header-h); padding: 0 6px; flex-shrink: 0; }
+  .clock-time { font-size: 12px; }
 }
 </style>

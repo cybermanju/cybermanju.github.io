@@ -79,9 +79,14 @@ done
 # major*1000000 + minor*1000 + patch (Tauri auto-derives the same formula,
 # pinning makes upgrades auditable + Play-compatible). scripts/android-configure.sh
 # re-audits it post-`tauri android init` since gen/ itself is gitignored.
+# A semver prerelease/build suffix (0.2.0-rc.1) must not compute a NaN
+# expected versionCode ("patch" = "0-rc.1") and fail confusingly — validate
+# the X.Y.Z core, strip the suffix, then compute (mirrors android-configure.sh).
 expected_code="$(node -e "
-const v = require('./package.json').version.split('.').map(Number);
-process.stdout.write(String(v[0]*1000000 + v[1]*1000 + v[2]));
+const raw = require('./package.json').version;
+const m = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?\$/.exec(raw);
+if (!m) { console.error('version: ' + raw + ' is not a plain X.Y.Z version'); process.exit(1); }
+process.stdout.write(String(Number(m[1])*1000000 + Number(m[2])*1000 + Number(m[3])));
 ")"
 actual_code="$(node -e "process.stdout.write(String(require('./src-tauri/tauri.conf.json').bundle.android.versionCode))")"
 if [ "$actual_code" = "$expected_code" ]; then

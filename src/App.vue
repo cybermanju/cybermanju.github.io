@@ -8,6 +8,7 @@ import AppIcon from '@/components/AppIcon.vue'
 import { ref, provide, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue'
 import { useTitle, useBroadcastChannel } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'
+import { useLauncherStore } from '@/stores/launcher'
 import { useKeyboardShortcuts, getGlobalShortcuts } from '@/composables/useKeyboardShortcuts'
 import { useMotion } from '@/composables/useMotion'
 import { useShortcuts } from '@/composables/useShortcuts'
@@ -43,6 +44,7 @@ import ContextMenu from '@/components/ContextMenu.vue'
 import type { PanelType } from '@/types'
 
 const store = useAppStore()
+const launcher = useLauncherStore()
 const wm = useWindowManager()
 // Install the global motion policy before any window toolbar is mounted.
 useMotion()
@@ -262,7 +264,11 @@ shortcuts.on('close_window_alt', () => { wm.closeFocused() })
 shortcuts.on('minimize_window', () => { wm.minimizeFocused() })
 shortcuts.on('maximize_toggle', () => {
   const a = wm.activeWindow.value
-  if (a) wm.focus(a.id)
+  if (!a) return
+  wm.focus(a.id)
+  // Maximize state is per-window (a local ref in AppWindow) — the shortcut
+  // asks the focused sheet to flip it instead of pretending to own it.
+  window.dispatchEvent(new CustomEvent('cybermanju:maximize-focused', { detail: { id: a.id } }))
 })
 shortcuts.on('focus_next', () => { wm.focusNext() })
 shortcuts.on('focus_prev', () => { wm.focusPrev() })
@@ -640,16 +646,11 @@ const openInstallWindow = (event?: Event) => {
 }
 const refreshAuthGate = () => void store.checkAuthStatus()
 
-function isAndroidWebView(): boolean {
-  try {
-    return /android/i.test(navigator.userAgent)
-  } catch {
-    return false
-  }
-}
-
 // Android system back follows the mobile stack: transient UI → active app →
 // Files path. At Home it stays in the launcher instead of leaving the WebView.
+// The whole hook is gated on `isAndroidApp()` (= Tauri + Android UA): a plain
+// Android browser tab on the Pages/WASM build must never get the phantom
+// history entry / swallowed first back press (see the mount hook below).
 function handleAndroidBack() {
   if (store.commandPaletteOpen) {
     store.commandPaletteOpen = false
@@ -665,18 +666,34 @@ function handleAndroidBack() {
     mobileSetupOpen.value = false
   } else if (setupOpen.value) {
     setupOpen.value = false
+  } else if (launcher.drawerOpen) {
+    // Gaveta (app drawer) sits above the shell — back closes it first
+    // instead of acting on the window hidden behind the veil.
+    launcher.setDrawer(false)
+  } else if (launcher.messagesOpen) {
+    launcher.setMessagesOpen(false)
   } else {
     const active = wm.activeWindow.value
-    if (active?.panelType === 'files') {
-      const innerBack = new CustomEvent('cybermanju:mobile-back', { cancelable: true })
+    if (active) {
+      // The open sheet gets first claim on the back press: panels dispatch a
+      // cancelable event and preventDefault() when they pop an inner level
+      // (Files history / drawers, a pushed Settings detail, …). Unclaimed =
+      // the sheet itself closes. `detail.panel` names the sheet on top, so
+      // background sheets (they all stay mounted) never claim its press.
+      const innerBack = new CustomEvent('cybermanju:mobile-back', {
+        cancelable: true,
+        detail: { panel: active.panelType },
+      })
       window.dispatchEvent(innerBack)
-      if (!innerBack.defaultPrevented) navigateInHistory(-1)
+      if (!innerBack.defaultPrevented) {
+        if (active.panelType === 'files') navigateInHistory(-1)
+        else wm.close(active.id)
+      }
     }
-    else if (active) wm.close(active.id)
     else store.currentPanel = 'files'
   }
   try {
-    if (isAndroidWebView()) window.history.pushState({ cybermanju: true }, '')
+    if (isAndroidApp()) window.history.pushState({ cybermanju: true }, '')
   } catch {}
 }
 
@@ -796,16 +813,20 @@ onMounted(() => {
   // ── Android: system back button + offline state ────────────────
   // The WebView has no Esc key: map the platform back gesture to the same
   // history action as the desktop `go_back` shortcut (dialogs first, then
-  // path history). `navigator.onLine` flips `body.cybermanju-offline` so
-  // server-only controls visibly disable instead of hanging (P3-3).
-  window.addEventListener('popstate', handleAndroidBack)
+  // path history). Registered ONLY inside the real Android app — in a plain
+  // Android browser tab on the Pages/WASM build popstate must keep its
+  // normal meaning (browser back leaves the page). `navigator.onLine` flips
+  // `body.cybermanju-offline` so server-only controls visibly disable
+  // instead of hanging (P3-3).
+  if (isAndroidApp()) window.addEventListener('popstate', handleAndroidBack)
   window.addEventListener('online', handleOnlineStatus)
   window.addEventListener('offline', handleOnlineStatus)
   handleOnlineStatus()
   // Push one history entry so the first back press fires popstate instead
-  // of leaving the WebView.
+  // of leaving the WebView — only inside the app; on the static build a
+  // phantom entry would swallow the first back press.
   try {
-    if (isAndroidWebView()) window.history.pushState({ cybermanju: true }, '')
+    if (isAndroidApp()) window.history.pushState({ cybermanju: true }, '')
   } catch {}
 })
 
@@ -909,12 +930,14 @@ onBeforeUnmount(() => {
   justify-content: center;
   gap: 12px;
   height: 100vh;
+  height: 100dvh;
   width: 100vw;
   background: var(--ui-bg);
   color: var(--ui-text);
   font-family: var(--ui-font);
   text-align: center;
   padding: 24px;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
 }
 
 .oauth-popup-title {
@@ -1039,7 +1062,7 @@ onBeforeUnmount(() => {
   border-radius: var(--ui-radius-lg);
   box-shadow: var(--ui-shadow-3), inset 0 1px 0 var(--ui-glass-highlight);
   padding: 20px;
-  width: 320px;
+  width: min(320px, calc(100vw - 32px));
   font-family: var(--ui-font);
   animation: ui-pop var(--ui-dur) var(--ui-ease-spring);
 }
@@ -1065,4 +1088,12 @@ onBeforeUnmount(() => {
 
 .text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Phone: clear the 64px + safe-area MobileNav tab bar so the error banner
+   never covers (or blocks) the primary navigation. */
+@media (max-width: 768px) {
+  .error-banner {
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+}
 </style>

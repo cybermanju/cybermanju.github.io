@@ -52,13 +52,30 @@ const TITLES: Record<NotificationType, string> = {
   position: fixed;
   top: calc(24px + 10px);
   right: 12px;
-  z-index: 10000;
+  /* Above modals/palette (10000) so a toast fired mid-dialog stays visible
+     and tappable; below the first-run wizard (11000) on purpose. */
+  z-index: 10500;
   display: flex;
   flex-direction: column;
   gap: 8px;
   pointer-events: none;
   width: 340px;
   max-width: calc(100vw - 24px);
+}
+
+/* Phone: drop toasts below the slim header band (notch inset + header) so
+   they never paint across the connectivity/clock strip — and go full width
+   with a solid fill, since phones run without backdrop blur. */
+@media (max-width: 768px) {
+  .notification-stack {
+    top: calc(env(safe-area-inset-top, 0px) + var(--mobile-header-h, 26px) + 10px);
+    right: 8px;
+    width: min(380px, calc(100vw - 16px));
+    max-width: calc(100vw - 16px);
+  }
+  .notification-item {
+    background: color-mix(in srgb, var(--ui-surface) 94%, var(--ui-bg));
+  }
 }
 
 .notification-item {

@@ -30,7 +30,10 @@ export function useMessages() {
     try {
       const rows = await invoke<AndroidApp[]>('launcher_list_social_apps')
       socialApps.value = Array.isArray(rows) ? rows : []
-    } catch {
+    } catch (e) {
+      // UX stays empty (quick-launch strip hides), but a real `network:`/
+      // `unsupported:` refusal must not vanish without a trace.
+      console.debug('launcher_list_social_apps failed:', e instanceof Error ? e.message : String(e))
       socialApps.value = []
     }
     return socialApps.value
@@ -39,7 +42,10 @@ export function useMessages() {
   async function refreshState(): Promise<NotificationState | null> {
     try {
       notifState.value = await invoke<NotificationState>('launcher_notification_state')
-    } catch {
+    } catch (e) {
+      // Fallback to "no state" (the enable-access prompt stays hidden), with
+      // a console trace so an honest transport refusal stays observable.
+      console.debug('launcher_notification_state failed:', e instanceof Error ? e.message : String(e))
       notifState.value = null
     }
     return notifState.value

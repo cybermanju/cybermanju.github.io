@@ -767,7 +767,10 @@ jobs:
 
       # Shred keystore + signing properties before archiving so runner
       # images / debug bundles never retain plaintext signing secrets.
+      # `if: always()`: a failed build/verify must shred too, not leave the
+      # decoded keystore on the runner.
       - name: Shred Android signing secrets
+        if: always()
         run: bash scripts/android-signing.sh cleanup
 
       - name: Upload Android artifacts

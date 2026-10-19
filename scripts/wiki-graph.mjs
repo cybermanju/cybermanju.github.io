@@ -5,8 +5,9 @@
 //   wiki generator emits — cross-subject edges with provenance, god nodes,
 //   Leiden communities, and all-pairs module paths for the SPA path tracer.
 // Exports: aggregateGraph(graph, subjects, opts) → { engine:'graphify', commit,
-//   stats, subjectEdges, subjectGods, subjectCommunity, godNodes, communities,
-//   paths }; subjectOfFile(file, subjects) (shared matching rule).
+//   stats, subjectEdges, subjectGods, subjectCommunity, subjectSymbols,
+//   godNodes, communities, paths }; subjectOfFile(file, subjects) (shared
+//   matching rule).
 // Integrates: scripts/generate-wiki.mjs calls it when graphify-out/graph.json
 //   exists (npm run wiki:graph / CI's `graphify extract . --code-only`);
 //   without that file the generator keeps the heuristic link miner.
@@ -128,6 +129,59 @@ export function aggregateGraph(graph, subjects, opts = {}) {
     if (list.length > linkCap) list.length = linkCap;
   }
 
+  // Symbol-level connections (real repo edges): every graph edge touching a
+  // node inside a subject becomes a neighbor entry — direction kept via
+  // via: 'out'|'in', EXTRACTED/INFERRED provenance never merged.
+  const rawNeighbors = new Map(); // node id → neighbor acc list
+  const addNeighbor = (from, to, rel, conf, w, via) => {
+    if (!rawNeighbors.has(from)) rawNeighbors.set(from, []);
+    rawNeighbors.get(from).push({ to, relation: rel, confidence: conf, weight: w, via });
+  };
+  for (const e of links) {
+    const conf = e.confidence === 'INFERRED' ? 'INFERRED' : 'EXTRACTED';
+    const rel = e.relation ?? 'references';
+    addNeighbor(e.source, e.target, rel, conf, e.weight ?? 1, 'out');
+    addNeighbor(e.target, e.source, rel, conf, e.weight ?? 1, 'in');
+  }
+
+  // Per-subject symbol nodes (strongest hubs first), each carrying up to
+  // `symbolNeighborCap` neighbors resolved to name/file/line.
+  const symbolNeighborCap = opts.symbolNeighborCap ?? 6;
+  const symbolPerSubject = opts.symbolPerSubject ?? 36;
+  const subjectSymbols = new Map(subjects.map((s) => [s.id, []]));
+  for (const [id, sub] of nodeSub) {
+    const n = info.get(id);
+    const deg = degree.get(id) ?? 0;
+    const neighbors = (rawNeighbors.get(id) ?? [])
+      .sort((x, y) => y.weight - x.weight)
+      .slice(0, symbolNeighborCap)
+      .map((nb) => {
+        const t = info.get(nb.to);
+        return {
+          name: t?.label ?? nb.to,
+          file: t?.file ?? '',
+          line: t?.line ?? 0,
+          relation: nb.relation,
+          confidence: nb.confidence,
+          weight: nb.weight,
+          via: nb.via,
+        };
+      });
+    subjectSymbols.get(sub).push({
+      id,
+      name: n.label,
+      file: n.file,
+      line: n.line,
+      degree: deg,
+      community: nodeComm.get(id) ?? -1,
+      neighbors,
+    });
+  }
+  for (const list of subjectSymbols.values()) {
+    list.sort((x, y) => y.degree - x.degree);
+    if (list.length > symbolPerSubject) list.length = symbolPerSubject;
+  }
+
   // God nodes: highest weighted-degree nodes that live inside a subject.
   // Per-subject picks come from the FULL ranking (a global cap would starve
   // every subject outside the top N); the global list is capped for payload.
@@ -225,6 +279,7 @@ export function aggregateGraph(graph, subjects, opts = {}) {
     subjectEdges,
     subjectGods,
     subjectCommunity,
+    subjectSymbols,
     godNodes,
     communities,
     paths,

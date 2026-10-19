@@ -1720,10 +1720,10 @@ onMounted(async () => {
     touch-action: manipulation;
   }
 
-  .header-right .ghost-btn {
-    min-height: 0;
-    padding: 3px 8px;
-  }
+  /* `.header-right .ghost-btn` used to re-crush these to `min-height: 0`
+     (≈25px) right after the tap-floor rule above — the header actions became
+     the smallest targets on the phone screen. They keep the 44px floor; the
+     ≤760px block already hides all but the first action, so the row fits. */
 
   .term-scroll {
     padding: 10px 12px;
