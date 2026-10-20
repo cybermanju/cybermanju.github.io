@@ -258,7 +258,9 @@ pub(crate) fn mint(d: &WebDashboard, role: &str, exp: u64, jti: &str) -> String 
             users
                 .insert(
                     user_id.as_str(),
-                    serde_json::to_string(&user).expect("serialize test user").as_str(),
+                    serde_json::to_string(&user)
+                        .expect("serialize test user")
+                        .as_str(),
                 )
                 .expect("insert test user");
         }

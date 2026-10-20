@@ -590,7 +590,8 @@ mod tests {
         assert_eq!(page.total, 1);
         assert!(!page.results.iter().any(|h| h.file_id == "denied"));
         assert!(!page.results.iter().any(|h| h.file_id == "encrypted"));
-        let stale_only = search_paginated_for_caller(&index, &db, "ghostword", 10, 0, &claims).unwrap();
+        let stale_only =
+            search_paginated_for_caller(&index, &db, "ghostword", 10, 0, &claims).unwrap();
         assert_eq!(stale_only.total, 0);
         let visible = page
             .results

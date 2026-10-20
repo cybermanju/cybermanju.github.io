@@ -1200,7 +1200,8 @@ fn route_request(
             }
             let req: InitBody = json_body!(body, origin);
             let (owner_id, is_admin) = claims_owner(&claims);
-            return match api::agent_api::start_init_job_as(db, &req.config_id, &owner_id, is_admin) {
+            return match api::agent_api::start_init_job_as(db, &req.config_id, &owner_id, is_admin)
+            {
                 Ok(job) => http_response(
                     202,
                     "application/json",
@@ -1630,9 +1631,12 @@ fn route_request(
             if let Some(denied) = deny_file(db, &claims, id, "write", origin) {
                 return denied;
             }
-            crypto_response(api::batch::decrypt_one(db, id).map(|()| {
-                serde_json::json!({ "fileId": id, "encrypted": false, "algorithm": null })
-            }), origin)
+            crypto_response(
+                api::batch::decrypt_one(db, id).map(
+                    |()| serde_json::json!({ "fileId": id, "encrypted": false, "algorithm": null }),
+                ),
+                origin,
+            )
         }
         ["api", "files", id] if method == "DELETE" => {
             if let Some(denied) = deny_file(db, &claims, id, "write", origin) {
@@ -2083,15 +2087,23 @@ fn route_request(
                 return match db.get_file_node(&file_id) {
                     Ok(Some(node)) => {
                         let algorithm = node.encryption_algorithm.as_deref().unwrap_or("");
-                        let level = if algorithm.contains("Hybrid") { 3 }
-                            else if algorithm.contains("1024") { 5 } else { 0 };
-                        json_ok(&serde_json::json!({
-                            "isEncrypted": node.encrypted,
-                            "algorithm": node.encryption_algorithm,
-                            "nistLevel": level,
-                            "encryptedAt": if node.encrypted { Some(node.modified_at) } else { None },
-                            "available": true,
-                        }), origin)
+                        let level = if algorithm.contains("Hybrid") {
+                            3
+                        } else if algorithm.contains("1024") {
+                            5
+                        } else {
+                            0
+                        };
+                        json_ok(
+                            &serde_json::json!({
+                                "isEncrypted": node.encrypted,
+                                "algorithm": node.encryption_algorithm,
+                                "nistLevel": level,
+                                "encryptedAt": if node.encrypted { Some(node.modified_at) } else { None },
+                                "available": true,
+                            }),
+                            origin,
+                        )
                     }
                     Ok(None) => json_error(404, "not_found: file not found", origin),
                     Err(e) => json_error(500, &e.to_string(), origin),
@@ -2105,8 +2117,11 @@ fn route_request(
                 algorithm: String,
             }
             let req: KeyBody = json_body!(body, origin);
-            crypto_response(api::batch::generate_keypair(db, &req.algorithm)
-                .map(|key| encryption_key_info(&key)), origin)
+            crypto_response(
+                api::batch::generate_keypair(db, &req.algorithm)
+                    .map(|key| encryption_key_info(&key)),
+                origin,
+            )
         }
         ["api", "encryption", "keys"] if method == "GET" => {
             // SECURITY: Never expose private keys
@@ -2151,7 +2166,14 @@ fn route_request(
                 .map(|v| security::clamp_offset(Some(v)))
                 .unwrap_or(0);
             api_response(
-                api::search_api::search_paginated_for_caller(&dashboard.search_index, db, &q, limit, offset, caller),
+                api::search_api::search_paginated_for_caller(
+                    &dashboard.search_index,
+                    db,
+                    &q,
+                    limit,
+                    offset,
+                    caller,
+                ),
                 origin,
             )
         }
@@ -2167,7 +2189,14 @@ fn route_request(
                 .and_then(|v| v.parse::<usize>().ok())
                 .map(|v| security::clamp_offset(Some(v)));
             api_response(
-                api::search_api::search_for_caller(&dashboard.search_index, db, &q, limit, offset, caller),
+                api::search_api::search_for_caller(
+                    &dashboard.search_index,
+                    db,
+                    &q,
+                    limit,
+                    offset,
+                    caller,
+                ),
                 origin,
             )
         }
@@ -2372,8 +2401,12 @@ fn route_request(
         }
 
         // ─── Permission endpoints ─────────────────────────────────
-        ["api", "permissions"] if method == "POST" => set_permission_web(db, claims.as_ref(), body, origin),
-        ["api", "permissions", "verify"] if method == "POST" => verify_access_web(db, claims.as_ref(), body, origin),
+        ["api", "permissions"] if method == "POST" => {
+            set_permission_web(db, claims.as_ref(), body, origin)
+        }
+        ["api", "permissions", "verify"] if method == "POST" => {
+            verify_access_web(db, claims.as_ref(), body, origin)
+        }
         ["api", "permissions", file_id] if method == "GET" => {
             get_permissions_for_file(db, claims.as_ref(), file_id, origin)
         }
@@ -2742,9 +2775,10 @@ fn verify_jwt_auth(
             }
             // A signed token is not a snapshot of permanent authority. Reject
             // deleted/inactive accounts and changed roles on every request.
-            let db = dashboard.db.read().map_err(|_| {
-                json_error(401, "Account validation unavailable", origin)
-            })?;
+            let db = dashboard
+                .db
+                .read()
+                .map_err(|_| json_error(401, "Account validation unavailable", origin))?;
             api::users::validate_token_identity(&db, &claims)
                 .map_err(|_| json_error(401, "Account or role changed; sign in again", origin))?;
             Ok(claims)
@@ -2895,7 +2929,8 @@ fn encryption_key_info(key: &cybermanju_types::schema::EncryptionKey) -> serde_j
 fn list_encryption_keys_safe(db: &Database, origin: Option<&str>) -> String {
     let list = || -> Result<Vec<serde_json::Value>, String> {
         let tx = db.begin_read().map_err(|e| e.to_string())?;
-        let table = tx.open_table(Database::get_encryption_keys_table())
+        let table = tx
+            .open_table(Database::get_encryption_keys_table())
             .map_err(|e| e.to_string())?;
         let mut keys = Vec::new();
         for row in table.iter().map_err(|e| e.to_string())? {
@@ -3649,16 +3684,25 @@ fn verify_access_web(
         return json_error(401, "Authentication required", origin);
     };
     let req: serde_json::Value = json_body!(body, origin);
-    let user_id = req.get("userId").and_then(|v| v.as_str()).unwrap_or(&caller.user_id);
+    let user_id = req
+        .get("userId")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&caller.user_id);
     let file_id = req.get("fileId").and_then(|v| v.as_str()).unwrap_or("");
-    let required = req.get("requiredAccess").and_then(|v| v.as_str()).unwrap_or("read");
+    let required = req
+        .get("requiredAccess")
+        .and_then(|v| v.as_str())
+        .unwrap_or("read");
     match api::permissions::verify_permission(db, caller, user_id, file_id, required) {
-        Ok(granted) => json_ok(&serde_json::json!({
-            "userId": user_id,
-            "fileId": file_id,
-            "requiredAccess": required,
-            "granted": granted,
-        }), origin),
+        Ok(granted) => json_ok(
+            &serde_json::json!({
+                "userId": user_id,
+                "fileId": file_id,
+                "requiredAccess": required,
+                "granted": granted,
+            }),
+            origin,
+        ),
         Err(e) => auth_response::<()>(Err(e), origin),
     }
 }
@@ -3672,7 +3716,10 @@ fn get_permissions_for_file(
     let Some(caller) = claims else {
         return json_error(401, "Authentication required", origin);
     };
-    auth_response(api::permissions::list_permissions_for_file(db, caller, file_id), origin)
+    auth_response(
+        api::permissions::list_permissions_for_file(db, caller, file_id),
+        origin,
+    )
 }
 // ─── HTTP response builder ────────────────────────────────────────────
 

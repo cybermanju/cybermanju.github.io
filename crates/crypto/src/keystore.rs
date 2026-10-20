@@ -224,7 +224,8 @@ static HANDLE_STORE_LOCK: Mutex<()> = Mutex::new(());
 /// new passphrase orphans everything sealed under the old one. No automatic
 /// passphrase-rotation procedure is provided.
 pub fn get_or_derive(id: &str, passphrase: &str) -> Result<KeyHandle, String> {
-    let _guard = HANDLE_STORE_LOCK.lock()
+    let _guard = HANDLE_STORE_LOCK
+        .lock()
         .map_err(|_| "integrity: keystore update lock is poisoned".to_string())?;
     if id.trim().is_empty() {
         return Err("keystore id is required".to_string());
@@ -277,7 +278,8 @@ pub fn open(handle: &KeyHandle, passphrase: &str) -> Result<[u8; 32], String> {
 
 /// Forget a handle.
 pub fn remove(id: &str) -> Result<(), String> {
-    let _guard = HANDLE_STORE_LOCK.lock()
+    let _guard = HANDLE_STORE_LOCK
+        .lock()
         .map_err(|_| "integrity: keystore update lock is poisoned".to_string())?;
     let path = handle_path()?;
     let mut handles = load_handles()?;
@@ -411,26 +413,27 @@ fn load_handles() -> Result<std::collections::HashMap<String, KeyHandle>, String
     let path = handle_path()?;
     read_handles(&path)
 }
-fn read_handles(
-    path: &Path,
-) -> Result<std::collections::HashMap<String, KeyHandle>, String> {
+fn read_handles(path: &Path) -> Result<std::collections::HashMap<String, KeyHandle>, String> {
     let raw = match std::fs::read_to_string(path) {
         Ok(raw) => raw,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             return Ok(Default::default());
         }
         Err(err) => {
-            return Err(format!("Could not read keystore {}: {}", path.display(), err));
-        }
-    };
-    serde_json::from_str(&raw)
-        .map_err(|err| {
-            format!(
-                "integrity: keystore {} is invalid JSON: {}",
+            return Err(format!(
+                "Could not read keystore {}: {}",
                 path.display(),
                 err
-            )
-        })
+            ));
+        }
+    };
+    serde_json::from_str(&raw).map_err(|err| {
+        format!(
+            "integrity: keystore {} is invalid JSON: {}",
+            path.display(),
+            err
+        )
+    })
 }
 fn load_handle(id: &str) -> Result<Option<KeyHandle>, String> {
     Ok(load_handles()?.remove(id))
@@ -466,7 +469,8 @@ fn write_handles(
             options.mode(0o600);
         }
         let mut file = options.open(&staged).map_err(|e| e.to_string())?;
-        file.write_all(&encoded).and_then(|()| file.sync_all())
+        file.write_all(&encoded)
+            .and_then(|()| file.sync_all())
             .map_err(|e| format!("Could not stage keystore update: {e}"))?;
         drop(file);
         // The previous store is intact if staging or rename fails: never
@@ -474,7 +478,8 @@ fn write_handles(
         std::fs::rename(&staged, path)
             .map_err(|e| format!("Could not install keystore update: {e}"))?;
         #[cfg(unix)]
-        std::fs::File::open(parent).and_then(|dir| dir.sync_all())
+        std::fs::File::open(parent)
+            .and_then(|dir| dir.sync_all())
             .map_err(|e| format!("Could not flush keystore directory: {e}"))?;
         Ok(())
     })();
@@ -536,7 +541,10 @@ mod tests {
         assert!(read_handles(&path).unwrap().is_empty());
         std::fs::write(&path, b"not-json").unwrap();
         let err = read_handles(&path).unwrap_err();
-        assert!(err.starts_with("integrity: keystore"), "unexpected error: {err}");
+        assert!(
+            err.starts_with("integrity: keystore"),
+            "unexpected error: {err}"
+        );
 
         let _ = std::fs::remove_dir_all(dir);
     }

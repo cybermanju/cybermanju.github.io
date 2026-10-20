@@ -35,7 +35,10 @@ fn isolated(name: &str, test: impl FnOnce(&Path)) {
         .status();
     let completed = std::fs::read_to_string(dir.join("completed"));
     std::fs::remove_dir_all(&dir).unwrap();
-    assert!(result.unwrap().success(), "native crypto child failed: {name}");
+    assert!(
+        result.unwrap().success(),
+        "native crypto child failed: {name}"
+    );
     assert_eq!(completed.unwrap(), name, "child test did not execute");
 }
 
@@ -148,12 +151,17 @@ impl Fixture {
 
     fn key(&self, algorithm: &str) -> Value {
         let key = self.ok("generate_keypair", json!({"algorithm": algorithm}));
-        assert!(key["privateKey"].as_str().unwrap().starts_with("sealed:v1:"));
+        assert!(key["privateKey"]
+            .as_str()
+            .unwrap()
+            .starts_with("sealed:v1:"));
         // Check persistence, not just the returned object; material stays sealed.
         let state = self.app.state::<AppState>();
         let db = state.db.read().unwrap();
         let tx = db.begin_read().unwrap();
-        let table = tx.open_table(Database::get_encryption_keys_table()).unwrap();
+        let table = tx
+            .open_table(Database::get_encryption_keys_table())
+            .unwrap();
         let stored = table.get(key["id"].as_str().unwrap()).unwrap().unwrap();
         assert_eq!(serde_json::from_str::<Value>(stored.value()).unwrap(), key);
         key
@@ -183,15 +191,24 @@ fn native_crypto_ipc_binary_roundtrip() {
             assert_eq!(response["fileId"], f.original.id);
             assert_eq!(response["encrypted"], true);
             chrono::DateTime::parse_from_rfc3339(response["updatedAt"].as_str().unwrap()).unwrap();
-            assert!(!f.path.exists(), "successful encryption left plaintext behind");
+            assert!(
+                !f.path.exists(),
+                "successful encryption left plaintext behind"
+            );
             let ciphertext = std::fs::read(&f.cipher).unwrap();
             assert!(!ciphertext.is_empty());
-            assert_ne!(ciphertext, f.plaintext, "metadata-only encryption is not success");
+            assert_ne!(
+                ciphertext, f.plaintext,
+                "metadata-only encryption is not success"
+            );
             let metadata_bytes = std::fs::read(&f.meta).unwrap();
             let metadata: EncryptedFileMeta = serde_json::from_slice(&metadata_bytes).unwrap();
             assert_eq!(metadata.key_id, key["id"]);
             assert_eq!(metadata.algorithm, response["algorithm"]);
-            assert_eq!(metadata.blake3_original, f.original.hash_blake3.clone().unwrap());
+            assert_eq!(
+                metadata.blake3_original,
+                f.original.hash_blake3.clone().unwrap()
+            );
             chrono::DateTime::parse_from_rfc3339(&metadata.encrypted_at).unwrap();
             f.assert_state(true, Some(&metadata.algorithm));
             assert_eq!(f.ok("get_encryption_status", json!({}))["keyId"], key["id"]);

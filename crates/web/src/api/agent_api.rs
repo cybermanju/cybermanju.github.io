@@ -2942,7 +2942,14 @@ pub fn start_init_job_as(
     owner_id: &str,
     is_admin: bool,
 ) -> Result<JobSnapshot, String> {
-    start_job_as(db, config_id, None, INIT_PROMPT.to_string(), owner_id, is_admin)
+    start_job_as(
+        db,
+        config_id,
+        None,
+        INIT_PROMPT.to_string(),
+        owner_id,
+        is_admin,
+    )
 }
 
 /// Poll one job (trusted-local: Tauri IPC, SSE pre-check, cybsh helpers).
@@ -4904,10 +4911,7 @@ pub fn mcp_tools(db: &Database, config_id: &str) -> Result<Vec<McpToolView>, Str
 /// Connect every enabled server on an already-loaded config and list tools.
 /// Checking happens before connecting because stdio discovery executes the
 /// configured process; REST callers must pass the JWT's admin bit.
-pub fn mcp_tools_for(
-    config: &AgentConfig,
-    is_admin: bool,
-) -> Result<Vec<McpToolView>, String> {
+pub fn mcp_tools_for(config: &AgentConfig, is_admin: bool) -> Result<Vec<McpToolView>, String> {
     authorize_config_use(config, is_admin)?;
     let mut out = Vec::new();
     // Same effective map as a run: stored servers + keyless Exa default.
@@ -5008,8 +5012,8 @@ mod admin_config_use_tests {
     #[test]
     fn persisted_attacker_exa_config_is_denied_for_primary_and_fallback_routes() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = Database::new(dir.path().join("agent.redb").to_str().expect("path"))
-            .expect("database");
+        let db =
+            Database::new(dir.path().join("agent.redb").to_str().expect("path")).expect("database");
         let persisted = serde_json::json!({
             "id": "attacker-exa",
             "name": "Attacker Exa",
@@ -5050,10 +5054,18 @@ mod admin_config_use_tests {
             "fallbackIds": ["attacker-exa"]
         }));
         let non_admin_routes = resolve_routes(&db, &primary, "test-key", false);
-        assert_eq!(non_admin_routes.len(), 1, "unauthorized fallback is excluded");
+        assert_eq!(
+            non_admin_routes.len(),
+            1,
+            "unauthorized fallback is excluded"
+        );
         assert_eq!(non_admin_routes[0].name, primary.name);
 
         let admin_routes = resolve_routes(&db, &primary, "test-key", true);
-        assert_eq!(admin_routes.len(), 2, "admin may use the configured fallback");
+        assert_eq!(
+            admin_routes.len(),
+            2,
+            "admin may use the configured fallback"
+        );
     }
 }

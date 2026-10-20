@@ -144,7 +144,9 @@ pub fn list_permissions_for_file(
 }
 
 fn require_active_user(db: &Database, user_id: &str) -> Result<User, String> {
-    let tx = db.begin_read().map_err(|_| "auth: user lookup unavailable".to_string())?;
+    let tx = db
+        .begin_read()
+        .map_err(|_| "auth: user lookup unavailable".to_string())?;
     let table = tx
         .open_table(Database::get_users_table())
         .map_err(|_| "auth: user lookup unavailable".to_string())?;
@@ -210,12 +212,7 @@ pub(crate) fn parse_permission(raw: &str) -> Option<UserFilePermission> {
 
 /// Read either spelling, rejecting conflicting aliases and non-string values.
 /// Required fields cannot be absent; metadata fields may be absent or null.
-fn json_str(
-    value: &serde_json::Value,
-    camel: &str,
-    snake: &str,
-    required: bool,
-) -> Option<String> {
+fn json_str(value: &serde_json::Value, camel: &str, snake: &str, required: bool) -> Option<String> {
     let camel_value = value.get(camel);
     let snake_value = value.get(snake);
     let as_string = |field: Option<&serde_json::Value>| -> Option<Option<String>> {
@@ -264,7 +261,9 @@ mod tests {
         let tx = db.begin_write().unwrap();
         {
             let mut table = tx.open_table(Database::get_users_table()).unwrap();
-            table.insert(id, serde_json::to_string(&user).unwrap().as_str()).unwrap();
+            table
+                .insert(id, serde_json::to_string(&user).unwrap().as_str())
+                .unwrap();
         }
         tx.commit().unwrap();
     }
@@ -295,7 +294,9 @@ mod tests {
         let tx = db.begin_write().unwrap();
         {
             let mut table = tx.open_table(Database::get_files_table()).unwrap();
-            table.insert(id, serde_json::to_string(&node).unwrap().as_str()).unwrap();
+            table
+                .insert(id, serde_json::to_string(&node).unwrap().as_str())
+                .unwrap();
         }
         tx.commit().unwrap();
     }
@@ -314,7 +315,9 @@ mod tests {
     fn seed_raw_permission(db: &Database, key: &str, raw: &str) {
         let tx = db.begin_write().unwrap();
         {
-            let mut table = tx.open_table(Database::get_user_file_perms_table()).unwrap();
+            let mut table = tx
+                .open_table(Database::get_user_file_perms_table())
+                .unwrap();
             table.insert(key, raw).unwrap();
         }
         tx.commit().unwrap();
@@ -327,13 +330,23 @@ mod tests {
         seed_user(&db, "target-id", "target", "user", true);
         seed_file(&db, "file-id");
         let admin = claims("admin-id", "admin", "admin");
-        assert!(crate::api::files::check_access(&db, &admin, "missing-file", "read")
-            .unwrap_err().starts_with("not_found:"));
+        assert!(
+            crate::api::files::check_access(&db, &admin, "missing-file", "read")
+                .unwrap_err()
+                .starts_with("not_found:")
+        );
 
         let tx = db.begin_write().unwrap();
         {
-            let mut table = tx.open_table(Database::get_user_file_perms_table()).unwrap();
-            table.insert("legacy", r#"{"user_id":"target-id","file_id":"file-id","access":"admin"}"#).unwrap();
+            let mut table = tx
+                .open_table(Database::get_user_file_perms_table())
+                .unwrap();
+            table
+                .insert(
+                    "legacy",
+                    r#"{"user_id":"target-id","file_id":"file-id","access":"admin"}"#,
+                )
+                .unwrap();
         }
         tx.commit().unwrap();
 

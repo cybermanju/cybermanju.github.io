@@ -375,10 +375,7 @@ pub fn find_by_username(db: &Database, username: &str) -> Result<Option<User>, S
 /// Reject tokens whose account was deleted, disabled, renamed, or changed role.
 /// The token's username and role are identity claims, not durable authority;
 /// callers should invoke this after signature/expiry verification.
-pub fn validate_token_identity(
-    db: &Database,
-    claims: &security::Claims,
-) -> Result<(), String> {
+pub fn validate_token_identity(db: &Database, claims: &security::Claims) -> Result<(), String> {
     let tx = db
         .begin_read()
         .map_err(|_| "auth: account identity unavailable".to_string())?;
@@ -468,7 +465,10 @@ mod tests {
         {
             let mut table = tx.open_table(Database::get_users_table()).unwrap();
             table
-                .insert(user.id.as_str(), serde_json::to_string(&user).unwrap().as_str())
+                .insert(
+                    user.id.as_str(),
+                    serde_json::to_string(&user).unwrap().as_str(),
+                )
                 .unwrap();
         }
         tx.commit().unwrap();
@@ -488,7 +488,10 @@ mod tests {
         {
             let mut table = tx.open_table(Database::get_users_table()).unwrap();
             table
-                .insert(user.id.as_str(), serde_json::to_string(user).unwrap().as_str())
+                .insert(
+                    user.id.as_str(),
+                    serde_json::to_string(user).unwrap().as_str(),
+                )
                 .unwrap();
         }
         tx.commit().unwrap();
@@ -506,17 +509,23 @@ mod tests {
 
         user.role = "user".to_string();
         save(&db, &user);
-        assert!(validate_token_identity(&db, &claims).unwrap_err().contains("role"));
+        assert!(validate_token_identity(&db, &claims)
+            .unwrap_err()
+            .contains("role"));
 
         user.role = claims.role.clone();
         user.username = "alice-renamed".to_string();
         save(&db, &user);
-        assert!(validate_token_identity(&db, &claims).unwrap_err().contains("identity"));
+        assert!(validate_token_identity(&db, &claims)
+            .unwrap_err()
+            .contains("identity"));
 
         user.username = claims.sub.clone();
         user.is_active = false;
         save(&db, &user);
-        assert!(validate_token_identity(&db, &claims).unwrap_err().contains("inactive"));
+        assert!(validate_token_identity(&db, &claims)
+            .unwrap_err()
+            .contains("inactive"));
 
         let tx = db.begin_write().unwrap();
         {
@@ -524,6 +533,8 @@ mod tests {
             table.remove(user.id.as_str()).unwrap();
         }
         tx.commit().unwrap();
-        assert!(validate_token_identity(&db, &claims).unwrap_err().contains("exists"));
+        assert!(validate_token_identity(&db, &claims)
+            .unwrap_err()
+            .contains("exists"));
     }
 }

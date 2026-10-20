@@ -82,7 +82,8 @@ fn local_storage() -> Result<Option<js_sys::Object>, String> {
 fn call1(obj: &JsValue, name: &str, arg: &JsValue) -> Result<JsValue, String> {
     let func = Reflect::get(obj, &JsValue::from_str(name))
         .map_err(|_| "disk_full: browser storage read failed".to_string())?;
-    let func = func.dyn_into::<js_sys::Function>()
+    let func = func
+        .dyn_into::<js_sys::Function>()
         .map_err(|_| "disk_full: browser storage read failed".to_string())?;
     let args = js_sys::Array::new();
     args.push(arg);
@@ -103,15 +104,20 @@ fn load_volume() -> Result<BTreeMap<String, String>, String> {
     if let Some(storage) = local_storage()? {
         let raw = call1(&storage.into(), "getItem", &JsValue::from_str(STORAGE_KEY))?;
         if !raw.is_null() && !raw.is_undefined() {
-            let raw = raw.as_string().ok_or_else(|| "integrity: stored browser volume is not text".to_string())?;
+            let raw = raw
+                .as_string()
+                .ok_or_else(|| "integrity: stored browser volume is not text".to_string())?;
             let value = JSON::parse(&raw)
                 .map_err(|_| "integrity: stored browser volume is invalid JSON".to_string())?;
             if let Some(obj) = value.dyn_ref::<js_sys::Object>() {
                 let mut map = BTreeMap::new();
                 for key in js_sys::Object::keys(obj) {
-                    let name = key.as_string().ok_or_else(|| "integrity: stored browser volume has an invalid path".to_string())?;
-                    let text = Reflect::get(obj, &key)
-                        .map_err(|_| "integrity: stored browser volume could not be read".to_string())?;
+                    let name = key.as_string().ok_or_else(|| {
+                        "integrity: stored browser volume has an invalid path".to_string()
+                    })?;
+                    let text = Reflect::get(obj, &key).map_err(|_| {
+                        "integrity: stored browser volume could not be read".to_string()
+                    })?;
                     if let Some(text) = text.as_string() {
                         map.insert(name, text);
                     }
@@ -817,7 +823,10 @@ fn dispatch(cmd: &str, args: &[String]) -> String {
     if cmd != "complete" && has_os_flag(args) {
         return os_refusal(cmd);
     }
-    let mut volume = match load_volume() { Ok(volume) => volume, Err(e) => return err(e) };
+    let mut volume = match load_volume() {
+        Ok(volume) => volume,
+        Err(e) => return err(e),
+    };
     match cmd {
         // One line from the terminal: history + envelope here, the `&&`/`;`
         // stitching in `exec_result` so `.cybsh` scripts reuse it.
@@ -1416,7 +1425,10 @@ fn run_script_file(args: &[String]) -> String {
     let json = flags.iter().any(|a| a == "--json");
     let cwd = CWD.with(|c| c.borrow().clone());
     let path = join(&cwd, &raw_path);
-    let volume = match load_volume() { Ok(volume) => volume, Err(e) => return err(e) };
+    let volume = match load_volume() {
+        Ok(volume) => volume,
+        Err(e) => return err(e),
+    };
     let source = match volume.get(&path) {
         Some(s) => s.clone(),
         None => return err(format!("not_found: no script at {path}")),
@@ -1453,7 +1465,10 @@ fn run_script_file(args: &[String]) -> String {
     // Replay journal: same source fingerprint (and argv) or `integrity:`.
     let journal = if let Some(replay_name) = &replay_arg {
         let journal_path = join(&cwd, replay_name);
-        let volume = match load_volume() { Ok(volume) => volume, Err(e) => return err(e) };
+        let volume = match load_volume() {
+            Ok(volume) => volume,
+            Err(e) => return err(e),
+        };
         let raw = match volume.get(&journal_path) {
             Some(s) => s.clone(),
             None => {
@@ -1536,7 +1551,10 @@ fn run_script_file(args: &[String]) -> String {
         for (k, (ok, text)) in log_fetch.borrow().iter() {
             fetch_map.insert(k.clone(), serde_json::json!({ "ok": ok, "output": text }));
         }
-        let mut volume = match load_volume() { Ok(volume) => volume, Err(e) => return err(e) };
+        let mut volume = match load_volume() {
+            Ok(volume) => volume,
+            Err(e) => return err(e),
+        };
         volume.insert(
             record_path,
             serde_json::json!({
@@ -1549,7 +1567,9 @@ fn run_script_file(args: &[String]) -> String {
             })
             .to_string(),
         );
-        if let Err(e) = save_volume(&volume) { return err(e); }
+        if let Err(e) = save_volume(&volume) {
+            return err(e);
+        }
     }
     if json {
         let fm = script_parse_frontmatter(&source);
@@ -2040,7 +2060,10 @@ fn parse_glass(raw: &str) -> Option<u8> {
 fn theme_cmd(args: &[String]) -> String {
     let json = args.iter().any(|a| a == "--json");
     let want = args.iter().find(|a| !a.starts_with('-')).cloned();
-    let s = match load_ui() { Ok(s) => s, Err(e) => return err(e) };
+    let s = match load_ui() {
+        Ok(s) => s,
+        Err(e) => return err(e),
+    };
     let id = match want {
         None => {
             if json {
@@ -2067,7 +2090,9 @@ fn theme_cmd(args: &[String]) -> String {
     };
     let mut next = s.clone();
     next.theme = canonical.to_string();
-    if let Err(e) = save_ui(&next) { return err(e); }
+    if let Err(e) = save_ui(&next) {
+        return err(e);
+    }
     if json {
         return ok(next.to_json().to_string());
     }
@@ -2078,7 +2103,10 @@ fn ui_cmd(args: &[String]) -> String {
     let json = args.iter().any(|a| a == "--json");
     let plain: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
     let sub = plain.first().map(|s| s.as_str()).unwrap_or("get");
-    let s = match load_ui() { Ok(s) => s, Err(e) => return err(e) };
+    let s = match load_ui() {
+        Ok(s) => s,
+        Err(e) => return err(e),
+    };
     match sub {
         "get" => {
             if json {
