@@ -2,7 +2,7 @@
 <!-- Role: Vue desktop UI: windows, panels, overlays. -->
 <!-- Exports: module root (see items below). -->
 <!-- Integrates: vue, @/…. -->
-<!-- Contracts: none special (pure logic; errors bubble to caller). -->
+<!-- Contracts: pressed semantics are opt-in through active; ordinary action buttons omit aria-pressed. -->
 <template>
   <button
     class="ui-btn"
@@ -61,7 +61,7 @@ const props = withDefaults(
     loading: false,
     disabled: false,
     block: false,
-    active: false,
+    active: undefined,
     type: 'button',
     ripple: false,
   }

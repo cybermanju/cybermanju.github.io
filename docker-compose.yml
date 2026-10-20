@@ -37,7 +37,7 @@ services:
     healthcheck:
       # /api/readyz answers 200 only when redb, the Tantivy index and the data
       # volume are all usable; /api/health is liveness and always 200.
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3456/api/readyz"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3456/api/readyz"]
       interval: 30s
       timeout: 10s
       retries: 3
