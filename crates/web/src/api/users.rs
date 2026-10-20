@@ -446,7 +446,6 @@ fn argon2_instance() -> Result<argon2::Argon2<'static>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use redb::ReadableTable;
 
     fn fixture() -> (Database, tempfile::TempDir, User, security::Claims) {
         let dir = tempfile::tempdir().expect("tempdir");

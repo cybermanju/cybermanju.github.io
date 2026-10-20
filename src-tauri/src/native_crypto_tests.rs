@@ -8,7 +8,6 @@ use crate::{native_command_handler, AppState};
 use cybermanju_crypto::pqc::EncryptedFileMeta;
 use cybermanju_db::Database;
 use cybermanju_types::schema::FileNode;
-use redb::ReadableTable;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};

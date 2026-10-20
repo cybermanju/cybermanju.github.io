@@ -4,6 +4,7 @@
 // Integrates: cybermanju_web.
 // Contracts: signals: AGENT-.
 use cybermanju_web::WebDashboard;
+use redb::ReadableTable;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
