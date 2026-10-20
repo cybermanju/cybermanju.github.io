@@ -233,9 +233,43 @@ pub(crate) fn now_secs() -> u64 {
 /// Sign a token with the dashboard's own secret so role gating and expiry can
 /// be pinned without depending on how a given role is *obtained*.
 pub(crate) fn mint(d: &WebDashboard, role: &str, exp: u64, jti: &str) -> String {
+    let user_id = format!("user-{role}");
+    let username = format!("{role}-user");
+    // Most auth tests need a coherent principal now that the router checks
+    // current account state. Never repair an existing row: tests for stale
+    // tokens must retain intentional role changes, deactivation, or deletion.
+    let db = d.db.write().expect("test database lock");
+    let tx = db.begin_write().expect("test user transaction");
+    {
+        let mut users = tx
+            .open_table(cybermanju_db::Database::get_users_table())
+            .expect("users table");
+        if users.get(user_id.as_str()).expect("user lookup").is_none() {
+            let user = cybermanju_types::schema::User {
+                id: user_id.clone(),
+                username: username.clone(),
+                password_hash: String::new(),
+                display_name: None,
+                role: role.to_string(),
+                is_active: true,
+                created_at: "test-fixture".to_string(),
+                updated_at: "test-fixture".to_string(),
+            };
+            users
+                .insert(
+                    user_id.as_str(),
+                    serde_json::to_string(&user)
+                        .expect("serialize test user")
+                        .as_str(),
+                )
+                .expect("insert test user");
+        }
+    }
+    tx.commit().expect("commit test user transaction");
+    drop(db);
     let claims = cybermanju_web::security::Claims {
-        sub: format!("{role}-user"),
-        user_id: format!("user-{role}"),
+        sub: username,
+        user_id,
         role: role.to_string(),
         iat: now_secs(),
         exp,

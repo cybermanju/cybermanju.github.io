@@ -20,10 +20,15 @@ function fileNode(path: string): FileNode {
 }
 
 function stubFileList(files: FileNode[]) {
-  const fetchMock = vi.fn(async () => new Response(JSON.stringify(files), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  }))
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const body = String(input).endsWith('/api/health')
+      ? { service: 'CyberManju OS Web Dashboard', status: 'ok' }
+      : files
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  })
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
 }

@@ -104,6 +104,10 @@ tree-sitter-typescript = { version = "0.23", optional = true }
 tree-sitter-go = { version = "0.23", optional = true }
 tree-sitter-bash = { version = "0.25", optional = true }
 
+[dev-dependencies]
+# Only the window/runtime is mocked; commands, state, disk IO and crypto are real.
+tauri = { version = "2", features = ["test"] }
+
 # ─── Platform-gated extras (LAST table in this file) ────────────────
 # This `[target.*.dependencies]` table MUST stay after every
 # `[dependencies]` key above. TOML has no "close table" marker: any

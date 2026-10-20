@@ -95,6 +95,15 @@ function fromUtf8(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes)
 }
 
+function isValidUtf8(bytes: Uint8Array): boolean {
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
   const out = new Uint8Array(a.length + b.length)
   out.set(a, 0)
@@ -213,12 +222,8 @@ async function contentNode(fileId: string): Promise<Record<string, unknown> | nu
 }
 
 async function patchNode(fileId: string, patch: Record<string, unknown>): Promise<void> {
-  try {
-    const { wasmDbDispatch } = await import('./useWasmBackend')
-    await wasmDbDispatch('files.patch', { fileId, patch })
-  } catch {
-    // Metadata bookkeeping must never fail a read/write that already worked.
-  }
+  const { wasmDbDispatch } = await import('./useWasmBackend')
+  await wasmDbDispatch('files.patch', { fileId, patch })
 }
 
 // ── content pipeline: decode (read) / encode (write) ──────────────────
@@ -251,7 +256,14 @@ async function decodeStored(
     }
     const key = await keyFor(secret)
     const nonce = fromHex(meta.enc.nonceHex)
-    const plain = w.chacha20_decrypt(key, nonce, bytes)
+    // Older browser builds persisted nonce || ciphertext but then handed the
+    // whole frame to Rust's AEAD decrypt export, which accepts ciphertext only.
+    // Recognize that frame by its exact metadata nonce; otherwise treat bytes
+    // as ciphertext-only. Never guess/strip arbitrary bytes from a damaged file.
+    const framed = nonce.length > 0 && bytes.length >= nonce.length &&
+      nonce.every((byte, index) => bytes[index] === byte)
+    const cipher = framed ? bytes.subarray(nonce.length) : bytes
+    const plain = w.chacha20_decrypt(key, nonce, cipher)
     if (meta.enc.sigHex) {
       const hash = fromHex(w.blake3_hash(plain))
       const ok = w.ml_dsa65_verify(hash, fromHex(meta.enc.sigHex), fromHex(secret.publicHex))
@@ -306,19 +318,73 @@ async function encodeStored(
   }
 
   const transformed = !!meta.enc || !!meta.comp?.layers.length || out.length !== bytes.length
-  const stored = transformed ? bytesToB64(out) : fromUtf8(out)
-  await vaultSet(contentKey(fileId), stored)
-  if (transformed) await vaultSet(encodingKey(fileId), 'base64')
-  else await vaultDelete(encodingKey(fileId))
-  await writeMeta(fileId, meta)
-
-  await patchNode(fileId, {
+  // Untransformed binary payloads must remain bytes; UTF-8 replacement
+  // decoding would irreversibly alter invalid byte sequences on decrypt.
+  const base64Stored = transformed || !isValidUtf8(out)
+  const stored = base64Stored ? bytesToB64(out) : fromUtf8(out)
+  const bodyKey = contentKey(fileId)
+  const encKey = encodingKey(fileId)
+  const metadataKey = metaKey(fileId)
+  const before = {
+    body: await vaultGet(bodyKey),
+    encoding: await vaultGet(encKey),
+    meta: await vaultGet(metadataKey),
+    node: await contentNode(fileId),
+  }
+  const nodePatch = {
     sizeBytes: out.length,
     hashBlake3: w.blake3_hash(out),
     encrypted: !!meta.enc,
     encryptionAlgorithm: meta.enc?.display ?? null,
     compressionLayers: meta.comp?.layers ?? [],
-  })
+  }
+  try {
+    await vaultSet(bodyKey, stored)
+    if ((await vaultGet(bodyKey)) !== stored) throw new Error('body write did not persist')
+    if (base64Stored) {
+      await vaultSet(encKey, 'base64')
+      if ((await vaultGet(encKey)) !== 'base64') throw new Error('encoding write did not persist')
+    } else {
+      await vaultDelete(encKey)
+      if ((await vaultGet(encKey)) !== null) throw new Error('encoding deletion did not persist')
+    }
+    await writeMeta(fileId, meta)
+    const expectedMeta = meta.enc || meta.comp?.layers.length ? JSON.stringify(meta) : null
+    if ((await vaultGet(metadataKey)) !== expectedMeta) throw new Error('metadata write did not persist')
+    await patchNode(fileId, nodePatch)
+  } catch (error) {
+    // redb kv has no multi-key transaction API. Preserve the prior version and
+    // restore all three vault records if any leg (including node bookkeeping)
+    // fails, rather than returning success with mismatched ciphertext/metadata.
+    const rollbackErrors: string[] = []
+    for (const [key, value] of [[bodyKey, before.body], [encKey, before.encoding], [metadataKey, before.meta]] as const) {
+      try {
+        if (value === null) await vaultDelete(key)
+        else await vaultSet(key, value)
+        if ((await vaultGet(key)) !== value) throw new Error(`restore verification failed for ${key}`)
+      } catch (restoreError) {
+        rollbackErrors.push(restoreError instanceof Error ? restoreError.message : String(restoreError))
+      }
+    }
+    if (before.node) {
+      try {
+        await patchNode(fileId, {
+          sizeBytes: before.node.sizeBytes ?? null,
+          hashBlake3: before.node.hashBlake3 ?? null,
+          encrypted: before.node.encrypted ?? false,
+          encryptionAlgorithm: before.node.encryptionAlgorithm ?? null,
+          compressionLayers: before.node.compressionLayers ?? [],
+        })
+      } catch (restoreError) {
+        rollbackErrors.push(restoreError instanceof Error ? restoreError.message : String(restoreError))
+      }
+    }
+    const detail = error instanceof Error ? error.message : String(error)
+    if (rollbackErrors.length) {
+      throw new Error(`vault persistence failed (${detail}); rollback incomplete: ${rollbackErrors.join('; ')}`)
+    }
+    throw new Error(`vault persistence failed (${detail}); previous content restored`)
+  }
   return { stored, byteLength: out.length, final: out, compDetails }
 }
 
@@ -489,6 +555,7 @@ export async function getEncryptionStatus(fileId?: string): Promise<EncryptionSt
         encryptedAt: meta.enc.at,
       }
     }
+    return { isEncrypted: false }
   }
   const newest = await listKeys()
   const top = newest[0]

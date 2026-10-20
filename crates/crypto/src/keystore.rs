@@ -101,22 +101,34 @@ pub fn master_passphrase() -> Option<String> {
     }
     let dir = data_dir()?;
     let path = dir.join("master.passphrase");
-    // A present-but-unreadable file must fail closed: generating a fresh
-    // passphrase over it would orphan everything sealed under the old one.
-    if path.exists() && !secret_file_mode_ok(&path) {
-        return None;
-    }
-    if let Some(existing) = read_secret_file(&path) {
-        if !existing.is_empty() {
-            return Some(existing);
+    load_or_create_master_passphrase(&path)
+}
+
+fn load_or_create_master_passphrase(path: &Path) -> Option<String> {
+    // Only a genuinely absent path permits first-use creation. Empty,
+    // unreadable, invalid-UTF8 or symlinked secrets must never be replaced.
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_file() => {
+            return read_secret_file(path).filter(|secret| !secret.is_empty());
         }
+        Ok(_) => return None,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return None,
     }
     let mut raw = [0u8; 32];
     rand_core::OsRng.fill_bytes(&mut raw);
     let encoded = BASE64.encode(raw);
-    write_secret_file(&path, &encoded).ok()?;
-    log::info!("master passphrase created at {}", path.display());
-    Some(encoded)
+    match write_secret_file(path, &encoded) {
+        Ok(()) => {
+            log::info!("master passphrase created at {}", path.display());
+            Some(encoded)
+        }
+        // Another creator won the race. Read its secret, never overwrite it.
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            read_secret_file(path).filter(|secret| !secret.is_empty())
+        }
+        Err(_) => None,
+    }
 }
 
 /// Fail-closed permission gate: a secret file readable by group/other is
@@ -146,6 +158,9 @@ fn secret_file_mode_ok(path: &Path) -> bool {
 }
 
 fn read_secret_file(path: &Path) -> Option<String> {
+    if !std::fs::symlink_metadata(path).ok()?.is_file() {
+        return None;
+    }
     if !secret_file_mode_ok(path) {
         return None;
     }
@@ -155,19 +170,28 @@ fn read_secret_file(path: &Path) -> Option<String> {
 }
 
 fn write_secret_file(path: &Path, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        std::fs::create_dir_all(parent)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
         }
     }
-    std::fs::write(path, contents)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(contents.as_bytes())?;
+    file.sync_all()?;
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        std::fs::File::open(parent)?.sync_all()?;
     }
     Ok(())
 }
@@ -190,18 +214,23 @@ pub struct KeyHandle {
     pub ciphertext: String,
 }
 
+static HANDLE_STORE_LOCK: Mutex<()> = Mutex::new(());
+
 /// Get the handle for `id`, deriving and persisting one on first use.
 ///
 /// The handle is only accepted back when `passphrase` still opens it. A
 /// changed passphrase no longer re-wraps silently (P0-17): the old handle is
-/// kept and the call fails with `auth:` — loudly, pointing at explicit
-/// rotation — because re-wrapping under a new passphrase orphans everything
-/// sealed under the old one.
+/// kept and the call fails with `auth:` — loudly, because re-wrapping under a
+/// new passphrase orphans everything sealed under the old one. No automatic
+/// passphrase-rotation procedure is provided.
 pub fn get_or_derive(id: &str, passphrase: &str) -> Result<KeyHandle, String> {
+    let _guard = HANDLE_STORE_LOCK
+        .lock()
+        .map_err(|_| "integrity: keystore update lock is poisoned".to_string())?;
     if id.trim().is_empty() {
         return Err("keystore id is required".to_string());
     }
-    if let Some(handle) = load_handle(id) {
+    if let Some(handle) = load_handle(id)? {
         if open(&handle, passphrase).is_ok() {
             return Ok(handle);
         }
@@ -211,10 +240,12 @@ pub fn get_or_derive(id: &str, passphrase: &str) -> Result<KeyHandle, String> {
         );
         return Err(format!(
             "auth: keystore entry '{id}' does not open with this passphrase — \
-             supply the original passphrase or rotate explicitly (old key kept, nothing overwritten)"
+             supply the original passphrase (old key kept, nothing overwritten; no automatic rotation is available)"
         ));
     }
 
+    // A new random key is safe only when the keystore was read successfully
+    // and this id is genuinely absent. Corrupt/unreadable storage fails above.
     let mut salt = [0u8; SALT_LEN];
     rand_core::OsRng.fill_bytes(&mut salt);
     let kek = derive_key(passphrase, &salt)?;
@@ -247,8 +278,11 @@ pub fn open(handle: &KeyHandle, passphrase: &str) -> Result<[u8; 32], String> {
 
 /// Forget a handle.
 pub fn remove(id: &str) -> Result<(), String> {
+    let _guard = HANDLE_STORE_LOCK
+        .lock()
+        .map_err(|_| "integrity: keystore update lock is poisoned".to_string())?;
     let path = handle_path()?;
-    let mut handles = load_handles();
+    let mut handles = load_handles()?;
     if handles.remove(id).is_some() {
         write_handles(&path, &handles)?;
     }
@@ -375,25 +409,38 @@ fn handle_path() -> Result<PathBuf, String> {
         .ok_or_else(|| "No data directory available for the keystore".to_string())
 }
 
-fn load_handles() -> std::collections::HashMap<String, KeyHandle> {
-    let path = match data_dir() {
-        Some(dir) => dir.join("keystore.json"),
-        None => return Default::default(),
-    };
+fn load_handles() -> Result<std::collections::HashMap<String, KeyHandle>, String> {
+    let path = handle_path()?;
+    read_handles(&path)
+}
+fn read_handles(path: &Path) -> Result<std::collections::HashMap<String, KeyHandle>, String> {
     let raw = match std::fs::read_to_string(path) {
         Ok(raw) => raw,
-        Err(_) => return Default::default(),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Default::default());
+        }
+        Err(err) => {
+            return Err(format!(
+                "Could not read keystore {}: {}",
+                path.display(),
+                err
+            ));
+        }
     };
-    serde_json::from_str(&raw).unwrap_or_default()
+    serde_json::from_str(&raw).map_err(|err| {
+        format!(
+            "integrity: keystore {} is invalid JSON: {}",
+            path.display(),
+            err
+        )
+    })
 }
-
-fn load_handle(id: &str) -> Option<KeyHandle> {
-    load_handles().remove(id)
+fn load_handle(id: &str) -> Result<Option<KeyHandle>, String> {
+    Ok(load_handles()?.remove(id))
 }
-
 fn save_handle(handle: &KeyHandle) -> Result<(), String> {
     let path = handle_path()?;
-    let mut handles = load_handles();
+    let mut handles = read_handles(&path)?;
     handles.insert(handle.id.clone(), handle.clone());
     write_handles(&path, &handles)
 }
@@ -402,23 +449,44 @@ fn write_handles(
     path: &Path,
     handles: &std::collections::HashMap<String, KeyHandle>,
 ) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
-        }
-    }
-    let encoded = serde_json::to_string(handles).map_err(|e| e.to_string())?;
-    std::fs::write(path, encoded)
-        .map_err(|e| format!("Could not write {}: {}", path.display(), e))?;
+    use std::io::Write;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| e.to_string())?;
     }
-    Ok(())
+    let encoded = serde_json::to_vec(handles).map_err(|e| e.to_string())?;
+    let staged = parent.join(format!(".keystore-{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| -> Result<(), String> {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&staged).map_err(|e| e.to_string())?;
+        file.write_all(&encoded)
+            .and_then(|()| file.sync_all())
+            .map_err(|e| format!("Could not stage keystore update: {e}"))?;
+        drop(file);
+        // The previous store is intact if staging or rename fails: never
+        // truncate the only copy while adding/removing a recovery key.
+        std::fs::rename(&staged, path)
+            .map_err(|e| format!("Could not install keystore update: {e}"))?;
+        #[cfg(unix)]
+        std::fs::File::open(parent)
+            .and_then(|dir| dir.sync_all())
+            .map_err(|e| format!("Could not flush keystore directory: {e}"))?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&staged);
+    }
+    result
 }
 
 fn decode(value: &str, what: &str) -> Result<Vec<u8>, String> {
@@ -430,6 +498,56 @@ fn decode(value: &str, what: &str) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn master_secret_creation_never_replaces_existing_or_empty_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "cybermanju-master-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("master.passphrase");
+        let original = load_or_create_master_passphrase(&path).unwrap();
+        assert_eq!(load_or_create_master_passphrase(&path).unwrap(), original);
+        assert_eq!(
+            write_secret_file(&path, "replacement").unwrap_err().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        std::fs::write(&path, b"").unwrap();
+        assert!(load_or_create_master_passphrase(&path).is_none());
+        assert!(std::fs::read(&path).unwrap().is_empty());
+        std::fs::write(&path, [0xff, 0xfe]).unwrap();
+        assert!(load_or_create_master_passphrase(&path).is_none());
+        assert_eq!(std::fs::read(&path).unwrap(), [0xff, 0xfe]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn missing_keystore_is_empty_but_corrupt_keystore_fails_closed() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "cybermanju-keystore-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("keystore.json");
+
+        assert!(read_handles(&path).unwrap().is_empty());
+        std::fs::write(&path, b"not-json").unwrap();
+        let err = read_handles(&path).unwrap_err();
+        assert!(
+            err.starts_with("integrity: keystore"),
+            "unexpected error: {err}"
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn seal_round_trip() {

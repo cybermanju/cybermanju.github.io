@@ -4,12 +4,25 @@ Source: full repo analyze 2026-10-07 (v0.1.1, `com.cybermanju.os`).
 Scope: bugs, problems, philosophical improvements for the cross-device app
 (Tauri desktop | Docker REST `:3456` | Pages WASM+OPFS).
 
+**Status reconciliation (2026-10-20):** this tracker contains historical
+checkboxes and audit notes. The aggregate claim that all 24 P0s are closed is
+**reopened**: concurrent security fixes are in progress and the Rust side has
+not been re-verified in CI for this pass. Individual `[x]` marks record prior
+implementation claims, not a present security assurance. See the P0 re-audit
+gate below. Transport items updated here are checked against current source;
+this is not a Rust validation run.
+
 Legend: `[P0]` critical/security-data-loss · `[P1]` cross-device parity · `[P2]` robustness/ops · `[P3]` philosophy/debt.
 Checkboxes are intentional — tick as you land.
 
 ---
 
-## P0 — Auth / AuthZ (fail-closed is currently fail-open on objects)
+## P0 — Auth / AuthZ (prior findings; aggregate closure is not verified)
+
+- [~] `P0-REVIEW` Re-audit all 24 historical P0 closures after the concurrent
+  security changes; inspect code/tests and require green CI before restoring an
+  aggregate closed status. Do not treat this review gate as a claim that all
+  24 underlying fixes are known broken or known secure.
 
 - [x] `P0-1` Enforce object-level file access on REST — landed: `api::files::check_access` + `deny_file` gate at every content/share/bath/agent/os-exec arm (`lib.rs` incl. `GET/PUT/DELETE /api/files/:id/content`, share-grant, batch, agent jobs, `os/exec` owner); token-capability share bytes stay public by design. (2026-10-11 audit.)
 - [x] `P0-2` Viewer read-only — landed: `authorize` denies all write methods for `role == "viewer"` (`security.rs`), pinned by viewer tests. (2026-10-11 audit.)
@@ -49,19 +62,19 @@ Checkboxes are intentional — tick as you land.
 
 - [x] `P1-1` `isTauri():99-104` checks the truthiness of `window.__TAURI__` so the static build's `false` sentinel is not misidentified as native. Settings uses the shared helper and StatusBar derives from `useTransport()`; regression tests cover false sentinel and truthy bridge.
 - [x] `P1-2` Shared `useTransport()` — replace binary `isWebMode()/isStaticHost()` labels with one 3-state helper `(label/short/tone/backend: tauri|rest|wasm)`. Fix `StatusBar.vue:80`, `KeyboardShortcutsHelp`, `ShellShortcutDock` (currently `WEB/TAURI`); `CodeStudio.vue:380` 3-way is the pattern to keep. Browser-only Alt+ fallback guidance is now explicitly scoped to browser mode, not just WASM.
-- [ ] `P1-3` Static-host health probe — `isStaticHost():115-119` has no probe: bare `https://host` → `wasm` even if user expected REST; stale `_serverUrl` → forced REST + `ERR_CONNECTION_REFUSED`. Probe `_serverUrl`/`/api/readyz` with fallback.
+- [ ] `P1-3` Static-host health probe — still open. `probeStaticConnection()` is a sync-provider credential/connectivity test, not an app-dashboard readiness probe; `isStaticHost()` still classifies based on runtime/server URL rather than probing `/api/readyz` with fallback.
 - [x] `P1-4` WASM first-paint flash — transport labels in Settings, ShellShortcutDock, and LandingPage use the synchronous shared `useTransport()`/`isStaticHost()` classification; `wasmBackendActive()` is reserved for backend readiness after loading. Regression test confirms Pages reports WASM before the async module loads.
-- [ ] `P1-5` `REST_FIRST:1147-1165` split-brain — `get_sync_job/list_runs/...` REST but `list/create/start/cancel/progress/test_connection` IPC on desktop. Job started via IPC invisible to REST poll. One side per domain + `restFetch→core.invoke` fallback (or `dashboard_status` health gate) when dashboard down.
+- [x] `P1-5` Sync split-brain — the sync domain is `REST_FIRST` (single REST job/poll source) with `core.invoke` fallback when the dashboard is down; comment and routing are in `src/composables/useTauri.ts`.
 - [x] `P1-6` `os_write` parity — `PUT /api/os/write` is registered in `REST_ROUTES` + `REST_FIRST`, the Rust handler shares the volume writer, and `transport-routes.test.ts` guards method, path, body, and transport selection.
 - [x] `P1-7` OS path encoding — `os_stat/ls/du` send paths through `?path=` with `encodeURIComponent`; regression tests cover spaces, slash preservation, and parent segments as encoded query data.
 - [x] `P1-8` Paginated WASM search — `invoke()` explicitly uses the local BM25-lite search and returns `{results,total}` with offset/limit slicing rather than throwing or falling through to unpaginated results.
-- [ ] `P1-9` Rename `WRITE_ONLY_COMMANDS:1115-1139` → `DESKTOP_ONLY` — `generate_keypair/encrypt/decrypt/compress/parse_file` have `STATIC_COMMAND_HANDLERS:1667-1680` on wasm. Document override; `ShieldPanel.vue:61,92,125 webLocked` disables crypto on pure REST with no REST endpoint — add or document gap.
+- [~] `P1-9` Transport naming/crypto coverage — WASM has static handlers for crypto commands, but `WRITE_ONLY_COMMANDS` remains the name and pure REST still lacks equivalent crypto endpoints. Documented gap remains; do not count this item complete until naming/coverage is resolved or explicitly accepted.
 - [x] `P1-10` REST failure handling — `restFetch()` normalizes network/HTTP prefixes, preserves plain-text errors, retries transient failures, and enforces its 15s deadline through both headers and body consumption; `probeStaticConnection()` returns `unsupported:` for unknown browser probes. `rest-fetch-timeout.test.ts` covers a stalled body and successful retry.
 - [x] `P1-11` `pathExists:2167-2175` bypassed WASM and treated any successful `/api/files` response as an existing path. It now checks the requested path from `invoke('list_files')`, which follows REST or the local WASM DB worker.
-- [ ] `P1-12` `notifyError stores/app.ts:248-259` — suppresses `[WASM Mode]` (null, no toast/console), hides parity gaps. Log + counter. Centralize `notifyError → describeSyncError|agentErrorHint → toast(detail+hint)`; merge `types:545-570` missing `invalid:/context:/limit:`.
+- [x] `P1-12` WASM parity-gap visibility — `notifyError` increments `wasmGapCount` and logs numbered `[WASM parity gap #…]` details; the silent `[WASM Mode]` suppression described in the original finding is no longer present.
 - [ ] `P1-13` Store loading/errors — single `lastError` string + shared `isLoading` races (`fetchFiles:327-379` parallel in `initialize:275-284`). Per-domain `loading{}` / error queue. `initialize:270-289` omits `fetchOsPs/dashboard/disks/agent`; `startAutoRefresh` omits `disks/os/agent`; gate `StatusBar:128-133` 4s `fetchOsPs` poll on `!isStaticHost()||document.visible`.
 - [x] `P1-14` Agent job transport — resolve SSE against the configured server or current REST dashboard origin; Tauri-IPC-only and static WASM without a server bypass the dead localhost `/events` probe and poll `invoke('agent_job_status')`. Pure resolver tests cover native/static fallback and explicit/same-origin REST URLs.
-- [ ] `P1-15` Settings display — `SettingsPage.vue:295-339`: `VITE_TRANSPORT` undocumented; `effectiveApiUrl:335-339 .toUpperCase()` breaks copy-paste (`HTTPS://…`); `serverUrlDraft:334` non-reactive (reload covers, fine). Preserve case, document env, reuse `useTransport()`.
+- [x] `P1-15` Settings display — `SettingsPage.vue` documents `VITE_TRANSPORT`, uses the shared transport indicator, and preserves the server URL's original case for copy/paste.
 
 ## P1 — Offline / OPFS / volume
 
@@ -95,8 +108,8 @@ Checkboxes are intentional — tick as you land.
 
 ## P2 — TLS / mobile
 
-- [ ] `P2-15` Ship the proxy — `crates/web` no-TLS by design (`SECURITY §2`); documented next step (`HOST_IP=192.168.1.50`, `0.0.0.0` behind proxy) is cleartext LAN (JWT/Bearer/file bytes sniffable). Commit Caddy/nginx compose + HSTS + `80→443` + `client_max_body_size 100m` aligned to app 100MB cap. Document `X-Forwarded-For/Proto` trust policy (else one-IP false 429s @ `100 req/60s` or spoofing). OAuth `redirect_uri` defaults `http://127.0.0.1` exact-match — preflight check for `https://...` behind TLS.
-- [ ] `P2-16` Mobile story — Android landed (`docs/ANDROID.md`: arm64-v8a APK+AAB, versionCode, Play track, on-device backup policy `allowBackup=false`+manual export, app-private files dir, manifest permissions/cleartext/deep-link/`.cyb3`, dashboard-off-on-mobile, safe-area/back-gesture/offline UI, CSP asset schemes). iOS: zero (`tauri ios init`, `Info.plist`/entitlements, ATS exception for `http://nas:3456` blocked by default, universal-links, CI job, Safari Export/Import fallback test for FSA-less path). `Permissions-Policy: camera=(), microphone=(), geolocation=()` + `frame-ancestors 'none'` kill voice-mic, GPS MapView, OAuth popups in WebViews — documented override needed.
+- [x] `P2-15` TLS proxy — `docker-compose.tls.yml` adds Caddy in front of the cleartext app service; `Caddyfile` provisions site TLS, emits HSTS/security headers, and caps request bodies at 100 MB. The app intentionally remains no-TLS; this closes proxy delivery, not direct `:3456` access. Review `docs/SECURITY.md` (owned separately) for current forwarded-header/trust and OAuth caveats; do not infer direct-LAN protection.
+- [~] `P2-16` Mobile story — Android native delivery is documented in `docs/ANDROID.md`. iOS has a macOS CI job producing an unsigned arm64 device IPA (`.github/workflows/ci.yml`, `release.yml`, `docs/IOS.md`); `scripts/ios-signing.sh` exists but is not wired into workflows. Signed release/TestFlight with real Apple credentials remains outstanding. Do not describe iOS as zero or as a signed build.
 - [x] `P2-17` Doc drift — `generate_handler!` ~100 handlers not “35”; `commands/mod.rs` 19 modules not 20; `Cargo.toml` 16 members not 15 (`+docker/server`); `ROUTED_SEGMENTS security.rs:119-156` coarse L2 only. Fix AGENTS.md or CI-assert counts.
 
 ## P3 — Philosophical (what “better/different” looks like)
@@ -109,9 +122,9 @@ Checkboxes are intentional — tick as you land.
 
 ---
 
-### Smallest high-value order (if you want 5 PRs)
-1. `P1-1 + P1-2 + P1-15` — truthy `isTauri` + `useTransport()`, 3-state StatusBar, `effectiveApiUrl` case.
-2. `P1-10 + P1-12` — `restFetch network:` + timeout + 401; `notifyError` hints + `[WASM Mode]` logging.
-3. `P1-6 + P1-7 + P1-8 + P1-5` — `os_write` + `search_files_paginated` routes, encoded OS paths, unified sync `REST_FIRST`.
-4. `P0-1 + P0-2 + P0-8 + P0-10` — object ACL, viewer read-only, `save_config` gating, per-user jobs.
-5. `P0-18 + P2-11 + P2-17 + P2-12` — anchor `len>=16`, version comments/matchers, AGENTS.md counts, compose/healthcheck unification.
+### Current follow-up priorities (2026-10-20)
+1. `P0-REVIEW` — re-audit historical P0 closures against current code and green CI after concurrent security fixes settle; do not report aggregate closure meanwhile.
+2. File/batch byte-encryption is implemented; run the added Rust round-trip/recovery tests in CI. Recursive folder jobs and restore/trash semantics remain separate, unresolved work in `PLAN.md`.
+3. Revalidate the remaining `P1-3`, `P1-9`, `P1-13`, `P1-16`, `P1-19`, `P1-20` gaps against the new dashboard identity probe, REST crypto routes and shared volume-write FIFO; store-refresh/error handling, WASM backend retry and vault boot still need independent coverage.
+4. `P2-16` — signed iOS release/TestFlight remains dependent on Apple credentials and CI wiring; unsigned device IPA is already built by CI.
+5. Recovery file/Shamir — decide and integrate only after product policy is confirmed; current `src/utils/shamir.ts` alone does not complete recovery.

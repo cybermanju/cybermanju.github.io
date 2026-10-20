@@ -350,10 +350,9 @@ pub fn preview(db: &Database, file_id: &str) -> Result<serde_json::Value, String
 // Fail-closed: any unknown (missing file row, missing user row, database
 // error, no matching permission) is `Err` — callers map that to 403/404
 // and never serve bytes. `admin` bypasses like the Tauri helper, but only
-// for active admin accounts. Permission rows are read as structs first
-// (Tauri writer, `camelCase`) with a `serde_json::Value` fallback (legacy
-// `userId`/`fileId` rows written by the REST setter), so neither writer
-// silently loses its grants.
+// for active admin accounts. Permission rows use the shared ACL decoder so
+// canonical and legacy camelCase/snake_case rows have identical semantics in
+// authorization, verification, and listing.
 
 /// Required access level ranks (`read` < `write` < `admin`).
 fn access_rank(access: &str) -> u8 {
@@ -389,6 +388,13 @@ pub fn check_access(
             if let Ok(user) = serde_json::from_str::<cybermanju_types::schema::User>(value.value())
             {
                 if user.id == claims.user_id && user.role == "admin" && user.is_active {
+                    if db
+                        .get_file_node(file_id)
+                        .map_err(|_| "auth: access check unavailable".to_string())?
+                        .is_none()
+                    {
+                        return Err(format!("not_found: file '{file_id}' not found"));
+                    }
                     return Ok(());
                 }
             }
@@ -438,32 +444,11 @@ pub fn check_access(
         .map_err(|_| "auth: access check unavailable".to_string())?
     {
         let (_, value) = entry.map_err(|_| "auth: access check unavailable".to_string())?;
-        let raw = value.value();
-        // Struct path first (both writers store camelCase JSON).
-        if let Ok(perm) = serde_json::from_str::<cybermanju_types::schema::UserFilePermission>(raw)
-        {
+        if let Some(perm) = crate::api::permissions::parse_permission(value.value()) {
             if perm.user_id == claims.user_id
                 && perm.file_id == file_id
                 && access_rank(&perm.access) >= need
             {
-                return Ok(());
-            }
-            continue;
-        }
-        // Legacy/value fallback for rows with unexpected shapes.
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) {
-            let p_user = v
-                .get("userId")
-                .or_else(|| v.get("user_id"))
-                .and_then(|x| x.as_str())
-                .unwrap_or("");
-            let p_file = v
-                .get("fileId")
-                .or_else(|| v.get("file_id"))
-                .and_then(|x| x.as_str())
-                .unwrap_or("");
-            let p_access = v.get("access").and_then(|x| x.as_str()).unwrap_or("");
-            if p_user == claims.user_id && p_file == file_id && access_rank(p_access) >= need {
                 return Ok(());
             }
         }

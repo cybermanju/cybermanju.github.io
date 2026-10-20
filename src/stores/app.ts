@@ -309,6 +309,15 @@ export const useAppStore = defineStore('cybermanju', () => {
   const searchQuery = ref('')
   const isSearching = ref(false)
   const isLoading = ref(false)
+  let loadingOperations = 0
+  function beginLoading() {
+    loadingOperations += 1
+    isLoading.value = true
+  }
+  function endLoading() {
+    loadingOperations = Math.max(0, loadingOperations - 1)
+    isLoading.value = loadingOperations > 0
+  }
   const lastError = ref<string | null>(null)
   // Wallpaper effects (MatrixRain canvas) are opt-in — the default
   // wallpaper is a static gradient (see DesktopShell).
@@ -480,10 +489,9 @@ export const useAppStore = defineStore('cybermanju', () => {
     if (requiresServerAuth() && !getAuthToken()) {
       await checkAuthStatus()
       needsAuth.value = true
-      isLoading.value = false
       return
     }
-    isLoading.value = true
+    beginLoading()
     clearError()
     try {
       await loadStars()
@@ -502,7 +510,7 @@ export const useAppStore = defineStore('cybermanju', () => {
       startAutoRefresh()
       startScheduleTick()
     } finally {
-      isLoading.value = false
+      endLoading()
     }
   }
 
@@ -548,7 +556,7 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   // ── Actions: Files ────────────────────────────────────────
   async function fetchFiles(parentPath?: string) {
-    isLoading.value = true
+    beginLoading()
     clearError()
     try {
       const path = parentPath || currentPath.value
@@ -700,7 +708,7 @@ export const useAppStore = defineStore('cybermanju', () => {
     } catch (e) {
       notifyError('Failed to fetch files', e)
     } finally {
-      isLoading.value = false
+      endLoading()
     }
   }
 

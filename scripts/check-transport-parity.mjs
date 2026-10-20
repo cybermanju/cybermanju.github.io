@@ -1,25 +1,32 @@
-// CyberManju OS — transport parity sweep (scripts/check-transport-parity.mjs).
-// Role: full TS↔Rust static parity check (ANALYSIS.md §3 close-out) — every
-// REST_ROUTES mapping has method + /api/ path, every path's second segment is
-// a known Rust route (else `is_known_route` 404s it before auth), every
-// REST_FIRST entry resolves, WRITE_ONLY stays disjoint, and the spine twins
-// (devices/peers/oplog/bundle/todos) exist on both sides. Runs on node only
-// (no cargo, no wasm-pack) so Linux meta-checks stay honest.
-// Exports: none (CLI; exit 1 on drift).
+// CyberManju OS — transport inventory + HTTP smoke (scripts/check-transport-parity.mjs).
+// Role: preserve static TS REST-route↔Rust router inventory checks, optionally
+// followed by a clearly separate real-HTTP REST behavioral smoke on --http.
+// Exports: none (CLI; exit 1 on static drift or HTTP behavior failure).
 // Integrates: src/composables/useTauri.ts; crates/web/src/security.rs +
 // lib.rs + api/*.rs; tests/frontend/transport-parity-full.test.ts (vitest
-// twin using real TS imports instead of regex).
-// Contracts: static reads assert presence/shape, never behavior; the
-// live-boot shape-equality sweep (real `crates/web` + snake→camel) stays a
-// CI-side follow-up needing both toolchains in one job (documented below).
+// static twin using real TS imports instead of regex); smoke-rest-http.mjs.
+// Contracts: static inventory reads assert presence/shape, never behavior.
+// --http checks a bounded subset of live REST behavior only—not full REST/IPC/
+// WASM parity or live response-shape equality. No cargo or wasm-pack required.
 import fs from 'node:fs'
 import path from 'node:path'
+import { runHttpBehavioralSmoke } from './smoke-rest-http.mjs'
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
 const fail = []
 const pass = []
 const ok = (msg) => pass.push(`ok: ${msg}`)
 const bad = (msg) => fail.push(`DRIFT: ${msg}`)
+
+const args = process.argv.slice(2)
+let httpUrl
+if (args.length) {
+  if (args.length !== 2 || args[0] !== '--http') {
+    console.error('Usage: node scripts/check-transport-parity.mjs [--http <base-url>]')
+    process.exit(2)
+  }
+  httpUrl = args[1]
+}
 
 const tauri = fs.readFileSync(path.join(root, 'src/composables/useTauri.ts'), 'utf8')
 
@@ -111,12 +118,23 @@ for (const prefix of ['auth:', 'rate_limited:', 'not_found:', 'unsupported:', 't
 }
 ok('AGENT-1 prefix matrix pinned (9 prefixes)')
 
+console.log('STATIC TRANSPORT INVENTORY CHECK (REST route mapping/router registration; no live behavior asserted)')
 console.log(pass.join('\n'))
 if (fail.length) {
   console.error(fail.join('\n'))
-  console.error(`\ntransport parity: ${fail.length} drift(s). Fix the mapping or the router, then re-run.`)
-  console.error('NOTE: live-boot shape equality (real crates/web + snake→camel) stays a CI follow-up needing both toolchains in one job.')
-  process.exit(1)
+  console.error(`\nstatic transport inventory: ${fail.length} drift(s). Fix the mapping or router, then re-run.`)
+  process.exitCode = 1
+} else {
+  console.log(`\nstatic transport inventory: clean (${mappings.length} REST mappings, ${seconds.size} known Rust route families).`)
 }
-console.log(`\ntransport parity: clean (${mappings.length} mappings, ${seconds.size} route families).`)
-console.log('NOTE: live-boot shape equality (real crates/web + snake→camel) stays a CI follow-up needing both toolchains in one job.')
+
+if (httpUrl) {
+  console.log('\nREAL HTTP BEHAVIORAL SMOKE (running REST server; bounded subset, not full cross-transport parity)')
+  try {
+    const result = await runHttpBehavioralSmoke({ baseUrl: httpUrl })
+    console.log(`REST HTTP behavioral smoke: clean (${result.checks} behavior assertions).`)
+  } catch (error) {
+    console.error(`REST HTTP behavioral smoke failed: ${error instanceof Error ? error.message : String(error)}`)
+    process.exitCode = 1
+  }
+}

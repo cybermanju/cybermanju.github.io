@@ -20,6 +20,14 @@ This file is the tracker; that file is the reasoning.
 **Baseline:** `npm run typecheck` ✅ · `npx vitest run` 18/18 ✅ (3 files)
 → **after this pass: 40/40 ✅ (4 files)** · Rust: unverified locally, CI only.
 
+**Current reconciliation (2026-10-20):** this file's counts and Phase 0–3
+test totals are historical, not the current repository baseline. The planned
+`os_exec`, `ui_open_panel`, `ui_notify` and `secret_list`/`secret_get` tools
+are now present across the Rust/browser agent paths and UI metadata; see
+`PLAN.md` for evidence and remaining phases. This documentation pass did not
+run tests; Rust/security status remains **unverified pending CI**, and the
+aggregate P0 closure is reopened in `TASKS.md` while concurrent fixes proceed.
+
 ---
 
 ## Phase 0 — P0 correctness (inference-side defects)

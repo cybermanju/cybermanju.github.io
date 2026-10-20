@@ -225,6 +225,11 @@ impl WebDashboard {
                 Err(e) => warn!("Could not hydrate revocations: {}", e),
             }
         }
+        // Resume persisted work at backend startup, not only after a caller
+        // visits the cron/sync API. Docker uses this constructor but runs its
+        // own listener, so wiring this only in `start()` misses that host.
+        cybermanju_os::scheduler::ensure_started(Arc::clone(&dashboard.db));
+        cybermanju_sync::scheduler::ensure_started(Arc::clone(&dashboard.db));
         dashboard
     }
     // <<< /AGENT-3 JWT SECRET >>>
@@ -661,6 +666,18 @@ macro_rules! json_body {
     };
 }
 
+/// Map byte-pipeline failures without presenting a failed operation as success.
+fn crypto_response<T: Serialize>(result: Result<T, String>, origin: Option<&str>) -> String {
+    match result {
+        Err(e) if e.starts_with("unsupported:") => json_error(501, &e, origin),
+        Err(e) if e.starts_with("integrity:") || e.starts_with("conflict:") => {
+            json_error(409, &e, origin)
+        }
+        Err(e) if e.starts_with("too_large:") => json_error(413, &e, origin),
+        other => auth_response(other, origin),
+    }
+}
+
 /// Serialize a value as a 200 JSON response.
 fn json_ok<T: Serialize>(value: &T, origin: Option<&str>) -> String {
     let body = match serde_json::to_string(value) {
@@ -719,7 +736,9 @@ fn api_response<T: Serialize>(result: Result<T, String>, origin: Option<&str>) -
     match result {
         Ok(value) => json_ok(&value, origin),
         Err(message) => {
-            let status = if message.to_lowercase().contains("not found")
+            let status = if message.starts_with("auth: privileged agent configuration:") {
+                403
+            } else if message.to_lowercase().contains("not found")
                 || message.starts_with("not_found:")
             {
                 404
@@ -1108,13 +1127,14 @@ fn route_request(
             }
             let req: PromptBody = json_body!(body, origin);
             // P0-10: the job is owned by the JWT caller.
-            let (owner_id, _) = claims_owner(&claims);
+            let (owner_id, is_admin) = claims_owner(&claims);
             return match api::agent_api::start_job_as(
                 db,
                 &req.config_id,
                 req.session_id,
                 req.prompt,
                 &owner_id,
+                is_admin,
             ) {
                 Ok(job) => http_response(
                     202,
@@ -1179,8 +1199,9 @@ fn route_request(
                 config_id: String,
             }
             let req: InitBody = json_body!(body, origin);
-            let (owner_id, _) = claims_owner(&claims);
-            return match api::agent_api::start_init_job_as(db, &req.config_id, &owner_id) {
+            let (owner_id, is_admin) = claims_owner(&claims);
+            return match api::agent_api::start_init_job_as(db, &req.config_id, &owner_id, is_admin)
+            {
                 Ok(job) => http_response(
                     202,
                     "application/json",
@@ -1334,7 +1355,10 @@ fn route_request(
                 Err(e) => Err(e.to_string()),
             };
             return match config {
-                Ok(config) => api_response(api::agent_api::mcp_tools_for(&config), origin),
+                Ok(config) => {
+                    let (_, is_admin) = claims_owner(&claims);
+                    api_response(api::agent_api::mcp_tools_for(&config, is_admin), origin)
+                }
                 Err(e) => api_response::<Vec<api::agent_api::McpToolView>>(Err(e), origin),
             };
         }
@@ -1565,7 +1589,7 @@ fn route_request(
 
         // ─── File endpoints ───────────────────────────────────────
         ["api", "files"] if method == "GET" => {
-            list_all_json(db, Database::get_files_table(), origin)
+            list_visible_files(db, claims.as_ref(), false, origin)
         }
         ["api", "files", "folder"] if method == "POST" => {
             #[derive(Deserialize)]
@@ -1589,6 +1613,30 @@ fn route_request(
                 return denied;
             }
             get_by_id(db, Database::get_files_table(), id, origin)
+        }
+        ["api", "files", id, "encrypt"] if method == "POST" => {
+            if let Some(denied) = deny_file(db, &claims, id, "write", origin) {
+                return denied;
+            }
+            #[derive(Deserialize)]
+            struct EncryptBody {
+                algorithm: String,
+            }
+            let req: EncryptBody = json_body!(body, origin);
+            crypto_response(api::batch::encrypt_one(db, id, &req.algorithm).map(|algorithm| {
+                serde_json::json!({ "fileId": id, "encrypted": true, "algorithm": algorithm })
+            }), origin)
+        }
+        ["api", "files", id, "decrypt"] if method == "POST" => {
+            if let Some(denied) = deny_file(db, &claims, id, "write", origin) {
+                return denied;
+            }
+            crypto_response(
+                api::batch::decrypt_one(db, id).map(
+                    |()| serde_json::json!({ "fileId": id, "encrypted": false, "algorithm": null }),
+                ),
+                origin,
+            )
         }
         ["api", "files", id] if method == "DELETE" => {
             if let Some(denied) = deny_file(db, &claims, id, "write", origin) {
@@ -1853,10 +1901,25 @@ fn route_request(
                     return json_error(status, &e, origin);
                 }
             }
-            api_response(
+            crypto_response(
                 api::batch::encrypt(db, &req.file_ids, &req.algorithm),
                 origin,
             )
+        }
+        ["api", "batch", "decrypt"] if method == "POST" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct BatchBody {
+                file_ids: Vec<String>,
+            }
+            let req: BatchBody = json_body!(body, origin);
+            let Some(caller) = claims.as_ref() else {
+                return json_error(401, "Authentication required", origin);
+            };
+            if let Err(e) = api::files::check_access_many(db, caller, &req.file_ids, "write") {
+                return auth_response::<()>(Err(e), origin);
+            }
+            crypto_response(api::batch::decrypt(db, &req.file_ids), origin)
         }
         ["api", "batch", "compress"] if method == "POST" => {
             #[derive(Deserialize)]
@@ -2016,19 +2079,67 @@ fn route_request(
         }
 
         // ─── Encryption endpoints ─────────────────────────────────
-        ["api", "encryption", "status"] if method == "GET" => encryption_status(origin),
+        ["api", "encryption", "status"] if method == "GET" => {
+            if let Some(file_id) = parse_query_param(query, "fileId") {
+                if let Some(denied) = deny_file(db, &claims, &file_id, "read", origin) {
+                    return denied;
+                }
+                return match db.get_file_node(&file_id) {
+                    Ok(Some(node)) => {
+                        let algorithm = node.encryption_algorithm.as_deref().unwrap_or("");
+                        let level = if algorithm.contains("Hybrid") {
+                            3
+                        } else if algorithm.contains("1024") {
+                            5
+                        } else {
+                            0
+                        };
+                        json_ok(
+                            &serde_json::json!({
+                                "isEncrypted": node.encrypted,
+                                "algorithm": node.encryption_algorithm,
+                                "nistLevel": level,
+                                "encryptedAt": if node.encrypted { Some(node.modified_at) } else { None },
+                                "available": true,
+                            }),
+                            origin,
+                        )
+                    }
+                    Ok(None) => json_error(404, "not_found: file not found", origin),
+                    Err(e) => json_error(500, &e.to_string(), origin),
+                };
+            }
+            encryption_status(origin)
+        }
+        ["api", "encryption", "keys"] if method == "POST" => {
+            #[derive(Deserialize)]
+            struct KeyBody {
+                algorithm: String,
+            }
+            let req: KeyBody = json_body!(body, origin);
+            crypto_response(
+                api::batch::generate_keypair(db, &req.algorithm)
+                    .map(|key| encryption_key_info(&key)),
+                origin,
+            )
+        }
         ["api", "encryption", "keys"] if method == "GET" => {
             // SECURITY: Never expose private keys
             list_encryption_keys_safe(db, origin)
         }
 
         // ─── Geo files ───────────────────────────────────────────
-        ["api", "geo-files"] if method == "GET" => list_geo_files(db, origin),
+        ["api", "geo-files"] if method == "GET" => {
+            list_visible_files(db, claims.as_ref(), true, origin)
+        }
 
         // ─── Search ───────────────────────────────────────────────
         // <<< AGENT-3 VALIDATION: limit/offset are clamped — a caller can
         // no longer ask for an unbounded scan >>>
         ["api", "search", "suggest"] if method == "GET" => {
+            let Some(caller) = claims.as_ref() else {
+                return json_error(401, "Authentication required", origin);
+            };
             let prefix = parse_query_param(query, "q").unwrap_or_default();
             let limit = security::clamp_limit(
                 parse_query_param(query, "limit").and_then(|v| v.parse::<usize>().ok()),
@@ -2036,11 +2147,14 @@ fn route_request(
                 security::MAX_SEARCH_LIMIT,
             );
             api_response(
-                api::search_api::suggest(&dashboard.search_index, db, &prefix, limit),
+                api::search_api::suggest_for_caller(db, &prefix, limit, caller),
                 origin,
             )
         }
         ["api", "search", "paginated"] if method == "GET" => {
+            let Some(caller) = claims.as_ref() else {
+                return json_error(401, "Authentication required", origin);
+            };
             let q = parse_query_param(query, "q").unwrap_or_default();
             let limit = security::clamp_limit(
                 parse_query_param(query, "limit").and_then(|v| v.parse::<usize>().ok()),
@@ -2052,11 +2166,21 @@ fn route_request(
                 .map(|v| security::clamp_offset(Some(v)))
                 .unwrap_or(0);
             api_response(
-                api::search_api::search_paginated(&dashboard.search_index, db, &q, limit, offset),
+                api::search_api::search_paginated_for_caller(
+                    &dashboard.search_index,
+                    db,
+                    &q,
+                    limit,
+                    offset,
+                    caller,
+                ),
                 origin,
             )
         }
         ["api", "search"] if method == "GET" => {
+            let Some(caller) = claims.as_ref() else {
+                return json_error(401, "Authentication required", origin);
+            };
             let q = parse_query_param(query, "q").unwrap_or_default();
             let limit = parse_query_param(query, "limit")
                 .and_then(|v| v.parse::<usize>().ok())
@@ -2065,7 +2189,14 @@ fn route_request(
                 .and_then(|v| v.parse::<usize>().ok())
                 .map(|v| security::clamp_offset(Some(v)));
             api_response(
-                api::search_api::search(&dashboard.search_index, db, &q, limit, offset),
+                api::search_api::search_for_caller(
+                    &dashboard.search_index,
+                    db,
+                    &q,
+                    limit,
+                    offset,
+                    caller,
+                ),
                 origin,
             )
         }
@@ -2078,13 +2209,16 @@ fn route_request(
         // Only an explicit per-peer token is sent to that peer. The inbound
         // caller bearer authorizes this request and is never forwarded.
         ["api", "search", "federated"] if method == "POST" => {
+            let Some(caller) = claims.as_ref() else {
+                return json_error(401, "Authentication required", origin);
+            };
             match serde_json::from_str::<api::search_api::FederatedRequest>(body) {
                 Ok(req) => json_ok(
-                    &api::search_api::search_federated(
+                    &api::search_api::search_federated_for_caller(
                         &dashboard.search_index,
                         db,
                         &req,
-                        &owner_id,
+                        caller,
                     ),
                     origin,
                 ),
@@ -2267,10 +2401,14 @@ fn route_request(
         }
 
         // ─── Permission endpoints ─────────────────────────────────
-        ["api", "permissions"] if method == "POST" => set_permission_web(db, body, origin),
-        ["api", "permissions", "verify"] if method == "POST" => verify_access_web(db, body, origin),
+        ["api", "permissions"] if method == "POST" => {
+            set_permission_web(db, claims.as_ref(), body, origin)
+        }
+        ["api", "permissions", "verify"] if method == "POST" => {
+            verify_access_web(db, claims.as_ref(), body, origin)
+        }
         ["api", "permissions", file_id] if method == "GET" => {
-            get_permissions_for_file(db, file_id, origin)
+            get_permissions_for_file(db, claims.as_ref(), file_id, origin)
         }
 
         // ─── Sync config endpoints ────────────────────────────────
@@ -2635,6 +2773,14 @@ fn verify_jwt_auth(
             if dashboard.auth.is_revoked(&claims.jti) {
                 return Err(json_error(401, "Token has been revoked", origin));
             }
+            // A signed token is not a snapshot of permanent authority. Reject
+            // deleted/inactive accounts and changed roles on every request.
+            let db = dashboard
+                .db
+                .read()
+                .map_err(|_| json_error(401, "Account validation unavailable", origin))?;
+            api::users::validate_token_identity(&db, &claims)
+                .map_err(|_| json_error(401, "Account or role changed; sign in again", origin))?;
             Ok(claims)
         }
         Err(e) => Err(json_error(
@@ -2762,53 +2908,40 @@ fn list_all_json(
     http_response(200, "application/json", &body, origin)
 }
 
-/// List encryption keys with private_key fields STRIPPED for security.
-fn list_encryption_keys_safe(db: &Database, origin: Option<&str>) -> String {
-    let tx = match db.begin_read() {
-        Ok(tx) => tx,
-        Err(e) => return json_error(500, &format!("Read error: {}", e), origin),
-    };
-    let table = match tx.open_table(Database::get_encryption_keys_table()) {
-        Ok(t) => t,
-        Err(e) => return json_error(500, &format!("Table open error: {}", e), origin),
-    };
+/// Return only public key information, never sealed or legacy private values.
+fn encryption_key_info(key: &cybermanju_types::schema::EncryptionKey) -> serde_json::Value {
+    let algorithm = cybermanju_crypto::pqc::algorithm_from_str(&key.algorithm);
+    serde_json::json!({
+        "id": key.id,
+        "algorithm": key.algorithm,
+        "algorithmDisplay": algorithm.as_ref().map(|a| a.display_name()).unwrap_or("Unknown"),
+        "nistLevel": algorithm.as_ref().map(|a| a.nist_level()).unwrap_or(0),
+        "color": "#00FF41",
+        "publicKey": key.public_key,
+        "publicKeyPreview": key.public_key.chars().take(32).collect::<String>(),
+        "hasPrivateKey": !key.private_key.is_empty(),
+        "createdAt": key.created_at,
+        "x25519PublicKey": key.x25519_public_key,
+    })
+}
 
-    let mut results: Vec<serde_json::Value> = Vec::new();
-    let iter = match table.iter() {
-        Ok(i) => i,
-        Err(e) => return json_error(500, &format!("Iteration error: {}", e), origin),
-    };
-    for entry in iter {
-        match entry {
-            Ok((key, value)) => {
-                let key_str = key.value().to_string();
-                let val_str = value.value().to_string();
-                if let Ok(mut obj) = serde_json::from_str::<serde_json::Value>(&val_str) {
-                    if let Some(map) = obj.as_object_mut() {
-                        map.insert("_key".to_string(), serde_json::json!(key_str));
-                        // SECURITY: Strip all private key variants
-                        map.remove("private_key");
-                        map.remove("privateKey");
-                        map.remove("secret_key");
-                        map.remove("secretKey");
-                        map.remove("private_key_encrypted");
-                        map.remove("privateKeyEncrypted");
-                    }
-                    results.push(obj);
-                } else {
-                    results.push(serde_json::json!({
-                        "_key": key_str,
-                        "_raw": val_str,
-                    }));
-                }
-            }
-            Err(e) => {
-                return json_error(500, &format!("Iteration error: {}", e), origin);
-            }
+/// Malformed key rows fail closed, rather than returning an unredacted `_raw`.
+fn list_encryption_keys_safe(db: &Database, origin: Option<&str>) -> String {
+    let list = || -> Result<Vec<serde_json::Value>, String> {
+        let tx = db.begin_read().map_err(|e| e.to_string())?;
+        let table = tx
+            .open_table(Database::get_encryption_keys_table())
+            .map_err(|e| e.to_string())?;
+        let mut keys = Vec::new();
+        for row in table.iter().map_err(|e| e.to_string())? {
+            let (_, value) = row.map_err(|e| e.to_string())?;
+            let key: cybermanju_types::schema::EncryptionKey = serde_json::from_str(value.value())
+                .map_err(|_| "integrity: invalid encryption key record".to_string())?;
+            keys.push(encryption_key_info(&key));
         }
-    }
-    let body = serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string());
-    http_response(200, "application/json", &body, origin)
+        Ok(keys)
+    };
+    crypto_response(list(), origin)
 }
 
 /// Get a single entry by key from a table.
@@ -2839,8 +2972,16 @@ fn get_by_id(
 
 // ─── Domain-specific handlers ────────────────────────────────────────
 
-/// List files that have GPS coordinates.
-fn list_geo_files(db: &Database, origin: Option<&str>) -> String {
+/// List only readable files; GPS coordinates are protected metadata too.
+fn list_visible_files(
+    db: &Database,
+    claims: Option<&security::Claims>,
+    geo_only: bool,
+    origin: Option<&str>,
+) -> String {
+    let Some(claims) = claims else {
+        return json_error(401, "Authentication required", origin);
+    };
     let tx = match db.begin_read() {
         Ok(tx) => tx,
         Err(e) => return json_error(500, &format!("Read error: {}", e), origin),
@@ -2855,11 +2996,23 @@ fn list_geo_files(db: &Database, origin: Option<&str>) -> String {
         Ok(i) => i,
         Err(e) => return json_error(500, &format!("Iteration error: {}", e), origin),
     };
-    for (_, value) in iter.flatten() {
-        if let Ok(obj) = serde_json::from_str::<serde_json::Value>(value.value()) {
+    for entry in iter {
+        let (key, value) = match entry {
+            Ok(row) => row,
+            Err(e) => return json_error(500, &format!("Iteration error: {}", e), origin),
+        };
+        if api::files::check_access(db, claims, key.value(), "read").is_err() {
+            continue;
+        }
+        if let Ok(mut obj) = serde_json::from_str::<serde_json::Value>(value.value()) {
             let has_lat = obj.get("gpsLat").and_then(|v| v.as_f64()).is_some();
             let has_lng = obj.get("gpsLon").and_then(|v| v.as_f64()).is_some();
-            if has_lat && has_lng {
+            if !geo_only || (has_lat && has_lng) {
+                if !geo_only {
+                    if let Some(map) = obj.as_object_mut() {
+                        map.insert("_key".to_string(), serde_json::json!(key.value()));
+                    }
+                }
                 results.push(obj);
             }
         }
@@ -3492,199 +3645,82 @@ fn bundle_import(db: &Database, body: &str, origin: Option<&str>) -> String {
     }
 }
 
-fn set_permission_web(db: &Database, body: &str, origin: Option<&str>) -> String {
-    let req: serde_json::Value = match serde_json::from_str(body) {
-        Ok(v) => v,
-        Err(e) => return json_error(400, &format!("Invalid JSON: {}", e), origin),
+fn set_permission_web(
+    db: &Database,
+    claims: Option<&security::Claims>,
+    body: &str,
+    origin: Option<&str>,
+) -> String {
+    let Some(caller) = claims else {
+        return json_error(401, "Authentication required", origin);
     };
-
-    let user_id = req.get("userId").and_then(|v| v.as_str()).unwrap_or("");
-    let file_id = req.get("fileId").and_then(|v| v.as_str()).unwrap_or("");
-    let access = req.get("access").and_then(|v| v.as_str()).unwrap_or("");
-
-    if user_id.is_empty() || file_id.is_empty() || access.is_empty() {
-        return json_error(400, "userId, fileId, and access are required", origin);
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct GrantBody {
+        user_id: String,
+        file_id: String,
+        access: String,
     }
-
-    if !["read", "write", "admin"].contains(&access) {
-        return json_error(400, "access must be 'read', 'write', or 'admin'", origin);
+    let req: GrantBody = json_body!(body, origin);
+    match api::permissions::grant_permission(db, caller, &req.user_id, &req.file_id, &req.access) {
+        Ok(permission) => http_response(
+            201,
+            "application/json",
+            &serde_json::to_string(&permission).unwrap_or_default(),
+            origin,
+        ),
+        Err(e) => auth_response::<()>(Err(e), origin),
     }
-
-    let perm_id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
-
-    let permission = serde_json::json!({
-        "id": perm_id,
-        "userId": user_id,
-        "fileId": file_id,
-        "access": access,
-        "grantedBy": "system",
-        "grantedAt": now,
-    });
-
-    let perm_json = match serde_json::to_string(&permission) {
-        Ok(s) => s,
-        Err(e) => return json_error(500, &format!("Serialization error: {}", e), origin),
-    };
-
-    let tx = match db.begin_write() {
-        Ok(tx) => tx,
-        Err(e) => return json_error(500, &format!("Write error: {}", e), origin),
-    };
-    {
-        let mut table = match tx.open_table(Database::get_user_file_perms_table()) {
-            Ok(t) => t,
-            Err(e) => return json_error(500, &format!("Table open error: {}", e), origin),
-        };
-        if table.insert(perm_id.as_str(), perm_json.as_str()).is_err() {
-            return json_error(500, "Failed to insert permission", origin);
-        }
-    }
-    if tx.commit().is_err() {
-        return json_error(500, "Failed to commit permission", origin);
-    }
-
-    http_response(
-        201,
-        "application/json",
-        &serde_json::to_string(&permission).unwrap_or_default(),
-        origin,
-    )
 }
 
-/// Verify file access — expects JSON body:
-/// { "user_id": "...", "file_id": "...", "required_access": "read|write|admin" }
-fn verify_access_web(db: &Database, body: &str, origin: Option<&str>) -> String {
-    let req: serde_json::Value = match serde_json::from_str(body) {
-        Ok(v) => v,
-        Err(e) => return json_error(400, &format!("Invalid JSON: {}", e), origin),
+/// Access checks are caller-bound; inspecting another user requires file-admin.
+fn verify_access_web(
+    db: &Database,
+    claims: Option<&security::Claims>,
+    body: &str,
+    origin: Option<&str>,
+) -> String {
+    let Some(caller) = claims else {
+        return json_error(401, "Authentication required", origin);
     };
-
-    let user_id = req.get("userId").and_then(|v| v.as_str()).unwrap_or("");
+    let req: serde_json::Value = json_body!(body, origin);
+    let user_id = req
+        .get("userId")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&caller.user_id);
     let file_id = req.get("fileId").and_then(|v| v.as_str()).unwrap_or("");
-    let required_access = req
+    let required = req
         .get("requiredAccess")
         .and_then(|v| v.as_str())
         .unwrap_or("read");
-
-    // Check user role (admin bypasses all permission checks)
-    let tx = match db.begin_read() {
-        Ok(tx) => tx,
-        Err(e) => return json_error(500, &format!("Read error: {}", e), origin),
-    };
-    let users_table = match tx.open_table(Database::get_users_table()) {
-        Ok(t) => t,
-        Err(e) => return json_error(500, &format!("Table open error: {}", e), origin),
-    };
-
-    if let Ok(Some(val)) = users_table.get(user_id) {
-        if let Ok(user) = serde_json::from_str::<serde_json::Value>(val.value()) {
-            if user.get("role").and_then(|v| v.as_str()) == Some("admin") {
-                let resp = serde_json::json!({
-                    "userId": user_id,
-                    "fileId": file_id,
-                    "requiredAccess": required_access,
-                    "granted": true,
-                    "reason": "admin_role"
-                });
-                return http_response(
-                    200,
-                    "application/json",
-                    &serde_json::to_string(&resp).unwrap_or_default(),
-                    origin,
-                );
-            }
-        }
+    match api::permissions::verify_permission(db, caller, user_id, file_id, required) {
+        Ok(granted) => json_ok(
+            &serde_json::json!({
+                "userId": user_id,
+                "fileId": file_id,
+                "requiredAccess": required,
+                "granted": granted,
+            }),
+            origin,
+        ),
+        Err(e) => auth_response::<()>(Err(e), origin),
     }
+}
 
-    // Check explicit permissions
-    let perms_table = match tx.open_table(Database::get_user_file_perms_table()) {
-        Ok(t) => t,
-        Err(e) => return json_error(500, &format!("Table open error: {}", e), origin),
+fn get_permissions_for_file(
+    db: &Database,
+    claims: Option<&security::Claims>,
+    file_id: &str,
+    origin: Option<&str>,
+) -> String {
+    let Some(caller) = claims else {
+        return json_error(401, "Authentication required", origin);
     };
-
-    let iter = match perms_table.iter() {
-        Ok(i) => i,
-        Err(e) => return json_error(500, &format!("Iteration error: {}", e), origin),
-    };
-    for (_, value) in iter.flatten() {
-        if let Ok(perm) = serde_json::from_str::<serde_json::Value>(value.value()) {
-            let p_user = perm.get("userId").and_then(|v| v.as_str()).unwrap_or("");
-            let p_file = perm.get("fileId").and_then(|v| v.as_str()).unwrap_or("");
-            let p_access = perm.get("access").and_then(|v| v.as_str()).unwrap_or("");
-
-            if p_user == user_id
-                && p_file == file_id
-                && access_level_sufficient(p_access, required_access)
-            {
-                let resp = serde_json::json!({
-                    "userId": user_id,
-                    "fileId": file_id,
-                    "requiredAccess": required_access,
-                    "granted": true,
-                    "reason": "permission_match"
-                });
-                return http_response(
-                    200,
-                    "application/json",
-                    &serde_json::to_string(&resp).unwrap_or_default(),
-                    origin,
-                );
-            }
-        }
-    }
-
-    let resp = serde_json::json!({
-        "userId": user_id,
-        "fileId": file_id,
-        "requiredAccess": required_access,
-        "granted": false,
-        "reason": "no_matching_permission"
-    });
-    http_response(
-        200,
-        "application/json",
-        &serde_json::to_string(&resp).unwrap_or_default(),
+    auth_response(
+        api::permissions::list_permissions_for_file(db, caller, file_id),
         origin,
     )
 }
-
-/// Get all permissions for a specific file.
-fn get_permissions_for_file(db: &Database, file_id: &str, origin: Option<&str>) -> String {
-    let tx = match db.begin_read() {
-        Ok(tx) => tx,
-        Err(e) => return json_error(500, &format!("Read error: {}", e), origin),
-    };
-    let table = match tx.open_table(Database::get_user_file_perms_table()) {
-        Ok(t) => t,
-        Err(e) => return json_error(500, &format!("Table open error: {}", e), origin),
-    };
-
-    let mut results: Vec<serde_json::Value> = Vec::new();
-    let iter = match table.iter() {
-        Ok(i) => i,
-        Err(e) => return json_error(500, &format!("Iteration error: {}", e), origin),
-    };
-    for (_, value) in iter.flatten() {
-        if let Ok(perm) = serde_json::from_str::<serde_json::Value>(value.value()) {
-            if perm.get("fileId").and_then(|v| v.as_str()) == Some(file_id) {
-                results.push(perm);
-            }
-        }
-    }
-    let body = serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string());
-    http_response(200, "application/json", &body, origin)
-}
-
-// ─── Access level helper ──────────────────────────────────────────────
-
-fn access_level_sufficient(granted: &str, required: &str) -> bool {
-    let levels: &[&str] = &["read", "write", "admin"];
-    let g_idx = levels.iter().position(|&l| l == granted).unwrap_or(0);
-    let r_idx = levels.iter().position(|&l| l == required).unwrap_or(0);
-    g_idx >= r_idx
-}
-
 // ─── HTTP response builder ────────────────────────────────────────────
 
 /// Reason phrase for a status code.

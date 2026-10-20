@@ -55,6 +55,9 @@ var updateCmd = &cobra.Command{
 		if assetURL == "" {
 			return fmt.Errorf("not_found: release %s ships no %s", tag, asset)
 		}
+		if sumsURL == "" {
+			return fmt.Errorf("integrity: release %s ships no SHA256SUMS.txt", tag)
+		}
 		if !flagYes {
 			var ok bool
 			form := ui.NewForm(huh.NewGroup(
@@ -77,15 +80,11 @@ var updateCmd = &cobra.Command{
 		if _, err := ui.Download(assetURL, tarball); err != nil {
 			return err
 		}
-		if sumsURL != "" {
-			sumsFile := filepath.Join(tmp, "SHA256SUMS.txt")
-			if _, err := ui.Download(sumsURL, sumsFile); err == nil {
-				if err := verifyChecksum(sumsFile, tarball, asset); err != nil {
-					return fmt.Errorf("integrity: %w", err)
-				}
-				ui.Success("checksum verified")
-			}
+		sumsFile := filepath.Join(tmp, "SHA256SUMS.txt")
+		if err := downloadAndVerifyChecksum(sumsURL, sumsFile, tarball, asset, ui.Download); err != nil {
+			return fmt.Errorf("integrity: %w", err)
 		}
+		ui.Success("checksum verified")
 		bin, err := extractBinary(tarball, tmp)
 		if err != nil {
 			return err
@@ -150,12 +149,15 @@ func verifyChecksum(sumsFile, tarball, asset string) error {
 	for _, line := range strings.Split(string(raw), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 2 && (fields[1] == asset || strings.HasSuffix(fields[1], "/"+asset)) {
-			want = fields[0]
+			want = strings.ToLower(fields[0])
 			break
 		}
 	}
 	if want == "" {
 		return fmt.Errorf("no checksum entry for %s", asset)
+	}
+	if decoded, err := hex.DecodeString(want); err != nil || len(decoded) != sha256.Size {
+		return fmt.Errorf("invalid SHA-256 checksum for %s", asset)
 	}
 	f, err := os.Open(tarball)
 	if err != nil {
@@ -170,6 +172,16 @@ func verifyChecksum(sumsFile, tarball, asset string) error {
 		return fmt.Errorf("checksum mismatch for %s", asset)
 	}
 	return nil
+}
+
+func downloadAndVerifyChecksum(sumsURL, sumsFile, tarball, asset string, download func(string, string) (int64, error)) error {
+	if strings.TrimSpace(sumsURL) == "" {
+		return fmt.Errorf("release checksum URL is missing")
+	}
+	if _, err := download(sumsURL, sumsFile); err != nil {
+		return fmt.Errorf("cannot download release checksum: %w", err)
+	}
+	return verifyChecksum(sumsFile, tarball, asset)
 }
 
 func extractBinary(tarball, dir string) (string, error) {

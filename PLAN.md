@@ -4,7 +4,31 @@ Five sequential phases, grounded in a full research pass (subagent reports with
 file:line refs verified against the tree, 2026-10-09). This is the execution
 plan; `ANALYSIS.md` is the ideation layer, `TASKS.md` stays the bug tracker.
 
-## Decisions locked in
+## Current status reconciliation (2026-10-20)
+
+This is a code-tree inspection, **not a CI/security sign-off**; Rust has not
+been tested locally (per `AGENTS.md`) and concurrent security work is in
+progress. The original phase specifications below are retained as design
+history; do not treat every listed step as outstanding or every earlier
+checkbox/decision as approved.
+
+| Area | Current evidence/status |
+|---|---|
+| Scheduler | Substantial implementation exists: `crates/os/src/{schedule,scheduler}.rs`, `crates/web/src/api/cron_api.rs`, Tauri cron commands, REST/WASM mappings, Process-panel schedule UI and shell support. Startup wiring is implemented in `crates/web/src/lib.rs`; do not call the full lifecycle verified until CI and Docker startup are checked. |
+| Agent OS/UI tools | `os_exec`, `ui_open_panel`, `ui_notify` are present in the Rust agent path, browser path, prompts and UI metadata (`crates/web/src/api/agent_api.rs`, `src/composables/useAgent.ts`, `src/utils/uiRequests.ts`). This records implementation presence, not Rust test verification. |
+| Secrets | Metadata-only list, sealed values/reveal API, Tauri/REST/browser routes, panel and `secret_list`/`secret_get` agent tools exist (`crates/web/src/api/secrets.rs`, `src/components/SecretsPanel.vue`, `src/types/secrets*` / `crates/types/src/secrets.rs`). Do not infer an audit/security sign-off from this inventory. |
+| File/batch encryption vs folders | Shared real-byte encrypt/decrypt is implemented in `crates/web/src/api/batch.rs` and wired to REST/Tauri; browser cipher framing, binary round-trip and failure handling are corrected. Rust regression tests are added but **not run locally**; CI is required. Recursive folder jobs, folder manifests and trash/restore integration remain unimplemented proposals. File encryption removes the original path after verified ciphertext installation; it does not silently place plaintext in trash. |
+| Recovery / Shamir | `src/utils/shamir.ts` exists as a utility, but no integrated recovery-file create/unseal flow, Rust Shamir/recovery service, or recovery UI/routes were found. The recovery-file + 2-of-3 design remains a proposal, not a shipped recovery feature. |
+| Transport fixes | Several old `TASKS.md` items are already implemented: static connection probing (`probeStaticConnection`), sync-domain `REST_FIRST` with fallback, `notifyError` parity-gap logging/counter, and case-preserving Settings URL display. Remaining transport gaps stay tracked separately in `TASKS.md`. |
+| TLS / iOS | Caddy TLS sidecar exists (`docker-compose.tls.yml`, `Caddyfile`); iOS CI currently emits an **unsigned arm64 device IPA**. `scripts/ios-signing.sh` is not wired into CI; signed/TestFlight delivery remains open. `docs/IOS.md` is the operational source. |
+
+**Still-open product decisions:** confirm whether folder encryption must retain
+plaintext in trash until trash is emptied (and byte-level restore semantics),
+the recovery artifact/passphrase and Shamir-share UX/threshold policy, and
+whether recovery rotates/re-wraps existing keys. The proposed choices below
+are not product approval.
+
+## Previously proposed design choices (not product sign-off)
 
 | Decision | Choice |
 |---|---|
@@ -36,7 +60,7 @@ plan; `ANALYSIS.md` is the ideation layer, `TASKS.md` stays the bug tracker.
 
 ---
 
-# Phase 1 — Scheduler (cron) service
+# Phase 1 — Scheduler (cron) service — implemented; lifecycle verification pending
 
 **Deliverable:** `.cybsh` scripts run on cron/interval schedules on desktop +
 server; manageable in the Tasks panel; a `cron` shell verb on all transports.
@@ -139,7 +163,7 @@ Copies the canonical pattern of `crates/sync/src/scheduler.rs:34-65`:
 
 ---
 
-# Phase 2 — Agent exposure: `os_*` + `ui_*` tools
+# Phase 2 — Agent exposure: `os_*` + `ui_*` tools — implemented; Rust CI pending
 
 **Deliverable:** the agent runs the OS syscall surface (cybsh-only, no host
 shell) and drives the UI (open panels, navigate, notify) on all transports.
@@ -226,7 +250,7 @@ shell) and drives the UI (open panels, navigate, notify) on all transports.
 
 ---
 
-# Phase 3 — Secrets keystore (password manager)
+# Phase 3 — Secrets keystore (password manager) — integrated; security review pending
 
 **Deliverable:** a Vault panel — store/search/generate/copy passwords and
 notes; values sealed at rest; never echoed except on explicit reveal
@@ -300,21 +324,32 @@ notes; values sealed at rest; never echoed except on explicit reveal
 
 ---
 
-# Phase 4 — Folder/disk encryption (purge with trash safety)
+# Phase 4 — Folder/disk encryption (file/batch core implemented; recursive workflow pending)
 
-**Deliverable:** “Encrypt folder” really encrypts every file (bytes), moves
-plaintext to trash (restorable), decrypt restores; batch encrypt stops lying.
+**Required outcome:** “Encrypt folder” encrypts/decrypts actual file bytes and
+reports truthful progress/results, with verified storage and restore semantics.
+The shared per-file and file-ID batch pipeline is implemented; recursive folder
+jobs and trash/restore semantics below are not integrated. The Rust changes
+still require CI validation, not an assumed completion checkmark.
 
-## 4a. Shared real-encrypt core (first refactor — closes a research gap)
+## 4a. Shared real-encrypt core (implemented; Rust validation pending CI)
 
-- Extract the per-file byte pipeline from
-  `src-tauri/src/commands/encryption.rs::encrypt_file` (:255-405 — writes
-  `.enc` + `.enc.meta.json`, marks DB) into `crates/web/src/api/encryption.rs`
-  so Tauri **and** REST share it (thin Tauri wrapper). Include read-back
-  verification (decrypt-hash == source) before any purge.
-- `batch.rs::encrypt` (metadata-only today, batch.rs:34) is **rewired** to the
-  real pipeline (or refused `unsupported:` past a size cap — decide at impl;
-  real pipeline + async preferred).
+- `crates/web/src/api/batch.rs` now owns real AEAD encryption, authenticated
+  decryption, sidecar persistence, read-back round-trip verification before
+  source unlink, and explicit interrupted-transition recovery. Tauri delegates
+  to it; REST adds file encrypt/decrypt, batch decrypt and admin-only keypair
+  provisioning. Unknown algorithms/missing paths or keys are refusals, not
+  encryption flags. KEM modes use the public half; symmetric/signing-seed
+  modes open the sealed backend secret and use the existing separated-KDF +
+  ChaCha20-Poly1305 core (not a claim that signatures themselves encrypt).
+- Native data remains the existing `.enc` + `.enc.meta.json` format. The
+  browser uses its vault format and honestly labeled browser algorithms;
+  this is not evidence that a browser vault artifact equals a native sidecar.
+- Browser round-trip/tamper/failure tests use Node's real ChaCha20-Poly1305
+  behind a WASM-export shim. They do not execute a compiled Rust/WASM binary.
+- This core does not implement recursive folder selection, a folder manifest,
+  a recoverable-trash purge policy, a size-bounded async folder job, or secure
+  erasure of filesystem snapshots/backups. Those remain separate work below.
 
 ## 4b. Recursive folder job (202 contract)
 
@@ -366,9 +401,9 @@ plaintext to trash (restorable), decrypt restores; batch encrypt stops lying.
 
 ---
 
-# Phase 5 — Recovery (file + Shamir 2-of-3 + trusted-device)
+# Phase 5 — Recovery (file + Shamir 2-of-3 + trusted-device) — not integrated
 
-**Deliverable:** lost master passphrase recoverable via (a) `recovery.cybrec`
+**Proposed deliverable:** lost master passphrase recoverable via (a) `recovery.cybrec`
 + recovery passphrase, or (b) any 2 of 3 printed Shamir shares, plus
 (c) trusted-device re-wrap for migration. `docs/SECURITY.md` §4 rewritten.
 

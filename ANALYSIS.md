@@ -1,5 +1,21 @@
 # ANALYSIS.md — CyberManju OS: what could be different, improved, new
 
+> **Current status (2026-10-20; supersedes all dated status snapshots and
+> checkmarks below):** code-tree inspection only, not CI or security sign-off.
+> The old blanket “100% resolved” / all-P0-closed wording is withdrawn; the
+> P0 aggregate closure is reopened while security fixes are in progress, and
+> Rust has not been validated locally or by CI in this pass. Scheduler,
+> agent `os_exec`/`ui_*` tools, and the secrets panel/routes/tools are
+> substantially present in the tree. Real per-file/batch byte encryption is
+> implemented with Rust validation pending CI; recursive folder integration is not;
+> recovery-file creation/unseal and an integrated Shamir flow are not present
+> (a standalone TS Shamir utility is not a recovery feature). TLS is provided
+> by the Caddy sidecar; iOS CI currently produces an **unsigned arm64 device
+> IPA**, while signing/TestFlight remains open. Several old transport findings
+> are implemented, but the remaining gaps are listed in `TASKS.md`. Treat the
+> historical dates and status claims that follow as archive, not current
+> completion evidence. See `PLAN.md` for outstanding product decisions.
+
 > Thought-piece / ideation doc — not a commitment or a task tracker (that's
 > `TASKS.md`). Written from a full pass over the tree on 2026-10-09 (v0.1.1):
 > 49 components · 31 composables · 47 utils · 15 crates · 152 Tauri commands ·
@@ -434,7 +450,11 @@ stays a CI-side follow-up (needs both toolchains in one job) | ~~One test bootin
   35 vs 175 handlers, 114 vs ~150 route arms — drifted again since the
   2026-10-09 audit) — undermines the "verified"
   tone the repo otherwise earns.~~
-- **`P0` security backlog** ✅ landed 2026-10-11 — object ACL wired
+- **`P0` security backlog — aggregate closure reopened 2026-10-20.** The notes
+  below are historical implementation claims, not a current audit or security
+  sign-off. Concurrent security fixes are in progress; require a fresh review
+  and green CI before calling the P0 cluster closed. Object ACL was reported as
+  wired
    on REST (`P0-1`: `check_access` + `deny_file` at content/share/batch/agent/
    os-exec arms), viewer read-only (`P0-2`), per-user jobs/approvals + todos
    (`P0-10`), MCP/auto-approve gating (`P0-8`), hash-strip on IPC (`P0-4`),
@@ -458,19 +478,15 @@ stays a CI-side follow-up (needs both toolchains in one job) | ~~One test bootin
    aligned with the Caddy sidecar), the single-opener `OpenerLock` refuses
    second openers with `conflict:`, and the frontend pins 15 s abort +
    backoff retry (`rest-hardening.test.ts`).
-   Second-user/LAN exposure is unblocked. ~~object ACL never wired on REST
+  Do not consider second-user/LAN exposure unblocked based on these historical
+  entries; follow the P0 re-audit gate in `TASKS.md`. ~~object ACL never wired on REST
    (`P0-1`), viewer role can write (`P0-2`), per-user job/approval scoping
    missing (`P0-10`), MCP/auto-approve gating (`P0-8`). Fix before any second
    user or exposure beyond the LAN.~~
-- **iOS** ✅ build path landed 2026-10-12 (`P2-16`) — UI contract tests were already
-  green; `scripts/ios-configure.sh` audits version/floor/identifier/ATS,
-  `scripts/ios-signing.sh` (prepare/verify/cleanup) manages the ephemeral
-  keychain + provisioning profile mirroring Android, the `ios-build` CI job
-  (macos-latest) ships the simulator `.app` every run + the signed `.ipa`
-  when secrets exist, `docs/IOS.md` is the runbook (ATS exception, backup
-  parity). Only Apple secrets + TestFlight stay sequenced (Apple Developer
-  account + signing, not code). ~~is at zero** (`P2-16`) — for a personal OS, phone parity is half the
-  story; Android landed, iOS has no target at all.~~
+- **iOS** — the current CI job builds an **unsigned arm64 device IPA**; it does
+  not ship a simulator `.app` or sign when secrets exist. `scripts/ios-signing.sh`
+  is present but not wired into CI. Signed release/TestFlight remains open;
+  see `docs/IOS.md` for the current runbook and caveats.
 
 ---
 

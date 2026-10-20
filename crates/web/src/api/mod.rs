@@ -22,6 +22,7 @@ pub mod files;
 pub mod oauth;
 pub mod oplog;
 pub mod os_api;
+pub mod permissions;
 pub mod repair_api;
 pub mod search_api;
 pub mod secrets;

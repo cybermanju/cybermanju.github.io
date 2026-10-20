@@ -2,7 +2,7 @@
 <!-- Role: Vue desktop UI: windows, panels, overlays. -->
 <!-- Exports: module root (see items below). -->
 <!-- Integrates: standalone (no imports). -->
-<!-- Contracts: none special (pure logic; errors bubble to caller). -->
+<!-- Contracts: decorative rings share a positioned graphic box; status naming and visible labels stay separate. -->
 <template>
   <span
     class="ui-spinner"
@@ -10,8 +10,10 @@
     role="status"
     :aria-label="label"
   >
-    <span class="ui-spinner__ring" />
-    <span v-if="variant === 'orbit'" class="ui-spinner__ring ui-spinner__ring--inner" />
+    <span class="ui-spinner__graphic" aria-hidden="true">
+      <span class="ui-spinner__ring" />
+      <span v-if="variant === 'orbit'" class="ui-spinner__ring ui-spinner__ring--inner" />
+    </span>
     <span v-if="label && showLabel" class="ui-spinner__label">{{ label }}</span>
   </span>
 </template>
@@ -34,6 +36,12 @@ withDefaults(
   align-items: center;
   gap: 9px;
   color: var(--ui-accent);
+}
+
+.ui-spinner__graphic {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
 }
 
 .ui-spinner__ring {

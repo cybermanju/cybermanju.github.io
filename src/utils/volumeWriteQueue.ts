@@ -74,3 +74,15 @@ export class VolumeWriteQueue {
 export function createVolumeWriteQueue(): VolumeWriteQueue {
   return new VolumeWriteQueue()
 }
+
+/** Shared browser volume queue; every production writer must use this instance. */
+export const volumeWriteQueue = createVolumeWriteQueue()
+
+/** Run a result-producing volume mutation in the shared FIFO sequence. */
+export async function withVolumeWriteQueue<T>(bytes: number, write: () => Promise<T> | T): Promise<T> {
+  let result!: T
+  await volumeWriteQueue.enqueue(bytes, async () => {
+    result = await write()
+  })
+  return result
+}
