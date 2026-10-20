@@ -78,4 +78,71 @@ describe('refreshAfterSync', () => {
       fetchSyncRuns: failing,
     })).resolves.toBeUndefined()
   })
+
+  it.each(['files', 'df', 'status', 'runs'])('isolates a synchronous %s failure and starts every refresh immediately', async (failed) => {
+    const calls: string[] = []
+    const refresher = (name: string) => () => {
+      calls.push(name)
+      if (name === failed) throw new Error(`unavailable ${name}`)
+      return Promise.resolve()
+    }
+    const postBroadcast = vi.fn()
+    const completion = refreshAfterSync({
+      fetchFiles: refresher('files'),
+      fetchOsDf: refresher('df'),
+      fetchSyncStatus: refresher('status'),
+      fetchSyncRuns: refresher('runs'),
+      postBroadcast,
+    })
+    expect(calls).toEqual(['files', 'df', 'status', 'runs'])
+    expect(postBroadcast).not.toHaveBeenCalled()
+    await expect(completion).resolves.toBeUndefined()
+    expect(postBroadcast).toHaveBeenCalledExactlyOnceWith('cybermanju:files-changed')
+  })
+
+  it('waits for a pending refresh despite mixed synchronous and asynchronous failures', async () => {
+    let finish!: () => void
+    const pending = new Promise<void>(resolve => { finish = resolve })
+    const postBroadcast = vi.fn()
+    const completion = refreshAfterSync({
+      fetchFiles: () => { throw new Error('unavailable transport') },
+      fetchOsDf: () => pending,
+      fetchSyncStatus: async () => { throw new Error('network failure') },
+      fetchSyncRuns: async () => undefined,
+      postBroadcast,
+    })
+    await Promise.resolve()
+    expect(postBroadcast).not.toHaveBeenCalled()
+    finish()
+    await expect(completion).resolves.toBeUndefined()
+    expect(postBroadcast).toHaveBeenCalledExactlyOnceWith('cybermanju:files-changed')
+  })
+
+  it('preserves each dependency method receiver', async () => {
+    const receivers: unknown[] = []
+    function refresh(this: unknown) {
+      receivers.push(this)
+      return Promise.resolve()
+    }
+    const deps = {
+      fetchFiles: refresh,
+      fetchOsDf: refresh,
+      fetchSyncStatus: refresh,
+      fetchSyncRuns: refresh,
+    }
+    await refreshAfterSync(deps)
+    expect(receivers).toEqual([deps, deps, deps, deps])
+  })
+
+  it('keeps broadcast failures best-effort after all refreshes', async () => {
+    const refresh = vi.fn(async () => undefined)
+    await expect(refreshAfterSync({
+      fetchFiles: refresh,
+      fetchOsDf: refresh,
+      fetchSyncStatus: refresh,
+      fetchSyncRuns: refresh,
+      postBroadcast: () => { throw new Error('broadcast unavailable') },
+    })).resolves.toBeUndefined()
+    expect(refresh).toHaveBeenCalledTimes(4)
+  })
 })

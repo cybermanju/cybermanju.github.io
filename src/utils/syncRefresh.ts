@@ -56,14 +56,15 @@ export interface SyncRefreshDeps {
 /**
  * Re-fetch everything a sync run can change. Never throws — a refresh
  * failure must not mask a finished sync (each fetcher reports its own).
+ * Wrap calls independently so synchronous transport failures are isolated too.
  */
 export async function refreshAfterSync(deps: SyncRefreshDeps): Promise<void> {
   await Promise.allSettled([
-    deps.fetchFiles(),
-    deps.fetchOsDf(),
-    deps.fetchSyncStatus(),
-    deps.fetchSyncRuns(),
-  ])
+    () => deps.fetchFiles(),
+    () => deps.fetchOsDf(),
+    () => deps.fetchSyncStatus(),
+    () => deps.fetchSyncRuns(),
+  ].map(async refresh => refresh()))
   try {
     deps.postBroadcast?.('cybermanju:files-changed')
   } catch {
