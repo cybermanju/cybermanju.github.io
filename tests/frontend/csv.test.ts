@@ -25,6 +25,10 @@ describe('sniffDelimiter', () => {
   it('keeps ignoring leading blank lines and CRLF endings', () => {
     expect(sniffDelimiter('\r\n  \r\n"Name, aliases, tags";Age\r\nAda;36')).toBe(';')
   })
+
+  it('sniffs only the first non-empty CR-delimited line, not punctuation in later rows', () => {
+    expect(sniffDelimiter('\r  \rName;Note\rAda;one,two,three\r')).toBe(';')
+  })
 })
 
 describe('parseDelimited', () => {
@@ -47,12 +51,34 @@ describe('parseDelimited', () => {
     })
   })
 
+  it.each(['\n', '\r\n', '\r'])('parses records separated by %j and preserves quoted line endings', (ending) => {
+    const table = parseDelimited(`name;note${ending}Ada;"line1${ending}line2"${ending}Grace;plain${ending}`)
+    expect(table).toEqual({
+      columns: ['name', 'note'],
+      rows: [['Ada', `line1${ending}line2`], ['Grace', 'plain']],
+      delimiter: ';',
+      truncated: false,
+    })
+  })
+
+  it('handles mixed record endings without merging cells', () => {
+    const table = parseDelimited('name,note\rAda,one\nGrace,two\r\nLinus,three\r')
+    expect(table?.columns).toEqual(['name', 'note'])
+    expect(table?.rows).toEqual([['Ada', 'one'], ['Grace', 'two'], ['Linus', 'three']])
+  })
+
+  it('preserves explicit delimiter selection for CR records', () => {
+    const table = parseDelimited('name,note\rAda,one;two;three\r', ',')
+    expect(table?.delimiter).toBe(',')
+    expect(table?.rows).toEqual([['Ada', 'one;two;three']])
+  })
+
   it('refuses NUL/binary input', () => {
     expect(parseDelimited('a\0b')).toBeNull()
   })
 
-  it('caps rows and flags truncation', () => {
-    const big = `h\n${'v\n'.repeat(6000)}`
+  it.each(['\n', '\r\n', '\r'])('caps rows and flags truncation with %j endings', (ending) => {
+    const big = `h${ending}${`v${ending}`.repeat(6000)}`
     const t = parseDelimited(big)!
     expect(t.truncated).toBe(true)
     expect(t.rows.length).toBeLessThanOrEqual(5000)

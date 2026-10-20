@@ -2,6 +2,7 @@
 // Role: round-out daily use, part 3 (ANALYSIS.md §4.9) — cheap CSV/TSV
 // dataset view so the agent can then operate on tables. Pure RFC-4180-ish
 // parse (quotes, escaped quotes, embedded newlines) + delimiter sniffing.
+// Line endings: unquoted LF, CRLF and CR separate records; quoted content is preserved.
 // Exports: DatasetTable, parseDelimited, sniffDelimiter, inferColumnType.
 // Integrates: standalone; ArchivePanel DATA tab parses file content loaded
 // through the existing store content actions.
@@ -19,7 +20,7 @@ const MAX_COLS = 100
 
 /** Sniff `,` vs `\t` vs `;` outside quoted cells on the first non-empty line. */
 export function sniffDelimiter(text: string): string {
-  const first = text.split(/\r?\n/).find((l) => l.trim().length > 0) ?? ''
+  const first = text.split(/\r\n|\r|\n/).find((l) => l.trim().length > 0) ?? ''
   const counts = [',', '\t', ';'].map((d) => ({ d, n: 0 }))
   let quoted = false
   for (let i = 0; i < first.length; i++) {
@@ -75,11 +76,10 @@ export function parseDelimited(text: string, delimiter?: string): DatasetTable |
       quoted = true
     } else if (c === delim) {
       pushCell()
-    } else if (c === '\r') {
-      continue
-    } else if (c === '\n') {
+    } else if (c === '\r' || c === '\n') {
       pushCell()
       pushRow()
+      if (c === '\r' && text[i + 1] === '\n') i++
     } else {
       cell += c
     }
