@@ -760,6 +760,13 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
+      - name: Verify Android broker configuration
+        run: node scripts/verify-supabase-build.mjs dist
+        env:
+          REQUIRE_BROKER: '1'
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
       - name: Verify Android APK signature
         run: bash scripts/android-signing.sh verify
         env:
@@ -818,6 +825,13 @@ jobs:
       - name: Build unsigned iOS device IPA
         run: npx tauri ios build --ci --target aarch64 --no-sign
         env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Verify iOS broker configuration
+        run: node scripts/verify-supabase-build.mjs dist
+        env:
+          REQUIRE_BROKER: '1'
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 

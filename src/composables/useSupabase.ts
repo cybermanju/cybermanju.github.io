@@ -129,27 +129,40 @@ function readManualPair(): { url: string; key: string } {
   return { url, key }
 }
 
+function validBrokerUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return (parsed.protocol === 'https:' || parsed.protocol === 'http:') && !!parsed.hostname
+  } catch {
+    return false
+  }
+}
+
+function usableBroker(pair: { url: string; key: string }): boolean {
+  return validBrokerUrl(pair.url) && pair.key.length >= 8
+}
+
 export function getSupabaseConfig(): SupabaseConfig {
   // An explicit Settings paste wins over the baked pair (lets any build —
   // distro package, older release, CI without secrets — be fixed at runtime,
   // and lets a rotated broker be picked up without waiting for a release).
   const manual = readManualPair()
-  if (manual.url && manual.key) return { url: manual.url, key: manual.key, source: 'settings' }
+  // Older device settings can contain malformed or incomplete values. They
+  // must not disable a valid broker baked into an upgraded mobile build.
+  if (usableBroker(manual)) return { ...manual, source: 'settings' }
   const env = readBuildEnv()
-  if (env.url && env.key) return { url: env.url, key: env.key, source: 'build-env' }
+  if (usableBroker(env)) return { ...env, source: 'build-env' }
   if (env.url || env.key || manual.url || manual.key) {
-    // Half-filled on one side only — surface what exists so the UI can say
-    // which half is missing instead of a bare "not configured".
-    const url = manual.url || env.url
-    const key = manual.key || env.key
-    return { url, key, source: manual.url || manual.key ? 'settings' : 'build-env' }
+    // Preserve diagnostics, but never join halves from different projects.
+    return manual.url || manual.key
+      ? { ...manual, source: 'settings' }
+      : { ...env, source: 'build-env' }
   }
   return { url: '', key: '', source: 'none' }
 }
 
 function readConfiguredFlag(): boolean {
-  const { url, key } = getSupabaseConfig()
-  return url.startsWith('http') && key.length > 0
+  return usableBroker(getSupabaseConfig())
 }
 
 /**
@@ -173,7 +186,7 @@ export function setSupabaseConfig(url: string, key: string): string | null {
   const cleanUrl = String(url ?? '').trim().replace(/\/+$/, '')
   const cleanKey = String(key ?? '').trim()
   if (!cleanUrl || !cleanKey) return 'Paste the project URL and the anon / publishable key first.'
-  if (!cleanUrl.startsWith('http')) return 'Project URL must be a full https://… address.'
+  if (!validBrokerUrl(cleanUrl)) return 'Project URL must be a full https://… address.'
   if (cleanKey.length < 8) return 'That key looks too short — paste the anon / publishable (sb_publishable_… or eyJ…) key.'
   writeLS(MANUAL_URL_KEY, cleanUrl)
   writeLS(MANUAL_KEY_KEY, cleanKey)
@@ -214,7 +227,7 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
 
 export async function getSupabaseClient(): Promise<SupabaseClient | null> {
   const { url, key } = getSupabaseConfig()
-  if (!url || !key) return null
+  if (!usableBroker({ url, key })) return null
   const cacheKey = `${url}|${key.slice(0, 8)}`
   if (!client || clientKey !== cacheKey) {
     const { createClient } = await import('@supabase/supabase-js')
