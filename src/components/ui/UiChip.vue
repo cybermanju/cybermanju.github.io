@@ -11,8 +11,8 @@
     tabindex="0"
     :aria-pressed="active"
     @click="emit('click', $event)"
-    @keydown.enter.prevent="emit('click', $event as unknown as MouseEvent)"
-    @keydown.space.prevent="emit('click', $event as unknown as MouseEvent)"
+    @keydown.enter.self.prevent="emit('click', $event as unknown as MouseEvent)"
+    @keydown.space.self.prevent="emit('click', $event as unknown as MouseEvent)"
   >
     <AppIcon v-if="icon" :name="icon" :size="13" class="ui-chip__icon" />
     <span class="ui-chip__label"><slot>{{ label }}</slot></span>
