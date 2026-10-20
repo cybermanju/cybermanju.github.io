@@ -77,6 +77,32 @@ describe('parseDelimited', () => {
     expect(parseDelimited('a\0b')).toBeNull()
   })
 
+  it('keeps exactly 100 columns complete', () => {
+    const cells = Array.from({ length: 100 }, (_, i) => `cell${i}`)
+    const table = parseDelimited(`${cells.join(',')}\n${cells.join(',')}`)
+    expect(table?.columns).toEqual(cells)
+    expect(table?.rows).toEqual([cells])
+    expect(table?.truncated).toBe(false)
+  })
+
+  it.each(['', '\n'])('flags an oversized header finalized with %j', (ending) => {
+    const columns = Array.from({ length: 101 }, (_, i) => `col${i}`)
+    const table = parseDelimited(`${columns.join(',')}${ending}`)
+    expect(table?.columns).toEqual(columns.slice(0, 100))
+    expect(table?.rows).toEqual([])
+    expect(table?.truncated).toBe(true)
+  })
+
+  it('flags oversized data rows without dropping later records', () => {
+    const columns = Array.from({ length: 100 }, (_, i) => `col${i}`)
+    const wide = Array.from({ length: 101 }, (_, i) => `value${i}`)
+    const later = Array.from({ length: 100 }, (_, i) => `later${i}`)
+    const table = parseDelimited([columns.join(','), wide.join(','), later.join(',')].join('\n'))
+    expect(table?.columns).toEqual(columns)
+    expect(table?.rows).toEqual([wide.slice(0, 100), later])
+    expect(table?.truncated).toBe(true)
+  })
+
   it.each(['\n', '\r\n', '\r'])('caps rows and flags truncation with %j endings', (ending) => {
     const big = `h${ending}${`v${ending}`.repeat(6000)}`
     const t = parseDelimited(big)!

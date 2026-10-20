@@ -52,6 +52,7 @@ export function parseDelimited(text: string, delimiter?: string): DatasetTable |
   }
   const pushRow = () => {
     // Skip fully-empty trailing rows (common file ending).
+    if (row.length > MAX_COLS) truncated = true
     if (!(row.length === 1 && row[0] === '')) rows.push(row.slice(0, MAX_COLS))
     row = []
   }

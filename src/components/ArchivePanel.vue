@@ -192,7 +192,7 @@
           </select>
         </label>
         <div v-if="dataset" class="note text-muted">
-          {{ dataset.rows.length }} ROWS · {{ dataset.columns.length }} COLS · {{ dataset.truncated ? 'TRUNCATED @5000' : 'FULL' }}
+          {{ dataset.rows.length }} ROWS · {{ dataset.columns.length }} COLS · {{ dataset.truncated ? 'TRUNCATED' : 'FULL' }}
         </div>
       </div>
       <div v-if="dataset" class="section dataset-scroll">
