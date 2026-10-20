@@ -5,6 +5,7 @@
 // Contracts: mocks test harness behavior only and do not claim the Rust server passed these cases.
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { afterEach, test } from 'node:test'
 import { runHttpBehavioralSmoke } from './smoke-rest-http.mjs'
@@ -34,6 +35,13 @@ function json(response, status, value) {
 afterEach(async () => {
   await Promise.all([...servers].map((server) => new Promise((resolve) => server.close(resolve))))
   servers.clear()
+})
+
+test('deployment readiness probes use GET rather than wget spider HEAD', () => {
+  const dockerfile = readFileSync(new URL('../Dockerfile', import.meta.url), 'utf8')
+  const compose = readFileSync(new URL('../docker-compose.yml', import.meta.url), 'utf8')
+  assert.match(dockerfile, /CMD wget -q -O \/dev\/null http:\/\/localhost:3456\/api\/readyz \|\| exit 1/)
+  assert.match(compose, /test: \["CMD", "wget", "-q", "-O", "\/dev\/null", "http:\/\/localhost:3456\/api\/readyz"\]/)
 })
 
 test('passes bounded readiness, bootstrap, login, authenticated and admin-gate behaviors', async () => {
