@@ -41,6 +41,7 @@ import {
   writeContentText,
 } from './useWasmCrypto'
 import type { EncryptionAlgo } from '@/types'
+import { withVolumeWriteQueue } from '@/utils/volumeWriteQueue'
 
 // ── Module-level connection state ─────────────────────────────
 
@@ -48,6 +49,8 @@ const AUTH_TOKEN_KEY = 'cybermanju.authToken'
 const SERVER_URL_KEY = 'cybermanju.serverUrl'
 
 let _serverUrl = ''
+let _serverUrlValidated = false
+let _serverUrlProbe: Promise<boolean> | null = null
 
 // Restore a previously configured dashboard URL so a static build keeps
 // pointing at its server across reloads (this is what makes OAuth work
@@ -70,12 +73,50 @@ try {
 /** Configure the Web Dashboard REST API base URL. */
 export function setServerUrl(url: string): void {
   _serverUrl = url.replace(/\/+$/, '')
+  _serverUrlValidated = false
+  _serverUrlProbe = null
   try {
     if (_serverUrl) localStorage.setItem(SERVER_URL_KEY, _serverUrl)
     else localStorage.removeItem(SERVER_URL_KEY)
   } catch {
     // Storage unavailable — URL still works for this session
   }
+}
+
+/** Validate a saved dashboard endpoint once before allowing REST routing. */
+export async function ensureServerUrlReachable(): Promise<boolean> {
+  if (!_serverUrl) return false
+  if (_serverUrlValidated) return true
+  if (_serverUrlProbe) return _serverUrlProbe
+  const candidate = _serverUrl
+  let probe!: Promise<boolean>
+  probe = (async () => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 3000)
+    try {
+      const response = await fetch(`${candidate}/api/health`, {
+        method: 'GET', headers: { Accept: 'application/json' }, signal: controller.signal,
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const health = await response.json() as Record<string, unknown>
+      if (health.service !== 'CyberManju OS Web Dashboard') throw new Error('not a CyberManju dashboard')
+      if (_serverUrl !== candidate) return Boolean(_serverUrlValidated)
+      _serverUrlValidated = true
+      return true
+    } catch {
+      if (_serverUrl === candidate) {
+        _serverUrl = ''
+        _serverUrlValidated = false
+        try { localStorage.removeItem(SERVER_URL_KEY) } catch { /* session can still fall back */ }
+      }
+      return false
+    } finally {
+      clearTimeout(timer)
+      if (_serverUrlProbe === probe) _serverUrlProbe = null
+    }
+  })()
+  _serverUrlProbe = probe
+  return probe
 }
 
 /** Configure (and persist) the Bearer token for JWT auth. */
@@ -488,6 +529,21 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     method: 'GET',
     buildPath: () => '/api/encryption/keys',
   },
+  generate_keypair: {
+    method: 'POST',
+    buildPath: () => '/api/encryption/keys',
+    transformRequest: (args) => ({ algorithm: args.algorithm }),
+  },
+  encrypt_file: {
+    method: 'POST',
+    buildPath: (args) => `/api/files/${encodeURIComponent(String(args.fileId ?? ''))}/encrypt`,
+    transformRequest: (args) => ({ algorithm: args.algorithm }),
+  },
+  decrypt_file: {
+    method: 'POST',
+    buildPath: (args) => `/api/files/${encodeURIComponent(String(args.fileId ?? ''))}/decrypt`,
+    transformRequest: () => ({}),
+  },
 
   // ── User management ───────────────────────────────────────
   list_users: {
@@ -708,6 +764,12 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     method: 'POST',
     buildPath: () => '/api/batch/encrypt',
     transformRequest: (args) => ({ fileIds: args.fileIds, algorithm: args.algorithm }),
+  },
+
+  batch_decrypt: {
+    method: 'POST',
+    buildPath: () => '/api/batch/decrypt',
+    transformRequest: (args) => ({ fileIds: args.fileIds }),
   },
 
   batch_compress: {
@@ -1634,10 +1696,7 @@ export const WRITE_ONLY_COMMANDS = new Set([
   'merge_face_groups',
   'delete_face_group',
   'find_similar_faces',
-  // Local crypto / compression / parsing over on-disk file paths
-  'generate_keypair',
-  'encrypt_file',
-  'decrypt_file',
+  // Desktop-only compression / parsing over on-disk file paths
   'compress_file',
   'decompress_file',
   'get_compression_stats',
@@ -2240,6 +2299,7 @@ async function staticDetectFacesBatch(): Promise<{
 // provider probes. Provider push still needs the dashboard.
 
 const STATIC_VOLUME_KEY = 'cybermanju.os.volume'
+const STATIC_VOLUME_MUTATIONS = new Set(['os_exec', 'os_write', 'os_cp', 'os_mv', 'os_rm', 'os_touch', 'os_mkdir', 'os_edit'])
 
 function readStaticVolume(): Record<string, string> {
   try {
@@ -2259,13 +2319,15 @@ function readStaticVolume(): Record<string, string> {
   return {}
 }
 
-function writeStaticVolume(volume: Record<string, string>): void {
-  try {
-    localStorage.setItem(STATIC_VOLUME_KEY, JSON.stringify(volume))
-  } catch {
-    throw new Error('disk_full: browser storage refused the write — attach the .cybermanju file or free site data')
-  }
-  notifyOsDispatch()
+async function writeStaticVolume(volume: Record<string, string>): Promise<void> {
+  await withVolumeWriteQueue(0, () => {
+    try {
+      localStorage.setItem(STATIC_VOLUME_KEY, JSON.stringify(volume))
+    } catch {
+      throw new Error('disk_full: browser storage refused the write — attach the .cybermanju file or free site data')
+    }
+    notifyOsDispatch()
+  })
 }
 
 async function staticFetchAdapter(
@@ -2319,7 +2381,9 @@ const STATIC_CYBSH_DEPS: StaticCybshDeps = {
   },
   writeVolumeFile: async (path, content) => {
     try {
-      const raw = (await wasmOsDispatch('write', { path, content })) as {
+      const raw = (await withVolumeWriteQueue(new TextEncoder().encode(content).length, () =>
+        wasmOsDispatch('write', { path, content })
+      )) as {
         ok?: boolean
         output?: unknown
       } | null
@@ -2332,12 +2396,19 @@ const STATIC_CYBSH_DEPS: StaticCybshDeps = {
       if (!/unknown command|wasm backend unavailable/i.test(detail)) throw e
       // Stale pkg without the `write` arm — write the volume directly and
       // nudge the mirror so `volume:*` kv rows still follow.
-      const volume = readStaticVolume()
-      volume[path] = content
-      writeStaticVolume(volume)
+      await withVolumeWriteQueue(new TextEncoder().encode(content).length, async () => {
+        const volume = readStaticVolume()
+        volume[path] = content
+        try { localStorage.setItem(STATIC_VOLUME_KEY, JSON.stringify(volume)) } catch {
+          throw new Error('disk_full: browser storage refused the write — attach the .cybermanju file or free site data')
+        }
+        notifyOsDispatch()
+      })
     }
   },
-  deleteVolumePath: async (path, recursive) => {
+  deleteVolumePath: async (path, recursive) => withVolumeWriteQueue(0, async () => {
+    // Take the snapshot only after earlier queued writers have committed. A
+    // snapshot made before enqueueing can overwrite their newer volume state.
     const volume = readStaticVolume()
     const prefix = path === '/' ? '/' : `${path}/`
     const keys = Object.keys(volume).filter((k) => k === path || k.startsWith(prefix))
@@ -2358,10 +2429,13 @@ const STATIC_CYBSH_DEPS: StaticCybshDeps = {
       const detail = e instanceof Error ? e.message : String(e)
       if (!/unknown command|wasm backend unavailable/i.test(detail)) throw e
       for (const k of keys) delete volume[k]
-      writeStaticVolume(volume)
+      try { localStorage.setItem(STATIC_VOLUME_KEY, JSON.stringify(volume)) } catch {
+        throw new Error('disk_full: browser storage refused the write — attach the .cybermanju file or free site data')
+      }
+      notifyOsDispatch()
       return freed
     }
-  },
+  }),
   killTask: async (id) => {
     const raw = (await wasmOsDispatch('kill', { id })) as {
       ok?: boolean
@@ -2613,6 +2687,33 @@ const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
   decrypt_file: async (args) => {
     await decryptFile(String(args.fileId ?? ''))
     return { ok: true }
+  },
+
+  batch_encrypt: async (args) => {
+    const fileIds = Array.isArray(args.fileIds) ? args.fileIds.map(String) : []
+    if (fileIds.length === 0) throw new Error('invalid: fileIds are required')
+    let count = 0
+    for (const fileId of [...new Set(fileIds)]) {
+      const status = await getEncryptionStatus(fileId)
+      if (!status.isEncrypted) {
+        await encryptFile(fileId, String(args.algorithm ?? '') as EncryptionAlgo)
+        count += 1
+      }
+    }
+    return count
+  },
+  batch_decrypt: async (args) => {
+    const fileIds = Array.isArray(args.fileIds) ? args.fileIds.map(String) : []
+    if (fileIds.length === 0) throw new Error('invalid: fileIds are required')
+    let count = 0
+    for (const fileId of [...new Set(fileIds)]) {
+      const status = await getEncryptionStatus(fileId)
+      if (status.isEncrypted) {
+        await decryptFile(fileId)
+        count += 1
+      }
+    }
+    return count
   },
 
   // ── Compression (lz4 + brotli from the wasm crate, zstd + triple via @dweb-browser/zstd-wasm) ──
@@ -2989,6 +3090,7 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
 
 /** The core invoke — works in both Tauri and Web modes. */
 async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (!isTauri() && _serverUrl) await ensureServerUrlReachable()
   // ── Android launcher bridge (Gaveta): device-local IPC on every Tauri
   // transport, never REST — there is no dashboard twin for these commands.
   // Off-device (web/WASM) the Rust layer refuses with `unsupported:`.
@@ -3273,7 +3375,10 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
         }
       }
       const wasmArgs = wasmArgsForCommand(cmd, args ?? {})
-      const raw = await wasmOsDispatch(wasmArgs.cmd, wasmArgs.args)
+      const dispatch = () => wasmOsDispatch(wasmArgs.cmd, wasmArgs.args)
+      const raw = STATIC_VOLUME_MUTATIONS.has(cmd)
+        ? await withVolumeWriteQueue(0, dispatch)
+        : await dispatch()
       // The wasm dispatcher ALWAYS envelopes: `{"ok":bool,"output":"<inner>"}`
       // (see crates/os-wasm/src/os.rs `ok`/`err`). `os_exec` IS that envelope
       // (ShellResult), but the structured commands (ps/top/workers/jobs/df/…)

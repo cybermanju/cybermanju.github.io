@@ -8,7 +8,6 @@ use redb::ReadableTable;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::crypto::pqc::{self, algorithm_from_str, EncryptedFileMeta, KeyPair, PqcEngine};
 use crate::AppState;
 
 /// Status returned when encrypting/decrypting a file.
@@ -51,7 +50,9 @@ pub struct FrontendKeyInfo {
 fn algorithm_info(algo: &str) -> (&'static str, u8, &'static str) {
     match algo {
         "kyber1024" => ("ML-KEM-1024 — FIPS 203", 5, "#00FF41"),
-        "kyber768" | "hybrid" | "kyber512" => ("Hybrid ML-KEM-768 + X25519", 5, "#FFB800"),
+        "kyber768" | "hybrid" | "kyber512" => {
+            ("Hybrid ML-KEM-768 (NIST Level 3) + X25519", 3, "#FFB800")
+        }
         "ml_dsa44" | "ml-dsa44" | "ml-dsa-44" | "dilithium2" => {
             ("ML-DSA-44 — FIPS 204 (NIST Level 2)", 2, "#00D4FF")
         }
@@ -67,30 +68,6 @@ fn algorithm_info(algo: &str) -> (&'static str, u8, &'static str) {
         "aes256" | "chacha20" => ("ChaCha20Poly1305 (Classical)", 0, "#FF6B2B"),
         _ => ("Unknown", 0, "#6B7280"),
     }
-}
-
-/// Find the most recently created encryption key matching the given algorithm string.
-fn find_latest_key(
-    db: &crate::db::Database,
-    algorithm: &str,
-) -> Result<Option<crate::db::schema::EncryptionKey>, String> {
-    let tx = db.begin_read().map_err(|e| e.to_string())?;
-    let table = tx
-        .open_table(crate::db::Database::get_encryption_keys_table())
-        .map_err(|e| e.to_string())?;
-
-    let mut best: Option<crate::db::schema::EncryptionKey> = None;
-    for entry in table.iter().map_err(|e| e.to_string())? {
-        let (_, value) = entry.map_err(|e| e.to_string())?;
-        let key: crate::db::schema::EncryptionKey =
-            serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
-        // Match the algorithm family (e.g. "kyber768" and "hybrid" both map to Hybrid)
-        if key.algorithm == algorithm && best.as_ref().is_none_or(|b| key.created_at > b.created_at)
-        {
-            best = Some(key);
-        }
-    }
-    Ok(best)
 }
 
 /// Find the most recently created encryption key of any algorithm.
@@ -112,67 +89,6 @@ fn find_any_latest_key(
         }
     }
     Ok(best)
-}
-
-/// Find a specific key by ID.
-fn find_key_by_id(
-    db: &crate::db::Database,
-    key_id: &str,
-) -> Result<Option<crate::db::schema::EncryptionKey>, String> {
-    let tx = db.begin_read().map_err(|e| e.to_string())?;
-    let table = tx
-        .open_table(crate::db::Database::get_encryption_keys_table())
-        .map_err(|e| e.to_string())?;
-
-    match table.get(key_id).map_err(|e| e.to_string())? {
-        Some(value) => {
-            let key: crate::db::schema::EncryptionKey =
-                serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
-            Ok(Some(key))
-        }
-        None => Ok(None),
-    }
-}
-
-/// Reconstruct a `pqc::KeyPair` from a stored `db::schema::EncryptionKey`.
-fn reconstruct_keypair(stored: &crate::db::schema::EncryptionKey) -> Result<KeyPair, String> {
-    let algorithm = algorithm_from_str(&stored.algorithm)
-        .ok_or_else(|| format!("Unknown algorithm: {}", stored.algorithm))?;
-
-    let public_key = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        &stored.public_key,
-    )
-    .map_err(|e| format!("Failed to decode public key: {}", e))?;
-
-    // <<< AGENT-3 KEYS AT REST: private keys are sealed, never raw base64 >>>
-    let private_key = open_private_key(&stored.private_key)?;
-
-    // P0-13: restore the independent Hybrid pair (absent on legacy rows —
-    // encrypt/decrypt fall back to the documented derivation path there).
-    let x25519_public_key = stored
-        .x25519_public_key
-        .as_ref()
-        .map(|b| {
-            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b)
-                .map_err(|e| format!("Failed to decode X25519 public key: {}", e))
-        })
-        .transpose()?;
-    let x25519_private_key = stored
-        .x25519_private_key
-        .as_ref()
-        .map(|s| open_private_key(s))
-        .transpose()?;
-
-    Ok(KeyPair {
-        id: stored.id.clone(),
-        algorithm,
-        public_key,
-        private_key,
-        x25519_public_key,
-        x25519_private_key,
-        created_at: stored.created_at.clone(),
-    })
 }
 
 // <<< AGENT-3 KEYS AT REST >>>
@@ -284,140 +200,13 @@ pub fn encrypt_file(
     algorithm: String,
     state: State<'_, AppState>,
 ) -> Result<EncryptionStatus, String> {
-    let supported = [
-        "kyber512",
-        "kyber768",
-        "kyber1024",
-        "hybrid",
-        "ml_dsa44",
-        "ml_dsa65",
-        "ml_dsa87",
-        "dilithium2",
-        "dilithium3",
-        "dilithium5",
-        "sphincsplus",
-        "classical_sign",
-        "aes256",
-    ];
-    if !supported.contains(&algorithm.as_str()) {
-        return Err(format!(
-            "Unsupported algorithm: {}. Supported: {}",
-            algorithm,
-            supported.join(", ")
-        ));
-    }
-
     let db = state.db.write().map_err(|e| e.to_string())?;
-
-    // Read the file node
-    let tx_read = db.begin_read().map_err(|e| e.to_string())?;
-    let table_read = tx_read
-        .open_table(crate::db::Database::get_files_table())
-        .map_err(|e| e.to_string())?;
-    let value = table_read
-        .get(file_id.as_str())
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("not_found: file '{}' not found", file_id))?;
-    let mut file_node: crate::db::schema::FileNode =
-        serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
-    drop(tx_read);
-
-    // <<< AGENT-3 KEYS AT REST: migrate plaintext keys while we hold the
-    // write lock >>>
+    // <<< AGENT-3 KEYS AT REST: migrate plaintext keys while we hold the write lock >>>
     seal_legacy_keys(&db);
-
-    // Find the latest key matching this algorithm
-    let stored_key = find_latest_key(&db, &algorithm)?.ok_or_else(|| {
-        format!(
-            "No {} keypair found. Generate one first using generate_keypair.",
-            algorithm
-        )
-    })?;
-
-    // Reconstruct the PQC keypair from stored bytes
-    let keypair = reconstruct_keypair(&stored_key)?;
-
-    // Attempt actual file encryption if a path is available
-    let actual_algorithm_used = if let Some(ref ctx) = file_node.context_data {
-        if let Some(original_path) = ctx.get("original_path").and_then(|v| v.as_str()) {
-            if let Ok(plaintext) = std::fs::read(original_path) {
-                match pqc::encrypt_data(&plaintext, &keypair) {
-                    Ok(encrypted) => {
-                        // Write encrypted bytes to .enc file
-                        let enc_path = format!("{}.enc", original_path);
-                        let enc_write_ok = std::fs::write(&enc_path, &encrypted.ciphertext)
-                            .map_err(|e| {
-                                log::error!("Failed to write encrypted file {}: {}", enc_path, e);
-                                e
-                            });
-
-                        // Write metadata JSON to .enc.meta.json
-                        let meta: EncryptedFileMeta = (&encrypted).into();
-                        let meta_path = format!("{}.enc.meta.json", original_path);
-                        let meta_json = serde_json::to_string_pretty(&meta).ok();
-                        let meta_write_ok = meta_json
-                            .as_ref()
-                            .and_then(|mj| {
-                                std::fs::write(&meta_path, mj)
-                                    .map_err(|e| {
-                                        log::error!(
-                                            "Failed to write encryption metadata {}: {}",
-                                            meta_path,
-                                            e
-                                        );
-                                        e
-                                    })
-                                    .ok()
-                            })
-                            .is_some();
-
-                        // Only mark as encrypted if BOTH writes succeeded
-                        if enc_write_ok.is_ok() && meta_write_ok {
-                            Some(encrypted.algorithm.clone())
-                        } else {
-                            // Cleanup: remove partial .enc file if it exists
-                            let _ = std::fs::remove_file(&enc_path);
-                            let _ = std::fs::remove_file(&meta_path);
-                            None
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("PQC encryption failed (metadata still updated): {}", e);
-                        None
-                    }
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
+    let enc_algorithm = cybermanju_web::api::batch::encrypt_one(&db, &file_id, &algorithm)?;
     let now = Utc::now().to_rfc3339();
-    let enc_algorithm = actual_algorithm_used
-        .unwrap_or_else(|| format!("{}+ChaCha20Poly1305", algorithm_info(&algorithm).0));
-    file_node.encrypted = true;
-    file_node.encryption_algorithm = Some(enc_algorithm.clone());
-    file_node.modified_at = now.clone();
-
-    // Write back
-    let serialized = serde_json::to_string(&file_node).map_err(|e| e.to_string())?;
-    let tx = db.begin_write().map_err(|e| e.to_string())?;
-    {
-        let mut table = tx
-            .open_table(crate::db::Database::get_files_table())
-            .map_err(|e| e.to_string())?;
-        table
-            .insert(file_id.as_str(), serialized.as_str())
-            .map_err(|e| e.to_string())?;
-    }
-    tx.commit().map_err(|e| e.to_string())?;
-
     Ok(EncryptionStatus {
-        file_id: file_id.clone(),
+        file_id,
         encrypted: true,
         algorithm: Some(enc_algorithm),
         updated_at: now,
@@ -439,84 +228,10 @@ pub fn decrypt_file(
     state: State<'_, AppState>,
 ) -> Result<EncryptionStatus, String> {
     let db = state.db.write().map_err(|e| e.to_string())?;
-
-    // Read the file node
-    let tx_read = db.begin_read().map_err(|e| e.to_string())?;
-    let table_read = tx_read
-        .open_table(crate::db::Database::get_files_table())
-        .map_err(|e| e.to_string())?;
-    let value = table_read
-        .get(file_id.as_str())
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("not_found: file '{}' not found", file_id))?;
-    let mut file_node: crate::db::schema::FileNode =
-        serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
-    drop(tx_read);
-
-    // <<< AGENT-3 KEYS AT REST: migrate plaintext keys while we hold the
-    // write lock >>>
+    // <<< AGENT-3 KEYS AT REST: migrate plaintext keys while we hold the write lock >>>
     seal_legacy_keys(&db);
-
-    // Attempt actual file decryption if a path is available
-    if let Some(ref ctx) = file_node.context_data {
-        if let Some(original_path) = ctx.get("original_path").and_then(|v| v.as_str()) {
-            let enc_path = format!("{}.enc", original_path);
-            let meta_path = format!("{}.enc.meta.json", original_path);
-
-            // Read encryption metadata
-            let meta_json = std::fs::read_to_string(&meta_path)
-                .map_err(|e| format!("Cannot read encryption metadata {}: {}", meta_path, e))?;
-            let meta: EncryptedFileMeta = serde_json::from_str(&meta_json)
-                .map_err(|e| format!("Failed to parse encryption metadata: {}", e))?;
-
-            // Load the key used for encryption
-            let stored_key = find_key_by_id(&db, &meta.key_id)?.ok_or_else(|| {
-                format!("Encryption key {} not found — cannot decrypt", meta.key_id)
-            })?;
-            let keypair = reconstruct_keypair(&stored_key)?;
-
-            // Read ciphertext
-            let ciphertext = std::fs::read(&enc_path)
-                .map_err(|e| format!("Cannot read encrypted file {}: {}", enc_path, e))?;
-
-            // Reconstruct FileEncryptedData and decrypt
-            let encrypted = meta
-                .to_encrypted_data(ciphertext)
-                .map_err(|e| format!("Failed to reconstruct encrypted data: {}", e))?;
-
-            match pqc::decrypt_data(&encrypted, &keypair) {
-                Ok(plaintext) => {
-                    // Write decrypted file back to original path
-                    std::fs::write(original_path, &plaintext)
-                        .map_err(|e| format!("Failed to write decrypted file: {}", e))?;
-
-                    // Clean up .enc and .enc.meta.json
-                    let _ = std::fs::remove_file(&enc_path);
-                    let _ = std::fs::remove_file(&meta_path);
-                }
-                Err(e) => {
-                    return Err(format!("integrity: decryption failed: {}", e));
-                }
-            }
-        }
-    }
-
+    cybermanju_web::api::batch::decrypt_one(&db, &file_id)?;
     let now = Utc::now().to_rfc3339();
-    file_node.encrypted = false;
-    file_node.encryption_algorithm = None;
-    file_node.modified_at = now.clone();
-
-    let serialized = serde_json::to_string(&file_node).map_err(|e| e.to_string())?;
-    let tx = db.begin_write().map_err(|e| e.to_string())?;
-    {
-        let mut table = tx
-            .open_table(crate::db::Database::get_files_table())
-            .map_err(|e| e.to_string())?;
-        table
-            .insert(file_id.as_str(), serialized.as_str())
-            .map_err(|e| e.to_string())?;
-    }
-    tx.commit().map_err(|e| e.to_string())?;
 
     Ok(EncryptionStatus {
         file_id,
@@ -558,10 +273,9 @@ pub fn get_encryption_status(
     };
 
     if let Some(key) = latest_key {
-        let algo_enum = algorithm_from_str(&key.algorithm);
         let (display, nist_level, _color) = algorithm_info(&key.algorithm);
         Ok(FrontendEncryptionStatus {
-            is_encrypted: any_encrypted || algo_enum.is_some(),
+            is_encrypted: any_encrypted,
             algorithm: Some(display.to_string()),
             nist_level: Some(nist_level),
             key_id: Some(key.id),
@@ -586,78 +300,17 @@ pub fn get_encryption_status(
 ///   - dilithium*/sphincsplus/classical_sign  → 64-byte HMAC-SHA512 key with SHA-256 fingerprint
 ///   - aes256      → 32-byte ChaCha20Poly1305 key
 ///
-/// Keys are stored as base64-encoded bytes in the database.
-/// The returned EncryptionKey contains the public key bytes (base64) and
-/// the private key bytes (base64) — the private key IS stored in the DB
-/// for this local encryption use case.
+/// Public key bytes are base64. Private material is sealed under the local
+/// master passphrase before persistence. This trusted-local IPC result contains
+/// the sealed private field; the REST wrapper exposes public information only.
 #[tauri::command(async)]
 pub fn generate_keypair(
     algorithm: String,
     state: State<'_, AppState>,
 ) -> Result<crate::db::schema::EncryptionKey, String> {
-    let algo_enum = algorithm_from_str(&algorithm).ok_or_else(|| {
-        format!(
-            "Unsupported algorithm: {}. Supported: kyber1024, hybrid, ml_dsa44, ml_dsa65, ml_dsa87, classical_sign, aes256",
-            algorithm
-        )
-    })?;
-
-    // Use the real PQC engine to generate the keypair
-    let mut engine = PqcEngine::new();
-    let keypair = engine
-        .generate_keypair(algo_enum)
-        .map_err(|e| format!("Key generation failed: {}", e))?;
-
-    let now = Utc::now().to_rfc3339();
-
-    // Encode the actual key bytes as base64
-    let public_key_b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        &keypair.public_key,
-    );
-    // <<< AGENT-3 KEYS AT REST: seal before it ever touches the database >>>
-    let private_key_b64 = seal_private_key(&keypair.private_key)?;
-    // P0-13: persist the independent Hybrid pair alongside the KEM keys —
-    // the secret half sealed exactly like the private key.
-    let x25519_public_key = keypair
-        .x25519_public_key
-        .as_ref()
-        .map(|b| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b));
-    let x25519_private_key = keypair
-        .x25519_private_key
-        .as_ref()
-        .map(|b| seal_private_key(b))
-        .transpose()?;
-
-    let key = crate::db::schema::EncryptionKey {
-        id: keypair.id.clone(),
-        algorithm: algorithm.clone(),
-        public_key: public_key_b64,
-        private_key: private_key_b64,
-        created_at: now.clone(),
-        label: Some(format!("{} keypair", algorithm_info(&algorithm).0)),
-        x25519_public_key,
-        x25519_private_key,
-    };
-
-    // Store in the database
     let db = state.db.write().map_err(|e| e.to_string())?;
-    // Opportunistically migrate any older plaintext keys while we hold the
-    // write lock.
     seal_legacy_keys(&db);
-    let serialized = serde_json::to_string(&key).map_err(|e| e.to_string())?;
-    let tx = db.begin_write().map_err(|e| e.to_string())?;
-    {
-        let mut table = tx
-            .open_table(crate::db::Database::get_encryption_keys_table())
-            .map_err(|e| e.to_string())?;
-        table
-            .insert(keypair.id.as_str(), serialized.as_str())
-            .map_err(|e| e.to_string())?;
-    }
-    tx.commit().map_err(|e| e.to_string())?;
-
-    Ok(key)
+    cybermanju_web::api::batch::generate_keypair(&db, &algorithm)
 }
 
 /// List all encryption keys — NEVER exposes private key material.
@@ -714,4 +367,17 @@ pub fn list_keys(state: State<'_, AppState>) -> Result<Vec<FrontendKeyInfo>, Str
     }
 
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::algorithm_info;
+
+    #[test]
+    fn hybrid_nist_level_matches_shared_crypto_engine() {
+        let (_, level, _) = algorithm_info("hybrid");
+        assert_eq!(level, 3);
+        let (_, legacy_level, _) = algorithm_info("kyber768");
+        assert_eq!(legacy_level, 3);
+    }
 }

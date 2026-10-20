@@ -372,6 +372,38 @@ pub fn find_by_username(db: &Database, username: &str) -> Result<Option<User>, S
     Ok(None)
 }
 
+/// Reject tokens whose account was deleted, disabled, renamed, or changed role.
+/// The token's username and role are identity claims, not durable authority;
+/// callers should invoke this after signature/expiry verification.
+pub fn validate_token_identity(
+    db: &Database,
+    claims: &security::Claims,
+) -> Result<(), String> {
+    let tx = db
+        .begin_read()
+        .map_err(|_| "auth: account identity unavailable".to_string())?;
+    let users = tx
+        .open_table(Database::get_users_table())
+        .map_err(|_| "auth: account identity unavailable".to_string())?;
+    let raw = users
+        .get(claims.user_id.as_str())
+        .map_err(|_| "auth: account identity unavailable".to_string())?
+        .ok_or_else(|| "auth: account no longer exists".to_string())?;
+    let user: User = serde_json::from_str(raw.value())
+        .map_err(|_| "auth: account identity is invalid".to_string())?;
+
+    if user.id != claims.user_id || user.username != claims.sub {
+        return Err("auth: token identity no longer matches account".to_string());
+    }
+    if !user.is_active {
+        return Err("auth: account is inactive".to_string());
+    }
+    if user.role != claims.role {
+        return Err("auth: account role has changed".to_string());
+    }
+    Ok(())
+}
+
 // ─── Password hashing ─────────────────────────────────────────────────
 
 /// Argon2id password hashing with pinned parameters.
@@ -412,4 +444,86 @@ fn argon2_instance() -> Result<argon2::Argon2<'static>, String> {
     )
     .map_err(|e| format!("Invalid Argon2 parameters: {}", e))?;
     Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use redb::ReadableTable;
+
+    fn fixture() -> (Database, tempfile::TempDir, User, security::Claims) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Database::new(dir.path().join("identity.redb").to_str().unwrap()).unwrap();
+        let user = User {
+            id: "identity-user".to_string(),
+            username: "alice".to_string(),
+            password_hash: String::new(),
+            display_name: None,
+            role: "admin".to_string(),
+            is_active: true,
+            created_at: "now".to_string(),
+            updated_at: "now".to_string(),
+        };
+        let tx = db.begin_write().unwrap();
+        {
+            let mut table = tx.open_table(Database::get_users_table()).unwrap();
+            table
+                .insert(user.id.as_str(), serde_json::to_string(&user).unwrap().as_str())
+                .unwrap();
+        }
+        tx.commit().unwrap();
+        let claims = security::Claims {
+            sub: user.username.clone(),
+            user_id: user.id.clone(),
+            role: user.role.clone(),
+            iat: 1,
+            exp: u64::MAX,
+            jti: "identity-test".to_string(),
+        };
+        (db, dir, user, claims)
+    }
+
+    fn save(db: &Database, user: &User) {
+        let tx = db.begin_write().unwrap();
+        {
+            let mut table = tx.open_table(Database::get_users_table()).unwrap();
+            table
+                .insert(user.id.as_str(), serde_json::to_string(user).unwrap().as_str())
+                .unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn token_identity_matches_current_active_user() {
+        let (db, _dir, _, claims) = fixture();
+        assert!(validate_token_identity(&db, &claims).is_ok());
+    }
+
+    #[test]
+    fn role_rename_deactivation_and_deletion_reject_old_identity() {
+        let (db, _dir, mut user, claims) = fixture();
+
+        user.role = "user".to_string();
+        save(&db, &user);
+        assert!(validate_token_identity(&db, &claims).unwrap_err().contains("role"));
+
+        user.role = claims.role.clone();
+        user.username = "alice-renamed".to_string();
+        save(&db, &user);
+        assert!(validate_token_identity(&db, &claims).unwrap_err().contains("identity"));
+
+        user.username = claims.sub.clone();
+        user.is_active = false;
+        save(&db, &user);
+        assert!(validate_token_identity(&db, &claims).unwrap_err().contains("inactive"));
+
+        let tx = db.begin_write().unwrap();
+        {
+            let mut table = tx.open_table(Database::get_users_table()).unwrap();
+            table.remove(user.id.as_str()).unwrap();
+        }
+        tx.commit().unwrap();
+        assert!(validate_token_identity(&db, &claims).unwrap_err().contains("exists"));
+    }
 }

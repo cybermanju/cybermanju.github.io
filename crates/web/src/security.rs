@@ -55,8 +55,9 @@ pub const VALID_ROLES: &[&str] = &["admin", "user", "viewer"];
 
 // ─── JWT claims ─────────────────────────────────────────────────────
 
-/// Decoded, verified JWT payload. Returned by `verify_jwt_auth` and threaded
-/// into every authenticated handler.
+/// Decoded, signature-verified JWT payload. Returned by `verify_jwt_auth` and
+/// threaded into authenticated handlers; handlers must also validate its
+/// current account identity via `api::users::validate_token_identity`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     /// Subject — username.
@@ -227,6 +228,8 @@ pub fn required_role(method: &str, segments: &[&str]) -> RequiredRole {
         ["api", "users", _] if method == "DELETE" => RequiredRole::Admin,
         ["api", "users", _, "role"] if method == "POST" => RequiredRole::Admin,
         ["api", "trash"] if method == "DELETE" => RequiredRole::Admin,
+        // Keypairs are shared backend resources, not caller-owned rows.
+        ["api", "encryption", "keys"] if method == "POST" => RequiredRole::Admin,
         ["api", "share-links"] if method == "GET" => RequiredRole::Admin,
         ["api", "share-links", _] if method == "DELETE" => RequiredRole::Admin,
         ["api", "sync", "configs", _] if method == "DELETE" => RequiredRole::Admin,

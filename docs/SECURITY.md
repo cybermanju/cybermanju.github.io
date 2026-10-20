@@ -217,7 +217,8 @@ and may create administrators directly.
 |---|---|
 | JWT secret | `0600` file / env |
 | Master passphrase | `0600` file / env |
-| Encryption private keys | Argon2id-derived key + ChaCha20Poly1305 (`sealed:v1:` prefix) |
+| Native/server encryption private keys | Argon2id-derived key + ChaCha20Poly1305 (`sealed:v1:` prefix) |
+| Browser/WASM encryption private keys | Unwrapped `secret:key:<id>` records in the same vault as ciphertext; not protected against a complete vault copy |
 | OAuth credentials | Argon2id-derived key + ChaCha20Poly1305, `0600` file |
 | Provider tokens (`SyncConfig.token`) | never serialized to a client (`skip_serializing`) |
 | User passwords | Argon2id |
@@ -229,17 +230,98 @@ the process.
 
 **If the master passphrase is lost, sealed private keys and stored OAuth
 credentials cannot be recovered.** Back up `<data dir>/master.passphrase`
-with the same care you would back up a key file — and note that anything
-stored *without* it (the passphrase file itself) is not a backup of the
-wrapped keys.
+separately and securely; a database backup without the matching passphrase is
+not sufficient. Conversely, a passphrase copy alone does not back up the
+database, keystore handles, or OAuth credential file.
 
-### 4.1 Rotating the master passphrase
+### 4.1 Backups and recovery limits
 
-The keystore re-wraps on demand: set a new `CYBERMANJU_MASTER_PASSPHRASE`,
-delete the affected `<data dir>/keystore.json` entry, and the next
-`keystore::get_or_derive` call mints a fresh key. Sealed blobs encrypted
-under the old passphrase (`seal:v1` payloads) are **not** re-encrypted
-automatically — rotate by re-creating the keys, not by editing the file.
+`scripts/backup.sh` copies the redb database and (when present) the Tantivy
+index into timestamped directories. It does **not** back up
+`master.passphrase`, `keystore.json`, or `oauth_credentials.enc` unless those
+files happen to be manually included by a separate procedure. The default
+backup is therefore not a complete machine recovery set. Keep separately
+protected copies of every required secret and state file, and test recovery
+before relying on it.
+
+The script is not an application-coordinated snapshot. Reflink support avoids
+some live-copy races but does not guarantee that the database and search index
+represent the same point in time; without reflink, copying the live database
+may also race writes. Stop the service before making a recovery-grade backup.
+Pruning removes completed marked snapshots older than the `--keep` count;
+`--keep 0` disables pruning. It does not rotate secrets or make backups
+recoverable. There is no automated restore or passphrase-rotation workflow.
+
+If a keystore handle is missing, a subsequent key-creation call can generate a
+new random key; data encrypted with the previous key remains unreadable. Restore
+the original database/keystore and matching passphrase from a known-good backup
+rather than deleting entries to force key creation.
+
+### 4.2 Changing the master passphrase
+
+Changing `CYBERMANJU_MASTER_PASSPHRASE` does not re-wrap existing keystore
+handles. Calls with a different passphrase fail closed and preserve the old
+handle; supply the original passphrase to continue accessing the existing key.
+Do **not** delete a `keystore.json` entry or replace the handle with a newly
+generated key: that does not rotate the encryption key and will strand all
+blobs sealed by the old key. A supported in-place passphrase/key migration
+procedure is not currently provided. Preserve the original passphrase and
+back up the existing keystore and ciphertext before attempting any manual
+migration. Sealed blobs are not automatically re-encrypted.
+
+### 4.3 File encryption is not a complete recovery workflow
+
+Native file/batch encryption uses the shared authenticated byte pipeline in
+`crates/web/src/api/batch.rs`: ciphertext at `<path>.enc` and required metadata
+at `<path>.enc.meta.json`. Both artifacts, the matching database key row, and
+the original master passphrase are needed for recovery. After durable sidecar
+installation and an authenticated read-back matching the source, the source
+is captured by rename into a private sibling recovery directory and checked
+again before removal. A replacement at the public pathname is never unlinked
+by source retirement. Detected source changes retain all captured bytes, and
+errors identify the recovery location. This is not secure erasure: filesystem snapshots, older file
+versions, independent backups and previously uploaded copies may still contain
+plaintext. A successful batch is a sequence of per-file transitions, not an
+all-or-nothing transaction across all selected files.
+
+**External in-place writers must be stopped during encrypt/decrypt.** Private
+rename and byte verification do not revoke another process's already-open
+writable handle. There is no portable atomic compare-bytes-and-unlink API in
+this implementation; a write after the last comparison can still race removal.
+The arbitrary concurrent-writer data-loss issue is therefore not fully closed.
+Do not treat these changes as mandatory filesystem locking or a snapshot system.
+
+Decrypt refuses tampered packages, missing keys and a conflicting existing
+plaintext path. Interrupted transitions retain recovery sidecars; retry the
+single-file decrypt operation rather than deleting artifacts or generating a
+replacement key. Cleanup removes and syncs ciphertext before removing metadata,
+so retries can validate plaintext if cleanup stops halfway. Unidentified orphan
+ciphertext and malformed partial packages, when an unencrypted plaintext file is
+present, are moved, not deleted, into private
+recovery directories; the first call reports their location and a retry can
+continue. Ambiguous packages with mismatching valid metadata still fail closed.
+Sidecar installation uses exclusive creation rather than hard links. Its
+portable copy mechanism is not atomic visibility for readers: partial final
+files can exist after an interrupted write, and complete recovery stages are
+retained on installation errors.
+
+New sidecars and stages use owner-only permissions on Unix. New metadata stores
+the source's ordinary Unix permission bits (including executable bits) and its
+read-only state, which restoration and encryption-failure rollback preserve.
+Setuid/setgid/sticky bits are deliberately not restored. Legacy metadata cannot
+recover permissions it never recorded; its restored files default to `0600`.
+
+The browser has a separate vault format. Its pipeline now rejects persistence
+failures and attempts rollback, but multi-key vault writes are not a single
+crash-atomic transaction. Browser private keys are currently stored unwrapped
+beside ciphertext: possession of a complete vault copy permits decryption.
+The native/server passphrase-sealing guarantees above do not apply to that
+browser format, and these fixes do not add browser at-rest confidentiality.
+Keep an independent known-good vault backup; these
+changes do not provide a recovery artifact, recursive folder/trash workflow,
+Shamir recovery or guaranteed cross-format interchange. Browser cipher tests
+use real Node ChaCha20-Poly1305 behind a WASM shim; compiled Rust/WASM behavior
+still requires CI validation.
 
 ---
 

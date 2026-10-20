@@ -46,6 +46,9 @@ const SUBAGENT_MAX_TURNS: u32 = 5;
 /// Denial sent when the model repeats one exact tool call.
 const DOOM_LOOP_DENIAL: &str =
     "denied: identical tool call repeated 3 times (doom-loop guard) — vary the input or explain";
+/// Distinguishes config privilege denials from legacy `auth:` missing-key
+/// failures, which intentionally remain HTTP 400 on agent start.
+pub const PRIVILEGED_CONFIG_AUTH_PREFIX: &str = "auth: privileged agent configuration:";
 
 // ─── wire types ──────────────────────────────────────────────────────────
 
@@ -220,8 +223,8 @@ fn route_usable(db: &Database, config: &AgentConfig) -> bool {
 /// P0-8: does this config need an admin to save it?
 ///
 /// Returns the reason when privileged material is present:
-/// * `mcp_servers` beyond the keyless default `exa` entry (stdio entries
-///   spawn processes — same reason `POST/DELETE .../mcp` is admin-gated),
+/// * `mcp_servers` other than the exact keyless default `exa` entry (stdio
+///   entries spawn processes — same reason `POST/DELETE .../mcp` is admin-gated),
 /// * `auto_approve: true` (unattended `ask` → unattended `tool_bash`),
 /// * a broad `bash` allow (simple `allow`, or a granular catch-all `*`
 ///   allow — the shipped default of scoped `curl *`/`wget *` allows plus a
@@ -229,13 +232,18 @@ fn route_usable(db: &Database, config: &AgentConfig) -> bool {
 pub fn config_needs_admin(config: &AgentConfig) -> Option<&'static str> {
     use cybermanju_types::agent::{PermissionAction, PermissionRule};
     for (name, server) in &config.mcp_servers {
-        if name != cybermanju_types::agent::DEFAULT_EXA_MCP_NAME {
-            return Some("mcp_servers: attaching non-default MCP servers needs admin");
+        // Only the exact shipped, keyless Exa endpoint is non-privileged.
+        // Comparing the whole config also rejects a re-used `exa` name with
+        // an attacker URL, alternate transport, custom headers, or options.
+        if name == cybermanju_types::agent::DEFAULT_EXA_MCP_NAME
+            && server == &cybermanju_types::agent::default_exa_mcp_server()
+        {
+            continue;
         }
-        // Even the default name re-declared as stdio is a process spawn.
         if server.transport == "stdio" {
             return Some("mcp_servers: stdio MCP servers spawn processes and need admin");
         }
+        return Some("mcp_servers: attaching non-default or customized MCP servers needs admin");
     }
     if config.auto_approve {
         return Some("auto_approve: unattended approvals need admin");
@@ -256,6 +264,24 @@ pub fn config_needs_admin(config: &AgentConfig) -> Option<&'static str> {
     None
 }
 
+/// Reject use of a config containing capabilities reserved for admins.
+/// This is separate from the save-time check: persisted, imported, or
+/// pre-existing configs must be re-authorized at every execution boundary.
+fn authorize_config_use(config: &AgentConfig, is_admin: bool) -> Result<(), String> {
+    if !is_admin {
+        if let Some(reason) = config_needs_admin(config) {
+            return Err(format!("{PRIVILEGED_CONFIG_AUTH_PREFIX} {reason}"));
+        }
+    }
+    Ok(())
+}
+
+/// Whether this config may be selected as a provider route for this caller.
+/// Used during start-time key preflight and again in worker failover.
+fn config_route_authorized(config: &AgentConfig, is_admin: bool) -> bool {
+    authorize_config_use(config, is_admin).is_ok()
+}
+
 /// Create or overwrite a config, enforcing the P0-8 admin gate.
 ///
 /// `is_admin` must come from the caller's JWT claims on the REST path
@@ -267,11 +293,7 @@ pub fn save_config_as(
     mut config: AgentConfig,
     is_admin: bool,
 ) -> Result<AgentConfig, String> {
-    if !is_admin {
-        if let Some(reason) = config_needs_admin(&config) {
-            return Err(format!("auth: {reason}"));
-        }
-    }
+    authorize_config_use(&config, is_admin)?;
     save_config_unchecked(db, &mut config)
 }
 
@@ -2755,26 +2777,29 @@ fn mcp_call(
 /// a provider, same contract as `POST /api/sync/start`).
 ///
 /// Trusted-local entry point (Tauri IPC, cybsh helpers): the job is owned
-/// by `"local"`. REST callers must use [`start_job_as`] with the JWT
-/// `user_id` so the job is bound to its owner (P0-10).
+/// by "local" and uses the trusted-local admin boundary. REST callers must
+/// use [`start_job_as`] with the JWT `user_id` and role so both job ownership
+/// (P0-10) and privileged-config authorization are enforced.
 pub fn start_job(
     db: &Arc<RwLock<Database>>,
     config_id: &str,
     session_id: Option<String>,
     prompt: String,
 ) -> Result<JobSnapshot, String> {
-    start_job_as(db, config_id, session_id, prompt, "local")
+    start_job_as(db, config_id, session_id, prompt, "local", true)
 }
 
-/// Owner-bound variant of [`start_job`] for the REST transport: `owner_id`
-/// is the JWT `user_id` and is stored on the job for every later
-/// status/abort/approve check. Job ids are `agent-<uuid v4>` (unpredictable).
+/// Owner-bound REST variant of [`start_job`]: `owner_id` is the JWT
+/// `user_id`, and `is_admin` is the JWT role. The job is owner-bound for
+/// later status/abort/approve checks and privileged configs are rejected for
+/// non-admins. Job ids are `agent-<uuid v4>` (unpredictable).
 pub fn start_job_as(
     db: &Arc<RwLock<Database>>,
     config_id: &str,
     session_id: Option<String>,
     prompt: String,
     owner_id: &str,
+    is_admin: bool,
 ) -> Result<JobSnapshot, String> {
     if prompt.trim().is_empty() {
         return Err("invalid: prompt is required".to_string());
@@ -2786,17 +2811,20 @@ pub fn start_job_as(
     // jobs that fail in the dark.
     let config = {
         let guard = db.read().map_err(|e| e.to_string())?;
-        get_config(&guard, config_id)?
+        let config = get_config(&guard, config_id)?;
+        authorize_config_use(&config, is_admin)?;
+        config
     };
     let key = {
         let guard = db.read().map_err(|e| e.to_string())?;
         let key = load_key(&guard, config_id)?;
         // The run may start as long as SOME route in the chain is usable —
         // the worker fails over onto it when the primary's call dies.
-        let primary_ok = route_usable(&guard, &config);
+        let primary_ok =
+            config_route_authorized(&config, is_admin) && route_usable(&guard, &config);
         let fallback_ok = config.fallback_ids.iter().any(|id| {
             get_config(&guard, id)
-                .map(|c| route_usable(&guard, &c))
+                .map(|c| config_route_authorized(&c, is_admin) && route_usable(&guard, &c))
                 .unwrap_or(false)
         });
         if !primary_ok && !fallback_ok {
@@ -2870,7 +2898,7 @@ pub fn start_job_as(
         .name(format!("agent-{}", job.job_id))
         .spawn(move || {
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                run_agent_job(&db2, &job2, config, key, session, prompt)
+                run_agent_job(&db2, &job2, config, key, session, prompt, is_admin)
             }));
             if outcome.is_err() {
                 set_state(&job2, |s| {
@@ -2912,8 +2940,9 @@ pub fn start_init_job_as(
     db: &Arc<RwLock<Database>>,
     config_id: &str,
     owner_id: &str,
+    is_admin: bool,
 ) -> Result<JobSnapshot, String> {
-    start_job_as(db, config_id, None, INIT_PROMPT.to_string(), owner_id)
+    start_job_as(db, config_id, None, INIT_PROMPT.to_string(), owner_id, is_admin)
 }
 
 /// Poll one job (trusted-local: Tauri IPC, SSE pre-check, cybsh helpers).
@@ -3236,10 +3265,14 @@ fn resolve_routes(
     db: &Arc<RwLock<Database>>,
     config: &AgentConfig,
     api_key: &str,
+    is_admin: bool,
 ) -> Vec<FailoverRoute> {
     use cybermanju_agent::config::plan_failover_chain;
     let mut routes = Vec::new();
     let push = |routes: &mut Vec<FailoverRoute>, cfg: &AgentConfig, key: String| {
+        if !config_route_authorized(cfg, is_admin) {
+            return;
+        }
         let endpoint = match providers::resolve(cfg) {
             Ok(e) => e,
             Err(_) => return,
@@ -3282,6 +3315,7 @@ fn run_agent_job(
     api_key: String,
     mut session: AgentSession,
     prompt: String,
+    is_admin: bool,
 ) {
     let fail = |job: &Arc<AgentJob>, message: String| {
         set_state(job, |s| {
@@ -3292,7 +3326,11 @@ fn run_agent_job(
         });
     };
 
-    let routes = resolve_routes(db, &config, &api_key);
+    if let Err(error) = authorize_config_use(&config, is_admin) {
+        fail(job, error);
+        return;
+    }
+    let routes = resolve_routes(db, &config, &api_key, is_admin);
     if routes.is_empty() {
         fail(
             job,
@@ -4450,6 +4488,12 @@ fn ai_err(line: String, output: String, origin: Option<&str>) -> String {
     )
 }
 
+/// Privileged-config denials are authorization failures, unlike expected
+/// terminal command failures (which remain HTTP 200 with `ok: false`).
+fn ai_privileged_config_denied(message: &str, origin: Option<&str>) -> String {
+    crate::json_error(403, message, origin)
+}
+
 /// Dispatch one `ai …` terminal line without holding the request lock.
 ///
 /// Called from `route_request` before any lock is taken (job start spawns a
@@ -4500,7 +4544,7 @@ pub fn try_ai_exec(
                     }
                 }
             };
-            match start_job_as(shared, &config_id, session_id, prompt, owner_id) {
+            match start_job_as(shared, &config_id, session_id, prompt, owner_id, is_admin) {
                 Ok(job) => Some(ai_ok(
                     line,
                     format!(
@@ -4509,6 +4553,9 @@ pub fn try_ai_exec(
                     ),
                     origin,
                 )),
+                Err(message) if message.starts_with(PRIVILEGED_CONFIG_AUTH_PREFIX) => {
+                    Some(ai_privileged_config_denied(&message, origin))
+                }
                 Err(message) => Some(ai_err(line, message, origin)),
             }
         }
@@ -4614,7 +4661,7 @@ pub fn try_ai_exec(
                     }
                 }
             };
-            match start_init_job_as(shared, &config_id, owner_id) {
+            match start_init_job_as(shared, &config_id, owner_id, is_admin) {
                 Ok(job) => Some(ai_ok(
                     line,
                     format!(
@@ -4623,6 +4670,9 @@ pub fn try_ai_exec(
                     ),
                     origin,
                 )),
+                Err(message) if message.starts_with(PRIVILEGED_CONFIG_AUTH_PREFIX) => {
+                    Some(ai_privileged_config_denied(&message, origin))
+                }
                 Err(message) => Some(ai_err(line, message, origin)),
             }
         }
@@ -4693,6 +4743,7 @@ pub fn compact_session_for(
     let (config, key, session) = {
         let guard = db.read().map_err(|e| e.to_string())?;
         let config = get_config(&guard, config_id)?;
+        authorize_config_use(&config, is_admin)?;
         let key = load_key(&guard, config_id)?;
         let session = get_session(&guard, session_id)?;
         check_session_owner(&session, requester, is_admin)?;
@@ -4847,12 +4898,17 @@ pub fn mcp_remove(db: &Database, config_id: &str, name: &str) -> Result<AgentCon
 /// Short-lived connections: connected, listed, dropped.
 pub fn mcp_tools(db: &Database, config_id: &str) -> Result<Vec<McpToolView>, String> {
     let config = get_config(db, config_id)?;
-    mcp_tools_for(&config)
+    mcp_tools_for(&config, true)
 }
 
-/// Same as `mcp_tools` but from an already-loaded config — the lockless
-/// routes use this so process spawns never hold the request lock.
-pub fn mcp_tools_for(config: &AgentConfig) -> Result<Vec<McpToolView>, String> {
+/// Connect every enabled server on an already-loaded config and list tools.
+/// Checking happens before connecting because stdio discovery executes the
+/// configured process; REST callers must pass the JWT's admin bit.
+pub fn mcp_tools_for(
+    config: &AgentConfig,
+    is_admin: bool,
+) -> Result<Vec<McpToolView>, String> {
+    authorize_config_use(config, is_admin)?;
     let mut out = Vec::new();
     // Same effective map as a run: stored servers + keyless Exa default.
     let mut effective = config.mcp_servers.clone();
@@ -4876,4 +4932,128 @@ pub fn mcp_tools_for(config: &AgentConfig) -> Result<Vec<McpToolView>, String> {
     }
     out.sort_by(|a, b| (&a.server, &a.name).cmp(&(&b.server, &b.name)));
     Ok(out)
+}
+
+#[cfg(test)]
+mod admin_config_use_tests {
+    use super::*;
+
+    fn config(value: serde_json::Value) -> AgentConfig {
+        serde_json::from_value(value).expect("valid AgentConfig fixture")
+    }
+
+    #[test]
+    fn non_admin_cannot_use_any_admin_gated_config_capability() {
+        let cases = [
+            serde_json::json!({"autoApprove": true}),
+            serde_json::json!({"permission": {"default": "ask", "rules": {"bash": "allow"}}}),
+            serde_json::json!({"permission": {"default": "ask", "rules": {"bash": [["*", "allow"]]}}}),
+            serde_json::json!({"mcpServers": {"custom": {"transport": "http", "url": "https://example.invalid/mcp"}}}),
+            serde_json::json!({"mcpServers": {"exa": {"transport": "http", "url": "https://attacker.invalid/mcp"}}}),
+            serde_json::json!({"mcpServers": {"exa": {"transport": "http", "url": "https://mcp.exa.ai/mcp", "headers": [["Authorization", "Bearer attacker"]]}}}),
+            serde_json::json!({"mcpServers": {"exa": {"transport": "stdio", "command": "echo"}}}),
+        ];
+
+        for privileged_fields in cases {
+            let mut value = serde_json::json!({
+                "id": "cfg",
+                "name": "test",
+                "providerId": "openai",
+                "model": "test-model"
+            });
+            value
+                .as_object_mut()
+                .expect("object fixture")
+                .extend(privileged_fields.as_object().expect("object case").clone());
+            let config = config(value);
+
+            assert!(config_needs_admin(&config).is_some());
+            assert!(authorize_config_use(&config, false)
+                .expect_err("non-admin use must be denied")
+                .starts_with(PRIVILEGED_CONFIG_AUTH_PREFIX));
+            assert!(authorize_config_use(&config, true).is_ok());
+            assert!(!config_route_authorized(&config, false));
+            assert!(config_route_authorized(&config, true));
+        }
+    }
+
+    #[test]
+    fn ordinary_config_remains_usable_without_admin() {
+        let config = config(serde_json::json!({
+            "id": "ordinary",
+            "name": "ordinary",
+            "providerId": "openai",
+            "model": "test-model"
+        }));
+        assert_eq!(config_needs_admin(&config), None);
+        assert!(authorize_config_use(&config, false).is_ok());
+        assert!(config_route_authorized(&config, false));
+    }
+
+    #[test]
+    fn exact_shipped_exa_default_remains_usable_without_admin() {
+        let mut config = config(serde_json::json!({
+            "id": "ordinary",
+            "name": "ordinary",
+            "providerId": "openai",
+            "model": "test-model"
+        }));
+        cybermanju_types::agent::ensure_default_mcp_servers(&mut config.mcp_servers);
+
+        assert_eq!(config_needs_admin(&config), None);
+        assert!(authorize_config_use(&config, false).is_ok());
+        assert!(config_route_authorized(&config, false));
+    }
+
+    #[test]
+    fn persisted_attacker_exa_config_is_denied_for_primary_and_fallback_routes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Database::new(dir.path().join("agent.redb").to_str().expect("path"))
+            .expect("database");
+        let persisted = serde_json::json!({
+            "id": "attacker-exa",
+            "name": "Attacker Exa",
+            "providerId": "ollama",
+            "model": "test-model",
+            "mcpServers": {
+                "exa": {"transport": "http", "url": "https://attacker.invalid/mcp"}
+            }
+        });
+        let tx = db.begin_write().expect("write transaction");
+        {
+            let mut table = tx
+                .open_table(Database::get_agent_configs_table())
+                .expect("config table");
+            table
+                .insert("attacker-exa", persisted.to_string().as_str())
+                .expect("persist config");
+        }
+        tx.commit().expect("commit config");
+
+        let db = Arc::new(RwLock::new(db));
+        let primary_error = start_job_as(
+            &db,
+            "attacker-exa",
+            None,
+            "hello".to_string(),
+            "member",
+            false,
+        )
+        .expect_err("persisted attacker endpoint must be denied at execution");
+        assert!(primary_error.starts_with(PRIVILEGED_CONFIG_AUTH_PREFIX));
+
+        let primary = config(serde_json::json!({
+            "id": "ordinary-primary",
+            "name": "Ordinary Primary",
+            "providerId": "openai",
+            "model": "test-model",
+            "fallbackIds": ["attacker-exa"]
+        }));
+        let non_admin_routes = resolve_routes(&db, &primary, "test-key", false);
+        assert_eq!(non_admin_routes.len(), 1, "unauthorized fallback is excluded");
+        assert_eq!(non_admin_routes[0].name, primary.name);
+
+        let admin_routes = resolve_routes(&db, &primary, "test-key", true);
+        assert_eq!(admin_routes.len(), 2, "admin may use the configured fallback");
+    }
 }

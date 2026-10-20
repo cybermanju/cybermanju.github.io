@@ -17,6 +17,7 @@
 // the volume keeps working exactly as before. Mobile uses the Tauri KV bridge.
 
 import { addOsDispatchHook, wasmDbDispatch, wasmOsDispatch } from './useWasmBackend'
+import { withVolumeWriteQueue } from '@/utils/volumeWriteQueue'
 
 const LS_KEY = 'cybermanju.os.volume'
 const PREFIX = 'volume:'
@@ -77,24 +78,28 @@ async function flushMobileMirror(): Promise<void> {
 
 /** Diff localStorage against the last pushed snapshot and write the delta. */
 async function pushVolume(): Promise<boolean> {
-  const current = readVolume()
-  const nextJson = JSON.stringify(current)
-  if (nextJson === lastJson) return false
-  const prev = lastJson ? (JSON.parse(lastJson) as Record<string, string>) : {}
+  return withVolumeWriteQueue(0, async () => {
+    // Read only after reaching the queue head. Otherwise a queued older
+    // snapshot could overwrite a newer localStorage image in the vault.
+    const current = readVolume()
+    const nextJson = JSON.stringify(current)
+    if (nextJson === lastJson) return false
+    const prev = lastJson ? (JSON.parse(lastJson) as Record<string, string>) : {}
 
-  for (const [path, text] of Object.entries(current)) {
-    if (prev[path] === text) continue
-    if ((await kv('kv.set', { key: PREFIX + path, value: text })).ok === false) return false
-  }
-  for (const path of Object.keys(prev)) {
-    if (path in current) continue
-    if ((await kv('kv.delete', { key: PREFIX + path })).ok === false) return false
-  }
-  // Advance only after the full delta was stored; a partial failure must be
-  // retried against the same previous image on the next flush.
-  lastJson = nextJson
-  await flushMobileMirror()
-  return true
+    for (const [path, text] of Object.entries(current)) {
+      if (prev[path] === text) continue
+      if ((await kv('kv.set', { key: PREFIX + path, value: text })).ok === false) return false
+    }
+    for (const path of Object.keys(prev)) {
+      if (path in current) continue
+      if ((await kv('kv.delete', { key: PREFIX + path })).ok === false) return false
+    }
+    // Advance only after the full delta was stored; a partial failure must be
+    // retried against the same previous image on the next flush.
+    lastJson = nextJson
+    await flushMobileMirror()
+    return true
+  })
 }
 
 /**
@@ -138,7 +143,9 @@ export async function replayVolumeFromVault(overwrite = false): Promise<number> 
     const value = (got.value as { value?: unknown } | null)?.value
     if (typeof value !== 'string') continue
     try {
-      await wasmOsDispatch('write', { path, content: value })
+      await withVolumeWriteQueue(new TextEncoder().encode(value).length, () =>
+        wasmOsDispatch('write', { path, content: value })
+      )
       restored++
     } catch {
       // One bad path must not abort the rest of the replay.

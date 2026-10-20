@@ -21,7 +21,7 @@ use commands::{
 use db::Database;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::Manager;
+use tauri::{ipc::Invoke, Manager, Runtime};
 
 /// Shared desktop state: one redb handle + one Tantivy index for IPC and REST.
 pub struct AppState {
@@ -331,241 +331,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_scoped_storage::init())
         .plugin(tauri_plugin_deep_link::init())
-        .invoke_handler(tauri::generate_handler![
-            // File operations
-            files::list_files,
-            files::get_file,
-            files::create_folder,
-            files::delete_file,
-            files::rename_file,
-            files::set_file_tags,
-            files::duplicate_file_context,
-            files::move_file,
-            files::get_preview,
-            files::read_file_content,
-            files::write_file_content,
-            // Read-only OS telemetry and virtual-volume stats. The REST dashboard
-            // is intentionally not started on mobile, so the WebView uses IPC.
-            commands::os_metrics::os_ps,
-            commands::os_metrics::os_top,
-            commands::os_metrics::os_workers,
-            commands::os_metrics::os_jobs,
-            commands::os_metrics::os_df,
-            // cybsh OS layer over IPC (mobile has no dashboard; desktop falls
-            // back here when :3456 is down). Mirrors POST /api/os/* shapes.
-            commands::os_shell::os_exec,
-            commands::os_shell::os_complete,
-            commands::os_shell::os_stat,
-            commands::os_shell::os_ls,
-            commands::os_shell::os_du,
-            commands::os_shell::os_write,
-            commands::os_shell::get_disk,
-            commands::os_shell::destroy_disk,
-            // Android launcher bridge — Gaveta de Apps (device-local IPC;
-            // off-Android the commands refuse with `unsupported:`, never mocks).
-            commands::launcher::launcher_list_apps,
-            commands::launcher::launcher_open_app,
-            commands::launcher::launcher_uninstall_app,
-            commands::launcher::launcher_list_icon_packs,
-            commands::launcher::launcher_pack_icon,
-            commands::launcher::launcher_list_social_apps,
-            commands::launcher::launcher_list_messages,
-            commands::launcher::launcher_clear_messages,
-            commands::launcher::launcher_notification_state,
-            commands::launcher::launcher_open_notification_settings,
-            commands::launcher::launcher_open_url,
-            commands::launcher::launcher_open_file,
-            // Point-in-time redb image used by the web-compatible mobile vault mirror
-            commands::vault_snapshot::snapshot_native_database,
-            commands::vault_snapshot::backup_export,
-            commands::vault_snapshot::vault_kv_get,
-            commands::vault_snapshot::vault_kv_set,
-            commands::vault_snapshot::vault_kv_delete,
-            commands::vault_snapshot::vault_kv_list,
-            // Search
-            search_cmd::search_files,
-            search_cmd::search_files_paginated,
-            search_cmd::search_files_federated,
-            search_cmd::suggest,
-            // Encryption
-            encryption::encrypt_file,
-            encryption::decrypt_file,
-            encryption::get_encryption_status,
-            encryption::generate_keypair,
-            encryption::list_keys,
-            // Compression
-            commands::compression::compress_file,
-            commands::compression::decompress_file,
-            commands::compression::get_compression_stats,
-            // Collections
-            collections::list_collections,
-            collections::create_collection,
-            collections::add_to_collection,
-            collections::remove_from_collection,
-            // Face grouping (commands layer — delegates to crate::faces for ML)
-            face_cmd::detect_faces,
-            face_cmd::detect_faces_batch_cmd,
-            face_cmd::recluster_faces,
-            face_cmd::rename_face_group,
-            face_cmd::merge_face_groups,
-            face_cmd::delete_face_group,
-            face_cmd::find_similar_faces,
-            face_cmd::list_face_groups,
-            face_cmd::get_group_files,
-            // Map / GPS
-            map::get_geo_files,
-            map::extract_exif_gps,
-            // Accounts
-            accounts::list_accounts,
-            accounts::create_account,
-            accounts::switch_account,
-            accounts::delete_account,
-            // Tree-sitter code intelligence
-            tree_sitter::parse_file,
-            tree_sitter::get_symbols,
-            tree_sitter::parse_text,
-            // Loose groups
-            files::create_loose_group,
-            files::add_to_loose_group,
-            files::list_loose_groups,
-            // User management & permissions
-            users::register_user,
-            users::create_user,
-            users::delete_user,
-            users::update_user_role,
-            users::authenticate_user,
-            users::list_users,
-            users::set_file_permission,
-            users::grant_file_permission,
-            users::revoke_file_permission,
-            users::verify_file_access,
-            users::get_file_permissions,
-            users::verify_token,
-            // Dashboard
-            dashboard::dashboard_status,
-            dashboard::start_dashboard,
-            dashboard::stop_dashboard,
-            // Sync
-            sync_cmd::list_sync_configs,
-            sync_cmd::create_sync_config,
-            sync_cmd::delete_sync_config,
-            sync_cmd::start_sync,
-            sync_cmd::get_sync_progress,
-            sync_cmd::get_sync_status,
-            sync_cmd::test_sync_connection,
-            sync_cmd::get_sync_usage,
-            sync_cmd::cancel_sync,
-            sync_cmd::list_remote_files,
-            // <<< AGENT-2 SYNC JOBS/RESTORE >>>
-            sync_cmd::restore_sync_file,
-            sync_cmd::delete_remote_file,
-            sync_cmd::get_sync_job,
-            sync_cmd::list_sync_runs,
-            sync_cmd::create_provider_repo,
-            sync_cmd::seed_repo_files,
-            sync_cmd::upload_remote_file,
-            sync_cmd::move_sync_file,
-            // Scheduler (cron) — recurring .cybsh triggers
-            commands::cron::cron_list,
-            commands::cron::cron_save,
-            commands::cron::cron_delete,
-            commands::cron::cron_run,
-            commands::cron::cron_history,
-            commands::cron::cron_set_enabled,
-            commands::cron::cron_ensure_started,
-            // Device identity (§2B.1) + LAN peers (§2B.2).
-            devices::list_devices,
-            devices::register_device,
-            devices::register_this_device,
-            devices::revoke_device,
-            devices::remove_device,
-            devices::list_lan_peers,
-            devices::probe_peer,
-            devices::peer_platform_notes,
-            devices::sign_peer_ops_for_device,
-            // P2P compute twins (§2B swarming + pairing + fountain codes —
-            // pure math, no sockets).
-            commands::p2p::swarm_encode,
-            commands::p2p::swarm_decode,
-            commands::p2p::fountain_encode,
-            commands::p2p::fountain_decode,
-            commands::p2p::pairing_code,
-            // Server-side todos (§4.9 agent bridge — same rows the agent tools use).
-            todos::list_todos,
-            todos::create_todo,
-            todos::toggle_todo,
-            todos::delete_todo,
-            // Secrets keystore (Phase 3) — sealed password-manager rows
-            commands::secrets::secret_list,
-            commands::secrets::secret_save,
-            commands::secrets::secret_update,
-            commands::secrets::secret_get,
-            commands::secrets::secret_reveal,
-            commands::secrets::secret_delete,
-            // Native AI agent (configs/sessions/detached jobs)
-            commands::agent::list_agent_providers,
-            commands::agent::list_agent_configs,
-            commands::agent::save_agent_config,
-            commands::agent::delete_agent_config,
-            commands::agent::save_agent_key,
-            commands::agent::list_agent_models,
-            commands::agent::list_agent_sessions,
-            commands::agent::get_agent_session,
-            commands::agent::create_agent_session,
-            commands::agent::import_agent_session,
-            commands::agent::delete_agent_session,
-            commands::agent::start_agent_run,
-            commands::agent::agent_job_status,
-            commands::agent::list_agent_jobs,
-            commands::agent::abort_agent_job,
-            commands::agent::approve_agent_job,
-            commands::agent::init_agent_run,
-            commands::agent::compact_agent_session,
-            commands::agent::mcp_add_server,
-            commands::agent::mcp_remove_server,
-            commands::agent::mcp_list_tools,
-            commands::agent::list_agent_memories,
-            commands::agent::store_agent_memory,
-            commands::agent::recall_agent_memories,
-            commands::agent::delete_agent_memory,
-            // File import / upload
-            import_cmd::import_file,
-            import_cmd::import_from_url,
-            import_cmd::scan_directory,
-            import_cmd::upload_file,
-            import_cmd::rebuild_search_index,
-            // Share links
-            share::generate_share_link,
-            share::get_shared_file,
-            share::list_share_links,
-            // Trash / recycle bin
-            trash::list_trash,
-            trash::restore_from_trash,
-            trash::empty_trash,
-            trash::delete_from_trash,
-            // Audit log
-            audit::get_audit_log,
-            // Batch operations
-            batch::batch_delete,
-            batch::batch_encrypt,
-            batch::batch_compress,
-            // File versioning
-            versions::list_file_versions,
-            versions::create_file_version,
-            versions::revert_file_version,
-            versions::snapshot_all_versions,
-            // Parent index rebuild
-            files::rebuild_parent_index,
-            // Disks & volumes (AGENT-6)
-            commands::disk::create_disk,
-            commands::disk::attach_disk,
-            commands::disk::detach_disk,
-            commands::disk::resize_disk,
-            commands::disk::list_disks,
-            commands::disk::volume_df,
-            commands::disk::check_disk,
-            commands::disk::set_disk_key_holder,
-        ])
+        .invoke_handler(native_command_handler())
         .setup(move |app| {
             // Storage + dashboard init runs HERE — after every plugin's
             // setup, so single-instance (registered first) has already
@@ -734,3 +500,246 @@ pub fn run() {
     #[cfg(not(mobile))]
     log::info!("Web Dashboard shut down cleanly");
 }
+
+/// One command registry for production (including Android) and host IPC tests.
+fn native_command_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![
+        // File operations
+        files::list_files,
+        files::get_file,
+        files::create_folder,
+        files::delete_file,
+        files::rename_file,
+        files::set_file_tags,
+        files::duplicate_file_context,
+        files::move_file,
+        files::get_preview,
+        files::read_file_content,
+        files::write_file_content,
+        // Read-only OS telemetry and virtual-volume stats. The REST dashboard
+        // is intentionally not started on mobile, so the WebView uses IPC.
+        commands::os_metrics::os_ps,
+        commands::os_metrics::os_top,
+        commands::os_metrics::os_workers,
+        commands::os_metrics::os_jobs,
+        commands::os_metrics::os_df,
+        // cybsh OS layer over IPC (mobile has no dashboard; desktop falls
+        // back here when :3456 is down). Mirrors POST /api/os/* shapes.
+        commands::os_shell::os_exec,
+        commands::os_shell::os_complete,
+        commands::os_shell::os_stat,
+        commands::os_shell::os_ls,
+        commands::os_shell::os_du,
+        commands::os_shell::os_write,
+        commands::os_shell::get_disk,
+        commands::os_shell::destroy_disk,
+        // Android launcher bridge — Gaveta de Apps (device-local IPC;
+        // off-Android the commands refuse with `unsupported:`, never mocks).
+        commands::launcher::launcher_list_apps,
+        commands::launcher::launcher_open_app,
+        commands::launcher::launcher_uninstall_app,
+        commands::launcher::launcher_list_icon_packs,
+        commands::launcher::launcher_pack_icon,
+        commands::launcher::launcher_list_social_apps,
+        commands::launcher::launcher_list_messages,
+        commands::launcher::launcher_clear_messages,
+        commands::launcher::launcher_notification_state,
+        commands::launcher::launcher_open_notification_settings,
+        commands::launcher::launcher_open_url,
+        commands::launcher::launcher_open_file,
+        // Point-in-time redb image used by the web-compatible mobile vault mirror
+        commands::vault_snapshot::snapshot_native_database,
+        commands::vault_snapshot::backup_export,
+        commands::vault_snapshot::vault_kv_get,
+        commands::vault_snapshot::vault_kv_set,
+        commands::vault_snapshot::vault_kv_delete,
+        commands::vault_snapshot::vault_kv_list,
+        // Search
+        search_cmd::search_files,
+        search_cmd::search_files_paginated,
+        search_cmd::search_files_federated,
+        search_cmd::suggest,
+        // Encryption
+        encryption::encrypt_file,
+        encryption::decrypt_file,
+        encryption::get_encryption_status,
+        encryption::generate_keypair,
+        encryption::list_keys,
+        // Compression
+        commands::compression::compress_file,
+        commands::compression::decompress_file,
+        commands::compression::get_compression_stats,
+        // Collections
+        collections::list_collections,
+        collections::create_collection,
+        collections::add_to_collection,
+        collections::remove_from_collection,
+        // Face grouping (commands layer — delegates to crate::faces for ML)
+        face_cmd::detect_faces,
+        face_cmd::detect_faces_batch_cmd,
+        face_cmd::recluster_faces,
+        face_cmd::rename_face_group,
+        face_cmd::merge_face_groups,
+        face_cmd::delete_face_group,
+        face_cmd::find_similar_faces,
+        face_cmd::list_face_groups,
+        face_cmd::get_group_files,
+        // Map / GPS
+        map::get_geo_files,
+        map::extract_exif_gps,
+        // Accounts
+        accounts::list_accounts,
+        accounts::create_account,
+        accounts::switch_account,
+        accounts::delete_account,
+        // Tree-sitter code intelligence
+        tree_sitter::parse_file,
+        tree_sitter::get_symbols,
+        tree_sitter::parse_text,
+        // Loose groups
+        files::create_loose_group,
+        files::add_to_loose_group,
+        files::list_loose_groups,
+        // User management & permissions
+        users::register_user,
+        users::create_user,
+        users::delete_user,
+        users::update_user_role,
+        users::authenticate_user,
+        users::list_users,
+        users::set_file_permission,
+        users::grant_file_permission,
+        users::revoke_file_permission,
+        users::verify_file_access,
+        users::get_file_permissions,
+        users::verify_token,
+        // Dashboard
+        dashboard::dashboard_status,
+        dashboard::start_dashboard,
+        dashboard::stop_dashboard,
+        // Sync
+        sync_cmd::list_sync_configs,
+        sync_cmd::create_sync_config,
+        sync_cmd::delete_sync_config,
+        sync_cmd::start_sync,
+        sync_cmd::get_sync_progress,
+        sync_cmd::get_sync_status,
+        sync_cmd::test_sync_connection,
+        sync_cmd::get_sync_usage,
+        sync_cmd::cancel_sync,
+        sync_cmd::list_remote_files,
+        // <<< AGENT-2 SYNC JOBS/RESTORE >>>
+        sync_cmd::restore_sync_file,
+        sync_cmd::delete_remote_file,
+        sync_cmd::get_sync_job,
+        sync_cmd::list_sync_runs,
+        sync_cmd::create_provider_repo,
+        sync_cmd::seed_repo_files,
+        sync_cmd::upload_remote_file,
+        sync_cmd::move_sync_file,
+        // Scheduler (cron) — recurring .cybsh triggers
+        commands::cron::cron_list,
+        commands::cron::cron_save,
+        commands::cron::cron_delete,
+        commands::cron::cron_run,
+        commands::cron::cron_history,
+        commands::cron::cron_set_enabled,
+        commands::cron::cron_ensure_started,
+        // Device identity (§2B.1) + LAN peers (§2B.2).
+        devices::list_devices,
+        devices::register_device,
+        devices::register_this_device,
+        devices::revoke_device,
+        devices::remove_device,
+        devices::list_lan_peers,
+        devices::probe_peer,
+        devices::peer_platform_notes,
+        devices::sign_peer_ops_for_device,
+        // P2P compute twins (§2B swarming + pairing + fountain codes —
+        // pure math, no sockets).
+        commands::p2p::swarm_encode,
+        commands::p2p::swarm_decode,
+        commands::p2p::fountain_encode,
+        commands::p2p::fountain_decode,
+        commands::p2p::pairing_code,
+        // Server-side todos (§4.9 agent bridge — same rows the agent tools use).
+        todos::list_todos,
+        todos::create_todo,
+        todos::toggle_todo,
+        todos::delete_todo,
+        // Secrets keystore (Phase 3) — sealed password-manager rows
+        commands::secrets::secret_list,
+        commands::secrets::secret_save,
+        commands::secrets::secret_update,
+        commands::secrets::secret_get,
+        commands::secrets::secret_reveal,
+        commands::secrets::secret_delete,
+        // Native AI agent (configs/sessions/detached jobs)
+        commands::agent::list_agent_providers,
+        commands::agent::list_agent_configs,
+        commands::agent::save_agent_config,
+        commands::agent::delete_agent_config,
+        commands::agent::save_agent_key,
+        commands::agent::list_agent_models,
+        commands::agent::list_agent_sessions,
+        commands::agent::get_agent_session,
+        commands::agent::create_agent_session,
+        commands::agent::import_agent_session,
+        commands::agent::delete_agent_session,
+        commands::agent::start_agent_run,
+        commands::agent::agent_job_status,
+        commands::agent::list_agent_jobs,
+        commands::agent::abort_agent_job,
+        commands::agent::approve_agent_job,
+        commands::agent::init_agent_run,
+        commands::agent::compact_agent_session,
+        commands::agent::mcp_add_server,
+        commands::agent::mcp_remove_server,
+        commands::agent::mcp_list_tools,
+        commands::agent::list_agent_memories,
+        commands::agent::store_agent_memory,
+        commands::agent::recall_agent_memories,
+        commands::agent::delete_agent_memory,
+        // File import / upload
+        import_cmd::import_file,
+        import_cmd::import_from_url,
+        import_cmd::scan_directory,
+        import_cmd::upload_file,
+        import_cmd::rebuild_search_index,
+        // Share links
+        share::generate_share_link,
+        share::get_shared_file,
+        share::list_share_links,
+        // Trash / recycle bin
+        trash::list_trash,
+        trash::restore_from_trash,
+        trash::empty_trash,
+        trash::delete_from_trash,
+        // Audit log
+        audit::get_audit_log,
+        // Batch operations
+        batch::batch_delete,
+        batch::batch_encrypt,
+        batch::batch_decrypt,
+        batch::batch_compress,
+        // File versioning
+        versions::list_file_versions,
+        versions::create_file_version,
+        versions::revert_file_version,
+        versions::snapshot_all_versions,
+        // Parent index rebuild
+        files::rebuild_parent_index,
+        // Disks & volumes (AGENT-6)
+        commands::disk::create_disk,
+        commands::disk::attach_disk,
+        commands::disk::detach_disk,
+        commands::disk::resize_disk,
+        commands::disk::list_disks,
+        commands::disk::volume_df,
+        commands::disk::check_disk,
+        commands::disk::set_disk_key_holder,
+    ]
+}
+
+#[cfg(test)]
+mod native_crypto_tests;

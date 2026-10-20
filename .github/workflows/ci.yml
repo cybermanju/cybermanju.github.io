@@ -42,8 +42,11 @@ jobs:
       - name: Versions agree everywhere
         run: bash scripts/check-version.sh
 
-      - name: Transport parity (static TS↔Rust sweep)
+      - name: Static transport inventory (TS REST↔Rust route registration)
         run: node scripts/check-transport-parity.mjs
+
+      - name: REST HTTP smoke harness tests (local fake servers)
+        run: node --test scripts/smoke-rest-http.test.mjs
 
       - name: Top-file headers present
         run: bash scripts/check-file-headers.sh
@@ -116,13 +119,19 @@ jobs:
             exit 1
           fi
 
-      # Workspace-wide: `src-tauri` alone has no tests, so a current-package-only
-      # run silently executed zero tests (all crates/tests live outside it).
+      # Keep workspace-wide validation: native command regressions live in
+      # src-tauri, while shared backend/integration tests live in crates/*.
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Android uses these same registered Tauri commands, not REST. This gate
+      # uses a host MockRuntime with real IPC dispatch, storage and cryptography;
+      # it is NOT device/WebView coverage and needs no emulator/display server.
+      - name: Android/native crypto command regressions (host IPC)
+        run: cargo test --locked -p cybermanju-os-desktop --lib native_crypto_tests -- --nocapture
 
       - name: Run tests
         run: cargo test --workspace --no-fail-fast
@@ -144,6 +153,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: false
+          load: true
           tags: cybermanju-os:latest
           # Explicit scope: the default `buildkit` scope shares one slot and
           # would collide with the release job's image cache. GHA-backed
@@ -159,6 +169,60 @@ jobs:
 
       - name: Verify image exists
         run: docker images cybermanju-os:latest
+
+      # Building alone does not prove that the image starts, reaches readiness,
+      # or enforces the live REST auth/bootstrap contract. Use a fresh named
+      # volume so the smoke is isolated from any runner state and delete it on
+      # success or failure.
+      - name: Run Docker REST behavioral smoke and health check
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          container=cybermanju-ci-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}
+          volume=cybermanju-ci-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}
+          cleanup() {
+            status=$?
+            if (( status != 0 )); then
+              docker logs "$container" || true
+            fi
+            docker rm --force "$container" >/dev/null 2>&1 || true
+            docker volume rm --force "$volume" >/dev/null 2>&1 || true
+            return "$status"
+          }
+          trap cleanup EXIT
+          docker volume create "$volume" >/dev/null
+          docker run --detach \
+            --name "$container" \
+            --publish 127.0.0.1:3456:3456 \
+            --volume "$volume:/data" \
+            --env CYBERMANJU_JWT_SECRET=ci-smoke-secret-not-for-production \
+            --health-interval=2s \
+            --health-timeout=5s \
+            --health-start-period=30s \
+            --health-retries=10 \
+            cybermanju-os:latest
+
+          # This mode keeps the static route inventory check distinct from
+          # its bounded real-HTTP REST behavior checks; it is not full
+          # REST/desktop/WASM parity.
+          node scripts/check-transport-parity.mjs --http http://127.0.0.1:3456
+
+          for attempt in $(seq 1 90); do
+            health=$(docker inspect --format '{{.State.Health.Status}}' "$container")
+            if [[ "$health" == healthy ]]; then
+              echo "Docker health check passed (/api/readyz): $health"
+              exit 0
+            fi
+            if [[ "$health" == unhealthy ]]; then
+              echo "Docker health check became unhealthy"
+              docker inspect --format '{{json .State.Health}}' "$container"
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "Docker health check did not become healthy (last state: $health)"
+          docker inspect --format '{{json .State.Health}}' "$container"
+          exit 1
 
   # ─── Dependency audit (advisory until the tree is clean) ──────────
   audit:
