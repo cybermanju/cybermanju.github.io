@@ -334,8 +334,8 @@ pub fn decrypt_one(db: &Database, file_id: &str) -> Result<(), String> {
     }
     if let Err(error) = db.log_audit("batch_decrypt", "file", file_id, None, None) {
         let db_rollback = write_file(db, file_id, &previous);
-        if db_rollback.is_err() {
-            return Err(format!("integrity: audit failed ({error}); DB rollback failed ({}); ciphertext and metadata retained", db_rollback.unwrap_err()));
+        if let Err(rollback_error) = db_rollback {
+            return Err(format!("integrity: audit failed ({error}); DB rollback failed ({rollback_error}); ciphertext and metadata retained"));
         }
         return Err(error.to_string());
     }
