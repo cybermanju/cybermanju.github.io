@@ -55,6 +55,7 @@ class MockElement extends EventTarget {
     if (selector.split(',').some(q => q.trim().toLowerCase() === this.tagName.toLowerCase())) return true
     return selector.split(',').some(s => {
       const q = s.trim()
+      if (q === '[contenteditable]:not([contenteditable="false"])') return this.hasAttribute('contenteditable') && this.getAttribute('contenteditable') !== 'false'
       if (q === '[data-ui-layout-id]') return this.hasAttribute('data-ui-layout-id')
       if (q === '[data-ui-layout-entry]') return this.hasAttribute('data-ui-layout-entry')
       if (q === '[data-ui-layout-ignore]') return this.hasAttribute('data-ui-layout-ignore')
@@ -332,6 +333,31 @@ describe('UI layout pointer gestures', () => {
       expect(received).toHaveLength(0)
       text.isConnected = true
     }
+  })
+  it.each(['input', 'textarea', 'contenteditable', 'secret'])('leaves %s holds/contextmenu/clicks to native WebView text actions', kind => {
+    const editor = new MockElement()
+    editor.tagName = kind === 'textarea' ? 'TEXTAREA' : kind === 'contenteditable' ? 'DIV' : 'INPUT'
+    if (kind === 'contenteditable') editor.setAttribute('contenteditable', 'true')
+    if (kind === 'secret') editor.setAttribute('data-secret', '')
+    a.append(editor)
+    const target = kind === 'contenteditable' ? new MockElement() : editor
+    if (target !== editor) editor.append(target)
+    const received: unknown[] = []; window.addEventListener(UI_LAYOUT_TEXT_EVENT, e => received.push((e as CustomEvent).detail))
+    const down = new Pointer('pointerdown', 81); dispatch(target, down)
+    expect(vi.getTimerCount()).toBe(0)
+    vi.advanceTimersByTime(500)
+    const context = new Event('contextmenu', { bubbles: true, cancelable: true }); dispatch(target, context)
+    vi.advanceTimersByTime(100)
+    const click = new Click(); dispatch(target, click)
+    expect(down.defaultPrevented).toBe(false); expect(context.defaultPrevented).toBe(false); expect(click.defaultPrevented).toBe(false)
+    expect(received).toHaveLength(0); expect(root.classList.contains('ui-layout-editing')).toBe(false)
+  })
+  it('still owns editable component gestures during explicit customization', () => {
+    const editor = new MockElement(); editor.tagName = 'TEXTAREA'; a.append(editor)
+    setEditing(true)
+    const down = new Pointer('pointerdown', 82); dispatch(editor, down)
+    const context = new Event('contextmenu', { bubbles: true, cancelable: true }); dispatch(editor, context)
+    expect(down.defaultPrevented).toBe(true); expect(context.defaultPrevented).toBe(true)
   })
   it('consumes Android contextmenu near 500ms once and opens the same text menu', () => {
     const text = new MockElement(); text.tagName = 'SPAN'; text.setAttribute('data-ui-layout-id', 'android-text'); text.appendText('Android'); root.append(text)

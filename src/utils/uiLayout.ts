@@ -321,7 +321,7 @@ export function installUiLayout(root: HTMLElement): () => void {
   function activateHold(event: Event, el: HTMLElement, x: number, y: number, pointer?: number) {
     if (!el.isConnected) return
     const editable = event.target instanceof Element ? event.target.closest<HTMLElement>('input, textarea, [contenteditable]:not([contenteditable="false"])') : null
-    if (editable && keepsNativeTextMenu(editable)) return
+    if (editable) return
     textHoldTarget = editable
     heldPointer = pointer ?? ('pointerId' in event ? (event as PointerEvent).pointerId : null)
     suppressClickUntil = Date.now() + 800
@@ -340,6 +340,8 @@ export function installUiLayout(root: HTMLElement): () => void {
     if (editing && homeOwned(event) && mode !== 'resize') return
     if (editing && mode === 'appearance') { event.preventDefault(); event.stopImmediatePropagation(); return }
     if (!editing) {
+      // Editing gestures belong to WebView selection/action mode, not layout holds.
+      if (event.target instanceof Element && event.target.closest('input, textarea, [contenteditable]:not([contenteditable="false"])')) { clearEntry(); return }
       const el = closest(event) || (event.target instanceof Element ? event.target.closest<HTMLElement>('[data-ui-layout-entry]') : null)
       if (!el) return
       clearEntry()
@@ -447,25 +449,23 @@ export function installUiLayout(root: HTMLElement): () => void {
   }
   function onClick(event: MouseEvent) {
     if (ignored(event)) return
+    if (!editing && event.target instanceof Element && event.target.closest('input, textarea, [contenteditable]:not([contenteditable="false"])')) return
     const ghostClick = Date.now() < suppressClickUntil && (!textHoldTarget || (event.target instanceof Node && textHoldTarget.contains(event.target)))
     if ((editing && closest(event)) || ghostClick) { event.preventDefault(); event.stopImmediatePropagation() }
   }
   function onContext(event: Event) {
     if (ignored(event)) return
     const editor = event.target instanceof Element ? event.target.closest<HTMLElement>('input, textarea, [contenteditable]:not([contenteditable="false"])') : null
-    if (!editing && editor && keepsNativeTextMenu(editor)) { clearEntry(); return }
+    if (!editing && editor) { clearEntry(); return }
     const el = closest(event)
     if (!el) return
     // Android emits contextmenu before the 550ms timer. Consume the same hold once,
-    // never let native selection or a legacy launcher sheet race the text menu.
+    // only for non-editable labels; editors keep their native text actions.
     if (!editing && entry) {
       const { x, y, pointer } = entry
       clearEntry(); activateHold(event, el, x, y, pointer)
-    } else if (!editing && !entry && event.target instanceof Element) {
-      const editable = event.target.closest<HTMLElement>('input, textarea, [contenteditable]:not([contenteditable="false"])')
-      if (editable) activateHold(event, el, 'clientX' in event ? Number(event.clientX) : 0, 'clientY' in event ? Number(event.clientY) : 0)
     }
-    if (editing || Date.now() < suppressClickUntil || (!editing && event.target instanceof Element && !!event.target.closest('input, textarea, [contenteditable]:not([contenteditable="false"])'))) { event.preventDefault(); event.stopImmediatePropagation() }
+    if (editing || Date.now() < suppressClickUntil) { event.preventDefault(); event.stopImmediatePropagation() }
   }
   function onKey(event: KeyboardEvent) {
     if (event.key === 'Escape' && entry) clearEntry()
