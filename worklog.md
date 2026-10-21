@@ -2438,3 +2438,15 @@ A hung Tauri invoke can no longer poison the shared voice-command queue indefini
 Native TTS now requests transient audio focus with matching speech attributes (modern and API 24/25 fallback), refuses denied focus, stops on focus loss without auto-resume, and abandons the same request after completion, failure, hang-up or lifecycle stop. Cleanup invalidates ownership before best-effort system release, even if the audio service throws. No forced speaker/Bluetooth routing, Telecom registration or new permissions. Reference: https://developer.android.com/media/optimize/audio-focus.
 
 Validation: 170 frontend files / 1,530 tests passed, including hung-invoke, hung-poll, queue recovery, expired-action and native-focus regressions. Final Kotlin sources compiled against Android API 35 with existing deprecation warnings. Native release APK inspection and real microphone/TTS/headset/Bluetooth behavior remain separate CI/device checks, not claims inferred from mocks or source contracts.
+
+## 2026-10-21 — File-manager keys, native conflicts and persisted compression
+
+Explicit file encryption refreshes keys, reuses a matching algorithm and provisions a missing key before encrypting; concurrent provisioning is deduplicated and failure stops encryption. Backend sealing and algorithm restrictions are unchanged. Bulk and save-and-encrypt flows count actual outcomes; folders no longer offer file-only crypto/compression actions.
+
+Native oplog pull, signed push, conflict listing and resolution are registered with the trusted-local owner and shared REST ownership/signature validation. Foreign and revoked device operations remain excluded.
+
+Native single-file compression persists a private create-new `.cyb3` artifact with real codec/hash/size/statistics, preserving the source and its metadata. Decompression verifies exact bytes, refuses changed sources and restores missing sources only with create-new semantics. Missing bytes require reimport/upload; no filename-based or fabricated data fallback. Compression retains source bytes, so it does not claim source disk-space savings. Native/shared encryption refuses plaintext compression sidecars until decompression removes them. Shared REST/batch compression remains unchanged and outside this native single-file repair.
+
+The independent staging-permissions commit enforces Unix 0700 before any seed writes, retaining TempDir cleanup and the existing strict permission assertion.
+
+Validation after rebasing onto local main `2c26b18`: versions, file headers, TypeScript, all 173 frontend suites / 1,559 tests and production frontend build passed (existing chunk-size warnings). Added real native IPC artifact roundtrip, corruption, missing-source, collision, encrypted-file, folder and recovery cases, shared crypto-sidecar refusal, and owner-scoped oplog regressions. Repository rules prohibit local Cargo/rustfmt: Rust compile/format/tests and the staging test rerun still require CI. This environment blocked GitHub CLI access; no remote push or CI rerun is claimed.

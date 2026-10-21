@@ -1986,10 +1986,12 @@ function fileMenu(e: MouseEvent, f: FileNode) {
     { id: 'terminal', label: 'OPEN IN TERMINAL', icon: 'solar:file-terminal-bold', action: () => openFolderInTerm(f) },
     { id: 'preview', label: 'QUICK LOOK', icon: 'solar:eye-bold', action: () => { store.selectFile(f.id); inspectorOpen.value = true; inspTab.value = 'info'; wm.open('files', { inspector: true, inspTab: 'info' }) } },
     { id: 'div0', label: '', divider: true },
-    { id: 'compress', label: 'COMPRESS · ZSTD', icon: 'solar:archive-bold', action: () => store.compressFile(f.id, 'zstd') },
-    { id: 'encrypt', label: 'ENCRYPT · HYBRID', icon: 'solar:lock-bold', action: () => store.encryptFile(f.id, 'hybrid') },
-    { id: 'decrypt', label: 'DECRYPT', icon: 'solar:lock-unlocked-bold', action: () => store.decryptFile(f.id) },
-    { id: 'decompress', label: 'DECOMPRESS', icon: 'solar:archive-up-bold', action: () => store.decompressFile(f.id) },
+    ...(f.fileType === 'file' ? [
+      { id: 'compress', label: 'COMPRESS · ZSTD', icon: 'solar:archive-bold', action: () => store.compressFile(f.id, 'zstd') },
+      { id: 'encrypt', label: 'ENCRYPT · HYBRID', icon: 'solar:lock-bold', action: () => store.encryptFile(f.id, 'hybrid') },
+      { id: 'decrypt', label: 'DECRYPT', icon: 'solar:lock-unlocked-bold', action: () => store.decryptFile(f.id) },
+      { id: 'decompress', label: 'DECOMPRESS', icon: 'solar:archive-up-bold', action: () => store.decompressFile(f.id) },
+    ] : []),
     { id: 'div1', label: '', divider: true },
     { id: 'sync', label: 'SYNC TO PROVIDER…', icon: 'solar:cloud-bold', action: () => { dlgSyncIds.value = [f.id]; dlgSync.value = true } },
     { id: 'share', label: 'SHARE LINK', icon: 'solar:share-bold', action: () => { store.selectFile(f.id); inspTab.value = 'share'; inspectorOpen.value = true; void makeShare(24) } },
@@ -2064,20 +2066,20 @@ function vaultSel(): FileNode[] {
   return store.files.filter(f => store.selectedFileIds.includes(f.id) && isVaultRow(f))
 }
 async function bulkEncrypt() {
-  const rows = vaultSel()
+  const rows = vaultSel().filter(f => f.fileType !== 'folder')
   const skipped = store.selectedFileIds.length - rows.length
   let failed = 0
-  for (const f of rows) { try { await store.encryptFile(f.id, 'hybrid') } catch { failed++ } }
-  if (skipped) store.notifyError(`Bulk encrypt skipped ${skipped} non-vault item(s)`, 'save them to the vault first')
+  for (const f of rows) { if (!await store.encryptFile(f.id, 'hybrid')) failed++ }
+  if (skipped) store.notifyError(`Bulk encrypt skipped ${skipped} folder or non-vault item(s)`, 'select individual files saved in the vault')
   if (failed) store.notifyError(`Bulk encrypt: ${failed} file(s) failed`, 'see per-file messages')
   clearSel()
 }
 async function bulkCompress() {
-  const rows = vaultSel()
+  const rows = vaultSel().filter(f => f.fileType !== 'folder')
   const skipped = store.selectedFileIds.length - rows.length
   let failed = 0
-  for (const f of rows) { try { await store.compressFile(f.id, 'zstd') } catch { failed++ } }
-  if (skipped) store.notifyError(`Bulk compress skipped ${skipped} non-vault item(s)`, 'save them to the vault first')
+  for (const f of rows) { if (!await store.compressFile(f.id, 'zstd')) failed++ }
+  if (skipped) store.notifyError(`Bulk compress skipped ${skipped} folder or non-vault item(s)`, 'select individual files saved in the vault')
   if (failed) store.notifyError(`Bulk compress: ${failed} file(s) failed`, 'see per-file messages')
   clearSel()
 }
@@ -2375,8 +2377,8 @@ function keyIdOf(f: FileNode): string {
   const k = (f.contextData as Record<string, unknown> | undefined)?.keyId
   return k ? String(k).slice(0, 18) + '…' : ''
 }
-async function encryptWith(algo: string) { if (active.value) await store.encryptFile(active.value.id, algo) }
-async function compressWith(layer: string) { if (active.value) await store.compressFile(active.value.id, layer) }
+async function encryptWith(algo: string) { if (active.value && active.value.fileType !== 'folder') await store.encryptFile(active.value.id, algo) }
+async function compressWith(layer: string) { if (active.value && active.value.fileType !== 'folder') await store.compressFile(active.value.id, layer) }
 
 // ── distribution ──
 const probing = ref(false)
@@ -2765,8 +2767,7 @@ async function vaultEncryptHostSel(nodes?: FileNode[]) {
       const { readHostBytes } = await import('@/utils/hostBrowse')
       const bytes = await readHostBytes(f.id.slice('host:'.length))
       const node = await uploadBytesNode(f.name, bytes, '/')
-      await store.encryptFile(node.id, 'hybrid')
-      ok++
+      if (await store.encryptFile(node.id, 'hybrid')) ok++
     } catch (e) {
       store.notifyError(`Encrypt failed: ${f.name}`, e)
     }

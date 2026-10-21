@@ -186,6 +186,49 @@ pub struct OplogAuth<'a> {
     pub is_admin: bool,
 }
 
+/// Return the REST-shaped since page for one owner, filtering inactive devices.
+pub fn since_for_owner(
+    db: &Database,
+    since: u64,
+    limit: usize,
+    owner_id: &str,
+) -> Result<serde_json::Value, String> {
+    if owner_id.trim().is_empty() {
+        return Err("auth: authenticated owner is required".to_string());
+    }
+    let ids: std::collections::HashSet<String> = db
+        .list_devices()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|d| !d.revoked && d.owner_id == owner_id)
+        .map(|d| d.id)
+        .collect();
+    let ops = db
+        .list_ops_since_for_devices(since, limit.clamp(1, 5000), &ids)
+        .map_err(|e| e.to_string())?;
+    let head = ops.last().map(|op| op.seq.saturating_add(1)).unwrap_or(since);
+    Ok(serde_json::json!({ "head": head, "ops": ops }))
+}
+
+/// Return owner-scoped fork pairs; revoked and foreign devices are excluded.
+pub fn conflicts_for_owner(
+    db: &Database,
+    owner_id: &str,
+) -> Result<serde_json::Value, String> {
+    if owner_id.trim().is_empty() {
+        return Err("auth: authenticated owner is required".to_string());
+    }
+    let ids: std::collections::HashSet<String> = db
+        .list_devices()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|d| !d.revoked && d.owner_id == owner_id)
+        .map(|d| d.id)
+        .collect();
+    let pairs = db.op_conflicts_for_devices(&ids).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "conflicts": pairs.iter().map(|(a, b)| serde_json::json!({ "a": a, "b": b })).collect::<Vec<_>>() }))
+}
+
 /// Dispatch `/api/oplog/*`.
 pub fn route(
     db: &Database,
@@ -206,37 +249,17 @@ pub fn route(
                 .unwrap_or(500);
             let limit = limit.clamp(1, 5000);
             let result = if auth.is_admin {
-                db.list_ops_since(since, limit).map(|ops| {
-                    let head = ops
-                        .last()
-                        .map(|op| op.seq.saturating_add(1))
-                        .unwrap_or(since);
-                    (ops, head)
-                })
-            } else if auth.owner_id.trim().is_empty() {
-                Err(anyhow::anyhow!("auth: authenticated owner is required"))
+                db.list_ops_since(since, limit)
+                    .map(|ops| {
+                        let head = ops.last().map(|op| op.seq.saturating_add(1)).unwrap_or(since);
+                        serde_json::json!({ "head": head, "ops": ops })
+                    })
+                    .map_err(|e| e.to_string())
             } else {
-                db.list_devices().and_then(|rows| {
-                    let ids: std::collections::HashSet<String> = rows
-                        .into_iter()
-                        .filter(|d| !d.revoked && d.owner_id == auth.owner_id)
-                        .map(|d| d.id)
-                        .collect();
-                    db.list_ops_since_for_devices(since, limit, &ids)
-                        .map(|ops| {
-                            let head = ops
-                                .last()
-                                .map(|op| op.seq.saturating_add(1))
-                                .unwrap_or(since);
-                            (ops, head)
-                        })
-                })
-            }
-            .map_err(|e| e.to_string());
+                since_for_owner(db, since, limit, auth.owner_id)
+            };
             match result {
-                Ok((ops, head)) => {
-                    respond(Ok(serde_json::json!({ "head": head, "ops": ops })), origin)
-                }
+                Ok(value) => respond(Ok(value), origin),
                 Err(e) => respond::<serde_json::Value>(Err(e), origin),
             }
         }
@@ -249,26 +272,15 @@ pub fn route(
         ["api", "oplog", "conflicts"] if method == "GET" => {
             let result = if auth.is_admin {
                 db.op_conflicts()
-            } else if auth.owner_id.trim().is_empty() {
-                Err(anyhow::anyhow!("auth: authenticated owner is required"))
-            } else {
-                db.list_devices().and_then(|rows| {
-                    let ids: std::collections::HashSet<String> = rows
-                        .into_iter()
-                        .filter(|d| !d.revoked && d.owner_id == auth.owner_id)
-                        .map(|d| d.id)
-                        .collect();
-                    db.op_conflicts_for_devices(&ids)
-                })
-            }
-            .map_err(|e| e.to_string());
-            match result {
-                Ok(pairs) => respond(
-                    Ok(serde_json::json!({
+                    .map(|pairs| serde_json::json!({
                         "conflicts": pairs.iter().map(|(a, b)| serde_json::json!({ "a": a, "b": b })).collect::<Vec<_>>()
-                    })),
-                    origin,
-                ),
+                    }))
+                    .map_err(|e| e.to_string())
+            } else {
+                conflicts_for_owner(db, auth.owner_id)
+            };
+            match result {
+                Ok(value) => respond(Ok(value), origin),
                 Err(e) => respond::<serde_json::Value>(Err(e), origin),
             }
         }
