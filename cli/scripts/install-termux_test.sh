@@ -102,10 +102,21 @@ contents=("$PREFIX/bin/cyb/"*)
 staged=("$PREFIX/bin/"cyb.tmp.*)
 [[ ${#staged[@]} == 0 ]] || fail 'rename failure left a staged binary'
 rmdir "$PREFIX/bin/cyb"
+# Always flip the first digest digit, including a leading zero; keep one filename.
+corrupt_checksum() {
+  awk '{printf "%s%s  %s\n", (substr($1,1,1) == "0" ? "1" : "0"), substr($1,2), $2}'
+}
+for first in 0 1 2 3 4 5 6 7 8 9 a b c d e f; do
+  original=$(printf '%s%063d  %s' "$first" 1 "$ASSET")
+  corrupted=$(printf '%s\n' "$original" | corrupt_checksum)
+  digest=${corrupted%% *}
+  [[ ${#digest} == 64 && "$digest" != "${original%% *}" ]] || fail "checksum mutation did not change $first-prefixed digest"
+  [[ "$corrupted" == "$digest  $ASSET" ]] || fail 'checksum mutation changed artifact name'
+done
 # Corrupt checksum must fail and must leave the installed executable byte-for-byte intact.
 printf 'preexisting binary\n' > "$PREFIX/bin/cyb"
 cp "$PREFIX/bin/cyb" "$TMP/existing"
-awk '{print substr($0,1,64) ~ /^0+$/ ? "f" substr($0,2) : "0" substr($0,2) "  cyb-android-arm64.tar.gz"}' "$TMP/SHA256SUMS.txt" > "$TMP/bad-sums"
+corrupt_checksum < "$TMP/SHA256SUMS.txt" > "$TMP/bad-sums"
 export MOCK_SUMS="$TMP/bad-sums"
 if bash "$SCRIPT" --version v1.2.3 --prefix "$PREFIX" >/dev/null 2>&1; then fail 'checksum mismatch unexpectedly succeeded'; fi
 cmp -s "$PREFIX/bin/cyb" "$TMP/existing" || fail 'checksum mismatch changed installed binary'
