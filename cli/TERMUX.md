@@ -25,6 +25,8 @@ bash cli/scripts/install-termux_test.sh
 
 Depois da validação, o instalador copia o executável para um arquivo temporário no próprio diretório de destino e só então substitui `bin/cyb` por renomeação atômica. Falhas de cópia ou renomeação preservam a instalação anterior e removem o arquivo temporário. Se `bin/cyb` for um link simbólico, o link é substituído sem alterar seu alvo; se for um diretório, a instalação é recusada.
 
+Os downloads do binário e dos checksums aceitam somente HTTPS, inclusive nos redirecionamentos. Cada tentativa tem limite de 15 segundos para conexão e 180 segundos para transferência, com até duas repetições e janela de repetição de 600 segundos. A configuração pessoal `.curlrc` é ignorada para manter essas garantias. Uma falha de download interrompe a instalação sem alterar o `cyb` existente; confira a conexão e execute o instalador novamente.
+
 O instalador usa o binário pré-compilado e **não precisa de Go no dispositivo**. Para compilar o CLI a partir do código, o módulo declara Go **1.27.2** (`cli/go.mod`); versões mais antigas não satisfazem o módulo. Atualize o Termux (`pkg update && pkg upgrade`) e instale/atualize o pacote `golang` (`pkg install golang` ou `pkg upgrade golang`), depois confirme com `go version`. Se os repositórios do Termux ainda não oferecerem essa versão mínima, não reduza `go.mod`: use um ambiente de build que ofereça Go 1.27.2 ou superior e instale o artefato Android publicado.
 
 ## Uso do CLI interativo

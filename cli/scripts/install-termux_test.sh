@@ -30,9 +30,27 @@ cat > "$TMP/mockbin/curl" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
 out=
+url= proto= redir= connect= timeout= retries= retry_time=
+[[ "${1:-}" == -q ]] || { echo 'curlrc must be disabled first' >&2; exit 2; }
 while (($#)); do
-  if [[ "$1" == -o ]]; then out=$2; shift 2; else shift; fi
+  case "$1" in
+    -q|-fsSL) shift ;;
+    --proto) proto=$2; shift 2 ;;
+    --proto-redir) redir=$2; shift 2 ;;
+    --connect-timeout) connect=$2; shift 2 ;;
+    --max-time) timeout=$2; shift 2 ;;
+    --retry) retries=$2; shift 2 ;;
+    --retry-max-time) retry_time=$2; shift 2 ;;
+    -o) out=$2; shift 2 ;;
+    https://*) url=$1; shift ;;
+    *) echo "unexpected curl argument: $1" >&2; exit 2 ;;
+  esac
 done
+[[ -n "$url" && "$proto" == '=https' && "$redir" == '=https' && "$connect" == 15 && "$timeout" == 180 && "$retries" == 2 && "$retry_time" == 600 ]] || { echo 'unsafe or unbounded curl options' >&2; exit 2; }
+if [[ "${MOCK_FAIL_ASSET:-}" == "${out##*/}" ]]; then
+  printf 'incomplete download\n' > "$out"
+  exit 28
+fi
 case "$out" in
   */cyb-android-arm64.tar.gz) cp "$MOCK_ARCHIVE" "$out" ;;
   */SHA256SUMS.txt) cp "$MOCK_SUMS" "$out" ;;
@@ -43,6 +61,13 @@ chmod +x "$TMP/mockbin/curl"
 export PATH="$TMP/mockbin:$PATH" MOCK_ARCHIVE="$TMP/archive.tar.gz" MOCK_SUMS="$TMP/SHA256SUMS.txt" PREFIX="$TMP/prefix" TERMUX_VERSION=mock CYB_ARCH=arm64 REPO=test/repo
 bash "$SCRIPT" --version v1.2.3 --prefix "$PREFIX"
 [[ -x "$PREFIX/bin/cyb" ]] || fail 'successful install did not create executable'
+# Timeout/partial download of either release file must preserve an existing installation.
+cp "$PREFIX/bin/cyb" "$TMP/before-network-failure"
+for download in "$ASSET" SHA256SUMS.txt; do
+  if msg=$(MOCK_FAIL_ASSET="$download" bash "$SCRIPT" --version v1.2.3 --prefix "$PREFIX" 2>&1); then fail "$download timeout unexpectedly succeeded"; fi
+  grep -q "could not download $download" <<<"$msg" || fail "$download failure lacks a download diagnostic"
+  cmp -s "$PREFIX/bin/cyb" "$TMP/before-network-failure" || fail "$download timeout changed existing binary"
+done
 # Replacing a destination symlink must not overwrite its target.
 printf 'unrelated target\n' > "$TMP/link-target"
 cp "$TMP/link-target" "$TMP/link-original"

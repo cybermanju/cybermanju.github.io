@@ -54,8 +54,10 @@ cleanup() {
   if [[ -n "$STAGED" ]]; then rm -f -- "$STAGED"; fi
 }
 trap cleanup EXIT
-curl -fsSL --retry 2 "$BASE/$ASSET" -o "$TMP/$ASSET" || die "could not download $ASSET"
-curl -fsSL --retry 2 "$BASE/SHA256SUMS.txt" -o "$TMP/SHA256SUMS.txt" || die 'could not download SHA256SUMS.txt'
+# Ignore curlrc overrides; bound slow connections and require TLS across redirects.
+CURL_OPTIONS=(-q -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 180 --retry 2 --retry-max-time 600)
+curl "${CURL_OPTIONS[@]}" "$BASE/$ASSET" -o "$TMP/$ASSET" || die "could not download $ASSET"
+curl "${CURL_OPTIONS[@]}" "$BASE/SHA256SUMS.txt" -o "$TMP/SHA256SUMS.txt" || die 'could not download SHA256SUMS.txt'
 DIGEST=$(awk -v name="$ASSET" '$2 == name || $2 == "*"name {count++; digest=$1} END {if (count == 1) print digest; else exit 1}' "$TMP/SHA256SUMS.txt") || die "checksum entry missing or duplicated for $ASSET"
 [[ "$DIGEST" =~ ^[[:xdigit:]]{64}$ ]] || die "checksum entry invalid for $ASSET"
 printf '%s  %s\n' "$DIGEST" "$TMP/$ASSET" | sha256sum -c - >/dev/null || die 'SHA-256 verification failed'
