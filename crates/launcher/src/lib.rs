@@ -410,7 +410,10 @@ mod android_impl {
                 )
                 .and_then(|v| v.l())
                 .map_err(|e| {
-                    fail(env, format!("unsupported: native voice services missing: {e}"))
+                    fail(
+                        env,
+                        format!("unsupported: native voice services missing: {e}"),
+                    )
                 })?;
             let action = new_obj(env, action)?;
             let payload = new_obj(env, payload)?;
@@ -1608,9 +1611,11 @@ mod tests {
         assert!(voice_command("reply", serde_json::json!(["not an object"]))
             .unwrap_err()
             .starts_with("invalid:"));
-        assert!(voice_command("speak", serde_json::json!({ "text": "x".repeat(32_769) }))
-            .unwrap_err()
-            .starts_with("invalid:"));
+        assert!(
+            voice_command("speak", serde_json::json!({ "text": "x".repeat(32_769) }))
+                .unwrap_err()
+                .starts_with("invalid:")
+        );
     }
 
     #[cfg(not(target_os = "android"))]
