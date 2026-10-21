@@ -54,6 +54,9 @@ jobs:
       - name: Android clipboard gate tests
         run: python3 tests/python/test_android_clipboard.py
 
+      - name: Android widget host installer regressions
+        run: python3 tests/python/test_android_widgets.py
+
       - name: Top-file headers present
         run: bash scripts/check-file-headers.sh
 
@@ -1112,6 +1115,11 @@ jobs:
 
       - name: Test Android HOME callback ordering on JVM
         run: python3 tests/python/test_android_home_lifecycle.py
+        env:
+          REQUIRE_KOTLIN_COMPILER: '1'
+
+      - name: Test Android widget host state and lifecycle on JVM
+        run: python3 tests/python/test_android_widgets_runtime.py
         env:
           REQUIRE_KOTLIN_COMPILER: '1'
 

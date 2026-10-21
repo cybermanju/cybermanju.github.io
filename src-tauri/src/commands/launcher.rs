@@ -139,3 +139,30 @@ pub fn android_clipboard_command(
     }
     cybermanju_launcher::clipboard::command(&action, payload)
 }
+
+/// Native widget host actions, restricted to the bundled main UI (never REST/tools).
+#[tauri::command(async)]
+pub fn android_widget_command(
+    window: tauri::WebviewWindow,
+    action: String,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use tauri::Manager;
+    let url = window
+        .url()
+        .map_err(|_| "auth: widget origin unavailable".to_string())?;
+    let bundled = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || (matches!(url.scheme(), "http" | "https") && url.host_str() == Some("tauri.localhost"));
+    let development = cfg!(debug_assertions)
+        && window
+            .app_handle()
+            .config()
+            .build
+            .dev_url
+            .as_ref()
+            .is_some_and(|dev| url.origin() == dev.origin());
+    if window.label() != "main" || !(bundled || development) {
+        return Err("auth: widgets require the bundled main UI".into());
+    }
+    cybermanju_launcher::widgets::command(&action, payload)
+}

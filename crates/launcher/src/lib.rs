@@ -36,6 +36,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod clipboard;
+pub mod widgets;
 
 /// Raster width/height for app icons (PNG data URLs stay small over IPC).
 pub const ICON_PX: i32 = 96;

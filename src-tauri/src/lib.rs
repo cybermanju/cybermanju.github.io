@@ -517,6 +517,7 @@ fn native_command_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + S
         commands::launcher::launcher_open_file,
         commands::launcher::android_voice_command,
         commands::launcher::android_clipboard_command,
+        commands::launcher::android_widget_command,
         // Point-in-time redb image used by the web-compatible mobile vault mirror
         commands::vault_snapshot::snapshot_native_database,
         commands::vault_snapshot::backup_export,
