@@ -206,15 +206,15 @@ pub fn since_for_owner(
     let ops = db
         .list_ops_since_for_devices(since, limit.clamp(1, 5000), &ids)
         .map_err(|e| e.to_string())?;
-    let head = ops.last().map(|op| op.seq.saturating_add(1)).unwrap_or(since);
+    let head = ops
+        .last()
+        .map(|op| op.seq.saturating_add(1))
+        .unwrap_or(since);
     Ok(serde_json::json!({ "head": head, "ops": ops }))
 }
 
 /// Return owner-scoped fork pairs; revoked and foreign devices are excluded.
-pub fn conflicts_for_owner(
-    db: &Database,
-    owner_id: &str,
-) -> Result<serde_json::Value, String> {
+pub fn conflicts_for_owner(db: &Database, owner_id: &str) -> Result<serde_json::Value, String> {
     if owner_id.trim().is_empty() {
         return Err("auth: authenticated owner is required".to_string());
     }
@@ -225,8 +225,12 @@ pub fn conflicts_for_owner(
         .filter(|d| !d.revoked && d.owner_id == owner_id)
         .map(|d| d.id)
         .collect();
-    let pairs = db.op_conflicts_for_devices(&ids).map_err(|e| e.to_string())?;
-    Ok(serde_json::json!({ "conflicts": pairs.iter().map(|(a, b)| serde_json::json!({ "a": a, "b": b })).collect::<Vec<_>>() }))
+    let pairs = db
+        .op_conflicts_for_devices(&ids)
+        .map_err(|e| e.to_string())?;
+    Ok(
+        serde_json::json!({ "conflicts": pairs.iter().map(|(a, b)| serde_json::json!({ "a": a, "b": b })).collect::<Vec<_>>() }),
+    )
 }
 
 /// Dispatch `/api/oplog/*`.
@@ -251,7 +255,10 @@ pub fn route(
             let result = if auth.is_admin {
                 db.list_ops_since(since, limit)
                     .map(|ops| {
-                        let head = ops.last().map(|op| op.seq.saturating_add(1)).unwrap_or(since);
+                        let head = ops
+                            .last()
+                            .map(|op| op.seq.saturating_add(1))
+                            .unwrap_or(since);
                         serde_json::json!({ "head": head, "ops": ops })
                     })
                     .map_err(|e| e.to_string())

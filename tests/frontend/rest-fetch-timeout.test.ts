@@ -30,6 +30,7 @@ describe('REST response-body timeout', () => {
       (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
         Promise.resolve(response({ ready: true })),
     )
+    fetchMock.mockResolvedValueOnce(response({ service: 'CyberManju OS Web Dashboard' }))
     fetchMock.mockImplementationOnce(async (_input, init) => {
       const signal = init?.signal as AbortSignal
       const stalledBody = () => new Promise<never>((_resolve, reject) => {
@@ -52,8 +53,8 @@ describe('REST response-body timeout', () => {
     await vi.advanceTimersByTimeAsync(300)
 
     await expect(pending).resolves.toEqual({ ready: true })
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    const firstInit = fetchMock.mock.calls[0]?.[1]
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    const firstInit = fetchMock.mock.calls[1]?.[1]
     expect(firstInit?.signal).toBeInstanceOf(AbortSignal)
     expect((firstInit?.signal as AbortSignal).aborted).toBe(true)
   })

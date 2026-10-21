@@ -464,7 +464,9 @@ async function mainRestore(image: Uint8Array): Promise<void> {
 
 /** Replace the live database with a verified snapshot image (Pages restore). */
 export async function wasmDatabaseRestore(image: Uint8Array): Promise<void> {
-  await mainRestore(image)
+  await wasmDbDispatch('_restore_image', { image }, 120000)
+  const { replayVolumeFromVault } = await import('./useVolumeMirror')
+  await replayVolumeFromVault(true)
 }
 
 async function mainThreadDbDispatch(op: string, args: Record<string, unknown>): Promise<unknown> {
@@ -530,8 +532,20 @@ async function mainThreadDbDispatch(op: string, args: Record<string, unknown>): 
       dirty: false,
     }
   }
+  if (op === '_restore_image') {
+    const image = args.image as Uint8Array
+    if (!(image instanceof Uint8Array) || !image.byteLength) throw new Error('invalid: restore image is empty')
+    await mainRestore(image)
+    mainDirty = true
+    if (mainDisk?.handle) await mainThreadDbDispatch('_save', {})
+    return null
+  }
   if (op === '_export') {
-    const passphrase = String(args?.passphrase ?? mainDisk?.passphrase ?? '')
+    const requestedPassphrase = args?.passphrase === undefined
+      ? undefined
+      : String(args.passphrase)
+    const { exportPassphrase } = await import('@/utils/container')
+    const passphrase = exportPassphrase(requestedPassphrase, mainDisk?.passphrase ?? '')
     const image = await mainSnapshot()
     const { encodeContainer } = await import('@/utils/container')
     const payload = await encodeContainer(image, passphrase)
@@ -692,7 +706,8 @@ export async function wasmSaveDisk(): Promise<WasmDiskStatus> {
 export async function wasmExportDisk(
   passphrase?: string,
 ): Promise<{ bytes: Uint8Array; name: string }> {
-  const raw = (await wasmDbDispatch('_export', { passphrase: passphrase ?? '' }, 120000)) as {
+  const args = passphrase === undefined ? {} : { passphrase }
+  const raw = (await wasmDbDispatch('_export', args, 120000)) as {
     bytes: Uint8Array
     name?: string
   } | null

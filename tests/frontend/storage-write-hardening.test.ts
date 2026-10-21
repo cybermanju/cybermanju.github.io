@@ -2,7 +2,7 @@
 // Role: guard persisted dashboard probes and ensure every browser volume writer shares one FIFO.
 // Exports: none (Vitest suite).
 // Integrates: useTauri, useVolumeMirror, volumeWriteQueue, and crates/os-wasm/src/os.rs.
-// Contracts: dead URLs are cleared before transport fallback; storage errors are surfaced, not committed to memory.
+// Contracts: dead URLs are retained to prevent a silent target change; storage errors are surfaced, not committed to memory.
 import fs from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ensureServerUrlReachable, getServerUrl, setServerUrl } from '@/composables/useTauri'
@@ -31,11 +31,11 @@ describe('saved dashboard endpoint validation', () => {
     expect(getServerUrl()).toBe('https://dashboard.example')
   })
 
-  it('clears an unreachable or unrelated persisted URL for static-host fallback', async () => {
+  it('retains an unreachable or unrelated persisted URL without static-host fallback', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ service: 'other' }), { status: 200 })))
     setServerUrl('https://stale.example')
     await expect(ensureServerUrlReachable()).resolves.toBe(false)
-    expect(getServerUrl()).toBe('')
+    expect(getServerUrl()).toBe('https://stale.example')
   })
 })
 

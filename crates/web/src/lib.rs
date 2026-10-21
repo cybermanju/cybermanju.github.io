@@ -1463,7 +1463,7 @@ fn route_request(
     if let Some(resp) = api::cron_api::route(db, method, &path_segments, body, origin) {
         return resp;
     }
-    if let Some(resp) = api::secrets::route(db, method, &path_segments, body, origin) {
+    if let Some(resp) = api::secrets::route(db, method, &path_segments, body, &owner_id, origin) {
         return resp;
     }
     // <<< ANALYSIS 100%: device identity (§2B.1) — enrollment is

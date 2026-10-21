@@ -105,11 +105,9 @@ export async function ensureServerUrlReachable(): Promise<boolean> {
       _serverUrlValidated = true
       return true
     } catch {
-      if (_serverUrl === candidate) {
-        _serverUrl = ''
-        _serverUrlValidated = false
-        try { localStorage.removeItem(SERVER_URL_KEY) } catch { /* session can still fall back */ }
-      }
+      // An unavailable endpoint is not consent to switch databases. Keep the
+      // user's selected target and allow a later probe to recover.
+      if (_serverUrl === candidate) _serverUrlValidated = false
       return false
     } finally {
       clearTimeout(timer)
@@ -168,8 +166,15 @@ export function isStaticHost(): boolean {
   // native Rust backend — never treat it as the static Pages/WASM pack, or
   // disks/sync/agent would route to the browser worker instead of redb.
   if (isTauri()) return false
-  if (window.location.port === '3456' || _serverUrl) return false
-  return true
+  if (_serverUrl) return false
+  const transport = String(import.meta.env?.VITE_TRANSPORT ?? '').trim().toLowerCase()
+  if (['rest', 'web'].includes(transport)) return false
+  if (['wasm', 'static', 'pages'].includes(transport)) return true
+  if (window.location.port === '3456') return false
+  // HTTPS reverse proxies need the same auth gate as :3456. Only known
+  // static origins (or an explicit static build) select the local database.
+  if (window.location.hostname?.endsWith('.github.io')) return true
+  return !window.location.origin
 }
 
 /** True inside the Android WebView (Tauri mobile build). */
@@ -199,9 +204,7 @@ function getBaseUrl(): string {
   if (_serverUrl) return _serverUrl
   // If the app is served directly from the web dashboard, use same origin
   if (typeof window !== 'undefined' && window.location?.origin) {
-    const port = window.location.port
-    // Port 3456 is the web dashboard — use same origin
-    if (port === '3456') return window.location.origin
+    if (!isStaticHost()) return window.location.origin
   }
   return 'http://localhost:3456'
 }
@@ -222,7 +225,9 @@ function buildHeaders(): Record<string, string> {
 async function restFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
   const url = `${getBaseUrl()}${path}`
   const TIMEOUT_MS = 15000
-  const MAX_ATTEMPTS = 2
+  // A lost response does not prove that a write/AI execution did not run.
+  // Retry safe reads only; mutations require an explicit user retry.
+  const MAX_ATTEMPTS = method === 'GET' || method === 'HEAD' ? 2 : 1
   // AGENT-1 transient prefixes worth one backoff retry.
   const isRetriable = (msg: string) =>
     msg.startsWith('network:') || msg.startsWith('rate_limited:')
@@ -302,8 +307,8 @@ async function restFetch<T>(method: string, path: string, body?: unknown): Promi
         if (responseText.trim()) message = responseText.trim()
       }
       // Normalize bare HTTP failures to AGENT-1 prefixes so callers can hint.
-      if (message.startsWith('HTTP 401') || res.status === 401) {
-        if (!message.includes('auth:')) message = `auth: ${message}`
+      if (res.status === 401 || res.status === 403) {
+        if (!message.startsWith('auth:')) message = `auth: ${message}`
       } else if (res.status === 429 && !message.startsWith('rate_limited:')) {
         message = `rate_limited: ${message}`
       }
@@ -3092,7 +3097,9 @@ async function probeStaticConnection(args: Record<string, unknown>): Promise<boo
 
 /** The core invoke — works in both Tauri and Web modes. */
 async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (!isTauri() && _serverUrl) await ensureServerUrlReachable()
+  if (!isTauri() && _serverUrl && !await ensureServerUrlReachable()) {
+    throw new Error('network: selected dashboard is unavailable or could not be verified; the operation was not redirected to local storage')
+  }
   // ── Android launcher bridge (Gaveta): device-local IPC on every Tauri
   // transport, never REST — there is no dashboard twin for these commands.
   // Off-device (web/WASM) the Rust layer refuses with `unsupported:`.
@@ -3349,7 +3356,7 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
       if (!/no command|unknown command|unimplemented/i.test(msg)) throw e
     }
   }
-  if (isTauri() && !REST_FIRST.has(cmd)) {
+  if (isTauri() && !REST_FIRST.has(cmd) && (!_serverUrl || !mapping)) {
     // ── Tauri IPC path ────────────────────────────────────
     const core = await import('@tauri-apps/api/core')
     return core.invoke<T>(cmd, args)
@@ -3498,10 +3505,13 @@ async function invokeInternal<T>(cmd: string, args?: Record<string, unknown>): P
     } catch (restErr) {
       // P1-5 health gate: the desktop dashboard (:3456) can be down while
       // the native IPC twin in the same process is alive (same DB, same
-      // sync registry). Fall back to it instead of surfacing a raw
-      // connection refusal; when no twin exists (OS layer) the original
-      // REST error is rethrown below.
-      if (isTauri()) {
+      // sync registry). Only local safe reads may fall back on a network
+      // failure. Auth refusals, ambiguous mutations and explicit remote
+      // targets must surface unchanged, never switch storage or replay.
+      const restMessage = restErr instanceof Error ? restErr.message : String(restErr)
+      const safeLocalRead = !_serverUrl && (mapping.method === 'GET' || mapping.method === 'HEAD')
+        && restMessage.startsWith('network:')
+      if (isTauri() && safeLocalRead) {
         try {
           const core = await import('@tauri-apps/api/core')
           const ipc = await core.invoke<unknown>(cmd, args ?? {})

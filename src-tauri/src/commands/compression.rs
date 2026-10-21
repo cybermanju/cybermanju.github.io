@@ -62,7 +62,9 @@ fn save_node(db: &Database, id: &str, node: &FileNode) -> Result<(), String> {
         let mut table = tx
             .open_table(Database::get_files_table())
             .map_err(|e| e.to_string())?;
-        table.insert(id, serialized.as_str()).map_err(|e| e.to_string())?;
+        table
+            .insert(id, serialized.as_str())
+            .map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())
 }
@@ -107,9 +109,12 @@ fn write_new_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let mut file = options
-        .open(path)
-        .map_err(|e| format!("conflict: cannot create new artifact {}: {e}", path.display()))?;
+    let mut file = options.open(path).map_err(|e| {
+        format!(
+            "conflict: cannot create new artifact {}: {e}",
+            path.display()
+        )
+    })?;
     if let Err(e) = file.write_all(bytes).and_then(|_| file.sync_all()) {
         drop(file);
         let _ = std::fs::remove_file(path);
@@ -153,7 +158,9 @@ fn validate_artifact(
     if decoded.len() as u64 != record.stats.original_size
         || blake3::hash(&decoded).to_hex().as_str() != record.stats.blake3_hash
     {
-        return Err("integrity: decoded compression bytes do not match source snapshot".to_string());
+        return Err(
+            "integrity: decoded compression bytes do not match source snapshot".to_string(),
+        );
     }
     Ok(decoded)
 }
@@ -192,7 +199,10 @@ pub fn compress_file(
         return Ok(record.stats);
     }
     if !node.compression_layers.is_empty() {
-        return Err("integrity: legacy compression has no verified artifact; reimport source bytes".to_string());
+        return Err(
+            "integrity: legacy compression has no verified artifact; reimport source bytes"
+                .to_string(),
+        );
     }
     let start = std::time::Instant::now();
     let (artifact, codec, details) = if layer == "all" {
@@ -200,7 +210,11 @@ pub fn compress_file(
             .compression
             .compress_triple(&data)
             .map_err(|e| format!("integrity: compression failed: {e}"))?;
-        let codec = if stats.layer.starts_with("skipped") { "identity" } else { "all" };
+        let codec = if stats.layer.starts_with("skipped") {
+            "identity"
+        } else {
+            "all"
+        };
         (bytes, codec.to_string(), stats.layer_details)
     } else {
         let (bytes, detail) = state
@@ -212,7 +226,11 @@ pub fn compress_file(
     let stats = FrontendCompressionStats {
         original_size: data.len() as u64,
         compressed_size: artifact.len() as u64,
-        ratio: if data.is_empty() { 1.0 } else { artifact.len() as f64 / data.len() as f64 },
+        ratio: if data.is_empty() {
+            1.0
+        } else {
+            artifact.len() as f64 / data.len() as f64
+        },
         layer: codec.clone(),
         layer_details: details
             .into_iter()
@@ -237,14 +255,19 @@ pub fn compress_file(
     };
     let value = serde_json::to_value(&record).map_err(|e| e.to_string())?;
     write_new_private(&record.path, &artifact)?;
-    let context = node.context_data.get_or_insert_with(|| serde_json::json!({}));
-    let context = context
-        .as_object_mut()
-        .ok_or_else(|| "integrity: source context is not an object; artifact retained".to_string())?;
+    let context = node
+        .context_data
+        .get_or_insert_with(|| serde_json::json!({}));
+    let context = context.as_object_mut().ok_or_else(|| {
+        "integrity: source context is not an object; artifact retained".to_string()
+    })?;
     context.insert("compression_artifact".to_string(), value);
     node.compression_layers = vec![layer];
     save_node(&db, &file_id, &node).map_err(|e| {
-        format!("integrity: metadata update failed; artifact retained at {}: {e}", record.path.display())
+        format!(
+            "integrity: metadata update failed; artifact retained at {}: {e}",
+            record.path.display()
+        )
     })?;
     Ok(stats)
 }
@@ -274,14 +297,20 @@ pub fn decompress_file(
         Err(e) => return Err(format!("integrity: cannot inspect source bytes: {e}")),
     }
     let previous = node.clone();
-    if let Some(context) = node.context_data.as_mut().and_then(|value| value.as_object_mut()) {
+    if let Some(context) = node
+        .context_data
+        .as_mut()
+        .and_then(|value| value.as_object_mut())
+    {
         context.remove("compression_artifact");
     }
     node.compression_layers.clear();
     save_node(&db, &file_id, &node)?;
     if let Err(e) = std::fs::remove_file(&record.path) {
         let rollback = save_node(&db, &file_id, &previous);
-        return Err(format!("integrity: artifact cleanup failed: {e}; metadata rollback: {rollback:?}"));
+        return Err(format!(
+            "integrity: artifact cleanup failed: {e}; metadata rollback: {rollback:?}"
+        ));
     }
     Ok(FrontendCompressionStats {
         original_size: record.stats.compressed_size,

@@ -81,7 +81,10 @@ mod tests {
 
     fn db() -> (cybermanju_db::Database, std::path::PathBuf) {
         let p = std::env::temp_dir().join(format!("native-oplog-{}.db", uuid::Uuid::new_v4()));
-        (cybermanju_db::Database::new(p.to_str().unwrap()).unwrap(), p)
+        (
+            cybermanju_db::Database::new(p.to_str().unwrap()).unwrap(),
+            p,
+        )
     }
 
     fn device(id: &str, owner: &str, revoked: bool) -> DeviceRow {
@@ -113,12 +116,17 @@ mod tests {
     #[test]
     fn local_pages_and_conflicts_have_shapes_and_only_active_local_ops() {
         let (db, p) = db();
-        db.save_device(&device("local-device", "local", false)).unwrap();
-        db.save_device(&device("foreign-device", "other", false)).unwrap();
-        db.save_device(&device("revoked-device", "local", true)).unwrap();
+        db.save_device(&device("local-device", "local", false))
+            .unwrap();
+        db.save_device(&device("foreign-device", "other", false))
+            .unwrap();
+        db.save_device(&device("revoked-device", "local", true))
+            .unwrap();
         db.append_op(op("local-device", "visible")).unwrap();
-        db.append_op(op("foreign-device", "foreign-secret")).unwrap();
-        db.append_op(op("revoked-device", "revoked-secret")).unwrap();
+        db.append_op(op("foreign-device", "foreign-secret"))
+            .unwrap();
+        db.append_op(op("revoked-device", "revoked-secret"))
+            .unwrap();
         let page = cybermanju_web::api::oplog::since_for_owner(&db, 0, 20, "local").unwrap();
         assert!(page["head"].is_number());
         assert!(page["ops"].is_array());
@@ -135,8 +143,10 @@ mod tests {
     #[test]
     fn unsigned_push_and_unowned_resolution_fail_closed() {
         let (db, p) = db();
-        db.save_device(&device("local-device", "local", false)).unwrap();
-        db.save_device(&device("foreign-device", "other", false)).unwrap();
+        db.save_device(&device("local-device", "local", false))
+            .unwrap();
+        db.save_device(&device("foreign-device", "other", false))
+            .unwrap();
         let a = db.append_op(op("local-device", "a")).unwrap();
         let b = db.append_op(op("foreign-device", "b")).unwrap();
         let push = PushRequest {
@@ -154,9 +164,11 @@ mod tests {
             choice: "merge".into(),
             device_id: String::new(),
         };
-        assert!(cybermanju_web::api::oplog::resolve_op(&db, &resolve, "local")
-            .unwrap_err()
-            .starts_with("auth:"));
+        assert!(
+            cybermanju_web::api::oplog::resolve_op(&db, &resolve, "local")
+                .unwrap_err()
+                .starts_with("auth:")
+        );
         drop(db);
         let _ = std::fs::remove_file(p);
     }

@@ -1108,7 +1108,10 @@ mod tests {
         assert!(error.contains("decompress"));
         assert_eq!(read_file(&db, "file").unwrap(), original);
         assert_eq!(std::fs::read(&path).unwrap(), b"original plaintext");
-        assert_eq!(std::fs::read(&artifact).unwrap(), b"plaintext compression copy");
+        assert_eq!(
+            std::fs::read(&artifact).unwrap(),
+            b"plaintext compression copy"
+        );
         assert!(!sidecar_paths(&path).0.exists());
 
         std::fs::remove_file(&artifact).unwrap();

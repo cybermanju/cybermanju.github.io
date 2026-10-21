@@ -880,6 +880,7 @@ import { isStaticHost, isTauri, isAndroidApp } from '@/composables/useTauri'
 import {
   useAgent,
   runLocalAgent,
+  localProviderEndpoint,
   listLocalConfigs,
   saveLocalConfig,
   deleteLocalConfig,
@@ -2337,7 +2338,9 @@ async function sendPromptLocal() {
       const fheaders: Array<[string, string]> = [...(fp?.extraHeaders ?? [])]
       if (fauth === 'bearer' && fkey) fheaders.push(['Authorization', `Bearer ${fkey}`])
       else if (fauth === 'header') fheaders.push([fc.authNameOverride || fp?.authName || 'x-api-key', fkey])
-      fallbackRoutes.push({ label: `${fc.name} · ${fc.model}`, baseUrl: fbase, dialect: fdialect, model: fc.model, headers: fheaders })
+      const requestUrl = localProviderEndpoint(fbase, fdialect, fauth === 'query'
+        ? { name: fc.authNameOverride || fp?.authName || 'key', value: fkey } : undefined)
+      fallbackRoutes.push({ label: `${fc.name} · ${fc.model}`, baseUrl: fbase, requestUrl, dialect: fdialect, model: fc.model, headers: fheaders })
     }
   }
   if (!key && !isKeyless(cfg) && !fallbackRoutes.length) {
@@ -2349,12 +2352,8 @@ async function sendPromptLocal() {
   const headers: Array<[string, string]> = [...(preset?.extraHeaders ?? [])]
   if (auth === 'bearer' && key) headers.push(['Authorization', `Bearer ${key}`])
   else if (auth === 'header') headers.push([cfg.authNameOverride || preset?.authName || 'x-api-key', key])
-  const url =
-    auth === 'query'
-      ? `${base}${dialect === 'anthropic' ? '/v1/messages' : '/chat/completions'}?${encodeURIComponent(cfg.authNameOverride || preset?.authName || 'key')}=${encodeURIComponent(key)}`
-      : dialect === 'anthropic'
-        ? `${base}/v1/messages`
-        : `${base}/chat/completions`
+  const url = localProviderEndpoint(base, dialect, auth === 'query'
+    ? { name: cfg.authNameOverride || preset?.authName || 'key', value: key } : undefined)
 
   let session = viewing.value && viewing.value.configId === cfg.id ? viewing.value : null
   if (!session) {
@@ -2398,6 +2397,7 @@ async function sendPromptLocal() {
     outcome = await runLocalAgent(
       {
         baseUrl: base,
+        requestUrl: url,
         dialect,
         model: cfg.model,
         headers,

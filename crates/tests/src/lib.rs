@@ -23,6 +23,8 @@ mod api_users;
 #[cfg(test)]
 mod backup;
 #[cfg(test)]
+mod secret_routes;
+#[cfg(test)]
 mod share;
 #[cfg(test)]
 mod sync_routes;

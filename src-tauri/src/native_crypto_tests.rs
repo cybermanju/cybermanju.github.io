@@ -196,7 +196,10 @@ fn native_compression_ipc_persists_real_artifacts_and_roundtrips() {
                 json!({"fileId": fixture.original.id, "layer": layer}),
             );
             assert_eq!(stats["originalSize"], fixture.plaintext.len() as u64);
-            assert_eq!(stats["compressedSize"], std::fs::metadata(&artifact).unwrap().len());
+            assert_eq!(
+                stats["compressedSize"],
+                std::fs::metadata(&artifact).unwrap().len()
+            );
             assert_eq!(std::fs::read(&fixture.path).unwrap(), fixture.plaintext);
             let row = fixture.row();
             assert_eq!(row.size_bytes, fixture.original.size_bytes);
@@ -254,7 +257,10 @@ fn native_compression_ipc_rejects_corruption_and_changed_source() {
             .unwrap_err();
         assert!(error.as_str().unwrap().starts_with("conflict:"));
         assert_eq!(fixture.row(), compressed_row);
-        assert_eq!(std::fs::read(&fixture.path).unwrap(), b"externally changed source");
+        assert_eq!(
+            std::fs::read(&fixture.path).unwrap(),
+            b"externally changed source"
+        );
         assert_eq!(std::fs::read(&artifact).unwrap(), bytes);
         std::fs::remove_file(&fixture.path).unwrap();
         fixture.ok("decompress_file", json!({"fileId": fixture.original.id}));
@@ -266,7 +272,8 @@ fn native_compression_ipc_rejects_corruption_and_changed_source() {
 
 #[test]
 fn native_compression_ipc_refuses_unavailable_sources_and_collisions() {
-    let name = "native_crypto_tests::native_compression_ipc_refuses_unavailable_sources_and_collisions";
+    let name =
+        "native_crypto_tests::native_compression_ipc_refuses_unavailable_sources_and_collisions";
     isolated(name, |root| {
         let fixture = Fixture::new(root, "guards");
         let save = |node: &FileNode| {
@@ -289,10 +296,7 @@ fn native_compression_ipc_refuses_unavailable_sources_and_collisions() {
             }
             save(&node);
             let error = fixture
-                .invoke(
-                    "compress_file",
-                    json!({"fileId": node.id, "layer": "zstd"}),
-                )
+                .invoke("compress_file", json!({"fileId": node.id, "layer": "zstd"}))
                 .unwrap_err();
             assert!(error.as_str().unwrap().starts_with(if kind == "missing" {
                 "not_found:"
