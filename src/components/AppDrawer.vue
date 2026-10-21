@@ -546,9 +546,9 @@ function resetActive() {
 .app-drawer {
   width: min(560px, 100vw);
   max-height: min(calc(var(--mobile-viewport-height, 100dvh) - env(safe-area-inset-top, 0px) - 16px), 800px);
-  height: min(86dvh, 800px);
+  height: min(calc(var(--mobile-viewport-height, 100dvh) - env(safe-area-inset-top, 0px) - 16px), 800px);
   box-sizing: border-box;
-  min-height: 40dvh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -562,6 +562,8 @@ function resetActive() {
   overflow: hidden;
   transition: transform 380ms cubic-bezier(.22, 1, .36, 1);
 }
+/* Only the app grid shrinks; controls retain their touch targets. */
+.app-drawer > :not(.drawer-grid):not(.drawer-state) { flex-shrink: 0; }
 .drawer-handle {
   width: 44px;
   height: 5px;

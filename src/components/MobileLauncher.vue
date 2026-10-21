@@ -133,7 +133,7 @@
     </div>
 
     <!-- iOS springboard pager (cf. iOS4Android PageView + IconGrid):
-      8 icons per page (2 rows × 4), horizontal snap scroll with dots. -->
+      complete rows sized to the available viewport, with horizontal snap. -->
     <div
       v-if="!isFlatAmoled && !query.trim() && filtered.length"
       ref="pagerRef"
@@ -190,7 +190,7 @@
 
 
     <!-- iOS page dots (cf. iOS4Android DotsIndicator): 7.5px dots, white vs dim. -->
-    <div v-if="!query.trim() && pages.length > 1 && !homeLayout.free.value" class="mla-dots" role="group" aria-label="Home app pages">
+    <div v-if="!query.trim() && filtered.length && !homeLayout.free.value" class="mla-dots" :class="{ 'mla-dots-hidden': pages.length < 2 }" :aria-hidden="pages.length < 2" :inert="pages.length < 2" role="group" aria-label="Home app pages">
       <button
         v-for="(_, dotIndex) in pages"
         :key="dotIndex"
@@ -320,7 +320,9 @@ import MessagesHub from '@/components/MessagesHub.vue'
 import HomeCommandBar from '@/components/HomeCommandBar.vue'
 import { useHomeLayout } from '@/composables/useHomeLayout'
 import { moveHomeOrder } from '@/utils/homeLayout'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useResizeObserver } from '@vueuse/core'
+import { homePageCapacity } from '@/utils/homePageCapacity'
 import { useTheme } from '@/composables/useTheme'
 import { useAppStore } from '@/stores/app'
 import { useLauncherStore } from '@/stores/launcher'
@@ -333,9 +335,6 @@ import {
   launcherKeyForPanel,
 } from '@/utils/launcher'
 import type { PanelType } from '@/types'
-
-/** Icons per springboard page — mirrors iOS4Android IconGrid (2 rows × 4). */
-const MLA_PAGE_SIZE = 8
 
 const store = useAppStore()
 const theme = useTheme()
@@ -364,6 +363,24 @@ function toggleHomeLayout() {
 }
 const searchRef = ref<{ focus: () => void } | null>(null)
 const pagerRef = ref<HTMLElement | null>(null)
+const pageSize = ref(8)
+/** Measure the flex slot (already above the dock/nav/insets), not window height.
+ * Grid and cell CSS are authoritative across AMOLED, glass and tablet widths. */
+function measurePageCapacity() {
+  const pager = pagerRef.value
+  const grid = pager?.querySelector<HTMLElement>('.mla-grid')
+  const app = grid?.querySelector<HTMLElement>('.mla-app')
+  if (!pager || !grid || !app || !pager.clientHeight) return
+  const css = getComputedStyle(grid)
+  const pagerCss = getComputedStyle(pager)
+  const height = pager.clientHeight - (parseFloat(pagerCss.paddingTop) || 0) - (parseFloat(pagerCss.paddingBottom) || 0)
+  pageSize.value = homePageCapacity(height, app.offsetHeight, parseFloat(css.rowGap), css.gridTemplateColumns.split(' ').length)
+}
+useResizeObserver(pagerRef, measurePageCapacity)
+watch([themeId, () => homeLayout.free.value], async () => {
+  await nextTick()
+  measurePageCapacity()
+})
 const activePage = ref(0)
 let pagerRaf = 0
 const hasOpenWindows = computed(() => wm.windows.value.some(window => !window.minimized))
@@ -570,12 +587,12 @@ const filtered = computed(() => {
     ? list.filter(app => homeName(app).toLowerCase().includes(term) || app.label.toLowerCase().includes(term))
     : list
 })
-/** Chunk the springboard into swipeable pages of MLA_PAGE_SIZE. */
+/** Fill every complete visible row, then continue on the next swipeable page. */
 const pages = computed<LauncherApp[][]>(() => {
   if (homeLayout.free.value) return filtered.value.length ? [filtered.value] : []
   const out: LauncherApp[][] = []
-  for (let i = 0; i < filtered.value.length; i += MLA_PAGE_SIZE) {
-    out.push(filtered.value.slice(i, i + MLA_PAGE_SIZE))
+  for (let i = 0; i < filtered.value.length; i += pageSize.value) {
+    out.push(filtered.value.slice(i, i + pageSize.value))
   }
   return out.length ? out : []
 })
@@ -605,7 +622,7 @@ function goToPage(index: number) {
 }
 
 /* A new search always restarts on the first springboard page. */
-watch(filtered, () => {
+watch([filtered, pageSize], () => {
   activePage.value = 0
   pagerRef.value?.scrollTo({ left: 0 })
 })
@@ -902,6 +919,10 @@ function resetAllHome() {
 /* Springboard pager: horizontal PageView with iOS bounce
    (cf. iOS4Android PageView.builder, scrollDirection horizontal). */
 .mla-pages {
+  /* A definite flex basis avoids content/pagination feedback. Small screens
+     keep two rows and scroll the home; tall screens gain complete extra rows. */
+  flex: 1 0 196px;
+  min-height: 196px;
   display: flex;
   margin: 0 -20px;
   padding: 0 0 4px;
@@ -926,8 +947,7 @@ function resetAllHome() {
   gap: 16px 7px;
   align-content: start;
   min-height: 188px;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 400px;
+  /* Offscreen pages must use the same real row metrics as the visible page. */
 }
 .mla-app {
   min-width: 0;
@@ -970,6 +990,7 @@ function resetAllHome() {
 .mla-badge { position: absolute; z-index: 2; top: -6px; right: -7px; min-width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; padding: 0 5px; border: 1.5px solid var(--ui-bg); border-radius: 11px; background: #f2475e; color: #fff; font-size: 10px; font-weight: 800; box-shadow: 0 2px 5px rgba(0,0,0,.14); }
 .mla-live { position: absolute; z-index: 2; bottom: -4px; left: 50%; width: 9px; height: 9px; transform: translateX(-50%); border: 2px solid var(--ui-bg); border-radius: 50%; background: #35c980; }
 /* Page dots (cf. DotsIndicator: 7.5px dots, 16px spacing, white vs 47% white). */
+.mla-dots-hidden { visibility: hidden; }
 .mla-dots { display: flex; align-items: center; justify-content: center; gap: 8.5px; min-height: 12px; margin-top: -10px; }
 .mla-dot-btn { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 12px; background: none; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .mla-dot-btn:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
@@ -1219,7 +1240,7 @@ function resetAllHome() {
 
 @media (min-width: 600px) and (max-width: 768px) {
   .mla { padding-left: 32px; padding-right: 32px; gap: 22px; }
-  .mla-pages { margin: 0 -32px; }
+  .mla-pages { margin: 0 -32px; flex-basis: 203px; min-height: 203px; }
   .mla-grid { padding-inline: 32px; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 23px 12px; }
   .mla-widgets { max-width: 540px; }
   .mla-dock { max-width: 520px; left: 50%; right: auto; transform: translateX(-50%); width: calc(100% - 32px); }
@@ -1293,7 +1314,7 @@ function resetAllHome() {
 .mla.theme-flat-amoled .mla-search-clear,
 .mla.theme-flat-amoled .mla-search-hint { color: #fff; }
 .mla.theme-flat-amoled .mla-search-clear { background: transparent; }
-.mla.theme-flat-amoled .mla-flat-pages { margin: 0 -18px; padding-bottom: 0; }
+.mla.theme-flat-amoled .mla-flat-pages { flex-basis: 174px; min-height: 174px; margin: 0 -18px; padding-bottom: 0; }
 .mla.theme-flat-amoled .mla-flat-grid { gap: 20px 8px; min-height: 174px; }
 .mla.theme-flat-amoled .mla-flat-app {
   min-height: 76px;
@@ -1375,7 +1396,7 @@ function resetAllHome() {
 .mla-layout-status { margin: 0; height: 1px; width: 1px; overflow: hidden; position: absolute; clip-path: inset(50%); }
 .mla.mla-layout-free { bottom: calc(156px + env(safe-area-inset-bottom, 0px)); padding-bottom: 20px; }
 .mla.mla-layout-free.with-app-nav { bottom: calc(156px + var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px)); }
-.mla-layout-free .mla-pages { overflow: visible; scroll-snap-type: none; }
+.mla-layout-free .mla-pages { flex: 0 0 auto; overflow: visible; scroll-snap-type: none; }
 .mla-layout-free .mla-grid { content-visibility: visible; contain: none; }
 .mla-layout-editing { overflow-anchor: none; }
 .mla-layout-editing [data-home-item] { outline: 1px dashed var(--ui-accent); outline-offset: -1px; cursor: grab; touch-action: none; user-select: none; transition: none; clip-path: inset(0 round var(--home-item-radius, 18px)); }

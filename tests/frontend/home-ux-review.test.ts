@@ -46,7 +46,7 @@ describe('home and Settings UX regressions', () => {
   it('keeps tablet pages full-width with unchanged column count and centers the dock in both modes', () => {
     const tablet = home.slice(home.indexOf('@media (min-width: 600px) and (max-width: 768px)'))
       .split('/* A calm')[0]
-    expect(tablet).toContain('.mla-pages { margin: 0 -32px; }')
+    expect(tablet).toContain('.mla-pages { margin: 0 -32px; flex-basis: 203px; min-height: 203px; }')
     expect(tablet).toContain('.mla-grid { padding-inline: 32px; grid-template-columns: repeat(5, minmax(0, 1fr))')
     expect(tablet).not.toContain(':not(.mla-layout-free)')
     expect(tablet).toContain('left: 50%; right: auto; transform: translateX(-50%)')
