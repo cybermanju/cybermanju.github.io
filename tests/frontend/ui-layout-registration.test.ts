@@ -62,6 +62,36 @@ describe('UI layout target registration', () => {
     expect(componentLayoutId(instance('Dock', 1, instance('LandingPage')))).toBe(componentLayoutId(instance('Dock', 19, instance('DesktopShell'))))
   })
 
+  it('assigns deterministic layout identities to textual component tags and ordinary descendants', () => {
+    class HtmlMock {
+      dataset: Record<string, string> = {}
+      tagName: string
+      parentElement: HtmlMock | null
+      classList = { contains: () => false }
+      isConnected = true
+      constructor(tagName: string, parentElement: HtmlMock | null = null) { this.tagName = tagName; this.parentElement = parentElement }
+      matches(selector: string) { return selector === '*' || selector.split(',').some(s => s.trim().toLowerCase() === this.tagName.toLowerCase()) }
+      closest() { return null }
+      setAttribute() {}
+      querySelectorAll() { return [] }
+    }
+    const previous = globalThis.HTMLElement
+    Object.assign(globalThis, { HTMLElement: HtmlMock })
+    try {
+      let mixin: Record<string, (this: unknown) => void> | undefined
+      installUiLayoutTargets({ mixin(value: Record<string, (this: unknown) => void>) { mixin = value } } as never)
+      const p = new HtmlMock('P'), label = new HtmlMock('LABEL')
+      const root = new HtmlMock('SECTION') as HtmlMock & { querySelectorAll: (selector: string) => HtmlMock[] }
+      root.querySelectorAll = selector => selector === '*' ? [p, label] : []
+      p.parentElement = root; label.parentElement = root
+      const vm = { ...instance('TextPanel'), $el: root }
+      mixin?.mounted?.call(vm)
+      expect(p.dataset.uiLayoutId).toContain('p-0')
+      expect(label.dataset.uiLayoutId).toContain('label-0')
+      expect(p.dataset.uiLayoutId).not.toBe(label.dataset.uiLayoutId)
+    } finally { Object.assign(globalThis, { HTMLElement: previous }) }
+  })
+
   it('installs mounted and updated hooks without taking over runtime behavior', () => {
     let mixin: Record<string, unknown> | undefined
     installUiLayoutTargets({ mixin(value: Record<string, unknown>) { mixin = value } } as never)

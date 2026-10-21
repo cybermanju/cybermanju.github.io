@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // CyberManju OS — global UI layout and appearance editor.
-// Role: expose per-item customization through an icon long-press.
+// Role: expose per-item customization through a long-press on any entity.
 // Integrates: persisted UI appearance, local raster images and the offline icon catalog.
+import UiTextContextMenu from './UiTextContextMenu.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Icon } from '@iconify/vue/offline'
 import { ensureUiIconCatalog, readUiIconImage } from '@/utils/uiIconCatalog'
@@ -91,6 +92,7 @@ onUnmounted(() => {
 })
 </script>
 <template>
+  <UiTextContextMenu />
   <Teleport to="body">
     <section v-if="editing" class="ui-layout-editor" data-ui-layout-ignore role="region" aria-label="Customize UI components">
       <div class="ui-layout-editor__actions">

@@ -17,7 +17,7 @@ const SEMANTIC_TARGETS = [
   'toolbar', '[role="toolbar"]', 'header', 'section', 'nav', 'aside', 'article', 'footer',
 ].join(',')
 const EXCLUDED_ANCESTORS = [
-  '[data-ui-layout-ignore]', '[data-home-item]', '.desktop-icons',
+  '[data-ui-layout-ignore]', '[data-ui-appearance-host]',
 ].join(',')
 const ENTRY_TARGETS = '.dock-item, .pp-launcher, .pp-task, .mn-btn, .titlebar-app'
 
@@ -90,7 +90,7 @@ export function componentLayoutId(instance: ComponentPublicInstance): string {
 }
 
 function excluded(element: HTMLElement): boolean {
-  if (element.matches('.mla, .desktop-icons, [data-home-item]')) return true
+  if (element.matches('.desktop-icons, [data-home-item]')) return true
   return Boolean(element.closest(EXCLUDED_ANCESTORS))
 }
 
@@ -138,6 +138,18 @@ function markRoot(instance: ComponentPublicInstance, element: HTMLElement, rootI
     target.dataset.uiComponent ||= name
     target.dataset.uiLayoutId = isTerminalRoot
       ? `cybsh-console-${domPath(target, element)}`
+      : `${identity}-${domPath(target, element)}`
+  })
+
+  // Keep legacy semantic IDs above intact, then register every remaining rendered
+  // element (including plain text containers). Never wrap text or mutate Vue's DOM.
+  element.querySelectorAll<HTMLElement>('*').forEach(target => {
+    if (excluded(target) || !(target instanceof HTMLElement) || target.matches('script, style, link, meta, template, br, wbr, [data-ui-layout-shell]')) return
+    if (target.matches('[data-home-item], .desktop-icons')) return
+    target.dataset.uiComponent ||= name
+    const home = target.closest<HTMLElement>('[data-home-item]')
+    target.dataset.uiLayoutId ||= home
+      ? `home:${home.dataset.homeItem}/${domPath(target, home)}`
       : `${identity}-${domPath(target, element)}`
   })
 

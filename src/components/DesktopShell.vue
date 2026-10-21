@@ -195,6 +195,7 @@ function enterDesktopHomeEditing() {
   if (!desktopHomeLayout.editing.value) desktopHomeLayout.toggle()
 }
 function onDesktopHomePressStart(event: PointerEvent) {
+  if (document.body.hasAttribute('data-ui-layout-runtime')) return
   if (desktopHomeLayout.editing.value || !event.isPrimary || event.button !== 0) return
   onDesktopHomePressEnd()
   desktopHomePressTimer = setTimeout(() => {

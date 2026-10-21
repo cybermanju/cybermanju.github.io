@@ -3,7 +3,8 @@
 // Exports: useHomeLayout.
 // Integrates: MobileLauncher, homeLayout geometry and per-device localStorage.
 // Contracts: Editing is explicit; cancel restores the start; release settles before persisting.
-import { computed, nextTick, onMounted, onUnmounted, ref, type Ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
+import { updateUiEntityPosition } from '@/utils/uiEntities'
 import { createDragMomentum } from '@/utils/dragPhysics'
 import { HOME_LAYOUT_KEY, readHomeLayout, clampHomeOffset, type HomeOffset, type HomeRect } from '@/utils/homeLayout'
 import { requestUiLayoutSwap, UI_LAYOUT_SWAP_EVENT, type UiLayoutSwapRequest } from '@/utils/uiLayout'
@@ -12,6 +13,12 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
   let raw: string | null = null
   try { raw = localStorage.getItem(storageKey) } catch { /* Session-only storage. */ }
   const state = ref(readHomeLayout(raw))
+  watch(() => state.value.offsets, offsets => {
+    for (const element of root.value?.querySelectorAll<HTMLElement>('[data-home-item]') ?? []) {
+      const id = element.dataset.homeItem
+      if (id) updateUiEntityPosition(`home:${id}`, offsets[id] ?? { x: 0, y: 0 })
+    }
+  }, { deep: true })
   const editing = ref(false)
   const dragging = ref('')
   const width = ref(typeof window === 'undefined' ? 390 : window.innerWidth)

@@ -401,6 +401,7 @@ async function onTap(row: OrderedApp) {
 }
 
 function onPressStart(row: OrderedApp, e: PointerEvent) {
+  if (document.body.hasAttribute('data-ui-layout-runtime')) return // Global entity hold owns entry; taps/swipes remain native.
   if (e.pointerType === 'mouse' && e.button !== 0) return
   pressStart = { x: e.clientX, y: e.clientY }
   longPressed = false

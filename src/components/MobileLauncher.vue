@@ -672,6 +672,7 @@ function openHomeCustom(app: LauncherApp) {
 
 let homePressStart: { x: number; y: number } | null = null
 function onHomePressStart(app: LauncherApp, e: PointerEvent) {
+  if (document.body.hasAttribute('data-ui-layout-runtime')) return // Global entity hold owns entry; taps/swipes remain native.
   if (homeLayout.editing.value) return
   if (e.pointerType === 'mouse' && e.button !== 0) return
   homePressStart = { x: e.clientX, y: e.clientY }

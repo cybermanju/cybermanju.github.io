@@ -4,7 +4,7 @@
 // Integrates: src/utils/uiLayout.ts public installUiLayout event interface.
 // Contracts: No jsdom dependency; tests model only the DOM APIs used by the runtime.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { installUiLayout, requestUiLayoutSwap, UI_LAYOUT_EVENT, UI_LAYOUT_MODE_EVENT, UI_LAYOUT_SIZE_STORAGE_KEY, UI_LAYOUT_STORAGE_KEY, UI_LAYOUT_SWAP_EVENT } from '../../src/utils/uiLayout'
+import { getUiLayoutEntities, installUiLayout, requestUiLayoutSwap, UI_LAYOUT_EVENT, UI_LAYOUT_MODE_EVENT, UI_LAYOUT_SIZE_STORAGE_KEY, UI_LAYOUT_STORAGE_KEY, UI_LAYOUT_SWAP_EVENT, UI_LAYOUT_TEXT_EVENT } from '../../src/utils/uiLayout'
 
 class Style {
   private values = new Map<string, string>()
@@ -30,6 +30,9 @@ class MockElement extends EventTarget {
   parentElement: MockElement | null = null
   id = ''
   children: MockElement[] = []
+  childNodes: Array<{ nodeType: number; textContent: string | null }> = []
+  textContent: string | null = ''
+  tagName = 'DIV'
   dataset: Record<string, string> = {}
   style = new Style()
   classList = new Classes()
@@ -40,13 +43,16 @@ class MockElement extends EventTarget {
   hasAttribute(k: string) { return this.attrs.has(k) }
   setAttribute(k: string, v: string) { this.attrs.set(k, v); if (k.startsWith('data-')) this.dataset[k.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = v }
   removeAttribute(k: string) { this.attrs.delete(k); if (k.startsWith('data-')) delete this.dataset[k.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] }
-  append(child: MockElement) { child.parentElement = this; this.children.push(child) }
+  append(child: MockElement) { child.parentElement = this; this.children.push(child); this.childNodes.push({ nodeType: 1, textContent: child.textContent }) }
+  appendText(text: string) { this.childNodes.push({ nodeType: 3, textContent: text }); this.textContent = (this.textContent || '') + text }
   closest<T extends MockElement = MockElement>(selector: string): T | null {
     let n: MockElement | null = this
     while (n) { if (n.matches(selector)) return n as T; n = n.parentElement }
     return null
   }
   matches(selector: string) {
+    if (selector === '*') return true
+    if (selector.split(',').some(q => q.trim().toLowerCase() === this.tagName.toLowerCase())) return true
     return selector.split(',').some(s => {
       const q = s.trim()
       if (q === '[data-ui-layout-id]') return this.hasAttribute('data-ui-layout-id')
@@ -108,6 +114,19 @@ beforeEach(() => {
 afterEach(() => { cleanup?.(); cleanup = undefined; vi.useRealTimers() })
 
 describe('UI layout pointer gestures', () => {
+  it('keeps a long hold release from activating the original action and exposes live position', () => {
+    dispatch(a, new Pointer('pointerdown', 92, 100, 100))
+    vi.advanceTimersByTime(2400)
+    dispatch(window, new Pointer('pointerup', 92, 100, 100))
+    const click = new Click(); dispatch(a, click)
+    expect(click.defaultPrevented).toBe(true)
+    dispatch(a, new Pointer('pointerdown', 93, 100, 100))
+    dispatch(window, new Pointer('pointermove', 93, 200, 180))
+    expect(getUiLayoutEntities().find(entity => entity.id === 'a')?.components.position).toEqual({ x: 0.1, y: 0.1 })
+    dispatch(window, new Pointer('pointercancel', 93, 200, 180))
+    expect(getUiLayoutEntities().find(entity => entity.id === 'a')?.components.position).toEqual({ x: 0, y: 0 })
+  })
+
   it('leaves ordinary clicks alone, but suppresses click after even a stationary edit pointerdown', () => {
     const outside = new Click(); dispatch(a, outside); expect(outside.defaultPrevented).toBe(false)
     setEditing(true)
@@ -226,6 +245,53 @@ describe('UI layout pointer gestures', () => {
     setEditing(false); dispatch(entry, new Pointer('pointerdown', 6, 20, 20))
     dispatch(window, new Pointer('pointermove', 6, 40, 20)); vi.advanceTimersByTime(600)
     expect(root.classList.contains('ui-layout-editing')).toBe(false)
+  })
+
+  it('opens the text context menu after a 550ms hold on any registered text entity and suppresses the follow-up click', () => {
+    const paragraph = new MockElement(); paragraph.tagName = 'P'; paragraph.setAttribute('data-ui-layout-id', 'paragraph'); paragraph.appendText('Texto copiado'); root.append(paragraph)
+    const received: CustomEvent[] = []; window.addEventListener(UI_LAYOUT_TEXT_EVENT, e => received.push(e as CustomEvent))
+    const ordinary = new Click(); dispatch(paragraph, ordinary); expect(ordinary.defaultPrevented).toBe(false)
+    dispatch(paragraph, new Pointer('pointerdown', 41, 130, 145)); vi.advanceTimersByTime(549)
+    expect(received).toHaveLength(0); vi.advanceTimersByTime(1)
+    expect(received).toHaveLength(1)
+    expect(received[0].detail).toMatchObject({ id: 'paragraph', text: 'Texto copiado', x: 130, y: 145, target: paragraph })
+    const click = new Click(); dispatch(paragraph, click); expect(click.defaultPrevented).toBe(true)
+  })
+  it('starts customization after a 550ms hold on a non-text entity', () => {
+    const started: unknown[] = []; window.addEventListener(UI_LAYOUT_EVENT, e => started.push((e as CustomEvent).detail))
+    dispatch(a, new Pointer('pointerdown', 42)); vi.advanceTimersByTime(550)
+    expect(started).toContainEqual({ editing: true })
+  })
+  it('cancels a pending hold after movement beyond 10px, pointercancel, pointerup, blur, or target unmount', () => {
+    const text = new MockElement(); text.tagName = 'SPAN'; text.setAttribute('data-ui-layout-id', 'text'); text.appendText('Hello'); root.append(text)
+    const received: unknown[] = []; window.addEventListener(UI_LAYOUT_TEXT_EVENT, e => received.push((e as CustomEvent).detail))
+    for (const [id, cancel] of [[51, 'move'], [52, 'cancel'], [53, 'up'], [54, 'blur'], [55, 'remove']] as const) {
+      dispatch(text, new Pointer('pointerdown', id, 100, 100))
+      if (cancel === 'move') dispatch(window, new Pointer('pointermove', id, 111, 100))
+      if (cancel === 'cancel') dispatch(window, new Pointer('pointercancel', id))
+      if (cancel === 'up') dispatch(window, new Pointer('pointerup', id))
+      if (cancel === 'blur') window.dispatchEvent(new Event('blur'))
+      if (cancel === 'remove') text.isConnected = false
+      vi.advanceTimersByTime(600)
+      expect(received).toHaveLength(0)
+      text.isConnected = true
+    }
+  })
+  it('consumes Android contextmenu near 500ms once and opens the same text menu', () => {
+    const text = new MockElement(); text.tagName = 'SPAN'; text.setAttribute('data-ui-layout-id', 'android-text'); text.appendText('Android'); root.append(text)
+    const received: CustomEvent[] = []; window.addEventListener(UI_LAYOUT_TEXT_EVENT, e => received.push(e as CustomEvent))
+    dispatch(text, new Pointer('pointerdown', 61, 80, 90)); vi.advanceTimersByTime(500)
+    const context = new Event('contextmenu', { bubbles: true, cancelable: true }); dispatch(text, context)
+    expect(context.defaultPrevented).toBe(true); expect(received).toHaveLength(1)
+    vi.advanceTimersByTime(100); expect(received).toHaveLength(1)
+  })
+  it('does not start holds from dynamically added entities until registered and handles their removal', () => {
+    const dynamic = new MockElement(); dynamic.setAttribute('data-ui-layout-id', 'dynamic'); dynamic.tagName = 'H2'; dynamic.appendText('Dynamic'); root.append(dynamic)
+    const received: unknown[] = []; window.addEventListener(UI_LAYOUT_TEXT_EVENT, e => received.push((e as CustomEvent).detail))
+    dispatch(dynamic, new Pointer('pointerdown', 71)); vi.advanceTimersByTime(550)
+    expect(received).toHaveLength(1)
+    dynamic.isConnected = false; dispatch(dynamic, new Pointer('pointerdown', 72)); vi.advanceTimersByTime(600)
+    expect(received).toHaveLength(1)
   })
   it('uses storage key contract and safely ignores malformed cross-tab storage updates', () => {
     expect(() => window.dispatchEvent(new StorageEvent('storage', { key: UI_LAYOUT_STORAGE_KEY, newValue: '{broken' }))).not.toThrow()

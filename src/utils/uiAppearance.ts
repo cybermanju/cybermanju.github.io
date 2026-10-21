@@ -6,6 +6,7 @@ import { Icon } from '@iconify/vue/offline'
 import { hasLocalIcon } from './iconify'
 import { ensureUiIconCatalog } from './uiIconCatalog'
 import { deploymentStorageEventKey } from './deploymentScope'
+import { updateUiEntityComponent } from './uiEntities'
 
 export const UI_APPEARANCE_SELECTION_EVENT = 'cybermanju:ui-appearance-selection'
 export const UI_APPEARANCE_STORAGE_KEY = 'cybermanju.ui.appearance.v1'
@@ -53,6 +54,8 @@ const savedNodes = new Map<HTMLElement, { hidden: HTMLElement[]; hiddenDisplay: 
 function findTarget(id: string): HTMLElement | null {
   const explicit = Array.from(document.querySelectorAll<HTMLElement>('[data-ui-appearance-id]')).find(el => el.dataset.uiAppearanceId === id)
   if (explicit) return explicit
+  const registered = Array.from(document.querySelectorAll<HTMLElement>('[data-ui-layout-id]')).find(el => el.dataset.uiLayoutId === id)
+  if (registered) return registered
   if (id.startsWith('home:')) {
     for (const el of document.querySelectorAll<HTMLElement>('[data-home-item], [data-home-item] button, [data-home-item] [role="button"], [data-home-item] a')) if (targetId(el) === id) return el
     return null
@@ -64,6 +67,7 @@ function labelFor(el: HTMLElement): string {
 }
 function targetId(el: HTMLElement): string | null {
   if (el.dataset.uiAppearanceId) return el.dataset.uiAppearanceId
+  if (el.dataset.uiLayoutId) return el.dataset.uiLayoutId
   const home = el.closest<HTMLElement>('[data-home-item]')
   if (home) return `home:${home.dataset.homeItem || domPath(home)}${home === el ? '' : `/${domPath(el).slice(domPath(home).length + 1)}`}`
   return el.dataset.uiLayoutId || el.closest<HTMLElement>('[data-ui-layout-id]')?.dataset.uiLayoutId || null
@@ -120,6 +124,7 @@ function remove(target: HTMLElement): void {
 function applyAll(root: HTMLElement): void {
   for (const [target, saved] of savedNodes) if (!target.isConnected || !saved.host.isConnected || !current[targetId(target) || '']) remove(target)
   for (const [id, appearance] of Object.entries(current)) {
+    syncAppearance(id)
     if (appearance.kind === 'icon' && !hasLocalIcon(appearance.value) && !expandedCatalogReady) continue
     const target = findTarget(id)
     if (target && root.contains(target) && !savedNodes.has(target)) draw(target, appearance)
@@ -128,6 +133,9 @@ function applyAll(root: HTMLElement): void {
 async function prepareNonlocalIcons(): Promise<void> {
   if (!Object.values(current).some(value => value.kind === 'icon' && !hasLocalIcon(value.value))) return
   try { await ensureUiIconCatalog(); expandedCatalogReady = true } catch { /* Retain the persisted override for a later retry. */ }
+}
+function syncAppearance(id: string): void {
+  updateUiEntityComponent(id, 'appearance', current[id] ?? null)
 }
 function save(): boolean {
   try { localStorage.setItem(UI_APPEARANCE_STORAGE_KEY, JSON.stringify(current)); return true } catch { return false }
@@ -143,8 +151,9 @@ export function setUiAppearance(id: string, appearance: UiAppearance | null): bo
   if (Object.keys(next).length > MAX_ENTRIES) return false
   const before = current
   current = next
-  if (Object.values(next).reduce((sum, item) => sum + item.value.length, 0) > MAX_TOTAL) { current = before; status('Image storage is full. Restore unused icons or choose a smaller image.'); return false }
-  if (!save()) { current = before; status('Could not save this icon: device storage is unavailable or full.'); return false }
+  syncAppearance(id)
+  if (Object.values(next).reduce((sum, item) => sum + item.value.length, 0) > MAX_TOTAL) { current = before; syncAppearance(id); status('Image storage is full. Restore unused icons or choose a smaller image.'); return false }
+  if (!save()) { current = before; syncAppearance(id); status('Could not save this icon: device storage is unavailable or full.'); return false }
   const target = findTarget(id)
   if (target && valid?.kind === 'icon' && !hasLocalIcon(valid.value)) {
     void ensureUiIconCatalog().then(() => { expandedCatalogReady = true; if (target.isConnected && current[id]) draw(target, current[id]) }).catch(() => status('Could not load this icon. Your choice is saved; reopen the icon library to retry.'))
@@ -177,10 +186,10 @@ export function installUiAppearance(root: HTMLElement): () => void {
   }
   const edit = (event: Event) => { editing = !!(event as CustomEvent).detail?.editing }
   const modeChange = (event: Event) => { mode = (event as CustomEvent).detail?.mode || '' }
-  const reset = () => { current = validateUiAppearance(null); save(); for (const el of [...savedNodes.keys()]) remove(el); schedule() }
+  const reset = () => { const previous = Object.keys(current); current = validateUiAppearance(null); previous.forEach(syncAppearance); save(); for (const el of [...savedNodes.keys()]) remove(el); schedule() }
   const storage = (event: StorageEvent) => {
     if (deploymentStorageEventKey(event.key) !== UI_APPEARANCE_STORAGE_KEY && event.key !== null) return
-    current = read(); for (const el of [...savedNodes.keys()]) remove(el); void prepareNonlocalIcons().then(schedule); schedule()
+    const previous = Object.keys(current); current = read(); new Set([...previous, ...Object.keys(current)]).forEach(syncAppearance); for (const el of [...savedNodes.keys()]) remove(el); void prepareNonlocalIcons().then(schedule); schedule()
   }
   window.addEventListener('pointerdown', select, true)
   window.addEventListener('keydown', keySelect, true)
