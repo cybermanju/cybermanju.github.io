@@ -21,6 +21,7 @@
           tabindex="0"
           :aria-expanded="openMenu === item.id"
           aria-haspopup="menu"
+          @pointerdown.prevent="captureTextSnapshot"
           @click="toggleMenu(item.id)"
           @keydown.enter.prevent="toggleMenu(item.id)"
           @keydown.space.prevent="toggleMenu(item.id)"
@@ -35,7 +36,8 @@
                   v-else
                   class="menu-dropdown-item"
                   type="button"
-                  @click.stop="executeMenuItem(sub)"
+                  @pointerdown.prevent="captureTextSnapshot"
+                  @click.stop="executeMenuItem(sub, $event)"
                 >
                   <span class="mdi-icon"><AppIcon :name="sub.icon" :size="14" /></span>
                   <span class="mdi-label">{{ sub.label }}</span>
@@ -186,6 +188,7 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
+import { captureUiTextActionSnapshot, dispatchUiTextAction, type UiTextAction, type UiTextActionSnapshot } from '@/utils/uiTextActions'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useLauncherStore } from '@/stores/launcher'
@@ -284,9 +287,9 @@ const menuStructure = computed<MenuGroup[]>(() => [
     id: 'edit',
     label: 'Edit',
     children: [
-      { id: 'cut', label: 'Cut', icon: 'solar:scissors-bold', shortcut: 'Ctrl+X', action: () => {} },
-      { id: 'copy', label: 'Copy', icon: 'solar:copy-bold', shortcut: 'Ctrl+C', action: () => {} },
-      { id: 'paste', label: 'Paste', icon: 'solar:clipboard-bold', shortcut: 'Ctrl+V', action: () => {} },
+      { id: 'cut', label: 'Cut', icon: 'solar:scissors-bold', shortcut: 'Ctrl+X' },
+      { id: 'copy', label: 'Copy', icon: 'solar:copy-bold', shortcut: 'Ctrl+C' },
+      { id: 'paste', label: 'Paste', icon: 'solar:clipboard-bold', shortcut: 'Ctrl+V' },
       { id: 'div1', divider: true },
       { id: 'select-all', label: 'Select All', icon: 'solar:check-circle-bold', shortcut: 'Ctrl+A', action: () => { store.selectedFileIds = store.files.map(f => f.id) } },
       { id: 'deselect', label: 'Deselect', icon: 'solar:close-square-bold', action: () => { store.selectedFileIds = [] } },
@@ -345,6 +348,14 @@ const menuStructure = computed<MenuGroup[]>(() => [
   },
 ])
 
+let textActionSnapshot: UiTextActionSnapshot | null = null
+function captureTextSnapshot() {
+  textActionSnapshot = captureUiTextActionSnapshot()
+}
+function captureKeyboardTextSnapshot(event: KeyboardEvent) {
+  // Capture before Tab moves focus from an editor into the menu. No clipboard I/O.
+  if (event.key === 'Tab' && !menuRef.value?.contains(document.activeElement)) captureTextSnapshot()
+}
 function toggleMenu(id: string) {
   openMenu.value = openMenu.value === id ? null : id
 }
@@ -355,8 +366,15 @@ function hoverMenu(id: string) {
   }
 }
 
-function executeMenuItem(item: MenuItem) {
+function executeMenuItem(item: MenuItem, event?: Event) {
   openMenu.value = null
+  if (item.id === 'cut' || item.id === 'copy' || item.id === 'paste') {
+    const sent = event ? dispatchUiTextAction(item.id as UiTextAction, event, textActionSnapshot) : false
+    textActionSnapshot = null
+    if (!sent) sysNotifs.warning('Select editable, non-sensitive text before using this action')
+    return
+  }
+  textActionSnapshot = null
   item.action?.()
 }
 
@@ -390,11 +408,14 @@ function handleEscape(e: KeyboardEvent) {
 }
 
 onMounted(() => {
+  document.addEventListener('keydown', captureKeyboardTextSnapshot, true)
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleEscape)
 })
 
 onUnmounted(() => {
+  textActionSnapshot = null
+  document.removeEventListener('keydown', captureKeyboardTextSnapshot, true)
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleEscape)
 })

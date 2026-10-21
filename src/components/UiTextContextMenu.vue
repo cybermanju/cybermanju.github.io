@@ -5,7 +5,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { enterUiLayout, UI_LAYOUT_TEXT_EVENT } from '@/utils/uiLayout'
 import { UI_APPEARANCE_SELECTION_EVENT } from '@/utils/uiAppearance'
 import { focusTextMenuKey } from '@/utils/uiTextMenuKeyboard'
-import { copyToClipboard } from '@/utils/clipboard'
+import { writeTextClipboard, readTextClipboard } from '@/utils/textClipboard'
+import { UI_TEXT_ACTION_EVENT, type UiTextActionDetail } from '@/utils/uiTextActions'
 type TextMenu = { id: string; text?: string; x: number; y: number; target: HTMLElement; form?: boolean }
 const menu = ref<TextMenu | null>(null)
 const panel = ref<HTMLElement | null>(null)
@@ -105,12 +106,14 @@ function getText(current: TextMenu): string | null {
   }
   return null
 }
-async function copy() {
+async function copy(event?: Event) {
   const current = menu.value
-  if (!current) return
+  if (!current || clipboardPending) return
   const text = getText(current)
   if (text == null) { message.value = 'Text cannot be copied from this control.'; return }
-  const copied = await copyToClipboard(text)
+  clipboardPending = true
+  const copied = await writeTextClipboard('copy', text, event)
+  clipboardPending = false
   if (menu.value !== current) return
   if (copied) { close(); return }
   manualCopyText.value = text
@@ -132,21 +135,49 @@ function canCut(current: TextMenu) {
   const range = editableRange(current)
   return !!range && !range.collapsed && current.target.contains(range.commonAncestorContainer)
 }
-async function cut() {
-  const current = menu.value
-  if (!current || !canCut(current)) return
+// Snapshot both the intended editor range and the live selection. Saved menu offsets
+// alone cannot detect the user moving a selection while native IPC is pending.
+function captureEditor(current: TextMenu) {
   const field = control(current)
-  const original = field ? field.value : current.target.textContent
+  const range = field ? null : editableRange(current)
+  const selection = window.getSelection()
+  const live = selection?.rangeCount ? selection.getRangeAt(0) : null
+  const boundary = (r: Range | null) => r ? [r.startContainer, r.startOffset, r.endContainer, r.endOffset] : []
+  const equal = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((v, i) => v === b[i])
+  const original = field ? field.value : current.target.innerHTML
   const start = field ? Number(field.dataset.uiMenuSelectionStart ?? field.selectionStart ?? 0) : 0
   const end = field ? Number(field.dataset.uiMenuSelectionEnd ?? field.selectionEnd ?? 0) : 0
-  const range = field ? null : editableRange(current)
+  const liveStart = field?.selectionStart; const liveEnd = field?.selectionEnd
+  const intendedBoundary = boundary(range); const liveBoundary = boundary(live)
+  const focus = document.activeElement
+  return { field, range, start, end, valid: () => {
+    const now = window.getSelection()
+    return current.target.isConnected && canPaste(current) && document.activeElement === focus
+      && (field ? field.value : current.target.innerHTML) === original
+      && (field ? field.selectionStart === liveStart && field.selectionEnd === liveEnd
+        && liveStart === start && liveEnd === end
+        && Number(field.dataset.uiMenuSelectionStart ?? field.selectionStart ?? 0) === start
+        && Number(field.dataset.uiMenuSelectionEnd ?? field.selectionEnd ?? 0) === end
+        : equal(boundary(editableRange(current)), intendedBoundary)
+          && equal(boundary(now?.rangeCount ? now.getRangeAt(0) : null), liveBoundary))
+  } }
+}
+let clipboardPending = false
+async function cut(event?: Event) {
+  const current = menu.value
+  if (!current || !canCut(current) || clipboardPending) return
+  const snapshot = captureEditor(current)
+  const { field, range, start, end } = snapshot
+  if (!snapshot.valid()) { message.value = 'Cut cancelled because the selection changed.'; return }
   const text = field ? field.value.slice(start, end) : range?.toString()
   if (!text) return
-  const copied = await copyToClipboard(text)
+  clipboardPending = true
+  const copied = await writeTextClipboard('cut', text, event)
+  clipboardPending = false
   if (menu.value !== current) return
   if (!copied) { message.value = 'Could not cut. Nothing was removed. Use the device cut action or keyboard shortcut.'; return }
   // An async clipboard result must never delete newer edits or a detached target.
-  if (!current.target.isConnected || !canCut(current) || (field ? field.value : current.target.textContent) !== original) { message.value = 'Text was copied, but changed content was not removed.'; return }
+  if (!snapshot.valid() || !canCut(current)) { message.value = 'Text was copied, but changed content was not removed.'; return }
   if (field) {
     field.focus({ preventScroll: true }); field.setRangeText('', start, end, 'end')
   } else if (range && current.target.contains(range.commonAncestorContainer) && range.toString() === text) {
@@ -156,24 +187,27 @@ async function cut() {
   current.target.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteByCut', data: null }))
   close(false)
 }
-async function paste() {
+async function paste(event?: Event) {
   const current = menu.value; const field = current && control(current)
   if (!current || !current.form || (field && (protectedField(field) || field.disabled || field.readOnly)) || (!field && (!current.target.isContentEditable || protectedField(current.target)))) return
-  if (!canPaste(current)) return
+  if (!canPaste(current) || clipboardPending) return
+  const snapshot = captureEditor(current)
+  if (!snapshot.valid()) { message.value = 'Paste cancelled because the selection changed.'; return }
   let value: string
+  clipboardPending = true
   try {
-    if (!navigator.clipboard?.readText) throw new Error('Clipboard read unavailable')
-    value = await navigator.clipboard.readText()
+    value = await readTextClipboard(event)
   } catch {
     if (menu.value === current) message.value = 'Clipboard reading was denied or is unavailable. Use the device paste action or keyboard shortcut.'
     return
-  }
+  } finally { clipboardPending = false }
   if (menu.value !== current) return
-  if (!canPaste(current)) return
+  if (!snapshot.valid()) { message.value = 'Paste cancelled because the text, selection or focus changed.'; return }
+  if (!value) { close(false); return }
   if (!field) {
     const target = current.target
     const selection = window.getSelection()
-    const range = savedRange ?? (selection?.rangeCount && target.contains(selection.anchorNode) && target.contains(selection.focusNode) ? selection.getRangeAt(0) : null)
+    const range = snapshot.range
     if (!target.isConnected || !target.isContentEditable || protectedField(target) || !selection || !range || !target.contains(range.commonAncestorContainer)) { message.value = 'Paste is not supported because the editor selection is unavailable.'; return }
     try {
       const maxAttribute = target.getAttribute('maxlength')
@@ -192,12 +226,38 @@ async function paste() {
     return
   }
   if (!field.isConnected || field.disabled || field.readOnly) return
-  const start = field.dataset.uiMenuSelectionStart != null ? Number(field.dataset.uiMenuSelectionStart) : (field.selectionStart ?? field.value.length); const end = field.dataset.uiMenuSelectionEnd != null ? Number(field.dataset.uiMenuSelectionEnd) : (field.selectionEnd ?? start)
+  const { start, end } = snapshot
   const remaining = field.maxLength >= 0 ? Math.max(0, field.maxLength - (field.value.length - (end - start))) : value.length
   const inserted = value.slice(0, remaining)
   field.focus({ preventScroll: true }); field.setRangeText(inserted, start, end, 'end')
   field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: inserted }))
   close(false)
+}
+// Keep the original trusted click: a synthetic CustomEvent is only transport.
+function requestedAction(request: Event) {
+  const detail = (request as CustomEvent<UiTextActionDetail>).detail
+  if (!detail?.event?.isTrusted || detail.event.type !== 'click' || clipboardPending
+    || !['copy', 'cut', 'paste'].includes(detail.action) || !detail.target?.isConnected || protectedField(detail.target)) return
+  if (menu.value) close(false)
+  const field = detail.target instanceof HTMLInputElement || detail.target instanceof HTMLTextAreaElement ? detail.target : null
+  const form = !!field || detail.target.isContentEditable
+  if (!form && detail.action !== 'copy') return
+  savedRange = detail.range ?? null
+  if (field && detail.start != null && detail.end != null) {
+    field.dataset.uiMenuSelectionStart = String(detail.start)
+    field.dataset.uiMenuSelectionEnd = String(detail.end)
+  }
+  if (!field && form && !savedRange) {
+    savedRange = document.createRange()
+    savedRange.selectNodeContents(detail.target); savedRange.collapse(false)
+  }
+  previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  menu.value = { id: 'edit-menu', target: detail.target, form, text: detail.range?.toString(), x: 8, y: 40 }
+  message.value = ''; manualCopyText.value = null
+  // These functions invoke the adapter synchronously, before their first await.
+  if (detail.action === 'copy') void copy(detail.event)
+  else if (detail.action === 'cut') void cut(detail.event)
+  else void paste(detail.event)
 }
 function selectAll() {
   const current = menu.value
@@ -233,11 +293,13 @@ function dismiss(event: Event) {
   close(false)
 }
 onMounted(() => {
+  window.addEventListener(UI_TEXT_ACTION_EVENT, requestedAction)
   window.addEventListener(UI_LAYOUT_TEXT_EVENT, open); window.addEventListener('pointerdown', outside, true)
   window.addEventListener('keydown', key, true); window.addEventListener('blur', dismiss)
   window.addEventListener('resize', dismiss); window.addEventListener('scroll', dismiss, true); window.visualViewport?.addEventListener('resize', dismiss); window.visualViewport?.addEventListener('scroll', dismiss)
 })
 onUnmounted(() => {
+  window.removeEventListener(UI_TEXT_ACTION_EVENT, requestedAction)
   window.removeEventListener(UI_LAYOUT_TEXT_EVENT, open); window.removeEventListener('pointerdown', outside, true)
   window.removeEventListener('keydown', key, true); window.removeEventListener('blur', dismiss)
   window.removeEventListener('resize', dismiss); window.removeEventListener('scroll', dismiss, true); window.visualViewport?.removeEventListener('resize', dismiss); window.visualViewport?.removeEventListener('scroll', dismiss)
@@ -246,9 +308,9 @@ onUnmounted(() => {
 <template>
   <Teleport to="body">
     <div v-if="menu" ref="panel" class="ui-text-menu" data-ui-layout-ignore role="dialog" aria-label="Text options" :style="placement">
-      <button type="button" @click="copy">Copy text</button>
-      <button v-if="menu.form" type="button" @click="cut" :disabled="!canCut(menu)">Cut</button>
-      <button v-if="menu.form" type="button" @click="paste" :disabled="!canPaste(menu)">Paste</button>
+      <button type="button" @pointerdown.prevent @click="copy">Copy text</button>
+      <button v-if="menu.form" type="button" @pointerdown.prevent @click="cut" :disabled="!canCut(menu)">Cut</button>
+      <button v-if="menu.form" type="button" @pointerdown.prevent @click="paste" :disabled="!canPaste(menu)">Paste</button>
       <button v-if="menu.form" type="button" @click="selectAll">Select all</button>
       <button v-if="menu.form && message" type="button" @click="close()">Use device text actions</button>
       <button type="button" @click="customize">Enable customization</button>

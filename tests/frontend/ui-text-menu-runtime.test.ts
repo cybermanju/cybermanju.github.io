@@ -5,7 +5,9 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Vue from 'vue'
-import { copyToClipboard } from '@/utils/clipboard'
+import { writeTextClipboard, readTextClipboard } from '@/utils/textClipboard'
+const native = vi.hoisted(() => ({ enabled: false, invoke: vi.fn() }))
+vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => native.enabled, invoke: native.invoke }))
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { ModuleKind, ScriptTarget, transpileModule } from 'typescript'
 
@@ -27,7 +29,8 @@ new Function('require', 'module', 'exports', outputText)((id: string) => {
   if (id === 'vue') return runtimeVue
   if (id === '@/utils/uiLayout') return { enterUiLayout: vi.fn(), UI_LAYOUT_TEXT_EVENT: 'ui-layout-text' }
   if (id === '@/utils/uiAppearance') return { UI_APPEARANCE_SELECTION_EVENT: 'ui-appearance-selection' }
-  if (id === '@/utils/clipboard') return { copyToClipboard }
+  if (id === '@/utils/textClipboard') return { writeTextClipboard, readTextClipboard }
+  if (id === '@/utils/uiTextActions') return { UI_TEXT_ACTION_EVENT: 'cybermanju:text-action' }
   if (id === '@/utils/uiTextMenuKeyboard') return { focusTextMenuKey: vi.fn() }
   throw new Error('Unexpected UiTextContextMenu dependency: ' + id)
 }, loaded, loaded.exports)
@@ -72,7 +75,7 @@ class FakeInputEvent extends Event {
 }
 const selection = { rangeCount: 0, anchorNode: null as any, focusNode: null as any, toString: () => '', removeAllRanges: vi.fn(), addRange: vi.fn() }
 const clipboard = { readText: vi.fn(), writeText: vi.fn() }
-const fakeDocument: any = { activeElement: null, createElement: vi.fn(() => ({})), createTextNode: vi.fn((text: string) => ({ text })), body: { appendChild: vi.fn() }, createRange: vi.fn(() => ({ selectNodeContents: vi.fn() })) }
+const fakeDocument: any = { visibilityState: 'visible', hasFocus: () => true, activeElement: null, createElement: vi.fn(() => ({})), createTextNode: vi.fn((text: string) => ({ text })), body: { appendChild: vi.fn() }, createRange: vi.fn(() => ({ selectNodeContents: vi.fn() })) }
 const fakeWindow: any = new EventTarget()
 fakeWindow.innerWidth = 800
 fakeWindow.innerHeight = 600
@@ -88,14 +91,16 @@ beforeEach(() => {
   vi.stubGlobal('Node', FakeElement)
   vi.stubGlobal('window', fakeWindow)
   vi.stubGlobal('document', fakeDocument)
-  vi.stubGlobal('navigator', { clipboard })
+  vi.stubGlobal('navigator', { clipboard, userAgent: 'Android' })
+  native.enabled = false; native.invoke.mockReset()
+  fakeDocument.visibilityState = 'visible'; fakeDocument.hasFocus = () => true
   clipboard.readText.mockReset(); clipboard.writeText.mockReset()
   selection.rangeCount = 0; selection.anchorNode = null; selection.focusNode = null
   selection.toString = () => ''; selection.removeAllRanges.mockClear(); selection.addRange.mockClear()
   fakeDocument.createElement.mockReset(); fakeDocument.execCommand = vi.fn(() => false)
   fakeDocument.activeElement = null
 })
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 function setup() {
   const bindings = component.setup({}, { expose: () => {} })
   return bindings as any
@@ -318,5 +323,111 @@ describe('UiTextContextMenu real setup runtime', () => {
     expect(fakeDocument.createTextNode).toHaveBeenCalledWith('<b>plain</b>')
     expect(range.insertNode).toHaveBeenCalledWith({ text: '<b>plain</b>' })
     expect(editor.dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'input', inputType: 'insertFromPaste', data: '<b>plain</b>' }))
+  })
+
+  const trustedClick = () => ({ isTrusted: true, type: 'click', timeStamp: performance.now() } as Event)
+  it('routes trusted Android copy/cut/paste clicks directly to native IPC', async () => {
+    native.enabled = true
+    const vm = setup(); const field = new FakeInput(); field.value = 'abcdef'; field.selectionStart = 1; field.selectionEnd = 4
+    vm.menu.value = formMenu(field)
+    native.invoke.mockResolvedValueOnce({ ok: true, action: 'copy', written: true })
+    await vm.copy(trustedClick())
+    expect(native.invoke).toHaveBeenLastCalledWith('android_clipboard_command', { action: 'copy', payload: expect.objectContaining({ text: 'bcd', userInitiated: true }) })
+    vm.menu.value = formMenu(field)
+    native.invoke.mockResolvedValueOnce({ ok: true, action: 'cut', written: true })
+    await vm.cut(trustedClick()); expect(field.value).toBe('aef')
+    vm.menu.value = formMenu(field)
+    native.invoke.mockResolvedValueOnce({ ok: true, action: 'paste', text: 'native' })
+    await vm.paste(trustedClick()); expect(field.value).toBe('anativeef')
+    expect(native.invoke.mock.calls[2][1].payload).not.toHaveProperty('text')
+    expect(clipboard.writeText).not.toHaveBeenCalled(); expect(clipboard.readText).not.toHaveBeenCalled()
+  })
+  it.each([{ ok: true, action: 'cut', written: false }, { ok: true, action: 'copy', written: true }, null])('preserves Cut without exact native written ACK %#', async ack => {
+    native.enabled = true
+    const vm = setup(); const field = new FakeInput(); field.value = 'abcdef'; field.selectionEnd = 3
+    vm.menu.value = formMenu(field); native.invoke.mockResolvedValue(ack)
+    await vm.cut(trustedClick())
+    expect(field.setRangeText).not.toHaveBeenCalled(); expect(field.value).toBe('abcdef')
+    expect(native.invoke).toHaveBeenCalledTimes(1)
+  })
+  it.each(['cut', 'paste'] as const)('preserves text when the live selection moves during native %s', async action => {
+    native.enabled = true
+    const vm = setup(); const field = new FakeInput(); field.value = 'abcdef'; field.selectionStart = 1; field.selectionEnd = 4
+    await vm.open({ detail: formMenu(field) })
+    let resolve!: (value: unknown) => void
+    native.invoke.mockReturnValue(new Promise(r => { resolve = r }))
+    const pending = vm[action](trustedClick())
+    field.selectionStart = 2; field.selectionEnd = 5
+    resolve(action === 'cut' ? { ok: true, action, written: true } : { ok: true, action, text: 'new' })
+    await pending
+    expect(field.value).toBe('abcdef'); expect(field.setRangeText).not.toHaveBeenCalled()
+  })
+  it.each(['value', 'focus', 'detached', 'readonly'] as const)('preserves paste target when %s changes during native await', async change => {
+    native.enabled = true
+    const vm = setup(); const field = new FakeInput(); field.value = 'original'; field.selectionEnd = 3
+    vm.menu.value = formMenu(field)
+    let resolve!: (value: unknown) => void
+    native.invoke.mockReturnValue(new Promise(r => { resolve = r }))
+    const pending = vm.paste(trustedClick())
+    if (change === 'value') field.value = 'newer'
+    if (change === 'focus') fakeDocument.activeElement = new FakeInput()
+    if (change === 'detached') field.isConnected = false
+    if (change === 'readonly') field.readOnly = true
+    resolve({ ok: true, action: 'paste', text: 'overwrite' }); await pending
+    expect(field.setRangeText).not.toHaveBeenCalled()
+  })
+  it('does not issue native clipboard requests while opening or mounting', async () => {
+    native.enabled = true
+    const vm = setup(); const field = new FakeInput(); field.value = 'keep'
+    for (const callback of mounted) callback()
+    await vm.open({ detail: formMenu(field) }); vm.selectAll(); vm.close(false)
+    expect(native.invoke).not.toHaveBeenCalled()
+    for (const callback of unmounted) callback()
+  })
+  it('preserves Cut on native rejection with no browser fallback or retry', async () => {
+    native.enabled = true
+    const vm = setup(); const field = new FakeInput(); field.value = 'keep'; field.selectionEnd = 3
+    vm.menu.value = formMenu(field); native.invoke.mockRejectedValue(new Error('conflict: timeout'))
+    await vm.cut(trustedClick())
+    expect(field.value).toBe('keep'); expect(field.setRangeText).not.toHaveBeenCalled()
+    expect(native.invoke).toHaveBeenCalledTimes(1); expect(clipboard.writeText).not.toHaveBeenCalled()
+  })
+
+  it('preserves text on empty native paste', async () => {
+    native.enabled = true
+    const vm = setup(); const field = new FakeInput(); field.value = 'keep'; field.selectionEnd = 4
+    vm.menu.value = formMenu(field); native.invoke.mockResolvedValue({ ok: true, action: 'paste', text: '' })
+    await vm.paste(trustedClick())
+    expect(field.setRangeText).not.toHaveBeenCalled(); expect(field.value).toBe('keep')
+  })
+  it('preserves Cut after UI timeout and ignores a late native ACK', async () => {
+    vi.useFakeTimers(); native.enabled = true
+    const vm = setup(); const field = new FakeInput(); field.value = 'keep'; field.selectionEnd = 3
+    vm.menu.value = formMenu(field)
+    let resolve!: (value: unknown) => void
+    native.invoke.mockReturnValue(new Promise(r => { resolve = r }))
+    const pending = vm.cut(trustedClick()); await vi.advanceTimersByTimeAsync(4000); await pending
+    resolve({ ok: true, action: 'cut', written: true }); await Promise.resolve()
+    expect(field.value).toBe('keep'); expect(field.setRangeText).not.toHaveBeenCalled()
+    expect(native.invoke).toHaveBeenCalledTimes(1)
+  })
+  it('rejects stale saved selection before issuing Cut or Paste', async () => {
+    native.enabled = true
+    const vm = setup(); const field = new FakeInput(); field.value = 'keep'; field.selectionEnd = 3
+    await vm.open({ detail: formMenu(field) }); field.selectionEnd = 2
+    await vm.cut(trustedClick()); await vm.paste(trustedClick())
+    expect(native.invoke).not.toHaveBeenCalled(); expect(field.setRangeText).not.toHaveBeenCalled()
+  })
+  it('handles Edit actions using the original trusted click and no synthetic attestation', async () => {
+    native.enabled = true
+    const vm = setup(); const field = new FakeInput(); field.value = 'abcdef'; field.selectionStart = 1; field.selectionEnd = 3
+    native.invoke.mockResolvedValue({ ok: true, action: 'cut', written: true })
+    vm.requestedAction({ detail: { action: 'cut', event: trustedClick(), target: field, start: 1, end: 3 } })
+    await Vue.nextTick(); await Vue.nextTick(); await Vue.nextTick()
+    expect(native.invoke).toHaveBeenCalledWith('android_clipboard_command', expect.objectContaining({ action: 'cut', payload: expect.objectContaining({ text: 'bc' }) }))
+    await vi.waitFor(() => expect(field.value).toBe('adef'))
+    native.invoke.mockClear()
+    vm.requestedAction({ detail: { action: 'paste', event: new Event('click'), target: field, start: 1, end: 1 } })
+    expect(native.invoke).not.toHaveBeenCalled()
   })
 })
