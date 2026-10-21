@@ -2,7 +2,7 @@
 // Role: cybsh CLI command.
 // Exports: ghAsset, ghRelease.
 // Integrates: archive, compress, crypto, encoding, fmt, io.
-// Contracts: none special (pure logic; errors bubble to caller).
+// Contracts: require one exact-name SHA-256 checksum before extracting or installing a release.
 package cmd
 
 import (
@@ -148,10 +148,17 @@ func verifyChecksum(sumsFile, tarball, asset string) error {
 	var want string
 	for _, line := range strings.Split(string(raw), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) == 2 && (fields[1] == asset || strings.HasSuffix(fields[1], "/"+asset)) {
-			want = strings.ToLower(fields[0])
-			break
+		// GNU sha256sum uses an optional '*' binary marker before the exact filename.
+		if len(fields) < 2 || strings.TrimPrefix(fields[1], "*") != asset {
+			continue
 		}
+		if len(fields) != 2 {
+			return fmt.Errorf("invalid checksum entry for %s", asset)
+		}
+		if want != "" {
+			return fmt.Errorf("duplicate checksum entry for %s", asset)
+		}
+		want = strings.ToLower(fields[0])
 	}
 	if want == "" {
 		return fmt.Errorf("no checksum entry for %s", asset)
