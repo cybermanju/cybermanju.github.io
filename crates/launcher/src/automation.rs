@@ -1,3 +1,8 @@
+// CyberManju OS — bounded native automation action bridge.
+// Role: Validate v1 requests and dispatch allowlisted Android actions.
+// Exports: NativeActionRequest, NativeActionResult, dispatch_native_action, deny_request.
+// Integrates: Tauri main WebView, Android Intents and the TypeScript runner.
+// Contracts: No arbitrary code, shell, hidden side effects or inferred completion.
 //! Narrow, typed Android action adapters for the automation runner.
 //!
 //! Actions only invoke public Android intents. Actions that hand control to a

@@ -1,3 +1,8 @@
+// CyberManju OS — durable Android automation idempotency journal.
+// Role: Persist idempotency claims before launching external Android intents.
+// Exports: claim_and_dispatch_at; app_private_directory on Android.
+// Integrates: The automation dispatcher and app-private files storage.
+// Contracts: Hash-only keys; no automatic expiry; fail closed on journal errors.
 //! Durable idempotency tombstones for Android automation Intent handoffs.
 //!
 //! Only SHA-256 hashes of opaque idempotency keys are stored. A claim is synced
