@@ -12,7 +12,7 @@ bash cli/scripts/install-termux.sh
 cyb setup
 ```
 
-O script usa `curl`, `tar`, `sha256sum`, `awk`, `install`, `mktemp`, `mkdir`, `chmod` e `uname` (fornecidos pelos pacotes Termux indicados). Para uso remoto sem perguntas, forneça a URL real do dashboard conforme as opções `cyb setup --help`; não informe credenciais em uma URL. Um perfil do CLI fica em `~/.config/cybermanju/cyb.json` com permissões restritas. Use `cyb config` para conferir o destino e `cyb update` para atualizar (a atualização também exige checksums publicados).
+O script usa `curl`, `tar`, `sha256sum`, `awk`, `install`, `mktemp`, `mkdir`, `chmod`, `uname`, `mv` e `rm` (fornecidos pelos pacotes Termux indicados). Para uso remoto sem perguntas, forneça a URL real do dashboard conforme as opções `cyb setup --help`; não informe credenciais em uma URL. Um perfil do CLI fica em `~/.config/cybermanju/cyb.json` com permissões restritas. Use `cyb config` para conferir o destino e `cyb update` para atualizar (a atualização também exige checksums publicados).
 
 Para inspecionar sem rede ou alterações:
 
@@ -22,6 +22,8 @@ bash cli/scripts/install-termux_test.sh
 ```
 
 `CYB_VERSION=vX.Y.Z` ou `--version vX.Y.Z` escolhe uma release; a tag precisa ter formato `vMAJOR.MINOR.PATCH`. `--prefix DIR` permite especificar explicitamente o prefixo Termux. O instalador exige um prefixo absoluto. Releases devem publicar o tarball Android arm64 e `SHA256SUMS.txt`; se o artefato/checksum não existir, estiver duplicado ou não corresponder, a instalação falha sem substituir `cyb`. O arquivo precisa conter exatamente uma entrada `cyb` regular; links e nomes duplicados/ambíguos são recusados.
+
+Depois da validação, o instalador copia o executável para um arquivo temporário no próprio diretório de destino e só então substitui `bin/cyb` por renomeação atômica. Falhas de cópia ou renomeação preservam a instalação anterior e removem o arquivo temporário. Se `bin/cyb` for um link simbólico, o link é substituído sem alterar seu alvo; se for um diretório, a instalação é recusada.
 
 O instalador usa o binário pré-compilado e **não precisa de Go no dispositivo**. Para compilar o CLI a partir do código, o módulo declara Go **1.27.2** (`cli/go.mod`); versões mais antigas não satisfazem o módulo. Atualize o Termux (`pkg update && pkg upgrade`) e instale/atualize o pacote `golang` (`pkg install golang` ou `pkg upgrade golang`), depois confirme com `go version`. Se os repositórios do Termux ainda não oferecerem essa versão mínima, não reduza `go.mod`: use um ambiente de build que ofereça Go 1.27.2 ou superior e instale o artefato Android publicado.
 

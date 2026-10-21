@@ -46,9 +46,14 @@ if [[ "$DRY_RUN" == 1 ]]; then
   printf 'DRY RUN: no dashboard, Docker, setup, or configuration changes.\n'
   exit 0
 fi
-for tool in curl tar sha256sum awk install mktemp mkdir chmod uname; do command -v "$tool" >/dev/null || die "missing $tool; install with: pkg install curl tar coreutils"; done
+for tool in curl tar sha256sum awk install mktemp mkdir chmod uname mv rm; do command -v "$tool" >/dev/null || die "missing $tool; install with: pkg install curl tar coreutils"; done
 TMP=$(mktemp -d) || die 'could not create temporary directory'
-trap 'rm -rf "$TMP"' EXIT
+STAGED=''
+cleanup() {
+  rm -rf "$TMP"
+  if [[ -n "$STAGED" ]]; then rm -f -- "$STAGED"; fi
+}
+trap cleanup EXIT
 curl -fsSL --retry 2 "$BASE/$ASSET" -o "$TMP/$ASSET" || die "could not download $ASSET"
 curl -fsSL --retry 2 "$BASE/SHA256SUMS.txt" -o "$TMP/SHA256SUMS.txt" || die 'could not download SHA256SUMS.txt'
 DIGEST=$(awk -v name="$ASSET" '$2 == name || $2 == "*"name {count++; digest=$1} END {if (count == 1) print digest; else exit 1}' "$TMP/SHA256SUMS.txt") || die "checksum entry missing or duplicated for $ASSET"
@@ -66,6 +71,10 @@ BIN="$TMP/unpack/${ENTRY#./}"
 [[ -f "$BIN" && ! -L "$BIN" ]] || die 'extracted cyb is not a regular file'
 chmod 0755 "$BIN"
 mkdir -p "${PREFIX_VALUE%/}/bin"
-install -m 0755 "$BIN" "$DEST"
+# Stage on the destination filesystem, then rename without following a destination symlink.
+STAGED=$(mktemp "${DEST}.tmp.XXXXXXXX") || die 'could not stage installation'
+install -m 0755 "$BIN" "$STAGED" || die 'could not stage binary; existing cyb preserved'
+mv -fT -- "$STAGED" "$DEST" || die 'could not replace binary; existing cyb preserved'
+STAGED=''
 printf 'Installed %s\n' "$DEST"
 printf 'Next: cyb setup --server https://YOUR-DASHBOARD (or choose CLI Limited in cyb setup).\n'

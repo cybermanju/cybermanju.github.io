@@ -43,6 +43,40 @@ chmod +x "$TMP/mockbin/curl"
 export PATH="$TMP/mockbin:$PATH" MOCK_ARCHIVE="$TMP/archive.tar.gz" MOCK_SUMS="$TMP/SHA256SUMS.txt" PREFIX="$TMP/prefix" TERMUX_VERSION=mock CYB_ARCH=arm64 REPO=test/repo
 bash "$SCRIPT" --version v1.2.3 --prefix "$PREFIX"
 [[ -x "$PREFIX/bin/cyb" ]] || fail 'successful install did not create executable'
+# Replacing a destination symlink must not overwrite its target.
+printf 'unrelated target\n' > "$TMP/link-target"
+cp "$TMP/link-target" "$TMP/link-original"
+rm "$PREFIX/bin/cyb"
+ln -s "$TMP/link-target" "$PREFIX/bin/cyb"
+bash "$SCRIPT" --version v1.2.3 --prefix "$PREFIX"
+[[ ! -L "$PREFIX/bin/cyb" && -x "$PREFIX/bin/cyb" ]] || fail 'destination symlink was not replaced by executable'
+cmp -s "$TMP/link-target" "$TMP/link-original" || fail 'installation overwrote destination symlink target'
+cmp -s "$PREFIX/bin/cyb" "$TMP/fixture/cyb" || fail 'replacement executable differs from release'
+# A partial staging copy must never truncate the installed binary, and must be cleaned up.
+cp "$PREFIX/bin/cyb" "$TMP/before-copy-failure"
+cat > "$TMP/mockbin/install" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'partial copy\n' > "${@: -1}"
+exit 1
+MOCK
+chmod +x "$TMP/mockbin/install"
+if bash "$SCRIPT" --version v1.2.3 --prefix "$PREFIX" >/dev/null 2>&1; then fail 'partial install unexpectedly succeeded'; fi
+cmp -s "$PREFIX/bin/cyb" "$TMP/before-copy-failure" || fail 'partial install changed existing binary'
+shopt -s nullglob
+staged=("$PREFIX/bin/"cyb.tmp.*)
+[[ ${#staged[@]} == 0 ]] || fail 'failed install left a staged binary'
+rm "$TMP/mockbin/install"
+# A directory destination must fail instead of receiving a nested staged executable.
+rm "$PREFIX/bin/cyb"
+mkdir "$PREFIX/bin/cyb"
+if bash "$SCRIPT" --version v1.2.3 --prefix "$PREFIX" >/dev/null 2>&1; then fail 'directory destination unexpectedly succeeded'; fi
+[[ -d "$PREFIX/bin/cyb" ]] || fail 'directory destination was replaced'
+contents=("$PREFIX/bin/cyb/"*)
+[[ ${#contents[@]} == 0 ]] || fail 'directory destination received a nested binary'
+staged=("$PREFIX/bin/"cyb.tmp.*)
+[[ ${#staged[@]} == 0 ]] || fail 'rename failure left a staged binary'
+rmdir "$PREFIX/bin/cyb"
 # Corrupt checksum must fail and must leave the installed executable byte-for-byte intact.
 printf 'preexisting binary\n' > "$PREFIX/bin/cyb"
 cp "$PREFIX/bin/cyb" "$TMP/existing"
