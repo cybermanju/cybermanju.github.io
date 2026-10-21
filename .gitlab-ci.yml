@@ -142,6 +142,9 @@ cli-build:
     - test -z "$(gofmt -l .)"
     - go vet ./...
     - go test -race -count=1 ./...
+    # Offline fixtures verify checksum/archive rejection without downloads.
+    - bash -n scripts/install-termux.sh scripts/install-termux_test.sh
+    - bash scripts/install-termux_test.sh
     # Root package.json is the version source of truth (no node here).
     - PKG_VER="$(grep -m1 '"version"' ../package.json | cut -d'"' -f4)"
     - mkdir -p dist-cli

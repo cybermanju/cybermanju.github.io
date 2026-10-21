@@ -1353,6 +1353,11 @@ jobs:
           go vet ./...
           go test -race -count=1 ./...
 
+      - name: Termux installer safety regressions (offline)
+        run: |
+          bash -n cli/scripts/install-termux.sh cli/scripts/install-termux_test.sh
+          bash cli/scripts/install-termux_test.sh
+
       - name: Cross-compile cyb (desktop amd64/arm64; Android/Termux arm64)
         working-directory: cli
         env:
