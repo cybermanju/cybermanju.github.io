@@ -420,10 +420,20 @@ fn seed_staging_dir() -> Result<tempfile::TempDir, String> {
         .join("staging");
     fs::create_dir_all(&cache)
         .map_err(|e| format!("network: cannot prepare private seed cache: {e}"))?;
-    tempfile::Builder::new()
+    let dir = tempfile::Builder::new()
         .prefix("cyb-seed-")
         .tempdir_in(cache)
-        .map_err(|e| format!("network: cannot create seed staging directory: {e}"))
+        .map_err(|e| format!("network: cannot create seed staging directory: {e}"))?;
+    // Enforce the private-directory contract explicitly instead of relying
+    // on the library's default creation mode. No seed bytes are written until
+    // this succeeds; errors still drop the TempDir and remove its directory.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("network: cannot secure seed staging directory: {e}"))?;
+    }
+    Ok(dir)
 }
 
 #[cfg(test)]
