@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
@@ -79,9 +80,8 @@ func renderRootHelp(c *cobra.Command, _ []string) {
 		}
 		fmt.Printf("  %s\n", ui.Downsample(ui.Title.Render("◈ "+sec.title)))
 		for _, r := range rows {
-			fmt.Printf("    %s  %s\n",
-				ui.Downsample(ui.Accent.Render(r[0]+strings.Repeat(" ", max(0, nameWidth-len(r[0]))))),
-				ui.Downsample(ui.Dim.Render(r[1])))
+			fmt.Print(formatHelpRow(ui.Downsample(ui.Accent.Render(r[0])),
+				ui.Downsample(ui.Dim.Render(r[1])), nameWidth, ui.TermWidth()))
 		}
 		fmt.Println()
 	}
@@ -95,16 +95,16 @@ func renderRootHelp(c *cobra.Command, _ []string) {
 	if len(rest) > 0 {
 		fmt.Printf("  %s\n", ui.Downsample(ui.Title.Render("◈ more")))
 		for _, r := range rest {
-			fmt.Printf("    %s  %s\n",
-				ui.Downsample(ui.Accent.Render(r[0]+strings.Repeat(" ", max(0, nameWidth-len(r[0]))))),
-				ui.Downsample(ui.Dim.Render(r[1])))
+			fmt.Print(formatHelpRow(ui.Downsample(ui.Accent.Render(r[0])),
+				ui.Downsample(ui.Dim.Render(r[1])), nameWidth, ui.TermWidth()))
 		}
 		fmt.Println()
 	}
 	fmt.Printf("  %s  %s\n", ui.Downsample(ui.Title.Render("◈ flags")), ui.Downsample(ui.Dim.Render("cyb <command> [flags]")))
 	c.PersistentFlags().VisitAll(func(f *pflag.Flag) {
 		name, usage := flagNameUsage(f)
-		fmt.Printf("    %s  %s\n", ui.Downsample(ui.Chip(name)), ui.Downsample(ui.Dim.Render(usage)))
+		fmt.Print(formatHelpRow(ui.Downsample(ui.Chip(name)),
+			ui.Downsample(ui.Dim.Render(usage)), 0, ui.TermWidth()))
 	})
 	fmt.Println()
 	fmt.Printf("  %s  %s\n", ui.Downsample(ui.Dim.Render("Start here:")), ui.Downsample(ui.Chip("cyb setup")))
@@ -137,9 +137,8 @@ func renderCmdHelp(c *cobra.Command) {
 			if sub.Hidden || sub.Deprecated != "" {
 				continue
 			}
-			fmt.Printf("    %s  %s\n",
-				ui.Downsample(ui.Accent.Render(sub.Name()+strings.Repeat(" ", max(0, w-len(sub.Name()))))),
-				ui.Downsample(ui.Dim.Render(sub.Short)))
+			fmt.Print(formatHelpRow(ui.Downsample(ui.Accent.Render(sub.Name())),
+				ui.Downsample(ui.Dim.Render(sub.Short)), w, ui.TermWidth()))
 		}
 		fmt.Println()
 	}
@@ -177,7 +176,24 @@ func printFlagSet(title string, fs *pflag.FlagSet) {
 	}
 	fmt.Printf("  %s\n", ui.Downsample(ui.Title.Render("◈ "+title)))
 	for _, r := range rows {
-		fmt.Printf("    %s  %s\n", ui.Downsample(ui.Chip(r[0])), ui.Downsample(ui.Dim.Render(r[1])))
+		fmt.Print(formatHelpRow(ui.Downsample(ui.Chip(r[0])),
+			ui.Downsample(ui.Dim.Render(r[1])), 0, ui.TermWidth()))
 	}
 	fmt.Println()
+}
+
+// formatHelpRow wraps descriptions with aligned continuation lines. Narrow
+// terminals stack labels above descriptions; ANSI and wide characters retain
+// their display width, and long words wrap rather than being truncated.
+func formatHelpRow(label, description string, labelWidth, width int) string {
+	labelWidth = max(labelWidth, ansi.StringWidth(label))
+	indent := 4 + labelWidth + 2
+	prefix := "    " + label + strings.Repeat(" ", labelWidth-ansi.StringWidth(label)) + "  "
+	if width-indent < 24 {
+		wrappedLabel := ansi.Wrap(label, max(1, width-4), "")
+		prefix = "    " + strings.ReplaceAll(wrappedLabel, "\n", "\n    ") + "\n      "
+		indent = 6
+	}
+	wrapped := ansi.Wrap(description, max(1, width-indent), "")
+	return prefix + strings.ReplaceAll(wrapped, "\n", "\n"+strings.Repeat(" ", indent)) + "\n"
 }
