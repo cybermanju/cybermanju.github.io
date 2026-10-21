@@ -57,6 +57,9 @@ export class AndroidVoiceAudio {
   private fail(pending: PendingAudio, cause: unknown): void {
     if (this.pending !== pending) return
     this.clear()
+    // The adapter owns capture/output cleanup even if its caller only displays
+    // the error. Queue this before a failed callback can start another turn.
+    void this.command(pending.kind === 'listen' ? 'stopListening' : 'stopSpeaking').catch(() => undefined)
     pending.failed(cause instanceof Error ? cause.message : String(cause))
   }
   private schedule(pending: PendingAudio): void {

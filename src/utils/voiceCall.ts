@@ -72,6 +72,9 @@ export class VoiceCallController {
   private listen(generation: number): void {
     if (generation !== this.generation) return
     if (this.muted) { this.update('muted'); return }
+    // Each listen/reply cycle owns a fresh epoch, not just each entire call.
+    // Providers may deliver a late final/error/done after the next turn starts.
+    generation = ++this.generation
     this.update('listening')
     try {
       this.ports.listen(text => {
@@ -82,6 +85,7 @@ export class VoiceCallController {
         this.request = request
         void this.ports.send(text.trim(), request.signal).then(answer => {
           if (generation !== this.generation || request.signal.aborted) return
+          this.request = null
           const spoken = speechText(answer)
           if (!spoken) { this.listen(generation); return }
           this.update('speaking')

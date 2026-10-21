@@ -95,6 +95,26 @@ describe('VozPonte foreground voice call', () => {
     const f = fixture(); f.call.start(); f.final('test'); f.resolve(''); await flush()
     expect(f.call.state).toBe('listening'); expect(f.ports.speak).not.toHaveBeenCalled()
   })
+  it('rejects previous-turn recognizer callbacks after the microphone resumes', async () => {
+    const f = fixture(); f.call.start()
+    const [oldFinal, oldError] = vi.mocked(f.ports.listen).mock.calls[0]
+    f.final('first'); f.resolve('answer'); await flush(); f.spokenEnd()
+    oldFinal('late duplicate'); oldError('late recognizer failure')
+    expect(f.call.state).toBe('listening')
+    expect(f.ports.send).toHaveBeenCalledTimes(1)
+    f.final('second')
+    expect(f.ports.send).toHaveBeenLastCalledWith('second', expect.any(AbortSignal))
+  })
+  it('rejects previous-turn TTS completion/errors during the next spoken reply', async () => {
+    const f = fixture(); f.call.start(); f.final('first'); f.resolve('first answer'); await flush()
+    const [, oldDone, oldError] = vi.mocked(f.ports.speak).mock.calls[0]
+    f.spokenEnd(); f.final('second'); f.resolve('second answer'); await flush()
+    oldDone(); oldError('late output failure')
+    expect(f.call.state).toBe('speaking')
+    expect(f.ports.listen).toHaveBeenCalledTimes(2)
+    f.spokenEnd()
+    expect(f.call.state).toBe('listening')
+  })
   it('omits fenced code, URLs and markdown from bounded speech', () => {
     expect(speechText('**Oi** [doc](https://a.test)\n```js\nsecret()\n``` https://x.test')).toBe('Oi doc [code in chat]')
     expect(speechText('a'.repeat(7000))).toHaveLength(6000)

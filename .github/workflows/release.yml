@@ -760,6 +760,14 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
+      - name: Verify Android voice bridge in APK DEX
+        run: |
+          mapfile -d '' apks < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' -print0)
+          test "${#apks[@]}" -gt 0
+          for apk in "${apks[@]}"; do
+            python3 scripts/check-android-voice-apk.py "$apk"
+          done
+
       - name: Verify Android broker configuration
         run: node scripts/verify-supabase-build.mjs dist
         env:

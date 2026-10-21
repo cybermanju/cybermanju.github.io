@@ -34,6 +34,14 @@ O [VozPonte standalone](https://github.com/cybermanju/vozponte) continua dispon�
 
 ## Verificação
 
+### APK release e ponte JNI
+
+A segunda revisão do APK ARM64 do commit `78386d6` (run `39600561434`) encontrou a classe `CybermanjuVoiceServices` no DEX, mas sem o método estático `dispatch(Activity, String, String): String` chamado por JNI. O shrinker removeu a entrada e a implementação de reconhecimento/TTS: a presença da classe e o build verde, sozinhos, não comprovavam que a chamada funcionava naquele APK. Esse binário antigo não recebe correções automaticamente; é necessário instalar um APK recompilado com as regras de preservação corrigidas.
+
+O instalador deve vincular explicitamente as regras de preservação ao build release, independentemente do nome do arquivo ProGuard gerado pelo Tauri. `scripts/check-android-voice-apk.py` verifica o DEX do APK final antes do upload, incluindo a assinatura e a implementação da entrada JNI e as referências aos motores Android de reconhecimento e TTS. Essa barreira de empacotamento não substitui uma chamada real no aparelho.
+
+Cada turno de escuta/resposta tem sua própria geração: resultados, erros e conclusões de fala de um turno anterior não podem interferir no seguinte. Encerrar a chamada durante a criação de uma conversa impede o envio ainda não iniciado ao agente. Falhas e timeouts liberam o áudio nativo; o reconhecimento usa o modelo de fala livre e informa separadamente silêncio, permissão, rede, microfone ocupado e provedor indisponível.
+
 Os testes de `voice-call.test.ts` verificam o controlador de turnos. `android-voice.test.ts` cobre fala nativa com portas determinísticas, ordem do IPC, permissão negada, silêncio e callbacks atrasados. `android-voice-services.test.ts` verifica instalação idempotente e contratos de segurança dos fontes; `android-voice-settings.test.ts` verifica os controles da interface. Testes de contrato não substituem execução Android.
 
 Antes de considerar pronto para uso diário, validar o APK e os serviços em um celular real: PT/EN, microfone negado, ausência de provedor de fala, TTS sem voz instalada, silêncio, interrupção, tela bloqueada, retomada do app, fones/Bluetooth, troca de conversa e falha de rede. Testar notificações reais, revogação de seleção/acessos, atualização/remoção durante uma confirmação, cancelar/confirmar resposta e preenchimento em campo protegido ou de outro app. A compilação isolada do Kotlin não certifica o empacotamento APK/JNI nem esses comportamentos em hardware.

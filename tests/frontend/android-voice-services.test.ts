@@ -20,7 +20,7 @@ function fixture(run: (dir: string, manifest: string, kotlin: string) => void) {
   const kotlin = join(java, 'MainActivity.kt')
   const manifest = join(main, 'AndroidManifest.xml')
   writeFileSync(kotlin, 'package org.example.app\nclass MainActivity : TauriActivity() {}\n')
-  writeFileSync(join(dir, 'app/build.gradle.kts'), 'proguardFiles("proguard-rules.pro")\n')
+  writeFileSync(join(dir, 'app/build.gradle.kts'), 'android {\n  buildTypes {\n    getByName("release") {\n      optimization { enable = true }\n      proguardFiles(*fileTree(".") { include("**/*.pro"); exclude("build/**") }.files.toTypedArray())\n    }\n  }\n}\n')
   writeFileSync(join(main, 'res/values/strings.xml'), '<resources><string name="other">Keep me</string></resources>\n')
   writeFileSync(manifest, `<?xml version="1.0" encoding="utf-8"?>\n<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.example.app">\n  <queries><package android:name="existing.app" /></queries>\n  <application android:label="CyberManju">\n    <service android:name=".CybermanjuMessages" android:exported="true"><intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter></service>\n    <activity android:name=".MainActivity" />\n  </application>\n</manifest>\n`)
   try { run(dir, manifest, kotlin) } finally { rmSync(dir, { recursive: true, force: true }) }
@@ -50,8 +50,16 @@ describe('Android voice services installer', () => {
     expect(m).not.toContain('QUERY_ALL_PACKAGES')
     expect(readFileSync(mainKotlin, 'utf8')).toContain('package org.example.app')
     expect(readFileSync(join(dir, 'app/src/main/res/values/strings.xml'), 'utf8')).toContain('Keep me')
-    expect(readFileSync(join(dir, 'app/proguard-rules.pro'), 'utf8')).toContain('-keep class org.example.app.CybermanjuVoiceServices')
+    expect(readFileSync(join(dir, 'app/build.gradle.kts'), 'utf8')).toContain('proguardFiles(\"cybermanju-voice.pro\")')
+    expect(readFileSync(join(dir, 'app/cybermanju-voice.pro'), 'utf8')).toContain('-keep class org.example.app.CybermanjuVoiceServices')
   }))
+  it('fails closed when Gradle release rules cannot be resolved', () => fixture((dir) => {
+    writeFileSync(join(dir, 'app/build.gradle.kts'), 'android { buildTypes { } }\n')
+    expect(() => install(dir)).toThrow()
+  }))
+  it('validates APK DEX requirements deterministically with synthetic DEX fixtures', () => {
+    execFileSync('python3', ['tests/python/test_android_voice_apk.py'], { cwd: root, encoding: 'utf8', stdio: 'pipe' })
+  })
   it('is byte-stable on the second invocation and retains existing service content', () => fixture((dir, manifest) => {
     install(dir)
     const before = readFileSync(manifest, 'utf8')

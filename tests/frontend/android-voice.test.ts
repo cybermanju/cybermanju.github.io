@@ -96,9 +96,23 @@ describe('Android voice audio adapter', () => {
     audio.listen('pt-BR', vi.fn(), failed)
     await vi.advanceTimersByTimeAsync(61_000)
     expect(failed).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('timed out'))
+    expect(commands.at(-1)?.action).toBe('stopListening')
     const count = commands.length
     await vi.advanceTimersByTimeAsync(1000)
     expect(commands).toHaveLength(count)
+  })
+  it('stops native speech on output failure before the caller can start another turn', async () => {
+    const { audio, commands, events } = fixture()
+    const done = vi.fn()
+    const failed = vi.fn(() => audio.listen('pt-BR', vi.fn(), vi.fn()))
+    audio.speak('Resposta', 'pt-BR', done, failed)
+    events.push({ id: commands[0].payload!.id as string, type: 'error', error: 'output unavailable' })
+    await vi.advanceTimersByTimeAsync(200)
+    expect(done).not.toHaveBeenCalled()
+    expect(failed).toHaveBeenCalledExactlyOnceWith('output unavailable')
+    const actions = commands.map(c => c.action)
+    expect(actions.indexOf('stopSpeaking')).toBeLessThan(actions.indexOf('listen'))
+    audio.stopListening()
   })
 })
 

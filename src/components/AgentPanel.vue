@@ -750,7 +750,7 @@
                 @focus="composerFocused = true"
                 @blur="composerFocused = false"
                 @keydown="onComposerKey"
-                @keydown.enter.exact.prevent="sendPrompt"
+                @keydown.enter.exact.prevent="sendPrompt()"
               />
               <div class="composer-bar">
                 <span class="composer-hint dim">
@@ -787,7 +787,7 @@
                   <UiButton size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : voice.langPref.value === 'auto' ? `Dictate your message (auto: ${voice.lang.value === 'pt-BR' ? 'Portuguese' : 'English'} — hover to pick EN/PT)` : `Dictate your message (${voice.langPref.value === 'pt-BR' ? 'Portuguese' : 'English'} — hover to change)`" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Dictate' }}</UiButton>
                 </div>
                 <UiButton v-if="jobActive" size="sm" variant="danger" icon="solar:stop-bold" @click="abortJob">Stop</UiButton>
-                <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend || voiceCall.active.value" :title="!chatConfigId ? 'Select an assistant first' : ''" @click="sendPrompt">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
+                <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend || voiceCall.active.value" :title="!chatConfigId ? 'Select an assistant first' : ''" @click="sendPrompt()">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
               </div>
             </div>
             <div v-if="jobLine" class="w-msg job-line"><AppIcon name="solar:clock-circle-bold" :size="11" /> {{ jobLine }}</div>
@@ -2105,7 +2105,7 @@ async function sendVoiceTurn(text: string, signal: AbortSignal): Promise<string>
   }
   const previousJob = activeJob.value?.jobId
   promptInput.value = text
-  await sendPrompt()
+  await sendPrompt(signal)
   if (signal.aborted) throw new Error('Call ended')
   const job = activeJob.value
   if (!job || job.jobId === previousJob) throw new Error('The voice message could not start. Check the chat error and try again.')
@@ -2134,7 +2134,8 @@ async function sendVoiceTurn(text: string, signal: AbortSignal): Promise<string>
   return answer.content
 }
 
-async function sendPrompt() {
+async function sendPrompt(signal?: AbortSignal) {
+  if (signal?.aborted) return
   if (!canSend.value || !selectedProviderReady.value) return
   // A run is live: hold the prompt and drain it when the job settles.
   if (jobActive.value) {
@@ -2157,6 +2158,7 @@ async function sendPrompt() {
     try {
       const created = await invoke<AgentSession>('create_agent_session', { configId: chatConfigId.value })
       await store.fetchAgentSessions()
+      if (signal?.aborted) return
       setViewing(created)
       sessionId = created.id
     } catch (e) {
@@ -2164,6 +2166,7 @@ async function sendPrompt() {
       return
     }
   }
+  if (signal?.aborted) return
   await store.startAgentRun(chatConfigId.value, prompt, sessionId)
 }
 

@@ -17,7 +17,8 @@ function fixture(test: (dir: string, manifest: string, kotlin: string) => void) 
   const manifest = join(main, 'AndroidManifest.xml')
   const kotlin = join(java, 'MainActivity.kt')
   writeFileSync(kotlin, 'package com.cybermanju.os\nclass MainActivity : TauriActivity() {}\n')
-  writeFileSync(join(dir, 'app/build.gradle.kts'), 'dependencies {\n}\n')
+  writeFileSync(join(dir, 'app/build.gradle.kts'), 'android {\n  buildTypes {\n    release {\n      proguardFiles("proguard-rules.pro")\n    }\n  }\n}\ndependencies {\n}\n')
+  writeFileSync(join(dir, 'app/proguard-rules.pro'), '# fixture rules\n')
   writeFileSync(manifest, `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <queries><package android:name="example.other" /></queries>

@@ -17,6 +17,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -375,19 +376,29 @@ class CybermanjuVoiceServices {
                     override fun onEndOfSpeech() { /* onResults follows; this is NOT a final event. */ }
                     override fun onError(code: Int) {
                         if (gen != generation || currentListen != id) return
-                        emit(id, "error", error = "Android recognition error $code. Check permission/provider and start again.")
-                        currentListen = null
+                        val detail = when (code) {
+                            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission denied. Allow microphone access in Android app settings."
+                            SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech detected. Start the call again when ready."
+                            SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Speech recognition network unavailable. Check your connection and speech provider."
+                            SpeechRecognizer.ERROR_AUDIO -> "Microphone unavailable. Check whether another app or phone call is using it."
+                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech provider busy. Wait a moment, then start the call again."
+                            else -> "Android recognition error $code. Check permission/provider and start again."
+                        }
+                        emit(id, "error", error = detail)
+                        stopListening()
                     }
                     override fun onResults(b: Bundle?) {
                         if (gen != generation || currentListen != id) return
                         val text = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().take(6000)
                         if (text.isBlank()) emit(id, "end") else emit(id, "final", text = text)
-                        currentListen = null
+                        stopListening()
                     }
                     override fun onPartialResults(b: Bundle?) {}
                     override fun onEvent(t: Int, b: Bundle?) {}
                 })
                 r.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                    .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                     .putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang).putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false))
             } catch (_: Exception) {
                 stopListening()
@@ -433,6 +444,9 @@ class CybermanjuVoiceServices {
         }
         private fun say(t: TextToSpeech, id: String, gen: Int, text: String, locale: Locale) {
             try {
+                t.setAudioAttributes(AudioAttributes.Builder()
+                    .setUsage(if (Build.VERSION.SDK_INT >= 26) AudioAttributes.USAGE_ASSISTANT else AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
                 val language = t.setLanguage(locale)
                 if (language == TextToSpeech.LANG_NOT_SUPPORTED || language == TextToSpeech.LANG_MISSING_DATA) {
                     emit(id, "error", error = "unsupported: install a TTS voice for this language")
