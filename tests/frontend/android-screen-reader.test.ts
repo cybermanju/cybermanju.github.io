@@ -12,6 +12,7 @@ function setup() {
   const snapshot: ReaderStatus = {
     sessionId: null, state: 'idle', packageName: null, index: 0, total: 0,
     overlayGranted: true, packages: [], mode: null, captures: [], engine: 'mlkit-latin-on-device', limitation: 'Visible screen only',
+    notificationGranted: true, notificationsEnabled: true, projectionActive: false, androidApi: 35,
   }
   const command = vi.fn().mockResolvedValue(snapshot)
   return { snapshot, command, reader: new AndroidScreenReader(command as AndroidVoiceCommand) }
@@ -40,8 +41,8 @@ describe('AndroidScreenReader', () => {
   })
   it('uses a dedicated polling channel and reads authoritative status after resume', async () => {
     const { reader, command } = setup()
-    await reader.status(); await reader.poll(); await reader.stop(); await reader.overlaySettings()
-    expect(command.mock.calls.map(call => call[0])).toEqual(['readerStatus', 'readerPoll', 'readerStop', 'readerOverlaySettings'])
+    await reader.status(); await reader.poll(); await reader.stop(); await reader.overlaySettings(); await reader.notificationSettings()
+    expect(command.mock.calls.map(call => call[0])).toEqual(['readerStatus', 'readerPoll', 'readerStop', 'readerOverlaySettings', 'readerNotificationSettings'])
     expect(command).not.toHaveBeenCalledWith('poll')
   })
   it('preserves ordered batches and does not retry an ambiguous native start', async () => {

@@ -704,7 +704,7 @@ mod android_impl {
                 FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_RESET_TASK_IF_NEEDED,
             )],
         )
-        .map_err(|e| fail(env, format!("network: cannot flag the launch: {e}"))))?;
+        .map_err(|e| fail(env, format!("network: cannot flag the launch: {e}")))?;
         env.call_method(
             activity,
             "startActivity",
@@ -1581,6 +1581,7 @@ fn is_supported_voice_action(action: &str) -> bool {
             | "readerPoll"
             | "readerStop"
             | "readerOverlaySettings"
+            | "readerNotificationSettings"
     )
 }
 
@@ -1631,6 +1632,7 @@ mod tests {
             "readerPoll",
             "readerStop",
             "readerOverlaySettings",
+            "readerNotificationSettings",
         ] {
             assert!(is_supported_voice_action(action), "{action} was rejected");
         }

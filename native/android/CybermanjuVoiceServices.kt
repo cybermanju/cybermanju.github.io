@@ -173,7 +173,7 @@ class CybermanjuVoiceServices {
             ensureLifecycle(a)
             val p = JSONObject(payload)
             val out = when (action) {
-                "readerStart", "readerStatus", "readerPoll", "readerStop", "readerOverlaySettings" ->
+                "readerStart", "readerStatus", "readerPoll", "readerStop", "readerOverlaySettings", "readerNotificationSettings" ->
                     CybermanjuScreenReader.dispatch(a, action, p)
                 "status" -> status(a)
                 "configure" -> configure(a, p)
