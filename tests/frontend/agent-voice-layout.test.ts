@@ -29,6 +29,13 @@ describe('Agent voice and text layout', () => {
     expect(chat).not.toContain('class="voice-call"')
     expect(panel).toMatch(/<UiModal[^>]*phoneControlsOpen[\s\S]*?<AndroidVoiceSettings \/>[\s\S]*?<\/UiModal>/)
   })
+  it('lets the phone dialog own Escape before document-level app shortcuts', () => {
+    expect(panel).toContain("window.addEventListener('keydown', onPhoneControlsKey, true)")
+    expect(panel).toContain("window.removeEventListener('keydown', onPhoneControlsKey, true)")
+    const handler = panel.slice(panel.indexOf('function onPhoneControlsKey'), panel.indexOf('function onPhoneControlsKey') + 300)
+    expect(handler).toContain("!phoneControlsOpen.value || event.key !== 'Escape'")
+    expect(handler).toContain('phoneControlsOpen.value = false')
+  })
   it('keeps the editor and send control usable during calls', () => {
     const editor = panel.match(/<textarea[\s\S]*?class="composer-box"[\s\S]*?\/>/)?.[0]
     expect(editor).not.toContain(':disabled=')

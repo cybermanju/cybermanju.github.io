@@ -1009,6 +1009,13 @@ const controlsOpen = ref<'tools' | 'fallback' | 'perms'>('perms')
 const composerFocused = ref(false)
 const phoneControlsOpen = ref(false)
 const phoneControlsId = useId()
+// App-wide shortcuts capture Escape at document level; this dialog owns it first.
+function onPhoneControlsKey(event: KeyboardEvent) {
+  if (!phoneControlsOpen.value || event.key !== 'Escape') return
+  event.preventDefault()
+  event.stopPropagation()
+  phoneControlsOpen.value = false
+}
 const copiedKey = ref('')
 const slashOpen = ref(false)
 const caps = computed(() => capabilitySummary(chatConfig.value, viewing.value, wasmMode.value))
@@ -2509,6 +2516,7 @@ watch(jobActive, active => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onPhoneControlsKey, true)
   stopHomeCommand()
   stopVoice?.()
   agentMobileQuery?.removeEventListener?.('change', onAgentMobileChange)
@@ -2540,6 +2548,7 @@ const FALLBACK_PRESETS: ProviderPreset[] = [
 ]
 
 onMounted(async () => {
+  window.addEventListener('keydown', onPhoneControlsKey, true)
   agentMobileQuery?.addEventListener?.('change', onAgentMobileChange)
   agentMobileViewport.value = agentMobileQuery?.matches ?? false
   if (wasmMode.value) {
