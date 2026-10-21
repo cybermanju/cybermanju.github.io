@@ -1,30 +1,39 @@
 # VozPonte — conversar com o CyberManju OS
 
-O painel Assistant oferece **Start voice call** quando o navegador disponibiliza reconhecimento e síntese de fala. Escolha um assistente já configurado, termine qualquer tarefa ou rascunho e inicie a chamada. A fala final reconhecida é enviada como uma mensagem normal ao assistente selecionado; a resposta final é reproduzida em voz alta. O histórico mantém o texto completo, incluindo código que não é narrado.
+O painel Assistant oferece **Start voice call**. No aplicativo Android, a chamada usa `SpeechRecognizer` e `TextToSpeech` nativos, sem depender da API de fala do WebView. No desktop/web, continua usando a API de fala do navegador quando disponível. Escolha um assistente já configurado, termine qualquer tarefa ou rascunho e inicie a chamada. A fala reconhecida segue o envio normal do chat; a resposta final é narrada, sem alterar o histórico completo.
 
-## Controles
+## Controles da chamada
 
-- **Mute / Unmute** pausa ou retoma o microfone. Uma resposta em andamento ainda pode ser reproduzida.
-- **Interrupt & speak** interrompe a reprodução e inicia o próximo turno. Não há captura simultânea à voz sintetizada, para evitar eco e comandos involuntários.
-- **End call** encerra reconhecimento/reprodução e descarta callbacks atrasados. Uma tarefa já enviada continua no agente; use **Stop** no chat para cancelá-la.
-- Ocultar a página, desmontar o painel, trocar de assistente, aba ou conversa encerra o áudio. Não há escuta permanente, palavra de ativação ou garantia de funcionamento em segundo plano.
+**Mute / Unmute** pausa ou retoma o microfone. **Interrupt & speak** interrompe a reprodução e abre o próximo turno. **End call** encerra o áudio e descarta callbacks atrasados. Uma tarefa já enviada continua no agente; use **Stop** no chat para cancelá-la.
 
-O reconhecimento segue o idioma do ditado existente (PT-BR, EN-US ou detecção automática). Se a API não existir no navegador/WebView, a interface informa a limitação e o chat por texto permanece disponível. Permissão negada, falha de rede/voz e silêncio repetido encerram a captura em vez de repetir indefinidamente.
+Não há captura simultânea ao TTS. Ocultar a página, pausar/destruir a Activity Android, desmontar o painel ou trocar de assistente/conversa encerra o áudio. Não há palavra de ativação, gravação permanente, serviço de microfone em segundo plano ou retomada automática depois de falhas. O idioma acompanha o ditado existente (PT-BR/EN-US).
 
-## Privacidade e permissões
+No Android, conceda o microfone nas configurações do app e mantenha um provedor de reconhecimento e vozes TTS instalados. O botão **Microphone settings** abre os detalhes do aplicativo; **Refresh permission status** atualiza os acessos. A disponibilidade do provedor de fala não significa que a permissão de microfone já foi concedida. O provedor Android pode processar áudio pela rede; não há promessa de funcionamento offline.
 
-Iniciar a chamada autoriza o envio dos turnos falados ao assistente configurado. O provedor de reconhecimento do navegador pode processar áudio na rede; a síntese depende das vozes instaladas. Use fones para não expor respostas. O modo de voz não altera YOLO, permissões de ferramentas, perguntas ou aprovações: solicitações pendentes continuam no chat para revisão manual.
+## Notificações no app Android
 
-A integração não cria uma ponte automática de notificações para o modelo. O [VozPonte Android](https://github.com/cybermanju/vozponte) continua responsável por receber notificações dos apps escolhidos, TTS nativo, resposta direta por `RemoteInput` e preenchimento assistido. Esses recursos dependem das permissões concedidas pelo usuário e das ações/campos realmente expostos pelo app. Respostas a outros apps exigem confirmação; não há promessa de ler/escrever qualquer interface Android.
+A seção **Android app notifications** permite escolher apps instalados ou informar seus nomes de pacote. A seleção começa vazia; pressione **Save app selection** para aplicá-la. Conceda acesso ao serviço VozPonte em **Notification access settings**. Esse acesso é separado da permissão para o CyberManju publicar suas próprias notificações.
 
-## Conectar o Android
+**Refresh notifications** lê apenas as notificações dos apps selecionados. A nova ponte mantém até 100 entradas em memória; não grava seus corpos em disco e não as encaminha automaticamente ao assistente, ao histórico do chat ou à chamada de voz. A seleção de pacotes fica em preferências locais. O hub de mensagens legado e suas permissões continuam separados: esta opção não migra nem apaga o histórico daquele hub.
 
-A implementação complementar está no repositório VozPonte. Ela usa o dashboard REST autenticado do CyberManju OS, não a página estática do GitHub Pages. Informe o endpoint do dashboard, token de sessão do dashboard (não uma chave do provedor de IA) e ID da configuração do assistente. Use HTTPS fora de loopback; não publique credenciais no repositório.
+Quando o app de origem disponibiliza uma ação de resposta `RemoteInput`, aparece **Review reply on Android**. O diálogo nativo mostra app, destinatário exposto na notificação e texto. Somente **Confirm** tenta enviar; **Cancel** não envia. A ação precisa continuar válida e o pacote permanecer autorizado. Não há garantia de resposta a notificações que não exponham esse recurso.
 
-O contrato existente é `POST /api/agent/prompt` com `configId`, `prompt` e opcional `sessionId`; a resposta fornece `jobId`. Consulte `GET /api/agent/jobs/{jobId}` e o transcript da sessão para a resposta concluída. Aprovações não podem ser presumidas nem resolvidas automaticamente pela ponte.
+## Preenchimento assistido
+
+Ative o serviço VozPonte em **Accessibility settings** somente se quiser esse recurso. Escolha um app autorizado, informe o texto e pressione **Review fill on Android**. Após a confirmação nativa, abra/foque o campo desejado no app de destino em até 30 segundos. O serviço só tenta preencher uma vez um campo focado, editável e não protegido por senha, pertencente exatamente ao pacote escolhido.
+
+O preenchimento **não clica em Enviar**, não faz gestos nem extrai uma árvore de conteúdo para o assistente. Campos protegidos, interfaces que não expõem edição e falta de foco podem impedir a operação. Cancelar a confirmação não arma o preenchimento. Remover o app da seleção revoga o acesso da ponte; desative os serviços nas configurações Android para revogar os acessos do sistema.
+
+## Limites e arquitetura
+
+A nova entrada `android_voice_command` é IPC local do Tauri/JNI. Não há rota REST nem ferramenta do agente para notificações, respostas ou acessibilidade. Os comandos aceitos e o tamanho do payload são limitados; eventos de áudio têm IDs por turno, fila limitada e descarte de callbacks antigos. O fluxo existente de permissões, YOLO, perguntas e aprovações do agente não muda.
+
+Os fontes mantidos ficam em `native/android/`. `scripts/android-voice-services.py`, executado pelo `android-configure.sh`, instala os arquivos Kotlin, serviços do manifest, consultas aos provedores de fala e o XML de acessibilidade no projeto Android gerado. Não edite `src-tauri/gen/android` manualmente para persistir alterações.
+
+O [VozPonte standalone](https://github.com/cybermanju/vozponte) continua disponível como aplicativo complementar. Ele se conecta ao dashboard REST autenticado; a integração nativa acima fica no CyberManju, antes de qualquer integração futura com Sys. Não há mudanças nesta etapa no OS, no cybsh/Termux ou na CLI.
 
 ## Verificação
 
-`tests/frontend/voice-call.test.ts` verifica transições, proteção contra duplicatas/eco, mudo, cancelamento, callbacks antigos, interrupção e falhas com portas determinísticas. TypeScript verifica a integração Vue. Esses testes não certificam áudio audível, reconhecimento em dispositivo real, Bluetooth, permissões de WebView ou política de bateria do Android.
+Os testes de `voice-call.test.ts` verificam o controlador de turnos. `android-voice.test.ts` cobre fala nativa com portas determinísticas, ordem do IPC, permissão negada, silêncio e callbacks atrasados. `android-voice-services.test.ts` verifica instalação idempotente e contratos de segurança dos fontes; `android-voice-settings.test.ts` verifica os controles da interface. Testes de contrato não substituem execução Android.
 
-Antes de considerar pronto para uso diário, testar em celular e desktop reais: PT/EN, permissão negada, silêncio, troca de conversa, ocultar a página, fones, interrupção, falha de rede e uma ferramenta que solicite aprovação. No Android, testar também notificações/respostas reais dos apps escolhidos, sempre confirmando destinatário e conteúdo.
+Antes de considerar pronto para uso diário, validar o APK e os serviços em um celular real: PT/EN, microfone negado, ausência de provedor de fala, TTS sem voz instalada, silêncio, interrupção, tela bloqueada, retomada do app, fones/Bluetooth, troca de conversa e falha de rede. Testar notificações reais, revogação de seleção/acessos, atualização/remoção durante uma confirmação, cancelar/confirmar resposta e preenchimento em campo protegido ou de outro app. A compilação isolada do Kotlin não certifica o empacotamento APK/JNI nem esses comportamentos em hardware.

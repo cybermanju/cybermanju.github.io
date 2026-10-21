@@ -538,6 +538,7 @@
             <p v-if="!voiceCall.supported" class="agent-note">Voice calls are unavailable in this browser/WebView. Use text, or connect the Android VozPonte app to your dashboard.</p>
             <p v-if="voiceCall.error.value" role="alert" class="w-msg">{{ voiceCall.error.value }}</p>
           </section>
+          <AndroidVoiceSettings />
           <!-- Onboarding when there is nothing to show yet -->
           <div v-if="!viewing" class="agent-welcome">
             <span class="agent-welcome-avatar"><AppIcon name="solar:bot-bold" :size="22" /></span>
@@ -795,6 +796,7 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
+import AndroidVoiceSettings from '@/components/AndroidVoiceSettings.vue'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'

@@ -669,4 +669,8 @@ echo "fileprovider paths ok: $PROVIDER_XML"
 # release artifacts are arm64-v8a-only. x86_64 exists for the emulator smoke
 # test only (scripts/android-smoke.sh). Tracked debt: docs/ANDROID.md §ABI.
 echo "ABI policy: release=arm64-v8a only (ort-sys), emulator=x86_64 smoke only"
+# VozPonte services are maintained separately from generated Tauri sources.
+# Always run: old marker-stamped manifests must receive newly added services.
+python3 scripts/android-voice-services.py "$ANDROID_DIR"
+
 echo "android configure complete"

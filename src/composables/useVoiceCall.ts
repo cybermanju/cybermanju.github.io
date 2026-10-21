@@ -5,6 +5,7 @@
 // Contracts: permission errors stop; hiding/unmounting ends capture; no background listening.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { VoiceCallController, type VoiceCallState } from '@/utils/voiceCall'
+import { AndroidVoiceAudio, isNativeAndroid } from '@/utils/androidVoice'
 
 interface RecognitionResult {
   isFinal: boolean
@@ -31,13 +32,15 @@ export function useVoiceCall(send: (text: string, signal: AbortSignal) => Promis
   const muted = ref(false)
   const speechWindow = typeof window === 'undefined' ? undefined : window as SpeechWindow
   const RecognitionClass = speechWindow?.SpeechRecognition ?? speechWindow?.webkitSpeechRecognition
-  const supported = !!RecognitionClass && !!speechWindow?.speechSynthesis
+  const nativeAudio = isNativeAndroid() ? new AndroidVoiceAudio() : null
+  const supported = !!nativeAudio || (!!RecognitionClass && !!speechWindow?.speechSynthesis)
   let recognition: Recognition | null = null
   let utterance: SpeechSynthesisUtterance | null = null
   let restart: ReturnType<typeof setTimeout> | undefined
   let listenEpoch = 0
   let emptyEnds = 0
   function stopListening() {
+    nativeAudio?.stopListening()
     listenEpoch++
     clearTimeout(restart)
     const old = recognition
@@ -48,6 +51,7 @@ export function useVoiceCall(send: (text: string, signal: AbortSignal) => Promis
     }
   }
   function stopSpeaking() {
+    nativeAudio?.stopSpeaking()
     if (utterance) { utterance.onend = utterance.onerror = null; utterance = null }
     speechWindow?.speechSynthesis?.cancel()
   }
@@ -57,6 +61,7 @@ export function useVoiceCall(send: (text: string, signal: AbortSignal) => Promis
     stopSpeaking,
     send,
     listen(final, failed) {
+      if (nativeAudio) { nativeAudio.listen(lang(), final, failed); return }
       if (!RecognitionClass) throw new Error('Speech recognition is unavailable in this browser/WebView. Use text or the Android VozPonte app.')
       stopListening()
       const epoch = listenEpoch
@@ -94,6 +99,7 @@ export function useVoiceCall(send: (text: string, signal: AbortSignal) => Promis
     },
     speak(text, done, failed) {
       stopSpeaking()
+      if (nativeAudio) { nativeAudio.speak(text, lang(), done, failed); return }
       utterance = new SpeechSynthesisUtterance(text)
       utterance.lang = lang()
       utterance.onend = done
