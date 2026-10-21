@@ -72,7 +72,7 @@ func renderRootHelp(c *cobra.Command, _ []string) {
 			if !ok {
 				continue
 			}
-			rows = append(rows, []string{sub.Name(), sub.Short})
+			rows = append(rows, []string{sub.Name(), commandHelpSummary(sub)})
 			shown[name] = true
 		}
 		if len(rows) == 0 {
@@ -88,7 +88,7 @@ func renderRootHelp(c *cobra.Command, _ []string) {
 	var rest [][]string
 	for name, sub := range byName {
 		if !shown[name] && name != "help" && name != "completion" {
-			rest = append(rest, []string{name, sub.Short})
+			rest = append(rest, []string{name, commandHelpSummary(sub)})
 		}
 	}
 	sort.Slice(rest, func(i, j int) bool { return rest[i][0] < rest[j][0] })
@@ -132,13 +132,22 @@ func renderCmdHelp(c *cobra.Command) {
 		}
 		for _, sub := range c.Commands() {
 			if !sub.Hidden && sub.Deprecated == "" {
-				fmt.Print(formatHelpRow(ui.Downsample(ui.Accent.Render(sub.Name())), ui.Downsample(ui.Dim.Render(sub.Short)), nameWidth, w))
+				fmt.Print(formatHelpRow(ui.Downsample(ui.Accent.Render(sub.Name())), ui.Downsample(ui.Dim.Render(commandHelpSummary(sub))), nameWidth, w))
 			}
 		}
 		fmt.Println()
 	}
 	printFlagSet("flags", c.LocalFlags())
 	printFlagSet("global flags", c.InheritedFlags())
+}
+
+// commandHelpSummary makes aliases discoverable from the parent command list,
+// while retaining canonical names for the atlas grouping and column alignment.
+func commandHelpSummary(c *cobra.Command) string {
+	if len(c.Aliases) == 0 {
+		return c.Short
+	}
+	return c.Short + " (aliases: " + strings.Join(c.Aliases, ", ") + ")"
 }
 
 // flagNameUsage renders one flag as --name/-s plus usage with its
