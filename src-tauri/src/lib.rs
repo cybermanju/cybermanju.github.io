@@ -8,6 +8,7 @@ pub mod db;
 pub mod faces; // ML module: detect_faces_in_file, embedding_distance, cluster_embeddings
 pub mod preview;
 pub mod search;
+mod startup_storage;
 pub mod sync;
 pub mod tree_sitter; // parse_file, get_symbols (tauri commands)
 pub mod web_dashboard;
@@ -20,7 +21,6 @@ use commands::{
 };
 use db::Database;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{ipc::Invoke, Manager, Runtime};
 
 /// Shared desktop state: one redb handle + one Tantivy index for IPC and REST.
@@ -167,43 +167,11 @@ fn resolve_desktop_index_path(db_path: &std::path::Path) -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from("tantivy_index"))
 }
 
-/// Open the redb database, quarantining a corrupt file instead of bricking.
-///
-/// A half-written redb file (killed mid-commit, disk full, bad restore)
-/// fails to open on EVERY launch. The old code turned that into `fatal()`
-/// (panic on mobile) before the window ever showed — the permanent
-/// "installs but instantly closes" brick. Now the corrupt file is renamed
-/// to `cybermanju.corrupt-<unix_ts>.bak` beside the DB and a fresh vault
-/// is created; the backup stays on disk for manual recovery.
+/// Open redb, quarantining only confirmed corruption, never a live/stale lock.
 fn open_database(db_path: &std::path::Path) -> Database {
-    let db_path_str = db_path.to_string_lossy();
-    match Database::new(&db_path_str) {
-        Ok(d) => d,
-        Err(first) => {
-            tracing::error!(
-                "database open failed at {}: {first} — quarantining the file and recreating",
-                db_path.display()
-            );
-            let stamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            let backup = db_path.with_file_name(format!("cybermanju.corrupt-{stamp}.bak"));
-            if let Err(e) = std::fs::rename(db_path, &backup) {
-                fatal(&format!(
-                    "Failed to initialize redb database at {} ({first}); quarantine of the corrupt file also failed: {e}",
-                    db_path.display()
-                ));
-            }
-            tracing::warn!("moved corrupt database to {}", backup.display());
-            match Database::new(&db_path_str) {
-                Ok(d) => d,
-                Err(second) => fatal(&format!(
-                    "Failed to initialize redb database at {} even after quarantining the corrupt file: {second}",
-                    db_path.display()
-                )),
-            }
-        }
+    match startup_storage::open_database(db_path) {
+        Ok(database) => database,
+        Err(error) => fatal(&format!("{error:#}")),
     }
 }
 

@@ -146,10 +146,18 @@ intents still work. Generation/unit tests are not a substitute for this check.
   The frontend never imported `@tauri-apps/plugin-log`; Rust logs reach
   logcat via stderr/tracing.
 * Storage is self-healing, not bricking: a torn `cybermanju.db` is renamed
-  to `cybermanju.corrupt-<unix_ts>.bak` beside the DB and recreated fresh;
+  to `cybermanju.corrupt-<recovery-id>.bak` beside the DB and recreated fresh;
   a torn `tantivy_index/` is wiped and recreated (fully rebuildable from
   the DB via `rebuild_search_index`). Either event is loud in logcat
   (`quarantining` / `wiping and recreating`).
+  Database quarantine requires a typed redb corruption error: an opener
+  conflict, incompatible format or I/O failure preserves the vault in place.
+* Background process death: Android and Linux both check `/proc/<pid>` to
+  recover a lock left by a killed opener. Android is a separate Rust
+  `target_os`, not `linux`; omitting it previously made the stale lock block
+  every later launch until app data was cleared. Only confirmed `NotFound`
+  permits recovery; a live owner or denied/uncertain metadata stays locked.
+  No app cache, preferences or vault data is cleared to reopen a dead opener.
 * The app-private files dir is **probed, not hardcoded**: `DB_PATH` /
   `CYBERMANJU_ANDROID_FILES_DIR` win when set, otherwise every candidate
   (`/data/data/…` symlink, each `/data/user/<id>/…` real dir) is proven
@@ -213,6 +221,13 @@ intents still work. Generation/unit tests are not a substitute for this check.
      password when unset)
 3. Manual: `adb install CyberManju-OS-<ver>-arm64-v8a.apk` or
    `bash scripts/android-smoke.sh <apk>`.
+   The smoke additionally returns from Settings via LAUNCHER and repeats
+   background force-stop/reopen three times without clearing data. Force-stop
+   exercises process death without destructors, not actual low-memory pressure.
+   Rust CI separately kills a real database-owning child process three times,
+   then checks committed sentinel rows survive reopening the same vault;
+   startup tests reject quarantine on live/uncertain locks. These host tests
+   and frontend source contracts do not claim physical-device coverage.
 
 ## 9. Troubleshooting an instant close (installs, never shows a window)
 
@@ -234,7 +249,7 @@ What to look for:
 | Symptom in logcat | Meaning | Fix |
 |---|---|---|
 | `CyberManju OS FATAL (panic): …` | Rust panic before first paint; the message names the cause. Always capture with `grep -A 10` — without context lines you only see the `lib.rs:43` breadcrumb | Read the message — DB/index lines below cover the common ones |
-| `…quarantining the file…` / `moved corrupt database to …` | Torn `cybermanju.db` was quarantined to `cybermanju.corrupt-<ts>.bak` and recreated — app should now open (vault content needs re-import/restore) | Re-import or restore from backup; the `.bak` stays beside the DB for forensics |
+| `…confirmed database corruption…quarantining to…` | Torn `cybermanju.db` was quarantined to `cybermanju.corrupt-<recovery-id>.bak` and recreated — app should now open (vault content needs re-import/restore) | Re-import or restore from backup; the `.bak` stays beside the DB for forensics |
 | `…wiping and recreating…` | Torn search index was rebuilt — app opens, search repopulates on next index / `rebuild_search_index` | Nothing (or run Rebuild index from Settings) |
 | `Android files-dir candidate not writable` × N | Scoped-storage path problem (work profile, broken symlink) | Set `DB_PATH`/`CYBERMANJU_ANDROID_FILES_DIR` or reinstall from the same user profile |
 | `FATAL EXCEPTION … UnsatisfiedLinkError` | ABI mismatch (x86/arm APK on the wrong device) | Install the `arm64-v8a` artifact on an arm64 phone |

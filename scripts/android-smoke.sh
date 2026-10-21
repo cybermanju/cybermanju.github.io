@@ -14,6 +14,8 @@
 #   4. Greps a freshly-cleared logcat window for crash markers.
 #   5. Asserts rendered WebView content, then cold-starts via MAIN/HOME and
 #      returns HOME from Settings. Does not change the device's default launcher.
+#   6. Returns through LAUNCHER, then kills the background process and returns
+#      again, repeatedly, without pm clear/uninstall or any cache/data reset.
 #
 # Graceful skip (exit 0) when: no device/emulator attached, wrong ABI,
 # missing platform-tools. A real install/launch/render failure is blocking;
@@ -131,8 +133,20 @@ assert_rendered "cold HOME launch"
 adb shell am start -W -a android.settings.SETTINGS || fail "cannot open Settings for HOME-return test"
 adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.HOME -p "$PKG" || fail "return HOME intent failed"
 assert_rendered "HOME return from Settings"
+for cycle in 1 2 3; do
+  adb shell am start -W -a android.settings.SETTINGS || fail "cannot background app ($cycle)"
+  adb shell am start -W -n "$ACTIVITY" -a android.intent.action.MAIN -c android.intent.category.LAUNCHER || fail "ordinary LAUNCHER return failed ($cycle)"
+  assert_rendered "ordinary return from Settings ($cycle)"
+  adb shell am start -W -a android.settings.SETTINGS || fail "cannot background app before process death ($cycle)"
+  # force-stop is deterministic on non-rooted release devices; like LMK it
+  # skips native destructors and leaves the opener lock, but preserves data.
+  adb shell am force-stop "$PKG" || fail "cannot kill background app ($cycle)"
+  [ -z "$(app_pid)" ] || fail "background app did not stop ($cycle)"
+  adb shell am start -W -n "$ACTIVITY" -a android.intent.action.MAIN -c android.intent.category.LAUNCHER || fail "restart after background process death failed ($cycle)"
+  assert_rendered "return after background process death, no reset ($cycle)"
+done
 if [ -z "$(app_pid)" ]; then
   dump_markers
   fail "process died during HOME smoke tests"
 fi
-echo "android smoke: PASS — installed + rendered normal launch, cold HOME and warm HOME return ($APK on $abi)"
+echo "android smoke: PASS — rendered launch, HOME/LAUNCHER returns and 3 background process deaths without reset ($APK on $abi)"

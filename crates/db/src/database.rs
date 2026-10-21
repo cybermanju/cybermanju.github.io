@@ -203,23 +203,28 @@ impl Drop for OpenerLock {
 
 /// `true` when the PID recorded in `lock_path` is (or may be) still running.
 /// Own PID always counts as live (same-process double-open is the same
-/// split-brain). On Linux a missing `/proc/<pid>` proves death; platforms
-/// without `/proc` fail closed (live) with the documented `rm` recovery.
+/// split-brain). Linux AND Android expose `/proc`; Android is a separate
+/// Rust target_os, so excluding it permanently bricks a vault after an LMK
+/// kill leaves the lock behind. Only NotFound proves death: denied/unknown
+/// metadata must fail closed, as must platforms without `/proc`.
 fn pid_live(lock_path: &std::path::Path) -> bool {
     let content = std::fs::read_to_string(lock_path).unwrap_or_default();
     let pid: u32 = match content.trim().parse() {
-        Ok(pid) => pid,
+        Ok(pid) if pid > 0 => pid,
         // Foreign content: never guess — fail closed.
-        Err(_) => return true,
+        _ => return true,
     };
     if pid == std::process::id() {
         return true;
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     {
-        std::path::Path::new(&format!("/proc/{pid}")).exists()
+        match std::fs::metadata(format!("/proc/{pid}")) {
+            Ok(_) => true,
+            Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+        }
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
         let _ = pid;
         true
@@ -2042,5 +2047,111 @@ mod registry_oplog_tests {
         assert!(page.iter().all(|op| op.device_id == "owner-a"));
         drop(db);
         let _ = std::fs::remove_file(path);
+    }
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "android")))]
+mod process_death_tests {
+    use super::*;
+    use std::process::{Child, Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    struct ProcessFixture {
+        dir: std::path::PathBuf,
+        child: Option<Child>,
+    }
+
+    impl Drop for ProcessFixture {
+        fn drop(&mut self) {
+            if let Some(child) = self.child.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    // Invoked as a separate test process so kill() bypasses Database::drop,
+    // exactly like Android LMK/SIGKILL. A normal test run does nothing here.
+    #[test]
+    fn crash_fixture() {
+        let Some(dir) = std::env::var_os("CYBERMANJU_DB_CRASH_FIXTURE") else {
+            return;
+        };
+        let dir = std::path::PathBuf::from(dir);
+        let database = Database::new(dir.join("cybermanju.db").to_str().unwrap()).unwrap();
+        assert_eq!(
+            database.kv_get("resume:sentinel").unwrap().as_deref(),
+            Some("survives background death")
+        );
+        database.kv_set("resume:committed", "before kill").unwrap();
+        std::fs::write(dir.join("ready"), b"committed").unwrap();
+        loop {
+            std::thread::sleep(Duration::from_secs(60));
+        }
+    }
+
+    #[test]
+    fn repeated_background_process_death_reopens_without_reset() {
+        let dir = std::env::temp_dir().join(format!("cybermanju-lmk-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let mut fixture = ProcessFixture { dir, child: None };
+        let path = fixture.dir.join("cybermanju.db");
+        let path_str = path.to_str().unwrap();
+        let original = Database::new(path_str).unwrap();
+        original
+            .kv_set("resume:sentinel", "survives background death")
+            .unwrap();
+        drop(original);
+        for _ in 0..3 {
+            let ready = fixture.dir.join("ready");
+            let _ = std::fs::remove_file(&ready);
+            fixture.child = Some(
+                Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", "database::process_death_tests::crash_fixture"])
+                    .env("CYBERMANJU_DB_CRASH_FIXTURE", &fixture.dir)
+                    .stdout(Stdio::null())
+                    .spawn()
+                    .unwrap(),
+            );
+            let deadline = Instant::now() + Duration::from_secs(15);
+            while !ready.exists() && Instant::now() < deadline {
+                assert!(fixture.child.as_mut().unwrap().try_wait().unwrap().is_none());
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert!(ready.exists(), "child must commit before simulated LMK");
+            let child = fixture.child.as_mut().unwrap();
+            child.kill().unwrap();
+            child.wait().unwrap();
+            fixture.child = None;
+            assert!(std::path::Path::new(&format!("{path_str}.lock")).exists());
+            let resumed = Database::new(path_str).expect("dead Android/Linux opener must recover");
+            assert_eq!(
+                resumed.kv_get("resume:sentinel").unwrap().as_deref(),
+                Some("survives background death")
+            );
+            assert_eq!(
+                resumed.kv_get("resume:committed").unwrap().as_deref(),
+                Some("before kill")
+            );
+            drop(resumed);
+        }
+    }
+
+    #[test]
+    fn own_pid_and_uncertain_lock_contents_remain_locked() {
+        let dir = std::env::temp_dir().join(format!("cybermanju-lock-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let fixture = ProcessFixture { dir, child: None };
+        let lock = fixture.dir.join("cybermanju.db.lock");
+        for contents in [
+            String::new(),
+            "invalid".into(),
+            "0".into(),
+            std::process::id().to_string(),
+        ] {
+            std::fs::write(&lock, contents).unwrap();
+            assert!(pid_live(&lock), "uncertain or live owners must fail closed");
+        }
     }
 }
