@@ -32,10 +32,29 @@ interface AudioEvent {
 export type AndroidVoiceCommand = <T>(action: string, payload?: Record<string, unknown>) => Promise<T>
 export function isNativeAndroid(): boolean { return isTauri() && isAndroidApp() }
 let commandQueue: Promise<unknown> = Promise.resolve()
+const IPC_TIMEOUT_MS = 10_000
+async function invokeBounded<T>(action: string, payload: Record<string, unknown>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      invoke<T>('android_voice_command', { action, payload }),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('conflict: Android voice bridge timed out. Check the app before retrying.')), IPC_TIMEOUT_MS)
+      }),
+    ])
+  } finally { clearTimeout(timer) }
+}
 /** Direct core IPC deliberately avoids transport fallback and credentials in REST. */
 export function androidVoiceCommand<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
   if (!isNativeAndroid()) return Promise.reject(new Error('unsupported: Android native services require the Android app'))
-  const run = commandQueue.then(() => invoke<T>('android_voice_command', { action, payload }))
+  const audio = action === 'listen' || action === 'speak'
+  const expiresAt = Date.now() + IPC_TIMEOUT_MS
+  const run = commandQueue.then(() => {
+    if (audio && Date.now() >= expiresAt) throw new Error('conflict: audio request expired; start again')
+    // Native verifies the same deadline before capture/playback, so a delayed
+    // IPC delivery cannot start an expired audio request.
+    return invokeBounded<T>(action, audio ? { ...payload, expiresAt } : payload)
+  })
   commandQueue = run.catch(() => undefined)
   return run
 }
@@ -53,8 +72,19 @@ interface PendingAudio {
 export class AndroidVoiceAudio {
   private pending: PendingAudio | null = null
   private timer: ReturnType<typeof setTimeout> | undefined
+  private watchdog: ReturnType<typeof setTimeout> | undefined
   constructor(private readonly command: AndroidVoiceCommand = androidVoiceCommand) {}
-  private clear(): void { clearTimeout(this.timer); this.timer = undefined; this.pending = null }
+  private clear(): void {
+    clearTimeout(this.timer); clearTimeout(this.watchdog)
+    this.timer = this.watchdog = undefined
+    this.pending = null
+  }
+  private begin(pending: PendingAudio): void {
+    this.pending = pending
+    // Independent of listen/speak/poll promises: even a dead IPC channel must
+    // leave the visible session in an actionable error rather than hanging.
+    this.watchdog = setTimeout(() => this.fail(pending, 'Android speech timed out. Check the speech provider, then start again.'), Math.max(0, pending.deadline - Date.now()))
+  }
   private fail(pending: PendingAudio, cause: unknown): void {
     if (this.pending !== pending) return
     this.clear()
@@ -95,14 +125,14 @@ export class AndroidVoiceAudio {
   listen(lang: string, final: (text: string) => void, failed: (message: string) => void): void {
     this.clear()
     const pending: PendingAudio = { id: `voice-${audioSessionId}-${++nextId}`, kind: 'listen', deadline: Date.now() + 60_000, final, failed }
-    this.pending = pending
+    this.begin(pending)
     void this.command('listen', { id: pending.id, lang: lang || 'pt-BR' })
       .then(() => this.schedule(pending)).catch(cause => this.fail(pending, cause))
   }
   speak(text: string, lang: string, done: () => void, failed: (message: string) => void): void {
     this.clear()
     const pending: PendingAudio = { id: `voice-${audioSessionId}-${++nextId}`, kind: 'speak', deadline: Date.now() + 10 * 60_000, done, failed }
-    this.pending = pending
+    this.begin(pending)
     void this.command('speak', { id: pending.id, text, lang: lang || 'pt-BR' })
       .then(() => this.schedule(pending)).catch(cause => this.fail(pending, cause))
   }

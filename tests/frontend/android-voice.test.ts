@@ -114,6 +114,42 @@ describe('Android voice audio adapter', () => {
     expect(actions.indexOf('stopSpeaking')).toBeLessThan(actions.indexOf('listen'))
     audio.stopListening()
   })
+  it.each(['listen', 'speak'] as const)('bounds a %s request even when its command never resolves', async kind => {
+    const commands: string[] = []
+    let finish: ((value: unknown) => void) | undefined
+    const command: AndroidVoiceCommand = <T>(action: string) => {
+      commands.push(action)
+      return (action === kind ? new Promise(resolve => { finish = resolve }) : Promise.resolve({ ok: true })) as Promise<T>
+    }
+    const audio = new AndroidVoiceAudio(command)
+    const result = vi.fn(); const failed = vi.fn()
+    if (kind === 'listen') audio.listen('pt-BR', result, failed)
+    else audio.speak('Resposta', 'pt-BR', result, failed)
+    await vi.advanceTimersByTimeAsync(kind === 'listen' ? 60_001 : 600_001)
+    expect(failed).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('timed out'))
+    expect(commands.at(-1)).toBe(kind === 'listen' ? 'stopListening' : 'stopSpeaking')
+    finish!({ ok: true })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(commands).not.toContain('poll')
+    expect(result).not.toHaveBeenCalled()
+    expect(failed).toHaveBeenCalledTimes(1)
+  })
+  it('times out an in-flight poll and rejects its eventual late final', async () => {
+    let finish: ((value: unknown) => void) | undefined
+    let id = ''
+    const command: AndroidVoiceCommand = <T>(action: string, payload?: Record<string, unknown>) => {
+      if (action === 'listen') id = payload!.id as string
+      return (action === 'poll' ? new Promise(resolve => { finish = resolve }) : Promise.resolve({ ok: true })) as Promise<T>
+    }
+    const audio = new AndroidVoiceAudio(command); const final = vi.fn(); const failed = vi.fn()
+    audio.listen('pt-BR', final, failed)
+    await vi.advanceTimersByTimeAsync(61_000)
+    expect(failed).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('timed out'))
+    finish!({ events: [{ id, type: 'final', text: 'late' }] })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(final).not.toHaveBeenCalled()
+    expect(failed).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('Android voice IPC boundary', () => {
@@ -132,5 +168,33 @@ describe('Android voice IPC boundary', () => {
     await Promise.all([stop, listen])
     expect(runtime.invoke.mock.calls.map(c => c[1].action)).toEqual(['stop', 'listen'])
     expect(runtime.invoke.mock.calls.every(c => c[0] === 'android_voice_command')).toBe(true)
+  })
+  it('recovers the command queue after a hung invoke so cleanup can still run', async () => {
+    runtime.invoke.mockImplementationOnce(() => new Promise(() => {})).mockResolvedValueOnce({ ok: true })
+    const listen = androidVoiceCommand('listen', { id: 'hung', lang: 'pt-BR' })
+    const rejected = expect(listen).rejects.toThrow('bridge timed out')
+    const cleanup = listen.catch(() => androidVoiceCommand('stop'))
+    await vi.advanceTimersByTimeAsync(10_001)
+    await rejected; await cleanup
+    expect(runtime.invoke.mock.calls.map(c => c[1].action)).toEqual(['listen', 'stop'])
+  })
+  it('refuses a queued audio command that expired before dispatch', async () => {
+    runtime.invoke.mockImplementationOnce(() => new Promise(() => {})).mockResolvedValue({ ok: true })
+    const busy = expect(androidVoiceCommand('status')).rejects.toThrow('bridge timed out')
+    const stale = expect(androidVoiceCommand('listen', { id: 'stale' })).rejects.toThrow('audio request expired')
+    await vi.advanceTimersByTimeAsync(10_001)
+    await busy; await stale
+    await androidVoiceCommand('stop')
+    expect(runtime.invoke.mock.calls.map(c => c[1].action)).toEqual(['status', 'stop'])
+  })
+  it('stamps a native-checked expiration on capture and playback only', async () => {
+    runtime.invoke.mockResolvedValue({ ok: true })
+    const expected = Date.now() + 10_000
+    await androidVoiceCommand('listen', { id: 'next', expiresAt: 0 })
+    await androidVoiceCommand('speak', { id: 'answer', text: 'Olá' })
+    await androidVoiceCommand('stop')
+    expect(runtime.invoke.mock.calls[0][1].payload.expiresAt).toBe(expected)
+    expect(runtime.invoke.mock.calls[1][1].payload.expiresAt).toBe(expected)
+    expect(runtime.invoke.mock.calls[2][1].payload).not.toHaveProperty('expiresAt')
   })
 })

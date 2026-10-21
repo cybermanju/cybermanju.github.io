@@ -18,6 +18,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -120,6 +122,11 @@ class CybermanjuVoiceServices {
         private var recognizer: SpeechRecognizer? = null
         private var tts: TextToSpeech? = null
         private var ttsReady = false
+        private var audioFocusManager: AudioManager? = null
+        private var audioFocusRequest: AudioFocusRequest? = null
+        private var legacyFocusListener: AudioManager.OnAudioFocusChangeListener? = null
+        private var focusGeneration = -1
+        private var focusSpeechId: String? = null
         private var activeActivity: Activity? = null
         private var currentListen: String? = null
         private var currentSpeech: String? = null
@@ -187,8 +194,14 @@ class CybermanjuVoiceServices {
                 "accessibilitySettings" -> openSettings(a, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 "microphoneSettings" -> openSettings(a, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                     android.net.Uri.parse("package:${a.packageName}")))
-                "listen" -> { listen(a, audioId(p), p.optString("lang", "pt-BR")); ok() }
-                "speak" -> { speak(a, audioId(p), p.optString("lang", "pt-BR"), exactText(p, 6000)); ok() }
+                "listen" -> {
+                    require(p.optLong("expiresAt", 0L) > System.currentTimeMillis()) { "conflict: audio request expired; start again" }
+                    listen(a, audioId(p), p.optString("lang", "pt-BR")); ok()
+                }
+                "speak" -> {
+                    require(p.optLong("expiresAt", 0L) > System.currentTimeMillis()) { "conflict: audio request expired; start again" }
+                    speak(a, audioId(p), p.optString("lang", "pt-BR"), exactText(p, 6000)); ok()
+                }
                 "stopListening" -> { stopListening(); ok() }
                 "stopSpeaking" -> { stopSpeech(); ok() }
                 "stop" -> { stopAudio(); ok() }
@@ -445,12 +458,18 @@ class CybermanjuVoiceServices {
         }
         private fun say(t: TextToSpeech, id: String, gen: Int, text: String, locale: Locale) {
             try {
-                t.setAudioAttributes(AudioAttributes.Builder()
+                val speechAttributes = AudioAttributes.Builder()
                     .setUsage(if (Build.VERSION.SDK_INT >= 26) AudioAttributes.USAGE_ASSISTANT else AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
+                t.setAudioAttributes(speechAttributes)
                 val language = t.setLanguage(locale)
                 if (language == TextToSpeech.LANG_NOT_SUPPORTED || language == TextToSpeech.LANG_MISSING_DATA) {
                     emit(id, "error", error = "unsupported: install a TTS voice for this language")
+                    stopSpeech()
+                    return
+                }
+                if (!requestSpeechFocus(id, gen, speechAttributes)) {
+                    emit(id, "error", error = "Audio focus denied; speech was not started")
                     stopSpeech()
                     return
                 }
@@ -464,6 +483,7 @@ class CybermanjuVoiceServices {
                         if (s == last && gen == generation && currentSpeech == id) {
                             emit(id, "spoken")
                             currentSpeech = null
+                            abandonSpeechFocus()
                         }
                     } }
                     @Deprecated("Android legacy callback")
@@ -485,10 +505,66 @@ class CybermanjuVoiceServices {
                 stopSpeech()
             }
         }
+        private fun requestSpeechFocus(id: String, gen: Int, attributes: AudioAttributes): Boolean {
+            val context = activeActivity?.applicationContext ?: return false
+            val manager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+            abandonSpeechFocus()
+            val listener = AudioManager.OnAudioFocusChangeListener { change -> main.post {
+                if (gen != generation || currentSpeech != id || focusGeneration != gen || focusSpeechId != id) return@post
+                if (change <= 0) {
+                    emit(id, "error", error = "Audio focus lost; speech stopped and will not resume automatically")
+                    stopSpeech()
+                }
+            } }
+            audioFocusManager = manager
+            focusGeneration = gen
+            focusSpeechId = id
+            val result = if (Build.VERSION.SDK_INT >= 26) {
+                val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                    .setAudioAttributes(attributes)
+                    .setWillPauseWhenDucked(true)
+                    .setAcceptsDelayedFocusGain(false)
+                    .setOnAudioFocusChangeListener(listener, main)
+                    .build()
+                audioFocusRequest = request
+                manager.requestAudioFocus(request)
+            } else {
+                legacyFocusListener = listener
+                @Suppress("DEPRECATION")
+                manager.requestAudioFocus(listener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            }
+            if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                abandonSpeechFocus()
+                return false
+            }
+            return true
+        }
+        private fun abandonSpeechFocus() {
+            val manager = audioFocusManager
+            val request = audioFocusRequest
+            val listener = legacyFocusListener
+            // Clear identity first: even a late callback or failed binder call
+            // must not retain ownership or affect the following speech turn.
+            audioFocusManager = null
+            audioFocusRequest = null
+            legacyFocusListener = null
+            focusGeneration = -1
+            focusSpeechId = null
+            try {
+                if (manager != null) {
+                    if (Build.VERSION.SDK_INT >= 26) request?.let { manager.abandonAudioFocusRequest(it) }
+                    else listener?.let {
+                        @Suppress("DEPRECATION")
+                        manager.abandonAudioFocus(it)
+                    }
+                }
+            } catch (_: Exception) { /* Audio-service failure cannot block local cleanup. */ }
+        }
         private fun stopSpeech() {
             generation++
             currentSpeech = null
             try { tts?.stop() } catch (_: Exception) {}
+            abandonSpeechFocus()
         }
         private fun stopAudio(lifecycleEnd: Boolean = false) {
             if (lifecycleEnd) {
