@@ -22,6 +22,7 @@
 // window). `useTauri.ts` supplies the real deps; nothing here imports a
 // composable, so there are no module cycles.
 
+import { THEME_IDS } from '@/ui/tokens'
 import type { ScheduleRow, ScheduleRun, ShellResult } from '@/types'
 import {
   checkCybshScript,
@@ -1980,13 +1981,7 @@ async function handleEdit(args: string[], deps: StaticCybshDeps): Promise<VerbOu
 let scriptDepth = 0
 
 const STATIC_THEME_FILE = '/.cybermanju/theme.json'
-const STATIC_THEME_IDS = [
-  'os-dark',
-  'os-light',
-  'os-graphite',
-  'plasma-dark',
-  'plasma-light',
-]
+const STATIC_THEME_IDS = THEME_IDS
 const STATIC_THEME_ALIASES: Record<string, string> = {
   // Pre-remake 17-theme ids migrate by mode.
   'mac-light': 'os-light',
@@ -2274,7 +2269,7 @@ async function handleUi(args: string[], json: boolean, deps: StaticCybshDeps): P
     return shellOk(`glow: ${on ? 'on' : 'off'}\nui: glow=${on ? 'on' : 'off'}`)
   }
   return shellErr(
-    'usage: ui theme <os-dark|os-light|os-graphite|plasma-dark|plasma-light>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|2|translucent>|motion <auto|full|reduced>|glow <on|off>|get ' +
+    'usage: ui theme <os-dark|os-light|os-graphite|plasma-dark|plasma-light|modern-glass|flat-amoled>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|2|translucent>|motion <auto|full|reduced>|glow <on|off>|get ' +
       `(got \`${sub}\`)`,
   )
 }

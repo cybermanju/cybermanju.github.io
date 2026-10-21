@@ -1882,6 +1882,8 @@ fn theme_ids() -> &'static [&'static str] {
         "os-graphite",
         "plasma-dark",
         "plasma-light",
+        "modern-glass",
+        "flat-amoled",
     ]
 }
 
@@ -1892,6 +1894,8 @@ fn canonical_theme(id: &str) -> Option<&'static str> {
         "os-graphite" => Some("os-graphite"),
         "plasma-dark" => Some("plasma-dark"),
         "plasma-light" => Some("plasma-light"),
+        "modern-glass" => Some("modern-glass"),
+        "flat-amoled" => Some("flat-amoled"),
         "dark" => Some("os-dark"),
         "light" => Some("os-light"),
         "graphite" => Some("os-graphite"),
@@ -2306,7 +2310,7 @@ fn ui_cmd(args: &[String]) -> String {
             ok(format!("glow: {shown}\nui: glow={shown}"))
         }
         other => err(format!(
-            "usage: ui theme <os-dark|os-light|os-graphite|plasma-dark|plasma-light>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|2|translucent>|motion <auto|full|reduced>|glow <on|off>|get (got `{other}`)"
+            "usage: ui theme <os-dark|os-light|os-graphite|plasma-dark|plasma-light|modern-glass|flat-amoled>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|2|translucent>|motion <auto|full|reduced>|glow <on|off>|get (got `{other}`)"
         )),
     }
 }

@@ -153,8 +153,11 @@ async function handleRevoke(perm: FilePermission) {
 .perms-panel {
   width: 100%;
   height: 100%;
+  box-sizing: border-box;
+  min-width: 0;
   background: var(--ui-surface);
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   padding: 16px;
   font-family: var(--ui-font);
@@ -310,7 +313,7 @@ async function handleRevoke(perm: FilePermission) {
 
 .text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .perms-panel {
     box-sizing: border-box;
     min-height: 100%;
@@ -350,6 +353,7 @@ async function handleRevoke(perm: FilePermission) {
 
   .fi-name { font-size: 14px; line-height: 1.35; }
   .fi-path { font-size: 11px; line-height: 1.4; }
+  .fi-name, .fi-path { overflow-wrap: anywhere; }
 
   .section { margin-bottom: 20px; }
   .section-title { margin-bottom: 10px; font-size: 11px; }

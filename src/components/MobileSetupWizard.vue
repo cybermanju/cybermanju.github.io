@@ -1092,4 +1092,20 @@ onMounted(async () => {
 @media (min-width: 700px) {
   .msw-body { padding-top: 20px; }
 }
+
+
+/* Prevent the smallest phones from squeezing paired fields and navigation. */
+@media (max-width: 420px) {
+  .msw-head { padding-left: 12px; padding-right: 10px; }
+  .msw-body { padding: 14px 12px max(24px, env(safe-area-inset-bottom, 0px)); }
+  .msw-grid2 { grid-template-columns: minmax(0, 1fr); }
+  .msw-logo-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .msw-nav { flex-wrap: wrap; gap: 6px; }
+  .msw-nav .msw-btn { flex: 1 1 calc(50% - 6px); }
+  .msw-nav .msw-link { flex: 1 1 100%; margin-left: 0; }
+  .msw-card-head { flex-wrap: wrap; }
+  .msw-card-head strong { flex-basis: calc(100% - 110px); white-space: normal; overflow-wrap: anywhere; }
+  .msw-provs li { flex-wrap: wrap; min-width: 0; overflow-wrap: anywhere; }
+  .msw-note, .msw-hint { overflow-wrap: anywhere; }
+}
 </style>

@@ -400,4 +400,28 @@ const serverLabel = computed(() => {
   background: var(--ui-hover);
   color: var(--ui-text);
 }
+
+
+@media (max-width: 768px) {
+  .auth-gate {
+    align-items: flex-start;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+  .auth-card { width: min(440px, 100%); box-sizing: border-box; margin: auto; padding: 22px 20px; }
+  .auth-title { font-size: 18px; line-height: 1.3; overflow-wrap: anywhere; }
+  .auth-sub, .auth-foot, .auth-foot code { overflow-wrap: anywhere; }
+  .auth-input { min-height: 48px; font-size: 16px; }
+  .auth-submit { width: 100%; min-height: 48px; font-size: 15px; }
+  .auth-switch { align-items: stretch; flex-direction: column; }
+  .auth-link { min-height: 44px; text-align: left; }
+  .auth-power { position: sticky; left: auto; bottom: auto; align-self: flex-start; }
+  .auth-pow { width: 44px; height: 44px; }
+}
+@media (max-width: 360px) {
+  .auth-card { padding: 18px 14px; }
+  .auth-brand { margin-bottom: 10px; }
+}
 </style>

@@ -123,6 +123,11 @@ function toggle() {
 }
 
 .ui-toggle__label {
-  transition: color var(--ui-dur) var(--ui-ease-out);
+  transition: color var(--ui-dur-fast) var(--ui-ease-out);
+}
+@media (max-width: 768px) {
+  .ui-toggle { min-height: 44px; min-width: 44px; max-width: 100%; font-size: 13px; text-align: left; }
+  .ui-toggle__track { flex-shrink: 0; }
+  .ui-toggle__label { min-width: 0; overflow-wrap: anywhere; }
 }
 </style>

@@ -24,12 +24,16 @@
       </span>
       <div class="agent-title">
         <h2>Assistant</h2>
-        <p class="agent-subtitle">
-          {{ friendlyTransport }}
-          <span v-if="chatConfig" class="agent-subtitle-sep">·</span>
-          <span v-if="chatConfig">{{ chatConfig.name }} · {{ caps.model }}</span>
-        </p>
+        <p class="agent-subtitle" :title="friendlyTransport">{{ chatConfig?.model || 'Connect a model' }}</p>
       </div>
+      <button
+        class="agent-nav-toggle agent-settings-shortcut"
+        type="button"
+        title="Assistant settings"
+        aria-label="Assistant settings"
+        :aria-pressed="activeTab === 'setup'"
+        @click="openSetup"
+      ><AppIcon name="solar:settings-bold" :size="20" /></button>
       <div class="agent-header-meta">
         <UiButton
           size="sm"
@@ -59,7 +63,7 @@
             :class="{ on: activeTab === 'setup' }"
             @click="openSetup"
           >
-            <AppIcon name="solar:settings-bold" :size="13" /> Setup
+            <AppIcon name="solar:settings-bold" :size="13" /> Settings
           </button>
           <button
             role="tab"
@@ -86,7 +90,7 @@
       <aside id="agent-session-nav" v-show="sidebarOpen" class="agent-sidebar" aria-label="Conversations and assistants">
         <nav class="agent-mobile-nav" aria-label="Agent navigation">
           <button type="button" :class="{ on: activeTab === 'chat' }" @click="activeTab = 'chat'; sidebarOpen = false"><AppIcon name="solar:chat-round-dots-bold" :size="16" /> Chat</button>
-          <button type="button" :class="{ on: activeTab === 'setup' }" @click="activeTab = 'setup'; sidebarOpen = false"><AppIcon name="solar:settings-bold" :size="16" /> Assistant setup</button>
+          <button type="button" :class="{ on: activeTab === 'setup' }" @click="openSetup"><AppIcon name="solar:settings-bold" :size="16" /> Settings</button>
           <button type="button" :class="{ on: activeTab === 'controls' }" @click="activeTab = 'controls'; sidebarOpen = false"><AppIcon name="solar:shield-check-bold" :size="16" /> Controls</button>
         </nav>
         <div class="agent-side-section">
@@ -142,7 +146,7 @@
         <div class="agent-side-section">
           <div class="agent-side-head">
             <h3><AppIcon name="solar:cpu-bold" :size="13" /> Assistants ({{ configs.length }})</h3>
-            <UiButton size="xs" icon="solar:add-bold" @click="openSetup">New</UiButton>
+            <UiButton size="xs" icon="solar:add-bold" @click="newSetup">New</UiButton>
           </div>
           <div class="agent-side-list">
             <button
@@ -162,7 +166,8 @@
                 {{ cfg.hasKey || isKeyless(cfg) ? 'Ready' : 'No key' }}
               </UiBadge>
               <span class="agent-side-item-btns" @click.stop>
-                <UiButton size="xs" variant="danger" @click="removeCfg(cfg.id)">Delete</UiButton>
+                <UiButton size="xs" icon="solar:settings-bold" icon-only title="Edit assistant" aria-label="Edit assistant" @click="editSetup(cfg)" />
+                <UiButton size="xs" variant="danger" icon="solar:trash-bin-trash-bold" icon-only title="Delete assistant" aria-label="Delete assistant" @click="removeCfg(cfg.id)" />
               </span>
             </button>
             <UiEmpty
@@ -170,7 +175,7 @@
               size="sm"
               icon="solar:bot-bold"
               title="No assistants yet"
-              description="Open Setup, pick a provider, save — it takes a minute."
+              description="Add a provider to get started."
             />
           </div>
         </div>
@@ -179,7 +184,7 @@
       <!-- ── Main column ── -->
       <main class="agent-main">
         <!-- Context line: one quiet summary row, details expand on demand -->
-        <section v-if="capVisible" class="agent-caps" :class="{ open: capsOpen }" aria-label="What this assistant can do">
+        <section v-if="capVisible && activeTab === 'chat'" class="agent-caps" :class="{ open: capsOpen }" aria-label="What this assistant can do">
           <button type="button" class="agent-caps-summary" :aria-expanded="capsOpen" @click="capsOpen = !capsOpen">
             <span class="agent-caps-dot" :class="{ warn: !caps.hasKey }" aria-hidden="true" />
             <span class="agent-caps-text">{{ caps.model }} · {{ caps.persona }} · {{ caps.permission }}</span>
@@ -218,41 +223,29 @@
 
         <!-- Setup tab: guided, 3 steps instead of one long form -->
         <section v-if="activeTab === 'setup'" class="agent-card" aria-label="Assistant setup">
-          <h3 class="agent-card-title"><AppIcon name="solar:add-bold" :size="13" /> 1 · Pick a provider ({{ filteredPresets.length }}/{{ allPresets.length }})</h3>
-          <div class="preset-search">
-            <UiInput v-model="providerSearch" placeholder="Search providers or models…" aria-label="Search providers" clearable />
+          <div class="agent-setup-heading">
+            <h3 class="agent-card-title">{{ savedConfigId ? 'Assistant settings' : 'New assistant' }}</h3>
+            <UiButton size="sm" icon="solar:add-bold" variant="ghost" :disabled="busy" @click="newSetup">New</UiButton>
           </div>
-          <div class="preset-grid">
-            <button
-              v-for="p in filteredPresets"
-              :key="p.id"
-              class="preset-card"
-              :class="{ on: form.providerId === p.id }"
-              :title="`${p.baseUrl} · ${p.defaultModel}`"
-              @click="pickPreset(p)"
-            >
-              <span class="preset-name">{{ p.label }}</span>
-              <span class="preset-meta">{{ p.family }} · {{ p.defaultModel }}</span>
-              <span v-if="p.keyless" class="preset-free">No key needed</span>
-            </button>
-            <p v-if="!filteredPresets.length" class="agent-note">No provider matches “{{ providerSearch }}”.</p>
+          <fieldset class="agent-settings-fields" :disabled="busy || modelBusy">
+          <div class="w-field">
+            <span class="w-label">Provider</span>
+            <UiSelect aria-label="Model provider" :model-value="form.providerId" :options="providerOptions" :disabled="busy || modelBusy" @update:model-value="selectProvider" />
           </div>
-
-          <h3 class="agent-card-title"><AppIcon name="solar:key-bold" :size="13" /> 2 · Model &amp; key</h3>
           <div class="w-field">
             <span class="w-label">Assistant name</span>
-            <UiInput v-model="form.name" placeholder="My assistant" aria-label="Assistant name" />
+            <UiInput v-model="form.name" placeholder="My assistant" aria-label="Assistant name" :disabled="busy || modelBusy" />
           </div>
           <div class="w-row">
             <div class="w-field">
               <span class="w-label">Model</span>
               <div class="model-row">
-                <UiInput v-model="form.model" placeholder="Model id" list="agent-models" aria-label="Model id" />
+                <UiInput v-model="form.model" placeholder="Model id" list="agent-models" aria-label="Model id" :disabled="busy || modelBusy" />
                 <UiButton
                   size="sm"
                   icon="solar:refresh-bold"
                   icon-only
-                  :disabled="modelBusy || !form.providerId"
+                  :disabled="busy || modelBusy || !canSave"
                   :loading="modelBusy"
                   title="Refresh the model list from the provider"
                   aria-label="Refresh model list"
@@ -263,6 +256,20 @@
                 <option v-for="m in models" :key="m" :value="m" />
               </datalist>
             </div>
+          </div>
+          <div v-if="!draftKeyless" class="w-field agent-key-field">
+            <div class="agent-key-label">
+              <span class="w-label">API key</span>
+              <UiBadge :tone="draftHasKey ? 'accent' : 'neutral'" size="sm">{{ draftHasKey ? 'Saved' : 'Required' }}</UiBadge>
+            </div>
+            <UiInput v-model="keyInput" type="password" :placeholder="draftHasKey ? 'Leave blank to keep saved key' : `Paste ${preset?.label ?? 'provider'} key`" aria-label="API key" autocomplete="off" :disabled="busy" />
+            <span class="agent-note">{{ wasmMode ? 'This session only · cleared on reload' : 'Encrypted · leave blank to keep current key' }}</span>
+          </div>
+          <p v-else class="agent-note">No API key needed.</p>
+          <p v-if="draftConnectionChanged" class="agent-note">New connection · saves separately, without the old key.</p>
+          <details class="agent-advanced">
+            <summary>Advanced</summary>
+            <div class="w-row">
             <div class="w-field">
               <span class="w-label">Style</span>
               <UiSelect
@@ -275,9 +282,9 @@
                 @update:model-value="form.agentKind = $event as 'build' | 'plan'"
               />
             </div>
-          </div>
+            </div>
           <div class="w-field">
-            <span class="w-label">Endpoint override (optional)</span>
+            <span class="w-label">Endpoint</span>
             <UiInput v-model="form.baseUrlOverride" :placeholder="presetBase" aria-label="Endpoint override" />
           </div>
           <div v-if="isCustom" class="w-row">
@@ -313,10 +320,10 @@
             </div>
           </div>
 
-          <h3 class="agent-card-title"><AppIcon name="solar:shield-check-bold" :size="13" /> 3 · Permissions &amp; workspace</h3>
+
           <div class="w-row">
             <div class="w-field">
-              <span class="w-label">Working dir (in your volume, empty = root)</span>
+              <span class="w-label">Workspace</span>
               <UiInput v-model="form.workingDir" placeholder="/" aria-label="Working directory" />
             </div>
             <div class="w-field w-field-narrow">
@@ -355,27 +362,22 @@
                   { label: 'Balanced — reads auto, changes ask', value: 'balanced' },
                   { label: 'YOLO — allow everything', value: 'yolo' },
                 ]"
-                @update:model-value="permPreset = $event as 'strict' | 'balanced' | 'yolo'"
+                @update:model-value="setPermissionPreset"
               />
             </div>
             <div class="w-field check-field">
               <UiCheckbox v-model="form.autoApprove" label="Auto-approve requests" />
             </div>
           </div>
-          <div class="w-field">
-            <span class="w-label">{{ wasmMode ? 'API key (kept in memory, cleared on reload)' : 'API key (sealed server-side, never shown back)' }}</span>
-            <div class="model-row">
-              <UiInput v-model="keyInput" type="password" placeholder="Paste key" aria-label="API key" autocomplete="off" />
-              <UiButton size="sm" :disabled="!effectiveKeyConfigId || !keyInput.trim() || keyBusy" :loading="keyBusy" :title="!effectiveKeyConfigId ? 'Save the assistant first, or pick one in the sidebar' : ''" @click="saveKey">Save key</UiButton>
+          </details>
+          </fieldset>
+          <div class="agent-save-footer">
+            <div v-if="setupMsg" class="w-msg" role="status" aria-live="polite">{{ setupMsg }}</div>
+            <div class="w-actions agent-setup-actions">
+              <UiButton size="sm" variant="primary" :disabled="busy || modelBusy || !canSave" :loading="busy" @click="saveConfig()">Save changes</UiButton>
+              <UiButton size="sm" variant="ghost" :disabled="busy" @click="activeTab = 'chat'">Done</UiButton>
             </div>
           </div>
-          <div class="w-actions">
-            <UiButton size="sm" variant="primary" :disabled="busy || !canSave" :loading="busy" @click="saveConfig">Save assistant</UiButton>
-            <UiButton size="sm" variant="ghost" @click="activeTab = 'chat'">Back to chat</UiButton>
-          </div>
-          <div v-if="setupMsg" class="w-msg">{{ setupMsg }}</div>
-          <p class="agent-note">Custom provider: pick the Custom preset, set endpoint + dialect + auth. Model-list refresh needs a saved key (Anthropic has no list API — enter the model by hand).</p>
-          <p class="agent-note">Second account or spare key? Save another assistant on the same provider, then chain it under Controls → Fallback route — throttled/empty/dead keys fail over automatically, in order.</p>
         </section>
 
         <!-- Controls tab: MCP servers + per-tool permissions -->
@@ -526,13 +528,12 @@
             <span class="agent-welcome-avatar"><AppIcon name="solar:bot-bold" :size="22" /></span>
             <h3>{{ configs.length ? 'What should we work on?' : 'Meet your assistant' }}</h3>
             <p v-if="!configs.length">
-              Create an assistant in <button type="button" class="agent-link" @click="openSetup">Setup</button>
-              (pick a provider, save, add your key), then come back here.
+              <button type="button" class="agent-link" @click="openSetup">Connect a model</button> to start chatting.
             </p>
             <p v-else-if="!sessions.length">
-              Start a new conversation from the sidebar — or try one of these:
+              Choose a starting point, or send a message.
             </p>
-            <p v-else>Pick a conversation on the left, or start fresh:</p>
+            <p v-else>Continue a conversation or start fresh.</p>
             <div v-if="configs.length" class="agent-quick">
               <button
                 v-for="q in quickPrompts"
@@ -544,7 +545,6 @@
               >
                 <AppIcon :name="q.icon" :size="14" />
                 <span class="agent-quick-label">{{ q.label }}</span>
-                <span class="agent-quick-hint">{{ q.prompt.slice(0, 64) }}…</span>
               </button>
             </div>
             <div v-if="configs.length && !chatConfigId" class="w-msg">Select an assistant in the sidebar first.</div>
@@ -839,6 +839,8 @@ import { deploymentStorageEventKey } from '@/utils/deploymentScope'
 import { useVoiceInput } from '@/composables/useVoiceInput'
 import { useWindowUi } from '@/composables/useWindowUi'
 import { diffBlocks, editBlocksOf } from '@/utils/agentDiff'
+import { mergeAgentDraft, sameAgentConnection, persistAgentSetup } from '@/utils/agentSetup'
+import { subscribeHomeCommand } from '@/composables/useHomeCommandHandoff'
 import type { AgentConfig, AgentJob, AgentSession, ProviderPreset } from '@/types'
 
 const store = useAppStore()
@@ -874,13 +876,14 @@ const viewing = computed(() => (wasmMode.value ? localViewing.value : serverView
 const activeJob = computed(() => (wasmMode.value ? localJob.value : store.activeAgentJob))
 
 const busy = ref(false)
-const keyBusy = ref(false)
 const modelBusy = ref(false)
 const setupMsg = ref('')
 const keyInput = ref('')
 const savedConfigId = ref('')
 const models = ref<string[]>([])
 const permPreset = ref<'strict' | 'balanced' | 'yolo'>('balanced')
+const permissionEdited = ref(false)
+const setupInitialized = ref(false)
 
 const form = reactive({
   providerId: 'openrouter',
@@ -932,6 +935,10 @@ watch(chatConfigId, id => {
 
 /* ── modern UX state (progressive disclosure, no behaviour change) ── */
 const activeTab = ref<'chat' | 'setup' | 'controls'>('chat')
+const stopHomeCommand = subscribeHomeCommand('agent', ({ text }) => {
+  promptInput.value = promptInput.value ? `${promptInput.value}\n${text}` : text
+  activeTab.value = 'chat'
+})
 const agentWindowUi = useWindowUi()
 const agentMobileQuery = typeof window !== 'undefined' && window.matchMedia
   ? window.matchMedia('(max-width: 768px)')
@@ -946,8 +953,6 @@ function onAgentMobileChange(event: MediaQueryListEvent) {
 const sessionSearch = ref('')
 /** Capability strip starts collapsed — one summary line, details on demand. */
 const capsOpen = ref(false)
-/** Setup provider picker search. */
-const providerSearch = ref('')
 /** Controls accordion: only one section open at a time. */
 const controlsOpen = ref<'tools' | 'fallback' | 'perms'>('perms')
 const composerFocused = ref(false)
@@ -989,7 +994,58 @@ function onComposerKey(e: KeyboardEvent) {
   else if (e.key === 'Escape') slashOpen.value = false
 }
 function openSetup() {
+  if (busy.value || modelBusy.value) return
+  const selected = chatConfig.value
+  if (selected && (!setupInitialized.value || (savedConfigId.value && savedConfigId.value !== selected.id))) editSetup(selected)
+  else {
+    setupInitialized.value = true
+    activeTab.value = 'setup'
+    sidebarOpen.value = false
+  }
+}
+
+function editSetup(cfg: AgentConfig) {
+  if (busy.value || modelBusy.value) return
+  Object.assign(form, {
+    providerId: cfg.providerId, name: cfg.name, model: cfg.model,
+    baseUrlOverride: cfg.baseUrlOverride ?? '', dialectOverride: cfg.dialectOverride ?? 'openAi',
+    authSchemeOverride: cfg.authSchemeOverride ?? 'bearer', authNameOverride: cfg.authNameOverride ?? '',
+    workingDir: cfg.workingDir, agentKind: cfg.agentKind, shellMode: cfg.shellMode ?? 'auto',
+    autoApprove: cfg.autoApprove, maxTurns: cfg.maxTurns,
+  })
+  savedConfigId.value = cfg.id
+  chatConfigId.value = cfg.id
+  keyInput.value = ''
+  models.value = []
+  setupMsg.value = ''
+  permissionEdited.value = false
+  permPreset.value = isYoloConfig(cfg) ? 'yolo' : cfg.permission.default === 'deny' ? 'strict' : 'balanced'
+  setupInitialized.value = true
   activeTab.value = 'setup'
+  sidebarOpen.value = false
+}
+
+function newSetup() {
+  if (busy.value || modelBusy.value) return
+  savedConfigId.value = ''
+  Object.assign(form, { name: '', model: '', providerId: '', baseUrlOverride: '', workingDir: '',
+    dialectOverride: 'openAi', authSchemeOverride: 'bearer', authNameOverride: '',
+    agentKind: 'build', shellMode: 'auto', autoApprove: false, maxTurns: 25 })
+  permPreset.value = 'balanced'
+  permissionEdited.value = false
+  keyInput.value = ''
+  models.value = []
+  setupMsg.value = ''
+  const first = providers.value.find(p => p.id === 'openrouter') ?? providers.value[0]
+  if (first) pickPreset(first)
+  setupInitialized.value = true
+  activeTab.value = 'setup'
+  sidebarOpen.value = false
+}
+
+function setPermissionPreset(value: string) {
+  permPreset.value = value as 'strict' | 'balanced' | 'yolo'
+  permissionEdited.value = true
 }
 
 /* ── voice dictation (prose mode: punctuation words → marks) ── */
@@ -1429,11 +1485,19 @@ function setViewing(s: AgentSession | null) {
 const preset = computed(() => providers.value.find(p => p.id === form.providerId) ?? null)
 const presetBase = computed(() => preset.value?.baseUrl ?? 'https://…')
 const isCustom = computed(() => form.providerId === 'custom')
-const canSave = computed(() => form.name.trim() !== '' && form.model.trim() !== '' && form.providerId !== '')
-/** Saving a key targets the sidebar selection first, else the just-saved wizard
- *  row — so a reload (savedConfigId reset) or picking an existing assistant
- *  still enables SAVE KEY, and switching assistants keys the right one. */
-const effectiveKeyConfigId = computed(() => chatConfigId.value || savedConfigId.value || '')
+const canSave = computed(() => form.name.trim() !== '' && form.model.trim() !== '' && form.providerId !== '' && (!isCustom.value || !!form.baseUrlOverride.trim()))
+const editingConfig = computed(() => configs.value.find(c => c.id === savedConfigId.value))
+const draftKeyless = computed(() => isCustom.value ? form.authSchemeOverride === 'none' : !!preset.value?.keyless)
+const draftConnectionChanged = computed(() => !!editingConfig.value && !sameAgentConnection(editingConfig.value, localConfigFromForm()))
+const draftHasKey = computed(() => {
+  const cfg = editingConfig.value
+  return !!cfg && sameAgentConnection(cfg, localConfigFromForm()) && cfg.hasKey
+})
+watch(() => [form.providerId, form.baseUrlOverride, form.dialectOverride, form.authSchemeOverride, form.authNameOverride], () => {
+  keyInput.value = ''
+  models.value = []
+  setupMsg.value = ''
+})
 
 // ─── browser-local mode (static host): same shapes, localStorage rows ──
 
@@ -1553,38 +1617,36 @@ const customPreset: ProviderPreset = {
   extraHeaders: [],
 }
 const allPresets = computed(() => [...providers.value, ...(providers.value.some(p => p.id === 'custom') ? [] : [customPreset])])
-const filteredPresets = computed(() => {
-  const q = providerSearch.value.trim().toLowerCase()
-  if (!q) return allPresets.value
-  return allPresets.value.filter(
-    p =>
-      p.label.toLowerCase().includes(q) ||
-      p.id.toLowerCase().includes(q) ||
-      (p.defaultModel ?? '').toLowerCase().includes(q),
-  )
-})
+const providerOptions = computed(() => allPresets.value.map(p => ({ label: p.label, value: p.id })))
+
+function selectProvider(id: string) {
+  const p = allPresets.value.find(p => p.id === id)
+  if (p) pickPreset(p)
+}
 
 function pickPreset(p: ProviderPreset) {
+  if (form.providerId === p.id && form.model) return
+  const previous = allPresets.value.find(item => item.id === form.providerId)
+  if (!form.name || form.name === previous?.label) form.name = p.label
   form.providerId = p.id
-  if (!form.model || !form.name) {
-    form.model = p.defaultModel
-    if (!form.name) form.name = p.label
-  } else {
-    form.model = p.defaultModel
-  }
+  form.model = p.defaultModel
   form.baseUrlOverride = ''
+  form.dialectOverride = p.dialect
+  form.authSchemeOverride = p.auth
+  form.authNameOverride = p.authName ?? ''
+  keyInput.value = ''
   models.value = []
-  setupMsg.value = p.keyless ? 'Keyless provider — save, no key needed.' : `Needs ${p.keyEnv || 'an API key'} — save config, then SEAL KEY.`
+  setupMsg.value = ''
 }
 
 function isKeyless(cfg: AgentConfig) {
-  return providers.value.find(p => p.id === cfg.providerId)?.keyless ?? false
+  return cfg.authSchemeOverride === 'none' || (providers.value.find(p => p.id === cfg.providerId)?.keyless ?? false)
 }
 
 function localConfigFromForm(): AgentConfig {
   const now = localNow()
   return {
-    id: savedConfigId.value && wasmMode.value ? savedConfigId.value : newLocalId('cfg'),
+    id: newLocalId('cfg'),
     name: form.name.trim(),
     providerId: form.providerId,
     model: form.model.trim(),
@@ -1595,7 +1657,8 @@ function localConfigFromForm(): AgentConfig {
     workingDir: form.workingDir.trim(),
     agentKind: form.agentKind,
     shellMode: form.shellMode,
-    permission: agentPermissionPreset(permPreset.value),
+    permission: !permissionEdited.value && editingConfig.value
+      ? editingConfig.value.permission : agentPermissionPreset(permPreset.value),
     autoApprove: form.autoApprove,
     maxTurns: Math.min(50, Math.max(1, form.maxTurns || 25)),
     hasKey: false,
@@ -1606,74 +1669,50 @@ function localConfigFromForm(): AgentConfig {
   }
 }
 
-async function saveConfig() {
+async function saveConfig(): Promise<AgentConfig | null> {
+  if (busy.value || !canSave.value) return null
   busy.value = true
   setupMsg.value = ''
+  const key = draftKeyless.value ? '' : keyInput.value.trim()
   try {
-    if (wasmMode.value) {
-      const cfg = localConfigFromForm()
-      const prev = listLocalConfigs().find(c => c.id === cfg.id)
-      // Re-saving the wizard row must not wipe the fallback route set in Controls.
-      saveLocalConfig({ ...cfg, fallbackIds: prev?.fallbackIds ?? [], createdAt: prev?.createdAt ?? cfg.createdAt })
-      refreshLocal()
-      savedConfigId.value = cfg.id
-      chatConfigId.value = cfg.id
-      setupMsg.value = 'Saved locally — paste the key below (kept in memory only).'
-      return
-    }
-    const saved = await store.saveAgentConfig({
-      name: form.name.trim(),
-      providerId: form.providerId,
-      model: form.model.trim(),
-      baseUrlOverride: form.baseUrlOverride.trim() || undefined,
-      dialectOverride: isCustom.value ? form.dialectOverride : undefined,
-      authSchemeOverride: isCustom.value ? form.authSchemeOverride : undefined,
-      authNameOverride: isCustom.value && form.authNameOverride.trim() ? form.authNameOverride.trim() : undefined,
-      workingDir: form.workingDir.trim(),
-      agentKind: form.agentKind,
-      shellMode: form.shellMode,
-      permission: agentPermissionPreset(permPreset.value),
-      autoApprove: form.autoApprove,
-      maxTurns: Math.min(50, Math.max(1, form.maxTurns || 25)),
-      fallbackIds: [],
-      mcpServers: defaultMcpServers(),
+    const cfg = mergeAgentDraft(localConfigFromForm(), editingConfig.value)
+    const result = await persistAgentSetup(cfg, key, {
+      saveConfig: async config => {
+        if (!wasmMode.value) return store.saveAgentConfig(config)
+        saveLocalConfig(config)
+        refreshLocal()
+        return localConfigs.value.find(c => c.id === config.id) ?? config
+      },
+      onConfigSaved: saved => {
+        savedConfigId.value = saved.id
+        chatConfigId.value = saved.id
+        setupInitialized.value = true
+      },
+      saveKey: async (id, value) => {
+        if (!wasmMode.value) return store.saveAgentKey(id, value)
+        setLocalKey(id, value)
+        localKeys.value[id] = value
+        refreshLocal()
+        return true
+      },
     })
-    if (saved) {
-      savedConfigId.value = saved.id
-      chatConfigId.value = saved.id
-      setupMsg.value = isKeyless(saved)
-        ? 'Saved — keyless provider, ready to chat.'
-        : 'Saved — now SEAL KEY above, then chat.'
+    if (!result) {
+      setupMsg.value = 'Could not save. Your changes are still here.'
+      return null
     }
+    if (key && !result.keySaved) {
+      setupMsg.value = 'Settings saved. Key not saved — try again.'
+      return null
+    }
+    if (result.keySaved) keyInput.value = ''
+    setupMsg.value = result.config.hasKey || draftKeyless.value
+      ? 'Saved · ready to chat' : 'Settings saved · add an API key'
+    return result.config
+  } catch (e) {
+    setupMsg.value = `Could not finish saving: ${e instanceof Error ? e.message : String(e)}`
+    return null
   } finally {
     busy.value = false
-  }
-}
-
-async function saveKey() {
-  const targetId = effectiveKeyConfigId.value
-  const key = keyInput.value.trim()
-  if (!targetId || !key) return
-  if (wasmMode.value) {
-    localKeys.value[targetId] = key
-    setLocalKey(targetId, key)
-    keyInput.value = ''
-    // Keep the wizard + sidebar pointing at the config that just got its key.
-    savedConfigId.value = targetId
-    chatConfigId.value = targetId
-    refreshLocal()
-    setupMsg.value = 'Key held in memory for this page only — never stored.'
-    return
-  }
-  keyBusy.value = true
-  try {
-    if (await store.saveAgentKey(targetId, key)) {
-      keyInput.value = ''
-      savedConfigId.value = targetId
-      setupMsg.value = 'Key sealed — never shown back.'
-    }
-  } finally {
-    keyBusy.value = false
   }
 }
 
@@ -1688,61 +1727,58 @@ async function removeCfg(id: string) {
   }
   if (chatConfigId.value === id) chatConfigId.value = ''
   if (readChatConfigId() === id) writeChatConfigId('')
+  if (savedConfigId.value === id) newSetup()
 }
 
 async function refreshModels() {
-  if (wasmMode.value) {
-    const cfg = localConfigs.value.find(c => c.id === (savedConfigId.value || chatConfigId.value))
-    const preset = cfg ? localPresetFor(cfg) : null
-    const base = (cfg?.baseUrlOverride || preset?.baseUrl || '').replace(/\/$/, '')
-    if (!base) {
-      setupMsg.value = 'Save the config first, then refresh.'
-      return
-    }
-    if ((preset?.dialect ?? 'openAi') === 'anthropic') {
-      setupMsg.value = 'Anthropic has no list API — enter the model id manually.'
-      return
-    }
-    modelBusy.value = true
-    try {
-      const headers: Record<string, string> = {}
-      const key = localKeys.value[cfg?.id ?? ''] ?? getLocalKey(cfg?.id ?? '') ?? ''
-      const auth = preset?.auth ?? 'bearer'
-      if (auth === 'bearer' && key) headers['Authorization'] = `Bearer ${key}`
-      else if (auth === 'header') headers[preset?.authName ?? 'x-api-key'] = key
-      for (const [k, v] of preset?.extraHeaders ?? []) headers[k] = v
-      const url = preset?.auth === 'query'
-        ? `${base}/models?${encodeURIComponent(preset?.authName ?? 'key')}=${encodeURIComponent(key)}`
-        : `${base}/models`
-      const res = await fetch(url, { headers })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const body = (await res.json()) as { data?: Array<{ id?: string }> }
-      const list = (body.data ?? []).map(m => m.id ?? '').filter(Boolean)
-      models.value = [...new Set(list)].sort()
-      setupMsg.value = `${models.value.length} models listed.`
-    } catch (e) {
-      setupMsg.value = `Refresh failed: ${e instanceof Error ? e.message : String(e)}`
-    } finally {
-      modelBusy.value = false
-    }
+  if (busy.value || modelBusy.value || !canSave.value) return
+  // Save this exact connection (and any replacement key) before discovery.
+  // No sidebar fallback: an unsaved draft must never borrow another key.
+  const cfg = await saveConfig()
+  if (!cfg) return
+  const provider = localPresetFor(cfg)
+  if ((cfg.dialectOverride ?? provider?.dialect) === 'anthropic') {
+    setupMsg.value = 'Enter an Anthropic model ID manually.'
     return
   }
-  if (!effectiveKeyConfigId.value) {
-    setupMsg.value = 'Save the config first, then refresh.'
+  if (!cfg.hasKey && !draftKeyless.value) {
+    setupMsg.value = 'Add an API key to load models.'
     return
   }
   modelBusy.value = true
   try {
-    const list = await store.refreshAgentModels(effectiveKeyConfigId.value)
-    if (list) {
-      models.value = list
-      setupMsg.value = `${list.length} models listed.`
+    if (!wasmMode.value) {
+      const list = await store.refreshAgentModels(cfg.id)
+      if (list) {
+        models.value = list
+        setupMsg.value = `${list.length} models available`
+      }
+      return
     }
+    const base = (cfg.baseUrlOverride || provider?.baseUrl || '').replace(/\/+$/, '')
+    if (!base) { setupMsg.value = 'Add an endpoint in Advanced.'; return }
+    const headers: Record<string, string> = {}
+    const key = getLocalKey(cfg.id) ?? ''
+    const auth = cfg.authSchemeOverride ?? provider?.auth ?? 'bearer'
+    const authName = cfg.authNameOverride ?? provider?.authName ?? 'key'
+    if (auth === 'bearer' && key) headers.Authorization = `Bearer ${key}`
+    else if (auth === 'header' && key) headers[cfg.authNameOverride ?? provider?.authName ?? 'x-api-key'] = key
+    for (const [k, v] of provider?.extraHeaders ?? []) headers[k] = v
+    const url = auth === 'query' && key
+      ? `${base}/models?${encodeURIComponent(authName)}=${encodeURIComponent(key)}`
+      : `${base}/models`
+    // Never forward a provider key through a redirect to another origin.
+    const res = await fetch(url, { headers, redirect: 'error' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const body = (await res.json()) as { data?: Array<{ id?: string }> }
+    models.value = [...new Set((body.data ?? []).map(m => m.id ?? '').filter(Boolean))].sort()
+    setupMsg.value = `${models.value.length} models available`
+  } catch (e) {
+    setupMsg.value = `Could not load models: ${e instanceof Error ? e.message : String(e)}`
   } finally {
     modelBusy.value = false
   }
 }
-
 async function newSession() {
   if (!chatConfigId.value) return
   if (wasmMode.value) {
@@ -2348,6 +2384,7 @@ watch(jobActive, active => {
 })
 
 onBeforeUnmount(() => {
+  stopHomeCommand()
   stopVoice?.()
   agentMobileQuery?.removeEventListener?.('change', onAgentMobileChange)
   if (tickTimer) window.clearInterval(tickTimer)
@@ -2392,7 +2429,7 @@ onMounted(async () => {
     refreshLocal()
     if (!form.model) {
       const medium = localPresets.value.find(p => p.id === 'openrouter')
-      if (medium) pickPreset(medium)
+      if (medium && !setupInitialized.value) pickPreset(medium)
     }
     return
   }
@@ -2404,7 +2441,7 @@ onMounted(async () => {
   }
   if (!form.model) {
     const medium = providers.value.find(p => p.id === 'openrouter')
-    if (medium) pickPreset(medium)
+    if (medium && !setupInitialized.value) pickPreset(medium)
   }
 })
 </script>
@@ -2823,6 +2860,33 @@ onMounted(async () => {
   padding: 8px 12px; cursor: pointer; text-align: left;
 }
 .composer-slash-item:hover { background: var(--ui-accent-softer); }
+
+/* Settings stays reachable even when the desktop tab bar is hidden. */
+.agent-settings-shortcut { color: var(--ui-text-2); flex-shrink: 0; }
+.agent-settings-shortcut[aria-pressed="true"] { color: var(--ui-accent); background: var(--ui-accent-softer); }
+.agent-setup-heading, .agent-key-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.agent-settings-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
+.agent-setup-heading { margin-bottom: 12px; }
+.agent-setup-heading .agent-card-title { margin: 0; }
+.agent-key-field { padding: 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); background: var(--ui-accent-softer); }
+.agent-key-field .agent-note { margin: 2px 0 0; font-size: 11px; }
+.agent-advanced { margin: 14px 0; border-top: 1px solid var(--ui-border); border-bottom: 1px solid var(--ui-border); }
+.agent-advanced summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; font-weight: 650; color: var(--ui-text-2); }
+.agent-advanced summary::before { content: '+'; font-size: 18px; font-weight: 400; }
+.agent-advanced[open] summary::before { content: '−'; }
+.agent-save-footer { position: sticky; bottom: -10px; padding: 8px 0; background: var(--ui-surface); z-index: 2; }
+.agent-save-footer .w-msg { margin: 0 0 8px; overflow-wrap: anywhere; }
+.agent-setup-actions { padding: 2px 0; }
+.agent-setup-actions :deep(.ui-btn) { min-height: 44px; }
+.model-row > :first-child { flex: 1; min-width: 0; }
+.agent-card :deep(input), .agent-card :deep(select) { min-height: 44px; }
+.agent-card :deep(input:disabled), .agent-card :deep(select:disabled) { opacity: .65; }
+@container agent (max-width: 560px) {
+  .w-row { flex-direction: column; align-items: stretch; }
+  .w-field-narrow { flex: 1; }
+  .agent-card :deep(input), .agent-card :deep(select) { font-size: 16px; }
+  .agent-setup-actions > :first-child { flex: 1; }
+}
 
 /* responsive: sidebar becomes overlay-friendly single column */
 @media (max-width: 760px) {

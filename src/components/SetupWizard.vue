@@ -1401,4 +1401,42 @@ onMounted(async () => {
 @media (prefers-reduced-motion: reduce) {
   .sw-btn, .sw-preset, .sw-choice, .sw-picker { transition: none; }
 }
+
+
+/* The first-run dialog becomes a safe-area-aware sheet on phone-sized screens. */
+@media (max-width: 600px) {
+  .sw-overlay {
+    align-items: stretch;
+    padding: max(0px, env(safe-area-inset-top)) max(0px, env(safe-area-inset-right))
+      max(0px, env(safe-area-inset-bottom)) max(0px, env(safe-area-inset-left));
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .sw-card {
+    width: 100%; max-height: 100%; min-height: 0; margin: 0;
+    border-radius: 0; border-left: 0; border-right: 0;
+  }
+  .sw-head { align-items: center; padding: 10px 12px; }
+  .sw-title { font-size: 16px; line-height: 1.3; }
+  .sw-icon-btn { min-width: 44px; min-height: 44px; align-items: center; justify-content: center; }
+  .sw-dots { gap: 8px; padding: 10px 12px 0; }
+  .sw-dot { min-height: 16px; background-clip: content-box; padding: 6px 0; }
+  .sw-body { min-height: 0; padding: 14px 14px max(20px, env(safe-area-inset-bottom)); -webkit-overflow-scrolling: touch; }
+  .sw-section { gap: 12px; }
+  .sw-row { align-items: stretch; }
+  .sw-field { flex: 1 1 100%; }
+  .sw-input { min-height: 44px; font-size: 16px; box-sizing: border-box; }
+  .sw-actions { gap: 8px; }
+  .sw-actions .sw-btn { flex: 1 1 auto; min-height: 44px; justify-content: center; }
+  .sw-actions .sw-link, .sw-link { min-height: 44px; padding: 8px; }
+  .sw-btn, .sw-choice, .sw-picker, .sw-oauth, .sw-preset { min-height: 44px; }
+  .sw-presets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sw-list li, .sw-banner, .sw-summary li { align-items: flex-start; }
+}
+@media (max-width: 360px) {
+  .sw-body { padding-left: 10px; padding-right: 10px; }
+  .sw-presets { grid-template-columns: 1fr; }
+  .sw-actions { flex-wrap: wrap; }
+  .sw-actions .sw-link { flex: 1 1 100%; margin-left: 0; }
+}
 </style>

@@ -358,6 +358,7 @@ export function useSwipe(
   }
 
   function handlePointerDown(e: PointerEvent) {
+    if ((e.target as HTMLElement | null)?.closest?.('[data-shell-gesture-exclude], .terminal-gesture-exclude')) return
     refreshViewBox()
     machine.onPointerDown(e)
   }

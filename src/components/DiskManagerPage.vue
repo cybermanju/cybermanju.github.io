@@ -10,8 +10,19 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { humanBytes, diskPct } from '@/utils/format'
 import { dedupSummary, fromFileNodes, groupDuplicates } from '@/utils/dedup'
+import { isAndroidApp } from '@/composables/useTauri'
+import { useWindowManager } from '@/composables/useWindowManager'
+import {
+  isRemovableAndroidStorageFolder,
+  listMobileFolders,
+  pickMobileFolder,
+  supportsNativeScopedStorage,
+  type MobileFolderHandle,
+} from '@/utils/mobileScopedStorage'
+import { listVfsMounts, saveVfsMount, type ProviderMount } from '@/composables/useProviderCanal'
 
 const store = useAppStore()
+const wm = useWindowManager()
 
 // Merged storage window: `storage` opens here on the overview tab.
 // `wm.open('disks', { tab: 'disks', diskId })` focuses one card — FileManager
@@ -39,6 +50,74 @@ const resizeTarget = ref<string | null>(null)
 const resizeMb = ref(512)
 const busyId = ref<string | null>(null)
 const note = ref('')
+
+// Android removable media is not a normal `/storage/<UUID>` filesystem under
+// scoped storage. Show user-granted SAF roots as external disks and register
+// them through the same scopedStorage provider used by Files/TransferGraph.
+const isNativeAndroid = isAndroidApp() && supportsNativeScopedStorage()
+const externalStorageFolders = ref<MobileFolderHandle[]>([])
+const externalStorageMounts = ref<ProviderMount[]>([])
+const externalStorageBusyId = ref('')
+const externalStorageNote = ref('')
+const externalStorageEntries = computed(() => externalStorageFolders.value.map(folder => ({
+  folder,
+  mount: externalStorageMounts.value.find(m => m.backendType === 'scopedStorage' && (m.folderId || m.configId) === folder.id),
+})))
+
+async function refreshExternalStorage() {
+  if (!isNativeAndroid) return
+  try {
+    const [folders, mounts] = await Promise.all([listMobileFolders(), listVfsMounts()])
+    externalStorageFolders.value = folders.filter(isRemovableAndroidStorageFolder)
+    externalStorageMounts.value = mounts.filter(m => m.backendType === 'scopedStorage')
+    externalStorageNote.value = ''
+  } catch (error) {
+    externalStorageNote.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function addExternalStorageProvider(folder: MobileFolderHandle) {
+  if (!isRemovableAndroidStorageFolder(folder)) {
+    externalStorageNote.value = 'Choose a folder on the removable SD card in Android’s system folder picker.'
+    return
+  }
+  externalStorageBusyId.value = folder.id
+  try {
+    const existing = externalStorageMounts.value.find(m => m.backendType === 'scopedStorage' && (m.folderId || m.configId) === folder.id)
+    if (!existing) {
+      await saveVfsMount({
+        configId: folder.id,
+        folderId: folder.id,
+        name: folder.name || 'SD card',
+        backendType: 'scopedStorage',
+      })
+    }
+    await refreshExternalStorage()
+    externalStorageNote.value = `“${folder.name}” is ready as a transfer provider. Open Transfer to move files to or from the SD card.`
+  } catch (error) {
+    externalStorageNote.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    externalStorageBusyId.value = ''
+  }
+}
+
+async function chooseExternalStorage() {
+  externalStorageBusyId.value = 'picker'
+  externalStorageNote.value = ''
+  try {
+    const folder = await pickMobileFolder()
+    await addExternalStorageProvider(folder)
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'CANCELLED') return
+    externalStorageNote.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    externalStorageBusyId.value = ''
+  }
+}
+
+function openExternalStorageTransfer(mount: ProviderMount) {
+  wm.open('transfer', { highlightId: mount.id })
+}
 
 // A provider deleted in Accounts must not stay selected here — CREATE would
 // fire against a dead config id. Fall back to empty the moment it vanishes.
@@ -70,20 +149,39 @@ const usedPct = computed(() => {
 })
 
 async function refresh() {
-  await Promise.all([store.fetchDisks(), store.fetchOsDf(), store.fetchFiles(), store.fetchTrashItems()])
+  await Promise.all([store.fetchDisks(), store.fetchOsDf(), store.fetchFiles(), store.fetchTrashItems(), refreshExternalStorage()])
   if (store.syncConfigs.length === 0) await store.fetchSyncConfigs()
 }
 
 async function create() {
-  if (!configId.value) {
-    note.value = 'create: pick a provider configuration first'
+  const config = store.syncConfigs.find(c => c.id === configId.value)
+  if (!config) {
+    note.value = 'Pick an available provider configuration first.'
     return
   }
+  if (creating.value) return
   creating.value = true
-  const created = await store.createDisk(configId.value, createSizeMb.value * 1024 * 1024, passphrase.value)
-  creating.value = false
-  note.value = created ? `created ${created.id}` : ''
-  if (created) passphrase.value = ''
+  note.value = ''
+  try {
+    if (['googleDrive', 'github', 'gitlab'].includes(config.backendType)) {
+      const result = await store.createDiskWithRemote(config, {
+        sizeMb: createSizeMb.value,
+        passphrase: passphrase.value,
+      })
+      note.value = result.remoteWarning
+        ? `Local disk ${result.disk.id} created. Cloud setup is incomplete: ${result.remoteWarning}`
+        : `Disk ${result.disk.id} created. Cloud seed ready; content uploads separately.`
+      passphrase.value = ''
+    } else {
+      const created = await store.createDisk(config.id, createSizeMb.value * 1024 * 1024, passphrase.value)
+      note.value = created ? `Created ${created.id}` : 'Disk creation failed. Check the provider and passphrase.'
+      if (created) passphrase.value = ''
+    }
+  } catch (error) {
+    note.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    creating.value = false
+  }
 }
 
 async function attach(diskId: string) {
@@ -297,6 +395,51 @@ onMounted(async () => {
       <p class="df-root text-muted">root {{ df?.root ?? '—' }}</p>
     </div>
 
+    <section v-if="isNativeAndroid" class="section" aria-label="Android external storage">
+      <div class="external-storage-heading">
+        <h3 class="section-title"><AppIcon name="solar:ssd-square-bold" :size="13" /> EXTERNAL SD CARD ({{ externalStorageEntries.length }})</h3>
+        <button class="ghost-btn" type="button" :disabled="externalStorageBusyId === 'picker'" @click="chooseExternalStorage">
+          {{ externalStorageBusyId === 'picker' ? 'OPENING…' : 'SELECT SD CARD' }}
+        </button>
+      </div>
+      <p class="note text-muted">Android hides removable storage from ordinary filesystem scans. Select the SD card in the system folder picker; its SAF grant is shown here and can be added as a Files/Transfer provider.</p>
+      <div v-if="externalStorageEntries.length" class="external-storage-grid">
+        <article
+          v-for="entry in externalStorageEntries"
+          :id="`disk-card-${entry.mount?.id || entry.folder.id}`"
+          :key="entry.folder.id"
+          class="external-storage-card"
+          :class="{ flash: focusDiskId === (entry.mount?.id || entry.folder.id) }"
+        >
+          <header class="card-head">
+            <div>
+              <span class="card-name">{{ entry.folder.name }}</span>
+              <span class="card-provider text-muted">ANDROID REMOVABLE STORAGE · SAF</span>
+            </div>
+            <span class="health health-ok">{{ entry.mount ? 'TRANSFER READY' : 'ACCESS GRANTED' }}</span>
+          </header>
+          <p class="external-storage-status">{{ entry.mount ? 'This SD card is available under Providers in Files and on the transfer board.' : 'The card is authorized, but has not yet been added as a transfer provider.' }}</p>
+          <div class="card-actions">
+            <button
+              v-if="entry.mount"
+              class="ghost-btn primary"
+              type="button"
+              @click="openExternalStorageTransfer(entry.mount)"
+            >OPEN TRANSFER</button>
+            <button
+              v-else
+              class="ghost-btn primary"
+              type="button"
+              :disabled="!!externalStorageBusyId"
+              @click="addExternalStorageProvider(entry.folder)"
+            >{{ externalStorageBusyId === entry.folder.id ? 'ADDING…' : 'ADD TO TRANSFERS' }}</button>
+          </div>
+        </article>
+      </div>
+      <p v-else class="external-storage-empty">No removable SD-card folder grant found. Use “SELECT SD CARD” and choose a folder on the card (not Phone storage).</p>
+      <p v-if="externalStorageNote" class="note" role="status" aria-live="polite">{{ externalStorageNote }}</p>
+    </section>
+
     <div class="section">
       <h3 class="section-title"><AppIcon name="solar:add-bold" :size="13" /> CREATE DISK</h3>
       <div class="create-row">
@@ -329,7 +472,8 @@ onMounted(async () => {
           {{ creating ? 'CREATING…' : 'CREATE' }}
         </button>
       </div>
-      <p v-if="note" class="note">{{ note }}</p>
+      <p class="note disk-allocation-note">Capacity is a logical limit, not preallocated cloud space. Actual storage grows when content is successfully written or synced. The small seed or snapshot file does not have to grow with separate content blocks.</p>
+      <p v-if="note" class="note" role="status" aria-live="polite">{{ note }}</p>
     </div>
 
     <div class="section">
@@ -345,13 +489,21 @@ onMounted(async () => {
             <span class="health" :class="`health-${disk.health}`">{{ disk.health.toUpperCase() }}</span>
           </header>
 
-          <div class="card-bar">
+          <div
+            class="card-bar"
+            role="progressbar"
+            :aria-label="`${disk.name || disk.id} storage used`"
+            :aria-valuenow="diskPct(disk.usedBytes, disk.capacityBytes)"
+            aria-valuemin="0"
+            aria-valuemax="100"
+          >
             <div class="card-used" :style="{ width: `${diskPct(disk.usedBytes, disk.capacityBytes)}%` }"></div>
           </div>
           <div class="card-figures">
-            <span>{{ humanBytes(disk.usedBytes) }} / {{ humanBytes(disk.capacityBytes) }}</span>
+            <span>{{ humanBytes(disk.usedBytes) }} used · {{ humanBytes(Math.max(0, disk.capacityBytes - disk.usedBytes)) }} free</span>
             <span class="text-muted">{{ diskPct(disk.usedBytes, disk.capacityBytes).toFixed(0) }}% used</span>
           </div>
+          <p class="card-capacity-note">CAPACITY {{ humanBytes(disk.capacityBytes) }}</p>
 
           <dl class="card-meta">
             <div><dt class="text-muted">STATE</dt><dd>{{ disk.state }}</dd></div>
@@ -686,6 +838,43 @@ onMounted(async () => {
   color: var(--ui-text);
 }
 
+.external-storage-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.external-storage-heading .section-title { margin-bottom: 0; }
+.external-storage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.external-storage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--ui-accent) 45%, var(--ui-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ui-accent) 5%, transparent);
+}
+.external-storage-card.flash {
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-accent) 30%, transparent);
+}
+.external-storage-card .health { flex: 0 0 auto; }
+.external-storage-status,
+.external-storage-empty {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--ui-text) 68%, transparent);
+}
+
 .df-bar {
   height: 8px;
   border-radius: 5px;
@@ -774,8 +963,9 @@ onMounted(async () => {
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: 12px;
+  min-width: 0;
 }
 
 .card {
@@ -785,6 +975,8 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .card.flash {
@@ -797,6 +989,12 @@ onMounted(async () => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
+}
+
+.card-head > div {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .card-name {
@@ -840,7 +1038,19 @@ onMounted(async () => {
 .card-figures {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
   font-size: 11px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.card-capacity-note {
+  margin: -5px 0 0;
+  color: color-mix(in srgb, var(--ui-text) 50%, transparent);
+  font-size: 9px;
+  letter-spacing: 0.04em;
 }
 
 .card-meta {
@@ -874,6 +1084,11 @@ onMounted(async () => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
+}
+
+.card-actions .ghost-btn {
+  min-width: 0;
 }
 
 .resize-row {
@@ -881,6 +1096,11 @@ onMounted(async () => {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
+}
+
+.resize-row .slider {
+  min-width: 0;
 }
 
 .resize-size {
@@ -1005,12 +1225,25 @@ onMounted(async () => {
     align-items: stretch;
     flex-direction: column;
     gap: 10px;
+    min-width: 0;
   }
 
   .field,
   .field.grow {
     width: 100%;
     min-width: 0;
+  }
+
+  .field .input,
+  .field select,
+  .field .slider {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .create-row > .ghost-btn {
+    width: 100%;
   }
 
   .cards {
@@ -1024,7 +1257,7 @@ onMounted(async () => {
   }
 
   .card-head {
-    align-items: center;
+    align-items: flex-start;
   }
 
   .card-name,
@@ -1047,8 +1280,21 @@ onMounted(async () => {
 
   .card-figures {
     gap: 8px;
-    flex-wrap: wrap;
     font-size: 12px;
+  }
+
+  .card-figures > span {
+    min-width: 0;
+  }
+
+  .card-meta div {
+    align-items: start;
+  }
+
+  .card-actions .ghost-btn {
+    min-height: 44px;
+    padding-inline: 6px;
+    overflow-wrap: anywhere;
   }
 
   .card-actions {
@@ -1067,6 +1313,8 @@ onMounted(async () => {
 
   .resize-row .slider {
     flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
   }
 
   .resize-row .ghost-btn {

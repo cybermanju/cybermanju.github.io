@@ -90,4 +90,8 @@ const emit = defineEmits<{ 'update:modelValue': [value: string | number] }>()
   outline: none;
   box-shadow: var(--ui-focus-ring);
 }
+@media (max-width: 768px) {
+  .ui-segmented { min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
+  .ui-segmented__item { min-height: 44px; flex-shrink: 0; font-size: 12px; }
+}
 </style>

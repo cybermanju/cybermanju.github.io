@@ -11,6 +11,7 @@ import { useAppStore } from '@/stores/app'
 import { useLauncherStore } from '@/stores/launcher'
 import { useKeyboardShortcuts, getGlobalShortcuts } from '@/composables/useKeyboardShortcuts'
 import { useMotion } from '@/composables/useMotion'
+import { useMobileViewport } from '@/composables/useMobileViewport'
 import { useShortcuts } from '@/composables/useShortcuts'
 import { useContextMenu } from '@/composables/useContextMenu'
 import { useDrag } from '@/composables/useDrag'
@@ -48,6 +49,7 @@ const launcher = useLauncherStore()
 const wm = useWindowManager()
 // Install the global motion policy before any window toolbar is mounted.
 useMotion()
+useMobileViewport()
 const kickoff = useKickoff()
 
 /**
@@ -646,6 +648,24 @@ const openInstallWindow = (event?: Event) => {
 }
 const refreshAuthGate = () => void store.checkAuthStatus()
 
+// Native HOME is not Back: dismiss transient surfaces and minimize sheets,
+// preserving their state so they can be reopened from the launcher.
+function handleAndroidHome() {
+  if (!isAndroidApp()) return
+  store.currentPanel = 'files'
+  store.searchQuery = ''
+  store.commandPaletteOpen = false
+  store.showShortcutsHelp = false
+  store.createFolderPromptOpen = false
+  showUploadDialog.value = false
+  confirmVisible.value = false
+  launcher.setDrawer(false)
+  launcher.setMessagesOpen(false)
+  ctx.close()
+  wm.minimizeAll()
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+}
+
 // Android system back follows the mobile stack: transient UI → active app →
 // Files path. At Home it stays in the launcher instead of leaving the WebView.
 // The whole hook is gated on `isAndroidApp()` (= Tauri + Android UA): a plain
@@ -828,6 +848,12 @@ onMounted(() => {
   try {
     if (isAndroidApp()) window.history.pushState({ cybermanju: true }, '')
   } catch {}
+  if (isAndroidApp()) {
+    window.addEventListener('cybermanju:android-home', handleAndroidHome)
+    // Acknowledge readiness only after listeners are installed. Kotlin retries
+    // cold HOME delivery until this flag exists; ordinary resumes do not reset UI.
+    ;(window as unknown as Record<string, unknown>).__CYBERMANJU_HOME_READY__ = true
+  }
 })
 
 onBeforeUnmount(() => {
@@ -842,6 +868,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('popstate', handleAndroidBack)
   window.removeEventListener('online', handleOnlineStatus)
   window.removeEventListener('offline', handleOnlineStatus)
+  window.removeEventListener('cybermanju:android-home', handleAndroidHome)
+  delete (window as unknown as Record<string, unknown>).__CYBERMANJU_HOME_READY__
 })
 </script>
 

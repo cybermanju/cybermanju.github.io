@@ -4,7 +4,8 @@
 // only) plus the debounced `.cybermanju` mirror snapshot over
 // `snapshot_native_database`.
 // Exports: MobileFolderHandle, MobileFolderEntry, mobileVaultMirrorState,
-// supportsNativeScopedStorage, normalizeMobileVaultFileName, pickMobileFolder,
+// supportsNativeScopedStorage, isRemovableAndroidStorageFolder, listMobileFolders,
+// normalizeMobileVaultFileName, pickMobileFolder,
 // listMobileFolder, readMobileFolderFile, writeMobileFolderFile,
 // removeMobileFolderEntry, configureMobileVaultMirror, unlockMobileVaultMirror,
 // lockMobileVaultMirror, syncMobileVaultMirrorNow, scheduleMobileVaultMirrorSync,
@@ -96,6 +97,28 @@ export function supportsNativeScopedStorage(): boolean {
   }
 }
 
+/**
+ * Android's SAF tree URI carries the external-storage volume id. `primary`
+ * is emulated internal storage; any other volume id on Android's own
+ * ExternalStorageProvider is a removable/secondary volume (typically SD).
+ * Never infer removability from a display name or an inaccessible `/storage`
+ * path: Android scoped storage requires the user's persisted SAF grant.
+ */
+export function isRemovableAndroidStorageFolder(folder: Pick<MobileFolderHandle, 'uri'>): boolean {
+  if (!folder.uri) return false
+  try {
+    const uri = new URL(folder.uri)
+    if (uri.protocol !== 'content:' || uri.hostname !== 'com.android.externalstorage.documents') return false
+    const treeSegment = uri.pathname.match(/(?:^|\/)tree\/([^/]+)/)?.[1]
+    if (!treeSegment) return false
+    const treeId = decodeURIComponent(treeSegment)
+    const volumeId = treeId.split(':', 1)[0]
+    return !!volumeId && volumeId.toLowerCase() !== 'primary'
+  } catch {
+    return false
+  }
+}
+
 /** Normalize a user-visible basename and prevent path traversal through SAF. */
 export function normalizeMobileVaultFileName(input: string): string {
   const trimmed = input.trim()
@@ -114,6 +137,22 @@ export async function pickMobileFolder(): Promise<MobileFolderHandle> {
   const folder = await pickFolder()
   if (!folder?.id) throw new Error('The system folder picker returned no folder handle.')
   return { id: String(folder.id), name: String(folder.name || 'Folder'), uri: folder.uri ?? undefined }
+}
+
+/** Existing persisted SAF grants; removable-volume access is user-granted, not probed from raw paths. */
+export async function listMobileFolders(): Promise<MobileFolderHandle[]> {
+  if (!supportsNativeScopedStorage()) {
+    throw new Error('List granted folders from the native Android or iOS app.')
+  }
+  const { listFolders } = await import('tauri-plugin-scoped-storage-api')
+  const folders = await listFolders()
+  return folders
+    .filter(folder => typeof folder?.id === 'string' && !!folder.id)
+    .map(folder => ({
+      id: String(folder.id),
+      name: String(folder.name || 'Folder'),
+      uri: folder.uri ?? undefined,
+    }))
 }
 
 export async function listMobileFolder(folderId: string, path = ''): Promise<MobileFolderEntry[]> {

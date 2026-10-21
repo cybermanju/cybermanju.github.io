@@ -34,6 +34,20 @@ describe('AGENT-1 prefix → hint matrix', () => {
     expect(describeSyncError('weird boom').hint.length).toBeGreaterThan(0)
     expect(agentErrorHint('weird boom').hint.length).toBeGreaterThan(0)
   })
+
+  it('does not misdiagnose a missing local mount as deleted cloud data', () => {
+    const error = describeSyncError('not_found: provider mount 19c173c8-e52e-40b2-9fb1-6d65c13f056f')
+    expect(error.prefix).toBe('not_found')
+    expect(error.hint).toContain('not available locally')
+    expect(error.hint).toContain('does not mean your cloud files were deleted')
+    expect(error.hint).not.toContain('restore from another provider')
+    expect(describeSyncError('not_found: no provider mount `Drive`').hint).toContain('Refresh Providers')
+  })
+
+  it('does not assert remote deletion for other missing records', () => {
+    expect(describeSyncError('not_found: sync config missing').hint).toContain('requested item')
+    expect(describeSyncError('not_found: file abc').hint).not.toContain('is gone')
+  })
 })
 
 describe('REST route shape invariants', () => {

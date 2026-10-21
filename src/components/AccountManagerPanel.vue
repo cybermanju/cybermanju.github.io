@@ -3280,4 +3280,27 @@ label.small:has(input[type='checkbox']) {
   .am-auth-required { align-items: flex-start; flex-wrap: wrap; }
   .am-auth-required .am-btn { margin-left: 0; }
 }
+
+
+/* Touch layout for the account surface also applies in 561–700px sheets. */
+@container account-manager (max-width: 700px) {
+  .am { min-width: 0; }
+  .am-top, .am-work-head, .am-banner, .am-identity-row { min-width: 0; flex-wrap: wrap; }
+  .am-top-actions { margin-left: auto; }
+  .am-body, .am-work, .am-section, .am-detail-col { min-width: 0; }
+  .am-tabs { max-width: 100%; }
+  .am-tab { min-height: 44px; flex: 0 0 auto; }
+  .am-btn, .am-icon-btn, .am-prov-del, .am-login, .am-logo-pick { min-height: 44px; }
+  .am-icon-btn { min-width: 44px; }
+  .am-btn { white-space: normal; }
+  .am-banner { align-items: flex-start; }
+  .am-banner .am-btn { margin-left: 0; }
+  .am-input, .am-search-input, .am-select, .am-textarea { min-width: 0; max-width: 100%; }
+  .am-input, .am-search-input, .am-select, .am-textarea { font-size: 16px; }
+  .am-login-grid { grid-template-columns: minmax(0, 1fr); }
+  .am-login { min-width: 0; }
+  .am-login-label, .am-login-sub { overflow-wrap: anywhere; }
+  .am-flyout { overflow: hidden; }
+  .am-flyout-scroll { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+}
 </style>

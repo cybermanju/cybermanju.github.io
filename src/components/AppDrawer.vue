@@ -7,19 +7,23 @@
   <Teleport to="body">
     <Transition name="drawer">
       <div
-        v-if="launcher.drawerOpen"
-        class="app-drawer-veil"
+        v-if="launcher.drawerOpen || revealProgress > 0"
+          class="app-drawer-veil"
+          :class="[`theme-${themeId}`, `drawer-display-${launcher.drawerDisplay}`, { 'is-preview': !launcher.drawerOpen }]"
+        :style="!launcher.drawerOpen ? { background: `rgba(0, 0, 0, ${revealProgress * .4})` } : undefined"
+        :aria-hidden="!launcher.drawerOpen"
+        :inert="!launcher.drawerOpen"
         role="dialog"
         aria-modal="true"
         aria-label="All apps"
         @click.self="close"
       >
-        <section class="app-drawer" @touchstart.passive="onSheetTouchStart" @touchend.passive="onSheetTouchEnd">
+        <section ref="sheetRef" class="app-drawer" :style="!launcher.drawerOpen ? { transform: `translateY(${(1 - revealProgress) * 100}%)` } : undefined" @touchstart.passive="onSheetTouchStart" @touchend.passive="onSheetTouchEnd" @touchcancel.passive="resetSheetGesture">
           <div class="drawer-handle" aria-hidden="true" />
           <header class="drawer-head">
             <div class="drawer-title">
               <h2>Apps</h2>
-              <span class="drawer-count">{{ ordered.length }}</span>
+              <span class="drawer-count">{{ browser.supported ? ordered.length : builtInApps.length }}</span>
             </div>
             <button class="drawer-close" type="button" aria-label="Close app drawer" @click="close">
               <AppIcon name="solar:close-circle-bold" :size="20" />
@@ -41,10 +45,19 @@
             </button>
           </label>
 
-          <p v-if="!browser.supported" class="drawer-note">
-            Android apps list in the native Android build. This device shows the CyberManju panels instead.
-            <button class="drawer-btn" type="button" @click="openInstall">Install options</button>
-          </p>
+          <div class="drawer-display" role="group" aria-label="App drawer display">
+            <button v-for="mode in displayModes" :key="mode.value" class="drawer-display-btn" type="button" :aria-pressed="launcher.drawerDisplay === mode.value" @click="launcher.setDrawerDisplay(mode.value)">{{ mode.label }}</button>
+          </div>
+
+          <template v-if="!browser.supported">
+            <div v-if="visibleBuiltIns.length" ref="gridRef" class="drawer-grid" aria-label="All CyberManju apps">
+              <button v-for="(app, index) in visibleBuiltIns" :key="app.panel" class="drawer-app drawer-cell" :style="{ '--reveal-delay': `${Math.min(index, 12) * 20}ms` }" type="button" :aria-label="`Open ${app.label}`" @click="openBuiltIn(app.panel)">
+                <span v-if="showIcons" class="drawer-tile" aria-hidden="true" :style="isFlatAmoled ? { background: 'transparent', color: '#fff' } : { background: app.tint, color: '#fff' }"><AppIcon :name="app.icon" :size="26" /></span>
+                <span v-if="showNames" class="drawer-name">{{ app.label }}</span>
+              </button>
+            </div>
+            <p v-else class="drawer-state">No apps match “{{ query }}”.</p>
+          </template>
 
           <div v-else-if="browser.status.value === 'loading'" class="drawer-state" role="status">
             <span class="drawer-spinner" aria-hidden="true" />
@@ -65,40 +78,43 @@
             v-else-if="visible.length"
             ref="gridRef"
             class="drawer-grid"
-            role="listbox"
+            role="list"
             aria-label="Installed apps"
           >
             <div
-              v-for="row in visible"
+              v-for="(row, index) in visible"
               :key="row.key"
               class="drawer-cell"
-              role="option"
-              :aria-selected="false"
+              :style="{ '--reveal-delay': `${Math.min(index, 12) * 20}ms` }"
+              role="listitem"
               :aria-label="row.name"
             >
               <button
                 class="drawer-app"
                 type="button"
-                :title="row.app.packageName"
+                :aria-label="`Open ${row.name}`"
+                :title="`${row.name} — ${row.app.packageName}`"
                 @click="onTap(row)"
                 @pointerdown="onPressStart(row, $event)"
+                @pointermove="onPressMove"
                 @pointerup="onPressEnd"
                 @pointerleave="onPressEnd"
                 @pointercancel="onPressEnd"
                 @contextmenu.prevent="onContextMenu(row)"
               >
-                <span class="drawer-tile">
+                <span v-if="showIcons" class="drawer-tile" aria-hidden="true">
                   <img
-                    v-if="tileFor(row).kind === 'image'"
+                    v-if="row.tile.kind === 'image'"
                     class="drawer-img"
-                    :src="tileFor(row).src"
-                    :alt="`${row.name} icon`"
+                    :src="row.tile.src"
+                    alt=""
                     loading="lazy"
+                    decoding="async"
                     draggable="false"
                   />
-                  <span v-else class="drawer-letter" aria-hidden="true">{{ tileFor(row).src }}</span>
+                  <span v-else class="drawer-letter" aria-hidden="true">{{ row.tile.src }}</span>
                 </span>
-                <span class="drawer-name">{{ row.name }}</span>
+                <span v-if="showNames" class="drawer-name">{{ row.name }}</span>
               </button>
               <span v-if="row.app.systemApp" class="drawer-sys" title="System app">sys</span>
             </div>
@@ -185,9 +201,13 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useFocusTrap } from '@/composables/useFocusTrap'
+import { useWindowManager } from '@/composables/useWindowManager'
+import type { PanelType } from '@/types'
 import { useAndroidApps } from '@/composables/useAndroidApps'
 import { useLauncherStore } from '@/stores/launcher'
+import { useTheme } from '@/composables/useTheme'
 import { useAppStore } from '@/stores/app'
 import {
   displayIcon,
@@ -199,9 +219,24 @@ import {
 import { requestInstallWindow, isInstallNeededError } from '@/utils/installLinks'
 import { describeSyncError, type IconPack } from '@/types'
 
+const props = withDefaults(defineProps<{
+  revealProgress?: number
+  builtInApps?: { panel: PanelType; label: string; icon: string; tint: string }[]
+}>(), { revealProgress: 0, builtInApps: () => [] })
+const wm = useWindowManager()
 const browser = useAndroidApps()
 const launcher = useLauncherStore()
 const store = useAppStore()
+const theme = useTheme()
+const themeId = computed(() => String(theme.themeId.value))
+const isFlatAmoled = computed(() => themeId.value === 'flat-amoled')
+const displayModes = [
+  { value: 'names', label: 'Names only' },
+  { value: 'icons', label: 'Icons only' },
+  { value: 'both', label: 'Names & icons' },
+]
+const showIcons = computed(() => launcher.drawerDisplay !== 'names')
+const showNames = computed(() => launcher.drawerDisplay !== 'icons')
 
 /** Open the Install window (native builds per platform, App × CLI). */
 function openInstall() {
@@ -209,6 +244,14 @@ function openInstall() {
 }
 
 const query = ref('')
+const sheetRef = ref<HTMLElement | null>(null)
+const drawerActive = computed(() => launcher.drawerOpen)
+useFocusTrap(sheetRef, drawerActive)
+const visibleBuiltIns = computed(() => props.builtInApps.filter(app => app.label.toLowerCase().includes(query.value.trim().toLowerCase())))
+function openBuiltIn(panel: PanelType) { close(); wm.open(panel) }
+function onEscape(event: KeyboardEvent) { if (event.key === 'Escape' && launcher.drawerOpen) close() }
+onMounted(() => document.addEventListener('keydown', onEscape))
+onUnmounted(() => document.removeEventListener('keydown', onEscape))
 const active = ref<OrderedApp | null>(null)
 const aliasDraft = ref('')
 const packDraft = ref('')
@@ -225,9 +268,12 @@ let longPressed = false
  * the follow-up `click` run `onTap` and launch the app under the sheet. */
 let contextMenuFired = false
 let sheetStartY: number | null = null
+let sheetStartX: number | null = null
+let sheetCanDismiss = false
+let pressStart: { x: number; y: number } | null = null
 
 const ordered = computed(() => orderAndroidApps(browser.apps.value, launcher.overrides))
-const visible = computed(() => filterOrderedApps(ordered.value, query.value))
+const visible = computed(() => filterOrderedApps(ordered.value, query.value).map(row => ({ ...row, tile: tileFor(row) })))
 
 /** AGENT-1 hint for the app-list error — the raw `network:`/`unsupported:`
  * prefix is never rendered alone (same `describeSyncError` mapping the
@@ -278,6 +324,8 @@ watch(active, () => {
 
 function close() {
   active.value = null
+  onPressEnd()
+  resetSheetGesture()
   launcher.setDrawer(false)
 }
 
@@ -298,26 +346,39 @@ onMounted(() => {
 watch(
   () => launcher.drawerOpen,
   (open) => {
+    if (open) query.value = ''
     if (open && browser.supported) {
-      query.value = ''
       void browser.refresh().catch(() => {})
       void browser.refreshIconPacks().then((rows) => { packs.value = rows }).catch(() => {})
     }
-    if (!open) active.value = null
+    if (!open) {
+      active.value = null
+      onPressEnd()
+      resetSheetGesture()
+    }
   },
 )
 
 /** Swipe-down on the sheet dismisses the drawer (mirror of swipe-up open). */
 function onSheetTouchStart(e: TouchEvent) {
   sheetStartY = e.touches[0]?.clientY ?? null
+  sheetStartX = e.touches[0]?.clientX ?? null
+  // Decide at gesture start: scrolling back to the top must not dismiss.
+  sheetCanDismiss = e.touches.length === 1 && !active.value &&
+    (gridRef.value?.scrollTop ?? 0) <= 8 &&
+    !(e.target as HTMLElement | null)?.closest('input, textarea, .custom-sheet, .drawer-display')
 }
 function onSheetTouchEnd(e: TouchEvent) {
-  if (sheetStartY == null || active.value) return
-  const y = e.changedTouches[0]?.clientY ?? sheetStartY
-  // Only dismiss when the grid is already at the top — otherwise a normal
-  // downward scroll of the app list would slam the drawer shut.
-  if (y - sheetStartY > 96 && (gridRef.value?.scrollTop ?? 0) <= 8) close()
+  const point = e.changedTouches[0]
+  const dismiss = sheetCanDismiss && !active.value && sheetStartY != null && sheetStartX != null && point &&
+    point.clientY - sheetStartY > 96 && Math.abs(point.clientX - sheetStartX) < 60
+  resetSheetGesture()
+  if (dismiss) close()
+}
+function resetSheetGesture() {
   sheetStartY = null
+  sheetStartX = null
+  sheetCanDismiss = false
 }
 
 async function onTap(row: OrderedApp) {
@@ -340,6 +401,7 @@ async function onTap(row: OrderedApp) {
 
 function onPressStart(row: OrderedApp, e: PointerEvent) {
   if (e.pointerType === 'mouse' && e.button !== 0) return
+  pressStart = { x: e.clientX, y: e.clientY }
   longPressed = false
   contextMenuFired = false
   if (pressTimer) clearTimeout(pressTimer)
@@ -352,12 +414,18 @@ function onPressStart(row: OrderedApp, e: PointerEvent) {
   }, 550)
 }
 
+function onPressMove(e: PointerEvent) {
+  if (pressStart && Math.hypot(e.clientX - pressStart.x, e.clientY - pressStart.y) > 10) onPressEnd()
+}
+
 function onPressEnd() {
+  pressStart = null
   if (pressTimer) {
     clearTimeout(pressTimer)
     pressTimer = null
   }
 }
+onUnmounted(onPressEnd)
 
 /** Right-click / Android touch long-press — the WebView's `contextmenu`
  * arrives at ~500ms, before the 550ms timer: cancel the timer (so it cannot
@@ -475,7 +543,9 @@ function resetActive() {
 }
 .app-drawer {
   width: min(560px, 100vw);
-  max-height: min(86dvh, 720px);
+  max-height: min(calc(var(--mobile-viewport-height, 100dvh) - env(safe-area-inset-top, 0px) - 16px), 800px);
+  height: min(86dvh, 800px);
+  box-sizing: border-box;
   min-height: 40dvh;
   display: flex;
   flex-direction: column;
@@ -488,6 +558,7 @@ function resetActive() {
   color: var(--ui-text);
   box-shadow: var(--ui-shadow-3);
   overflow: hidden;
+  transition: transform 380ms cubic-bezier(.22, 1, .36, 1);
 }
 .drawer-handle {
   width: 44px;
@@ -566,6 +637,39 @@ function resetActive() {
   font-size: 13px;
   text-align: center;
 }
+.drawer-display {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+.drawer-display-btn {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-text-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.drawer-display-btn[aria-pressed="true"] {
+  border-color: var(--ui-border-strong);
+  background: var(--ui-surface-2);
+  color: var(--ui-text);
+}
+.drawer-app:focus-visible,
+.drawer-display-btn:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: -2px;
+}
+.drawer-display-names .drawer-grid { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.drawer-display-names .drawer-app { min-height: 48px; align-items: flex-start; justify-content: center; padding: 10px 12px; }
+.drawer-display-names .drawer-name { font-size: 15px; line-height: 1.4; text-align: start; }
+.drawer-display-names .drawer-sys { top: 4px; }
+.drawer-display-icons .drawer-app { min-height: 72px; justify-content: center; }
 .drawer-state {
   display: flex;
   flex-direction: column;
@@ -593,6 +697,9 @@ function resetActive() {
   to { transform: rotate(360deg); }
 }
 .drawer-grid {
+  min-height: 0;
+  flex: 1;
+  overscroll-behavior: contain;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px 6px;
@@ -618,6 +725,7 @@ function resetActive() {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: pan-x pan-y;
+  transition: transform 150ms ease-out, opacity 150ms ease-out;
 }
 .drawer-app:active {
   transform: scale(0.92);
@@ -772,11 +880,11 @@ function resetActive() {
 }
 .drawer-enter-active,
 .drawer-leave-active {
-  transition: opacity 180ms ease;
+  transition: opacity 280ms ease;
 }
 .drawer-enter-active .app-drawer,
 .drawer-leave-active .app-drawer {
-  transition: transform 220ms cubic-bezier(0.32, 0.9, 0.35, 1);
+  transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .drawer-enter-from,
 .drawer-leave-to {
@@ -784,6 +892,88 @@ function resetActive() {
 }
 .drawer-enter-from .app-drawer,
 .drawer-leave-to .app-drawer {
-  transform: translateY(40px);
+  transform: translateY(100%);
+}
+.app-drawer-veil.is-preview { pointer-events: none; }
+.is-preview .app-drawer { will-change: transform; transition: none; }
+.drawer-enter-active .drawer-cell { animation: drawer-reveal 260ms cubic-bezier(.22, 1, .36, 1) both; animation-delay: var(--reveal-delay, 0ms); }
+@keyframes drawer-reveal { from { opacity: 0; transform: translateY(22px) scale(.94); } to { opacity: 1; transform: none; } }
+
+/* Modern glass follows the effective token blur/saturation, including the
+   user's solid-glass and reduced-transparency preferences. */
+.theme-modern-glass.app-drawer-veil {
+  background: color-mix(in srgb, var(--ui-bg-deep) 34%, transparent);
+  backdrop-filter: blur(var(--ui-blur, 0px)) saturate(var(--ui-saturate, 1));
+  -webkit-backdrop-filter: blur(var(--ui-blur, 0px)) saturate(var(--ui-saturate, 1));
+}
+.theme-modern-glass .app-drawer {
+  border-color: color-mix(in srgb, var(--ui-border-strong) 55%, rgba(255,255,255,.3));
+  background: var(--ui-glass);
+  box-shadow: 0 18px 48px rgba(8, 16, 32, .18), inset 0 1px rgba(255,255,255,.2);
+  backdrop-filter: blur(var(--ui-blur, 0px)) saturate(var(--ui-saturate, 1));
+  -webkit-backdrop-filter: blur(var(--ui-blur, 0px)) saturate(var(--ui-saturate, 1));
+}
+.theme-modern-glass .drawer-search { background: color-mix(in srgb, var(--ui-surface) 64%, transparent); }
+
+/* Flat AMOLED drawer: true black canvas, monochrome glyphs and names, and
+   no tile gradients, shadows, color badges, or frosted/glass effects. */
+.theme-flat-amoled.app-drawer-veil {
+  background: #000;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.theme-flat-amoled .app-drawer {
+  border-color: rgba(255,255,255,.16);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: #000;
+  color: #fff;
+  box-shadow: none;
+}
+.theme-flat-amoled .drawer-handle { background: rgba(255,255,255,.64); }
+.theme-flat-amoled .drawer-title h2,
+.theme-flat-amoled .drawer-count,
+.theme-flat-amoled .drawer-name,
+.theme-flat-amoled .drawer-letter,
+.theme-flat-amoled .drawer-state,
+.theme-flat-amoled .custom-title { color: #fff; }
+.theme-flat-amoled .drawer-close,
+.theme-flat-amoled .drawer-search,
+.theme-flat-amoled .custom-sheet,
+.theme-flat-amoled .custom-input,
+.theme-flat-amoled .drawer-btn {
+  border-color: rgba(255,255,255,.24);
+  border-radius: 8px;
+  background: #000;
+  color: #fff;
+  box-shadow: none;
+}
+.theme-flat-amoled .drawer-search { border: 0; border-bottom: 1px solid rgba(255,255,255,.24); border-radius: 0; }
+.theme-flat-amoled .drawer-search-input,
+.theme-flat-amoled .drawer-search-input::placeholder,
+.theme-flat-amoled .drawer-clear,
+.theme-flat-amoled .custom-label,
+.theme-flat-amoled .custom-pkg { color: #fff; }
+.theme-flat-amoled .drawer-tile {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #fff;
+}
+.theme-flat-amoled .drawer-img { filter: grayscale(1) brightness(0) invert(1); }
+.theme-flat-amoled .drawer-sys { display: none; }
+.theme-flat-amoled .drawer-btn.primary { border-color: #fff; background: #fff; color: #000; }
+.theme-flat-amoled .drawer-btn.danger { color: #fff; }
+.theme-flat-amoled .custom-sheet { border-radius: 0; }
+.theme-flat-amoled .drawer-display-btn { border-radius: 0; background: #000; color: #fff; }
+.theme-flat-amoled .drawer-display-btn[aria-pressed="true"] { border-color: #fff; }
+.theme-flat-amoled .drawer-tile { width: 40px; height: 40px; }
+.theme-flat-amoled .drawer-app { border-radius: 0; }
+.theme-flat-amoled .drawer-app:active { transform: scale(.97); opacity: .7; }
+
+@media (prefers-reduced-motion: reduce) {
+  .app-drawer, .drawer-app { transition: none !important; }
+  .drawer-enter-active, .drawer-leave-active, .drawer-enter-active .app-drawer, .drawer-leave-active .app-drawer { transition: none; }
+  .drawer-enter-active .drawer-cell { animation: none; }
 }
 </style>

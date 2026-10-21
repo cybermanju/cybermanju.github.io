@@ -96,9 +96,9 @@ describe('stack navigation integration', () => {
   })
 })
 
-describe('phone chrome: status-bar strip + one header', () => {
-  it('sizes the top strip from --mobile-header-h instead of a 52px bar', () => {
-    expect(ui).toContain('--mobile-header-h: 26px')
+describe('phone chrome: visible status and window headers', () => {
+  it('reserves a touch-friendly 48px status header', () => {
+    expect(ui).toContain('--mobile-header-h: 48px')
     expect(topbar).toMatch(/height:\s*var\(--mobile-header-h\)/)
     expect(topbar).toMatch(/min-height:\s*var\(--mobile-header-h\)/)
     expect(topbar).not.toContain('calc(52px + env(safe-area-inset-top')
@@ -114,11 +114,10 @@ describe('phone chrome: status-bar strip + one header', () => {
     )
   })
 
-  it('drops the generic sheet titlebar for Settings so the stack header is the only one', () => {
-    expect(appWindow).toContain("'app-window--bare-title': isBareTitle")
-    expect(appWindow).toContain(`props.win.panelType === 'settings'`)
-    expect(appWindow).toMatch(/\.app-window--bare-title \.window-titlebar\s*\{\s*display:\s*none/)
-    // Other panels keep a standard 44px mobile nav bar.
-    expect(appWindow).toMatch(/\.window-titlebar\s*\{[^}]*height:\s*44px/)
+  it('keeps the window titlebar visible for every mobile app', () => {
+    expect(appWindow).not.toContain('app-window--bare-title')
+    expect(appWindow).toMatch(/\.window-titlebar\s*\{[^}]*height:\s*48px/)
+    expect(appWindow).toContain('aria-label="Close window"')
+    expect(appWindow).toContain('aria-label="Minimize window"')
   })
 })

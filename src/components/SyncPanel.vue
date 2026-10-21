@@ -310,8 +310,11 @@ async function browseRemote() {
 .sync-panel {
   width: 100%;
   height: 100%;
+  box-sizing: border-box;
+  min-width: 0;
   background: var(--ui-surface);
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left));
   font-family: var(--ui-font);
   color: var(--ui-text);
@@ -405,10 +408,9 @@ async function browseRemote() {
 
 /* Phones: keep each interaction group calm, stacked and comfortably tappable.
    The desktop arrangement above remains the default. */
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .sync-panel {
-    padding-top: max(12px, env(safe-area-inset-top));
-    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   }
 
   .panel-header { align-items: center; gap: 12px; }
@@ -428,6 +430,7 @@ async function browseRemote() {
   .w-row { flex-direction: column; gap: 8px; }
   .w-row .w-field, .w-row .w-field.grow { flex: 1 1 auto; width: 100%; min-width: 0; }
   .w-row > :deep(.ui-btn), .w-actions :deep(.ui-btn) { width: 100%; }
+  .w-field > :deep(.ui-input), .w-field > :deep(.ui-select) { width: 100%; min-width: 0; }
   .w-row .sync-primary-action { order: -1; }
   .p-row { align-items: baseline; }
   .run-card { align-items: flex-start; flex-wrap: wrap; padding: 8px; line-height: 1.35; }

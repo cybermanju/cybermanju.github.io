@@ -372,16 +372,23 @@ body.cybermanju-offline .server-only {
    last 64px + safe-area. Form fields stay at 16px to prevent WebView zoom;
    compact icon controls keep their intended dimensions. */
 
-/* Phone header height — status-bar sized, NOT a desktop menu bar. The
+/* Phone header height — touch-friendly status and appearance controls. The
    notch/system status bar is already absorbed by `.cybermanju-shell`'s
    safe-area padding (the shell starts below the OS status bar), so this is
    the whole top chrome: one slim strip + its one shared sheet offset.
    TopMenuBar renders it; every fixed sheet top's off it (below). */
 :root {
-  --mobile-header-h: 26px;
+  --mobile-header-h: 48px;
+  --mobile-nav-h: 64px;
 }
 
 @media (max-width: 768px) {
+  .cybermanju-shell {
+    height: var(--mobile-viewport-height, 100dvh) !important;
+    min-height: 0;
+  }
+  [data-mobile-keyboard='true'] { --mobile-nav-h: 0px; }
+  [data-mobile-keyboard='true'] .mobile-nav { display: none !important; }
   /* Perf: phones get zero backdrop-blur (GPU killer) — vibrancy surfaces
      fall back to near-opaque tints, so solid fills look identical. */
   * {
@@ -440,7 +447,7 @@ body.cybermanju-offline .server-only {
     inset: auto !important;
     top: calc(env(safe-area-inset-top, 0px) + var(--mobile-header-h)) !important;
     right: env(safe-area-inset-right, 0px) !important;
-    bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+    bottom: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px) + var(--mobile-keyboard-inset, 0px)) !important;
     left: env(safe-area-inset-left, 0px) !important;
     width: auto !important;
     height: auto !important;
@@ -637,4 +644,69 @@ body.cybermanju-offline .server-only {
 .app-window--narrow .sh-shield .nist-viz,
 .app-window--narrow .sh-shield .status-meta {
   flex-wrap: wrap;
+}
+
+/* Accessibility preferences override appearance, not the user's saved theme.
+   Keep content solid even in Modern Glass; effects belong to navigation. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root {
+    --ui-blur: 0px !important;
+    --ui-blur-strong: 0px !important;
+    --ui-saturate: 100% !important;
+    --ui-glass: var(--ui-surface) !important;
+    --ui-glass-2: var(--ui-surface) !important;
+    --ui-window: var(--ui-surface) !important;
+    --ui-window-idle: var(--ui-surface) !important;
+    --ui-sidebar: var(--ui-surface) !important;
+    --ui-panel: var(--ui-surface) !important;
+    --ui-glass-sheen: none !important;
+  }
+}
+
+[data-ui-theme='flat-amoled'] .mobile-nav {
+  background: #000;
+  border-color: #252525;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+[data-ui-theme='flat-amoled'] .mobile-nav button { color: #fff; }
+
+[data-ui-theme='flat-amoled'] .top-menu-bar {
+  background: #000;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+[data-ui-theme='flat-amoled'] .logo-mark img { filter: grayscale(1) brightness(0) invert(1); }
+[data-ui-theme='flat-amoled'] .tmb-dot { background: #fff; box-shadow: none; }
+[data-ui-theme='flat-amoled'] .tray-badge { background: #fff; color: #000; }
+@media (max-width: 768px) {
+  [data-ui-theme='flat-amoled'] .tmb-mobile-meta { display: none; }
+}
+
+/* Modern Glass shares the same quiet light direction across navigation.
+   Body panels stay opaque; no full-window blur or continuously animated blobs. */
+[data-ui-theme='modern-glass'] .desktop-shell .top-menu-bar,
+[data-ui-theme='modern-glass'] .desktop-shell .dock,
+[data-ui-theme='modern-glass'] .desktop-shell .shell-dock {
+  background-image: var(--ui-glass-sheen);
+  box-shadow: var(--ui-glass-shadow), var(--ui-glass-edge);
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root {
+    --ui-ambient-background: var(--ui-bg) !important;
+    --ui-glass-reading: var(--ui-surface) !important;
+    --ui-glass-edge: inset 0 0 0 transparent !important;
+    --ui-glass-shadow: 0 0 0 transparent !important;
+  }
+  [data-ui-theme='modern-glass'] .desktop-aurora,
+  [data-ui-theme='modern-glass'] .mla::before { display: none; }
+}
+@media (prefers-contrast: more) {
+  [data-ui-theme='modern-glass'] {
+    --ui-border: var(--ui-text-2) !important;
+    --ui-border-strong: var(--ui-text) !important;
+  }
 }

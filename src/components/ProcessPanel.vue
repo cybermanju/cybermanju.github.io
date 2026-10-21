@@ -691,6 +691,8 @@ onBeforeUnmount(() => {
 <style scoped>
 .process-panel {
   height: 100%;
+  box-sizing: border-box;
+  min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--ui-surface);
@@ -1072,7 +1074,7 @@ onBeforeUnmount(() => {
   max-width: 260px;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 768px) {
   .process-panel {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
@@ -1086,6 +1088,8 @@ onBeforeUnmount(() => {
     min-width: 0;
     gap: 8px;
   }
+
+  .panel-title { letter-spacing: 1px; }
 
   .header-left .text-muted {
     overflow: hidden;
@@ -1108,6 +1112,8 @@ onBeforeUnmount(() => {
   .proc-tabs {
     padding: 10px 16px 0;
   }
+
+  .proc-tabs button { min-height: 44px; font-size: 11px; }
 
   .stats-row {
     display: grid;
@@ -1262,7 +1268,17 @@ onBeforeUnmount(() => {
 
   .sched-toolbar {
     align-items: flex-start;
+    flex-wrap: wrap;
   }
+
+  .sched-toolbar > :last-child { flex: 0 0 auto; }
+
+  .watch-grid { grid-template-columns: minmax(0, 1fr); }
+  .watch-agent { align-items: stretch; flex-direction: column; }
+  .watch-select { box-sizing: border-box; width: 100%; min-height: 44px; font-size: 16px; }
+  .sched-presets { gap: 8px; }
+  .sched-form :deep(input), .sched-form :deep(select) { box-sizing: border-box; max-width: 100%; min-height: 44px; font-size: 16px; }
+  .section > .ghost-btn, .section > .sched-toolbar .ghost-btn { min-height: 44px; }
 
   .sched-actions {
     justify-content: flex-start;

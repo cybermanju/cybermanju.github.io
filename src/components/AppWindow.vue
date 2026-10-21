@@ -13,7 +13,9 @@
       blurred: !isFocused,
       maximized: isMaximized,
       'app-window--narrow': isNarrow,
-      'app-window--bare-title': isBareTitle,
+      'app-window--managed-content': win.panelType === 'terminal' || win.panelType === 'editor',
+      'app-window--modern-glass': isModernGlass,
+      'app-window--flat-amoled': isFlatAmoled,
     }"
     :style="windowStyle"
     @pointerdown="onFocus"
@@ -62,7 +64,8 @@
 
         <div class="titlebar-spacer" />
 
-        <div class="titlebar-label" :title="win.title">{{ win.title }}</div>
+        <div class="titlebar-label" :title="win.title"><AppIcon v-if="isMobileApp" :name="win.icon" :size="18" />{{ win.title }}</div>
+        <button v-if="isMobileApp" class="titlebar-mobile-close titlebar-mobile-minimize" type="button" aria-label="Minimize window" @pointerdown.stop @click.stop="onMinimize"><AppIcon name="solar:minus-bold" :size="18" /></button>
 
         <div class="titlebar-spacer" />
       </template>
@@ -122,6 +125,8 @@ const isMobileApp = ref(false)
 let mobileWindowQuery: MediaQueryList | null = null
 function onMobileWindowChange(event: MediaQueryListEvent) { isMobileApp.value = event.matches }
 const isPlasma = computed(() => !isMobileApp.value && theme.shellStyle.value === 'plasma')
+const isModernGlass = computed(() => theme.themeId.value === 'modern-glass')
+const isFlatAmoled = computed(() => theme.themeId.value === 'flat-amoled')
 const wmShell = useWindowManager()
 const ctx = useContextMenu()
 const isMaximized = ref(false)
@@ -165,14 +170,6 @@ const winUi = provideWindowUi(
 )
 
 const isNarrow = computed(() => winUi.isNarrow.value)
-
-/**
- * Settings on a phone owns its whole header (large-title root + back bar for
- * the pushed section), so the generic sheet title would be a second, purely
- * decorative row — 44px the standard stack already spends. Every other panel
- * keeps the shared mobile titlebar.
- */
-const isBareTitle = computed(() => isMobileApp.value && props.win.panelType === 'settings')
 
 /** Setup/render crashes in the hosted panel (e.g. a TDZ in a panel's
  * setup()) otherwise leave a blank window with only a console error. */
@@ -529,6 +526,41 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
+/* Modern Glass keeps the hosted panel opaque for legibility; depth and glass
+   live in the frame and title strip, not behind body text. */
+.app-window--modern-glass {
+  border-color: color-mix(in srgb, var(--ui-text) 18%, transparent);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.30), 0 4px 12px rgba(0, 0, 0, 0.18), inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
+}
+.app-window--modern-glass.focused {
+  border-color: color-mix(in srgb, var(--ui-accent) 48%, var(--ui-border-strong));
+  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.36), 0 0 0 1px color-mix(in srgb, var(--ui-accent) 18%, transparent), inset 0 1px 0 color-mix(in srgb, white 12%, transparent);
+}
+.app-window--modern-glass.blurred {
+  border-color: color-mix(in srgb, var(--ui-text) 10%, transparent);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22), inset 0 1px 0 color-mix(in srgb, white 6%, transparent);
+}
+.app-window--modern-glass .window-titlebar {
+  background: var(--ui-window);
+  background-image: var(--ui-glass-sheen);
+  box-shadow: var(--ui-glass-edge);
+  border-bottom-color: color-mix(in srgb, var(--ui-text) 12%, transparent);
+}
+.app-window--modern-glass .window-content {
+  background: var(--ui-surface);
+}
+.app-window--flat-amoled {
+  border-color: rgba(255, 255, 255, 0.36);
+}
+.app-window--flat-amoled.focused {
+  border-color: #fff;
+  outline: 1px solid rgba(255, 255, 255, 0.5);
+  outline-offset: 1px;
+}
+.app-window--flat-amoled.blurred {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
 .app-window.maximized {
   border-radius: 0;
   border-left: none;
@@ -582,6 +614,8 @@ onUnmounted(() => {
 
 /* Centered 13px/600 title, no icon. Dimmed when the window is inactive. */
 .titlebar-label {
+  flex: 0 1 auto;
+  min-width: 0;
   font-family: var(--ui-font);
   font-size: 13px;
   font-weight: 600;
@@ -598,6 +632,7 @@ onUnmounted(() => {
 .app-window.focused .titlebar-label {
   color: var(--ui-text);
 }
+.app-window--modern-glass.focused .titlebar-label { font-weight: 650; }
 
 .titlebar-spacer {
   flex: 1;
@@ -627,6 +662,8 @@ onUnmounted(() => {
   gap: 6px;
   padding: 0 8px;
 }
+.window-titlebar--narrow .titlebar-spacer { min-width: 2px; }
+.window-titlebar--narrow .titlebar-label { flex: 0 1 18ch; }
 
 .window-titlebar--narrow .titlebar-label {
   font-size: var(--ui-fs-xs);
@@ -649,8 +686,13 @@ onUnmounted(() => {
 /* Mobile sheets: use a clean centered title and no draggable desktop chrome. */
 @media (max-width: 768px) {
   .window-titlebar {
-    height: 44px;
-    min-height: 44px;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    height: 48px;
+    min-height: 48px;
+    background: var(--ui-surface-2);
+    color: var(--ui-text);
+    border-bottom: 1px solid var(--ui-border-strong);
     padding: 0 12px;
     cursor: default;
   }
@@ -660,13 +702,13 @@ onUnmounted(() => {
   .titlebar-mobile-close {
     display: flex;
   }
-  .window-titlebar .titlebar-spacer:first-of-type {
+  .window-titlebar .titlebar-spacer {
     display: none;
   }
-  /* Settings renders its own nav bar (root large title / back stack). */
-  .app-window--bare-title .window-titlebar {
-    display: none;
-  }
+  .titlebar-label { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; max-width: none; color: var(--ui-text); }
+  .titlebar-mobile-minimize { margin: 0 -8px 0 0; }
+  .app-window--managed-content .window-content { overflow: hidden; scrollbar-gutter: auto; }
+  .app-window--managed-content .window-content > :deep(*) { height: 100%; min-height: 0; }
 }
 
 .window-content > :deep(*) {

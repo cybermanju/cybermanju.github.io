@@ -4,7 +4,7 @@
 <!-- Integrates: @/…, vue, @vueuse. -->
 <!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
-  <div ref="dockRef" class="shell-dock" :class="{ open: expanded }">
+  <div ref="dockRef" class="shell-dock" :style="dockPositionStyle" :class="{ open: expanded, 'shell-dock--modern-glass': isModernGlass, 'shell-dock--flat-amoled': isFlatAmoled }">
     <!-- Expanded cheat-sheet panel -->
     <div v-if="expanded" class="shell-dock-panel" role="dialog" aria-label="Shell shortcuts and window management">
       <div class="dock-panel-head">
@@ -105,6 +105,11 @@
       <div class="dock-foot">? help · Esc close · {{ inBrowser ? 'Browser: Alt+ fallbacks' : 'Tauri: all keys live' }}</div>
     </div>
 
+    <div class="shell-dock-position-controls" aria-label="Shortcut dock position controls">
+      <button class="shell-dock-position-control shell-dock-drag-handle" type="button" aria-label="Move shortcut dock" title="Drag to move shortcut dock; use arrow keys to nudge" @pointerdown.stop="startDockDrag" @keydown="moveDockByKey">Move</button>
+      <button class="shell-dock-position-control" type="button" aria-label="Reset shortcut dock position" title="Reset shortcut dock position" @click.stop="resetDockPosition">Reset</button>
+    </div>
+
     <!-- Collapsed FAB -->
     <button
       class="shell-dock-fab"
@@ -121,21 +126,211 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import { ref, computed, inject } from 'vue'
+import { ref, computed, inject, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { onClickOutside } from '@vueuse/core'
 import { ShortcutsKey } from '@/composables/shortcutsKey'
 import { useWindowManager, type ShellLayoutMode } from '@/composables/useWindowManager'
 import { isTauri } from '@/composables/useTauri'
 import { useTransport } from '@/composables/useTransport'
 import { useAppStore } from '@/stores/app'
+import { useTheme } from '@/composables/useTheme'
+import { createDragMomentum } from '@/utils/dragPhysics'
 
 const dockRef = ref<HTMLElement | null>(null)
 const expanded = ref(false)
 onClickOutside(dockRef, () => { expanded.value = false })
+const POSITION_KEY = 'cybermanju_shell_shortcut_dock_position_v1'
+const dockPosition = ref<{ left: number; top: number } | null>(null)
+type ShortcutDockDrag = { pointerId: number; x: number; y: number; left: number; top: number; target: HTMLElement; previousPosition: { left: number; top: number } | null; base: { left: number; top: number; width: number; height: number }; settling: boolean; moved: boolean }
+let dragOrigin: ShortcutDockDrag | null = null
+const dockMomentum = createDragMomentum()
+try {
+  const saved = localStorage.getItem(POSITION_KEY)
+  if (saved) {
+    const parsed = JSON.parse(saved) as { left?: unknown; top?: unknown }
+    if (typeof parsed.left === 'number' && Number.isFinite(parsed.left) && typeof parsed.top === 'number' && Number.isFinite(parsed.top)) {
+      dockPosition.value = { left: parsed.left, top: parsed.top }
+    }
+  }
+} catch { /* storage may be unavailable; keep the default position */ }
+
+const dockPositionStyle = computed(() => dockPosition.value
+  ? { left: `${dockPosition.value.left}px`, top: `${dockPosition.value.top}px`, right: 'auto', bottom: 'auto' }
+  : {})
+
+function clampDockPosition() {
+  if (!dockPosition.value || !dockRef.value) return
+  // The root's measured box includes the panel, position controls, and FAB.
+  const rect = dockRef.value.getBoundingClientRect()
+  dockPosition.value = {
+    left: Math.min(Math.max(0, window.innerWidth - rect.width), Math.max(0, dockPosition.value.left)),
+    top: Math.min(Math.max(0, window.innerHeight - rect.height), Math.max(0, dockPosition.value.top)),
+  }
+}
+
+function clampPoint(point: { x: number; y: number }, width: number, height: number) {
+  return {
+    x: Math.min(Math.max(0, window.innerWidth - width), Math.max(0, point.x)),
+    y: Math.min(Math.max(0, window.innerHeight - height), Math.max(0, point.y)),
+  }
+}
+
+function moveDock(e: PointerEvent) {
+  if (!dragOrigin || dragOrigin.settling || e.pointerId !== dragOrigin.pointerId) return
+  const delta = { x: e.clientX - dragOrigin.x, y: e.clientY - dragOrigin.y }
+  if (Math.hypot(delta.x, delta.y) > 1) dragOrigin.moved = true
+  dockMomentum.sample(delta)
+  const point = clampPoint({ x: dragOrigin.left + delta.x, y: dragOrigin.top + delta.y }, dragOrigin.base.width, dragOrigin.base.height)
+  dockPosition.value = { left: point.x, top: point.y }
+}
+
+function persistDockPosition() {
+  if (!dockPosition.value) return
+  try { localStorage.setItem(POSITION_KEY, JSON.stringify(dockPosition.value)) }
+  catch { /* private mode / quota — retain the position for this session */ }
+}
+
+function finishDockDrag(commit: boolean) {
+  if (!dragOrigin) return
+  const origin = dragOrigin
+  window.removeEventListener('pointermove', moveDock)
+  window.removeEventListener('pointerup', endDockDrag)
+  window.removeEventListener('pointercancel', onDockPointerCancel)
+  window.removeEventListener('blur', cancelDockDrag)
+  try {
+    if (origin.target.hasPointerCapture(origin.pointerId)) origin.target.releasePointerCapture(origin.pointerId)
+  } catch { /* capture may already be gone */ }
+  if (!commit) {
+    dockMomentum.stop()
+    dragOrigin = null
+    dockPosition.value = origin.previousPosition
+    return
+  }
+  if (!origin.moved) {
+    dockMomentum.stop()
+    dragOrigin = null
+    dockPosition.value = origin.previousPosition
+    return
+  }
+  origin.settling = true
+  window.addEventListener('blur', cancelDockDrag)
+  const position = { x: dockPosition.value?.left ?? origin.left, y: dockPosition.value?.top ?? origin.top }
+  dockMomentum.release({
+    position,
+    base: origin.base,
+    bounds: { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight },
+    update: point => { dockPosition.value = { left: point.x, top: point.y } },
+    complete: () => {
+      if (dragOrigin !== origin) return
+      window.removeEventListener('blur', cancelDockDrag)
+      dragOrigin = null
+      persistDockPosition()
+    },
+  })
+}
+
+function endDockDrag(e: PointerEvent) {
+  if (!dragOrigin || e.pointerId !== dragOrigin.pointerId) return
+  finishDockDrag(true)
+}
+
+function onDockPointerCancel(e: PointerEvent) {
+  if (!dragOrigin || e.pointerId !== dragOrigin.pointerId) return
+  cancelDockDrag()
+}
+
+function cancelDockDrag() {
+  finishDockDrag(false)
+}
+
+function startDockDrag(e: PointerEvent) {
+  if (!e.isPrimary || e.button !== 0) return
+  e.preventDefault()
+  const rect = dockRef.value?.getBoundingClientRect()
+  const target = e.currentTarget
+  if (!rect || !(target instanceof HTMLElement)) return
+  dockMomentum.stop()
+  dragOrigin = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, left: rect.left, top: rect.top, target, previousPosition: dockPosition.value ? { ...dockPosition.value } : null, base: { left: 0, top: 0, width: rect.width, height: rect.height }, settling: false, moved: false }
+  dockMomentum.sample({ x: 0, y: 0 })
+  dockPosition.value = { left: rect.left, top: rect.top }
+  try { target.setPointerCapture(e.pointerId) } catch { /* window listeners remain as a fallback */ }
+  window.addEventListener('pointermove', moveDock)
+  window.addEventListener('pointerup', endDockDrag)
+  window.addEventListener('pointercancel', onDockPointerCancel)
+  window.addEventListener('blur', cancelDockDrag)
+}
+
+function resetDockPosition() {
+  cancelDockDrag()
+  dockMomentum.stop()
+  dockPosition.value = null
+  try { localStorage.removeItem(POSITION_KEY) } catch { /* default applies for this session */ }
+}
+
+function onDockResize() {
+  if (dragOrigin) finishDockDrag(false)
+  clampDockPosition()
+}
+
+function moveDockByKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    cancelDockDrag()
+    return
+  }
+  const step = e.shiftKey ? 48 : 16
+  const movement: Record<string, { x: number; y: number }> = {
+    ArrowLeft: { x: -step, y: 0 },
+    ArrowRight: { x: step, y: 0 },
+    ArrowUp: { x: 0, y: -step },
+    ArrowDown: { x: 0, y: step },
+  }
+  if (e.key === 'Home') {
+    e.preventDefault()
+    resetDockPosition()
+    return
+  }
+  const delta = movement[e.key]
+  if (!delta) return
+  e.preventDefault()
+  const drag = dragOrigin
+  const rect = dockRef.value?.getBoundingClientRect()
+  if (!rect && !drag) return
+  const left = drag?.previousPosition?.left ?? drag?.left ?? rect!.left
+  const top = drag?.previousPosition?.top ?? drag?.top ?? rect!.top
+  const width = drag?.base.width ?? rect!.width
+  const height = drag?.base.height ?? rect!.height
+  if (drag) finishDockDrag(false)
+  const point = clampPoint({ x: left + delta.x, y: top + delta.y }, width, height)
+  dockPosition.value = { left: point.x, top: point.y }
+  persistDockPosition()
+}
+
+onMounted(() => {
+  clampDockPosition()
+  window.addEventListener('resize', onDockResize)
+})
+onUnmounted(() => {
+  window.removeEventListener('resize', onDockResize)
+  window.removeEventListener('pointermove', moveDock)
+  window.removeEventListener('pointerup', endDockDrag)
+  window.removeEventListener('pointercancel', onDockPointerCancel)
+  window.removeEventListener('blur', cancelDockDrag)
+  cancelDockDrag()
+})
+watch(expanded, async () => {
+  if (dragOrigin) finishDockDrag(false)
+  await nextTick()
+  clampDockPosition()
+  persistDockPosition()
+})
 
 const shortcuts = inject(ShortcutsKey, null)
 const wm = useWindowManager()
 const store = useAppStore()
+const theme = useTheme()
+const isModernGlass = computed(() => theme.themeId.value === 'modern-glass')
+const isFlatAmoled = computed(() => theme.themeId.value === 'flat-amoled')
 
 const inBrowser = computed(() => !isTauri())
 const transportShort = computed(() => useTransport().short)
@@ -229,7 +424,7 @@ function fireAction(action: string) {
 .shell-dock {
   position: fixed;
   right: 14px;
-  bottom: 44px;
+  bottom: 12px;
   z-index: 9900;
   display: flex;
   flex-direction: column;
@@ -237,6 +432,26 @@ function fireAction(action: string) {
   gap: 8px;
   font-family: var(--ui-font);
 }
+
+.shell-dock-position-controls {
+  display: flex;
+  gap: 4px;
+  margin-bottom: -4px;
+  z-index: 1;
+}
+.shell-dock-position-control {
+  padding: 3px 7px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-full);
+  color: var(--ui-text-2);
+  background: var(--ui-glass-2);
+  font: 600 10px var(--ui-font);
+  cursor: pointer;
+  touch-action: none;
+}
+.shell-dock-position-control:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.shell-dock-drag-handle { cursor: grab; }
+.shell-dock-drag-handle:active { cursor: grabbing; }
 
 .shell-dock-fab {
   display: inline-flex;
@@ -358,6 +573,27 @@ function fireAction(action: string) {
 .dock-fb { font-family: var(--ui-font-mono); font-size: 8.5px; color: var(--ui-warning); white-space: nowrap; }
 .dock-empty { padding: 12px; text-align: center; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
 .dock-foot { padding: 7px 12px; border-top: 1px solid var(--ui-border); font-family: var(--ui-font-mono); font-size: 9px; letter-spacing: 0.05em; text-align: center; color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
+
+
+.shell-dock--modern-glass .shell-dock-fab,
+.shell-dock--modern-glass .shell-dock-panel {
+  border-color: color-mix(in srgb, var(--ui-text) 20%, transparent);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.32), 0 0 0 1px color-mix(in srgb, white 5%, transparent), inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
+}
+.shell-dock--modern-glass .shell-dock-panel { background: var(--ui-surface-2); }
+.shell-dock--modern-glass .dock-panel-head { background: var(--ui-surface-2); }
+.shell-dock--flat-amoled .shell-dock-fab,
+.shell-dock--flat-amoled .shell-dock-panel {
+  background: #000;
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.shell-dock--flat-amoled .dock-panel-head { background: #000; }
+.shell-dock--flat-amoled .dock-mode,
+.shell-dock--flat-amoled .dock-act,
+.shell-dock--flat-amoled .dock-key { background: #080808; }
 
 @media (max-width: 560px) {
   .shell-dock { right: 10px; bottom: 70px; }

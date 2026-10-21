@@ -99,4 +99,9 @@ const narrow = computed(() => win.isNarrow.value)
 .ui-toolbar--narrow .ui-toolbar__trail {
   margin-left: auto;
 }
+@media (max-width: 768px) {
+  .ui-toolbar__lead, .ui-toolbar__trail { flex-wrap: wrap; max-width: 100%; }
+  .ui-toolbar__main { flex: 1 1 100%; }
+  .ui-toolbar__main:empty { display: none; }
+}
 </style>

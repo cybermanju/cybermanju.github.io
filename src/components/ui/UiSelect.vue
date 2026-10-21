@@ -138,4 +138,9 @@ defineExpose({ el: selectRef })
   transform: rotate(180deg);
   color: var(--ui-accent);
 }
+@media (max-width: 768px) {
+  .ui-select { max-width: 100%; }
+  .ui-select__native { height: 44px; font-size: 16px; width: 100%; }
+  .ui-select__label { font-size: 12px; overflow-wrap: anywhere; }
+}
 </style>

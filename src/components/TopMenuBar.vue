@@ -50,23 +50,11 @@
     </div>
 
     <div class="tmb-center">
-      <div class="search-wrap" :class="{ searching: store.isSearching, focused: searchFocused }">
+      <button class="search-wrap search-launcher" type="button" aria-label="Search anything" title="Search apps, files, people and the web (Ctrl+F)" @click="wm.open('search')">
         <AppIcon name="solar:magnifer-bold" :size="13" class="search-icon" />
-        <input
-          v-model="store.searchQuery"
-          class="search-input"
-          type="text"
-          placeholder="Search files…"
-          aria-label="Search files"
-          title="Search files (Ctrl+F) — Enter to search, Esc to clear"
-          @focus="searchFocused = true"
-          @blur="searchFocused = false"
-          @keyup.enter="handleSearch"
-          @keyup.esc="clearSearch"
-        />
-        <span v-if="store.isSearching" class="search-cursor" aria-hidden="true" />
-        <span v-else-if="searchQueryShort" class="search-hint">ENTER</span>
-      </div>
+        <span class="search-launcher-copy">{{ store.searchQuery || 'Search anything…' }}</span>
+        <kbd class="search-hint">Ctrl F</kbd>
+      </button>
     </div>
 
     <div class="tmb-right">
@@ -110,8 +98,11 @@
         <button
           class="tray-icon tray-icon--theme"
           type="button"
-          title="Cycle theme"
-          @click="theme.cycleTheme()"
+          title="Personalize appearance"
+          aria-label="Personalize appearance"
+          aria-haspopup="dialog"
+          :aria-expanded="appearanceOpen"
+          @click="appearanceOpen = !appearanceOpen"
         >
           <AppIcon :name="theme.mode.value === 'light' ? 'solar:sun-bold' : 'solar:moon-bold'" :size="14" />
         </button>
@@ -176,6 +167,21 @@
       </button>
     </div>
   </header>
+  <Teleport to="body">
+    <div v-if="appearanceOpen" class="appearance-veil" @click.self="appearanceOpen = false" @keydown.esc="appearanceOpen = false">
+      <section ref="appearanceRef" class="appearance-sheet" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
+        <header class="appearance-heading"><div><h2 id="appearance-title">Make it yours</h2><p>Appearance for your home, windows and apps.</p></div><button type="button" aria-label="Close appearance" @click="appearanceOpen = false"><AppIcon name="solar:close-bold" :size="20" /></button></header>
+        <div class="appearance-options" aria-label="Themes">
+          <button type="button" :class="{ selected: theme.settings.followSystem }" :aria-pressed="theme.settings.followSystem" @click="theme.setAppearance('auto')"><span class="appearance-swatch appearance-swatch--auto" />System</button>
+          <button v-for="(option, id) in theme.themes" :key="id" type="button" :class="{ selected: !theme.settings.followSystem && theme.themeId.value === id }" :aria-pressed="!theme.settings.followSystem && theme.themeId.value === id" :title="option.blurb" @click="theme.setTheme(id)"><span class="appearance-swatch" :class="`appearance-swatch--${id}`" aria-hidden="true" />{{ option.label }}</button>
+        </div>
+        <p class="appearance-description" aria-live="polite">{{ theme.themes[theme.themeId.value].blurb }}</p>
+        <p v-if="theme.themeId.value === 'flat-amoled'" class="appearance-description">Your wallpaper and accent are kept for other themes. This launcher stays black and white.</p>
+        <label class="appearance-accent">Accent color<input type="color" :value="theme.accent.value || theme.themes[theme.themeId.value].palette.accent" :disabled="theme.themeId.value === 'flat-amoled'" aria-label="Accent color" @input="theme.setAccent(($event.target as HTMLInputElement).value)" /></label>
+        <button class="appearance-more" type="button" @click="appearanceOpen = false; wm.open('settings')">More personalization settings <AppIcon name="solar:arrow-right-bold" :size="16" /></button>
+      </section>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -187,6 +193,7 @@ import { useMessages } from '@/composables/useMessages'
 import { useNotifications } from '@/composables/useNotifications'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
+import { useFocusTrap } from '@/composables/useFocusTrap'
 import { openExternalUrl } from '@/utils/openExternal'
 
 const store = useAppStore()
@@ -196,9 +203,10 @@ const sysNotifs = useNotifications()
 const sysUnread = computed(() => sysNotifs.unreadCount.value)
 const wm = useWindowManager()
 const theme = useTheme()
-const searchQueryShort = computed(() => store.searchQuery.trim().length > 0)
+const appearanceOpen = ref(false)
+const appearanceRef = ref<HTMLElement | null>(null)
+useFocusTrap(appearanceRef, appearanceOpen)
 
-const searchFocused = ref(false)
 
 // Mobile single-header status: connectivity + vault count live here so the
 // launcher must not render its own clock/status row (no duplicated clocks).
@@ -352,16 +360,8 @@ function executeMenuItem(item: MenuItem) {
   item.action?.()
 }
 
-function handleSearch() {
-  if (store.searchQuery.trim()) {
-    store.searchFiles(store.searchQuery)
-    wm.open('search')
-  }
-}
 
-function clearSearch() {
-  store.searchQuery = ''
-}
+
 
 function handleHome() {
   if (window.matchMedia?.('(max-width: 768px)').matches) {
@@ -383,6 +383,7 @@ function handleClickOutside(e: MouseEvent) {
 }
 
 function handleEscape(e: KeyboardEvent) {
+  if (e.key === 'Escape') appearanceOpen.value = false
   if (e.key === 'Escape' && openMenu.value !== null) {
     openMenu.value = null
   }
@@ -410,6 +411,7 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
   border-bottom: 1px solid var(--ui-separator);
   z-index: 100;
+  flex-shrink: 0;
   position: relative;
   gap: 8px;
   -webkit-app-region: drag;
@@ -730,6 +732,7 @@ onUnmounted(() => {
 }
 
 .tray-icon {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -873,6 +876,8 @@ onUnmounted(() => {
     min-height: var(--mobile-header-h);
     padding: 0 8px;
     gap: 6px;
+    background: var(--ui-surface);
+    border-bottom: 1px solid var(--ui-border-strong);
     flex-wrap: nowrap;
     overflow: hidden;
   }
@@ -881,8 +886,8 @@ onUnmounted(() => {
     display: none !important;
   }
   .tmb-left { flex: 0 0 auto; min-width: 0; }
-  .app-logo { width: 34px; height: var(--mobile-header-h); justify-content: center; padding: 0; flex-shrink: 0; }
-  .logo-mark img { width: 16px; height: 16px; }
+  .app-logo { width: 44px; height: var(--mobile-header-h); justify-content: center; padding: 0; flex-shrink: 0; }
+  .logo-mark img { width: 24px; height: 24px; }
   .tmb-right { flex: 1; min-width: 0; justify-content: flex-end; align-items: center; gap: 4px; flex-wrap: nowrap; overflow: hidden; }
   .tmb-mobile-meta {
     display: inline-flex;
@@ -898,7 +903,8 @@ onUnmounted(() => {
   .tmb-vaults { color: var(--ui-text-3); font-weight: 500; }
   .tmb-dot { width: 6px; height: 6px; }
   .sys-tray { flex: 0 0 auto; gap: 2px; overflow: visible; }
-  .tray-icon { flex: 0 0 26px; width: 26px; height: 26px; border-radius: 8px; }
+  .tray-icon { flex: 0 0 44px; width: 44px; height: 44px; border-radius: 8px; }
+  .tray-icon--messages,
   .tray-icon--encryption,
   .tray-icon--compression,
   .tray-icon--effects,
@@ -906,7 +912,34 @@ onUnmounted(() => {
   .tray-icon--account,
   .tray-icon--commands { display: none; }
   .tmb-separator { display: none; }
-  .clock { min-height: var(--mobile-header-h); padding: 0 6px; flex-shrink: 0; }
+  .clock { align-items: center; justify-content: center; min-width: 58px; min-height: var(--mobile-header-h); padding: 0 6px; flex-shrink: 0; }
   .clock-time { font-size: 12px; }
 }
+/* Teleported appearance controls remain theme-aware and reachable on phones. */
+.appearance-veil { position: fixed; inset: 0; z-index: 9500; display: flex; align-items: flex-end; justify-content: center; padding: 16px; padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: #0008; }
+.appearance-sheet { width: min(100%, 480px); max-height: calc(var(--mobile-viewport-height, 100dvh) - 32px); overflow-y: auto; padding: 20px; border: 1px solid var(--ui-border-strong); border-radius: 24px; background: var(--ui-surface); color: var(--ui-text); box-shadow: var(--ui-shadow-3); }
+.appearance-heading { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
+.appearance-heading h2 { font-size: 22px; margin: 0 0 5px; }
+.appearance-heading p { font-size: 13px; color: var(--ui-text-2); margin: 0 0 16px; }
+.appearance-heading button { flex-shrink: 0; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: var(--ui-surface-2); }
+.appearance-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.appearance-options button { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 88px; padding: 12px 4px; border-radius: 14px; border: 1px solid var(--ui-border-strong); background: var(--ui-surface-2); color: var(--ui-text); font-size: 12px; }
+.appearance-options button.selected { border-color: var(--ui-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-accent) 25%, transparent); }
+.appearance-swatch { width: 40px; height: 28px; border-radius: 7px; border: 1px solid #8888; background: #17191f; box-shadow: inset 0 7px #ffffff20; }
+.appearance-swatch--os-light, .appearance-swatch--plasma-light { background: #f4f5f9; box-shadow: inset 0 7px #3984e850; }
+.appearance-swatch--os-graphite { background: #34363c; }
+.appearance-swatch--plasma-dark { background: #162d43; }
+.appearance-swatch--auto { background: linear-gradient(90deg, #f4f5f9 50%, #17191f 50%); }
+.appearance-swatch--modern-glass { background: linear-gradient(135deg, #405777, #101722); box-shadow: inset 0 7px #bcd9ff45; border-color: #bcd9ff80; }
+.appearance-swatch--flat-amoled { background: #000; box-shadow: none; position: relative; }
+.appearance-swatch--flat-amoled::after { content: ''; position: absolute; inset: 7px 10px; background: repeating-linear-gradient(to bottom, #fff 0 2px, transparent 2px 5px); }
+.appearance-description { margin: 14px 0 0; color: var(--ui-text-2); font-size: 13px; line-height: 1.5; }
+.appearance-accent { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; margin-top: 12px; color: var(--ui-text-2); }
+.appearance-accent input { width: 52px; min-height: 44px; cursor: pointer; }
+.appearance-more { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 48px; padding: 10px 12px; border-radius: 12px; background: var(--ui-surface-2); color: var(--ui-text); }
+.appearance-sheet button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+
+.search-launcher { width: 100%; text-align: left; cursor: pointer; color: var(--ui-text-2); font: inherit; -webkit-app-region: no-drag; }
+.search-launcher-copy { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.search-launcher:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 </style>

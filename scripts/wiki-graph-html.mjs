@@ -288,9 +288,9 @@ export function buildGraphHtml({ subjects, collected, kg, version, commit }) {
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>CyberManju OS — knowledge graph (symbol level)</title>
-<script src="https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js"
+<script id="vis-network-script" async onerror="this.dataset.failed='true'" src="https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js"
         integrity="sha384-Ux6phic9PEHJ38YtrijhkzyJ8yQlH8i/+buBR8s3mAZOJrP1gwyvAcIYl3GWtpX1"
         crossorigin="anonymous"></script>
 <style>
@@ -314,6 +314,7 @@ export function buildGraphHtml({ subjects, collected, kg, version, commit }) {
   #search-results { max-height: 160px; overflow-y: auto; padding: 4px 12px; border-bottom: 1px solid var(--border); display: none; }
   .search-item { padding: 4px 6px; cursor: pointer; border-radius: 4px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .search-item:hover { background: var(--border); }
+  button.search-item { width: 100%; text-align: left; color: inherit; border: 0; background: transparent; }
   .search-item small { color: var(--muted); margin-left: 6px; }
   #info-panel { padding: 14px; border-bottom: 1px solid var(--border); min-height: 150px; max-height: 240px; overflow-y: auto; }
   #info-panel h3 { font-size: 13px; color: var(--text-2); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -322,7 +323,7 @@ export function buildGraphHtml({ subjects, collected, kg, version, commit }) {
   #info-content .field b { color: var(--text); }
   #info-content .empty { color: var(--muted); font-style: italic; }
   #info-content code { background: #ffffff12; padding: 1px 5px; font-size: 12px; }
-  .neighbor-link { display: block; padding: 2px 6px; margin: 2px 0; border-radius: 3px; cursor: pointer; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid var(--neighbor-border); }
+  .neighbor-link { display: block; width: 100%; padding: 2px 6px; margin: 2px 0; border: 0; border-left: 3px solid var(--neighbor-border); background: transparent; color: var(--text-3); text-align: left; border-radius: 3px; cursor: pointer; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .neighbor-link:hover { background: var(--border); }
   #neighbors-list { max-height: 120px; overflow-y: auto; margin-top: 4px; }
   #legend-wrap { flex: 1; overflow-y: auto; padding: 12px; }
@@ -350,6 +351,71 @@ export function buildGraphHtml({ subjects, collected, kg, version, commit }) {
   #hdr .t { font-weight: 700; font-size: 14px; }
   #hdr .s { color: var(--muted); font-size: 11px; margin-top: 2px; }
   #hdr a { color: #6ea8ff; text-decoration: none; font-size: 11px; }
+  #graph { position: relative; }
+  #graph-status {
+    position: absolute; z-index: 2; inset: 0; display: grid; place-items: center; padding: 24px;
+    color: var(--text-2); text-align: center; pointer-events: none;
+  }
+  #graph-status[hidden] { display: none; }
+  #graph-status[data-state="error"] { color: #ffb4ab; }
+  #mobile-drawer > summary, #mobile-home { display: none; }
+  #mobile-toolbar, #mobile-drawer, .drawer-content { display: contents; }
+  button, input { font: inherit; }
+  :focus-visible { outline: 2px solid #78aaff; outline-offset: 2px; }
+  @media (max-width: 900px) {
+    html, body { width: 100%; height: 100%; height: 100dvh; min-height: 0; overflow: hidden; }
+    body { position: relative; display: block; }
+    #graph { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+    #sidebar {
+      position: absolute; z-index: 5; top: env(safe-area-inset-top, 0px); left: 0; right: 0; bottom: auto;
+      width: auto; max-height: 100%; overflow: visible; display: block; border: 0; background: transparent;
+      padding: 8px max(10px, env(safe-area-inset-right, 0px)) 0 max(10px, env(safe-area-inset-left, 0px));
+      pointer-events: none;
+    }
+    #mobile-toolbar {
+      display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; width: 100%; padding: 8px;
+      background: color-mix(in srgb, var(--panel) 96%, transparent); border: 1px solid var(--border);
+      border-radius: 14px; box-shadow: 0 4px 18px #0005; pointer-events: auto;
+    }
+    #hdr { display: none; }
+    #mobile-home { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 10px; border: 1px solid var(--input-border); border-radius: 8px; color: #78aaff; text-decoration: none; font-size: 13px; }
+    #search-wrap { position: relative; flex: 1 1 12rem; min-width: 0; padding: 0; border: 0; }
+    #search { height: 44px; padding: 0 12px; font-size: 16px; }
+    #search-results { position: absolute; z-index: 2; top: calc(100% + 6px); left: 0; right: 0; max-height: min(35dvh, 280px); padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); box-shadow: 0 4px 18px #0006; }
+    .search-item { min-height: 44px; display: flex; align-items: center; padding: 8px 10px; white-space: normal; overflow-wrap: anywhere; }
+    #mobile-drawer { display: block; position: relative; margin-left: auto; pointer-events: auto; }
+    #mobile-drawer > summary {
+      list-style: none; display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px;
+      padding: 0 12px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--bg); color: var(--text);
+      font-size: 13px; font-weight: 600; cursor: pointer; user-select: none;
+    }
+    #mobile-drawer > summary::-webkit-details-marker { display: none; }
+    #mobile-drawer[open] > summary { background: #4E79A7; border-color: #4E79A7; color: #fff; }
+    #mobile-drawer > .drawer-content {
+      display: block; position: absolute; top: calc(100% + 6px); right: 0; width: min(390px, calc(100vw - 20px));
+      max-height: min(48dvh, 420px); overflow-y: auto; overscroll-behavior: contain;
+      border: 1px solid var(--border); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 24px #0007;
+      pointer-events: auto; padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    #theme-wrap { padding: 8px; }
+    #theme-wrap button { min-height: 44px; font-size: 13px; }
+    #info-panel { min-height: 0; max-height: none; padding: 12px; }
+    #neighbors-list { max-height: 120px; }
+    .neighbor-link { min-height: 40px; display: flex; align-items: center; padding: 6px 9px; white-space: normal; overflow-wrap: anywhere; }
+    #legend-wrap { max-height: 25dvh; padding: 10px 12px; }
+    .legend-item { min-height: 44px; gap: 9px; padding: 5px 4px; }
+    .legend-cb, #select-all-cb { width: 20px; height: 20px; }
+    .legend-cb:checked::after, #select-all-cb:checked::after { left: 6px; top: 3px; }
+    #select-all-cb:indeterminate::after { left: 4px; top: 8px; }
+    #legend-controls { min-height: 44px; }
+    #legend-controls label { min-height: 44px; padding: 0 4px; }
+    #stats { padding: 8px 12px; }
+  }
+  @media (max-width: 900px) and (orientation: landscape) {
+    #mobile-toolbar { max-width: min(620px, 70vw); }
+    #mobile-drawer > .drawer-content { max-height: 58dvh; }
+    #legend-wrap { max-height: 22dvh; }
+  }
 </style>
 <script id="graphify-theme-init">
 (function () {
@@ -363,21 +429,26 @@ export function buildGraphHtml({ subjects, collected, kg, version, commit }) {
 </script>
 </head>
 <body>
-<div id="graph"></div>
+<div id="graph"><div id="graph-status" role="status" aria-live="polite">Loading interactive graph…</div></div>
 <div id="sidebar">
+  <div id="mobile-toolbar">
   <div id="hdr">
     <div class="t">CyberManju knowledge graph</div>
     <div class="s">symbol level · ${esc(version)} · ${commitLine}</div>
     <div class="s"><a href="./">← 3D wiki</a> · <a href="./llms.txt">llms.txt</a></div>
   </div>
+  <div id="search-wrap">
+    <input id="search" type="search" placeholder="Search symbols + modules..." autocomplete="off" aria-label="Search symbols and modules">
+    <div id="search-results" role="listbox" aria-label="Search results"></div>
+  </div>
+  <a id="mobile-home" href="./" aria-label="Return to the 3D wiki">3D wiki</a>
+  <details id="mobile-drawer" open>
+    <summary aria-label="Show graph details, subjects, and theme controls">Details &amp; subjects</summary>
+    <div class="drawer-content">
   <div id="theme-wrap" role="group" aria-label="Theme">
     <button type="button" data-theme-choice="light">Light</button>
     <button type="button" data-theme-choice="dark">Dark</button>
     <button type="button" data-theme-choice="system">System</button>
-  </div>
-  <div id="search-wrap">
-    <input id="search" type="text" placeholder="Search symbols + modules..." autocomplete="off">
-    <div id="search-results"></div>
   </div>
   <div id="info-panel">
     <h3>Node Info</h3>
@@ -391,11 +462,29 @@ export function buildGraphHtml({ subjects, collected, kg, version, commit }) {
     <div id="legend"></div>
   </div>
   <div id="stats">${esc(stats)}</div>
+    </div>
+  </details>
+  </div>
 </div>
 <script>
+const graphStatus = document.getElementById('graph-status');
+const visScript = document.getElementById('vis-network-script');
+function showGraphLoadError() {
+  graphStatus.dataset.state = 'error';
+  graphStatus.textContent = 'Interactive graph could not load. Check the connection and reload this page.';
+}
+function initializeGraph() {
+  if (!window.vis || !window.vis.Network || !window.vis.DataSet) { showGraphLoadError(); return; }
+  graphStatus.hidden = true;
 const RAW_NODES = ${payloadNodes};
 const RAW_EDGES = ${payloadEdges};
 const LEGEND = ${payloadLegend};
+const mobileDrawer = document.getElementById('mobile-drawer');
+const mobileLayout = window.matchMedia('(max-width: 900px)');
+function syncMobileDrawer() { mobileDrawer.open = !mobileLayout.matches; }
+syncMobileDrawer();
+if (mobileLayout.addEventListener) mobileLayout.addEventListener('change', syncMobileDrawer);
+else if (mobileLayout.addListener) mobileLayout.addListener(syncMobileDrawer);
 
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -441,6 +530,8 @@ const network = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, {
     hideEdgesOnDrag: true,
     navigationButtons: false,
     keyboard: false,
+    dragView: true,
+    zoomView: true,
   },
   nodes: { borderWidth: 1.5 },
   edges: { smooth: { type: 'continuous', roundness: 0.15 }, selectionWidth: 3 },
@@ -493,7 +584,7 @@ function showInfo(nodeId) {
   const neighborItems = neighborIds.map(nid => {
     const nb = nodesDS.get(nid);
     const color = nb ? (nb.color && nb.color.background ? nb.color.background : nb.color) : '#555';
-    return '<span class="neighbor-link" style="border-left-color:' + esc(color) + '" data-nid="' + esc(nid) + '">' + esc(nb ? nb.label : nid) + '</span>';
+    return '<button type="button" class="neighbor-link" aria-label="Open neighbor ' + esc(nb ? nb.label : nid) + '" style="border-left-color:' + esc(color) + '" data-nid="' + esc(nid) + '">' + esc(nb ? nb.label : nid) + '</button>';
   }).join('');
   let html = '<div class="field"><b>' + esc(n.label) + '</b></div>';
   if (n.kind === 'module') {
@@ -569,19 +660,24 @@ network.on('blurNode', () => {
   hoveredNodeId = null;
   container.style.cursor = 'default';
 });
-container.addEventListener('click', () => {
-  if (hoveredNodeId !== null) {
-    showInfo(hoveredNodeId);
-    network.selectNodes([hoveredNodeId]);
-  }
-});
 network.on('click', params => {
   if (params.nodes.length > 0) {
     showInfo(params.nodes[0]);
-  } else if (hoveredNodeId === null) {
+  } else {
     document.getElementById('info-content').innerHTML = '<span class="empty">Click a node to inspect it</span>';
   }
 });
+
+// Repaint after mobile browser chrome/orientation changes without refitting,
+// preserving the current graph pan and zoom while using the resized canvas.
+let graphResizeFrame = 0;
+function redrawGraph() {
+  cancelAnimationFrame(graphResizeFrame);
+  graphResizeFrame = requestAnimationFrame(() => network.redraw());
+}
+window.addEventListener('resize', redrawGraph, { passive: true });
+window.visualViewport?.addEventListener('resize', redrawGraph, { passive: true });
+if (window.ResizeObserver) new ResizeObserver(redrawGraph).observe(container);
 
 const searchInput = document.getElementById('search');
 const searchResults = document.getElementById('search-results');
@@ -593,7 +689,9 @@ searchInput.addEventListener('input', () => {
   if (!matches.length) { searchResults.style.display = 'none'; return; }
   searchResults.style.display = 'block';
   matches.forEach(n => {
-    const el = document.createElement('div');
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.setAttribute('role', 'option');
     el.className = 'search-item';
     const color = n.color && n.color.background ? n.color.background : n.color;
     el.innerHTML = esc(n.label) + (n.file ? '<small>' + esc(n.file.split('/').pop()) + ':' + esc(String(n.line)) + '</small>' : '<small>' + esc(n.subject || '') + '</small>');
@@ -647,6 +745,7 @@ LEGEND.forEach(c => {
   cb.type = 'checkbox';
   cb.className = 'legend-cb';
   cb.checked = true;
+  cb.setAttribute('aria-label', 'Show subject ' + c.label);
   cb.addEventListener('change', (e) => {
     e.stopPropagation();
     if (cb.checked) {
@@ -673,6 +772,14 @@ LEGEND.forEach(c => {
   };
   legendEl.appendChild(item);
 });
+window.toggleAllSubjects = toggleAllSubjects;
+}
+if (window.vis && window.vis.Network && window.vis.DataSet) initializeGraph();
+else if (visScript.dataset.failed === 'true') showGraphLoadError();
+else {
+  visScript.addEventListener('load', initializeGraph, { once: true });
+  visScript.addEventListener('error', showGraphLoadError, { once: true });
+}
 </script>
 </body>
 </html>

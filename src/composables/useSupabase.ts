@@ -70,10 +70,18 @@ export interface ProviderTokenStash {
   providerRefreshToken?: string | null
   at: number
 }
-
 let client: SupabaseClient | null = null
 let clientKey = ''
-
+let clientPromise: Promise<SupabaseClient | null> | null = null
+let clientPromiseKey = ''
+let clientGeneration = 0
+function resetSupabaseClient() {
+  clientGeneration += 1
+  client = null
+  clientKey = ''
+  clientPromise = null
+  clientPromiseKey = ''
+}
 function readLS(key: string): string {
   try {
     return localStorage.getItem(key) || ''
@@ -190,19 +198,22 @@ export function setSupabaseConfig(url: string, key: string): string | null {
   if (cleanKey.length < 8) return 'That key looks too short — paste the anon / publishable (sb_publishable_… or eyJ…) key.'
   writeLS(MANUAL_URL_KEY, cleanUrl)
   writeLS(MANUAL_KEY_KEY, cleanKey)
-  client = null
-  clientKey = ''
+  resetSupabaseClient()
   refreshConfiguredFlag()
   return null
 }
 
 /** Forget the Settings paste (falls back to the baked pair when one exists). */
-export function clearSupabaseConfig() {
+export async function clearSupabaseConfig(): Promise<void> {
   writeLS(MANUAL_URL_KEY, '')
   writeLS(MANUAL_KEY_KEY, '')
-  client = null
-  clientKey = ''
+  resetSupabaseClient()
   refreshConfiguredFlag()
+  // Older builds accidentally migrated these device-local rows into the
+  // vault; delete those copies so a later boot cannot resurrect forgotten
+  // credentials.
+  const { vaultDelete } = await import('./useVault')
+  await Promise.all([vaultDelete(MANUAL_URL_KEY), vaultDelete(MANUAL_KEY_KEY)])
 }
 
 /**
@@ -210,6 +221,23 @@ export function clearSupabaseConfig() {
  * and safe to call any time — returns whether the broker is usable now.
  */
 export async function hydrateSupabaseConfig(): Promise<boolean> {
+  const local = readManualPair()
+  if (!local.url || !local.key) {
+    // Recover a legacy vault-stored broker when device-local settings are
+    // missing. Current vault migration only scans its own prefixed rows;
+    // it does not move the unprefixed device-local settings.
+    try {
+      const { vaultGet } = await import('./useVault')
+      const [storedUrl, storedKey] = await Promise.all([
+        local.url ? Promise.resolve(null) : vaultGet(MANUAL_URL_KEY),
+        local.key ? Promise.resolve(null) : vaultGet(MANUAL_KEY_KEY),
+      ])
+      if (!local.url && storedUrl) writeLS(MANUAL_URL_KEY, storedUrl)
+      if (!local.key && storedKey) writeLS(MANUAL_KEY_KEY, storedKey)
+    } catch {
+      // Keep startup usable if vault storage is temporarily unavailable.
+    }
+  }
   return refreshConfiguredFlag()
 }
 
@@ -218,8 +246,7 @@ export async function hydrateSupabaseConfig(): Promise<boolean> {
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
   window.addEventListener('storage', (e) => {
     if (e.key === MANUAL_URL_KEY || e.key === MANUAL_KEY_KEY) {
-      client = null
-      clientKey = ''
+      resetSupabaseClient()
       refreshConfiguredFlag()
     }
   })
@@ -228,15 +255,35 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
 export async function getSupabaseClient(): Promise<SupabaseClient | null> {
   const { url, key } = getSupabaseConfig()
   if (!usableBroker({ url, key })) return null
-  const cacheKey = `${url}|${key.slice(0, 8)}`
-  if (!client || clientKey !== cacheKey) {
+  // Include the complete public key: publishable keys share a prefix, so an
+  // eight-character cache key can accidentally keep using a rotated broker.
+  const cacheKey = `${url}|${key}`
+  if (client && clientKey === cacheKey) return client
+  if (clientPromise && clientPromiseKey === cacheKey) return clientPromise
+  const generation = clientGeneration
+  const pending = (async () => {
     const { createClient } = await import('@supabase/supabase-js')
-    client = createClient(url, key, {
+    const created = createClient(url, key, {
       auth: { flowType: 'pkce', detectSessionInUrl: true },
     })
-    clientKey = cacheKey
+    // A Settings/storage change may have happened while the SDK was loading.
+    // Do not let an obsolete import replace the current client.
+    if (generation === clientGeneration) {
+      client = created
+      clientKey = cacheKey
+    }
+    return created
+  })()
+  clientPromise = pending
+  clientPromiseKey = cacheKey
+  try {
+    return await pending
+  } finally {
+    if (clientPromise === pending) {
+      clientPromise = null
+      clientPromiseKey = ''
+    }
   }
-  return client
 }
 
 /** Frontend sync backend → Supabase provider slug. */
@@ -443,7 +490,7 @@ export async function supabaseSignOut(): Promise<void> {
   const sb = await getSupabaseClient()
   if (!sb) return
   await sb.auth.signOut()
-  client = null
+  resetSupabaseClient()
 }
 
 /**
@@ -530,7 +577,7 @@ export async function revokeIdentitySession(): Promise<RevokeGrantResult> {
   } catch {
     // Sign-out is best-effort — local state below still clears.
   }
-  client = null
+  resetSupabaseClient()
   identity.value = null
   clearProviderTokenStash()
   setPendingOAuthConfig(null)
@@ -556,8 +603,13 @@ export async function finishSupabaseReturn(): Promise<boolean> {
   const popup = isOAuthPopup()
   if (!code && !err && !popup) return false
 
+  // A settings-supplied broker may have been migrated from localStorage by an
+  // older build; hydrate it before deciding that this callback is unusable.
+  await hydrateSupabaseConfig()
+
   const stripReturnParams = () => {
     params.delete('code')
+    params.delete('state')
     params.delete('error')
     params.delete('error_description')
     params.delete('oauth')

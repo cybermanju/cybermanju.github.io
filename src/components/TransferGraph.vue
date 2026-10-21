@@ -931,4 +931,29 @@ onMounted(async () => {
   .tf-node { width: 170px; }
   .tf-node.prov { width: 190px; }
 }
+/* The board stays spatial: pan empty canvas, drag nodes, tap file + provider.
+   Let the outer window scroll tall sections instead of clipping the footer. */
+@media (max-width: 768px) {
+  .tf { height: auto; min-height: 100%; overflow: visible; }
+  .tf-top, .tf-foot { flex-wrap: wrap; padding: 10px; }
+  .tf-top-actions { flex-wrap: wrap; width: 100%; }
+  .tf-top-actions > .tf-btn { flex: 1 1 auto; justify-content: center; }
+  .tf-brand > div, .tf-field { min-width: 0; }
+  .tf-subtitle, .tf-hint, .tf-note, .tf-code { overflow-wrap: anywhere; }
+  .tf-browser { padding: 10px; max-height: 40dvh; flex-shrink: 0; }
+  .tf-field.inline, .tf-field.grow { flex: 1 1 100%; min-width: 0; max-width: 100%; }
+  .tf-input { width: 100%; min-height: 44px; box-sizing: border-box; }
+  .tf-btn, .tf-icon-btn, .tf-node-x { min-height: 44px; min-width: 44px; justify-content: center; align-items: center; }
+  .tf-btn.xs { font-size: 12px; }
+  .tf-crumbs { min-width: 0; max-width: 100%; }
+  .tf-link { min-height: 44px; overflow-wrap: anywhere; text-align: left; }
+  .tf-entry-main { min-height: 44px; }
+  .tf-canvas-wrap { flex: none; min-height: 0; height: 42dvh; padding: 10px; overscroll-behavior: contain; }
+  .tf-canvas { touch-action: pan-x pan-y; }
+  .tf-node { touch-action: none; }
+  .tf-plan { max-height: none; padding: 10px; }
+  .tf-edge-top, .tf-foot-actions { flex-wrap: wrap; }
+  .tf-edge-route { flex-basis: 100%; }
+  .tf-foot > span { min-width: 0; overflow-wrap: anywhere; }
+}
 </style>

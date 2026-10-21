@@ -704,7 +704,7 @@ onUnmounted(() => { if (statsPoll) window.clearInterval(statsPoll) })
 </script>
 
 <style scoped>
-.dv { height: 100%; min-width: 0; overflow-x: hidden; overflow-y: auto; padding: 12px 14px; padding-bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; background: var(--ui-surface); color: var(--ui-text); font-family: var(--ui-font); font-size: 13px; }
+.dv { height: 100%; box-sizing: border-box; min-width: 0; overflow-x: hidden; overflow-y: auto; padding: 12px 14px; padding-bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; background: var(--ui-surface); color: var(--ui-text); font-family: var(--ui-font); font-size: 13px; }
 .dv-hero { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border: 1px solid var(--ui-border); border-radius: 16px; background: linear-gradient(135deg, color-mix(in srgb, var(--ui-accent) 14%, transparent), color-mix(in srgb, var(--ui-accent) 3%, transparent) 55%, transparent); }
 .dv-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .dv-brand-mark { display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px; border-radius: 13px; background: linear-gradient(135deg, var(--ui-accent), color-mix(in srgb, var(--ui-accent) 55%, transparent)); color: #fff; box-shadow: 0 4px 14px color-mix(in srgb, var(--ui-accent) 45%, transparent); flex-shrink: 0; }
@@ -745,19 +745,23 @@ onUnmounted(() => { if (statsPoll) window.clearInterval(statsPoll) })
 .dv-vids { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .dv-vid { width: 220px; max-width: 100%; aspect-ratio: 16/10; border-radius: 10px; border: 1px solid var(--ui-border); background: #000; }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .dv { padding: max(10px, env(safe-area-inset-top)) 10px max(14px, env(safe-area-inset-bottom)); gap: 8px; font-size: 14px; }
-  .dv-hero { align-items: flex-start; padding: 12px; border-radius: 18px; }
+  .dv-hero { align-items: flex-start; flex-wrap: wrap; padding: 12px; border-radius: 18px; }
+  .dv-brand { flex: 1 1 100%; align-items: flex-start; }
+  .dv-brand-text { overflow-wrap: anywhere; }
   .dv-title { font-size: 18px; }
-  .dv-top-actions { margin-top: -2px; flex-direction: column; }
+  .dv-top-actions { flex: 1 1 100%; margin-top: 0; flex-direction: row; flex-wrap: wrap; justify-content: flex-start; }
   .dv-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .dv-tile-value { font-size: 19px; }
   .dv-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .dv-list { max-height: none; gap: 8px; }
   .dv-row { border-radius: 12px; padding: 8px 10px; }
-  .dv-pair { gap: 8px; }
+  .dv-pair { gap: 8px; min-width: 0; }
+  .dv-pair > :deep(.ui-input), .dv-pair > :deep(input), .dv-pair > :deep(select) { flex: 1 1 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
   .dv-pair :deep(button), .dv-top-actions :deep(button) { min-height: 44px; }
-  .dv-pair :deep(button) { flex: 1 1 auto; }
+  .dv-pair :deep(button), .dv-top-actions :deep(button) { flex: 1 1 auto; }
+  .dv-tabs { width: 100%; align-self: stretch; }
   .dv-card-line { overflow-wrap: anywhere; line-height: 1.5; }
   .dv-hint, .dv-muted { line-height: 1.45; }
 }

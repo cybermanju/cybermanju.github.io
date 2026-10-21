@@ -50,8 +50,8 @@ export function getGlobalShortcuts(store: ReturnType<typeof useAppStore>): Short
       description: 'Toggle command palette',
     },
     {
-      key: 'f', ctrl: true, handler: () => { const el = document.querySelector<HTMLInputElement>('.search-input'); el?.focus() },
-      description: 'Focus search bar',
+      key: 'f', ctrl: true, handler: () => { useWindowManager().open('search') },
+      description: 'Open unified search',
     },
     {
       key: 'Escape', handler: () => {

@@ -393,10 +393,11 @@ onMounted(() => {
 
 .text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .org-panel { padding-top: max(12px, env(safe-area-inset-top)); padding-bottom: max(16px, env(safe-area-inset-bottom)); }
   .org-tabs { gap: 6px; margin-inline: -2px; }
   .org-tabs button { font-size: 9px; }
+  .org-panel :deep(input), .org-panel :deep(select) { min-height: 44px; font-size: 16px; }
   .create-row, .loose-create { align-items: stretch; flex-wrap: wrap; }
   .create-row > :first-child, .loose-create > :first-child { flex: 1 1 100%; }
   .create-row > :not(:first-child) { flex: 1 1 calc(50% - 3px); min-width: 0; }
@@ -404,7 +405,7 @@ onMounted(() => {
   .lg-add { align-items: stretch; flex-wrap: wrap; }
   .lg-add > :first-child { flex: 1 1 100%; }
   .lg-add > :last-child { min-height: 44px; align-self: stretch; }
-  .lg-member { min-height: 36px; max-width: min(100%, 220px); }
+  .lg-member { min-height: 44px; max-width: min(100%, 220px); }
   .style-tags { gap: 8px; }
   .fav-item { padding-block: 8px; }
 }

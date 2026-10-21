@@ -261,4 +261,11 @@ function onClick(event: MouseEvent) {
     opacity: 0;
   }
 }
+/* Phone controls remain reachable even in compact/dense themes. */
+@media (max-width: 768px) {
+  .ui-btn { min-height: 44px; max-width: 100%; padding: 8px 12px; font-size: 13px; white-space: normal; }
+  .ui-btn--icon-only { min-width: 44px; flex-shrink: 0; padding: 8px; }
+  .ui-btn__content { min-width: 0; }
+  .ui-btn__label { overflow-wrap: anywhere; }
+}
 </style>

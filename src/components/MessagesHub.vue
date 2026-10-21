@@ -661,12 +661,32 @@ watch(
   .msg-veil {
     align-items: stretch;
     justify-content: stretch;
+    padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
   }
   .msg-panel {
     width: 100%;
-    max-height: none;
+    max-height: 100dvh;
+    min-height: 0;
     border-radius: 0;
     border: 0;
   }
+}
+
+@media (max-width: 768px) {
+  .msg-close { width: 44px; height: 44px; }
+  .msg-tab { min-height: 44px; }
+  .msg-list { flex: 1 1 auto; min-height: 0; overscroll-behavior: contain; }
+  .msg-row { min-height: 48px; padding: 10px; }
+  .msg-foot { flex-wrap: wrap; }
+  .msg-btn { min-height: 44px; }
+}
+
+@media (max-width: 360px) {
+  .msg-panel { gap: 8px; padding-inline: 10px; }
+  .msg-title { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .msg-row { gap: 8px; padding-inline: 8px; }
+  .msg-row-top { align-items: flex-start; flex-direction: column; gap: 0; }
+  .msg-row-top time { font-size: 10px; }
+  .msg-foot .msg-btn { flex: 1 1 100%; justify-content: center; }
 }
 </style>

@@ -12,6 +12,8 @@
 #      "installs, instantly closes, shows nothing" symptom leaves no FATAL
 #      marker (LMK/ANR kill), so a dead process IS the failure signal.
 #   4. Greps a freshly-cleared logcat window for crash markers.
+#   5. Asserts rendered WebView content, then cold-starts via MAIN/HOME and
+#      returns HOME from Settings. Does not change the device's default launcher.
 #
 # Graceful skip (exit 0) when: no device/emulator attached, wrong ABI,
 # missing platform-tools. CI wires this with `continue-on-error` so KVM-less
@@ -77,4 +79,60 @@ if adb logcat -d 2>/dev/null | grep -qiE "FATAL EXCEPTION.*com\.cybermanju\.os|A
   dump_markers
   fail "crash markers in logcat after launch"
 fi
-echo "android smoke: PASS — installed + launched $APK on $abi (alive at 13s)"
+
+# Liveness alone accepts an empty/black WebView. Require accessible page
+# content with nonzero bounds belonging to this app, not system chrome.
+SMOKE_XML="$(mktemp)"
+DEVICE_XML="/sdcard/cybermanju-home-smoke.xml"
+trap 'rm -f "$SMOKE_XML"; adb shell rm -f "$DEVICE_XML" >/dev/null 2>&1 || true' EXIT
+assert_rendered() {
+  local phase="$1" attempt
+  for attempt in 1 2 3 4 5; do
+    adb shell rm -f "$DEVICE_XML" >/dev/null 2>&1 || true
+    adb shell uiautomator dump "$DEVICE_XML" >/dev/null 2>&1 || true
+    adb exec-out cat "$DEVICE_XML" > "$SMOKE_XML" 2>/dev/null || true
+    if python3 - "$SMOKE_XML" "$PKG" <<'PYEOF'
+import re
+import sys
+import xml.etree.ElementTree as ET
+try:
+    root = ET.parse(sys.argv[1]).getroot()
+    for node in root.iter('node'):
+        if node.get('class') != 'android.webkit.WebView' or node.get('package') != sys.argv[2]:
+            continue
+        bounds = [int(x) for x in re.findall(r'\d+', node.get('bounds', ''))]
+        if len(bounds) != 4 or bounds[2] <= bounds[0] or bounds[3] <= bounds[1]:
+            continue
+        for child in node.iter('node'):
+            if child is node:
+                continue
+            label = child.get('text', '') + child.get('content-desc', '')
+            child_bounds = [int(x) for x in re.findall(r'\d+', child.get('bounds', ''))]
+            if label.strip() and len(child_bounds) == 4 and child_bounds[2] > child_bounds[0] and child_bounds[3] > child_bounds[1]:
+                sys.exit(0)
+except (OSError, ET.ParseError):
+    pass
+sys.exit(1)
+PYEOF
+    then
+      echo "android smoke: rendered content — $phase"
+      return
+    fi
+    sleep 2
+  done
+  dump_markers
+  fail "no visible WebView content after $phase (alive is not a rendered launcher)"
+}
+
+assert_rendered "normal launch"
+adb shell am force-stop "$PKG" || fail "cannot stop app before cold HOME test"
+adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.HOME -p "$PKG" || fail "cold HOME intent failed"
+assert_rendered "cold HOME launch"
+adb shell am start -W -a android.settings.SETTINGS || fail "cannot open Settings for HOME-return test"
+adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.HOME -p "$PKG" || fail "return HOME intent failed"
+assert_rendered "HOME return from Settings"
+if [ -z "$(app_pid)" ]; then
+  dump_markers
+  fail "process died during HOME smoke tests"
+fi
+echo "android smoke: PASS — installed + rendered normal launch, cold HOME and warm HOME return ($APK on $abi)"

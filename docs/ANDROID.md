@@ -79,6 +79,31 @@ shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
   because `file://` data throws `FileUriExposedException` on Android 7+.
   Marker-guarded + idempotent like every other manifest patch.
 
+### Default Home lifecycle
+
+The actual MAIN/LAUNCHER activity also receives MAIN/HOME/DEFAULT and explicit
+`singleTask`/`exported=true` attributes. `scripts/android-home-activity.py`
+extends generated `MainActivity.kt` without replacing Tauri's `onCreate` or
+deep-link/plugin forwarding. HOME intents update `Activity.intent`, request a
+fresh WebView layout, and deliver an acknowledged `cybermanju:android-home`
+event after Vue is ready. HOME clears transient overlays/search and minimizes
+open sheets rather than destroying them. Ordinary resumes (including OAuth
+returns) do not reset the UI. No cache/storage clearing or page reload is used.
+
+The mobile viewport ignores zero/invalid measurements during startup or while
+hidden, retains its last usable size (or CSS `100dvh`), and retries/re-measures
+on resize, focus, pageshow, visibility and HOME return.
+
+`scripts/android-smoke.sh` checks visible WebView content for normal launch,
+cold MAIN/HOME launch, and HOME return from Android Settings; process liveness
+alone is not sufficient. It does not change the device's default Home choice.
+An available compatible device is still required to run these checks. For
+release acceptance, also select CyberManju OS under Android's Default apps →
+Home app, reboot/unlock, press Home repeatedly, launch another app and return
+Home, rotate, and repeat after background process death. Confirm the launcher,
+All apps, search and Settings remain visible and usable, while OAuth/file-open
+intents still work. Generation/unit tests are not a substitute for this check.
+
 ## 4. Storage model (scoped storage)
 
 * Database + Tantivy index + keys live in the app-private files dir

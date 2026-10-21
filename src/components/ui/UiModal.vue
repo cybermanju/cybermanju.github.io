@@ -271,20 +271,28 @@ watch(
   opacity: 0;
 }
 
-/* phones: bottom sheet instead of a floating dialog */
-@media (max-width: 560px) {
-  .ui-modal-layer {
-    padding: 0;
+/* Phones: keyboard-safe bottom sheets with a separately scrolling body. */
+@media (max-width: 768px) {
+  .ui-modal-layer,
+  .ui-modal-layer:has(.ui-modal--sheet),
+  [data-ui-shell='plasma'] .ui-modal-layer:has(.ui-modal--sheet) {
+    bottom: var(--mobile-keyboard-inset, 0px);
+    padding: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
     align-items: flex-end;
   }
   .ui-modal {
     max-width: 100%;
-    max-height: calc(100dvh - 40px);
+    min-width: 0;
+    max-height: calc(var(--mobile-viewport-height, 100dvh) - env(safe-area-inset-top, 0px) - 12px);
+    box-sizing: border-box;
     border-radius: var(--ui-radius-lg) var(--ui-radius-lg) 0 0;
     border-left: none;
     border-right: none;
     border-bottom: none;
   }
+  .ui-modal__header, .ui-modal__footer { flex-shrink: 0; }
+  .ui-modal__title, .ui-modal__subtitle { overflow-wrap: anywhere; }
+  .ui-modal__body { min-width: 0; overscroll-behavior: contain; }
   .ui-modal__footer {
     flex-wrap: wrap;
     padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));

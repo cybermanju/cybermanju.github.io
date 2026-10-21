@@ -800,14 +800,24 @@ export const useAppStore = defineStore('cybermanju', () => {
   }
 
   // ── Actions: Search ───────────────────────────────────────
+  let searchRequestEpoch = 0
   async function searchFiles(query: string, page?: number) {
-    if (!query.trim()) { searchResults.value = []; searchTotalResults.value = 0; return }
+    const request = ++searchRequestEpoch
+    if (!query.trim()) {
+      searchResults.value = []
+      searchTotalResults.value = 0
+      searchPage.value = 0
+      isSearching.value = false
+      return
+    }
+    if (!page) { searchResults.value = []; searchTotalResults.value = 0; searchPage.value = 0 }
     isSearching.value = true
     clearError()
     try {
       const pg = page ?? 0
       const limit = searchPageSize
       const result = await invoke<{ results: SearchResult[]; total: number }>('search_files_paginated', { query, limit, offset: pg * limit })
+      if (request !== searchRequestEpoch) return
       if (pg === 0) {
         searchResults.value = result.results
       } else {
@@ -816,8 +826,10 @@ export const useAppStore = defineStore('cybermanju', () => {
       searchTotalResults.value = result.total
       searchPage.value = pg
     } catch {
+      if (request !== searchRequestEpoch) return
       try {
         const result = await invoke<SearchResult[]>('search_files', { query, limit: 50 })
+        if (request !== searchRequestEpoch) return
         if (page && page > 0) {
           searchResults.value = [...searchResults.value, ...result]
         } else {
@@ -826,10 +838,10 @@ export const useAppStore = defineStore('cybermanju', () => {
         searchTotalResults.value = result.length
         searchPage.value = page ?? 0
       } catch (e) {
-        notifyError('Search failed', e)
+        if (request === searchRequestEpoch) notifyError('Search failed', e)
       }
     } finally {
-      isSearching.value = false
+      if (request === searchRequestEpoch) isSearching.value = false
     }
   }
 
@@ -2855,8 +2867,14 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function saveAgentConfig(config: Omit<AgentConfig, 'id' | 'hasKey' | 'createdAt' | 'updatedAt'> & { id?: string }) {
     try {
+      // Keep the currently known badge metadata on updates instead of
+      // unconditionally sending false. Native persistence recalculates this
+      // from the sealed-key vault on read (it never trusts this input bit).
+      const hasKey = config.id
+        ? agentConfigs.value.find((saved) => saved.id === config.id)?.hasKey ?? false
+        : false
       const saved = await invoke<AgentConfig>('save_agent_config', {
-        config: { ...config, id: config.id ?? '', hasKey: false, createdAt: '', updatedAt: '' },
+        config: { ...config, id: config.id ?? '', hasKey, createdAt: '', updatedAt: '' },
       })
       await fetchAgentConfigs()
       notifySuccess(`Agent config '${saved.name}' saved`)

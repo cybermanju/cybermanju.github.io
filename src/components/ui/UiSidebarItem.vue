@@ -120,4 +120,8 @@ const emit = defineEmits<{ click: [event: MouseEvent] }>()
   outline: none;
   box-shadow: var(--ui-focus-ring);
 }
+@media (max-width: 768px) {
+  .ui-sidebar-item { min-height: 44px; min-width: 0; }
+  .ui-sidebar-item__label { white-space: normal; overflow-wrap: anywhere; }
+}
 </style>

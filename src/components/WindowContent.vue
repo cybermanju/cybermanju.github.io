@@ -686,6 +686,26 @@ const recentFiles = computed(() =>
   min-width: 0;
 }
 
+@media (max-width: 768px) {
+  .window-content-panel {
+    min-width: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    -webkit-overflow-scrolling: touch;
+  }
+  .panel-page { padding: 10px; min-width: 0; }
+  .panel-card { min-width: 0; padding: 12px; }
+  .panel-card :deep(.ui-toolbar__lead),
+  .panel-card :deep(.ui-toolbar__trail) { gap: 6px; }
+  .panel-card :deep(.ui-toolbar button) { min-width: 44px; min-height: 44px; }
+  .trash-item, .recent-item { min-height: 52px; padding: 8px; }
+  .trash-actions { flex-shrink: 0; gap: 6px; }
+  .trash-actions :deep(button), .recent-item :deep(button) { min-width: 44px; min-height: 44px; }
+  .activity-item { align-items: flex-start; overflow-wrap: anywhere; }
+  .activity-action, .activity-entity { min-width: 0; }
+  .activity-detail { white-space: normal; overflow-wrap: anywhere; }
+  .recent-info, .trash-info { min-width: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .window-content-panel .ui-empty,
   .window-content-panel .ui-error {

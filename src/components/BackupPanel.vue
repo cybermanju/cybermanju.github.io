@@ -431,4 +431,26 @@ async function rebuild() {
 .bk-manual ol { margin: 6px 0 10px; padding-left: 20px; }
 .bk-manual code { font-family: var(--ui-font-mono); font-size: 12px; }
 input[type='file'] { font-size: 13px; color: var(--ui-text-2); }
+
+@media (max-width: 768px) {
+  .bk { min-width: 0; }
+  .bk-grid { grid-template-columns: minmax(0, 1fr); }
+  .field, .field.grow { min-width: 0; width: 100%; }
+  .field input, .field select { box-sizing: border-box; width: 100%; min-height: 44px; font-size: 16px; }
+  .bk-row { align-items: stretch; }
+  .bk-row > .field, .bk-row > .field.grow { flex: 1 1 100%; }
+  .bk :deep(.ui-btn) { min-height: 44px; }
+  .bk-row > :deep(.ui-btn) { flex: 1 1 auto; }
+  .bk-rowitem { align-items: flex-start; flex-wrap: wrap; padding: 10px; }
+  .bk-name { flex: 1 1 100%; overflow-wrap: anywhere; white-space: normal; }
+  .bk-size { margin-right: auto; }
+  .bk-steps { line-height: 1.5; }
+  .bk-steps p { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .bk-radio { margin-left: 0; min-height: 44px; display: inline-flex; align-items: center; gap: 6px; }
+  .bk-radio input { width: 18px; height: 18px; }
+  .bk-steps input[type='file'] { box-sizing: border-box; width: 100%; max-width: 100%; min-height: 44px; }
+  .field.inline { display: flex; flex: 1 1 100%; margin: 0; }
+  .bk-manual { overflow-wrap: anywhere; }
+  .bk-manual ol { padding-left: 22px; }
+}
 </style>

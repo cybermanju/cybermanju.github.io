@@ -244,8 +244,31 @@ home_intent = """
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 """ % mark
-if 'android.intent.category.HOME' not in src:
-    src = src.replace(close, home_intent + "        " + close, 1)
+# Scope HOME to the actual MAIN/LAUNCHER activity, not the first activity or
+# a HOME string elsewhere (queries/comments/another activity).
+main_activity = None
+for candidate in re.finditer(r"<activity\b[^>]*>.*?</activity>", src, re.S):
+    for intent_filter in re.findall(r"<intent-filter\b[^>]*>.*?</intent-filter>", candidate.group(0), re.S):
+        if "android.intent.action.MAIN" in intent_filter and "android.intent.category.LAUNCHER" in intent_filter:
+            main_activity = candidate
+            break
+    if main_activity is not None:
+        break
+assert main_activity is not None, "no MAIN/LAUNCHER activity in AndroidManifest"
+block = main_activity.group(0)
+opening = re.match(r"<activity\b[^>]*>", block).group(0)
+configured = opening
+for attr, value in (("android:launchMode", "singleTask"), ("android:exported", "true")):
+    configured = re.sub(r'\s+' + attr + r'="[^"]*"', "", configured)
+    configured = configured[:-1] + ' %s="%s">' % (attr, value)
+block = configured + block[len(opening):]
+home_ready = any(
+    all(value in intent_filter for value in ("android.intent.action.MAIN", "android.intent.category.HOME", "android.intent.category.DEFAULT"))
+    for intent_filter in re.findall(r"<intent-filter\b[^>]*>.*?</intent-filter>", block, re.S)
+)
+if not home_ready:
+    block = block.replace(close, home_intent + "        " + close, 1)
+src = src[:main_activity.start()] + block + src[main_activity.end():]
 
 # 2e. Messages hub: explicit <package> visibility for the top mail/chat/
 # social apps (labels/icons on Android 11+) + the notification-mirror
@@ -343,6 +366,8 @@ if [ ! -d "$KOTLIN_DIR" ]; then
   echo "::error::$KOTLIN_DIR not found — unexpected Tauri template layout (identifier $APP_ID)" >&2
   exit 1
 fi
+
+python3 scripts/android-home-activity.py "$KOTLIN_DIR/MainActivity.kt"
 
 if [ -f "$SERVICE_FILE" ] && ! grep -q "$SERVICE_MARK" "$SERVICE_FILE"; then
   echo "::error::$SERVICE_FILE exists without our marker — refusing to overwrite a foreign file" >&2

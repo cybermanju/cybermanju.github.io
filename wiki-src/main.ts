@@ -312,6 +312,33 @@ async function boot(): Promise<void> {
   const rail = document.getElementById('rail')!;
   const tooltip = document.getElementById('tooltip')!;
   const search = document.getElementById('search') as HTMLInputElement;
+  const mobile = window.matchMedia('(max-width: 900px)');
+  const readerToggle = document.getElementById('reader-toggle') as HTMLButtonElement;
+  let readerOpen = false;
+  function setReader(open: boolean, restoreFocus = false): void {
+    readerOpen = open;
+    document.body.classList.toggle('reader-open', open);
+    readerToggle.setAttribute('aria-expanded', String(open));
+    readerToggle.textContent = open ? 'Explore 3D' : 'Read docs';
+    panel.inert = mobile.matches && !open;
+    if (restoreFocus) readerToggle.focus();
+  }
+  readerToggle.addEventListener('click', () => setReader(!readerOpen));
+  mobile.addEventListener('change', () => setReader(readerOpen));
+  setReader(false);
+
+  // Measure the actual header/subject strip: safe areas, font changes and
+  // wrapped controls must not cover the interactive scene or graph iframe.
+  const top = document.querySelector<HTMLElement>('.top')!;
+  function measureChrome(): void {
+    document.documentElement.style.setProperty('--wiki-header-bottom', `${top.getBoundingClientRect().bottom}px`);
+    document.documentElement.style.setProperty('--wiki-scene-top', `${rail.getBoundingClientRect().bottom + 8}px`);
+  }
+  const chromeObserver = new ResizeObserver(measureChrome);
+  chromeObserver.observe(top);
+  chromeObserver.observe(rail);
+  window.addEventListener('resize', measureChrome);
+  measureChrome();
 
   // Skeleton while subjects.json loads (replaced on first render).
   panel.innerHTML = `<div class="tag">loading…</div><h1>CyberManju wiki</h1>
@@ -367,10 +394,13 @@ async function boot(): Promise<void> {
   function set2D(on: boolean): void {
     if (!data.graph || !toggle2d) return;
     twoD = on;
+    document.body.classList.toggle('view-2d', on);
+    document.getElementById('mobile-hint')!.textContent = on ? 'Drag to pan · pinch to zoom' : 'Drag to orbit · pinch to zoom';
     graph2d.hidden = !on;
     graph2d.setAttribute('aria-hidden', String(!on));
     toggle2d.setAttribute('aria-pressed', String(on));
     toggle2d.textContent = on ? '3D view' : '2D graph';
+    if (!on) toggle2d.focus();
     document.title = on ? 'Knowledge graph — CyberManju wiki' : 'CyberManju OS — 3D wiki';
     if (on && graphFrame.dataset.loaded !== '1') {
       graphFrame.src = './graph.html';
@@ -399,12 +429,51 @@ async function boot(): Promise<void> {
 
   // ── Scene ────────────────────────────────────────────────
   const mount = document.getElementById('scene')!;
-  const renderer = new THREE.WebGLRenderer({
-    antialias: true,
-    alpha: true,
-    powerPreference: 'high-performance',
-    stencil: false,
-  });
+  let renderer: THREE.WebGLRenderer;
+  try {
+    renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance',
+      stencil: false,
+    });
+  } catch {
+    // WebGL is optional for reading: low-power phones and blocked GPU
+    // contexts must retain real docs, source links and the 2D graph switch.
+    document.body.classList.add('no-webgl');
+    document.getElementById('mobile-hint')!.textContent = '3D unavailable · docs still work';
+    readerToggle.textContent = 'Read docs';
+    const showFallback = (): void => {
+      const routeId = window.location.hash.match(/^#\/([\w-]+)/)?.[1];
+      const sub = routeId ? byId.get(routeId) : undefined;
+      const q = search.value.trim().toLowerCase();
+      const matches = data.subjects.filter((s) => !q || `${s.title} ${s.tag} ${s.top.map((t) => t.name).join(' ')}`.toLowerCase().includes(q));
+      rail.innerHTML = '';
+      for (const item of matches) {
+        const button = document.createElement('button');
+        button.textContent = item.title;
+        button.setAttribute('aria-pressed', String(item.id === sub?.id));
+        button.addEventListener('click', () => {
+          window.location.hash = `#/${item.id}`;
+          setReader(true);
+        });
+        rail.appendChild(button);
+      }
+      panel.innerHTML = `<div class="tag">3D is unavailable on this device</div>
+        <h1>${esc(sub?.title ?? 'CyberManju wiki')}</h1>
+        <p class="blurb">${esc(sub?.blurb ?? 'Read the module documentation below, or switch to the 2D graph when available.')}</p>
+        ${sub ? `<div class="stats"><span>${sub.fileCount} files</span><span>${sub.symbolCount} symbols</span></div>
+          <h2>Contracts</h2><div class="chips">${sub.contracts.map((c) => `<code>${esc(c)}</code>`).join('')}</div>
+          <h2>Symbols</h2>${sub.top.slice(0, 20).map((t) => `<p><code>${esc(t.name)}</code> · ${esc(t.kind)}<br>${esc(t.docs)}<br><small>${esc(t.file)}:${t.line}</small></p>`).join('')}
+          <ul class="links"><li><a href="./${esc(sub.id)}.html">Read full documentation</a></li><li><a href="#/">All modules</a></li></ul>` :
+          `<ul class="links">${matches.map((s) => `<li><a href="#/${esc(s.id)}">${esc(s.title)}</a></li>`).join('')}</ul>`}`;
+      setReader(true);
+    };
+    window.addEventListener('hashchange', showFallback);
+    search.addEventListener('input', showFallback);
+    showFallback();
+    return;
+  }
   // Filmic look (the award-site baseline): ACES tone mapping + exposure.
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.12;
@@ -414,9 +483,10 @@ async function boot(): Promise<void> {
     1.5,
     1.2,
     1,
-  ].filter((v, i, a) => a.indexOf(v) === i);
+  ].filter((v, i, a) => a.indexOf(v) === i && v <= Math.min(window.devicePixelRatio, 2)).sort((a, b) => b - a);
   renderer.setPixelRatio(DPR_STEPS[dprTier]);
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  const sceneSize = () => ({ width: Math.max(1, mount.clientWidth), height: Math.max(1, mount.clientHeight) });
+  renderer.setSize(sceneSize().width, sceneSize().height);
   mount.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -428,11 +498,11 @@ async function boot(): Promise<void> {
 
   const camera = new THREE.PerspectiveCamera(
     55,
-    window.innerWidth / window.innerHeight,
+    sceneSize().width / sceneSize().height,
     0.1,
     400,
   );
-  camera.position.set(0, 9.5, 36);
+  camera.position.set(0, 9.5, mobile.matches ? 48 : 36);
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.target.set(0, 1.5, 0);
@@ -454,7 +524,7 @@ async function boot(): Promise<void> {
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    new THREE.Vector2(sceneSize().width, sceneSize().height),
     0.85, // strength
     0.55, // radius
     0.6, // threshold: only the emissive / bright bits bleed
@@ -1009,7 +1079,7 @@ async function boot(): Promise<void> {
     if (REDUCED) return;
     fly = {
       fromPos: camera.position.clone(),
-      toPos: new THREE.Vector3(0, 9.5, 36),
+      toPos: new THREE.Vector3(0, 9.5, mobile.matches ? 48 : 36),
       t0: performance.now(),
       dur: 1400,
     };
@@ -1033,6 +1103,7 @@ async function boot(): Promise<void> {
       const b = document.createElement('button');
       b.style.setProperty('--dot', sub.color);
       if (sub.id === selected) b.classList.add('on');
+      b.setAttribute('aria-pressed', String(sub.id === selected));
       // The dot takes the module's 2D silhouette (same clip-path family as
       // the static pages) and the title leads with the glyph.
       b.innerHTML = `<span class="dot" style="clip-path:${shapeClip(sub.shape)}"></span><span>${esc(
@@ -1040,6 +1111,7 @@ async function boot(): Promise<void> {
       )}</span><span class="meta">${sub.fileCount}f</span>`;
       b.addEventListener('click', () => {
         window.location.hash = `#/${sub.id}`;
+        if (mobile.matches) setReader(true);
       });
       rail.appendChild(b);
     }
@@ -1409,6 +1481,8 @@ async function boot(): Promise<void> {
         : null;
     renderRail(search.value);
     renderPanel();
+    panel.scrollTop = 0;
+    if (mobile.matches) setReader(Boolean(selected));
     clearSats();
     const mesh = selected ? nodeById.get(selected) : undefined;
     if (mesh && sub) {
@@ -1442,6 +1516,7 @@ async function boot(): Promise<void> {
     renderRail(search.value);
     // Live symbol matches surface in the overview panel.
     if (!selected) renderPanel();
+    if (mobile.matches && search.value.trim()) setReader(true);
   });
   search.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -1462,6 +1537,10 @@ async function boot(): Promise<void> {
     if (e.key === '/' && tag !== 'INPUT' && tag !== 'TEXTAREA') {
       e.preventDefault();
       search.focus();
+      return;
+    }
+    if (e.key === 'Escape' && mobile.matches && readerOpen) {
+      setReader(false, true);
       return;
     }
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
@@ -1496,6 +1575,8 @@ async function boot(): Promise<void> {
   let hovered: string | null = null;
   let hoveredSat: Sat | null = null;
   let downAt: [number, number] | null = null;
+  const activePointers = new Set<number>();
+  let gestureMoved = false;
   const MAGNET_R = 2.6;
   const PICK_PX = 56;
   const nodeMag: THREE.Vector3[] = nodeBase.map(() => new THREE.Vector3());
@@ -1535,8 +1616,9 @@ async function boot(): Promise<void> {
     const consider = (obj: THREE.Object3D, hit: PickHit): void => {
       nearV.copy(obj.position).project(camera);
       if (nearV.z > 1 || nearV.z < -1) return;
-      const sx = (nearV.x * 0.5 + 0.5) * window.innerWidth;
-      const sy = (-nearV.y * 0.5 + 0.5) * window.innerHeight;
+      const rect = renderer.domElement.getBoundingClientRect();
+      const sx = rect.left + (nearV.x * 0.5 + 0.5) * rect.width;
+      const sy = rect.top + (-nearV.y * 0.5 + 0.5) * rect.height;
       const d = Math.hypot(sx - px, sy - py);
       if (d < bestD) {
         bestD = d;
@@ -1561,8 +1643,9 @@ async function boot(): Promise<void> {
   }
 
   function pick(ev: { clientX: number; clientY: number }): PickHit | null {
-    ptr.x = (ev.clientX / window.innerWidth) * 2 - 1;
-    ptr.y = -(ev.clientY / window.innerHeight) * 2 + 1;
+    const rect = renderer.domElement.getBoundingClientRect();
+    ptr.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    ptr.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     ray.setFromCamera(ptr, camera);
     // Recursive raycast against the cached target list: forms are Groups
     // with mesh children, so the hit lands on a child and walks up.
@@ -1582,7 +1665,10 @@ async function boot(): Promise<void> {
   }
 
   renderer.domElement.addEventListener('pointermove', (ev) => {
-    ptrNdc.set((ev.clientX / window.innerWidth) * 2 - 1, -(ev.clientY / window.innerHeight) * 2 + 1);
+    if (downAt && Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 6) gestureMoved = true;
+    if (ev.pointerType === 'touch') return;
+    const rect = renderer.domElement.getBoundingClientRect();
+    ptrNdc.set(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
     ptrActive = true;
     const h = pick(ev);
     hoveredSat = null;
@@ -1613,22 +1699,37 @@ async function boot(): Promise<void> {
     tooltip.style.top = `${ev.clientY + 10}px`;
   });
   renderer.domElement.addEventListener('pointerdown', (ev) => {
+    activePointers.add(ev.pointerId);
+    if (activePointers.size === 1) gestureMoved = false;
+    else gestureMoved = true;
     downAt = [ev.clientX, ev.clientY];
     // The user grabbed the camera: cancel any in-flight fly-to.
     fly = null;
     tooltip.hidden = true;
   });
   renderer.domElement.addEventListener('pointerup', (ev) => {
-    if (!downAt) return;
+    activePointers.delete(ev.pointerId);
+    if (!downAt || activePointers.size || gestureMoved) {
+      if (!activePointers.size) downAt = null;
+      return;
+    }
     const dx = ev.clientX - downAt[0];
     const dy = ev.clientY - downAt[1];
     downAt = null;
     if (dx * dx + dy * dy > 36) return; // was a drag, not a tap
     const h = pick(ev);
+    if (h && mobile.matches) setReader(true);
     if (!h) window.location.hash = '#/';
     else if (h.kind === 'subject') window.location.hash = `#/${h.subId}`;
     else if (h.kind === 'link') window.location.hash = `#/${h.subId}`;
     else if (h.symName) window.location.hash = `#/${h.subId}/${encodeURIComponent(h.symName)}`;
+  });
+  renderer.domElement.addEventListener('pointercancel', (ev) => {
+    activePointers.delete(ev.pointerId);
+    downAt = null;
+    gestureMoved = true;
+    ptrActive = false;
+    tooltip.hidden = true;
   });
   renderer.domElement.addEventListener('dblclick', (ev) => {
     if (!pick(ev)) window.location.hash = '#/';
@@ -1848,23 +1949,25 @@ async function boot(): Promise<void> {
       if (avg > 26 && dprTier < DPR_STEPS.length - 1) {
         dprTier++;
         renderer.setPixelRatio(DPR_STEPS[dprTier]);
-        composer.setSize(window.innerWidth, window.innerHeight);
+        composer.setSize(sceneSize().width, sceneSize().height);
       } else if (avg < 12 && dprTier > 0) {
         dprTier--;
         renderer.setPixelRatio(DPR_STEPS[dprTier]);
-        composer.setSize(window.innerWidth, window.innerHeight);
+        composer.setSize(sceneSize().width, sceneSize().height);
       }
       frameAcc = 0;
       frameN = 0;
     }
   }
 
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+  const sceneObserver = new ResizeObserver(() => {
+    const { width, height } = sceneSize();
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    composer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setSize(width, height);
+    composer.setSize(width, height);
   });
+  sceneObserver.observe(mount);
 
   renderRail();
   route();

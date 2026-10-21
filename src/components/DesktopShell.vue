@@ -4,7 +4,7 @@
 <!-- Integrates: @/…, vue, ./…. -->
 <!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
-  <div class="desktop-shell" :class="{ 'desktop-shell--glow': theme.settings.glow, 'desktop-shell--plasma': isPlasma, 'desktop-shell--mobile': isMobileViewport }">
+  <div class="desktop-shell" :class="{ 'desktop-shell--glow': theme.settings.glow, 'desktop-shell--plasma': isPlasma, 'desktop-shell--mobile': isMobileViewport, 'desktop-shell--modern-glass': isModernGlass, 'desktop-shell--flat-amoled': isFlatAmoled }">
     <!-- Mobile always keeps the single unified header (logo + status +
       theme + one clock), on home and over sheets — no duplicate rows. -->
     <TopMenuBar v-if="isMobileViewport || chrome.topBar" />
@@ -80,12 +80,19 @@
         <div v-if="overviewWindows.length === 0" class="overview-empty">No windows open.</div>
       </div>
 
-      <div v-else class="desktop-workspace">
+      <div v-else ref="homeWorkspaceRef" class="desktop-workspace" :class="{ 'desktop-home-editing': desktopHomeLayout.editing.value }" @pointerdown.capture="desktopHomeLayout.onPointerDown" @click.capture="desktopHomeLayout.onClickCapture" @keydown.capture="desktopHomeLayout.onKeydown">
+        <div v-if="!isMobileViewport" class="desktop-home-controls" role="group" aria-label="Desktop home layout">
+          <button type="button" :aria-pressed="desktopHomeLayout.editing.value" @click.stop="desktopHomeLayout.toggle">{{ desktopHomeLayout.editing.value ? 'Done' : 'Move home icons' }}</button>
+          <button v-if="desktopHomeLayout.customized.value" type="button" @click.stop="desktopHomeLayout.reset">Reset icons</button>
+          <span v-if="desktopHomeLayout.editing.value">Drag and toss icons; gravity settles them. Arrow keys move. Esc cancels.</span>
+        </div>
         <div class="desktop-icons">
           <button
             v-for="shortcut in shortcuts"
             :key="shortcut.panel"
             class="desktop-shortcut"
+            :data-home-item="`app:${shortcut.panel}`"
+            :style="desktopHomeLayout.style(`app:${shortcut.panel}`)"
             type="button"
             :title="shortcut.label"
             @click="openShortcut(shortcut.panel)"
@@ -174,7 +181,10 @@ import StatusBar from './StatusBar.vue'
 import AppWindow from './AppWindow.vue'
 import ShellShortcutDock from './ShellShortcutDock.vue'
 import type { PanelType } from '@/types'
+import { useHomeLayout } from '@/composables/useHomeLayout'
 
+const homeWorkspaceRef = ref<HTMLElement | null>(null)
+const desktopHomeLayout = useHomeLayout(homeWorkspaceRef, 'cybermanju.desktop.home.layout.v1')
 const wm = useWindowManager()
 const theme = useTheme()
 const customWallpaper = useCustomWallpaper()
@@ -200,6 +210,8 @@ function onMobileShellChange(event: MediaQueryListEvent) {
 /** Chrome comes from the shell registry — TopMenuBar/Dock in macOS, PlasmaPanel in plasma. */
 const chrome = computed(() => SHELL_CHROME[theme.shellStyle.value])
 const isPlasma = computed(() => theme.shellStyle.value === 'plasma')
+const isModernGlass = computed(() => theme.themeId.value === 'modern-glass')
+const isFlatAmoled = computed(() => theme.themeId.value === 'flat-amoled')
 
 onMounted(() => { void customWallpaper.load() })
 
@@ -472,8 +484,51 @@ onUnmounted(() => {
 
 .desktop-area {
   flex: 1;
+  min-height: 0;
+  min-width: 0;
   position: relative;
   overflow: hidden;
+}
+
+/* Flat AMOLED is a true black canvas: keep saved/custom wallpaper settings
+   untouched, but do not paint them behind this theme's icon-only launcher. */
+.desktop-shell--flat-amoled:not(.desktop-shell--mobile) .desktop-area {
+  background: #000;
+}
+.desktop-shell--flat-amoled:not(.desktop-shell--mobile) .desktop-wallpaper {
+  display: none;
+}
+.desktop-shell--flat-amoled:not(.desktop-shell--mobile) .desktop-shortcut {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.desktop-shell--flat-amoled:not(.desktop-shell--mobile) .desktop-shortcut:hover {
+  background: transparent;
+  border-color: transparent;
+}
+.desktop-shell--flat-amoled:not(.desktop-shell--mobile) .shortcut-icon,
+.desktop-shell--flat-amoled:not(.desktop-shell--mobile) .shortcut-icon.selected,
+.desktop-shell--flat-amoled:not(.desktop-shell--mobile) .desktop-shortcut:hover .shortcut-icon {
+  width: 38px;
+  height: 32px;
+  color: #fff;
+  background: transparent;
+  border-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.desktop-shell--flat-amoled:not(.desktop-shell--mobile) .shortcut-label,
+.desktop-shell--flat-amoled:not(.desktop-shell--mobile) .desktop-shortcut:hover .shortcut-label {
+  color: #fff;
+  font-weight: 600;
+  text-shadow: 0 1px 3px #000;
+}
+.desktop-shell--flat-amoled:not(.desktop-shell--mobile) .desktop-workspace,
+.desktop-shell--flat-amoled:not(.desktop-shell--mobile) .desktop-overview {
+  background: #000;
 }
 
 .desktop-wallpaper {
@@ -852,4 +907,25 @@ onUnmounted(() => {
   .desktop-workspace :deep(.app-window) { pointer-events: auto; }
   .desktop-icons { display: none; }
 }
+
+/* Shared, static ambient light: custom wallpaper images remain visible above
+   the fallback gradient. Only this soft wash sits over a custom image. */
+.desktop-shell--modern-glass .desktop-wallpaper {
+  background: var(--ui-ambient-background, var(--ui-bg));
+}
+.desktop-shell--modern-glass .desktop-aurora {
+  display: block;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(165deg, rgba(12, 25, 46, .08), rgba(4, 9, 20, .22)),
+    radial-gradient(ellipse 85% 65% at 12% 0%, rgba(218, 237, 255, .055), transparent 74%);
+  pointer-events: none;
+  animation: none;
+}
+.desktop-home-controls { position: absolute; top: 12px; right: 16px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; max-width: min(380px, 60%); z-index: 3; color: var(--ui-text-2); font-size: 12px; }
+.desktop-home-controls button { min-height: 36px; padding: 6px 12px; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface); color: var(--ui-text); cursor: pointer; }
+.desktop-home-controls span { flex-basis: 100%; text-align: right; }
+.desktop-workspace { overflow: clip; }
+.desktop-home-editing .desktop-shortcut { clip-path: inset(0 round var(--ui-radius-md)); outline-offset: -1px; outline: 1px dashed var(--ui-accent); touch-action: none; user-select: none; cursor: grab; animation: none; }
+.desktop-home-editing .desktop-shortcut:active { cursor: grabbing; }
 </style>

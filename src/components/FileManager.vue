@@ -419,6 +419,7 @@
             <span class="dim">· provider files — not vault yet</span>
           </span>
           <span class="fm-spacer" />
+          <button v-if="providerExternalLink" class="fm-pill xs ghost fm-provider-external" type="button" :title="`Open configured ${providerExternalLabel} location in your browser`" @click="openProviderExternal">↗ {{ providerExternalLabel }}</button>
           <button class="fm-pill xs" title="Save selected provider files into the vault (.cybermanju)" :disabled="!selCount && !active" @click="saveProviderSelToVault">↓ Vault</button>
           <button class="fm-pill xs ghost" title="Move/copy a provider file to another provider" :disabled="!active && !selCount" @click="openProviderMove(active)">⇄ Move</button>
           <button class="fm-pill xs ghost" title="Back to vault root (.cybermanju home)" @click="goHomeVault">Vault ⌂</button>
@@ -985,8 +986,10 @@ import { requestInstallWindow } from '@/utils/installLinks'
 import { humanBytes, diskPct } from '@/utils/format'
 import { trackShellCwd } from '@/utils/shellCwd'
 import { decodeProviderText, isTextEditableProviderName, MAX_PROVIDER_TEXT_BYTES } from '@/utils/providerText'
+import { providerExternalUrl } from '@/utils/providerLinks'
+import { resolveProviderConfigId, stableProviderMountId } from '@/utils/providerMountResolution'
 import { copyToClipboard } from '@/utils/clipboard'
-import { openLocalFile } from '@/utils/openExternal'
+import { openExternalUrl, openLocalFile } from '@/utils/openExternal'
 import { ENCRYPTION_INFO, COMPRESSION_INFO, SYNC_BACKEND_INFO } from '@/types'
 import type { DiskRow, FileNode, SyncBackendType } from '@/types'
 
@@ -1280,12 +1283,16 @@ function providerShortName(c: { backendType: string; name?: string; repoName?: s
   return `${backendLabel(c.backendType).split(' ')[0]} · ${String(repo).slice(0, 22)}`
 }
 async function ensureMountForConfig(configId: string): Promise<string> {
-  const hit = providerMountFor(configId)
-  if (hit) return hit
   const cfg = store.syncConfigs.find(c => c.id === configId)
   if (!cfg) throw new Error('not_found: provider was deleted in Accounts — pick another one')
+  const stableId = stableProviderMountId(cfg.id, vfsMounts.value)
   const { saveVfsMount } = await import('@/composables/useProviderCanal')
+  // Re-write even an apparently mounted row. It repairs an evicted/missing KV
+  // body and refreshes config metadata while preserving the mount id. When an
+  // old route used the config UUID directly, recreate that exact id; never
+  // infer a different account from a missing mount row.
   const mount = await saveVfsMount({
+    id: stableId,
     configId: cfg.id,
     name: `${backendLabel(cfg.backendType)} · ${(cfg.repoName || cfg.basePath || cfg.name || cfg.id).slice(0, 32)}`,
     backendType: cfg.backendType,
@@ -1302,16 +1309,22 @@ async function mountAllProviders() {
   store.notifySuccess(`Providers mounted (${vfsMounts.value.length}/${store.syncConfigs.length})`)
 }
 /** Browse a provider's files/folders straight from the file manager. */
-async function openProvider(configId: string) {
+async function openProvider(configId: string, remotePath = '') {
   clearDiskScope(true)
   try {
     const mountId = await ensureMountForConfig(configId)
     store.selectFile(null)
-    await navTo(`/providers/${mountId}`)
+    const suffix = remotePath.replace(/^\/+/, '')
+    await navTo(`/providers/${mountId}${suffix ? `/${suffix}` : ''}`)
   } catch (e) { store.notifyError('Cannot open provider', e) }
 }
 function openMount(mountId: string) {
   clearDiskScope(true)
+  const configId = resolveProviderConfigId(mountId, store.syncConfigs, vfsMounts.value)
+  if (configId) {
+    void openProvider(configId)
+    return
+  }
   store.selectFile(null)
   void navTo(`/providers/${mountId}`)
 }
@@ -1420,10 +1433,28 @@ async function closeLocalProviderEditor() {
 const providerScopeLabel = computed(() => {  const split = splitProviderPath(store.currentPath)
   if (!split) return 'Providers'
   const mount = vfsMounts.value.find(m => m.id === split.mountId)
-  const cfg = mount ? store.syncConfigs.find(c => c.id === mount.configId) : undefined
+  const configId = resolveProviderConfigId(split.mountId, store.syncConfigs, vfsMounts.value)
+  const cfg = configId ? store.syncConfigs.find(c => c.id === configId) : undefined
   const who = mount?.name || (cfg ? `${backendLabel(cfg.backendType)} · ${(cfg.repoName || cfg.basePath || '').slice(0, 28)}` : split.mountId)
   return split.remotePath ? `${who} / ${split.remotePath}` : who
 })
+const providerExternalConfig = computed(() => {
+  const split = splitProviderPath(store.currentPath)
+  if (!split) return null
+  const configId = resolveProviderConfigId(split.mountId, store.syncConfigs, vfsMounts.value)
+  return configId ? store.syncConfigs.find(c => c.id === configId) ?? null : null
+})
+const providerExternalLink = computed(() => providerExternalUrl(providerExternalConfig.value))
+const providerExternalLabel = computed(() => providerExternalConfig.value?.backendType === 'googleDrive' ? 'Open in Drive' : 'Open GitHub repo')
+async function openProviderExternal() {
+  const url = providerExternalLink.value
+  if (!url) return
+  try {
+    await openExternalUrl(url)
+  } catch (e) {
+    store.notifyError('Cannot open provider location', e)
+  }
+}
 
 // ── device files: host filesystem browsed through cybsh `-os` ──────
 // Same tree as vault/providers (`/host…`), listed over the os_exec bridge
@@ -1867,10 +1898,21 @@ function toggleBulk(id: string) {
 function selectAll() { store.selectedFileIds = sortedFiles.value.map(f => f.id); store.isMultiSelect = true }
 function clearSel() { store.selectedFileIds = []; store.isMultiSelect = false }
 function openFolder(f: FileNode) {
-  // Unmounted provider placeholder (`pending-<configId>`): mount first so
-  // every connected repo/folder actually opens instead of showing empty.
-  const pend = /pending-([^/]+)/.exec(String(f.id || f.path || ''))
-  if (pend) { void openProvider(pend[1]); return }
+  // A placeholder or provider root can outlive its KV mount row. Resolve only
+  // an exact current config/mount mapping, then repair before navigating.
+  const provider = splitProviderPath(f.path || f.id || '')
+  if (provider) {
+    const configId = resolveProviderConfigId(provider.mountId, store.syncConfigs, vfsMounts.value)
+    const atProviderRoot = store.currentPath.replace(/\/+$/, '') === '/providers'
+    const hasMountRow = vfsMounts.value.some(m => m.id === provider.mountId)
+    if (configId && (atProviderRoot || !hasMountRow || provider.mountId.startsWith('pending-'))) {
+      void openProvider(configId, provider.remotePath)
+      return
+    }
+  }
+  const routeId = String(f.id || f.path || '')
+  const pendingId = routeId.startsWith('pending-') ? routeId.slice('pending-'.length) : ''
+  if (pendingId && store.syncConfigs.some(c => c.id === pendingId)) { void openProvider(pendingId); return }
   if (isMobileView.value) closeMobilePanels()
   store.selectFile(f.id)
   const p = f.path || (store.currentPath.replace(/\/+$/, '') + '/' + f.name)
@@ -3297,6 +3339,9 @@ onBeforeUnmount(() => {
   .fm-bulk-n { flex: 0 0 auto; white-space: nowrap; }
   .fm-diskscope { flex-wrap: wrap; }
   .fm-diskscope-t { max-width: calc(100% - 30px); }
+  .fm-diskscope.provider > .fm-spacer { display: none; }
+  .fm-diskscope.provider .fm-diskscope-t { flex: 1 1 calc(100% - 24px); max-width: none; }
+  .fm-diskscope.provider .fm-pill { min-height: 32px; flex: 0 0 auto; }
   .fm-grid { padding: 10px; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
   .fm-grid.compact { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
   .fm-grid.masonry { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
@@ -3368,6 +3413,11 @@ onBeforeUnmount(() => {
   .fm-ctool > :nth-child(n + 4) { display: none; }
   .fm-ctool .fm-ibtn { min-width: 44px; min-height: 44px; }
   .fm-select, .fm-chipbtn, .fm-ctool .fm-pill { min-height: 38px; flex-shrink: 0; }
+  .fm-diskscope { flex-wrap: wrap; }
+  .fm-diskscope-t { max-width: calc(100% - 30px); }
+  .fm-diskscope.provider > .fm-spacer { display: none; }
+  .fm-diskscope.provider .fm-diskscope-t { flex: 1 1 calc(100% - 24px); max-width: none; }
+  .fm-diskscope.provider .fm-pill { min-height: 32px; flex: 0 0 auto; }
   .fm-mobile-tools-menu { position: fixed; inset: 8px; z-index: 80; max-height: none; overflow-y: auto; overscroll-behavior: contain; padding: 10px 10px max(12px, env(safe-area-inset-bottom)); border: 1px solid var(--ui-border-strong); border-radius: 20px; background: var(--ui-surface-2); color: var(--ui-text); box-shadow: var(--ui-shadow-3); }
 }
 
