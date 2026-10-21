@@ -19,10 +19,10 @@
     @touchend.passive="onTouchEnd"
     @touchcancel.passive="resetDrawerGesture"
   >
-    <div class="mla-layout-toolbar" role="group" aria-label="Home layout controls">
-      <button type="button" class="mla-mini-btn" :aria-pressed="homeLayout.editing.value" @click="toggleHomeLayout">{{ homeLayout.editing.value ? 'Done' : 'Customize home' }}</button>
+    <div v-if="homeLayout.editing.value" class="mla-layout-toolbar" role="group" aria-label="Home layout controls">
+      <button type="button" class="mla-mini-btn" @click="homeLayout.toggle">Done</button>
       <button v-if="homeLayout.customized.value" type="button" class="mla-mini-btn" @click="homeLayout.reset">Reset layout</button>
-      <span v-if="homeLayout.editing.value" class="mla-layout-hint">Drag and release to toss; gravity settles items. Arrow keys move; Shift moves faster. Esc cancels.</span>
+      <span class="mla-layout-hint">Drag and release to toss; gravity settles items. Arrow keys move; Shift moves faster. Esc cancels.</span>
     </div>
     <p class="mla-layout-status" role="status" aria-live="polite">{{ homeLayout.status.value }}</p>
     <!-- The single mobile header (TopMenuBar) owns connectivity, vault
@@ -289,6 +289,7 @@
           </div>
         </div>
         <div class="mla-custom-actions">
+          <button class="mla-mini-btn" type="button" @click="toggleHomeLayout">Arrange home</button>
           <button class="mla-mini-btn" type="button" @click="moveHomeCustom(-1)">← Move</button>
           <button class="mla-mini-btn" type="button" @click="moveHomeCustom(1)">Move →</button>
           <button class="mla-mini-btn" type="button" @click="hideHomeCustom">Hide</button>
@@ -355,6 +356,8 @@ const rootRef = ref<HTMLElement | null>(null)
 const homeLayout = useHomeLayout(rootRef)
 function toggleHomeLayout() {
   onHomePressEnd()
+  longPressedHome = false
+  contextMenuFired = false
   resetDrawerGesture()
   customHome.value = null
   homeLayout.toggle()
@@ -705,6 +708,8 @@ function onHomeContextMenu(app: LauncherApp) {
     homePressTimer = null
   }
   longPressedHome = false
+  // Native touch long-press and mouse hold share the same icon sheet;
+  // Arrange home inside it is the only entry into mobile layout editing.
   contextMenuFired = true
   openHomeCustom(app)
 }
@@ -1298,7 +1303,6 @@ function resetAllHome() {
   width: 24px;
   height: 24px;
   object-fit: contain;
-  filter: grayscale(1) brightness(0) invert(1);
 }
 .mla.theme-flat-amoled .mla-name {
   color: #fff;
@@ -1338,10 +1342,14 @@ function resetAllHome() {
   .mla-page-dot { transition: none; }
 }
 
-/* Home and window render the same search component; reserve scrolling room
-   above the persistent All apps control rather than overlaying result cards. */
+/* Search uses the full visible space; hide launcher affordances rather than
+   reserving a dock-sized gap above the software keyboard. */
 .mla-unified-search { flex-shrink: 0; min-width: 0; width: 100%; }
-.mla:has(.omni--home .omni-drop) { padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px)); }
+.mla:has(.omni--home .omni-drop) { bottom: 0; padding-bottom: 0; }
+.mla:has(.omni--home .omni-drop) .mla-allapps,
+.mla:has(.omni--home .omni-drop) .mla-dock { display: none; }
+.mla:has(.omni--home .omni-drop).with-app-nav,
+.mla:has(.omni--home .omni-drop).mla-layout-free { bottom: 0; padding-bottom: 0; }
 /* Clip the entire interaction layer below the shell header, including the fixed
    dock strip reserved below the scrollport. Never let translated hit areas leak
    into the header or navigation. Native overflow still clips scrolled content. */

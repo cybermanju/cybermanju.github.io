@@ -33,7 +33,7 @@ describe('phone discovery and information panels', () => {
 
   it('keeps unified search results scrollable and its editing controls wrapped at phone widths', () => {
     expect(css.omni).toContain('@media (max-width: 768px)')
-    expect(css.omni).toMatch(/\.omni-drop\s*\{[^}]*max-height:\s*min\(62dvh,\s*560px\)/)
+    expect(css.omni).toMatch(/\.omni-drop, \.omni--home \.omni-drop\s*\{[^}]*max-height:\s*max\(0px,\s*calc\(var\(--omni-mobile-results-height/)
     expect(css.omni).toMatch(/\.omni-inline\s*\{\s*flex-wrap:\s*wrap/)
     expect(css.omni).toMatch(/\.omni-row\s*\{\s*min-height:\s*60px/)
     expect(components.omni).toContain('aria-label="Search results"')

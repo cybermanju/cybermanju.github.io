@@ -960,7 +960,8 @@ function resetActive() {
   background: transparent;
   color: #fff;
 }
-.theme-flat-amoled .drawer-img { filter: grayscale(1) brightness(0) invert(1); }
+/* Keep original app artwork legible on the black canvas. */
+.theme-flat-amoled .drawer-img { filter: none; }
 .theme-flat-amoled .drawer-sys { display: none; }
 .theme-flat-amoled .drawer-btn.primary { border-color: #fff; background: #fff; color: #000; }
 .theme-flat-amoled .drawer-btn.danger { color: #fff; }

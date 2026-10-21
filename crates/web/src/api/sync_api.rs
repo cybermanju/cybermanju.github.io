@@ -384,13 +384,11 @@ pub fn seed_repo(req: SeedRepoRequest) -> Result<Vec<String>, String> {
         return Err("too_large: seed holds at most 8 files".to_string());
     }
     let backend = create_backend(&req.config)?;
-    let dir = std::env::temp_dir().join(format!("cyb-seed-{}", uuid::Uuid::new_v4()));
-    fs::create_dir_all(&dir).map_err(|e| format!("network: cannot stage seed files: {}", e))?;
+    let dir = seed_staging_dir()?;
     let mut urls = Vec::with_capacity(req.files.len());
     for file in &req.files {
         let clean = file.path.trim().trim_matches('/').to_string();
         if clean.is_empty() || clean.split('/').any(|s| s == "..") || clean.len() > 256 {
-            let _ = fs::remove_dir_all(&dir);
             return Err(format!("unsupported: seed path '{}' is invalid", file.path));
         }
         let bytes = base64::Engine::decode(
@@ -399,22 +397,55 @@ pub fn seed_repo(req: SeedRepoRequest) -> Result<Vec<String>, String> {
         )
         .map_err(|e| format!("unsupported: seed file '{}' is not base64: {}", clean, e))?;
         if bytes.len() > 5 * 1024 * 1024 {
-            let _ = fs::remove_dir_all(&dir);
             return Err(format!("too_large: seed file '{}' exceeds 5 MiB", clean));
         }
-        let stage = dir.join(format!("seed-{}", urls.len()));
+        let stage = dir.path().join(format!("seed-{}", urls.len()));
         fs::write(&stage, &bytes)
             .map_err(|e| format!("network: cannot stage seed file '{}': {}", clean, e))?;
-        match backend.upload_file(stage.to_string_lossy().as_ref(), &clean) {
-            Ok(url) => urls.push(url),
-            Err(e) => {
-                let _ = fs::remove_dir_all(&dir);
-                return Err(e);
-            }
-        }
+        urls.push(backend.upload_file(stage.to_string_lossy().as_ref(), &clean)?);
     }
-    let _ = fs::remove_dir_all(&dir);
     Ok(urls)
+}
+
+/// Keep seed payloads in an app-owned writable cache. Android's process temp
+/// directory is not guaranteed to be writable; tempfile creates the directory
+/// with private permissions and removes it on every return path.
+fn seed_staging_dir() -> Result<tempfile::TempDir, String> {
+    // keystore::data_dir follows CYBERMANJU_DATA_DIR, which the Android
+    // launcher exports from its app-private files directory (HOME is absent
+    // in Android processes). Do not silently fall back to an unsafe/system
+    // temp location if this app-owned destination cannot be resolved.
+    let cache = cybermanju_crypto::keystore::data_dir()
+        .ok_or_else(|| "network: cannot resolve private application staging cache".to_string())?
+        .join("staging");
+    fs::create_dir_all(&cache)
+        .map_err(|e| format!("network: cannot prepare private seed cache: {e}"))?;
+    tempfile::Builder::new()
+        .prefix("cyb-seed-")
+        .tempdir_in(cache)
+        .map_err(|e| format!("network: cannot create seed staging directory: {e}"))
+}
+
+#[cfg(test)]
+mod seed_staging_tests {
+    use super::*;
+
+    #[test]
+    fn seed_staging_is_private_and_removed_on_drop() {
+        let dir = seed_staging_dir().expect("create seed stage");
+        let path = dir.path().to_path_buf();
+        assert!(path.is_dir());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
+        drop(dir);
+        assert!(!path.exists(), "seed staging directory must be cleaned up");
+    }
 }
 
 /// `POST /api/sync/upload` body — one file's bytes (base64) written to a
@@ -448,13 +479,10 @@ pub fn upload_bytes(req: UploadRequest) -> Result<String, String> {
         return Err(format!("too_large: upload of '{}' exceeds 5 MiB", clean));
     }
     let backend = create_backend(&req.config)?;
-    let dir = std::env::temp_dir().join(format!("cyb-upload-{}", uuid::Uuid::new_v4()));
-    fs::create_dir_all(&dir).map_err(|e| format!("network: cannot stage upload: {}", e))?;
-    let stage = dir.join("upload.bin");
+    let dir = seed_staging_dir()?;
+    let stage = dir.path().join("upload.bin");
     fs::write(&stage, &bytes).map_err(|e| format!("network: cannot stage upload: {}", e))?;
-    let out = backend.upload_file(stage.to_string_lossy().as_ref(), &clean);
-    let _ = fs::remove_dir_all(&dir);
-    out
+    backend.upload_file(stage.to_string_lossy().as_ref(), &clean)
 }
 
 // ─── Progress & cancel ───────────────────────────────────────────────

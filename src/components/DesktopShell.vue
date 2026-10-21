@@ -82,8 +82,8 @@
 
       <div v-else ref="homeWorkspaceRef" class="desktop-workspace" :class="{ 'desktop-home-editing': desktopHomeLayout.editing.value }" @pointerdown.capture="desktopHomeLayout.onPointerDown" @click.capture="desktopHomeLayout.onClickCapture" @keydown.capture="desktopHomeLayout.onKeydown">
         <div v-if="!isMobileViewport" class="desktop-home-controls" role="group" aria-label="Desktop home layout">
-          <button type="button" :aria-pressed="desktopHomeLayout.editing.value" @click.stop="desktopHomeLayout.toggle">{{ desktopHomeLayout.editing.value ? 'Done' : 'Move home icons' }}</button>
-          <button v-if="desktopHomeLayout.customized.value" type="button" @click.stop="desktopHomeLayout.reset">Reset icons</button>
+          <button v-if="desktopHomeLayout.editing.value" type="button" @click.stop="desktopHomeLayout.toggle">Done</button>
+          <button v-if="desktopHomeLayout.editing.value && desktopHomeLayout.customized.value" type="button" @click.stop="desktopHomeLayout.reset">Reset icons</button>
           <span v-if="desktopHomeLayout.editing.value">Drag and toss icons; gravity settles them. Arrow keys move. Esc cancels.</span>
         </div>
         <div class="desktop-icons">
@@ -95,6 +95,11 @@
             :style="desktopHomeLayout.style(`app:${shortcut.panel}`)"
             type="button"
             :title="shortcut.label"
+            @pointerdown="onDesktopHomePressStart($event)"
+            @pointerup="onDesktopHomePressEnd"
+            @pointerleave="onDesktopHomePressEnd"
+            @pointercancel="onDesktopHomePressEnd"
+            @contextmenu.prevent="enterDesktopHomeEditing"
             @click="openShortcut(shortcut.panel)"
           >
             <span class="shortcut-icon" :class="{ selected: selectShortcut === shortcut.panel }">
@@ -185,6 +190,22 @@ import { useHomeLayout } from '@/composables/useHomeLayout'
 
 const homeWorkspaceRef = ref<HTMLElement | null>(null)
 const desktopHomeLayout = useHomeLayout(homeWorkspaceRef, 'cybermanju.desktop.home.layout.v1')
+let desktopHomePressTimer: ReturnType<typeof setTimeout> | null = null
+function enterDesktopHomeEditing() {
+  if (!desktopHomeLayout.editing.value) desktopHomeLayout.toggle()
+}
+function onDesktopHomePressStart(event: PointerEvent) {
+  if (desktopHomeLayout.editing.value || !event.isPrimary || event.button !== 0) return
+  onDesktopHomePressEnd()
+  desktopHomePressTimer = setTimeout(() => {
+    desktopHomePressTimer = null
+    enterDesktopHomeEditing()
+  }, 550)
+}
+function onDesktopHomePressEnd() {
+  if (desktopHomePressTimer) clearTimeout(desktopHomePressTimer)
+  desktopHomePressTimer = null
+}
 const wm = useWindowManager()
 const theme = useTheme()
 const customWallpaper = useCustomWallpaper()
@@ -214,6 +235,7 @@ const isModernGlass = computed(() => theme.themeId.value === 'modern-glass')
 const isFlatAmoled = computed(() => theme.themeId.value === 'flat-amoled')
 
 onMounted(() => { void customWallpaper.load() })
+onUnmounted(onDesktopHomePressEnd)
 
 const stripScrollRef = ref<HTMLElement | null>(null)
 

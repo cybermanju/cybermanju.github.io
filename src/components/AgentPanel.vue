@@ -539,8 +539,14 @@
             <p v-if="voiceCall.error.value" role="alert" class="w-msg">{{ voiceCall.error.value }}</p>
           </section>
           <AndroidVoiceSettings />
+          <div v-if="!hasUsableProvider" class="agent-welcome agent-provider-empty" role="status" aria-live="polite">
+            <span class="agent-welcome-avatar"><AppIcon name="solar:plug-circle-bold" :size="22" /></span>
+            <h3>NO PROVIDER CONNECTED</h3>
+            <p>Connect an AI provider and save its API key (or choose a keyless provider) to start chatting. Your conversation history stays here.</p>
+            <UiButton size="sm" variant="primary" icon="solar:plug-circle-bold" @click="openSetup">CONNECT</UiButton>
+          </div>
           <!-- Onboarding when there is nothing to show yet -->
-          <div v-if="!viewing" class="agent-welcome">
+          <div v-if="hasUsableProvider && !viewing" class="agent-welcome">
             <span class="agent-welcome-avatar"><AppIcon name="solar:bot-bold" :size="22" /></span>
             <h3>{{ configs.length ? 'What should we work on?' : 'Meet your assistant' }}</h3>
             <p v-if="!configs.length">
@@ -566,7 +572,7 @@
             <div v-if="configs.length && !chatConfigId" class="w-msg">Select an assistant in the sidebar first.</div>
           </div>
 
-          <template v-else>
+          <template v-else-if="viewing">
             <div class="agent-thread-head" :title="`Context ${fmtTokens(contextTokens)} / ${fmtTokens(contextWindow)} · In ${fmtTokens(viewing.usage.inputTokens)} · Out ${fmtTokens(viewing.usage.outputTokens)}${costUsd != null ? ` · ~$${costLabel}` : ''}`">
               <div class="agent-thread-title">
                 <strong>{{ viewing.title }}</strong>
@@ -721,7 +727,7 @@
 
             <!-- Composer stays visible even with no session yet: sending
               auto-creates one (same as desktop). Hidden only on setup/controls tabs. -->
-            <div class="composer" :class="{ focused: composerFocused }">
+            <div v-if="selectedProviderReady" class="composer" :class="{ focused: composerFocused }">
               <div v-if="slashHints.length && slashOpen" class="composer-slash" role="listbox" aria-label="Slash commands">
                 <button
                   v-for="s in slashHints"
@@ -2073,7 +2079,12 @@ const approvalInput = computed(() => {
 })
 
 /** The prompt the user typed lands in the box even while a run is live. */
-const canSend = computed(() => promptInput.value.trim() !== '' && chatConfigId.value !== '')
+const selectedProviderReady = computed(() => {
+  const cfg = chatConfig.value
+  return !!cfg && (cfg.hasKey || isKeyless(cfg))
+})
+const hasUsableProvider = computed(() => configs.value.some(cfg => cfg.hasKey || isKeyless(cfg)))
+const canSend = computed(() => promptInput.value.trim() !== '' && selectedProviderReady.value)
 
 const voiceCall = useVoiceCall(sendVoiceTurn, () => voice.lang.value)
 function startVoiceCall() {
@@ -2124,7 +2135,7 @@ async function sendVoiceTurn(text: string, signal: AbortSignal): Promise<string>
 }
 
 async function sendPrompt() {
-  if (!canSend.value) return
+  if (!canSend.value || !selectedProviderReady.value) return
   // A run is live: hold the prompt and drain it when the job settles.
   if (jobActive.value) {
     queue.value.push(promptInput.value.trim())

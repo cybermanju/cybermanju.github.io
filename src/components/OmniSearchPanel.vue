@@ -6,7 +6,7 @@
 <template>
   <div class="omni" :class="{ 'omni--home': props.home, 'omni--flat': isFlatAmoled, 'omni--glass': isModernGlass, 'omni--solid': theme.glass.value === 0 }" @keydown="handleKeydown">
     <div class="omni-col">
-      <div class="omni-bar" :class="{ focused: focused || query }">
+      <div ref="barRef" class="omni-bar" :class="{ focused: focused || query }">
         <AppIcon name="solar:magnifier-bold" :size="18" class="omni-bar__icon" />
         <input ref="inputRef" v-model="query" class="omni-bar__input" type="text" placeholder="Search anything..."
           aria-label="Search anything — apps, collections, people, providers, files"
@@ -16,7 +16,7 @@
         <span v-else class="omni-bar__hint">TYPE TO SEARCH</span>
       </div>
       <Transition name="omni-drop">
-        <div v-if="dropdownOpen" ref="dropRef" class="omni-drop" role="region" aria-label="Search results">
+        <div v-if="dropdownOpen" ref="dropRef" class="omni-drop" :style="resultsViewportStyle" role="region" aria-label="Search results">
           <div v-if="store.isSearching" class="omni-loading" role="status" aria-live="polite"><UiSpinner size="sm" show-label label="Searching" /></div>
           <div v-if="!q && recentSearches.length" class="omni-sec">
             <div class="omni-sec__head"><span class="omni-tag">RECENT</span><span class="omni-div" aria-hidden="true" />
@@ -123,6 +123,7 @@ import { resolvePanel } from '@/utils/panels'
 import { isEditableTarget } from '@/utils/dom'
 import { OMNI_SECTION_TAG, buildOmniSections, type OmniSectionId } from '@/utils/omniSearch'
 import { useUnifiedSearch } from '@/composables/useUnifiedSearch'
+import { useSearchViewport } from '@/composables/useSearchViewport'
 import { duckDuckGoSearchUrl } from '@/utils/duckDuckGoSearch'
 import { handleSearchLink, openSearchLink } from '@/utils/searchExternal'
 import { SEARCH_CATEGORIES, INITIAL_ROWS_PER_SECTION, MAX_VISIBLE_ROWS_PER_SECTION, countSearchCategories, countSectionRows, filterSearchSections, nextVisibleRowCount, sharedSearchCategory, sharedSearchVisibleRows, resetSearchVisibleRows, type SearchCategory } from '@/utils/searchPresentation'
@@ -152,7 +153,9 @@ const copyStatus = ref('')
 const linkError = ref('')
 const visibleBySection = sharedSearchVisibleRows()
 const inputRef = ref<HTMLInputElement | null>(null)
+const barRef = ref<HTMLElement | null>(null)
 const dropRef = ref<HTMLElement | null>(null)
+const resultsViewportStyle = useSearchViewport(barRef, dropRef)
 const activeKey = ref<string | null>(null)
 const renameTarget = ref<{ key: string; kind: OmniSectionId; refId: string } | null>(null)
 const renameDraft = ref('')
@@ -693,7 +696,14 @@ defineExpose({ focus: () => inputRef.value?.focus() })
   .omni:not(.omni--home) { min-width: 0; padding: max(14px, env(safe-area-inset-top, 0px)) 12px calc(16px + env(safe-area-inset-bottom, 0px)); }
   .omni-bar { min-height: 54px; padding-inline: 12px; }
   .omni-bar__input { min-height: 50px; font-size: 16px; }
-  .omni-drop { max-height: min(62dvh, 560px); padding: 11px; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
+  .omni-drop, .omni--home .omni-drop {
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    height: max(0px, calc(var(--omni-mobile-results-height, 50dvh) - env(safe-area-inset-bottom, 0px)));
+    max-height: max(0px, calc(var(--omni-mobile-results-height, 50dvh) - env(safe-area-inset-bottom, 0px)));
+    padding: 11px; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch;
+  }
+  .omni-drop > * { flex-shrink: 0; }
   .omni-row { min-height: 60px; flex-wrap: wrap; }
   .omni-row__body { flex-basis: calc(100% - 42px); }
   .omni-row__actions { width: 100%; justify-content: flex-start; padding-left: 26px; }

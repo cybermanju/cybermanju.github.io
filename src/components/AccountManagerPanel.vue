@@ -254,6 +254,7 @@
                 <span class="am-prov-meta">
                   <strong class="am-prov-name">{{ cfg.name || backendLabel(cfg.backendType) }}<span v-if="isDraftDirty(cfg)" class="am-unsaved" title="Unsaved edits" aria-label="Unsaved edits">●</span></strong>
                   <span class="muted small">{{ backendLabel(cfg.backendType) }} · {{ disksFor(cfg.id).length }} disks</span>
+                  <span v-if="cfg.backendType === 'googleDrive' && quotaMsg[cfg.id]" class="muted small" role="status">{{ quotaMsg[cfg.id] }}</span>
                 </span>
                 <span class="am-status sm" :class="statusTone(cfg.id)">{{ authLabel(cfg.id) }}</span>
                 <span class="am-switch" :class="{ on: cfg.enabled }" :title="cfg.enabled ? 'Enabled' : 'Disabled'"></span>
@@ -301,18 +302,24 @@
                 </button>
               </div>
               <p class="am-hint">{{ backendBlurb(wiz.backendType) }}</p>
-              <label class="am-field">
-                <span class="am-field-label">Display name</span>
-                <input v-model="wiz.name" class="am-input" placeholder="e.g. Work GitHub" aria-label="Display name" />
-              </label>
-              <div class="am-fields">
-                <label v-for="f in fieldsFor(wiz.backendType)" :key="f.key" class="am-field" :class="{ grow: f.grow }">
+              <button class="am-btn sm" type="button" :aria-expanded="manualEntryOpen" @click="manualEntryOpen = !manualEntryOpen">{{ manualEntryOpen ? 'Hide manual credentials' : 'Enter token manually' }}</button>
+              <div v-if="manualEntryOpen" class="am-fields">
+                <label class="am-field">
+                  <span class="am-field-label">Display name</span>
+                  <input v-model="wiz.name" class="am-input" placeholder="e.g. Work GitHub" aria-label="Display name" />
+                </label>
+                <label v-for="f in fieldsFor(wiz.backendType).filter((field) => field.secret)" :key="f.key" class="am-field" :class="{ grow: f.grow }">
                   <span class="am-field-label">{{ f.label }}</span>
-                  <span class="am-input-wrap" v-if="f.secret">
+                  <span class="am-input-wrap">
                     <input v-model="(wiz as any)[f.key]" class="am-input" :type="showWizToken ? 'text' : 'password'" :placeholder="f.placeholder" autocomplete="off" />
                     <button class="am-icon-btn" type="button" @click="showWizToken = !showWizToken" :title="showWizToken ? 'Hide' : 'Show'" :aria-label="showWizToken ? 'Hide token' : 'Show token'"><AppIcon :name="showWizToken ? 'solar:eye-closed-bold' : 'solar:eye-bold'" :size="14" /></button>
                   </span>
-                  <span class="am-input-wrap" v-else-if="f.key === 'basePath' && wiz.backendType === 'local'">
+                </label>
+              </div>
+              <div class="am-fields">
+                <label v-for="f in fieldsFor(wiz.backendType).filter((field) => !field.secret)" :key="f.key" class="am-field" :class="{ grow: f.grow }">
+                  <span class="am-field-label">{{ f.label }}</span>
+                  <span class="am-input-wrap" v-if="f.key === 'basePath' && wiz.backendType === 'local'">
                     <input v-model="(wiz as any)[f.key]" class="am-input" :placeholder="f.placeholder" autocomplete="off" />
                     <button v-if="localDirSupported" class="am-btn xs" type="button" title="Pick a folder with the browser" @click="pickWizLocalDir()">Browse…</button>
                   </span>
@@ -357,7 +364,7 @@
                 <button class="am-btn sm" type="button" :disabled="probing.has(selectedCfg.id)" @click="probe(selectedCfg!)">{{ probing.has(selectedCfg.id) ? 'Testing…' : 'Test connection' }}</button>
                 <button class="am-btn sm" type="button" @click="quota(selectedCfg!)">Quota</button>
                 <button class="am-btn sm danger" type="button" @click="removeProvider(selectedCfg!.id)">Delete</button>
-                <span v-if="quotaMsg[selectedCfg.id]" class="muted small">{{ quotaMsg[selectedCfg.id] }}</span>
+                <span v-if="quotaMsg[selectedCfg.id]" class="muted small" role="status">{{ quotaMsg[selectedCfg.id] }}</span>
               </div>
               <p v-if="authDetail(selectedCfg.id)" class="am-note" :class="authState[selectedCfg.id]?.ok === false ? 'err' : ''" :title="authHint(selectedCfg.id)">{{ authDetail(selectedCfg.id) }}</p>
 
@@ -815,6 +822,7 @@ const mobileOAuthErrors = ref<Record<string, string>>({})
 const oauthAbort = ref<AbortController | null>(null)
 
 const quotaMsg = ref<Record<string, string>>({})
+const manualEntryOpen = ref(false)
 const authState = ref<Record<string, { ok: boolean | null; detail: string }>>({})
 const sbAbort = ref<AbortController | null>(null)
 const sbConfigured = computed(() => supabaseConfigured())
@@ -1352,6 +1360,7 @@ function resetWizard() {
   wizMsg.value = ''
   wizOk.value = null
   showWizToken.value = false
+  manualEntryOpen.value = false
 }
 
 const filteredConfigs = computed(() => {
@@ -1412,6 +1421,10 @@ const selectedCfg = computed<SyncConfig | null>(() => {
   }
   return store.syncConfigs[0] ?? null
 })
+
+watch(selectedCfg, (cfg) => {
+  if (cfg?.backendType === 'googleDrive') void quota(cfg)
+}, { immediate: true })
 
 watch(
   () => store.syncConfigs.map(c => c.id).join(','),
@@ -1998,9 +2011,13 @@ async function sealedSecretFor(configId: string): Promise<string> {
 }
 
 async function quota(cfg: SyncConfig) {
+  quotaMsg.value[cfg.id] = 'Checking storage space…'
   const u = await store.fetchSyncUsage(cfg.id)
+  const freeBytes = u?.totalBytes != null && u.usedBytes != null
+    ? Math.max(0, u.totalBytes - u.usedBytes)
+    : null
   quotaMsg.value[cfg.id] = u
-    ? `quota: ${[u.totalBytes != null ? `total ${humanBytes(u.totalBytes)}` : null, u.usedBytes != null ? `used ${humanBytes(u.usedBytes)}` : null, u.remainingRequests != null ? `${u.remainingRequests} req left` : null].filter(Boolean).join(' · ') || u.detail}`
+    ? `Storage: ${[freeBytes != null ? `${humanBytes(freeBytes)} free` : cfg.backendType === 'googleDrive' ? 'Free space unavailable (no storage limit reported)' : null, u.totalBytes != null ? `total ${humanBytes(u.totalBytes)}` : null, u.usedBytes != null ? `used ${humanBytes(u.usedBytes)}` : null, u.remainingRequests != null ? `${u.remainingRequests} req left` : null].filter(Boolean).join(' · ') || u.detail}`
     : 'quota unavailable'
 }
 

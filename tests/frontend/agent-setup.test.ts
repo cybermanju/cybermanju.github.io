@@ -133,3 +133,22 @@ describe('compact mobile agent settings', () => {
     expect(panel).not.toContain('chatConfigId.value || savedConfigId.value')
   })
 })
+
+describe('provider connection onboarding', () => {
+  it('shows a clear no-provider state with a working route into provider setup', () => {
+    expect(panel).toContain('NO PROVIDER CONNECTED')
+    expect(panel).toContain('Connect an AI provider and save its API key')
+    expect(panel).toContain('aria-live="polite"')
+    expect(panel).toContain('>CONNECT</UiButton>')
+    expect(panel).toContain('@click="openSetup">CONNECT</UiButton>')
+    expect(panel).toContain('const hasUsableProvider = computed(() => configs.value.some(cfg => cfg.hasKey || isKeyless(cfg)))')
+  })
+
+  it('blocks prompt dispatch and hides the composer until the selected provider is usable', () => {
+    expect(panel).toContain('const selectedProviderReady = computed(() => {')
+    expect(panel).toContain('return !!cfg && (cfg.hasKey || isKeyless(cfg))')
+    expect(panel).toContain('v-if="selectedProviderReady" class="composer"')
+    expect(panel).toContain('const canSend = computed(() => promptInput.value.trim() !== \'\' && selectedProviderReady.value)')
+    expect(panel).toContain('if (!canSend.value || !selectedProviderReady.value) return')
+  })
+})
