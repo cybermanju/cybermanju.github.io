@@ -48,6 +48,9 @@ jobs:
       - name: REST HTTP smoke harness tests (local fake servers)
         run: node --test scripts/smoke-rest-http.test.mjs
 
+      - name: Android package verifier regressions
+        run: python3 scripts/verify-android-package.test.py
+
       - name: Top-file headers present
         run: bash scripts/check-file-headers.sh
 
@@ -242,6 +245,8 @@ jobs:
       # Blocking: the advisory list was cleaned on 2026-10-18 by the
       # quinn-proto 0.11.19 / rustls 0.23.46 / ruzstd 0.9.1 lock bump
       # (10 RustSec vulns: RUSTSEC-2026-0338..0342, 0344, 0346..0349).
+      # 2026-10-21: rustls-webpki 0.103.16 + webpki-roots/root-certs
+      # 1.0.10 fix RUSTSEC-2026-0381..0383 (distrusted certificates).
       # Remaining findings are warnings only (unmaintained/unsound), which
       # `cargo audit` reports without failing. A new advisory now fails CI
       # instead of hiding behind continue-on-error.
@@ -1111,12 +1116,13 @@ jobs:
         env:
           REQUIRE_SIGNING: ${{ github.event_name == 'push' && '1' || '0' }}
 
-      # Best-effort on-device smoke (install + launch on an attached
-      # emulator). Skips gracefully with no device — KVM-less runners stay
-      # green; the skip reason is printed in the log.
+      - name: Verify Android native payload and install packaging
+        run: python3 scripts/verify-android-package.py
+
+      # No device still skips explicitly; an actual install/launch/render
+      # failure on an attached compatible device must fail the build.
       - name: Android on-device smoke test
         run: bash scripts/android-smoke.sh
-        continue-on-error: true
 
       # Shred keystore + signing properties before archiving so runner
       # images / debug bundles never retain plaintext signing secrets.

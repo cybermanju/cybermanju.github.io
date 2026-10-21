@@ -18,6 +18,20 @@
 | Launcher icon | `public/icon-512.png` (512x512 RGBA) → `gen/…/res/mipmap-*` via `scripts/android-icons.sh` (`tauri icon` per the official flow). `tauri android init` stamps the Tauri template's DEFAULT icons — without the sync step every APK ships the Tauri logo |
 | Play track | manual upload of the `.aab` (internal track first). No auto-publish yet |
 
+Install `CyberManju-OS-<ver>-arm64-v8a.apk` on an arm64 phone. The accompanying
+`.aab` is a Play upload bundle, **not a directly installable APK**; renaming it
+does not make it installable. Compare APK sizes only with other APKs: the AAB
+compresses the native library while the APK stores it uncompressed for direct
+loading. CI run `39520562520`, for example, produced a 49,338,817-byte APK and
+a 20,398,822-byte AAB with byte-identical native libraries, not half an app.
+
+`python3 scripts/verify-android-package.py [outputs-dir]` requires both formats,
+the APK manifest/DEX and the arm64 Rust library, verifies ELF architecture and
+16-KiB LOAD alignment, checks ZIP alignment of uncompressed native libraries,
+and compares APK/AAB native payloads. It logs exact file sizes and fails before
+upload on missing, corrupt, wrong-ABI, misaligned or mismatched payloads. This
+is a packaging gate, not proof of installation or startup on a physical phone.
+
 ABI debt: `armv7`/`i686` targets are NOT installed in CI (waste) and not
 shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
 + extend the `--split-per-abi` matrix here.
@@ -183,9 +197,10 @@ intents still work. Generation/unit tests are not a substitute for this check.
    (`android-configure.sh`) → Gradle harden (`android-gradle-harden.sh`) →
    signing prepare (`android-signing.sh prepare`, `REQUIRE_SIGNING=1` on
    release + GitLab) → build (`--apk --aab --split-per-abi`) →
-   `apksigner verify` (`android-signing.sh verify`) → on-device smoke
-   (`android-smoke.sh`; `continue-on-error` on GitHub, best-effort on
-   GitLab — skips without an arm64 emulator) → cleanup
+   `apksigner verify` (`android-signing.sh verify`) → native payload/packaging
+   verification (`verify-android-package.py`) → on-device smoke
+   (`android-smoke.sh`; an attached compatible device's failure is blocking,
+   absence or ABI mismatch is an explicit skip) → cleanup
    (`android-signing.sh cleanup`, shreds the keystore — `if: always()` on
    GitHub, `after_script` on GitLab, so a failed build/verify shreds too) →
    upload APK+AAB.
