@@ -66,6 +66,8 @@
         <p v-if="mswSignInMsg" class="msw-note" :class="mswSignInOk === false ? 'err' : mswSignInOk ? 'ok' : ''">{{ mswSignInMsg }}</p>
         <p v-if="!mswSbConfigured" class="msw-note err">OAuth broker is not set — sign-in stays off until you add the URL + key in Settings → OAuth broker.</p>
 
+        <button class="msw-btn big" type="button" aria-controls="msw-custom-provider-fields" :aria-expanded="customProviderOpen" @click="customProviderOpen = !customProviderOpen">{{ customProviderOpen ? 'Hide custom' : 'Add custom' }}</button>
+        <div v-if="customProviderOpen" id="msw-custom-provider-fields">
         <span class="msw-sub-label">Add a connection</span>
         <div class="msw-logo-row" role="radiogroup" aria-label="Provider type">
           <button
@@ -110,7 +112,7 @@
               <input v-model="prov.name" class="msw-input" placeholder="e.g. Work GitHub" autocomplete="off" />
             </label>
             <label class="msw-field"><span>Personal access token (optional when the session provides one)</span>
-              <input v-model="prov.secret" class="msw-input" :type="showSecret ? 'text' : 'password'" autocomplete="off" placeholder="Paste a token, or connect in Accounts" />
+              <input v-model="prov.secret" data-secret class="msw-input" :type="showSecret ? 'text' : 'password'" autocomplete="off" placeholder="Paste a token, or connect in Accounts" />
             </label>
             <label class="msw-check"><input v-model="showSecret" type="checkbox" /> Show token</label>
           </template>
@@ -125,6 +127,7 @@
           <li v-for="c in store.syncConfigs" :key="c.id"><strong>{{ c.name || c.backendType }}</strong> <span class="muted">{{ c.backendType }}</span></li>
           <li v-for="mount in localFolderMounts" :key="mount.id"><strong>{{ mount.name }}</strong> <span class="muted">Phone folder · Files</span></li>
         </ul>
+        </div>
         <button class="msw-btn big" type="button" @click="openAccounts('connect')">Open Account Manager</button>
         <div class="msw-nav">
           <button class="msw-btn" type="button" @click="go('welcome')">Back</button>
@@ -432,6 +435,7 @@ async function mswSignIn(provider: OAuthBackend) {
 const prov = ref({ backendType: 'github', name: '', secret: '' })
 const showSecret = ref(false)
 const manualCredentialsOpen = ref(false)
+const customProviderOpen = ref(false)
 const provBusy = ref(false)
 const provMsg = ref('')
 const provOk = ref<boolean | null>(null)

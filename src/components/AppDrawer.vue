@@ -5,20 +5,21 @@
 <!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <Teleport to="body">
-    <Transition name="drawer">
+    <Transition name="drawer" :duration="motion.duration(380)" @before-leave="prepareDrawerLeave" @leave-cancelled="cancelDrawerLeave">
       <div
-        v-if="launcher.drawerOpen || revealProgress > 0"
+        v-if="launcher.drawerOpen || revealProgress > 0 || previewSettling"
           class="app-drawer-veil"
-          :class="[`theme-${themeId}`, `drawer-display-${launcher.drawerDisplay}`, { 'is-preview': !launcher.drawerOpen }]"
+          :class="[`theme-${themeId}`, `drawer-display-${launcher.drawerDisplay}`, { 'is-preview': !launcher.drawerOpen, 'is-dragging': revealProgress > 0 || sheetDragging }]"
         :style="!launcher.drawerOpen ? { background: `rgba(0, 0, 0, ${revealProgress * .4})` } : undefined"
         :aria-hidden="!launcher.drawerOpen"
         :inert="!launcher.drawerOpen"
-        role="dialog"
-        aria-modal="true"
+        :role="launcher.drawerOpen ? 'dialog' : undefined"
+        :aria-modal="launcher.drawerOpen || undefined"
         aria-label="All apps"
+        @click.capture="onDrawerClickCapture"
         @click.self="close"
       >
-        <section ref="sheetRef" class="app-drawer" :style="!launcher.drawerOpen ? { transform: `translateY(${(1 - revealProgress) * 100}%)` } : undefined" @touchstart.passive="onSheetTouchStart" @touchend.passive="onSheetTouchEnd" @touchcancel.passive="resetSheetGesture">
+        <section ref="sheetRef" class="app-drawer" :style="sheetStyle" @touchstart.passive="onSheetTouchStart" @touchmove="onSheetTouchMove" @touchend.passive="onSheetTouchEnd" @touchcancel.passive="resetSheetGesture">
           <div class="drawer-handle" aria-hidden="true" />
           <header class="drawer-head">
             <div class="drawer-title">
@@ -50,8 +51,8 @@
           </div>
 
           <template v-if="!browser.supported">
-            <div v-if="visibleBuiltIns.length" ref="gridRef" class="drawer-grid" aria-label="All CyberManju apps">
-              <button v-for="(app, index) in visibleBuiltIns" :key="app.panel" :data-ui-appearance-id="`drawer:os:${app.panel}`" class="drawer-app drawer-cell" :style="{ '--reveal-delay': `${Math.min(index, 12) * 20}ms` }" type="button" :aria-label="`Open ${app.label}`" @click="openBuiltIn(app.panel)">
+            <div v-if="visibleBuiltIns.length" v-memo="[visibleBuiltIns, showIcons, showNames, isFlatAmoled]" ref="gridRef" class="drawer-grid" aria-label="All CyberManju apps">
+              <button v-for="(app, index) in visibleBuiltIns" :key="app.panel" :data-ui-appearance-id="`drawer:os:${app.panel}`" class="drawer-app drawer-cell" :style="{ '--reveal-delay': `${Math.min(index, 6) * 16}ms` }" type="button" :aria-label="`Open ${app.label}`" @click="openBuiltIn(app.panel)">
                 <span v-if="showIcons" class="drawer-tile" aria-hidden="true" :style="isFlatAmoled ? { background: 'transparent', color: '#fff' } : { background: app.tint, color: '#fff' }"><AppIcon :name="app.icon" :size="26" /></span>
                 <span v-if="showNames" class="drawer-name">{{ app.label }}</span>
               </button>
@@ -76,6 +77,7 @@
 
           <div
             v-else-if="visible.length"
+            v-memo="[visible, showIcons, showNames]"
             ref="gridRef"
             class="drawer-grid"
             role="list"
@@ -85,7 +87,7 @@
               v-for="(row, index) in visible"
               :key="row.key"
               class="drawer-cell"
-              :style="{ '--reveal-delay': `${Math.min(index, 12) * 20}ms` }"
+              :style="{ '--reveal-delay': `${Math.min(index, 6) * 16}ms` }"
               role="listitem"
               :aria-label="row.name"
             >
@@ -210,6 +212,8 @@ import { useAndroidApps } from '@/composables/useAndroidApps'
 import { useLauncherStore } from '@/stores/launcher'
 import { useTheme } from '@/composables/useTheme'
 import { useAppStore } from '@/stores/app'
+import { useMotion } from '@/composables/useMotion'
+import { drawerGestureProgress, shouldCommitDrawerGesture } from '@/utils/drawerGesture'
 import {
   displayIcon,
   fileToLauncherIcon,
@@ -231,6 +235,52 @@ const store = useAppStore()
 const theme = useTheme()
 const themeId = computed(() => String(theme.themeId.value))
 const isFlatAmoled = computed(() => themeId.value === 'flat-amoled')
+const motion = useMotion()
+const previewSettling = ref(false)
+const sheetDragging = ref(false)
+const sheetOffset = ref(0)
+let previewTimer: ReturnType<typeof setTimeout> | null = null
+let leaveFrame = 0
+function prepareDrawerLeave(element: Element) {
+  const veil = element as HTMLElement
+  const sheet = veil.querySelector<HTMLElement>('.app-drawer')
+  veil.inert = true
+  veil.setAttribute('aria-hidden', 'true')
+  if (!sheet) return
+  // Vue preserves the leaving vnode's last inline style/classes. Freeze its
+  // actual position before removing the drag lock, then settle off-screen.
+  const position = getComputedStyle(sheet).transform
+  veil.classList.remove('is-dragging')
+  sheet.style.transform = position
+  if (leaveFrame) cancelAnimationFrame(leaveFrame)
+  leaveFrame = requestAnimationFrame(() => { leaveFrame = 0; sheet.style.transform = 'translate3d(0, 100%, 0)' })
+}
+function cancelDrawerLeave(element: Element) {
+  if (leaveFrame) cancelAnimationFrame(leaveFrame)
+  leaveFrame = 0
+  const veil = element as HTMLElement
+  veil.inert = !launcher.drawerOpen
+  veil.setAttribute('aria-hidden', String(!launcher.drawerOpen))
+  veil.querySelector<HTMLElement>('.app-drawer')?.style.removeProperty('transform')
+}
+const sheetStyle = computed(() => {
+  if (!launcher.drawerOpen) return { transform: `translate3d(0, ${(1 - drawerGestureProgress(props.revealProgress, 1)) * 100}%, 0)` }
+  if (sheetOffset.value > 0) return { transform: `translate3d(0, ${sheetOffset.value}px, 0)` }
+  return undefined
+})
+watch(() => props.revealProgress, (progress, previous) => {
+  if (previewTimer) { clearTimeout(previewTimer); previewTimer = null }
+  previewSettling.value = false
+  if (progress === 0 && previous > 0 && !launcher.drawerOpen && !motion.reduced.value) {
+    // Keep the preview mounted while it settles back below the viewport.
+    previewSettling.value = true
+    previewTimer = setTimeout(() => { previewSettling.value = false; previewTimer = null }, motion.duration(380))
+  }
+})
+onUnmounted(() => {
+  if (previewTimer) clearTimeout(previewTimer)
+  if (leaveFrame) cancelAnimationFrame(leaveFrame)
+})
 const displayModes = [
   { value: 'names', label: 'Names only' },
   { value: 'icons', label: 'Icons only' },
@@ -271,8 +321,14 @@ let contextMenuFired = false
 let sheetStartY: number | null = null
 let sheetStartX: number | null = null
 let sheetCanDismiss = false
+let sheetStartTime = 0
+let suppressDrawerClickUntil = 0
+function onDrawerClickCapture(event: MouseEvent) {
+  if (Date.now() >= suppressDrawerClickUntil) return
+  event.preventDefault()
+  event.stopImmediatePropagation()
+}
 let pressStart: { x: number; y: number } | null = null
-
 const ordered = computed(() => orderAndroidApps(browser.apps.value, launcher.overrides))
 const visible = computed(() => filterOrderedApps(ordered.value, query.value).map(row => ({ ...row, tile: tileFor(row) })))
 
@@ -362,17 +418,35 @@ watch(
 
 /** Swipe-down on the sheet dismisses the drawer (mirror of swipe-up open). */
 function onSheetTouchStart(e: TouchEvent) {
+  resetSheetGesture()
+  sheetStartTime = Date.now()
   sheetStartY = e.touches[0]?.clientY ?? null
   sheetStartX = e.touches[0]?.clientX ?? null
   // Decide at gesture start: scrolling back to the top must not dismiss.
   sheetCanDismiss = e.touches.length === 1 && !active.value &&
-    (gridRef.value?.scrollTop ?? 0) <= 8 &&
-    !(e.target as HTMLElement | null)?.closest('input, textarea, .custom-sheet, .drawer-display')
+    (!(e.target as HTMLElement | null)?.closest('.drawer-grid') || (gridRef.value?.scrollTop ?? 0) <= 8) &&
+    !(e.target as HTMLElement | null)?.closest('input, textarea, [contenteditable], .custom-sheet, .drawer-display')
+}
+function onSheetTouchMove(e: TouchEvent) {
+  if (!sheetCanDismiss || sheetStartY == null || sheetStartX == null) return
+  const point = e.touches[0]
+  if (e.touches.length !== 1 || !point || Math.abs(point.clientX - sheetStartX) >= 60) { resetSheetGesture(); return }
+  const distance = point.clientY - sheetStartY
+  // Once native scrolling owns the gesture, reversing direction must not
+  // suddenly convert it into drawer dismissal in the middle of the grid.
+  if (!sheetDragging.value && (distance < -10 || ((e.target as HTMLElement | null)?.closest('.drawer-grid') && (gridRef.value?.scrollTop ?? 0) > 8))) { resetSheetGesture(); return }
+  if (!sheetDragging.value && (distance <= 10 || distance <= Math.abs(point.clientX - sheetStartX))) return
+  if (!sheetDragging.value && !e.cancelable) { resetSheetGesture(); return }
+  if (e.cancelable) e.preventDefault()
+  sheetDragging.value = true
+  sheetOffset.value = Math.max(0, distance)
+  suppressDrawerClickUntil = Date.now() + 450
+  onPressEnd()
 }
 function onSheetTouchEnd(e: TouchEvent) {
   const point = e.changedTouches[0]
   const dismiss = sheetCanDismiss && !active.value && sheetStartY != null && sheetStartX != null && point &&
-    point.clientY - sheetStartY > 96 && Math.abs(point.clientX - sheetStartX) < 60
+    shouldCommitDrawerGesture(point.clientY - sheetStartY, point.clientX - sheetStartX, Date.now() - sheetStartTime)
   resetSheetGesture()
   if (dismiss) close()
 }
@@ -380,8 +454,9 @@ function resetSheetGesture() {
   sheetStartY = null
   sheetStartX = null
   sheetCanDismiss = false
+  sheetDragging.value = false
+  sheetOffset.value = 0
 }
-
 async function onTap(row: OrderedApp) {
   if (contextMenuFired) {
     // The contextmenu already opened the sheet for this gesture — swallow the
@@ -537,8 +612,8 @@ function resetActive() {
   inset: 0;
   z-index: 9000;
   background: color-mix(in srgb, var(--ui-bg-deep) 55%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(min(6px, var(--ui-blur, 6px)));
+  -webkit-backdrop-filter: blur(min(6px, var(--ui-blur, 6px)));
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -560,6 +635,7 @@ function resetActive() {
   color: var(--ui-text);
   box-shadow: var(--ui-shadow-3);
   overflow: hidden;
+  transform: translate3d(0, 0, 0);
   transition: transform 380ms cubic-bezier(.22, 1, .36, 1);
 }
 /* Only the app grid shrinks; controls retain their touch targets. */
@@ -665,10 +741,14 @@ function resetActive() {
   color: var(--ui-text);
 }
 .drawer-app:focus-visible,
-.drawer-display-btn:focus-visible {
+.drawer-display-btn:focus-visible,
+.drawer-close:focus-visible,
+.drawer-clear:focus-visible,
+.drawer-btn:focus-visible {
   outline: 2px solid var(--ui-accent);
   outline-offset: -2px;
 }
+.drawer-search:focus-within { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .drawer-display-names .drawer-grid { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 .drawer-display-names .drawer-app { min-height: 48px; align-items: flex-start; justify-content: center; padding: 10px 12px; }
 .drawer-display-names .drawer-name { font-size: 15px; line-height: 1.4; text-align: start; }
@@ -884,7 +964,7 @@ function resetActive() {
 }
 .drawer-enter-active,
 .drawer-leave-active {
-  transition: opacity 280ms ease;
+  transition: opacity 380ms ease;
 }
 .drawer-enter-active .app-drawer,
 .drawer-leave-active .app-drawer {
@@ -899,8 +979,10 @@ function resetActive() {
   transform: translateY(100%);
 }
 .app-drawer-veil.is-preview { pointer-events: none; }
-.is-preview .app-drawer { will-change: transform; transition: none; }
+.is-dragging .app-drawer { will-change: transform; transition: none; }
+.is-preview.drawer-enter-active, .is-preview.drawer-enter-from { opacity: 1; transition: none; }
 .drawer-enter-active .drawer-cell { animation: drawer-reveal 260ms cubic-bezier(.22, 1, .36, 1) both; animation-delay: var(--reveal-delay, 0ms); }
+.is-preview.drawer-enter-active .drawer-cell { animation: none; }
 @keyframes drawer-reveal { from { opacity: 0; transform: translateY(22px) scale(.94); } to { opacity: 1; transform: none; } }
 
 /* Modern glass follows the effective token blur/saturation, including the

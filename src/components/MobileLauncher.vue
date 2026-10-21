@@ -15,7 +15,7 @@
     @pointerdown.capture="homeLayout.onPointerDown"
     @keydown.capture="homeLayout.onKeydown"
     @touchstart.passive="onTouchStart"
-    @touchmove.passive="onTouchMove"
+    @touchmove="onTouchMove"
     @touchend.passive="onTouchEnd"
     @touchcancel.passive="resetDrawerGesture"
   >
@@ -323,6 +323,7 @@ import { moveHomeOrder } from '@/utils/homeLayout'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useResizeObserver } from '@vueuse/core'
 import { homePageCapacity } from '@/utils/homePageCapacity'
+import { drawerGestureProgress, shouldCommitDrawerGesture } from '@/utils/drawerGesture'
 import { useTheme } from '@/composables/useTheme'
 import { useAppStore } from '@/stores/app'
 import { useLauncherStore } from '@/stores/launcher'
@@ -407,6 +408,7 @@ let touchX: number | null = null
  *  reusing it for the end-check made the drawer gesture dead code. */
 let drawerStartY: number | null = null
 let drawerStartX: number | null = null
+let drawerStartTime = 0
 let suppressHomeClickUntil = 0
 function onLauncherClickCapture(event: MouseEvent) {
   homeLayout.onClickCapture(event)
@@ -418,14 +420,25 @@ function onLauncherClickCapture(event: MouseEvent) {
 }
 const drawerProgress = ref(0)
 let swipeUpArmed = false
+let drawerFrame = 0
+let pendingDrawerProgress = 0
+function queueDrawerProgress(progress: number) {
+  pendingDrawerProgress = progress
+  if (drawerFrame) return
+  drawerFrame = requestAnimationFrame(() => { drawerFrame = 0; drawerProgress.value = pendingDrawerProgress })
+}
 function resetDrawerGesture() {
+  if (drawerFrame) cancelAnimationFrame(drawerFrame)
+  drawerFrame = 0
   drawerProgress.value = 0
   swipeUpArmed = false
   touchY = touchX = drawerStartY = drawerStartX = null
 }
+onUnmounted(resetDrawerGesture)
 function onTouchStart(event: TouchEvent) {
+  resetDrawerGesture()
   if (launcher.drawerOpen || homeLayout.editing.value) return
-  drawerProgress.value = 0
+  drawerStartTime = Date.now()
   touchY = event.touches[0]?.clientY ?? null
   touchX = event.touches[0]?.clientX ?? null
   drawerStartY = touchY
@@ -438,7 +451,7 @@ function onTouchStart(event: TouchEvent) {
       touchY != null &&
       touchY > window.innerHeight * 0.55 &&
       (event.touches.length ?? 0) === 1 &&
-      !(event.target as HTMLElement | null)?.closest('input, textarea, .mla-pages, .mla-custom-veil')
+      !(event.target as HTMLElement | null)?.closest('input, textarea, [contenteditable], .mla-pages, .mla-custom-veil')
   } catch {
     swipeUpArmed = false
   }
@@ -450,7 +463,7 @@ function onTouchEnd(event: TouchEvent) {
     const vertical = drawerStartY - endY
     const horizontal = Math.abs(endX - drawerStartX)
     const tag = (event.target as HTMLElement | null)?.tagName ?? ''
-    if (vertical >= 96 && horizontal < 60 && tag !== 'INPUT' && tag !== 'TEXTAREA') {
+    if (shouldCommitDrawerGesture(vertical, horizontal, Date.now() - drawerStartTime) && tag !== 'INPUT' && tag !== 'TEXTAREA') {
       suppressHomeClickUntil = Date.now() + 450
       launcher.setDrawer(true)
       try {
@@ -469,8 +482,14 @@ function onTouchMove(event: TouchEvent) {
     const point = event.touches[0]
     const travel = drawerStartY - (point?.clientY ?? drawerStartY)
     const sideways = Math.abs((point?.clientX ?? drawerStartX) - drawerStartX)
-    if (event.touches.length !== 1 || sideways > 60) resetDrawerGesture()
-    else drawerProgress.value = Math.max(0, Math.min(1, travel / 240))
+    if (event.touches.length !== 1 || sideways >= 60) resetDrawerGesture()
+    else if (travel > 10 && travel > sideways) {
+      if (!event.cancelable) { resetDrawerGesture(); return }
+      event.preventDefault()
+      suppressHomeClickUntil = Date.now() + 450
+      // One visual update per paint; the sheet travels with the finger, not at 3× its speed.
+      queueDrawerProgress(drawerGestureProgress(travel, Math.min(window.visualViewport?.height ?? window.innerHeight, 800)))
+    } else if (travel <= 0) queueDrawerProgress(0)
   }
   if (touchY == null) return
   const y = event.touches[0]?.clientY ?? touchY

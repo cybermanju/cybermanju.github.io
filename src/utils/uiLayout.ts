@@ -115,6 +115,7 @@ export function installUiLayout(root: HTMLElement): () => void {
   let frame: number | ReturnType<typeof setTimeout> = 0
   let drag: Drag | null = null
   let suppressClickUntil = 0
+  let textHoldTarget: HTMLElement | null = null
   let heldPointer: number | null = null
   let entry: { pointer: number; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null
   let swapTarget: HTMLElement | null = null
@@ -299,20 +300,39 @@ export function installUiLayout(root: HTMLElement): () => void {
     return null
   }
   const candidate = (x: number, y: number) => drag ? findPartner(x, y, drag.element) : null
-  function textFor(event: Event, el: HTMLElement): string {
+  function keepsNativeTextMenu(editable: HTMLElement): boolean {
+    const input = editable instanceof HTMLInputElement ? editable : null
+    const credentialHint = `${'name' in editable ? editable.name : ''} ${editable.id} ${editable.getAttribute('autocomplete') ?? ''} ${editable.getAttribute('aria-label') ?? ''} ${editable.getAttribute('placeholder') ?? ''} ${editable.getAttribute('data-secret') ?? ''}`
+    if (editable.hasAttribute('data-secret') || /password|passwd|secret|token|api.?key|private.?key|credential|one.?time.?code/i.test(credentialHint)) return true
+    return !!input && !['text', 'search', 'url', 'tel'].includes(input.type.toLowerCase())
+  }
+  function textFor(event: Event, el: HTMLElement, x: number, y: number): string {
     const target = event.target instanceof Element ? event.target : el
-    // Passwords and form values are never copied implicitly; keep native form editing.
-    if (target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return ''
+    // Editable targets use the form-aware menu. Never include their values in the event.
+    const editable = target.closest<HTMLElement>('input, textarea, [contenteditable]:not([contenteditable="false"])')
+    if (editable) {
+      if (keepsNativeTextMenu(editable)) return ''
+      emit(UI_LAYOUT_TEXT_EVENT, { id: idOf(el), x, y, target: editable, form: true })
+      return ''
+    }
     const direct = Array.from(target.childNodes ?? []).filter(node => node.nodeType === 3).map(node => node.textContent || '').join('').trim()
     return direct || (target.matches('p, span, label, h1, h2, h3, h4, h5, h6, li, code, pre, blockquote') ? (target.textContent || '').trim() : '')
   }
   function activateHold(event: Event, el: HTMLElement, x: number, y: number, pointer?: number) {
     if (!el.isConnected) return
+    const editable = event.target instanceof Element ? event.target.closest<HTMLElement>('input, textarea, [contenteditable]:not([contenteditable="false"])') : null
+    if (editable && keepsNativeTextMenu(editable)) return
+    textHoldTarget = editable
     heldPointer = pointer ?? ('pointerId' in event ? (event as PointerEvent).pointerId : null)
     suppressClickUntil = Date.now() + 800
-    const text = textFor(event, el)
+    const text = textFor(event, el, x, y)
     if (text) emit(UI_LAYOUT_TEXT_EVENT, { id: idOf(el), text, x, y, target: el })
-    else emit(UI_LAYOUT_EVENT, { editing: true })
+    else {
+      const target = event.target instanceof Element ? event.target : el
+      // A protected/editor field is not text content and must not turn a hold into edit mode.
+      if (target.closest('input, textarea, [contenteditable]:not([contenteditable="false"])')) return
+      emit(UI_LAYOUT_EVENT, { editing: true })
+    }
   }
   function onDown(event: PointerEvent) {
     if (event.isPrimary === false) { clearEntry(); return }
@@ -332,6 +352,7 @@ export function installUiLayout(root: HTMLElement): () => void {
     if (drag) return
     const el = closest(event)
     if (!el || !eligible(el, root)) return
+    textHoldTarget = null
     const original = offsets[idOf(el)]
     const rect = el.getBoundingClientRect()
     drag = { element: el, id: idOf(el), pointerId: event.pointerId, x: event.clientX, y: event.clientY, start: { ...(original ?? { x: 0, y: 0 }) }, original: original ? { ...original } : undefined, base: baseRect(el), moved: false, kind: mode === 'resize' ? 'resize' : 'move', sizeOriginal: dimensions[idOf(el)] ? { ...dimensions[idOf(el)] } : undefined, pendingX: rect.width, pendingY: rect.height }
@@ -426,10 +447,13 @@ export function installUiLayout(root: HTMLElement): () => void {
   }
   function onClick(event: MouseEvent) {
     if (ignored(event)) return
-    if ((editing && closest(event)) || Date.now() < suppressClickUntil) { event.preventDefault(); event.stopImmediatePropagation() }
+    const ghostClick = Date.now() < suppressClickUntil && (!textHoldTarget || (event.target instanceof Node && textHoldTarget.contains(event.target)))
+    if ((editing && closest(event)) || ghostClick) { event.preventDefault(); event.stopImmediatePropagation() }
   }
   function onContext(event: Event) {
     if (ignored(event)) return
+    const editor = event.target instanceof Element ? event.target.closest<HTMLElement>('input, textarea, [contenteditable]:not([contenteditable="false"])') : null
+    if (!editing && editor && keepsNativeTextMenu(editor)) { clearEntry(); return }
     const el = closest(event)
     if (!el) return
     // Android emits contextmenu before the 550ms timer. Consume the same hold once,
@@ -437,8 +461,11 @@ export function installUiLayout(root: HTMLElement): () => void {
     if (!editing && entry) {
       const { x, y, pointer } = entry
       clearEntry(); activateHold(event, el, x, y, pointer)
+    } else if (!editing && !entry && event.target instanceof Element) {
+      const editable = event.target.closest<HTMLElement>('input, textarea, [contenteditable]:not([contenteditable="false"])')
+      if (editable) activateHold(event, el, 'clientX' in event ? Number(event.clientX) : 0, 'clientY' in event ? Number(event.clientY) : 0)
     }
-    if (editing || Date.now() < suppressClickUntil) { event.preventDefault(); event.stopImmediatePropagation() }
+    if (editing || Date.now() < suppressClickUntil || (!editing && event.target instanceof Element && !!event.target.closest('input, textarea, [contenteditable]:not([contenteditable="false"])'))) { event.preventDefault(); event.stopImmediatePropagation() }
   }
   function onKey(event: KeyboardEvent) {
     if (event.key === 'Escape' && entry) clearEntry()
