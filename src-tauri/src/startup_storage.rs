@@ -172,7 +172,13 @@ mod tests {
     fn confirmed_corruption_keeps_a_recovery_copy() {
         let fixture = Fixture::new();
         let path = fixture.path();
-        let corrupt = vec![0xff; 16_384];
+        drop(open_database(&path).unwrap());
+        let mut corrupt = std::fs::read(&path).unwrap();
+        // redb 2.x transaction slots start at 64/192; the first byte is
+        // their format version. Keep the magic/layout valid, but damage both
+        // slots so redb reports typed Corrupted rather than InvalidData I/O.
+        corrupt[64] = 0xff;
+        corrupt[192] = 0xff;
         std::fs::write(&path, &corrupt).unwrap();
         let recovered = open_database(&path).unwrap();
         recovered.kv_set("resume:sentinel", "recovered").unwrap();
@@ -183,5 +189,16 @@ mod tests {
             .collect();
         assert_eq!(backups.len(), 1);
         assert_eq!(std::fs::read(&backups[0]).unwrap(), corrupt);
+    }
+
+    #[test]
+    fn unknown_file_format_is_preserved_without_quarantine() {
+        let fixture = Fixture::new();
+        let path = fixture.path();
+        let foreign = vec![0xff; 16_384];
+        std::fs::write(&path, &foreign).unwrap();
+        assert!(open_database(&path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), foreign);
+        assert_eq!(std::fs::read_dir(&fixture.0).unwrap().count(), 1);
     }
 }
