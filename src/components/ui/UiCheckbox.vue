@@ -106,4 +106,8 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 .ui-checkbox--on .ui-checkbox__label {
   color: var(--ui-text);
 }
+@media (max-width: 768px) {
+  .ui-checkbox { min-height: 44px; min-width: 44px; max-width: 100%; font-size: 13px; text-align: left; }
+  .ui-checkbox__label { min-width: 0; overflow-wrap: anywhere; }
+}
 </style>

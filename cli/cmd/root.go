@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -45,13 +46,20 @@ Docs:  3D wiki https://cybermanju.github.io/wiki/ · agents: https://cybermanju.
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		if flagNoColor {
-			ui.NoColor()
-		}
+		applyOutputProfile()
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		_ = cmd.Help()
 	},
+}
+
+// applyOutputProfile keeps machine output and explicit accessibility choices
+// plain; interactive terminals otherwise retain the full CyberManju theme.
+func applyOutputProfile() {
+	ui.DetectBackground()
+	if flagNoColor || flagJSON || os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
+		ui.NoColor()
+	}
 }
 
 func init() {

@@ -5,9 +5,15 @@
 <!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
   <div
+    ref="dockContainerEl"
     class="dock-container"
-    :class="[`layout-${dock.layout.value}`, `visibility-${dock.visibility.value}`, { revealed: autohideShown }]"
+    :style="{ '--dock-drag-x': `${dockPosition.x}px`, '--dock-drag-y': `${dockPosition.y}px` }"
+    :class="[`layout-${dock.layout.value}`, `visibility-${dock.visibility.value}`, { revealed: autohideShown, 'dock-container--flat-amoled': isFlatAmoled, 'dock-container--modern-glass': isModernGlass }]"
   >
+    <div ref="dockControlsEl" class="dock-position-controls" aria-label="Dock position controls" @mouseenter="onDockEnter" @mouseleave="onDockLeave">
+      <button class="dock-position-control dock-drag-handle" type="button" aria-label="Move dock" title="Drag to move dock; use arrow keys to nudge" @pointerdown.stop="startDockDrag" @keydown="moveDockByKey">Move</button>
+      <button class="dock-position-control" type="button" aria-label="Reset dock position" title="Reset dock position" @click.stop="resetDockPosition">Reset</button>
+    </div>
     <div
       ref="dockEl"
       class="dock"
@@ -21,6 +27,12 @@
         :key="app.panelType"
         class="dock-item"
         :class="{ active: isAppActive(app.panelType), open: wm.isOpen(app.panelType) }"
+        role="button"
+        tabindex="0"
+        :aria-label="app.label"
+        :title="app.label"
+        @keydown.enter.stop.prevent="handleDockClick(app.panelType)"
+        @keydown.space.stop.prevent="handleDockClick(app.panelType)"
         @click="handleDockClick(app.panelType)"
         @contextmenu.prevent.stop="handleDockContext($event, app.panelType)"
       >
@@ -28,6 +40,7 @@
         <div class="dock-icon">
           <AppIcon class="dock-icon-text" :name="app.icon" :size="20" />
         </div>
+        <span v-if="isFlatAmoled" class="dock-item-label">{{ app.label }}</span>
         <div class="dock-indicator">
           <div v-if="wm.isOpen(app.panelType)" class="indicator-dot" :class="{ active: isAppActive(app.panelType) }" />
         </div>
@@ -40,6 +53,12 @@
         :key="win.id"
         class="dock-item"
         :class="{ active: isWindowActive(win.id), 'minimized-item': win.minimized }"
+        role="button"
+        tabindex="0"
+        :aria-label="win.title"
+        :title="win.title"
+        @keydown.enter.stop.prevent="handleOpenWindowClick(win.id)"
+        @keydown.space.stop.prevent="handleOpenWindowClick(win.id)"
         @click="handleOpenWindowClick(win.id)"
         @contextmenu.prevent.stop="handleOpenWindowContext($event, win.id)"
       >
@@ -47,6 +66,7 @@
         <div class="dock-icon" :class="{ minimized: win.minimized }">
           <AppIcon class="dock-icon-text" :name="win.icon" :size="20" />
         </div>
+        <span v-if="isFlatAmoled" class="dock-item-label">{{ win.title }}</span>
         <div class="dock-indicator">
           <div class="indicator-dot" :class="{ active: isWindowActive(win.id), muted: win.minimized }" />
         </div>
@@ -57,6 +77,12 @@
       <div
         class="dock-item"
         :class="{ active: isAppActive('trash') }"
+        role="button"
+        tabindex="0"
+        aria-label="Trash"
+        title="Trash"
+        @keydown.enter.stop.prevent="handleDockClick('trash')"
+        @keydown.space.stop.prevent="handleDockClick('trash')"
         @click="handleDockClick('trash')"
         @contextmenu.prevent.stop="handleDockContext($event, 'trash')"
       >
@@ -64,6 +90,7 @@
         <div class="dock-icon">
           <AppIcon class="dock-icon-text" name="solar:trash-bin-trash-bold" :size="20" />
         </div>
+        <span v-if="isFlatAmoled" class="dock-item-label">Trash</span>
         <div class="dock-indicator">
           <div v-if="wm.isOpen('trash')" class="indicator-dot" :class="{ active: isAppActive('trash') }" />
         </div>
@@ -78,13 +105,198 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useDock } from '@/composables/useDock'
+import { useTheme } from '@/composables/useTheme'
 import type { PanelType } from '@/types'
+import { createDragMomentum } from '@/utils/dragPhysics'
 
 const store = useAppStore()
 const wm = useWindowManager()
 const dock = useDock()
+const theme = useTheme()
+const isFlatAmoled = computed(() => theme.themeId.value === 'flat-amoled')
+const isModernGlass = computed(() => theme.themeId.value === 'modern-glass')
 
 const dockEl = ref<HTMLElement | null>(null)
+const dockContainerEl = ref<HTMLElement | null>(null)
+const dockControlsEl = ref<HTMLElement | null>(null)
+const DOCK_POSITION_KEY = 'cybermanju_desktop_dock_position_v1'
+const dockPosition = ref({ x: 0, y: 0 })
+type DockGeometry = { base: { left: number; top: number; width: number; height: number }; bounds: { left: number; top: number; width: number; height: number } }
+type DockDrag = { pointerId: number; x: number; y: number; dockX: number; dockY: number; target: HTMLElement; geometry: DockGeometry; settling: boolean; moved: boolean }
+let dragOrigin: DockDrag | null = null
+const dockMomentum = createDragMomentum()
+
+try {
+  const saved = localStorage.getItem(DOCK_POSITION_KEY)
+  if (saved) {
+    const parsed = JSON.parse(saved) as { x?: unknown; y?: unknown }
+    if (typeof parsed.x === 'number' && Number.isFinite(parsed.x) && typeof parsed.y === 'number' && Number.isFinite(parsed.y)) {
+      dockPosition.value = { x: parsed.x, y: parsed.y }
+    }
+  }
+} catch { /* storage may be unavailable; the dock remains movable for this session */ }
+
+function dockGeometry(): DockGeometry | null {
+  const container = dockContainerEl.value
+  const parent = container?.parentElement
+  if (!container || !parent) return null
+  const parentRect = parent.getBoundingClientRect()
+  const rects = [container.getBoundingClientRect(), dockControlsEl.value?.getBoundingClientRect()].filter((rect): rect is DOMRect => !!rect)
+  const left = Math.min(...rects.map(rect => rect.left))
+  const top = Math.min(...rects.map(rect => rect.top))
+  const right = Math.max(...rects.map(rect => rect.right))
+  const bottom = Math.max(...rects.map(rect => rect.bottom))
+  // Restore the geometry at zero drag offset. The controls sit above the dock;
+  // their bounds are part of the movable component, not an invisible screen-wide wrapper.
+  return {
+    base: { left: left - dockPosition.value.x, top: top + dockPosition.value.y, width: right - left, height: bottom - top },
+    bounds: { left: parentRect.left, top: parentRect.top, width: parentRect.width, height: parentRect.height },
+  }
+}
+
+function clampDockPoint(point: { x: number; y: number }, geometry: DockGeometry) {
+  const { base, bounds } = geometry
+  const minX = bounds.left - base.left
+  const minY = bounds.top - base.top
+  return {
+    x: Math.max(minX, Math.min(minX + Math.max(0, bounds.width - base.width), point.x)),
+    y: Math.max(minY, Math.min(minY + Math.max(0, bounds.height - base.height), point.y)),
+  }
+}
+
+function clampDockPosition() {
+  const geometry = dockGeometry()
+  if (!geometry) return
+  const point = clampDockPoint({ x: dockPosition.value.x, y: -dockPosition.value.y }, geometry)
+  dockPosition.value = { x: point.x, y: -point.y }
+}
+
+function persistDockPosition() {
+  try { localStorage.setItem(DOCK_POSITION_KEY, JSON.stringify(dockPosition.value)) }
+  catch { /* private mode / quota — retain the position for this session */ }
+}
+
+function moveDock(e: PointerEvent) {
+  if (!dragOrigin || dragOrigin.settling || e.pointerId !== dragOrigin.pointerId) return
+  const delta = { x: e.clientX - dragOrigin.x, y: e.clientY - dragOrigin.y }
+  if (Math.hypot(delta.x, delta.y) > 1) dragOrigin.moved = true
+  dockMomentum.sample(delta)
+  const point = clampDockPoint({ x: dragOrigin.dockX + delta.x, y: -dragOrigin.dockY + delta.y }, dragOrigin.geometry)
+  dockPosition.value = { x: point.x, y: -point.y }
+}
+
+function finishDockDrag(commit: boolean) {
+  if (!dragOrigin) return
+  const origin = dragOrigin
+  window.removeEventListener('pointermove', moveDock)
+  window.removeEventListener('pointerup', endDockDrag)
+  window.removeEventListener('pointercancel', onDockPointerCancel)
+  window.removeEventListener('blur', cancelDockDrag)
+  try {
+    if (origin.target.hasPointerCapture(origin.pointerId)) origin.target.releasePointerCapture(origin.pointerId)
+  } catch { /* a browser may already have released capture */ }
+  if (!commit) {
+    dockMomentum.stop()
+    dragOrigin = null
+    dockPosition.value = { x: origin.dockX, y: origin.dockY }
+    return
+  }
+  if (!origin.moved) {
+    dockMomentum.stop()
+    dragOrigin = null
+    persistDockPosition()
+    return
+  }
+  origin.settling = true
+  window.addEventListener('blur', cancelDockDrag)
+  const position = { x: dockPosition.value.x, y: -dockPosition.value.y }
+  dockMomentum.release({
+    position,
+    base: origin.geometry.base,
+    bounds: origin.geometry.bounds,
+    update: point => { dockPosition.value = { x: point.x, y: -point.y } },
+    complete: () => {
+      if (dragOrigin !== origin) return
+      window.removeEventListener('blur', cancelDockDrag)
+      dragOrigin = null
+      persistDockPosition()
+    },
+  })
+}
+
+function endDockDrag(e: PointerEvent) {
+  if (!dragOrigin || e.pointerId !== dragOrigin.pointerId) return
+  finishDockDrag(true)
+}
+
+function onDockPointerCancel(e: PointerEvent) {
+  if (!dragOrigin || e.pointerId !== dragOrigin.pointerId) return
+  finishDockDrag(false)
+}
+
+function cancelDockDrag() {
+  finishDockDrag(false)
+}
+
+function startDockDrag(e: PointerEvent) {
+  if (!e.isPrimary || e.button !== 0) return
+  e.preventDefault()
+  const target = e.currentTarget
+  if (!(target instanceof HTMLElement)) return
+  const geometry = dockGeometry()
+  if (!geometry) return
+  dockMomentum.stop()
+  dragOrigin = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, dockX: dockPosition.value.x, dockY: dockPosition.value.y, target, geometry, settling: false, moved: false }
+  dockMomentum.sample({ x: 0, y: 0 })
+  try { target.setPointerCapture(e.pointerId) } catch { /* window listeners still cover browsers without capture */ }
+  window.addEventListener('pointermove', moveDock)
+  window.addEventListener('pointerup', endDockDrag)
+  window.addEventListener('pointercancel', onDockPointerCancel)
+  window.addEventListener('blur', cancelDockDrag)
+}
+
+function resetDockPosition() {
+  cancelDockDrag()
+  dockMomentum.stop()
+  dockPosition.value = { x: 0, y: 0 }
+  persistDockPosition()
+}
+
+function onDockResize() {
+  if (dragOrigin) finishDockDrag(false)
+  clampDockPosition()
+}
+
+function moveDockByKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    cancelDockDrag()
+    return
+  }
+  const step = e.shiftKey ? 48 : 16
+  const movement: Record<string, { x: number; y: number }> = {
+    ArrowLeft: { x: -step, y: 0 },
+    ArrowRight: { x: step, y: 0 },
+    ArrowUp: { x: 0, y: step },
+    ArrowDown: { x: 0, y: -step },
+  }
+  if (e.key === 'Home') {
+    e.preventDefault()
+    resetDockPosition()
+    return
+  }
+  const delta = movement[e.key]
+  if (!delta) return
+  e.preventDefault()
+  const drag = dragOrigin
+  const geometry = drag?.geometry ?? dockGeometry()
+  if (!geometry) return
+  const current = drag ? { x: drag.dockX, y: -drag.dockY } : { x: dockPosition.value.x, y: -dockPosition.value.y }
+  if (drag) finishDockDrag(false)
+  const point = clampDockPoint({ x: current.x + delta.x, y: current.y - delta.y }, geometry)
+  dockPosition.value = { x: point.x, y: -point.y }
+  persistDockPosition()
+}
 
 /** Auto-hide + menu-pin state (declared before emitDockMenu uses it). */
 const autohideShown = ref(false)
@@ -248,6 +460,7 @@ function onDockEnter() {
 function onDockLeave() {
   if (dock.visibility.value !== 'autohide') return
   if (menuOpen.value) return
+  if (dockControlsEl.value?.matches(':hover') || dockEl.value?.matches(':hover')) return
   scheduleHide()
 }
 
@@ -282,7 +495,9 @@ function onAutohideMove(e: MouseEvent) {
     e.clientX <= r.right + 24 &&
     e.clientY >= r.top - 56 &&
     e.clientY <= window.innerHeight + 24
-  if (inside || inBottomStrip) cancelHide()
+  const controls = dockControlsEl.value?.getBoundingClientRect()
+  const onControls = !!controls && e.clientX >= controls.left && e.clientX <= controls.right && e.clientY >= controls.top && e.clientY <= controls.bottom
+  if (inside || onControls || inBottomStrip) cancelHide()
   else scheduleHide()
 }
 
@@ -291,13 +506,26 @@ watch(() => dock.visibility.value, (v) => {
   if (v !== 'autohide') autohideShown.value = false
 })
 
+watch([() => dock.layout.value, () => dock.visibility.value, isFlatAmoled], () => {
+  if (dragOrigin) finishDockDrag(false)
+  clampDockPosition()
+}, { flush: 'post' })
+
 onMounted(() => {
+  clampDockPosition()
+  window.addEventListener('resize', onDockResize)
   window.addEventListener('mousemove', onAutohideMove, { passive: true })
   document.addEventListener('click', onMenuClosed)
   document.addEventListener('contextmenu', onMenuClosed)
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', onDockResize)
+  window.removeEventListener('pointermove', moveDock)
+  window.removeEventListener('pointerup', endDockDrag)
+  window.removeEventListener('pointercancel', onDockPointerCancel)
+  window.removeEventListener('blur', cancelDockDrag)
+  cancelDockDrag()
   window.removeEventListener('mousemove', onAutohideMove)
   document.removeEventListener('click', onMenuClosed)
   document.removeEventListener('contextmenu', onMenuClosed)
@@ -312,14 +540,16 @@ onUnmounted(() => {
    around the dock's rounded surface, not hard-cut into a dark band. */
 .dock-container {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 50%;
+  right: auto;
+  width: max-content;
+  bottom: var(--dock-drag-y, 0px);
+  transform: translateX(calc(-50% + var(--dock-drag-x, 0px)));
   display: flex;
   justify-content: center;
   align-items: flex-end;
   height: 72px; /* matches DOCK_HEIGHT — the workspace inset in full+fixed */
-  padding: 0 16px 10px;
+  padding: 0 16px 6px;
   background: transparent;
   z-index: 50;
   pointer-events: none;
@@ -327,6 +557,30 @@ onUnmounted(() => {
   max-width: 100vw;
   overflow: visible;
 }
+
+.dock-position-controls {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 2px);
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+  z-index: 1;
+  pointer-events: auto;
+}
+.dock-position-control {
+  padding: 3px 7px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-full);
+  color: var(--ui-text-2);
+  background: var(--ui-glass-2);
+  font: 600 10px var(--ui-font);
+  cursor: pointer;
+  touch-action: none;
+}
+.dock-position-control:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.dock-drag-handle { cursor: grab; }
+.dock-drag-handle:active { cursor: grabbing; }
 
 .dock {
   display: flex;
@@ -358,7 +612,11 @@ onUnmounted(() => {
 /* Full-width bar: edge-to-edge, square corners, shadow falls only
    downward (a floating look would leak darkness above the bar). */
 .dock-container.layout-full {
-  padding: 0 0 10px;
+  left: 0;
+  right: 0;
+  width: auto;
+  transform: translateX(var(--dock-drag-x, 0px));
+  padding: 0 0 6px;
 }
 .dock-container.layout-full .dock {
   flex: 1;
@@ -418,6 +676,9 @@ onUnmounted(() => {
   min-width: 44px;
   background: transparent;
   border: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
 }
 
 .dock-item:hover {
@@ -513,6 +774,67 @@ onUnmounted(() => {
 .minimized-item .dock-icon {
   opacity: 0.5;
 }
+
+
+.dock-item:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+.dock-item-label { display: none; }
+
+/* Modern Glass gives the dock a crisp rim while retaining solid icon wells. */
+.dock-container--modern-glass .dock {
+  border-color: color-mix(in srgb, var(--ui-text) 20%, transparent);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.34), 0 0 0 1px color-mix(in srgb, white 5%, transparent), inset 0 1px 0 color-mix(in srgb, white 9%, transparent);
+}
+.dock-container--modern-glass .dock-item.active .dock-icon {
+  border-color: color-mix(in srgb, var(--ui-accent) 55%, var(--ui-border));
+}
+
+/* Flat AMOLED launcher: black dock, icon-only monochrome controls, visible
+   compact names and no per-icon tiles. Labels remain the accessible names too. */
+.dock-container--flat-amoled { height: 82px; padding-bottom: 4px; }
+.dock-container--flat-amoled .dock,
+.dock-container--flat-amoled.layout-full .dock {
+  background: #000;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  gap: 3px;
+  padding: 4px 8px 6px;
+}
+.dock-container--flat-amoled .dock-item {
+  min-width: 48px;
+  gap: 1px;
+  padding: 2px 4px;
+  border-radius: 0;
+}
+.dock-container--flat-amoled .dock-item:hover { background: transparent; }
+.dock-container--flat-amoled .dock-icon {
+  width: 34px;
+  height: 30px;
+  color: #fff;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.dock-container--flat-amoled .dock-icon-text,
+.dock-container--flat-amoled .dock-item:hover .dock-icon-text,
+.dock-container--flat-amoled .dock-item.active .dock-icon-text { color: #fff; }
+.dock-container--flat-amoled .dock-item-label {
+  display: block;
+  max-width: 78px;
+  overflow: hidden;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dock-container--flat-amoled .dock-tip { display: none; }
+.dock-container--flat-amoled .dock-divider { background: rgba(255, 255, 255, 0.32); }
+.dock-container--flat-amoled .dock-indicator { display: none; }
 
 .dock-divider {
   width: 1px;

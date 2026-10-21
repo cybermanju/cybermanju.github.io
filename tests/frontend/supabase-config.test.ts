@@ -4,6 +4,11 @@
 // Integrates: vitest.
 // Contracts: none special (pure logic; errors bubble to caller).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+const vault = vi.hoisted(() => ({
+  vaultGet: vi.fn(async () => null as string | null),
+  vaultDelete: vi.fn(async () => {}),
+}))
+vi.mock('@/composables/useVault', () => vault)
 import {
   clearSupabaseConfig,
   getSupabaseConfig,
@@ -40,11 +45,13 @@ function memoryStorage(): Storage {
   } as Storage
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.stubEnv('VITE_SUPABASE_URL', 'https://broker.example.test/')
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'build-public-anon-key')
   vi.stubGlobal('localStorage', memoryStorage())
-  clearSupabaseConfig()
+  vault.vaultGet.mockReset().mockResolvedValue(null)
+  vault.vaultDelete.mockReset().mockResolvedValue(undefined)
+  await clearSupabaseConfig()
 })
 
 afterEach(() => {
@@ -95,9 +102,9 @@ describe('Supabase broker configuration (build pair + Settings paste)', () => {
     expect(supabaseConfigured()).toBe(true)
   })
 
-  it('forgetting the paste falls back to the baked pair', () => {
+  it('forgetting the paste falls back to the baked pair', async () => {
     expect(setSupabaseConfig('https://manual.example.test', 'manual-public-anon-key')).toBeNull()
-    clearSupabaseConfig()
+    await clearSupabaseConfig()
     expect(getSupabaseConfig()).toEqual({
       url: 'https://broker.example.test',
       key: 'build-public-anon-key',
@@ -105,10 +112,10 @@ describe('Supabase broker configuration (build pair + Settings paste)', () => {
     })
   })
 
-  it('reports an empty source when the build has no broker and nothing was pasted', () => {
+  it('reports an empty source when the build has no broker and nothing was pasted', async () => {
     vi.stubEnv('VITE_SUPABASE_URL', '')
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
-    clearSupabaseConfig()
+    await clearSupabaseConfig()
     expect(getSupabaseConfig()).toEqual({ url: '', key: '', source: 'none' })
     expect(supabaseConfigured()).toBe(false)
   })

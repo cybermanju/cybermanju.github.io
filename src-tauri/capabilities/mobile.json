@@ -24,6 +24,7 @@
     "os:default",
     "process:default",
     "scoped-storage:allow-pick-folder",
+    "scoped-storage:allow-list-folders",
     "scoped-storage:allow-read-dir",
     "scoped-storage:allow-read-file",
     "scoped-storage:allow-write-file",

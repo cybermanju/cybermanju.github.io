@@ -112,6 +112,8 @@ audit:
   # Blocking — mirrors GitHub's audit job (advisory list cleaned 2026-10-18:
   # quinn-proto 0.11.19 / rustls 0.23.46 / ruzstd 0.9.1 lock bump fixed the
   # 10 RustSec vulns; npm production audit is clean).
+  # 2026-10-21: rustls-webpki 0.103.16 + webpki-roots/root-certs 1.0.10
+  # fix the distrusted-certificate advisories RUSTSEC-2026-0381..0383.
   before_script:
     - curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
     - apt-get install -y nodejs
@@ -140,6 +142,9 @@ cli-build:
     - test -z "$(gofmt -l .)"
     - go vet ./...
     - go test -race -count=1 ./...
+    # Offline fixtures verify checksum/archive rejection without downloads.
+    - bash -n scripts/install-termux.sh scripts/install-termux_test.sh
+    - bash scripts/install-termux_test.sh
     # Root package.json is the version source of truth (no node here).
     - PKG_VER="$(grep -m1 '"version"' ../package.json | cut -d'"' -f4)"
     - mkdir -p dist-cli
@@ -290,7 +295,9 @@ android-build:
       REQUIRE_SIGNING=1 bash scripts/android-signing.sh prepare
       npx tauri android build --target aarch64 --apk --aab --split-per-abi
       REQUIRE_SIGNING=1 bash scripts/android-signing.sh verify
-      bash scripts/android-smoke.sh || echo "smoke skipped/failed (non-blocking)"
+      python3 scripts/verify-android-package.test.py
+      python3 scripts/verify-android-package.py
+      bash scripts/android-smoke.sh
     - mkdir -p ship/android && find src-tauri/gen/android/app/build/outputs \( -name '*.apk' -o -name '*.aab' \) -exec cp {} ship/android/ \;
     - ls ship/android/
   artifacts:

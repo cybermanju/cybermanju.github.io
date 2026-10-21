@@ -322,6 +322,8 @@ summary{cursor:pointer}summary code{color:var(--ac)}.n{color:var(--mut);font-siz
 .h{margin:4px 0;color:var(--mut);font-size:14px}.syms code{background:#ffffff12;border-radius:0;padding:1px 6px;font-size:12px;margin:1px}
 ul.links{list-style:none;padding:0;display:flex;gap:10px;flex-wrap:wrap}ul.links a{color:var(--tx);background:#ffffff10;border:2px solid var(--line,#ffffff1f);border-radius:0;box-shadow:3px 3px 0 rgba(0,0,0,.55);padding:6px 12px;text-decoration:none;font-size:13px}
 footer{margin-top:32px;color:var(--mut);font-size:13px}
+body{overflow-wrap:anywhere}.stats{flex-wrap:wrap}a:focus-visible,summary:focus-visible{outline:2px solid var(--ac);outline-offset:3px}
+@media(max-width:600px){.wrap{padding:16px 12px 40px}.hero{padding:18px 14px}.hero h1{font-size:24px}nav{gap:8px}nav a,ul.links a{display:inline-flex;align-items:center;min-height:44px}summary{min-height:44px;padding:8px 0}.syms a{min-height:44px;align-content:center}.stats{gap:8px 14px}}
 </style></head><body><div class="wrap">
 <nav><a href="${SITE}/wiki/">✦ 3D wiki</a>${graphNav}<a href="${SITE}/llms.txt">llms.txt</a><a href="./${sub.id}.txt">.txt</a><a href="./${sub.id}.json">.json</a></nav>
 <div class="hero"><div class="tag">${escHtml(sub.tag)}</div><h1>${sub.glyph ? escHtml(sub.glyph) + ' ' : ''}${escHtml(sub.title)}</h1>

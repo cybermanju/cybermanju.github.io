@@ -244,13 +244,9 @@ pub fn validate_package_name(package: &str) -> Result<(), String> {
 }
 
 /// Case-insensitive label sort — pure, unit-tested, shared by every host.
+/// Cache normalized keys once rather than allocating them in each comparison.
 pub fn sort_apps(mut apps: Vec<AndroidApp>) -> Vec<AndroidApp> {
-    apps.sort_by(|a, b| {
-        a.label
-            .to_lowercase()
-            .cmp(&b.label.to_lowercase())
-            .then_with(|| a.package_name.cmp(&b.package_name))
-    });
+    apps.sort_by_cached_key(|a| (a.label.to_lowercase(), a.package_name.clone()));
     apps
 }
 
@@ -322,6 +318,8 @@ mod android_impl {
     use base64::Engine as _;
 
     pub const FLAG_ACTIVITY_NEW_TASK: i32 = 0x1000_0000;
+    // Preserve/reuse the existing host task when the external activity returns.
+    const FLAG_ACTIVITY_RESET_TASK_IF_NEEDED: i32 = 0x0020_0000;
     const FLAG_SYSTEM: i32 = 1; // ApplicationInfo.FLAG_SYSTEM
 
     /// Flags for every `queryIntentActivities` call — `0`, exactly what
@@ -385,6 +383,53 @@ mod android_impl {
         env.get_string(js)
             .map_err(|e| fail(env, format!("integrity: cannot decode text: {e}")))
             .map(|s| s.to_str().unwrap_or("").to_owned())
+    }
+
+    /// Load host Kotlin through the Activity loader (FindClass on an attached
+    /// Rust thread otherwise uses the boot loader and cannot see app classes).
+    pub fn voice_dispatch(action: &str, payload: &str) -> Result<String, String> {
+        with_env(|env, activity| {
+            let loader = env
+                .call_method(activity, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])
+                .and_then(|v| v.l())
+                .map_err(|e| fail(env, format!("unsupported: Android class loader: {e}")))?;
+            let package = env
+                .call_method(activity, "getPackageName", "()Ljava/lang/String;", &[])
+                .and_then(|v| v.l())
+                .map_err(|e| fail(env, format!("unsupported: Android package: {e}")))?;
+            let name = format!("{}.CybermanjuVoiceServices", jstr(env, &package)?);
+            let name = new_obj(env, &name)?;
+            let class = env
+                .call_method(
+                    &loader,
+                    "loadClass",
+                    "(Ljava/lang/String;)Ljava/lang/Class;",
+                    &[JValue::Object(&name)],
+                )
+                .and_then(|v| v.l())
+                .map_err(|e| {
+                    fail(
+                        env,
+                        format!("unsupported: native voice services missing: {e}"),
+                    )
+                })?;
+            let action = new_obj(env, action)?;
+            let payload = new_obj(env, payload)?;
+            let response = env
+                .call_static_method(
+                    jni::objects::JClass::from(class),
+                    "dispatch",
+                    "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+                    &[
+                        JValue::Object(activity),
+                        JValue::Object(&action),
+                        JValue::Object(&payload),
+                    ],
+                )
+                .and_then(|v| v.l())
+                .map_err(|e| fail(env, format!("unsupported: native voice dispatch failed: {e}")))?;
+            jstr(env, &response)
+        })
     }
 
     fn field_str(env: &mut JNIEnv, o: &JObject, field: &str) -> Result<String, JniError> {
@@ -655,7 +700,9 @@ mod android_impl {
             &intent,
             "addFlags",
             "(I)Landroid/content/Intent;",
-            &[JValue::Int(FLAG_ACTIVITY_NEW_TASK)],
+            &[JValue::Int(
+                FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_RESET_TASK_IF_NEEDED,
+            )],
         )
         .map_err(|e| fail(env, format!("network: cannot flag the launch: {e}")))?;
         env.call_method(
@@ -1510,9 +1557,94 @@ pub fn open_file(_path: &str) -> Result<(), String> {
     Err("unsupported: sharing files with other apps needs the native Android build".to_string())
 }
 
+/// Device-local VozPonte bridge. Never expose this through REST or the agent's
+/// tool dispatcher: replies/fills require an additional native user confirmation.
+fn is_supported_voice_action(action: &str) -> bool {
+    matches!(
+        action,
+        "status"
+            | "configure"
+            | "notifications"
+            | "reply"
+            | "fill"
+            | "notificationSettings"
+            | "accessibilitySettings"
+            | "microphoneSettings"
+            | "listen"
+            | "stopListening"
+            | "speak"
+            | "stopSpeaking"
+            | "stop"
+            | "poll"
+            | "readerStart"
+            | "readerStatus"
+            | "readerPoll"
+            | "readerStop"
+            | "readerOverlaySettings"
+            | "readerNotificationSettings"
+    )
+}
+
+pub fn voice_command(
+    action: &str,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    if !is_supported_voice_action(action) {
+        return Err("unsupported: unknown Android voice action".to_string());
+    }
+    if !payload.is_object() || payload.to_string().len() > 32_768 {
+        return Err("invalid: Android voice payload must be an object under 32 KiB".to_string());
+    }
+    #[cfg(target_os = "android")]
+    {
+        let raw = android_impl::voice_dispatch(action, &payload.to_string())?;
+        let value: serde_json::Value = serde_json::from_str(&raw)
+            .map_err(|_| "integrity: malformed Android voice response".to_string())?;
+        if let Some(error) = value.get("error").and_then(serde_json::Value::as_str) {
+            return Err(error.to_string());
+        }
+        Ok(value)
+    }
+    #[cfg(not(target_os = "android"))]
+    Err("unsupported: native voice services require the Android app".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn voice_bridge_rejects_unknown_actions_and_unbounded_payloads() {
+        assert!(voice_command("send", serde_json::json!({}))
+            .unwrap_err()
+            .starts_with("unsupported:"));
+        assert!(voice_command("reply", serde_json::json!(["not an object"]))
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(
+            voice_command("speak", serde_json::json!({ "text": "x".repeat(32_769) }))
+                .unwrap_err()
+                .starts_with("invalid:")
+        );
+        for action in [
+            "readerStart",
+            "readerStatus",
+            "readerPoll",
+            "readerStop",
+            "readerOverlaySettings",
+            "readerNotificationSettings",
+        ] {
+            assert!(is_supported_voice_action(action), "{action} was rejected");
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn native_voice_never_falls_back_off_device() {
+        assert!(voice_command("status", serde_json::json!({}))
+            .unwrap_err()
+            .starts_with("unsupported:"));
+    }
 
     fn app(pkg: &str, label: &str) -> AndroidApp {
         AndroidApp {
@@ -1535,6 +1667,16 @@ mod tests {
         assert_eq!(apps[0].package_name, "a.y");
         assert_eq!(apps[1].package_name, "b.x");
         assert_eq!(apps[2].package_name, "c.z");
+    }
+    #[test]
+    fn launcher_app_json_contract_remains_camel_case_and_complete() {
+        let value = serde_json::to_value(app("com.example.app", "Example")).unwrap();
+        assert_eq!(value["packageName"], "com.example.app");
+        assert_eq!(value["label"], "Example");
+        assert_eq!(value["activityClass"], "com.example.app.Main");
+        assert_eq!(value["systemApp"], false);
+        assert_eq!(value["socialApp"], false);
+        assert_eq!(value["iconBase64"], "");
     }
 
     #[test]

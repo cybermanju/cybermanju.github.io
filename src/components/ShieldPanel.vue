@@ -857,4 +857,28 @@ async function handleCompress() {
     animation-iteration-count: 1 !important;
   }
 }
+
+
+/* Extend phone ergonomics across the complete phone/tablet range. */
+@media (max-width: 768px) {
+  .shield-panel { min-width: 0; box-sizing: border-box; }
+  .panel-header { min-width: 0; }
+  .header-left, .header-text { min-width: 0; }
+  .panel-subtitle { white-space: normal; overflow-wrap: anywhere; line-height: 1.45; }
+  .sh-tabs { max-width: 100%; }
+  .sh-tabs button { flex: 0 0 auto; min-height: 44px; }
+  .sh-note { flex-wrap: wrap; align-items: flex-start; overflow-wrap: anywhere; }
+  .sh-section, .status-hero, .stats-card { min-width: 0; }
+  .meta-row, .stat-row { flex-wrap: wrap; min-width: 0; }
+  .meta-value, .stat-value { min-width: 0; overflow-wrap: anywhere; }
+  .algo-grid { grid-template-columns: minmax(0, 1fr); }
+  .algo-pick, .algo-card { min-width: 0; }
+  .rec-nm { align-items: stretch; }
+  .rec-nm .rec-field { min-width: min(100%, 120px); }
+  .rec-nm > .ui-btn { min-height: 44px; }
+  .share-row { align-items: stretch; }
+  .share-row :deep(.ui-btn) { min-height: 44px; }
+  .rot-label { min-height: 44px; align-items: center; }
+  .rot-label input { width: 20px; height: 20px; flex: 0 0 auto; }
+}
 </style>

@@ -16,10 +16,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/muesli/reflow/truncate"
 	"golang.org/x/term"
@@ -30,6 +32,7 @@ import (
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 )
 
 var (
@@ -102,79 +105,192 @@ func Emit(s string) {
 	fmt.Fprintln(os.Stdout, Downsample(s))
 }
 
-// Table renders neon columns: pink header row over a neon rule,
-// ice-white cells, faint zebra striping, terminal-width truncation.
-func Table(headers []string, rows [][]string) {
-	Emit(RenderTable(headers, rows))
-}
+// Table renders width-aware columns, switching to labeled records when a conventional
+// table cannot preserve all columns at a useful width.
+func Table(headers []string, rows [][]string) { Emit(RenderTable(headers, rows)) }
 
 // RenderTable is the pure Table builder (stdout-free, unit-testable).
 func RenderTable(headers []string, rows [][]string) string {
-	widths := make([]int, len(headers))
-	for i, h := range headers {
-		widths[i] = lipgloss.Width(h)
+	return RenderTableWidth(TermWidth(), headers, rows)
+}
+
+// RenderTableWidth renders every column within an explicit display width. At
+// postage-stamp widths it uses one labeled field per line instead of dropping data.
+func RenderTableWidth(width int, headers []string, rows [][]string) string {
+	if width < 1 {
+		width = 1
+	}
+	cols := len(headers)
+	for _, row := range rows {
+		if len(row) > cols {
+			cols = len(row)
+		}
+	}
+	if cols == 0 {
+		return ""
+	}
+	labels := make([]string, cols)
+	for i := range labels {
+		if i < len(headers) {
+			labels[i] = cleanTableCell(headers[i])
+		}
+		if labels[i] == "" {
+			labels[i] = fmt.Sprintf("Column %d", i+1)
+		}
+	}
+	if cols > 1 && width < cols*4+cols-1 {
+		return renderStackedTable(width, labels, rows)
+	}
+	widths := make([]int, cols)
+	for i := range widths {
+		widths[i] = displayWidth(labels[i])
 	}
 	for _, row := range rows {
-		for i, cell := range row {
-			if i < len(widths) {
-				if w := lipgloss.Width(cell); w > widths[i] {
+		for i := range widths {
+			if i < len(row) {
+				if w := displayWidth(cleanTableCell(row[i])); w > widths[i] {
 					widths[i] = w
 				}
 			}
 		}
 	}
-	fitWidths(widths)
+	fitWidths(widths, width)
 	pad := func(s string, w int) string {
-		// truncate.StringWithTail counts the tail inside the limit, so
-		// only truncate cells that actually overflow (exact fits stay whole).
-		if lipgloss.Width(s) > w {
-			s = truncate.StringWithTail(s, uint(max(1, w)), "…")
-		}
-		return s + strings.Repeat(" ", max(0, w-lipgloss.Width(s)+1))
+		s = truncateCell(s, w)
+		return s + strings.Repeat(" ", max(0, w-displayWidth(s)))
 	}
-	headStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(PinkHot))
-	ruleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(PinkDeep))
-	zebra := lipgloss.NewStyle().Faint(true)
 	var out strings.Builder
 	var head, rule strings.Builder
-	for i, h := range headers {
-		head.WriteString(pad(headStyle.Render(h), widths[i]))
-		rule.WriteString(pad(ruleStyle.Render(strings.Repeat("─", widths[i])), widths[i]))
+	for i, h := range labels {
+		if i > 0 {
+			head.WriteByte(' ')
+			rule.WriteByte(' ')
+		}
+		head.WriteString(Title.Render(pad(h, widths[i])))
+		rule.WriteString(Dim.Render(pad(strings.Repeat("─", widths[i]), widths[i])))
 	}
 	out.WriteString(strings.TrimRight(head.String(), " ") + "\n")
 	out.WriteString(strings.TrimRight(rule.String(), " ") + "\n")
 	for ri, row := range rows {
 		var line strings.Builder
-		for i := range headers {
+		for i := range labels {
+			if i > 0 {
+				line.WriteByte(' ')
+			}
 			cell := ""
 			if i < len(row) {
-				cell = row[i]
+				cell = cleanTableCell(row[i])
 			}
+			cell = pad(cell, widths[i])
 			if ri%2 == 1 {
-				cell = zebra.Render(cell)
+				cell = SurfaceAlt.Render(cell)
+			} else {
+				cell = Text.Render(cell)
 			}
-			line.WriteString(pad(cell, widths[i]))
+			line.WriteString(cell)
 		}
 		out.WriteString(strings.TrimRight(line.String(), " "))
 		if ri < len(rows)-1 {
-			out.WriteString("\n")
+			out.WriteByte('\n')
 		}
 	}
 	return out.String()
 }
 
-// fitWidths shrinks the widest columns (never below 8 cells) until the
-// table fits the terminal.
-func fitWidths(widths []int) {
+func renderStackedTable(width int, labels []string, rows [][]string) string {
+	var out strings.Builder
+	if len(rows) == 0 {
+		for i, label := range labels {
+			if i > 0 {
+				out.WriteByte('\n')
+			}
+			out.WriteString(Title.Render(strings.Join(wrapCell(label, width), "\n")))
+		}
+		return out.String()
+	}
+	for ri, row := range rows {
+		if ri > 0 {
+			out.WriteByte('\n')
+		}
+		for i, label := range labels {
+			if i > 0 {
+				out.WriteByte('\n')
+			}
+			out.WriteString(Title.Render(strings.Join(wrapCell(label+":", width), "\n")))
+			value := ""
+			if i < len(row) {
+				value = cleanTableCell(row[i])
+			}
+			for _, part := range wrapCell(value, width) {
+				out.WriteByte('\n')
+				out.WriteString(Text.Render(part))
+			}
+		}
+	}
+	return out.String()
+}
+
+func wrapCell(s string, width int) []string {
+	if width < 1 {
+		return []string{""}
+	}
+	if s == "" {
+		return []string{""}
+	}
+	wrapped := ansi.Hardwrap(s, width, true)
+	parts := strings.Split(wrapped, "\n")
+	for i, part := range parts {
+		if displayWidth(part) > width {
+			parts[i] = truncateCell(part, width)
+		}
+	}
+	return parts
+}
+
+// cleanTableCell flattens multiline input and removes terminal/control escapes.
+func cleanTableCell(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' {
+			return ' '
+		}
+		if unicode.IsControl(r) || r >= 0x202A && r <= 0x202E || r >= 0x2066 && r <= 0x2069 {
+			return -1
+		}
+		return r
+	}, ansi.Strip(s))
+}
+
+func displayWidth(s string) int { return lipgloss.Width(s) }
+
+// truncateCell preserves whole runes and always makes shortening visible.
+func truncateCell(s string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if displayWidth(s) <= limit {
+		return s
+	}
+	if limit == 1 {
+		return "…"
+	}
+	return ansi.Truncate(s, limit, "…")
+}
+
+// fitWidths shrinks the widest columns (never below one cell) until the
+// table fits the requested terminal width.
+func fitWidths(widths []int, limit int) {
 	total := func() int {
 		n := 0
 		for _, w := range widths {
-			n += w + 1
+			n += w
+		}
+		if len(widths) > 1 {
+			n += len(widths) - 1
 		}
 		return n
 	}
-	for total() > TermWidth() {
-		best, bi := 8, -1
+	for total() > limit {
+		best, bi := 1, -1
 		for i, w := range widths {
 			if w > best {
 				best, bi = w, i
@@ -187,17 +303,71 @@ func fitWidths(widths []int) {
 	}
 }
 
-// KV prints key: value rows.
-func KV(pairs ...[2]string) {
-	w := 0
-	for _, p := range pairs {
-		if lipgloss.Width(p[0]) > w {
-			w = lipgloss.Width(p[0])
+// ShellHeader renders a width-bounded neon CUTE CLI/cybsh welcome header.
+// Credentials, query parameters and fragments in endpoint are never shown.
+func ShellHeader(width int, version, endpoint string) string {
+	if width < 1 {
+		return ""
+	}
+	label := "◈ CUTE CLI · cybsh"
+	if v := strings.TrimSpace(strings.TrimPrefix(version, "v")); v != "" {
+		label += " · v" + v
+	}
+	if ep := safeEndpoint(endpoint); ep != "" {
+		label += " · " + ep
+	}
+	return SurfaceAlt.Width(width).Render(fitStyled(Title.Render(label), width))
+}
+
+// ShellFooter renders a compact pure REPL status hint.
+func ShellFooter(width int, busy bool) string {
+	if width < 1 {
+		return ""
+	}
+	text := "cybsh · Tab complete · :help · Esc exit"
+	if busy {
+		text = "cybsh · working… · Ctrl+C stop waiting"
+	}
+	if width < 38 {
+		text = "Tab · :help · Esc exit"
+		if busy {
+			text = "working… · Ctrl+C stop"
 		}
 	}
-	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(PinkHot))
-	for _, p := range pairs {
-		Emit(fmt.Sprintf("%s  %s", keyStyle.Render(p[0]+strings.Repeat(" ", max(0, w-lipgloss.Width(p[0])))), p[1]))
+	return fitStyled(Dim.Render(text), width)
+}
+
+func safeEndpoint(endpoint string) string {
+	s := strings.TrimSpace(endpoint)
+	if s == "" {
+		return ""
+	}
+	if u, err := url.Parse(s); err == nil && u.Host != "" {
+		u.User = nil
+		u.RawQuery, u.Fragment = "", ""
+		s = u.String()
+	} else {
+		if i := strings.IndexAny(s, "?#"); i >= 0 {
+			s = s[:i]
+		}
+		if i := strings.LastIndex(s, "@"); i >= 0 {
+			s = s[i+1:]
+		}
+	}
+	return s
+}
+
+func fitStyled(s string, width int) string {
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	return truncate.StringWithTail(s, uint(width), "…")
+}
+
+// KV prints key: value rows.
+func KV(pairs ...[2]string) {
+	if len(pairs) > 0 {
+		Emit(RenderKVWidth(TermWidth(), pairs...))
 	}
 }
 
@@ -337,11 +507,11 @@ func writeJSONValue(dec *json.Decoder, b *strings.Builder, indent int) error {
 	return nil
 }
 
-// TermWidth reports the stdout terminal width clamped to 40..100
-// (80 when stdout is not a terminal, e.g. pipes and CI logs).
+// TermWidth reports stdout width up to 100 columns; narrow terminals keep their
+// actual width (80 when stdout is not a terminal, e.g. pipes and CI logs).
 func TermWidth() int {
 	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
-		return min(max(w, 40), 100)
+		return min(w, 100)
 	}
 	return 80
 }
@@ -351,6 +521,9 @@ func TermWidth() int {
 func GlamourStyle() string {
 	if ColorProfile() <= colorprofile.Ascii {
 		return "ascii"
+	}
+	if !IsDarkBackground() {
+		return "light"
 	}
 	return "pink"
 }
@@ -412,7 +585,7 @@ type spinModel struct {
 func newSpinModel(msg string, done chan error) spinModel {
 	s := spinner.New(
 		spinner.WithSpinner(spinner.Dot),
-		spinner.WithStyle(lipgloss.NewStyle().Foreground(lipgloss.Color(PinkHot))),
+		spinner.WithStyle(Accent),
 	)
 	return spinModel{spinner: s, msg: msg, done: done}
 }

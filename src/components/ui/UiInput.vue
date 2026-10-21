@@ -259,4 +259,12 @@ defineExpose({ focus: () => inputRef.value?.focus(), el: inputRef })
 .ui-field--inline .ui-field__label {
   flex-shrink: 0;
 }
+@media (max-width: 768px) {
+  .ui-field { max-width: 100%; }
+  .ui-field--inline { flex-wrap: wrap; }
+  .ui-field__control { min-height: 44px; }
+  .ui-field__input { font-size: 16px; width: 100%; }
+  .ui-field__clear { width: 44px; height: 44px; margin: 0 -10px 0 0; }
+  .ui-field__hint, .ui-field__label { font-size: 12px; overflow-wrap: anywhere; }
+}
 </style>

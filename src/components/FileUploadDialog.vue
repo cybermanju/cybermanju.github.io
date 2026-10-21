@@ -336,4 +336,24 @@ async function startUpload() {
 @media (prefers-reduced-motion: reduce) {
   .upload-close, .drop-zone { transition: none; }
 }
+
+
+@media (max-width: 768px) {
+  .upload-overlay { align-items: stretch; }
+  .upload-modal {
+    width: 100%; max-width: 560px; max-height: 100%; min-height: 0; margin: auto;
+    box-sizing: border-box;
+  }
+  .upload-files { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+  .upload-footer { flex-wrap: wrap; }
+  .upload-progress-text { font-size: 12px; }
+  .upload-file-row { font-size: 12px; }
+  .uf-error { font-size: 11px; }
+}
+@media (max-width: 380px) {
+  .upload-overlay { padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
+  .upload-header { font-size: 13px; }
+  .upload-footer > :last-child { flex: 1 1 100%; }
+  .upload-footer :deep(.ui-btn) { width: 100%; min-height: 44px; }
+}
 </style>

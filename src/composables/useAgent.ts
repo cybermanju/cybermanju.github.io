@@ -1772,7 +1772,10 @@ export function listLocalConfigs(): AgentConfig[] {
 
 export function saveLocalConfig(config: AgentConfig): void {
   const all = listLocalConfigs().filter(c => c.id !== config.id)
-  all.push({ ...config, hasKey: false })
+  // The volatile vault is authoritative: a stale `hasKey: false` config
+  // snapshot must not hide a key that is still present in this page session.
+  // Keep keys out of localStorage; only their presence bit is stored.
+  all.push({ ...config, hasKey: hasLocalKey(config.id) })
   writeJson(CONFIGS_KEY, all)
   emitAgentEvent(AGENT_CONFIGS_EVENT)
 }

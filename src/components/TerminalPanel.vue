@@ -18,9 +18,11 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } fr
 import { useAppStore } from '@/stores/app'
 import { useTheme } from '@/composables/useTheme'
 import { useVoiceInput } from '@/composables/useVoiceInput'
+import { subscribeHomeCommand } from '@/composables/useHomeCommandHandoff'
 import { invoke } from '@/composables/useTauri'
 import { ShortcutsKey } from '@/composables/shortcutsKey'
 import { correctShellLine, CYBSH_PHRASES } from '@/utils/speechCorrect'
+import { fontSizeAfterPinch } from '@/utils/terminalMobile'
 import {
   commonPrefix,
   containsClearSequence,
@@ -79,6 +81,10 @@ const DEFAULT_FONT = 13
 
 const lines = ref<Line[]>([])
 const input = ref('')
+const stopHomeCommand = subscribeHomeCommand('terminal', ({ text }) => {
+  input.value = input.value ? `${input.value}\n${text}` : text
+  autosize()
+})
 /** Volume cwd shown in the prompt (optimistic; the server owns the truth). */
 const cwd = ref('/')
 /** Exit status of the last command (server reports ok/err only → 0/1). */
@@ -94,6 +100,10 @@ const inputEl = ref<HTMLTextAreaElement | null>(null)
 const caretPos = ref(0)
 const running = computed(() => store.shellBusy)
 const fontSize = ref(DEFAULT_FONT)
+const managementOpen = ref(false)
+const mobileFullscreen = ref(false)
+const nativeFullscreen = ref(false)
+let pinchStartDistance: number | null = null
 /** Smart autoscroll: stay pinned only while the user is at the bottom. */
 const stick = ref(true)
 const unread = ref(0)
@@ -1063,9 +1073,66 @@ function applyFontSize(delta: number) {
   }
 }
 
+function touchDistance(touches: TouchList): number {
+  const dx = touches[0].clientX - touches[1].clientX
+  const dy = touches[0].clientY - touches[1].clientY
+  return Math.hypot(dx, dy)
+}
+
+function onPinchStart(event: TouchEvent) {
+  pinchStartDistance = event.touches.length === 2 ? touchDistance(event.touches) : null
+}
+
+function onPinchMove(event: TouchEvent) {
+  if (event.touches.length !== 2 || pinchStartDistance === null) return
+  const distance = touchDistance(event.touches)
+  if (pinchStartDistance <= 0 || distance <= 0) return
+  event.preventDefault()
+  const nextSize = fontSizeAfterPinch(fontSize.value, distance / pinchStartDistance)
+  if (nextSize !== fontSize.value) {
+    applyFontSize(nextSize - fontSize.value)
+    pinchStartDistance = distance
+  }
+}
+
+function onPinchEnd(event: TouchEvent) {
+  if (event.touches.length < 2) pinchStartDistance = null
+}
+
+async function toggleFullscreen() {
+  if (document.fullscreenElement === scrollEl.value?.closest('.terminal-panel')) {
+    await document.exitFullscreen().catch(() => {})
+    mobileFullscreen.value = false
+    return
+  }
+  const panel = scrollEl.value?.closest('.terminal-panel') as HTMLElement | null
+  if (!panel) return
+  if (panel.requestFullscreen) {
+    try {
+      await panel.requestFullscreen()
+      mobileFullscreen.value = false
+      return
+    } catch {
+      // iOS WebKit and embedded webviews may reject fullscreen; use fixed inset fallback.
+    }
+  }
+  mobileFullscreen.value = !mobileFullscreen.value
+}
+
+function syncFullscreen() {
+  nativeFullscreen.value = document.fullscreenElement === scrollEl.value?.closest('.terminal-panel')
+  if (nativeFullscreen.value) mobileFullscreen.value = false
+}
+
 onBeforeUnmount(() => {
+  stopHomeCommand()
   stopVoice?.()
   resumeGlobals()
+  document.removeEventListener('fullscreenchange', syncFullscreen)
+  scrollEl.value?.removeEventListener('touchstart', onPinchStart)
+  scrollEl.value?.removeEventListener('touchmove', onPinchMove)
+  scrollEl.value?.removeEventListener('touchend', onPinchEnd)
+  scrollEl.value?.removeEventListener('touchcancel', onPinchEnd)
 })
 
 onMounted(async () => {
@@ -1075,6 +1142,11 @@ onMounted(async () => {
   } catch {
     /* keep default */
   }
+  document.addEventListener('fullscreenchange', syncFullscreen)
+  scrollEl.value?.addEventListener('touchstart', onPinchStart, { passive: true })
+  scrollEl.value?.addEventListener('touchmove', onPinchMove, { passive: false })
+  scrollEl.value?.addEventListener('touchend', onPinchEnd, { passive: true })
+  scrollEl.value?.addEventListener('touchcancel', onPinchEnd, { passive: true })
   push('sys', `cybsh — \`help\` lists commands · TAB completes verbs+paths (→ accepts the grey hint, TAB twice lists) · ↑/↓ history · ctrl+r searches · ctrl+l clears · shift+enter for a second line`)
   if (store.osWorkers === null) await store.fetchOsWorkers()
   // Learn the volume cwd for the prompt without echoing (one `pwd` row in
@@ -1094,6 +1166,7 @@ onMounted(async () => {
 <template>
   <div
     class="terminal-panel"
+    :class="{ 'mobile-fullscreen': mobileFullscreen, 'terminal-gesture-exclude': true }"
     :style="{ fontSize: `${fontSize}px` }"
     @click="focusInput"
     @focusin="onFocusIn"
@@ -1108,13 +1181,27 @@ onMounted(async () => {
         <span v-if="lastExit !== 0" class="exit-badge" :title="`last command failed (exit ${lastExit})`">exit {{ lastExit }}</span>
         <span v-else-if="lastMs > 500" class="meta-badge" :title="`last command took ${lastMs}ms`">{{ lastMs }}ms</span>
       </div>
-      <div class="header-right">
-        <button class="ghost-btn" type="button" title="Find in scrollback (ctrl+f)" aria-label="Find in scrollback" @click.stop="findOpen = !findOpen; nextTick(() => findEl?.focus())">Find</button>
-        <button class="ghost-btn" type="button" title="Smaller font" aria-label="Smaller font" @click.stop="applyFontSize(-1)">A−</button>
-        <button class="ghost-btn" type="button" title="Larger font" aria-label="Larger font" @click.stop="applyFontSize(1)">A+</button>
-        <button class="ghost-btn" type="button" title="Copy transcript" aria-label="Copy transcript" @click.stop="copyAll">Copy</button>
-        <button class="ghost-btn" type="button" title="Download .log transcript" aria-label="Download transcript" @click.stop="exportLog">Export</button>
-        <button class="ghost-btn" type="button" title="Clear screen (ctrl+l)" aria-label="Clear screen" @click.stop="clearScreen">Clear</button>
+      <div id="terminal-management-actions" class="header-right" :class="{ 'terminal-management-open': managementOpen }">
+        <button
+          class="ghost-btn term-manage-toggle"
+          type="button"
+          :aria-expanded="managementOpen"
+          aria-controls="terminal-management-actions"
+          @click.stop="managementOpen = !managementOpen"
+        >{{ managementOpen ? 'Done' : 'Manage' }}</button>
+        <button class="ghost-btn term-management-action" type="button" title="Find in scrollback (ctrl+f)" aria-label="Find in scrollback" @click.stop="findOpen = !findOpen; nextTick(() => findEl?.focus())">Find</button>
+        <button class="ghost-btn term-management-action" type="button" title="Smaller font" aria-label="Smaller font" @click.stop="applyFontSize(-1)">A−</button>
+        <button class="ghost-btn term-management-action" type="button" title="Larger font" aria-label="Larger font" @click.stop="applyFontSize(1)">A+</button>
+        <button class="ghost-btn term-management-action" type="button" title="Copy transcript" aria-label="Copy transcript" @click.stop="copyAll">Copy</button>
+        <button class="ghost-btn term-management-action" type="button" title="Download .log transcript" aria-label="Download transcript" @click.stop="exportLog">Export</button>
+        <button class="ghost-btn term-management-action" type="button" title="Clear screen (ctrl+l)" aria-label="Clear screen" @click.stop="clearScreen">Clear</button>
+        <button
+          class="ghost-btn term-management-action"
+          type="button"
+          :aria-pressed="nativeFullscreen || mobileFullscreen"
+          :aria-label="nativeFullscreen || mobileFullscreen ? 'Exit fullscreen terminal' : 'Open fullscreen terminal'"
+          @click.stop="toggleFullscreen"
+        >{{ nativeFullscreen || mobileFullscreen ? 'Exit full' : 'Full screen' }}</button>
       </div>
     </div>
 
@@ -1215,7 +1302,7 @@ onMounted(async () => {
           autocomplete="off"
           autocapitalize="off"
           aria-label="cybsh command"
-          :placeholder="running ? 'working…' : ''"
+          :placeholder="running ? 'working…' : 'Type a command…'"
           @keydown="onKeydown"
           @keyup="trackCaret($event.target as HTMLTextAreaElement)"
           @click="trackCaret($event.target as HTMLTextAreaElement)"
@@ -1224,25 +1311,22 @@ onMounted(async () => {
         />
       </div>
       <button class="term-send-btn" type="button" :disabled="!input.trim()" title="Send command" aria-label="Send command" @click="submit">
-        <AppIcon name="solar:arrow-up-bold" :size="16" />
+        <AppIcon name="solar:arrow-up-bold" :size="16" /><span class="term-send-label">Run</span>
       </button>
-      <select
-        v-if="voice.isSupported.value"
-        class="ghost-select"
-        :value="voice.lang.value"
-        aria-label="Voice language"
-        title="Voice language: English (EN) or Portuguese (PT-BR)"
-        @change="voice.setLang(($event.target as HTMLSelectElement).value as 'en-US' | 'pt-BR')"
-      >
-        <option value="en-US">EN</option>
-        <option value="pt-BR">PT</option>
-      </select>
       <button
         v-if="voice.isSupported.value"
-        class="ghost-btn"
+        class="term-language-btn"
+        type="button"
+        :aria-label="`Voice language ${voice.lang.value === 'pt-BR' ? 'Portuguese' : 'English'}; switch to ${voice.lang.value === 'pt-BR' ? 'English' : 'Portuguese'}`"
+        :title="`Voice language: ${voice.lang.value === 'pt-BR' ? 'Portuguese (PT)' : 'English (EN)'}. Tap to switch.`"
+        @click.stop="voice.toggleLang()"
+      >{{ voice.lang.value === 'pt-BR' ? 'PT' : 'EN' }}</button>
+      <button
+        v-if="voice.isSupported.value"
+        class="ghost-btn term-voice-btn"
         type="button"
         :title="voice.listening.value ? `Listening… ${voice.interim.value}` : 'Voice command (typos auto-fixed)'"
-        @click="toggleVoice"
+        @click.stop="toggleVoice"
       >{{ voice.listening.value ? 'Stop' : 'Dictate' }}</button>
     </div>
     <div class="term-hints" aria-hidden="true">tab complete (×2 lists) · ↑↓ history · ctrl+r search · ctrl+l clear · !n re-runs · shift+enter newline · alt+⌫ kills word</div>
@@ -1256,11 +1340,25 @@ onMounted(async () => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   overflow: hidden;
   background: var(--ui-terminal);
   color: var(--ui-text);
   font-family: var(--ui-font-mono);
   font-size: 13px;
+}
+
+.terminal-panel.mobile-fullscreen,
+.terminal-panel:fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
 }
 
 .panel-header {
@@ -1284,8 +1382,11 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   flex: 0 0 auto;
 }
+
+.term-manage-toggle { display: none; }
 
 .term-lights {
   display: inline-flex;
@@ -1371,7 +1472,7 @@ onMounted(async () => {
   border-color: var(--ui-border-strong);
 }
 
-.ghost-select {
+.term-language-btn {
   background: transparent;
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-xs);
@@ -1452,6 +1553,9 @@ onMounted(async () => {
      can pin the scroll height so new lines never become reachable.
      Layout + paint containment keeps the 60fps budget without that. */
   contain: layout paint;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
 }
 
 .term-scroll::-webkit-scrollbar {
@@ -1475,6 +1579,9 @@ onMounted(async () => {
   position: relative;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
   line-height: 1.45;
   min-height: 1.45em;
   padding-right: 28px;
@@ -1502,6 +1609,8 @@ onMounted(async () => {
   line-height: 1;
   padding: 2px 5px;
   cursor: copy;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .term-line:hover .term-copy,
@@ -1536,8 +1645,8 @@ onMounted(async () => {
 }
 
 .kind-sys {
-  color: color-mix(in srgb, var(--ui-text) 40%, transparent);
-  font-style: italic;
+  color: var(--ui-text-2);
+  font-style: normal;
 }
 
 .term-user {
@@ -1616,6 +1725,7 @@ onMounted(async () => {
   flex: 0 0 auto;
 }
 
+.term-send-label { display: none; }
 .term-send-btn {
   display: none;
 }
@@ -1689,22 +1799,19 @@ onMounted(async () => {
     display: none;
   }
 
-  .header-right .ghost-btn:nth-child(2),
-  .header-right .ghost-btn:nth-child(3),
-  .header-right .ghost-btn:nth-child(4) {
-    display: none;
-  }
 }
 
 @media (max-width: 560px) {
   .terminal-panel {
-    height: 100dvh;
-    min-height: 100dvh;
-    padding-top: env(safe-area-inset-top, 0px);
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    width: 100%;
     box-sizing: border-box;
   }
 
   .panel-header {
+    flex-wrap: wrap;
     min-height: 44px;
     padding: 8px 12px;
   }
@@ -1714,16 +1821,31 @@ onMounted(async () => {
   }
 
   .ghost-btn,
-  .ghost-select {
+  .term-language-btn {
     min-height: 44px;
     padding: 8px 12px;
     touch-action: manipulation;
   }
 
-  /* `.header-right .ghost-btn` used to re-crush these to `min-height: 0`
-     (≈25px) right after the tap-floor rule above — the header actions became
-     the smallest targets on the phone screen. They keep the 44px floor; the
-     ≤760px block already hides all but the first action, so the row fits. */
+  .header-right {
+    flex: 0 1 auto;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .term-manage-toggle { display: inline-flex; }
+
+  .term-management-action { display: none; }
+
+  .header-right.terminal-management-open {
+    flex-basis: 100%;
+    justify-content: flex-start;
+    max-height: min(32dvh, 180px);
+    overflow-y: auto;
+  }
+  .header-right.terminal-management-open .term-management-action {
+    display: inline-flex;
+  }
 
   .term-scroll {
     padding: 10px 12px;
@@ -1731,7 +1853,7 @@ onMounted(async () => {
   }
 
   .term-line {
-    font-size: 15px;
+    font-size: calc(1em + 2px);
     line-height: 1.5;
   }
 
@@ -1739,13 +1861,19 @@ onMounted(async () => {
     position: sticky;
     bottom: 0;
     z-index: 2;
-    flex-wrap: wrap;
-    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+    display: grid;
+    grid-template-columns: minmax(0, 82px) minmax(0, 1fr) 44px;
+    gap: 6px;
+    padding: 8px 12px;
     background: var(--ui-terminal);
     box-shadow: 0 -6px 16px color-mix(in srgb, var(--ui-terminal) 80%, transparent);
   }
 
   .term-prompt {
+    min-width: 0;
+    max-width: 82px;
+    overflow: hidden;
+    white-space: nowrap;
     min-height: 44px;
     display: inline-flex;
     align-items: center;
@@ -1770,8 +1898,10 @@ onMounted(async () => {
     touch-action: manipulation;
   }
 
+  .term-send-label { display: inline; font-size: 12px; font-weight: 700; }
+  .term-send-btn :deep(svg) { display: none; }
   .term-send-btn:disabled {
-    opacity: .45;
+    opacity: .55;
   }
 
   .term-input {
@@ -1780,5 +1910,14 @@ onMounted(async () => {
     touch-action: manipulation;
   }
   .term-ghost { font-size: 16px; }
+
+  .term-language-btn { grid-column: 1; }
+  .term-voice-btn { grid-column: 2 / -1; }
+  .terminal-panel.mobile-fullscreen { height: var(--mobile-viewport-height, 100dvh) !important; max-height: var(--mobile-viewport-height, 100dvh); padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .term-language-btn,
+  .term-voice-btn {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
 }
 </style>

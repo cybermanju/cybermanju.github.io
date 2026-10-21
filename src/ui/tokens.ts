@@ -2,8 +2,8 @@
 /**
  * Single source of truth for the CyberManju OS design language.
  *
- * macOS-style flat AMOLED glass remake: TWO themes only — `os-dark` (true
- * AMOLED) and `os-light` — plus an optional monochrome `os-graphite`.
+ * System appearance presets, the Plasma pair, Modern Glass and Flat AMOLED.
+ * Glass belongs to navigation/chrome; body text always has a solid surface.
  * `auto` is resolved in `useTheme()` from the OS `prefers-color-scheme`
  * media query, not a theme id.
  *
@@ -39,6 +39,8 @@ export type ThemeId =
   | 'os-graphite'
   | 'plasma-dark'
   | 'plasma-light'
+  | 'modern-glass'
+  | 'flat-amoled'
 
 /**
  * Shell style — orthogonal to the theme. `macos` is the menu-bar + floating
@@ -191,6 +193,7 @@ export const LEGACY_THEME_ALIASES: Record<string, ThemeId> = {
 /** Picker grouping — flat macOS set plus the Breeze-like Plasma set. */
 export const THEME_GROUPS: { id: string; label: string; ids: ThemeId[] }[] = [
   { id: 'appearance', label: 'Appearance', ids: ['os-dark', 'os-light', 'os-graphite'] },
+  { id: 'personal', label: 'Personal', ids: ['modern-glass', 'flat-amoled'] },
   { id: 'plasma', label: 'Plasma', ids: ['plasma-dark', 'plasma-light'] },
 ]
 
@@ -200,6 +203,8 @@ export const THEME_IDS: ThemeId[] = [
   'os-graphite',
   'plasma-dark',
   'plasma-light',
+  'modern-glass',
+  'flat-amoled',
 ]
 
 /**
@@ -232,7 +237,7 @@ export const FONT_TRACKING_WIDE: Record<ThemeFont, string> = {
 
 const SINGLE_DESIGN: ThemeDesign = { shape: 'soft', font: 'system', elevation: 'soft' }
 
-export const THEMES: Record<ThemeId, ThemeDefinition> = {
+const SYSTEM_THEMES: Record<Exclude<ThemeId, 'modern-glass' | 'flat-amoled'>, ThemeDefinition> = {
   'os-dark': {
     id: 'os-dark',
     label: 'Dark',
@@ -415,6 +420,45 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
   },
 }
 
+// Keep independent presets without duplicating the unchanged semantic colours.
+export const THEMES: Record<ThemeId, ThemeDefinition> = {
+  ...SYSTEM_THEMES,
+  'modern-glass': {
+    id: 'modern-glass',
+    label: 'Modern Glass',
+    blurb: 'Soft frosted chrome · cool blue light · clear, solid content',
+    mode: 'dark',
+    design: SINGLE_DESIGN,
+    palette: {
+      ...SYSTEM_THEMES['os-dark'].palette,
+      bg: '#080D18', bgDeep: '#050810',
+      surface: '#101722', surface2: '#172131', surface3: '#223044',
+      window: 'rgba(23, 33, 49, 0.76)', windowIdle: 'rgba(18, 26, 39, 0.86)',
+      sidebar: 'rgba(19, 29, 44, 0.82)', panel: 'rgba(19, 29, 44, 0.82)',
+      border: 'rgba(212, 232, 255, 0.16)', borderStrong: 'rgba(212, 232, 255, 0.24)',
+      borderHover: 'rgba(212, 232, 255, 0.36)', hairline: 'rgba(255, 255, 255, 0.16)',
+      text: '#F5F8FF', text2: '#BAC8DC', accent: '#A8CFFF', onAccent: '#081321',
+      hover: 'rgba(168, 207, 255, 0.12)', info: '#A8CFFF', glassBase: '23, 33, 49',
+    },
+  },
+  'flat-amoled': {
+    id: 'flat-amoled',
+    label: 'Flat AMOLED',
+    blurb: 'Slim, distraction-free launcher · white icons and names · pure black',
+    mode: 'dark',
+    design: SINGLE_DESIGN,
+    palette: {
+      ...SYSTEM_THEMES['os-dark'].palette,
+      bg: '#000000', bgDeep: '#000000', surface: '#000000',
+      surface2: '#0A0A0A', surface3: '#161616',
+      window: '#000000', windowIdle: '#000000', sidebar: '#000000', panel: '#000000',
+      text: '#FFFFFF', text2: '#B8B8B8', accent: '#FFFFFF', onAccent: '#000000',
+      border: '#252525', borderStrong: '#404040', borderHover: '#707070',
+      hover: 'rgba(255, 255, 255, 0.08)', info: '#FFFFFF', glassBase: '0, 0, 0',
+    },
+  },
+}
+
 export const ACCENT_CHOICES: { id: string; label: string; value: string }[] = [
   { id: 'default', label: 'System blue', value: '' },
   { id: 'blue', label: 'Blue', value: '#0A84FF' },
@@ -527,13 +571,16 @@ export function contrastRatio(a: [number, number, number], b: [number, number, n
 export function buildCssVars(s: ThemeSettings): Record<string, string> {
   const theme = THEMES[s.theme] ?? THEMES['os-dark']
   const p = theme.palette
+  const flat = theme.id === 'flat-amoled'
+  const modernGlass = theme.id === 'modern-glass'
   const hexOk = (v: unknown): v is string =>
     typeof v === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)
   // General accent wins, then the active theme's per-theme entry, then the
   // theme's built-in accent.
   const generalAccent = hexOk(s.accent) ? s.accent : null
   const themeAccent = hexOk(s.accents?.[s.theme]) ? (s.accents[s.theme] as string) : null
-  const accent = generalAccent ?? themeAccent ?? p.accent
+  // Flat AMOLED stays monochrome without destroying the user's saved accents.
+  const accent = flat ? p.accent : generalAccent ?? themeAccent ?? p.accent
   const [ar, ag, ab] = hexToRgb(accent)
   const accentRgb = `${ar}, ${ag}, ${ab}`
   const density = DENSITY_SCALE[s.density]
@@ -542,7 +589,7 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
 
   // Glass: solid (0) or translucent chrome. macOS blurs heavy (40px);
   // plasma keeps it moderate (20px, panel/popups only).
-  const solid = s.glass === 0
+  const solid = flat || s.glass === 0
   const blur = solid ? 0 : plasma ? 20 : 40
   const saturate = solid ? '100%' : plasma ? '140%' : '180%'
   const onAccentLuma = (() => {
@@ -593,7 +640,15 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-glass-2': chromeBg(p.window),
     '--ui-glass-border': p.border,
     '--ui-glass-highlight': p.hairline,
-    '--ui-glass-sheen': 'none',
+    '--ui-glass-sheen': modernGlass && !solid ? 'linear-gradient(135deg, rgba(255,255,255,.10), transparent 55%)' : 'none',
+    // Static ambient light is shared by home and Search; never animate large
+    // blurred layers or wash out reading surfaces with a second nested blur.
+    '--ui-ambient-background': modernGlass
+      ? `radial-gradient(ellipse 85% 72% at 8% 8%, rgba(${accentRgb}, .23), transparent 68%), radial-gradient(ellipse 75% 85% at 96% 40%, rgba(146, 118, 224, .16), transparent 70%), radial-gradient(ellipse 95% 65% at 48% 108%, rgba(44, 151, 164, .17), transparent 72%), linear-gradient(150deg, #101b2d, #070b15 70%)`
+      : 'none',
+    '--ui-glass-reading': modernGlass && !solid ? 'rgba(16, 23, 34, 0.88)' : p.surface,
+    '--ui-glass-edge': modernGlass && !solid ? 'inset 0 1px 0 rgba(238, 246, 255, .16)' : 'inset 0 0 0 transparent',
+    '--ui-glass-shadow': modernGlass && !solid ? '0 18px 52px rgba(0, 7, 18, .28), 0 3px 12px rgba(0, 7, 18, .14)' : '0 0 0 transparent',
     '--ui-blur': `${blur}px`,
     '--ui-blur-strong': `${blur}px`,
     '--ui-saturate': saturate,
@@ -632,14 +687,14 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-radius-2xl': radii.x2,
     '--ui-radius-full': radii.full,
     // depth — flat shadows + focus ring (no glow)
-    '--ui-shadow-window': shadowWindow,
-    '--ui-shadow-window-idle': shadowWindowIdle,
-    '--ui-shadow-menu': shadowMenu,
-    '--ui-shadow-popup': shadowMenu,
+    '--ui-shadow-window': flat ? 'none' : shadowWindow,
+    '--ui-shadow-window-idle': flat ? 'none' : shadowWindowIdle,
+    '--ui-shadow-menu': flat ? 'none' : shadowMenu,
+    '--ui-shadow-popup': flat ? 'none' : shadowMenu,
     '--ui-focus-ring': focusRing,
-    '--ui-shadow-1': shadowWindowIdle,
-    '--ui-shadow-2': shadowMenu,
-    '--ui-shadow-3': shadowWindow,
+    '--ui-shadow-1': flat ? 'none' : shadowWindowIdle,
+    '--ui-shadow-2': flat ? 'none' : shadowMenu,
+    '--ui-shadow-3': flat ? 'none' : shadowWindow,
     // deprecated glow/aurora — mapped to flat equivalents so old markup
     // renders without neon; do not use in new code.
     '--ui-glow': focusRing,
@@ -696,8 +751,8 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--radius-md': radii.md,
     '--radius-lg': radii.lg,
     '--radius-xl': radii.xl,
-    '--shadow-window': shadowWindow,
-    '--shadow-dropdown': shadowMenu,
+    '--shadow-window': flat ? 'none' : shadowWindow,
+    '--shadow-dropdown': flat ? 'none' : shadowMenu,
     '--shadow-card': 'none',
     '--scrollbar-track': 'transparent',
     '--scrollbar-thumb': p.borderStrong,

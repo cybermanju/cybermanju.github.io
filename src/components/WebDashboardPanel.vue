@@ -66,8 +66,11 @@ onMounted(() => {
 .dash-panel {
   width: 100%;
   height: 100%;
+  box-sizing: border-box;
+  min-width: 0;
   background: var(--ui-surface);
   overflow-y: auto;
+  overflow-x: hidden;
   padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   font-family: var(--ui-font);
   color: var(--ui-text);
@@ -145,14 +148,21 @@ onMounted(() => {
 
 .text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .dash-panel { padding-top: max(12px, env(safe-area-inset-top)); padding-right: max(12px, env(safe-area-inset-right)); padding-bottom: max(20px, env(safe-area-inset-bottom)); padding-left: max(12px, env(safe-area-inset-left)); }
   .panel-header { margin-bottom: 14px; padding-bottom: 12px; }
   .panel-title { font-size: clamp(12px, 3.5vw, 14px); letter-spacing: .8px; }
   .section { margin-bottom: 20px; }
   .section-title { line-height: 1.4; }
+  .status-card { padding: 10px; }
+  .s-row { align-items: flex-start; gap: 8px; min-height: 36px; padding: 6px 0; }
+  .s-key { flex: 0 0 84px; font-size: 11px; }
+  .s-value { flex: 1; text-align: left; overflow-wrap: anywhere; }
   .dashboard-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .dashboard-actions .bw-btn:last-child { grid-column: 1 / -1; }
+  .api-row { align-items: flex-start; }
+  .api-method { flex-basis: 36px; }
+  .api-path { overflow-wrap: anywhere; }
 }
 
 @media (prefers-reduced-motion: reduce) {

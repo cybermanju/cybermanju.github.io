@@ -1053,6 +1053,37 @@ onMounted(() => {
   }
 }
 
+@media (max-width: 768px) {
+  .spot {
+    box-sizing: border-box;
+    min-height: 100%;
+    min-height: 100dvh;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+  .spot-col { min-width: 0; gap: 12px; }
+  .spot-people {
+    max-height: min(30dvh, 260px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: 2px;
+  }
+  .person-chip { min-height: 48px; }
+  .spot-list {
+    max-height: min(38dvh, 360px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-gutter: stable;
+  }
+  .spot-row { min-height: 48px; }
+  .spot-detail { scroll-margin-block: 12px; }
+  .spot-detail__actions { gap: 8px; }
+  .spot-detail__actions :deep(button), .spot-foot :deep(button) { min-height: 48px; }
+  .lg-member { min-height: 44px; }
+  .spot-foot { align-items: stretch; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .spot-section,
   .spot-detail {

@@ -123,6 +123,8 @@ function applyNow() {
   root.dataset.uiMode = THEMES[state.theme].mode
   root.dataset.uiDensity = state.density
   root.dataset.uiShell = shellState.value
+  root.dataset.uiGlass = vars['--ui-blur'] === '0px' ? 'solid' : 'translucent'
+  root.style.colorScheme = THEMES[state.theme].mode
 }
 
 function persist() {

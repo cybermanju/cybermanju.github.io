@@ -120,6 +120,14 @@
 
       <!-- ── appearance ── -->
       <UiCard v-show="sectionVisible('appearance') && inSection('appearance')" id="st-sec-appearance" title="Appearance" icon="solar:monitor-bold" meta="View">
+        <div class="st-personal-presets" role="group" aria-label="Personal launcher themes">
+          <button v-for="id in personalThemeIds" :key="id" type="button" class="st-preset" :class="[`st-preset--${id}`, { 'is-selected': !theme.settings.followSystem && theme.themeId.value === id }]" :aria-pressed="!theme.settings.followSystem && theme.themeId.value === id" @click="theme.setTheme(id)">
+            <span class="st-preset-preview" aria-hidden="true"><AppIcon name="solar:folder-bold" :size="18" /><span>Files</span></span>
+            <strong>{{ theme.themes[id].label }}</strong>
+            <span>{{ id === 'flat-amoled' ? 'Only what matters. White on pure black.' : 'Soft glass. Clear content. A little depth.' }}</span>
+          </button>
+        </div>
+        <p v-if="theme.themeId.value === 'flat-amoled'" class="st-theme-note">Slim launcher · no wallpaper, coloured tiles or blur. Your wallpaper and accent stay saved for other themes.</p>
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Appearance</UiText>
           <UiSegmented
@@ -128,12 +136,14 @@
               { label: 'Light', value: 'os-light' },
               { label: 'Dark', value: 'os-dark' },
               { label: 'Graphite', value: 'os-graphite' },
+              { label: 'Modern Glass', value: 'modern-glass' },
+              { label: 'Flat AMOLED', value: 'flat-amoled' },
               { label: 'Plasma light', value: 'plasma-light' },
               { label: 'Plasma dark', value: 'plasma-dark' },
               { label: 'Auto', value: 'auto' },
             ]"
             aria-label="Appearance"
-            @update:model-value="theme.setAppearance($event as 'auto' | 'os-dark' | 'os-light' | 'os-graphite' | 'plasma-dark' | 'plasma-light')"
+            @update:model-value="theme.setAppearance($event as 'auto' | ThemeId)"
           />
         </div>
         <div class="st-row">
@@ -240,6 +250,7 @@
               :title="c.label"
               :aria-label="c.label"
               :aria-pressed="(theme.settings.accent ?? '') === c.value"
+              :disabled="theme.themeId.value === 'flat-amoled'"
               @click="theme.setAccent(c.value || null)"
             />
           </div>
@@ -600,7 +611,7 @@ import {
 import { ShortcutsKey } from '@/composables/shortcutsKey'
 import { useTouchConfig, type GestureType, type TouchAction } from '@/composables/useTouchConfig'
 import { useTheme } from '@/composables/useTheme'
-import { ACCENT_CHOICES, WALLPAPERS, type ShellStyle } from '@/ui/tokens'
+import { ACCENT_CHOICES, WALLPAPERS, type ShellStyle, type ThemeId } from '@/ui/tokens'
 import { lockMobileVaultMirror, mobileVaultMirrorState, supportsNativeScopedStorage, syncMobileVaultMirrorNow, unlockMobileVaultMirror } from '@/utils/mobileScopedStorage'
 import { LOCALES, getLocale, t, useLocale, type Locale } from '@/utils/i18n'
 import pkg from '../../package.json'
@@ -630,6 +641,7 @@ const transportTone = computed<'neutral' | 'accent' | 'success' | 'warning' | 'd
 
 const store = useAppStore()
 const theme = useTheme()
+const personalThemeIds: ThemeId[] = ['modern-glass', 'flat-amoled']
 // Interface language (i18n foundation, ANALYSIS.md §3) — new surfaces read
 // it via t(); older panels migrate as they are touched.
 const locale = ref<Locale>(getLocale())
@@ -811,7 +823,13 @@ function saveSupabase() {
 
 async function clearSupabase() {
   await supabaseSignOut().catch(() => {})
-  clearSupabaseConfig()
+  try {
+    await clearSupabaseConfig()
+  } catch (error) {
+    brokerMsg.value = { text: 'Device settings cleared, but the old vault copy could not be removed. Retry Forget before restarting.', tone: 'err' }
+    store.notifyError('Could not forget the legacy OAuth broker', error)
+    return
+  }
   supabaseUrlDraft.value = getSupabaseConfig().url
   supabaseKeyDraft.value = ''
   brokerMsg.value = getSupabaseConfig().url || getSupabaseConfig().key
@@ -913,6 +931,8 @@ const APPEARANCE_LABELS: Record<string, string> = {
   'os-light': 'Light',
   'os-dark': 'Dark',
   'os-graphite': 'Graphite',
+  'modern-glass': 'Modern Glass',
+  'flat-amoled': 'Flat AMOLED',
   'plasma-light': 'Plasma light',
   'plasma-dark': 'Plasma dark',
   auto: 'Auto',
@@ -1829,4 +1849,37 @@ async function handleRefresh() {
   .st-list,
   .st-body.is-detail > :deep(.ui-card) { animation: none; }
 }
+
+
+/* Phone widths include the whole 320–768px Settings stack, not only the
+   smallest breakpoint. Keep labels, controls and long values inside the sheet. */
+@media (max-width: 768px) {
+  .st { min-width: 0; }
+  .st--mobile .st-top-actions { gap: 6px; }
+  .st--mobile .st-body { min-width: 0; overflow-x: hidden; }
+  .st--mobile .st-body > :deep(.ui-card) { min-width: 0; }
+  .st--mobile .st-row { min-width: 0; flex-wrap: wrap; }
+  .st--mobile .st-row > :first-child { flex: 1 1 100%; }
+  .st--mobile .st-row > :not(:first-child) { max-width: 100%; }
+  .st--mobile .st-field-row { min-width: 0; }
+  .st--mobile .st-field-row > :first-child { flex-basis: 100%; }
+  .st--mobile .st-actions { width: 100%; }
+  .st--mobile .st-actions > * { flex: 1 1 auto; }
+  .st--mobile .st-table-row { min-width: 0; }
+  .st--mobile .st-table-row > :not(:first-child) { max-width: 100%; }
+  .st--mobile .st-mono, .st--mobile .st-strip-url { overflow-wrap: anywhere; }
+  .st--mobile :deep(.ui-input), .st--mobile :deep(input), .st--mobile :deep(select),
+  .st--mobile :deep(textarea) { max-width: 100%; }
+}
+
+.st-personal-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.st-preset { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--ui-border-strong); border-radius: 12px; background: var(--ui-surface-2); color: var(--ui-text); text-align: left; cursor: pointer; }
+.st-preset.is-selected { border-color: var(--ui-accent); box-shadow: var(--ui-focus-ring); }
+.st-preset:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+.st-preset > span:last-child { color: var(--ui-text-2); font-size: 12px; line-height: 1.5; }
+.st-preset-preview { display: flex; align-items: center; gap: 10px; box-sizing: border-box; width: 100%; min-height: 60px; padding: 12px; border: 1px solid #ffffff24; border-radius: 8px; color: #fff; font-size: 13px; }
+.st-preset--modern-glass .st-preset-preview { background: linear-gradient(125deg, #3c5675, #101722); box-shadow: inset 0 1px #ffffff20; }
+.st-preset--flat-amoled .st-preset-preview { background: #000; border-radius: 2px; }
+.st-theme-note { color: var(--ui-text-2); font-size: 13px; line-height: 1.6; margin: 0 0 16px; }
+@media (max-width: 360px) { .st-personal-presets { grid-template-columns: minmax(0, 1fr); } }
 </style>

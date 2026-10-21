@@ -21,8 +21,10 @@ import {
 } from '@/ui/tokens'
 
 describe('theme registries', () => {
-  it('ships exactly the flat-system + plasma ids', () => {
+  it('ships system, glass, AMOLED and plasma presets', () => {
     expect([...THEME_IDS].sort()).toEqual([
+      'flat-amoled',
+      'modern-glass',
       'os-dark',
       'os-graphite',
       'os-light',

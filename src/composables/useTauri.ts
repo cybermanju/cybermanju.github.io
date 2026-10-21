@@ -16,6 +16,7 @@ import {
   wasmBackendActive,
 } from './useWasmBackend'
 import { vaultGet, vaultSet } from './useVault'
+import { fetchDriveQuota } from '@/utils/driveQuota'
 import {
   probeProviderQuotaViaFetch,
   runStaticCybshLine,
@@ -2780,6 +2781,7 @@ const STATIC_COMMAND_HANDLERS: Record<string, StaticHandler> = {
     } catch {
       secret = ''
     }
+    if (cfg.backendType === 'googleDrive') return fetchDriveQuota(secret)
     const probe = await probeProviderQuotaViaFetch(cfg, secret, staticFetchAdapter)
     if (!probe.ok) throw new Error(probe.error ?? 'quota probe failed')
     return {

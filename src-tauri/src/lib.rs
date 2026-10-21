@@ -547,6 +547,7 @@ fn native_command_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + S
         commands::launcher::launcher_open_notification_settings,
         commands::launcher::launcher_open_url,
         commands::launcher::launcher_open_file,
+        commands::launcher::android_voice_command,
         // Point-in-time redb image used by the web-compatible mobile vault mirror
         commands::vault_snapshot::snapshot_native_database,
         commands::vault_snapshot::backup_export,
@@ -655,6 +656,11 @@ fn native_command_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + S
         devices::probe_peer,
         devices::peer_platform_notes,
         devices::sign_peer_ops_for_device,
+        // Local-first conflict exchange also works without the REST dashboard.
+        commands::oplog::oplog_since,
+        commands::oplog::oplog_push,
+        commands::oplog::oplog_conflicts,
+        commands::oplog::oplog_resolve,
         // P2P compute twins (§2B swarming + pairing + fountain codes —
         // pure math, no sockets).
         commands::p2p::swarm_encode,

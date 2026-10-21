@@ -2,7 +2,7 @@
 /* Role: charm-style purple/red/white/black reader UI over the 3D scenery. */
 /* Exports: .top/.rail/.panel/.hint layout, cards, chips, tooltip, symbol deep view (pre.code/.explain), module form note (.formnote), graph bits (.badge/.trace/#graph2d overlay/legend). */
 /* Integrates: linked from wiki-src/index.html; fonts fall back to system rounded. */
-/* Contracts: none (pure CSS); mobile collapses rail to a horizontal strip. */
+/* Contracts: touch-sized controls; mobile reader yields space to the scene; safe-area and dynamic viewport aware. */
 
 :root {
   --bg: #0d0714;
@@ -653,7 +653,7 @@ ul.links .linkbtn:active {
 /* 2D graph overlay: graphify's graph.html in a full-screen iframe. */
 #graph2d {
   position: fixed;
-  inset: 0;
+  inset: var(--wiki-header-bottom, 68px) 0 0;
   z-index: 40;
   background: #0d0714;
   display: flex;
@@ -745,42 +745,118 @@ ul.links .linkbtn:active {
   color: var(--tx);
 }
 
+/* Reader controls are mobile-only; the desktop wiki retains both sidebars. */
+.mobile-tools { display: none; }
+button, a, input, select { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible, select:focus-visible {
+  outline: 2px solid var(--pink);
+  outline-offset: 2px;
+}
+.panel { overflow-wrap: anywhere; overscroll-behavior: contain; }
+.panel .stats { flex-wrap: wrap; gap: 6px 14px; }
+.trace select { min-width: 0; }
+.view-2d .rail, .view-2d .panel, .view-2d .hint, .view-2d .mobile-tools { visibility: hidden; }
+
 @media (max-width: 900px) {
+  :root {
+    --wiki-header-bottom: calc(120px + env(safe-area-inset-top, 0px));
+    --wiki-scene-top: calc(184px + env(safe-area-inset-top, 0px));
+    --wiki-tools-height: calc(60px + env(safe-area-inset-bottom, 0px));
+  }
+  html, body { height: 100%; height: 100dvh; width: 100%; }
+  .top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: calc(8px + env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-right, 0px)) 8px max(10px, env(safe-area-inset-left, 0px));
+    background: #0d0714f5;
+    border-bottom: 1px solid var(--line);
+    z-index: 50;
+  }
+  .brand { min-width: 0; font-size: clamp(10px, 3vw, 15px); gap: 6px; }
+  .manju { width: 26px; flex-shrink: 0; }
+  #search { grid-row: 2; grid-column: 1 / -1; width: 100%; min-width: 0; max-width: none; min-height: 44px; margin: 0; font-size: 16px; padding: 9px 12px; }
+  .toplinks { display: flex; align-items: center; gap: 6px; }
+  .toplinks .secondary-link { display: none; }
+  .toplinks a, .toplinks button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 7px 8px; font-size: 10px; }
+  .toplinks [hidden] { display: none; }
   .rail {
-    left: 8px;
-    right: 8px;
-    top: auto;
-    bottom: 40px;
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    top: calc(var(--wiki-header-bottom) + 6px);
+    bottom: auto;
     width: auto;
-    max-height: 118px;
+    height: 60px;
     flex-direction: row;
     overflow-x: auto;
     overflow-y: hidden;
+    padding: 6px;
+    gap: 4px;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
   }
-
-  .rail button {
-    white-space: nowrap;
-  }
-
-  .rail .meta {
-    display: none;
-  }
-
+  .rail button { flex: 0 0 auto; min-height: 44px; white-space: nowrap; font-size: 11px; padding: 6px 10px; }
+  .rail .meta { display: none; }
+  #scene { top: var(--wiki-scene-top); bottom: var(--wiki-tools-height); }
+  #scene canvas { touch-action: none; }
   .panel {
-    right: 8px;
-    top: 70px;
-    bottom: 170px;
-  }
-
-  #search {
-    max-width: none;
-  }
-
-  .toplinks {
     display: none;
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    top: auto;
+    bottom: calc(var(--wiki-tools-height) + 4px);
+    width: auto;
+    height: min(46dvh, calc(100dvh - var(--wiki-scene-top) - var(--wiki-tools-height) - 12px));
+    padding: 16px 14px 20px;
+    scrollbar-width: thin;
+    background: #160c28fa;
+    -webkit-overflow-scrolling: touch;
   }
+  .reader-open .panel { display: block; }
+  .reader-open #scene { bottom: calc(var(--wiki-tools-height) + 46dvh + 8px); min-height: 1px; }
+  .panel h1 { font-size: 19px; }
+  .panel .blurb { font-size: 16px; line-height: 1.5; }
+  .panel button, .panel .links a { min-height: 44px; }
+  .panel .links a { display: inline-flex; align-items: center; }
+  .panel .chips button { max-width: 100%; text-align: left; }
+  .panel .chips code { overflow-wrap: anywhere; word-break: break-word; }
+  .panel .crumbs { flex-wrap: wrap; }
+  .panel .pager button { min-width: 0; overflow-wrap: anywhere; }
+  .panel pre.code { max-width: 100%; max-height: 35dvh; }
+  .trace select { min-height: 44px; font-size: 16px; }
+  .mobile-tools {
+    position: fixed;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    min-height: var(--wiki-tools-height);
+    padding: 6px max(10px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px));
+    background: #0d0714f5;
+    border-top: 1px solid var(--line);
+    z-index: 6;
+  }
+  #mobile-hint { font-size: 12px; color: var(--mut); }
+  #reader-toggle { min-height: 44px; padding: 8px 12px; flex: none; border: 2px solid var(--purple); color: var(--tx); background: #a855f726; font: 12px var(--font-px); }
+  #reader-toggle[aria-expanded='true'] { background: var(--purple); color: #0d0714; }
+  .hint { display: none; }
+  #tooltip { display: none; }
+  #graph2d { bottom: 0; }
 }
-
+@media (max-width: 900px) and (max-height: 500px) and (orientation: landscape) {
+  .top { grid-template-columns: minmax(0, 1fr) minmax(140px, 1fr) auto; }
+  #search { grid-row: 1; grid-column: 2; }
+  .toplinks { grid-column: 3; }
+  .reader-open .panel { left: 50%; top: var(--wiki-scene-top); height: auto; }
+  .reader-open #scene { right: 51%; bottom: var(--wiki-tools-height); }
+}
+@media (max-width: 900px) {
+  .no-webgl .panel { left: max(8px, env(safe-area-inset-left, 0px)); top: var(--wiki-scene-top); height: auto; }
+  .no-webgl #reader-toggle, .no-webgl #scene { display: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   * {
     animation: none !important;

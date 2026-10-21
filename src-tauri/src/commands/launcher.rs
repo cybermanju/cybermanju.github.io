@@ -100,3 +100,13 @@ pub fn launcher_open_url(url: String) -> Result<(), String> {
 pub fn launcher_open_file(path: String) -> Result<(), String> {
     cybermanju_launcher::open_file(path.trim())
 }
+
+/// Foreground Android voice and explicitly confirmed notification/accessibility actions.
+/// Not mapped to REST: only the bundled local Android UI may invoke this bridge.
+#[tauri::command(async)]
+pub fn android_voice_command(
+    action: String,
+    payload: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    cybermanju_launcher::voice_command(&action, payload.unwrap_or_else(|| serde_json::json!({})))
+}

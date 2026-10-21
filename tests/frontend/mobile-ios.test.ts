@@ -70,9 +70,9 @@ describe('iOS status bar + icons + dock', () => {
     expect(launcher).toMatch(/\.mla-grid\s*\{[\s\S]*?gap:\s*16px 7px/)
   })
 
-  it('uses native press-dim feedback and iOS Spotlight wording', () => {
+  it('uses native press-dim feedback and clear app-search wording', () => {
     expect(launcher).toMatch(/\.mla-app:active\s*\{[^}]*brightness\(0\.92\)/)
-    expect(launcher).toContain('placeholder="Search"')
+    expect(launcher).toContain('<OmniSearchPanel ref="searchRef" home')
     expect(launcher).toMatch(/\.mla-dock-icon\s*\{[\s\S]*?width:\s*52px/)
   })
 

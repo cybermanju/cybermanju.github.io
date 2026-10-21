@@ -12,13 +12,22 @@ import './assets/main.css'
 import './assets/ui.css'
 import { installUi } from './ui/install'
 import { useTheme } from './composables/useTheme'
+import { installUiLayoutTargets } from './ui/layout'
+import { installUiLayout } from './composables/useUiLayout'
+import './assets/ui-layout.css'
+import { installUiAppearance } from './utils/uiAppearance'
+import './assets/ui-appearance.css'
 
 const app = createApp(App)
 app.use(createPinia())
 app.use(installUi)
+app.use(installUiLayoutTargets)
 
 // Publish the persisted theme before first paint (also runs at module load
 // for the pre-Vue document state).
 useTheme()
 
 app.mount('#app')
+const stopUiAppearance = installUiAppearance(document.body)
+const stopUiLayout = installUiLayout(document.body)
+if (import.meta.hot) import.meta.hot.dispose(() => { stopUiAppearance(); stopUiLayout() })

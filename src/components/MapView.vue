@@ -428,15 +428,15 @@ async function handleRefresh() { await store.fetchGeoFiles() }
 .mono { font-family: var(--ui-font-mono); }
 .text-muted { color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important; }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .map-view {
     gap: 10px;
     padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   }
 
-  .panel-header { align-items: flex-start; }
-  .panel-title { font-size: 13px; line-height: 44px; }
-  .header-actions { flex-shrink: 0; gap: 4px; }
+  .panel-header { align-items: center; flex-wrap: wrap; }
+  .panel-title { font-size: 13px; line-height: 1.3; }
+  .header-actions { flex-shrink: 0; gap: 4px; flex-wrap: wrap; }
   .header-actions .refresh-btn { padding-inline: 4px; }
   .search-location-bar { gap: 8px; }
   .loc-search-input { font-size: 11px; }
@@ -462,6 +462,17 @@ async function handleRefresh() { await store.fetchGeoFiles() }
     white-space: nowrap;
   }
   .status-footer { padding-bottom: 2px; line-height: 1.4; }
+}
+
+@media (max-width: 420px) {
+  .map-view { padding-inline: max(10px, env(safe-area-inset-left, 0px)) max(10px, env(safe-area-inset-right, 0px)); }
+  .panel-header { align-items: flex-start; }
+  .header-left { flex: 1 1 100%; min-width: 0; }
+  .header-actions { width: 100%; justify-content: flex-end; }
+  .search-location-bar { align-items: stretch; }
+  .loc-search-input { font-size: 16px; }
+  .geo-list-coords { font-size: 10px; }
+  .empty-state { padding: 24px 8px; }
 }
 </style>
 

@@ -579,7 +579,10 @@ export function describeSyncError(err: string): { prefix: string; hint: string }
     case 'rate_limited':
       return { prefix, hint: 'Provider throttled the request. Wait and retry with backoff.' }
     case 'not_found':
-      return { prefix, hint: 'Remote object is gone. Re-run sync or restore from another provider.' }
+      if (/\bprovider mount\b|\bno provider mount\b/i.test(err)) {
+        return { prefix, hint: 'This provider mount is not available locally. Refresh Providers, then reopen the folder or add its mount again in Accounts. This does not mean your cloud files were deleted.' }
+      }
+      return { prefix, hint: 'The requested item was not found. Refresh the listing and check its location and provider access before retrying.' }
     case 'unsupported':
       return { prefix, hint: 'This provider cannot do that operation. See docs for per-backend limits.' }
     case 'too_large':

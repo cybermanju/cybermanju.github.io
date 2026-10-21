@@ -19,6 +19,10 @@ export type VaultBackend = 'kv' | 'localStorage' | 'unknown'
 
 const LS_PREFIX = 'cybermanju.vault.'
 const MAX_KEY = 512
+// The Supabase broker URL + public key are deliberately per-device settings,
+// not vault data. Keep them in the origin's localStorage instead of migrating
+// (and then deleting) the source rows with the encrypted vault contents.
+const DEVICE_LOCAL_KEYS = new Set(['cybermanju.supabaseUrl', 'cybermanju.supabaseKey'])
 
 /** `null` = not probed yet / transient failure (retry next call). */
 let kvKnownBroken = false
@@ -154,7 +158,7 @@ export async function migrateVaultFromLocalStorage(): Promise<number> {
   if (!marker.ok) return 0 // Old package: preserve localStorage for a later build.
   const alreadyMigrated = Boolean(readKvValue(marker.value))
 
-  const rows = lsKeys('')
+  const rows = lsKeys('').filter((row) => !DEVICE_LOCAL_KEYS.has(row.key))
   if (alreadyMigrated) {
     // Older migration code left duplicate localStorage shadows behind. Remove
     // only rows that still have an authoritative value in KV.

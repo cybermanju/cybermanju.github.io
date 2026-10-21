@@ -63,21 +63,6 @@ const TITLES: Record<NotificationType, string> = {
   max-width: calc(100vw - 24px);
 }
 
-/* Phone: drop toasts below the slim header band (notch inset + header) so
-   they never paint across the connectivity/clock strip — and go full width
-   with a solid fill, since phones run without backdrop blur. */
-@media (max-width: 768px) {
-  .notification-stack {
-    top: calc(env(safe-area-inset-top, 0px) + var(--mobile-header-h, 26px) + 10px);
-    right: 8px;
-    width: min(380px, calc(100vw - 16px));
-    max-width: calc(100vw - 16px);
-  }
-  .notification-item {
-    background: color-mix(in srgb, var(--ui-surface) 94%, var(--ui-bg));
-  }
-}
-
 .notification-item {
   display: flex;
   align-items: flex-start;
@@ -200,5 +185,20 @@ const TITLES: Record<NotificationType, string> = {
 [data-ui-shell='plasma'] .notification-item {
   border-radius: var(--ui-radius-lg);
   box-shadow: var(--ui-shadow-popup);
+}
+@media (max-width: 768px) {
+  .notification-stack,
+  [data-ui-shell='plasma'] .notification-stack {
+    top: calc(env(safe-area-inset-top, 0px) + var(--mobile-header-h, 48px) + 8px);
+    bottom: auto;
+    left: calc(env(safe-area-inset-left, 0px) + 8px);
+    right: calc(env(safe-area-inset-right, 0px) + 8px);
+    width: auto;
+    max-width: none;
+    max-height: calc(var(--mobile-viewport-height, 100dvh) - 120px);
+    overflow-y: auto;
+  }
+  .notification-item { background: color-mix(in srgb, var(--ui-surface) 94%, var(--ui-bg)); }
+  .notif-close { width: 44px; height: 44px; }
 }
 </style>

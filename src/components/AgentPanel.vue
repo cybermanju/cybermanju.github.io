@@ -24,12 +24,16 @@
       </span>
       <div class="agent-title">
         <h2>Assistant</h2>
-        <p class="agent-subtitle">
-          {{ friendlyTransport }}
-          <span v-if="chatConfig" class="agent-subtitle-sep">·</span>
-          <span v-if="chatConfig">{{ chatConfig.name }} · {{ caps.model }}</span>
-        </p>
+        <p class="agent-subtitle" :title="friendlyTransport">{{ chatConfig?.model || 'Connect a model' }}</p>
       </div>
+      <button
+        class="agent-nav-toggle agent-settings-shortcut"
+        type="button"
+        title="Assistant settings"
+        aria-label="Assistant settings"
+        :aria-pressed="activeTab === 'setup'"
+        @click="openSetup"
+      ><AppIcon name="solar:settings-bold" :size="20" /></button>
       <div class="agent-header-meta">
         <UiButton
           size="sm"
@@ -59,7 +63,7 @@
             :class="{ on: activeTab === 'setup' }"
             @click="openSetup"
           >
-            <AppIcon name="solar:settings-bold" :size="13" /> Setup
+            <AppIcon name="solar:settings-bold" :size="13" /> Settings
           </button>
           <button
             role="tab"
@@ -72,7 +76,64 @@
           </button>
         </div>
       </div>
+      <button
+        v-if="jobActive && activeTab !== 'chat'"
+        type="button"
+        class="agent-nav-toggle agent-stop-shortcut"
+        title="Stop current task"
+        aria-label="Stop current task"
+        @click="abortJob"
+      ><AppIcon name="solar:stop-bold" :size="20" /></button>
+      <button
+        class="agent-nav-toggle agent-phone-shortcut"
+        :class="{ 'is-active': voiceCall.active.value || screenReader.active.value }"
+        type="button"
+        title="Voice and Android apps"
+        aria-label="Voice and Android apps"
+        aria-haspopup="dialog"
+        :aria-expanded="phoneControlsOpen"
+        :aria-controls="phoneControlsId"
+        @click="phoneControlsOpen = true"
+      ><AppIcon name="solar:phone-bold" :size="20" /></button>
     </header>
+
+    <UiModal :id="phoneControlsId" v-model:visible="phoneControlsOpen" title="Voice and apps" subtitle="Call your assistant or manage Android app access." icon="solar:phone-bold" size="md">
+      <div v-if="phoneMode === 'choice'" class="agent-phone-options" aria-label="Choose phone mode">
+        <UiButton size="lg" icon="solar:phone-bold" @click="phoneMode = 'cybermanju'">CyberManju</UiButton>
+        <UiButton size="lg" icon="solar:widget-bold" @click="openOtherApp">Other App</UiButton>
+        <p class="agent-note">CyberManju calls the selected AI assistant workflow in this app. Other App starts a separate, visible screen-reading session on Android.</p>
+      </div>
+      <UiButton v-else size="sm" variant="ghost" @click="phoneMode = 'choice'">Back to CyberManju | Other App</UiButton>
+      <template v-if="phoneMode === 'cybermanju'">
+      <section class="voice-call" aria-label="VozPonte voice conversation">
+        <div class="voice-call-actions">
+          <strong>CyberManju</strong>
+          <UiButton v-if="!voiceCall.active.value" size="sm" :disabled="!voiceCall.supported || !selectedProviderReady || jobActive || !!promptInput.trim() || queue.length > 0 || screenReader.active.value || screenReader.uncertain.value" @click="startVoiceCall">Start voice call</UiButton>
+          <template v-else>
+            <span role="status">{{ pendingApproval ? 'Review the approval in chat' : voiceCall.state.value }}</span>
+            <UiButton size="sm" :aria-pressed="voiceCall.muted.value" @click="voiceCall.toggleMute">{{ voiceCall.muted.value ? 'Unmute' : 'Mute' }}</UiButton>
+            <UiButton size="sm" variant="danger" @click="voiceCall.end">End call</UiButton>
+          </template>
+        </div>
+        <p class="agent-note">Foreground, turn-by-turn voice with your selected assistant. Replies play aloud. Typing switches back to text; ending audio does not cancel an already-started task. Tool approvals stay manual.</p>
+        <p v-if="promptInput.trim() || queue.length" class="agent-note">Send or clear your draft and queued messages before starting a call.</p>
+        <p v-if="jobActive" class="agent-note">Wait for the current task to finish before starting a call.</p>
+        <p v-if="screenReader.active.value || screenReader.uncertain.value" class="agent-note">Stop the Other App screen-reading session before starting a CyberManju call.</p>
+        <p v-if="!selectedProviderReady" class="agent-note">Select an assistant with a connected provider in Assistant settings first.</p>
+        <p v-if="!voiceCall.supported" class="agent-note">Voice calls are unavailable in this browser/WebView. You can still use text.</p>
+        <p class="agent-note">Speech recognition may use your device provider's network.</p>
+        <p v-if="voiceCall.error.value" role="alert" class="w-msg">{{ voiceCall.error.value }}</p>
+      </section>
+      <AndroidVoiceSettings />
+      </template>
+      <PhoneAppReader v-if="phoneMode === 'other'" />
+    </UiModal>
+
+    <div v-if="screenReader.active.value || screenReader.uncertain.value" class="agent-reader-status" role="status">
+      <span>Other App · {{ screenReader.uncertain.value ? 'Check session status' : screenReader.status.value.state }}</span>
+      <UiButton size="xs" @click="phoneControlsOpen = true; phoneMode = 'other'">Manage screen reading</UiButton>
+      <UiButton size="xs" variant="danger" :disabled="screenReader.busy.value" @click="screenReader.stop">Stop</UiButton>
+    </div>
 
     <div class="agent-body">
       <button
@@ -86,7 +147,7 @@
       <aside id="agent-session-nav" v-show="sidebarOpen" class="agent-sidebar" aria-label="Conversations and assistants">
         <nav class="agent-mobile-nav" aria-label="Agent navigation">
           <button type="button" :class="{ on: activeTab === 'chat' }" @click="activeTab = 'chat'; sidebarOpen = false"><AppIcon name="solar:chat-round-dots-bold" :size="16" /> Chat</button>
-          <button type="button" :class="{ on: activeTab === 'setup' }" @click="activeTab = 'setup'; sidebarOpen = false"><AppIcon name="solar:settings-bold" :size="16" /> Assistant setup</button>
+          <button type="button" :class="{ on: activeTab === 'setup' }" @click="openSetup"><AppIcon name="solar:settings-bold" :size="16" /> Settings</button>
           <button type="button" :class="{ on: activeTab === 'controls' }" @click="activeTab = 'controls'; sidebarOpen = false"><AppIcon name="solar:shield-check-bold" :size="16" /> Controls</button>
         </nav>
         <div class="agent-side-section">
@@ -142,7 +203,7 @@
         <div class="agent-side-section">
           <div class="agent-side-head">
             <h3><AppIcon name="solar:cpu-bold" :size="13" /> Assistants ({{ configs.length }})</h3>
-            <UiButton size="xs" icon="solar:add-bold" @click="openSetup">New</UiButton>
+            <UiButton size="xs" icon="solar:add-bold" @click="newSetup">New</UiButton>
           </div>
           <div class="agent-side-list">
             <button
@@ -162,7 +223,8 @@
                 {{ cfg.hasKey || isKeyless(cfg) ? 'Ready' : 'No key' }}
               </UiBadge>
               <span class="agent-side-item-btns" @click.stop>
-                <UiButton size="xs" variant="danger" @click="removeCfg(cfg.id)">Delete</UiButton>
+                <UiButton size="xs" icon="solar:settings-bold" icon-only title="Edit assistant" aria-label="Edit assistant" @click="editSetup(cfg)" />
+                <UiButton size="xs" variant="danger" icon="solar:trash-bin-trash-bold" icon-only title="Delete assistant" aria-label="Delete assistant" @click="removeCfg(cfg.id)" />
               </span>
             </button>
             <UiEmpty
@@ -170,7 +232,7 @@
               size="sm"
               icon="solar:bot-bold"
               title="No assistants yet"
-              description="Open Setup, pick a provider, save — it takes a minute."
+              description="Add a provider to get started."
             />
           </div>
         </div>
@@ -179,11 +241,11 @@
       <!-- ── Main column ── -->
       <main class="agent-main">
         <!-- Context line: one quiet summary row, details expand on demand -->
-        <section v-if="capVisible" class="agent-caps" :class="{ open: capsOpen }" aria-label="What this assistant can do">
+        <section v-if="capVisible && activeTab === 'chat'" class="agent-caps" :class="{ open: capsOpen }" aria-label="What this assistant can do">
           <button type="button" class="agent-caps-summary" :aria-expanded="capsOpen" @click="capsOpen = !capsOpen">
-            <span class="agent-caps-dot" :class="{ warn: !caps.hasKey }" aria-hidden="true" />
+            <span class="agent-caps-dot" :class="{ warn: !selectedProviderReady }" aria-hidden="true" />
             <span class="agent-caps-text">{{ caps.model }} · {{ caps.persona }} · {{ caps.permission }}</span>
-            <span v-if="!caps.hasKey" class="agent-caps-key">No key</span>
+            <span v-if="!selectedProviderReady" class="agent-caps-key">{{ chatConfig ? 'No key' : 'Choose assistant' }}</span>
             <AppIcon :name="capsOpen ? 'solar:alt-arrow-up-bold' : 'solar:alt-arrow-down-bold'" :size="12" />
           </button>
           <div v-if="capsOpen" class="agent-caps-detail">
@@ -199,9 +261,9 @@
             <span class="agent-cap" :title="'Permission ruleset: ' + caps.permission">
               <AppIcon name="solar:shield-check-bold" :size="12" /> {{ caps.permission }}
             </span>
-            <span class="agent-cap" :class="{ warn: !caps.hasKey }" :title="caps.keyHint">
-              <AppIcon :name="caps.hasKey ? 'solar:key-bold' : 'solar:lock-bold'" :size="12" />
-              {{ caps.hasKey ? 'Key ready' : 'No key' }}
+            <span class="agent-cap" :class="{ warn: !selectedProviderReady }" :title="chatConfig && isKeyless(chatConfig) ? 'This connection does not require an API key.' : caps.keyHint">
+              <AppIcon :name="selectedProviderReady ? 'solar:plug-circle-bold' : 'solar:lock-bold'" :size="12" />
+              {{ chatConfig && isKeyless(chatConfig) ? 'No API key needed' : caps.hasKey ? 'Key ready' : 'No key' }}
             </span>
             <button type="button" class="agent-cap-link" @click="activeTab = 'controls'">
               Open Controls
@@ -218,41 +280,29 @@
 
         <!-- Setup tab: guided, 3 steps instead of one long form -->
         <section v-if="activeTab === 'setup'" class="agent-card" aria-label="Assistant setup">
-          <h3 class="agent-card-title"><AppIcon name="solar:add-bold" :size="13" /> 1 · Pick a provider ({{ filteredPresets.length }}/{{ allPresets.length }})</h3>
-          <div class="preset-search">
-            <UiInput v-model="providerSearch" placeholder="Search providers or models…" aria-label="Search providers" clearable />
+          <div class="agent-setup-heading">
+            <h3 class="agent-card-title">{{ savedConfigId ? 'Assistant settings' : 'New assistant' }}</h3>
+            <UiButton size="sm" icon="solar:add-bold" variant="ghost" :disabled="busy" @click="newSetup">New</UiButton>
           </div>
-          <div class="preset-grid">
-            <button
-              v-for="p in filteredPresets"
-              :key="p.id"
-              class="preset-card"
-              :class="{ on: form.providerId === p.id }"
-              :title="`${p.baseUrl} · ${p.defaultModel}`"
-              @click="pickPreset(p)"
-            >
-              <span class="preset-name">{{ p.label }}</span>
-              <span class="preset-meta">{{ p.family }} · {{ p.defaultModel }}</span>
-              <span v-if="p.keyless" class="preset-free">No key needed</span>
-            </button>
-            <p v-if="!filteredPresets.length" class="agent-note">No provider matches “{{ providerSearch }}”.</p>
+          <fieldset class="agent-settings-fields" :disabled="busy || modelBusy">
+          <div class="w-field">
+            <span class="w-label">Provider</span>
+            <UiSelect aria-label="Model provider" :model-value="form.providerId" :options="providerOptions" :disabled="busy || modelBusy" @update:model-value="selectProvider" />
           </div>
-
-          <h3 class="agent-card-title"><AppIcon name="solar:key-bold" :size="13" /> 2 · Model &amp; key</h3>
           <div class="w-field">
             <span class="w-label">Assistant name</span>
-            <UiInput v-model="form.name" placeholder="My assistant" aria-label="Assistant name" />
+            <UiInput v-model="form.name" placeholder="My assistant" aria-label="Assistant name" :disabled="busy || modelBusy" />
           </div>
           <div class="w-row">
             <div class="w-field">
               <span class="w-label">Model</span>
               <div class="model-row">
-                <UiInput v-model="form.model" placeholder="Model id" list="agent-models" aria-label="Model id" />
+                <UiInput v-model="form.model" placeholder="Model id" list="agent-models" aria-label="Model id" :disabled="busy || modelBusy" />
                 <UiButton
                   size="sm"
                   icon="solar:refresh-bold"
                   icon-only
-                  :disabled="modelBusy || !form.providerId"
+                  :disabled="busy || modelBusy || !canSave"
                   :loading="modelBusy"
                   title="Refresh the model list from the provider"
                   aria-label="Refresh model list"
@@ -263,6 +313,20 @@
                 <option v-for="m in models" :key="m" :value="m" />
               </datalist>
             </div>
+          </div>
+          <div v-if="!draftKeyless" class="w-field agent-key-field">
+            <div class="agent-key-label">
+              <span class="w-label">API key</span>
+              <UiBadge :tone="draftHasKey ? 'accent' : 'neutral'" size="sm">{{ draftHasKey ? 'Saved' : 'Required' }}</UiBadge>
+            </div>
+            <UiInput v-model="keyInput" type="password" :placeholder="draftHasKey ? 'Leave blank to keep saved key' : `Paste ${preset?.label ?? 'provider'} key`" aria-label="API key" autocomplete="off" :disabled="busy" />
+            <span class="agent-note">{{ wasmMode ? 'This session only · cleared on reload' : 'Encrypted · leave blank to keep current key' }}</span>
+          </div>
+          <p v-else class="agent-note">No API key needed.</p>
+          <p v-if="draftConnectionChanged" class="agent-note">New connection · saves separately, without the old key.</p>
+          <details class="agent-advanced">
+            <summary>Advanced</summary>
+            <div class="w-row">
             <div class="w-field">
               <span class="w-label">Style</span>
               <UiSelect
@@ -275,9 +339,9 @@
                 @update:model-value="form.agentKind = $event as 'build' | 'plan'"
               />
             </div>
-          </div>
+            </div>
           <div class="w-field">
-            <span class="w-label">Endpoint override (optional)</span>
+            <span class="w-label">Endpoint</span>
             <UiInput v-model="form.baseUrlOverride" :placeholder="presetBase" aria-label="Endpoint override" />
           </div>
           <div v-if="isCustom" class="w-row">
@@ -313,10 +377,10 @@
             </div>
           </div>
 
-          <h3 class="agent-card-title"><AppIcon name="solar:shield-check-bold" :size="13" /> 3 · Permissions &amp; workspace</h3>
+
           <div class="w-row">
             <div class="w-field">
-              <span class="w-label">Working dir (in your volume, empty = root)</span>
+              <span class="w-label">Workspace</span>
               <UiInput v-model="form.workingDir" placeholder="/" aria-label="Working directory" />
             </div>
             <div class="w-field w-field-narrow">
@@ -355,27 +419,22 @@
                   { label: 'Balanced — reads auto, changes ask', value: 'balanced' },
                   { label: 'YOLO — allow everything', value: 'yolo' },
                 ]"
-                @update:model-value="permPreset = $event as 'strict' | 'balanced' | 'yolo'"
+                @update:model-value="setPermissionPreset"
               />
             </div>
             <div class="w-field check-field">
               <UiCheckbox v-model="form.autoApprove" label="Auto-approve requests" />
             </div>
           </div>
-          <div class="w-field">
-            <span class="w-label">{{ wasmMode ? 'API key (kept in memory, cleared on reload)' : 'API key (sealed server-side, never shown back)' }}</span>
-            <div class="model-row">
-              <UiInput v-model="keyInput" type="password" placeholder="Paste key" aria-label="API key" autocomplete="off" />
-              <UiButton size="sm" :disabled="!effectiveKeyConfigId || !keyInput.trim() || keyBusy" :loading="keyBusy" :title="!effectiveKeyConfigId ? 'Save the assistant first, or pick one in the sidebar' : ''" @click="saveKey">Save key</UiButton>
+          </details>
+          </fieldset>
+          <div class="agent-save-footer">
+            <div v-if="setupMsg" class="w-msg" role="status" aria-live="polite">{{ setupMsg }}</div>
+            <div class="w-actions agent-setup-actions">
+              <UiButton size="sm" variant="primary" :disabled="busy || modelBusy || !canSave" :loading="busy" @click="saveConfig()">Save changes</UiButton>
+              <UiButton size="sm" variant="ghost" :disabled="busy" @click="activeTab = 'chat'">Done</UiButton>
             </div>
           </div>
-          <div class="w-actions">
-            <UiButton size="sm" variant="primary" :disabled="busy || !canSave" :loading="busy" @click="saveConfig">Save assistant</UiButton>
-            <UiButton size="sm" variant="ghost" @click="activeTab = 'chat'">Back to chat</UiButton>
-          </div>
-          <div v-if="setupMsg" class="w-msg">{{ setupMsg }}</div>
-          <p class="agent-note">Custom provider: pick the Custom preset, set endpoint + dialect + auth. Model-list refresh needs a saved key (Anthropic has no list API — enter the model by hand).</p>
-          <p class="agent-note">Second account or spare key? Save another assistant on the same provider, then chain it under Controls → Fallback route — throttled/empty/dead keys fail over automatically, in order.</p>
         </section>
 
         <!-- Controls tab: MCP servers + per-tool permissions -->
@@ -521,18 +580,29 @@
 
         <!-- Chat tab -->
         <section v-show="activeTab === 'chat'" class="agent-chat" aria-label="Conversation">
+          <div v-if="!hasUsableProvider" class="agent-welcome agent-provider-empty" role="status" aria-live="polite">
+            <span class="agent-welcome-avatar"><AppIcon name="solar:plug-circle-bold" :size="22" /></span>
+            <h3>NO PROVIDER CONNECTED</h3>
+            <p>Connect an AI provider and save its API key (or choose a keyless provider) to start chatting. Your conversation history stays here.</p>
+            <UiButton size="sm" variant="primary" icon="solar:plug-circle-bold" @click="openSetup">CONNECT</UiButton>
+          </div>
+          <div v-else-if="!selectedProviderReady" class="agent-provider-notice" role="status" aria-live="polite">
+            <p>{{ chatConfig ? `${chatConfig.name} needs an API key before you can send messages.` : 'Choose a connected assistant before sending a message.' }}</p>
+            <UiButton v-if="chatConfig" size="sm" variant="primary" @click="editSetup(chatConfig)">Add API key</UiButton>
+            <UiButton size="sm" @click="sidebarOpen = true">Choose assistant</UiButton>
+          </div>
+          <p v-if="viewing && selectedProviderReady && viewing.configId !== chatConfigId" class="agent-provider-notice" role="status">Your next message starts a new conversation with {{ chatConfig?.name }}. This transcript stays unchanged.</p>
           <!-- Onboarding when there is nothing to show yet -->
-          <div v-if="!viewing" class="agent-welcome">
+          <div v-if="selectedProviderReady && !viewing" class="agent-welcome">
             <span class="agent-welcome-avatar"><AppIcon name="solar:bot-bold" :size="22" /></span>
             <h3>{{ configs.length ? 'What should we work on?' : 'Meet your assistant' }}</h3>
             <p v-if="!configs.length">
-              Create an assistant in <button type="button" class="agent-link" @click="openSetup">Setup</button>
-              (pick a provider, save, add your key), then come back here.
+              <button type="button" class="agent-link" @click="openSetup">Connect a model</button> to start chatting.
             </p>
             <p v-else-if="!sessions.length">
-              Start a new conversation from the sidebar — or try one of these:
+              Choose a starting point, or send a message.
             </p>
-            <p v-else>Pick a conversation on the left, or start fresh:</p>
+            <p v-else>Continue a conversation or start fresh.</p>
             <div v-if="configs.length" class="agent-quick">
               <button
                 v-for="q in quickPrompts"
@@ -544,13 +614,12 @@
               >
                 <AppIcon :name="q.icon" :size="14" />
                 <span class="agent-quick-label">{{ q.label }}</span>
-                <span class="agent-quick-hint">{{ q.prompt.slice(0, 64) }}…</span>
               </button>
             </div>
             <div v-if="configs.length && !chatConfigId" class="w-msg">Select an assistant in the sidebar first.</div>
           </div>
 
-          <template v-else>
+          <template v-else-if="viewing">
             <div class="agent-thread-head" :title="`Context ${fmtTokens(contextTokens)} / ${fmtTokens(contextWindow)} · In ${fmtTokens(viewing.usage.inputTokens)} · Out ${fmtTokens(viewing.usage.outputTokens)}${costUsd != null ? ` · ~$${costLabel}` : ''}`">
               <div class="agent-thread-title">
                 <strong>{{ viewing.title }}</strong>
@@ -687,10 +756,16 @@
               <p v-if="!pendingApproval.question" class="agent-note">Declining returns <span class="mono">denied: …</span> — the assistant works around it instead of retrying. Add feedback above to steer the next attempt.</p>
             </div>
 
+          </template>
+
             <div v-if="queue.length" class="queue" aria-label="Queued prompts">
               <UiBadge tone="info" size="sm" icon="solar:clock-circle-bold">Queued {{ queue.length }}</UiBadge>
+              <template v-if="!jobActive">
+                <p class="agent-note">{{ queueCanResume ? 'Ready when your draft is clear.' : 'Return to the original assistant and conversation to send queued messages.' }}</p>
+                <UiButton size="sm" :disabled="!queueCanResume || !!promptInput.trim() || startingRun" @click="sendNextQueued">Send next queued message</UiButton>
+              </template>
               <span v-for="(q, qi) in queue" :key="qi" class="queue-item">
-                <span class="queue-text">{{ q }}</span>
+                <span class="queue-text">{{ q.prompt }}</span>
                 <UiButton
                   size="xs"
                   icon="solar:close-bold"
@@ -701,11 +776,18 @@
                 />
               </span>
             </div>
-          </template>
+
+          <div v-if="voiceCall.active.value" class="agent-call-status" aria-label="Active voice call">
+            <span role="status" aria-live="polite">{{ pendingApproval ? 'Voice · review approval above' : `Voice · ${voiceCall.state.value}` }}</span>
+            <UiButton size="sm" :aria-pressed="voiceCall.muted.value" @click="voiceCall.toggleMute">{{ voiceCall.muted.value ? 'Unmute' : 'Mute' }}</UiButton>
+            <UiButton v-if="voiceCall.state.value === 'speaking'" size="sm" @click="voiceCall.interrupt">Interrupt</UiButton>
+            <UiButton size="sm" variant="danger" @click="voiceCall.end">End call</UiButton>
+          </div>
+          <p v-if="voiceCall.error.value && !phoneControlsOpen" class="agent-call-error" role="alert">{{ voiceCall.error.value }} <button type="button" class="agent-link" @click="phoneControlsOpen = true">Voice settings</button></p>
 
             <!-- Composer stays visible even with no session yet: sending
               auto-creates one (same as desktop). Hidden only on setup/controls tabs. -->
-            <div class="composer" :class="{ focused: composerFocused }">
+            <div v-if="selectedProviderReady" class="composer" :class="{ focused: composerFocused }">
               <div v-if="slashHints.length && slashOpen" class="composer-slash" role="listbox" aria-label="Slash commands">
                 <button
                   v-for="s in slashHints"
@@ -727,22 +809,24 @@
                 @focus="composerFocused = true"
                 @blur="composerFocused = false"
                 @keydown="onComposerKey"
-                @keydown.enter.exact.prevent="sendPrompt"
+                @input="switchToText"
+                @keydown.enter.exact="sendTypedPrompt($event)"
               />
               <div class="composer-bar">
                 <span class="composer-hint dim">
                   {{ charCount ? `${charCount} chars` : 'Enter ↵ send' }} · / commands
                 </span>
                 <span class="composer-spacer" />
-                <div v-if="voice.isSupported.value" class="voice-group">
-                  <div class="voice-pop" role="group" aria-label="Dictation language">
+                <div v-if="voice.isSupported.value && !voiceCall.active.value" class="voice-group">
+                  <button type="button" class="voice-language-toggle" :aria-expanded="dictationLanguageOpen" :aria-controls="dictationLanguageId" aria-label="Choose dictation language" @click="dictationLanguageOpen = !dictationLanguageOpen">{{ voice.langPref.value === 'auto' ? 'Auto' : voice.langPref.value === 'pt-BR' ? 'PT' : 'EN' }}</button>
+                  <div v-if="dictationLanguageOpen" :id="dictationLanguageId" class="voice-pop" role="group" aria-label="Dictation language" @keydown.esc.stop="dictationLanguageOpen = false">
                     <button
                       type="button"
                       class="voice-opt"
                       :class="{ on: voice.langPref.value === 'auto' }"
                       :aria-pressed="voice.langPref.value === 'auto'"
                       title="Auto-detect from your browser language"
-                      @click="voice.setLang('auto')"
+                      @click="voice.setLang('auto'); dictationLanguageOpen = false"
                     >Auto · {{ voice.lang.value === 'pt-BR' ? 'PT' : 'EN' }}</button>
                     <button
                       type="button"
@@ -750,7 +834,7 @@
                       :class="{ on: voice.langPref.value === 'en-US' }"
                       :aria-pressed="voice.langPref.value === 'en-US'"
                       title="Dictate in English"
-                      @click="voice.setLang('en-US')"
+                      @click="voice.setLang('en-US'); dictationLanguageOpen = false"
                     >EN</button>
                     <button
                       type="button"
@@ -758,13 +842,13 @@
                       :class="{ on: voice.langPref.value === 'pt-BR' }"
                       :aria-pressed="voice.langPref.value === 'pt-BR'"
                       title="Dictate in Portuguese (PT-BR)"
-                      @click="voice.setLang('pt-BR')"
+                      @click="voice.setLang('pt-BR'); dictationLanguageOpen = false"
                     >PT</button>
                   </div>
-                  <UiButton size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : voice.langPref.value === 'auto' ? `Dictate your message (auto: ${voice.lang.value === 'pt-BR' ? 'Portuguese' : 'English'} — hover to pick EN/PT)` : `Dictate your message (${voice.langPref.value === 'pt-BR' ? 'Portuguese' : 'English'} — hover to change)`" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Dictate' }}</UiButton>
+                  <UiButton size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : `Dictate your message (${voice.lang.value === 'pt-BR' ? 'Portuguese' : 'English'})`" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Dictate' }}</UiButton>
                 </div>
                 <UiButton v-if="jobActive" size="sm" variant="danger" icon="solar:stop-bold" @click="abortJob">Stop</UiButton>
-                <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend" :title="!chatConfigId ? 'Select an assistant first' : ''" @click="sendPrompt">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
+                <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend" :title="!chatConfigId ? 'Select an assistant first' : ''" @click="sendTypedPrompt()">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
               </div>
             </div>
             <div v-if="jobLine" class="w-msg job-line"><AppIcon name="solar:clock-circle-bold" :size="11" /> {{ jobLine }}</div>
@@ -779,6 +863,10 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
+import AndroidVoiceSettings from '@/components/AndroidVoiceSettings.vue'
+import PhoneAppReader from '@/components/PhoneAppReader.vue'
+import { useAppScreenReader } from '@/composables/useAppScreenReader'
+import UiModal from '@/components/ui/UiModal.vue'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
@@ -786,9 +874,9 @@ import UiEmpty from '@/components/ui/UiEmpty.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiSpinner from '@/components/ui/UiSpinner.vue'
-import { computed, reactive, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { computed, reactive, ref, watch, onMounted, onBeforeUnmount, nextTick, useId } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { isStaticHost } from '@/composables/useTauri'
+import { isStaticHost, isTauri, isAndroidApp } from '@/composables/useTauri'
 import {
   useAgent,
   runLocalAgent,
@@ -837,8 +925,11 @@ import {
 import { renderMarkdown } from '@/utils/markdown'
 import { deploymentStorageEventKey } from '@/utils/deploymentScope'
 import { useVoiceInput } from '@/composables/useVoiceInput'
+import { useVoiceCall } from '@/composables/useVoiceCall'
 import { useWindowUi } from '@/composables/useWindowUi'
 import { diffBlocks, editBlocksOf } from '@/utils/agentDiff'
+import { mergeAgentDraft, sameAgentConnection, persistAgentSetup } from '@/utils/agentSetup'
+import { subscribeHomeCommand } from '@/composables/useHomeCommandHandoff'
 import type { AgentConfig, AgentJob, AgentSession, ProviderPreset } from '@/types'
 
 const store = useAppStore()
@@ -874,13 +965,14 @@ const viewing = computed(() => (wasmMode.value ? localViewing.value : serverView
 const activeJob = computed(() => (wasmMode.value ? localJob.value : store.activeAgentJob))
 
 const busy = ref(false)
-const keyBusy = ref(false)
 const modelBusy = ref(false)
 const setupMsg = ref('')
 const keyInput = ref('')
 const savedConfigId = ref('')
 const models = ref<string[]>([])
 const permPreset = ref<'strict' | 'balanced' | 'yolo'>('balanced')
+const permissionEdited = ref(false)
+const setupInitialized = ref(false)
 
 const form = reactive({
   providerId: 'openrouter',
@@ -932,6 +1024,10 @@ watch(chatConfigId, id => {
 
 /* ── modern UX state (progressive disclosure, no behaviour change) ── */
 const activeTab = ref<'chat' | 'setup' | 'controls'>('chat')
+const stopHomeCommand = subscribeHomeCommand('agent', ({ text }) => {
+  promptInput.value = promptInput.value ? `${promptInput.value}\n${text}` : text
+  activeTab.value = 'chat'
+})
 const agentWindowUi = useWindowUi()
 const agentMobileQuery = typeof window !== 'undefined' && window.matchMedia
   ? window.matchMedia('(max-width: 768px)')
@@ -946,11 +1042,31 @@ function onAgentMobileChange(event: MediaQueryListEvent) {
 const sessionSearch = ref('')
 /** Capability strip starts collapsed — one summary line, details on demand. */
 const capsOpen = ref(false)
-/** Setup provider picker search. */
-const providerSearch = ref('')
 /** Controls accordion: only one section open at a time. */
 const controlsOpen = ref<'tools' | 'fallback' | 'perms'>('perms')
 const composerFocused = ref(false)
+const phoneControlsOpen = ref(false)
+const phoneControlsId = useId()
+const phoneMode = ref<'choice' | 'cybermanju' | 'other'>('choice')
+const screenReader = useAppScreenReader()
+function refreshScreenReaderOnResume() {
+  if (!document.hidden && isTauri() && isAndroidApp()) void screenReader.refresh()
+}
+watch(phoneControlsOpen, open => { if (open) phoneMode.value = 'choice' }, { flush: 'sync' })
+function openOtherApp() {
+  // A separate native capture session must not start inside a voice turn.
+  voiceCall.end()
+  phoneMode.value = 'other'
+}
+const dictationLanguageOpen = ref(false)
+const dictationLanguageId = useId()
+// App-wide shortcuts capture Escape at document level; this dialog owns it first.
+function onPhoneControlsKey(event: KeyboardEvent) {
+  if (!phoneControlsOpen.value || event.key !== 'Escape') return
+  event.preventDefault()
+  event.stopPropagation()
+  phoneControlsOpen.value = false
+}
 const copiedKey = ref('')
 const slashOpen = ref(false)
 const caps = computed(() => capabilitySummary(chatConfig.value, viewing.value, wasmMode.value))
@@ -989,7 +1105,58 @@ function onComposerKey(e: KeyboardEvent) {
   else if (e.key === 'Escape') slashOpen.value = false
 }
 function openSetup() {
+  if (busy.value || modelBusy.value) return
+  const selected = chatConfig.value
+  if (selected && (!setupInitialized.value || (savedConfigId.value && savedConfigId.value !== selected.id))) editSetup(selected)
+  else {
+    setupInitialized.value = true
+    activeTab.value = 'setup'
+    sidebarOpen.value = false
+  }
+}
+
+function editSetup(cfg: AgentConfig) {
+  if (busy.value || modelBusy.value) return
+  Object.assign(form, {
+    providerId: cfg.providerId, name: cfg.name, model: cfg.model,
+    baseUrlOverride: cfg.baseUrlOverride ?? '', dialectOverride: cfg.dialectOverride ?? 'openAi',
+    authSchemeOverride: cfg.authSchemeOverride ?? 'bearer', authNameOverride: cfg.authNameOverride ?? '',
+    workingDir: cfg.workingDir, agentKind: cfg.agentKind, shellMode: cfg.shellMode ?? 'auto',
+    autoApprove: cfg.autoApprove, maxTurns: cfg.maxTurns,
+  })
+  savedConfigId.value = cfg.id
+  chatConfigId.value = cfg.id
+  keyInput.value = ''
+  models.value = []
+  setupMsg.value = ''
+  permissionEdited.value = false
+  permPreset.value = isYoloConfig(cfg) ? 'yolo' : cfg.permission.default === 'deny' ? 'strict' : 'balanced'
+  setupInitialized.value = true
   activeTab.value = 'setup'
+  sidebarOpen.value = false
+}
+
+function newSetup() {
+  if (busy.value || modelBusy.value) return
+  savedConfigId.value = ''
+  Object.assign(form, { name: '', model: '', providerId: '', baseUrlOverride: '', workingDir: '',
+    dialectOverride: 'openAi', authSchemeOverride: 'bearer', authNameOverride: '',
+    agentKind: 'build', shellMode: 'auto', autoApprove: false, maxTurns: 25 })
+  permPreset.value = 'balanced'
+  permissionEdited.value = false
+  keyInput.value = ''
+  models.value = []
+  setupMsg.value = ''
+  const first = providers.value.find(p => p.id === 'openrouter') ?? providers.value[0]
+  if (first) pickPreset(first)
+  setupInitialized.value = true
+  activeTab.value = 'setup'
+  sidebarOpen.value = false
+}
+
+function setPermissionPreset(value: string) {
+  permPreset.value = value as 'strict' | 'balanced' | 'yolo'
+  permissionEdited.value = true
 }
 
 /* ── voice dictation (prose mode: punctuation words → marks) ── */
@@ -1429,11 +1596,19 @@ function setViewing(s: AgentSession | null) {
 const preset = computed(() => providers.value.find(p => p.id === form.providerId) ?? null)
 const presetBase = computed(() => preset.value?.baseUrl ?? 'https://…')
 const isCustom = computed(() => form.providerId === 'custom')
-const canSave = computed(() => form.name.trim() !== '' && form.model.trim() !== '' && form.providerId !== '')
-/** Saving a key targets the sidebar selection first, else the just-saved wizard
- *  row — so a reload (savedConfigId reset) or picking an existing assistant
- *  still enables SAVE KEY, and switching assistants keys the right one. */
-const effectiveKeyConfigId = computed(() => chatConfigId.value || savedConfigId.value || '')
+const canSave = computed(() => form.name.trim() !== '' && form.model.trim() !== '' && form.providerId !== '' && (!isCustom.value || !!form.baseUrlOverride.trim()))
+const editingConfig = computed(() => configs.value.find(c => c.id === savedConfigId.value))
+const draftKeyless = computed(() => isCustom.value ? form.authSchemeOverride === 'none' : !!preset.value?.keyless)
+const draftConnectionChanged = computed(() => !!editingConfig.value && !sameAgentConnection(editingConfig.value, localConfigFromForm()))
+const draftHasKey = computed(() => {
+  const cfg = editingConfig.value
+  return !!cfg && sameAgentConnection(cfg, localConfigFromForm()) && cfg.hasKey
+})
+watch(() => [form.providerId, form.baseUrlOverride, form.dialectOverride, form.authSchemeOverride, form.authNameOverride], () => {
+  keyInput.value = ''
+  models.value = []
+  setupMsg.value = ''
+})
 
 // ─── browser-local mode (static host): same shapes, localStorage rows ──
 
@@ -1553,38 +1728,37 @@ const customPreset: ProviderPreset = {
   extraHeaders: [],
 }
 const allPresets = computed(() => [...providers.value, ...(providers.value.some(p => p.id === 'custom') ? [] : [customPreset])])
-const filteredPresets = computed(() => {
-  const q = providerSearch.value.trim().toLowerCase()
-  if (!q) return allPresets.value
-  return allPresets.value.filter(
-    p =>
-      p.label.toLowerCase().includes(q) ||
-      p.id.toLowerCase().includes(q) ||
-      (p.defaultModel ?? '').toLowerCase().includes(q),
-  )
-})
+const providerOptions = computed(() => allPresets.value.map(p => ({ label: p.label, value: p.id })))
+
+function selectProvider(id: string) {
+  const p = allPresets.value.find(p => p.id === id)
+  if (p) pickPreset(p)
+}
 
 function pickPreset(p: ProviderPreset) {
+  if (form.providerId === p.id && form.model) return
+  const previous = allPresets.value.find(item => item.id === form.providerId)
+  if (!form.name || form.name === previous?.label) form.name = p.label
   form.providerId = p.id
-  if (!form.model || !form.name) {
-    form.model = p.defaultModel
-    if (!form.name) form.name = p.label
-  } else {
-    form.model = p.defaultModel
-  }
+  form.model = p.defaultModel
   form.baseUrlOverride = ''
+  form.dialectOverride = p.dialect
+  form.authSchemeOverride = p.auth
+  form.authNameOverride = p.authName ?? ''
+  keyInput.value = ''
   models.value = []
-  setupMsg.value = p.keyless ? 'Keyless provider — save, no key needed.' : `Needs ${p.keyEnv || 'an API key'} — save config, then SEAL KEY.`
+  setupMsg.value = ''
 }
 
 function isKeyless(cfg: AgentConfig) {
+  if (cfg.authSchemeOverride) return cfg.authSchemeOverride === 'none'
   return providers.value.find(p => p.id === cfg.providerId)?.keyless ?? false
 }
 
 function localConfigFromForm(): AgentConfig {
   const now = localNow()
   return {
-    id: savedConfigId.value && wasmMode.value ? savedConfigId.value : newLocalId('cfg'),
+    id: newLocalId('cfg'),
     name: form.name.trim(),
     providerId: form.providerId,
     model: form.model.trim(),
@@ -1595,7 +1769,8 @@ function localConfigFromForm(): AgentConfig {
     workingDir: form.workingDir.trim(),
     agentKind: form.agentKind,
     shellMode: form.shellMode,
-    permission: agentPermissionPreset(permPreset.value),
+    permission: !permissionEdited.value && editingConfig.value
+      ? editingConfig.value.permission : agentPermissionPreset(permPreset.value),
     autoApprove: form.autoApprove,
     maxTurns: Math.min(50, Math.max(1, form.maxTurns || 25)),
     hasKey: false,
@@ -1606,74 +1781,50 @@ function localConfigFromForm(): AgentConfig {
   }
 }
 
-async function saveConfig() {
+async function saveConfig(): Promise<AgentConfig | null> {
+  if (busy.value || !canSave.value) return null
   busy.value = true
   setupMsg.value = ''
+  const key = draftKeyless.value ? '' : keyInput.value.trim()
   try {
-    if (wasmMode.value) {
-      const cfg = localConfigFromForm()
-      const prev = listLocalConfigs().find(c => c.id === cfg.id)
-      // Re-saving the wizard row must not wipe the fallback route set in Controls.
-      saveLocalConfig({ ...cfg, fallbackIds: prev?.fallbackIds ?? [], createdAt: prev?.createdAt ?? cfg.createdAt })
-      refreshLocal()
-      savedConfigId.value = cfg.id
-      chatConfigId.value = cfg.id
-      setupMsg.value = 'Saved locally — paste the key below (kept in memory only).'
-      return
-    }
-    const saved = await store.saveAgentConfig({
-      name: form.name.trim(),
-      providerId: form.providerId,
-      model: form.model.trim(),
-      baseUrlOverride: form.baseUrlOverride.trim() || undefined,
-      dialectOverride: isCustom.value ? form.dialectOverride : undefined,
-      authSchemeOverride: isCustom.value ? form.authSchemeOverride : undefined,
-      authNameOverride: isCustom.value && form.authNameOverride.trim() ? form.authNameOverride.trim() : undefined,
-      workingDir: form.workingDir.trim(),
-      agentKind: form.agentKind,
-      shellMode: form.shellMode,
-      permission: agentPermissionPreset(permPreset.value),
-      autoApprove: form.autoApprove,
-      maxTurns: Math.min(50, Math.max(1, form.maxTurns || 25)),
-      fallbackIds: [],
-      mcpServers: defaultMcpServers(),
+    const cfg = mergeAgentDraft(localConfigFromForm(), editingConfig.value)
+    const result = await persistAgentSetup(cfg, key, {
+      saveConfig: async config => {
+        if (!wasmMode.value) return store.saveAgentConfig(config)
+        saveLocalConfig(config)
+        refreshLocal()
+        return localConfigs.value.find(c => c.id === config.id) ?? config
+      },
+      onConfigSaved: saved => {
+        savedConfigId.value = saved.id
+        chatConfigId.value = saved.id
+        setupInitialized.value = true
+      },
+      saveKey: async (id, value) => {
+        if (!wasmMode.value) return store.saveAgentKey(id, value)
+        setLocalKey(id, value)
+        localKeys.value[id] = value
+        refreshLocal()
+        return true
+      },
     })
-    if (saved) {
-      savedConfigId.value = saved.id
-      chatConfigId.value = saved.id
-      setupMsg.value = isKeyless(saved)
-        ? 'Saved — keyless provider, ready to chat.'
-        : 'Saved — now SEAL KEY above, then chat.'
+    if (!result) {
+      setupMsg.value = 'Could not save. Your changes are still here.'
+      return null
     }
+    if (key && !result.keySaved) {
+      setupMsg.value = 'Settings saved. Key not saved — try again.'
+      return null
+    }
+    if (result.keySaved) keyInput.value = ''
+    setupMsg.value = result.config.hasKey || draftKeyless.value
+      ? 'Saved · ready to chat' : 'Settings saved · add an API key'
+    return result.config
+  } catch (e) {
+    setupMsg.value = `Could not finish saving: ${e instanceof Error ? e.message : String(e)}`
+    return null
   } finally {
     busy.value = false
-  }
-}
-
-async function saveKey() {
-  const targetId = effectiveKeyConfigId.value
-  const key = keyInput.value.trim()
-  if (!targetId || !key) return
-  if (wasmMode.value) {
-    localKeys.value[targetId] = key
-    setLocalKey(targetId, key)
-    keyInput.value = ''
-    // Keep the wizard + sidebar pointing at the config that just got its key.
-    savedConfigId.value = targetId
-    chatConfigId.value = targetId
-    refreshLocal()
-    setupMsg.value = 'Key held in memory for this page only — never stored.'
-    return
-  }
-  keyBusy.value = true
-  try {
-    if (await store.saveAgentKey(targetId, key)) {
-      keyInput.value = ''
-      savedConfigId.value = targetId
-      setupMsg.value = 'Key sealed — never shown back.'
-    }
-  } finally {
-    keyBusy.value = false
   }
 }
 
@@ -1688,61 +1839,58 @@ async function removeCfg(id: string) {
   }
   if (chatConfigId.value === id) chatConfigId.value = ''
   if (readChatConfigId() === id) writeChatConfigId('')
+  if (savedConfigId.value === id) newSetup()
 }
 
 async function refreshModels() {
-  if (wasmMode.value) {
-    const cfg = localConfigs.value.find(c => c.id === (savedConfigId.value || chatConfigId.value))
-    const preset = cfg ? localPresetFor(cfg) : null
-    const base = (cfg?.baseUrlOverride || preset?.baseUrl || '').replace(/\/$/, '')
-    if (!base) {
-      setupMsg.value = 'Save the config first, then refresh.'
-      return
-    }
-    if ((preset?.dialect ?? 'openAi') === 'anthropic') {
-      setupMsg.value = 'Anthropic has no list API — enter the model id manually.'
-      return
-    }
-    modelBusy.value = true
-    try {
-      const headers: Record<string, string> = {}
-      const key = localKeys.value[cfg?.id ?? ''] ?? getLocalKey(cfg?.id ?? '') ?? ''
-      const auth = preset?.auth ?? 'bearer'
-      if (auth === 'bearer' && key) headers['Authorization'] = `Bearer ${key}`
-      else if (auth === 'header') headers[preset?.authName ?? 'x-api-key'] = key
-      for (const [k, v] of preset?.extraHeaders ?? []) headers[k] = v
-      const url = preset?.auth === 'query'
-        ? `${base}/models?${encodeURIComponent(preset?.authName ?? 'key')}=${encodeURIComponent(key)}`
-        : `${base}/models`
-      const res = await fetch(url, { headers })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const body = (await res.json()) as { data?: Array<{ id?: string }> }
-      const list = (body.data ?? []).map(m => m.id ?? '').filter(Boolean)
-      models.value = [...new Set(list)].sort()
-      setupMsg.value = `${models.value.length} models listed.`
-    } catch (e) {
-      setupMsg.value = `Refresh failed: ${e instanceof Error ? e.message : String(e)}`
-    } finally {
-      modelBusy.value = false
-    }
+  if (busy.value || modelBusy.value || !canSave.value) return
+  // Save this exact connection (and any replacement key) before discovery.
+  // No sidebar fallback: an unsaved draft must never borrow another key.
+  const cfg = await saveConfig()
+  if (!cfg) return
+  const provider = localPresetFor(cfg)
+  if ((cfg.dialectOverride ?? provider?.dialect) === 'anthropic') {
+    setupMsg.value = 'Enter an Anthropic model ID manually.'
     return
   }
-  if (!effectiveKeyConfigId.value) {
-    setupMsg.value = 'Save the config first, then refresh.'
+  if (!cfg.hasKey && !draftKeyless.value) {
+    setupMsg.value = 'Add an API key to load models.'
     return
   }
   modelBusy.value = true
   try {
-    const list = await store.refreshAgentModels(effectiveKeyConfigId.value)
-    if (list) {
-      models.value = list
-      setupMsg.value = `${list.length} models listed.`
+    if (!wasmMode.value) {
+      const list = await store.refreshAgentModels(cfg.id)
+      if (list) {
+        models.value = list
+        setupMsg.value = `${list.length} models available`
+      }
+      return
     }
+    const base = (cfg.baseUrlOverride || provider?.baseUrl || '').replace(/\/+$/, '')
+    if (!base) { setupMsg.value = 'Add an endpoint in Advanced.'; return }
+    const headers: Record<string, string> = {}
+    const key = getLocalKey(cfg.id) ?? ''
+    const auth = cfg.authSchemeOverride ?? provider?.auth ?? 'bearer'
+    const authName = cfg.authNameOverride ?? provider?.authName ?? 'key'
+    if (auth === 'bearer' && key) headers.Authorization = `Bearer ${key}`
+    else if (auth === 'header' && key) headers[cfg.authNameOverride ?? provider?.authName ?? 'x-api-key'] = key
+    for (const [k, v] of provider?.extraHeaders ?? []) headers[k] = v
+    const url = auth === 'query' && key
+      ? `${base}/models?${encodeURIComponent(authName)}=${encodeURIComponent(key)}`
+      : `${base}/models`
+    // Never forward a provider key through a redirect to another origin.
+    const res = await fetch(url, { headers, redirect: 'error' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const body = (await res.json()) as { data?: Array<{ id?: string }> }
+    models.value = [...new Set((body.data ?? []).map(m => m.id ?? '').filter(Boolean))].sort()
+    setupMsg.value = `${models.value.length} models available`
+  } catch (e) {
+    setupMsg.value = `Could not load models: ${e instanceof Error ? e.message : String(e)}`
   } finally {
     modelBusy.value = false
   }
 }
-
 async function newSession() {
   if (!chatConfigId.value) return
   if (wasmMode.value) {
@@ -1765,6 +1913,7 @@ async function newSession() {
     saveLocalSession(s)
     refreshLocal()
     setViewing(s)
+    activeTab.value = 'chat'
     return
   }
   const s = await (async () => {
@@ -1778,15 +1927,23 @@ async function newSession() {
       return null
     }
   })()
-  if (s) setViewing(s)
+  if (s) {
+    setViewing(s)
+    activeTab.value = 'chat'
+  }
 }
 
+let sessionLoadRevision = 0
 async function loadSession(id: string) {
-  if (wasmMode.value) {
-    setViewing(listLocalSessions().find(s => s.id === id) ?? null)
-    return
-  }
-  setViewing(await store.loadAgentSession(id))
+  const revision = ++sessionLoadRevision
+  const session = wasmMode.value
+    ? listLocalSessions().find(s => s.id === id) ?? null
+    : await store.loadAgentSession(id)
+  if (revision !== sessionLoadRevision || !session) return
+  // Never show B's transcript while silently sending the next message to A.
+  chatConfigId.value = configs.value.some(c => c.id === session.configId) ? session.configId : ''
+  setViewing(session)
+  activeTab.value = 'chat'
 }
 
 async function removeSession(id: string) {
@@ -1890,7 +2047,8 @@ const jobHint = computed(() => {
 // ─── thread rendering: grouped tools, live state, context awareness ───
 const messagesEl = ref<HTMLElement | null>(null)
 const openRows = ref<Set<string>>(new Set())
-const queue = ref<string[]>([])
+interface QueuedPrompt { prompt: string; configId: string; sessionId?: string }
+const queue = ref<QueuedPrompt[]>([])
 const startedAt = ref(0)
 const nowTick = ref(Date.now())
 let tickTimer = 0
@@ -2018,13 +2176,88 @@ const approvalInput = computed(() => {
 })
 
 /** The prompt the user typed lands in the box even while a run is live. */
-const canSend = computed(() => promptInput.value.trim() !== '' && chatConfigId.value !== '')
+const selectedProviderReady = computed(() => {
+  const cfg = chatConfig.value
+  return !!cfg && (cfg.hasKey || isKeyless(cfg))
+})
+const hasUsableProvider = computed(() => configs.value.some(cfg => cfg.hasKey || isKeyless(cfg)))
+const startingRun = ref(false)
+const canSend = computed(() => promptInput.value.trim() !== '' && selectedProviderReady.value && !startingRun.value)
 
-async function sendPrompt() {
+const voiceCall = useVoiceCall(sendVoiceTurn, () => voice.lang.value)
+function startVoiceCall() {
+  if (!voiceCall.supported || !selectedProviderReady.value || jobActive.value || promptInput.value.trim() || queue.value.length || screenReader.active.value || screenReader.uncertain.value) return
+  activeTab.value = 'chat'
+  phoneControlsOpen.value = false
+  stopVoice?.()
+  stopVoice = null
+  voice.stop()
+  voiceCall.start()
+}
+// Changing assistants/tabs ends audio rather than silently sending to a different target.
+watch([chatConfigId, activeTab], () => voiceCall.end(), { flush: 'sync' })
+watch(() => viewing.value?.id, (id, old) => { if (old && id !== old) voiceCall.end() })
+
+/** Reuse the normal transport/permission pipeline and read only the completed answer. */
+async function sendVoiceTurn(text: string, signal: AbortSignal): Promise<string> {
+  if (signal.aborted) throw new Error('Call ended')
+  if (jobActive.value || !chatConfigId.value || promptInput.value.trim() || queue.value.length) {
+    throw new Error('Finish the current task or draft before starting a voice turn.')
+  }
+  const previousJob = activeJob.value?.jobId
+  promptInput.value = text
+  await sendPrompt(signal)
+  if (signal.aborted) throw new Error('Call ended')
+  const job = activeJob.value
+  if (!job || job.jobId === previousJob) throw new Error('The voice message could not start. Check the chat error and try again.')
+  if (jobActive.value) await new Promise<void>((resolve, reject) => {
+    let unwatch: (() => void) | undefined
+    const cleanup = () => { unwatch?.(); clearTimeout(timer); signal.removeEventListener('abort', aborted) }
+    const aborted = () => { cleanup(); reject(new Error('Call ended')) }
+    const timer = setTimeout(() => { cleanup(); reject(new Error('Voice turn timed out. Check the task in chat before retrying.')) }, 10 * 60 * 1000)
+    signal.addEventListener('abort', aborted, { once: true })
+    unwatch = watch(() => [activeJob.value?.jobId, activeJob.value?.status] as const, ([id, status]) => {
+      if (id !== job.jobId) { cleanup(); reject(new Error('The active task changed. Start a new voice call.')); return }
+      if (status !== 'running' && status !== 'waiting_approval') { cleanup(); resolve() }
+    })
+  })
+  if (signal.aborted) throw new Error('Call ended')
+  const finished = activeJob.value
+  if (finished?.jobId !== job.jobId || finished.status !== 'done') throw new Error('Voice task stopped or failed. Review the details in chat.')
+  const session = wasmMode.value ? viewing.value : await store.loadAgentSession(job.sessionId)
+  if (signal.aborted) throw new Error('Call ended')
+  if (!session || session.id !== job.sessionId) throw new Error('Could not load the voice reply. Review the conversation in chat.')
+  const messages = session.messages
+  const lastUser = messages.map(message => message.role).lastIndexOf('user')
+  const answers = messages.slice(lastUser + 1).filter(message => message.role === 'assistant' && !message.toolInput && message.content.trim())
+  const answer = answers[answers.length - 1]
+  if (!answer) throw new Error('No final spoken reply. Review the task in chat.')
+  return answer.content
+}
+
+/** Manual input owns the composer; invalidate audio before a late transcript can overwrite a draft. */
+function switchToText() {
+  if (voiceCall.active.value) voiceCall.end()
+}
+async function sendTypedPrompt(event?: KeyboardEvent) {
+  // Android keyboards use Enter to commit an IME candidate, not necessarily to send.
+  if (event?.isComposing || event?.keyCode === 229) return
+  event?.preventDefault()
   if (!canSend.value) return
+  switchToText()
+  await sendPrompt()
+}
+
+async function sendPrompt(signal?: AbortSignal) {
+  if (signal?.aborted) return
+  if (!canSend.value || !selectedProviderReady.value) return
   // A run is live: hold the prompt and drain it when the job settles.
   if (jobActive.value) {
-    queue.value.push(promptInput.value.trim())
+    queue.value.push({
+      prompt: promptInput.value.trim(),
+      configId: chatConfigId.value,
+      sessionId: viewing.value?.configId === chatConfigId.value ? viewing.value.id : undefined,
+    })
     promptInput.value = ''
     scrollToBottom()
     return
@@ -2033,24 +2266,39 @@ async function sendPrompt() {
     await sendPromptLocal()
     return
   }
+  // Lock the create/start gap, snapshot the intended recipient, and keep a
+  // failed prompt recoverable without overwriting anything typed meanwhile.
+  startingRun.value = true
+  const configId = chatConfigId.value
   const prompt = promptInput.value.trim()
   promptInput.value = ''
   scrollToBottom()
-  // Ensure a session exists for this config; the job returns transcript via polling.
-  let sessionId = viewing.value && viewing.value.configId === chatConfigId.value ? viewing.value.id : undefined
-  if (!sessionId) {
-    const { invoke } = await import('@/composables/useTauri')
-    try {
-      const created = await invoke<AgentSession>('create_agent_session', { configId: chatConfigId.value })
+  let started = false
+  let sessionId = viewing.value && viewing.value.configId === configId ? viewing.value.id : undefined
+  try {
+    // Ensure a session exists for this config; the job returns transcript via polling.
+    if (!sessionId) {
+      const { invoke } = await import('@/composables/useTauri')
+      const created = await invoke<AgentSession>('create_agent_session', { configId })
       await store.fetchAgentSessions()
+      if (signal?.aborted || chatConfigId.value !== configId) return
       setViewing(created)
       sessionId = created.id
-    } catch (e) {
-      store.notifyError('Failed to create session', e)
-      return
     }
+    if (signal?.aborted || chatConfigId.value !== configId) return
+    started = !!await store.startAgentRun(configId, prompt, sessionId)
+  } catch (e) {
+    store.notifyError('Failed to start conversation', e)
+  } finally {
+    if (!started) {
+      if (!promptInput.value.trim()) promptInput.value = prompt
+      else {
+        queue.value.unshift({ prompt, configId, sessionId })
+        store.notifyError('Message not sent', 'Your unsent message is in the queue; your newer draft is unchanged.')
+      }
+    }
+    startingRun.value = false
   }
-  await store.startAgentRun(chatConfigId.value, prompt, sessionId)
 }
 
 /** Browser-local run: same thread UI, loop in useAgent, volume tools. */
@@ -2083,7 +2331,7 @@ async function sendPromptLocal() {
       const fbase = (fc.baseUrlOverride || fp?.baseUrl || '').replace(/\/$/, '')
       if (!fbase) continue
       const fkey = localKeys.value[fc.id] ?? getLocalKey(fc.id) ?? ''
-      if (!fkey && !(fp?.keyless ?? false)) continue
+      if (!fkey && !isKeyless(fc)) continue
       const fdialect = (fc.dialectOverride ?? fp?.dialect ?? 'openAi') as 'openAi' | 'anthropic'
       const fauth = (fc.authSchemeOverride ?? fp?.auth ?? 'bearer') as 'bearer' | 'header' | 'query' | 'none'
       const fheaders: Array<[string, string]> = [...(fp?.extraHeaders ?? [])]
@@ -2092,7 +2340,7 @@ async function sendPromptLocal() {
       fallbackRoutes.push({ label: `${fc.name} · ${fc.model}`, baseUrl: fbase, dialect: fdialect, model: fc.model, headers: fheaders })
     }
   }
-  if (!key && !(preset?.keyless ?? false) && !fallbackRoutes.length) {
+  if (!key && !isKeyless(cfg) && !fallbackRoutes.length) {
     store.notifyError('No API key', 'paste the key in SETUP (kept in memory only)')
     return
   }
@@ -2301,23 +2549,32 @@ function prettyInput(m: { toolName?: string | null; toolInput?: unknown }) {
   }
 }
 
-/** Terminal status: pull the final transcript, then drain the prompt queue. */
+const queueCanResume = computed(() => {
+  const next = queue.value[0]
+  return !!next && selectedProviderReady.value && next.configId === chatConfigId.value &&
+    (!next.sessionId || next.sessionId === viewing.value?.id)
+})
+async function sendNextQueued() {
+  if (jobActive.value || startingRun.value || promptInput.value.trim() || !queueCanResume.value) return
+  const next = queue.value.shift()!
+  promptInput.value = next.prompt
+  await sendPrompt()
+}
+
+/** Terminal status: pull the final transcript. Only successful tasks auto-drain;
+ * cancelled/failed work pauses for explicit retry, never discarding a draft. */
 watch(
-  () => activeJob.value?.status,
-  (status) => {
+  () => [activeJob.value?.status, startingRun.value] as const,
+  ([status, starting]) => {
     const terminal = status === 'done' || status === 'error' || status === 'cancelled'
     if (terminal && !wasmMode.value && viewing.value) {
       void store.loadAgentSession(viewing.value.id).then(s => {
-        if (s && activeJob.value?.sessionId === viewing.value?.id) setViewing(s)
+        if (s && s.id === viewing.value?.id && activeJob.value?.sessionId === s.id) setViewing(s)
       })
       void store.fetchAgentSessions()
     }
-    if (!terminal || jobActive.value || !queue.value.length) return
-    const next = queue.value.shift()!
-    promptInput.value = next
-    void nextTick(() => {
-      void sendPrompt()
-    })
+    if (status !== 'done' || starting || jobActive.value || !queue.value.length) return
+    void nextTick(() => { void sendNextQueued() })
   },
 )
 
@@ -2348,6 +2605,10 @@ watch(jobActive, active => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onPhoneControlsKey, true)
+  window.removeEventListener('focus', refreshScreenReaderOnResume)
+  document.removeEventListener('visibilitychange', refreshScreenReaderOnResume)
+  stopHomeCommand()
   stopVoice?.()
   agentMobileQuery?.removeEventListener?.('change', onAgentMobileChange)
   if (tickTimer) window.clearInterval(tickTimer)
@@ -2378,6 +2639,10 @@ const FALLBACK_PRESETS: ProviderPreset[] = [
 ]
 
 onMounted(async () => {
+  window.addEventListener('keydown', onPhoneControlsKey, true)
+  window.addEventListener('focus', refreshScreenReaderOnResume)
+  document.addEventListener('visibilitychange', refreshScreenReaderOnResume)
+  refreshScreenReaderOnResume()
   agentMobileQuery?.addEventListener?.('change', onAgentMobileChange)
   agentMobileViewport.value = agentMobileQuery?.matches ?? false
   if (wasmMode.value) {
@@ -2392,7 +2657,7 @@ onMounted(async () => {
     refreshLocal()
     if (!form.model) {
       const medium = localPresets.value.find(p => p.id === 'openrouter')
-      if (medium) pickPreset(medium)
+      if (medium && !setupInitialized.value) pickPreset(medium)
     }
     return
   }
@@ -2404,12 +2669,25 @@ onMounted(async () => {
   }
   if (!form.model) {
     const medium = providers.value.find(p => p.id === 'openrouter')
-    if (medium) pickPreset(medium)
+    if (medium && !setupInitialized.value) pickPreset(medium)
   }
 })
 </script>
 
 <style scoped>
+.voice-call { padding: 0 0 12px; }
+.voice-call-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.voice-call .agent-note { margin: 6px 0 0; }
+.agent-phone-shortcut { flex-shrink: 0; }
+.agent-phone-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.agent-phone-options .agent-note { grid-column: 1 / -1; }
+@media (max-width: 360px) { .agent-phone-options { grid-template-columns: 1fr; } }
+.agent-reader-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--ui-border); overflow-wrap: anywhere; }
+.agent-phone-shortcut.is-active { color: var(--ui-accent); background: var(--ui-accent-softer); }
+.agent-call-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-shrink: 0; padding: 6px 12px; border-top: 1px solid var(--ui-border); }
+.agent-call-status > span { flex: 1; min-width: 100px; font-size: 12px; color: var(--ui-text-2); }
+.agent-call-error { flex-shrink: 0; margin: 0; padding: 6px 12px; font-size: 12px; overflow-wrap: anywhere; }
+.agent-nav-toggle:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 /* CyberManju agent — modern chat UX.
    Layout: header / (sidebar + main). Sidebar collapses under 760px.
    Tone: sentence case, breathing room, sticky composer, avatars, meters. */
@@ -2790,22 +3068,20 @@ onMounted(async () => {
   padding: 10px 12px 4px; outline: none; resize: vertical; min-height: 52px;
   max-height: min(40vh, 240px); overflow-y: auto; box-sizing: border-box; overflow-wrap: anywhere;
 }
-.composer-bar { display: flex; align-items: center; gap: 8px; padding: 4px 8px 8px; }
-/* Dictation language: hidden picker that pops over the Dictate button on
-   hover/focus. Default is Auto (neither EN nor PT picked) → browser-detected. */
+.composer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 8px 8px; }
+/* The picker has an explicit trigger: touch and keyboard never need hover. */
 .voice-group { position: relative; display: inline-flex; flex-shrink: 0; }
+.voice-language-toggle { min-height: 44px; min-width: 44px; padding: 4px; border: 0; border-radius: 8px; background: transparent; color: var(--ui-accent); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.voice-language-toggle:focus-visible, .voice-opt:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .voice-pop {
   position: absolute; bottom: calc(100% + 6px); right: 0;
   display: flex; gap: 4px; padding: 4px;
   border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-lg);
   background: color-mix(in srgb, var(--ui-glass) 92%, transparent);
   box-shadow: var(--ui-shadow-2); z-index: 6; white-space: nowrap;
-  opacity: 0; visibility: hidden; transform: translateY(4px); pointer-events: none;
-  transition: opacity var(--ui-dur-fast) var(--ui-ease-out), transform var(--ui-dur-fast) var(--ui-ease-out), visibility var(--ui-dur-fast);
 }
-.voice-group:hover .voice-pop, .voice-group:focus-within .voice-pop { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
 .voice-opt {
-  font: inherit; font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 8px;
+  font: inherit; font-size: 11px; font-weight: 700; min-height: 44px; min-width: 44px; padding: 4px 8px; border-radius: 8px;
   border: 1px solid transparent; background: transparent; color: color-mix(in srgb, var(--ui-text) 70%, transparent);
   cursor: pointer; white-space: nowrap;
 }
@@ -2823,6 +3099,37 @@ onMounted(async () => {
   padding: 8px 12px; cursor: pointer; text-align: left;
 }
 .composer-slash-item:hover { background: var(--ui-accent-softer); }
+
+/* Settings stays reachable even when the desktop tab bar is hidden. */
+.agent-settings-shortcut { color: var(--ui-text-2); flex-shrink: 0; }
+.agent-settings-shortcut[aria-pressed="true"] { color: var(--ui-accent); background: var(--ui-accent-softer); }
+.agent-stop-shortcut { color: var(--ui-danger); flex-shrink: 0; }
+.agent-provider-notice { flex-shrink: 0; padding: 10px 12px; margin: 8px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); font-size: 12px; overflow-wrap: anywhere; }
+.agent-provider-notice p { margin: 0 0 8px; }
+.agent-provider-notice :deep(button) { min-height: 44px; margin: 0 6px 4px 0; }
+.agent-setup-heading, .agent-key-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.agent-settings-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
+.agent-setup-heading { margin-bottom: 12px; }
+.agent-setup-heading .agent-card-title { margin: 0; }
+.agent-key-field { padding: 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); background: var(--ui-accent-softer); }
+.agent-key-field .agent-note { margin: 2px 0 0; font-size: 11px; }
+.agent-advanced { margin: 14px 0; border-top: 1px solid var(--ui-border); border-bottom: 1px solid var(--ui-border); }
+.agent-advanced summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; font-weight: 650; color: var(--ui-text-2); }
+.agent-advanced summary::before { content: '+'; font-size: 18px; font-weight: 400; }
+.agent-advanced[open] summary::before { content: '−'; }
+.agent-save-footer { position: sticky; bottom: -10px; padding: 8px 0; background: var(--ui-surface); z-index: 2; }
+.agent-save-footer .w-msg { margin: 0 0 8px; overflow-wrap: anywhere; }
+.agent-setup-actions { padding: 2px 0; }
+.agent-setup-actions :deep(.ui-btn) { min-height: 44px; }
+.model-row > :first-child { flex: 1; min-width: 0; }
+.agent-card :deep(input), .agent-card :deep(select) { min-height: 44px; }
+.agent-card :deep(input:disabled), .agent-card :deep(select:disabled) { opacity: .65; }
+@container agent (max-width: 560px) {
+  .w-row { flex-direction: column; align-items: stretch; }
+  .w-field-narrow { flex: 1; }
+  .agent-card :deep(input), .agent-card :deep(select) { font-size: 16px; }
+  .agent-setup-actions > :first-child { flex: 1; }
+}
 
 /* responsive: sidebar becomes overlay-friendly single column */
 @media (max-width: 760px) {
@@ -2847,7 +3154,10 @@ onMounted(async () => {
   .agent-caps { padding: 0 8px; }
   .agent-thread-head { flex-wrap: wrap; padding: 6px 8px 4px; }
   .agent-messages { padding: 4px 8px 8px; }
-  .composer { margin: 0 8px 6px; }
+  .composer { margin: 0 8px calc(6px + env(safe-area-inset-bottom, 0px)); }
+  .composer-hint { display: none; }
+  .composer-bar { gap: 4px; }
+  .composer-bar :deep(button) { min-height: 44px; }
   .composer-box { font-size: 16px; }
   .agent-card { margin: 8px; padding: 10px; }
   .preset-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); max-height: 200px; }
@@ -2860,6 +3170,9 @@ onMounted(async () => {
 @container agent (max-width: 760px) {
   .agent-header { flex-wrap: nowrap; }
   .agent-header-meta { display: none; }
+  .composer-hint { display: none; }
+  .composer-bar { gap: 4px; }
+  .composer-bar :deep(button) { min-height: 44px; }
   .agent-body { position: relative; }
   .agent-main { position: relative; z-index: 1; }
   .agent-sidebar { position: absolute; inset: 0 auto 0 0; z-index: 10; width: min(88cqi, 360px); max-width: calc(100% - 20px); background: var(--ui-surface-2); box-shadow: var(--ui-shadow-2); }

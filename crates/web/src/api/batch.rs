@@ -112,6 +112,7 @@ pub fn encrypt_one(db: &Database, file_id: &str, algorithm: &str) -> Result<Stri
     let algorithm = pqc::algorithm_from_str(algorithm)
         .ok_or_else(|| format!("unsupported: unknown encryption algorithm '{algorithm}'"))?;
     let existing = read_file(db, file_id)?;
+    ensure_no_plaintext_compression(&existing, file_id)?;
     if existing.encrypted {
         let path = original_path(&existing, file_id)?;
         let (cipher_path, metadata_path) = sidecar_paths(&path);
@@ -147,6 +148,27 @@ fn encrypt_with_key(db: &Database, file_id: &str, keypair: &KeyPair) -> Result<S
     encrypt_with_key_before_capture(db, file_id, keypair, |_| {})
 }
 
+// Native compression retains the original plus a plaintext compressed sidecar.
+// Encrypting only the original would otherwise leave readable recovery bytes.
+fn ensure_no_plaintext_compression(node: &FileNode, file_id: &str) -> Result<(), String> {
+    let has_metadata = !node.compression_layers.is_empty()
+        || node
+            .context_data
+            .as_ref()
+            .and_then(|ctx| {
+                ctx.get("compression_artifact_path")
+                    .or_else(|| ctx.get("compression_artifact"))
+            })
+            .is_some();
+    let has_sidecar = original_path(node, file_id)
+        .map(|path| PathBuf::from(format!("{}.cyb3", path.display())).exists())
+        .unwrap_or(false);
+    if has_metadata || has_sidecar {
+        return Err("unsupported: decompress this file before encrypting; a plaintext compression artifact would otherwise remain".to_string());
+    }
+    Ok(())
+}
+
 // The hook permits deterministic regression tests at the original data-loss
 // window, without global state or timing-dependent racing threads.
 fn encrypt_with_key_before_capture(
@@ -159,6 +181,7 @@ fn encrypt_with_key_before_capture(
     if node.file_type != "file" {
         return Err(format!("unsupported: '{}' is not a file", file_id));
     }
+    ensure_no_plaintext_compression(&node, file_id)?;
     let path = original_path(&node, file_id)?;
     let (cipher_path, metadata_path) = sidecar_paths(&path);
     if node.encrypted {
@@ -1066,6 +1089,39 @@ mod tests {
             table.insert(node.id.as_str(), json.as_str()).unwrap();
         }
         tx.commit().unwrap();
+    }
+
+    #[test]
+    fn encryption_refuses_plaintext_compression_artifacts_without_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Database::new(dir.path().join("db.redb").to_str().unwrap()).unwrap();
+        seed_key(&db);
+        let path = dir.path().join("source.bin");
+        let artifact = PathBuf::from(format!("{}.cyb3", path.display()));
+        std::fs::write(&path, b"original plaintext").unwrap();
+        let original = test_node("file", Some(&path));
+        seed_file(&db, &original);
+        std::fs::write(&artifact, b"plaintext compression copy").unwrap();
+
+        let error = encrypt_one(&db, "file", "hybrid").unwrap_err();
+        assert!(error.starts_with("unsupported:"));
+        assert!(error.contains("decompress"));
+        assert_eq!(read_file(&db, "file").unwrap(), original);
+        assert_eq!(std::fs::read(&path).unwrap(), b"original plaintext");
+        assert_eq!(
+            std::fs::read(&artifact).unwrap(),
+            b"plaintext compression copy"
+        );
+        assert!(!sidecar_paths(&path).0.exists());
+
+        std::fs::remove_file(&artifact).unwrap();
+        let mut marked = original.clone();
+        marked.compression_layers.push("zstd".to_string());
+        seed_file(&db, &marked);
+        assert!(encrypt_one(&db, "file", "hybrid")
+            .unwrap_err()
+            .starts_with("unsupported:"));
+        assert_eq!(read_file(&db, "file").unwrap(), marked);
     }
 
     #[test]

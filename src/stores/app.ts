@@ -800,14 +800,24 @@ export const useAppStore = defineStore('cybermanju', () => {
   }
 
   // ── Actions: Search ───────────────────────────────────────
+  let searchRequestEpoch = 0
   async function searchFiles(query: string, page?: number) {
-    if (!query.trim()) { searchResults.value = []; searchTotalResults.value = 0; return }
+    const request = ++searchRequestEpoch
+    if (!query.trim()) {
+      searchResults.value = []
+      searchTotalResults.value = 0
+      searchPage.value = 0
+      isSearching.value = false
+      return
+    }
+    if (!page) { searchResults.value = []; searchTotalResults.value = 0; searchPage.value = 0 }
     isSearching.value = true
     clearError()
     try {
       const pg = page ?? 0
       const limit = searchPageSize
       const result = await invoke<{ results: SearchResult[]; total: number }>('search_files_paginated', { query, limit, offset: pg * limit })
+      if (request !== searchRequestEpoch) return
       if (pg === 0) {
         searchResults.value = result.results
       } else {
@@ -816,8 +826,10 @@ export const useAppStore = defineStore('cybermanju', () => {
       searchTotalResults.value = result.total
       searchPage.value = pg
     } catch {
+      if (request !== searchRequestEpoch) return
       try {
         const result = await invoke<SearchResult[]>('search_files', { query, limit: 50 })
+        if (request !== searchRequestEpoch) return
         if (page && page > 0) {
           searchResults.value = [...searchResults.value, ...result]
         } else {
@@ -826,10 +838,10 @@ export const useAppStore = defineStore('cybermanju', () => {
         searchTotalResults.value = result.length
         searchPage.value = page ?? 0
       } catch (e) {
-        notifyError('Search failed', e)
+        if (request === searchRequestEpoch) notifyError('Search failed', e)
       }
     } finally {
-      isSearching.value = false
+      if (request === searchRequestEpoch) isSearching.value = false
     }
   }
 
@@ -840,6 +852,37 @@ export const useAppStore = defineStore('cybermanju', () => {
   }
 
   // ── Actions: Encryption ───────────────────────────────────
+  const keyGenerationInFlight = new Map<string, Promise<void>>()
+  function cryptoAlgorithm(algorithm: string): string {
+    const normalized = algorithm.toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (['hybrid', 'kyber512', 'kyber768', 'hybridmlkem768x25519', 'hybridmlkem768l3x25519'].includes(normalized)) return 'hybrid'
+    if (['kyber1024', 'mlkem1024'].includes(normalized)) return 'kyber1024'
+    if (['dilithium2', 'mldsa44', 'mldsa2'].includes(normalized)) return 'dilithium2'
+    if (['dilithium3', 'mldsa65', 'mldsa3'].includes(normalized)) return 'dilithium3'
+    if (['dilithium5', 'mldsa87', 'mldsa5'].includes(normalized)) return 'dilithium5'
+    if (['aes256', 'chacha20', 'chacha20poly1305'].includes(normalized)) return 'aes256'
+    return normalized
+  }
+  async function ensureEncryptionKey(algorithm: string) {
+    const expected = cryptoAlgorithm(algorithm)
+    const keys = await invoke<EncryptionKeyInfo[]>('list_keys')
+    encryptionKeys.value = keys
+    if (keys.some(key => cryptoAlgorithm(key.algorithm) === expected)) return
+    let generation = keyGenerationInFlight.get(expected)
+    if (!generation) {
+      generation = invoke('generate_keypair', { algorithm }).then(() => undefined)
+      keyGenerationInFlight.set(expected, generation)
+      generation.finally(() => {
+        if (keyGenerationInFlight.get(expected) === generation) keyGenerationInFlight.delete(expected)
+      }).catch(() => undefined)
+    }
+    await generation
+    const refreshedKeys = await invoke<EncryptionKeyInfo[]>('list_keys')
+    encryptionKeys.value = refreshedKeys
+    if (!refreshedKeys.some(key => cryptoAlgorithm(key.algorithm) === expected)) {
+      throw new Error(`No encryption key available for ${algorithm}`)
+    }
+  }
   async function fetchEncryptionStatus() {
     try {
       encryptionStatus.value = await invoke<EncryptionStatus>('get_encryption_status', {
@@ -868,13 +911,16 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
-  async function encryptFile(fileId: string, algorithm: string) {
+  async function encryptFile(fileId: string, algorithm: string): Promise<boolean> {
     try {
+      await ensureEncryptionKey(algorithm)
       await invoke('encrypt_file', { fileId, algorithm })
       await fetchFiles()
       await fetchEncryptionStatus()
+      return true
     } catch (e) {
       notifyError('Encryption failed', e)
+      return false
     }
   }
 
@@ -889,13 +935,15 @@ export const useAppStore = defineStore('cybermanju', () => {
   }
 
   // ── Actions: Compression ──────────────────────────────────
-  async function compressFile(fileId: string, layer: string) {
+  async function compressFile(fileId: string, layer: string): Promise<boolean> {
     try {
       const stats = await invoke<CompressionStats>('compress_file', { fileId, layer })
       compressionStats.value = stats
       await fetchFiles()
+      return true
     } catch (e) {
       notifyError('Compression failed', e)
+      return false
     }
   }
 
@@ -2855,8 +2903,14 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function saveAgentConfig(config: Omit<AgentConfig, 'id' | 'hasKey' | 'createdAt' | 'updatedAt'> & { id?: string }) {
     try {
+      // Keep the currently known badge metadata on updates instead of
+      // unconditionally sending false. Native persistence recalculates this
+      // from the sealed-key vault on read (it never trusts this input bit).
+      const hasKey = config.id
+        ? agentConfigs.value.find((saved) => saved.id === config.id)?.hasKey ?? false
+        : false
       const saved = await invoke<AgentConfig>('save_agent_config', {
-        config: { ...config, id: config.id ?? '', hasKey: false, createdAt: '', updatedAt: '' },
+        config: { ...config, id: config.id ?? '', hasKey, createdAt: '', updatedAt: '' },
       })
       await fetchAgentConfigs()
       notifySuccess(`Agent config '${saved.name}' saved`)

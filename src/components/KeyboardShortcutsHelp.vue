@@ -257,4 +257,25 @@ const groupedShortcuts = computed(() => {
   letter-spacing: 0.06em;
   text-align: center;
 }
+
+
+@media (max-width: 768px) {
+  .ks-help-overlay {
+    align-items: stretch;
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+  .ks-help-modal { width: 100%; max-width: 640px; max-height: 100%; margin: auto; }
+  .ks-help-header { gap: 8px; padding: 10px 12px; }
+  .ks-help-header h2 { min-width: 0; font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+  .close-btn { width: 44px; height: 44px; flex: 0 0 44px; }
+  .ks-browser-note { font-size: 13px; line-height: 1.5; }
+  .ks-help-body { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+  .ks-group-label { font-size: 11px; }
+  .ks-row { align-items: flex-start; flex-wrap: wrap; gap: 6px 10px; padding: 8px 12px; }
+  .ks-key { min-width: 0; max-width: 100%; font-size: 12px; overflow-wrap: anywhere; }
+  .ks-desc { flex: 1 1 100%; font-size: 13px; line-height: 1.45; }
+  .ks-fb { white-space: normal; overflow-wrap: anywhere; font-size: 11px; }
+  .ks-help-foot { padding: 10px 12px; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+}
 </style>

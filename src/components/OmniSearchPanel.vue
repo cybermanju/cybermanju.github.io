@@ -1,163 +1,108 @@
-<!-- CyberManju OS — OmniSearchPanel (src/components/OmniSearchPanel.vue). -->
-<!-- Role: merged FACES + COLLECTIONS + SEARCH window — one centered input, grouped glass dropdown. -->
-<!-- Exports: module root (see items below). -->
-<!-- Integrates: @/stores/app, @/composables/*, @/types, @/utils/omniSearch, vue. -->
-<!-- Contracts: section order apps > collections > people | providers > folders > files > content; ctx menu only fires store-backed actions. -->
+<!-- CyberManju OS — Unified search results (src/components/OmniSearchPanel.vue). -->
+<!-- Role: shared Home and window search with local actions and rendered web answers. -->
+<!-- Exports: OmniSearchPanel Vue component. -->
+<!-- Integrates: unified search, presentation helpers, and platform external opener. -->
+<!-- Contracts: safe external links, shared filters/paging, accessible bounded results. -->
 <template>
-  <div class="omni" @keydown="handleKeydown">
+  <div class="omni" :class="{ 'omni--home': props.home, 'omni--flat': isFlatAmoled, 'omni--glass': isModernGlass, 'omni--solid': theme.glass.value === 0 }" @keydown="handleKeydown">
     <div class="omni-col">
-      <!-- Single centered line — the whole window is this input. -->
-      <div class="omni-bar" :class="{ focused: focused || query }">
+      <div ref="barRef" class="omni-bar" :class="{ focused: focused || query }">
         <AppIcon name="solar:magnifier-bold" :size="18" class="omni-bar__icon" />
-        <input
-          ref="inputRef"
-          v-model="query"
-          class="omni-bar__input"
-          type="text"
-          placeholder="Search anything..."
+        <input ref="inputRef" v-model="query" class="omni-bar__input" type="text" placeholder="Search anything..."
           aria-label="Search anything — apps, collections, people, providers, files"
           title="Apps · collections · people · providers · folders · files · contents — ↑↓ navigate · Enter opens · right-click manages"
-          autocomplete="off"
-          spellcheck="false"
-          @focus="focused = true"
-          @blur="focused = false"
-        />
-        <button
-          v-if="query"
-          class="omni-bar__clear"
-          type="button"
-          aria-label="Clear search"
-          title="Clear search (Esc)"
-          @click="clearQuery()"
-        >
-          <AppIcon name="solar:close-bold" :size="13" />
-        </button>
+          autocomplete="off" spellcheck="false" @focus="focused = true" @blur="focused = false" />
+        <button v-if="query" class="omni-bar__clear" type="button" aria-label="Clear search" title="Clear search (Esc)" @click="clearQuery()"><AppIcon name="solar:close-bold" :size="13" /></button>
         <span v-else class="omni-bar__hint">TYPE TO SEARCH</span>
       </div>
-
-      <!-- Animated glass dropdown — red-accent freeze style. -->
       <Transition name="omni-drop">
-        <div
-          v-if="dropdownOpen"
-          ref="dropRef"
-          class="omni-drop"
-          role="listbox"
-          aria-label="Search results"
-          :aria-activedescendant="activeDescendantId"
-        >
-          <div v-if="store.isSearching" class="omni-loading" role="status" aria-live="polite">
-            <UiSpinner size="sm" show-label label="Searching" />
-          </div>
-
-          <!-- Idle: recent searches jump straight back in. -->
+        <div v-if="dropdownOpen" ref="dropRef" class="omni-drop" :style="resultsViewportStyle" role="region" aria-label="Search results">
+          <div v-if="store.isSearching" class="omni-loading" role="status" aria-live="polite"><UiSpinner size="sm" show-label label="Searching" /></div>
           <div v-if="!q && recentSearches.length" class="omni-sec">
-            <div class="omni-sec__head"><span class="omni-tag">RECENT</span><span class="omni-div" aria-hidden="true" /></div>
-            <button
-              v-for="sq in recentSearches"
-              :key="sq"
-              type="button"
-              class="omni-row"
-              :title="`Search again for ${sq}`"
-              @click="rerun(sq)"
-            >
-              <span class="omni-row__icon"><AppIcon name="solar:history-bold" :size="14" /></span>
-              <span class="omni-row__body"><span class="omni-row__name">{{ sq }}</span></span>
-              <span class="omni-row__enter" aria-hidden="true">⏎</span>
+            <div class="omni-sec__head"><span class="omni-tag">RECENT</span><span class="omni-div" aria-hidden="true" />
+              <button class="omni-inline__btn omni-inline__btn--ghost omni-recent-clear" type="button" @click="clearRecent">Clear recent</button></div>
+            <button v-for="sq in recentSearches" :key="sq" type="button" class="omni-row omni-row--recent" :title="`Search again for ${sq}`" @click="rerun(sq)">
+              <span class="omni-row__icon"><AppIcon name="solar:history-bold" :size="14" /></span><span class="omni-row__body"><span class="omni-row__name">{{ sq }}</span></span><span class="omni-row__enter" aria-hidden="true">⏎</span>
             </button>
           </div>
-
+          <nav v-if="q" class="omni-filters" aria-label="Filter search results">
+            <button v-for="filter in SEARCH_CATEGORIES" :key="filter.id" type="button" class="omni-filter" :class="{ 'is-selected': category === filter.id }"
+              :aria-pressed="category === filter.id" @click="selectCategory(filter.id)">{{ filter.label }} <span>{{ categoryCounts[filter.id] }}</span></button>
+          </nav>
           <div v-for="(sec, si) in sections" :key="sec.id" class="omni-sec">
-            <div class="omni-sec__head">
-              <span class="omni-tag">{{ OMNI_SECTION_TAG[sec.id] }} · {{ sec.rows.length }}</span>
-              <span class="omni-div" aria-hidden="true" />
-            </div>
-            <div
-              v-for="(row, ri) in sec.rows"
-              :key="sec.id + ':' + row.key"
-              :id="`omni-${si}-${ri}`"
-              :data-nav="sec.id + ':' + row.key"
-              class="omni-row"
-              :class="{ active: activeKey === sec.id + ':' + row.key }"
-              :style="{ '--i': ri }"
-              role="option"
-              :aria-selected="activeKey === sec.id + ':' + row.key"
-              tabindex="0"
-              :title="rowHint(sec.id, row)"
-              @click="activate(sec.id, row)"
-              @mouseenter="activeKey = sec.id + ':' + row.key"
-              @contextmenu.prevent="openCtx($event, sec.id, row)"
-            >
+            <div class="omni-sec__head"><span class="omni-tag">{{ OMNI_SECTION_TAG[sec.id] }} · {{ sectionCounts[sec.id] }}</span><span class="omni-div" aria-hidden="true" /></div>
+            <div v-for="(row, ri) in sec.rows" :key="sec.id + ':' + row.key" :id="rowId(si, ri)" :data-nav="sec.id + ':' + row.key"
+              class="omni-row" :class="{ active: activeKey === sec.id + ':' + row.key }" :style="{ '--i': ri }" :title="rowHint(sec.id, row)"
+              tabindex="0" @click="activate(sec.id, row)" @focus="activeKey = sec.id + ':' + row.key" @mouseenter="activeKey = sec.id + ':' + row.key"
+              @contextmenu.prevent="openCtx($event, sec.id, row)">
               <span class="omni-row__icon"><AppIcon :name="row.icon" :size="15" /></span>
-              <span class="omni-row__body">
-                <span class="omni-row__name" v-html="highlight(row.name)" />
-                <span v-if="row.sub" class="omni-row__sub">{{ row.sub }}</span>
-              </span>
-              <!-- Inline rename editor (right-click → Rename). -->
-              <form
-                v-if="renameTarget?.key === sec.id + ':' + row.key"
-                class="omni-inline"
-                @submit.prevent="saveRename()"
-                @click.stop
-              >
-                <input
-                  v-model="renameDraft"
-                  class="omni-inline__input"
-                  aria-label="New name"
-                  maxlength="120"
-                />
+              <span class="omni-row__body"><span class="omni-row__name" v-html="highlight(row.name)" /><span v-if="row.sub" class="omni-row__sub">{{ row.sub }}</span></span>
+              <form v-if="renameTarget?.key === sec.id + ':' + row.key" class="omni-inline" @submit.prevent="saveRename()" @click.stop>
+                <input v-model="renameDraft" class="omni-inline__input" aria-label="New name" maxlength="120" />
                 <button type="submit" class="omni-inline__btn" :disabled="!renameDraft.trim()">Save</button>
                 <button type="button" class="omni-inline__btn omni-inline__btn--ghost" @click="renameTarget = null">Cancel</button>
               </form>
-              <!-- Inline tag editor (right-click → Tags). -->
-              <form
-                v-else-if="tagTarget?.key === sec.id + ':' + row.key"
-                class="omni-inline"
-                @submit.prevent="saveTags()"
-                @click.stop
-              >
-                <input
-                  v-model="tagDraft"
-                  class="omni-inline__input"
-                  aria-label="Comma-separated tags"
-                  placeholder="tag1, tag2"
-                  maxlength="240"
-                />
+              <form v-else-if="tagTarget?.key === sec.id + ':' + row.key" class="omni-inline" @submit.prevent="saveTags()" @click.stop>
+                <input v-model="tagDraft" class="omni-inline__input" aria-label="Comma-separated tags" placeholder="tag1, tag2" maxlength="240" />
                 <button type="submit" class="omni-inline__btn">Save</button>
                 <button type="button" class="omni-inline__btn omni-inline__btn--ghost" @click="tagTarget = null">Cancel</button>
               </form>
-              <span v-else class="omni-row__enter" aria-hidden="true">⏎</span>
+              <div v-else class="omni-row__actions" @click.stop>
+                <button class="omni-row__action" type="button" :aria-label="`Open ${row.name}`" @click="activate(sec.id, row)">Open</button>
+                <button class="omni-row__action" type="button" :aria-label="`Copy ${copyLabel(sec.id)}`" @click="copyLocalRow(sec.id, row)">Copy {{ copyLabel(sec.id) }}</button>
+                <button v-if="isFileSection(sec.id)" class="omni-row__action" type="button" :aria-label="`Show ${row.name} in files`" @click="openFilesAt(row.refId)">Show in files</button>
+                <button class="omni-row__action" type="button" aria-label="More actions" title="More actions" @click="openCtx($event, sec.id, row)">More</button>
+              </div>
             </div>
+            <button v-if="visibleCount(sec.id) < sectionCounts[sec.id] && visibleCount(sec.id) < MAX_VISIBLE_ROWS_PER_SECTION" class="omni-load-section" type="button" @click="showMore(sec.id)">
+              Show more {{ OMNI_SECTION_TAG[sec.id].toLowerCase() }} results ({{ visibleCount(sec.id) }} of {{ sectionCounts[sec.id] }})
+            </button>
           </div>
-
-          <div v-if="canLoadMoreContent" class="omni-more">
-            <UiButton
-              size="sm"
-              icon="solar:double-alt-arrow-down-bold"
-              :disabled="store.isSearching"
-              @click="store.loadMoreSearchResults()"
-            >
-              LOAD MORE ({{ store.searchTotalResults - contentRows.length }} MORE)
-            </UiButton>
+          <section v-if="q && unified.localReadyQuery.value === q && (category === 'all' || category === 'web')" class="omni-web" aria-label="DuckDuckGo web results">
+            <div class="omni-sec__head"><span class="omni-tag">DUCKDUCKGO INSTANT ANSWERS</span><span class="omni-div" aria-hidden="true" /></div>
+            <p v-if="unified.webLoading.value" class="omni-web__status" role="status" aria-live="polite">Searching DuckDuckGo Instant Answers…</p>
+            <template v-else-if="unified.webError.value">
+              <p class="omni-web__status" role="status">DuckDuckGo is unavailable: {{ unified.webError.value }}</p>
+              <button class="omni-web__action" type="button" @click="retryWeb">Retry DuckDuckGo search</button>
+            </template>
+            <template v-else-if="unified.webResponse.value">
+              <article v-if="unified.webResponse.value.answer" class="omni-web__answer">
+                <div class="omni-web__answer-body omni-web__answer-body--link" role="link" data-search-answer-link tabindex="0"
+                  @click="openAnswerLink(answerDestination)" @keydown.enter.space.prevent="openAnswerLink(answerDestination)">
+                  <span class="omni-web__meta">INSTANT ANSWER · {{ unified.webResponse.value.answerSource || 'DuckDuckGo' }}</span>
+                  <span class="omni-web__answer-text">{{ unified.webResponse.value.answer }}</span>
+                  <span class="omni-web__answer-hint">{{ unified.webResponse.value.answerUrl ? 'Open answer source' : 'Open DuckDuckGo results for this query' }}</span>
+                </div>
+                <div class="omni-web__actions">
+                  <button type="button" class="omni-web__action" @click="copyWithStatus(unified.webResponse.value.answer, 'Answer')">Copy answer</button>
+                  <button type="button" class="omni-web__action" @click="copyWithStatus(answerDestination, unified.webResponse.value.answerUrl ? 'Link' : 'Search link')">{{ unified.webResponse.value.answerUrl ? 'Copy link' : 'Copy search link' }}</button>
+                </div>
+              </article>
+              <article v-for="result in unified.webResponse.value.results" :key="result.url" class="omni-web__result-card">
+                <a class="omni-web__result" :href="result.url" target="_blank" rel="noopener noreferrer" @click="handleWebLink($event, result.url)" @auxclick.middle="handleWebLink($event, result.url)">
+                  <span class="omni-web__meta">WEB RESULT · {{ result.source }}</span><span class="omni-web__title">{{ result.title }}</span>
+                  <span class="omni-web__domain">{{ result.url }}</span><span v-if="result.description" class="omni-web__description">{{ result.description }}</span>
+                </a>
+                <div class="omni-web__actions"><button type="button" class="omni-web__action" @click="copyWithStatus(result.url, 'Link')">Copy link</button></div>
+              </article>
+              <p v-if="!unified.webResponse.value.answer && unified.webResponse.value.results.length === 0" class="omni-web__status" role="status">DuckDuckGo returned no instant answers or related topics. Try the full DuckDuckGo results page below.</p>
+              <p class="omni-web__disclaimer">Instant answers and related topics only; not a full search-engine results page.</p>
+              <button class="omni-web__action" type="button" @click="retryWeb">Refresh DuckDuckGo results</button>
+            </template>
+            <p v-else-if="localCount === 0" class="omni-web__status" role="status" aria-live="polite">Checking DuckDuckGo Instant Answers. This public API provides instant answers and related topics, not a full search-results page.</p>
+            <p v-else class="omni-web__status">Web results are not fetched automatically when local matches exist.</p>
+            <button v-if="!unified.webLoading.value && !unified.webResponse.value && !unified.webError.value && unified.webQuery.value !== q" class="omni-web__action" type="button" @click="retryWeb">Search web with DuckDuckGo</button>
+            <p v-if="linkError" class="omni-web__status" role="alert">{{ linkError }}</p>
+            <a class="omni-web__all" :href="duckDuckGoSearchUrl(q)" target="_blank" rel="noopener noreferrer" @click="handleWebLink($event, duckDuckGoSearchUrl(q))" @auxclick.middle="handleWebLink($event, duckDuckGoSearchUrl(q))">Open full DuckDuckGo results for “{{ q }}” ↗</a>
+          </section>
+          <p v-if="q && unified.localReadyQuery.value === q && category !== 'web' && sections.length === 0" class="omni-empty-state" role="status">{{ emptyCategoryMessage }}</p>
+          <p v-if="q && empty && unified.localReadyQuery.value !== q" class="omni-web__status" role="status" aria-live="polite">{{ q.length < 2 ? 'Type at least 2 characters to search.' : 'Searching your apps, files, and file contents…' }}</p>
+          <div v-if="canLoadMoreContent && (category === 'all' || category === 'files')" class="omni-more">
+            <UiButton size="sm" icon="solar:double-alt-arrow-down-bold" :disabled="store.isSearching" @click="store.loadMoreSearchResults()">LOAD MORE CONTENT ({{ store.searchTotalResults - contentRows.length }} MORE)</UiButton>
           </div>
-
-          <div v-if="q && empty" class="omni-empty">
-            <UiEmpty
-              size="sm"
-              icon="solar:magnifier-bold"
-              :title="`No results for “${query.trim()}”`"
-              description="Try fewer words — or create a collection from this name with a right-click."
-            >
-              <template #actions>
-                <UiButton size="sm" variant="ghost" @click="clearQuery()">Clear search</UiButton>
-                <UiButton size="sm" icon="solar:add-bold" @click="createCollectionFromQuery()">New collection</UiButton>
-              </template>
-            </UiEmpty>
-          </div>
-
-          <div class="omni-foot">
-            <span class="omni-foot__counts">{{ totalRows }} RESULT{{ totalRows === 1 ? '' : 'S' }}</span>
-            <span class="omni-foot__keys">↑↓ navigate · ⏎ open · right-click manages · Esc clear</span>
-          </div>
+          <p v-if="copyStatus" class="omni-live-status" role="status" aria-live="polite">{{ copyStatus }}</p>
+          <div class="omni-foot"><span class="omni-foot__counts">{{ q ? `${localCount} LOCAL · ${webResultCount} WEB` : `${totalRows} RESULT${totalRows === 1 ? '' : 'S'}` }}</span>
+            <span class="omni-foot__keys">↑↓ navigate · ⏎ open · right-click manages · Esc clear</span></div>
         </div>
       </Transition>
     </div>
@@ -167,18 +112,27 @@
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
-import UiEmpty from '@/components/ui/UiEmpty.vue'
 import UiSpinner from '@/components/ui/UiSpinner.vue'
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useTheme } from '@/composables/useTheme'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useContextMenu, type ContextMenuEntry } from '@/composables/useContextMenu'
 import { MODULE_METADATA, type PanelType } from '@/types'
 import { resolvePanel } from '@/utils/panels'
 import { isEditableTarget } from '@/utils/dom'
 import { OMNI_SECTION_TAG, buildOmniSections, type OmniSectionId } from '@/utils/omniSearch'
+import { useUnifiedSearch } from '@/composables/useUnifiedSearch'
+import { useSearchViewport } from '@/composables/useSearchViewport'
+import { duckDuckGoSearchUrl } from '@/utils/duckDuckGoSearch'
+import { handleSearchLink, openSearchLink } from '@/utils/searchExternal'
+import { SEARCH_CATEGORIES, INITIAL_ROWS_PER_SECTION, MAX_VISIBLE_ROWS_PER_SECTION, countSearchCategories, countSectionRows, filterSearchSections, nextVisibleRowCount, sharedSearchCategory, sharedSearchVisibleRows, resetSearchVisibleRows, type SearchCategory } from '@/utils/searchPresentation'
 
+const props = withDefaults(defineProps<{ home?: boolean }>(), { home: false })
 const store = useAppStore()
+const theme = useTheme()
+const isFlatAmoled = computed(() => theme.themeId.value === 'flat-amoled')
+const isModernGlass = computed(() => theme.themeId.value === 'modern-glass')
 const wm = useWindowManager()
 const ctx = useContextMenu()
 
@@ -191,19 +145,24 @@ interface OmniRow {
   refId: string
 }
 
-const query = ref(store.searchQuery ?? '')
+const query = computed({ get: () => store.searchQuery, set: (value: string) => { store.searchQuery = value } })
+const instanceId = `omni-${useId().replace(/[^a-zA-Z0-9_-]/g, '-')}`
 const focused = ref(false)
+const category = sharedSearchCategory()
+const copyStatus = ref('')
+const linkError = ref('')
+const visibleBySection = sharedSearchVisibleRows()
 const inputRef = ref<HTMLInputElement | null>(null)
+const barRef = ref<HTMLElement | null>(null)
 const dropRef = ref<HTMLElement | null>(null)
+const resultsViewportStyle = useSearchViewport(barRef, dropRef)
 const activeKey = ref<string | null>(null)
 const renameTarget = ref<{ key: string; kind: OmniSectionId; refId: string } | null>(null)
 const renameDraft = ref('')
 const tagTarget = ref<{ key: string; fileId: string } | null>(null)
 const tagDraft = ref('')
-let debounce: ReturnType<typeof setTimeout> | null = null
-
 const q = computed(() => query.value.trim())
-const dropdownOpen = computed(() => focused.value || q.value.length > 0 || totalRows.value > 0)
+const dropdownOpen = computed(() => props.home ? q.value.length > 0 : focused.value || q.value.length > 0 || totalRows.value > 0)
 
 const recentSearches = ref<string[]>((() => {
   try { return JSON.parse(localStorage.getItem('cybermanju_recent_searches') || '[]') as string[] } catch { return [] }
@@ -281,24 +240,39 @@ const fileRows = computed<OmniRow[]>(() =>
 )
 
 const contentRows = computed<OmniRow[]>(() =>
-  store.searchResults.map((r) => ({
+  unified.localReadyQuery.value === q.value ? store.searchResults.map((r) => ({
     key: r.fileId, kind: 'content' as const, name: r.fileName,
     sub: r.snippet || `${r.matchType ?? 'match'} · score ${r.score.toFixed(2)}`,
     icon: 'solar:file-text-bold', refId: r.fileId,
-  })),
+  })) : [],
 )
 
-const sections = computed(() =>
-  buildOmniSections(q.value, {
-    apps: appRows.value, collections: collectionRows.value, people: peopleRows.value,
-    providers: providerRows.value, folders: folderRows.value, files: fileRows.value,
-    content: contentRows.value,
-  }),
-)
-
-const flatRows = computed(() => sections.value.flatMap((s) => s.rows.map((r) => ({ sec: s.id as OmniSectionId, row: r }))))
+const sectionInput = computed<Record<OmniSectionId, OmniRow[]>>(() => ({
+  apps: appRows.value, collections: collectionRows.value, people: peopleRows.value,
+  providers: providerRows.value, folders: folderRows.value, files: fileRows.value,
+  content: contentRows.value,
+}))
+const allSections = computed(() => buildOmniSections(q.value, sectionInput.value, MAX_VISIBLE_ROWS_PER_SECTION))
+const unified = useUnifiedSearch(() => localCount.value)
+const webResultCount = computed(() => (unified.webResponse.value?.answer ? 1 : 0) + (unified.webResponse.value?.results.length ?? 0))
+const answerDestination = computed(() => unified.webResponse.value?.answerUrl || (q.value ? duckDuckGoSearchUrl(q.value) : 'https://duckduckgo.com/'))
+const categoryCounts = computed(() => countSearchCategories(q.value, sectionInput.value, webResultCount.value))
+const localCount = computed(() => countSearchCategories(q.value, sectionInput.value).all)
+const sectionCounts = computed(() => ({
+  apps: countSectionRows(q.value, sectionInput.value.apps), collections: countSectionRows(q.value, sectionInput.value.collections),
+  people: countSectionRows(q.value, sectionInput.value.people), providers: countSectionRows(q.value, sectionInput.value.providers),
+  folders: countSectionRows(q.value, sectionInput.value.folders), files: countSectionRows(q.value, sectionInput.value.files),
+  content: countSectionRows(q.value, sectionInput.value.content),
+}))
+const sections = computed(() => filterSearchSections(allSections.value, category.value).map((section) => ({
+  ...section, rows: section.rows.slice(0, visibleBySection.value[section.id]),
+})))
+const flatRows = computed(() => sections.value.flatMap((section) => section.rows.map((row) => ({ sec: section.id as OmniSectionId, row }))))
 const totalRows = computed(() => flatRows.value.length)
-const empty = computed(() => totalRows.value === 0)
+const empty = computed(() => localCount.value === 0)
+const emptyCategoryMessage = computed(() => category.value === 'all'
+  ? 'No local matches. Try a different query or switch to Web.'
+  : `No ${SEARCH_CATEGORIES.find((item) => item.id === category.value)?.label.toLowerCase() ?? 'matching'} results for this query.`)
 
 /** BM25 page behind the visible content rows — offer the next page inline. */
 const canLoadMoreContent = computed(() =>
@@ -307,59 +281,58 @@ const canLoadMoreContent = computed(() =>
   && store.searchTotalResults > contentRows.value.length,
 )
 
-/** Listbox active descendant for screen readers (stable si/ri ids). */
-const activeDescendantId = computed(() => {
-  if (!activeKey.value) return undefined
-  const flat = flatRows.value.findIndex(({ sec, row }) => `${sec}:${row.key}` === activeKey.value)
-  if (flat === -1) return undefined
-  let n = 0
-  for (let si = 0; si < sections.value.length; si++) {
-    const rows = sections.value[si].rows
-    if (flat < n + rows.length) return `omni-${si}-${flat - n}`
-    n += rows.length
-  }
-  return undefined
-})
-
 /** Drop a highlight that no longer exists (new keystroke, new results). */
 watch(flatRows, (rows) => {
   if (activeKey.value && !rows.some(({ sec, row }) => `${sec}:${row.key}` === activeKey.value)) {
     activeKey.value = null
   }
 })
-
-/* ── search wiring (single source: store.searchQuery) ── */
-
-watch(query, (v) => {
-  if (debounce) clearTimeout(debounce)
-  if (!v.trim()) {
-    // Instant reset — stale BM25 rows must vanish the moment the line is
-    // cleared, not linger behind the debounce.
-    store.searchQuery = ''
-    void store.searchFiles('')
-    return
-  }
-  debounce = setTimeout(() => {
-    store.searchQuery = v
-    if (v.trim().length >= 2) void store.searchFiles(v.trim())
-  }, 250)
+watch(q, () => {
+  category.value = 'all'
+  resetSearchVisibleRows(visibleBySection.value)
+  linkError.value = ''
 })
+
+/* ── search wiring (query state lives in the Pinia store; pipeline is shared) ── */
 watch(() => store.searchResults, (results) => {
   if (results.length > 0 && q.value) rememberSearch(q.value)
 })
 
 function clearQuery() {
   query.value = ''
-  store.searchQuery = ''
   activeKey.value = null
   inputRef.value?.focus()
 }
 
 function rerun(sq: string) {
   query.value = sq
-  store.searchQuery = sq
-  void store.searchFiles(sq)
 }
+
+function clearRecent() {
+  recentSearches.value = []
+  try { localStorage.removeItem('cybermanju_recent_searches') } catch {}
+}
+
+function visibleCount(id: OmniSectionId): number { return visibleBySection.value[id] }
+function showMore(id: OmniSectionId) { visibleBySection.value[id] = nextVisibleRowCount(visibleCount(id), sectionCounts.value[id]) }
+function isFileSection(id: OmniSectionId): boolean { return id === 'folders' || id === 'files' || id === 'content' }
+function copyLabel(id: OmniSectionId): string { return isFileSection(id) ? 'path' : 'name' }
+function copyLocalRow(id: OmniSectionId, row: OmniRow) {
+  const file = isFileSection(id) ? fileById(row.refId) : undefined
+  void copyWithStatus(file?.path || row.name, copyLabel(id) === 'path' ? 'Path' : 'Name')
+}
+
+function revealSelectedCategory() {
+  void nextTick(() => dropRef.value?.querySelector<HTMLElement>('.omni-filter.is-selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }))
+}
+watch(category, revealSelectedCategory)
+onMounted(revealSelectedCategory)
+function selectCategory(value: SearchCategory) { category.value = value }
+watch(() => [category.value, unified.localReadyQuery.value, q.value] as const, ([selected, ready, current]) => {
+  if (selected === 'web' && current.length >= 2 && ready === current && !unified.webLoading.value
+    && !unified.webResponse.value && !unified.webError.value && unified.webQuery.value !== current) unified.searchWeb(current)
+})
+function retryWeb() { if (q.value.length >= 2) unified.searchWeb(q.value) }
 
 /* ── openers ── */
 
@@ -390,6 +363,19 @@ function activate(sec: OmniSectionId, row: OmniRow) {
   }
 }
 
+function rowId(sectionIndex: number, rowIndex: number): string { return `${instanceId}-${sectionIndex}-${rowIndex}` }
+
+async function handleWebLink(event: MouseEvent, url: string) {
+  try { await handleSearchLink(event, url) }
+  catch (error) { linkError.value = error instanceof Error ? error.message : 'Could not open this search link.' }
+}
+
+async function openAnswerLink(url: string) {
+  linkError.value = ''
+  try { await openSearchLink(url) }
+  catch (error) { linkError.value = error instanceof Error ? error.message : 'Could not open this search link.' }
+}
+
 function rowHint(sec: OmniSectionId, row: OmniRow): string {
   if (sec === 'providers') return `${row.name} — Enter opens the file manager inside this provider · right-click for more`
   return `${row.name} — Enter opens · right-click manages, tags, renames`
@@ -405,8 +391,19 @@ async function copyText(text: string) {
     ta.value = text
     document.body.appendChild(ta)
     ta.select()
-    document.execCommand('copy')
+    const copied = document.execCommand('copy')
     ta.remove()
+    if (!copied) throw new Error('Clipboard copy failed')
+  }
+}
+
+async function copyWithStatus(text: string, label: string) {
+  copyStatus.value = ''
+  try {
+    await copyText(text)
+    copyStatus.value = `${label} copied.`
+  } catch {
+    copyStatus.value = `Could not copy ${label.toLowerCase()}. Select and copy it manually.`
   }
 }
 
@@ -550,6 +547,9 @@ function moveActive(delta: 1 | -1) {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  // Native web links and action buttons keep their normal Enter/arrow behavior;
+  // Escape remains available globally to clear the current query.
+  if (e.target instanceof HTMLElement && e.target.closest('a, button, [data-search-answer-link]') && e.key !== 'Escape') return
   // Typing inside the rename/tag editors must never steer the list —
   // only the main search line shares keys with navigation.
   if (isEditableTarget(e.target) && e.target !== inputRef.value) return
@@ -579,210 +579,141 @@ onMounted(() => {
   void Promise.allSettled([store.fetchFiles(), store.fetchCollections(), store.fetchFaceGroups(), store.fetchSyncConfigs()])
   // Handoff from another surface (e.g. Code Studio search) may leave a
   // query with stale results — re-fire so content rows match the line.
-  if (q.value.length >= 2) void store.searchFiles(q.value)
-  void nextTick(() => inputRef.value?.focus())
+  if (!props.home) void nextTick(() => inputRef.value?.focus())
 })
 
 onUnmounted(() => {
-  if (debounce) clearTimeout(debounce)
   ctx.unregisterContext('omni_result')
 })
+
+defineExpose({ focus: () => inputRef.value?.focus() })
 </script>
 
 <style scoped>
 .omni {
-  --omni-accent: #ff3b30;
-  width: 100%;
-  min-height: 100%;
-  display: flex;
-  justify-content: center;
-  padding: 8vh 18px 16px;
-  background:
-    radial-gradient(60% 34% at 50% 0%, color-mix(in srgb, var(--omni-accent) 10%, transparent), transparent 70%),
-    var(--ui-surface);
-  overflow-y: auto;
-  font-family: var(--ui-font);
-  color: var(--ui-text);
+  --omni-accent: var(--ui-accent);
+  width: 100%; min-height: 100%; display: flex; justify-content: center;
+  padding: 7vh 24px 24px; background: var(--ui-surface); overflow-y: auto;
+  font-family: var(--ui-font); color: var(--ui-text);
 }
-
-.omni-col {
-  width: 100%;
-  max-width: 560px;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  margin: 0 auto;
-  align-self: flex-start;
-}
-
-/* ── the one line ── */
+.omni--glass:not(.omni--home) { background: var(--ui-ambient-background, var(--ui-surface)); }
+.omni--home { min-height: 0; height: auto; max-width: none; padding: 0; background: transparent; overflow: visible; }
+.omni--home .omni-col { max-width: none; margin: 0; align-self: stretch; }
+.omni--home .omni-drop { max-height: min(58dvh, 700px); }
+.omni-col { width: min(100%, 860px); display: flex; flex-direction: column; margin: 0 auto; align-self: flex-start; }
 .omni-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 18px;
-  height: 56px;
-  border-radius: var(--ui-radius-lg);
-  background: var(--ui-glass-2);
-  border: 1px solid var(--ui-border-strong);
-  backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
-  box-shadow: var(--ui-shadow-2), inset 0 1px 0 var(--ui-glass-highlight);
-  transition: border-color var(--ui-dur) var(--ui-ease-out), box-shadow var(--ui-dur) var(--ui-ease-out);
+  display: flex; align-items: center; gap: 12px; padding: 0 18px; min-height: 58px;
+  border-radius: var(--ui-radius-lg); background: var(--ui-glass-2); border: 1px solid var(--ui-border-strong);
+  backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate)); -webkit-backdrop-filter: blur(var(--ui-blur-strong)) saturate(var(--ui-saturate));
+  box-shadow: var(--ui-shadow-2), inset 0 1px 0 var(--ui-glass-highlight); transition: border-color var(--ui-dur) var(--ui-ease-out), box-shadow var(--ui-dur) var(--ui-ease-out);
 }
-
-.omni-bar.focused {
-  border-color: color-mix(in srgb, var(--omni-accent) 65%, transparent);
-  box-shadow:
-    var(--ui-shadow-2),
-    0 0 0 3px color-mix(in srgb, var(--omni-accent) 18%, transparent),
-    0 0 32px color-mix(in srgb, var(--omni-accent) 12%, transparent),
-    inset 0 1px 0 var(--ui-glass-highlight);
-}
-
+.omni--glass .omni-bar { background-color: var(--ui-glass); background-image: var(--ui-glass-sheen); border-color: var(--ui-border-strong); box-shadow: var(--ui-glass-shadow, var(--ui-shadow-2)); }
+.omni-bar.focused { border-color: color-mix(in srgb, var(--omni-accent) 65%, transparent); box-shadow: var(--ui-shadow-2), 0 0 0 3px color-mix(in srgb, var(--omni-accent) 16%, transparent); }
 .omni-bar__icon { color: var(--ui-text-3); flex-shrink: 0; }
 .omni-bar.focused .omni-bar__icon { color: var(--omni-accent); }
-.omni-bar__input {
-  flex: 1; min-width: 0; background: transparent; border: none; outline: none;
-  color: var(--ui-text); font-family: var(--ui-font); font-size: 17px; font-weight: 550; height: 100%;
-}
+.omni-bar__input { flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: var(--ui-text); font: 550 17px var(--ui-font); height: 100%; }
 .omni-bar__input::placeholder { color: var(--ui-text-faint); }
-.omni-bar__clear {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 44px; height: 44px; border-radius: 50%;
-  border: 1px solid var(--ui-border);
-  background: color-mix(in srgb, var(--ui-text) 7%, transparent);
-  color: var(--ui-text-2); cursor: pointer; flex-shrink: 0;
-}
-.omni-bar__clear:hover { color: var(--omni-accent); border-color: color-mix(in srgb, var(--omni-accent) 55%, transparent); }
-.omni-bar__hint {
-  font-family: var(--ui-font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.12em;
-  color: var(--ui-text-faint); border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-xs); padding: 2px 6px; flex-shrink: 0;
-}
-
-/* ── dropdown: animated glassmorphy, red accent, freeze ── */
+.omni-bar__clear { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--ui-border); background: color-mix(in srgb, var(--ui-text) 7%, transparent); color: var(--ui-text-2); cursor: pointer; flex-shrink: 0; }
+.omni-bar__clear:hover { color: var(--omni-accent); border-color: var(--omni-accent); }
+.omni-bar__hint { font: 700 9px var(--ui-font-mono); letter-spacing: .12em; color: var(--ui-text-faint); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-xs); padding: 3px 7px; flex-shrink: 0; }
 .omni-drop {
-  margin-top: 10px;
-  border-radius: var(--ui-radius-lg);
-  background: color-mix(in srgb, var(--ui-glass-2) 82%, transparent);
-  border: 1px solid color-mix(in srgb, var(--omni-accent) 28%, var(--ui-border-strong));
-  backdrop-filter: blur(calc(var(--ui-blur-strong) * 1.4)) saturate(calc(var(--ui-saturate) * 1.2));
-  -webkit-backdrop-filter: blur(calc(var(--ui-blur-strong) * 1.4)) saturate(calc(var(--ui-saturate) * 1.2));
-  box-shadow:
-    var(--ui-shadow-menu),
-    0 0 48px color-mix(in srgb, var(--omni-accent) 10%, transparent),
-    inset 0 1px 0 var(--ui-glass-highlight);
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: min(62vh, 560px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  transform-origin: top center;
+  margin-top: 12px; border-radius: var(--ui-radius-lg); background: color-mix(in srgb, var(--ui-glass-2) 92%, var(--ui-surface));
+  border: 1px solid var(--ui-border-strong); backdrop-filter: blur(calc(var(--ui-blur-strong) * 1.2)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(calc(var(--ui-blur-strong) * 1.2)) saturate(var(--ui-saturate)); box-shadow: var(--ui-shadow-menu), inset 0 1px 0 var(--ui-glass-highlight);
+  padding: 14px; display: flex; flex-direction: column; gap: 12px; max-height: min(68vh, 720px); overflow-y: auto; overscroll-behavior: contain; transform-origin: top center;
 }
-
+.omni--glass .omni-drop { background-color: var(--ui-glass); background-image: var(--ui-glass-sheen); border-color: var(--ui-border-strong); box-shadow: var(--ui-glass-shadow), var(--ui-glass-edge); }
 .omni-drop-enter-active { animation: omni-in var(--ui-dur) var(--ui-ease-spring) both; }
 .omni-drop-leave-active { animation: omni-out 120ms ease-in both; }
-@keyframes omni-in {
-  from { opacity: 0; transform: translateY(-10px) scale(0.98); filter: blur(6px); }
-  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-}
-@keyframes omni-out {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to { opacity: 0; transform: translateY(-6px) scale(0.99); }
-}
-
-.omni-loading { display: flex; justify-content: center; padding: 10px 0; }
-
-.omni-sec { display: flex; flex-direction: column; gap: 4px; }
-.omni-sec__head { display: flex; align-items: center; gap: 8px; padding: 2px 4px; }
-.omni-tag {
-  font-family: var(--ui-font-mono); font-size: 9px; font-weight: 800; letter-spacing: 0.14em;
-  color: var(--omni-accent);
-  background: color-mix(in srgb, var(--omni-accent) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--omni-accent) 35%, transparent);
-  border-radius: var(--ui-radius-full); padding: 2px 9px; white-space: nowrap; flex-shrink: 0;
-}
-.omni-div { flex: 1; height: 1px; background: linear-gradient(90deg, color-mix(in srgb, var(--omni-accent) 35%, transparent), var(--ui-hairline)); }
-
-.omni-row {
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  min-height: 44px; padding: 8px 10px; border-radius: var(--ui-radius-md);
-  background: transparent; border: 1px solid transparent;
-  cursor: pointer; text-align: left; color: var(--ui-text); font-family: var(--ui-font);
-  transition: border-color var(--ui-dur-fast) var(--ui-ease-out), background-color var(--ui-dur-fast) var(--ui-ease-out);
-  animation: omni-row-in 160ms var(--ui-ease-out) both;
-  animation-delay: min(calc(var(--i, 0) * 18ms), 150ms);
-}
-@keyframes omni-row-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.omni-row:hover, .omni-row.active {
-  border-color: color-mix(in srgb, var(--omni-accent) 45%, transparent);
-  background: color-mix(in srgb, var(--omni-accent) 9%, var(--ui-accent-softer));
-}
-.omni-row:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--omni-accent) 80%, transparent);
-  outline-offset: 1px;
-}
-.omni-row__icon { display: inline-flex; color: var(--ui-text-3); flex-shrink: 0; }
-.omni-row:hover .omni-row__icon, .omni-row.active .omni-row__icon { color: var(--omni-accent); }
-.omni-row__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.omni-row__name { font-size: 12.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.omni-row__name :deep(mark) {
-  background: color-mix(in srgb, var(--omni-accent) 38%, transparent);
-  color: var(--ui-text); border-radius: 2px; padding: 0 2px;
-}
-.omni-row__sub {
-  font-family: var(--ui-font-mono); font-size: 9px; letter-spacing: 0.05em; color: var(--ui-text-3);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.omni-row__enter { font-family: var(--ui-font-mono); font-size: 11px; color: var(--ui-text-faint); flex-shrink: 0; }
-.omni-row.active .omni-row__enter { color: var(--omni-accent); }
-
+@keyframes omni-in { from { opacity: 0; transform: translateY(-8px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes omni-out { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(-4px) scale(.995); } }
+.omni-loading { display: flex; justify-content: center; padding: 8px 0; }
+.omni-filters { flex: 0 0 auto; min-height: 52px; display: flex; gap: 8px; overflow-x: auto; padding: 2px 1px 6px; scrollbar-width: thin; overscroll-behavior-x: contain; }
+.omni-filter { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; min-height: 42px; padding: 0 14px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-full); color: var(--ui-text-2); background: var(--ui-glass-reading, var(--ui-surface)); font: 600 12px var(--ui-font); cursor: pointer; }
+.omni-filter span { min-width: 1.25em; color: var(--ui-text-3); font: 700 10px var(--ui-font-mono); text-align: center; }
+.omni-filter:hover, .omni-filter.is-selected { border-color: var(--omni-accent); color: var(--ui-text); background: color-mix(in srgb, var(--omni-accent) 12%, var(--ui-surface)); }
+.omni-filter.is-selected span { color: var(--omni-accent); }
+.omni-sec { display: flex; flex-direction: column; gap: 6px; }
+.omni-sec__head { display: flex; align-items: center; gap: 9px; padding: 2px 3px; }
+.omni-tag { font: 800 9px var(--ui-font-mono); letter-spacing: .11em; color: var(--omni-accent); background: color-mix(in srgb, var(--omni-accent) 10%, var(--ui-surface)); border: 1px solid color-mix(in srgb, var(--omni-accent) 32%, var(--ui-border)); border-radius: var(--ui-radius-full); padding: 4px 10px; white-space: nowrap; flex-shrink: 0; }
+.omni-div { flex: 1; height: 1px; background: var(--ui-hairline); }
+.omni-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; min-height: 62px; padding: 12px; border-radius: var(--ui-radius-md); background: var(--ui-surface); border: 1px solid var(--ui-border); cursor: pointer; text-align: left; color: var(--ui-text); font-family: var(--ui-font); transition: border-color var(--ui-dur-fast) var(--ui-ease-out), background-color var(--ui-dur-fast) var(--ui-ease-out); }
+.omni--glass .omni-row { background: var(--ui-glass-reading, var(--ui-surface)); border-color: var(--ui-border); box-shadow: var(--ui-glass-edge); }
+.omni-row:hover, .omni-row.active { border-color: color-mix(in srgb, var(--omni-accent) 55%, var(--ui-border)); background-color: color-mix(in srgb, var(--omni-accent) 7%, var(--ui-surface)); }
+.omni-row:focus-visible, .omni-filter:focus-visible, .omni-row__action:focus-visible, .omni-load-section:focus-visible { outline: 2px solid var(--omni-accent); outline-offset: 2px; }
+.omni-row__icon { display: inline-flex; color: var(--ui-text-3); flex-shrink: 0; padding-top: 2px; }
+.omni-row__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.omni-row__name { font-size: 14px; font-weight: 650; overflow-wrap: anywhere; white-space: normal; }
+.omni-row__name :deep(mark) { background: color-mix(in srgb, var(--omni-accent) 38%, transparent); color: var(--ui-text); border-radius: 2px; padding: 0 2px; }
+.omni-row__sub { color: var(--ui-text-2); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; white-space: normal; }
+.omni-row__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; flex: 0 0 auto; }
+.omni-row__action, .omni-load-section { min-height: 40px; padding: 7px 10px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); color: var(--ui-text-2); background: var(--ui-glass-reading, var(--ui-surface)); font: 600 11px var(--ui-font); cursor: pointer; }
+.omni-row__action:hover, .omni-load-section:hover { border-color: var(--omni-accent); color: var(--ui-text); }
+.omni-row__enter { display: none; }
+.omni-row--recent { align-items: center; min-height: 48px; }
 .omni-inline { display: flex; gap: 6px; flex: 1; min-width: 0; }
-.omni-inline__input {
-  flex: 1; min-width: 0; min-height: 44px;
-  background: color-mix(in srgb, var(--ui-surface) 85%, transparent);
-  border: 1px solid color-mix(in srgb, var(--omni-accent) 55%, transparent);
-  border-radius: var(--ui-radius-sm); color: var(--ui-text);
-  font-family: var(--ui-font); font-size: 13px; padding: 5px 9px; outline: none;
-}
-.omni-inline__btn {
-  min-height: 44px; padding: 6px 12px; border-radius: var(--ui-radius-sm);
-  border: 1px solid color-mix(in srgb, var(--omni-accent) 55%, transparent);
-  background: var(--omni-accent); color: #fff; font-size: 11px; font-weight: 700; cursor: pointer;
-}
+.omni-inline__input { flex: 1; min-width: 0; min-height: 44px; background: var(--ui-surface); border: 1px solid color-mix(in srgb, var(--omni-accent) 55%, transparent); border-radius: var(--ui-radius-sm); color: var(--ui-text); font: 16px var(--ui-font); padding: 5px 9px; outline: none; }
+.omni-inline__btn { min-height: 44px; padding: 6px 12px; border-radius: var(--ui-radius-sm); border: 1px solid color-mix(in srgb, var(--omni-accent) 55%, transparent); background: var(--omni-accent); color: var(--ui-on-accent, #fff); font: 700 11px var(--ui-font); cursor: pointer; }
 .omni-inline__btn--ghost { background: transparent; color: var(--ui-text-2); border-color: var(--ui-border); }
-.omni-inline__btn:disabled { opacity: 0.45; cursor: default; }
-
-.omni-empty { display: flex; justify-content: center; }
-
+.omni-inline__btn:disabled { opacity: .45; cursor: default; }
+.omni-recent-clear { min-height: 36px; white-space: nowrap; }
+.omni-load-section { align-self: flex-start; margin: 1px 0 4px 36px; }
+.omni-web { display: flex; flex-direction: column; gap: 9px; border-top: 1px solid var(--ui-hairline); padding-top: 12px; }
+.omni-web__answer, .omni-web__result-card { display: flex; flex-direction: column; gap: 8px; padding: 13px 14px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); color: var(--ui-text); background: var(--ui-glass-reading, var(--ui-surface)); }
+.omni--glass .omni-web__answer, .omni--glass .omni-web__result-card { background: var(--ui-glass-reading, var(--ui-surface)); border-color: var(--ui-border); box-shadow: var(--ui-glass-edge); }
+.omni-web__answer-body { display: flex; flex-direction: column; gap: 8px; color: var(--ui-text); text-decoration: none; }
+.omni-web__answer-body--link { cursor: pointer; border-radius: var(--ui-radius-sm); }
+.omni-web__answer-body--link:hover .omni-web__answer-text { text-decoration: underline; text-decoration-color: var(--omni-accent); text-underline-offset: 3px; }
+.omni-web__answer-body:focus-visible, .omni-web__result:focus-visible, .omni-web__all:focus-visible, .omni-web__action:focus-visible { outline: 2px solid var(--omni-accent); outline-offset: 2px; }
+.omni-web__meta { color: var(--omni-accent); font: 800 9px var(--ui-font-mono); letter-spacing: .1em; overflow-wrap: anywhere; }
+.omni-web__answer-text { margin: 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.omni-web__answer-hint { color: var(--ui-text-2); font: 10px var(--ui-font-mono); }
+.omni-web__result { display: flex; flex-direction: column; gap: 5px; color: var(--ui-text); text-decoration: none; }
+.omni-web__result:hover .omni-web__title { color: var(--omni-accent); }
+.omni-web__title { color: var(--ui-text); font-size: 14px; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
+.omni-web__domain { color: var(--ui-text-2); font: 11px var(--ui-font-mono); overflow-wrap: anywhere; }
+.omni-web__description, .omni-web__status, .omni-web__disclaimer { margin: 0; color: var(--ui-text-2); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
+.omni-web__actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.omni-web__action, .omni-web__all { align-self: flex-start; min-height: 40px; display: inline-flex; align-items: center; padding: 7px 11px; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); color: var(--ui-text); background: transparent; font: 600 11px var(--ui-font); cursor: pointer; text-decoration: none; }
+.omni-web__action:hover, .omni-web__all:hover { border-color: var(--omni-accent); }
+.omni-web__all { text-decoration: underline; text-underline-offset: 2px; }
+.omni-empty-state { padding: 12px; border: 1px dashed var(--ui-border-strong); border-radius: var(--ui-radius-md); color: var(--ui-text-2); background: var(--ui-glass-reading, var(--ui-surface)); font-size: 13px; line-height: 1.5; }
+.omni-live-status { margin: 0; color: var(--ui-text-2); font-size: 12px; }
+.omni--flat { --omni-accent: #fff; }
+.omni--flat .omni-bar, .omni--flat .omni-drop, .omni--flat .omni-row, .omni--flat .omni-web__answer, .omni--flat .omni-web__result-card { background: #000; color: #fff; border-color: #fff; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.omni--flat .omni-bar__input, .omni--flat .omni-row__name, .omni--flat .omni-row__sub, .omni--flat .omni-web__title, .omni--flat .omni-web__domain, .omni--flat .omni-web__description, .omni--flat .omni-web__answer-text, .omni--flat .omni-web__status, .omni--flat .omni-web__disclaimer { color: #fff; }
+.omni--flat .omni-filter, .omni--flat .omni-row__action, .omni--flat .omni-load-section, .omni--flat .omni-web__action, .omni--flat .omni-web__all { color: #fff; border-color: #fff; background: #000; }
+.omni--flat .omni-row:hover, .omni--flat .omni-row.active, .omni--flat .omni-filter.is-selected { background: #171717; border-color: #fff; }
 .omni-more { display: flex; justify-content: center; padding: 2px 0; }
-
-.omni-foot {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  border-top: 1px solid var(--ui-hairline); padding-top: 8px;
-}
-.omni-foot__counts {
-  font-family: var(--ui-font-mono); font-size: 9px; font-weight: 800; letter-spacing: 0.1em;
-  color: var(--omni-accent);
-}
-.omni-foot__keys {
-  margin-left: auto; font-family: var(--ui-font-mono); font-size: 8.5px;
-  letter-spacing: 0.06em; color: var(--ui-text-3);
-}
-
-@media (max-width: 560px) {
-  .omni { padding: max(14px, env(safe-area-inset-top, 0px)) 12px 16px; }
+.omni-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--ui-hairline); padding-top: 9px; }
+.omni-foot__counts { font: 800 9px var(--ui-font-mono); letter-spacing: .1em; color: var(--omni-accent); }
+.omni-foot__keys { margin-left: auto; color: var(--ui-text-3); font: 9px var(--ui-font-mono); }
+.omni--glass.omni--solid .omni-bar,
+.omni--glass.omni--solid .omni-drop { backdrop-filter: none; -webkit-backdrop-filter: none; }
+@media (prefers-reduced-transparency: reduce) { .omni-bar, .omni-drop { backdrop-filter: none; -webkit-backdrop-filter: none; } }
+@media (prefers-contrast: more) { .omni-bar, .omni-drop, .omni-row, .omni-web__answer, .omni-web__result-card, .omni-filter { border-width: 2px; } }
+@media (max-width: 768px) {
+  .omni:not(.omni--home) { min-width: 0; padding: max(14px, env(safe-area-inset-top, 0px)) 12px calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .omni-bar { min-height: 54px; padding-inline: 12px; }
+  .omni-bar__input { min-height: 50px; font-size: 16px; }
+  .omni-drop, .omni--home .omni-drop {
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    height: max(0px, calc(var(--omni-mobile-results-height, 50dvh) - env(safe-area-inset-bottom, 0px)));
+    max-height: max(0px, calc(var(--omni-mobile-results-height, 50dvh) - env(safe-area-inset-bottom, 0px)));
+    padding: 11px; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch;
+  }
+  .omni-drop > * { flex-shrink: 0; }
+  .omni-row { min-height: 60px; flex-wrap: wrap; }
+  .omni-row__body { flex-basis: calc(100% - 42px); }
+  .omni-row__actions { width: 100%; justify-content: flex-start; padding-left: 26px; }
+  .omni-row__action { min-height: 44px; }
+  .omni-inline { flex-wrap: wrap; }
+  .omni-inline__input { flex-basis: 100%; font-size: 16px; }
+  .omni-inline__btn { flex: 1 1 calc(50% - 6px); }
+  .omni-foot { align-items: flex-start; }
   .omni-foot__keys { display: none; }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .omni-drop-enter-active, .omni-drop-leave-active { animation: none; }
-  .omni-row { animation: none; }
-}
+@media (max-width: 380px) { .omni { padding-inline: 8px; } .omni-drop { padding: 8px; } .omni-row { gap: 8px; padding: 10px; } .omni-row__actions { padding-left: 0; } }
+@media (prefers-reduced-motion: reduce) { .omni-drop-enter-active, .omni-drop-leave-active { animation: none; } *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
 </style>

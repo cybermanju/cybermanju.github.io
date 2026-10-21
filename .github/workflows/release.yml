@@ -760,10 +760,31 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
+      - name: Verify Android voice bridge in APK DEX
+        run: |
+          mapfile -d '' apks < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' -print0)
+          test "${#apks[@]}" -gt 0
+          for apk in "${apks[@]}"; do
+            python3 scripts/check-android-voice-apk.py "$apk"
+          done
+
+      - name: Verify Android broker configuration
+        run: node scripts/verify-supabase-build.mjs dist
+        env:
+          REQUIRE_BROKER: '1'
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
       - name: Verify Android APK signature
         run: bash scripts/android-signing.sh verify
         env:
           REQUIRE_SIGNING: "1"
+
+      - name: Verify Android native payload and install packaging
+        run: python3 scripts/verify-android-package.py
+
+      - name: Android on-device smoke test
+        run: bash scripts/android-smoke.sh
 
       # Shred keystore + signing properties before archiving so runner
       # images / debug bundles never retain plaintext signing secrets.
@@ -818,6 +839,13 @@ jobs:
       - name: Build unsigned iOS device IPA
         run: npx tauri ios build --ci --target aarch64 --no-sign
         env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Verify iOS broker configuration
+        run: node scripts/verify-supabase-build.mjs dist
+        env:
+          REQUIRE_BROKER: '1'
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
@@ -922,6 +950,11 @@ jobs:
         run: |
           go vet ./...
           go test -race -count=1 ./...
+
+      - name: Termux installer safety regressions (offline)
+        run: |
+          bash -n cli/scripts/install-termux.sh cli/scripts/install-termux_test.sh
+          bash cli/scripts/install-termux_test.sh
 
       - name: Cross-compile cyb (desktop amd64/arm64; Android/Termux arm64)
         working-directory: cli

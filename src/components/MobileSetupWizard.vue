@@ -79,10 +79,10 @@
             @click="prov.backendType = b"
           >{{ shortProv(b) }}</button>
         </div>
-        <label class="msw-field"><span>Display name</span>
-          <input v-model="prov.name" class="msw-input" placeholder="e.g. Work GitHub" />
-        </label>
         <template v-if="prov.backendType === 'local'">
+          <label class="msw-field"><span>Display name</span>
+            <input v-model="prov.name" class="msw-input" placeholder="e.g. Phone folder" />
+          </label>
           <p class="msw-hint">Android opens the system folder picker. Access remains limited to the folder you choose.</p>
           <button class="msw-btn big" type="button" :disabled="provBusy || folderBusy" @click="chooseLocalFolder">{{ folderBusy ? 'Opening picker…' : selectedFolder ? `Selected: ${selectedFolder.name}` : 'Choose a folder' }}</button>
           <p v-if="!scopedFolderAvailable" class="msw-hint">Persistent folder access is available in the native Android/iOS app, not a mobile browser tab.
@@ -104,10 +104,16 @@
         <template v-else>
           <p class="msw-hint">{{ matchingSessionToken ? `Your ${shortProv(prov.backendType)} session is available; Accounts manages OAuth connections.` : 'Connect this provider in Accounts first, or paste a personal access token.' }}</p>
           <button class="msw-btn big" type="button" @click="openAccounts('connect')">Manage accounts &amp; sign in</button>
-          <label class="msw-field"><span>Personal access token (optional when the session provides one)</span>
-            <input v-model="prov.secret" class="msw-input" :type="showSecret ? 'text' : 'password'" autocomplete="off" placeholder="Paste a token, or connect in Accounts" />
-          </label>
-          <label class="msw-check"><input v-model="showSecret" type="checkbox" /> Show token</label>
+          <button class="msw-btn" type="button" :aria-expanded="manualCredentialsOpen" @click="manualCredentialsOpen = !manualCredentialsOpen">{{ manualCredentialsOpen ? 'Hide manual credentials' : 'Enter token manually' }}</button>
+          <template v-if="manualCredentialsOpen">
+            <label class="msw-field"><span>Display name</span>
+              <input v-model="prov.name" class="msw-input" placeholder="e.g. Work GitHub" autocomplete="off" />
+            </label>
+            <label class="msw-field"><span>Personal access token (optional when the session provides one)</span>
+              <input v-model="prov.secret" class="msw-input" :type="showSecret ? 'text' : 'password'" autocomplete="off" placeholder="Paste a token, or connect in Accounts" />
+            </label>
+            <label class="msw-check"><input v-model="showSecret" type="checkbox" /> Show token</label>
+          </template>
         </template>
         <div class="msw-row">
           <button class="msw-btn primary big" type="button" :disabled="provBusy" @click="saveProvider">{{ provBusy ? 'Saving…' : 'Save provider' }}</button>
@@ -425,6 +431,7 @@ async function mswSignIn(provider: OAuthBackend) {
 // ── connect step · one manual provider row (OAuth session or PAT) ──
 const prov = ref({ backendType: 'github', name: '', secret: '' })
 const showSecret = ref(false)
+const manualCredentialsOpen = ref(false)
 const provBusy = ref(false)
 const provMsg = ref('')
 const provOk = ref<boolean | null>(null)
@@ -1091,5 +1098,21 @@ onMounted(async () => {
 .muted { color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
 @media (min-width: 700px) {
   .msw-body { padding-top: 20px; }
+}
+
+
+/* Prevent the smallest phones from squeezing paired fields and navigation. */
+@media (max-width: 420px) {
+  .msw-head { padding-left: 12px; padding-right: 10px; }
+  .msw-body { padding: 14px 12px max(24px, env(safe-area-inset-bottom, 0px)); }
+  .msw-grid2 { grid-template-columns: minmax(0, 1fr); }
+  .msw-logo-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .msw-nav { flex-wrap: wrap; gap: 6px; }
+  .msw-nav .msw-btn { flex: 1 1 calc(50% - 6px); }
+  .msw-nav .msw-link { flex: 1 1 100%; margin-left: 0; }
+  .msw-card-head { flex-wrap: wrap; }
+  .msw-card-head strong { flex-basis: calc(100% - 110px); white-space: normal; overflow-wrap: anywhere; }
+  .msw-provs li { flex-wrap: wrap; min-width: 0; overflow-wrap: anywhere; }
+  .msw-note, .msw-hint { overflow-wrap: anywhere; }
 }
 </style>

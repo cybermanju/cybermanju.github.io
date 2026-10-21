@@ -68,7 +68,7 @@ export function formatTopLine(top: TopSnapshot | null | undefined): string {
   const total = top.mem?.totalBytes
   if (isFiniteNum(total) && total > 0) {
     const avail = top.mem?.availableBytes
-    const used = Math.max(0, total - (isFiniteNum(avail) ? avail : 0))
+    const used = isFiniteNum(avail) && avail >= 0 && avail <= total ? total - avail : undefined
     parts.push(`RAM ${formatBytesDec(used)} / ${formatBytesDec(total)}`)
   } else {
     parts.push('system RAM unavailable')

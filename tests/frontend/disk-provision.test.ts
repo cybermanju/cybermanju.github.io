@@ -67,6 +67,17 @@ describe('buildDiskSeedFiles', () => {
     expect(paths).toContain(`cybermanju-disks/photos-ab12/${DISK_MANIFEST_NAME}`)
     for (const f of files) expect(() => atob(f.contentBase64)).not.toThrow()
   })
+
+  it('labels logical capacity and marker-only seeds without promising a live mirror', () => {
+    const files = buildDiskSeedFiles('disk', { id: 'disk-1' }, 2 * 1024 ** 3, 'googleDrive')
+    const readme = atob(files.find(f => f.path.endsWith('README.md'))!.contentBase64)
+    const manifest = JSON.parse(atob(files.find(f => f.path.endsWith(DISK_MANIFEST_NAME))!.contentBase64))
+    expect(readme).toContain('folder marker only')
+    expect(readme).toContain('not preallocated cloud space')
+    expect(manifest).toMatchObject({ sizeBytes: 2 * 1024 ** 3, allocation: 'on-demand', vaultRole: 'marker' })
+    const snapshot = buildDiskSeedFiles('disk', { id: 'disk-1' }, 1024, 'googleDrive', true)
+    expect(JSON.parse(atob(snapshot[1].contentBase64)).vaultRole).toBe('snapshot')
+  })
 })
 
 describe('ensureRemoteForDisk', () => {
@@ -78,6 +89,24 @@ describe('ensureRemoteForDisk', () => {
     expect(out.files).toContain(`${out.remoteDir}/${DISK_VAULT_NAME}`)
     expect(out.repoCreated).toBe(false)
     expect(d.uploadFile).toHaveBeenCalledTimes(3)
+  })
+
+  it('uploads supplied snapshot bytes and labels the manifest accordingly', async () => {
+    const d = deps({ vaultBytes: new Uint8Array([0, 1, 2, 255]) })
+    const out = await ensureRemoteForDisk(d)
+    expect(out.vaultSeeded).toBe(true)
+    const uploads = (d.uploadFile as ReturnType<typeof vi.fn>).mock.calls
+    const manifest = JSON.parse(atob(uploads.find(call => call[1].endsWith(DISK_MANIFEST_NAME))![2]))
+    expect(manifest.vaultRole).toBe('snapshot')
+    expect(uploads.find(call => call[1].endsWith(DISK_VAULT_NAME))![2]).toBe('AAEC/w==')
+  })
+
+  it('does not silently replace an oversized snapshot with a placeholder', async () => {
+    const d = deps({ vaultBytes: new Uint8Array(5 * 1024 * 1024 + 1) })
+    await expect(ensureRemoteForDisk(d)).rejects.toThrow('too_large:')
+    expect(d.uploadFile).not.toHaveBeenCalled()
+    expect(d.seedFiles).not.toHaveBeenCalled()
+    expect(d.createRepo).not.toHaveBeenCalled()
   })
 
   it('creates a private repo first when a git config has none, then seeds', async () => {

@@ -202,4 +202,26 @@ onMounted(() => {
   border-top: 1px solid var(--ui-hairline); padding-top: 10px; }
 .ip-foot a { color: var(--ui-accent); }
 .mono { font-family: var(--ui-font-mono, ui-monospace, monospace); }
+
+
+/* Phone/tablet: cards fit the available sheet width and commands stay legible. */
+@media (max-width: 768px) {
+  .ip { box-sizing: border-box; min-width: 0; padding: 12px; font-size: 13px; }
+  .ip-top { align-items: flex-start; flex-wrap: wrap; }
+  .ip-top-actions { width: 100%; }
+  .ip-grid { grid-template-columns: minmax(0, 1fr); }
+  .ip-card, .ip-row, .ip-foot { min-width: 0; }
+  .ip-blurb, .ip-note-sm, .ip-specs { font-size: 12px; }
+  .ip-link, .ip-copy { min-height: 44px; padding: 9px 12px; }
+  .ip-row { align-items: stretch; }
+  .ip-cmd { flex: 1 1 100%; max-width: 100%; font-size: 11px; white-space: normal; overflow-wrap: anywhere; }
+  .ip-copy { justify-content: center; }
+  .ip-foot { align-items: flex-start; }
+  .ip-foot > span { flex: 1 1 100%; line-height: 1.5; overflow-wrap: anywhere; }
+}
+@media (max-width: 380px) {
+  .ip { padding: 10px; }
+  .ip-title { font-size: 15px; }
+  .ip-top-actions :deep(.ui-btn) { width: 100%; }
+}
 </style>

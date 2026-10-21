@@ -212,4 +212,23 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
 [data-ui-shell='plasma'] .confirm-actions {
   justify-content: flex-end;
 }
+
+
+@media (max-width: 600px) {
+  .confirm-overlay {
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    overflow-y: auto;
+  }
+  .confirm-modal { width: min(440px, 100%); max-width: 440px; box-sizing: border-box; margin: auto; padding: 20px; }
+  .confirm-header { font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
+  .confirm-body { font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+  .confirm-actions { flex-wrap: wrap; }
+  .confirm-btn { min-height: 48px; font-size: 15px; white-space: normal; }
+}
+@media (max-width: 360px) {
+  .confirm-modal { padding: 16px; }
+  .confirm-actions { flex-direction: column-reverse; }
+  .confirm-btn { width: 100%; }
+}
 </style>

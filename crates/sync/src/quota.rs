@@ -1,7 +1,7 @@
 // CyberManju OS — quota / usage probing (AGENT-1)
 //
 // `quota::usage(config)` asks the provider how much room is left. Where an
-// endpoint exists (Drive quotaInfo, GitHub rate-limit) the numbers are real;
+// endpoint exists (Drive storageQuota, GitHub rate-limit) the numbers are real;
 // where the provider exposes none (local disk) the answer
 // is an honest `QuotaUsage` with `None` fields plus a `detail` note — never
 // a fabricated number.
@@ -64,13 +64,13 @@ pub fn usage(config: &SyncConfig) -> Result<QuotaUsage, String> {
     }
 }
 
-// ─── Google Drive: about?fields=quotaInfo ────────────────────────────
+// ─── Google Drive: about?fields=storageQuota ─────────────────────────
 
 fn drive_usage(config: &SyncConfig) -> Result<QuotaUsage, String> {
     let _permit = rate_limit::acquire(&SyncBackendType::GoogleDrive)?;
     let token = oauth::resolve_token(config)?;
     let client = http_client()?;
-    let url = "https://www.googleapis.com/drive/v3/about?fields=user,quotaInfo";
+    let url = "https://www.googleapis.com/drive/v3/about?fields=storageQuota";
 
     let resp = send_classified("Google Drive", "quota", &[], || {
         Ok(client
@@ -84,29 +84,27 @@ fn drive_usage(config: &SyncConfig) -> Result<QuotaUsage, String> {
     let json: serde_json::Value = serde_json::from_str(&body)
         .map_err(|e| format!("network: Google Drive quota response unparseable: {}", e))?;
 
-    let quota = &json["quotaInfo"];
+    Ok(parse_drive_quota(&json))
+}
+
+fn parse_drive_quota(json: &serde_json::Value) -> QuotaUsage {
+    let quota = &json["storageQuota"];
     let used = quota["usage"]
         .as_u64()
         .or_else(|| quota["usage"].as_str().and_then(|s| s.parse().ok()));
-    let trash = quota["usageInDriveTrash"]
-        .as_u64()
-        .or_else(|| {
-            quota["usageInDriveTrash"]
-                .as_str()
-                .and_then(|s| s.parse().ok())
-        })
-        .unwrap_or(0);
     let total = quota["limit"]
         .as_u64()
         .or_else(|| quota["limit"].as_str().and_then(|s| s.parse().ok()));
 
-    let mut usage = QuotaUsage::unknown(SyncBackendType::GoogleDrive, "Drive v3 about/quotaInfo");
-    usage.used_bytes = used.map(|u| u.saturating_add(trash));
+    let mut usage =
+        QuotaUsage::unknown(SyncBackendType::GoogleDrive, "Drive v3 about/storageQuota");
+    // Google reports total usage across all services, including Drive trash.
+    usage.used_bytes = used;
     usage.total_bytes = total;
     if usage.used_bytes.is_none() && usage.total_bytes.is_none() {
-        usage.detail = "Drive returned no quotaInfo for this account".to_string();
+        usage.detail = "Drive returned no storageQuota for this account".to_string();
     }
-    Ok(usage)
+    usage
 }
 
 // ─── GitHub: /rate_limit ─────────────────────────────────────────────
@@ -290,6 +288,24 @@ pub fn charge_disk(db: &Database, config_id: &str, bytes: u64) -> Result<(), Str
 mod volume_tests {
     use super::*;
     use cybermanju_db::Database;
+
+    #[test]
+    fn drive_storage_quota_does_not_double_count_trash() {
+        let usage = parse_drive_quota(&serde_json::json!({
+            "storageQuota": { "limit": "1000", "usage": "100", "usageInDriveTrash": "5" }
+        }));
+        assert_eq!(usage.used_bytes, Some(100));
+        assert_eq!(usage.remaining_bytes(), Some(900));
+    }
+
+    #[test]
+    fn drive_missing_limit_does_not_fabricate_free_space() {
+        let usage = parse_drive_quota(&serde_json::json!({
+            "storageQuota": { "usage": "100" }
+        }));
+        assert_eq!(usage.total_bytes, None);
+        assert_eq!(usage.remaining_bytes(), None);
+    }
 
     #[test]
     fn without_a_substrate_admission_stays_open_and_usage_is_honest() {

@@ -185,6 +185,170 @@ impl Fixture {
 }
 
 #[test]
+fn native_compression_ipc_persists_real_artifacts_and_roundtrips() {
+    let name = "native_crypto_tests::native_compression_ipc_persists_real_artifacts_and_roundtrips";
+    isolated(name, |root| {
+        for layer in ["lz4", "zstd", "brotli", "all"] {
+            let fixture = Fixture::new(root, layer);
+            let artifact = PathBuf::from(format!("{}.cyb3", fixture.path.display()));
+            let stats = fixture.ok(
+                "compress_file",
+                json!({"fileId": fixture.original.id, "layer": layer}),
+            );
+            assert_eq!(stats["originalSize"], fixture.plaintext.len() as u64);
+            assert_eq!(
+                stats["compressedSize"],
+                std::fs::metadata(&artifact).unwrap().len()
+            );
+            assert_eq!(std::fs::read(&fixture.path).unwrap(), fixture.plaintext);
+            let row = fixture.row();
+            assert_eq!(row.size_bytes, fixture.original.size_bytes);
+            assert_eq!(row.hash_blake3, fixture.original.hash_blake3);
+            assert_eq!(row.modified_at, fixture.original.modified_at);
+            assert_eq!(row.context_data.as_ref().unwrap()["note"], "preserve me");
+            let saved_stats = fixture.ok(
+                "get_compression_stats",
+                json!({"fileId": fixture.original.id}),
+            );
+            assert_eq!(saved_stats, stats);
+            let repeated = fixture.ok(
+                "compress_file",
+                json!({"fileId": fixture.original.id, "layer": layer}),
+            );
+            assert_eq!(repeated, stats);
+            let error = fixture
+                .invoke(
+                    "encrypt_file",
+                    json!({"fileId": fixture.original.id, "algorithm": "hybrid"}),
+                )
+                .unwrap_err();
+            assert!(error.as_str().unwrap().starts_with("unsupported:"));
+            fixture.ok("decompress_file", json!({"fileId": fixture.original.id}));
+            assert!(!artifact.exists());
+            assert_eq!(std::fs::read(&fixture.path).unwrap(), fixture.plaintext);
+            assert_eq!(fixture.row(), fixture.original);
+        }
+    });
+}
+
+#[test]
+fn native_compression_ipc_rejects_corruption_and_changed_source() {
+    let name = "native_crypto_tests::native_compression_ipc_rejects_corruption_and_changed_source";
+    isolated(name, |root| {
+        let fixture = Fixture::new(root, "tamper");
+        let artifact = PathBuf::from(format!("{}.cyb3", fixture.path.display()));
+        fixture.ok(
+            "compress_file",
+            json!({"fileId": fixture.original.id, "layer": "lz4"}),
+        );
+        let compressed_row = fixture.row();
+        let bytes = std::fs::read(&artifact).unwrap();
+        std::fs::write(&artifact, b"corrupt artifact").unwrap();
+        let error = fixture
+            .invoke("decompress_file", json!({"fileId": fixture.original.id}))
+            .unwrap_err();
+        assert!(error.as_str().unwrap().starts_with("integrity:"));
+        assert_eq!(fixture.row(), compressed_row);
+        assert_eq!(std::fs::read(&fixture.path).unwrap(), fixture.plaintext);
+        std::fs::write(&artifact, &bytes).unwrap();
+        std::fs::write(&fixture.path, b"externally changed source").unwrap();
+        let error = fixture
+            .invoke("decompress_file", json!({"fileId": fixture.original.id}))
+            .unwrap_err();
+        assert!(error.as_str().unwrap().starts_with("conflict:"));
+        assert_eq!(fixture.row(), compressed_row);
+        assert_eq!(
+            std::fs::read(&fixture.path).unwrap(),
+            b"externally changed source"
+        );
+        assert_eq!(std::fs::read(&artifact).unwrap(), bytes);
+        std::fs::remove_file(&fixture.path).unwrap();
+        fixture.ok("decompress_file", json!({"fileId": fixture.original.id}));
+        assert_eq!(std::fs::read(&fixture.path).unwrap(), fixture.plaintext);
+        assert_eq!(fixture.row(), fixture.original);
+        assert!(!artifact.exists());
+    });
+}
+
+#[test]
+fn native_compression_ipc_refuses_unavailable_sources_and_collisions() {
+    let name =
+        "native_crypto_tests::native_compression_ipc_refuses_unavailable_sources_and_collisions";
+    isolated(name, |root| {
+        let fixture = Fixture::new(root, "guards");
+        let save = |node: &FileNode| {
+            let state = fixture.app.state::<AppState>();
+            let db = state.db.write().unwrap();
+            let tx = db.begin_write().unwrap();
+            {
+                let mut table = tx.open_table(Database::get_files_table()).unwrap();
+                let row = serde_json::to_string(node).unwrap();
+                table.insert(node.id.as_str(), row.as_str()).unwrap();
+            }
+            tx.commit().unwrap();
+        };
+        for kind in ["folder", "encrypted", "missing"] {
+            let mut node = fixture.original.clone();
+            match kind {
+                "folder" => node.file_type = "folder".to_string(),
+                "encrypted" => node.encrypted = true,
+                _ => node.context_data = None,
+            }
+            save(&node);
+            let error = fixture
+                .invoke("compress_file", json!({"fileId": node.id, "layer": "zstd"}))
+                .unwrap_err();
+            assert!(error.as_str().unwrap().starts_with(if kind == "missing" {
+                "not_found:"
+            } else {
+                "unsupported:"
+            }));
+            assert_eq!(fixture.row(), node);
+        }
+        save(&fixture.original);
+        let artifact = PathBuf::from(format!("{}.cyb3", fixture.path.display()));
+        std::fs::write(&artifact, b"unrelated artifact").unwrap();
+        let error = fixture
+            .invoke(
+                "compress_file",
+                json!({"fileId": fixture.original.id, "layer": "zstd"}),
+            )
+            .unwrap_err();
+        assert!(error.as_str().unwrap().starts_with("conflict:"));
+        assert_eq!(std::fs::read(&artifact).unwrap(), b"unrelated artifact");
+        assert_eq!(fixture.row(), fixture.original);
+    });
+}
+
+#[test]
+fn native_oplog_ipc_commands_are_registered_and_fail_closed() {
+    let name = "native_crypto_tests::native_oplog_ipc_commands_are_registered_and_fail_closed";
+    isolated(name, |root| {
+        let fixture = Fixture::new(root, "oplog");
+        let conflicts = fixture.ok("oplog_conflicts", json!({}));
+        assert_eq!(conflicts["conflicts"], json!([]));
+        let page = fixture.ok("oplog_since", json!({"since": 0, "limit": 10}));
+        assert!(page["head"].is_number());
+        assert!(page["ops"].is_array());
+
+        let push_error = fixture
+            .invoke(
+                "oplog_push",
+                json!({"deviceId": "", "ops": [], "signature": "", "algorithm": ""}),
+            )
+            .unwrap_err();
+        assert!(push_error.as_str().unwrap().starts_with("auth:"));
+        let resolve_error = fixture
+            .invoke(
+                "oplog_resolve",
+                json!({"opA": "", "opB": "", "choice": "merge"}),
+            )
+            .unwrap_err();
+        assert!(resolve_error.as_str().unwrap().starts_with("invalid:"));
+    });
+}
+
+#[test]
 fn native_crypto_ipc_binary_roundtrip() {
     let name = "native_crypto_tests::native_crypto_ipc_binary_roundtrip";
     isolated(name, |root| {

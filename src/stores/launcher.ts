@@ -12,6 +12,30 @@ import type { OverrideMap } from '@/utils/launcher'
 
 const LS_KEY = 'cybermanju.launcher.overrides.v1'
 const LS_SEEN_KEY = 'cybermanju.launcher.messagesSeen.v1'
+const LS_DRAWER_KEY = 'cybermanju.launcher.drawerDisplay.v1'
+export type DrawerDisplayMode = 'names' | 'icons' | 'both'
+const LS_FAVORITES_KEY = 'cybermanju.launcher.favorites.v1'
+const DEFAULT_FAVORITES = ['files', 'agent', 'terminal', 'settings']
+const FAVORITE_PANELS = new Set(['files', 'search', 'agent', 'storage', 'accounts', 'terminal', 'editor', 'sync', 'map', 'collections', 'settings', 'trash'])
+
+function readFavorites(): string[] {
+  try {
+    const raw = localStorage.getItem(LS_FAVORITES_KEY)
+    if (raw == null) return [...DEFAULT_FAVORITES]
+    const value: unknown = JSON.parse(raw)
+    if (Array.isArray(value)) return [...new Set(value.filter((p): p is string => typeof p === 'string' && FAVORITE_PANELS.has(p)))].slice(0, 6)
+  } catch { /* Fall back to the standard shortcuts. */ }
+  return [...DEFAULT_FAVORITES]
+}
+
+function readDrawerDisplay(): DrawerDisplayMode {
+  try {
+    const mode = localStorage.getItem(LS_DRAWER_KEY)
+    return mode === 'names' || mode === 'icons' ? mode : 'both'
+  } catch {
+    return 'both'
+  }
+}
 
 function readStored(): OverrideMap {
   try {
@@ -37,6 +61,23 @@ function readStored(): OverrideMap {
 
 export const useLauncherStore = defineStore('launcher', () => {
   const overrides = ref<OverrideMap>(readStored())
+  const favorites = ref<string[]>(readFavorites())
+  function setFavorites(panels: string[]) {
+    favorites.value = [...new Set(panels.filter(panel => FAVORITE_PANELS.has(panel)))].slice(0, 6)
+    try { localStorage.setItem(LS_FAVORITES_KEY, JSON.stringify(favorites.value)) } catch { /* Session-only. */ }
+  }
+  function toggleFavorite(panel: string) {
+    if (favorites.value.includes(panel)) setFavorites(favorites.value.filter(p => p !== panel))
+    else if (favorites.value.length < 6) setFavorites([...favorites.value, panel])
+  }
+  function resetFavorites() { setFavorites(DEFAULT_FAVORITES) }
+  /** Separate from per-app overrides: changing layout never resets custom icons. */
+  const drawerDisplay = ref<DrawerDisplayMode>(readDrawerDisplay())
+  function setDrawerDisplay(mode: string | number) {
+    if (mode !== 'names' && mode !== 'icons' && mode !== 'both') return
+    drawerDisplay.value = mode
+    try { localStorage.setItem(LS_DRAWER_KEY, mode) } catch { /* Session-only when storage is unavailable. */ }
+  }
   /** Drawer open state — home swipe-up and the handle button share it. */
   const drawerOpen = ref(false)
   /** Notification-center open state — the bell icons toggle it. */
@@ -136,5 +177,5 @@ export const useLauncherStore = defineStore('launcher', () => {
     // Session-only.
   }
 
-  return { overrides, drawerOpen, messagesOpen, centerTab, messagesSeenAt, get, patch, rename, setIcon, setIconPack, hide, pinToEnd, move, swap, reset, setDrawer, setMessagesOpen, markMessagesSeen }
+  return { overrides, favorites, setFavorites, toggleFavorite, resetFavorites, drawerDisplay, setDrawerDisplay, drawerOpen, messagesOpen, centerTab, messagesSeenAt, get, patch, rename, setIcon, setIconPack, hide, pinToEnd, move, swap, reset, setDrawer, setMessagesOpen, markMessagesSeen }
 })

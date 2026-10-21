@@ -2,7 +2,7 @@
 // Role: cybsh CLI command.
 // Exports: ghAsset, ghRelease.
 // Integrates: archive, compress, crypto, encoding, fmt, io.
-// Contracts: none special (pure logic; errors bubble to caller).
+// Contracts: require one exact-name SHA-256 checksum and one regular root executable before installing a release.
 package cmd
 
 import (
@@ -148,10 +148,17 @@ func verifyChecksum(sumsFile, tarball, asset string) error {
 	var want string
 	for _, line := range strings.Split(string(raw), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) == 2 && (fields[1] == asset || strings.HasSuffix(fields[1], "/"+asset)) {
-			want = strings.ToLower(fields[0])
-			break
+		// GNU sha256sum uses an optional '*' binary marker before the exact filename.
+		if len(fields) < 2 || strings.TrimPrefix(fields[1], "*") != asset {
+			continue
 		}
+		if len(fields) != 2 {
+			return fmt.Errorf("invalid checksum entry for %s", asset)
+		}
+		if want != "" {
+			return fmt.Errorf("duplicate checksum entry for %s", asset)
+		}
+		want = strings.ToLower(fields[0])
 	}
 	if want == "" {
 		return fmt.Errorf("no checksum entry for %s", asset)
@@ -196,6 +203,11 @@ func extractBinary(tarball, dir string) (string, error) {
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
+	name := "cyb"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	var dest string
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -204,12 +216,17 @@ func extractBinary(tarball, dir string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		base := filepath.Base(hdr.Name)
-		if base != "cyb" && base != "cyb.exe" {
+		if hdr.Name != name && hdr.Name != "./"+name {
 			continue
 		}
-		dest := filepath.Join(dir, base)
-		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+		if dest != "" {
+			return "", fmt.Errorf("integrity: tarball contains duplicate %s entries", name)
+		}
+		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+			return "", fmt.Errorf("integrity: tarball %s entry is not a regular file", name)
+		}
+		dest = filepath.Join(dir, name)
+		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o755)
 		if err != nil {
 			return "", err
 		}
@@ -217,10 +234,14 @@ func extractBinary(tarball, dir string) (string, error) {
 			out.Close()
 			return "", err
 		}
-		out.Close()
-		return dest, nil
+		if err := out.Close(); err != nil {
+			return "", err
+		}
 	}
-	return "", fmt.Errorf("integrity: tarball contains no cyb binary")
+	if dest == "" {
+		return "", fmt.Errorf("integrity: tarball contains no root %s binary", name)
+	}
+	return dest, nil
 }
 
 func init() {

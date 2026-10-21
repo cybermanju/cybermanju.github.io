@@ -335,6 +335,19 @@ function highlightTerms(text: string, query: string): string {
   .search-result-score { max-width: 24%; }
 }
 
+@media (max-width: 768px) {
+  .panel-search { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .search-toolbar { align-items: stretch; }
+  .search-toolbar :deep(button), .search-toolbar :deep(select), .search-toolbar :deep(input) {
+    min-height: 44px;
+  }
+  .search-toolbar :deep(select), .search-toolbar :deep(input) { font-size: 16px; }
+  .search-filter-scroller { width: 100%; padding-bottom: 2px; }
+  .search-result-item { min-height: 48px; }
+  .search-result-name, .search-result-snippet { overflow-wrap: anywhere; }
+  .scene-strip { max-width: 100%; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .search-filter-scroller,
   .scene-strip { scroll-behavior: auto; }

@@ -279,4 +279,62 @@ describe('buildGraphHtml', () => {
     expect(html).toContain('\\u003c');
     expect(html).not.toMatch(/A<b>/);
   });
+
+  it('provides a compact mobile toolbar with a collapsible details drawer and accessible touch targets', () => {
+    const html = buildGraphHtml({
+      subjects: SUBJECTS,
+      collected: makeCollected(),
+      kg: makeKg(),
+      version: '0.0.0-test',
+      commit: null,
+    });
+    expect(html).toContain('viewport-fit=cover');
+    expect(html).toContain('height: 100dvh');
+    expect(html).toContain('env(safe-area-inset-top');
+    expect(html).toContain('env(safe-area-inset-bottom');
+    expect(html).toContain('<div id="mobile-toolbar">');
+    expect(html).toContain('<details id="mobile-drawer" open>');
+    expect(html).toContain('aria-label="Show graph details, subjects, and theme controls"');
+    expect(html).toContain('aria-label="Search symbols and modules"');
+    expect(html).toContain('min-height: 44px');
+    expect(html).toContain('@media (max-width: 900px) and (orientation: landscape)');
+    expect(html).toContain('mobileDrawer.open = !mobileLayout.matches');
+    expect(html).toContain("matchMedia('(max-width: 900px)')");
+    expect(html).toContain('id="vis-network-script" async');
+    expect(html).toContain('id="graph-status" role="status" aria-live="polite"');
+    expect(html).toContain('function showGraphLoadError()');
+    expect(html).toContain('Check the connection and reload this page.');
+  });
+
+  it('supports mobile pan and pinch while using network tap events instead of click-on-hover selection', () => {
+    const html = buildGraphHtml({
+      subjects: SUBJECTS,
+      collected: makeCollected(),
+      kg: makeKg(),
+      version: '0.0.0-test',
+      commit: null,
+    });
+    expect(html).toContain('touch-action: none');
+    expect(html).toContain('dragView: true');
+    expect(html).toContain('zoomView: true');
+    expect(html).toContain("network.on('click', params => {");
+    expect(html).not.toContain("container.addEventListener('click'");
+    expect(html).toContain('window.visualViewport?.addEventListener');
+    expect(html).toContain('new ResizeObserver(redrawGraph).observe(container)');
+    expect(html).toContain("el.setAttribute('role', 'option')");
+    expect(html).toContain("el.type = 'button'");
+  });
+
+  it('keeps the desktop sidebar dimensions and desktop drawer contents available', () => {
+    const html = buildGraphHtml({
+      subjects: SUBJECTS,
+      collected: makeCollected(),
+      kg: makeKg(),
+      version: '0.0.0-test',
+      commit: null,
+    });
+    expect(html).toContain('#sidebar { width: 300px;');
+    expect(html).toContain('#mobile-toolbar, #mobile-drawer, .drawer-content { display: contents; }');
+    expect(html).toContain('if (mobileLayout.addEventListener) mobileLayout.addEventListener');
+  });
 });

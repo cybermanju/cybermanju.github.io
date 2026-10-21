@@ -19,6 +19,7 @@ pub mod files;
 pub mod import;
 pub mod launcher;
 pub mod map;
+pub mod oplog;
 pub mod os_metrics;
 pub mod os_shell;
 pub mod p2p;

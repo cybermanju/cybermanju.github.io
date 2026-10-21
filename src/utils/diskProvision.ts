@@ -124,6 +124,7 @@ export function buildDiskSeedFiles(
   disk: DiskRef,
   sizeBytes: number,
   providerLabel: string,
+  vaultSeeded = false,
 ): RemoteSeedFile[] {
   const name = disk.name || disk.id
   const readme = [
@@ -131,8 +132,10 @@ export function buildDiskSeedFiles(
     '',
     `CyberManju OS disk \`${disk.id}\` on ${providerLabel}.`,
     '',
-    `- \`${DISK_VAULT_NAME}\` — encrypted vault mirror for this disk (the file this app opens).`,
+    `- \`${DISK_VAULT_NAME}\` — ${vaultSeeded ? 'encrypted snapshot supplied at creation' : 'folder marker only; not an encrypted vault snapshot'}.`,
     `- \`${DISK_MANIFEST_NAME}\` — disk manifest (disk id, size, updated-at).`,
+    '',
+    'Capacity is a logical limit, not preallocated cloud space. Content is uploaded separately by writes/sync; this seed file is not a continuously growing block container.',
     '',
     '> Do not edit these files by hand — use the app so hashes stay verifiable.',
     '',
@@ -145,6 +148,8 @@ export function buildDiskSeedFiles(
       diskId: disk.id,
       diskName: disk.name ?? disk.id,
       sizeBytes,
+      allocation: 'on-demand',
+      vaultRole: vaultSeeded ? 'snapshot' : 'marker',
       vaultFile: `${dir}/${DISK_VAULT_NAME}`,
       updatedAt: new Date().toISOString(),
     },
@@ -169,6 +174,9 @@ export async function ensureRemoteForDisk(deps: DiskProvisionDeps): Promise<Disk
   }
   const token = deps.token.trim()
   if (!token) throw new Error('auth: remote provisioning needs a token — connect with OAuth or paste one first')
+  if (deps.vaultBytes && deps.vaultBytes.length > 5 * 1024 * 1024) {
+    throw new Error('too_large: encrypted snapshot exceeds the 5 MiB seed limit; no remote seed was uploaded. Use the normal content sync path instead.')
+  }
   const dir = diskRemoteDir(deps.disk)
   const branch = deps.branch?.trim() || deps.config.branch || 'main'
   let config = deps.config
@@ -201,11 +209,10 @@ export async function ensureRemoteForDisk(deps: DiskProvisionDeps): Promise<Disk
     repoCreated = true
   }
 
-  const files = buildDiskSeedFiles(dir, deps.disk, deps.sizeBytes, backend)
-  let vaultSeeded = false
-  if (deps.vaultBytes && deps.vaultBytes.length > 0 && deps.vaultBytes.length <= 5 * 1024 * 1024) {
+  const vaultSeeded = !!deps.vaultBytes?.length
+  const files = buildDiskSeedFiles(dir, deps.disk, deps.sizeBytes, backend, vaultSeeded)
+  if (deps.vaultBytes && vaultSeeded) {
     files.push({ path: `${dir}/${DISK_VAULT_NAME}`, contentBase64: encodeBytesBase64(deps.vaultBytes) })
-    vaultSeeded = true
   } else {
     files.push({
       path: `${dir}/${DISK_VAULT_NAME}`,

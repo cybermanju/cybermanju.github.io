@@ -690,4 +690,29 @@ onMounted(async () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+@media (max-width: 768px) {
+  .archive-panel { box-sizing: border-box; min-width: 0; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .panel-header { position: sticky; top: 0; z-index: 2; background: var(--ui-surface); padding: 10px 12px; }
+  .panel-title { font-size: 14px; letter-spacing: 1px; }
+  .ghost-btn, .link-chip, .alias-chip button, .todo-x { min-height: 44px; }
+  .ghost-btn { padding: 8px 12px; }
+  .ar-tabs { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; padding: 6px 10px 0; }
+  .ar-tabs button { flex: 0 0 auto; min-width: 76px; min-height: 44px; padding: 8px 10px; white-space: nowrap; }
+  .section { padding: 12px; }
+  .create-row { align-items: stretch; flex-wrap: wrap; }
+  .create-row > .input { flex: 1 1 100%; width: 100%; box-sizing: border-box; min-height: 44px; font-size: 16px; }
+  .create-row > .ghost-btn { flex: 1 1 auto; }
+  .input, .field select { box-sizing: border-box; max-width: 100%; min-height: 44px; font-size: 16px; }
+  .tl-controls { flex-wrap: wrap; }
+  .tl-controls .input { width: 100%; }
+  .todo-row, .bm-row { gap: 8px; min-height: 44px; }
+  .todo-row > .truncate, .bm-row > .truncate { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .todo-x { flex: 0 0 44px; }
+  .alias-chip { min-height: 36px; align-items: center; }
+  .alias-chip button { min-width: 36px; }
+  .note-body { max-height: min(40vh, 320px); }
+  .dataset-scroll { max-width: 100%; overscroll-behavior-x: contain; }
+  .dataset-table { width: max-content; min-width: 100%; }
+}
 </style>

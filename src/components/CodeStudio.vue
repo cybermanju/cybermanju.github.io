@@ -34,12 +34,31 @@
     </header>
 
     <nav v-if="isMobileLayout" class="cs-mobilebar" aria-label="Editor navigation">
-      <button v-for="a in activities" :key="a.id" type="button" :class="{ active: mobileExplorerOpen && sideView === a.id }" :aria-label="a.label" @click="openMobileSideView(a.id)">
-        <AppIcon :name="a.icon" :size="17" /><span>{{ a.id }}</span>
+      <button type="button" class="cs-menu-trigger" :aria-expanded="mobileMenuOpen" aria-controls="cs-mobile-menu" :aria-label="mobileMenuOpen ? 'Close Code Studio menu' : 'Open Code Studio menu'" @click="mobileMenuOpen = !mobileMenuOpen">
+        <AppIcon :name="mobileMenuOpen ? 'solar:close-bold' : 'solar:hamburger-menu-bold'" :size="18" /><span>{{ mobileMenuOpen ? 'Close' : 'Menu' }}</span>
       </button>
       <button type="button" :class="{ active: aiOpen }" aria-label="AI agent" @click="toggleMobileAgent"><AppIcon name="solar:bot-bold" :size="17" /><span>Agent</span></button>
       <button type="button" :class="{ active: bottomOpen }" aria-label="Terminal" @click="toggleMobileTerminal"><AppIcon name="solar:file-terminal-bold" :size="17" /><span>Terminal</span></button>
     </nav>
+
+    <div v-if="isMobileLayout && mobileMenuOpen" id="cs-mobile-menu" class="cs-mobile-menu" role="dialog" aria-modal="true" aria-label="Code Studio menu" @keydown.esc.stop="mobileMenuOpen = false">
+      <button class="cs-mobile-menu-backdrop" type="button" aria-label="Close Code Studio menu" @click="mobileMenuOpen = false" />
+      <div class="cs-mobile-menu-panel">
+        <div class="cs-mobile-menu-head"><b>Code Studio</b><button type="button" class="cs-ibtn" aria-label="Close menu" @click="mobileMenuOpen = false"><AppIcon name="solar:close-bold" :size="17" /></button></div>
+        <div class="cs-mobile-menu-group" role="group" aria-label="Navigate">
+          <span>Navigate</span>
+          <button v-for="a in activities" :key="a.id" type="button" :class="{ active: sideView === a.id && mobileExplorerOpen }" @click="openMobileSideView(a.id)"><AppIcon :name="a.icon" :size="18" />{{ a.label }}</button>
+          <button type="button" @click="wm.open('settings'); mobileMenuOpen = false"><AppIcon name="solar:settings-bold" :size="18" />Settings</button>
+        </div>
+        <div class="cs-mobile-menu-group" role="group" aria-label="Files and editor">
+          <span>Files &amp; editor</span>
+          <button type="button" @click="openMobileCreate('file')"><AppIcon name="solar:file-add-bold" :size="18" />New file</button>
+          <button type="button" @click="openMobileCreate('folder')"><AppIcon name="solar:add-folder-bold" :size="18" />New folder</button>
+          <button type="button" :disabled="!focusTab || saving" @click="saveTab(focusTab); mobileMenuOpen = false"><AppIcon name="solar:diskette-bold" :size="18" />{{ saving ? 'Saving…' : 'Save current file' }}</button>
+          <button type="button" :disabled="!focusTab" @click="splitRight(); mobileMenuOpen = false"><AppIcon name="solar:columns-3-bold" :size="18" />Split editor</button>
+        </div>
+      </div>
+    </div>
 
     <div class="cs-mid">
       <!-- ══ ACTIVITY BAR ══ -->
@@ -58,19 +77,26 @@
         <template v-if="sideView === 'files'">
           <div class="cs-side-h">EXPLORER
             <span class="cs-spacer" />
-            <button class="cs-ibtn" title="Refresh" @click="refreshExplorer"><AppIcon name="solar:refresh-bold" :size="12" /></button>
-            <button v-if="isWasm" class="cs-ibtn" title="New file here" @click="wasmNewShow = !wasmNewShow"><AppIcon name="solar:add-bold" :size="12" /></button>
+            <button class="cs-ibtn" type="button" title="Refresh files" aria-label="Refresh files" @click="refreshExplorer"><AppIcon name="solar:refresh-bold" :size="14" /></button>
             <button class="cs-ibtn cs-drawer-close" title="Close panel" aria-label="Close panel" @click="sideView = ''"><AppIcon name="solar:close-bold" :size="12" /></button>
+          </div>
+          <div class="cs-explorer-actions" role="group" aria-label="Create files and folders">
+            <button class="cs-btn" type="button" @click="startCreateItem('file')"><AppIcon name="solar:file-add-bold" :size="15" /><span>New file</span></button>
+            <button class="cs-btn" type="button" @click="startCreateItem('folder')"><AppIcon name="solar:add-folder-bold" :size="15" /><span>New folder</span></button>
           </div>
           <input v-model="explorerFilter" class="cs-input" placeholder="Filter files…" spellcheck="false" />
           <div v-if="isWasm" class="cs-pathrow">
             <button class="cs-ibtn" :disabled="wasmCwd === '/'" title="Up" @click="wasmUp"><AppIcon name="solar:arrow-up-bold" :size="12" /></button>
             <span class="mono dim truncate">{{ wasmCwd }}</span>
           </div>
-          <div v-if="isWasm && wasmNewShow" class="cs-pathrow">
-            <input v-model="newFileName" class="cs-input" placeholder="new-file.txt" spellcheck="false" @keyup.enter="createWasmFile" />
-            <button class="cs-btn xs" @click="createWasmFile">Create</button>
-          </div>
+          <form v-if="newItemKind" class="cs-new-item" @submit.prevent="createExplorerItem">
+            <label class="dim" :for="newItemKind === 'file' ? 'cs-new-file-name' : 'cs-new-folder-name'">{{ newItemKind === 'file' ? 'New file name' : 'New folder name' }}</label>
+            <div class="cs-pathrow">
+              <input :id="newItemKind === 'file' ? 'cs-new-file-name' : 'cs-new-folder-name'" v-model="newItemName" class="cs-input" :placeholder="newItemKind === 'file' ? 'new-file.txt' : 'folder-name'" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off" />
+              <button class="cs-btn primary" type="submit" :disabled="!newItemName.trim()">Create</button>
+              <button class="cs-btn" type="button" aria-label="Cancel create" @click="newItemKind = null; newItemName = ''">Cancel</button>
+            </div>
+          </form>
           <div class="cs-tree">
             <template v-if="!isWasm">
               <TreeRow v-for="n in treeRoots" :key="n.id" :node="n" :depth="0" :active-key="focusTab?.key" @open="openNode" />
@@ -417,10 +443,14 @@ const isDesktop = computed(() => transportBackend.value === 'tauri')
 const isWasm = computed(() => transportBackend.value === 'wasm')
 const isMobileLayout = ref(false)
 const mobileExplorerOpen = ref(false)
+const mobileMenuOpen = ref(false)
 const mobileMedia = typeof window !== 'undefined' ? window.matchMedia('(max-width: 860px)') : null
 const syncMobileLayout = () => {
   isMobileLayout.value = mobileMedia?.matches ?? false
-  if (!isMobileLayout.value) mobileExplorerOpen.value = false
+  if (!isMobileLayout.value) {
+    mobileExplorerOpen.value = false
+    mobileMenuOpen.value = false
+  }
 }
 const transportLabel = computed(() => (isDesktop.value ? 'DESKTOP' : isWasm.value ? 'WASM LOCAL' : 'WEB / REST'))
 
@@ -558,8 +588,8 @@ function splitRight() {
 
 const wasmCwd = ref('/')
 const wasmEntries = ref<string[]>([])
-const wasmNewShow = ref(false)
-const newFileName = ref('')
+const newItemKind = ref<'file' | 'folder' | null>(null)
+const newItemName = ref('')
 const wasmEntriesFiltered = computed(() => {
   const q = explorerFilter.value.trim().toLowerCase()
   return wasmEntries.value.filter(n => !q || n.toLowerCase().includes(q)).map(name => {
@@ -572,6 +602,60 @@ async function refreshExplorer() {
   if (isWasm.value) wasmEntries.value = await store.listWasmDir(wasmCwd.value)
   else await store.fetchFiles()
 }
+function startCreateItem(kind: 'file' | 'folder') {
+  newItemKind.value = kind
+  newItemName.value = ''
+  nextTick(() => document.getElementById(kind === 'file' ? 'cs-new-file-name' : 'cs-new-folder-name')?.focus())
+}
+function openMobileCreate(kind: 'file' | 'folder') {
+  mobileMenuOpen.value = false
+  aiOpen.value = false
+  bottomOpen.value = false
+  sideView.value = 'files'
+  mobileExplorerOpen.value = true
+  startCreateItem(kind)
+}
+function shellDoubleQuote(value: string) {
+  return `"${value.replace(/[\\"$`]/g, '\\$&')}"`
+}
+async function createExplorerItem() {
+  const kind = newItemKind.value
+  const name = newItemName.value.trim().replace(/[\\/]+/g, '_')
+  if (!kind || !name) return
+  try {
+    if (kind === 'file') {
+      if (isWasm.value) {
+        const path = wasmCwd.value === '/' ? `/${name}` : `${wasmCwd.value}/${name}`
+        if (!await store.saveWasmFile(path, '')) return
+        await refreshExplorer()
+        newItemKind.value = null
+        newItemName.value = ''
+        await openWasmPath(path, name)
+        return
+      }
+      const result = await invoke<{ fileNode?: FileNode }>('upload_file', { fileName: name, fileData: [], parentPath: '/' })
+      await refreshExplorer()
+      newItemKind.value = null
+      newItemName.value = ''
+      const created = result?.fileNode ?? store.files.find(f => f.name === name && f.fileType === 'file')
+      if (created) await openNode(created)
+      return
+    }
+
+    if (isWasm.value) {
+      const path = wasmCwd.value === '/' ? `/${name}` : `${wasmCwd.value}/${name}`
+      const result = await invoke<{ ok: boolean; output: string }>('os_exec', { line: `mkdir -p ${shellDoubleQuote(path)}` })
+      if (result && !result.ok) throw new Error(result.output || 'Could not create folder')
+    } else {
+      await store.createFolder(name, '/')
+    }
+    newItemKind.value = null
+    newItemName.value = ''
+    await refreshExplorer()
+  } catch (e) {
+    store.notifyError(`Failed to create ${kind}`, e)
+  }
+}
 function wasmUp() {
   if (wasmCwd.value === '/') return
   const p = wasmCwd.value.split('/').filter(Boolean)
@@ -580,17 +664,6 @@ function wasmUp() {
   void refreshExplorer()
 }
 function navigateWasm(path: string) { wasmCwd.value = path; void refreshExplorer() }
-async function createWasmFile() {
-  const name = newFileName.value.trim().replace(/\//g, '_')
-  if (!name) return
-  const full = wasmCwd.value === '/' ? `/${name}` : `${wasmCwd.value}/${name}`
-  newFileName.value = ''
-  wasmNewShow.value = false
-  if (await store.saveWasmFile(full, '')) {
-    await refreshExplorer()
-    await openWasmPath(full, name)
-  }
-}
 async function openWasmPath(path: string, label: string) {
   const key = `w:${path}`
   const existing = tabs.value.find(t => t.key === key)
@@ -950,6 +1023,8 @@ function onGlobalKey(e: KeyboardEvent) {
     return
   }
   if (e.ctrlKey && e.key === '`' && !inPrompt) { e.preventDefault(); bottomOpen.value = !bottomOpen.value; return }
+  if (e.key === 'Escape' && mobileMenuOpen.value && !inPrompt) { mobileMenuOpen.value = false; return }
+  if (e.key === 'Escape' && mobileExplorerOpen.value && !inPrompt) { mobileExplorerOpen.value = false; return }
   if (e.key === 'Escape' && sideView.value && !inPrompt) { sideView.value = ''; return }
   if (e.key === 'Escape' && findOpen.value && !inPrompt) { findOpen.value = false; return }
 }
@@ -1029,17 +1104,20 @@ async function completeTerm() {
 
 const aiOpen = ref(!(mobileMedia?.matches ?? false))
 function openMobileSideView(view: string) {
+  mobileMenuOpen.value = false
   aiOpen.value = false
   bottomOpen.value = false
   if (sideView.value === view && mobileExplorerOpen.value) mobileExplorerOpen.value = false
   else { sideView.value = view; mobileExplorerOpen.value = true }
 }
 function toggleMobileAgent() {
+  mobileMenuOpen.value = false
   aiOpen.value = !aiOpen.value
   mobileExplorerOpen.value = false
   if (aiOpen.value) bottomOpen.value = false
 }
 function toggleMobileTerminal() {
+  mobileMenuOpen.value = false
   bottomTab.value = 'term'
   bottomOpen.value = !bottomOpen.value
   mobileExplorerOpen.value = false
@@ -1441,6 +1519,9 @@ onBeforeUnmount(() => { mobileMedia?.removeEventListener('change', syncMobileLay
 .cs-snip { font-size: 10px; }
 .cs-empty { padding: 10px; font-size: 11px; text-align: center; }
 .cs-pathrow { display: flex; align-items: center; gap: 6px; }
+.cs-explorer-actions { display: flex; gap: 6px; }
+.cs-explorer-actions .cs-btn { flex: 1; justify-content: center; }
+.cs-new-item { display: flex; flex-direction: column; gap: 5px; padding: 2px 0; }
 .cs-intel-src { display: flex; gap: 4px; }
 .cs-intel-src button { flex: 1; padding: 4px 0; font-size: 11px; font-weight: 500;
   background: transparent; border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); color: var(--ui-text-3); border-radius: 8px; cursor: pointer; }
@@ -1591,6 +1672,7 @@ onBeforeUnmount(() => { mobileMedia?.removeEventListener('change', syncMobileLay
 @media (max-width: 1100px) { .cs-ai { width: 270px; } .cs-side { width: 190px; } }
 @media (max-width: 860px) {
   .cs { min-height: 0; }
+  .cs button { min-height: 44px; }
   .cs-top { display: flex; flex-wrap: nowrap; gap: 8px; padding: 7px 9px; }
   .cs-top .cs-logo b { display: none; }
   .cs-mobile-file { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; color: var(--ui-text); font-size: 12px; }
@@ -1599,13 +1681,23 @@ onBeforeUnmount(() => { mobileMedia?.removeEventListener('change', syncMobileLay
   .cs-transport, .cs-engine { display: none; }
   .cs-top .cs-btn[title="Split editor right"], .cs-top > .cs-voice-group,
   .cs-top .cs-btn[title="Toggle panel (Ctrl+`)"] { display: none; }
-  .cs-top .cs-btn { min-height: 40px; padding: 7px 9px; }
+  .cs-top .cs-btn { min-height: 44px; padding: 7px 9px; }
   .cs-top .cs-btn-label { display: none; }
   .cs-top .cs-btn[title="Toggle AI panel (Ctrl+G)"] { min-width: 42px; justify-content: center; color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 36%, transparent); }
-  .cs-mobilebar { display: flex; align-items: stretch; gap: 3px; flex: 0 0 auto; overflow-x: auto; padding: 4px 6px; border-bottom: 1px solid var(--ui-hairline); background: var(--ui-surface); scrollbar-width: none; }
+  .cs-mobilebar { display: flex; align-items: stretch; gap: 4px; flex: 0 0 auto; overflow-x: hidden; padding: 4px 6px; border-bottom: 1px solid var(--ui-hairline); background: var(--ui-surface); scrollbar-width: none; }
   .cs-mobilebar::-webkit-scrollbar { display: none; }
-  .cs-mobilebar button { display: flex; flex: 1 0 48px; min-width: 48px; min-height: 46px; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 3px 4px; border: 1px solid transparent; border-radius: 11px; background: transparent; color: var(--ui-text-3); font: inherit; font-size: 9px; text-transform: capitalize; white-space: nowrap; }
+  .cs-mobilebar button { display: flex; flex: 1 1 0; min-width: 0; min-height: 48px; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 3px 4px; border: 1px solid transparent; border-radius: 11px; background: transparent; color: var(--ui-text-3); font: inherit; font-size: 10px; text-transform: capitalize; white-space: nowrap; }
   .cs-mobilebar button.active { color: var(--ui-accent); border-color: color-mix(in srgb, var(--ui-accent) 28%, transparent); background: var(--ui-accent-softer); }
+  .cs-mobile-menu { position: absolute; z-index: 50; inset: 0; display: flex; background: color-mix(in srgb, #000 36%, transparent); }
+  .cs-mobile-menu-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 0; background: transparent; }
+  .cs-mobile-menu-panel { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 12px; width: min(88vw, 360px); height: 100%; overflow-y: auto; box-sizing: border-box; padding: max(12px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom)); border-right: 1px solid var(--ui-border); background: var(--ui-surface-2); box-shadow: var(--ui-shadow-3); overscroll-behavior: contain; }
+  .cs-mobile-menu-head { display: flex; align-items: center; justify-content: space-between; min-height: 48px; border-bottom: 1px solid var(--ui-hairline); }
+  .cs-mobile-menu-head .cs-ibtn { min-width: 44px; min-height: 44px; }
+  .cs-mobile-menu-group { display: flex; flex-direction: column; gap: 5px; }
+  .cs-mobile-menu-group > span { padding: 4px 6px; color: var(--ui-text-3); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+  .cs-mobile-menu-group button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--ui-text) 8%, transparent); border-radius: 11px; background: color-mix(in srgb, var(--ui-text) 3%, transparent); color: var(--ui-text-2); font: inherit; font-size: 14px; text-align: left; }
+  .cs-mobile-menu-group button.active { color: var(--ui-accent); background: var(--ui-accent-softer); }
+  .cs-mobile-menu-group button:disabled { opacity: .45; }
   .cs-mid { flex: 1; min-height: 0; overflow: hidden; }
   .cs-activity { display: none; }
   .cs-side { display: none; position: absolute; z-index: 31; inset: 0 12px 0 0; width: auto; max-width: none; padding: 10px 10px max(10px, env(safe-area-inset-bottom)); border: 1px solid var(--ui-border); border-radius: 0 18px 18px 0; background: var(--ui-surface-2); box-shadow: var(--ui-shadow-3); overflow: hidden; }
@@ -1613,6 +1705,10 @@ onBeforeUnmount(() => { mobileMedia?.removeEventListener('change', syncMobileLay
   .cs-drawer-backdrop { display: block; position: absolute; z-index: 30; inset: 0; width: 100%; height: 100%; border: 0; padding: 0; background: color-mix(in srgb, #000 32%, transparent); cursor: pointer; }
   .cs-drawer-close, .cs-side .cs-ibtn { min-width: 44px; min-height: 44px; }
   .cs-side-h { min-height: 44px; }
+  .cs-explorer-actions .cs-btn { min-width: 0; min-height: 48px; padding: 6px 8px; font-size: 12px; }
+  .cs-new-item .cs-pathrow { flex-wrap: wrap; }
+  .cs-new-item .cs-pathrow .cs-input { flex: 1 1 100%; }
+  .cs-new-item .cs-pathrow .cs-btn { flex: 1; min-height: 44px; }
   .cs-input, .cs-select { min-height: 44px; font-size: 16px; }
   .cs-trow { min-height: 44px; padding: 8px 7px; }
   .cs-tabs { min-height: 44px; }
@@ -1621,7 +1717,9 @@ onBeforeUnmount(() => { mobileMedia?.removeEventListener('change', syncMobileLay
   .cs-edcol { position: relative; flex: 1; min-width: 0; min-height: 0; }
   .cs-groups.split { flex-direction: column; }
   .cs-groups.split .cs-group { width: 100%; min-height: 0; }
-  .cs-input2, .cs-hl { padding-bottom: calc(10px + env(safe-area-inset-bottom)); font-size: 13px !important; line-height: 1.6; }
+  .cs-groups, .cs-group, .cs-edcol, .cs-pane, .cs-code { min-width: 0; max-width: 100%; }
+  .cs-input2, .cs-hl { box-sizing: border-box; max-width: 100%; padding-bottom: calc(10px + env(safe-area-inset-bottom)); font-size: 13px !important; line-height: 1.6; }
+  .cs-input2 { touch-action: pan-x pan-y; overscroll-behavior: contain; }
   .cs-status { gap: 6px; padding: 5px 8px; font-size: 9px; }
   .cs-aistat { max-width: 28%; }
   .cs-find { padding: 8px; gap: 6px; }

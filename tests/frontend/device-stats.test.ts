@@ -66,6 +66,22 @@ describe('formatTopLine', () => {
       'app CPU 12.3% · app RSS 50.0 MB · RAM 5.0 GB / 8.0 GB · load 0.42',
     )
   })
+  it.each([undefined, null, NaN, Infinity, -Infinity, -1, 9_000_000_000, '3000000000'])(
+    'does not invent RAM usage when availableBytes is %s', (availableBytes) => {
+      const line = formatTopLine({
+        mem: { totalBytes: 8_000_000_000, availableBytes: availableBytes as never },
+      })
+      expect(line).toContain('RAM n/a / 8.0 GB')
+      expect(line).not.toContain('RAM 8.0 GB / 8.0 GB')
+    },
+  )
+  it.each([
+    { availableBytes: 0, expected: '8.0 GB' },
+    { availableBytes: 8_000_000_000, expected: '0 KB' },
+  ])('preserves real RAM boundary reading $availableBytes', ({ availableBytes, expected }) => {
+    expect(formatTopLine({ mem: { totalBytes: 8_000_000_000, availableBytes } }))
+      .toContain(`RAM ${expected} / 8.0 GB`)
+  })
   it('never throws on hostile shapes', () => {
     expect(() => formatTopLine({} as never)).not.toThrow()
     expect(() => formatTopLine({ mem: null, load: { source: 'proc' } } as never)).not.toThrow()

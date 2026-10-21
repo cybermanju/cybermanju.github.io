@@ -18,6 +18,20 @@
 | Launcher icon | `public/icon-512.png` (512x512 RGBA) → `gen/…/res/mipmap-*` via `scripts/android-icons.sh` (`tauri icon` per the official flow). `tauri android init` stamps the Tauri template's DEFAULT icons — without the sync step every APK ships the Tauri logo |
 | Play track | manual upload of the `.aab` (internal track first). No auto-publish yet |
 
+Install `CyberManju-OS-<ver>-arm64-v8a.apk` on an arm64 phone. The accompanying
+`.aab` is a Play upload bundle, **not a directly installable APK**; renaming it
+does not make it installable. Compare APK sizes only with other APKs: the AAB
+compresses the native library while the APK stores it uncompressed for direct
+loading. CI run `39520562520`, for example, produced a 49,338,817-byte APK and
+a 20,398,822-byte AAB with byte-identical native libraries, not half an app.
+
+`python3 scripts/verify-android-package.py [outputs-dir]` requires both formats,
+the APK manifest/DEX and the arm64 Rust library, verifies ELF architecture and
+16-KiB LOAD alignment, checks ZIP alignment of uncompressed native libraries,
+and compares APK/AAB native payloads. It logs exact file sizes and fails before
+upload on missing, corrupt, wrong-ABI, misaligned or mismatched payloads. This
+is a packaging gate, not proof of installation or startup on a physical phone.
+
 ABI debt: `armv7`/`i686` targets are NOT installed in CI (waste) and not
 shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
 + extend the `--split-per-abi` matrix here.
@@ -78,6 +92,31 @@ shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
   grantable `content://` URIs with `FLAG_GRANT_READ_URI_PERMISSION`
   because `file://` data throws `FileUriExposedException` on Android 7+.
   Marker-guarded + idempotent like every other manifest patch.
+
+### Default Home lifecycle
+
+The actual MAIN/LAUNCHER activity also receives MAIN/HOME/DEFAULT and explicit
+`singleTask`/`exported=true` attributes. `scripts/android-home-activity.py`
+extends generated `MainActivity.kt` without replacing Tauri's `onCreate` or
+deep-link/plugin forwarding. HOME intents update `Activity.intent`, request a
+fresh WebView layout, and deliver an acknowledged `cybermanju:android-home`
+event after Vue is ready. HOME clears transient overlays/search and minimizes
+open sheets rather than destroying them. Ordinary resumes (including OAuth
+returns) do not reset the UI. No cache/storage clearing or page reload is used.
+
+The mobile viewport ignores zero/invalid measurements during startup or while
+hidden, retains its last usable size (or CSS `100dvh`), and retries/re-measures
+on resize, focus, pageshow, visibility and HOME return.
+
+`scripts/android-smoke.sh` checks visible WebView content for normal launch,
+cold MAIN/HOME launch, and HOME return from Android Settings; process liveness
+alone is not sufficient. It does not change the device's default Home choice.
+An available compatible device is still required to run these checks. For
+release acceptance, also select CyberManju OS under Android's Default apps →
+Home app, reboot/unlock, press Home repeatedly, launch another app and return
+Home, rotate, and repeat after background process death. Confirm the launcher,
+All apps, search and Settings remain visible and usable, while OAuth/file-open
+intents still work. Generation/unit tests are not a substitute for this check.
 
 ## 4. Storage model (scoped storage)
 
@@ -158,9 +197,10 @@ shipped. If `ort-sys` ever publishes other Android ABIs, re-add the target
    (`android-configure.sh`) → Gradle harden (`android-gradle-harden.sh`) →
    signing prepare (`android-signing.sh prepare`, `REQUIRE_SIGNING=1` on
    release + GitLab) → build (`--apk --aab --split-per-abi`) →
-   `apksigner verify` (`android-signing.sh verify`) → on-device smoke
-   (`android-smoke.sh`; `continue-on-error` on GitHub, best-effort on
-   GitLab — skips without an arm64 emulator) → cleanup
+   `apksigner verify` (`android-signing.sh verify`) → native payload/packaging
+   verification (`verify-android-package.py`) → on-device smoke
+   (`android-smoke.sh`; an attached compatible device's failure is blocking,
+   absence or ABI mismatch is an explicit skip) → cleanup
    (`android-signing.sh cleanup`, shreds the keystore — `if: always()` on
    GitHub, `after_script` on GitLab, so a failed build/verify shreds too) →
    upload APK+AAB.

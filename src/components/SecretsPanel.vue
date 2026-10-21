@@ -504,6 +504,9 @@ async function runImport() {
   display: grid;
   grid-template-columns: 180px 1fr minmax(260px, 320px);
   height: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
   min-height: 0;
   color: var(--ui-fg, #e8ecef);
   background: var(--ui-bg, #0a0f0f);
@@ -645,8 +648,30 @@ async function runImport() {
 }
 .sp-import-err { color: var(--ui-danger); }
 @media (max-width: 820px) {
-  .sp { grid-template-columns: 1fr; }
-  .sp-side { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--ui-border, rgba(255, 255, 255, 0.08)); }
-  .sp-detail { border-left: 0; border-top: 1px solid var(--ui-border, rgba(255, 255, 255, 0.08)); }
+  .sp { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(220px, 1fr) minmax(0, auto); overflow-y: auto; }
+  .sp-side { flex-direction: row; min-width: 0; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid var(--ui-border, rgba(255, 255, 255, 0.08)); }
+  .sp-cat { flex: 0 0 auto; min-height: 44px; white-space: nowrap; }
+  .sp-side-foot { display: none; }
+  .sp-main { min-height: 220px; }
+  .sp-top { flex-wrap: wrap; align-items: center; }
+  .sp-top :deep(.sp-search) { flex: 1 1 100%; min-width: 0; }
+  .sp-top :deep(.ui-btn) { flex: 1 1 auto; min-height: 44px; }
+  .sp-row { min-height: 48px; }
+  .sp-detail { min-width: 0; max-height: 42vh; overflow-y: auto; border-left: 0; border-top: 1px solid var(--ui-border, rgba(255, 255, 255, 0.08)); }
+  .sp-detail-head { flex-wrap: wrap; }
+  .sp-detail-title { min-width: 0; overflow-wrap: anywhere; }
+  .sp-detail-actions { flex: 1 1 100%; }
+  .sp-detail-actions :deep(.ui-btn) { flex: 1 1 auto; min-height: 44px; }
+  .sp-field { flex-wrap: wrap; }
+  .sp-field-label { flex: 0 0 100%; }
+  .sp-field-value { flex: 1 1 100%; overflow-wrap: anywhere; }
+  .sp-field :deep(.ui-btn) { flex: 1 1 auto; min-height: 44px; }
+  .sp-form-row { grid-template-columns: minmax(0, 1fr); }
+  .sp-value-row { flex-wrap: wrap; }
+  .sp-value-input { box-sizing: border-box; min-width: 0; min-height: 44px; flex: 1 1 100%; font-size: 16px; }
+  .sp-value-row :deep(.ui-btn), .sp-form-foot :deep(.ui-btn) { min-height: 44px; }
+  .sp-form-foot { flex-wrap: wrap; }
+  .sp-form-foot :deep(.ui-btn) { flex: 1 1 auto; }
+  .sp-import-area { min-height: 160px; font-size: 13px; }
 }
 </style>

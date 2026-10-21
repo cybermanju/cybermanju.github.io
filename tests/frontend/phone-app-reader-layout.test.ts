@@ -1,0 +1,91 @@
+// CyberManju OS — Phone app reader layout.test (tests/frontend/phone-app-reader-layout.test.ts).
+// Role: Vitest frontend suite.
+// Exports: module root (see items below).
+// Integrates: node:fs, vitest.
+// Contracts: none special (pure logic; errors bubble to caller).
+import { readFileSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
+const panel = readFileSync('src/components/AgentPanel.vue', 'utf8')
+const picker = readFileSync('src/components/PhoneAppReader.vue', 'utf8')
+const state = readFileSync('src/composables/useAppScreenReader.ts', 'utf8')
+
+describe('Phone app-reader UI contract', () => {
+  it('always opens the phone choice before separate CyberManju and Other App paths', () => {
+    expect(panel).toContain('aria-label="Choose phone mode"')
+    expect(panel).toContain("phoneMode = 'cybermanju'")
+    expect(panel).toContain('@click="openOtherApp">Other App</UiButton>')
+    expect(panel).toContain("if (open) phoneMode.value = 'choice'")
+    expect(panel).toContain('<PhoneAppReader v-if="phoneMode === \'other\'" />')
+  })
+  it('single tap delegates one package to native; never launches before overlay preparation', () => {
+    expect(picker).toContain("@click=\"chooseMode('one')\"")
+    expect(picker).toContain('@click="start([app.packageName])"')
+    expect(picker).not.toMatch(/launcher_open_app|\.openApp\(/)
+    expect(picker).not.toMatch(/androidVoiceCommand|useVoiceCall/)
+    expect(state).toContain('new AndroidScreenReader()')
+    expect(state).not.toContain('android_screen_reader_command')
+    expect(picker).toContain(':src="app.iconBase64"')
+    expect(picker).toContain('@error="failIcon(app.packageName)"')
+  })
+  it('batch keeps ordered multi-selection, requires two apps and delegates progress to native', () => {
+    expect(picker).toContain("@click=\"chooseMode('batch')\"")
+    expect(picker).toContain('...selected.value, packageName')
+    expect(picker).toContain('!canStart || selected.length < 2')
+    expect(picker).toContain('@click="start(selected)"')
+    expect(picker).toContain('aria-label="Batch progress"')
+    expect(picker).toContain('Use Select screen in the Android overlay')
+  })
+  it('requires explicit consent, visible sessions and a stop control; no hidden-monitoring promise', () => {
+    expect(picker).toContain('v-model="consent"')
+    expect(picker).toContain('&& consent.value')
+    expect(picker).toContain('permission for each session')
+    expect(picker).toContain('persistent notification')
+    expect(picker).toContain('@click="reader.stop">Stop screen reading')
+    expect(panel).toContain('@click="screenReader.stop">Stop')
+    expect(state).toContain('expiresAt: Date.now() + SCREEN_READER_TIMEOUT_MS')
+    expect(picker).toContain('Text recognition (OCR) can miss content')
+    expect(picker).toContain('selected.length > 20')
+    expect(picker).toContain('reader.status.value.lastError')
+    expect(picker).toContain('reader.overlaySettings')
+    expect(picker).toContain('clearTimeout(timer)')
+    expect(picker).toContain("document.removeEventListener('visibilitychange', onVisibility)")
+  })
+  it('reconciles native session after resume even when the reader modal has been closed', () => {
+    expect(panel).toContain("window.addEventListener('focus', refreshScreenReaderOnResume)")
+    expect(panel).toContain("window.removeEventListener('focus', refreshScreenReaderOnResume)")
+    expect(panel).toContain('screenReader.active.value || screenReader.uncertain.value')
+    expect(picker).toContain('This browser cannot list or open your installed apps.')
+    expect(picker).toContain('if (installed.supported && !document.hidden)')
+    expect(picker).toContain('min-height: 56px')
+  })
+  it('separates overlay from per-session projection and explains system controls', () => {
+    expect(picker).toContain('Two separate approvals:')
+    expect(picker).toContain('it does not allow screen capture')
+    expect(picker).toContain('There is no screen-capture toggle in Settings')
+    expect(picker).toContain('Sharing one app does not automatically share the other apps in a batch')
+    expect(picker).toContain('Android 15 QPR1+')
+    expect(picker).toContain('locking the device stops projection')
+  })
+  it('shows unknown, denied and granted overlay states without assuming Settings success', () => {
+    expect(picker).toContain('Not verified · refresh status before starting.')
+    expect(picker).toContain("reader.status.value.overlayGranted ? 'Allowed'")
+    expect(picker).toContain('Opening Settings does not grant access')
+    expect(picker).toContain('Android 11+: Settings opens the overlay app list')
+    expect(picker).toContain('Android 6–10 may open')
+    expect(picker).toContain('If the shortcut is unavailable')
+    expect(picker).toContain('Returning never automatically starts screen sharing')
+    expect(picker).toContain('Permission denied or cancelled')
+    expect(picker).toContain('sharing will not restart automatically')
+    expect(picker).toContain('Accessibility is a separate permission')
+  })
+  it('gates denied notifications and provides only the native Settings action', () => {
+    expect(picker).toContain('reader.status.value.notificationGranted !== false')
+    expect(picker).toContain('reader.status.value.notificationsEnabled !== false')
+    expect(picker).toContain('Not reported by this Android app version')
+    expect(picker).toContain('@click="reader.notificationSettings"')
+    expect(picker).toContain('Android 8+ opens CyberManju’s notification settings')
+    expect(picker).toContain('Android 7.x opens its app details')
+    expect(picker).toContain('Opening permission Settings ends any screen-sharing session')
+    expect(picker).toContain('it never resumes capture')
+  })
+})

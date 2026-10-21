@@ -24,8 +24,14 @@ export function useAndroidApps() {
     status.value = 'loading'
     lastError.value = null
     const run = (async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined
       try {
-        const rows = await invoke<AndroidApp[]>('launcher_list_apps')
+        const rows = await Promise.race([
+          invoke<AndroidApp[]>('launcher_list_apps'),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('Android app list timed out. Refresh apps to try again.')), 10_000)
+          }),
+        ])
         apps.value = Array.isArray(rows) ? rows : []
         status.value = 'ready'
         return apps.value
@@ -34,6 +40,7 @@ export function useAndroidApps() {
         lastError.value = e instanceof Error ? e.message : String(e)
         throw e
       } finally {
+        clearTimeout(timer)
         inFlight = null
       }
     })()
