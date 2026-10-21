@@ -96,7 +96,8 @@ fn parse_drive_quota(json: &serde_json::Value) -> QuotaUsage {
         .as_u64()
         .or_else(|| quota["limit"].as_str().and_then(|s| s.parse().ok()));
 
-    let mut usage = QuotaUsage::unknown(SyncBackendType::GoogleDrive, "Drive v3 about/storageQuota");
+    let mut usage =
+        QuotaUsage::unknown(SyncBackendType::GoogleDrive, "Drive v3 about/storageQuota");
     // Google reports total usage across all services, including Drive trash.
     usage.used_bytes = used;
     usage.total_bytes = total;

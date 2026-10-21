@@ -98,6 +98,13 @@ describe('Android voice services installer', () => {
     expect(endOfSpeech).toBeTruthy()
     expect(endOfSpeech).not.toContain('emit(')
   })
+  it('reports microphone permission independently from recognition provider availability', () => {
+    const bridge = readFileSync(join(root, 'native/android/CybermanjuVoiceServices.kt'), 'utf8')
+    const transport = readFileSync(join(root, 'src/utils/androidVoice.ts'), 'utf8')
+    expect(bridge).toContain('.put("recognitionAvailable", SpeechRecognizer.isRecognitionAvailable(a))')
+    expect(bridge).toContain('.put("microphoneGranted", a.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)')
+    expect(transport).toContain('microphoneGranted: boolean')
+  })
   it('preserves the exact static JNI signature and does not add an agent/REST route', () => {
     const launcher = readFileSync(join(root, 'crates/launcher/src/lib.rs'), 'utf8')
     const transport = readFileSync(join(root, 'src/utils/androidVoice.ts'), 'utf8')

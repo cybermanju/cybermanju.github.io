@@ -268,6 +268,7 @@ class CybermanjuVoiceServices {
             }
             return JSONObject().put("android", true)
                 .put("recognitionAvailable", SpeechRecognizer.isRecognitionAvailable(a))
+                .put("microphoneGranted", a.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
                 .put("notificationAccess", notifications)
                 .put("accessibilityEnabled", accessibilityEnabled(a))
                 .put("selectedPackages", JSONArray(selectedPackages(a).toList()))

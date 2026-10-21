@@ -9,6 +9,7 @@ import { isAndroidApp, isTauri } from '@/composables/useTauri'
 export interface AndroidVoiceStatus {
   android: boolean
   recognitionAvailable: boolean
+  microphoneGranted: boolean
   notificationAccess: boolean
   accessibilityEnabled: boolean
   selectedPackages: string[]
