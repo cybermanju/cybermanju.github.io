@@ -37,7 +37,7 @@ def install(android_dir):
     # Use the same generated source root as MainActivity (Java or Kotlin).
     dest = mains[0].parent
     dest.mkdir(parents=True, exist_ok=True)
-    for name in ("CybermanjuVoiceServices.kt", "CybermanjuVoiceAccessibility.kt"):
+    for name in ("CybermanjuVoiceServices.kt", "CybermanjuVoiceAccessibility.kt", "CybermanjuScreenReader.kt", "CybermanjuScreenOcr.kt"):
         content = (source_dir / name).read_text(encoding="utf-8").replace("__PACKAGE__", package)
         (dest / name).write_text(content, encoding="utf-8")
     gradle = base / "app/build.gradle.kts"
@@ -73,11 +73,20 @@ def install(android_dir):
         gradle_text = (gradle_text[:release_start] + "\n            " + reference +
                        " // CyberManju native voice JNI\n" + gradle_text[release_start:])
         gradle.write_text(gradle_text, encoding="utf-8")
+    # Bundled Latin OCR works on-device without a first-use model download.
+    # Use Google's bundled ML Kit artifact, not the Play-services lazy-model variant.
+    ocr_dependency = 'implementation("com.google.mlkit:text-recognition:16.0.1")'
+    if ocr_dependency not in gradle_text:
+        gradle_text += '\n// CyberManju explicit local screen reading\ndependencies {\n    ' + ocr_dependency + '\n}\n'
+        gradle.write_text(gradle_text, encoding="utf-8")
     rules = base / "app" / rule_name
     keep = f"-keep class {package}.CybermanjuVoiceServices {{ public static java.lang.String dispatch(android.app.Activity,java.lang.String,java.lang.String); }}"
     existing = rules.read_text(encoding="utf-8") if rules.exists() else ""
     if keep not in existing:
         rules.write_text(existing + ("" if not existing or existing.endswith("\n") else "\n") + keep + "\n", encoding="utf-8")
+    reader_keep = f"-keep class {package}.CybermanjuScreenReader {{ public static org.json.JSONObject dispatch(android.app.Activity,java.lang.String,org.json.JSONObject); }}\n-keep class {package}.CybermanjuScreenReaderConsentActivity {{ *; }}\n-keep class {package}.CybermanjuScreenReaderService {{ *; }}"
+    if reader_keep not in existing:
+        rules.write_text((rules.read_text(encoding="utf-8") if rules.exists() else "") + "\n" + reader_keep + "\n", encoding="utf-8")
     xml_dir = main / "res/xml"
     xml_dir.mkdir(parents=True, exist_ok=True)
     (xml_dir / "cybermanju_voice_accessibility.xml").write_text(
@@ -112,10 +121,12 @@ def install(android_dir):
     if queries is None:
         queries = ET.Element("queries")
         root.insert(list(root).index(app), queries)
-    for action in ("android.speech.RecognitionService", "android.speech.action.RECOGNIZE_SPEECH", "android.intent.action.TTS_SERVICE"):
+    for action in ("android.speech.RecognitionService", "android.speech.action.RECOGNIZE_SPEECH", "android.intent.action.TTS_SERVICE", "android.intent.action.MAIN"):
         if not any(x.get(f"{{{ANDROID}}}name") == action for q in queries.findall("intent") for x in q.findall("action")):
             intent = ET.SubElement(queries, "intent")
             ET.SubElement(intent, "action", {f"{{{ANDROID}}}name": action})
+            if action == "android.intent.action.MAIN":
+                ET.SubElement(intent, "category", {f"{{{ANDROID}}}name": "android.intent.category.LAUNCHER"})
     services = [(".CybermanjuVoiceNotificationListener", "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE", "android.service.notification.NotificationListenerService", None),
                 (".CybermanjuVoiceAccessibility", "android.permission.BIND_ACCESSIBILITY_SERVICE", "android.accessibilityservice.AccessibilityService", "@xml/cybermanju_voice_accessibility")]
     for name, permission, action, meta in services:
@@ -132,6 +143,14 @@ def install(android_dir):
             ET.SubElement(f, "action", {f"{{{ANDROID}}}name": action})
         if meta and not any(m.get(f"{{{ANDROID}}}name") == "android.accessibilityservice" for m in existing.findall("meta-data")):
             ET.SubElement(existing, "meta-data", {f"{{{ANDROID}}}name": "android.accessibilityservice", f"{{{ANDROID}}}resource": meta})
+    # Projection and overlay are opt-in, declared once; neither grants itself.
+    for permission in ("android.permission.FOREGROUND_SERVICE", "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION", "android.permission.SYSTEM_ALERT_WINDOW", "android.permission.POST_NOTIFICATIONS"):
+        if not any(e.get(f"{{{ANDROID}}}name") == permission for e in root.findall("uses-permission")):
+            root.insert(list(root).index(app), ET.Element("uses-permission", {f"{{{ANDROID}}}name": permission}))
+    for name, attrs in [(".CybermanjuScreenReaderConsentActivity", {"exported": "false", "theme": "@android:style/Theme.Translucent.NoTitleBar"}), (".CybermanjuScreenReaderService", {"exported": "false", "foregroundServiceType": "mediaProjection"})]:
+        el = next((x for x in app if x.tag in ("activity", "service") and x.get(f"{{{ANDROID}}}name") in (name, package + name)), None)
+        if el is None: el = ET.SubElement(app, "activity" if "Activity" in name else "service", {f"{{{ANDROID}}}name": name})
+        for key, value in attrs.items(): el.set(f"{{{ANDROID}}}{key}", value)
     # ElementTree normalizes XML only on first install; subsequent output is byte-stable.
     tree.write(manifest, encoding="utf-8", xml_declaration=True)
 
