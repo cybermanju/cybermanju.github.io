@@ -10,6 +10,10 @@ export const UI_LAYOUT_RESET_EVENT = 'cybermanju:ui-layout-reset'
 export const UI_LAYOUT_MODE_EVENT = 'cybermanju:ui-layout-mode'
 export const UI_LAYOUT_SWAP_EVENT = 'cybermanju:ui-layout-swap'
 export const UI_LAYOUT_STORAGE_KEY = 'cybermanju.ui.layout.v1'
+export const UI_LAYOUT_SIZE_STORAGE_KEY = 'cybermanju.ui.sizes.v1'
+export const UI_LAYOUT_MODE_RESIZE = 'resize' as const
+const MIN_SIZE = 48
+const MAX_SIZE_FRACTION = 0.95
 const MAX_ENTRIES = 500
 const MAX_ID_LENGTH = 512
 const EDIT_CLASS = 'ui-layout-editing'
@@ -17,6 +21,22 @@ const X_VAR = '--ui-layout-x'
 const Y_VAR = '--ui-layout-y'
 export interface UiLayoutOffset { x: number; y: number }
 export type UiLayoutMap = Record<string, UiLayoutOffset>
+export interface UiLayoutSize { width: number; height: number }
+export type UiLayoutSizeMap = Record<string, UiLayoutSize>
+/** Width/height are normalized viewport fractions, isolated from position storage. */
+export function validateUiLayoutSizes(value: unknown): UiLayoutSizeMap {
+  const result: UiLayoutSizeMap = Object.create(null)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return result
+  for (const [id, raw] of Object.entries(value).slice(0, MAX_ENTRIES)) {
+    if (!id || id.length > MAX_ID_LENGTH || ['__proto__', 'prototype', 'constructor'].includes(id) || !raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+    const { width, height } = raw as Record<string, unknown>
+    if (typeof width === 'number' && typeof height === 'number' && Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) result[id] = { width: Math.min(MAX_SIZE_FRACTION, Math.max(0.02, width)), height: Math.min(MAX_SIZE_FRACTION, Math.max(0.02, height)) }
+  }
+  return result
+}
+export function readUiLayoutSizes(storage?: Pick<Storage, 'getItem'> | null): UiLayoutSizeMap {
+  try { const target = storage === undefined ? (typeof localStorage !== 'undefined' ? localStorage : null) : storage; return validateUiLayoutSizes(JSON.parse(target?.getItem(UI_LAYOUT_SIZE_STORAGE_KEY) ?? 'null')) } catch { return validateUiLayoutSizes(null) }
+}
 export interface UiLayoutSwapRequest {
   source: HTMLElement
   start: { left: number; top: number }
@@ -56,23 +76,25 @@ export function readUiLayout(storage?: Pick<Storage, 'getItem'> | null): UiLayou
   } catch { return validateUiLayout(null) }
 }
 interface Snapshot {
-  translate: string; x: string; y: string; position: string; zIndex: string; touchAction: string
+  translate: string; x: string; y: string; position: string; zIndex: string; touchAction: string; width: string; height: string
+  minWidth: string; maxWidth: string; minHeight: string; maxHeight: string; boxSizing: string; flex: string
   baseX: string; baseY: string
 }
 interface Rect { left: number; top: number; width: number; height: number }
 interface Drag {
-  element: HTMLElement; id: string; pointerId: number; x: number; y: number
-  original?: UiLayoutOffset; start: UiLayoutOffset; base: Rect; moved: boolean
+  element: HTMLElement; id: string; pointerId: number; x: number; y: number; sizeOriginal?: UiLayoutSize
+  original?: UiLayoutOffset; start: UiLayoutOffset; base: Rect; moved: boolean; kind: 'move' | 'resize'; pendingX?: number; pendingY?: number
 }
 interface Runtime { root: HTMLElement; cleanup: () => void; setEditing: (value: boolean) => void; reset: () => void; entities: () => UiLayoutEntity[] }
 let activeRuntime: Runtime | null = null
 const emit = (name: string, detail?: unknown) => window.dispatchEvent(new CustomEvent(name, { detail }))
 function eligible(el: HTMLElement, root: HTMLElement): boolean {
-  return el.isConnected && el !== root && el.hasAttribute('data-ui-layout-id') &&
-    !el.closest('[data-ui-layout-ignore], [data-home-item], .desktop-icons') &&
+  const homeItem = el.hasAttribute('data-home-item')
+  return el.isConnected && el !== root && (el.hasAttribute('data-ui-layout-id') || homeItem) &&
+    !el.closest('[data-ui-layout-ignore]') &&
     !el.matches('html, body, #app, .mla, [data-ui-layout-shell]')
 }
-function size() { return { width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) } }
+function size() { return { width: Math.max(1, typeof window === 'undefined' ? 1 : window.innerWidth), height: Math.max(1, typeof window === 'undefined' ? 1 : window.innerHeight) } }
 /** Independent translate composes with the component's original transform and translate. */
 function translationParts(value: string): [string, string] {
   if (!value || value === 'none') return ['0px', '0px']
@@ -82,17 +104,19 @@ function translationParts(value: string): [string, string] {
 export function installUiLayout(root: HTMLElement): () => void {
   activeRuntime?.cleanup()
   const offsets = readUiLayout()
+  const dimensions = readUiLayoutSizes()
   const originals = new Map<HTMLElement, Snapshot>()
   const unclipped = new Map<HTMLElement, { overflow: string; overflowX: string; overflowY: string }>()
   let editing = false
-  let mode: 'move' | 'swap' = 'move'
+  let mode: 'move' | 'swap' | 'resize' | 'appearance' = 'move'
+  let frame: number | ReturnType<typeof setTimeout> = 0
   let drag: Drag | null = null
   let suppressClickUntil = 0
   let entry: { pointer: number; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null
   let swapTarget: HTMLElement | null = null
   let disposed = false
-  const idOf = (el: HTMLElement) => el.getAttribute('data-ui-layout-id') || ''
-  const targets = () => Array.from(root.querySelectorAll<HTMLElement>('[data-ui-layout-id]')).filter(el => eligible(el, root))
+  const idOf = (el: HTMLElement) => el.getAttribute('data-ui-layout-id') || (el.hasAttribute('data-home-item') ? `home:${el.getAttribute('data-home-item')}` : '')
+  const targets = () => Array.from(root.querySelectorAll<HTMLElement>('[data-ui-layout-id], [data-home-item]')).filter(el => eligible(el, root))
   const status = (message: string) => emit('cybermanju:ui-layout-status', { message })
   const save = () => {
     try { localStorage.setItem(UI_LAYOUT_STORAGE_KEY, JSON.stringify(offsets)); status('Component positions saved on this device.') }
@@ -103,7 +127,7 @@ export function installUiLayout(root: HTMLElement): () => void {
     if (!original) {
       const css = typeof getComputedStyle === 'function' ? getComputedStyle(el) : null
       const [baseX, baseY] = translationParts(css?.translate || el.style.translate)
-      original = { translate: el.style.translate, x: el.style.getPropertyValue(X_VAR), y: el.style.getPropertyValue(Y_VAR), position: el.style.position, zIndex: el.style.zIndex, touchAction: el.style.touchAction, baseX, baseY }
+      original = { translate: el.style.translate, x: el.style.getPropertyValue(X_VAR), y: el.style.getPropertyValue(Y_VAR), position: el.style.position, zIndex: el.style.zIndex, touchAction: el.style.touchAction, width: el.style.width, height: el.style.height, minWidth: el.style.minWidth, maxWidth: el.style.maxWidth, minHeight: el.style.minHeight, maxHeight: el.style.maxHeight, boxSizing: el.style.boxSizing, flex: el.style.flex, baseX, baseY }
       originals.set(el, original)
     }
     return original
@@ -111,11 +135,21 @@ export function installUiLayout(root: HTMLElement): () => void {
   function restore(el: HTMLElement) {
     const original = originals.get(el)
     if (!original) return // Never erase unrelated/home-owned inline styles.
-    el.style.translate = original.translate
-    el.style.position = original.position
-    el.style.zIndex = original.zIndex
-    original.x ? el.style.setProperty(X_VAR, original.x) : el.style.removeProperty(X_VAR)
-    original.y ? el.style.setProperty(Y_VAR, original.y) : el.style.removeProperty(Y_VAR)
+    if (!el.closest('[data-home-item], .desktop-icons')) {
+      el.style.translate = original.translate
+      el.style.position = original.position
+      el.style.zIndex = original.zIndex
+      original.x ? el.style.setProperty(X_VAR, original.x) : el.style.removeProperty(X_VAR)
+      original.y ? el.style.setProperty(Y_VAR, original.y) : el.style.removeProperty(Y_VAR)
+    }
+    el.style.width = original.width
+    el.style.height = original.height
+    el.style.minWidth = original.minWidth
+    el.style.maxWidth = original.maxWidth
+    el.style.minHeight = original.minHeight
+    el.style.maxHeight = original.maxHeight
+    el.style.boxSizing = original.boxSizing
+    el.style.flex = original.flex
   }
   function unclip(el: HTMLElement) {
     for (let parent = el.parentElement; parent && parent !== root && parent.id !== 'app'; parent = parent.parentElement) {
@@ -136,9 +170,15 @@ export function installUiLayout(root: HTMLElement): () => void {
   function apply(el: HTMLElement) {
     if (!eligible(el, root)) return
     const p = offsets[idOf(el)]
-    if (!p) { restore(el); return }
+    const dimensionsForEl = dimensions[idOf(el)]
+    if (!p && !dimensionsForEl) { restore(el); return }
     const original = snapshot(el)
     const { width, height } = size()
+    if (dimensionsForEl) {
+      el.style.width = `${Math.round(dimensionsForEl.width * width * 100) / 100}px`; el.style.height = `${Math.round(dimensionsForEl.height * height * 100) / 100}px`
+      el.style.boxSizing = 'border-box'; el.style.minWidth = '0px'; el.style.maxWidth = 'none'; el.style.minHeight = '0px'; el.style.maxHeight = 'none'; el.style.flex = '0 0 auto'
+    } else { el.style.width = original.width; el.style.height = original.height; el.style.minWidth = original.minWidth; el.style.maxWidth = original.maxWidth; el.style.minHeight = original.minHeight; el.style.maxHeight = original.maxHeight; el.style.boxSizing = original.boxSizing; el.style.flex = original.flex }
+    if (!p) { restore(el); if (dimensionsForEl) { el.style.width = `${Math.round(dimensionsForEl.width * width * 100) / 100}px`; el.style.height = `${Math.round(dimensionsForEl.height * height * 100) / 100}px`; el.style.boxSizing = 'border-box'; el.style.minWidth = '0px'; el.style.maxWidth = 'none'; el.style.minHeight = '0px'; el.style.maxHeight = 'none'; el.style.flex = '0 0 auto' } return }
     el.style.setProperty(X_VAR, `${p.x * width}px`)
     el.style.setProperty(Y_VAR, `${p.y * height}px`)
     el.style.translate = `calc(${original.baseX} + var(${X_VAR})) calc(${original.baseY} + var(${Y_VAR}))`
@@ -181,15 +221,17 @@ export function installUiLayout(root: HTMLElement): () => void {
   function clearSwap() { swapTarget?.removeAttribute('data-ui-layout-swap-target'); swapTarget = null }
   function clearEntry() { if (entry) clearTimeout(entry.timer); entry = null }
   function finish(cancel: boolean) {
+    if (frame) { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame as number); else clearTimeout(frame as ReturnType<typeof setTimeout>); frame = 0 }
     const current = drag
     if (!current) return
     drag = null
     if (cancel) {
       if (current.original) offsets[current.id] = current.original
       else delete offsets[current.id]
+      if (current.kind === 'resize') { if (current.sizeOriginal) dimensions[current.id] = current.sizeOriginal; else delete dimensions[current.id] }
       restore(current.element)
       apply(current.element)
-      status('Move cancelled.')
+      status(current.kind === 'resize' ? 'Resize cancelled.' : 'Move cancelled.')
     }
     current.element.removeAttribute('data-ui-layout-dragging')
     try { if (current.element.hasPointerCapture(current.pointerId)) current.element.releasePointerCapture(current.pointerId) } catch { /* Removed or synthetic pointer. */ }
@@ -203,7 +245,7 @@ export function installUiLayout(root: HTMLElement): () => void {
     reconcile()
   }
   function closest(event: Event): HTMLElement | null {
-    return event.target instanceof Element ? event.target.closest<HTMLElement>('[data-ui-layout-id]') : null
+    return event.target instanceof Element ? event.target.closest<HTMLElement>('[data-ui-layout-id], [data-home-item]') : null
   }
   function ignored(event: Event): boolean { return event.target instanceof Element && !!event.target.closest('[data-ui-layout-ignore]') }
   function homeOwned(event: Event): boolean { return event.target instanceof Element && !!event.target.closest('[data-home-item], .desktop-icons') }
@@ -218,7 +260,8 @@ export function installUiLayout(root: HTMLElement): () => void {
   }
   const candidate = (x: number, y: number) => drag ? findPartner(x, y, drag.element) : null
   function onDown(event: PointerEvent) {
-    if (event.isPrimary === false || event.button !== 0 || ignored(event) || homeOwned(event)) return
+    if (event.isPrimary === false || event.button !== 0 || ignored(event) || (homeOwned(event) && mode !== 'resize')) return
+    if (editing && mode === 'appearance') { event.preventDefault(); event.stopImmediatePropagation(); return }
     if (!editing) {
       const launcher = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-ui-layout-entry]') : null
       if (!launcher) return
@@ -233,12 +276,30 @@ export function installUiLayout(root: HTMLElement): () => void {
     const el = closest(event)
     if (!el || !eligible(el, root)) return
     const original = offsets[idOf(el)]
-    drag = { element: el, id: idOf(el), pointerId: event.pointerId, x: event.clientX, y: event.clientY, start: { ...(original ?? { x: 0, y: 0 }) }, original: original ? { ...original } : undefined, base: baseRect(el), moved: false }
+    const rect = el.getBoundingClientRect()
+    drag = { element: el, id: idOf(el), pointerId: event.pointerId, x: event.clientX, y: event.clientY, start: { ...(original ?? { x: 0, y: 0 }) }, original: original ? { ...original } : undefined, base: baseRect(el), moved: false, kind: mode === 'resize' ? 'resize' : 'move', sizeOriginal: dimensions[idOf(el)] ? { ...dimensions[idOf(el)] } : undefined, pendingX: rect.width, pendingY: rect.height }
     snapshot(el)
     el.setAttribute('data-ui-layout-dragging', '')
     el.focus?.({ preventScroll: true })
     try { el.setPointerCapture(event.pointerId) } catch { /* Global listeners are the fallback. */ }
     event.preventDefault(); event.stopImmediatePropagation()
+  }
+  function applyPending() {
+    frame = 0
+    const current = drag
+    if (!current || !current.moved) return
+    const { width, height } = size()
+    if (current.kind === 'resize') {
+      const w = Math.max(MIN_SIZE, Math.min(width * MAX_SIZE_FRACTION, current.pendingX ?? current.base.width))
+      const h = Math.max(MIN_SIZE, Math.min(height * MAX_SIZE_FRACTION, current.pendingY ?? current.base.height))
+      dimensions[current.id] = { width: w / width, height: h / height }
+      apply(current.element)
+    } else {
+      offsets[current.id] = clamp(current.base, { x: current.start.x + ((current.pendingX ?? current.x) - current.x) / width, y: current.start.y + ((current.pendingY ?? current.y) - current.y) / height })
+      apply(current.element)
+      clearSwap()
+      if (mode === 'swap') { swapTarget = candidate(current.pendingX ?? current.x, current.pendingY ?? current.y); swapTarget?.setAttribute('data-ui-layout-swap-target', '') }
+    }
   }
   function onMove(event: PointerEvent) {
     if (entry && event.pointerId === entry.pointer && Math.hypot(event.clientX - entry.x, event.clientY - entry.y) > 10) clearEntry()
@@ -246,18 +307,23 @@ export function installUiLayout(root: HTMLElement): () => void {
     const dx = event.clientX - drag.x; const dy = event.clientY - drag.y
     if (!drag.moved && Math.hypot(dx, dy) < 3) return
     drag.moved = true
-    const { width, height } = size()
-    offsets[drag.id] = clamp(drag.base, { x: drag.start.x + dx / width, y: drag.start.y + dy / height })
-    apply(drag.element)
-    clearSwap()
-    if (mode === 'swap') { swapTarget = candidate(event.clientX, event.clientY); swapTarget?.setAttribute('data-ui-layout-swap-target', '') }
+    if (drag.kind === 'resize') { drag.pendingX = drag.base.width + dx; drag.pendingY = drag.base.height + dy }
+    else { drag.pendingX = event.clientX; drag.pendingY = event.clientY }
+    if (!frame) { if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(applyPending); else { applyPending(); frame = 0 } }
     event.preventDefault(); event.stopImmediatePropagation()
   }
   function onUp(event: PointerEvent) {
     if (entry?.pointer === event.pointerId) clearEntry()
     if (!drag || drag.pointerId !== event.pointerId) return
     const current = drag
-    if (current.moved && mode === 'swap') {
+    if (current.kind === 'resize') {
+      current.pendingX = current.base.width + event.clientX - current.x
+      current.pendingY = current.base.height + event.clientY - current.y
+      current.moved ||= Math.hypot(event.clientX - current.x, event.clientY - current.y) >= 3
+    }
+    if (frame) { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame as number); else clearTimeout(frame as ReturnType<typeof setTimeout>); frame = 0 }
+    if (current.moved) applyPending()
+    if (current.moved && current.kind === 'move' && mode === 'swap') {
       const other = candidate(event.clientX, event.clientY)
       const { width, height } = size()
       if (!other) {
@@ -277,7 +343,7 @@ export function installUiLayout(root: HTMLElement): () => void {
       offsets[otherId] = clamp(otherBase, { x: (startLeft - otherBase.left) / width, y: (startTop - otherBase.top) / height })
       apply(current.element); apply(other)
     }
-    if (current.moved) { save(); suppressClickUntil = Date.now() + 500 }
+    if (current.moved) { if (current.kind === 'resize') { try { localStorage.setItem(UI_LAYOUT_SIZE_STORAGE_KEY, JSON.stringify(dimensions)); status('Component sizes saved on this device.') } catch { status('Sizes kept for this session; device storage is unavailable.') } } else save(); suppressClickUntil = Date.now() + 500 }
     finish(false)
     event.preventDefault(); event.stopImmediatePropagation()
   }
@@ -296,7 +362,7 @@ export function installUiLayout(root: HTMLElement): () => void {
     if (editing && !ignored(event) && !homeOwned(event)) { event.preventDefault(); event.stopImmediatePropagation() }
   }
   function onKey(event: KeyboardEvent) {
-    if (!editing || homeOwned(event)) return
+    if (!editing || (homeOwned(event) && mode !== 'resize')) return
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopImmediatePropagation()
       if (drag) finish(true)
@@ -306,10 +372,17 @@ export function installUiLayout(root: HTMLElement): () => void {
     if (ignored(event)) return
     const el = closest(event)
     if (!el || !eligible(el, root)) return
+    if (mode === 'appearance') return
     const arrows: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
     const delta = arrows[event.key]
     if (delta) {
       finish(true)
+      if (mode === 'resize') {
+        const id = idOf(el), rect = el.getBoundingClientRect(), { width, height } = size(), old = dimensions[id] ?? { width: rect.width / width, height: rect.height / height }, step = event.shiftKey ? 10 : 2
+        dimensions[id] = { width: Math.max(MIN_SIZE / width, Math.min(MAX_SIZE_FRACTION, old.width + delta[0] * step / width)), height: Math.max(MIN_SIZE / height, Math.min(MAX_SIZE_FRACTION, old.height + delta[1] * step / height)) }
+        apply(el); try { localStorage.setItem(UI_LAYOUT_SIZE_STORAGE_KEY, JSON.stringify(dimensions)) } catch { status('Sizes kept for this session; device storage is unavailable.') }
+        event.preventDefault(); event.stopImmediatePropagation(); return
+      }
       const id = idOf(el); const p = offsets[id] ?? { x: 0, y: 0 }; const step = event.shiftKey ? 10 : 2; const { width, height } = size()
       offsets[id] = clamp(baseRect(el, p), { x: p.x + delta[0] * step / width, y: p.y + delta[1] * step / height })
       apply(el); save()
@@ -319,10 +392,11 @@ export function installUiLayout(root: HTMLElement): () => void {
   function reset() {
     finish(true)
     for (const id of Object.keys(offsets)) delete offsets[id]
+    for (const id of Object.keys(dimensions)) delete dimensions[id]
     for (const el of originals.keys()) restore(el)
     restoreClipping()
-    try { localStorage.removeItem(UI_LAYOUT_STORAGE_KEY); status('All component positions reset on this device.') }
-    catch { status('Positions reset for this session; device storage is unavailable.') }
+    try { localStorage.removeItem(UI_LAYOUT_STORAGE_KEY); localStorage.removeItem(UI_LAYOUT_SIZE_STORAGE_KEY); status('All component positions and sizes reset on this device.') }
+    catch { status('Positions and sizes reset for this session; device storage is unavailable.') }
     reconcile()
   }
   function onEdit(event: Event) {
@@ -331,7 +405,7 @@ export function installUiLayout(root: HTMLElement): () => void {
   }
   function onMode(event: Event) {
     const next = (event as CustomEvent<{ mode?: string }>).detail?.mode
-    if (next === 'move' || next === 'swap') { finish(true); mode = next }
+    if (next === 'move' || next === 'swap' || next === 'resize' || next === 'appearance') { finish(true); mode = next; root.classList.toggle('ui-layout-resize-mode', next === 'resize') }
   }
   function onExternalSwap(event: Event) {
     const detail = (event as CustomEvent<UiLayoutSwapRequest>).detail
@@ -344,12 +418,21 @@ export function installUiLayout(root: HTMLElement): () => void {
     detail.result = { left: before.left, top: before.top }
   }
   function onStorage(event: StorageEvent) {
-    if (event.key !== null && deploymentStorageEventKey(event.key) !== UI_LAYOUT_STORAGE_KEY) return
+    const key = deploymentStorageEventKey(event.key)
+    if (event.key !== null && key !== UI_LAYOUT_STORAGE_KEY && key !== UI_LAYOUT_SIZE_STORAGE_KEY) return
     finish(true)
-    let fresh: UiLayoutMap
-    try { fresh = validateUiLayout(JSON.parse(event.newValue ?? 'null')) } catch { fresh = validateUiLayout(null) }
-    for (const id of Object.keys(offsets)) delete offsets[id]
-    Object.assign(offsets, fresh)
+    if (event.key === null || key === UI_LAYOUT_STORAGE_KEY) {
+      let fresh: UiLayoutMap
+      try { fresh = validateUiLayout(JSON.parse(event.newValue ?? 'null')) } catch { fresh = validateUiLayout(null) }
+      for (const id of Object.keys(offsets)) delete offsets[id]
+      Object.assign(offsets, fresh)
+    }
+    if (event.key === null || key === UI_LAYOUT_SIZE_STORAGE_KEY) {
+      let fresh: UiLayoutSizeMap
+      try { fresh = validateUiLayoutSizes(JSON.parse(event.newValue ?? 'null')) } catch { fresh = validateUiLayoutSizes(null) }
+      for (const id of Object.keys(dimensions)) delete dimensions[id]
+      Object.assign(dimensions, fresh)
+    }
     reconcile(true)
   }
   const onResize = () => { finish(true); reconcile(true) }
@@ -387,7 +470,7 @@ export function installUiLayout(root: HTMLElement): () => void {
     window.removeEventListener(UI_LAYOUT_RESET_EVENT, reset)
     window.removeEventListener(UI_LAYOUT_MODE_EVENT, onMode)
     window.removeEventListener(UI_LAYOUT_SWAP_EVENT, onExternalSwap)
-    root.classList.remove(EDIT_CLASS)
+    root.classList.remove(EDIT_CLASS, 'ui-layout-resize-mode')
     for (const [el, original] of originals) {
       restore(el); el.style.touchAction = original.touchAction
       el.removeAttribute('data-ui-layout-editable'); el.removeAttribute('data-ui-layout-dragging')

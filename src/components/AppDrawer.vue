@@ -51,7 +51,7 @@
 
           <template v-if="!browser.supported">
             <div v-if="visibleBuiltIns.length" ref="gridRef" class="drawer-grid" aria-label="All CyberManju apps">
-              <button v-for="(app, index) in visibleBuiltIns" :key="app.panel" class="drawer-app drawer-cell" :style="{ '--reveal-delay': `${Math.min(index, 12) * 20}ms` }" type="button" :aria-label="`Open ${app.label}`" @click="openBuiltIn(app.panel)">
+              <button v-for="(app, index) in visibleBuiltIns" :key="app.panel" :data-ui-appearance-id="`drawer:os:${app.panel}`" class="drawer-app drawer-cell" :style="{ '--reveal-delay': `${Math.min(index, 12) * 20}ms` }" type="button" :aria-label="`Open ${app.label}`" @click="openBuiltIn(app.panel)">
                 <span v-if="showIcons" class="drawer-tile" aria-hidden="true" :style="isFlatAmoled ? { background: 'transparent', color: '#fff' } : { background: app.tint, color: '#fff' }"><AppIcon :name="app.icon" :size="26" /></span>
                 <span v-if="showNames" class="drawer-name">{{ app.label }}</span>
               </button>
@@ -92,6 +92,7 @@
               <button
                 class="drawer-app"
                 type="button"
+                :data-ui-appearance-id="`drawer:${row.key}`"
                 :aria-label="`Open ${row.name}`"
                 :title="`${row.name} — ${row.app.packageName}`"
                 @click="onTap(row)"

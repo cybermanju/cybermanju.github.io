@@ -20,7 +20,7 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
   const momentum = createDragMomentum()
   let settling = false
   let moved = false
-  let mode: 'move' | 'swap' = 'move'
+  let mode: 'move' | 'swap' | 'resize' | 'appearance' = 'move'
   let active: { id: string; pointer: number; element: HTMLElement; start: HomeOffset; original: HomeOffset | undefined; base: HomeRect; bounds: HomeRect; x: number; y: number } | null = null
   const free = computed(() => state.value.free)
   const customized = computed(() => state.value.free || Object.keys(state.value.offsets).length > 0)
@@ -115,6 +115,7 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
     save()
   }
   function onPointerDown(event: PointerEvent) {
+    if (mode === 'resize' || mode === 'appearance') return
     if (!editing.value || !event.isPrimary || event.button !== 0 || (active && !settling)) return
     const element = item(event)
     const id = element?.dataset.homeItem
@@ -168,6 +169,7 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
     const element = item(event)
     const id = element?.dataset.homeItem
     if (!element || !id) return
+    if (mode === 'resize' || mode === 'appearance') return
     const delta: Record<string, HomeOffset> = { ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 } }
     if (!delta[event.key]) return
     event.preventDefault()
@@ -210,7 +212,10 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
   }
   function onLayoutMode(event: Event) {
     const next = (event as CustomEvent<{ mode?: string }>).detail?.mode
-    if (next === 'move' || next === 'swap') mode = next
+    if (next === 'move' || next === 'swap' || next === 'resize' || next === 'appearance') {
+      if (next === 'resize' || next === 'appearance') finish(true)
+      mode = next
+    }
   }
   function onGlobalReset() {
     finish(true)

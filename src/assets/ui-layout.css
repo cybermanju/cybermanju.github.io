@@ -18,6 +18,9 @@
   cursor: grabbing !important;
   opacity: .88;
   z-index: 2147483640 !important;
+  transition: none !important;
+  animation: none !important;
+  will-change: translate, width, height;
 }
 .ui-layout-editing [data-ui-layout-swap-target] {
   outline: 2px solid var(--ui-accent, #8b7bff) !important;
@@ -33,4 +36,14 @@
 /* One session toolbar governs both home and all panel entities. */
 .mla-layout-toolbar, .desktop-home-controls {
   display: none !important;
+}
+
+/* Resize styling is strictly confined to the explicit editor resize mode. */
+.ui-layout-editing.ui-layout-resize-mode [data-ui-layout-id]:not([data-ui-layout-ignore]),
+.ui-layout-editing.ui-layout-resize-mode [data-home-item] {
+  cursor: nwse-resize !important;
+  outline-style: solid;
+}
+.ui-layout-editing.ui-layout-resize-mode [data-ui-layout-id][data-ui-layout-dragging] {
+  cursor: nwse-resize !important;
 }

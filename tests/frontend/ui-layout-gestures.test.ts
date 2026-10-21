@@ -4,7 +4,7 @@
 // Integrates: src/utils/uiLayout.ts public installUiLayout event interface.
 // Contracts: No jsdom dependency; tests model only the DOM APIs used by the runtime.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { installUiLayout, requestUiLayoutSwap, UI_LAYOUT_EVENT, UI_LAYOUT_MODE_EVENT, UI_LAYOUT_STORAGE_KEY, UI_LAYOUT_SWAP_EVENT } from '../../src/utils/uiLayout'
+import { installUiLayout, requestUiLayoutSwap, UI_LAYOUT_EVENT, UI_LAYOUT_MODE_EVENT, UI_LAYOUT_SIZE_STORAGE_KEY, UI_LAYOUT_STORAGE_KEY, UI_LAYOUT_SWAP_EVENT } from '../../src/utils/uiLayout'
 
 class Style {
   private values = new Map<string, string>()
@@ -68,7 +68,8 @@ class MockElement extends EventTarget {
   getBoundingClientRect() {
     const x = parseFloat(this.style.getPropertyValue('--ui-layout-x')) || 0
     const y = parseFloat(this.style.getPropertyValue('--ui-layout-y')) || 0
-    return { left: this.base.left + x, top: this.base.top + y, width: this.base.width, height: this.base.height, right: this.base.left + x + this.base.width, bottom: this.base.top + y + this.base.height }
+    const width = parseFloat(this.style.width) || this.base.width, height = parseFloat(this.style.height) || this.base.height
+    return { left: this.base.left + x, top: this.base.top + y, width, height, right: this.base.left + x + width, bottom: this.base.top + y + height }
   }
   setPointerCapture(_id: number) {}
   hasPointerCapture(_id: number) { return false }
@@ -135,6 +136,15 @@ describe('UI layout pointer gestures', () => {
     dispatch(window, new Pointer('pointermove', 3, 300, 200))
     dispatch(window, new Pointer('pointercancel', 3, 300, 200))
     expect(persisted()).toEqual({}); expect(a.style.getPropertyValue('--ui-layout-x')).toBe('')
+  })
+  it('resizes home items, commits final pointerup coordinates, and restores size on reinstall', () => {
+    const tile = new MockElement(); tile.setAttribute('data-home-item', 'app:files'); root.append(tile)
+    window.dispatchEvent(new CustomEvent(UI_LAYOUT_MODE_EVENT, { detail: { mode: 'resize' } })); setEditing(true)
+    dispatch(tile, new Pointer('pointerdown', 12, 100, 100)); dispatch(window, new Pointer('pointermove', 12, 120, 110)); dispatch(window, new Pointer('pointerup', 12, 150, 130))
+    expect(tile.style.width).toBe('150px'); expect(tile.style.height).toBe('110px')
+    expect(JSON.parse(storage.get(UI_LAYOUT_SIZE_STORAGE_KEY) || '{}')['home:app:files']).toEqual({ width: 0.15, height: 0.1375 })
+    cleanup?.(); cleanup = installUiLayout(root)
+    expect(tile.style.width).toBe('150px'); expect(tile.style.height).toBe('110px')
   })
   it('clamps the actual screen rectangle to every viewport edge', () => {
     setEditing(true)
