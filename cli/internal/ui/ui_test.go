@@ -193,7 +193,7 @@ func TestGlamourStyle(t *testing.T) {
 
 func TestTermWidthBounds(t *testing.T) {
 	w := TermWidth()
-	if w < 40 || w > 100 {
+	if w < 1 || w > 100 {
 		t.Fatalf("TermWidth out of clamp: %d", w)
 	}
 }
@@ -227,5 +227,49 @@ func TestChromeAtoms(t *testing.T) {
 	}
 	if !strings.Contains(stripANSI(Panel.Render("hi")), "hi") {
 		t.Fatalf("panel must keep its body: %q", stripANSI(Panel.Render("hi")))
+	}
+}
+
+func TestResponsiveTableNarrowWidth(t *testing.T) {
+	lipgloss.Writer.Profile = colorprofile.NoTTY
+	for _, width := range []int{1, 8, 18, 32} {
+		out := RenderTableWidth(width, []string{"IDENTIFIER", "ENDPOINT", "STATUS"}, [][]string{{"very-long-id", "https://example.test/api", "ready"}})
+		for _, line := range strings.Split(out, "\n") {
+			if got := lipgloss.Width(line); got > width {
+				t.Fatalf("width %d exceeded by %d: %q", width, got, line)
+			}
+		}
+	}
+}
+
+func TestShellChromeResponsiveAndRedactsEndpoint(t *testing.T) {
+	lipgloss.Writer.Profile = colorprofile.TrueColor
+	for _, width := range []int{1, 10, 20, 40, 80} {
+		for _, line := range []string{ShellHeader(width, "v1.2", "https://secret:token@example.test/api?token=private#frag"), ShellFooter(width, false), ShellFooter(width, true)} {
+			if lipgloss.Width(line) > width {
+				t.Fatalf("width %d exceeded: %q", width, line)
+			}
+		}
+	}
+	got := stripANSI(ShellHeader(100, "v1.2", "https://secret:token@example.test/api?token=private#frag"))
+	if strings.Contains(got, "secret") || strings.Contains(got, "private") || !strings.Contains(got, "CUTE CLI") {
+		t.Fatalf("unsafe or missing header: %q", got)
+	}
+	if !strings.Contains(ShellHeader(100, "", ""), "\x1b[") {
+		t.Fatal("color profile should style header")
+	}
+	lipgloss.Writer.Profile = colorprofile.NoTTY
+	if got := Downsample(ShellHeader(80, "1", "")); strings.Contains(got, "\x1b[") {
+		t.Fatalf("NoTTY leaked ANSI: %q", got)
+	}
+}
+
+// TestTablePostageStampWidths covers separator cost at sub-column widths.
+func TestTablePostageStampWidths(t *testing.T) {
+	for width := 1; width <= 12; width++ {
+		out := RenderTableWidth(width, []string{"ID", "Name", "State", "Size"}, [][]string{{"a", "vault", "ready", "123"}})
+		if got := lipgloss.Width(out); got > width {
+			t.Fatalf("table overflow at width %d: %d\n%s", width, got, out)
+		}
 	}
 }

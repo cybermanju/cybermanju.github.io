@@ -16,8 +16,8 @@
 #      returns HOME from Settings. Does not change the device's default launcher.
 #
 # Graceful skip (exit 0) when: no device/emulator attached, wrong ABI,
-# missing platform-tools. CI wires this with `continue-on-error` so KVM-less
-# runners stay green; the skip reason is always printed.
+# missing platform-tools. A real install/launch/render failure is blocking;
+# device-less runners report their explicit skip instead of claiming a pass.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."

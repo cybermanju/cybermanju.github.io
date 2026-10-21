@@ -772,6 +772,12 @@ jobs:
         env:
           REQUIRE_SIGNING: "1"
 
+      - name: Verify Android native payload and install packaging
+        run: python3 scripts/verify-android-package.py
+
+      - name: Android on-device smoke test
+        run: bash scripts/android-smoke.sh
+
       # Shred keystore + signing properties before archiving so runner
       # images / debug bundles never retain plaintext signing secrets.
       # `if: always()`: a failed build/verify must shred too, not leave the
@@ -936,6 +942,11 @@ jobs:
         run: |
           go vet ./...
           go test -race -count=1 ./...
+
+      - name: Termux installer safety regressions (offline)
+        run: |
+          bash -n cli/scripts/install-termux.sh cli/scripts/install-termux_test.sh
+          bash cli/scripts/install-termux_test.sh
 
       - name: Cross-compile cyb (desktop amd64/arm64; Android/Termux arm64)
         working-directory: cli

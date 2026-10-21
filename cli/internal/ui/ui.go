@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -110,6 +111,19 @@ func Table(headers []string, rows [][]string) {
 
 // RenderTable is the pure Table builder (stdout-free, unit-testable).
 func RenderTable(headers []string, rows [][]string) string {
+	return RenderTableWidth(TermWidth(), headers, rows)
+}
+
+// RenderTableWidth renders a table within an explicit width, including narrow mobile widths.
+func RenderTableWidth(width int, headers []string, rows [][]string) string {
+	if width < 1 {
+		width = 1
+	}
+	// At sub-column widths, omit rightmost columns rather than exceed the
+	// physical display with mandatory one-cell labels and separators.
+	if columns := (width + 1) / 2; len(headers) > columns {
+		headers = headers[:columns]
+	}
 	widths := make([]int, len(headers))
 	for i, h := range headers {
 		widths[i] = lipgloss.Width(h)
@@ -123,7 +137,7 @@ func RenderTable(headers []string, rows [][]string) string {
 			}
 		}
 	}
-	fitWidths(widths)
+	fitWidths(widths, width)
 	pad := func(s string, w int) string {
 		// truncate.StringWithTail counts the tail inside the limit, so
 		// only truncate cells that actually overflow (exact fits stay whole).
@@ -163,18 +177,21 @@ func RenderTable(headers []string, rows [][]string) string {
 	return out.String()
 }
 
-// fitWidths shrinks the widest columns (never below 8 cells) until the
-// table fits the terminal.
-func fitWidths(widths []int) {
+// fitWidths shrinks the widest columns (never below one cell) until the
+// table fits the requested terminal width.
+func fitWidths(widths []int, limit int) {
 	total := func() int {
 		n := 0
 		for _, w := range widths {
-			n += w + 1
+			n += w
+		}
+		if len(widths) > 1 {
+			n += len(widths) - 1
 		}
 		return n
 	}
-	for total() > TermWidth() {
-		best, bi := 8, -1
+	for total() > limit {
+		best, bi := 1, -1
 		for i, w := range widths {
 			if w > best {
 				best, bi = w, i
@@ -185,6 +202,61 @@ func fitWidths(widths []int) {
 		}
 		widths[bi]--
 	}
+}
+
+// ShellHeader renders a width-bounded neon CUTE CLI/cybsh welcome header.
+// Credentials, query parameters and fragments in endpoint are never shown.
+func ShellHeader(width int, version, endpoint string) string {
+	if width < 1 {
+		return ""
+	}
+	label := "◈ CUTE CLI"
+	if v := strings.TrimSpace(strings.TrimPrefix(version, "v")); v != "" {
+		label += " · v" + v
+	}
+	if ep := safeEndpoint(endpoint); ep != "" {
+		label += " · " + ep
+	}
+	return fitStyled(Gradient(label, PinkHot, RedHot), width)
+}
+
+// ShellFooter renders a compact pure REPL status hint.
+func ShellFooter(width int, busy bool) string {
+	if width < 1 {
+		return ""
+	}
+	text := "cybsh · Tab complete · :help · Esc exit"
+	if busy {
+		text = "cybsh · working… · Ctrl+C stop waiting"
+	}
+	return fitStyled(Dim.Render(text), width)
+}
+
+func safeEndpoint(endpoint string) string {
+	s := strings.TrimSpace(endpoint)
+	if s == "" {
+		return ""
+	}
+	if u, err := url.Parse(s); err == nil && u.Host != "" {
+		u.User = nil
+		u.RawQuery, u.Fragment = "", ""
+		s = u.String()
+	} else {
+		if i := strings.IndexAny(s, "?#"); i >= 0 {
+			s = s[:i]
+		}
+		if i := strings.LastIndex(s, "@"); i >= 0 {
+			s = s[i+1:]
+		}
+	}
+	return s
+}
+
+func fitStyled(s string, width int) string {
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	return truncate.StringWithTail(s, uint(width), "…")
 }
 
 // KV prints key: value rows.
@@ -337,11 +409,11 @@ func writeJSONValue(dec *json.Decoder, b *strings.Builder, indent int) error {
 	return nil
 }
 
-// TermWidth reports the stdout terminal width clamped to 40..100
-// (80 when stdout is not a terminal, e.g. pipes and CI logs).
+// TermWidth reports stdout width up to 100 columns; narrow terminals keep their
+// actual width (80 when stdout is not a terminal, e.g. pipes and CI logs).
 func TermWidth() int {
 	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
-		return min(max(w, 40), 100)
+		return min(w, 100)
 	}
 	return 80
 }
