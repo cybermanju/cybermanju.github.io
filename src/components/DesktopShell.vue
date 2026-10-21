@@ -84,7 +84,7 @@
         <div v-if="!isMobileViewport" class="desktop-home-controls" role="group" aria-label="Desktop home layout">
           <button v-if="desktopHomeLayout.editing.value" type="button" @click.stop="desktopHomeLayout.toggle">Done</button>
           <button v-if="desktopHomeLayout.editing.value && desktopHomeLayout.customized.value" type="button" @click.stop="desktopHomeLayout.reset">Reset icons</button>
-          <span v-if="desktopHomeLayout.editing.value">Drag and toss icons; gravity settles them. Arrow keys move. Esc cancels.</span>
+          <span v-if="desktopHomeLayout.editing.value">Drag to place; icons stay where you release them. Arrow keys move. Esc cancels.</span>
         </div>
         <div class="desktop-icons">
           <button

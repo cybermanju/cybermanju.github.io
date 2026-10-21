@@ -1709,7 +1709,7 @@ async function handleRefresh() {
   height: 30px;
   border-radius: 8px;
   background: linear-gradient(145deg, color-mix(in srgb, var(--ui-accent) 78%, #fff), var(--ui-accent));
-  color: #fff;
+  color: var(--ui-on-accent);
 }
 .st-list-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
 .st-list-title {
@@ -1781,9 +1781,9 @@ async function handleRefresh() {
     border-radius: 14px;
   }
   /* Section icon tiles (iOS 29px squircle homage) + stronger titles. */
-  .st-body > :deep(.ui-card__header) { padding: 10px 14px; }
-  .st-body > :deep(.ui-card__heading) { gap: 10px; }
-  .st-body > :deep(.ui-card__icon) {
+  .st-body :deep(.ui-card__header) { padding: 10px 14px; }
+  .st-body :deep(.ui-card__heading) { gap: 10px; }
+  .st-body :deep(.ui-card__icon) {
     width: 28px;
     height: 28px;
     display: inline-flex;
@@ -1791,10 +1791,10 @@ async function handleRefresh() {
     justify-content: center;
     border-radius: 8px;
     background: linear-gradient(145deg, color-mix(in srgb, var(--ui-accent) 78%, #fff), var(--ui-accent));
-    color: #fff;
+    color: var(--ui-on-accent);
   }
-  .st-body > :deep(.ui-card__title) { font-size: 15px; font-weight: 700; }
-  .st-body > :deep(.ui-card__body) { padding: 4px 14px 12px; }
+  .st-body :deep(.ui-card__title) { font-size: 15px; font-weight: 700; }
+  .st-body :deep(.ui-card__body) { padding: 4px 14px 12px; }
 
   /* Jump chips become a single snap rail (no 3-row wrap). */
   .st-jumps {

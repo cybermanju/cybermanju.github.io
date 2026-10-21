@@ -22,7 +22,7 @@
     <div v-if="homeLayout.editing.value" class="mla-layout-toolbar" role="group" aria-label="Home layout controls">
       <button type="button" class="mla-mini-btn" @click="homeLayout.toggle">Done</button>
       <button v-if="homeLayout.customized.value" type="button" class="mla-mini-btn" @click="homeLayout.reset">Reset layout</button>
-      <span class="mla-layout-hint">Drag and release to toss; gravity settles items. Arrow keys move; Shift moves faster. Esc cancels.</span>
+      <span class="mla-layout-hint">Drag to place; items stay where you release them. Arrow keys move; Shift moves faster. Esc cancels.</span>
     </div>
     <p class="mla-layout-status" role="status" aria-live="polite">{{ homeLayout.status.value }}</p>
     <!-- The single mobile header (TopMenuBar) owns connectivity, vault
@@ -971,7 +971,8 @@ function resetAllHome() {
 .mla-live { position: absolute; z-index: 2; bottom: -4px; left: 50%; width: 9px; height: 9px; transform: translateX(-50%); border: 2px solid var(--ui-bg); border-radius: 50%; background: #35c980; }
 /* Page dots (cf. DotsIndicator: 7.5px dots, 16px spacing, white vs 47% white). */
 .mla-dots { display: flex; align-items: center; justify-content: center; gap: 8.5px; min-height: 12px; margin-top: -10px; }
-.mla-dot-btn { width: 16px; height: 16px; display: grid; place-items: center; border: 0; background: none; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.mla-dot-btn { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 12px; background: none; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.mla-dot-btn:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
 .mla-page-dot { width: 7.5px; height: 7.5px; border-radius: 50%; background: color-mix(in srgb, var(--ui-text-2) 38%, transparent); transition: transform 180ms cubic-bezier(.34,1.4,.4,1), background 180ms ease; }
 .mla-dot-btn.on .mla-page-dot { transform: scale(1.15); background: var(--ui-text-2); }
 .mla-empty { margin: 4px 0; color: var(--ui-text-3); text-align: center; font-size: 13px; }
@@ -1218,12 +1219,11 @@ function resetAllHome() {
 
 @media (min-width: 600px) and (max-width: 768px) {
   .mla { padding-left: 32px; padding-right: 32px; gap: 22px; }
-  .mla-pages { margin: 0 -32px; padding-left: 32px; padding-right: 32px; }
-  .mla-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 23px 12px; }
+  .mla-pages { margin: 0 -32px; }
+  .mla-grid { padding-inline: 32px; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 23px 12px; }
   .mla-widgets { max-width: 540px; }
-  .mla-dock { max-width: 520px; align-self: center; width: 100%; }
+  .mla-dock { max-width: 520px; left: 50%; right: auto; transform: translateX(-50%); width: calc(100% - 32px); }
 }
-
 /* A calm, more legible glass treatment for the selectable glass theme. */
 .mla.theme-modern-glass {
   background: var(--ui-ambient-background, var(--ui-bg));
@@ -1263,6 +1263,17 @@ function resetAllHome() {
   padding: 12px 18px 20px;
   background: #000;
   color: #fff;
+}
+/* No dock in AMOLED: keep the same visible bounds in and out of editing,
+   so toggling customization cannot clamp a drop against a shorter home. */
+.mla.theme-flat-amoled,
+.mla.theme-flat-amoled.mla-layout-free {
+  bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  clip-path: inset(0 0 calc(-76px - env(safe-area-inset-bottom, 0px)) 0);
+}
+.mla.theme-flat-amoled.with-app-nav,
+.mla.theme-flat-amoled.mla-layout-free.with-app-nav {
+  bottom: calc(76px + var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px));
 }
 .mla.theme-flat-amoled::before { display: block; background: #000; opacity: 1; }
 .mla.theme-flat-amoled .mla-search {
@@ -1358,7 +1369,7 @@ function resetAllHome() {
 .mla.with-app-nav { clip-path: inset(0 0 calc(-156px - var(--mobile-nav-h) - env(safe-area-inset-bottom, 0px)) 0); }
 /* Edit mode deliberately frees the springboard from paging/paint containment.
    Normal mode retains tapping, horizontal pages, long-press tile options and search. */
-.mla-layout-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; position: relative; z-index: 30; }
+.mla-layout-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; position: absolute; inset: auto 12px 12px; z-index: 30; padding: 8px; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface); }
 .mla-layout-toolbar .mla-mini-btn { min-height: 40px; padding-inline: 12px; font-size: 12px; }
 .mla-layout-hint { flex-basis: 100%; color: var(--ui-text-2); font-size: 12px; }
 .mla-layout-status { margin: 0; height: 1px; width: 1px; overflow: hidden; position: absolute; clip-path: inset(50%); }
