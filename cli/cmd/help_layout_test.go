@@ -68,3 +68,31 @@ func TestCommandHelpWrapsFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestHelpRowsStayWithinRequestedWidth(t *testing.T) {
+	cases := []struct{ label, description string }{
+		{"a-long-flag-name", "longdescriptionwithoutspaces and CJK 界界界—text"},
+		{"files", "A description that must remain easy to scan on a phone terminal."},
+	}
+	for width := 1; width <= 100; width++ {
+		for _, tc := range cases {
+			out := formatHelpRow(tc.label, tc.description, 40, width)
+			for _, line := range strings.Split(out, "\n") {
+				if got := ansi.StringWidth(line); got > width {
+					t.Fatalf("width %d row line is %d columns: %q", width, got, line)
+				}
+			}
+		}
+	}
+}
+
+func TestHelpTextWrapsAllDisplayWidths(t *testing.T) {
+	text := "◈ long-subcommand-path usage description 界界 alpha-beta-gamma-delta"
+	for width := 1; width <= 100; width++ {
+		for _, line := range strings.Split(wrapHelpText(text, width, 0), "\n") {
+			if got := ansi.StringWidth(line); got > width {
+				t.Fatalf("width %d text line is %d columns: %q", width, got, line)
+			}
+		}
+	}
+}

@@ -7,6 +7,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"image/color"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/client"
+	"github.com/cybermanju/cybermanju.github.io/cli/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -231,5 +233,38 @@ func TestCUTETypingDoesNotScrollViewport(t *testing.T) {
 	m, _ = updateShell(m, shellKey(tea.KeyPgUp, 0))
 	if m.view.YOffset() >= before {
 		t.Fatal("PgUp must still scroll output")
+	}
+}
+
+func TestCUTEBackgroundColorAdaptsInputTheme(t *testing.T) {
+	m := testShell(t)
+	oldDark := m.dark
+	t.Cleanup(func() { ui.SetBackground(oldDark) })
+	m, _ = updateShell(m, tea.BackgroundColorMsg{Color: color.RGBA{R: 245, G: 245, B: 245, A: 255}})
+	if m.dark {
+		t.Fatal("light background must select light input styling")
+	}
+	m, _ = updateShell(m, tea.BackgroundColorMsg{Color: color.RGBA{R: 8, G: 8, B: 8, A: 255}})
+	if !m.dark {
+		t.Fatal("dark background must select dark input styling")
+	}
+}
+
+func TestCUTEBusyTinyLayoutKeepsControls(t *testing.T) {
+	for _, size := range [][2]int{{12, 3}, {8, 2}, {1, 1}} {
+		m := testShell(t)
+		m.busy = true
+		m.input.SetValue("echo ok")
+		m, _ = updateShell(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		content := ansi.Strip(m.View().Content)
+		if lipgloss.Width(m.View().Content) > size[0] || lipgloss.Height(m.View().Content) > size[1] {
+			t.Fatalf("layout exceeds %v: %q", size, content)
+		}
+		if size[1] >= 2 {
+			lines := strings.Split(content, "\n")
+			if strings.TrimSpace(lines[len(lines)-1]) == "" {
+				t.Fatalf("busy footer hidden at %v: %q", size, content)
+			}
+		}
 	}
 }

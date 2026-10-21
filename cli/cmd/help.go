@@ -49,7 +49,7 @@ func renderRootHelp(c *cobra.Command, _ []string) {
 	}
 	ui.Emit(ui.Splash(cliVersion))
 	fmt.Println()
-	fmt.Printf("  %s\n\n", ui.Downsample(ui.Dim.Render("files, disks, sync, OAuth, cybsh and the AI agent — one terminal.")))
+	fmt.Print(wrapHelpText("  "+ui.Downsample(ui.Dim.Render("files, disks, sync, OAuth, cybsh and the AI agent — one terminal.")), ui.TermWidth(), 0) + "\n")
 
 	byName := map[string]*cobra.Command{}
 	for _, sub := range c.Commands() {
@@ -78,7 +78,7 @@ func renderRootHelp(c *cobra.Command, _ []string) {
 		if len(rows) == 0 {
 			continue
 		}
-		fmt.Printf("  %s\n", ui.Downsample(ui.Title.Render("◈ "+sec.title)))
+		fmt.Print(wrapHelpText("  "+ui.Downsample(ui.Title.Render("◈ "+sec.title)), ui.TermWidth(), 0) + "\n")
 		for _, r := range rows {
 			fmt.Print(formatHelpRow(ui.Downsample(ui.Accent.Render(r[0])),
 				ui.Downsample(ui.Dim.Render(r[1])), nameWidth, ui.TermWidth()))
@@ -93,52 +93,47 @@ func renderRootHelp(c *cobra.Command, _ []string) {
 	}
 	sort.Slice(rest, func(i, j int) bool { return rest[i][0] < rest[j][0] })
 	if len(rest) > 0 {
-		fmt.Printf("  %s\n", ui.Downsample(ui.Title.Render("◈ more")))
+		fmt.Print(wrapHelpText("  "+ui.Downsample(ui.Title.Render("◈ more")), ui.TermWidth(), 0) + "\n")
 		for _, r := range rest {
 			fmt.Print(formatHelpRow(ui.Downsample(ui.Accent.Render(r[0])),
 				ui.Downsample(ui.Dim.Render(r[1])), nameWidth, ui.TermWidth()))
 		}
 		fmt.Println()
 	}
-	fmt.Printf("  %s  %s\n", ui.Downsample(ui.Title.Render("◈ flags")), ui.Downsample(ui.Dim.Render("cyb <command> [flags]")))
+	fmt.Print(formatHelpRow(ui.Downsample(ui.Title.Render("◈ flags")), ui.Downsample(ui.Dim.Render("cyb <command> [flags]")), 0, ui.TermWidth()))
 	c.PersistentFlags().VisitAll(func(f *pflag.Flag) {
 		name, usage := flagNameUsage(f)
 		fmt.Print(formatHelpRow(ui.Downsample(ui.Chip(name)),
 			ui.Downsample(ui.Dim.Render(usage)), 0, ui.TermWidth()))
 	})
 	fmt.Println()
-	fmt.Printf("  %s  %s\n", ui.Downsample(ui.Dim.Render("Start here:")), ui.Downsample(ui.Chip("cyb setup")))
+	fmt.Print(formatHelpRow(ui.Downsample(ui.Dim.Render("Start here:")), ui.Downsample(ui.Chip("cyb setup")), 0, ui.TermWidth()))
 }
 
 // renderCmdHelp prints a neon help page for any non-root command.
 func renderCmdHelp(c *cobra.Command) {
-	fmt.Printf("%s  %s\n\n",
-		ui.Downsample(ui.Gradient("◈ "+c.CommandPath(), ui.PinkHot, ui.RedHot)),
-		ui.Downsample(ui.Dim.Render(c.Short)))
+	w := ui.TermWidth()
+	fmt.Print(wrapHelpText(ui.Downsample(ui.Gradient("◈ "+c.CommandPath(), ui.PinkHot, ui.RedHot)), w, 0) + "\n")
+	fmt.Print(wrapHelpText("  "+ui.Downsample(ui.Dim.Render(c.Short)), w, 0) + "\n\n")
 	if c.Long != "" {
-		fmt.Printf("  %s\n\n", ui.Downsample(ui.Dim.Render(strings.TrimSpace(c.Long))))
+		fmt.Print(wrapHelpText("  "+ui.Downsample(ui.Dim.Render(strings.TrimSpace(c.Long))), w, 0) + "\n\n")
 	}
-	fmt.Printf("  %s  %s\n\n", ui.Downsample(ui.Title.Render("usage")), ui.Downsample(ui.Chip(c.UseLine())))
+	fmt.Print(formatHelpRow(ui.Downsample(ui.Title.Render("usage")), ui.Downsample(ui.Chip(c.UseLine())), 0, w) + "\n")
 	if len(c.Aliases) > 0 {
-		fmt.Printf("  %s  %s\n\n", ui.Downsample(ui.Title.Render("aliases")), ui.Downsample(ui.Dim.Render(strings.Join(c.Aliases, ", "))))
+		fmt.Print(formatHelpRow(ui.Downsample(ui.Title.Render("aliases")), ui.Downsample(ui.Dim.Render(strings.Join(c.Aliases, ", "))), 0, w) + "\n")
 	}
 	if c.HasAvailableSubCommands() {
-		fmt.Printf("  %s\n", ui.Downsample(ui.Title.Render("◈ commands")))
-		w := 0
+		fmt.Print(wrapHelpText("  "+ui.Downsample(ui.Title.Render("◈ commands")), w, 0) + "\n")
+		nameWidth := 0
 		for _, sub := range c.Commands() {
-			if sub.Hidden || sub.Deprecated != "" {
-				continue
-			}
-			if n := len(sub.Name()); n > w {
-				w = n
+			if !sub.Hidden && sub.Deprecated == "" {
+				nameWidth = max(nameWidth, ansi.StringWidth(sub.Name()))
 			}
 		}
 		for _, sub := range c.Commands() {
-			if sub.Hidden || sub.Deprecated != "" {
-				continue
+			if !sub.Hidden && sub.Deprecated == "" {
+				fmt.Print(formatHelpRow(ui.Downsample(ui.Accent.Render(sub.Name())), ui.Downsample(ui.Dim.Render(sub.Short)), nameWidth, w))
 			}
-			fmt.Print(formatHelpRow(ui.Downsample(ui.Accent.Render(sub.Name())),
-				ui.Downsample(ui.Dim.Render(sub.Short)), w, ui.TermWidth()))
 		}
 		fmt.Println()
 	}
@@ -174,7 +169,7 @@ func printFlagSet(title string, fs *pflag.FlagSet) {
 	if len(rows) == 0 {
 		return
 	}
-	fmt.Printf("  %s\n", ui.Downsample(ui.Title.Render("◈ "+title)))
+	fmt.Print(wrapHelpText("  "+ui.Downsample(ui.Title.Render("◈ "+title)), ui.TermWidth(), 0) + "\n")
 	for _, r := range rows {
 		fmt.Print(formatHelpRow(ui.Downsample(ui.Chip(r[0])),
 			ui.Downsample(ui.Dim.Render(r[1])), 0, ui.TermWidth()))
@@ -182,18 +177,48 @@ func printFlagSet(title string, fs *pflag.FlagSet) {
 	fmt.Println()
 }
 
-// formatHelpRow wraps descriptions with aligned continuation lines. Narrow
-// terminals stack labels above descriptions; ANSI and wide characters retain
-// their display width, and long words wrap rather than being truncated.
+// wrapHelpText hard-wraps styled help text at a display-column width.
+func wrapHelpText(text string, width, indent int) string {
+	width = max(1, min(width, 100))
+	if width == 1 {
+		plain := ansi.Strip(text)
+		var b strings.Builder
+		for _, r := range plain {
+			if ansi.StringWidth(string(r)) > 1 {
+				b.WriteRune('…')
+			} else {
+				b.WriteRune(r)
+			}
+		}
+		text = b.String()
+	}
+	return ansi.Hardwrap(ansi.Wrap(text, width, ""), width, true)
+}
+
+// formatHelpRow wraps descriptions with aligned continuation lines.
 func formatHelpRow(label, description string, labelWidth, width int) string {
+	width = max(1, min(width, 100))
 	labelWidth = max(labelWidth, ansi.StringWidth(label))
 	indent := 4 + labelWidth + 2
-	prefix := "    " + label + strings.Repeat(" ", labelWidth-ansi.StringWidth(label)) + "  "
 	if width-indent < 24 {
-		wrappedLabel := ansi.Wrap(label, max(1, width-4), "")
-		prefix = "    " + strings.ReplaceAll(wrappedLabel, "\n", "\n    ") + "\n      "
-		indent = 6
+		labelIndent := min(4, width-1)
+		labelW := max(1, width-labelIndent)
+		descIndent := min(6, width-1)
+		labels := strings.Split(wrapHelpText(label, labelW, 0), "\n")
+		for i := range labels {
+			labels[i] = strings.Repeat(" ", labelIndent) + labels[i]
+		}
+		desc := strings.Split(wrapHelpText(description, max(1, width-descIndent), 0), "\n")
+		for i := range desc {
+			desc[i] = strings.Repeat(" ", descIndent) + desc[i]
+		}
+		return strings.Join(labels, "\n") + "\n" + strings.Join(desc, "\n") + "\n"
 	}
-	wrapped := ansi.Wrap(description, max(1, width-indent), "")
-	return prefix + strings.ReplaceAll(wrapped, "\n", "\n"+strings.Repeat(" ", indent)) + "\n"
+	indent = min(indent, width-1)
+	prefix := "    " + label + strings.Repeat(" ", max(0, labelWidth-ansi.StringWidth(label))) + "  "
+	lines := strings.Split(wrapHelpText(description, max(1, width-indent), 0), "\n")
+	for i := 1; i < len(lines); i++ {
+		lines[i] = strings.Repeat(" ", indent) + lines[i]
+	}
+	return prefix + strings.Join(lines, "\n") + "\n"
 }

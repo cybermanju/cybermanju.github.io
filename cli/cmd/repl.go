@@ -60,25 +60,24 @@ type replModel struct {
 	busy          bool
 	requestID     uint64
 	cancel        context.CancelFunc
+	dark          bool
 }
 
 func newReplModel(c *client.Client, history []string) replModel {
+	dark := ui.IsDarkBackground()
 	ti := textinput.New()
 	ti.Placeholder = "help · Tab completes · :help for keys"
 	ti.Prompt = "cybsh › "
 	ti.CharLimit = 64 * 1024
 	ti.SetSuggestions(shellSuggestions)
 	ti.ShowSuggestions = true
-	styles := textinput.DefaultDarkStyles()
-	styles.Focused.Prompt = ui.Accent
-	styles.Focused.Text = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.IceWhite))
-	ti.SetStyles(styles)
+	applyInputTheme(&ti, dark)
 	ti.Focus()
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(ui.Accent))
 	if len(history) > historyLimit {
 		history = history[len(history)-historyLimit:]
 	}
-	return replModel{client: c, input: ti, spinner: sp, history: history, histIdx: len(history), lines: []string{
+	return replModel{client: c, input: ti, spinner: sp, history: history, histIdx: len(history), dark: dark, lines: []string{
 		ui.Gradient("◈ CYBERMANJU / cybsh", ui.CyanNeon, ui.PinkHot),
 		ui.Dim.Render("Your terminal. Your vault. Your neon."),
 		"",
@@ -90,12 +89,23 @@ func newReplModel(c *client.Client, history []string) replModel {
 	}}
 }
 
+func applyInputTheme(input *textinput.Model, dark bool) {
+	styles := textinput.DefaultDarkStyles()
+	if !dark {
+		styles = textinput.DefaultLightStyles()
+	}
+	styles.Focused.Text = ui.Text
+	styles.Focused.Prompt = ui.Accent
+	input.SetStyles(styles)
+}
+
 func (m replModel) Init() tea.Cmd { return textinput.Blink }
 
 func (m *replModel) resize(width, height int) {
 	m.width, m.height = max(1, width), max(1, height)
-	chrome := lipgloss.Height(ui.ShellHeader(m.width, cliVersion, m.client.BaseURL)) + 2
-	vw, vh := m.width, max(1, m.height-chrome)
+	// Reserve a row each for the input and footer; the compositor prioritizes
+	// them (and the header) over scrollback when the terminal is very short.
+	vw, vh := m.width, max(1, m.height-3)
 	if !m.ready {
 		m.view = viewport.New(viewport.WithWidth(vw), viewport.WithHeight(vh))
 		m.view.SoftWrap = true
@@ -116,7 +126,7 @@ func (m *replModel) resize(width, height int) {
 	}
 	m.view.Style = lipgloss.NewStyle()
 	if vw >= 3 && vh >= 3 {
-		m.view.Style = m.view.Style.Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(ui.PinkDeep))
+		m.view.Style = m.view.Style.Border(lipgloss.RoundedBorder()).BorderForeground(ui.Dim.GetForeground())
 	}
 	m.view.SetContent(strings.Join(m.lines, "\n"))
 	m.input.SetWidth(max(1, m.width-lipgloss.Width(m.input.Prompt)))
@@ -126,6 +136,21 @@ func (m replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
+		return m, nil
+	case tea.BackgroundColorMsg:
+		m.dark = msg.IsDark()
+		ui.SetBackground(m.dark)
+		applyInputTheme(&m.input, m.dark)
+		m.spinner.Style = ui.Accent
+		// Previously colored scrollback must not retain low-contrast ink after
+		// a terminal theme switch. Preserve its text, inheriting the new surface.
+		for i := range m.lines {
+			m.lines[i] = ansi.Strip(m.lines[i])
+		}
+		if m.ready {
+			m.view.SetContent(strings.Join(m.lines, "\n"))
+			m.view.Style = m.view.Style.BorderForeground(ui.Dim.GetForeground())
+		}
 		return m, nil
 	case shellResultMsg:
 		if msg.id != m.requestID {
@@ -308,9 +333,36 @@ func (m replModel) View() tea.View {
 	if m.busy {
 		input = m.spinner.View() + " " + ui.Dim.Render("waiting for dashboard… Ctrl+C stops waiting")
 	}
-	content := ui.ShellHeader(m.width, cliVersion, m.client.BaseURL) + "\n" + m.view.View() + "\n" + input + "\n" + ui.ShellFooter(m.width, m.busy)
-	// Final hard bounds also cover software-keyboard resizes and tiny terminals.
-	view := tea.NewView(lipgloss.NewStyle().MaxWidth(m.width).MaxHeight(m.height).Render(content))
+	if m.width < lipgloss.Width(m.input.Prompt)+2 {
+		input = lipgloss.NewStyle().MaxWidth(m.width).Render("› " + m.input.Value())
+	}
+	if m.height == 1 {
+		view := tea.NewView(ui.Surface.Width(m.width).MaxWidth(m.width).MaxHeight(1).Render(input))
+		view.AltScreen = true
+		return view
+	}
+	parts := make([]string, 0, m.height)
+	if m.height >= 4 {
+		parts = append(parts, ui.ShellHeader(m.width, cliVersion, m.client.BaseURL))
+	}
+	reserve := 2 // input + footer
+	if m.height >= 4 {
+		reserve++
+	}
+	room := max(0, m.height-reserve)
+	if room > 0 {
+		lines := strings.Split(m.view.View(), "\n")
+		if len(lines) > room {
+			lines = lines[len(lines)-room:]
+		}
+		parts = append(parts, lines...)
+	}
+	parts = append(parts, input, ui.ShellFooter(m.width, m.busy))
+	if len(parts) > m.height {
+		parts = parts[len(parts)-m.height:]
+	}
+	content := strings.Join(parts, "\n")
+	view := tea.NewView(ui.Surface.Width(m.width).Height(m.height).MaxWidth(m.width).MaxHeight(m.height).Render(content))
 	view.AltScreen = true
 	return view
 }
