@@ -86,7 +86,7 @@
       ><AppIcon name="solar:stop-bold" :size="20" /></button>
       <button
         class="agent-nav-toggle agent-phone-shortcut"
-        :class="{ 'is-active': voiceCall.active.value }"
+        :class="{ 'is-active': voiceCall.active.value || screenReader.active.value }"
         type="button"
         title="Voice and Android apps"
         aria-label="Voice and Android apps"
@@ -98,10 +98,17 @@
     </header>
 
     <UiModal :id="phoneControlsId" v-model:visible="phoneControlsOpen" title="Voice and apps" subtitle="Call your assistant or manage Android app access." icon="solar:phone-bold" size="md">
+      <div v-if="phoneMode === 'choice'" class="agent-phone-options" aria-label="Choose phone mode">
+        <UiButton size="lg" icon="solar:phone-bold" @click="phoneMode = 'cybermanju'">CyberManju</UiButton>
+        <UiButton size="lg" icon="solar:widget-bold" @click="openOtherApp">Other App</UiButton>
+        <p class="agent-note">CyberManju calls the selected AI assistant workflow in this app. Other App starts a separate, visible screen-reading session on Android.</p>
+      </div>
+      <UiButton v-else size="sm" variant="ghost" @click="phoneMode = 'choice'">Back to CyberManju | Other App</UiButton>
+      <template v-if="phoneMode === 'cybermanju'">
       <section class="voice-call" aria-label="VozPonte voice conversation">
         <div class="voice-call-actions">
-          <strong>VozPonte</strong>
-          <UiButton v-if="!voiceCall.active.value" size="sm" :disabled="!voiceCall.supported || !selectedProviderReady || jobActive || !!promptInput.trim() || queue.length > 0" @click="startVoiceCall">Start voice call</UiButton>
+          <strong>CyberManju</strong>
+          <UiButton v-if="!voiceCall.active.value" size="sm" :disabled="!voiceCall.supported || !selectedProviderReady || jobActive || !!promptInput.trim() || queue.length > 0 || screenReader.active.value || screenReader.uncertain.value" @click="startVoiceCall">Start voice call</UiButton>
           <template v-else>
             <span role="status">{{ pendingApproval ? 'Review the approval in chat' : voiceCall.state.value }}</span>
             <UiButton size="sm" :aria-pressed="voiceCall.muted.value" @click="voiceCall.toggleMute">{{ voiceCall.muted.value ? 'Unmute' : 'Mute' }}</UiButton>
@@ -111,13 +118,22 @@
         <p class="agent-note">Foreground, turn-by-turn voice with your selected assistant. Replies play aloud. Typing switches back to text; ending audio does not cancel an already-started task. Tool approvals stay manual.</p>
         <p v-if="promptInput.trim() || queue.length" class="agent-note">Send or clear your draft and queued messages before starting a call.</p>
         <p v-if="jobActive" class="agent-note">Wait for the current task to finish before starting a call.</p>
+        <p v-if="screenReader.active.value || screenReader.uncertain.value" class="agent-note">Stop the Other App screen-reading session before starting a CyberManju call.</p>
         <p v-if="!selectedProviderReady" class="agent-note">Select an assistant with a connected provider in Assistant settings first.</p>
         <p v-if="!voiceCall.supported" class="agent-note">Voice calls are unavailable in this browser/WebView. You can still use text.</p>
         <p class="agent-note">Speech recognition may use your device provider's network.</p>
         <p v-if="voiceCall.error.value" role="alert" class="w-msg">{{ voiceCall.error.value }}</p>
       </section>
       <AndroidVoiceSettings />
+      </template>
+      <PhoneAppReader v-if="phoneMode === 'other'" />
     </UiModal>
+
+    <div v-if="screenReader.active.value || screenReader.uncertain.value" class="agent-reader-status" role="status">
+      <span>Other App · {{ screenReader.uncertain.value ? 'Check session status' : screenReader.status.value.state }}</span>
+      <UiButton size="xs" @click="phoneControlsOpen = true; phoneMode = 'other'">Manage screen reading</UiButton>
+      <UiButton size="xs" variant="danger" :disabled="screenReader.busy.value" @click="screenReader.stop">Stop</UiButton>
+    </div>
 
     <div class="agent-body">
       <button
@@ -848,6 +864,8 @@
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
 import AndroidVoiceSettings from '@/components/AndroidVoiceSettings.vue'
+import PhoneAppReader from '@/components/PhoneAppReader.vue'
+import { useAppScreenReader } from '@/composables/useAppScreenReader'
 import UiModal from '@/components/ui/UiModal.vue'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
@@ -858,7 +876,7 @@ import UiSelect from '@/components/ui/UiSelect.vue'
 import UiSpinner from '@/components/ui/UiSpinner.vue'
 import { computed, reactive, ref, watch, onMounted, onBeforeUnmount, nextTick, useId } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { isStaticHost } from '@/composables/useTauri'
+import { isStaticHost, isTauri, isAndroidApp } from '@/composables/useTauri'
 import {
   useAgent,
   runLocalAgent,
@@ -1029,6 +1047,17 @@ const controlsOpen = ref<'tools' | 'fallback' | 'perms'>('perms')
 const composerFocused = ref(false)
 const phoneControlsOpen = ref(false)
 const phoneControlsId = useId()
+const phoneMode = ref<'choice' | 'cybermanju' | 'other'>('choice')
+const screenReader = useAppScreenReader()
+function refreshScreenReaderOnResume() {
+  if (!document.hidden && isTauri() && isAndroidApp()) void screenReader.refresh()
+}
+watch(phoneControlsOpen, open => { if (open) phoneMode.value = 'choice' }, { flush: 'sync' })
+function openOtherApp() {
+  // A separate native capture session must not start inside a voice turn.
+  voiceCall.end()
+  phoneMode.value = 'other'
+}
 const dictationLanguageOpen = ref(false)
 const dictationLanguageId = useId()
 // App-wide shortcuts capture Escape at document level; this dialog owns it first.
@@ -2157,7 +2186,7 @@ const canSend = computed(() => promptInput.value.trim() !== '' && selectedProvid
 
 const voiceCall = useVoiceCall(sendVoiceTurn, () => voice.lang.value)
 function startVoiceCall() {
-  if (!voiceCall.supported || !selectedProviderReady.value || jobActive.value || promptInput.value.trim() || queue.value.length) return
+  if (!voiceCall.supported || !selectedProviderReady.value || jobActive.value || promptInput.value.trim() || queue.value.length || screenReader.active.value || screenReader.uncertain.value) return
   activeTab.value = 'chat'
   phoneControlsOpen.value = false
   stopVoice?.()
@@ -2577,6 +2606,8 @@ watch(jobActive, active => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onPhoneControlsKey, true)
+  window.removeEventListener('focus', refreshScreenReaderOnResume)
+  document.removeEventListener('visibilitychange', refreshScreenReaderOnResume)
   stopHomeCommand()
   stopVoice?.()
   agentMobileQuery?.removeEventListener?.('change', onAgentMobileChange)
@@ -2609,6 +2640,9 @@ const FALLBACK_PRESETS: ProviderPreset[] = [
 
 onMounted(async () => {
   window.addEventListener('keydown', onPhoneControlsKey, true)
+  window.addEventListener('focus', refreshScreenReaderOnResume)
+  document.addEventListener('visibilitychange', refreshScreenReaderOnResume)
+  refreshScreenReaderOnResume()
   agentMobileQuery?.addEventListener?.('change', onAgentMobileChange)
   agentMobileViewport.value = agentMobileQuery?.matches ?? false
   if (wasmMode.value) {
@@ -2645,6 +2679,10 @@ onMounted(async () => {
 .voice-call-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .voice-call .agent-note { margin: 6px 0 0; }
 .agent-phone-shortcut { flex-shrink: 0; }
+.agent-phone-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.agent-phone-options .agent-note { grid-column: 1 / -1; }
+@media (max-width: 360px) { .agent-phone-options { grid-template-columns: 1fr; } }
+.agent-reader-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--ui-border); overflow-wrap: anywhere; }
 .agent-phone-shortcut.is-active { color: var(--ui-accent); background: var(--ui-accent-softer); }
 .agent-call-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-shrink: 0; padding: 6px 12px; border-top: 1px solid var(--ui-border); }
 .agent-call-status > span { flex: 1; min-width: 100px; font-size: 12px; color: var(--ui-text-2); }
