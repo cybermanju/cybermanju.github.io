@@ -4,6 +4,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { enterUiLayout, UI_LAYOUT_TEXT_EVENT } from '@/utils/uiLayout'
 import { UI_APPEARANCE_SELECTION_EVENT } from '@/utils/uiAppearance'
+import { focusTextMenuKey } from '@/utils/uiTextMenuKeyboard'
 type TextMenu = { id: string; text: string; x: number; y: number; target: HTMLElement }
 const menu = ref<TextMenu | null>(null)
 const panel = ref<HTMLElement | null>(null)
@@ -42,7 +43,13 @@ async function copy() {
     try { copied = document.execCommand('copy') } catch { /* Denied by platform. */ }
     input.remove()
     if (copied) close()
-    else { message.value = 'Could not copy. Select the text below to copy it manually.'; await nextTick(); panel.value?.querySelector<HTMLButtonElement>('button')?.focus() }
+    else {
+      message.value = 'Could not copy. The text below is selected; use your copy shortcut or device copy action.'
+      await nextTick()
+      const fallback = panel.value?.querySelector<HTMLTextAreaElement>('textarea')
+      fallback?.focus({ preventScroll: true })
+      fallback?.select()
+    }
   }
 }
 function customize() {
@@ -57,13 +64,13 @@ function outside(event: Event) { if (menu.value && event.target instanceof Node 
 function key(event: KeyboardEvent) {
   if (!menu.value) return
   if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); close(); return }
-  if (!['Tab', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
-  const buttons = Array.from(panel.value?.querySelectorAll<HTMLButtonElement>('button') ?? [])
-  const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
-  const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowUp' || event.shiftKey ? -1 : 1) + buttons.length) % buttons.length
-  event.preventDefault(); event.stopImmediatePropagation(); buttons[next]?.focus()
+  if (panel.value) focusTextMenuKey(event, panel.value, document.activeElement)
 }
-function dismiss() { close(false) }
+function dismiss(event: Event) {
+  // Scrolling long manual-copy text or the dialog must not dismiss it.
+  if (event.type === 'scroll' && event.target instanceof Node && panel.value?.contains(event.target)) return
+  close(false)
+}
 onMounted(() => {
   window.addEventListener(UI_LAYOUT_TEXT_EVENT, open)
   window.addEventListener('pointerdown', outside, true)
@@ -87,14 +94,14 @@ onUnmounted(() => {
       <button type="button" @click="copy">Copy text</button>
       <button type="button" @click="customize">Enable customization</button>
       <button type="button" @click="close()">Cancel</button>
-      <p v-if="message" role="status">{{ message }}</p>
-      <pre v-if="message" tabindex="0">{{ menu.text }}</pre>
+      <p v-if="message" id="ui-text-copy-status" role="status">{{ message }}</p>
+      <textarea v-if="message" readonly aria-label="Text to copy manually" aria-describedby="ui-text-copy-status" :value="menu.text" />
     </div>
   </Teleport>
 </template>
 <style scoped>
 .ui-text-menu { position: fixed; z-index: 2147483647; width: min(240px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); overflow: auto; box-sizing: border-box; padding: 8px; border: 1px solid var(--ui-border, #666); border-radius: 12px; background: var(--ui-bg, #111); color: var(--ui-text, #fff); box-shadow: 0 8px 32px #0009; font: 14px/1.4 var(--ui-font, sans-serif); }
 .ui-text-menu button { display: block; width: 100%; min-height: 44px; padding: 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; text-align: start; font: inherit; cursor: pointer; }
-.ui-text-menu button:focus-visible { outline: 2px solid var(--ui-accent, #9b8aff); outline-offset: -2px; }
-.ui-text-menu pre { white-space: pre-wrap; user-select: text; -webkit-user-select: text; }
+.ui-text-menu button:focus-visible, .ui-text-menu textarea:focus-visible { outline: 2px solid var(--ui-accent, #9b8aff); outline-offset: -2px; }
+.ui-text-menu textarea { box-sizing: border-box; width: 100%; min-height: 88px; padding: 8px; background: transparent; color: inherit; font: inherit; border: 1px solid currentColor; border-radius: 6px; resize: vertical; user-select: text; -webkit-user-select: text; }
 </style>

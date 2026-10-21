@@ -137,7 +137,7 @@ onUnmounted(() => {
 .ui-layout-editor button, .ui-layout-editor__upload { min-height: 44px; box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--ui-border, #555); border-radius: 8px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
 .ui-layout-editor button:disabled, .disabled { opacity: .45; cursor: default; }
 .ui-layout-editor button:focus-visible, .ui-layout-editor__upload:focus-within { outline: 2px solid var(--ui-accent, #8b7bff); outline-offset: 2px; }
-.ui-layout-editor button[aria-pressed="true"], .ui-layout-editor__done { background: var(--ui-accent, #8b7bff) !important; color: #fff !important; }
+.ui-layout-editor button[aria-pressed="true"], .ui-layout-editor__done { background: var(--ui-accent, #8b7bff) !important; color: var(--ui-on-accent, #000000) !important; }
 .ui-layout-editor p { max-width: 540px; margin: 7px 0; opacity: .85; }
 .ui-layout-editor [role="status"] { display: block; margin-top: 4px; }
 .ui-layout-editor__appearance { max-width: 540px; }

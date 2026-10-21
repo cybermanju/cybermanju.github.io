@@ -82,7 +82,8 @@ class MockElement extends EventTarget {
   releasePointerCapture(_id: number) {}
   getClientRects() { return [this.getBoundingClientRect()] }
   contains(other: MockElement) { let n: MockElement | null = other; while (n) { if (n === this) return true; n = n.parentElement } return false }
-  focus(_options?: unknown) {}
+  get tabIndex() { return Number(this.getAttribute('tabindex') ?? (this.tagName === 'BUTTON' ? 0 : -1)) }
+  focus(_options?: unknown) { if (this.tabIndex >= 0 || this.hasAttribute('tabindex')) Object.assign(document, { activeElement: this }) }
 }
 class Pointer extends Event {
   constructor(type: string, public pointerId = 1, public clientX = 100, public clientY = 100, public button = 0) { super(type, { bubbles: true, cancelable: true }) }
@@ -100,7 +101,7 @@ const persisted = () => JSON.parse(storage.get(UI_LAYOUT_STORAGE_KEY) || '{}')
 beforeEach(() => {
   vi.useFakeTimers(); storage.clear()
   class MockWindow extends EventTarget { innerWidth = 1000; innerHeight = 800 }
-  class Key extends Event { key: string; constructor(type: string, init: { key: string }) { super(type); this.key = init.key } }
+  class Key extends Event { key: string; shiftKey: boolean; constructor(type: string, init: { key: string; shiftKey?: boolean }) { super(type, { cancelable: true }); this.key = init.key; this.shiftKey = !!init.shiftKey } }
   class Store extends Event { key: string | null; newValue: string | null; constructor(type: string, init: { key: string; newValue: string }) { super(type); this.key = init.key; this.newValue = init.newValue } }
   const win = new MockWindow()
   Object.assign(globalThis, { window: win, Element: MockElement, HTMLElement: MockElement, KeyboardEvent: Key, StorageEvent: Store,
@@ -261,6 +262,34 @@ describe('UI layout pointer gestures', () => {
     const started: unknown[] = []; window.addEventListener(UI_LAYOUT_EVENT, e => started.push((e as CustomEvent).detail))
     dispatch(a, new Pointer('pointerdown', 42)); vi.advanceTimersByTime(550)
     expect(started).toContainEqual({ editing: true })
+  })
+  it('focuses customizable text and moves/resizes it using arrows after entering editing', () => {
+    a.tagName = 'P'; a.appendText('Custom text')
+    expect(a.tabIndex).toBe(-1)
+    setEditing(true); a.focus()
+    expect(a.getAttribute('tabindex')).toBe('0'); expect(document.activeElement).toBe(a)
+    const key = (name: string, shiftKey = false) => {
+      const event = new KeyboardEvent('keydown', { key: name, shiftKey })
+      Object.defineProperty(event, 'target', { value: document.activeElement })
+      window.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(true)
+    }
+    key('ArrowRight'); key('ArrowDown', true)
+    expect(persisted().a).toEqual({ x: 0.002, y: 0.0125 })
+    window.dispatchEvent(new CustomEvent(UI_LAYOUT_MODE_EVENT, { detail: { mode: 'resize' } }))
+    key('ArrowRight'); expect(a.style.width).toBe('102px')
+    key('Escape'); expect(a.hasAttribute('tabindex')).toBe(false)
+  })
+  it('restores authored tabindex on exit, removed targets and runtime cleanup', () => {
+    a.setAttribute('tabindex', '-1'); b.setAttribute('tabindex', '3')
+    setEditing(true)
+    expect(a.getAttribute('tabindex')).toBe('0'); expect(b.getAttribute('tabindex')).toBe('3')
+    setEditing(false)
+    expect(a.getAttribute('tabindex')).toBe('-1'); expect(b.getAttribute('tabindex')).toBe('3')
+    setEditing(true); a.isConnected = false; setEditing(true)
+    expect(a.getAttribute('tabindex')).toBe('-1')
+    a.isConnected = true; setEditing(true); cleanup?.(); cleanup = undefined
+    expect(a.getAttribute('tabindex')).toBe('-1'); expect(b.getAttribute('tabindex')).toBe('3')
   })
   it('cancels a pending hold after movement beyond 10px, pointercancel, pointerup, blur, or target unmount', () => {
     const text = new MockElement(); text.tagName = 'SPAN'; text.setAttribute('data-ui-layout-id', 'text'); text.appendText('Hello'); root.append(text)

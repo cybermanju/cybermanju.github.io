@@ -108,6 +108,7 @@ export function installUiLayout(root: HTMLElement): () => void {
   const offsets = readUiLayout()
   const dimensions = readUiLayoutSizes()
   const originals = new Map<HTMLElement, Snapshot>()
+  const focusOriginals = new Map<HTMLElement, string | null>()
   const unclipped = new Map<HTMLElement, { overflow: string; overflowX: string; overflowY: string }>()
   let editing = false
   let mode: 'move' | 'swap' | 'resize' | 'appearance' = 'move'
@@ -216,6 +217,13 @@ export function installUiLayout(root: HTMLElement): () => void {
     const maxY = (height - 8 - base.height - base.top) / height
     return { x: limit(Math.max(minX, Math.min(Math.max(minX, maxX), p.x))), y: limit(Math.max(minY, Math.min(Math.max(minY, maxY), p.y))) }
   }
+  function restoreFocusability(el: HTMLElement) {
+    if (!focusOriginals.has(el)) return
+    const tabindex = focusOriginals.get(el)
+    if (tabindex == null) el.removeAttribute('tabindex')
+    else el.setAttribute('tabindex', tabindex)
+    focusOriginals.delete(el)
+  }
   function reconcile(rebound = false) {
     if (disposed) return
     restoreClipping()
@@ -223,6 +231,7 @@ export function installUiLayout(root: HTMLElement): () => void {
     // A Vue rerender may have replaced an inline style object. Reapply first,
     // then measure; nested entities inherit their parent's persisted placement.
     const list = targets()
+    for (const el of focusOriginals.keys()) if (!editing || !list.includes(el)) restoreFocusability(el)
     pruneUiEntities(list.map(idOf))
     list.forEach(apply)
     if (rebound) for (const el of list) {
@@ -230,6 +239,12 @@ export function installUiLayout(root: HTMLElement): () => void {
       if (offsets[id] && el.getClientRects().length) { offsets[id] = clamp(baseRect(el), offsets[id]); apply(el) }
     }
     for (const el of list) {
+      // Plain text cannot receive focus() by default. Make it reachable only
+      // during editing; preserve native controls and the author's tabindex.
+      if (editing && el.tabIndex < 0 && !el.matches(':disabled')) {
+        if (!focusOriginals.has(el)) focusOriginals.set(el, el.getAttribute('tabindex'))
+        el.setAttribute('tabindex', '0')
+      }
       if (editing) { snapshot(el); el.setAttribute('data-ui-layout-editable', ''); el.style.touchAction = 'none' }
       else { el.removeAttribute('data-ui-layout-editable'); const original = originals.get(el); if (original) el.style.touchAction = original.touchAction }
     }
@@ -517,6 +532,7 @@ export function installUiLayout(root: HTMLElement): () => void {
     window.removeEventListener(UI_LAYOUT_SWAP_EVENT, onExternalSwap)
     root.removeAttribute('data-ui-layout-runtime')
     root.classList.remove(EDIT_CLASS, 'ui-layout-resize-mode')
+    for (const el of focusOriginals.keys()) restoreFocusability(el)
     for (const [el, original] of originals) {
       restore(el); el.style.touchAction = original.touchAction
       el.removeAttribute('data-ui-layout-editable'); el.removeAttribute('data-ui-layout-dragging')
