@@ -41,6 +41,7 @@ func installHelp() {
 // renderRootHelp prints the masthead atlas for `cyb --help` and a styled
 // per-command page for everything below the root.
 func renderRootHelp(c *cobra.Command, _ []string) {
+	applyOutputProfile()
 	if c != rootCmd {
 		renderCmdHelp(c)
 		return

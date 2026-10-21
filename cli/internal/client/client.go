@@ -8,6 +8,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -96,6 +97,11 @@ func failure(status int, body []byte) *APIError {
 
 // Raw performs the request and returns the raw body (2xx only).
 func (c *Client) Raw(method, path string, body any) ([]byte, error) {
+	return c.RawContext(context.Background(), method, path, body)
+}
+
+// RawContext performs a request bound to the caller's cancellation lifetime.
+func (c *Client) RawContext(ctx context.Context, method, path string, body any) ([]byte, error) {
 	var reader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -104,7 +110,7 @@ func (c *Client) Raw(method, path string, body any) ([]byte, error) {
 		}
 		reader = bytes.NewReader(raw)
 	}
-	req, err := http.NewRequest(method, c.BaseURL+path, reader)
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, reader)
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +121,9 @@ func (c *Client) Raw(method, path string, body any) ([]byte, error) {
 	}
 	res, err := c.HTTP.Do(req)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, &APIError{Message: fmt.Sprintf("network: cannot reach %s%s: %v", c.BaseURL, path, err), Hint: HintFor("network:", 0)}
 	}
 	defer res.Body.Close()
@@ -130,7 +139,12 @@ func (c *Client) Raw(method, path string, body any) ([]byte, error) {
 
 // Do performs the request and decodes the JSON body into out.
 func (c *Client) Do(method, path string, body, out any) error {
-	data, err := c.Raw(method, path, body)
+	return c.DoContext(context.Background(), method, path, body, out)
+}
+
+// DoContext decodes a response while respecting caller cancellation.
+func (c *Client) DoContext(ctx context.Context, method, path string, body, out any) error {
+	data, err := c.RawContext(ctx, method, path, body)
 	if err != nil {
 		return err
 	}
@@ -599,8 +613,13 @@ type ExecResp struct {
 }
 
 func (c *Client) Exec(line string) (ExecResp, error) {
+	return c.ExecContext(context.Background(), line)
+}
+
+// ExecContext cancels the HTTP wait, not an already accepted server-side job.
+func (c *Client) ExecContext(ctx context.Context, line string) (ExecResp, error) {
 	var out ExecResp
-	err := c.Do(http.MethodPost, "/api/os/exec", map[string]any{"line": line}, &out)
+	err := c.DoContext(ctx, http.MethodPost, "/api/os/exec", map[string]any{"line": line}, &out)
 	return out, err
 }
 
