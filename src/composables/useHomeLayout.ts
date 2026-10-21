@@ -6,6 +6,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, type Ref } from 'vue'
 import { createDragMomentum } from '@/utils/dragPhysics'
 import { HOME_LAYOUT_KEY, readHomeLayout, clampHomeOffset, type HomeOffset, type HomeRect } from '@/utils/homeLayout'
+import { requestUiLayoutSwap, UI_LAYOUT_SWAP_EVENT, type UiLayoutSwapRequest } from '@/utils/uiLayout'
 
 export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_LAYOUT_KEY) {
   let raw: string | null = null
@@ -19,6 +20,7 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
   const momentum = createDragMomentum()
   let settling = false
   let moved = false
+  let mode: 'move' | 'swap' = 'move'
   let active: { id: string; pointer: number; element: HTMLElement; start: HomeOffset; original: HomeOffset | undefined; base: HomeRect; bounds: HomeRect; x: number; y: number } | null = null
   const free = computed(() => state.value.free)
   const customized = computed(() => state.value.free || Object.keys(state.value.offsets).length > 0)
@@ -79,6 +81,39 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
     dragging.value = ''
     try { if (current.element.hasPointerCapture(current.pointer)) current.element.releasePointerCapture(current.pointer) } catch { /* Capture may be lost on removal. */ }
   }
+  function swapTarget(event: PointerEvent, current: NonNullable<typeof active>): HTMLElement | null {
+    if (mode !== 'swap' || typeof document === 'undefined' || typeof document.elementsFromPoint !== 'function') return null
+    for (const candidate of document.elementsFromPoint(event.clientX, event.clientY)) {
+      const target = candidate?.closest?.<HTMLElement>('[data-home-item]') ?? null
+      if (!target || target === current.element || target.contains(current.element) || current.element.contains(target)) continue
+      if (root.value?.contains && !root.value.contains(target)) continue
+      if (target.dataset.homeItem === current.id) continue
+      return target
+    }
+    return null
+  }
+  function finishSwap(current: NonNullable<typeof active>, target: HTMLElement) {
+    const otherId = target.dataset.homeItem
+    if (!otherId || !root.value) { finish(true); return }
+    const targetGeometry = geometry(target, otherId)
+    const otherOffset = pixels(otherId)
+    const draggedPlacement = clampHomeOffset({
+      x: targetGeometry.base.left + otherOffset.x - current.base.left,
+      y: targetGeometry.base.top + otherOffset.y - current.base.top,
+    }, current.base, current.bounds)
+    const targetPlacement = clampHomeOffset({
+      x: current.base.left + current.start.x - targetGeometry.base.left,
+      y: current.base.top + current.start.y - targetGeometry.base.top,
+    }, targetGeometry.base, targetGeometry.bounds)
+    setPixels(current.id, draggedPlacement)
+    setPixels(otherId, targetPlacement)
+    active = null
+    dragging.value = ''
+    settling = false
+    momentum.stop()
+    try { if (current.element.hasPointerCapture(current.pointer)) current.element.releasePointerCapture(current.pointer) } catch { /* Capture may be lost on removal. */ }
+    save()
+  }
   function onPointerDown(event: PointerEvent) {
     if (!editing.value || !event.isPrimary || event.button !== 0 || (active && !settling)) return
     const element = item(event)
@@ -108,6 +143,18 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
     if (!active || settling || active.pointer !== event.pointerId) return
     if (event.type === 'pointercancel' || !moved) { finish(event.type === 'pointercancel'); return }
     const current = active
+    if (mode === 'swap') {
+      const target = swapTarget(event, current)
+      if (target) finishSwap(current, target)
+      else {
+        const placement = requestUiLayoutSwap(current.element, { left: current.base.left + current.start.x, top: current.base.top + current.start.y }, event.clientX, event.clientY)
+        if (placement) {
+          setPixels(current.id, clampHomeOffset({ x: placement.left - current.base.left, y: placement.top - current.base.top }, current.base, current.bounds))
+          finish()
+        } else finish(true)
+      }
+      return
+    }
     settling = true
     try { if (current.element.hasPointerCapture(current.pointer)) current.element.releasePointerCapture(current.pointer) } catch { /* Already released. */ }
     momentum.release({ position: pixels(current.id), ...geometry(current.element, current.id), update: point => setPixels(current.id, point), complete: () => finish() })
@@ -137,12 +184,53 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
     editing.value = !editing.value
     if (editing.value) state.value.free = true
     save()
+    publishEditing()
   }
   function reset() {
     finish(true)
     state.value = { free: false, offsets: {} }
     editing.value = false
     save()
+    publishEditing()
+  }
+  // One editing session for home and panel entities. Layout is app-owned;
+  // these events never execute cybsh commands or touch backend credentials.
+  function publishEditing() {
+    if (typeof window.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('cybermanju:ui-layout-edit', { detail: { editing: editing.value } }))
+    }
+  }
+  function onGlobalEditing(event: Event) {
+    const enabled = (event as CustomEvent<{ editing?: boolean }>).detail?.editing
+    if (typeof enabled !== 'boolean' || enabled === editing.value) return
+    finish()
+    editing.value = enabled
+    const rects = root.value?.getClientRects?.()
+    if (enabled && (!rects || rects.length > 0)) { state.value.free = true; save() }
+  }
+  function onLayoutMode(event: Event) {
+    const next = (event as CustomEvent<{ mode?: string }>).detail?.mode
+    if (next === 'move' || next === 'swap') mode = next
+  }
+  function onGlobalReset() {
+    finish(true)
+    state.value = { free: false, offsets: {} }
+    save()
+  }
+  function onExternalSwap(event: Event) {
+    const detail = (event as CustomEvent<UiLayoutSwapRequest>).detail
+    if (!editing.value || !detail || detail.result || !root.value || typeof document === 'undefined' || typeof document.elementsFromPoint !== 'function') return
+    for (const node of document.elementsFromPoint(detail.clientX, detail.clientY)) {
+      const target = node.closest<HTMLElement>('[data-home-item]')
+      if (!target || !root.value.contains(target) || target === detail.source || target.contains(detail.source) || detail.source.contains(target)) continue
+      const id = target.dataset.homeItem
+      if (!id) continue
+      const before = target.getBoundingClientRect(); const g = geometry(target, id)
+      setPixels(id, clampHomeOffset({ x: detail.start.left - g.base.left, y: detail.start.top - g.base.top }, g.base, g.bounds))
+      save()
+      detail.result = { left: before.left, top: before.top }
+      return
+    }
   }
   async function resize() {
     finish(true)
@@ -162,6 +250,10 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
     window.addEventListener('pointerup', onPointerUp)
     window.addEventListener('pointercancel', onPointerUp)
     window.addEventListener('blur', onBlur)
+    window.addEventListener('cybermanju:ui-layout-edit', onGlobalEditing)
+    window.addEventListener('cybermanju:ui-layout-reset', onGlobalReset)
+    window.addEventListener('cybermanju:ui-layout-mode', onLayoutMode)
+    window.addEventListener(UI_LAYOUT_SWAP_EVENT, onExternalSwap)
     root.value?.addEventListener?.('scroll', onBlur, { passive: true })
     window.addEventListener('resize', resize)
     void resize()
@@ -172,6 +264,10 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
     window.removeEventListener('pointerup', onPointerUp)
     window.removeEventListener('pointercancel', onPointerUp)
     window.removeEventListener('blur', onBlur)
+    window.removeEventListener('cybermanju:ui-layout-edit', onGlobalEditing)
+    window.removeEventListener('cybermanju:ui-layout-reset', onGlobalReset)
+    window.removeEventListener('cybermanju:ui-layout-mode', onLayoutMode)
+    window.removeEventListener(UI_LAYOUT_SWAP_EVENT, onExternalSwap)
     root.value?.removeEventListener?.('scroll', onBlur)
     window.removeEventListener('resize', resize)
   })

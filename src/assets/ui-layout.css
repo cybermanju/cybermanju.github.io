@@ -1,0 +1,36 @@
+/* CyberManju OS — app-wide component layout (src/assets/ui-layout.css).
+ * Role: Editing affordances without changing original icons, theme tokens or component rendering.
+ * Integrates: ui/layout registration and useUiLayout pointer runtime.
+ * Contracts: No drag affordance outside an explicit icon-long-press editing session.
+ */
+.ui-layout-editing [data-ui-layout-id]:not([data-ui-layout-ignore]) {
+  cursor: grab !important;
+  touch-action: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  outline: 1px dashed color-mix(in srgb, var(--ui-accent, #8b7bff) 65%, transparent);
+  outline-offset: -1px;
+}
+.ui-layout-editing [data-ui-layout-id]:focus-visible {
+  outline: 2px solid var(--ui-accent, #8b7bff);
+}
+.ui-layout-editing [data-ui-layout-dragging] {
+  cursor: grabbing !important;
+  opacity: .88;
+  z-index: 2147483640 !important;
+}
+.ui-layout-editing [data-ui-layout-swap-target] {
+  outline: 2px solid var(--ui-accent, #8b7bff) !important;
+  outline-offset: -2px;
+}
+[data-ui-layout-ignore], [data-ui-layout-ignore] * {
+  touch-action: auto;
+}
+/* Dock movement now uses the same hidden-entry customization session. */
+.dock-position-controls, .shell-dock-position-controls {
+  display: none !important;
+}
+/* One session toolbar governs both home and all panel entities. */
+.mla-layout-toolbar, .desktop-home-controls {
+  display: none !important;
+}

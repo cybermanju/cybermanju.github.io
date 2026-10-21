@@ -13,8 +13,9 @@ import { readFileSync } from 'node:fs'
 
 const memory = new Map<string, string>()
 const listeners = new Map<string, (event: any) => void>()
+let elementsAtPoint: Element[] = []
 beforeEach(() => {
-  memory.clear(); listeners.clear(); hooks.mount.length = 0; hooks.unmount.length = 0
+  memory.clear(); listeners.clear(); hooks.mount.length = 0; hooks.unmount.length = 0; elementsAtPoint = []
   vi.stubGlobal('localStorage', { getItem: (k: string) => memory.get(k) ?? null, setItem: (k: string, v: string) => memory.set(k, v) })
   vi.stubGlobal('window', { innerWidth: 400, innerHeight: 800, addEventListener: (name: string, fn: (event: any) => void) => listeners.set(name, fn), removeEventListener: (name: string) => listeners.delete(name) })
 })
@@ -48,6 +49,69 @@ describe('home layout geometry and storage', () => {
 })
 
 describe('explicit home editing', () => {
+  it('shares mode and editing events, swaps placements atomically, and global reset clears only home state', () => {
+    memory.set(HOME_LAYOUT_KEY, JSON.stringify({ free: false, offsets: { 'app:agent': { x: 0.1, y: 0.05 }, 'app:files': { x: -0.1, y: 0.1 } } }))
+    const { layout, event, element, root } = setup()
+    const rectFor = (id: string, left: number, top: number) => {
+      const [x, y] = layout.style(id).translate.split(' ').map(parseFloat)
+      return { left: left + x, top: top + y, width: 60, height: 80 }
+    }
+    element.getBoundingClientRect = () => rectFor('app:agent', 100, 100)
+    const other = { dataset: { homeItem: 'app:files' }, getBoundingClientRect: () => rectFor('app:files', 240, 300), hasAttribute: () => false, contains: () => false, closest: () => other }
+    ;(element as any).getClientRects = () => [element]
+    ;(other as any).getClientRects = () => [other]
+    ;(element as any).contains = () => false
+    root.querySelectorAll = () => [element, other] as unknown as HTMLElement[]
+    const oldDocument = globalThis.document
+    vi.stubGlobal('document', { elementsFromPoint: () => elementsAtPoint })
+    const write = vi.spyOn(localStorage, 'setItem')
+    listeners.get('cybermanju:ui-layout-edit')!({ detail: { editing: true } })
+    expect(layout.free.value).toBe(true)
+    expect(listeners.has('cybermanju:ui-layout-mode')).toBe(true)
+    listeners.get('cybermanju:ui-layout-mode')!({ detail: { mode: 'swap' } })
+    write.mockClear()
+    layout.onPointerDown(event() as unknown as PointerEvent)
+    listeners.get('pointermove')!(event(150, 150))
+    elementsAtPoint = [other as unknown as Element]
+    listeners.get('pointerup')!({ pointerId: 1, type: 'pointerup', clientX: 150, clientY: 150 })
+    expect(readHomeLayout(memory.get(HOME_LAYOUT_KEY)!).offsets).toEqual({ 'app:agent': { x: 0.25, y: 0.35 }, 'app:files': { x: -0.25, y: -0.2 } })
+    expect(element.getBoundingClientRect()).toMatchObject({ left: 200, top: 380 })
+    expect(other.getBoundingClientRect()).toMatchObject({ left: 140, top: 140 })
+    expect(write).toHaveBeenCalledTimes(1) // one atomic swap
+    listeners.get('cybermanju:ui-layout-reset')!({})
+    expect(readHomeLayout(memory.get(HOME_LAYOUT_KEY)!)).toEqual({ free: false, offsets: {} })
+    expect(oldDocument).toBeUndefined()
+  })
+  it('cancels swap when release has no valid target and writes no incorrect position', () => {
+    const { layout, event } = setup()
+    vi.stubGlobal('document', { elementsFromPoint: () => [] })
+    listeners.get('cybermanju:ui-layout-mode')!({ detail: { mode: 'swap' } })
+    layout.toggle()
+    const writes = vi.spyOn(localStorage, 'setItem')
+    layout.onPointerDown(event() as unknown as PointerEvent)
+    listeners.get('pointermove')!(event(200, 200))
+    listeners.get('pointerup')!({ pointerId: 1, type: 'pointerup', clientX: 200, clientY: 200 })
+    expect(layout.style('app:agent').translate).toBe('0px 0px')
+    expect(writes).not.toHaveBeenCalled()
+    expect(layout.status.value).toBe('Move cancelled.')
+  })
+  it('exchanges a home placement with a panel entity through position-only metadata', () => {
+    const { layout, element, root } = setup()
+    element.getBoundingClientRect = () => {
+      const [x, y] = layout.style('app:agent').translate.split(' ').map(parseFloat)
+      return { left: 100 + x, top: 100 + y, width: 60, height: 80 }
+    }
+    ;(element as any).closest = () => element
+    ;(element as any).contains = () => false
+    ;(root as any).contains = (candidate: unknown) => candidate === element
+    vi.stubGlobal('document', { elementsFromPoint: () => [element] })
+    listeners.get('cybermanju:ui-layout-edit')!({ detail: { editing: true } })
+    const detail = { source: { contains: () => false }, start: { left: 200, top: 300 }, clientX: 100, clientY: 100, result: undefined }
+    listeners.get('cybermanju:ui-layout-swap')!({ detail })
+    expect(detail.result).toEqual({ left: 100, top: 100 })
+    expect(element.getBoundingClientRect()).toMatchObject(detail.start)
+    expect(Object.keys(readHomeLayout(memory.get(HOME_LAYOUT_KEY)!).offsets)).toEqual(['app:agent'])
+  })
   it('leaves ordinary launches and touch gestures alone outside editing', () => {
     const { layout, event } = setup(); const e = event()
     layout.onPointerDown(e as unknown as PointerEvent)

@@ -43,6 +43,7 @@ import { INSTALL_EVENT } from '@/utils/installLinks'
 import MobileNav from '@/components/MobileNav.vue'
 import ContextMenu from '@/components/ContextMenu.vue'
 import type { PanelType } from '@/types'
+import UiLayoutEditor from '@/components/UiLayoutEditor.vue'
 
 const store = useAppStore()
 const launcher = useLauncherStore()
@@ -947,6 +948,7 @@ onBeforeUnmount(() => {
          works over landing and is never duplicated inside DesktopShell. -->
     <SetupWizard v-if="setupOpen && !isPopupMode" @close="setupOpen = false" />
     <MobileSetupWizard v-if="mobileSetupOpen && !isPopupMode" @close="mobileSetupOpen = false" />
+    <UiLayoutEditor v-if="!isPopupMode" />
     </div>
 </template>
 
