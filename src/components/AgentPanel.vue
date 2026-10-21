@@ -76,7 +76,40 @@
           </button>
         </div>
       </div>
+      <button
+        class="agent-nav-toggle agent-phone-shortcut"
+        :class="{ 'is-active': voiceCall.active.value }"
+        type="button"
+        title="Voice and Android apps"
+        aria-label="Voice and Android apps"
+        aria-haspopup="dialog"
+        :aria-expanded="phoneControlsOpen"
+        :aria-controls="phoneControlsId"
+        @click="phoneControlsOpen = true"
+      ><AppIcon name="solar:phone-bold" :size="20" /></button>
     </header>
+
+    <UiModal :id="phoneControlsId" v-model:visible="phoneControlsOpen" title="Voice and apps" subtitle="Call your assistant or manage Android app access." icon="solar:phone-bold" size="md">
+      <section class="voice-call" aria-label="VozPonte voice conversation">
+        <div class="voice-call-actions">
+          <strong>VozPonte</strong>
+          <UiButton v-if="!voiceCall.active.value" size="sm" :disabled="!voiceCall.supported || !selectedProviderReady || jobActive || !!promptInput.trim() || queue.length > 0" @click="startVoiceCall">Start voice call</UiButton>
+          <template v-else>
+            <span role="status">{{ pendingApproval ? 'Review the approval in chat' : voiceCall.state.value }}</span>
+            <UiButton size="sm" :aria-pressed="voiceCall.muted.value" @click="voiceCall.toggleMute">{{ voiceCall.muted.value ? 'Unmute' : 'Mute' }}</UiButton>
+            <UiButton size="sm" variant="danger" @click="voiceCall.end">End call</UiButton>
+          </template>
+        </div>
+        <p class="agent-note">Foreground, turn-by-turn voice with your selected assistant. Replies play aloud. Typing switches back to text; ending audio does not cancel an already-started task. Tool approvals stay manual.</p>
+        <p v-if="promptInput.trim() || queue.length" class="agent-note">Send or clear your draft and queued messages before starting a call.</p>
+        <p v-if="jobActive" class="agent-note">Wait for the current task to finish before starting a call.</p>
+        <p v-if="!selectedProviderReady" class="agent-note">Select an assistant with a connected provider in Assistant settings first.</p>
+        <p v-if="!voiceCall.supported" class="agent-note">Voice calls are unavailable in this browser/WebView. You can still use text.</p>
+        <p class="agent-note">Speech recognition may use your device provider's network.</p>
+        <p v-if="voiceCall.error.value" role="alert" class="w-msg">{{ voiceCall.error.value }}</p>
+      </section>
+      <AndroidVoiceSettings />
+    </UiModal>
 
     <div class="agent-body">
       <button
@@ -523,22 +556,6 @@
 
         <!-- Chat tab -->
         <section v-show="activeTab === 'chat'" class="agent-chat" aria-label="Conversation">
-          <section class="voice-call" aria-label="VozPonte voice conversation">
-            <div class="voice-call-actions">
-              <strong>VozPonte</strong>
-              <UiButton v-if="!voiceCall.active.value" size="sm" :disabled="!voiceCall.supported || !chatConfigId || jobActive || !!promptInput.trim() || queue.length > 0" @click="startVoiceCall">Start voice call</UiButton>
-              <template v-else>
-                <span role="status">{{ pendingApproval ? 'Review the approval below' : voiceCall.state.value }}</span>
-                <UiButton size="sm" :aria-pressed="voiceCall.muted.value" @click="voiceCall.toggleMute">{{ voiceCall.muted.value ? 'Unmute' : 'Mute' }}</UiButton>
-                <UiButton v-if="voiceCall.state.value === 'speaking'" size="sm" @click="voiceCall.interrupt">Interrupt &amp; speak</UiButton>
-                <UiButton size="sm" variant="danger" @click="voiceCall.end">End call</UiButton>
-              </template>
-            </div>
-            <p class="agent-note">Foreground, turn-by-turn voice with your selected assistant. Speech recognition may use your device provider's network. Replies play aloud. Tool approvals stay manual; ending the call stops audio, not an already-started task.</p>
-            <p v-if="!voiceCall.supported" class="agent-note">Voice calls are unavailable in this browser/WebView. Use text, or connect the Android VozPonte app to your dashboard.</p>
-            <p v-if="voiceCall.error.value" role="alert" class="w-msg">{{ voiceCall.error.value }}</p>
-          </section>
-          <AndroidVoiceSettings />
           <div v-if="!hasUsableProvider" class="agent-welcome agent-provider-empty" role="status" aria-live="polite">
             <span class="agent-welcome-avatar"><AppIcon name="solar:plug-circle-bold" :size="22" /></span>
             <h3>NO PROVIDER CONNECTED</h3>
@@ -725,6 +742,14 @@
             </div>
           </template>
 
+          <div v-if="voiceCall.active.value" class="agent-call-status" aria-label="Active voice call">
+            <span role="status" aria-live="polite">{{ pendingApproval ? 'Voice · review approval above' : `Voice · ${voiceCall.state.value}` }}</span>
+            <UiButton size="sm" :aria-pressed="voiceCall.muted.value" @click="voiceCall.toggleMute">{{ voiceCall.muted.value ? 'Unmute' : 'Mute' }}</UiButton>
+            <UiButton v-if="voiceCall.state.value === 'speaking'" size="sm" @click="voiceCall.interrupt">Interrupt</UiButton>
+            <UiButton size="sm" variant="danger" @click="voiceCall.end">End call</UiButton>
+          </div>
+          <p v-if="voiceCall.error.value && !phoneControlsOpen" class="agent-call-error" role="alert">{{ voiceCall.error.value }} <button type="button" class="agent-link" @click="phoneControlsOpen = true">Voice settings</button></p>
+
             <!-- Composer stays visible even with no session yet: sending
               auto-creates one (same as desktop). Hidden only on setup/controls tabs. -->
             <div v-if="selectedProviderReady" class="composer" :class="{ focused: composerFocused }">
@@ -743,14 +768,14 @@
               <textarea
                 v-model="promptInput"
                 class="composer-box"
-                :disabled="voiceCall.active.value"
                 :placeholder="!chatConfigId ? 'Pick an assistant in the sidebar, then ask anything…' : jobActive ? 'Working… type on, Enter queues your follow-up…' : viewing ? 'Ask anything… (Enter to send, / for commands)' : 'Ask anything — sending starts a new conversation… (Enter to send, / for commands)'"
                 rows="2"
                 aria-label="Message the assistant"
                 @focus="composerFocused = true"
                 @blur="composerFocused = false"
                 @keydown="onComposerKey"
-                @keydown.enter.exact.prevent="sendPrompt()"
+                @input="switchToText"
+                @keydown.enter.exact="sendTypedPrompt($event)"
               />
               <div class="composer-bar">
                 <span class="composer-hint dim">
@@ -787,7 +812,7 @@
                   <UiButton size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : voice.langPref.value === 'auto' ? `Dictate your message (auto: ${voice.lang.value === 'pt-BR' ? 'Portuguese' : 'English'} — hover to pick EN/PT)` : `Dictate your message (${voice.langPref.value === 'pt-BR' ? 'Portuguese' : 'English'} — hover to change)`" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Dictate' }}</UiButton>
                 </div>
                 <UiButton v-if="jobActive" size="sm" variant="danger" icon="solar:stop-bold" @click="abortJob">Stop</UiButton>
-                <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend || voiceCall.active.value" :title="!chatConfigId ? 'Select an assistant first' : ''" @click="sendPrompt()">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
+                <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend" :title="!chatConfigId ? 'Select an assistant first' : ''" @click="sendTypedPrompt()">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
               </div>
             </div>
             <div v-if="jobLine" class="w-msg job-line"><AppIcon name="solar:clock-circle-bold" :size="11" /> {{ jobLine }}</div>
@@ -803,6 +828,7 @@
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
 import AndroidVoiceSettings from '@/components/AndroidVoiceSettings.vue'
+import UiModal from '@/components/ui/UiModal.vue'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
@@ -810,7 +836,7 @@ import UiEmpty from '@/components/ui/UiEmpty.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiSpinner from '@/components/ui/UiSpinner.vue'
-import { computed, reactive, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { computed, reactive, ref, watch, onMounted, onBeforeUnmount, nextTick, useId } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { isStaticHost } from '@/composables/useTauri'
 import {
@@ -981,6 +1007,8 @@ const capsOpen = ref(false)
 /** Controls accordion: only one section open at a time. */
 const controlsOpen = ref<'tools' | 'fallback' | 'perms'>('perms')
 const composerFocused = ref(false)
+const phoneControlsOpen = ref(false)
+const phoneControlsId = useId()
 const copiedKey = ref('')
 const slashOpen = ref(false)
 const caps = computed(() => capabilitySummary(chatConfig.value, viewing.value, wasmMode.value))
@@ -2088,13 +2116,16 @@ const canSend = computed(() => promptInput.value.trim() !== '' && selectedProvid
 
 const voiceCall = useVoiceCall(sendVoiceTurn, () => voice.lang.value)
 function startVoiceCall() {
+  if (!voiceCall.supported || !selectedProviderReady.value || jobActive.value || promptInput.value.trim() || queue.value.length) return
+  activeTab.value = 'chat'
+  phoneControlsOpen.value = false
   stopVoice?.()
   stopVoice = null
   voice.stop()
   voiceCall.start()
 }
 // Changing assistants/tabs ends audio rather than silently sending to a different target.
-watch([chatConfigId, activeTab], () => voiceCall.end())
+watch([chatConfigId, activeTab], () => voiceCall.end(), { flush: 'sync' })
 watch(() => viewing.value?.id, (id, old) => { if (old && id !== old) voiceCall.end() })
 
 /** Reuse the normal transport/permission pipeline and read only the completed answer. */
@@ -2132,6 +2163,19 @@ async function sendVoiceTurn(text: string, signal: AbortSignal): Promise<string>
   const answer = answers[answers.length - 1]
   if (!answer) throw new Error('No final spoken reply. Review the task in chat.')
   return answer.content
+}
+
+/** Manual input owns the composer; invalidate audio before a late transcript can overwrite a draft. */
+function switchToText() {
+  if (voiceCall.active.value) voiceCall.end()
+}
+async function sendTypedPrompt(event?: KeyboardEvent) {
+  // Android keyboards use Enter to commit an IME candidate, not necessarily to send.
+  if (event?.isComposing || event?.keyCode === 229) return
+  event?.preventDefault()
+  if (!canSend.value) return
+  switchToText()
+  await sendPrompt()
 }
 
 async function sendPrompt(signal?: AbortSignal) {
@@ -2528,9 +2572,15 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.voice-call { flex-shrink: 0; padding: 10px 14px; border-bottom: 1px solid var(--ui-border); }
+.voice-call { padding: 0 0 12px; }
 .voice-call-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .voice-call .agent-note { margin: 6px 0 0; }
+.agent-phone-shortcut { flex-shrink: 0; }
+.agent-phone-shortcut.is-active { color: var(--ui-accent); background: var(--ui-accent-softer); }
+.agent-call-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-shrink: 0; padding: 6px 12px; border-top: 1px solid var(--ui-border); }
+.agent-call-status > span { flex: 1; min-width: 100px; font-size: 12px; color: var(--ui-text-2); }
+.agent-call-error { flex-shrink: 0; margin: 0; padding: 6px 12px; font-size: 12px; overflow-wrap: anywhere; }
+.agent-nav-toggle:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 /* CyberManju agent — modern chat UX.
    Layout: header / (sidebar + main). Sidebar collapses under 760px.
    Tone: sentence case, breathing room, sticky composer, avatars, meters. */

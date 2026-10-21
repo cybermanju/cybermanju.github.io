@@ -25,11 +25,16 @@ const selectedPackage = computed(() => selectedPackages.value.includes(fillPacka
 const dirty = computed(() => JSON.stringify([...selectedPackages.value].sort()) !== JSON.stringify([...(status.value?.selectedPackages || [])].sort()))
 const installed = useAndroidApps()
 const showApps = ref(false)
+const appSearch = ref('')
+const filteredApps = computed(() => {
+  const query = appSearch.value.trim().toLocaleLowerCase()
+  return installed.apps.value.filter(app => !query || `${app.label} ${app.packageName}`.toLocaleLowerCase().includes(query))
+})
 let initialized = false
 
 async function chooseApps() {
   error.value = ''
-  try { await installed.refresh(); showApps.value = true }
+  try { await installed.refresh(); if (alive) showApps.value = true }
   catch (cause) { if (alive) error.value = message(cause) }
 }
 function toggleApp(pkg: string, checked: boolean) {
@@ -111,27 +116,36 @@ onBeforeUnmount(() => { alive = false; generation++ })
   <section v-if="android" class="android-voice" aria-label="Android notification and voice settings">
     <h3>Android app notifications</h3>
     <p class="agent-note">Choose apps explicitly. Notifications are shown only when you request a refresh and are never sent to the assistant or voice call.</p>
-    <UiButton size="sm" @click="chooseApps">Choose installed apps</UiButton>
-    <div v-if="showApps" class="android-installed-apps">
-      <label v-for="app in installed.apps.value" :key="app.packageName">
+    <UiButton size="sm" :disabled="busy || installed.status.value === 'loading'" :loading="installed.status.value === 'loading'" :aria-expanded="showApps" @click="chooseApps">Choose installed apps</UiButton>
+    <p class="agent-note">{{ selectedPackages.length }} apps selected{{ dirty ? ' · unsaved changes' : '' }}</p>
+    <div v-if="showApps" class="android-app-picker">
+      <label class="w-field"><span class="w-label">Search installed apps</span><input v-model="appSearch" type="search" aria-label="Search installed apps" placeholder="App name or package" /></label>
+      <p v-if="!filteredApps.length" class="agent-note" role="status">{{ installed.apps.value.length ? 'No apps match your search.' : 'No launchable apps were returned by Android. You can enter package names below.' }}</p>
+      <div class="android-installed-apps" role="group" aria-label="Installed apps">
+      <label v-for="app in filteredApps" :key="app.packageName">
         <input type="checkbox" :checked="selectedPackages.includes(app.packageName)" :disabled="busy" @change="toggleApp(app.packageName, ($event.target as HTMLInputElement).checked)" />
         {{ app.label }} <small>{{ app.packageName }}</small>
       </label>
+      </div>
     </div>
+    <details class="android-package-details">
+      <summary>Advanced: app package names</summary>
     <label class="w-field">
       <span class="w-label">Selected app package names (one per line)</span>
       <textarea v-model="packagesText" rows="3" :disabled="busy" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="com.example.messaging" aria-label="Selected app package names" />
     </label>
+    </details>
     <div class="android-voice-actions">
       <UiButton size="sm" :disabled="busy || !dirty" @click="saveSelection">Save app selection</UiButton>
-      <UiButton size="sm" :disabled="busy || dirty" :loading="busy" @click="refreshNotifications">Refresh notifications</UiButton>
+      <UiButton size="sm" :disabled="busy || dirty || !selectedPackages.length || !status?.notificationAccess" :loading="busy" @click="refreshNotifications">Refresh notifications</UiButton>
       <UiButton size="sm" :disabled="busy" @click="refreshStatus">Refresh permission status</UiButton>
     </div>
-    <p v-if="status" class="agent-note" role="status">Notification access: {{ status.notificationAccess ? 'Granted' : 'Not granted' }} · Accessibility: {{ status.accessibilityEnabled ? 'Enabled' : 'Not enabled' }} · Speech provider: {{ status.recognitionAvailable ? 'Available' : 'Unavailable' }}</p>
+    <p v-if="status && !status.notificationAccess" class="agent-note">Grant notification access in Android settings, then refresh permission status to read notifications.</p>
+    <p v-if="status" class="agent-note" role="status">Notification access: {{ status.notificationAccess ? 'Granted' : 'Not granted' }} · Accessibility: {{ status.accessibilityEnabled ? 'Enabled' : 'Not enabled' }} · Microphone: {{ status.microphoneGranted ? 'Granted' : 'Not granted' }} · Speech provider: {{ status.recognitionAvailable ? 'Available' : 'Unavailable' }}</p>
     <div class="android-voice-actions">
-      <UiButton size="sm" @click="openSettings('notificationSettings')">Notification access settings</UiButton>
-      <UiButton size="sm" @click="openSettings('accessibilitySettings')">Accessibility settings</UiButton>
-      <UiButton size="sm" @click="openSettings('microphoneSettings')">Microphone settings</UiButton>
+      <UiButton size="sm" :disabled="busy" @click="openSettings('notificationSettings')">Notification access settings</UiButton>
+      <UiButton size="sm" :disabled="busy" @click="openSettings('accessibilitySettings')">Accessibility settings</UiButton>
+      <UiButton size="sm" :disabled="busy" @click="openSettings('microphoneSettings')">Microphone settings</UiButton>
     </div>
     <p class="agent-note">Accessibility is used only for assisted text filling; it never sends messages. Android asks you to review the exact app, recipient (for a reply), and text before any action.</p>
     <ul v-if="items.length && !dirty" class="android-voice-notifications" aria-label="Notifications">
@@ -154,7 +168,7 @@ onBeforeUnmount(() => { alive = false; generation++ })
 </template>
 
 <style scoped>
-.android-voice { padding: 12px 14px; border-top: 1px solid var(--ui-border); }
+.android-voice { padding: 12px 0; border-top: 1px solid var(--ui-border); }
 .android-voice h3, .android-voice h4 { margin: 0 0 7px; }
 .android-voice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .android-voice .w-field { display: grid; gap: 5px; margin: 8px 0; }
@@ -164,7 +178,9 @@ onBeforeUnmount(() => { alive = false; generation++ })
 .android-voice-notifications p { margin: 6px 0; }
 .android-voice-fill { margin-top: 12px; }
 .android-installed-apps { max-height: 220px; overflow-y: auto; display: grid; gap: 8px; margin-top: 8px; }
-.android-installed-apps label { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.android-installed-apps input { width: auto; }
+.android-installed-apps label { min-height: 44px; cursor: pointer; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.android-installed-apps input { width: 20px; height: 20px; flex-shrink: 0; }
+.android-package-details { margin: 10px 0; }
+.android-package-details summary { cursor: pointer; padding: 10px 0; }
 .android-installed-apps small { opacity: .7; overflow-wrap: anywhere; }
 </style>
