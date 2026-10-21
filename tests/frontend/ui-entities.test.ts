@@ -1,3 +1,5 @@
+// CyberManju OS — Role: verify the local per-entity UI store.
+// CyberManju OS — Integrates: stable IDs, snapshots, position, and size operations.
 import { afterEach, describe, expect, it } from 'vitest'
 import { isReactive } from 'vue'
 import {

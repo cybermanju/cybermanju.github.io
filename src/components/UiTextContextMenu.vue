@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// CyberManju OS — Role: accessible text context menu for copy and personalization.
+// CyberManju OS — Integrates: layout editor and appearance customization events.
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { enterUiLayout, UI_LAYOUT_TEXT_EVENT } from '@/utils/uiLayout'
 import { UI_APPEARANCE_SELECTION_EVENT } from '@/utils/uiAppearance'
