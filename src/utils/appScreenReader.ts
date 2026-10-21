@@ -16,6 +16,8 @@ export function parseScreenReaderStatus(raw: unknown): ReaderStatus {
   // Native session errors are lastError; error belongs to the IPC envelope.
   if (typeof row.error === 'string') throw new Error(row.error)
   const nullable = (value: unknown): value is string | null => value === null || (typeof value === 'string' && !!value.trim())
+  const optionalBoolean = (key: string) => row[key] === undefined || typeof row[key] === 'boolean'
+  const optionalApi = row.androidApi === undefined || (Number.isInteger(row.androidApi) && Number(row.androidApi) > 0)
   if (!nullable(row.sessionId) || !nullable(row.packageName)
     || !['idle', 'awaiting_permission', 'selecting', 'reading', 'stopped', 'cancelled', 'error'].includes(String(row.state))
     || typeof row.overlayGranted !== 'boolean' || !Array.isArray(row.packages)
@@ -23,6 +25,8 @@ export function parseScreenReaderStatus(raw: unknown): ReaderStatus {
     || !Number.isInteger(row.index) || !Number.isInteger(row.total) || Number(row.index) < 0 || row.total !== row.packages.length
     || ![null, 'single', 'batch'].includes(row.mode as string | null) || !Array.isArray(row.captures)
     || typeof row.engine !== 'string' || typeof row.limitation !== 'string'
+    || !optionalBoolean('notificationGranted') || !optionalBoolean('notificationsEnabled')
+    || !optionalBoolean('projectionActive') || !optionalApi
     || (row.lastError !== undefined && typeof row.lastError !== 'string')) throw invalid()
   const packages = row.packages as string[]
   if ((row.packageName !== null && !packages.includes(row.packageName))
@@ -34,7 +38,11 @@ export function parseScreenReaderStatus(raw: unknown): ReaderStatus {
   return { sessionId: row.sessionId, state: row.state as ReaderStatus['state'], packageName: row.packageName,
     index: row.index as number, total: row.total as number, overlayGranted: row.overlayGranted, packages: [...packages],
     mode: row.mode as ReaderStatus['mode'], captures: row.captures.map(capture => ({ ...capture })),
-    engine: row.engine, limitation: row.limitation, lastError: row.lastError as string | undefined }
+    engine: row.engine, limitation: row.limitation, lastError: row.lastError as string | undefined,
+    notificationGranted: row.notificationGranted as boolean | undefined,
+    notificationsEnabled: row.notificationsEnabled as boolean | undefined,
+    projectionActive: row.projectionActive as boolean | undefined,
+    androidApi: row.androidApi as number | undefined }
 }
 /** Bound queue wait as well as native IPC; never retry an ambiguous start. */
 export async function boundedReaderRequest<T>(request: Promise<T>): Promise<T> {

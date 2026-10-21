@@ -21,6 +21,7 @@ const filteredApps = computed(() => {
     .sort((a, b) => a.label.localeCompare(b.label) || a.packageName.localeCompare(b.packageName))
 })
 const canStart = computed(() => installed.supported && reader.checked.value && reader.status.value.overlayGranted
+  && reader.status.value.notificationGranted !== false && reader.status.value.notificationsEnabled !== false
   && !reader.busy.value && !reader.active.value && !reader.uncertain.value && consent.value)
 const sessionApps = computed(() => reader.status.value.packages.map(packageName => ({
   packageName, label: installed.apps.value.find(app => app.packageName === packageName)?.label || packageName,
@@ -29,7 +30,7 @@ const sessionApps = computed(() => reader.status.value.packages.map(packageName 
 })))
 const phaseText = computed(() => ({
   idle: 'Ready to choose apps', awaiting_permission: 'Waiting for Android permission', selecting: 'Place the app on the target screen, then tap Select screen in the overlay',
-  reading: 'Screen selected · sharing session active', stopped: 'Session stopped', cancelled: 'Permission cancelled · session not running', error: 'Screen session needs attention',
+  reading: 'Screen selected · sharing session active', stopped: 'Session stopped', cancelled: 'Permission denied or cancelled · session not running', error: 'Screen session needs attention',
 }[reader.status.value.state]))
 async function chooseMode(value: 'one' | 'batch') {
   mode.value = value
@@ -71,7 +72,7 @@ function schedule() {
 async function refreshStatus() { await reader.refresh(); if (alive) schedule() }
 function onVisibility() {
   clearTimeout(timer)
-  if (!document.hidden) void refreshStatus()
+  if (installed.supported && !document.hidden) void refreshStatus()
 }
 onMounted(() => {
   if (installed.supported) void refreshStatus()
@@ -95,23 +96,46 @@ onBeforeUnmount(() => {
       <div class="reader-disclosure">
         <strong>Visible, permission-based screen sharing</strong>
         <p>Screen reading may expose sensitive content. Only choose apps and screens you want to read. Android asks for screen-capture permission for each session. The shared visible screen may include other apps you show during the session. A visible overlay and persistent notification let you stop at any time.</p>
+        <p><strong>Two separate approvals:</strong> overlay permission only allows floating selection controls; it does not allow screen capture. After you choose an app, Android asks separately what to share. There is no screen-capture toggle in Settings.</p>
+        <p>On Android 14+, the system may offer a single app or the entire screen. Sharing one app does not automatically share the other apps in a batch. Review the system choice before continuing. On Android 15 QPR1+, you can also stop sharing from the system status-bar indicator; locking the device stops projection.</p>
         <p>“Lock” selects a local snapshot; it does not freeze the other app. Hidden apps cannot be monitored. Secure screens may be blank. Every new session requires fresh Android permission.</p>
-        <p><strong>Text recognition (OCR) is still being integrated and has not been validated for release. Selecting a screen does not confirm that its text has been read.</strong></p>
+        <p><strong>Text recognition (OCR) can miss content. Selecting a screen does not confirm that its text has been read. Review the native session result before relying on it.</strong></p>
       </div>
       <div class="reader-actions">
         <UiButton :active="mode === 'one'" :disabled="reader.busy.value || reader.active.value || reader.uncertain.value" @click="chooseMode('one')">1 app</UiButton>
         <UiButton :active="mode === 'batch'" :disabled="reader.busy.value || reader.active.value || reader.uncertain.value" @click="chooseMode('batch')">2+ apps</UiButton>
         <UiButton size="sm" :loading="reader.busy.value" @click="refreshStatus">Refresh status</UiButton>
       </div>
-      <div v-if="reader.checked.value && !reader.status.value.overlayGranted" class="reader-disclosure">
-        <p>Allow CyberManju to display its screen-selection controls over other apps, then return here and refresh status.</p>
-        <UiButton :disabled="reader.busy.value || reader.active.value" @click="reader.overlaySettings">Allow selection overlay</UiButton>
+      <div class="reader-disclosure" aria-label="Overlay permission">
+        <p role="status"><strong>Selection overlay:</strong> {{ !reader.checked.value ? 'Not verified · refresh status before starting.' : reader.status.value.overlayGranted ? 'Allowed' : 'Not allowed · no screen session will start.' }}</p>
+        <template v-if="reader.checked.value && !reader.status.value.overlayGranted">
+          <p>Allow CyberManju to display floating screen-selection controls. Opening Settings does not grant access. You can decline and return safely; starting remains disabled.</p>
+          <UiButton :disabled="reader.busy.value || reader.active.value || reader.uncertain.value" @click="reader.overlaySettings">Open overlay settings</UiButton>
+        </template>
+        <details class="reader-settings-help">
+          <summary>How to find the permission on my device</summary>
+          <p>Android 11+: Settings opens the overlay app list; select CyberManju, then enable “Display over other apps”. Android 6–10 may open CyberManju’s permission page directly. Names and locations vary by device.</p>
+          <p>If the shortcut is unavailable, open your device’s Settings and search for “Display over other apps”, “Appear on top” or “Special app access”, then select CyberManju. A work profile, administrator or device restriction may prevent this permission; do not bypass it.</p>
+          <p>Return using Android Back or the app switcher. We recheck permission when this app regains focus; use Refresh status if the result is not updated. Returning never automatically starts screen sharing.</p>
+          <p>Accessibility is a separate permission used by assisted actions, not this screen-capture approval. If another feature requests it, open Settings → Accessibility and select the service yourself; an app-specific shortcut is not guaranteed.</p>
+        </details>
+      </div>
+      <div class="reader-disclosure" aria-label="Screen-sharing notifications">
+        <p role="status"><strong>Screen-sharing notifications:</strong> {{ !reader.checked.value ? 'Not verified' : reader.status.value.notificationGranted === false || reader.status.value.notificationsEnabled === false ? 'Blocked · enable notifications before starting.' : reader.status.value.notificationGranted === undefined || reader.status.value.notificationsEnabled === undefined ? 'Not reported by this Android app version' : 'Allowed' }}</p>
+        <p>The session needs visible controls and a persistent notification so you can stop sharing. Android 13+ may ask for notification permission before screen-capture consent. Denying or cancelling does not authorize capture.</p>
+        <UiButton v-if="reader.checked.value && (reader.status.value.notificationGranted === false || reader.status.value.notificationsEnabled === false)" :disabled="reader.busy.value || reader.active.value || reader.uncertain.value" @click="reader.notificationSettings">Open notification settings</UiButton>
+        <details class="reader-settings-help">
+          <summary>Notification settings and safe return</summary>
+          <p>Android 8+ opens CyberManju’s notification settings; Android 7.x opens its app details. If unavailable, open Settings → Apps → CyberManju → Notifications manually. Names vary by device. Enable the screen-sharing notification channel if it was disabled.</p>
+          <p>Opening permission Settings ends any screen-sharing session. Returning only checks status; it never resumes capture. Choose an app and accept a new Android screen-sharing request to start again.</p>
+        </details>
       </div>
       <div v-if="reader.active.value || reader.uncertain.value || ['error', 'cancelled', 'stopped'].includes(reader.status.value.state)" class="reader-session" aria-label="Screen-reading session">
         <strong role="status">{{ phaseText }}</strong>
         <p v-if="reader.status.value.limitation">{{ reader.status.value.limitation }}</p>
         <p v-if="reader.status.value.lastError" role="alert" class="reader-error">{{ reader.status.value.lastError }}</p>
         <p v-if="reader.uncertain.value">The last request is not confirmed. Check the Android notification and refresh status; do not start another session yet.</p>
+        <p v-if="reader.status.value.state === 'cancelled'">No permission was assumed and sharing will not restart automatically. Review the permissions, then choose an app and confirm again only if you want to retry.</p>
         <ol v-if="sessionApps.length" class="reader-progress" aria-label="Batch progress">
           <li v-for="app in sessionApps" :key="app.packageName"><strong>{{ app.label }}</strong> · {{ app.locked ? 'Screen selected' : app.current ? 'Choose screen in overlay' : 'Waiting' }}</li>
         </ol>
@@ -173,4 +197,6 @@ onBeforeUnmount(() => {
 .reader-app-name small { color: var(--ui-text-muted); }
 .reader-progress { padding-left: 22px; overflow-wrap: anywhere; }
 .reader-error { color: var(--ui-danger); overflow-wrap: anywhere; }
+.reader-settings-help summary { min-height: 44px; display: list-item; align-content: center; cursor: pointer; }
+.reader-settings-help summary:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 </style>

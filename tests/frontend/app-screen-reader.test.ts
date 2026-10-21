@@ -32,6 +32,14 @@ describe('appScreenReader', () => {
     expect(() => parseScreenReaderStatus({ ...snap(), error: 'IPC failure' })).toThrow('IPC failure')
   })
 
+  it('preserva novos campos opcionais e aceita status de versões antigas', () => {
+    expect(parseScreenReaderStatus(snap()).notificationGranted).toBeUndefined()
+    expect(parseScreenReaderStatus(snap({ notificationGranted: false, notificationsEnabled: true, projectionActive: false, androidApi: 35 }))).toMatchObject({ notificationGranted: false, notificationsEnabled: true, projectionActive: false, androidApi: 35 })
+    for (const invalid of [snap({ notificationGranted: 'yes' as unknown as boolean }), snap({ notificationsEnabled: 0 as unknown as boolean }), snap({ projectionActive: null as unknown as boolean }), snap({ androidApi: 0 }), snap({ androidApi: 35.5 })]) {
+      expect(() => parseScreenReaderStatus(invalid)).toThrow(/Invalid Android reader status/)
+    }
+  })
+
   it('considera somente awaiting_permission, selecting e reading estados ativos', () => {
     for (const state of ['awaiting_permission', 'selecting', 'reading'] as const) expect(screenReaderActive(snap({ state })).valueOf()).toBe(true)
     for (const state of ['idle', 'stopped', 'cancelled', 'error'] as const) expect(screenReaderActive(snap({ state }))).toBe(false)

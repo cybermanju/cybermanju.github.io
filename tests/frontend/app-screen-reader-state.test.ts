@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReaderStatus } from '../../src/utils/androidScreenReader'
 
-const { statusCall, pollCall, startCall, stopCall, overlayCall } = vi.hoisted(() => ({
-  statusCall: vi.fn(), pollCall: vi.fn(), startCall: vi.fn(), stopCall: vi.fn(), overlayCall: vi.fn(),
+const { statusCall, pollCall, startCall, stopCall, overlayCall, notificationCall } = vi.hoisted(() => ({
+  statusCall: vi.fn(), pollCall: vi.fn(), startCall: vi.fn(), stopCall: vi.fn(), overlayCall: vi.fn(), notificationCall: vi.fn(),
 }))
 vi.mock('@/utils/androidScreenReader', () => ({
   AndroidScreenReader: class {
@@ -11,6 +11,7 @@ vi.mock('@/utils/androidScreenReader', () => ({
     start = startCall
     stop = stopCall
     overlaySettings = overlayCall
+    notificationSettings = notificationCall
   },
 }))
 const idle = (overlayGranted = true): ReaderStatus => ({ sessionId: null, state: 'idle', packageName: null, index: 0, total: 0, overlayGranted, packages: [], mode: null, captures: [], engine: '', limitation: '' })
@@ -20,7 +21,7 @@ async function fresh() {
   const mod = await import('../../src/composables/useAppScreenReader')
   return mod.useAppScreenReader()
 }
-beforeEach(() => { vi.useRealTimers(); statusCall.mockReset(); pollCall.mockReset(); startCall.mockReset(); stopCall.mockReset(); overlayCall.mockReset() })
+beforeEach(() => { vi.useRealTimers(); statusCall.mockReset(); pollCall.mockReset(); startCall.mockReset(); stopCall.mockReset(); overlayCall.mockReset(); notificationCall.mockReset() })
 afterEach(() => vi.useRealTimers())
 
 describe('useAppScreenReader state', () => {
@@ -66,6 +67,40 @@ describe('useAppScreenReader state', () => {
     expect(startCall).not.toHaveBeenCalled()
   })
 
+  it('bloqueia start quando notificações são negadas, mas deixa o gate desconhecido ao nativo', async () => {
+    const reader = await fresh()
+    statusCall.mockResolvedValue({ ...idle(), notificationGranted: false })
+    await reader.refresh(); await reader.start(['a'])
+    expect(startCall).not.toHaveBeenCalled()
+    statusCall.mockResolvedValue({ ...idle(), notificationsEnabled: false })
+    await reader.refresh(); await reader.start(['a'])
+    expect(startCall).not.toHaveBeenCalled()
+    statusCall.mockResolvedValue(idle())
+    await reader.refresh(); startCall.mockResolvedValue(reading())
+    await reader.start(['a'])
+    expect(startCall).toHaveBeenCalledTimes(1)
+  })
+
+  it('notification Settings reconcilia sem retry e bloqueia busy/active/uncertain', async () => {
+    const reader = await fresh()
+    statusCall.mockResolvedValue(idle())
+    await reader.refresh()
+    notificationCall.mockResolvedValue({ ...idle(), notificationGranted: true, notificationsEnabled: true })
+    await reader.notificationSettings()
+    expect(notificationCall).toHaveBeenCalledTimes(1)
+    expect(reader.status.value.notificationGranted).toBe(true)
+    vi.useFakeTimers()
+    startCall.mockImplementation(() => new Promise(() => {}))
+    const pendingStart = reader.start(['a'])
+    await reader.notificationSettings()
+    expect(notificationCall).toHaveBeenCalledTimes(1)
+    const settled = expect(pendingStart).resolves.toBeUndefined()
+    await vi.advanceTimersByTimeAsync(10_000); await settled
+    await reader.notificationSettings()
+    expect(notificationCall).toHaveBeenCalledTimes(1)
+    expect(reader.uncertain.value).toBe(true)
+  })
+
   it('timeout de start mantém incerteza, não retenta, e refresh limpa a incerteza', async () => {
     vi.useFakeTimers()
     const reader = await fresh()
@@ -107,5 +142,21 @@ describe('useAppScreenReader state', () => {
     await reader.overlaySettings()
     expect(overlayCall).toHaveBeenCalledTimes(1)
     expect(reader.status.value.overlayGranted).toBe(true)
+  })
+
+  it('não perde refresh solicitado enquanto Settings está ocupando a ponte', async () => {
+    const reader = await fresh()
+    statusCall.mockResolvedValue(idle(false))
+    await reader.refresh()
+    let finishSettings!: (s: ReaderStatus) => void
+    overlayCall.mockImplementation(() => new Promise(r => { finishSettings = r }))
+    const settings = reader.overlaySettings()
+    const revalidate = reader.refresh()
+    finishSettings(idle(false)) // abrir Settings, por si só, não concede overlay
+    await Promise.all([settings, revalidate])
+    expect(statusCall).toHaveBeenCalledTimes(2)
+    expect(reader.checked.value).toBe(true)
+    expect(reader.status.value.overlayGranted).toBe(false)
+    expect(reader.uncertain.value).toBe(false)
   })
 })
