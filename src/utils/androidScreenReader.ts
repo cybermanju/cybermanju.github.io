@@ -21,6 +21,11 @@ export interface ReaderStatus {
   index: number
   total: number
   overlayGranted: boolean
+  /** Optional only for compatibility with older native contract fixtures. Current native always supplies these. */
+  notificationGranted?: boolean
+  notificationsEnabled?: boolean
+  projectionActive?: boolean
+  androidApi?: number
   packages: string[]
   mode: ReaderMode | null
   captures: ReaderCapture[]
@@ -66,4 +71,5 @@ export class AndroidScreenReader {
   poll(): Promise<ReaderPoll> { return this.command<ReaderPoll>('readerPoll') }
   stop(): Promise<ReaderStatus> { return this.command<ReaderStatus>('readerStop') }
   overlaySettings(): Promise<ReaderStatus> { return this.command<ReaderStatus>('readerOverlaySettings') }
+  notificationSettings(): Promise<ReaderStatus> { return this.command<ReaderStatus>('readerNotificationSettings') }
 }

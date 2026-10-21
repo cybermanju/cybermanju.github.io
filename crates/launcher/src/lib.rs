@@ -1581,6 +1581,7 @@ fn is_supported_voice_action(action: &str) -> bool {
             | "readerPoll"
             | "readerStop"
             | "readerOverlaySettings"
+            | "readerNotificationSettings"
     )
 }
 
@@ -1631,6 +1632,7 @@ mod tests {
             "readerPoll",
             "readerStop",
             "readerOverlaySettings",
+            "readerNotificationSettings",
         ] {
             assert!(is_supported_voice_action(action), "{action} was rejected");
         }

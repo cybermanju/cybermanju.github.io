@@ -44,12 +44,22 @@ object CybermanjuScreenReader {
     private fun active() = state in setOf("awaiting_permission", "selecting", "reading")
     internal fun owns(sessionId: String?) = sessionId != null && id == sessionId && active()
     internal fun current() = packages.getOrNull(index)
+    private fun notificationGranted(): Boolean = app?.let {
+        Build.VERSION.SDK_INT < 33 || it.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    } ?: false
+    private fun notificationsEnabled(): Boolean = app?.let {
+        val manager = it.getSystemService(NotificationManager::class.java)
+        manager.areNotificationsEnabled() && (Build.VERSION.SDK_INT < 26 || manager.getNotificationChannel("cybermanju_screen_reader")?.importance != NotificationManager.IMPORTANCE_NONE)
+    } ?: false
+    internal fun controlsAllowed(): Boolean = app?.let { Settings.canDrawOverlays(it) } == true && notificationGranted() && notificationsEnabled()
     private fun snapshot(): JSONObject = JSONObject()
         .put("sessionId", id ?: JSONObject.NULL).put("state", state)
         .put("packageName", if (active()) current() ?: JSONObject.NULL else JSONObject.NULL)
         .put("index", index).put("total", packages.size).put("mode", mode ?: JSONObject.NULL)
         .put("packages", JSONArray(packages)).put("captures", JSONArray(captures.values.map { JSONObject(it.toString()) }))
         .put("overlayGranted", app?.let { Settings.canDrawOverlays(it) } ?: false)
+        .put("notificationGranted", notificationGranted()).put("notificationsEnabled", notificationsEnabled())
+        .put("projectionActive", service != null).put("androidApi", Build.VERSION.SDK_INT)
         .put("engine", "mlkit-latin-on-device").put("limitation", LIMITATION)
         .also { lastError?.let { error -> it.put("lastError", error) } }
     private fun emit(event: JSONObject) { if (events.size >= 100) events.removeFirst(); events.addLast(event) }
@@ -63,6 +73,7 @@ object CybermanjuScreenReader {
         check(Looper.myLooper() == Looper.getMainLooper())
         app = a.applicationContext
         return try {
+            if (service != null && !controlsAllowed()) stop("error", "Visible sharing controls were disabled. Restore overlay and notifications before starting again.")
             when (action) {
                 "readerStatus" -> snapshot()
                 "readerPoll" -> {
@@ -72,8 +83,16 @@ object CybermanjuScreenReader {
                 "readerStop" -> { stop(); snapshot() }
                 "readerOverlaySettings" -> {
                     require(a.hasWindowFocus() && !a.isFinishing) { "auth: keep CyberManju in the foreground" }
+                    if (active()) stop()
                     a.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:${a.packageName}")))
                     snapshot()
+                }
+                "readerNotificationSettings" -> {
+                    require(a.hasWindowFocus() && !a.isFinishing) { "auth: keep CyberManju in the foreground" }
+                    if (active()) stop()
+                    val intent = if (Build.VERSION.SDK_INT >= 26) Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, a.packageName)
+                        else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${a.packageName}"))
+                    a.startActivity(intent); snapshot()
                 }
                 "readerStart" -> start(a, p)
                 else -> JSONObject().put("error", "unsupported: unknown screen reader action")
@@ -89,6 +108,7 @@ object CybermanjuScreenReader {
         require(p.optBoolean("consentDisclosure", false)) { "auth: accept the screen sharing disclosure first" }
         require(p.optLong("expiresAt", Long.MAX_VALUE) > System.currentTimeMillis()) { "conflict: screen request expired; start again" }
         require(Settings.canDrawOverlays(a)) { "auth: allow screen selection controls using readerOverlaySettings first" }
+        require(Build.VERSION.SDK_INT >= 33 || notificationsEnabled()) { "auth: enable notifications using readerNotificationSettings first" }
         val list = p.getJSONArray("packages")
         require(list.length() in 1..20) { "invalid: select 1–20 apps" }
         val selected = (0 until list.length()).map { list.getString(it) }
@@ -153,9 +173,9 @@ object CybermanjuScreenReader {
     internal fun stop(next: String = "stopped", error: String? = null) {
         clearTimeout()
         // Invalidate pending permission before finishing its activity or stopping the service.
+        val old = service; service = null
         update(next, error)
         CybermanjuScreenReaderConsentActivity.cancel(id)
-        val old = service; service = null
         old?.shutdown()
     }
     internal fun ended(expected: String, value: CybermanjuScreenReaderService, error: String? = null) {
@@ -200,6 +220,7 @@ class CybermanjuScreenReaderConsentActivity : Activity() {
     }
     private var requested = false
     private fun project() {
+        if (!CybermanjuScreenReader.controlsAllowed()) { CybermanjuScreenReader.stop("cancelled", "Enable overlay controls and notifications in Android settings before screen sharing."); finish(); return }
         try { CybermanjuScreenReader.requestProjection(this, expected) }
         catch (_: Exception) { CybermanjuScreenReader.stop("error", "Screen sharing consent unavailable."); finish() }
     }
@@ -354,6 +375,7 @@ class CybermanjuScreenReaderService : Service() {
                 picture.recycle(); busy.set(false)
                 main.post {
                     if (released || target !== selected) return@post
+                    if (!CybermanjuScreenReader.controlsAllowed()) { end("Visible sharing controls were disabled. Sharing stopped."); return@post }
                     if (error != null) { end("Local screen text recognition failed. Start a new session."); return@post }
                     val found = text.orEmpty()
                     if (found != previousText) { previousText = found; CybermanjuScreenReader.text(expected, selected.packageName, found) }
