@@ -1,4 +1,6 @@
 // CyberManju OS — query auth stays scoped to the active provider route.
+// Role: Verify provider query credentials survive browser turns and failover.
+// Integrates: Vitest, useAgent and the AgentPanel caller contract.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { runLocalAgent, type LocalRunOpts } from '@/composables/useAgent'
 import { agentPermissionPreset } from '@/types'

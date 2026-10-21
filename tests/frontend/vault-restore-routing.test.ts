@@ -1,4 +1,6 @@
 // CyberManju OS — restore must replace the database actually serving the session.
+// Role: Verify vault restore targets the active worker or fallback backend.
+// Integrates: Vitest, WASM backend dispatch and useVolumeMirror replay.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 const { restore, replay } = vi.hoisted(() => ({ restore: vi.fn(), replay: vi.fn() }))
 vi.mock('@/composables/useVolumeMirror', () => ({ replayVolumeFromVault: replay }))

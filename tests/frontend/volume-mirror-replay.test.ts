@@ -1,3 +1,6 @@
+// CyberManju OS — Volume mirror replay tests (tests/frontend/volume-mirror-replay.test.ts).
+// Role: Verify vault replacement replay removes stale shell-volume data.
+// Integrates: Vitest, useVolumeMirror, WASM and OS dispatch.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { dispatch, osDispatch } = vi.hoisted(() => ({
