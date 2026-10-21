@@ -108,6 +108,7 @@ func renderRootHelp(c *cobra.Command, _ []string) {
 	})
 	fmt.Println()
 	fmt.Print(formatHelpRow(ui.Downsample(ui.Dim.Render("Start here:")), ui.Downsample(ui.Chip("cyb setup")), 0, ui.TermWidth()))
+	printHelpNavigation(c)
 }
 
 // renderCmdHelp prints a neon help page for any non-root command.
@@ -139,6 +140,17 @@ func renderCmdHelp(c *cobra.Command) {
 	}
 	printFlagSet("flags", c.LocalFlags())
 	printFlagSet("global flags", c.InheritedFlags())
+	printHelpNavigation(c)
+}
+
+// printHelpNavigation shows the next help command only when a group has
+// discoverable children, using its full path for nested command groups.
+func printHelpNavigation(c *cobra.Command) {
+	if !c.HasAvailableSubCommands() {
+		return
+	}
+	fmt.Print(formatHelpRow(ui.Downsample(ui.Dim.Render("More help:")),
+		ui.Downsample(ui.Chip(c.CommandPath()+" <command> --help")), 0, ui.TermWidth()))
 }
 
 // commandHelpSummary makes aliases discoverable from the parent command list,
