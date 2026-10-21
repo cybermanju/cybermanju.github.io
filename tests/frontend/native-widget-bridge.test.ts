@@ -1,4 +1,4 @@
-// CyberManjuOS — Native widget bridge tests.
+// CyberManju OS — Native widget bridge tests.
 // Role: regressions for safe native command handling and user-confirmed mutations.
 // Exports: none.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

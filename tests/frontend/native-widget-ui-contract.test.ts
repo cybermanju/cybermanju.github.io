@@ -1,4 +1,4 @@
-// CyberManjuOS — Native widget UI contract tests.
+// CyberManju OS — Native widget UI contract tests.
 // Role: guard the separation between first-party previews and Android-owned widget views.
 // Exports: none.
 import { describe, expect, it } from 'vitest'
