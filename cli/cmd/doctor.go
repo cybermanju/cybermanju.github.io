@@ -182,20 +182,29 @@ var doctorCmd = &cobra.Command{
 }
 
 func printChecks(checks []check) {
+	fmt.Print(formatChecks(checks, ui.TermWidth()))
+}
+
+// formatChecks keeps statuses and recovery details readable on narrow terminals,
+// using the same ANSI-aware wrapping and stacked rows as command help.
+func formatChecks(checks []check, width int) string {
 	w := 0
-	for _, ch := range checks {
-		if n := lipgloss.Width(ch.name); n > w {
+	labels := make([]string, len(checks))
+	for i, ch := range checks {
+		labels[i] = ui.Downsample(ui.Badge(ch.ok)) + " " + ch.name
+		if n := lipgloss.Width(labels[i]); n > w {
 			w = n
 		}
 	}
-	for _, ch := range checks {
-		mark := ui.Downsample(ui.Badge(ch.ok))
+	var out strings.Builder
+	for i, ch := range checks {
 		detail := ch.detail
 		if detail != "" {
-			detail = " — " + detail
+			detail = "— " + detail
 		}
-		fmt.Printf("%s %s%s\n", mark, ch.name+strings.Repeat(" ", max(0, w-lipgloss.Width(ch.name))), ui.Downsample(ui.Dim.Render(detail)))
+		out.WriteString(formatHelpRow(labels[i], ui.Downsample(ui.Dim.Render(detail)), w, width))
 	}
+	return out.String()
 }
 
 func countFail(checks []check) int {
