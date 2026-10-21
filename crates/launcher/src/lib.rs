@@ -700,9 +700,11 @@ mod android_impl {
             &intent,
             "addFlags",
             "(I)Landroid/content/Intent;",
-            &[JValue::Int(FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)],
+            &[JValue::Int(
+                FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_RESET_TASK_IF_NEEDED,
+            )],
         )
-        .map_err(|e| fail(env, format!("network: cannot flag the launch: {e}")))?;
+        .map_err(|e| fail(env, format!("network: cannot flag the launch: {e}"))))?;
         env.call_method(
             activity,
             "startActivity",
