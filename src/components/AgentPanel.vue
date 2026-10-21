@@ -523,6 +523,21 @@
 
         <!-- Chat tab -->
         <section v-show="activeTab === 'chat'" class="agent-chat" aria-label="Conversation">
+          <section class="voice-call" aria-label="VozPonte voice conversation">
+            <div class="voice-call-actions">
+              <strong>VozPonte</strong>
+              <UiButton v-if="!voiceCall.active.value" size="sm" :disabled="!voiceCall.supported || !chatConfigId || jobActive || !!promptInput.trim() || queue.length > 0" @click="startVoiceCall">Start voice call</UiButton>
+              <template v-else>
+                <span role="status">{{ pendingApproval ? 'Review the approval below' : voiceCall.state.value }}</span>
+                <UiButton size="sm" :aria-pressed="voiceCall.muted.value" @click="voiceCall.toggleMute">{{ voiceCall.muted.value ? 'Unmute' : 'Mute' }}</UiButton>
+                <UiButton v-if="voiceCall.state.value === 'speaking'" size="sm" @click="voiceCall.interrupt">Interrupt &amp; speak</UiButton>
+                <UiButton size="sm" variant="danger" @click="voiceCall.end">End call</UiButton>
+              </template>
+            </div>
+            <p class="agent-note">Foreground, turn-by-turn voice with your selected assistant. Speech recognition may use your device provider's network. Replies play aloud. Tool approvals stay manual; ending the call stops audio, not an already-started task.</p>
+            <p v-if="!voiceCall.supported" class="agent-note">Voice calls are unavailable in this browser/WebView. Use text, or connect the Android VozPonte app to your dashboard.</p>
+            <p v-if="voiceCall.error.value" role="alert" class="w-msg">{{ voiceCall.error.value }}</p>
+          </section>
           <!-- Onboarding when there is nothing to show yet -->
           <div v-if="!viewing" class="agent-welcome">
             <span class="agent-welcome-avatar"><AppIcon name="solar:bot-bold" :size="22" /></span>
@@ -721,6 +736,7 @@
               <textarea
                 v-model="promptInput"
                 class="composer-box"
+                :disabled="voiceCall.active.value"
                 :placeholder="!chatConfigId ? 'Pick an assistant in the sidebar, then ask anything…' : jobActive ? 'Working… type on, Enter queues your follow-up…' : viewing ? 'Ask anything… (Enter to send, / for commands)' : 'Ask anything — sending starts a new conversation… (Enter to send, / for commands)'"
                 rows="2"
                 aria-label="Message the assistant"
@@ -734,7 +750,7 @@
                   {{ charCount ? `${charCount} chars` : 'Enter ↵ send' }} · / commands
                 </span>
                 <span class="composer-spacer" />
-                <div v-if="voice.isSupported.value" class="voice-group">
+                <div v-if="voice.isSupported.value && !voiceCall.active.value" class="voice-group">
                   <div class="voice-pop" role="group" aria-label="Dictation language">
                     <button
                       type="button"
@@ -764,7 +780,7 @@
                   <UiButton size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : voice.langPref.value === 'auto' ? `Dictate your message (auto: ${voice.lang.value === 'pt-BR' ? 'Portuguese' : 'English'} — hover to pick EN/PT)` : `Dictate your message (${voice.langPref.value === 'pt-BR' ? 'Portuguese' : 'English'} — hover to change)`" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Dictate' }}</UiButton>
                 </div>
                 <UiButton v-if="jobActive" size="sm" variant="danger" icon="solar:stop-bold" @click="abortJob">Stop</UiButton>
-                <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend" :title="!chatConfigId ? 'Select an assistant first' : ''" @click="sendPrompt">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
+                <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend || voiceCall.active.value" :title="!chatConfigId ? 'Select an assistant first' : ''" @click="sendPrompt">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
               </div>
             </div>
             <div v-if="jobLine" class="w-msg job-line"><AppIcon name="solar:clock-circle-bold" :size="11" /> {{ jobLine }}</div>
@@ -837,6 +853,7 @@ import {
 import { renderMarkdown } from '@/utils/markdown'
 import { deploymentStorageEventKey } from '@/utils/deploymentScope'
 import { useVoiceInput } from '@/composables/useVoiceInput'
+import { useVoiceCall } from '@/composables/useVoiceCall'
 import { useWindowUi } from '@/composables/useWindowUi'
 import { diffBlocks, editBlocksOf } from '@/utils/agentDiff'
 import { mergeAgentDraft, sameAgentConnection, persistAgentSetup } from '@/utils/agentSetup'
@@ -2056,6 +2073,54 @@ const approvalInput = computed(() => {
 /** The prompt the user typed lands in the box even while a run is live. */
 const canSend = computed(() => promptInput.value.trim() !== '' && chatConfigId.value !== '')
 
+const voiceCall = useVoiceCall(sendVoiceTurn, () => voice.lang.value)
+function startVoiceCall() {
+  stopVoice?.()
+  stopVoice = null
+  voice.stop()
+  voiceCall.start()
+}
+// Changing assistants/tabs ends audio rather than silently sending to a different target.
+watch([chatConfigId, activeTab], () => voiceCall.end())
+watch(() => viewing.value?.id, (id, old) => { if (old && id !== old) voiceCall.end() })
+
+/** Reuse the normal transport/permission pipeline and read only the completed answer. */
+async function sendVoiceTurn(text: string, signal: AbortSignal): Promise<string> {
+  if (signal.aborted) throw new Error('Call ended')
+  if (jobActive.value || !chatConfigId.value || promptInput.value.trim() || queue.value.length) {
+    throw new Error('Finish the current task or draft before starting a voice turn.')
+  }
+  const previousJob = activeJob.value?.jobId
+  promptInput.value = text
+  await sendPrompt()
+  if (signal.aborted) throw new Error('Call ended')
+  const job = activeJob.value
+  if (!job || job.jobId === previousJob) throw new Error('The voice message could not start. Check the chat error and try again.')
+  if (jobActive.value) await new Promise<void>((resolve, reject) => {
+    let unwatch: (() => void) | undefined
+    const cleanup = () => { unwatch?.(); clearTimeout(timer); signal.removeEventListener('abort', aborted) }
+    const aborted = () => { cleanup(); reject(new Error('Call ended')) }
+    const timer = setTimeout(() => { cleanup(); reject(new Error('Voice turn timed out. Check the task in chat before retrying.')) }, 10 * 60 * 1000)
+    signal.addEventListener('abort', aborted, { once: true })
+    unwatch = watch(() => [activeJob.value?.jobId, activeJob.value?.status] as const, ([id, status]) => {
+      if (id !== job.jobId) { cleanup(); reject(new Error('The active task changed. Start a new voice call.')); return }
+      if (status !== 'running' && status !== 'waiting_approval') { cleanup(); resolve() }
+    })
+  })
+  if (signal.aborted) throw new Error('Call ended')
+  const finished = activeJob.value
+  if (finished?.jobId !== job.jobId || finished.status !== 'done') throw new Error('Voice task stopped or failed. Review the details in chat.')
+  const session = wasmMode.value ? viewing.value : await store.loadAgentSession(job.sessionId)
+  if (signal.aborted) throw new Error('Call ended')
+  if (!session || session.id !== job.sessionId) throw new Error('Could not load the voice reply. Review the conversation in chat.')
+  const messages = session.messages
+  const lastUser = messages.map(message => message.role).lastIndexOf('user')
+  const answers = messages.slice(lastUser + 1).filter(message => message.role === 'assistant' && !message.toolInput && message.content.trim())
+  const answer = answers[answers.length - 1]
+  if (!answer) throw new Error('No final spoken reply. Review the task in chat.')
+  return answer.content
+}
+
 async function sendPrompt() {
   if (!canSend.value) return
   // A run is live: hold the prompt and drain it when the job settles.
@@ -2447,6 +2512,9 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.voice-call { flex-shrink: 0; padding: 10px 14px; border-bottom: 1px solid var(--ui-border); }
+.voice-call-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.voice-call .agent-note { margin: 6px 0 0; }
 /* CyberManju agent — modern chat UX.
    Layout: header / (sidebar + main). Sidebar collapses under 760px.
    Tone: sentence case, breathing room, sticky composer, avatars, meters. */
