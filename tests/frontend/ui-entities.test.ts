@@ -9,6 +9,7 @@ import {
   pruneUiEntities,
   registerUiEntity,
   unregisterUiEntity,
+  updateUiEntityComponent,
   updateUiEntityPosition,
   updateUiEntitySize,
 } from '../../src/utils/uiEntities'
@@ -49,6 +50,21 @@ describe('local UI entity store', () => {
     ;(snapshot.components.custom as { nested: { label: string } }).nested.label = 'changed'
     expect((getUiEntitiesSnapshot()[0].components.custom as { nested: { label: string } }).nested.label).toBe('before')
   })
+  it('detaches component updates so matching component types never share mutable state', () => {
+    registerUiEntity({ id: 'button:a', component: 'UiButton' })
+    registerUiEntity({ id: 'button:b', component: 'UiButton' })
+    const appearance = { kind: 'icon', value: 'solar:star-bold', options: { tint: 'blue' } }
+    updateUiEntityComponent('button:a', 'appearance', appearance)
+    updateUiEntityComponent('button:b', 'appearance', appearance)
+    appearance.options.tint = 'red'
+    const a = getUiEntityRegistry().get('button:a')!
+    const b = getUiEntityRegistry().get('button:b')!
+    ;(a.components.appearance as typeof appearance).options.tint = 'green'
+    expect((b.components.appearance as typeof appearance).options.tint).toBe('blue')
+    expect(updateUiEntityComponent('button:a', 'appearance', () => 'unsafe')).toBe(false)
+    expect((a.components.appearance as typeof appearance).options.tint).toBe('green')
+  })
+
   it('prunes stale IDs and unregisters explicitly', () => {
     registerUiEntity({ id: 'a', component: 'button' })
     registerUiEntity({ id: 'b', component: 'window' })

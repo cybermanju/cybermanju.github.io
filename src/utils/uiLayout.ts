@@ -270,7 +270,16 @@ export function installUiLayout(root: HTMLElement): () => void {
     reconcile()
   }
   function setEditing(next: boolean) {
-    if (!next) { clearEntry(); finish(true) }
+    if (!next) {
+      clearEntry()
+      // Done commits the visible placement. Escape/pointercancel still explicitly
+      // roll back; an unfinished swap has no destination and remains cancellable.
+      if (drag?.moved && mode !== 'swap') {
+        flushPending()
+        persistDrag(drag)
+        finish(false)
+      } else finish(true)
+    }
     editing = next
     root.classList.toggle(EDIT_CLASS, next)
     reconcile()
@@ -349,6 +358,17 @@ export function installUiLayout(root: HTMLElement): () => void {
       if (mode === 'swap') { swapTarget = candidate(current.pendingX ?? current.x, current.pendingY ?? current.y); swapTarget?.setAttribute('data-ui-layout-swap-target', '') }
     }
   }
+  function flushPending() {
+    if (frame) { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame as number); else clearTimeout(frame as ReturnType<typeof setTimeout>); frame = 0 }
+    applyPending()
+  }
+  function persistDrag(current: Drag) {
+    if (current.kind === 'resize') {
+      try { localStorage.setItem(UI_LAYOUT_SIZE_STORAGE_KEY, JSON.stringify(dimensions)); status('Component sizes saved on this device.') }
+      catch { status('Sizes kept for this session; device storage is unavailable.') }
+    } else save()
+    suppressClickUntil = Date.now() + 500
+  }
   function onMove(event: PointerEvent) {
     if (entry && event.pointerId === entry.pointer && Math.hypot(event.clientX - entry.x, event.clientY - entry.y) > 10) clearEntry()
     if (!drag || drag.pointerId !== event.pointerId) return
@@ -365,13 +385,14 @@ export function installUiLayout(root: HTMLElement): () => void {
     if (entry?.pointer === event.pointerId) clearEntry()
     if (!drag || drag.pointerId !== event.pointerId) return
     const current = drag
-    if (current.kind === 'resize') {
-      current.pendingX = current.base.width + event.clientX - current.x
-      current.pendingY = current.base.height + event.clientY - current.y
+    if (Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+      if (current.kind === 'resize') {
+        current.pendingX = current.base.width + event.clientX - current.x
+        current.pendingY = current.base.height + event.clientY - current.y
+      } else { current.pendingX = event.clientX; current.pendingY = event.clientY }
       current.moved ||= Math.hypot(event.clientX - current.x, event.clientY - current.y) >= 3
     }
-    if (frame) { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame as number); else clearTimeout(frame as ReturnType<typeof setTimeout>); frame = 0 }
-    if (current.moved) applyPending()
+    flushPending()
     if (current.moved && current.kind === 'move' && mode === 'swap') {
       const other = candidate(event.clientX, event.clientY)
       const { width, height } = size()
@@ -392,7 +413,7 @@ export function installUiLayout(root: HTMLElement): () => void {
       offsets[otherId] = clamp(otherBase, { x: (startLeft - otherBase.left) / width, y: (startTop - otherBase.top) / height })
       apply(current.element); apply(other)
     }
-    if (current.moved) { if (current.kind === 'resize') { try { localStorage.setItem(UI_LAYOUT_SIZE_STORAGE_KEY, JSON.stringify(dimensions)); status('Component sizes saved on this device.') } catch { status('Sizes kept for this session; device storage is unavailable.') } } else save(); suppressClickUntil = Date.now() + 500 }
+    if (current.moved) persistDrag(current)
     finish(false)
     event.preventDefault(); event.stopImmediatePropagation()
   }

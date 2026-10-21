@@ -31,8 +31,37 @@ function componentName(instance: ComponentPublicInstance): string {
   return options.name || options.__name || 'component'
 }
 
+function keySegment(key: unknown): string {
+  // Retain the historical ID for strings safeSegment represents without loss.
+  // The marker cannot be produced by safeSegment, so encoded values cannot alias
+  // either a legacy string key or another encoded primitive.
+  if (typeof key === 'string' && key.length > 0 && /^[a-z0-9_-]+$/.test(key)) return ''
+  return `~${Array.from(`${typeof key}:${String(key)}`, char => char.codePointAt(0)!.toString(16)).join('_')}`
+}
+
+function keyedSiblingOrdinal(instance: ComponentPublicInstance): number | null {
+  type Node = { key?: unknown; type?: unknown; children?: unknown; component?: unknown; el?: unknown }
+  const internal = (instance as unknown as { $?: { vnode?: Node; parent?: { subTree?: Node } } }).$
+  const vnode = internal?.vnode
+  if (!vnode || vnode.key == null || !internal.parent?.subTree) return null
+  let ordinal = 0
+  let result: number | null = null
+  function visit(node: Node) {
+    if (result !== null) return
+    if (node.type === vnode!.type && node.key === vnode!.key) {
+      if (node === vnode || node.component === instance.$ || (vnode!.el != null && node.el === vnode!.el)) { result = ordinal; return }
+      ordinal++
+    }
+    if (Array.isArray(node.children)) for (const child of node.children) {
+      if (child && typeof child === 'object') visit(child)
+    }
+  }
+  visit(internal.parent.subTree)
+  return result
+}
+
 function unkeyedSiblingOrdinal(instance: ComponentPublicInstance): number | null {
-  type Node = { key?: unknown; type?: unknown; children?: unknown }
+  type Node = { key?: unknown; type?: unknown; children?: unknown; component?: unknown; el?: unknown }
   const internal = (instance as unknown as { $?: { vnode?: Node; parent?: { subTree?: Node } } }).$
   const vnode = internal?.vnode
   if (!vnode || vnode.key != null) return null
@@ -46,7 +75,7 @@ function unkeyedSiblingOrdinal(instance: ComponentPublicInstance): number | null
   function visit(node: Node) {
     if (result !== null) return
     if (node.type === vnode!.type) {
-      if (node === vnode) { result = ordinal; return }
+      if (node === vnode || node.component === instance.$ || (vnode!.el != null && node.el === vnode!.el)) { result = ordinal; return }
       if (node.key == null) ordinal++
     }
     if (Array.isArray(node.children)) {
@@ -82,7 +111,11 @@ export function componentLayoutId(instance: ComponentPublicInstance): string {
     const parentName = cursor.$parent ? componentName(cursor.$parent) : ''
     const key = parentName === 'AsyncComponentWrapper' || parentName === 'AppWindow' ? undefined : vnode?.key
     const ordinal = key == null ? unkeyedSiblingOrdinal(cursor) : null
-    const discriminator = key != null ? `-key-${safeSegment(key)}` : ordinal == null ? '' : `-sibling-${ordinal}`
+    const keyedOrdinal = key == null ? null : keyedSiblingOrdinal(cursor)
+    const encodedKey = key == null ? '' : keySegment(key)
+    const discriminator = key != null
+      ? `-key-${safeSegment(key)}${encodedKey ? `-${encodedKey}` : ''}${keyedOrdinal == null || keyedOrdinal === 0 ? '' : `-duplicate-${keyedOrdinal}`}`
+      : ordinal == null ? '' : `-sibling-${ordinal}`
     parts.unshift(`${safeSegment(name)}${discriminator}`)
     cursor = cursor.$parent
   }
@@ -126,7 +159,8 @@ function markRoot(instance: ComponentPublicInstance, element: HTMLElement, rootI
   if (!isWindowShellRoot(element, name)) {
     element.dataset.uiComponent = name
     const id = isTerminalRoot ? 'cybsh-console' : identity
-    if (element.dataset.uiLayoutId !== id) element.dataset.uiLayoutId = id
+    // Shared child/parent roots must retain the first, most-specific identity.
+    if (!element.dataset.uiLayoutId) element.dataset.uiLayoutId = id
   }
 
   // Shell containers stay fixed. Window entities are editable only in the

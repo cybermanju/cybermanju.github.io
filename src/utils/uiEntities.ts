@@ -113,7 +113,12 @@ export function updateUiEntityComponent(id: string, name: string, value: unknown
   const entity = entities.get(id)
   if (!entity) return false
   if (value === null) delete entity.components[name]
-  else entity.components[name] = value
+  else {
+    // Reusing an input object must not link the state of independent controls.
+    const cloned = cloneJsonSafe(value)
+    if (cloned === undefined) return false
+    entity.components[name] = cloned
+  }
   return true
 }
 export function unregisterUiEntity(id: string): boolean { return validId(id) && entities.delete(id) }

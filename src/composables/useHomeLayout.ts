@@ -2,10 +2,9 @@
 // Role: Pointer/touch and keyboard editing of home surfaces without hijacking normal app clicks.
 // Exports: useHomeLayout.
 // Integrates: MobileLauncher, homeLayout geometry and per-device localStorage.
-// Contracts: Editing is explicit; cancel restores the start; release settles before persisting.
+// Contracts: Editing is explicit; cancel restores the start; release persists the exact drop point.
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { updateUiEntityPosition } from '@/utils/uiEntities'
-import { createDragMomentum } from '@/utils/dragPhysics'
 import { HOME_LAYOUT_KEY, readHomeLayout, clampHomeOffset, type HomeOffset, type HomeRect } from '@/utils/homeLayout'
 import { requestUiLayoutSwap, UI_LAYOUT_SWAP_EVENT, type UiLayoutSwapRequest } from '@/utils/uiLayout'
 
@@ -24,8 +23,6 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
   const width = ref(typeof window === 'undefined' ? 390 : window.innerWidth)
   const height = ref(typeof window === 'undefined' ? 844 : window.innerHeight)
   const status = ref('')
-  const momentum = createDragMomentum()
-  let settling = false
   let moved = false
   let mode: 'move' | 'swap' | 'resize' | 'appearance' = 'move'
   let active: { id: string; pointer: number; element: HTMLElement; start: HomeOffset; original: HomeOffset | undefined; base: HomeRect; bounds: HomeRect; x: number; y: number } | null = null
@@ -75,8 +72,6 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
     return target?.closest<HTMLElement>('[data-home-item]') ?? null
   }
   function finish(cancel = false) {
-    momentum.stop()
-    settling = false
     if (!active) return
     const current = active
     active = null
@@ -116,18 +111,15 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
     setPixels(otherId, targetPlacement)
     active = null
     dragging.value = ''
-    settling = false
-    momentum.stop()
     try { if (current.element.hasPointerCapture(current.pointer)) current.element.releasePointerCapture(current.pointer) } catch { /* Capture may be lost on removal. */ }
     save()
   }
   function onPointerDown(event: PointerEvent) {
     if (mode === 'resize' || mode === 'appearance') return
-    if (!editing.value || !event.isPrimary || event.button !== 0 || (active && !settling)) return
+    if (!editing.value || !event.isPrimary || event.button !== 0 || active) return
     const element = item(event)
     const id = element?.dataset.homeItem
     if (!element || !id || !root.value) return
-    if (settling) finish()
     event.preventDefault()
     event.stopPropagation()
     element.focus({ preventScroll: true })
@@ -135,22 +127,27 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
     active = { id, pointer: event.pointerId, element, start: pixels(id), original: original ? { ...original } : undefined, ...geometry(element, id), x: event.clientX, y: event.clientY }
     dragging.value = id
     moved = false
-    momentum.sample(pixels(id))
     try { element.setPointerCapture(event.pointerId) } catch { /* Window listeners retain mouse fallback. */ }
   }
   function onPointerMove(event: PointerEvent) {
-    if (!active || settling || event.pointerId !== active.pointer) return
+    if (!active || event.pointerId !== active.pointer) return
     event.preventDefault()
     const { start, x, y, base, bounds, id } = active
     const point = clampHomeOffset({ x: start.x + event.clientX - x, y: start.y + event.clientY - y }, base, bounds)
     moved ||= Math.hypot(event.clientX - x, event.clientY - y) > 3
     setPixels(id, point)
-    momentum.sample(point)
   }
   function onPointerUp(event: PointerEvent) {
-    if (!active || settling || active.pointer !== event.pointerId) return
-    if (event.type === 'pointercancel' || !moved) { finish(event.type === 'pointercancel'); return }
+    if (!active || active.pointer !== event.pointerId) return
+    if (event.type === 'pointercancel') { finish(true); return }
     const current = active
+    // Browsers can coalesce the last move into pointerup. Use its coordinates,
+    // but never let inertial animation/gravity change a deliberate placement.
+    if (Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+      moved ||= Math.hypot(event.clientX - current.x, event.clientY - current.y) > 3
+      if (moved) setPixels(current.id, clampHomeOffset({ x: current.start.x + event.clientX - current.x, y: current.start.y + event.clientY - current.y }, current.base, current.bounds))
+    }
+    if (!moved) { finish(); return }
     if (mode === 'swap') {
       const target = swapTarget(event, current)
       if (target) finishSwap(current, target)
@@ -163,9 +160,7 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
       }
       return
     }
-    settling = true
-    try { if (current.element.hasPointerCapture(current.pointer)) current.element.releasePointerCapture(current.pointer) } catch { /* Already released. */ }
-    momentum.release({ position: pixels(current.id), ...geometry(current.element, current.id), update: point => setPixels(current.id, point), complete: () => finish() })
+    finish()
   }
   function onClickCapture(event: MouseEvent) {
     if (editing.value && item(event)) { event.preventDefault(); event.stopImmediatePropagation() }
