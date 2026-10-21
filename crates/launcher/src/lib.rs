@@ -35,6 +35,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod clipboard;
+
 /// Raster width/height for app icons (PNG data URLs stay small over IPC).
 pub const ICON_PX: i32 = 96;
 
@@ -388,6 +390,14 @@ mod android_impl {
     /// Load host Kotlin through the Activity loader (FindClass on an attached
     /// Rust thread otherwise uses the boot loader and cannot see app classes).
     pub fn voice_dispatch(action: &str, payload: &str) -> Result<String, String> {
+        native_dispatch("CybermanjuVoiceServices", action, payload)
+    }
+
+    pub fn native_dispatch(
+        class_name: &str,
+        action: &str,
+        payload: &str,
+    ) -> Result<String, String> {
         with_env(|env, activity| {
             let loader = env
                 .call_method(activity, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])
@@ -397,7 +407,7 @@ mod android_impl {
                 .call_method(activity, "getPackageName", "()Ljava/lang/String;", &[])
                 .and_then(|v| v.l())
                 .map_err(|e| fail(env, format!("unsupported: Android package: {e}")))?;
-            let name = format!("{}.CybermanjuVoiceServices", jstr(env, &package)?);
+            let name = format!("{}.{class_name}", jstr(env, &package)?);
             let name = new_obj(env, &name)?;
             let class = env
                 .call_method(
@@ -410,7 +420,7 @@ mod android_impl {
                 .map_err(|e| {
                     fail(
                         env,
-                        format!("unsupported: native voice services missing: {e}"),
+                        format!("unsupported: native Android service missing: {e}"),
                     )
                 })?;
             let action = new_obj(env, action)?;
@@ -427,8 +437,16 @@ mod android_impl {
                     ],
                 )
                 .and_then(|v| v.l())
-                .map_err(|e| fail(env, format!("unsupported: native voice dispatch failed: {e}")))?;
-            jstr(env, &response)
+                .map_err(|e| fail(env, format!("unsupported: native Android dispatch failed: {e}")))?;
+            // JNI uses modified UTF-8/CESU-8. CStr::to_str rejects emoji;
+            // JavaStr's String conversion decodes it rather than losing the response.
+            let response = <&jni::objects::JString>::from(&response);
+            env.get_string(response).map(String::from).map_err(|_| {
+                fail(
+                    env,
+                    "integrity: cannot decode native Android response".into(),
+                )
+            })
         })
     }
 

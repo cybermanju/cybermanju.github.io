@@ -110,3 +110,32 @@ pub fn android_voice_command(
 ) -> Result<serde_json::Value, String> {
     cybermanju_launcher::voice_command(&action, payload.unwrap_or_else(|| serde_json::json!({})))
 }
+
+/// Clipboard access only for an explicit, recent action in the bundled Android UI.
+/// Cut writes text only; the UI must preserve its selection until written=true.
+/// Never expose through REST/agent tools or call during startup, polling or timers.
+#[tauri::command(async)]
+pub fn android_clipboard_command(
+    window: tauri::WebviewWindow,
+    action: String,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use tauri::Manager;
+    let url = window
+        .url()
+        .map_err(|_| "auth: clipboard origin unavailable".to_string())?;
+    let bundled = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || (matches!(url.scheme(), "http" | "https") && url.host_str() == Some("tauri.localhost"));
+    let development = cfg!(debug_assertions)
+        && window
+            .app_handle()
+            .config()
+            .build
+            .dev_url
+            .as_ref()
+            .is_some_and(|dev| url.origin() == dev.origin());
+    if window.label() != "main" || !(bundled || development) {
+        return Err("auth: clipboard requires the bundled main UI".into());
+    }
+    cybermanju_launcher::clipboard::command(&action, payload)
+}

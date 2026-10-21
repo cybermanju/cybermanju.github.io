@@ -51,6 +51,9 @@ jobs:
       - name: Android package verifier regressions
         run: python3 scripts/verify-android-package.test.py
 
+      - name: Android clipboard gate tests
+        run: python3 tests/python/test_android_clipboard.py
+
       - name: Top-file headers present
         run: bash scripts/check-file-headers.sh
 
@@ -1118,6 +1121,14 @@ jobs:
           test "${#apks[@]}" -gt 0
           for apk in "${apks[@]}"; do
             python3 scripts/check-android-voice-apk.py "$apk"
+          done
+
+      - name: Verify Android clipboard bridge in APK DEX
+        run: |
+          mapfile -d '' apks < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' -print0)
+          test "${#apks[@]}" -gt 0
+          for apk in "${apks[@]}"; do
+            python3 scripts/check-android-clipboard-apk.py "$apk"
           done
 
       - name: Verify Android broker configuration

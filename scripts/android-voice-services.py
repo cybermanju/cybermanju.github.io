@@ -37,7 +37,7 @@ def install(android_dir):
     # Use the same generated source root as MainActivity (Java or Kotlin).
     dest = mains[0].parent
     dest.mkdir(parents=True, exist_ok=True)
-    for name in ("CybermanjuVoiceServices.kt", "CybermanjuVoiceAccessibility.kt", "CybermanjuScreenReader.kt", "CybermanjuScreenOcr.kt"):
+    for name in ("CybermanjuVoiceServices.kt", "CybermanjuVoiceAccessibility.kt", "CybermanjuScreenReader.kt", "CybermanjuScreenOcr.kt", "CybermanjuClipboard.kt"):
         content = (source_dir / name).read_text(encoding="utf-8").replace("__PACKAGE__", package)
         (dest / name).write_text(content, encoding="utf-8")
     gradle = base / "app/build.gradle.kts"
@@ -84,6 +84,9 @@ def install(android_dir):
     existing = rules.read_text(encoding="utf-8") if rules.exists() else ""
     if keep not in existing:
         rules.write_text(existing + ("" if not existing or existing.endswith("\n") else "\n") + keep + "\n", encoding="utf-8")
+    clipboard_keep = f"-keep class {package}.CybermanjuClipboard {{ public static java.lang.String dispatch(android.app.Activity,java.lang.String,java.lang.String); }}"
+    if clipboard_keep not in rules.read_text(encoding="utf-8"):
+        rules.write_text(rules.read_text(encoding="utf-8") + clipboard_keep + "\n", encoding="utf-8")
     reader_keep = f"-keep class {package}.CybermanjuScreenReader {{ public static org.json.JSONObject dispatch(android.app.Activity,java.lang.String,org.json.JSONObject); }}\n-keep class {package}.CybermanjuScreenReaderConsentActivity {{ *; }}\n-keep class {package}.CybermanjuScreenReaderService {{ *; }}"
     if reader_keep not in existing:
         rules.write_text((rules.read_text(encoding="utf-8") if rules.exists() else "") + "\n" + reader_keep + "\n", encoding="utf-8")
