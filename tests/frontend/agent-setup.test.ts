@@ -148,7 +148,7 @@ describe('provider connection onboarding', () => {
     expect(panel).toContain('const selectedProviderReady = computed(() => {')
     expect(panel).toContain('return !!cfg && (cfg.hasKey || isKeyless(cfg))')
     expect(panel).toContain('v-if="selectedProviderReady" class="composer"')
-    expect(panel).toContain('const canSend = computed(() => promptInput.value.trim() !== \'\' && selectedProviderReady.value)')
+    expect(panel).toContain('const canSend = computed(() => promptInput.value.trim() !== \'\' && selectedProviderReady.value && !startingRun.value)')
     expect(panel).toContain('if (!canSend.value || !selectedProviderReady.value) return')
   })
 })

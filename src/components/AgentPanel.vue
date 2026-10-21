@@ -77,6 +77,14 @@
         </div>
       </div>
       <button
+        v-if="jobActive && activeTab !== 'chat'"
+        type="button"
+        class="agent-nav-toggle agent-stop-shortcut"
+        title="Stop current task"
+        aria-label="Stop current task"
+        @click="abortJob"
+      ><AppIcon name="solar:stop-bold" :size="20" /></button>
+      <button
         class="agent-nav-toggle agent-phone-shortcut"
         :class="{ 'is-active': voiceCall.active.value }"
         type="button"
@@ -219,9 +227,9 @@
         <!-- Context line: one quiet summary row, details expand on demand -->
         <section v-if="capVisible && activeTab === 'chat'" class="agent-caps" :class="{ open: capsOpen }" aria-label="What this assistant can do">
           <button type="button" class="agent-caps-summary" :aria-expanded="capsOpen" @click="capsOpen = !capsOpen">
-            <span class="agent-caps-dot" :class="{ warn: !caps.hasKey }" aria-hidden="true" />
+            <span class="agent-caps-dot" :class="{ warn: !selectedProviderReady }" aria-hidden="true" />
             <span class="agent-caps-text">{{ caps.model }} · {{ caps.persona }} · {{ caps.permission }}</span>
-            <span v-if="!caps.hasKey" class="agent-caps-key">No key</span>
+            <span v-if="!selectedProviderReady" class="agent-caps-key">{{ chatConfig ? 'No key' : 'Choose assistant' }}</span>
             <AppIcon :name="capsOpen ? 'solar:alt-arrow-up-bold' : 'solar:alt-arrow-down-bold'" :size="12" />
           </button>
           <div v-if="capsOpen" class="agent-caps-detail">
@@ -237,9 +245,9 @@
             <span class="agent-cap" :title="'Permission ruleset: ' + caps.permission">
               <AppIcon name="solar:shield-check-bold" :size="12" /> {{ caps.permission }}
             </span>
-            <span class="agent-cap" :class="{ warn: !caps.hasKey }" :title="caps.keyHint">
-              <AppIcon :name="caps.hasKey ? 'solar:key-bold' : 'solar:lock-bold'" :size="12" />
-              {{ caps.hasKey ? 'Key ready' : 'No key' }}
+            <span class="agent-cap" :class="{ warn: !selectedProviderReady }" :title="chatConfig && isKeyless(chatConfig) ? 'This connection does not require an API key.' : caps.keyHint">
+              <AppIcon :name="selectedProviderReady ? 'solar:plug-circle-bold' : 'solar:lock-bold'" :size="12" />
+              {{ chatConfig && isKeyless(chatConfig) ? 'No API key needed' : caps.hasKey ? 'Key ready' : 'No key' }}
             </span>
             <button type="button" class="agent-cap-link" @click="activeTab = 'controls'">
               Open Controls
@@ -562,8 +570,14 @@
             <p>Connect an AI provider and save its API key (or choose a keyless provider) to start chatting. Your conversation history stays here.</p>
             <UiButton size="sm" variant="primary" icon="solar:plug-circle-bold" @click="openSetup">CONNECT</UiButton>
           </div>
+          <div v-else-if="!selectedProviderReady" class="agent-provider-notice" role="status" aria-live="polite">
+            <p>{{ chatConfig ? `${chatConfig.name} needs an API key before you can send messages.` : 'Choose a connected assistant before sending a message.' }}</p>
+            <UiButton v-if="chatConfig" size="sm" variant="primary" @click="editSetup(chatConfig)">Add API key</UiButton>
+            <UiButton size="sm" @click="sidebarOpen = true">Choose assistant</UiButton>
+          </div>
+          <p v-if="viewing && selectedProviderReady && viewing.configId !== chatConfigId" class="agent-provider-notice" role="status">Your next message starts a new conversation with {{ chatConfig?.name }}. This transcript stays unchanged.</p>
           <!-- Onboarding when there is nothing to show yet -->
-          <div v-if="hasUsableProvider && !viewing" class="agent-welcome">
+          <div v-if="selectedProviderReady && !viewing" class="agent-welcome">
             <span class="agent-welcome-avatar"><AppIcon name="solar:bot-bold" :size="22" /></span>
             <h3>{{ configs.length ? 'What should we work on?' : 'Meet your assistant' }}</h3>
             <p v-if="!configs.length">
@@ -726,10 +740,16 @@
               <p v-if="!pendingApproval.question" class="agent-note">Declining returns <span class="mono">denied: …</span> — the assistant works around it instead of retrying. Add feedback above to steer the next attempt.</p>
             </div>
 
+          </template>
+
             <div v-if="queue.length" class="queue" aria-label="Queued prompts">
               <UiBadge tone="info" size="sm" icon="solar:clock-circle-bold">Queued {{ queue.length }}</UiBadge>
+              <template v-if="!jobActive">
+                <p class="agent-note">{{ queueCanResume ? 'Ready when your draft is clear.' : 'Return to the original assistant and conversation to send queued messages.' }}</p>
+                <UiButton size="sm" :disabled="!queueCanResume || !!promptInput.trim() || startingRun" @click="sendNextQueued">Send next queued message</UiButton>
+              </template>
               <span v-for="(q, qi) in queue" :key="qi" class="queue-item">
-                <span class="queue-text">{{ q }}</span>
+                <span class="queue-text">{{ q.prompt }}</span>
                 <UiButton
                   size="xs"
                   icon="solar:close-bold"
@@ -740,7 +760,6 @@
                 />
               </span>
             </div>
-          </template>
 
           <div v-if="voiceCall.active.value" class="agent-call-status" aria-label="Active voice call">
             <span role="status" aria-live="polite">{{ pendingApproval ? 'Voice · review approval above' : `Voice · ${voiceCall.state.value}` }}</span>
@@ -783,14 +802,15 @@
                 </span>
                 <span class="composer-spacer" />
                 <div v-if="voice.isSupported.value && !voiceCall.active.value" class="voice-group">
-                  <div class="voice-pop" role="group" aria-label="Dictation language">
+                  <button type="button" class="voice-language-toggle" :aria-expanded="dictationLanguageOpen" :aria-controls="dictationLanguageId" aria-label="Choose dictation language" @click="dictationLanguageOpen = !dictationLanguageOpen">{{ voice.langPref.value === 'auto' ? 'Auto' : voice.langPref.value === 'pt-BR' ? 'PT' : 'EN' }}</button>
+                  <div v-if="dictationLanguageOpen" :id="dictationLanguageId" class="voice-pop" role="group" aria-label="Dictation language" @keydown.esc.stop="dictationLanguageOpen = false">
                     <button
                       type="button"
                       class="voice-opt"
                       :class="{ on: voice.langPref.value === 'auto' }"
                       :aria-pressed="voice.langPref.value === 'auto'"
                       title="Auto-detect from your browser language"
-                      @click="voice.setLang('auto')"
+                      @click="voice.setLang('auto'); dictationLanguageOpen = false"
                     >Auto · {{ voice.lang.value === 'pt-BR' ? 'PT' : 'EN' }}</button>
                     <button
                       type="button"
@@ -798,7 +818,7 @@
                       :class="{ on: voice.langPref.value === 'en-US' }"
                       :aria-pressed="voice.langPref.value === 'en-US'"
                       title="Dictate in English"
-                      @click="voice.setLang('en-US')"
+                      @click="voice.setLang('en-US'); dictationLanguageOpen = false"
                     >EN</button>
                     <button
                       type="button"
@@ -806,10 +826,10 @@
                       :class="{ on: voice.langPref.value === 'pt-BR' }"
                       :aria-pressed="voice.langPref.value === 'pt-BR'"
                       title="Dictate in Portuguese (PT-BR)"
-                      @click="voice.setLang('pt-BR')"
+                      @click="voice.setLang('pt-BR'); dictationLanguageOpen = false"
                     >PT</button>
                   </div>
-                  <UiButton size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : voice.langPref.value === 'auto' ? `Dictate your message (auto: ${voice.lang.value === 'pt-BR' ? 'Portuguese' : 'English'} — hover to pick EN/PT)` : `Dictate your message (${voice.langPref.value === 'pt-BR' ? 'Portuguese' : 'English'} — hover to change)`" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Dictate' }}</UiButton>
+                  <UiButton size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : `Dictate your message (${voice.lang.value === 'pt-BR' ? 'Portuguese' : 'English'})`" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Dictate' }}</UiButton>
                 </div>
                 <UiButton v-if="jobActive" size="sm" variant="danger" icon="solar:stop-bold" @click="abortJob">Stop</UiButton>
                 <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend" :title="!chatConfigId ? 'Select an assistant first' : ''" @click="sendTypedPrompt()">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
@@ -1009,6 +1029,8 @@ const controlsOpen = ref<'tools' | 'fallback' | 'perms'>('perms')
 const composerFocused = ref(false)
 const phoneControlsOpen = ref(false)
 const phoneControlsId = useId()
+const dictationLanguageOpen = ref(false)
+const dictationLanguageId = useId()
 // App-wide shortcuts capture Escape at document level; this dialog owns it first.
 function onPhoneControlsKey(event: KeyboardEvent) {
   if (!phoneControlsOpen.value || event.key !== 'Escape') return
@@ -1700,7 +1722,8 @@ function pickPreset(p: ProviderPreset) {
 }
 
 function isKeyless(cfg: AgentConfig) {
-  return cfg.authSchemeOverride === 'none' || (providers.value.find(p => p.id === cfg.providerId)?.keyless ?? false)
+  if (cfg.authSchemeOverride) return cfg.authSchemeOverride === 'none'
+  return providers.value.find(p => p.id === cfg.providerId)?.keyless ?? false
 }
 
 function localConfigFromForm(): AgentConfig {
@@ -1861,6 +1884,7 @@ async function newSession() {
     saveLocalSession(s)
     refreshLocal()
     setViewing(s)
+    activeTab.value = 'chat'
     return
   }
   const s = await (async () => {
@@ -1874,15 +1898,23 @@ async function newSession() {
       return null
     }
   })()
-  if (s) setViewing(s)
+  if (s) {
+    setViewing(s)
+    activeTab.value = 'chat'
+  }
 }
 
+let sessionLoadRevision = 0
 async function loadSession(id: string) {
-  if (wasmMode.value) {
-    setViewing(listLocalSessions().find(s => s.id === id) ?? null)
-    return
-  }
-  setViewing(await store.loadAgentSession(id))
+  const revision = ++sessionLoadRevision
+  const session = wasmMode.value
+    ? listLocalSessions().find(s => s.id === id) ?? null
+    : await store.loadAgentSession(id)
+  if (revision !== sessionLoadRevision || !session) return
+  // Never show B's transcript while silently sending the next message to A.
+  chatConfigId.value = configs.value.some(c => c.id === session.configId) ? session.configId : ''
+  setViewing(session)
+  activeTab.value = 'chat'
 }
 
 async function removeSession(id: string) {
@@ -1986,7 +2018,8 @@ const jobHint = computed(() => {
 // ─── thread rendering: grouped tools, live state, context awareness ───
 const messagesEl = ref<HTMLElement | null>(null)
 const openRows = ref<Set<string>>(new Set())
-const queue = ref<string[]>([])
+interface QueuedPrompt { prompt: string; configId: string; sessionId?: string }
+const queue = ref<QueuedPrompt[]>([])
 const startedAt = ref(0)
 const nowTick = ref(Date.now())
 let tickTimer = 0
@@ -2119,7 +2152,8 @@ const selectedProviderReady = computed(() => {
   return !!cfg && (cfg.hasKey || isKeyless(cfg))
 })
 const hasUsableProvider = computed(() => configs.value.some(cfg => cfg.hasKey || isKeyless(cfg)))
-const canSend = computed(() => promptInput.value.trim() !== '' && selectedProviderReady.value)
+const startingRun = ref(false)
+const canSend = computed(() => promptInput.value.trim() !== '' && selectedProviderReady.value && !startingRun.value)
 
 const voiceCall = useVoiceCall(sendVoiceTurn, () => voice.lang.value)
 function startVoiceCall() {
@@ -2190,7 +2224,11 @@ async function sendPrompt(signal?: AbortSignal) {
   if (!canSend.value || !selectedProviderReady.value) return
   // A run is live: hold the prompt and drain it when the job settles.
   if (jobActive.value) {
-    queue.value.push(promptInput.value.trim())
+    queue.value.push({
+      prompt: promptInput.value.trim(),
+      configId: chatConfigId.value,
+      sessionId: viewing.value?.configId === chatConfigId.value ? viewing.value.id : undefined,
+    })
     promptInput.value = ''
     scrollToBottom()
     return
@@ -2199,26 +2237,39 @@ async function sendPrompt(signal?: AbortSignal) {
     await sendPromptLocal()
     return
   }
+  // Lock the create/start gap, snapshot the intended recipient, and keep a
+  // failed prompt recoverable without overwriting anything typed meanwhile.
+  startingRun.value = true
+  const configId = chatConfigId.value
   const prompt = promptInput.value.trim()
   promptInput.value = ''
   scrollToBottom()
-  // Ensure a session exists for this config; the job returns transcript via polling.
-  let sessionId = viewing.value && viewing.value.configId === chatConfigId.value ? viewing.value.id : undefined
-  if (!sessionId) {
-    const { invoke } = await import('@/composables/useTauri')
-    try {
-      const created = await invoke<AgentSession>('create_agent_session', { configId: chatConfigId.value })
+  let started = false
+  let sessionId = viewing.value && viewing.value.configId === configId ? viewing.value.id : undefined
+  try {
+    // Ensure a session exists for this config; the job returns transcript via polling.
+    if (!sessionId) {
+      const { invoke } = await import('@/composables/useTauri')
+      const created = await invoke<AgentSession>('create_agent_session', { configId })
       await store.fetchAgentSessions()
-      if (signal?.aborted) return
+      if (signal?.aborted || chatConfigId.value !== configId) return
       setViewing(created)
       sessionId = created.id
-    } catch (e) {
-      store.notifyError('Failed to create session', e)
-      return
     }
+    if (signal?.aborted || chatConfigId.value !== configId) return
+    started = !!await store.startAgentRun(configId, prompt, sessionId)
+  } catch (e) {
+    store.notifyError('Failed to start conversation', e)
+  } finally {
+    if (!started) {
+      if (!promptInput.value.trim()) promptInput.value = prompt
+      else {
+        queue.value.unshift({ prompt, configId, sessionId })
+        store.notifyError('Message not sent', 'Your unsent message is in the queue; your newer draft is unchanged.')
+      }
+    }
+    startingRun.value = false
   }
-  if (signal?.aborted) return
-  await store.startAgentRun(chatConfigId.value, prompt, sessionId)
 }
 
 /** Browser-local run: same thread UI, loop in useAgent, volume tools. */
@@ -2251,7 +2302,7 @@ async function sendPromptLocal() {
       const fbase = (fc.baseUrlOverride || fp?.baseUrl || '').replace(/\/$/, '')
       if (!fbase) continue
       const fkey = localKeys.value[fc.id] ?? getLocalKey(fc.id) ?? ''
-      if (!fkey && !(fp?.keyless ?? false)) continue
+      if (!fkey && !isKeyless(fc)) continue
       const fdialect = (fc.dialectOverride ?? fp?.dialect ?? 'openAi') as 'openAi' | 'anthropic'
       const fauth = (fc.authSchemeOverride ?? fp?.auth ?? 'bearer') as 'bearer' | 'header' | 'query' | 'none'
       const fheaders: Array<[string, string]> = [...(fp?.extraHeaders ?? [])]
@@ -2260,7 +2311,7 @@ async function sendPromptLocal() {
       fallbackRoutes.push({ label: `${fc.name} · ${fc.model}`, baseUrl: fbase, dialect: fdialect, model: fc.model, headers: fheaders })
     }
   }
-  if (!key && !(preset?.keyless ?? false) && !fallbackRoutes.length) {
+  if (!key && !isKeyless(cfg) && !fallbackRoutes.length) {
     store.notifyError('No API key', 'paste the key in SETUP (kept in memory only)')
     return
   }
@@ -2469,23 +2520,32 @@ function prettyInput(m: { toolName?: string | null; toolInput?: unknown }) {
   }
 }
 
-/** Terminal status: pull the final transcript, then drain the prompt queue. */
+const queueCanResume = computed(() => {
+  const next = queue.value[0]
+  return !!next && selectedProviderReady.value && next.configId === chatConfigId.value &&
+    (!next.sessionId || next.sessionId === viewing.value?.id)
+})
+async function sendNextQueued() {
+  if (jobActive.value || startingRun.value || promptInput.value.trim() || !queueCanResume.value) return
+  const next = queue.value.shift()!
+  promptInput.value = next.prompt
+  await sendPrompt()
+}
+
+/** Terminal status: pull the final transcript. Only successful tasks auto-drain;
+ * cancelled/failed work pauses for explicit retry, never discarding a draft. */
 watch(
-  () => activeJob.value?.status,
-  (status) => {
+  () => [activeJob.value?.status, startingRun.value] as const,
+  ([status, starting]) => {
     const terminal = status === 'done' || status === 'error' || status === 'cancelled'
     if (terminal && !wasmMode.value && viewing.value) {
       void store.loadAgentSession(viewing.value.id).then(s => {
-        if (s && activeJob.value?.sessionId === viewing.value?.id) setViewing(s)
+        if (s && s.id === viewing.value?.id && activeJob.value?.sessionId === s.id) setViewing(s)
       })
       void store.fetchAgentSessions()
     }
-    if (!terminal || jobActive.value || !queue.value.length) return
-    const next = queue.value.shift()!
-    promptInput.value = next
-    void nextTick(() => {
-      void sendPrompt()
-    })
+    if (status !== 'done' || starting || jobActive.value || !queue.value.length) return
+    void nextTick(() => { void sendNextQueued() })
   },
 )
 
@@ -2970,22 +3030,20 @@ onMounted(async () => {
   padding: 10px 12px 4px; outline: none; resize: vertical; min-height: 52px;
   max-height: min(40vh, 240px); overflow-y: auto; box-sizing: border-box; overflow-wrap: anywhere;
 }
-.composer-bar { display: flex; align-items: center; gap: 8px; padding: 4px 8px 8px; }
-/* Dictation language: hidden picker that pops over the Dictate button on
-   hover/focus. Default is Auto (neither EN nor PT picked) → browser-detected. */
+.composer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 8px 8px; }
+/* The picker has an explicit trigger: touch and keyboard never need hover. */
 .voice-group { position: relative; display: inline-flex; flex-shrink: 0; }
+.voice-language-toggle { min-height: 44px; min-width: 44px; padding: 4px; border: 0; border-radius: 8px; background: transparent; color: var(--ui-accent); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.voice-language-toggle:focus-visible, .voice-opt:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .voice-pop {
   position: absolute; bottom: calc(100% + 6px); right: 0;
   display: flex; gap: 4px; padding: 4px;
   border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-lg);
   background: color-mix(in srgb, var(--ui-glass) 92%, transparent);
   box-shadow: var(--ui-shadow-2); z-index: 6; white-space: nowrap;
-  opacity: 0; visibility: hidden; transform: translateY(4px); pointer-events: none;
-  transition: opacity var(--ui-dur-fast) var(--ui-ease-out), transform var(--ui-dur-fast) var(--ui-ease-out), visibility var(--ui-dur-fast);
 }
-.voice-group:hover .voice-pop, .voice-group:focus-within .voice-pop { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
 .voice-opt {
-  font: inherit; font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 8px;
+  font: inherit; font-size: 11px; font-weight: 700; min-height: 44px; min-width: 44px; padding: 4px 8px; border-radius: 8px;
   border: 1px solid transparent; background: transparent; color: color-mix(in srgb, var(--ui-text) 70%, transparent);
   cursor: pointer; white-space: nowrap;
 }
@@ -3007,6 +3065,10 @@ onMounted(async () => {
 /* Settings stays reachable even when the desktop tab bar is hidden. */
 .agent-settings-shortcut { color: var(--ui-text-2); flex-shrink: 0; }
 .agent-settings-shortcut[aria-pressed="true"] { color: var(--ui-accent); background: var(--ui-accent-softer); }
+.agent-stop-shortcut { color: var(--ui-danger); flex-shrink: 0; }
+.agent-provider-notice { flex-shrink: 0; padding: 10px 12px; margin: 8px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); font-size: 12px; overflow-wrap: anywhere; }
+.agent-provider-notice p { margin: 0 0 8px; }
+.agent-provider-notice :deep(button) { min-height: 44px; margin: 0 6px 4px 0; }
 .agent-setup-heading, .agent-key-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .agent-settings-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
 .agent-setup-heading { margin-bottom: 12px; }
@@ -3054,7 +3116,10 @@ onMounted(async () => {
   .agent-caps { padding: 0 8px; }
   .agent-thread-head { flex-wrap: wrap; padding: 6px 8px 4px; }
   .agent-messages { padding: 4px 8px 8px; }
-  .composer { margin: 0 8px 6px; }
+  .composer { margin: 0 8px calc(6px + env(safe-area-inset-bottom, 0px)); }
+  .composer-hint { display: none; }
+  .composer-bar { gap: 4px; }
+  .composer-bar :deep(button) { min-height: 44px; }
   .composer-box { font-size: 16px; }
   .agent-card { margin: 8px; padding: 10px; }
   .preset-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); max-height: 200px; }
@@ -3067,6 +3132,9 @@ onMounted(async () => {
 @container agent (max-width: 760px) {
   .agent-header { flex-wrap: nowrap; }
   .agent-header-meta { display: none; }
+  .composer-hint { display: none; }
+  .composer-bar { gap: 4px; }
+  .composer-bar :deep(button) { min-height: 44px; }
   .agent-body { position: relative; }
   .agent-main { position: relative; z-index: 1; }
   .agent-sidebar { position: absolute; inset: 0 auto 0 0; z-index: 10; width: min(88cqi, 360px); max-width: calc(100% - 20px); background: var(--ui-surface-2); box-shadow: var(--ui-shadow-2); }
