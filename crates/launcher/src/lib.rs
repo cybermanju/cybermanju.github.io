@@ -32,9 +32,11 @@
 //! strings, `new_local_ref` copies, or call results). Each app row runs in
 //! its own `with_local_frame` — without it a 300-app drawer overflows the
 //! 512-entry local-reference table and the VM aborts.
-
 use serde::{Deserialize, Serialize};
 
+pub mod automation;
+#[cfg(any(target_os = "android", test))]
+pub(crate) mod automation_journal;
 pub mod clipboard;
 pub mod widgets;
 
@@ -308,7 +310,8 @@ pub fn link_label(url: &str) -> String {
 // ─── Android implementation (JNI, no Kotlin) ──────────────────────────
 
 #[cfg(target_os = "android")]
-mod android_impl {
+pub(crate) mod android_impl {
+    use super::automation::ValidatedAndroidAction;
     use super::{
         is_social_package, pack_icon_candidates, sort_apps, validate_package_name, AndroidApp,
         IconPack, NotificationState, StoredMessage, MESSAGES_FILE,
@@ -731,10 +734,20 @@ mod android_impl {
             &[JValue::Object(&intent)],
         )
         .map_err(|e| {
-            fail(
-                env,
-                format!("not_found: Android refused to open {what}: {e}"),
-            )
+            let detail = e.to_string();
+            let exception = env.exception_occurred().ok();
+            let _ = env.exception_clear();
+            let is_missing_handler = exception
+                .and_then(|exception| {
+                    env.is_instance_of(&exception, "android/content/ActivityNotFoundException")
+                        .ok()
+                })
+                .unwrap_or(false);
+            if is_missing_handler {
+                format!("not_found: no Android activity can handle {what}")
+            } else {
+                format!("network: Android could not start {what}: {detail}")
+            }
         })?;
         Ok(())
     }
@@ -1387,6 +1400,189 @@ mod android_impl {
     /// The pending Java exception is cleared by `fail` before this surfaces.
     fn share_fail(path: &str, e: JniError) -> String {
         format!("not_found: cannot hand {path} to another app ({e}) — check cybermanju_paths.xml")
+    }
+
+    fn action_with_uri<'a>(
+        env: &mut JNIEnv<'a>,
+        action_name: &str,
+        data: &str,
+    ) -> Result<JObject<'a>, String> {
+        let action = new_obj(env, action_name)?;
+        let intent: JObject = env
+            .new_object(
+                "android/content/Intent",
+                "(Ljava/lang/String;)V",
+                &[JValue::Object(&action)],
+            )
+            .map_err(|e| fail(env, format!("invalid: cannot build action intent: {e}")))?;
+        let spec = new_obj(env, data)?;
+        let uri: JObject = env
+            .call_static_method(
+                "android/net/Uri",
+                "parse",
+                "(Ljava/lang/String;)Landroid/net/Uri;",
+                &[JValue::Object(&spec)],
+            )
+            .map_err(|e| fail(env, format!("invalid: cannot parse action URI: {e}")))?
+            .l()
+            .map_err(|e| fail(env, format!("invalid: cannot parse action URI: {e}")))?;
+        env.call_method(
+            &intent,
+            "setData",
+            "(Landroid/net/Uri;)Landroid/content/Intent;",
+            &[JValue::Object(&uri)],
+        )
+        .map_err(|e| fail(env, format!("invalid: cannot set action URI: {e}")))?;
+        Ok(intent)
+    }
+
+    fn put_string_extra(
+        env: &mut JNIEnv,
+        intent: &JObject,
+        key: &str,
+        value: &str,
+    ) -> Result<(), String> {
+        let key = new_obj(env, key)?;
+        let value = new_obj(env, value)?;
+        env.call_method(
+            intent,
+            "putExtra",
+            "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;",
+            &[JValue::Object(&key), JValue::Object(&value)],
+        )
+        .map_err(|e| fail(env, format!("invalid: cannot add action data: {e}")))?;
+        Ok(())
+    }
+
+    fn chooser<'a>(
+        env: &mut JNIEnv<'a>,
+        intent: &JObject<'a>,
+        title: &str,
+    ) -> Result<JObject<'a>, String> {
+        let title = new_obj(env, title)?;
+        env.call_static_method(
+            "android/content/Intent",
+            "createChooser",
+            "(Landroid/content/Intent;Ljava/lang/CharSequence;)Landroid/content/Intent;",
+            &[JValue::Object(intent), JValue::Object(&title)],
+        )
+        .map_err(|e| fail(env, format!("invalid: cannot create Android chooser: {e}")))?
+        .l()
+        .map_err(|e| fail(env, format!("invalid: cannot create Android chooser: {e}")))
+    }
+
+    /// Execute one already-validated public Android action.
+    /// Returns `true` when the UI hands control to another app; that is an
+    /// `accepted` handoff, not proof that the user completed the action.
+    pub(super) fn dispatch_automation_action(
+        action: &ValidatedAndroidAction,
+    ) -> Result<bool, String> {
+        with_env(|env, activity| {
+            let has_focus = env
+                .call_method(activity, "hasWindowFocus", "()Z", &[])
+                .map_err(|e| {
+                    fail(
+                        env,
+                        format!("network: cannot inspect foreground state: {e}"),
+                    )
+                })?
+                .z()
+                .map_err(|e| {
+                    fail(
+                        env,
+                        format!("network: cannot inspect foreground state: {e}"),
+                    )
+                })?;
+            if !has_focus {
+                return Err("denied: foreground_required".to_string());
+            }
+            match action {
+                ValidatedAndroidAction::OpenUrl(url) => {
+                    let intent = view_uri(env, url)?;
+                    start(env, activity, intent, "URL")?;
+                    Ok(false)
+                }
+                ValidatedAndroidAction::OpenMap(uri) => {
+                    let intent = view_uri(env, uri)?;
+                    start(env, activity, intent, "map")?;
+                    Ok(false)
+                }
+                ValidatedAndroidAction::Dial(phone) => {
+                    let intent = action_with_uri(
+                        env,
+                        "android.intent.action.DIAL",
+                        &format!("tel:{phone}"),
+                    )?;
+                    start(env, activity, intent, "dialer")?;
+                    Ok(true)
+                }
+                ValidatedAndroidAction::ShareText { text, title } => {
+                    let action = new_obj(env, "android.intent.action.SEND")?;
+                    let intent: JObject = env
+                        .new_object(
+                            "android/content/Intent",
+                            "(Ljava/lang/String;)V",
+                            &[JValue::Object(&action)],
+                        )
+                        .map_err(|e| {
+                            fail(env, format!("invalid: cannot build share intent: {e}"))
+                        })?;
+                    let mime = new_obj(env, "text/plain")?;
+                    env.call_method(
+                        &intent,
+                        "setType",
+                        "(Ljava/lang/String;)Landroid/content/Intent;",
+                        &[JValue::Object(&mime)],
+                    )
+                    .map_err(|e| fail(env, format!("invalid: cannot set share MIME type: {e}")))?;
+                    put_string_extra(env, &intent, "android.intent.extra.TEXT", text)?;
+                    let chooser = chooser(env, &intent, title)?;
+                    start(env, activity, chooser, "share chooser")?;
+                    Ok(true)
+                }
+                ValidatedAndroidAction::CreateCalendarEvent {
+                    title,
+                    starts_at_epoch_ms,
+                    ends_at_epoch_ms,
+                    location,
+                    description,
+                } => {
+                    let intent = action_with_uri(
+                        env,
+                        "android.intent.action.INSERT",
+                        "content://com.android.calendar/events",
+                    )?;
+                    put_string_extra(env, &intent, "title", title)?;
+                    let begin_key = new_obj(env, "beginTime")?;
+                    env.call_method(
+                        &intent,
+                        "putExtra",
+                        "(Ljava/lang/String;J)Landroid/content/Intent;",
+                        &[
+                            JValue::Object(&begin_key),
+                            JValue::Long(*starts_at_epoch_ms),
+                        ],
+                    )
+                    .map_err(|e| fail(env, format!("invalid: cannot add calendar start: {e}")))?;
+                    let end_key = new_obj(env, "endTime")?;
+                    env.call_method(
+                        &intent,
+                        "putExtra",
+                        "(Ljava/lang/String;J)Landroid/content/Intent;",
+                        &[JValue::Object(&end_key), JValue::Long(*ends_at_epoch_ms)],
+                    )
+                    .map_err(|e| fail(env, format!("invalid: cannot add calendar end: {e}")))?;
+                    if let Some(location) = location {
+                        put_string_extra(env, &intent, "eventLocation", location)?;
+                    }
+                    if let Some(description) = description {
+                        put_string_extra(env, &intent, "description", description)?;
+                    }
+                    start(env, activity, intent, "calendar form")?;
+                    Ok(true)
+                }
+            }
+        })
     }
 
     /// Open one link with the system resolver (`Intent.ACTION_VIEW`).
