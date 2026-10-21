@@ -1,4 +1,6 @@
 // CyberManju OS — per-item UI appearance overrides.
+// Role: validate, persist and render user-selected icons and local images.
+// Integrates: global UI layout editing, deployment-scoped storage and the offline icon catalog.
 import { h, render, type VNode } from 'vue'
 import { Icon } from '@iconify/vue/offline'
 import { hasLocalIcon } from './iconify'

@@ -1,3 +1,6 @@
+// CyberManju OS — Phone reader UI tests.
+// Role: Guard explicit consent, app selection and safe permission-return markup.
+// Integrates: Vitest and the AgentPanel / PhoneAppReader source contracts.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 const panel = readFileSync('src/components/AgentPanel.vue', 'utf8')

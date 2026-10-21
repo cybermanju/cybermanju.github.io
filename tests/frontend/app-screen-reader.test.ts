@@ -1,3 +1,6 @@
+// CyberManju OS — Screen-reader contract tests.
+// Role: Validate native status parsing, timeouts and visible-session invariants.
+// Integrates: Vitest and appScreenReader utilities.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   boundedReaderRequest,

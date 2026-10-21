@@ -1,5 +1,7 @@
 <script setup lang="ts">
-// Global customization remains accessible only through an icon long-press.
+// CyberManju OS — global UI layout and appearance editor.
+// Role: expose per-item customization through an icon long-press.
+// Integrates: persisted UI appearance, local raster images and the offline icon catalog.
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Icon } from '@iconify/vue/offline'
 import { ensureUiIconCatalog, readUiIconImage } from '@/utils/uiIconCatalog'

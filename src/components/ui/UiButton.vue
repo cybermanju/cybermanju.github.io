@@ -121,7 +121,7 @@ function onClick(event: MouseEvent) {
 .ui-btn:focus-visible {
   outline: none;
   box-shadow: var(--ui-focus-ring);
-  border-color: var(--ui-accent);
+  border-color: var(--ui-focus-color);
 }
 
 .ui-btn:active:not(:disabled) {
@@ -166,6 +166,7 @@ function onClick(event: MouseEvent) {
 
 .ui-btn--primary:hover:not(:disabled) {
   background: var(--ui-accent-strong);
+  color: var(--ui-on-accent-strong);
 }
 
 .ui-btn--secondary {
@@ -205,12 +206,12 @@ function onClick(event: MouseEvent) {
 .ui-btn--danger {
   background: color-mix(in srgb, var(--ui-danger) 12%, transparent);
   border-color: transparent;
-  color: var(--ui-danger);
+  color: var(--ui-danger-text);
 }
 
 .ui-btn--danger:hover:not(:disabled) {
   background: var(--ui-danger);
-  color: white;
+  color: var(--ui-on-danger);
 }
 
 .ui-btn--subtle {
@@ -228,11 +229,11 @@ function onClick(event: MouseEvent) {
 .ui-btn--active {
   background: var(--ui-accent-softer);
   border-color: color-mix(in srgb, var(--ui-accent) 45%, transparent);
-  color: var(--ui-accent);
+  color: var(--ui-accent-text);
 }
 
 .ui-btn--icon-only.ui-btn--active {
-  color: var(--ui-accent);
+  color: var(--ui-accent-text);
 }
 
 /* loading */

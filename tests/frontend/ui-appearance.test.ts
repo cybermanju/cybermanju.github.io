@@ -1,3 +1,6 @@
+// CyberManju OS — UI appearance tests.
+// Role: Guard validation and persistence boundaries for per-item customization.
+// Integrates: Vitest and uiAppearance.
 import { describe, expect, it } from 'vitest'
 import { UI_APPEARANCE_STORAGE_KEY, validateUiAppearance } from '../../src/utils/uiAppearance'
 

@@ -563,6 +563,23 @@ export function contrastRatio(a: [number, number, number], b: [number, number, n
   return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)
 }
 
+/** Keep the saved hue; adjust only its readable text/focus rendering. */
+function readableColor(color: string, surfaces: string[], target: string, minimum: number): string {
+  const backgrounds = surfaces.map(hexToRgb)
+  if (backgrounds.every(bg => contrastRatio(hexToRgb(color), bg) >= minimum)) return color
+  for (let step = 1; step <= 100; step++) {
+    const candidate = mix(color, target, step / 100)
+    if (backgrounds.every(bg => contrastRatio(hexToRgb(candidate), bg) >= minimum)) return candidate
+  }
+  return target
+}
+
+/** Actual fill, not the preset, determines readable button text. */
+function textOnFill(fill: string): string {
+  const bg = hexToRgb(fill)
+  return contrastRatio([0, 0, 0], bg) >= contrastRatio([255, 255, 255], bg) ? '#000000' : '#ffffff'
+}
+
 /**
  * Build the full `--ui-*` custom property map for the active settings.
  * Flat single-language output: fixed radius scale, SF stack, one flat
@@ -592,10 +609,10 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
   const solid = flat || s.glass === 0
   const blur = solid ? 0 : plasma ? 20 : 40
   const saturate = solid ? '100%' : plasma ? '140%' : '180%'
-  const onAccentLuma = (() => {
-    const [r, g, b] = hexToRgb(accent)
-    return (r * 299 + g * 587 + b * 114) / 1000 > 145 ? '#1d1d1f' : '#ffffff'
-  })()
+  const contentSurfaces = [p.surface, p.surface2, p.surface3]
+  const accentStrong = mix(accent, theme.mode === 'light' ? '#ffffff' : '#000000', 0.12)
+  const accentText = readableColor(accent, contentSurfaces, p.text, 4.5)
+  const focusColor = readableColor(accent, contentSurfaces, p.text, 3)
 
   // Flat depth: soft window shadow + outline. No glow, no neon.
   const shadowColor = '0, 0, 0'
@@ -610,9 +627,7 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
   const shadowMenu = plasma
     ? `0 6px 20px rgba(${shadowColor}, 0.40), ${shadowOutline}`
     : `0 8px 30px rgba(${shadowColor}, ${shadowAlpha[2]}), ${shadowOutline}`
-  const focusRing = plasma
-    ? `0 0 0 2px ${accent}`
-    : `0 0 0 3px color-mix(in srgb, ${accent} 45%, transparent)`
+  const focusRing = `0 0 0 ${plasma ? 2 : 3}px ${focusColor}`
   // Radius: macOS window 12 / menu 10 / control 6 / chip 4;
   // plasma window 6 / popup 6 / control 4 / chip 3.
   const radii = plasma
@@ -668,8 +683,15 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-accent-rgb': accentRgb,
     '--ui-accent-soft': `rgba(${accentRgb}, 0.14)`,
     '--ui-accent-softer': `rgba(${accentRgb}, 0.08)`,
-    '--ui-accent-strong': mix(accent, theme.mode === 'light' ? '#ffffff' : '#000000', 0.12),
-    '--ui-on-accent': p.onAccent === '#ffffff' || p.onAccent === '#000000' ? p.onAccent : onAccentLuma,
+    '--ui-accent-strong': accentStrong,
+    '--ui-accent-text': accentText,
+    '--ui-focus-color': focusColor,
+    '--ui-on-accent': textOnFill(accent),
+    '--ui-on-accent-strong': textOnFill(accentStrong),
+    '--ui-on-danger': textOnFill(p.danger),
+    '--ui-danger-text': readableColor(p.danger, contentSurfaces, p.text, 4.5),
+    '--ui-success-text': readableColor(p.success, contentSurfaces, p.text, 4.5),
+    '--ui-warning-text': readableColor(p.warning, contentSurfaces, p.text, 4.5),
     '--ui-success': p.success,
     '--ui-success-rgb': hexToRgb(p.success).join(', '),
     '--ui-warning': p.warning,

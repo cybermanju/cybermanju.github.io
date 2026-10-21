@@ -1,3 +1,6 @@
+// CyberManju OS — Screen-reader state tests.
+// Role: Verify permission reconciliation, bounded requests and session ownership.
+// Integrates: Vitest and the mocked Android screen-reader bridge.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReaderStatus } from '../../src/utils/androidScreenReader'
 

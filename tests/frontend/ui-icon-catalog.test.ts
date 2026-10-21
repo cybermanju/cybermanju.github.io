@@ -1,3 +1,6 @@
+// CyberManju OS — UI icon catalog tests.
+// Role: Verify offline icon loading and safe local raster-image uploads.
+// Integrates: Vitest and uiIconCatalog.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ensureUiIconCatalog, readUiIconImage } from '../../src/utils/uiIconCatalog'
 
