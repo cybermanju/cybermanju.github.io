@@ -14,6 +14,8 @@ import (
 	"strings"
 	"unicode"
 
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
@@ -46,21 +48,51 @@ type shellResultMsg struct {
 	err      error
 }
 
+type replKeys struct{}
+
+var (
+	replRunBinding        = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "run command"))
+	replCompletionBinding = key.NewBinding(key.WithKeys("tab", "shift+tab"), key.WithHelp("tab/shift+tab", "cycle completion"))
+	replHistoryBinding    = key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "history; restore draft"))
+	replScrollBinding     = key.NewBinding(key.WithKeys("pgup", "pgdown"), key.WithHelp("pgup/pgdn", "scrollback"))
+	replEscBinding        = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "dismiss / clear / stop waiting"))
+	replHelpBinding       = key.NewBinding(key.WithKeys("ctrl+g", "f1"), key.WithHelp("ctrl+g/f1", "toggle help"))
+	replBottomBinding     = key.NewBinding(key.WithKeys("ctrl+end"), key.WithHelp("ctrl+end", "jump to latest"))
+	replCancelBinding     = key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "clear / stop waiting / exit if empty"))
+	replClearBinding      = key.NewBinding(key.WithKeys("ctrl+l"), key.WithHelp("ctrl+l", "clear scrollback"))
+	replQuitBinding       = key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp(":q/ctrl+d", "exit with empty input"))
+)
+
+func (replKeys) ShortHelp() []key.Binding {
+	return []key.Binding{replRunBinding, replHistoryBinding, replCompletionBinding, replHelpBinding, replCancelBinding, replBottomBinding}
+}
+func (replKeys) FullHelp() [][]key.Binding {
+	return [][]key.Binding{{replRunBinding, replCompletionBinding, replHistoryBinding, replScrollBinding}, {replEscBinding, replHelpBinding, replBottomBinding, replCancelBinding, replClearBinding, replQuitBinding}}
+}
+
 type replModel struct {
-	client        *client.Client
-	view          viewport.Model
-	input         textinput.Model
-	spinner       spinner.Model
-	history       []string
-	histIdx       int
-	draft         string
-	lines         []string
-	ready         bool
-	width, height int
-	busy          bool
-	requestID     uint64
-	cancel        context.CancelFunc
-	dark          bool
+	client           *client.Client
+	view             viewport.Model
+	input            textinput.Model
+	spinner          spinner.Model
+	history          []string
+	histIdx          int
+	draft            string
+	lines            []string
+	ready            bool
+	width, height    int
+	busy             bool
+	requestID        uint64
+	cancel           context.CancelFunc
+	dark             bool
+	help             help.Model
+	helpVisible      bool
+	helpOffset       int
+	completion       []string
+	completionIndex  int
+	completionPrefix string
+	completionLead   string
+	newOutput        bool
 }
 
 func newReplModel(c *client.Client, history []string) replModel {
@@ -77,7 +109,9 @@ func newReplModel(c *client.Client, history []string) replModel {
 	if len(history) > historyLimit {
 		history = history[len(history)-historyLimit:]
 	}
-	return replModel{client: c, input: ti, spinner: sp, history: history, histIdx: len(history), dark: dark, lines: []string{
+	h := help.New()
+	h.ShowAll = true
+	return replModel{help: h, client: c, input: ti, spinner: sp, history: history, histIdx: len(history), dark: dark, lines: []string{
 		ui.Gradient("◈ CYBERMANJU / cybsh", ui.CyanNeon, ui.PinkHot),
 		ui.Dim.Render("Your terminal. Your vault. Your neon."),
 		"",
@@ -102,10 +136,18 @@ func applyInputTheme(input *textinput.Model, dark bool) {
 func (m replModel) Init() tea.Cmd { return textinput.Blink }
 
 func (m *replModel) resize(width, height int) {
+	atBottom := !m.ready || m.view.AtBottom()
+	oldOffset := m.view.YOffset()
+	bottom := m.view
+	bottom.GotoBottom()
+	gap := bottom.YOffset() - oldOffset
 	m.width, m.height = max(1, width), max(1, height)
-	// Reserve a row each for the input and footer; the compositor prioritizes
-	// them (and the header) over scrollback when the terminal is very short.
-	vw, vh := m.width, max(1, m.height-3)
+	// Both the model and compositor use the same viewport dimensions. Full
+	// help replaces scrollback temporarily instead of squeezing fixed controls.
+	vw, vh := m.width, max(0, m.height-2)
+	if m.height >= 4 {
+		vh-- // header
+	}
 	if !m.ready {
 		m.view = viewport.New(viewport.WithWidth(vw), viewport.WithHeight(vh))
 		m.view.SoftWrap = true
@@ -129,7 +171,52 @@ func (m *replModel) resize(width, height int) {
 		m.view.Style = m.view.Style.Border(lipgloss.RoundedBorder()).BorderForeground(ui.Dim.GetForeground())
 	}
 	m.view.SetContent(strings.Join(m.lines, "\n"))
+	if atBottom {
+		m.view.GotoBottom()
+	} else {
+		m.view.SetYOffset(oldOffset)
+		if m.view.AtBottom() && gap > 0 {
+			// A taller/wider view can clamp a reader to the end. Retain their
+			// distance from the end rather than silently enabling auto-follow.
+			m.view.SetYOffset(max(0, m.view.YOffset()-gap))
+		}
+	}
+	m.input.Prompt = "cybsh › "
+	if m.width < 10 {
+		m.input.Prompt = "› "
+	}
+	if m.width < 3 {
+		m.input.Prompt = ""
+	}
 	m.input.SetWidth(max(1, m.width-lipgloss.Width(m.input.Prompt)))
+}
+
+// displayViewport reuses Bubbles help bindings, rendered as one wrapped column
+// so no controls vanish when Bubbles' multi-column help exceeds the screen.
+// Its independent offset lets help scroll without moving the command log.
+func (m replModel) displayViewport() viewport.Model {
+	v := m.view
+	if !m.helpVisible {
+		return v
+	}
+	h := m.help
+	h.Styles = help.DefaultStyles(m.dark)
+	h.SetWidth(0)
+	var bindings []key.Binding
+	for _, group := range (replKeys{}).FullHelp() {
+		bindings = append(bindings, group...)
+	}
+	width := max(1, m.width-v.Style.GetHorizontalFrameSize())
+	text := h.FullHelpView([][]key.Binding{bindings})
+	rows := strings.Split(text, "\n")
+	for i := range rows {
+		rows[i] = strings.TrimRight(rows[i], " ")
+	}
+	text = strings.Join(rows, "\n")
+	text += "\n\nPrefix a command with a space to keep it out of local history.\nCtrl+C/Esc stop local waiting, not remote work; check jobs before retrying."
+	v.SetContent(ansi.Hardwrap(text, width, true))
+	v.SetYOffset(m.helpOffset)
+	return v
 }
 
 func (m replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -184,8 +271,8 @@ func (m replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "ctrl+c":
+		switch {
+		case key.Matches(msg, replCancelBinding):
 			if m.busy {
 				if m.cancel != nil {
 					m.cancel()
@@ -198,29 +285,97 @@ func (m replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.input.Value() != "" {
 				m.input.Reset()
+				m.completion = nil
 				return m, nil
 			}
 			return m, tea.Quit
-		case "esc":
-			if m.cancel != nil {
-				m.cancel()
+		case key.Matches(msg, replEscBinding):
+			if m.helpVisible {
+				m.helpVisible = false
+				return m, nil
 			}
-			return m, tea.Quit
-		case "ctrl+l":
-			m.lines = nil
-			m.view.SetContent("")
+			if m.busy {
+				if m.cancel != nil {
+					m.cancel()
+					m.cancel = nil
+				}
+				m.requestID++
+				m.busy = false
+				m.emit(ui.Warn.Render("Stopped waiting; the server command may still be running."))
+				return m, nil
+			}
+			if m.input.Value() != "" {
+				m.input.Reset()
+				m.completion = nil
+				return m, nil
+			}
 			return m, nil
-		case "tab":
-			value := m.input.Value()
-			for _, suggestion := range shellSuggestions {
-				if value != "" && strings.HasPrefix(suggestion, value) && suggestion != value {
-					m.input.SetValue(suggestion)
-					m.input.CursorEnd()
-					break
+		case key.Matches(msg, replHelpBinding):
+			m.helpVisible = !m.helpVisible
+			m.helpOffset = 0
+			return m, nil
+		case key.Matches(msg, replQuitBinding):
+			if m.input.Value() == "" && !m.busy {
+				return m, tea.Quit
+			}
+			return m, nil
+		case key.Matches(msg, replBottomBinding):
+			if m.helpVisible {
+				v := m.displayViewport()
+				v.GotoBottom()
+				m.helpOffset = v.YOffset()
+				return m, nil
+			}
+			m.view.GotoBottom()
+			m.newOutput = false
+			return m, nil
+		case key.Matches(msg, replScrollBinding):
+			v := m.displayViewport()
+			v, cmd := v.Update(msg)
+			if m.helpVisible {
+				m.helpOffset = v.YOffset()
+			} else {
+				m.view = v
+				if v.AtBottom() {
+					m.newOutput = false
 				}
 			}
+			return m, cmd
+		case key.Matches(msg, replClearBinding):
+			m.lines = nil
+			m.newOutput = false
+			m.completion = nil
+			m.view.SetContent("")
 			return m, nil
-		case "enter":
+		case key.Matches(msg, replCompletionBinding):
+			value := m.input.Value()
+			prefix := strings.TrimLeft(value, " ")
+			lead := value[:len(value)-len(prefix)]
+			cycling := len(m.completion) > 0 && lead == m.completionLead && (prefix == m.completionPrefix || (m.completionIndex < len(m.completion) && prefix == m.completion[m.completionIndex]))
+			if !cycling {
+				m.completion = nil
+				m.completionLead = lead
+				m.completionPrefix = prefix
+				for _, v := range shellSuggestions {
+					if prefix != "" && strings.HasPrefix(v, prefix) && v != prefix {
+						m.completion = append(m.completion, v)
+					}
+				}
+				m.completionIndex = 0
+				if msg.String() == "shift+tab" && len(m.completion) > 0 {
+					m.completionIndex = len(m.completion) - 1
+				}
+			} else if msg.String() == "shift+tab" {
+				m.completionIndex = (m.completionIndex + len(m.completion) - 1) % len(m.completion)
+			} else {
+				m.completionIndex = (m.completionIndex + 1) % len(m.completion)
+			}
+			if len(m.completion) > 0 {
+				m.input.SetValue(m.completionLead + m.completion[m.completionIndex])
+				m.input.CursorEnd()
+			}
+			return m, nil
+		case key.Matches(msg, replRunBinding):
 			if m.busy {
 				return m, nil
 			}
@@ -230,6 +385,7 @@ func (m replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.input.Reset()
+			m.completion = nil
 			m.draft = ""
 			if !strings.HasPrefix(raw, " ") && !strings.HasPrefix(line, ":") {
 				if len(m.history) == 0 || m.history[len(m.history)-1] != line {
@@ -246,15 +402,13 @@ func (m replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case ":clear":
 				m.lines = nil
+				m.newOutput = false
+				m.completion = nil
 				m.view.SetContent("")
 				return m, nil
 			case ":help":
-				m.emit(ui.Accent.Render("CUTE CLI · cybsh") + "\n" +
-					"Tab complete · ↑/↓ history · PgUp/PgDn scroll · Ctrl+L clear\n" +
-					"Ctrl+C clears input / stops waiting · Esc exits\n" +
-					":help · :clear · :quit · help (server commands)\n" +
-					"Prefix a command with a space to keep it out of local history.\n" +
-					"Commands run on the selected dashboard, not in your Android shell.")
+				m.helpVisible = true
+				m.helpOffset = 0
 				return m, nil
 			}
 			m.emit(ui.Accent.Render("› " + safeTerminalText(line)))
@@ -268,7 +422,8 @@ func (m replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				res, err := c.ExecContext(ctx, line)
 				return shellResultMsg{id: id, response: res, err: err}
 			})
-		case "up":
+		case key.Matches(msg, replHistoryBinding) && msg.String() == "up":
+			m.completion = nil
 			if m.histIdx == len(m.history) {
 				m.draft = m.input.Value()
 			}
@@ -278,7 +433,8 @@ func (m replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input.CursorEnd()
 			}
 			return m, nil
-		case "down":
+		case key.Matches(msg, replHistoryBinding) && msg.String() == "down":
+			m.completion = nil
 			if m.histIdx < len(m.history) {
 				m.histIdx++
 				if m.histIdx == len(m.history) {
@@ -291,15 +447,13 @@ func (m replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	var cmds []tea.Cmd
 	var cmd tea.Cmd
+	oldValue := m.input.Value()
 	m.input, cmd = m.input.Update(msg)
-	cmds = append(cmds, cmd)
-	if m.ready {
-		m.view, cmd = m.view.Update(msg)
-		cmds = append(cmds, cmd)
+	if m.input.Value() != oldValue {
+		m.completion = nil
 	}
-	return m, tea.Batch(cmds...)
+	return m, cmd
 }
 
 // safeTerminalText refuses remote terminal controls (OSC clipboard/title, CSI,
@@ -317,12 +471,25 @@ func safeTerminalText(text string) string {
 }
 
 func (m *replModel) emit(text string) {
+	atBottom := m.view.AtBottom()
+	offset := m.view.YOffset()
 	m.lines = append(m.lines, strings.Split(strings.TrimRight(text, "\n"), "\n")...)
 	if len(m.lines) > 500 {
-		m.lines = m.lines[len(m.lines)-500:]
+		dropped := len(m.lines) - 500
+		width := max(1, m.width-m.view.Style.GetHorizontalFrameSize())
+		for _, line := range m.lines[:dropped] {
+			offset -= max(1, (ansi.StringWidth(line)+width-1)/width)
+		}
+		m.lines = m.lines[dropped:]
 	}
 	m.view.SetContent(strings.Join(m.lines, "\n"))
-	m.view.GotoBottom()
+	if atBottom {
+		m.view.GotoBottom()
+		m.newOutput = false
+	} else {
+		m.view.SetYOffset(max(0, offset))
+		m.newOutput = true
+	}
 }
 
 func (m replModel) View() tea.View {
@@ -331,40 +498,42 @@ func (m replModel) View() tea.View {
 	}
 	input := m.input.View()
 	if m.busy {
-		input = m.spinner.View() + " " + ui.Dim.Render("waiting for dashboard… Ctrl+C stops waiting")
+		label := "waiting for dashboard… Ctrl+C stops waiting"
+		if m.width < 48 {
+			label = "waiting… ^C stops waiting"
+		}
+		if m.width < 24 {
+			label = "wait · ^C"
+		}
+		input = m.spinner.View() + " " + ui.Dim.Render(label)
 	}
-	if m.width < lipgloss.Width(m.input.Prompt)+2 {
-		input = lipgloss.NewStyle().MaxWidth(m.width).Render("› " + m.input.Value())
-	}
+	input = ansi.Truncate(strings.ReplaceAll(strings.ReplaceAll(input, "\n", " "), "\r", " "), m.width, "")
 	if m.height == 1 {
-		view := tea.NewView(ui.Surface.Width(m.width).MaxWidth(m.width).MaxHeight(1).Render(input))
-		view.AltScreen = true
-		return view
+		v := tea.NewView(ui.Surface.Width(m.width).MaxWidth(m.width).MaxHeight(1).Render(input))
+		v.AltScreen = true
+		return v
+	}
+	footer := ui.ShellFooter(m.width, m.busy)
+	if m.newOutput {
+		footer = ui.Dim.Render("new output · Ctrl+End latest")
+	}
+	if m.helpVisible {
+		footer = ui.Dim.Render("PgUp/PgDn scroll help · Esc back")
 	}
 	parts := make([]string, 0, m.height)
 	if m.height >= 4 {
 		parts = append(parts, ui.ShellHeader(m.width, cliVersion, m.client.BaseURL))
 	}
-	reserve := 2 // input + footer
-	if m.height >= 4 {
-		reserve++
+	footer = ansi.Truncate(strings.ReplaceAll(footer, "\n", " "), m.width, "")
+	if m.view.Height() > 0 {
+		viewport := m.displayViewport()
+		parts = append(parts, viewport.View())
 	}
-	room := max(0, m.height-reserve)
-	if room > 0 {
-		lines := strings.Split(m.view.View(), "\n")
-		if len(lines) > room {
-			lines = lines[len(lines)-room:]
-		}
-		parts = append(parts, lines...)
-	}
-	parts = append(parts, input, ui.ShellFooter(m.width, m.busy))
-	if len(parts) > m.height {
-		parts = parts[len(parts)-m.height:]
-	}
+	parts = append(parts, input, footer)
 	content := strings.Join(parts, "\n")
-	view := tea.NewView(ui.Surface.Width(m.width).Height(m.height).MaxWidth(m.width).MaxHeight(m.height).Render(content))
-	view.AltScreen = true
-	return view
+	v := tea.NewView(ui.Surface.Width(m.width).Height(m.height).MaxWidth(m.width).MaxHeight(m.height).Render(content))
+	v.AltScreen = true
+	return v
 }
 
 var histFile string

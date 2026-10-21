@@ -324,14 +324,26 @@ func ShellFooter(width int, busy bool) string {
 	if width < 1 {
 		return ""
 	}
-	text := "cybsh · Tab complete · :help · Esc exit"
+	text := "Ctrl+G help · Tab complete · ↑/↓ history · Ctrl+D exit"
 	if busy {
-		text = "cybsh · working… · Ctrl+C stop waiting"
+		text = "Ctrl+C stop waiting · Esc stop · Ctrl+G help"
 	}
-	if width < 38 {
-		text = "Tab · :help · Esc exit"
+	if width < 54 {
+		text = "Ctrl+G help · Tab · Ctrl+D exit"
 		if busy {
-			text = "working… · Ctrl+C stop"
+			text = "Ctrl+C stop · Ctrl+G help"
+		}
+	}
+	if width < 30 {
+		text = "Ctrl+G help · :q exit"
+		if busy {
+			text = "Ctrl+C stop waiting"
+		}
+	}
+	if width < 20 {
+		text = "^G help · :q"
+		if busy {
+			text = "^C stop wait"
 		}
 	}
 	return fitStyled(Dim.Render(text), width)
@@ -549,7 +561,18 @@ func Downsample(s string) string {
 // the terminal width, styled per the color profile (GLAMOUR_STYLE wins when
 // set), colors downsampled via Lipgloss. Unrenderable input passes through.
 func RenderMarkdown(text string) string {
-	opts := []glamour.TermRendererOption{glamour.WithWordWrap(TermWidth())}
+	return RenderMarkdownWidth(TermWidth(), text)
+}
+
+// RenderMarkdownWidth keeps Markdown prose, long URLs and code blocks inside
+// a known reading area. Glamour's word wrapping alone does not constrain code.
+func RenderMarkdownWidth(width int, text string) string {
+	width = max(1, width)
+	// Stylesheet margins and fenced-code padding overwhelm a tiny display.
+	if width < 20 {
+		return Downsample(wrapStyled(text, width))
+	}
+	opts := []glamour.TermRendererOption{glamour.WithWordWrap(width)}
 	if os.Getenv("GLAMOUR_STYLE") != "" {
 		opts = append(opts, glamour.WithEnvironmentConfig())
 	} else {
@@ -557,13 +580,13 @@ func RenderMarkdown(text string) string {
 	}
 	r, err := glamour.NewTermRenderer(opts...)
 	if err != nil {
-		return text
+		return Downsample(wrapStyled(text, width))
 	}
 	out, err := r.Render(text)
 	if err != nil {
-		return text
+		return Downsample(wrapStyled(text, width))
 	}
-	return Downsample(strings.TrimRight(out, "\n"))
+	return Downsample(wrapStyled(strings.TrimRight(out, "\n"), width))
 }
 
 // isTTY reports whether stderr is an interactive terminal.
@@ -575,19 +598,28 @@ func isTTY() bool {
 
 type spinDoneMsg struct{ err error }
 
+// A closed completion channel broadcasts to both the model and the caller.
+// A single error channel cannot do that: the model used to consume the result,
+// leaving SpinWhile blocked forever on its second receive.
+type spinTask struct {
+	done chan struct{}
+	err  error
+}
+
 type spinModel struct {
 	spinner spinner.Model
 	msg     string
 	frame   int
-	done    chan error
+	width   int
+	task    *spinTask
 }
 
-func newSpinModel(msg string, done chan error) spinModel {
+func newSpinModel(msg string, task *spinTask) spinModel {
 	s := spinner.New(
 		spinner.WithSpinner(spinner.Dot),
 		spinner.WithStyle(Accent),
 	)
-	return spinModel{spinner: s, msg: msg, done: done}
+	return spinModel{spinner: s, msg: msg, task: task}
 }
 
 // pinkFrames pulses the message dot between pink and red shapes.
@@ -596,12 +628,18 @@ var pinkFrames = []string{"◈", "◉", "⬢", "⬣"}
 func (m spinModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
-		func() tea.Msg { return spinDoneMsg{<-m.done} },
+		func() tea.Msg {
+			<-m.task.done
+			return spinDoneMsg{m.task.err}
+		},
 	)
 }
 
 func (m spinModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = max(1, msg.Width)
+		return m, nil
 	case spinDoneMsg:
 		return m, tea.Quit
 	case spinner.TickMsg:
@@ -615,26 +653,34 @@ func (m spinModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m spinModel) View() tea.View {
 	dot := Gradient(pinkFrames[m.frame%len(pinkFrames)], PinkHot, RedHot)
-	return tea.NewView(fmt.Sprintf("%s %s  %s", m.spinner.View(), dot, m.msg))
+	text := fmt.Sprintf("%s %s  %s", m.spinner.View(), dot, cleanTableCell(m.msg))
+	if m.width > 0 {
+		text = truncateCell(text, m.width)
+	}
+	return tea.NewView(text)
 }
 
 // SpinWhile runs fn under a hot-pink Bubble Tea spinner (plain fallback
 // when stderr is not a TTY, e.g. pipes and CI logs).
 func SpinWhile(msg string, fn func() error) error {
-	done := make(chan error, 1)
-	go func() { done <- fn() }()
+	task := &spinTask{done: make(chan struct{})}
+	go func() {
+		task.err = fn()
+		close(task.done)
+	}()
 	if !isTTY() {
-		err := <-done
-		return err
+		<-task.done
+		return task.err
 	}
-	p := tea.NewProgram(newSpinModel(msg, done),
+	p := tea.NewProgram(newSpinModel(msg, task),
 		tea.WithOutput(os.Stderr),
 		tea.WithColorProfile(ColorProfile()),
 	)
-	if _, err := p.Run(); err != nil {
-		return <-done
-	}
-	return <-done
+	// Rendering failure does not cancel the operation. Wait for its actual
+	// result whether the renderer consumed the completion message or not.
+	_, _ = p.Run()
+	<-task.done
+	return task.err
 }
 
 // ── Progress download ─────────────────────────────────────────────
@@ -643,8 +689,8 @@ type progressReader struct {
 	r     io.Reader
 	n     int64
 	total int64
-	bar   progress.Model
 	last  time.Time
+	out   io.Writer
 }
 
 func (p *progressReader) Read(b []byte) (int, error) {
@@ -652,9 +698,38 @@ func (p *progressReader) Read(b []byte) (int, error) {
 	p.n += int64(n)
 	if p.total > 0 && time.Since(p.last) > 80*time.Millisecond {
 		p.last = time.Now()
-		fmt.Fprintf(os.Stderr, "\r%s", Downsample(p.bar.ViewAs(float64(p.n)/float64(p.total))))
+		fmt.Fprintf(p.out, "\r%s", Downsample(renderDownloadProgress(stderrWidth(), p.n, p.total, "")))
 	}
 	return n, err
+}
+
+// Progress belongs to stderr, whose size may differ from piped stdout.
+func stderrWidth() int {
+	if w, _, err := term.GetSize(int(os.Stderr.Fd())); err == nil && w > 0 {
+		return w
+	}
+	return 80
+}
+
+func renderDownloadProgress(width int, n, total int64, status string) string {
+	width = max(1, width)
+	percent := 0.0
+	if total > 0 {
+		percent = min(1.0, max(0.0, float64(n)/float64(total)))
+	}
+	label := fmt.Sprintf("%d%%", int(percent*100))
+	if status != "" {
+		label = status + " " + label
+	}
+	if width < 16 {
+		return truncateCell(label, width)
+	}
+	bar := progress.New(
+		progress.WithColors(lipgloss.Color(adaptiveHex(PinkHot)), lipgloss.Color(adaptiveHex(RedHot))),
+		progress.WithWidth(max(1, min(40, width-lipgloss.Width(label)-1))),
+		progress.WithoutPercentage(),
+	)
+	return bar.ViewAs(percent) + " " + label
 }
 
 // Download fetches url to dest with a pink → red progress bar (plain copy
@@ -674,16 +749,21 @@ func Download(url, dest string) (int64, error) {
 	}
 	defer f.Close()
 	total := res.ContentLength
-	if !isTTY() || total <= 0 {
-		n, err := io.Copy(f, res.Body)
-		return n, err
+	interactive := isTTY() && total > 0
+	var reader io.Reader = res.Body
+	if interactive {
+		reader = &progressReader{r: res.Body, total: total, last: time.Now(), out: os.Stderr}
 	}
-	bar := progress.New(
-		progress.WithColors(lipgloss.Color(PinkHot), lipgloss.Color(RedHot)),
-		progress.WithWidth(40),
-	)
-	pr := &progressReader{r: res.Body, total: total, bar: bar, last: time.Now()}
-	n, err := io.Copy(f, pr)
-	fmt.Fprintf(os.Stderr, "\r%s\n", Downsample(bar.ViewAs(1)))
+	n, err := io.Copy(f, reader)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if interactive {
+		status := "downloaded"
+		if err != nil {
+			status = "failed"
+		}
+		fmt.Fprintf(os.Stderr, "\r%s\n", Downsample(renderDownloadProgress(stderrWidth(), n, total, status)))
+	}
 	return n, err
 }

@@ -83,7 +83,7 @@ func CharmTheme() huh.Theme {
 
 // NewForm keeps every form on the same color/no-color profile.
 func NewForm(groups ...*huh.Group) *huh.Form {
-	return huh.NewForm(groups...).WithTheme(CharmTheme()).WithShowHelp(false).
+	return huh.NewForm(groups...).WithTheme(CharmTheme()).WithShowHelp(true).
 		WithProgramOptions(tea.WithColorProfile(ColorProfile()))
 }
 
