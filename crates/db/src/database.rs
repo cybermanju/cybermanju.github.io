@@ -2116,7 +2116,13 @@ mod process_death_tests {
             );
             let deadline = Instant::now() + Duration::from_secs(15);
             while !ready.exists() && Instant::now() < deadline {
-                assert!(fixture.child.as_mut().unwrap().try_wait().unwrap().is_none());
+                assert!(fixture
+                    .child
+                    .as_mut()
+                    .unwrap()
+                    .try_wait()
+                    .unwrap()
+                    .is_none());
                 std::thread::sleep(Duration::from_millis(20));
             }
             assert!(ready.exists(), "child must commit before simulated LMK");

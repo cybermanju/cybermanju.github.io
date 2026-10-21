@@ -21,7 +21,7 @@ describe('Android process-death recovery (source contracts, not device coverage)
   })
 
   it('classifies typed corruption before renaming and never removes a conflicting lock', () => {
-    expect(startup).toContain('Some(redb::DatabaseError::Storage(redb::StorageError::Corrupted(_)))')
+    expect(startup.replace(/\s+/g, '')).toContain('Some(redb::DatabaseError::Storage(redb::StorageError::Corrupted(_)))')
     expect(startup.indexOf('if !is_database_corruption(&first)')).toBeLessThan(startup.indexOf('std::fs::rename(path, &backup)'))
     expect(startup).toContain('vault preserved (not confirmed corruption)')
     const production = startup.slice(0, startup.indexOf('#[cfg(test)]'))

@@ -10,7 +10,9 @@ use std::path::Path;
 fn is_database_corruption(error: &anyhow::Error) -> bool {
     matches!(
         error.downcast_ref::<redb::DatabaseError>(),
-        Some(redb::DatabaseError::Storage(redb::StorageError::Corrupted(_)))
+        Some(redb::DatabaseError::Storage(redb::StorageError::Corrupted(
+            _
+        )))
     )
 }
 
@@ -63,10 +65,8 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let dir = std::env::temp_dir().join(format!(
-                "cybermanju-startup-{}",
-                uuid::Uuid::new_v4()
-            ));
+            let dir =
+                std::env::temp_dir().join(format!("cybermanju-startup-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir(&dir).unwrap();
             Self(dir)
         }
@@ -90,7 +90,9 @@ mod tests {
         let corruption = anyhow::Error::new(redb::DatabaseError::Storage(
             redb::StorageError::Corrupted("torn header".into()),
         ));
-        assert!(is_database_corruption(&corruption.context("opening existing vault")));
+        assert!(is_database_corruption(
+            &corruption.context("opening existing vault")
+        ));
         for error in [
             anyhow::anyhow!("conflict: database is already open"),
             anyhow::anyhow!("DB corrupted: text is not evidence"),
@@ -111,7 +113,9 @@ mod tests {
         let database = open_database(&path).unwrap();
         database.kv_set("resume:sentinel", "keep my data").unwrap();
         let before = std::fs::read(&path).unwrap();
-        let error = open_database(&path).err().expect("live opener must conflict");
+        let error = open_database(&path)
+            .err()
+            .expect("live opener must conflict");
         assert!(format!("{error:#}").contains("conflict:"));
         assert_eq!(std::fs::read(&path).unwrap(), before);
         assert_eq!(std::fs::read_dir(&fixture.0).unwrap().count(), 2);
