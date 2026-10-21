@@ -78,6 +78,9 @@
     <OmniSearchPanel ref="searchRef" home class="mla-unified-search" data-home-item="search" tabindex="0" :style="homeLayout.style('search')" />
     <HomeCommandBar v-if="!query.trim()" data-home-item="commands" tabindex="0" :style="homeLayout.style('commands')" />
 
+    <div v-if="!query.trim()" class="mla-workspace-mode"><button type="button" class="mla-mini-btn" :aria-pressed="workspaceMode" @click="toggleWorkspaceMode">{{ workspaceMode ? 'Classic home layout' : 'Personal workspaces + widgets' }}</button></div>
+    <HomeWorkspaceStudio v-if="workspaceMode && !query.trim()" ref="workspaceStudio" :apps="workspaceApps" :initial-ids="orderedApps.map(app => app.panel)" :blocked="hasOpenWindows || launcher.drawerOpen || launcher.messagesOpen || !!customHome || homeLayout.editing.value" @open="open($event as PanelType)" @customize="customizeWorkspaceApp" />
+    <template v-if="!workspaceMode">
     <!-- Flat AMOLED home deliberately has no tiles, widget cards, wallpaper,
       or duplicate dock: just monochrome app glyphs and names on black. -->
     <div
@@ -205,6 +208,7 @@
       </button>
     </div>
 
+    </template>
     <button data-home-item="drawer" data-home-fixed :style="homeLayout.style('drawer')" class="mla-allapps" type="button" @click="openDrawer" aria-label="Open all apps">
       <span class="mla-allapps-pill" aria-hidden="true" />
       <strong>All apps</strong>
@@ -314,6 +318,7 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
+import HomeWorkspaceStudio from '@/components/HomeWorkspaceStudio.vue'
 import OmniSearchPanel from '@/components/OmniSearchPanel.vue'
 import AppDrawer from '@/components/AppDrawer.vue'
 import MessagesHub from '@/components/MessagesHub.vue'
@@ -349,12 +354,17 @@ const msgHub = useMessages()
 // computed would re-run it on every recompute.
 const sys = useNotifications()
 const sysUnread = computed(() => sys.unreadCount.value)
+const workspaceStudio = ref<{ removeApp: (id: string) => void; reorderApp: (id: string, direction: -1 | 1) => void; hideNative: () => Promise<boolean> } | null>(null)
+const workspaceMode = ref((() => { try { return localStorage.getItem('cybermanju.home.workspaceMode.v1') !== 'false' } catch { return true } })())
+watch(workspaceMode, value => { try { localStorage.setItem('cybermanju.home.workspaceMode.v1', String(value)) } catch { /* session-only mode */ } })
+async function toggleWorkspaceMode() { if (workspaceStudio.value && !await workspaceStudio.value.hideNative()) return; if (homeLayout.editing.value) homeLayout.toggle(); workspaceMode.value = !workspaceMode.value }
 const query = computed({ get: () => store.searchQuery, set: (value: string) => { store.searchQuery = value } })
 const dateStr = ref('')
 const greeting = ref('')
 const rootRef = ref<HTMLElement | null>(null)
 const homeLayout = useHomeLayout(rootRef)
 function toggleHomeLayout() {
+  workspaceMode.value = false
   onHomePressEnd()
   longPressedHome = false
   contextMenuFired = false
@@ -411,6 +421,7 @@ let drawerStartX: number | null = null
 let drawerStartTime = 0
 let suppressHomeClickUntil = 0
 function onLauncherClickCapture(event: MouseEvent) {
+  if ((event.target as HTMLElement | null)?.closest('.home-studio')) return
   homeLayout.onClickCapture(event)
   if (homeLayout.editing.value) return
   if (Date.now() < suppressHomeClickUntil) {
@@ -581,6 +592,9 @@ const orderedApps = computed<LauncherApp[]>(() => {
   })
   return rows.map((r) => r.app)
 })
+
+const workspaceApps = computed(() => apps.value.map(app => ({ id: app.panel, label: homeName(app), icon: app.icon, image: homeTile(app).kind === 'image' ? homeTile(app).src : undefined })))
+function customizeWorkspaceApp(id: string) { const app = apps.value.find(app => app.panel === id); if (app) openHomeCustom(app) }
 
 /** Display name honoring the rename override. */
 function homeName(app: LauncherApp): string {
@@ -795,6 +809,7 @@ function moveHomeCustom(dir: -1 | 1) {
   if (!app) return
   const keys = orderedApps.value.map(homeKey)
   moveHomeOrder(keys, homeKey(app), dir).forEach((key, order) => launcher.patch(key, { order }))
+  workspaceStudio.value?.reorderApp(app.panel, dir)
   homeMsg.value = dir < 0 ? 'Moved earlier.' : 'Moved later.'
 }
 
@@ -808,7 +823,8 @@ function hideHomeCustom() {
   const app = customHome.value
   if (!app) return
   launcher.hide(homeKey(app), true)
-  store.notifySuccess(`${homeName(app)} hidden — Reset home brings it back`)
+  workspaceStudio.value?.removeApp(app.panel)
+  store.notifySuccess(`${homeName(app)} hidden — use + to add it again`)
   customHome.value = null
 }
 
@@ -833,6 +849,7 @@ function resetAllHome() {
 </script>
 
 <style scoped>
+.mla-workspace-mode { display: flex; justify-content: flex-end; }
 .mla {
   --mla-nav-height: 66px;
   --home-drag-safe-bottom: env(safe-area-inset-bottom, 0px);
