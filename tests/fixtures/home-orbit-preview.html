@@ -8,23 +8,23 @@ Contracts: browser-only; no Android host or default HOME behavior is simulated. 
 <body style="margin:0"><div id="fixture"></div>
 <script type="module">
 const params = new URLSearchParams(location.search)
-const width = Math.max(320, Math.min(768, Number(params.get('width')) || 390))
+const width = Math.max(320, Math.min(1920, Number(params.get('width')) || 390))
 const height = Math.max(360, Math.min(1000, Number(params.get('height')) || 760))
 if (!params.has('frame')) {
   document.body.style.cssText = 'margin:0;background:#888;font:14px sans-serif'
   const note = document.createElement('p'); note.textContent = 'LOCAL UI TEST · browser storage only · no Android host. Width/height/theme via URL.'; note.style.padding = '10px'; document.body.prepend(note)
-  const frame = document.createElement('iframe'); frame.title = 'Real Home viewport'; frame.width = width; frame.height = height; frame.style.cssText = 'display:block;border:0;margin:auto;max-width:100%'
+  const frame = document.createElement('iframe'); frame.title = 'Real Home viewport'; frame.width = width; frame.height = height; frame.style.cssText = 'display:block;border:0;margin:auto'
   const url = new URL(location.href); url.searchParams.set('frame','1'); frame.src = url.href; document.getElementById('fixture').append(frame)
 } else {
-  const [{ createApp, h }, { createPinia }, { default: MobileLauncher }, { useTheme }, { useWindowManager }, { installUiLayoutTargets }, { installUiLayout }] = await Promise.all([
-    import('vue'), import('pinia'), import('/src/components/MobileLauncher.vue'), import('/src/composables/useTheme.ts'), import('/src/composables/useWindowManager.ts'), import('/src/ui/layout.ts'), import('/src/utils/uiLayout.ts'),
+  const [{ createApp, h }, { createPinia }, { default: HomeSurface }, { useTheme }, { useWindowManager }, { installUiLayoutTargets }, { installUiLayout }] = await Promise.all([
+    import('vue'), import('pinia'), params.has('studio') ? import('/src/components/HomeWorkspaceStudio.vue') : params.has('shell') ? import('/src/components/DesktopShell.vue') : import('/src/components/MobileLauncher.vue'), import('/src/composables/useTheme.ts'), import('/src/composables/useWindowManager.ts'), import('/src/ui/layout.ts'), import('/src/utils/uiLayout.ts'),
   ])
   await import('/src/assets/ui.css'); await import('/src/assets/ui-layout.css')
   const theme = useTheme(); theme.setTheme(params.get('theme') || 'os-light'); if (params.has('reduced')) theme.setMotion('reduced')
   document.body.style.cssText = 'margin:0;color:var(--ui-text);background:var(--ui-bg);font-family:var(--ui-font)'
   const app = createApp({ setup() {
     const wm = useWindowManager()
-    return () => h('div', { style: 'position:relative;width:100vw;height:100dvh;overflow:hidden' }, [h(MobileLauncher), h('output', { id: 'open-panels', hidden: true }, wm.windows.value.map(w => w.panelType).join(','))])
+    return () => h('div', { style: 'position:relative;display:flex;flex-direction:column;width:100vw;height:100dvh;overflow:hidden' }, [h(HomeSurface, params.has('studio') ? { apps: [{ id: 'files', label: 'Files', icon: 'solar:folder-bold' }, { id: 'settings', label: 'Settings', icon: 'solar:settings-bold' }, { id: 'agent', label: 'Agents', icon: 'solar:bot-bold' }], initialIds: ['files', 'settings', 'agent'] } : {}), h('output', { id: 'open-panels', hidden: true }, wm.windows.value.map(w => w.panelType).join(','))])
   } })
   app.use(createPinia()); app.use(installUiLayoutTargets); app.mount('#fixture')
   const stop = installUiLayout(document.body)

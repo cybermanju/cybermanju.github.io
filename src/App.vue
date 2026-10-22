@@ -153,11 +153,7 @@ touchConfig.onAction((action: TouchAction) => {
     // strip (left/right along the columns, up/down between lines). Outside
     // strip mode the two-finger swipes fall back to focus movement so they
     // stay useful in floating/tiled layouts.
-    overview_toggle: () => {
-      wm.setLayoutMode(wm.shellLayoutMode.value === 'overview'
-        ? (wm.shellAutoTile.value ? 'tiled' : 'floating')
-        : 'overview')
-    },
+    overview_toggle: () => { wm.toggleOverview() },
     strip_left: () => {
       if (wm.shellLayoutMode.value === 'strip') wm.stripLeft()
       else wm.focusPrev()
@@ -297,9 +293,7 @@ shortcuts.on('strip_left', () => { wm.stripLeft() })
 shortcuts.on('strip_right', () => { wm.stripRight() })
 shortcuts.on('strip_up', () => { wm.stripLineMove(-1) })
 shortcuts.on('strip_down', () => { wm.stripLineMove(1) })
-shortcuts.on('overview_toggle', () => {
-  wm.setLayoutMode(wm.shellLayoutMode.value === 'overview' ? 'floating' : 'overview')
-})
+shortcuts.on('overview_toggle', () => { wm.toggleOverview() })
 shortcuts.on('layout_floating', () => { wm.setLayoutMode('floating') })
 shortcuts.on('layout_tiled', () => { wm.setLayoutMode('tiled') })
 shortcuts.on('layout_strip', () => { wm.setLayoutMode('strip') })

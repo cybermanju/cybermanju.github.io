@@ -132,4 +132,50 @@ describe('useFocusTrap lifecycle', () => {
     expect(preventDefault).not.toHaveBeenCalled()
     expect(first.focus).not.toHaveBeenCalled()
   })
+
+  it('filters CSS-hidden ancestors, disabled matches, and negative tabindex controls', async () => {
+    vi.useFakeTimers()
+    installDocument(element())
+    const hidden = { ...element(), parentElement: element() }
+    const negative = { ...element(), tabIndex: -2 }
+    const disabled = { ...element(), matches: () => true }
+    const button = element()
+    vi.stubGlobal('getComputedStyle', (node: unknown) => ({
+      display: node === hidden.parentElement ? 'none' : 'block', visibility: 'visible', zIndex: 'auto',
+    }))
+    activate({ ...element(), querySelectorAll: () => [hidden, negative, disabled, button] })
+    await nextTick()
+    vi.advanceTimersByTime(50)
+    expect(button.focus).toHaveBeenCalledOnce()
+    for (const item of [hidden, negative, disabled]) expect(item.focus).not.toHaveBeenCalled()
+  })
+
+  it('activates when mounted already open and contains Tab even with no tab stops', () => {
+    vi.useFakeTimers()
+    const prior = element()
+    const { listeners } = installDocument(prior)
+    const container = element()
+    const scope = effectScope()
+    scopes.push(scope)
+    scope.run(() => useFocusTrap(shallowRef(container) as never, ref(true)))
+    vi.advanceTimersByTime(50)
+    expect(container.focus).toHaveBeenCalledOnce()
+    const preventDefault = vi.fn()
+    const handler = listeners.get('keydown') as (event: Record<string, unknown>) => void
+    handler({ key: 'Tab', shiftKey: false, preventDefault })
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(container.focus).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not restore a disconnected opener on close or unmount', async () => {
+    vi.useFakeTimers()
+    const prior = { ...element(), isConnected: false }
+    installDocument(prior)
+    const { active, scope } = activate(element())
+    await nextTick()
+    active.value = false
+    await nextTick()
+    scope.stop()
+    expect(prior.focus).not.toHaveBeenCalled()
+  })
 })

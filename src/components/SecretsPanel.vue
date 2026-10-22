@@ -157,9 +157,10 @@
         </div>
         <UiInput v-model="form.url" label="URL" placeholder="https://github.com" />
         <div class="sp-form-field sp-value-field">
-          <span class="sp-field-label">Value</span>
+          <label class="sp-field-label" :for="valueInputId">Value</label>
           <div class="sp-value-row">
             <input
+              :id="valueInputId"
               v-model="form.value"
               class="sp-value-input"
               :type="formShowValue ? 'text' : 'password'"
@@ -240,7 +241,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, useId } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useNotifications } from '@/composables/useNotifications'
 import AppIcon from '@/components/AppIcon.vue'
@@ -255,6 +256,7 @@ import type { SecretKind, SecretMeta } from '@/types'
 
 const store = useAppStore()
 const { notify } = useNotifications()
+const valueInputId = `secret-value-${useId()}`
 
 const secrets = computed(() => store.secrets)
 const query = ref('')

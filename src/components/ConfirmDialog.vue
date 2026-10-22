@@ -29,7 +29,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref, toRef, watch } from 'vue'
+import { computed, ref, toRef } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { useFocusTrap } from '@/composables/useFocusTrap'
 import { useTheme } from '@/composables/useTheme'
@@ -61,25 +61,11 @@ const dialogRef = ref<HTMLElement | null>(null)
 const cancelBtnRef = ref<HTMLElement | null>(null)
 const confirmBtnRef = ref<HTMLElement | null>(null)
 
-useFocusTrap(dialogRef, toRef(props, 'visible'))
+useFocusTrap(dialogRef, toRef(props, 'visible'), { onEscape: handleCancel })
 
 function handleConfirm() { emit('confirm'); emit('update:visible', false) }
 function handleCancel() { emit('cancel'); emit('update:visible', false) }
 
-/** Escape cancels like the Cancel button (document-level: focus can sit
- *  anywhere in the dialog, and focusFirst only lands after its 50ms tick). */
-function handleKeydown(e: KeyboardEvent) {
-  if (e.key !== 'Escape' || e.defaultPrevented) return
-  e.preventDefault()
-  handleCancel()
-}
-
-watch(() => props.visible, (v) => {
-  if (v) document.addEventListener('keydown', handleKeydown)
-  else document.removeEventListener('keydown', handleKeydown)
-}, { immediate: true })
-
-onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
 </script>
 
 <style scoped>

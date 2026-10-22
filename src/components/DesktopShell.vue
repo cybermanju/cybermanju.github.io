@@ -31,62 +31,28 @@
       <!-- Mobile home: iOS-style launcher grid under the fullscreen sheets. -->
       <MobileLauncher class="mobile-only-launcher" />
 
-      <!-- Niri-style infinite strip: columns append right (or down in
-           vertical mode) and the viewport scrolls — existing windows keep
-           their size. Native scroll + Alt+arrows both drive stripOffset. -->
+      <!-- One stable keyed host: changing layout or visibility must never
+           recreate a terminal, editor, or other stateful app panel. Hidden
+           rows stay mounted but do not paint or accept focus/input. -->
       <div
-        v-if="isStrip"
         ref="stripScrollRef"
-        class="desktop-strip ui-scroll"
-        :class="{ vertical: isVerticalStrip }"
+        v-show="!isOverview"
+        :class="{ 'desktop-strip ui-scroll': isStrip, 'desktop-workspace': !isStrip, vertical: isStrip && isVerticalStrip, 'desktop-home-editing': desktopHomeLayout.editing.value }"
         @wheel="onStripWheel"
+        @pointerdown.capture="desktopHomeLayout.onPointerDown"
+        @click.capture="desktopHomeLayout.onClickCapture"
+        @keydown.capture="desktopHomeLayout.onKeydown"
       >
-        <!-- Scroll extent: guarantees the viewport can reach every column
-             even while windows animate in/out (absolute tiles alone are a
-             fragile scroll driver across browsers). -->
-        <div class="strip-sizer" :style="stripContentStyle" aria-hidden="true" />
-        <div class="strip-position" aria-hidden="true">
+        <div v-if="isStrip" class="strip-sizer" :style="stripContentStyle" aria-hidden="true" />
+        <div v-if="isStrip" class="strip-position" aria-hidden="true">
           COL {{ wm.stripOffset.value + 1 }}/{{ wm.stripWindows.value.length || 1 }} · LINE {{ wm.stripLine.value }}
         </div>
-        <TransitionGroup name="win">
-          <AppWindow
-            v-for="win in visibleWindows"
-            :key="win.id"
-            :win="win"
-            :focused="win.id === focusedWindowId"
-            @close="wm.close"
-            @minimize="wm.minimize"
-            @focus="wm.focus"
-            @move="wm.updatePosition"
-            @resize="wm.updateSize"
-          />
-        </TransitionGroup>
-      </div>
-
-      <!-- Overview: zoomed-out grid across every open window -->
-      <div v-else-if="isOverview" class="desktop-overview" role="dialog" aria-label="Window overview">
-        <button
-          v-for="win in overviewWindows"
-          :key="win.id"
-          class="overview-card"
-          :class="{ minimized: win.minimized }"
-          type="button"
-          @click="pickFromOverview(win.id)"
-        >
-          <span class="overview-card-icon"><AppIcon :name="win.icon" :size="18" /></span>
-          <span class="overview-card-title">{{ win.title }}</span>
-          <span class="overview-card-meta">COL {{ (win.column ?? 0) + 1 }} · LINE {{ win.line ?? 0 }}{{ win.minimized ? ' · MINIMIZED' : '' }}</span>
-        </button>
-        <div v-if="overviewWindows.length === 0" class="overview-empty">No windows open.</div>
-      </div>
-
-      <div v-else ref="homeWorkspaceRef" class="desktop-workspace" :class="{ 'desktop-home-editing': desktopHomeLayout.editing.value }" @pointerdown.capture="desktopHomeLayout.onPointerDown" @click.capture="desktopHomeLayout.onClickCapture" @keydown.capture="desktopHomeLayout.onKeydown">
-        <div v-if="!isMobileViewport" class="desktop-home-controls" role="group" aria-label="Desktop home layout">
+        <div v-if="!isStrip && !isMobileViewport" class="desktop-home-controls" role="group" aria-label="Desktop home layout">
           <button v-if="desktopHomeLayout.editing.value" type="button" @click.stop="desktopHomeLayout.toggle">Done</button>
           <button v-if="desktopHomeLayout.editing.value && desktopHomeLayout.customized.value" type="button" @click.stop="desktopHomeLayout.reset">Reset icons</button>
           <span v-if="desktopHomeLayout.editing.value">Drag to place; icons stay where you release them. Arrow keys move. Esc cancels.</span>
         </div>
-        <div class="desktop-icons">
+        <div v-if="!isStrip" class="desktop-icons">
           <button
             v-for="shortcut in shortcuts"
             :key="shortcut.panel"
@@ -111,9 +77,13 @@
 
         <TransitionGroup name="win">
           <AppWindow
-            v-for="win in visibleWindows"
+            v-for="win in wm.windows.value"
+            v-show="visibleWindowIds.has(win.id)"
             :key="win.id"
             :win="win"
+            :data-shell-window-id="win.id"
+            :inert="!visibleWindowIds.has(win.id) || isOverview"
+            :aria-hidden="!visibleWindowIds.has(win.id) || isOverview ? true : undefined"
             :focused="win.id === focusedWindowId"
             @close="wm.close"
             @minimize="wm.minimize"
@@ -123,6 +93,30 @@
           />
         </TransitionGroup>
       </div>
+
+      <!-- Overview is a separate lightweight surface, not another panel tree. -->
+      <section v-if="isOverview" ref="overviewRef" class="desktop-overview" role="region" aria-label="Window overview" tabindex="-1" @keydown.esc.stop.prevent="leaveOverview">
+        <header class="overview-toolbar">
+          <div><h2>Window overview</h2><p>{{ overviewWindows.length }} open · Select a window to resume</p></div>
+          <button type="button" @click="leaveOverview">Done <kbd>Esc</kbd></button>
+        </header>
+        <div class="overview-grid">
+          <button
+            v-for="win in overviewWindows"
+            :key="win.id"
+            class="overview-card"
+            :class="{ minimized: win.minimized }"
+            type="button"
+            :aria-label="`${win.minimized ? 'Restore' : 'Focus'} ${win.title}, line ${win.line ?? 0}, column ${(win.column ?? 0) + 1}`"
+            @click.stop="pickFromOverview(win.id)"
+          >
+            <span class="overview-card-icon"><AppIcon :name="win.icon" :size="24" /></span>
+            <span class="overview-card-title">{{ win.title }}</span>
+            <span class="overview-card-meta">COL {{ (win.column ?? 0) + 1 }} · LINE {{ win.line ?? 0 }}{{ win.minimized ? ' · MINIMIZED' : '' }}</span>
+          </button>
+          <div v-if="overviewWindows.length === 0" class="overview-empty">No windows open. Open an app from the dock or desktop.</div>
+        </div>
+      </section>
 
       <!-- Floating dock: absolute overlay at the bottom of the desktop
            area, so the wallpaper (and windows in centered/autohide modes)
@@ -188,7 +182,8 @@ import ShellShortcutDock from './ShellShortcutDock.vue'
 import type { PanelType } from '@/types'
 import { useHomeLayout } from '@/composables/useHomeLayout'
 
-const homeWorkspaceRef = ref<HTMLElement | null>(null)
+const stripScrollRef = ref<HTMLElement | null>(null)
+const homeWorkspaceRef = stripScrollRef
 const desktopHomeLayout = useHomeLayout(homeWorkspaceRef, 'cybermanju.desktop.home.layout.v1')
 let desktopHomePressTimer: ReturnType<typeof setTimeout> | null = null
 function enterDesktopHomeEditing() {
@@ -238,7 +233,7 @@ const isFlatAmoled = computed(() => theme.themeId.value === 'flat-amoled')
 onMounted(() => { void customWallpaper.load() })
 onUnmounted(onDesktopHomePressEnd)
 
-const stripScrollRef = ref<HTMLElement | null>(null)
+const overviewRef = ref<HTMLElement | null>(null)
 
 const shortcuts: { panel: PanelType; label: string; icon: string }[] = [
   { panel: 'files', label: 'Files', icon: 'solar:folder-bold' },
@@ -256,8 +251,9 @@ function openShortcut(panel: PanelType) {
 }
 
 const visibleWindows = computed(() =>
-  wm.windows.value.filter(w => !w.minimized)
+  isStrip.value ? wm.stripWindows.value : wm.windows.value.filter(w => !w.minimized)
 )
+const visibleWindowIds = computed(() => new Set(visibleWindows.value.map(w => w.id)))
 
 /**
  * Overview ("three fingers up") zooms out to EVERY screen — open windows
@@ -312,20 +308,54 @@ function scrollStripIntoView() {
   const list = wm.stripWindows.value
   const target = list[wm.stripOffset.value]
   if (!target) return
+  const behavior: ScrollBehavior = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'
   if (vertical) {
-    host.scrollTo({ top: Math.max(0, target.y - 12), behavior: 'smooth' })
+    host.scrollTo({ left: 0, top: Math.max(0, target.y - 12), behavior })
   } else {
-    host.scrollTo({ left: Math.max(0, target.x - 12), behavior: 'smooth' })
+    host.scrollTo({ top: 0, left: Math.max(0, target.x - 12), behavior })
   }
 }
 
+let stripOverviewLayoutKey: string | null = null
+function stripLayoutKey(
+  direction = wm.shellStripDirection.value,
+  line = wm.stripLine.value,
+  ids = wm.stripWindows.value.map(w => w.id).join(','),
+) {
+  const host = stripScrollRef.value
+  return JSON.stringify([direction, line, ids, host?.clientWidth || window.innerWidth,
+    host?.clientHeight || Math.max(400, window.innerHeight - 160), dockInset.value])
+}
 watch(
-  () => [wm.shellLayoutMode.value, wm.shellStripDirection.value, wm.stripLine.value, wm.windows.value.length],
-  async () => {
-    if (wm.shellLayoutMode.value === 'strip') {
+  () => [wm.shellLayoutMode.value, wm.shellStripDirection.value, wm.stripLine.value,
+    wm.stripWindows.value.map(w => w.id).join(','), wm.overviewExitRevision.value] as const,
+  async ([mode, , , , exitRevision], previous, onCleanup) => {
+    let stale = false
+    onCleanup(() => { stale = true })
+    if (mode === 'overview') {
+      if (previous?.[0] === 'strip') stripOverviewLayoutKey = stripLayoutKey(previous[1], previous[2], previous[3])
+      return
+    }
+    const returning = previous && exitRevision !== previous[4] && (previous[0] === 'overview' || previous[0] === 'strip')
+    const savedKey = previous?.[0] === 'strip'
+      ? stripLayoutKey(previous[1], previous[2], previous[3]) : stripOverviewLayoutKey
+    stripOverviewLayoutKey = null
+    if (mode === 'strip') {
       await nextTick()
-      layoutStripColumns()
+      if (stale || !isStrip.value) return
+      // A view-only round trip must not overwrite user geometry. Reflow is
+      // still required for explicit entry, changed rows/apps/axis or a real
+      // viewport/dock change while the strip was hidden in overview.
+      if (!returning || savedKey !== stripLayoutKey()) layoutStripColumns()
       scrollStripIntoView()
+    } else {
+      // The same element survives strip → floating/tiled. Clear the strip's
+      // native scroll so it cannot displace the newly positioned windows.
+      await nextTick()
+      if (!stale && stripScrollRef.value) {
+        stripScrollRef.value.scrollLeft = 0
+        stripScrollRef.value.scrollTop = 0
+      }
     }
   },
   { immediate: true },
@@ -388,12 +418,31 @@ function onStripWheel(e: WheelEvent) {
 function pickFromOverview(id: string) {
   const win = wm.windows.value.find(w => w.id === id)
   if (!win) return
+  leaveOverview()
   // Minimized windows restore straight out of the zoomed-out grid.
   if (win.minimized) wm.restore(id)
   else wm.focus(id)
-  wm.setLayoutMode(wm.shellAutoTile.value ? 'tiled' : 'floating')
+  void nextTick(() => focusWindowSurface(id))
 }
-
+let overviewReturnFocus: HTMLElement | null = null
+function focusWindowSurface(id: string) {
+  const el = [...(stripScrollRef.value?.querySelectorAll<HTMLElement>('[data-shell-window-id]') ?? [])]
+    .find(element => element.dataset.shellWindowId === id && !element.inert)
+  if (el) { el.tabIndex = -1; el.focus({ preventScroll: true }) }
+}
+function leaveOverview() {
+  wm.exitOverview()
+  void nextTick(() => {
+    if (overviewReturnFocus?.isConnected && !overviewReturnFocus.closest('[inert]')) overviewReturnFocus.focus({ preventScroll: true })
+    else if (wm.activeWindow.value) focusWindowSurface(wm.activeWindow.value.id)
+  })
+}
+watch(isOverview, async (open, wasOpen) => {
+  if (!open || wasOpen) return
+  overviewReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  await nextTick()
+  overviewRef.value?.focus({ preventScroll: true })
+})
 /** Viewport resizes re-run the active auto-layout so tiles stay dense. */
 function handleViewportResize() {
   if (wm.shellLayoutMode.value === 'strip') layoutStripColumns()
@@ -467,7 +516,7 @@ function handleWorkspaceClick(e: MouseEvent) {
     selectShortcut.value = null
     return
   }
-  if (target.closest('.desktop-shortcut')) return
+  if (target.closest('.desktop-shortcut, .desktop-overview')) return
   selectShortcut.value = null
   wm.blurAll()
 }
@@ -860,18 +909,25 @@ onUnmounted(() => {
   inset: 0;
   bottom: var(--dock-inset, 0px);
   z-index: 1;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-  padding: 24px;
+  padding: clamp(16px, 3vw, 40px);
   overflow-y: auto;
   overscroll-behavior: contain;
   touch-action: pan-x pan-y;
   scrollbar-gutter: stable;
-  background: color-mix(in srgb, var(--ui-bg-deep) 35%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  /* A single bounded blur pass, not a live shader per app. Static ambient
+     gradients provide depth without a canvas, render loop or GPU timers. */
+  background: radial-gradient(ellipse at 10% 0%, color-mix(in srgb, var(--ui-accent) 14%, transparent), transparent 60%),
+    color-mix(in srgb, var(--ui-bg-deep) 82%, transparent);
+  backdrop-filter: blur(16px) saturate(115%);
+  -webkit-backdrop-filter: blur(16px) saturate(115%);
 }
+.overview-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+.overview-toolbar h2 { margin: 0; color: var(--ui-text); font-size: clamp(18px, 2vw, 26px); }
+.overview-toolbar p { margin: 6px 0 0; color: var(--ui-text-2); font-size: 13px; }
+.overview-toolbar button { min-height: 44px; padding: 8px 16px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-full); background: var(--ui-surface); color: var(--ui-text); cursor: pointer; }
+.overview-toolbar kbd { margin-left: 8px; font-size: 11px; color: var(--ui-text-2); }
+.overview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); align-items: start; gap: 16px; }
+.overview-card:focus-visible, .overview-toolbar button:focus-visible { outline: 3px solid var(--ui-accent); outline-offset: 4px; }
 .desktop-overview::-webkit-scrollbar {
   width: 10px;
 }
@@ -891,11 +947,10 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
+  min-height: 140px;
   padding: 16px;
   border-radius: var(--ui-radius-xl);
-  background: var(--ui-glass-2);
-  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--ui-accent) 8%, transparent), transparent 70%), var(--ui-surface);
   border: 1px solid color-mix(in srgb, var(--ui-text) 12%, transparent);
   box-shadow: var(--ui-shadow-2), inset 0 1px 0 var(--ui-glass-highlight);
   color: var(--ui-text);
@@ -914,9 +969,25 @@ onUnmounted(() => {
   border-style: dashed;
 }
 .overview-card-icon { color: var(--ui-text-2); }
-.overview-card-title { font-size: 13px; font-weight: 600; }
+.overview-card-title { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .overview-card-meta { font-family: var(--ui-font); font-size: 11px; color: var(--ui-text-3); }
 .overview-empty { grid-column: 1 / -1; text-align: center; color: color-mix(in srgb, var(--ui-text) 50%, transparent); font-size: 12px; padding: 40px; }
+@media (prefers-reduced-motion: reduce) {
+  .desktop-strip { scroll-behavior: auto; }
+  .overview-card { animation: none; transition: none; }
+  .overview-card:hover { transform: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .desktop-overview { background: var(--ui-bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .desktop-overview { background: var(--ui-bg); }
+}
+@media (forced-colors: active) {
+  .desktop-overview { background: Canvas; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .overview-card { background: Canvas; color: CanvasText; border: 1px solid ButtonText; box-shadow: none; }
+  .overview-card.minimized { opacity: 1; }
+}
 
 /* Launcher home lives under the sheets on phones only. `!important` wins
    the specificity tie with the launcher's own `display: flex` regardless of

@@ -148,6 +148,31 @@
       </div>
     </section>
 
+    <section class="tf-keyboard-plan" aria-label="Plan transfer with keyboard">
+      <label class="tf-field">
+        <span class="tf-field-label">Pinned source</span>
+        <select v-model="selectedFileId" class="tf-input" aria-label="Pinned source file or folder" :disabled="running">
+          <option :value="null">Choose a pinned file or folder</option>
+          <option v-for="n in fileNodes" :key="n.id" :value="n.id">{{ n.name }} · {{ n.mountName }} · {{ n.remotePath }}</option>
+        </select>
+      </label>
+      <label class="tf-field">
+        <span class="tf-field-label">Mounted destination</span>
+        <select v-model="selectedProviderId" class="tf-input" aria-label="Mounted destination provider" :disabled="running">
+          <option value="">Choose a mounted provider</option>
+          <option v-for="p in mountedProviders" :key="p.configId" :value="p.configId">{{ p.name }} · {{ p.backendType }}</option>
+        </select>
+      </label>
+      <label class="tf-field">
+        <span class="tf-field-label">Destination folder</span>
+        <input v-model="keyboardTargetFolder" class="tf-input" type="text" placeholder="(root)" aria-label="Destination folder" autocomplete="off" :disabled="running || !selectedProvider" />
+      </label>
+      <button class="tf-btn" type="button" :disabled="!selectedFileId || !selectedProvider || running" @click="planKeyboardTransfer">Plan transfer</button>
+      <button class="tf-btn" type="button" :disabled="running || (!selectedFileId && !selectedProviderId)" @click="cancelPlanning">Cancel selection</button>
+      <span class="tf-hint">Planning does not read, write, or delete files. Review the plan, then choose Apply to execute.</span>
+      <p v-if="edgeError" class="tf-note err" role="alert">{{ edgeError }}</p>
+    </section>
+
     <!-- ── plan rows ── -->
     <section v-if="edges.length" class="tf-plan" aria-label="Planned transfers" aria-live="polite">
       <div v-for="es in edges" :key="es.edge.id" class="tf-edge" :class="`st-${es.status}`">
@@ -164,7 +189,6 @@
         </div>
         <p v-if="es.detail" class="tf-edge-detail" :class="{ warn: es.status === 'done' }">{{ es.detail }}</p>
       </div>
-      <p v-if="edgeError" class="tf-note err">{{ edgeError }}</p>
     </section>
 
     <footer class="tf-foot">
@@ -251,6 +275,7 @@ const fileNodes = ref<FileNode[]>([])
 const providerNodes = ref<ProviderNode[]>([])
 const edges = ref<EdgeState[]>([])
 const selectedFileId = ref<string | null>(null)
+const selectedProviderId = ref('')
 const edgeError = ref('')
 
 // browser
@@ -275,6 +300,12 @@ const browseMountName = computed(() => mounts.value.find(m => m.id === browseMou
 const pathSegs = computed(() => browsePath.value.split('/').filter(Boolean))
 const planText = computed(() => planSummaryText(summarizePlan(edges.value.map(e => e.edge))))
 const applyPct = computed(() => (edges.value.length ? Math.round((doneCount.value / edges.value.length) * 100) : 0))
+const mountedProviders = computed(() => providerNodes.value.filter(p => p.mountId && !p.hidden))
+const selectedProvider = computed(() => mountedProviders.value.find(p => p.configId === selectedProviderId.value) ?? null)
+const keyboardTargetFolder = computed({
+  get: () => selectedProvider.value?.targetFolder ?? '',
+  set: (value: string) => { if (selectedProvider.value) selectedProvider.value.targetFolder = value },
+})
 
 function logoFor(b: string): string {
   return b === 'local' ? 'local' : String(b)
@@ -563,7 +594,21 @@ function onProvClick(p: ProviderNode) {
   if (selectedFileId.value) addEdge(selectedFileId.value, p)
 }
 
+function planKeyboardTransfer() {
+  const provider = selectedProvider.value
+  if (running.value || !provider || !selectedFileId.value) return
+  onProvClick(provider)
+}
+
+function cancelPlanning() {
+  if (running.value) return
+  selectedFileId.value = null
+  selectedProviderId.value = ''
+  edgeError.value = ''
+}
+
 function addEdge(fileId: string, p: ProviderNode) {
+  if (running.value) return
   edgeError.value = ''
   const n = fileNodes.value.find(f => f.id === fileId)
   if (!n || !p.mountId) return
@@ -776,6 +821,7 @@ onMounted(async () => {
   font-family: var(--ui-font);
   font-size: 13px;
 }
+.tf :focus-visible { outline: 3px solid var(--ui-accent); outline-offset: 3px; }
 .tf-top {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 12px 14px 10px; border-bottom: 1px solid var(--ui-border);
@@ -830,6 +876,10 @@ onMounted(async () => {
 .small { font-size: 11px; }
 .tf-note { margin: 0; font-size: 11.5px; color: var(--ui-info); line-height: 1.5; }
 .tf-note.err { color: var(--ui-danger); }
+.tf-keyboard-plan { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--ui-border); }
+.tf-keyboard-plan .tf-field { flex: 1 1 180px; min-width: 0; }
+.tf-keyboard-plan .tf-hint { flex: 1 1 100%; }
+.tf-keyboard-plan :focus-visible, .tf-node:focus-visible { outline: 3px solid var(--ui-accent); outline-offset: 3px; }
 .tf-btn {
   display: inline-flex; align-items: center; gap: 6px;
   background: transparent; border: 1px solid var(--ui-border); border-radius: 8px;
@@ -952,6 +1002,9 @@ onMounted(async () => {
   .tf-canvas { touch-action: pan-x pan-y; }
   .tf-node { touch-action: none; }
   .tf-plan { max-height: none; padding: 10px; }
+  .tf-keyboard-plan { padding: 10px; align-items: stretch; }
+  .tf-keyboard-plan .tf-field { flex-basis: 100%; }
+  .tf-keyboard-plan .tf-btn { width: 100%; }
   .tf-edge-top, .tf-foot-actions { flex-wrap: wrap; }
   .tf-edge-route { flex-basis: 100%; }
   .tf-foot > span { min-width: 0; overflow-wrap: anywhere; }

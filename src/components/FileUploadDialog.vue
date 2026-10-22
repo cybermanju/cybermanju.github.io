@@ -6,9 +6,16 @@
 <template>
   <Teleport to="body">
     <div v-if="visible" class="upload-overlay" @click.self="$emit('close')">
-      <div ref="uploadRef" class="upload-modal">
+      <div
+        ref="uploadRef"
+        class="upload-modal"
+        role="dialog"
+        aria-modal="true"
+        :aria-labelledby="titleId"
+        tabindex="-1"
+      >
         <div class="upload-header">
-          <span>FILE UPLOAD</span>
+          <span :id="titleId">FILE UPLOAD</span>
           <button class="upload-close" @click="$emit('close')" aria-label="CLOSE" title="CLOSE"><AppIcon name="solar:close-bold" :size="14" /></button>
         </div>
 
@@ -54,7 +61,7 @@
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
-import { ref, toRef, computed, watch, nextTick } from 'vue'
+import { ref, toRef, computed, useId } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { humanBytes } from '@/utils/format'
 import { invoke } from '@/composables/useTauri'
@@ -63,7 +70,8 @@ import { useFocusTrap } from '@/composables/useFocusTrap'
 const props = defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 const uploadRef = ref<HTMLElement | null>(null)
-useFocusTrap(uploadRef, toRef(props, 'visible'))
+const titleId = `upload-dialog-title-${useId()}`
+useFocusTrap(uploadRef, toRef(props, 'visible'), { onEscape: () => emit('close') })
 
 const store = useAppStore()
 const fileInput = ref<HTMLInputElement | null>(null)

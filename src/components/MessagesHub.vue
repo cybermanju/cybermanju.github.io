@@ -8,10 +8,12 @@
     <Transition name="msghub">
       <div
         v-if="launcher.messagesOpen"
+        ref="messagesRef"
         class="msg-veil"
         role="dialog"
         aria-modal="true"
         aria-label="Messages"
+        tabindex="-1"
         @click.self="close"
       >
         <section class="msg-panel">
@@ -183,7 +185,8 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useFocusTrap } from '@/composables/useFocusTrap'
 import { useAndroidApps } from '@/composables/useAndroidApps'
 import { useMessages } from '@/composables/useMessages'
 import { useNotifications, type NotificationType } from '@/composables/useNotifications'
@@ -196,6 +199,7 @@ import type { AndroidApp } from '@/types'
 const hub = useMessages()
 const browser = useAndroidApps()
 const launcher = useLauncherStore()
+const messagesRef = ref<HTMLElement | null>(null)
 const store = useAppStore()
 const sys = useNotifications()
 
@@ -240,6 +244,8 @@ function clearSystem() {
 function close() {
   launcher.setMessagesOpen(false)
 }
+
+useFocusTrap(messagesRef, computed(() => launcher.messagesOpen), { onEscape: close })
 
 /** Open the Install window (native builds per platform, App × CLI). */
 function openInstall() {

@@ -115,6 +115,7 @@ export function createSwipeMachine(options: SwipeOptions = {}) {
 
   function reset() {
     tracked.clear()
+    lifted.length = 0
     peakCount = 0
     tracking = false
     pinchFired = false
@@ -274,6 +275,10 @@ export function createSwipeMachine(options: SwipeOptions = {}) {
   function finishPointer(e: SwipePointer, cancelled: boolean) {
     const t = tracked.get(e.pointerId)
     if (!t) return
+    if (cancelled) {
+      reset()
+      return
+    }
     t.lastX = e.clientX
     t.lastY = e.clientY
     tracked.delete(e.pointerId)
@@ -312,13 +317,6 @@ export function createSwipeMachine(options: SwipeOptions = {}) {
     if (tracked.size > 0) return // fingers still down — classify at lift-off
     // Last finger lifted: classify the whole chord from its centroid.
     tracking = false
-    if (cancelled) {
-      // The browser took over (scroll/zoom) — never double-handle.
-      peakCount = 0
-      lifted.length = 0
-      clearTimer()
-      return
-    }
     let dx = 0
     let dy = 0
     for (const p of lifted) {
@@ -351,6 +349,13 @@ export function useSwipe(
   options: SwipeOptions = {}
 ) {
   const machine = createSwipeMachine(options)
+  const sessionPointers = new Set<number>()
+  let excludedSession = false
+
+  function releasePointer(e: PointerEvent) {
+    sessionPointers.delete(e.pointerId)
+    if (sessionPointers.size === 0) excludedSession = false
+  }
 
   function refreshViewBox() {
     const el = elementRef.value
@@ -358,7 +363,18 @@ export function useSwipe(
   }
 
   function handlePointerDown(e: PointerEvent) {
-    if ((e.target as HTMLElement | null)?.closest?.('[data-shell-gesture-exclude], .terminal-gesture-exclude')) return
+    if (e.pointerType === 'mouse') return
+    if ((e.target as HTMLElement | null)?.closest?.('.home-studio, [data-shell-gesture-exclude], .terminal-gesture-exclude')) {
+      excludedSession = true
+      sessionPointers.add(e.pointerId)
+      machine.reset()
+      return
+    }
+    if (excludedSession) {
+      sessionPointers.add(e.pointerId)
+      return
+    }
+    sessionPointers.add(e.pointerId)
     refreshViewBox()
     machine.onPointerDown(e)
   }
@@ -367,29 +383,44 @@ export function useSwipe(
   }
   function handlePointerUp(e: PointerEvent) {
     machine.onPointerUp(e)
+    releasePointer(e)
   }
   function handlePointerCancel(e: PointerEvent) {
-    machine.onPointerCancel(e)
+    if (e.pointerType !== 'mouse') {
+      excludedSession = true
+      machine.reset()
+    }
+    releasePointer(e)
+  }
+
+  function handleBlur() {
+    sessionPointers.clear()
+    excludedSession = false
+    machine.reset()
   }
 
   onMounted(() => {
     const el = elementRef.value
     if (el) {
-      el.addEventListener('pointerdown', handlePointerDown)
-      el.addEventListener('pointermove', handlePointerMove)
-      el.addEventListener('pointerup', handlePointerUp)
-      el.addEventListener('pointercancel', handlePointerCancel)
+      el.addEventListener('pointerdown', handlePointerDown, true)
     }
+    window.addEventListener('pointermove', handlePointerMove, true)
+    window.addEventListener('pointerup', handlePointerUp, true)
+    window.addEventListener('pointercancel', handlePointerCancel, true)
+    window.addEventListener('blur', handleBlur)
   })
 
   onUnmounted(() => {
     const el = elementRef.value
     if (el) {
-      el.removeEventListener('pointerdown', handlePointerDown)
-      el.removeEventListener('pointermove', handlePointerMove)
-      el.removeEventListener('pointerup', handlePointerUp)
-      el.removeEventListener('pointercancel', handlePointerCancel)
+      el.removeEventListener('pointerdown', handlePointerDown, true)
     }
+    window.removeEventListener('pointermove', handlePointerMove, true)
+    window.removeEventListener('pointerup', handlePointerUp, true)
+    window.removeEventListener('pointercancel', handlePointerCancel, true)
+    window.removeEventListener('blur', handleBlur)
+    sessionPointers.clear()
+    excludedSession = false
     machine.reset()
   })
 }

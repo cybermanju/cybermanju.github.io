@@ -403,7 +403,7 @@ function fireAction(action: string) {
     strip_right: () => wm.stripRight(),
     strip_up: () => wm.stripLineMove(-1),
     strip_down: () => wm.stripLineMove(1),
-    overview_toggle: () => wm.setLayoutMode(wm.shellLayoutMode.value === 'overview' ? 'floating' : 'overview'),
+    overview_toggle: () => wm.toggleOverview(),
     layout_floating: () => wm.setLayoutMode('floating'),
     layout_tiled: () => wm.setLayoutMode('tiled'),
     layout_strip: () => wm.setLayoutMode('strip'),

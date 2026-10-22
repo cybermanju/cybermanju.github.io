@@ -256,6 +256,10 @@ export const shellAutoTile = useLocalStorage<boolean>(
   'cybermanju_shell_autotile',
   false,
 )
+// Shared across every shell consumer. Overview is a transient view, not a
+// request to retile/cascade or reset the strip when it is dismissed.
+let overviewReturnMode: Exclude<ShellLayoutMode, 'overview'> = shellAutoTile.value ? 'tiled' : 'floating'
+const overviewExitRevision = ref(0)
 /** Niri-style viewport: first visible column (horizontal) or line (vertical). */
 export const stripOffset = ref(0)
 /** Niri-style vertical line selector (which "row" of the strip is live). */
@@ -297,7 +301,8 @@ export function useWindowManager() {
   const activeWindow = computed(() => {
     if (windowFocusHistory.value.length === 0) return null
     const id = windowFocusHistory.value[windowFocusHistory.value.length - 1]
-    return windows.value.find(w => w.id === id) || null
+    return windows.value.find(w => w.id === id && !w.minimized &&
+      (shellLayoutMode.value !== 'strip' || (w.line ?? 0) === stripLine.value)) || null
   })
 
   /** Windows on the live strip line, in column order (niri strip). */
@@ -317,14 +322,13 @@ export function useWindowManager() {
     // `storage` opens Disks on its overview tab, etc.
     const target = resolvePanel(panelType)
     const mergedProps = { ...(ALIAS_TAB_PROPS[panelType] || {}), ...(props || {}) }
-    const existing = windows.value.find(
-      w => w.panelType === target && !w.minimized
-    )
+    const existing = windows.value.find(w => w.panelType === target)
     if (existing) {
       // Re-steer the live window (e.g. switch the organize tab) instead of
       // stacking a second copy of the same surface.
       existing.props = { ...(existing.props || {}), ...mergedProps }
-      focus(existing.id)
+      if (existing.minimized) restore(existing.id)
+      else focus(existing.id)
       return existing.id
     }
 
@@ -402,6 +406,7 @@ export function useWindowManager() {
     if (win) {
       win.minimized = true
       windowFocusHistory.value = windowFocusHistory.value.filter(w => w !== id)
+      stripOffset.value = clampStripOffset(stripOffset.value, stripWindows.value.length)
       // A minimized tile leaves the grid — survivors expand to fill it.
       if (shouldAutoTile()) tileWindows()
     }
@@ -411,6 +416,7 @@ export function useWindowManager() {
     const win = windows.value.find(w => w.id === id)
     if (win) {
       win.minimized = false
+      if (shellLayoutMode.value === 'strip') stripLine.value = win.line ?? 0
       focus(id)
       // A restored tile rejoins the grid instead of overlapping it.
       if (shouldAutoTile()) tileWindows()
@@ -424,6 +430,7 @@ export function useWindowManager() {
       windowFocusHistory.value = windowFocusHistory.value.filter(w => w !== id)
       windowFocusHistory.value.push(id)
       if (shellLayoutMode.value === 'strip') {
+        stripLine.value = win.line ?? 0
         const idx = stripWindows.value.findIndex(w => w.id === id)
         if (idx >= 0) stripOffset.value = idx
       }
@@ -461,6 +468,7 @@ export function useWindowManager() {
   function minimizeAll() {
     windows.value.forEach(w => { w.minimized = true })
     windowFocusHistory.value = []
+    stripOffset.value = 0
   }
 
   function updatePosition(id: string, x: number, y: number) {
@@ -587,8 +595,20 @@ export function useWindowManager() {
    */
   function stripLineMove(delta: number) {
     const lines = [...new Set(windows.value.map(w => w.line ?? 0))]
+    const previous = activeWindow.value
     stripLine.value = resolveStripLine(lines, stripLine.value, delta)
-    stripOffset.value = 0
+    const candidates = stripWindows.value
+    if (candidates.length === 0) {
+      stripOffset.value = 0
+      return
+    }
+    const column = previous?.column ?? 0
+    const target = candidates.reduce((best, candidate) =>
+      Math.abs((candidate.column ?? 0) - column) < Math.abs((best.column ?? 0) - column)
+        ? candidate
+        : best,
+    )
+    focus(target.id)
   }
   function moveFocusedOnStrip(delta: number) {
     const a = activeWindow.value
@@ -617,6 +637,9 @@ export function useWindowManager() {
 
   // ── Layout mode ─────────────────────────────────────────────
   function setLayoutMode(mode: ShellLayoutMode) {
+    if (mode === 'overview' && shellLayoutMode.value !== 'overview') {
+      overviewReturnMode = shellLayoutMode.value
+    }
     shellLayoutMode.value = mode
     if (mode === 'tiled') tileWindows()
     if (mode === 'floating') cascadeWindows()
@@ -625,7 +648,20 @@ export function useWindowManager() {
       stripOffset.value = Math.max(0, stripWindows.value.length - 1)
     }
   }
+  function exitOverview() {
+    if (shellLayoutMode.value !== 'overview') return
+    overviewExitRevision.value++
+    shellLayoutMode.value = overviewReturnMode
+  }
+  function toggleOverview() {
+    if (shellLayoutMode.value === 'overview') exitOverview()
+    else setLayoutMode('overview')
+  }
   function cycleLayout() {
+    if (shellLayoutMode.value === 'overview') {
+      exitOverview()
+      return
+    }
     const order: ShellLayoutMode[] = ['floating', 'tiled', 'strip', 'overview']
     const next = order[(order.indexOf(shellLayoutMode.value) + 1) % order.length]
     setLayoutMode(next)
@@ -686,6 +722,9 @@ export function useWindowManager() {
     moveFocusedToLine,
     nudgeFocused,
     setLayoutMode,
+    exitOverview,
+    toggleOverview,
+    overviewExitRevision: computed(() => overviewExitRevision.value),
     cycleLayout,
     toggleAutoTile,
     toggleStripDirection,

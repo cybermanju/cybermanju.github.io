@@ -297,12 +297,9 @@ function openInstall() {
 const query = ref('')
 const sheetRef = ref<HTMLElement | null>(null)
 const drawerActive = computed(() => launcher.drawerOpen)
-useFocusTrap(sheetRef, drawerActive)
+useFocusTrap(sheetRef, drawerActive, { onEscape: close })
 const visibleBuiltIns = computed(() => props.builtInApps.filter(app => app.label.toLowerCase().includes(query.value.trim().toLowerCase())))
 function openBuiltIn(panel: PanelType) { close(); wm.open(panel) }
-function onEscape(event: KeyboardEvent) { if (event.key === 'Escape' && launcher.drawerOpen) close() }
-onMounted(() => document.addEventListener('keydown', onEscape))
-onUnmounted(() => document.removeEventListener('keydown', onEscape))
 const active = ref<OrderedApp | null>(null)
 const aliasDraft = ref('')
 const packDraft = ref('')

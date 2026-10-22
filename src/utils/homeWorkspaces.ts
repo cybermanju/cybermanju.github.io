@@ -147,5 +147,14 @@ export function classifyHomeGesture(dx: number, dy: number, fingers: number): 'o
   if (![dx, dy].every(Number.isFinite)) return null
   if (fingers === 3 && Math.abs(dy) >= 72 && Math.abs(dy) > Math.abs(dx)) return dy < 0 ? 'overview-open' : 'overview-close'
   if (fingers === 1 && Math.abs(dx) >= 64 && Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'previous' : 'next'
+  if (fingers === 2) {
+    const absX = Math.abs(dx)
+    const absY = Math.abs(dy)
+    const dominant = Math.max(absX, absY)
+    const minor = Math.min(absX, absY)
+    if (dominant < 64 || dominant < minor * 1.25) return null
+    if (absX > absY) return dx < 0 ? 'next' : 'previous'
+    return dy < 0 ? 'next' : 'previous'
+  }
   return null
 }

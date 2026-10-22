@@ -1,0 +1,57 @@
+<!doctype html>
+<!-- CyberManju OS — Mobile six-fix regression fixture.
+Role: render real menu, transfer and secret editor inside true narrow iframe viewports.
+Exports: local-only browser fixture.
+Integrates: mobile-six.vite.ts and fixture IO services.
+Contracts: all sample data is synthetic; operations blocked; no production entry changes. -->
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mobile accessibility regression fixture</title></head>
+<body style="margin:0"><div id="fixture"></div>
+<script type="module">
+import { createApp, h, ref } from 'vue'
+import ContextMenu from '/src/components/ContextMenu.vue'
+import SecretsPanel from '/src/components/SecretsPanel.vue'
+import TransferGraph from '/src/components/TransferGraph.vue'
+import { useContextMenu } from '/src/composables/useContextMenu.ts'
+import { buildCssVars, DEFAULT_SETTINGS } from '/src/ui/tokens.ts'
+const query = new URLSearchParams(location.search)
+const width = Math.max(280, Number(query.get('width')) || 375)
+const height = Math.max(320, Number(query.get('height')) || 667)
+if (!query.has('inner')) {
+  const iframe = document.createElement('iframe')
+  iframe.title = `${width} by ${height} CSS pixel viewport`
+  iframe.width = width; iframe.height = height
+  iframe.src = `${location.pathname}?inner&width=${width}&height=${height}&touch=${query.get('touch') || ''}`
+  iframe.style.border = '1px solid #777'; document.querySelector('#fixture').append(iframe)
+} else {
+  for (const [key, value] of Object.entries(buildCssVars({ ...DEFAULT_SETTINGS, theme: 'os-light' }))) document.documentElement.style.setProperty(key, value)
+  const style = document.createElement('style')
+  style.textContent = `* { box-sizing:border-box } body {font-family:var(--ui-font);color:var(--ui-text);background:var(--ui-bg)} .fixture-actions {display:flex;flex-wrap:wrap;gap:6px;padding:8px} .fixture-actions button {min-height:44px} #panel {height:calc(100dvh - 130px);min-height:0} ${query.get('touch') === '1' ? '.ctx-item { min-height:44px!important;padding:8px 10px!important;font-size:15px!important }' : ''}`
+  document.head.append(style)
+  const ctx = useContextMenu()
+  createApp({ setup() {
+    const panel = ref('menu'), result = ref('No action executed')
+    const action = (label) => () => { result.value = `${label} executed` }
+    function openMenu(event) {
+      ctx.replaceEntries('fixture-six', [
+        { id:'open',label:'Open',action:action('Open') }, { id:'save',label:'Save',action:action('Save') },
+        { id:'d1',label:'',divider:true }, { id:'rename',label:'Rename',action:action('Rename') },
+        { id:'disabled',label:'Unavailable',disabled:true,action:action('WRONG disabled') },
+        { id:'star',label:'Star',action:action('Star') }, { id:'compress',label:'Compress',action:action('Compress') },
+        { id:'encrypt',label:'Encrypt',action:action('Encrypt') },
+        { id:'collection',label:'Add to collection…',submenu:Array.from({length:24},(_,i)=>({id:`c${i}`,label:`Collection ${i+1}`,action:action(`Collection ${i+1}`)})) },
+        ...Array.from({length:12},(_,i)=>({id:`a${i}`,label:`Additional action ${i+1}`,action:action(`Additional ${i+1}`)})),
+        { id:'delete',label:'Delete',action:action('Delete') },
+      ])
+      event.stopPropagation()
+      ctx.open(new MouseEvent('contextmenu', {clientX:150,clientY:150,cancelable:true}), 'fixture-six')
+    }
+    return () => h('main', [
+      h('nav',{class:'fixture-actions'},['menu','transfer','secrets'].map(name=>h('button',{onClick:()=>{ctx.close();panel.value=name}},name))),
+      h('p',{style:'margin:4px 8px',id:'result'},result.value),
+      h('p',{style:'margin:4px 8px;font-size:11px'},`SYNTHETIC DATA · IO BLOCKED · ${width}×${height}${query.get('touch')==='1'?' · touch-row CSS simulation':''}`),
+      h('div',{id:'panel'},[panel.value==='menu'?h('button',{onClick:openMenu},'Open file menu'):panel.value==='transfer'?h(TransferGraph):h(SecretsPanel)]),
+      h(ContextMenu),
+    ])
+  }}).mount('#fixture')
+}
+</script></body></html>
