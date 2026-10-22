@@ -167,6 +167,44 @@ pub fn android_widget_command<R: tauri::Runtime>(
     cybermanju_launcher::widgets::command(&action, payload)
 }
 
+/// HOME role commands are device-local and unavailable to remote or secondary UI.
+/// Foreground/resumed/unlocked checks for requests remain in the Android host,
+/// where Activity focus is authoritative (not desktop-only window APIs).
+fn require_home_role_ui<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) -> Result<(), String> {
+    let url = window
+        .url()
+        .map_err(|_| "auth: Home role origin unavailable".to_string())?;
+    let bundled = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || (matches!(url.scheme(), "http" | "https") && url.host_str() == Some("tauri.localhost"));
+    if window.label() != "main" || !bundled {
+        return Err("auth: Home role requires the bundled main UI".into());
+    }
+    Ok(())
+}
+
+/// Passive observation only: never opens Android's role picker or settings.
+#[tauri::command(async)]
+pub fn android_home_role_status<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+) -> Result<serde_json::Value, String> {
+    require_home_role_ui(&window)?;
+    cybermanju_launcher::home_role_command("status", serde_json::json!({}))
+}
+
+/// Only the visible Home CTA calls this; Android alone grants the HOME role.
+/// request_id is correlation, not consent; never expose via automation/Agent/REST.
+#[tauri::command(async)]
+pub fn android_home_role_request<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    request_id: String,
+) -> Result<serde_json::Value, String> {
+    require_home_role_ui(&window)?;
+    cybermanju_launcher::home_role_command(
+        "request",
+        serde_json::json!({ "requestId": request_id }),
+    )
+}
+
 /// Run one allowlisted native action from the bundled automation UI only.
 /// This command is intentionally unavailable to REST, secondary webviews and
 /// arbitrary remote content.

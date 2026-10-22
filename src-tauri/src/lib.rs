@@ -536,6 +536,8 @@ fn native_command_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + S
         commands::launcher::android_voice_command,
         commands::launcher::android_clipboard_command,
         commands::launcher::android_widget_command,
+        commands::launcher::android_home_role_status,
+        commands::launcher::android_home_role_request,
         commands::launcher::automation_native_dispatch,
         // Point-in-time redb image used by the web-compatible mobile vault mirror
         commands::vault_snapshot::snapshot_native_database,
