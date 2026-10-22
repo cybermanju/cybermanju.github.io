@@ -26,7 +26,7 @@ struct WorkerSlot;
 impl WorkerSlot {
     fn acquire() -> Result<Self, String> {
         ACTIVE_WORKERS
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
                 (n < MAX_WORKERS).then_some(n + 1)
             })
             .map(|_| Self)
