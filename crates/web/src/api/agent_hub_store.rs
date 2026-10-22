@@ -179,8 +179,8 @@ impl AgentHubStore {
         Ok(conversations)
     }
 
-    /// Public conversation projection: fail closed on explicit disclosure, never
-    /// infer it from kind. Native hub_list_events uses this safe default.
+    /// Visibility-filtered canonical feed, not a user-facing DTO. Never infer
+    /// disclosure from kind; the transcript facade adds a sanitized field allowlist.
     pub fn events(
         &self,
         owner: &str,
@@ -1338,6 +1338,32 @@ mod tests {
     }
 
     #[test]
+    fn transcript_read_fails_closed_on_missing_or_unknown_visibility() {
+        let dir = tempdir().unwrap();
+        let store = AgentHubStore::open(dir.path().join("invalid-visibility.redb")).unwrap();
+        let agent = store.save_profile("owner", profile("Agent")).unwrap();
+        let conv = conversation(&store, "owner", ConversationKind::Direct, vec![agent.id]);
+        let receipt = store
+            .send("owner", message(&conv.id, "visibility", None, None))
+            .unwrap();
+        let original = serde_json::to_value(&receipt.event).unwrap();
+        for visibility in [None, Some("unknown"), Some("User")] {
+            let mut value = original.clone();
+            if let Some(visibility) = visibility {
+                value["visibility"] = visibility.into();
+            } else {
+                value.as_object_mut().unwrap().remove("visibility");
+            }
+            let tx = store.db.begin_write().unwrap();
+            let row_key = format!("owner|{}|{:020}", conv.id, receipt.event.seq);
+            write_row(&tx, EVENTS, &row_key, &value).unwrap();
+            tx.commit().unwrap();
+            let error = store.events("owner", &conv.id, 0, 100).unwrap_err();
+            assert!(!error.contains(&receipt.event.text));
+        }
+    }
+
+    #[test]
     fn legacy_rows_and_receipts_migrate_to_internal_without_kind_inference() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("legacy.redb");
@@ -1382,6 +1408,19 @@ mod tests {
         };
         let store = AgentHubStore::open(&path).unwrap();
         assert!(store.events("owner", &cid, 0, 10).unwrap().is_empty());
+        let provider_db =
+            cybermanju_db::Database::new(dir.path().join("providers.redb").to_str().unwrap())
+                .unwrap();
+        assert!(super::super::agent_hub_api::list_transcript(
+            &provider_db,
+            &store,
+            "owner",
+            &cid,
+            0,
+            10,
+        )
+        .unwrap()
+        .is_empty());
         let event = store.audit_events("owner", &cid, 0, 10).unwrap().remove(0);
         assert_eq!(event.kind, HubEventKind::Message);
         assert_eq!(event.visibility, EventVisibility::Internal);

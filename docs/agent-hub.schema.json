@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:cybermanju:agent-hub:v1:r2",
+  "$id": "urn:cybermanju:agent-hub:v1:r3",
   "title": "CyberManju Agent Hub native v1 DTOs",
-  "description": "Recipient-targeted, tool-less, one recipient per run. No group fan-out, multi-agent collaboration or autonomy. Wire shapes only; Rust validates UTF-8 byte budgets, routing and unique fact keys. Internal text is a strict CoordinationEnvelope JSON string. PromptProjection is ephemeral and never a durable event.",
+  "description": "Recipient-targeted, tool-less, one recipient per run. No group fan-out, multi-agent collaboration or autonomy. Wire shapes only; Rust validates UTF-8 byte budgets, routing and unique fact keys. Internal text is a strict CoordinationEnvelope JSON string. PromptProjection is ephemeral and never a durable event. HubTranscriptEvent is a sanitized user-only projection; legacy event/run/receipt DTOs are not transcript DTOs.",
   "$defs": {
     "ConversationKind": {
       "type": "string",
@@ -737,6 +737,51 @@
       "required": [
         "seq",
         "reason"
+      ]
+    },
+    "HubTranscriptEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "User-visible transcript projection only. No internal, migrated, or quarantined records; missing/unknown visibility fails closed before projection. Every string field is sanitized before serialization.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "visibility": {
+          "const": "user"
+        },
+        "kind": {
+          "$ref": "#/$defs/HubEventKind"
+        },
+        "senderId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "conversationId",
+        "seq",
+        "visibility",
+        "kind",
+        "senderId",
+        "text",
+        "createdAt"
       ]
     }
   }

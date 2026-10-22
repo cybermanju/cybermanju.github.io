@@ -693,6 +693,7 @@ fn native_command_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + S
         commands::agent_hub::hub_create_conversation,
         commands::agent_hub::hub_list_conversations,
         commands::agent_hub::hub_list_events,
+        commands::agent_hub::hub_list_transcript,
         commands::agent_hub::hub_send_message,
         commands::agent_hub::hub_get_run,
         commands::agent::mcp_add_server,

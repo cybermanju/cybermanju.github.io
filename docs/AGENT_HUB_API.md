@@ -1,4 +1,4 @@
-# Agent Hub API — native v1, protocol revision 2
+# Agent Hub API — native v1, protocol revision 3
 
 **Recipient-targeted, tool-less, one recipient per run.** Group conversations are containers for explicit messages, not group fan-out, multi-agent collaboration, or autonomy. There is no recursive delegation, automatic recipient selection, swarm, or tool execution. The runtime now requires compact typed JSON for profile-to-profile coordination; this is a serialization contract, not a secret or universally optimal LLM language. Facts can retain task-specific human-language values. User-facing replies remain concise natural language.
 
@@ -15,12 +15,13 @@ hub_create_conversation({ input: CreateConversation }): Conversation
 hub_list_conversations(): Conversation[]
 hub_send_message({ input: SendMessage }): SendReceipt
 hub_list_events({ conversationId: string, afterSeq?: number, limit?: number }): HubEvent[]
+hub_list_transcript({ conversationId: string, afterSeq?: number, limit?: number }): HubTranscriptEvent[]
 hub_get_run({ runId: string }): DelegatedRun
 ```
 
-For native clients use `invoke<T>('hub_send_message', { input })`. Fields serialize as camelCase except the deliberately compact coordination envelope/reference keys below. The authoritative DTOs are `crates/types/src/agent_hub.rs` and `crates/types/src/coordination.rs`; machine-readable definitions are in `docs/agent-hub.schema.json`, `$id: urn:cybermanju:agent-hub:v1:r2`.
+For native clients use `invoke<T>('hub_send_message', { input })`. Fields serialize as camelCase except the deliberately compact coordination envelope/reference keys below. The authoritative DTOs are `crates/types/src/agent_hub.rs` and `crates/types/src/coordination.rs`; machine-readable definitions are in `docs/agent-hub.schema.json`, `$id: urn:cybermanju:agent-hub:v1:r3`.
 
-`hub_list_events` defaults to `afterSeq: 0`, `limit: 100`, with limit clamped to 1–500. Sequence numbers are conversation-local; advance the cursor to the highest returned sequence. The event API is now a backend-filtered transcript: only explicit `visibility: "user"` records are returned. Internal records are never inferred visible from their kind. Backend-only `AgentHubStore::audit_events` retains the owner-scoped canonical feed and is not an IPC command. Public event sequence numbers can have gaps; the range scan continues past internal rows so later visible messages cannot be hidden behind an internal-only page. Large internal tails may increase polling scan work.
+`hub_list_events` remains a legacy event-feed command and returns `HubEvent[]`; it is not the transcript DTO. `hub_list_transcript` returns the dedicated `HubTranscriptEvent[]` projection and defaults to `afterSeq: 0`, `limit: 100` (accepted/clamped range 1–500). Sequence numbers are conversation-local; advance the cursor to the highest returned sequence. `HubTranscriptEvent` has exactly these required fields: `id: string`, `conversationId: string`, `seq: u64`, `visibility: "user"`, `kind: HubEventKind`, `senderId: string | null`, `text: string`, and `createdAt: string`. It has no recipient, run, owner, provider, or other private fields. The DTO rejects unknown fields (`serde(deny_unknown_fields)`). The backend facade `agent_hub_api::list_transcript(db, hub, owner, conversation_id, after_seq, limit)` explicitly filters for `visibility == User`; it sanitizes every String field, including identifiers and timestamp, using `known_keys` plus `scrub_known_secrets` before serialization and never re-redacts serialized JSON. Missing/unknown visibility causes a closed decode error without payload; internal, migrated, and quarantined rows are omitted without recovery or inference. Sequence numbers may have gaps. Scan work may grow across internal rows. The older `hub_list_events`, `hub_get_run`, and `SendReceipt` are not transcript DTOs. The UI remains `available: false` and is not changed by this contract.
 
 ## Disclosure contract for the UI
 

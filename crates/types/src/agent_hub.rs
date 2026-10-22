@@ -1,7 +1,7 @@
 // CyberManju OS — Agent Hub DTOs (crates/types/src/agent_hub.rs).
 // Role: owner-scoped profiles, conversations, append-only events and delegated runs.
 // Exports: AgentProfile, ProfileInput, Conversation, CreateConversation, HubEvent,
-//   SendMessage, DelegatedRun, SendReceipt and their state/kind enums.
+//   HubTranscriptEvent, UserTranscriptVisibility, SendMessage, DelegatedRun, SendReceipt.
 // Integrates: serde contracts shared by native Tauri and the backend service.
 // Contracts: camelCase; unknown input fields rejected; no credential fields.
 
@@ -87,6 +87,28 @@ pub struct HubEvent {
 pub enum EventVisibility {
     User,
     Internal,
+}
+
+/// Allowlisted user-facing timeline, never a canonical event or run snapshot.
+/// The host constructs this only from explicit user visibility and scrubs fields.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HubTranscriptEvent {
+    pub id: String,
+    pub conversation_id: String,
+    pub seq: u64,
+    pub visibility: UserTranscriptVisibility,
+    pub kind: HubEventKind,
+    pub sender_id: Option<String>,
+    pub text: String,
+    pub created_at: String,
+}
+
+/// A separate one-variant type prevents serializing an internal transcript DTO.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum UserTranscriptVisibility {
+    User,
 }
 
 /// Metadata only: never a legacy payload, kind, sender, run or provider input.
@@ -176,6 +198,41 @@ pub struct SendReceipt {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transcript_requires_explicit_user_and_rejects_private_fields() {
+        let value = serde_json::json!({
+            "id":"e", "conversationId":"c", "seq":1, "visibility":"user",
+            "kind":"assistant", "senderId":null, "text":"reply", "createdAt":"time"
+        });
+        assert!(serde_json::from_value::<HubTranscriptEvent>(value.clone()).is_ok());
+        let mut missing = value.clone();
+        missing.as_object_mut().unwrap().remove("visibility");
+        assert!(serde_json::from_value::<HubTranscriptEvent>(missing).is_err());
+        for visibility in ["internal", "unknown", "", "User"] {
+            let mut invalid = value.clone();
+            invalid["visibility"] = visibility.into();
+            assert!(serde_json::from_value::<HubTranscriptEvent>(invalid.clone()).is_err());
+            if visibility != "internal" {
+                assert!(serde_json::from_value::<HubEvent>(invalid).is_err());
+            }
+        }
+        for field in [
+            "recipientId",
+            "runId",
+            "providerConfigId",
+            "selectedContext",
+            "input",
+            "result",
+            "error",
+            "toolGrants",
+            "profileSnapshot",
+        ] {
+            let mut invalid = value.clone();
+            invalid[field] = "forbidden".into();
+            assert!(serde_json::from_value::<HubTranscriptEvent>(invalid).is_err());
+        }
+    }
 
     #[test]
     fn inputs_cannot_smuggle_owner_or_credential_fields() {

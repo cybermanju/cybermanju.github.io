@@ -1,14 +1,14 @@
 // CyberManju OS — Agent Hub commands (src-tauri/src/commands/agent_hub.rs).
 // Role: trusted-local IPC for profiles, conversations, events and delegated runs.
 // Exports: hub_list_profiles, hub_save_profile, hub_create_conversation,
-//   hub_list_conversations, hub_list_events, hub_send_message, hub_get_run.
+//   hub_list_conversations, hub_list_events, hub_list_transcript, hub_send_message, hub_get_run.
 // Integrates: AppState's separate AgentHubStore and original provider database.
 // Contracts: owner is host-assigned `local`; no tools or private history inherited.
 
 use crate::AppState;
 use cybermanju_types::agent_hub::{
-    AgentProfile, Conversation, CreateConversation, DelegatedRun, HubEvent, ProfileInput,
-    SendMessage, SendReceipt,
+    AgentProfile, Conversation, CreateConversation, DelegatedRun, HubEvent, HubTranscriptEvent,
+    ProfileInput, SendMessage, SendReceipt,
 };
 use tauri::State;
 
@@ -52,6 +52,27 @@ pub fn hub_list_events(
     state: State<'_, AppState>,
 ) -> Result<Vec<HubEvent>, String> {
     state.agent_hub.events(
+        OWNER,
+        &conversation_id,
+        after_seq.unwrap_or(0),
+        limit.unwrap_or(100).clamp(1, 500),
+    )
+}
+
+#[tauri::command(async)]
+pub fn hub_list_transcript(
+    conversation_id: String,
+    after_seq: Option<u64>,
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<Vec<HubTranscriptEvent>, String> {
+    let db = state
+        .db
+        .read()
+        .map_err(|_| "integrity: provider database lock unavailable".to_string())?;
+    cybermanju_web::api::agent_hub_api::list_transcript(
+        &db,
+        &state.agent_hub,
         OWNER,
         &conversation_id,
         after_seq.unwrap_or(0),

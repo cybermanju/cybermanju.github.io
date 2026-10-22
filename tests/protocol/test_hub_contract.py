@@ -65,6 +65,25 @@ class SchemaTests(unittest.TestCase):
         with self.assertRaises(jsonschema.ValidationError):
             self.validate("HubEvent", dict(event, visibility="inferred"))
 
+
+    def test_transcript_schema_is_exact_user_allowlist(self):
+        transcript = SCHEMA["$defs"]["HubTranscriptEvent"]
+        expected = {"id", "conversationId", "seq", "visibility", "kind", "senderId", "text", "createdAt"}
+        self.assertEqual(set(transcript["properties"]), expected)
+        self.assertEqual(set(transcript["required"]), expected)
+        self.assertIs(transcript["additionalProperties"], False)
+        self.assertEqual(transcript["properties"]["visibility"], {"const": "user"})
+        self.assertEqual(transcript["properties"]["seq"], {"type": "integer", "minimum": 0})
+        valid = {"id": "evt", "conversationId": "conv", "seq": 7, "visibility": "user",
+                 "kind": "assistant", "senderId": None, "text": "ok", "createdAt": "now"}
+        self.validate("HubTranscriptEvent", valid)
+        for invalid in [dict(valid, visibility="internal"), dict(valid, visibility="unknown"),
+                        {k: v for k, v in valid.items() if k != "visibility"},
+                        dict(valid, ownerId="local"), dict(valid, runId="run"),
+                        dict(valid, recipientId="private"), dict(valid, providerConfigId="secret")]:
+            with self.assertRaises(jsonschema.ValidationError):
+                self.validate("HubTranscriptEvent", invalid)
+
     def test_projection_supports_explicit_reference_only_item(self):
         projection = {"v": 1, "recipientId": "agent", "sourceEventId": "evt", "sourceSeq": 1,
                       "items": [{"ref": {"e": "evt", "s": 1, "f": "text", "b": 20, "h": "a" * 64}}]}
@@ -82,6 +101,18 @@ class SchemaTests(unittest.TestCase):
 
 
 class IntegrationSourceTests(unittest.TestCase):
+
+    def test_transcript_ipc_wires_facade_and_is_registered(self):
+        command = (ROOT / "src-tauri/src/commands/agent_hub.rs").read_text()
+        body = command.split("pub fn hub_list_transcript(", 1)[1].split("#[tauri::command", 1)[0]
+        self.assertIn("Result<Vec<HubTranscriptEvent>, String>", body)
+        self.assertIn("agent_hub_api::list_transcript(", body)
+        self.assertIn("OWNER", body)
+        self.assertIn("after_seq.unwrap_or(0)", body)
+        self.assertIn("limit.unwrap_or(100).clamp(1, 500)", body)
+        registered = (ROOT / "src-tauri/src/lib.rs").read_text()
+        self.assertIn("commands::agent_hub::hub_list_transcript", registered)
+
     def test_quarantine_is_separate_owner_authorized_metadata_only(self):
         source = (ROOT / "crates/web/src/api/agent_hub_store.rs").read_text().split("#[cfg(test)]")[0]
         listing = source.split("pub fn quarantined_legacy_events(", 1)[1].split("fn read_events(", 1)[0]

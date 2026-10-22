@@ -1,6 +1,6 @@
 // CyberManju OS — Agent hub execution (crates/web/src/api/agent_hub_api.rs).
 // Role: connect persistent messaging to existing provider configs and adapters.
-// Exports: save_profile, send.
+// Exports: save_profile, send, list_transcript.
 // Integrates: separate AgentHubStore, original sealed-key Database, native host.
 // Contracts: one explicit recipient, one tool-less turn, no history/credential sharing.
 
@@ -11,7 +11,8 @@ use cybermanju_agent::{agent_loop, hub_prompt, hub_protocol, protocol, providers
 use cybermanju_db::Database;
 use cybermanju_types::agent::AuthScheme;
 use cybermanju_types::agent_hub::{
-    AgentProfile, DelegatedRun, EventVisibility, ProfileInput, RunStatus, SendMessage, SendReceipt,
+    AgentProfile, DelegatedRun, EventVisibility, HubEvent, HubTranscriptEvent, ProfileInput,
+    RunStatus, SendMessage, SendReceipt, UserTranscriptVisibility,
 };
 
 use super::agent_hub_store::AgentHubStore;
@@ -60,6 +61,42 @@ fn known_keys(db: &Database) -> Result<Vec<String>, String> {
 fn clean(text: &str, keys: &[String]) -> String {
     let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
     hub_prompt::scrub_known_secrets(text, &refs)
+}
+
+/// Read-only user timeline. Canonical events/runs never cross this IPC boundary.
+/// Missing/unknown disclosure fails in store decoding; migrated internal rows stay
+/// omitted. No quarantine recovery, payload inference, writes or provider dispatch.
+pub fn list_transcript(
+    db: &Database,
+    hub: &AgentHubStore,
+    owner: &str,
+    conversation_id: &str,
+    after_seq: u64,
+    limit: usize,
+) -> Result<Vec<HubTranscriptEvent>, String> {
+    let events = hub.events(owner, conversation_id, after_seq, limit.clamp(1, 500))?;
+    let keys = known_keys(db)?;
+    Ok(events
+        .iter()
+        .filter_map(|event| transcript_event(event, &keys))
+        .collect())
+}
+
+fn transcript_event(event: &HubEvent, keys: &[String]) -> Option<HubTranscriptEvent> {
+    if event.visibility != EventVisibility::User {
+        return None;
+    }
+    // Explicit field allowlist, sanitized before serialization, not JSON redaction.
+    Some(HubTranscriptEvent {
+        id: clean(&event.id, keys),
+        conversation_id: clean(&event.conversation_id, keys),
+        seq: event.seq,
+        visibility: UserTranscriptVisibility::User,
+        kind: event.kind,
+        sender_id: event.sender_id.as_deref().map(|id| clean(id, keys)),
+        text: clean(&event.text, keys),
+        created_at: clean(&event.created_at, keys),
+    })
 }
 
 fn clean_internal(text: &str, keys: &[String]) -> Result<String, String> {
@@ -1920,5 +1957,177 @@ mod integration_tests {
             .all(|event| event.visibility == EventVisibility::User));
         assert_eq!(transcript.len(), 1);
         assert!(hub.events("other-owner", &conversation.id, 0, 100).is_err());
+    }
+}
+
+#[cfg(test)]
+mod transcript_tests {
+    use super::*;
+    use cybermanju_types::agent_hub::HubEventKind;
+
+    #[test]
+    fn transcript_facade_loads_current_keys_and_preserves_owner_cursor_bounds() {
+        use cybermanju_types::agent::AgentConfig;
+        use cybermanju_types::agent_hub::{ConversationKind, CreateConversation};
+        let dir = tempfile::tempdir().unwrap();
+        let db = Database::new(dir.path().join("providers.redb").to_str().unwrap()).unwrap();
+        let config: AgentConfig = serde_json::from_value(serde_json::json!({
+            "id":"provider", "name":"Provider", "providerId":"ollama", "model":"test-model"
+        }))
+        .unwrap();
+        super::super::agent_api::save_config(&db, config).unwrap();
+        let hub = AgentHubStore::open(dir.path().join("hub.redb")).unwrap();
+        let profile = hub
+            .save_profile(
+                "owner",
+                ProfileInput {
+                    id: None,
+                    name: "Agent".into(),
+                    personality: "Helpful".into(),
+                    goals: vec![],
+                    interests: vec![],
+                    knowledge: vec![],
+                    provider_config_id: "provider".into(),
+                },
+            )
+            .unwrap();
+        let conversation = hub
+            .create_conversation(
+                "owner",
+                CreateConversation {
+                    kind: ConversationKind::Direct,
+                    title: "Timeline".into(),
+                    members: vec![profile.id],
+                },
+            )
+            .unwrap();
+        let key = "opaque-current-provider-key-9981";
+        let receipt = hub
+            .send(
+                "owner",
+                SendMessage {
+                    conversation_id: conversation.id.clone(),
+                    idempotency_key: "saved-before-key-rotation".into(),
+                    sender_id: None,
+                    recipient_id: None,
+                    text: format!("reply {key}"),
+                    selected_context: vec!["PRIVATE_SELECTED_CONTEXT".into()],
+                    tool_grants: vec![],
+                },
+            )
+            .unwrap();
+        // Key becomes known after persistence, so ingress-only scrubbing is insufficient.
+        super::super::agent_api::save_key(&db, "provider", key).unwrap();
+        let timeline = list_transcript(&db, &hub, "owner", &conversation.id, 0, 0).unwrap();
+        assert_eq!(timeline.len(), 1);
+        assert_eq!(timeline[0].text, "reply [REDACTED]");
+        assert_eq!(timeline[0].seq, receipt.event.seq);
+        assert!(list_transcript(&db, &hub, "other-owner", &conversation.id, 0, 100).is_err());
+        assert!(
+            list_transcript(&db, &hub, "owner", &conversation.id, receipt.event.seq, 100)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            list_transcript(&db, &hub, "owner", &conversation.id, u64::MAX, 100)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(hub.events("owner", &conversation.id, 0, 100).unwrap()[0]
+            .text
+            .contains(key));
+    }
+
+    fn event(visibility: EventVisibility) -> HubEvent {
+        HubEvent {
+            id: "event".into(),
+            conversation_id: "conversation".into(),
+            seq: 7,
+            visibility,
+            kind: HubEventKind::Assistant,
+            sender_id: Some("sender".into()),
+            recipient_id: Some("PRIVATE_RECIPIENT".into()),
+            text: "user reply".into(),
+            created_at: "time".into(),
+            run_id: Some("PRIVATE_RUN".into()),
+        }
+    }
+
+    #[test]
+    fn internal_assistant_never_appears_or_serializes_as_transcript() {
+        let events = [
+            event(EventVisibility::Internal),
+            event(EventVisibility::User),
+        ];
+        let projected: Vec<_> = events
+            .iter()
+            .filter_map(|event| transcript_event(event, &[]))
+            .collect();
+        assert_eq!(projected.len(), 1);
+        assert!(transcript_event(&events[0], &[]).is_none());
+        let value = serde_json::to_value(&projected).unwrap();
+        let object = value[0].as_object().unwrap();
+        let expected = [
+            "id",
+            "conversationId",
+            "seq",
+            "visibility",
+            "kind",
+            "senderId",
+            "text",
+            "createdAt",
+        ];
+        assert_eq!(object.len(), expected.len());
+        for field in expected {
+            assert!(object.contains_key(field));
+        }
+        assert_eq!(object["visibility"], "user");
+        let json = serde_json::to_string(&value).unwrap();
+        for private in [
+            "recipientId",
+            "runId",
+            "providerConfigId",
+            "selectedContext",
+            "input",
+            "result",
+            "error",
+            "toolGrants",
+            "profileSnapshot",
+            "PRIVATE_RECIPIENT",
+            "PRIVATE_RUN",
+        ] {
+            assert!(!json.contains(private));
+        }
+    }
+
+    #[test]
+    fn transcript_scrubs_known_keys_and_pem_before_serializing_each_string() {
+        let key = "opaque-\"quoted\"-\\credential";
+        let text = format!("reply {key}\n-----BEGIN PRIVATE KEY-----\nSYNTHETIC_PEM_BODY\n-----END PRIVATE KEY-----");
+        let mut source = event(EventVisibility::User);
+        source.id = key.into();
+        source.conversation_id = key.into();
+        source.sender_id = Some(key.into());
+        source.created_at = key.into();
+        source.text = text.clone();
+        let projected = transcript_event(&source, &[key.into()]).unwrap();
+        for value in [
+            &projected.id,
+            &projected.conversation_id,
+            projected.sender_id.as_ref().unwrap(),
+            &projected.created_at,
+            &projected.text,
+        ] {
+            assert!(!value.contains(key));
+            assert!(!value.contains("PRIVATE KEY"));
+            assert!(!value.contains("SYNTHETIC_PEM_BODY"));
+        }
+        let json = serde_json::to_string(&projected).unwrap();
+        assert_eq!(
+            serde_json::from_str::<HubTranscriptEvent>(&json).unwrap(),
+            projected
+        );
+        // The canonical event is never rewritten or persisted by a read projection.
+        assert_eq!(source.text, text);
     }
 }
