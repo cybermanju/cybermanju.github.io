@@ -29,82 +29,130 @@ def uleb(value):
 
 
 def make_dex(method=EXPECTED, access=ACC_PUBLIC | ACC_STATIC, code_off=1,
-             defined=True, include_apis=True):
-    """Build just enough valid DEX tables for the checker's symbol parser."""
-    descriptors = [BRIDGE, ACTIVITY, STRING]
-    if include_apis:
-        descriptors += [SPEECH, TTS]
-    name = method[0] if method else "dispatch"
-    args = method[1] if method else [ACTIVITY, STRING, STRING]
-    result = method[2] if method else STRING
-    descriptors += args + [result]
-    types = list(dict.fromkeys(descriptors))
-    string_values = list(dict.fromkeys(types + [name]))
-    string_index = {s: i for i, s in enumerate(string_values)}
-    type_index = {s: i for i, s in enumerate(types)}
-    # Header, string_ids, type_ids, proto_ids, method_ids, class_defs, then data.
-    string_off = 112
-    type_off = string_off + 4 * len(string_values)
-    proto_off = type_off + 4 * len(types)
-    method_off = proto_off + 12
-    class_off = method_off + 8
-    data_off = class_off + 32
-    buf = bytearray(data_off)
-    string_data = bytearray()
-    string_offsets = []
-    for value in string_values:
-        string_offsets.append(data_off + len(string_data))
-        encoded = value.encode("utf-8")
-        string_data += uleb(len(value)) + encoded + b"\0"
-    param_off = data_off + len(string_data)
-    type_list = struct.pack("<I", len(args)) + b"".join(struct.pack("<H", type_index[x]) for x in args)
-    class_data_off = param_off + len(type_list)
-    # class_data_item: zero static/instance fields, one direct method, zero virtual methods.
-    method_idx = 0
-    def encode_class_data(offset):
-        data = uleb(0) + uleb(0) + uleb(1 if defined else 0) + uleb(0)
-        if defined:
-            data += uleb(method_idx) + uleb(access) + uleb(offset)
-        return data
-    class_data = encode_class_data(code_off)
-    if defined and code_off:
-        actual_code_off = class_data_off + len(class_data)
-        while True:
-            updated = encode_class_data(actual_code_off)
-            next_offset = class_data_off + len(updated)
-            class_data = updated
-            if next_offset == actual_code_off:
-                break
-            actual_code_off = next_offset
-        # One-instruction body: return-void. A real implementation body is required.
-        code_item = struct.pack("<HHHHIIH", 1, 0, 0, 0, 0, 1, 0x000e)
-    else:
-        code_item = b""
-    buf.extend(string_data)
-    buf.extend(type_list)
-    buf.extend(class_data)
-    buf.extend(code_item)
-    file_size = len(buf)
-    struct.pack_into("<8sI", buf, 0, b"dex\n035\0", 0)
-    struct.pack_into("<I", buf, 32, file_size)
-    struct.pack_into("<I", buf, 36, 112)
-    struct.pack_into("<I", buf, 40, 0x12345678)
-    struct.pack_into("<II", buf, 52, 0, 0)
-    struct.pack_into("<II", buf, 56, len(string_values), string_off)
-    struct.pack_into("<II", buf, 64, len(types), type_off)
-    struct.pack_into("<II", buf, 72, 1, proto_off)
-    struct.pack_into("<II", buf, 80, 0, 0)
-    struct.pack_into("<II", buf, 88, 1, method_off)
-    struct.pack_into("<II", buf, 96, 1, class_off)
-    struct.pack_into("<II", buf, 104, file_size - data_off, data_off)
-    for i, off in enumerate(string_offsets):
-        struct.pack_into("<I", buf, string_off + 4 * i, off)
-    for i, value in enumerate(types):
-        struct.pack_into("<I", buf, type_off + 4 * i, string_index[value])
-    struct.pack_into("<III", buf, proto_off, string_index[result], type_index[result], param_off)
-    struct.pack_into("<HHI", buf, method_off, type_index[BRIDGE], 0, string_index[name])
-    struct.pack_into("<8I", buf, class_off, type_index[BRIDGE], 1, 0xffffffff, 0, 0, 0, class_data_off, 0)
-    return bytes(buf)
+             defined=True, include_apis=True, include_home=True,
+             home_methods=None, home_access=None, home_code=True):
+    """Build DEX symbol tables with VoiceServices and HOME JNI methods."""
+    home_bridge = "Lcom/cybermanju/os/CybermanjuHomeRole;"
+    webview = "Landroid/webkit/WebView;"
+    # Each class record keeps method-id references separately from code bodies:
+    # defined controls membership in class_data; has_code controls code_off.
+    home = home_methods if home_methods is not None else [
+        ("dispatch", [ACTIVITY, STRING, STRING], STRING),
+        ("onWebViewCreated", [ACTIVITY, webview], "V"),
+        ("onResume", [ACTIVITY, webview], "V"),
+        ("onPause", [ACTIVITY], "V"), ("onDestroy", [ACTIVITY], "V")]
+    voice = method or EXPECTED
+    class_methods = [(BRIDGE, [voice], [access], [defined], [bool(code_off)])]
+    if include_home:
+        home_access_flags = home_access or [ACC_PUBLIC | ACC_STATIC] * len(home)
+        class_methods.append((home_bridge, home, home_access_flags,
+                              [True] * len(home), [home_code] * len(home)))
+
+    # DEX tables: types, prototypes, method IDs, class definitions, and data.
+    types = list(dict.fromkeys(
+        [BRIDGE, home_bridge, ACTIVITY, STRING, webview, "V"]
+        + ([SPEECH, TTS] if include_apis else [])
+        + [descriptor for _, methods, _, _, _ in class_methods
+           for _, args, result in methods for descriptor in args + [result]]
+    ))
+    prototypes = list(dict.fromkeys(
+        (tuple(args), result)
+        for _, methods, _, _, _ in class_methods
+        for _, args, result in methods
+    ))
+    method_specs = sorted(
+        (owner, name, tuple(args), result)
+        for owner, methods, _, _, _ in class_methods
+        for name, args, result in methods
+    )
+    strings = list(dict.fromkeys(
+        types + [name for _, name, _, _ in method_specs]
+    ))
+    string_index = {value: index for index, value in enumerate(strings)}
+    type_index = {value: index for index, value in enumerate(types)}
+    proto_index = {value: index for index, value in enumerate(prototypes)}
+    method_index = {value: index for index, value in enumerate(method_specs)}
+
+    string_ids_off = 112
+    type_ids_off = string_ids_off + 4 * len(strings)
+    proto_ids_off = type_ids_off + 4 * len(types)
+    method_ids_off = proto_ids_off + 12 * len(prototypes)
+    class_defs_off = method_ids_off + 8 * len(method_specs)
+    data_off = class_defs_off + 32 * len(class_methods)
+
+    data = bytearray()
+    string_data_offsets = []
+    for value in strings:
+        string_data_offsets.append(data_off + len(data))
+        data += uleb(len(value)) + value.encode() + b"\0"
+
+    # Parameter type lists referenced from prototypes.
+    type_list_offsets = {}
+    for args, result in prototypes:
+        type_list_offsets[(args, result)] = data_off + len(data) if args else 0
+        if args:
+            data += struct.pack("<I", len(args))
+            data += b"".join(struct.pack("<H", type_index[arg]) for arg in args)
+
+    # Emit code items independently of class_data method definitions.
+    code_items = bytearray()
+    code_offsets = {}
+    for owner, methods, _, _, code_flags in class_methods:
+        for (name, args, result), has_code in zip(methods, code_flags):
+            if has_code:
+                key = (owner, name, tuple(args), result)
+                code_offsets[key] = data_off + len(data) + len(code_items)
+                code_items += struct.pack("<HHHHIIH", 1, 0, 0, 0, 0, 1, 0x000e)
+    data += code_items
+
+    class_data_offsets = []
+    for owner, methods, access_flags, defined_flags, _ in class_methods:
+        class_data_offsets.append(data_off + len(data))
+        entries = sorted(
+            (method_index[(owner, name, tuple(args), result)], access, code_offsets.get((owner, name, tuple(args), result), 0))
+            for (name, args, result), access, is_defined
+            in zip(methods, access_flags, defined_flags) if is_defined
+        )
+        # static_fields_size, instance_fields_size, direct_methods_size,
+        # virtual_methods_size; method_idx values are encoded as deltas.
+        data += uleb(0) + uleb(0) + uleb(len(entries)) + uleb(0)
+        previous_method_index = 0
+        for index, access, code_offset in entries:
+            data += uleb(index - previous_method_index) + uleb(access) + uleb(code_offset)
+            previous_method_index = index
+
+    dex = bytearray(data_off) + data
+    file_size = len(dex)
+    struct.pack_into("<8sI", dex, 0, b"dex\n035\0", 0)
+    struct.pack_into("<I", dex, 32, file_size)
+    struct.pack_into("<I", dex, 36, 112)
+    struct.pack_into("<I", dex, 40, 0x12345678)
+    # Header size/count/offset pairs for each relevant DEX identifier table.
+    header_tables = [
+        (52, 0, 0), (56, len(strings), string_ids_off),
+        (64, len(types), type_ids_off), (72, len(prototypes), proto_ids_off),
+        (80, 0, 0), (88, len(method_specs), method_ids_off),
+        (96, len(class_methods), class_defs_off),
+        (104, file_size - data_off, data_off),
+    ]
+    for position, count, offset in header_tables:
+        struct.pack_into("<II", dex, position, count, offset)
+    for index, offset in enumerate(string_data_offsets):
+        struct.pack_into("<I", dex, string_ids_off + 4 * index, offset)
+    for index, descriptor in enumerate(types):
+        struct.pack_into("<I", dex, type_ids_off + 4 * index, string_index[descriptor])
+    for index, (args, result) in enumerate(prototypes):
+        struct.pack_into("<III", dex, proto_ids_off + 12 * index,
+                         string_index[result], type_index[result],
+                         type_list_offsets[(args, result)])
+    for index, (owner, name, args, result) in enumerate(method_specs):
+        struct.pack_into("<HHI", dex, method_ids_off + 8 * index,
+                         type_index[owner], proto_index[(args, result)], string_index[name])
+    for index, (owner, _, _, _, _) in enumerate(class_methods):
+        struct.pack_into("<8I", dex, class_defs_off + 32 * index,
+                         type_index[owner], 1, 0xffffffff, 0, 0, 0,
+                         class_data_offsets[index], 0)
+    return bytes(dex)
 
 
 class AndroidVoiceApkTests(unittest.TestCase):
@@ -147,6 +195,24 @@ class AndroidVoiceApkTests(unittest.TestCase):
 
     def test_required_speech_apis_must_be_present(self):
         self.assert_rejected(dex=make_dex(include_apis=False))
+
+    def test_missing_home_bridge_is_rejected(self):
+        self.assert_rejected(dex=make_dex(include_home=False))
+
+    def test_home_wrong_signature_is_rejected(self):
+        home = [("dispatch", [ACTIVITY, STRING], STRING)] + [
+            ("onWebViewCreated", [ACTIVITY, "Landroid/webkit/WebView;"], "V"),
+            ("onResume", [ACTIVITY, "Landroid/webkit/WebView;"], "V"),
+            ("onPause", [ACTIVITY], "V"), ("onDestroy", [ACTIVITY], "V")]
+        self.assert_rejected(dex=make_dex(home_methods=home))
+
+    def test_home_requires_public_static_and_implemented_methods(self):
+        access = [ACC_PUBLIC | ACC_STATIC] * 5
+        access[0] = ACC_PUBLIC
+        self.assert_rejected(dex=make_dex(home_access=access))
+        access[0] = ACC_STATIC
+        self.assert_rejected(dex=make_dex(home_access=access))
+        self.assert_rejected(dex=make_dex(home_code=False))
 
     def test_absent_and_malformed_dex_are_rejected(self):
         self.assert_rejected(apk_kind="no-dex")

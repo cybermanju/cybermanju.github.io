@@ -51,8 +51,8 @@ describe('Android HOME lifecycle injection', () => {
     expect(newIntent.indexOf('setIntent(intent)')).toBeGreaterThan(-1)
     expect(newIntent.indexOf('setIntent(intent)')).toBeLessThan(newIntent.indexOf('super.onNewIntent(intent)'))
     expect(injected).toMatch(/override fun onResume\(\) \{\s*super\.onResume\(\)/)
-    expect(injected).toMatch(/override fun onPause\(\) \{\s*homeResumed = false\s*invalidateHomeDelivery\(\)\s*super\.onPause\(\)/)
-    expect(injected).toMatch(/override fun onDestroy\(\) \{[\s\S]*?homeWebView = null\s*super\.onDestroy\(\)/)
+    expect(injected).toMatch(/override fun onPause\(\) \{\s*CybermanjuHomeRole\.onPause\(this\)\s*homeResumed = false\s*invalidateHomeDelivery\(\)\s*super\.onPause\(\)/)
+    expect(injected).toMatch(/override fun onDestroy\(\) \{\s*CybermanjuHomeRole\.onDestroy\(this\)\s*homeResumed = false\s*invalidateHomeDelivery\(\)\s*homeWebView = null\s*super\.onDestroy\(\)/)
   })
 
   it('delivers an acknowledged HOME event only for pending HOME state without resetting WebView data', () => {
