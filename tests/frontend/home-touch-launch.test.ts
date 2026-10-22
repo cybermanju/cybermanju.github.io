@@ -90,6 +90,53 @@ describe('Home app icon launch on touch/click', () => {
     failedHide.unmount()
   })
 
+  it.each(['false', 'rejected'])('announces native suspend %s and blocks launch, customize, picker, and navigation', async outcome => {
+    const wrapper = mountStudio()
+    if (outcome === 'false') native.suspend.mockResolvedValue(false)
+    else native.suspend.mockRejectedValue(new Error('host unavailable'))
+
+    await wrapper.get('.workspace-launch').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('open')).toBeUndefined()
+    let alert = document.body.querySelector('[role="alert"]')
+    expect(alert?.textContent).toContain('Unlock and return to this app, then try again.')
+    expect(alert?.getAttribute('aria-live')).toBe('assertive')
+
+    await wrapper.get('.workspace-launch').trigger('contextmenu')
+    await flushPromises()
+    expect(wrapper.emitted('customize')).toBeUndefined()
+    await wrapper.get('button[aria-label="Add apps or widgets to home"]').trigger('click')
+    await flushPromises()
+    expect(document.body.querySelector('.studio-picker')).toBeNull()
+    await wrapper.get('[aria-label="Next home screen"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[aria-label="Go to Home, screen 1"]').attributes('aria-current')).toBe('page')
+    wrapper.unmount()
+  })
+
+  it('exposes safe hideNative feedback even while root is inert, then clears it after success', async () => {
+    const wrapper = mountStudio({ blocked: true, hidden: false })
+    const hideNative = (wrapper.vm as unknown as { hideNative: () => Promise<boolean> }).hideNative
+    let alert = document.body.querySelector('[role="alert"]')
+    expect(alert?.getAttribute('aria-live')).toBe('assertive')
+    expect(alert?.getAttribute('aria-atomic')).toBe('true')
+    expect(await hideNative()).toBe(false)
+    alert = document.body.querySelector('[role="alert"]')
+    expect(alert?.textContent).toContain('Unlock and return to this app, then try again.')
+    expect(wrapper.get('.home-studio').attributes('inert')).toBeDefined()
+    native.suspend.mockRejectedValueOnce(new Error('host unavailable'))
+    expect(await hideNative()).toBe(false)
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('Unlock and return to this app, then try again.')
+    native.suspend.mockResolvedValue(true)
+    expect(await hideNative()).toBe(true)
+    await flushPromises()
+    alert = document.body.querySelector('[role="alert"]')
+    expect(alert).not.toBeNull()
+    expect(alert?.textContent).toBe('')
+    expect(alert?.classList.contains('has-error')).toBe(false)
+    wrapper.unmount()
+  })
+
   it('lets an ordinary touch tap activate the existing icon action', async () => {
     const wrapper = mountStudio(), icon = wrapper.get('.workspace-launch').element
     const finger = touch(41, 120, 180, icon)

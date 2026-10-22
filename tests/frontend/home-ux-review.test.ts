@@ -19,8 +19,8 @@ function commandBar() {
   const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText
   const handoff = vi.fn()
   const open = vi.fn()
-  const handlers = new Function('ref', 'useWindowManager', 'stageHomeCommand', `${compiled}\nreturn { input, status, onEnter, stage }`)(
-    (value: string) => ({ value }), () => ({ open }), handoff,
+  const handlers = new Function('ref', 'useWindowManager', 'stageHomeCommand', 'defineProps', `${compiled}\nreturn { input, status, onEnter, stage }`)(
+    (value: string) => ({ value }), () => ({ open }), handoff, () => ({}),
   )
   return { ...handlers, handoff, open }
 }

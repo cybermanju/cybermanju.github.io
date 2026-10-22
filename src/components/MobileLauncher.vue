@@ -11,11 +11,13 @@
     role="main"
     aria-label="CyberManju home"
     @click.stop
+    @pointerdown.capture="onLauncherPointerDown"
+    @touchstart.capture.passive="onTouchStart"
+    @touchmove.capture="onTouchMove"
+    @touchend.capture="onTouchEnd"
+    @touchcancel.capture.passive="cancelLauncherTouch"
+    @contextmenu.capture="tapActivation.context"
     @click.capture="onLauncherClickCapture"
-    @touchstart.passive="onTouchStart"
-    @touchmove="onTouchMove"
-    @touchend.passive="onTouchEnd"
-    @touchcancel.passive="resetDrawerGesture"
   >
     <header data-ui-layout-ignore class="mla-home-toolbar" aria-label="Home tools">
       <button class="mla-mini-btn" type="button" aria-controls="home-search-tools" title="Focus search" @click="toggleSearchTools"><AppIcon name="solar:magnifier-bold" :size="19" /><span>Search</span></button>
@@ -26,8 +28,8 @@
       </div>
     </header>
     <section id="home-search-tools" class="mla-search-tools" aria-label="Search and commands" @focusin="activateSearchTools" @focusout="onSearchToolsBlur">
-      <OmniSearchPanel ref="searchRef" home class="mla-unified-search" />
-      <HomeCommandBar />
+      <OmniSearchPanel ref="searchRef" home :before-open="hideNative" class="mla-unified-search" />
+      <HomeCommandBar :before-open="hideNative" />
     </section>
     <HomeWorkspaceStudio ref="workspaceStudio" :apps="workspaceApps" :initial-ids="orderedApps.map(app => app.panel)" :blocked="hasOpenWindows || launcher.drawerOpen || launcher.messagesOpen || !!customHome || searchToolsOpen || !!query.trim()" @open="open($event as PanelType)" @customize="customizeWorkspaceApp" />
     <nav data-ui-layout-ignore v-if="dock.length" class="mla-dock" aria-label="Favorite apps">
@@ -114,7 +116,8 @@ import MessagesHub from '@/components/MessagesHub.vue'
 import HomeCommandBar from '@/components/HomeCommandBar.vue'
 import { moveHomeOrder } from '@/utils/homeLayout'
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { drawerGestureProgress, shouldCommitDrawerGesture } from '@/utils/drawerGesture'
+import { useHomeTapActivation } from '@/composables/useHomeTapActivation'
+import { useLauncherWorkspaceGestures } from '@/composables/useLauncherWorkspaceGestures'
 import { useTheme } from '@/composables/useTheme'
 import { useAppStore } from '@/stores/app'
 import { useLauncherStore } from '@/stores/launcher'
@@ -131,6 +134,8 @@ import type { PanelType } from '@/types'
 const store = useAppStore()
 const theme = useTheme()
 const themeId = computed(() => String(theme.themeId.value))
+const tapActivation = useHomeTapActivation()
+function cancelHomeTap() { tapActivation.cancel(); workspaceGestures.cancel(); resetDrawerGesture() }
 const wm = useWindowManager()
 const launcher = useLauncherStore()
 const androidApps = useAndroidApps()
@@ -161,17 +166,15 @@ async function hideNative() { return await workspaceStudio.value?.hideNative() ?
 async function openMessages(tab: 'system' | 'messages') { if (await hideNative()) launcher.setMessagesOpen(true, tab) }
 async function editWorkspace() { customHome.value = null; await workspaceStudio.value?.editScreen() }
 const hasOpenWindows = computed(() => wm.windows.value.some(window => !window.minimized))
-/** A downward gesture from the top edge focuses the app search, like system search. */
-let touchY: number | null = null
-let touchX: number | null = null
-/** Swipe-up (→ Gaveta drawer) anchors: kept for the whole gesture, because
- *  `touchY` is deliberately cleared mid-move by the pull-to-search path —
- *  reusing it for the end-check made the drawer gesture dead code. */
-let drawerStartY: number | null = null
-let drawerStartX: number | null = null
-let drawerStartTime = 0
 let suppressHomeClickUntil = 0
+function onLauncherPointerDown(event: PointerEvent) {
+  tapActivation.pointer(event)
+  if (event.isPrimary && event.pointerType !== 'touch') suppressHomeClickUntil = 0
+}
 function onLauncherClickCapture(event: MouseEvent) {
+  tapActivation.click(event)
+  if (event.defaultPrevented) return
+  if (event.detail === 0) return
   if ((event.target as HTMLElement | null)?.closest('.home-studio')) return
   if (Date.now() < suppressHomeClickUntil) {
     event.preventDefault()
@@ -179,7 +182,6 @@ function onLauncherClickCapture(event: MouseEvent) {
   }
 }
 const drawerProgress = ref(0)
-let swipeUpArmed = false
 let drawerFrame = 0
 let pendingDrawerProgress = 0
 function queueDrawerProgress(progress: number) {
@@ -191,75 +193,22 @@ function resetDrawerGesture() {
   if (drawerFrame) cancelAnimationFrame(drawerFrame)
   drawerFrame = 0
   drawerProgress.value = 0
-  swipeUpArmed = false
-  touchY = touchX = drawerStartY = drawerStartX = null
 }
-onUnmounted(resetDrawerGesture)
-function onTouchStart(event: TouchEvent) {
-  resetDrawerGesture()
-  if (launcher.drawerOpen || searchToolsOpen.value || !!customHome.value || launcher.messagesOpen) return
-  drawerStartTime = Date.now()
-  touchY = event.touches[0]?.clientY ?? null
-  touchX = event.touches[0]?.clientX ?? null
-  drawerStartY = touchY
-  drawerStartX = touchX
-  // Swipe-up-to-drawer only arms near the bottom of the screen so normal
-  // vertical scrolling of the home never triggers the Gaveta by accident.
-  try {
-    swipeUpArmed =
-      !launcher.drawerOpen &&
-      touchY != null &&
-      touchY > window.innerHeight * 0.55 &&
-      (event.touches.length ?? 0) === 1 &&
-      !(event.target as HTMLElement | null)?.closest('input, textarea, [contenteditable], .mla-pages, .mla-custom-veil')
-  } catch {
-    swipeUpArmed = false
-  }
-}
-function onTouchEnd(event: TouchEvent) {
-  if (swipeUpArmed && drawerStartY != null && drawerStartX != null && !launcher.drawerOpen) {
-    const endY = event.changedTouches[0]?.clientY ?? drawerStartY
-    const endX = event.changedTouches[0]?.clientX ?? drawerStartX
-    const vertical = drawerStartY - endY
-    const horizontal = Math.abs(endX - drawerStartX)
-    const tag = (event.target as HTMLElement | null)?.tagName ?? ''
-    if (shouldCommitDrawerGesture(vertical, horizontal, Date.now() - drawerStartTime) && tag !== 'INPUT' && tag !== 'TEXTAREA') {
-      suppressHomeClickUntil = Date.now() + 450
-      void openDrawer()
-      try {
-        ;(navigator as Navigator & { vibrate?: (pattern: number) => boolean }).vibrate?.(10)
-      } catch { /* optional haptic feedback */ }
-    }
-  }
-  resetDrawerGesture()
-}
-function onTouchMove(event: TouchEvent) {
-  const root = rootRef.value
-  // Once the home list itself scrolls, the gesture belongs to content —
-  // never the drawer.
-  if (swipeUpArmed && drawerStartY != null && drawerStartX != null) {
-    const point = event.touches[0]
-    const travel = drawerStartY - (point?.clientY ?? drawerStartY)
-    const sideways = Math.abs((point?.clientX ?? drawerStartX) - drawerStartX)
-    if (event.touches.length !== 1 || sideways >= 60) resetDrawerGesture()
-    else if (travel > 10 && travel > sideways) {
-      if (!event.cancelable) { resetDrawerGesture(); return }
-      event.preventDefault()
-      suppressHomeClickUntil = Date.now() + 450
-      // One visual update per paint; the sheet travels with the finger, not at 3× its speed.
-      queueDrawerProgress(drawerGestureProgress(travel, Math.min(window.visualViewport?.height ?? window.innerHeight, 800)))
-    } else if (travel <= 0) queueDrawerProgress(0)
-  }
-  if (touchY == null) return
-  const y = event.touches[0]?.clientY ?? touchY
-  if (y - touchY > 72 && (root?.scrollTop ?? 0) <= 0 && document.activeElement !== root?.querySelector('.omni-bar__input')) {
-    touchY = null
-    void toggleSearchTools()
-    return
-  }
-  if (Math.abs(y - touchY) > 10) touchY = null
-}
-
+// Capture observes one-finger workspace gestures before the Home surface stops
+// bubbling. Multitouch, controls, widgets, edit/overview and content scroll stay
+// with their original owners; the app-wide Pointer recognizer remains excluded.
+const workspaceGestures = useLauncherWorkspaceGestures({
+  blocked: () => hasOpenWindows.value || launcher.drawerOpen || searchToolsOpen.value || !!query.value.trim() || !!customHome.value || launcher.messagesOpen,
+  openDrawer: () => { void openDrawer() },
+  openSearch: () => { void toggleSearchTools() },
+  progress: value => { if (value === 0) resetDrawerGesture(); else queueDrawerProgress(value) },
+  suppressClick: () => { suppressHomeClickUntil = Date.now() + 800 },
+})
+function onTouchStart(event: TouchEvent) { tapActivation.start(event); workspaceGestures.start(event) }
+function onTouchMove(event: TouchEvent) { tapActivation.move(event); workspaceGestures.move(event) }
+function onTouchEnd(event: TouchEvent) { tapActivation.end(event); workspaceGestures.end(event) }
+function cancelLauncherTouch(event: TouchEvent) { tapActivation.cancel(event); workspaceGestures.cancel(event); resetDrawerGesture() }
+onUnmounted(cancelHomeTap)
 function handleMsgVisible() {
   if (document.visibilityState !== 'visible') return
   // `refresh()` early-returns on a cached 'ready' — force so returning to the
@@ -274,6 +223,8 @@ function handleMsgVisible() {
 }
 
 onMounted(() => {
+  window.addEventListener('blur', cancelHomeTap)
+  document.addEventListener('visibilitychange', cancelHomeTap)
   void store.fetchDisks().catch(() => {})
   void store.fetchTrashItems().catch(() => {})
   void store.fetchSyncConfigs().catch(() => {})
@@ -286,6 +237,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   onHomePressEnd()
+  window.removeEventListener('blur', cancelHomeTap)
+  document.removeEventListener('visibilitychange', cancelHomeTap)
   document.removeEventListener('visibilitychange', handleMsgVisible)
 })
 

@@ -9,6 +9,7 @@ import { drawerGestureProgress, shouldCommitDrawerGesture } from '@/utils/drawer
 
 const drawer = readFileSync('src/components/AppDrawer.vue', 'utf8')
 const launcher = readFileSync('src/components/MobileLauncher.vue', 'utf8')
+const workspace = readFileSync('src/composables/useLauncherWorkspaceGestures.ts', 'utf8')
 
 describe('drawer gesture policy', () => {
   it('maps distance to bounded sheet progress without overshoot', () => {
@@ -65,10 +66,11 @@ describe('drawer motion integration', () => {
     expect(drawer).toContain('.is-dragging .app-drawer { will-change: transform; transition: none; }')
   })
   it('coalesces home preview updates and cancels pending frames on exit', () => {
-    expect(launcher).toContain('queueDrawerProgress(drawerGestureProgress(')
+    expect(workspace).toContain('drawerGestureProgress(')
+    expect(launcher).toContain('queueDrawerProgress(value)')
     expect(launcher).toContain('if (drawerFrame) cancelAnimationFrame(drawerFrame)')
-    expect(launcher).toContain('onUnmounted(resetDrawerGesture)')
-    expect(launcher).toContain('@touchmove="onTouchMove"')
-    expect(launcher).toContain('shouldCommitDrawerGesture(vertical, horizontal, Date.now() - drawerStartTime)')
+    expect(launcher).toContain('onUnmounted(cancelHomeTap)')
+    expect(launcher).toContain('@touchmove.capture="onTouchMove"')
+    expect(workspace).toContain('shouldCommitDrawerGesture(')
   })
 })

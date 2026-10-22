@@ -28,36 +28,6 @@ function shellPointerDown(machine: ReturnType<typeof createSwipeMachine>, target
   handler(machine, () => {}, { target, ...pointer(99, 0) })
 }
 
-// Run the actual launcher onTouchStart function body with isolated local state.
-function launcherTouchStart() {
-  const match = launcherSource.match(/function onTouchStart\(event: TouchEvent\) \{([\s\S]*?)\n\}\nfunction onTouchEnd/)
-  if (!match) throw new Error('Could not locate MobileLauncher onTouchStart')
-  let touchY: number | null = null
-  let touchX: number | null = null
-  let drawerStartY: number | null = null
-  let drawerStartX: number | null = null
-  let drawerStartTime = 0
-  let swipeUpArmed = false
-  let resetCount = 0
-  const resetDrawerGesture = () => {
-    resetCount++
-    swipeUpArmed = false
-    touchY = touchX = drawerStartY = drawerStartX = null
-  }
-  const launcher = { drawerOpen: false, messagesOpen: false }
-  const searchToolsOpen = { value: false }
-  const customHome = { value: null as unknown }
-  const window = { innerHeight: 800 }
-  const body = match[1].replaceAll('(event.target as HTMLElement | null)', 'event.target')
-  const handler = new Function('resetDrawerGesture', 'launcher', 'searchToolsOpen', 'customHome', 'window', 'Date', 'event', body) as (...args: unknown[]) => void
-  return {
-    start(target: { closest: (selector: string) => unknown }, touches: Array<{ clientX: number; clientY: number }>) {
-      handler(resetDrawerGesture, launcher, searchToolsOpen, customHome, window, Date, { target, touches })
-    },
-    state: () => ({ touchY, touchX, drawerStartY, drawerStartX, drawerStartTime, swipeUpArmed, resetCount }),
-  }
-}
-
 describe('Home gesture ownership', () => {
   it('shell does not enroll pointerdowns started under Home or terminal exclusions', () => {
     const selectors = ['[data-shell-gesture-exclude]', '.terminal-gesture-exclude']
@@ -91,12 +61,17 @@ describe('Home gesture ownership', () => {
     expect(actions).toBe(0)
   })
 
-  it('Home stops touch events from bubbling to the launcher gesture surface', () => {
+  it('Home keeps local bubbling ownership while the launcher observes touch in capture', () => {
     const studio = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
     expect(studio).toMatch(/class="home-studio"[^>]*data-shell-gesture-exclude[^>]*@touchstart\.stop/)
     expect(studio).toMatch(/@touchmove\.stop/)
     expect(studio).toMatch(/@touchend\.stop/)
     expect(studio).toMatch(/@touchcancel\.stop/)
+    expect(launcherSource).toContain('@touchstart.capture.passive="onTouchStart"')
+    expect(launcherSource).toContain('@touchmove.capture="onTouchMove"')
+    expect(launcherSource).toContain('@touchend.capture="onTouchEnd"')
+    expect(launcherSource).toContain('@touchcancel.capture.passive="cancelLauncherTouch"')
+    expect(launcherSource).not.toContain('@touchstart.passive="onTouchStart"')
   })
 
   it('HomeWorkspaceStudio root declares the shell-exclusion marker', () => {

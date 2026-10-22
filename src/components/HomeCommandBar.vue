@@ -9,7 +9,9 @@ import AppIcon from '@/components/AppIcon.vue'
 import { stageHomeCommand, type HomeCommandTarget } from '@/composables/useHomeCommandHandoff'
 import { useWindowManager } from '@/composables/useWindowManager'
 
+const props = defineProps<{ beforeOpen?: () => Promise<boolean> }>()
 const wm = useWindowManager()
+const opening = ref(false)
 const input = ref('')
 const status = ref('')
 
@@ -20,13 +22,19 @@ function onEnter(event: KeyboardEvent) {
   stage(event.shiftKey ? 'terminal' : 'agent')
 }
 
-function stage(target: HomeCommandTarget) {
+async function stage(target: HomeCommandTarget) {
   const text = input.value.trim()
-  if (!text) return
-  stageHomeCommand(target, text)
-  wm.open(target)
-  status.value = target === 'agent' ? 'Added to Assistant draft' : 'Added to cybsh draft'
-  input.value = ''
+  if (!text || opening.value) return
+  opening.value = true
+  try {
+    if (props.beforeOpen && !await props.beforeOpen()) return
+    stageHomeCommand(target, text)
+    wm.open(target)
+    status.value = target === 'agent' ? 'Added to Assistant draft' : 'Added to cybsh draft'
+    if (input.value.trim() === text) input.value = ''
+  } catch {
+    status.value = 'Could not safely open this draft. Try again.'
+  } finally { opening.value = false }
 }
 </script>
 

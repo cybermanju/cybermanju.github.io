@@ -128,7 +128,7 @@ import { duckDuckGoSearchUrl } from '@/utils/duckDuckGoSearch'
 import { handleSearchLink, openSearchLink } from '@/utils/searchExternal'
 import { SEARCH_CATEGORIES, INITIAL_ROWS_PER_SECTION, MAX_VISIBLE_ROWS_PER_SECTION, countSearchCategories, countSectionRows, filterSearchSections, nextVisibleRowCount, sharedSearchCategory, sharedSearchVisibleRows, resetSearchVisibleRows, type SearchCategory } from '@/utils/searchPresentation'
 
-const props = withDefaults(defineProps<{ home?: boolean }>(), { home: false })
+const props = withDefaults(defineProps<{ home?: boolean; beforeOpen?: () => Promise<boolean> }>(), { home: false })
 const store = useAppStore()
 const theme = useTheme()
 const isFlatAmoled = computed(() => theme.themeId.value === 'flat-amoled')
@@ -341,7 +341,10 @@ function openFilesAt(fileId: string) {
   wm.open('files')
 }
 
-function activate(sec: OmniSectionId, row: OmniRow) {
+async function activate(sec: OmniSectionId, row: OmniRow) {
+  if (props.beforeOpen) {
+    try { if (!await props.beforeOpen()) return } catch { return }
+  }
   if (q.value) rememberSearch(q.value)
   if (sec === 'apps') wm.open(row.refId as PanelType)
   else if (sec === 'collections') {
@@ -452,7 +455,10 @@ async function createCollectionFromQuery() {
   await store.createCollection(name, 'custom', '#FFFFFF')
 }
 
-function openCtx(e: MouseEvent, sec: OmniSectionId, row: OmniRow) {
+async function openCtx(e: MouseEvent, sec: OmniSectionId, row: OmniRow) {
+  if (props.beforeOpen) {
+    try { if (!await props.beforeOpen()) return } catch { return }
+  }
   const entries: ContextMenuEntry[] = []
   const fileSubmenu: ContextMenuEntry[] = store.collections.map((c) => ({
     id: `add-to-${c.id}`, label: c.name.toUpperCase().slice(0, 32), icon: 'solar:library-bold',
@@ -503,7 +509,7 @@ function openCtx(e: MouseEvent, sec: OmniSectionId, row: OmniRow) {
   } else if (sec === 'providers') {
     entries.push(
       { id: 'open', label: 'OPEN FILE MANAGER IN PROVIDER', icon: 'solar:folder-open-bold', action: () => activate(sec, row) },
-      { id: 'sync', label: 'OPEN SYNC PANEL', icon: 'solar:refresh-bold', action: () => wm.open('sync') },
+      { id: 'sync', label: 'OPEN SYNC PANEL', icon: 'solar:refresh-bold', action: () => activate('apps', { ...row, refId: 'sync' }) },
       { id: 'div1', label: '', divider: true },
       { id: 'copy', label: 'COPY PROVIDER ID', icon: 'solar:copy-bold', action: () => { void copyText(row.refId) } },
     )
@@ -524,7 +530,7 @@ function openCtx(e: MouseEvent, sec: OmniSectionId, row: OmniRow) {
       },
       { id: 'div2', label: '', divider: true },
       { id: 'copy', label: 'COPY PATH', icon: 'solar:copy-bold', action: () => { void copyText(f?.path ?? row.name) } },
-      { id: 'show', label: 'SHOW IN FOLDER', icon: 'solar:folder-search-bold', action: () => openFilesAt(row.refId) },
+      { id: 'show', label: 'SHOW IN FOLDER', icon: 'solar:folder-search-bold', action: () => activate('files', row) },
       { id: 'div3', label: '', divider: true },
       { id: 'delete', label: 'DELETE', icon: 'solar:trash-bin-trash-bold', action: () => { void store.deleteFile(row.refId) } },
     )

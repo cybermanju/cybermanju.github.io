@@ -8,6 +8,7 @@
       <div class="studio-tools"><button ref="overviewButton" type="button" :aria-pressed="overview" aria-controls="home-screen-overview" aria-label="Overview of home screens" @click="toggleOverview"><AppIcon name="solar:widget-bold" :size="20" /></button><button type="button" :aria-pressed="editing" @click="toggleEditing">{{ editing ? 'Done' : 'Edit' }}</button><button ref="addButton" class="studio-add" type="button" aria-label="Add apps or widgets to home" @click="openPicker('apps')"><span aria-hidden="true">+</span></button></div>
     </div>
     <p class="studio-status" role="status">{{ message }}</p>
+    <Teleport to="body"><div class="native-suspend-alert" :class="{ 'has-error': suspendError }" role="alert" aria-live="assertive" aria-atomic="true">{{ suspendError }}</div></Teleport>
     <div class="studio-stage">
     <section v-if="overview" id="home-screen-overview" class="overview-surface" aria-label="Home screen overview">
       <div class="overview-bar"><strong>Screen overview</strong><button type="button" :disabled="state.pages.length >= MAX_WORKSPACES" @click="newScreen">+ New screen</button><button type="button" aria-label="Zoom out overview" @click="zoom = Math.max(.65, zoom - .15)">−</button><span>{{ Math.round(zoom * 100) }}%</span><button type="button" aria-label="Zoom in overview" @click="zoom = Math.min(1.4, zoom + .15)">+</button><button type="button" @click="zoom = 1; panX = 0; panY = 0">Reset</button><button type="button" @click="closeOverview">Done</button></div>
@@ -23,7 +24,7 @@
     </section>
     <div class="studio-home" :inert="overview" :aria-hidden="overview || undefined">
       <div v-if="editing" class="screen-tools"><button type="button" :disabled="state.pages.length >= MAX_WORKSPACES" @click="newScreen">+ New screen</button><button type="button" :aria-pressed="editing" @click="toggleEditing">{{ editing ? 'Done editing' : 'Edit screen' }}</button><button type="button" @click="openPicker('widgets')">Widget library</button></div>
-      <HomeDefaultRoleAction v-if="editing" :before-request="nativeHome.suspend" />
+      <HomeDefaultRoleAction v-if="editing" :before-request="suspendHome" />
       <label v-if="editing" class="screen-name">Screen name<input v-model="activePage.title" maxlength="40" aria-label="Screen name" /></label>
         <div v-for="page in visitedPages" v-show="page.id === state.activeId" :key="page.id" class="workspace-content" tabindex="0" aria-label="Home screen canvas" :inert="page.id !== state.activeId"
           @pointerdown="emptyPress.down" @pointermove="emptyPress.move" @pointerleave="emptyPress.cancel" @pointerup="emptyPress.cancel" @pointercancel="emptyPress.cancel"
@@ -72,6 +73,7 @@ const emit = defineEmits<{ open: [id: string]; customize: [id: string] }>()
 const androidApps = useAndroidApps()
 const motion = useMotion()
 const message = ref('')
+const suspendError = ref('')
 function load() { try { return JSON.parse(localStorage.getItem(HOME_WORKSPACE_KEY) || 'null') } catch { return null } }
 const state = ref(normalizeHomeState(load(), props.initialIds))
 const overview = ref(false), editing = ref(false), zoom = ref(1), panX = ref(0), panY = ref(0)
@@ -90,18 +92,33 @@ function isNative(item: HomeItem) { return item.kind === 'widget' && item.ref.st
 function itemTitle(item: HomeItem) { if (isNative(item)) return String(item.data?.label || nativeLabel(nativeRecord(item)?.provider || String(item.data?.provider || ''))); return item.kind === 'app' ? appFor(item.ref)?.label || 'Unavailable app' : widgetFor(item.ref)?.title || 'Unavailable widget' }
 function itemIcon(item: HomeItem) { if (isNative(item)) return 'solar:widget-bold'; return (item.kind === 'app' ? appFor(item.ref)?.icon : widgetFor(item.ref)?.icon) || 'solar:widget-bold' }
 watch(state, value => { try { localStorage.setItem(HOME_WORKSPACE_KEY, JSON.stringify(value)) } catch { message.value = 'Storage unavailable — changes last only for this session.' } }, { deep: true, immediate: true })
-async function navigate(index: number, epoch = gestureEpoch) { if (props.blocked || epoch !== gestureEpoch || !await nativeHome.suspend() || props.blocked || epoch !== gestureEpoch) return; if (state.value.pages[index]) { state.value.activeId = state.value.pages[index]!.id; message.value = '' } }
-async function launch(id: string) { const epoch = gestureEpoch; if (props.blocked || !await nativeHome.suspend() || props.blocked || epoch !== gestureEpoch) return; if (id.startsWith('android:')) { try { await androidApps.openApp(id.slice(8)) } catch { message.value = 'This Android app is unavailable. Try refreshing All apps.' } } else if (props.apps.some(app => app.id === id)) emit('open', id); else message.value = 'This app is unavailable. Open All apps to choose another.' }
-async function customize(id: string) { if (props.blocked || !await nativeHome.suspend()) return; if (!id.startsWith('android:')) emit('customize', id); else message.value = 'Customize Android apps in All apps.' }
+async function navigate(index: number, epoch = gestureEpoch) { if (props.blocked || epoch !== gestureEpoch || !await suspendHome() || props.blocked || epoch !== gestureEpoch) return; if (state.value.pages[index]) { state.value.activeId = state.value.pages[index]!.id; message.value = '' } }
+async function launch(id: string) { const epoch = gestureEpoch; if (props.blocked || !await suspendHome('Could not safely hide native widgets. Unlock and return to this app, then try again. No app was opened.') || props.blocked || epoch !== gestureEpoch) return; if (id.startsWith('android:')) { try { await androidApps.openApp(id.slice(8)) } catch { message.value = 'This Android app is unavailable. Try refreshing All apps.' } } else if (props.apps.some(app => app.id === id)) emit('open', id); else message.value = 'This app is unavailable. Open All apps to choose another.' }
+async function customize(id: string) { if (props.blocked || !await suspendHome()) return; if (!id.startsWith('android:')) emit('customize', id); else message.value = 'Customize Android apps in All apps.' }
 function hasItem(kind: HomeItem['kind'], id: string) { return activePage.value.items.some(i => i.kind === kind && i.ref === id) }
 function add(kind: HomeItem['kind'], id: string) { const item = { id: globalThis.crypto?.randomUUID?.() || `item-${Date.now()}-${Math.random().toString(36).slice(2)}`, kind, ref: id }; if (hasItem(kind, id)) return; message.value = addHomeItem(state.value, activePage.value.id, item) ? 'Added to this screen.' : `This screen is full (${MAX_ITEMS_PER_WORKSPACE} items). Choose another screen.` }
 async function removeItem(item: HomeItem) { if (isNative(item)) { await removeNative(item); return } removeHomeItem(state.value, activePage.value.id, item.id); message.value = 'Removed from this screen.' }
-async function moveItem(item: HomeItem, target: string) { if (!await nativeHome.suspend()) return; message.value = moveHomeItem(state.value, item.id, activePage.value.id, target) ? 'Moved to screen.' : 'Could not move: destination is full or already contains this item.' }
+async function moveItem(item: HomeItem, target: string) { if (!await suspendHome()) return; message.value = moveHomeItem(state.value, item.id, activePage.value.id, target) ? 'Moved to screen.' : 'Could not move: destination is full or already contains this item.' }
 const picker = ref<'apps' | 'widgets' | null>(null), pickerQuery = ref(''), widgetCategory = ref('All'), widgetType = ref('All types')
 const nativeHome = useHomeNativeWidgets(root, state, () => overview.value || editing.value || !!picker.value || !!props.blocked)
 const native = nativeHome.bridge
+async function suspendHome(failureMessage = 'Could not safely hide native widgets. Unlock and return to this app, then try again.') {
+  // Keep the live region mounted and empty for a beat so identical failures
+  // from consecutive, explicit user retries are announced again.
+  suspendError.value = ''
+  await nextTick()
+  try {
+    const ok = await nativeHome.suspend()
+    if (ok) suspendError.value = ''
+    else suspendError.value = failureMessage
+    return ok
+  } catch {
+    suspendError.value = failureMessage
+    return false
+  }
+}
 let previousFocus: HTMLElement | null = null
-async function openPicker(tab: 'apps' | 'widgets') { if (props.blocked) return; previousFocus = document.activeElement as HTMLElement; if (!await nativeHome.suspend()) { message.value = 'Could not hide native widgets safely. Check host status before opening a menu.'; return } picker.value = tab; pickerQuery.value = ''; message.value = ''; if (androidApps.supported) void androidApps.refresh().catch(() => {}); await nextTick(); dialog.value?.focus() }
+async function openPicker(tab: 'apps' | 'widgets') { if (props.blocked) return; previousFocus = document.activeElement as HTMLElement; if (!await suspendHome()) return; picker.value = tab; pickerQuery.value = ''; message.value = ''; if (androidApps.supported) void androidApps.refresh().catch(() => {}); await nextTick(); dialog.value?.focus() }
 async function closePicker() { picker.value = null; await nextTick(); if (previousFocus?.isConnected && previousFocus !== document.body) previousFocus.focus(); else addButton.value?.focus() }
 function dialogKeys(event: KeyboardEvent) { if (event.key === 'Escape') { event.stopPropagation(); closePicker(); return } if (event.key !== 'Tab') return; const nodes = Array.from(dialog.value?.querySelectorAll<HTMLElement>('button:not(:disabled),input,select,textarea,a[href]') || []); const first = nodes[0], last = nodes[nodes.length - 1]; if (!first || !last) return; if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.value)) { event.preventDefault(); last.focus() } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.value)) { event.preventDefault(); first.focus() } }
 const pickerApps = computed(() => allApps.value.filter(a => a.label.toLowerCase().includes(pickerQuery.value.toLowerCase())))
@@ -121,8 +138,8 @@ function workspaceKeys(event: KeyboardEvent) {
   const index = ['ArrowRight', 'ArrowDown'].includes(event.key) ? activeIndex.value + 1 : ['ArrowLeft', 'ArrowUp'].includes(event.key) ? activeIndex.value - 1 : event.key === 'Home' ? 0 : event.key === 'End' ? state.value.pages.length - 1 : null
   if (index !== null) { event.preventDefault(); event.stopPropagation(); void navigate(index) }
 }
-async function closeOverview() { if (!await nativeHome.suspend()) return; overview.value = false; resetTouch(); await nextTick(); overviewButton.value?.focus({ preventScroll: true }) }
-async function selectScreen(index: number) { if (props.blocked || !await nativeHome.suspend()) return; await navigate(index); await closeOverview() }
+async function closeOverview() { if (!await suspendHome()) return; overview.value = false; resetTouch(); await nextTick(); overviewButton.value?.focus({ preventScroll: true }) }
+async function selectScreen(index: number) { if (props.blocked || !await suspendHome()) return; await navigate(index); await closeOverview() }
 
 const dragging = ref<{ id: string; from: string; x: number; y: number } | null>(null)
 function beginDrag(event: PointerEvent, item: HomeItem, from: string) { if (event.button !== 0 || !overview.value) return; event.stopPropagation(); dragging.value = { id: item.id, from, x: event.clientX, y: event.clientY }; (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId) }
@@ -140,6 +157,12 @@ function touchStart(event: TouchEvent) {
   const starting = touchCount === 0
   touchCount = event.touches.length
   if (starting) { gestureEpoch++; gesture = null }
+  // Pointerdown precedes touchstart. A tile drag already has a Pointer owner;
+  // do not erase it just because its corresponding touch event arrives.
+  if (dragging.value) {
+    resetTouch(touchCount !== 1 || !!props.blocked || editing.value || !!picker.value)
+    return
+  }
   if (touchBlocked) return
   if (props.blocked || editing.value || picker.value || dragging.value || ![1, 2, 3].includes(touchCount)) { resetTouch(); return }
   if (excludedTouchTarget(event.target) || Array.from(event.touches).some(p => excludedTouchTarget(p.target))) { resetTouch(); return }
@@ -149,13 +172,14 @@ function touchStart(event: TouchEvent) {
   if (gesture && (gesture.releasing || gesture.moved || touchCount <= gesture.fingers)) { resetTouch(); return }
   if (touchCount === 1 && ((event.target as HTMLElement).closest('button,a') || overview.value)) return
   const point = center(event.touches)
-  const current = { ...point, fingers: touchCount, lastX: point.x, lastY: point.y, distance: distance(event.touches), zoom: zoom.value, panX: panX.value, panY: panY.value, hidden: gesture?.hidden ?? nativeHome.suspend(), ready: false, epoch: gestureEpoch, inOverview: overview.value, moved: false, releasing: false, contacts: Array.from(event.touches, p => ({ id: p.identifier, x: p.clientX, y: p.clientY })) }
+  const current = { ...point, fingers: touchCount, lastX: point.x, lastY: point.y, distance: distance(event.touches), zoom: zoom.value, panX: panX.value, panY: panY.value, hidden: gesture?.hidden ?? suspendHome(), ready: false, epoch: gestureEpoch, inOverview: overview.value, moved: false, releasing: false, contacts: Array.from(event.touches, p => ({ id: p.identifier, x: p.clientX, y: p.clientY })) }
   gesture = current
   void current.hidden.then(ok => { if (gesture !== current || current.epoch !== gestureEpoch) return; current.ready = ok; if (!ok) resetTouch() })
 }
 function touchMove(event: TouchEvent) {
   touchSafety.move(event)
   touchCount = event.touches.length
+  if (dragging.value) { if (touchCount !== 1) resetTouch(); return }
   if (touchBlocked) return
   if (props.blocked || !gesture || picker.value || editing.value) { resetTouch(); return }
   if (gesture.releasing || dragging.value || touchCount !== gesture.fingers || Array.from(event.touches).some(p => !gesture!.contacts.some(c => c.id === p.identifier))) { resetTouch(); return }
@@ -207,7 +231,7 @@ async function touchEnd(event: TouchEvent) {
   if (current.fingers === 2 && current.inOverview) { nativeHome.schedule(); return }
   const action = classifyHomeGesture(current.lastX - current.x, current.lastY - current.y, current.fingers)
   if (action === 'overview-open') {
-    if (!await nativeHome.suspend() || !currentGesture(current)) return
+    if (!await suspendHome() || !currentGesture(current)) return
     overview.value = true
   }
   if (action === 'overview-close') overview.value = false
@@ -218,14 +242,14 @@ async function touchEnd(event: TouchEvent) {
   nativeHome.schedule()
 }
 function cancelTouch(event: TouchEvent) { touchSafety.cancel(event); touchCount = event.touches.length; resetTouch() }
-function resetTouch() { gestureEpoch++; gesture = null; dragging.value = null; touchBlocked = touchCount > 0 }
+function resetTouch(cancelDrag = true) { gestureEpoch++; gesture = null; if (cancelDrag) dragging.value = null; touchBlocked = touchCount > 0 }
 function invalidateTouch() { touchSafety.cancel(); resetTouch() }
 onMounted(() => { window.addEventListener('blur', invalidateTouch); document.addEventListener('visibilitychange', invalidateTouch); if (androidApps.supported) void androidApps.refresh().catch(() => {}) })
 function removeApp(id: string) { for (const page of state.value.pages) { const item = page.items.find(i => i.kind === 'app' && i.ref === id); if (item) removeHomeItem(state.value, page.id, item.id) } }
 function reorderApp(id: string, direction: -1 | 1) { const items = activePage.value.items; const from = items.findIndex(i => i.kind === 'app' && i.ref === id); const target = from + direction; if (from < 0 || target < 0 || target >= items.length) return; const [item] = items.splice(from, 1); items.splice(target, 0, item!) }
-async function newScreen() { if (!await nativeHome.suspend()) return; message.value = createHomeWorkspace(state.value) ? 'New screen saved on this device.' : '24-screen limit reached.'; overview.value = false }
-async function toggleOverview() { resetTouch(); if (props.blocked || !await nativeHome.suspend()) return; if (overview.value) await closeOverview(); else { editing.value = false; overview.value = true } }
-async function toggleEditing() { if (await nativeHome.suspend()) { overview.value = false; editing.value = !editing.value } }
+async function newScreen() { if (!await suspendHome()) return; message.value = createHomeWorkspace(state.value) ? 'New screen saved on this device.' : '24-screen limit reached.'; overview.value = false }
+async function toggleOverview() { resetTouch(); if (props.blocked || !await suspendHome()) return; if (overview.value) await closeOverview(); else { editing.value = false; overview.value = true } }
+async function toggleEditing() { if (await suspendHome()) { overview.value = false; editing.value = !editing.value } }
 function nativeLabel(provider: string) { return native.providers.value.find(p => p.provider === provider)?.label || 'Android widget' }
 function nativeRecord(item: HomeItem) { return native.records.value.find(r => r.placementId === item.id) }
 function nativeState(item: HomeItem) { const record = nativeRecord(item); if (!native.supported) return 'Native Android app required.'; if (native.status.value === 'unsupported') return 'Widget host unavailable in this build.'; if (!record) return 'No saved binding found. Check status; remove this placeholder if setup was denied.'; if (record.state !== 'ready') return `${record.state === 'binding' ? 'Waiting for Android approval' : 'Waiting for provider configuration'} — finish or cancel setup.`; return record.providerAvailable ? 'Ready · native interaction when fully visible and settled.' : 'Provider unavailable. Reinstall the provider or remove this placement.' }
@@ -236,7 +260,7 @@ function nativeWidth(item: HomeItem) { const width = Number(item.data?.widthDp);
 function resizeNativeWidth(item: HomeItem, value: string) { const width = Number(value); if (!Number.isFinite(width)) return; item.data = { ...item.data, widthDp: Math.max(nativeMinWidth(item), Math.min(640, width)) }; nativeHome.schedule() }
 function resizeNative(item: HomeItem, value: string) { const height = Number(value); if (!Number.isFinite(height)) return; item.data = { ...item.data, heightDp: Math.max(nativeMinimum(item), Math.min(640, height)) }; nativeHome.schedule() }
 function placementExists(id: string) { return state.value.pages.some(p => p.items.some(i => i.id === id)) }
-async function checkNative(includeProviders: boolean | Event = false) { await nativeHome.suspend(true); await native.refresh(includeProviders === true); nativeHome.schedule(true) }
+async function checkNative(includeProviders: boolean | Event = false) { if (!await suspendHome()) return; await native.refresh(includeProviders === true); nativeHome.schedule(true) }
 async function addNative(provider: NativeWidgetProvider) {
   const confirmation = widgetConfirmation()
   if (native.busy.value || nativePending.value || native.status.value !== 'ready') return
@@ -246,19 +270,19 @@ async function addNative(provider: NativeWidgetProvider) {
   const ok = await native.mutate('add', { provider: provider.provider, placementId: id }, confirmation)
   message.value = ok ? 'Android setup started. Complete approval/configuration, then check status.' : 'Setup result needs review. Check saved placements; no add was repeated.'
 }
-async function configureNative(item: HomeItem) { const confirmation = widgetConfirmation(), record = nativeRecord(item); if (!record || !await nativeHome.suspend()) return; await native.mutate('configure', { appWidgetId: record.appWidgetId }, confirmation); nativeHome.schedule(true) }
+async function configureNative(item: HomeItem) { const confirmation = widgetConfirmation(), record = nativeRecord(item); if (!record || !await suspendHome()) return; await native.mutate('configure', { appWidgetId: record.appWidgetId }, confirmation); nativeHome.schedule(true) }
 async function removeNative(item: HomeItem, cancel = false) {
   const confirmation = widgetConfirmation()
-  if (!await nativeHome.suspend() || !await native.refresh()) return
+  if (!await suspendHome() || !await native.refresh()) return
   const record = nativeRecord(item)
   if (record) { await native.mutate(cancel || record.state !== 'ready' ? 'cancel' : 'remove', { appWidgetId: record.appWidgetId }, confirmation); if (native.records.value.some(r => r.placementId === item.id)) { message.value = 'Placement remains saved. Check status before another action.'; return } }
   for (const page of state.value.pages) removeHomeItem(state.value, page.id, item.id)
   message.value = 'Android placement removed.'
 }
-async function removeNativeRecord(record: NativeWidgetRecord) { const confirmation = widgetConfirmation(); if (!await nativeHome.suspend()) return; await native.mutate(record.state === 'ready' ? 'remove' : 'cancel', { appWidgetId: record.appWidgetId }, confirmation); if (!native.records.value.some(r => r.placementId === record.placementId)) for (const page of state.value.pages) removeHomeItem(state.value, page.id, record.placementId) }
+async function removeNativeRecord(record: NativeWidgetRecord) { const confirmation = widgetConfirmation(); if (!await suspendHome()) return; await native.mutate(record.state === 'ready' ? 'remove' : 'cancel', { appWidgetId: record.appWidgetId }, confirmation); if (!native.records.value.some(r => r.placementId === record.placementId)) for (const page of state.value.pages) removeHomeItem(state.value, page.id, record.placementId) }
 function restoreNative(record: NativeWidgetRecord) { const item: HomeItem = { id: record.placementId, kind: 'widget', ref: `native:${record.placementId}`, data: { provider: record.provider, label: nativeLabel(record.provider).slice(0, 200), heightDp: Math.max(1, record.heightDp || 180), widthDp: Math.max(1, record.widthDp || 280) } }; message.value = addHomeItem(state.value, activePage.value.id, item) ? 'Saved placement restored to this screen.' : 'Cannot restore: this screen is full or placement already exists.' }
-async function editScreen() { if (await nativeHome.suspend()) editing.value = true }
-defineExpose({ removeApp, reorderApp, hideNative: nativeHome.suspend, editScreen })
+async function editScreen() { if (await suspendHome()) editing.value = true }
+defineExpose({ removeApp, reorderApp, hideNative: suspendHome, editScreen })
 watch(() => [props.blocked, picker.value, editing.value], () => invalidateTouch(), { flush: 'sync' })
 onUnmounted(() => { window.removeEventListener('blur', invalidateTouch); document.removeEventListener('visibilitychange', invalidateTouch); invalidateTouch() })
 </script>
@@ -268,6 +292,8 @@ onUnmounted(() => { window.removeEventListener('blur', invalidateTouch); documen
 .is-editing .workspace-content { flex: 1 0 180px; }
 .studio-heading, .screen-tools, .screen-nav, .studio-status, .gesture-hint, .screen-name, .overview-bar { flex-shrink: 0; }
 .studio-status:empty { display: none; }
+.native-suspend-alert { position: fixed; z-index: 10000; left: 16px; right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); padding: 14px 16px; color: #fff; background: #8b1e1e; border: 2px solid #fff; border-radius: 10px; box-shadow: 0 4px 18px #0008; font: 600 14px/1.5 system-ui, sans-serif; }
+.native-suspend-alert:not(.has-error) { position: fixed; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .home-studio:focus-visible, .workspace-content:focus-visible { outline: 2px solid var(--hw-accent); outline-offset: -2px; }
 .screen-dots { display: flex; overflow-x: auto; min-width: 0; max-width: 70%; scrollbar-width: thin; }
 .screen-dots button { min-width: 28px !important; padding: 0 !important; background: transparent !important; border: 0 !important; display: grid; place-items: center; }

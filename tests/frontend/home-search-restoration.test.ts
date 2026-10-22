@@ -20,7 +20,7 @@ beforeEach(() => vi.clearAllMocks())
 describe('restored double-width Home search and commands', () => {
   it('renders both controls permanently, without duplicate search or query-gated commands', () => {
     expect(launcher.match(/<OmniSearchPanel\b/g)).toHaveLength(1)
-    expect(launcher).toContain('<HomeCommandBar />')
+    expect(launcher).toContain('<HomeCommandBar :before-open="hideNative" />')
     expect(launcher).not.toContain('<section v-if="searchToolsOpen"')
     expect(launcher).not.toContain('<HomeCommandBar v-if=')
     expect(launcher).toContain('width: min(1360px, 100%)')
