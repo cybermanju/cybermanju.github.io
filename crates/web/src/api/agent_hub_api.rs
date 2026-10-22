@@ -76,18 +76,24 @@ pub fn list_transcript(
 ) -> Result<Vec<HubTranscriptEvent>, String> {
     let events = hub.events(owner, conversation_id, after_seq, limit.clamp(1, 500))?;
     let keys = known_keys(db)?;
-    Ok(events
-        .iter()
-        .filter_map(|event| transcript_event(event, &keys))
-        .collect())
+    let mut transcript = Vec::new();
+    for event in &events {
+        if let Some(projected) = transcript_event(event, &keys)? {
+            transcript.push(projected);
+        }
+    }
+    Ok(transcript)
 }
 
-fn transcript_event(event: &HubEvent, keys: &[String]) -> Option<HubTranscriptEvent> {
+fn transcript_event(
+    event: &HubEvent,
+    keys: &[String],
+) -> Result<Option<HubTranscriptEvent>, String> {
     if event.visibility != EventVisibility::User {
-        return None;
+        return Ok(None);
     }
     // Explicit field allowlist, sanitized before serialization, not JSON redaction.
-    Some(HubTranscriptEvent {
+    let projected = HubTranscriptEvent {
         id: clean(&event.id, keys),
         conversation_id: clean(&event.conversation_id, keys),
         seq: event.seq,
@@ -96,7 +102,26 @@ fn transcript_event(event: &HubEvent, keys: &[String]) -> Option<HubTranscriptEv
         sender_id: event.sender_id.as_deref().map(|id| clean(id, keys)),
         text: clean(&event.text, keys),
         created_at: clean(&event.created_at, keys),
-    })
+    };
+    // A known key may equal or overlap the replacement marker. Inspect the
+    // final DTO, including enum wire strings and any future nested values.
+    // Serialization is inspection-only: never redact JSON or return raw data.
+    fn contains_key(value: &serde_json::Value, keys: &[String]) -> bool {
+        match value {
+            serde_json::Value::String(text) => keys
+                .iter()
+                .any(|key| !key.is_empty() && text.contains(key.as_str())),
+            serde_json::Value::Array(values) => values.iter().any(|v| contains_key(v, keys)),
+            serde_json::Value::Object(fields) => fields.values().any(|v| contains_key(v, keys)),
+            _ => false,
+        }
+    }
+    const ERROR: &str = "integrity: transcript projection unavailable";
+    let value = serde_json::to_value(&projected).map_err(|_| ERROR.to_string())?;
+    if contains_key(&value, keys) {
+        return Err(ERROR.into());
+    }
+    Ok(Some(projected))
 }
 
 fn clean_internal(text: &str, keys: &[String]) -> Result<String, String> {
@@ -1965,6 +1990,151 @@ mod transcript_tests {
     use super::*;
     use cybermanju_types::agent_hub::HubEventKind;
 
+    fn assert_marker_collision_fails_closed(key: &str) {
+        use cybermanju_types::agent::AgentConfig;
+        use cybermanju_types::agent_hub::{ConversationKind, CreateConversation};
+        let dir = tempfile::tempdir().unwrap();
+        let db = Database::new(dir.path().join("providers.redb").to_str().unwrap()).unwrap();
+        let config: AgentConfig = serde_json::from_value(serde_json::json!({
+            "id":"provider", "name":"Provider", "providerId":"ollama", "model":"test-model"
+        }))
+        .unwrap();
+        super::super::agent_api::save_config(&db, config).unwrap();
+        let path = dir.path().join("hub.redb");
+        let hub = AgentHubStore::open(&path).unwrap();
+        let profile = hub
+            .save_profile(
+                "owner",
+                ProfileInput {
+                    id: None,
+                    name: "Agent".into(),
+                    personality: "Helpful".into(),
+                    goals: vec![],
+                    interests: vec![],
+                    knowledge: vec![],
+                    provider_config_id: "provider".into(),
+                },
+            )
+            .unwrap();
+        let conversation = hub
+            .create_conversation(
+                "owner",
+                CreateConversation {
+                    kind: ConversationKind::Direct,
+                    title: "Timeline".into(),
+                    members: vec![profile.id],
+                },
+            )
+            .unwrap();
+        // A safe prefix must not be returned when a later row fails inspection.
+        for (index, text) in ["safe prefix".to_string(), format!("PRIVATE_PAYLOAD {key}")]
+            .into_iter()
+            .enumerate()
+        {
+            hub.send(
+                "owner",
+                SendMessage {
+                    conversation_id: conversation.id.clone(),
+                    idempotency_key: format!("before-rotation-{index}"),
+                    sender_id: None,
+                    recipient_id: None,
+                    text,
+                    selected_context: vec!["PRIVATE_CONTEXT".into()],
+                    tool_grants: vec![],
+                },
+            )
+            .unwrap();
+        }
+        let canonical = hub.audit_events("owner", &conversation.id, 0, 100).unwrap();
+        assert_eq!(canonical.len(), 2);
+        assert!(canonical[1].text.contains(key));
+        let conversations = hub.conversations("owner").unwrap();
+        let profiles = hub.profiles("owner").unwrap();
+        super::super::agent_api::save_key(&db, "provider", key).unwrap();
+        let safe_page = list_transcript(&db, &hub, "owner", &conversation.id, 0, 1).unwrap();
+        assert_eq!(safe_page.len(), 1);
+        assert_eq!(safe_page[0].text, "safe prefix");
+        for _ in 0..2 {
+            let error = list_transcript(&db, &hub, "owner", &conversation.id, 0, 100).unwrap_err();
+            assert_eq!(error, "integrity: transcript projection unavailable");
+            assert!(!error.contains(key));
+            assert!(!error.contains("PRIVATE_PAYLOAD"));
+            assert!(!error.contains("PRIVATE_CONTEXT"));
+            assert!(!error.contains("safe prefix"));
+            assert_eq!(
+                hub.events("owner", &conversation.id, 0, 100).unwrap(),
+                canonical
+            );
+            assert_eq!(
+                hub.audit_events("owner", &conversation.id, 0, 100).unwrap(),
+                canonical
+            );
+            assert_eq!(hub.conversations("owner").unwrap(), conversations);
+            assert_eq!(hub.profiles("owner").unwrap(), profiles);
+        }
+        assert!(
+            list_transcript(&db, &hub, "owner", &conversation.id, canonical[1].seq, 100)
+                .unwrap()
+                .is_empty()
+        );
+        // Check durable canonical content too, not just the in-memory snapshot.
+        drop(hub);
+        let reopened = AgentHubStore::open(&path).unwrap();
+        assert_eq!(
+            reopened
+                .audit_events("owner", &conversation.id, 0, 100)
+                .unwrap(),
+            canonical
+        );
+        assert_eq!(reopened.conversations("owner").unwrap(), conversations);
+        assert_eq!(reopened.profiles("owner").unwrap(), profiles);
+        assert_eq!(known_keys(&db).unwrap(), vec![key.to_string()]);
+    }
+
+    #[test]
+    fn transcript_facade_rejects_exact_redaction_marker_key_without_mutation() {
+        assert_marker_collision_fails_closed("[REDACTED]");
+    }
+
+    #[test]
+    fn transcript_facade_rejects_redaction_marker_word_key_without_mutation() {
+        assert_marker_collision_fails_closed("REDACTED");
+    }
+
+    #[test]
+    fn transcript_facade_rejects_redaction_marker_prefix_key_without_mutation() {
+        assert_marker_collision_fails_closed("[");
+    }
+
+    #[test]
+    fn transcript_residual_check_covers_each_text_field_and_enum_wire_value() {
+        for key in ["[REDACTED]", "REDACTED", "["] {
+            for field in ["id", "conversationId", "senderId", "text", "createdAt"] {
+                let mut value = serde_json::to_value(event(EventVisibility::User)).unwrap();
+                value[field] = key.into();
+                let source: HubEvent = serde_json::from_value(value).unwrap();
+                let before = source.clone();
+                assert_eq!(
+                    transcript_event(&source, &[key.into()]).unwrap_err(),
+                    "integrity: transcript projection unavailable"
+                );
+                assert_eq!(source, before);
+            }
+        }
+        for key in ["user", "assistant"] {
+            assert_eq!(
+                transcript_event(&event(EventVisibility::User), &[key.into()]).unwrap_err(),
+                "integrity: transcript projection unavailable"
+            );
+        }
+        // Internal rows are omitted even if their content collides with a key.
+        assert!(
+            transcript_event(&event(EventVisibility::Internal), &["user".into()])
+                .unwrap()
+                .is_none()
+        );
+    }
+
     #[test]
     fn transcript_facade_loads_current_keys_and_preserves_owner_cursor_bounds() {
         use cybermanju_types::agent::AgentConfig;
@@ -2061,10 +2231,11 @@ mod transcript_tests {
         ];
         let projected: Vec<_> = events
             .iter()
-            .filter_map(|event| transcript_event(event, &[]))
-            .collect();
+            .filter_map(|event| transcript_event(event, &[]).transpose())
+            .collect::<Result<_, _>>()
+            .unwrap();
         assert_eq!(projected.len(), 1);
-        assert!(transcript_event(&events[0], &[]).is_none());
+        assert!(transcript_event(&events[0], &[]).unwrap().is_none());
         let value = serde_json::to_value(&projected).unwrap();
         let object = value[0].as_object().unwrap();
         let expected = [
@@ -2110,7 +2281,7 @@ mod transcript_tests {
         source.sender_id = Some(key.into());
         source.created_at = key.into();
         source.text = text.clone();
-        let projected = transcript_event(&source, &[key.into()]).unwrap();
+        let projected = transcript_event(&source, &[key.into()]).unwrap().unwrap();
         for value in [
             &projected.id,
             &projected.conversation_id,
