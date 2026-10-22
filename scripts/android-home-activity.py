@@ -29,6 +29,7 @@ block = '''    // BEGIN CyberManju HOME lifecycle
         super.onWebViewCreate(webView)
         invalidateHomeDelivery()
         homeWebView = webView
+        CybermanjuHomeRole.onWebViewCreated(this, webView)
         homePending = homePending || isHomeIntent(intent)
         recoverHomeSurface()
     }
@@ -50,6 +51,7 @@ block = '''    // BEGIN CyberManju HOME lifecycle
         super.onResume()
         homeResumed = true
         homeAttempts = 0
+        CybermanjuHomeRole.onResume(this, homeWebView)
         recoverHomeSurface()
     }
 
@@ -109,12 +111,14 @@ block = '''    // BEGIN CyberManju HOME lifecycle
     }
 
     override fun onPause() {
+        CybermanjuHomeRole.onPause(this)
         homeResumed = false
         invalidateHomeDelivery()
         super.onPause()
     }
 
     override fun onDestroy() {
+        CybermanjuHomeRole.onDestroy(this)
         homeResumed = false
         invalidateHomeDelivery()
         homeWebView = null

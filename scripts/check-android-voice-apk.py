@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the release APK's actual DEX, not just source names or class strings.
+"""Check actual Android native bridges in the release APK DEX.
 
 Uses only the Python standard library. This packaging gate cannot replace
 microphone, TTS, permissions and routing tests on an Android device.
@@ -125,6 +125,19 @@ def main(path):
         raise ValueError("missing JNI bridge class " + bridge)
     if expected not in methods:
         raise ValueError("missing exact JNI method dispatch(Activity,String,String):String with public static bytecode")
+    home_bridge = "Lcom/cybermanju/os/CybermanjuHomeRole;"
+    home_expected = (
+        (home_bridge, "dispatch", "Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;", "Ljava/lang/String;"),
+        (home_bridge, "onWebViewCreated", "Landroid/app/Activity;Landroid/webkit/WebView;", "V"),
+        (home_bridge, "onResume", "Landroid/app/Activity;Landroid/webkit/WebView;", "V"),
+        (home_bridge, "onPause", "Landroid/app/Activity;", "V"),
+        (home_bridge, "onDestroy", "Landroid/app/Activity;", "V"),
+    )
+    if home_bridge not in classes:
+        raise ValueError("missing JNI bridge class " + home_bridge)
+    missing_home_methods = [method for method in home_expected if method not in methods]
+    if missing_home_methods:
+        raise ValueError("missing exact Home role JNI/lifecycle methods: " + repr(missing_home_methods))
     for engine in ("SpeechRecognizer", "tts/TextToSpeech"):
         if "Landroid/speech/" + engine + ";" not in types:
             raise ValueError(engine.split("/")[-1] + " type absent from DEX")

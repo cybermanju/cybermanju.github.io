@@ -52,6 +52,15 @@ class WebView {
     fun reply(result: String) { check(callbacks.isNotEmpty()); callbacks.removeAt(0)(result) }
 }
 ''',
+    'CybermanjuHomeRole.kt': '''package com.cybermanju.os
+object CybermanjuHomeRole {
+    val events = mutableListOf<String>()
+    @JvmStatic fun onWebViewCreated(activity: Any, webView: android.webkit.WebView) { events.add("webview") }
+    @JvmStatic fun onResume(activity: Any, webView: android.webkit.WebView?) { events.add("resume") }
+    @JvmStatic fun onPause(activity: Any) { events.add("pause") }
+    @JvmStatic fun onDestroy(activity: Any) { events.add("destroy") }
+}
+''',
     'TauriActivity.kt': '''package app.tauri
 open class TauriActivity {
     private var currentIntent = android.content.Intent()
@@ -72,6 +81,7 @@ import android.content.Intent
 import android.os.Handler
 import android.webkit.WebView
 import com.cybermanju.os.MainActivity
+import com.cybermanju.os.CybermanjuHomeRole
 
 fun home() = Intent(Intent.ACTION_MAIN, true)
 fun setup(): Pair<MainActivity, WebView> {
@@ -162,6 +172,19 @@ fun main(args: Array<String>) {
             Handler.step()
             check(newView.evaluations == 1) { "old WebView consumed replacement delivery" }
         }
+        "native-role-hooks" -> {
+            Handler.queue.clear()
+            CybermanjuHomeRole.events.clear()
+            val activity = MainActivity()
+            activity.onWebViewCreate(WebView())
+            activity.onResume()
+            activity.onPause()
+            activity.onResume()
+            activity.onDestroy()
+            check(CybermanjuHomeRole.events == listOf("webview", "resume", "pause", "resume", "destroy")) {
+                "HOME-role lifecycle hooks must run once in Activity order: ${CybermanjuHomeRole.events}"
+            }
+        }
         else -> error("unknown case")
     }
     println("PASS " + args.single())
@@ -186,6 +209,19 @@ class HomeLifecycleTests(unittest.TestCase):
         main = cls.directory / 'MainActivity.kt'
         main.write_text('package com.cybermanju.os\nimport app.tauri.TauriActivity\nclass MainActivity : TauriActivity() {\n}\n')
         subprocess.run(['python3', str(ROOT / 'scripts/android-home-activity.py'), str(main)], check=True, capture_output=True)
+        first_generated = main.read_bytes()
+        subprocess.run(['python3', str(ROOT / 'scripts/android-home-activity.py'), str(main)], check=True, capture_output=True)
+        if main.read_bytes() != first_generated:
+            raise AssertionError('android-home-activity.py must be byte-stable on repeated configuration')
+        generated = main.read_text()
+        for hook in (
+            'CybermanjuHomeRole.onWebViewCreated(this, webView)',
+            'CybermanjuHomeRole.onResume(this, homeWebView)',
+            'CybermanjuHomeRole.onPause(this)',
+            'CybermanjuHomeRole.onDestroy(this)',
+        ):
+            if generated.count(hook) != 1:
+                raise AssertionError(f'expected exactly one generated hook: {hook}')
         cls.classes = cls.directory / 'classes'
         result = subprocess.run([
             'java', '-cp', cls.compiler, 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler',
@@ -224,6 +260,9 @@ class HomeLifecycleTests(unittest.TestCase):
 
     def test_replaced_webview_rejects_old_ack(self):
         self.run_case('replacement-view')
+
+    def test_native_home_role_hooks_follow_activity_lifecycle_once(self):
+        self.run_case('native-role-hooks')
 
 
 if __name__ == '__main__':

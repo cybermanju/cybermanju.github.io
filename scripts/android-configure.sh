@@ -673,4 +673,5 @@ echo "ABI policy: release=arm64-v8a only (ort-sys), emulator=x86_64 smoke only"
 # Always run: old marker-stamped manifests must receive newly added services.
 python3 scripts/android-voice-services.py "$ANDROID_DIR"
 python3 scripts/android-widgets.py "$ANDROID_DIR"
+python3 scripts/android-home-role.py "$ANDROID_DIR"
 echo "android configure complete"

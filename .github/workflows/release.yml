@@ -765,7 +765,15 @@ jobs:
         env:
           REQUIRE_KOTLIN_COMPILER: '1'
 
-      - name: Verify Android voice bridge in APK DEX
+      - name: Test Android HOME role installer
+        run: python3 tests/python/test_android_home_role_installer.py
+
+      - name: Test Android HOME role lifecycle and ACK on JVM
+        run: python3 tests/python/test_android_home_role_runtime.py
+        env:
+          REQUIRE_KOTLIN_COMPILER: '1'
+
+      - name: Verify Android native bridges in APK DEX
         run: |
           mapfile -d '' apks < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' -print0)
           test "${#apks[@]}" -gt 0

@@ -1824,6 +1824,58 @@ pub fn voice_command(
     Err("unsupported: native voice services require the Android app".to_string())
 }
 
+/// Observe or explicitly request Android's HOME role through the native host.
+/// This bridge is not an automation/agent action and never assigns a role silently.
+pub fn home_role_command(
+    action: &str,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use serde_json::Value;
+
+    if !matches!(action, "status" | "request") {
+        return Err("unsupported: unknown Android Home role action".to_string());
+    }
+    if !payload.is_object() || payload.to_string().len() > 4_096 {
+        return Err("invalid: Android Home role payload must be an object under 4 KiB".to_string());
+    }
+    let object = payload.as_object().expect("checked above");
+    if action == "status" && !object.is_empty() {
+        return Err("invalid: Home role status takes no payload".to_string());
+    }
+    if action == "request" {
+        let id = object
+            .get("requestId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "invalid: canonical requestId required".to_string())?;
+        if !is_canonical_home_request_id(id) {
+            return Err("invalid: canonical requestId required".to_string());
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        let raw =
+            android_impl::native_dispatch("CybermanjuHomeRole", action, &payload.to_string())?;
+        let value: Value = serde_json::from_str(&raw)
+            .map_err(|_| "integrity: malformed Android Home role response".to_string())?;
+        if let Some(error) = value.get("error").and_then(Value::as_str) {
+            return Err(error.to_string());
+        }
+        Ok(value)
+    }
+    #[cfg(not(target_os = "android"))]
+    Err("unsupported: Android Home role needs the native Android app".to_string())
+}
+
+fn is_canonical_home_request_id(id: &str) -> bool {
+    id.len() == 36
+        && id == id.to_ascii_lowercase()
+        && id.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            _ => byte.is_ascii_hexdigit(),
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1851,6 +1903,30 @@ mod tests {
         ] {
             assert!(is_supported_voice_action(action), "{action} was rejected");
         }
+    }
+
+    #[test]
+    fn home_role_bridge_rejects_automation_actions_and_noncanonical_ids() {
+        assert!(home_role_command("set", serde_json::json!({}))
+            .unwrap_err()
+            .starts_with("unsupported:"));
+        assert!(home_role_command("request", serde_json::json!({}))
+            .unwrap_err()
+            .starts_with("invalid:"));
+        assert!(
+            home_role_command("request", serde_json::json!({"requestId":"NOT-A-UUID"}))
+                .unwrap_err()
+                .starts_with("invalid:")
+        );
+        assert!(is_canonical_home_request_id(
+            "baddcafe-0011-4234-aabc-0123456789ab"
+        ));
+        assert!(!is_canonical_home_request_id(
+            "BADDCAFE-0011-4234-AABC-0123456789AB"
+        ));
+        assert!(!is_canonical_home_request_id(
+            "baddcafe-0011-4234-aabc-0123456789a"
+        ));
     }
 
     #[cfg(not(target_os = "android"))]
