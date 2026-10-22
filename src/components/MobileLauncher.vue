@@ -18,18 +18,18 @@
     @touchcancel.passive="resetDrawerGesture"
   >
     <header data-ui-layout-ignore class="mla-home-toolbar" aria-label="Home tools">
-      <button class="mla-mini-btn" type="button" :aria-expanded="searchToolsOpen" :aria-controls="searchToolsOpen ? 'home-search-tools' : undefined" @click="toggleSearchTools"><AppIcon name="solar:magnifier-bold" :size="19" /><span>Search</span></button>
+      <button class="mla-mini-btn" type="button" aria-controls="home-search-tools" title="Focus search" @click="toggleSearchTools"><AppIcon name="solar:magnifier-bold" :size="19" /><span>Search</span></button>
       <div class="mla-toolbar-actions">
         <button class="mla-mini-btn" type="button" aria-label="Notifications" @click="openMessages('system')"><AppIcon name="solar:bell-bold" :size="19" /><span v-if="sysUnread" class="mla-count">{{ sysUnread > 99 ? '99+' : sysUnread }}</span></button>
         <button v-if="msgHub.supported" class="mla-mini-btn" type="button" aria-label="Messages" @click="openMessages('messages')"><AppIcon name="solar:chat-round-dots-bold" :size="19" /><span v-if="msgHub.unread.value" class="mla-count">{{ msgHub.unread.value }}</span></button>
         <button class="mla-mini-btn" type="button" @click="openDrawer" aria-label="Open all apps">All apps</button>
       </div>
     </header>
-    <section v-if="searchToolsOpen" id="home-search-tools" class="mla-search-tools" aria-label="Search and commands">
+    <section id="home-search-tools" class="mla-search-tools" aria-label="Search and commands" @focusin="activateSearchTools" @focusout="onSearchToolsBlur">
       <OmniSearchPanel ref="searchRef" home class="mla-unified-search" />
-      <HomeCommandBar v-if="!query.trim()" />
+      <HomeCommandBar />
     </section>
-    <HomeWorkspaceStudio ref="workspaceStudio" :apps="workspaceApps" :initial-ids="orderedApps.map(app => app.panel)" :blocked="hasOpenWindows || launcher.drawerOpen || launcher.messagesOpen || !!customHome || searchToolsOpen" @open="open($event as PanelType)" @customize="customizeWorkspaceApp" />
+    <HomeWorkspaceStudio ref="workspaceStudio" :apps="workspaceApps" :initial-ids="orderedApps.map(app => app.panel)" :blocked="hasOpenWindows || launcher.drawerOpen || launcher.messagesOpen || !!customHome || searchToolsOpen || !!query.trim()" @open="open($event as PanelType)" @customize="customizeWorkspaceApp" />
     <nav data-ui-layout-ignore v-if="dock.length" class="mla-dock" aria-label="Favorite apps">
       <button v-for="app in dock" :key="app.panel" class="mla-dock-btn" type="button"
         @pointerdown="onHomePressStart(app, $event)" @pointermove="onHomePressMove" @pointerup="onHomePressEnd" @pointerleave="onHomePressEnd" @pointercancel="onHomePressEnd"
@@ -145,9 +145,17 @@ const rootRef = ref<HTMLElement | null>(null)
 const searchRef = ref<{ focus: () => void } | null>(null)
 const searchToolsOpen = ref(false)
 async function toggleSearchTools() {
-  if (!searchToolsOpen.value && !await hideNative()) return
-  searchToolsOpen.value = !searchToolsOpen.value
-  if (searchToolsOpen.value) { await nextTick(); searchRef.value?.focus() }
+  if (!await hideNative()) return
+  await nextTick()
+  searchRef.value?.focus()
+}
+function activateSearchTools() {
+  searchToolsOpen.value = true
+  void hideNative()
+}
+function onSearchToolsBlur(event: FocusEvent) {
+  const section = event.currentTarget as HTMLElement
+  if (!section.contains(event.relatedTarget as Node | null)) searchToolsOpen.value = false
 }
 async function hideNative() { return await workspaceStudio.value?.hideNative() ?? true }
 async function openMessages(tab: 'system' | 'messages') { if (await hideNative()) launcher.setMessagesOpen(true, tab) }
@@ -532,7 +540,18 @@ function resetHomeCustom() {
 .mla-home-toolbar { flex-shrink: 0; }
 .mla-mini-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 44px; padding: 8px 12px; color: var(--ui-text); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 12px; cursor: pointer; font: inherit; font-size: 12px; }
 .mla button:focus-visible, .mla input:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
-.mla-search-tools { flex-shrink: 0; max-height: 45%; overflow: auto; display: grid; gap: 8px; }
+.mla-search-tools { position: relative; z-index: 2; flex-shrink: 0; align-self: center; width: min(1360px, 100%); min-width: 0; display: grid; gap: 10px; }
+.mla-search-tools .mla-unified-search { min-width: 0; width: 100%; padding: 0; box-sizing: border-box; }
+.mla-unified-search :deep(.omni-col) { position: static; width: 100%; min-width: 0; }
+/* Results float over the workspace without squeezing its app grid. */
+.mla-unified-search :deep(.omni-drop) { position: absolute; inset: 100% 0 auto; z-index: 3; box-sizing: border-box; }
+.mla-search-tools :deep(.home-command) { width: 100%; box-sizing: border-box; }
+@media (max-width: 520px) {
+  .mla-home-toolbar { flex-wrap: wrap; }
+  .mla-toolbar-actions { margin-left: auto; }
+  .mla-search-tools { gap: 8px; }
+  .mla-unified-search :deep(.omni-bar__hint) { display: none; }
+}
 .mla-count { color: var(--ui-accent); font-size: 11px; }
 .mla-dock { display: flex; flex-shrink: 0; justify-content: center; align-self: center; gap: clamp(4px, 2vw, 14px); max-width: 100%; padding: 6px 10px; box-sizing: border-box; border-radius: 20px; background: var(--ui-surface); border: 1px solid var(--ui-border); }
 .mla-dock-btn { position: relative; width: 44px; min-height: 44px; padding: 0; display: grid; place-items: center; border: 0; background: transparent; color: var(--ui-text); cursor: pointer; }

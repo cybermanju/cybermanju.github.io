@@ -17,7 +17,7 @@ function onEnter(event: KeyboardEvent) {
   // Enter confirms an IME candidate before it can hand off a draft.
   if (event.isComposing || event.keyCode === 229) return
   event.preventDefault()
-  stage('agent')
+  stage(event.shiftKey ? 'terminal' : 'agent')
 }
 
 function stage(target: HomeCommandTarget) {
@@ -33,28 +33,29 @@ function stage(target: HomeCommandTarget) {
 <template>
   <section class="home-command" aria-label="Assistant and cybsh command bar">
     <label class="home-command-input-wrap">
-      <AppIcon name="solar:magnifer-bold" :size="17" aria-hidden="true" />
+      <AppIcon name="solar:chat-round-dots-bold" :size="17" aria-hidden="true" />
       <input
         v-model="input"
         type="text"
         autocomplete="off"
         aria-label="Ask AI or enter a cybsh command"
+        title="Enter: prepare an AI draft · Shift+Enter: prepare a cybsh draft. Review in the app before sending or running."
         placeholder="Ask AI or enter a cybsh command…"
         @input="status = ''"
         @keydown.enter="onEnter"
       />
     </label>
     <div class="home-command-actions">
-      <button type="button" :disabled="!input.trim()" @click="stage('agent')">
+      <button type="button" title="Prepare Assistant draft (Enter)" :disabled="!input.trim()" @click="stage('agent')">
         <AppIcon name="solar:chat-round-dots-bold" :size="15" aria-hidden="true" />
         <span>Ask AI</span>
       </button>
-      <button type="button" :disabled="!input.trim()" @click="stage('terminal')">
+      <button type="button" title="Prepare cybsh draft (Shift+Enter)" :disabled="!input.trim()" @click="stage('terminal')">
         <AppIcon name="solar:file-terminal-bold" :size="15" aria-hidden="true" />
         <span>cybsh</span>
       </button>
     </div>
-    <span v-if="status" class="home-command-status" role="status" aria-live="polite">{{ status }}</span>
+    <span class="home-command-status" role="status" aria-live="polite">{{ status || 'Draft only · Enter for AI · Shift+Enter for cybsh' }}</span>
   </section>
 </template>
 
@@ -64,7 +65,9 @@ function stage(target: HomeCommandTarget) {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
-  width: min(680px, 100%);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 8px;
   border: 1px solid var(--ui-border, rgb(255 255 255 / 12%));
   border-radius: 16px;
@@ -92,6 +95,7 @@ function stage(target: HomeCommandTarget) {
   background: transparent;
   color: var(--ui-text, #f4f6fa);
   font: inherit;
+  font-size: 16px;
 }
 .home-command-input-wrap input::placeholder { color: var(--ui-text-muted, #9aa4b2); }
 .home-command-actions { display: flex; gap: 6px; }
@@ -118,8 +122,9 @@ function stage(target: HomeCommandTarget) {
   grid-column: 1 / -1;
   min-height: 12px;
   padding: 0 10px;
-  color: var(--ui-text-muted, #9aa4b2);
-  font-size: 10px;
+  color: var(--ui-text-3, #9aa4b2);
+  font-size: 11px;
+  line-height: 1.4;
 }
 @media (max-width: 520px) {
   .home-command { grid-template-columns: 1fr; }

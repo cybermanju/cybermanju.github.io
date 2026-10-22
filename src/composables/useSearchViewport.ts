@@ -21,7 +21,10 @@ export function useSearchViewport(bar: Ref<HTMLElement | null>, results: Ref<HTM
   function measure() {
     frame = undefined
     if (!bar.value || !results.value) return
-    const next = searchResultsHeight(bar.value.getBoundingClientRect().bottom, window.innerHeight, viewport?.height ?? window.innerHeight, viewport?.offsetTop ?? 0)
+    // Home keeps its command row between the search input and the overlay.
+    // Use the rendered result origin (less its 12px margin), not only the input.
+    const anchorBottom = Math.max(bar.value.getBoundingClientRect().bottom, results.value.getBoundingClientRect().top - 12)
+    const next = searchResultsHeight(anchorBottom, window.innerHeight, viewport?.height ?? window.innerHeight, viewport?.offsetTop ?? 0)
     if (next !== null) height.value = next
   }
   function schedule() {

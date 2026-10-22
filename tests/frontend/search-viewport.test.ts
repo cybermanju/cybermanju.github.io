@@ -49,11 +49,17 @@ it('updates on keyboard resize and pan, preserves valid measurements, and remove
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect = disconnect })
   vi.stubGlobal('window', win)
   const bar = ref({ getBoundingClientRect: () => ({ bottom: 150 }) } as HTMLElement)
-  const results = ref({} as HTMLElement)
+  let resultsTop = 162
+  const results = ref({ getBoundingClientRect: () => ({ top: resultsTop }) } as HTMLElement)
   const style = useSearchViewport(bar, results)
   lifecycle.mounted?.()
   vi.runAllTimers()
   expect(style.value).toEqual({ '--omni-mobile-results-height': '674px' })
+  resultsTop = 282 // Home command row stays visible between input and results.
+  win.dispatchEvent(new Event('resize'))
+  vi.runAllTimers()
+  expect(style.value).toEqual({ '--omni-mobile-results-height': '554px' })
+  resultsTop = 162
   viewport.height = 480
   viewport.dispatchEvent(new Event('resize'))
   vi.runAllTimers()

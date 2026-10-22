@@ -69,7 +69,8 @@ describe('iOS status bar + icons + dock', () => {
   it('keeps one unified home search and workspace entry point', () => {
     expect(launcher).toContain('<HomeCommandBar')
     expect(launcher.match(/<OmniSearchPanel\b/g)).toHaveLength(1)
-    expect(launcher).toContain('v-if="searchToolsOpen"')
+    expect(launcher).toContain('<section id="home-search-tools"')
+    expect(launcher).not.toContain('v-if="searchToolsOpen"')
     expect(studio).toContain('openPicker')
     expect(studio).toContain('aria-label="Add apps or widgets to home"')
   })
