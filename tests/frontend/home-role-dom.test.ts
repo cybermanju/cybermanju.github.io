@@ -223,6 +223,57 @@ describe('useHomeRoleAction DOM lifecycle', () => {
     expect(fakeWindow.__CYBERMANJU_HOME_ROLE_READY__).not.toBe(true)
     expect(invoke).not.toHaveBeenCalled(); expect(app.role().canRequest.value).toBe(false)
   })
+  it('recovers a pre-persistence focus rejection with Check status in the same mounted controller', async () => {
+    let rejectStatus = false
+    const removeSpy = vi.spyOn(fakeWindow, 'removeEventListener')
+    invoke.mockImplementation(async (command: string) => {
+      if (command === 'android_home_role_request') {
+        focused = false; rejectStatus = true
+        throw 'auth: Home role request requires the foreground CyberManju window'
+      }
+      if (command === 'android_home_role_status') {
+        if (rejectStatus) throw new Error('network: status unavailable')
+        return { state: 'not_held', apiLevel: 34 }
+      }
+      throw new Error(`Unexpected command ${command}`)
+    })
+    const app = createFixture()
+    await vi.waitFor(() => expect(app.role().canRequest.value).toBe(true))
+    await app.role().request({ isTrusted: true, timeStamp: 1000 } as MouseEvent)
+    expect(app.role().pendingId.value).toBe('home-attempt-1')
+    expect(app.role().canRequest.value).toBe(false)
+    focused = true; rejectStatus = false
+    await app.role().check()
+    expect(app.role().pendingId.value).toBeNull(); expect(app.role().canRequest.value).toBe(true)
+    expect(app.role().attempt.value).toBe('failed')
+    expect(invoke.mock.calls.filter(([command]) => command === 'android_home_role_request')).toHaveLength(1)
+    expect(fakeWindow.__CYBERMANJU_HOME_ROLE_READY__).toBe(true)
+    expect(fakeWindow.__CYBERMANJU_HOME_ROLE_ACKED__).toBeNull()
+    expect(removeSpy).not.toHaveBeenCalled()
+    app.unmount()
+  })
+  it('keeps ambiguous invokes correlated across focus and Check status without automatically retrying', async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === 'android_home_role_request') throw new Error('network: reply lost')
+      if (command === 'android_home_role_status') return { state: 'not_held', apiLevel: 34 }
+      throw new Error(`Unexpected command ${command}`)
+    })
+    const app = createFixture()
+    await vi.waitFor(() => expect(app.role().canRequest.value).toBe(true))
+    await app.role().request({ isTrusted: true, timeStamp: 1000 } as MouseEvent)
+    fakeWindow.dispatchEvent(new Event('focus'))
+    fakeDocument.dispatchEvent(new Event('visibilitychange'))
+    await app.role().check()
+    await app.role().request({ isTrusted: true, timeStamp: 1000 } as MouseEvent)
+    expect(app.role().pendingId.value).toBe('home-attempt-1'); expect(app.role().canRequest.value).toBe(false)
+    expect(app.role().attempt.value).toBeNull()
+    fakeWindow.dispatchEvent(new CustomEvent('cybermanju:home-role-result', { detail: { requestId: 'home-attempt-1', state: 'not_held' } }))
+    expect(fakeWindow.__CYBERMANJU_HOME_ROLE_ACKED__).toBe('home-attempt-1')
+    await vi.waitFor(() => expect(app.role().pendingId.value).toBeNull())
+    expect(app.role().canRequest.value).toBe(true)
+    expect(invoke.mock.calls.filter(([command]) => command === 'android_home_role_request')).toHaveLength(1)
+    app.unmount()
+  })
   it('re-arms readiness only after a recreated UI installs its own listener', async () => {
     const first = createFixture()
     await vi.waitFor(() => expect(fakeWindow.__CYBERMANJU_HOME_ROLE_READY__).toBe(true))
