@@ -162,7 +162,7 @@
 
         <div v-if="connectedAccounts.length && (!identity || accountsOpen)" class="am-card">
           <h3 class="am-card-title">Connected accounts ({{ connectedAccounts.length }})</h3>
-          <p class="am-hint">One active session — the rest stay remembered for one-click switching. Each sign-in creates its provider connection below. Sign-in is per device — repeat it on each device; saved provider tokens then sync across.</p>
+          <p class="am-hint">One active session — the rest stay remembered for one-click switching. Each account has its own provider connection below. Sign-in is per device — repeat it on each device; saved provider tokens then sync across.</p>
           <div v-for="acc in connectedAccounts" :key="acc.id" class="am-identity-row">
             <img v-if="acc.avatarUrl" class="am-avatar" :src="acc.avatarUrl" alt="" />
             <ProviderLogo v-else :provider="acc.provider" :size="32" />
@@ -172,8 +172,8 @@
             </div>
             <span class="am-status sm" :class="providerBadgeTone(acc)">{{ providerBadge(acc) }}</span>
             <span class="am-status sm" :class="acc.id === identity?.id ? 'is-ok' : ''">{{ acc.id === identity?.id ? 'Active' : acc.provider }}</span>
-            <button v-if="needsProviderFor(acc.provider)" class="am-btn xs primary" type="button" :disabled="!!signInBusy || ensuringProvider" :title="`Create a ${backendLabel(backendForOAuth(acc.provider as OAuthBackend))} provider connection for this login`" @click="connectAccountToProvider(acc)">{{ ensuringProvider ? '…' : 'Connect' }}</button>
-            <button v-else-if="configsForBackendSafe(acc.provider).length" class="am-btn xs danger" type="button" :title="`Delete the ${providerBackendLabel(acc.provider)} provider connection(s) — keeps this login remembered`" @click="disconnectAccountProvider(acc)">Disconnect</button>
+            <button v-if="needsProviderFor(acc)" class="am-btn xs primary" type="button" :disabled="!!signInBusy || ensuringProvider" :title="`Create a ${backendLabel(backendForOAuth(acc.provider as OAuthBackend))} provider connection for this login`" @click="connectAccountToProvider(acc)">{{ ensuringProvider ? '…' : 'Connect' }}</button>
+            <button v-else-if="configsForAccount(acc).length" class="am-btn xs danger" type="button" :title="`Delete the ${providerBackendLabel(acc.provider)} provider connection(s) — keeps this login remembered`" @click="disconnectAccountProvider(acc)">Disconnect</button>
             <button v-if="acc.id !== identity?.id" class="am-btn xs" type="button" :disabled="!!signInBusy || revoking" @click="switchAccount(acc)">Switch</button>
             <button class="am-btn xs danger" type="button" :disabled="revoking" :title="`Revoke OAuth grant + forget ${acc.name} (stops auto-login)`" @click="revokeAccount(acc)">Revoke</button>
             <button class="am-btn xs" type="button" :title="`Forget ${acc.name}`" @click="forgetAccount(acc.id)">Forget</button>
@@ -741,6 +741,7 @@ import {
   forgetConnectedAccount,
   getPendingOAuthConfig,
   identity,
+  identityFromSession,
   installMobileOAuthDeepLinks,
   refreshIdentity,
   revokeIdentitySession,
@@ -771,6 +772,7 @@ import {
 import { SYNC_BACKEND_INFO, describeSyncError, isOauthCapable } from '@/types'
 import type { DiskRow, SyncBackendType, SyncConfig } from '@/types'
 import { humanBytes, diskPct } from '@/utils/format'
+import { canUseOAuthSession, configsForOAuthAccount } from '@/utils/oauthAccounts'
 import { requestInstallWindow } from '@/utils/installLinks'
 import {
   authGuidance,
@@ -973,43 +975,30 @@ function backendForAccountProvider(p: string): SyncBackendType | null {
   return null
 }
 
-const missingProviderBackends = computed<SyncBackendType[]>(() => {
-  const have = new Set(store.syncConfigs.map(c => c.backendType))
-  const missing = new Set<SyncBackendType>()
-  for (const acc of connectedAccounts.value) {
-    const b = backendForAccountProvider(acc.provider)
-    if (b && !have.has(b)) missing.add(b)
-  }
-  if (identity.value) {
-    const b = backendForAccountProvider(identity.value.provider)
-    if (b && !have.has(b)) missing.add(b)
-  }
-  return [...missing]
-})
+const missingProviderAccounts = computed(() => connectedAccounts.value.filter(acc => needsProviderFor(acc)))
+const missingProviderBackends = computed(() => missingProviderAccounts.value.map(acc => backendForOAuth(acc.provider)))
 
-function needsProviderFor(provider: string): boolean {
-  const b = backendForAccountProvider(provider)
-  if (!b) return false
-  return !store.syncConfigs.some(c => c.backendType === b)
+function configsForAccount(acc: ConnectedAccount): SyncConfig[] {
+  return configsForOAuthAccount(store.syncConfigs, acc)
+}
+
+function needsProviderFor(acc: ConnectedAccount): boolean {
+  return !!backendForAccountProvider(acc.provider) && !configsForAccount(acc).length
 }
 
 function providerBadge(acc: ConnectedAccount): string {
-  const b = backendForAccountProvider(acc.provider)
-  if (!b) return acc.provider
-  return store.syncConfigs.some(c => c.backendType === b) ? 'Linked' : 'No provider'
+  return configsForAccount(acc).length ? 'Linked' : 'No provider'
 }
 
 function providerBadgeTone(acc: ConnectedAccount): string {
-  const b = backendForAccountProvider(acc.provider)
-  if (!b) return ''
-  return store.syncConfigs.some(c => c.backendType === b) ? 'is-ok' : 'is-warn'
+  return configsForAccount(acc).length ? 'is-ok' : 'is-warn'
 }
 
 async function ensureProviderForBackend(
   backend: SyncBackendType,
-  opts: { token?: string; displayName?: string } = {},
+  opts: { accountId: string; token?: string; displayName?: string },
 ): Promise<SyncConfig | null> {
-  const existing = store.syncConfigs.find(c => c.backendType === backend)
+  const existing = store.syncConfigs.find(c => c.backendType === backend && c.accountId === opts.accountId)
   if (existing) {
     selectedId.value = existing.id
     // Top-up a missing secret: an OAuth token that arrives after the row
@@ -1031,6 +1020,7 @@ async function ensureProviderForBackend(
     ...syncConfigDefaults(),
     id: '',
     backendType: backend,
+    accountId: opts.accountId,
     name: opts.displayName || `${backendLabel(backend)} (${new Date().toLocaleDateString()})`,
     token: (opts.token ?? '').trim() || undefined,
   } as SyncConfig)
@@ -1054,28 +1044,29 @@ async function ensureProviderForBackend(
 }
 
 /** Best-effort provider token for `backend` from the live Supabase session. */
-async function sessionTokenFor(backend: SyncBackendType): Promise<string> {
+async function sessionTokenFor(backend: SyncBackendType, accountId?: string): Promise<string> {
   try {
     const session = await supabaseSession()
     if (!session?.provider_token) return ''
-    const prov = supabaseSessionProvider(session)
-    if (!prov) return ''
-    return backendForOAuth(prov) === backend ? (session.provider_token ?? '') : ''
+    const who = identityFromSession(session)
+    if (!canUseOAuthSession({ backendType: backend, accountId }, who)) return ''
+    return session.provider_token ?? ''
   } catch {
     return ''
   }
 }
 
-async function ensureFromSignIn(provider: OAuthBackend, whoName: string): Promise<void> {
+async function ensureFromSignIn(provider: OAuthBackend, who: ConnectedAccount | NonNullable<typeof identity.value>): Promise<void> {
   ensuringProvider.value = true
   ensureMsg.value = ''
   ensureOk.value = null
   try {
     const backend = backendForOAuth(provider)
-    const token = await sessionTokenFor(backend)
+    const token = await sessionTokenFor(backend, who.id)
     const saved = await ensureProviderForBackend(backend, {
+      accountId: who.id,
       token,
-      displayName: `${backendLabel(backend)} — ${whoName}`,
+      displayName: `${backendLabel(backend)} — ${who.name}`,
     })
     if (saved) {
       ensureMsg.value = token
@@ -1095,10 +1086,10 @@ async function connectAccountToProvider(acc: ConnectedAccount): Promise<void> {
   ensureMsg.value = ''
   ensureOk.value = null
   try {
-    const token = await sessionTokenFor(b)
-    const saved = await ensureProviderForBackend(b, { token, displayName: `${backendLabel(b)} — ${acc.name}` })
+    const token = await sessionTokenFor(b, acc.id)
+    const saved = await ensureProviderForBackend(b, { accountId: acc.id, token, displayName: `${backendLabel(b)} — ${acc.name}` })
     if (saved) {
-      ensureMsg.value = `${backendLabel(b)} connection ready for ${acc.name}.`
+      ensureMsg.value = token ? `${backendLabel(b)} connection ready for ${acc.name}.` : `Connection created for ${acc.name} — sign in as this account to finish OAuth.`
       ensureOk.value = true
       store.notifySuccess?.(`${backendLabel(b)} connection ready`)
     }
@@ -1113,9 +1104,10 @@ async function ensureMissingFromAccounts(): Promise<void> {
   ensureMsg.value = ''
   ensureOk.value = null
   try {
-    for (const b of missingProviderBackends.value) {
-      const token = await sessionTokenFor(b)
-      await ensureProviderForBackend(b, { token, displayName: backendLabel(b) })
+    for (const acc of missingProviderAccounts.value) {
+      const b = backendForOAuth(acc.provider)
+      const token = await sessionTokenFor(b, acc.id)
+      await ensureProviderForBackend(b, { accountId: acc.id, token, displayName: `${backendLabel(b)} — ${acc.name}` })
     }
     ensureMsg.value = 'Provider connections created — finish OAuth on each card if needed.'
     ensureOk.value = true
@@ -1159,7 +1151,11 @@ async function resolveProviderToken(cfg: SyncConfig): Promise<string> {
   if (d?.token.trim()) return d.token.trim()
   const saved = (cfg as SyncConfig).token
   if (typeof saved === 'string' && saved.trim()) return saved.trim()
-  return sessionTokenFor(cfg.backendType)
+  if (staticHost) {
+    const sealed = await sealedSecretFor(cfg.id)
+    if (sealed) return sealed
+  }
+  return sessionTokenFor(cfg.backendType, cfg.accountId)
 }
 
 async function loadRepoChoices(cfg: SyncConfig): Promise<void> {
@@ -1590,7 +1586,7 @@ async function refresh() {
 }
 
 async function signIn(provider: OAuthBackend) {
-  if (signInBusy.value) return
+  if (signInBusy.value || connectBusy.value) return
   signInBusy.value = provider
   signInMsg.value = ''
   try {
@@ -1598,7 +1594,7 @@ async function signIn(provider: OAuthBackend) {
     store.notifySuccess(`Signed in as ${who.name}`)
     // Keep the two lists in sync: a fresh login provisions its provider
     // row (with the session token when scopes allow) so Connections > 0.
-    await ensureFromSignIn(provider, who.name).catch(() => {})
+    await ensureFromSignIn(provider, who).catch(() => {})
   } catch (e) {
     signInMsg.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -1665,12 +1661,12 @@ async function signOut() {
 }
 
 /**
- * Clear every saved provider secret for one backend (sealed secret table:
+ * Clear saved provider secrets belonging to one OAuth account (sealed secret table:
  * an explicit empty token clears, an absent one leaves it untouched).
  * Keeps the connection rows so a fresh OAuth run can reuse them.
  */
-async function clearSavedSecretsForBackend(backend: SyncBackendType): Promise<void> {
-  for (const c of configsForBackend(backend)) {
+async function clearSavedSecretsForAccount(acc: { id: string; provider: string }): Promise<void> {
+  for (const c of configsForOAuthAccount(store.syncConfigs, acc)) {
     const d = drafts[c.id]
     if (d) d.token = ''
     await store.saveSyncConfig({ ...c, token: '' } as SyncConfig).catch(() => null)
@@ -1694,7 +1690,7 @@ async function revokeSession(): Promise<void> {
     const accountId = who?.id ?? null
     const grant = await revokeIdentitySession().catch(() => ({ revokedAtProvider: false, detail: 'revoke failed — cleared locally' }))
     if (accountId) forgetConnectedAccount(accountId)
-    if (backend) await clearSavedSecretsForBackend(backend)
+    if (backend && who) await clearSavedSecretsForAccount(who)
     signInMsg.value = `${grant.detail} — signed out, login forgotten.`
     store.notifySuccess?.('OAuth revoked — signed out')
   } finally {
@@ -1705,8 +1701,7 @@ async function revokeSession(): Promise<void> {
 /**
  * Per-account revoke: the active login gets the full provider-side revoke;
  * remembered (inactive) logins hold no live token, so revoke forgets them
- * and — when they were the last login on their backend — clears that
- * backend's saved secrets too.
+ * and clears only that account's saved secrets.
  */
 async function revokeAccount(acc: ConnectedAccount): Promise<void> {
   if (revoking.value) return
@@ -1715,14 +1710,11 @@ async function revokeAccount(acc: ConnectedAccount): Promise<void> {
     return
   }
   const backend = backendForAccountProvider(acc.provider)
-  const othersRemain = backend
-    ? connectedAccounts.value.some(a => a.id !== acc.id && backendForAccountProvider(a.provider) === backend)
-    : true
-  if (!window.confirm(`Revoke "${acc.name}"? This forgets the login so it cannot auto-login again${backend && !othersRemain ? ` and clears the saved ${backendLabel(backend)} token` : ''}. No live provider token exists for remembered logins — rotate the grant at the provider if it may have leaked.`)) return
+  if (!window.confirm(`Revoke "${acc.name}"? This forgets this login and clears only its associated connection tokens. Rotate the grant at the provider to fully revoke it.`)) return
   revoking.value = true
   try {
     forgetConnectedAccount(acc.id)
-    if (backend && !othersRemain) await clearSavedSecretsForBackend(backend)
+    if (backend) await clearSavedSecretsForAccount(acc)
     ensureMsg.value = `"${acc.name}" revoked — login forgotten, auto-login stopped.`
     ensureOk.value = true
     store.notifySuccess?.('Account revoked — auto-login stopped')
@@ -1770,17 +1762,13 @@ async function switchAccount(acc: ConnectedAccount) {
 function forgetAccount(id: string) {
   const acc = connectedAccounts.value.find(a => a.id === id)
   const backend = acc ? backendForAccountProvider(acc.provider) : null
-  // Orphan check BEFORE forgetting: remaining accounts on the same backend
-  // (excluding the one being forgotten). Only the last login on a backend
-  // can orphan provider rows, so only then do we offer the cascade.
-  const othersRemain = backend
-    ? connectedAccounts.value.some(a => a.id !== id && backendForAccountProvider(a.provider) === backend)
-    : true
-  const orphans = backend && !othersRemain ? configsForBackend(backend) : []
+  // Only explicitly associated connections belong to this account. Legacy
+  // unbound rows are never cascaded based on provider alone.
+  const orphans = acc ? configsForAccount(acc) : []
   if (acc && orphans.length) {
     const names = orphans.map(c => c.name || backendLabel(c.backendType)).join(', ')
     if (!window.confirm(
-      `Forget "${acc.name}"? This is also the last ${backendLabel(backend!)} login — OK also deletes ${orphans.length} now-orphan provider connection(s) (${names}); Cancel keeps the provider(s).`,
+      `Forget "${acc.name}"? OK also deletes ${orphans.length} now-orphan provider connection(s) (${names}); Cancel keeps the provider(s).`,
     )) return
   } else if (acc) {
     if (!window.confirm(`Forget "${acc.name}"? You can sign in again any time.`)) return
@@ -1801,17 +1789,6 @@ function forgetAccount(id: string) {
   }
 }
 
-/** All provider rows for one backend (vault sets create several per backend). */
-function configsForBackend(backend: SyncBackendType): SyncConfig[] {
-  return store.syncConfigs.filter(c => c.backendType === backend)
-}
-
-/** Template-safe: provider rows behind a remembered login's provider string. */
-function configsForBackendSafe(provider: string): SyncConfig[] {
-  const b = backendForAccountProvider(provider)
-  return b ? configsForBackend(b) : []
-}
-
 /** Template-safe backend display name for a remembered login. */
 function providerBackendLabel(provider: string): string {
   const b = backendForAccountProvider(provider)
@@ -1826,7 +1803,7 @@ function providerBackendLabel(provider: string): string {
 async function disconnectAccountProvider(acc: ConnectedAccount): Promise<void> {
   const backend = backendForAccountProvider(acc.provider)
   if (!backend) return
-  const targets = configsForBackend(backend)
+  const targets = configsForAccount(acc)
   if (!targets.length) return
   const names = targets.map(c => c.name || backendLabel(c.backendType)).join(', ')
   if (!window.confirm(
@@ -1933,7 +1910,7 @@ async function probe(cfg: SyncConfig) {
     const base = overlayDraft(cfg, drafts[cfg.id])
     let toProbe = base
     if (!(base as SyncConfig).token && isOauthCapable(cfg.backendType)) {
-      const sessionToken = await sessionTokenFor(cfg.backendType)
+      const sessionToken = await sessionTokenFor(cfg.backendType, cfg.accountId)
       if (sessionToken) toProbe = { ...base, token: sessionToken }
     }
     const r = await store.probeSyncConnection(toProbe)
@@ -1962,7 +1939,7 @@ async function removeProvider(id: string) {
   const label = cfg?.name || (cfg ? backendLabel(cfg.backendType) : 'this provider')
   const diskCount = disksFor(id).length
   const linkedAccounts = cfg
-    ? connectedAccounts.value.filter(a => backendForAccountProvider(a.provider) === cfg.backendType)
+    ? connectedAccounts.value.filter(a => configsForAccount(a).some(c => c.id === cfg.id))
     : []
   const linkedNote = linkedAccounts.length
     ? ` ${linkedAccounts.length} remembered login(s) (${linkedAccounts.map(a => a.name).join(', ')}) stay signed in — recreate the connection with one click if needed.`
@@ -1989,7 +1966,7 @@ async function saveCreds(cfg: SyncConfig) {
     const base = overlayDraft(saved, d)
     let toProbe = base
     if (!(base as SyncConfig).token && isOauthCapable(cfg.backendType)) {
-      const sessionToken = await sessionTokenFor(cfg.backendType)
+      const sessionToken = await sessionTokenFor(cfg.backendType, cfg.accountId)
       if (sessionToken) toProbe = { ...base, token: sessionToken }
     }
     const r = await store.probeSyncConnection(toProbe)
@@ -2177,6 +2154,7 @@ async function oauthConnect(cfg: SyncConfig) {
  * it into the provider config and probe — CONNECTED.
  */
 async function supabaseConnect(cfg: SyncConfig) {
+  if (signInBusy.value) return
   cancelConnect()
   if (!supabaseConfigured()) {
     connectMsg.value[cfg.id] =
@@ -2290,7 +2268,14 @@ async function supabaseConnect(cfg: SyncConfig) {
 }
 
 async function finalizeSupabaseToken(cfg: SyncConfig, token: string) {
-  const saved = await store.saveSyncConfig({ ...cfg, token })
+  const session = await supabaseSession()
+  const who = identityFromSession(session)
+  if (!who || supabaseProviderFor(cfg.backendType) !== who.provider || session?.provider_token !== token || (cfg.accountId && cfg.accountId !== who.id)) {
+    connectMsg.value[cfg.id] = 'Approval belongs to a different account — sign in as the account linked to this connection, or add a separate connection.'
+    setPendingOAuthConfig(null)
+    throw new Error('auth: OAuth account does not match this connection')
+  }
+  const saved = await store.saveSyncConfig({ ...cfg, accountId: who.id, token })
   if (!saved) {
     connectMsg.value[cfg.id] = 'Token received, but saving it failed — retry.'
     setPendingOAuthConfig(null)
@@ -2538,7 +2523,8 @@ async function addProvider(verify: boolean) {
     // A signed-in session already holds a provider token (Google sign-in
     // mints a Drive-capable one) — use it when the wizard's token field is
     // empty so "Save & verify" works without a manual PAT paste.
-    const token = wiz.token.trim() || await sessionTokenFor(wiz.backendType)
+    const sessionAccountId = identity.value && backendForAccountProvider(identity.value.provider) === wiz.backendType ? identity.value.id : undefined
+    const token = wiz.token.trim() || await sessionTokenFor(wiz.backendType, sessionAccountId)
     if (!token && isOauthCapable(wiz.backendType)) {
       wizOpen.value = true
       railPinned.value = true
@@ -2549,6 +2535,7 @@ async function addProvider(verify: boolean) {
     const saved = await store.saveSyncConfig({
       ...((token ? { ...wizToConfig(), token } : wizToConfig()) as SyncConfig),
       id: '',
+      accountId: !wiz.token.trim() ? sessionAccountId : undefined,
     })
     if (!saved) {
       wizMsg.value = 'Could not save — check the connection and retry.'
@@ -2594,7 +2581,7 @@ onMounted(() => {
   void refreshIdentity()
   void (async () => {
     await refresh()
-    // Heal on every open: (a) any remembered account whose backend has no
+    // Heal on every open: (a) any remembered account without its own provider
     // row gets one; (b) any OAuth-capable row with an empty sealed secret
     // gets topped up from the live session (Google sign-in mints the token,
     // but the row may have been created before the session landed). Silent
@@ -2603,9 +2590,9 @@ onMounted(() => {
       let touched = false
       for (const acc of connectedAccounts.value) {
         const b = backendForAccountProvider(acc.provider)
-        if (b && !store.syncConfigs.some(c => c.backendType === b)) {
-          const token = await sessionTokenFor(b)
-          await ensureProviderForBackend(b, { token, displayName: `${backendLabel(b)} — ${acc.name}` })
+        if (b && needsProviderFor(acc)) {
+          const token = await sessionTokenFor(b, acc.id)
+          await ensureProviderForBackend(b, { accountId: acc.id, token, displayName: `${backendLabel(b)} — ${acc.name}` })
           touched = true
         }
       }
@@ -2619,7 +2606,7 @@ onMounted(() => {
           if (await sealedSecretFor(cfg.id)) continue
           const draftToken = drafts[cfg.id]?.token.trim()
           if (draftToken) continue
-          const sessionToken = await sessionTokenFor(cfg.backendType)
+          const sessionToken = await sessionTokenFor(cfg.backendType, cfg.accountId)
           if (!sessionToken) continue
           const topped = await store.saveSyncConfig({ ...cfg, token: sessionToken })
           if (topped) {

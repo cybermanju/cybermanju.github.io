@@ -312,7 +312,7 @@ import ProviderLogo from '@/components/ProviderLogo.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { isStaticHost } from '@/composables/useTauri'
-import { identity, refreshIdentity, signInWithPopup, supabaseConfigured, supabaseProviderFor, supabaseSession, supabaseSessionProvider, type OAuthBackend } from '@/composables/useSupabase'
+import { identity, refreshIdentity, signInWithPopup, supabaseConfigured, supabaseProviderFor, supabaseSession, identityFromSession, type OAuthBackend } from '@/composables/useSupabase'
 import { configureMobileVaultMirror, normalizeMobileVaultFileName, pickMobileFolder, supportsNativeScopedStorage, type MobileFolderHandle } from '@/utils/mobileScopedStorage'
 import { listVfsMounts, saveVfsMount } from '@/composables/useProviderCanal'
 import type { ProviderMount } from '@/composables/useProviderCanal'
@@ -399,20 +399,26 @@ async function mswSignIn(provider: OAuthBackend) {
     // storage step's vault chips can use it immediately.
     try {
       const backend = mswBackendForOAuth(provider)
-      if (!store.syncConfigs.some(c => c.backendType === backend)) {
-        let token = ''
-        try {
-          const session = await supabaseSession()
-          if (session?.provider_token && supabaseSessionProvider(session) === provider) {
-            token = session.provider_token ?? ''
-          }
-        } catch {
-          token = ''
+      const existing = store.syncConfigs.find(c => c.backendType === backend && c.accountId === who.id)
+      let token = ''
+      try {
+        const session = await supabaseSession()
+        const current = identityFromSession(session)
+        if (session?.provider_token && current?.id === who.id && current.provider === provider) token = session.provider_token
+      } catch {
+        token = ''
+      }
+      if (existing) {
+        if (token && !existing.token) {
+          await store.saveSyncConfig({ ...existing, token }).catch(() => null)
+          await store.fetchSyncConfigs().catch(() => {})
         }
+      } else {
         await store.saveSyncConfig({
           ...syncConfigDefaults(),
           id: '',
           backendType: backend,
+          accountId: who.id,
           name: `${backendLabel(backend)} — ${who.name}`,
           token: token.trim() || undefined,
         } as unknown as SyncConfig)
@@ -553,10 +559,15 @@ async function saveProvider() {
       return
     }
     let token = prov.value.secret.trim()
+    let oauthAccountId: string | undefined
     if (!token) {
       const expected = supabaseProviderFor(prov.value.backendType)
       const session = await supabaseSession()
-      if (expected && supabaseSessionProvider(session) === expected) token = session?.provider_token ?? ''
+      const current = identityFromSession(session)
+      if (expected && current?.provider === expected && session?.provider_token) {
+        token = session.provider_token
+        oauthAccountId = current.id
+      }
     }
     if (!token) {
       provMsg.value = `Sign in with ${shortProv(prov.value.backendType)} above or paste a personal access token.`
@@ -568,6 +579,7 @@ async function saveProvider() {
       ...base,
       id: '',
       backendType: prov.value.backendType,
+      ...(oauthAccountId ? { accountId: oauthAccountId } : {}),
       name: prov.value.name.trim(),
       token,
       basePath: undefined,

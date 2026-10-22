@@ -141,10 +141,10 @@ describe('Supabase broker configuration (build pair + Settings paste)', () => {
 
   it('requests a fresh offline Google consent when reconnecting Drive', () => {
     expect(supabaseScopesFor('googleDrive')).toContain('https://www.googleapis.com/auth/drive.file')
-    expect(supabaseOAuthQueryParams('googleDrive', true)).toEqual({ access_type: 'offline', prompt: 'consent' })
-    expect(supabaseOAuthQueryParams('google', true)).toEqual({ access_type: 'offline', prompt: 'consent' })
-    expect(supabaseOAuthQueryParams('github', true)).toBeUndefined()
-    expect(supabaseOAuthQueryParams('googleDrive')).toBeUndefined()
+    expect(supabaseOAuthQueryParams('googleDrive', true)).toEqual({ access_type: 'offline', prompt: 'consent select_account' })
+    expect(supabaseOAuthQueryParams('google', true)).toEqual({ access_type: 'offline', prompt: 'consent select_account' })
+    expect(supabaseOAuthQueryParams('github', true)).toEqual({ prompt: 'select_account' })
+    expect(supabaseOAuthQueryParams('googleDrive')).toEqual({ access_type: 'offline', prompt: 'select_account' })
   })
 })
 

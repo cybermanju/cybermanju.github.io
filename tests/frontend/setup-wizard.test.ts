@@ -12,6 +12,7 @@ import {
   markSetupSeen,
   nextSetupStep,
   prevSetupStep,
+  providerConfigForAccount,
   setupSeen,
   setupStepIndex,
   saveSetupResumeStep,
@@ -120,22 +121,38 @@ describe('setup wizard state', () => {
     expect(nextSetupStep('appearance')).toBe('done')
   })
 
-  it('builds one OAuth substep card per logged provider', () => {
+  it('builds one OAuth substep card per account and matches only its exact config', () => {
     const cards = signedProviderCards(
       [
-        { provider: 'google', name: 'Ana', email: 'ana@example.com' },
-        { provider: 'github', email: 'dev@example.com' },
-        { provider: 'google', name: 'Second Google' },
+        { provider: 'google', id: 'google:ana', name: 'Ana', email: 'ana@example.com' },
+        { provider: 'github', id: 'github:dev', email: 'dev@example.com' },
+        { provider: 'google', id: 'google:second', name: 'Second Google' },
         { provider: 'unknown-slug', name: 'Nobody' },
+        { provider: 'gitlab', name: 'Legacy without safe identity' },
       ],
-      [{ backendType: 'github' }],
+      [
+        { backendType: 'googleDrive', accountId: 'google:second', id: 'second-config' },
+        { backendType: 'github', accountId: 'github:dev', id: 'github-config' },
+        { backendType: 'googleDrive', accountId: 'other-google', id: 'other-config' },
+      ],
     )
-    expect(cards.map(c => c.backend)).toEqual(['googleDrive', 'github'])
+    expect(cards.map(c => c.accountId)).toEqual(['google:ana', 'github:dev', 'google:second'])
+    expect(cards.map(c => c.backend)).toEqual(['googleDrive', 'github', 'googleDrive'])
     expect(cards[0].accountName).toBe('Ana')
     expect(cards[0].logo).toBe('google')
     expect(cards[0].hasConfig).toBe(false)
     expect(cards[1].accountName).toBe('dev@example.com')
     expect(cards[1].hasConfig).toBe(true)
+    expect(cards[2].hasConfig).toBe(true)
+  })
+
+  it('selects the matching account config rather than another row for that backend', () => {
+    const first = { backendType: 'googleDrive', accountId: 'google:first', id: 'first' }
+    const second = { backendType: 'googleDrive', accountId: 'google:second', id: 'second' }
+    const rows = [first, second]
+    expect(providerConfigForAccount(rows, 'googleDrive', 'google:second')).toBe(second)
+    expect(providerConfigForAccount(rows, 'googleDrive', 'unbound')).toBeNull()
+    expect(providerConfigForAccount([{ backendType: 'googleDrive', id: 'legacy' }], 'googleDrive', 'google:first')).toBeNull()
   })
 
   it('clamps the .cybermanju size into 64–8192 MB', () => {

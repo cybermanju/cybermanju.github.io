@@ -1314,10 +1314,10 @@ export const useAppStore = defineStore('cybermanju', () => {
       if (typeof config.token === 'string' && config.token.trim()) return config
       const backend = String(config.backendType ?? '')
       if (backend !== 'googleDrive' && backend !== 'github' && backend !== 'gitlab') return config
-      const { supabaseSession, supabaseSessionProvider, supabaseProviderFor } = await import('@/composables/useSupabase')
+      const { supabaseSession, identityFromSession } = await import('@/composables/useSupabase')
+      const { canUseOAuthSession } = await import('@/utils/oauthAccounts')
       const session = await supabaseSession().catch(() => null)
-      const prov = session ? supabaseSessionProvider(session) : null
-      if (prov && session?.provider_token && supabaseProviderFor(backend) === prov) {
+      if (session?.provider_token && canUseOAuthSession(config, identityFromSession(session))) {
         return { ...config, token: session.provider_token }
       }
     } catch {

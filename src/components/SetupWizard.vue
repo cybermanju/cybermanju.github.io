@@ -168,41 +168,41 @@
           <div v-if="signInOk || oauthIdentity" class="sw-substep">
             <h4 class="sw-substep-title">Vault home per provider</h4>
             <p class="sw-hint">Signed in — pick where each provider keeps its <code>.cybermanju</code> files and how big the disk is. Drive gets a folder, GitHub/GitLab a private repo (created when missing).</p>
-            <div v-for="sp in signedProviders" :key="sp.backend" class="sw-prov-card">
+            <div v-for="sp in signedProviders" :key="sp.accountId" class="sw-prov-card">
               <div class="sw-prov-head">
                 <ProviderLogo :provider="sp.logo" :size="26" />
                 <div class="sw-prov-meta">
                   <strong>{{ sp.label }}</strong>
                   <small>{{ sp.accountName }}</small>
                 </div>
-                <span v-if="cloudDone[sp.backend]" class="sw-note ok" style="margin:0">ready ✓</span>
+                <span v-if="cloudDone[sp.accountId]" class="sw-note ok" style="margin:0">ready ✓</span>
               </div>
               <div v-if="sp.config" class="sw-row">
                 <label class="sw-field grow">
                   <span class="sw-label">Folder</span>
-                  <input v-model="cloudFolders[sp.backend]" class="sw-input" placeholder="cybermanju-vault" autocomplete="off" />
+                  <input v-model="cloudFolders[sp.accountId]" class="sw-input" placeholder="cybermanju-vault" autocomplete="off" />
                 </label>
                 <label class="sw-field" style="max-width: 110px">
                   <span class="sw-label">Size (MB)</span>
-                  <input v-model.number="cloudSizes[sp.backend]" class="sw-input" type="number" min="64" max="8192" step="64" placeholder="512" />
+                  <input v-model.number="cloudSizes[sp.accountId]" class="sw-input" type="number" min="64" max="8192" step="64" placeholder="512" />
                 </label>
               </div>
               <div v-if="sp.config" class="sw-row">
                 <label class="sw-field grow">
                   <span class="sw-label">Disk passphrase (required — encrypts the disk)</span>
-                  <input v-model="cloudPassphrases[sp.backend]" class="sw-input" type="password" placeholder="required" autocomplete="new-password" />
+                  <input v-model="cloudPassphrases[sp.accountId]" class="sw-input" type="password" placeholder="required" autocomplete="new-password" />
                 </label>
               </div>
               <div v-if="sp.config" class="sw-row">
                 <button
                   class="sw-btn primary"
                   type="button"
-                  :disabled="!!cloudBusy[sp.backend] || cloudDone[sp.backend]"
-                  @click="provisionCloudDisk(sp.backend)"
-                >{{ cloudBusy[sp.backend] ? 'Creating…' : cloudDone[sp.backend] ? 'Created ✓' : `Create in ${sp.label}` }}</button>
+                  :disabled="!!cloudBusy[sp.accountId] || cloudDone[sp.accountId]"
+                  @click="provisionCloudDisk(sp)"
+                >{{ cloudBusy[sp.accountId] ? 'Creating…' : cloudDone[sp.accountId] ? 'Created ✓' : `Create in ${sp.label}` }}</button>
               </div>
               <p v-else class="sw-note">No {{ sp.label }} connection yet — sign in again above to create it.</p>
-              <p v-if="cloudMsgs[sp.backend]" class="sw-note" :class="cloudMsgs[sp.backend].ok ? 'ok' : 'err'">{{ cloudMsgs[sp.backend].text }}</p>
+              <p v-if="cloudMsgs[sp.accountId]" class="sw-note" :class="cloudMsgs[sp.accountId].ok ? 'ok' : 'err'">{{ cloudMsgs[sp.accountId].text }}</p>
             </div>
           </div>
           <p v-if="!sbConfigured" class="sw-note err">OAuth broker is not set — sign-in stays off until you add the URL + key in Settings → OAuth broker.</p>
@@ -420,6 +420,7 @@ import {
   supabaseConfigured,
   supabaseSession,
   supabaseSessionProvider,
+  identityFromSession,
   type OAuthBackend,
 } from '@/composables/useSupabase'
 import {
@@ -449,6 +450,7 @@ import {
   clampVaultSizeMb,
   clearSetupResumeStep,
   markSetupSeen,
+  providerConfigForAccount,
   saveSetupResumeStep,
   setupStepIndex,
   signedProviderCards,
@@ -735,20 +737,19 @@ function backendForOAuth(p: OAuthBackend | string): SyncBackendType {
   return 'github'
 }
 
-async function sessionTokenFor(backend: SyncBackendType): Promise<string> {
+async function sessionTokenFor(backend: SyncBackendType, accountId: string): Promise<string> {
   try {
     const session = await supabaseSession()
-    if (!session?.provider_token) return ''
-    const prov = supabaseSessionProvider(session)
-    if (!prov) return ''
-    return backendForOAuth(prov) === backend ? (session.provider_token ?? '') : ''
+    const current = identityFromSession(session)
+    if (!session?.provider_token || !current || current.id !== accountId || backendForOAuth(current.provider) !== backend) return ''
+    return session.provider_token
   } catch {
     return ''
   }
 }
-
-async function ensureWizardProvider(backend: SyncBackendType, token: string, displayName: string): Promise<void> {
-  const existing = store.syncConfigs.find(c => c.backendType === backend)
+async function ensureWizardProvider(backend: SyncBackendType, accountId: string, token: string, displayName: string): Promise<void> {
+  // A backend match alone cannot establish which OAuth account owns a config.
+  const existing = store.syncConfigs.find(c => c.backendType === backend && c.accountId === accountId)
   if (existing) {
     if (token && !(existing as SyncConfig).token) {
       await store.saveSyncConfig({ ...existing, token }).catch(() => null)
@@ -760,12 +761,12 @@ async function ensureWizardProvider(backend: SyncBackendType, token: string, dis
     ...syncConfigDefaults(),
     id: '',
     backendType: backend,
+    accountId,
     name: displayName,
     token: token.trim() || undefined,
   } as SyncConfig)
   if (saved) await store.fetchSyncConfigs().catch(() => {})
 }
-
 async function signIn(provider: OAuthBackend) {
   if (signInBusy.value) return
   signInBusy.value = provider
@@ -781,8 +782,8 @@ async function signIn(provider: OAuthBackend) {
     // the Disks step can use it immediately.
     try {
       const backend = backendForOAuth(provider)
-      const token = await sessionTokenFor(backend)
-      await ensureWizardProvider(backend, token, `${backendLabel(backend)} — ${who.name}`)
+      const token = await sessionTokenFor(backend, who.id)
+      await ensureWizardProvider(backend, who.id, token, `${backendLabel(backend)} — ${who.name}`)
       await store.fetchSyncConfigs().catch(() => {})
       ensureMsg.value = token
         ? `${backendLabel(backend)} connection ready.`
@@ -814,40 +815,42 @@ const cloudMsgs = ref<Record<string, { ok: boolean; text: string }>>({})
 const signedProviders = computed(() => {
   const accounts = connectedAccounts.value.map(a => ({
     provider: a.provider,
+    id: a.id,
     name: a.name,
     email: a.email,
   }))
   if (oauthIdentity.value) {
     accounts.unshift({
       provider: oauthIdentity.value.provider,
+      id: oauthIdentity.value.id,
       name: oauthIdentity.value.name,
       email: oauthIdentity.value.email,
     })
   }
   return signedProviderCards(
     accounts,
-    store.syncConfigs.map(c => ({ backendType: c.backendType })),
+    store.syncConfigs.map(c => ({ backendType: c.backendType, accountId: c.accountId })),
   ).map(card => ({
     ...card,
-    config: store.syncConfigs.find(c => c.backendType === card.backend) ?? null,
+    config: providerConfigForAccount(store.syncConfigs, card.backend, card.accountId),
   }))
 })
 
-async function provisionCloudDisk(backend: SyncBackendType) {
-  if (cloudBusy.value[backend] || cloudDone.value[backend]) return
-  const cfg = store.syncConfigs.find(c => c.backendType === backend) ?? null
+async function provisionCloudDisk(card: (typeof signedProviders.value)[number]) {
+  const { accountId, backend, config: cfg } = card
+  if (cloudBusy.value[accountId] || cloudDone.value[accountId]) return
   if (!cfg) {
-    cloudMsgs.value[backend] = { ok: false, text: 'No connection yet — sign in again above to create it.' }
+    cloudMsgs.value[accountId] = { ok: false, text: 'No connection yet — sign in again above to create it.' }
     return
   }
-  cloudBusy.value[backend] = true
-  delete cloudMsgs.value[backend]
+  cloudBusy.value[accountId] = true
+  delete cloudMsgs.value[accountId]
   try {
-    const folder = (cloudFolders.value[backend] ?? '').trim() || 'cybermanju-vault'
-    const sizeMb = clampVaultSizeMb(cloudSizes.value[backend] ?? 512)
-    const passphrase = (cloudPassphrases.value[backend] ?? '')
+    const folder = (cloudFolders.value[accountId] ?? '').trim() || 'cybermanju-vault'
+    const sizeMb = clampVaultSizeMb(cloudSizes.value[accountId] ?? 512)
+    const passphrase = (cloudPassphrases.value[accountId] ?? '')
     if (!passphrase) {
-      cloudMsgs.value[backend] = { ok: false, text: 'Type a disk passphrase first — the disk is passphrase-encrypted on every device.' }
+      cloudMsgs.value[accountId] = { ok: false, text: 'Type a disk passphrase first — the disk is passphrase-encrypted on every device.' }
       return
     }
     const out = await store.createDiskWithRemote(cfg, {
@@ -857,24 +860,24 @@ async function provisionCloudDisk(backend: SyncBackendType) {
       token: await diskTokenFor(cfg),
     })
     if (!out?.disk) {
-      cloudMsgs.value[backend] = { ok: false, text: 'Could not create the disk — retry.' }
+      cloudMsgs.value[accountId] = { ok: false, text: 'Could not create the disk — retry.' }
       return
     }
-    cloudDone.value[backend] = true
+    cloudDone.value[accountId] = true
     if (out.remote) {
       const where = backend === 'googleDrive'
         ? `Drive folder \`${out.remote.remoteDir}\``
         : `private repo \`${out.remote.config.repoName}\``
-      cloudMsgs.value[backend] = { ok: true, text: `“${folder}” live (${sizeMb} MB) — ${where} holds its .cybermanju files.` }
+      cloudMsgs.value[accountId] = { ok: true, text: `“${folder}” live (${sizeMb} MB) — ${where} holds its .cybermanju files.` }
     } else if (out.remoteWarning) {
-      cloudMsgs.value[backend] = { ok: false, text: `Disk attached, but the remote seed failed: ${out.remoteWarning}` }
+      cloudMsgs.value[accountId] = { ok: false, text: `Disk attached, but the remote seed failed: ${out.remoteWarning}` }
     } else {
-      cloudMsgs.value[backend] = { ok: true, text: `“${folder}” created (${sizeMb} MB).` }
+      cloudMsgs.value[accountId] = { ok: true, text: `“${folder}” created (${sizeMb} MB).` }
     }
   } catch (e) {
-    cloudMsgs.value[backend] = { ok: false, text: e instanceof Error ? e.message : String(e) }
+    cloudMsgs.value[accountId] = { ok: false, text: e instanceof Error ? e.message : String(e) }
   } finally {
-    cloudBusy.value[backend] = false
+    cloudBusy.value[accountId] = false
   }
 }
 
@@ -891,10 +894,10 @@ async function diskTokenFor(cfg: SyncConfig): Promise<string> {
   if (typeof cfg.token === 'string' && cfg.token.trim()) return cfg.token.trim()
   try {
     const session = await supabaseSession()
-    const prov = session ? supabaseSessionProvider(session) : null
+    const current = identityFromSession(session)
     const { supabaseProviderFor } = await import('@/composables/useSupabase')
-    if (prov && supabaseProviderFor(cfg.backendType) === prov) {
-      return session?.provider_token ?? ''
+    if (session?.provider_token && current && current.id === cfg.accountId && supabaseProviderFor(cfg.backendType) === current.provider) {
+      return session.provider_token
     }
   } catch {
     // Session unreadable — the disk still gets created, remote warns.

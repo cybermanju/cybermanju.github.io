@@ -214,15 +214,22 @@ export type SignedProviderBackend = 'googleDrive' | 'github' | 'gitlab'
 
 export interface OAuthAccountRef {
   provider: string
+  /** Provider-qualified identity (e.g. google:<id>), never the shared broker user id. */
+  id?: string
+  /** Older callers may supply the raw provider account id instead. */
+  accountId?: string
   name?: string
   email?: string
 }
 
 export interface ProviderConfigRef {
   backendType: string
+  accountId?: string
 }
 
 export interface SignedProviderCard {
+  /** Provider-qualified account key used for all per-card state. */
+  accountId: string
   backend: SignedProviderBackend
   label: string
   logo: string
@@ -232,6 +239,13 @@ export interface SignedProviderCard {
 
 export const DEFAULT_VAULT_FOLDER = 'cybermanju-vault'
 export const DEFAULT_VAULT_SIZE_MB = 512
+
+/** Select only the connection explicitly owned by this provider account. */
+export function providerConfigForAccount<T extends ProviderConfigRef>(
+  configs: T[], backend: SignedProviderBackend, accountId: string,
+): T | null {
+  return configs.find(config => config.backendType === backend && config.accountId === accountId) ?? null
+}
 
 const OAUTH_BACKENDS: Array<{ slug: string; backend: SignedProviderBackend; label: string; logo: string }> = [
   { slug: 'google', backend: 'googleDrive', label: 'Google Drive', logo: 'google' },
@@ -245,24 +259,25 @@ export function clampVaultSizeMb(v: unknown): number {
 }
 
 /**
- * One card per logged OAuth provider (deduped by backend, first account
- * wins). `accounts` is the remembered list + current identity;
- * `configs` marks which providers already have a saved connection.
+ * One card per remembered OAuth account. Account identity is required to
+ * bind a saved config safely; backend-only/legacy rows never claim ownership.
  */
 export function signedProviderCards(
   accounts: OAuthAccountRef[],
   configs: ProviderConfigRef[],
 ): SignedProviderCard[] {
   const out: SignedProviderCard[] = []
-  for (const meta of OAUTH_BACKENDS) {
-    const acc = accounts.find(a => a.provider === meta.slug)
-    if (!acc) continue
+  for (const acc of accounts) {
+    const meta = OAUTH_BACKENDS.find(item => item.slug === acc.provider)
+    const accountId = acc.id || acc.accountId
+    if (!meta || !accountId) continue
     out.push({
+      accountId,
       backend: meta.backend,
       label: meta.label,
       logo: meta.logo,
       accountName: (acc.name || acc.email || meta.label).trim().slice(0, 80) || meta.label,
-      hasConfig: configs.some(c => c.backendType === meta.backend),
+      hasConfig: providerConfigForAccount(configs, meta.backend, accountId) !== null,
     })
   }
   return out

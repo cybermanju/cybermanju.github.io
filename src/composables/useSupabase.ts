@@ -43,6 +43,7 @@ import { isTauri } from './useTauri'
 import { openExternalUrl } from '@/utils/openExternal'
 
 const PENDING_CFG_KEY = 'cybermanju.oauthConfigId'
+const PENDING_PROVIDER_KEY = 'cybermanju.oauthProvider'
 const TOKEN_STASH_KEY = 'cybermanju.providerToken'
 
 export type OAuthBackend = 'github' | 'google' | 'gitlab'
@@ -339,8 +340,12 @@ export function supabaseSignInScopes(provider: OAuthBackend): string {
 /** Google must show a fresh consent screen when an existing grant lacks drive.file. */
 export function supabaseOAuthQueryParams(backendType: string, forceGoogleConsent = false): Record<string, string> | undefined {
   const provider = backendType === 'google' ? 'google' : supabaseProviderFor(backendType)
-  if (!forceGoogleConsent || provider !== 'google') return undefined
-  return { access_type: 'offline', prompt: 'consent' }
+  if (provider === 'google') {
+    return { access_type: 'offline', prompt: forceGoogleConsent ? 'consent select_account' : 'select_account' }
+  }
+  // GitHub documents prompt=select_account. GitLab's OAuth docs do not document a chooser prompt.
+  if (provider === 'github') return { prompt: 'select_account' }
+  return undefined
 }
 
 export function supabaseRedirectTo(popup: boolean): string {
@@ -459,11 +464,18 @@ export function closeOAuthPopup(): void {
  * Begin PKCE OAuth without leaving the app: returns the Supabase authorize
  * URL for us to open in a popup. Throws when Supabase is not configured.
  */
+async function signOutForOAuth(sb: SupabaseClient): Promise<void> {
+  const { error } = await sb.auth.signOut({ scope: 'local' })
+  if (error) throw error
+}
+
 export async function startSupabaseOAuth(backendType: string, popup = true, forceGoogleConsent = false): Promise<{ url: string }> {
   const provider = supabaseProviderFor(backendType)
   if (!provider) throw new Error(`unsupported: no Supabase OAuth for '${backendType}'`)
   const sb = await getSupabaseClient()
   if (!sb) throw new Error(BROKER_HELP)
+  await signOutForOAuth(sb)
+  writeLS(PENDING_PROVIDER_KEY, provider)
   const redirectTo = supabaseRedirectTo(popup)
   const { data, error } = await sb.auth.signInWithOAuth({
     provider,
@@ -646,18 +658,20 @@ export async function finishSupabaseReturn(): Promise<boolean> {
     }
     const token = session?.provider_token
     provider = supabaseSessionProvider(session)
-    if (token) {
+    if (token && provider) {
       stashProviderToken({
-        backend: provider ?? 'github',
+        backend: provider,
         providerToken: token,
         providerRefreshToken: session?.provider_refresh_token ?? null,
         at: Date.now(),
       })
     }
     // The popup path is also a sign-in: publish whoever came back.
-    identity.value = identityFromSession(session)
-    recordConnectedAccount(session)
-    if (popup) notifyOpenerOAuthDone(true, provider)
+    if (token && provider) {
+      identity.value = identityFromSession(session)
+      recordConnectedAccount(session)
+    }
+    if (popup) notifyOpenerOAuthDone(!!token && !!provider, provider)
   } catch {
     // Exchange failed (expired code, verifier mismatch) — still clean up.
     if (popup) notifyOpenerOAuthDone(false)
@@ -669,9 +683,19 @@ export async function finishSupabaseReturn(): Promise<boolean> {
 
 /** Provider slug behind a Supabase session (`user.app_metadata.provider`). */
 export function supabaseSessionProvider(session: Session | null): OAuthBackend | null {
-  const provider = (session?.user?.app_metadata as Record<string, unknown> | undefined)?.provider
-  if (provider === 'github' || provider === 'google' || provider === 'gitlab') return provider
-  return null
+  const user = session?.user
+  if (!user) return null
+  const supported = (provider: unknown): provider is OAuthBackend =>
+    provider === 'github' || provider === 'google' || provider === 'gitlab'
+  const identities = Array.isArray((user as any).identities)
+    ? (user as any).identities as Array<{ provider?: unknown }>
+    : []
+  const providers = new Set(identities.map(i => i?.provider).filter(supported))
+  const pending = readLS(PENDING_PROVIDER_KEY)
+  if (supported(pending) && providers.has(pending)) return pending
+  const original = (user.app_metadata as Record<string, unknown> | undefined)?.provider
+  if (supported(original) && (!providers.size || providers.has(original))) return original
+  return providers.size === 1 ? [...providers][0] : null
 }
 
 // ── Identity (OAuth sign-in — the only sign-in) ──────────────────────────
@@ -684,6 +708,8 @@ export function supabaseSessionProvider(session: Session | null): OAuthBackend |
 
 export interface CyberIdentity {
   id: string
+  /** Original Supabase broker user id (shared by linked provider identities). */
+  userId?: string
   email: string
   name: string
   avatarUrl: string
@@ -701,7 +727,10 @@ export const identity = ref<CyberIdentity | null>(null)
 // letting the provider's own chooser pick the account.
 
 export interface ConnectedAccount {
+  /** Provider-qualified account key (legacy rows are normalized when recorded). */
   id: string
+  /** Supabase broker user id shared by linked provider identities. */
+  userId?: string
   email: string
   name: string
   avatarUrl: string
@@ -733,19 +762,24 @@ function persistConnectedAccounts(): void {
   }
 }
 
-/** Record a session's user in the remembered list (deduped by user id). */
+/** Record the provider identity for a session (deduped by provider-qualified identity). */
 export function recordConnectedAccount(session: Session | null): ConnectedAccount | null {
   const idn = identityFromSession(session)
   if (!idn) return null
   const acc: ConnectedAccount = {
     id: idn.id,
+    userId: idn.userId,
     email: idn.email,
     name: idn.name,
     avatarUrl: idn.avatarUrl,
     provider: idn.provider,
     lastUsed: Date.now(),
   }
-  connectedAccounts.value = [acc, ...connectedAccounts.value.filter(a => a.id !== acc.id)].slice(0, 10)
+  connectedAccounts.value = [acc, ...connectedAccounts.value.filter(a => {
+    if (a.provider !== acc.provider) return true
+    // Replace provider-qualified rows and legacy rows keyed only by broker userId.
+    return !(a.id === acc.id || (acc.userId && (a.userId === acc.userId || a.id === acc.userId)))
+  })].slice(0, 10)
   persistConnectedAccounts()
   return acc
 }
@@ -757,24 +791,25 @@ export function recordConnectedAccount(session: Session | null): ConnectedAccoun
 export function forgetConnectedAccount(id: string): void {
   connectedAccounts.value = connectedAccounts.value.filter(a => a.id !== id)
   persistConnectedAccounts()
-  if (identity.value?.id === id) {
+  if (identity.value?.id === id || identity.value?.userId === id) {
     identity.value = null
     void supabaseSignOut().catch(() => {})
   }
 }
 
-function identityFromSession(session: Session | null): CyberIdentity | null {
+export function identityFromSession(session: Session | null): CyberIdentity | null {
   const user = session?.user
   if (!user) return null
   const meta = (user.user_metadata ?? {}) as Record<string, unknown>
-  const appMeta = (user.app_metadata ?? {}) as Record<string, unknown>
   const str = (v: unknown): string => (typeof v === 'string' ? v : '')
+  const provider = supabaseSessionProvider(session) || 'supabase'
   return {
-    id: user.id,
+    id: `${provider}:${user.id}`,
+    userId: user.id,
     email: str(user.email),
     name: str(meta.full_name) || str(meta.name) || str(meta.preferred_username) || str(user.email) || 'Signed in',
     avatarUrl: str(meta.avatar_url) || str(meta.picture),
-    provider: str(appMeta.provider) || 'supabase',
+    provider,
   }
 }
 
@@ -899,6 +934,8 @@ export async function startSupabaseSignIn(provider: OAuthBackend, popup = true, 
   if (!sb) {
     throw new Error(BROKER_HELP)
   }
+  await signOutForOAuth(sb)
+  writeLS(PENDING_PROVIDER_KEY, provider)
   const redirectTo = supabaseRedirectTo(popup)
   const { data, error } = await sb.auth.signInWithOAuth({
     provider,
@@ -930,7 +967,6 @@ export async function signInWithPopup(provider: OAuthBackend): Promise<CyberIden
   // back to a custom scheme (Linux WebKitGTK: "scheme that is not HTTP(S)").
   if (isTauri()) {
     await installMobileOAuthDeepLinks()
-    await supabaseSignOut().catch(() => {})
     identity.value = null
     const { url } = await startSupabaseSignIn(provider, false, provider === 'google')
     // System browser via the platform opener — never `plugin-shell open` on
@@ -941,8 +977,9 @@ export async function signInWithPopup(provider: OAuthBackend): Promise<CyberIden
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 700))
       const session = await supabaseSession()
+      if (!session?.provider_token || supabaseSessionProvider(session) !== provider) continue
       const id = identityFromSession(session)
-      if (id) {
+      if (id?.provider === provider) {
         identity.value = id
         recordConnectedAccount(session)
         return id
@@ -967,7 +1004,6 @@ export async function signInWithPopup(provider: OAuthBackend): Promise<CyberIden
   }
   let url = ''
   try {
-    await supabaseSignOut().catch(() => {})
     identity.value = null
     ;({ url } = await startSupabaseSignIn(provider, !!popup, provider === 'google'))
     if (!popup) {
@@ -997,16 +1033,18 @@ export async function signInWithPopup(provider: OAuthBackend): Promise<CyberIden
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 700))
       const session = await supabaseSession()
-      const id = identityFromSession(session)
-      if (id) {
-        try {
-          if (!popup.closed) popup.close()
-        } catch {
-          // Already gone — the popup closes itself too.
+      if (session?.provider_token && supabaseSessionProvider(session) === provider) {
+        const id = identityFromSession(session)
+        if (id?.provider === provider) {
+          try {
+            if (!popup.closed) popup.close()
+          } catch {
+            // Already gone — the popup closes itself too.
+          }
+          identity.value = id
+          recordConnectedAccount(session)
+          return id
         }
-        identity.value = id
-        recordConnectedAccount(session)
-        return id
       }
       // A manually closed popup with no completion message ends the wait;
       // a self-closed popup after notifying keeps polling until the session
@@ -1014,8 +1052,10 @@ export async function signInWithPopup(provider: OAuthBackend): Promise<CyberIden
       if (popup.closed && !msgDone) break
     }
     const session = await supabaseSession()
-    const id = identityFromSession(session)
-    if (id) {
+    const id = session?.provider_token && supabaseSessionProvider(session) === provider
+      ? identityFromSession(session)
+      : null
+    if (id?.provider === provider) {
       identity.value = id
       recordConnectedAccount(session)
       return id

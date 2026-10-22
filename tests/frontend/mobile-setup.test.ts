@@ -83,7 +83,7 @@ describe('mobile setup flow', () => {
 
   it('keeps the shared OAuth substep helper honest (desktop wizard cards)', () => {
     const cards = signedProviderCards(
-      [{ provider: 'gitlab', name: 'Mobile User' }],
+      [{ id: 'gitlab:mobile-user', provider: 'gitlab', name: 'Mobile User' }],
       [],
     )
     expect(cards).toHaveLength(1)

@@ -33,9 +33,14 @@ import {
   clearSupabaseConfig,
   finishSupabaseReturn,
   identity,
+  connectedAccounts,
+  recordConnectedAccount,
+  identityFromSession,
   setSupabaseConfig,
   startSupabaseOAuth,
   startSupabaseSignIn,
+  signInWithPopup,
+  supabaseSessionProvider,
   takeProviderTokenStash,
 } from '@/composables/useSupabase'
 
@@ -75,6 +80,7 @@ beforeEach(async () => {
   deepLink.onOpenUrl.mockReset().mockResolvedValue(() => {})
   deepLink.register.mockReset().mockResolvedValue(undefined)
   identity.value = null
+  connectedAccounts.value = []
   await clearSupabaseConfig()
 })
 
@@ -84,15 +90,15 @@ afterEach(() => {
 })
 
 describe('Supabase broker OAuth', () => {
-  it('shares a single client across concurrent login and connection starts for every provider', async () => {
-    const starts = await Promise.all([
-      startSupabaseSignIn('google'),
-      startSupabaseSignIn('github'),
-      startSupabaseSignIn('gitlab'),
-      startSupabaseOAuth('googleDrive'),
-      startSupabaseOAuth('github'),
-      startSupabaseOAuth('gitlab'),
-    ])
+  it('shares one client across sequential login and connection starts for every provider', async () => {
+    // Supabase has one PKCE verifier per client, so independent starts must not overlap.
+    const starts = []
+    starts.push(await startSupabaseSignIn('google'))
+    starts.push(await startSupabaseSignIn('github'))
+    starts.push(await startSupabaseSignIn('gitlab'))
+    starts.push(await startSupabaseOAuth('googleDrive'))
+    starts.push(await startSupabaseOAuth('github'))
+    starts.push(await startSupabaseOAuth('gitlab'))
 
     expect(starts).toHaveLength(6)
     expect(sdk.createClient).toHaveBeenCalledOnce()
@@ -107,6 +113,41 @@ describe('Supabase broker OAuth', () => {
     expect(calls[4].options.scopes).toContain('repo')
     expect(calls[5].options.scopes).toBe('api')
     expect(calls.every(({ options }) => options.skipBrowserRedirect === true)).toBe(true)
+  })
+
+  it('requests provider account pickers only with documented parameters', async () => {
+    expect(setSupabaseConfig('https://broker.example.test', 'broker-public-anon-key')).toBeNull()
+    await startSupabaseSignIn('github')
+    await startSupabaseSignIn('gitlab')
+    await startSupabaseSignIn('google')
+    const calls = sdk.signInWithOAuth.mock.calls.map(([request]) => request as any)
+    expect(calls[0].options.queryParams).toEqual({ prompt: 'select_account' })
+    expect(calls[1].options.queryParams).toBeUndefined()
+    expect(calls[2].options.queryParams).toEqual({ access_type: 'offline', prompt: 'select_account' })
+  })
+
+  it('fails closed when local sign-out fails before starting either OAuth flow', async () => {
+    expect(setSupabaseConfig('https://broker.example.test', 'broker-public-anon-key')).toBeNull()
+    const signOutError = new Error('local sign-out failed')
+    sdk.signOut.mockResolvedValueOnce({ error: signOutError } as any)
+    await expect(startSupabaseOAuth('github')).rejects.toBe(signOutError)
+    expect(sdk.signOut).toHaveBeenLastCalledWith({ scope: 'local' })
+    expect(sdk.signInWithOAuth).not.toHaveBeenCalled()
+    sdk.signOut.mockResolvedValueOnce({ error: signOutError } as any)
+    await expect(startSupabaseSignIn('google')).rejects.toBe(signOutError)
+    expect(sdk.signInWithOAuth).not.toHaveBeenCalled()
+  })
+
+  it('does not mislabel an unknown provider callback token as GitHub', async () => {
+    sdk.state.session = {
+      provider_token: 'unknown-provider-token',
+      user: { id: 'unknown-user', app_metadata: { provider: 'unsupported' } },
+    }
+    ;(window as any).location.search = '?code=unknown-provider-code'
+    await expect(finishSupabaseReturn()).resolves.toBe(true)
+    expect(takeProviderTokenStash()).toBeNull()
+    expect(identity.value).toBeNull()
+    expect(connectedAccounts.value).toHaveLength(0)
   })
 
   it('processes an auth-code return and records the matching provider token for Google, GitHub, and GitLab', async () => {
@@ -136,6 +177,54 @@ describe('Supabase broker OAuth', () => {
     expect(sdk.getSession).toHaveBeenCalledTimes(3)
   })
 
+  it('keeps two accounts per provider distinct and resolves a linked broker user by the requested provider', () => {
+    const session = (provider: string, userId: string, email: string, identities: any[]) => ({
+      provider_token: `${provider}-${email}-token`, user: {
+        id: userId, email, user_metadata: { full_name: email },
+        app_metadata: { provider: 'google' }, identities,
+      },
+    }) as any
+    const identities = [
+      { provider: 'google', identity_data: { email: 'work@example.test' } },
+      { provider: 'github', identity_data: { email: 'work-gh@example.test' } },
+      { provider: 'gitlab', identity_data: { email: 'work-gl@example.test' } },
+    ]
+    localStorage.setItem('cybermanju.oauthProvider', 'github')
+    const linked = session('github', 'shared-broker-user', 'work@example.test', identities)
+    expect(identityFromSession(linked)).toMatchObject({ id: 'github:shared-broker-user', userId: 'shared-broker-user', provider: 'github' })
+    expect(supabaseSessionProvider(linked)).toBe('github')
+    connectedAccounts.value = [{ id: 'shared-broker-user', email: 'work@example.test', name: 'legacy', avatarUrl: '', provider: 'github', lastUsed: 1 }]
+    recordConnectedAccount(linked)
+    expect(connectedAccounts.value).toHaveLength(1)
+    expect(connectedAccounts.value[0].id).toBe('github:shared-broker-user')
+    for (const [provider, userId, email] of [
+      ['google', 'google-work', 'work@gmail.test'], ['google', 'google-home', 'home@gmail.test'],
+      ['github', 'github-work', 'work-gh@test.test'], ['github', 'github-home', 'home-gh@test.test'],
+      ['gitlab', 'gitlab-work', 'work-gl@test.test'], ['gitlab', 'gitlab-home', 'home-gl@test.test'],
+    ]) {
+      localStorage.setItem('cybermanju.oauthProvider', provider)
+      recordConnectedAccount(session(provider, userId, email, [{ provider }]))
+    }
+    expect(connectedAccounts.value.filter(a => a.provider === 'google')).toHaveLength(2)
+    expect(connectedAccounts.value.filter(a => a.provider === 'github')).toHaveLength(3)
+    expect(connectedAccounts.value.filter(a => a.provider === 'gitlab')).toHaveLength(2)
+    expect(new Set(connectedAccounts.value.map(a => a.id)).size).toBe(connectedAccounts.value.length)
+  })
+
+  it('does not accept an old session from another provider after sign-out', async () => {
+    expect(setSupabaseConfig('https://broker.example.test', 'broker-public-anon-key')).toBeNull()
+    sdk.state.session = {
+      provider_token: 'stale-google-token',
+      user: { id: 'stale-google-user', email: 'stale@example.test', app_metadata: { provider: 'google' } },
+    }
+    const popup = { closed: true, location: { href: '' }, close: vi.fn() }
+    ;(window as any).open = vi.fn(() => popup)
+    ;(window as any).addEventListener = vi.fn()
+    ;(window as any).removeEventListener = vi.fn()
+    await expect(signInWithPopup('github')).rejects.toThrow('sign-in did not complete')
+    expect(identity.value).toBeNull()
+  })
+
   it('starts native Google sign-in with the deep-link return and exchanges the returned code', async () => {
     expect(setSupabaseConfig('https://broker.example.test', 'broker-public-anon-key')).toBeNull()
     ;(window as any).__TAURI__ = true
@@ -156,7 +245,7 @@ describe('Supabase broker OAuth', () => {
       provider: 'google',
       options: expect.objectContaining({
         redirectTo: 'cybermanju://oauth/callback',
-        queryParams: { access_type: 'offline', prompt: 'consent' },
+        queryParams: { access_type: 'offline', prompt: 'consent select_account' },
       }),
     }))
     await expect((await import('@/composables/useSupabase')).activateMobileOAuthDeepLinks()).resolves.toBe(true)
