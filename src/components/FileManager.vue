@@ -838,7 +838,10 @@
     </div>
 
     <!-- dialogs -->
-    <Teleport to="body">
+    <!-- Disabled Teleport moves the same nodes back under the hidden/inert
+         AppWindow; no dialog/editor instance or draft is discarded. -->
+    <Teleport to="body" :disabled="!panelVisible">
+      <div ref="dialogsRef" style="display: contents">
       <div v-if="dlgFolder" class="fm-ov" @click.self="dlgFolder = false">
         <div class="fm-modal">
           <h3>New folder</h3>
@@ -966,6 +969,7 @@
         </section>
       </div>
       <input ref="filePickRef" type="file" multiple hidden @change="onFilesPicked" />
+      </div>
     </Teleport>
   </div>
 </template>
@@ -1101,6 +1105,37 @@ const scrollRef = ref<HTMLElement | null>(null)
 const filePickRef = ref<HTMLInputElement | null>(null)
 const folderRef = ref<HTMLInputElement | null>(null)
 const renameRef = ref<HTMLInputElement | null>(null)
+const dialogsRef = ref<HTMLElement | null>(null)
+
+// Use the existing host identity and shell visibility policy, not focus:
+// an unfocused but visible Files window must retain its dialogs.
+const panelVisible = computed(() => {
+  if (windowUi.id === 'root') return true
+  const host = wm.windows.value.find(win => win.id === windowUi.id)
+  if (!host || host.minimized || wm.shellLayoutMode.value === 'overview') return false
+  return wm.shellLayoutMode.value !== 'strip' || wm.stripWindows.value.some(win => win.id === host.id)
+})
+let suspendedDialogFocus: HTMLElement | null = null
+watch(panelVisible, async (visible, _previous, onCleanup) => {
+  let stale = false
+  onCleanup(() => { stale = true })
+  if (!visible) {
+    const active = document.activeElement
+    // Teleport still owns these nodes before Vue patches the hidden host.
+    if (active instanceof HTMLElement && dialogsRef.value?.contains(active)) {
+      suspendedDialogFocus = active
+      active.blur()
+    }
+    return
+  }
+  // Let DesktopShell's overview-card/window-surface focus finish first.
+  await nextTick()
+  await nextTick()
+  if (stale || !panelVisible.value || wm.activeWindow.value?.id !== windowUi.id) return
+  const target = suspendedDialogFocus
+  suspendedDialogFocus = null
+  if (target?.isConnected && !target.closest('[inert]')) target.focus({ preventScroll: true })
+}, { flush: 'sync' })
 
 // ── nav history ──
 const hist = ref<string[]>([store.currentPath || '/'])
