@@ -1,17 +1,18 @@
 // CyberManju OS — User-triggered default Home UI controller.
 // Role: consume Audio's frozen role contract; never changes native eligibility or intent filters.
 // Exports: createHomeRoleAction (testable UI state), useHomeRoleAction, frozen result types.
-// Integrates: native-only Tauri invoke/listen, Vue and app-local native-widget suspension.
-// Contracts: status reads are passive; request requires a fresh trusted visible CTA click. Missing commands fail closed.
+// Integrates: native-only Tauri invoke, window CustomEvent, Vue and native-widget suspension.
+// Contracts: passive recovery never opens a picker; only a fresh trusted visible CTA can request. Missing commands fail closed.
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
 import { isAndroidApp, isTauri } from '@/composables/useTauri'
 
 export type HomeRoleState = 'held' | 'not_held' | 'unavailable'
-export interface HomeRoleStatus { state: HomeRoleState; apiLevel: number }
-export interface HomeRoleRequestStart { state: 'held' | 'pending' | 'unavailable' | 'failed'; requestId?: string }
-export interface HomeRoleRequestOutcome { requestId: string; state: 'held' | 'declined' | 'unavailable' | 'failed' }
+export type HomeRoleRequestStartState = 'held' | 'pending' | 'unavailable' | 'failed'
+export type HomeRoleRequestOutcomeState = HomeRoleState | 'failed'
+export interface HomeRoleStatus { state: HomeRoleState; apiLevel: number; pendingRequestId?: string }
+export interface HomeRoleRequestStart { state: HomeRoleRequestStartState; requestId?: string }
+export interface HomeRoleRequestOutcome { requestId: string; state: HomeRoleRequestOutcomeState }
 interface RolePorts {
   supported: boolean
   status: () => Promise<unknown>
@@ -23,10 +24,13 @@ interface RolePorts {
   requestId: () => string
 }
 const states = ['held', 'not_held', 'unavailable']
+const outcomeStates = [...states, 'failed']
+const validId = (value: unknown): value is string => typeof value === 'string' && value.length > 0
 function observed(value: unknown): HomeRoleStatus | null {
   if (!value || typeof value !== 'object') return null
   const row = value as HomeRoleStatus
-  return states.includes(row.state) && Number.isInteger(row.apiLevel) && row.apiLevel >= 24 ? row : null
+  return states.includes(row.state) && Number.isInteger(row.apiLevel) && row.apiLevel >= 24
+    && (row.pendingRequestId === undefined || validId(row.pendingRequestId)) ? row : null
 }
 function bounded<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout>
@@ -36,15 +40,18 @@ export function createHomeRoleAction(ports: RolePorts) {
   const state = ref<HomeRoleState>('unavailable')
   const apiLevel = ref<number | null>(null)
   const pendingId = ref<string | null>(null)
-  const attempt = ref<HomeRoleRequestOutcome['state'] | null>(null)
+  const attempt = ref<HomeRoleRequestOutcomeState | null>(null)
   const checking = ref(false), requesting = ref(false), connected = ref(false)
   const notice = ref('Checking native default Home support…')
   let returnedDuringRequest = false
-  let disposed = false, stop: (() => void) | undefined, generation = 0
+  let disposed = false, starting = false, initializing = false, stop: (() => void) | undefined, generation = 0
   let refreshPromise: Promise<void> | null = null
   let reconcilePromise: Promise<void> | null = null
   let reconcileRevision = 0
   let pendingOutcome: HomeRoleRequestOutcome | undefined
+  const settled = new Set<string>()
+  const earlyOutcomes = new Map<string, HomeRoleRequestOutcome>()
+  const waitingNotice = 'Finish choosing a Home in Android. Waiting to check the actual default when you return…'
   const canRequest = computed(() => ports.supported && connected.value && state.value === 'not_held' && !checking.value && !requesting.value && !pendingId.value)
   async function refresh() {
     if (disposed || !ports.supported) return
@@ -56,7 +63,10 @@ export function createHomeRoleAction(ports: RolePorts) {
         if (disposed) return
         if (!status) throw new Error('Unknown Home role status')
         state.value = status.state; apiLevel.value = status.apiLevel
-        notice.value = status.state === 'held' ? 'CyberManju is your default Home.' : status.state === 'not_held' ? 'Choose CyberManju in Android. Opening system settings is not permission granted.' : 'Default Home setup is unavailable in this native build.'
+        // Native persistence is the only recovery source; neither focus nor an ID opens a picker.
+        const recoveredId = status.pendingRequestId
+        if (!pendingId.value && recoveredId && !settled.has(recoveredId)) pendingId.value = recoveredId
+        notice.value = status.state === 'held' ? 'CyberManju is your default Home.' : pendingId.value ? waitingNotice : status.state === 'not_held' ? 'Choose CyberManju in Android. Opening system settings is not permission granted.' : 'Default Home setup is unavailable in this native build.'
       } catch {
         if (!disposed) { state.value = 'unavailable'; notice.value = 'Default Home setup is unavailable in this native build. No change was confirmed.' }
       } finally { if (!disposed) checking.value = false; refreshPromise = null }
@@ -65,48 +75,60 @@ export function createHomeRoleAction(ports: RolePorts) {
     return run
   }
   async function reconcile(outcome?: HomeRoleRequestOutcome) {
-    const id = pendingId.value
-    if (!id || disposed || outcome && outcome.requestId !== id) return
+    if (disposed || outcome && (outcome.requestId !== pendingId.value || settled.has(outcome.requestId))) return
+    if (outcome && pendingOutcome?.requestId === outcome.requestId) return reconcilePromise
     const revision = ++reconcileRevision
-    if (outcome) pendingOutcome = outcome
+    if (outcome) pendingOutcome ??= outcome
     if (reconcilePromise) return reconcilePromise
     const run = (async () => {
       let readRevision = revision
       do {
         readRevision = reconcileRevision
-        // A passive read started before return/result cannot settle this attempt.
+        // A status read started before a native result cannot settle that result.
         if (refreshPromise) await refreshPromise
         await refresh()
-        if (disposed || pendingId.value !== id) return
+        if (disposed) return
       } while (readRevision !== reconcileRevision)
-      pendingId.value = null
-      const result = pendingOutcome
-      pendingOutcome = undefined
-      // Settings on API24–28 does not report refusal; retain only the observed role.
-      attempt.value = result && (result.state !== 'declined' || (apiLevel.value ?? 0) >= 29) ? result.state : null
-      if (state.value === 'not_held' && attempt.value === 'declined') notice.value = 'Android reported that the Home request was declined. CyberManju is not the default Home.'
-      else if (state.value !== 'held' && attempt.value === 'failed') notice.value = 'Android could not finish the Home request. No default Home change was confirmed.'
-      else if (state.value !== 'held' && attempt.value === 'unavailable') { state.value = 'unavailable'; notice.value = 'Default Home setup is unavailable in this native build.' }
+      const id = pendingId.value, result = pendingOutcome
+      // Focus/visibility alone cannot prove that Android returned from its picker.
+      if (!id || !result || result.requestId !== id) return
+      settled.add(id); pendingId.value = null; pendingOutcome = undefined
+      attempt.value = result.state
+      if (state.value === 'held') notice.value = 'CyberManju is your default Home.'
+      else if (result.state === 'failed') notice.value = 'Android could not finish the Home request. No default Home change was confirmed.'
+      else if (state.value === 'unavailable' || result.state === 'unavailable') { state.value = 'unavailable'; notice.value = 'Default Home setup is unavailable in this native build.' }
+      else notice.value = 'CyberManju is not the default Home. You can choose it in Android.'
     })()
     reconcilePromise = run
     try { await run } finally { reconcilePromise = null }
   }
+  function receive(value: unknown) {
+    if (disposed || !value || typeof value !== 'object') return
+    const outcome = value as HomeRoleRequestOutcome
+    if (!validId(outcome.requestId) || !outcomeStates.includes(outcome.state) || settled.has(outcome.requestId)) return
+    if (initializing) {
+      // A listener-ready native event can precede the first persisted-status response.
+      if (earlyOutcomes.size < 16 && !earlyOutcomes.has(outcome.requestId)) earlyOutcomes.set(outcome.requestId, outcome)
+      return
+    }
+    void reconcile(outcome)
+  }
   async function start() {
-    if (disposed || connected.value || !ports.supported) return
+    if (disposed || starting || connected.value || !ports.supported) return
+    starting = true; initializing = true
     let acceptingSubscription = true
     try {
-      const unlisten = await bounded(ports.subscribe(value => {
-        if (!value || typeof value !== 'object') return
-        const outcome = value as HomeRoleRequestOutcome
-        if (typeof outcome.requestId !== 'string' || !['held', 'declined', 'unavailable', 'failed'].includes(outcome.state)) return
-        void reconcile(outcome)
-      }).then(unlisten => { if (!acceptingSubscription || disposed) { unlisten(); return () => {} } return unlisten }), 2000)
+      const unlisten = await bounded(ports.subscribe(receive).then(unlisten => { if (!acceptingSubscription || disposed) { unlisten(); return () => {} } return unlisten }), 2000)
       if (disposed) { unlisten(); return }
       stop = unlisten; connected.value = true
-      await refresh() // Passive capability/status query only. Never requests a role.
+      await refresh() // Listener first; this query is passive, including after process recreation.
+      initializing = false
+      const recovered = pendingId.value ? earlyOutcomes.get(pendingId.value) : undefined
+      earlyOutcomes.clear()
+      if (recovered || pendingOutcome) await reconcile(recovered)
     } catch {
       if (!disposed) { state.value = 'unavailable'; notice.value = 'Default Home setup is unavailable in this native build.' }
-    } finally { acceptingSubscription = false }
+    } finally { acceptingSubscription = false; initializing = false; starting = false; earlyOutcomes.clear() }
   }
   async function request(event: MouseEvent) {
     const startedAt = ports.now(), eventAge = startedAt - event.timeStamp
@@ -118,28 +140,30 @@ export function createHomeRoleAction(ports: RolePorts) {
     try {
       if (!await ports.beforeRequest() || disposed || !ports.visible()) return
       await refresh()
-      if (disposed || current !== generation || state.value !== 'not_held') return
+      if (disposed || current !== generation || state.value !== 'not_held' || pendingId.value) return
       // Monotonic freshness is rechecked immediately before invoke; requestId is correlation, never consent.
       const age = ports.now() - gestureStamp
       if (!Number.isFinite(age) || age < 0 || age > 5000 || !ports.visible()) { notice.value = 'Tap Set as default Home again to open Android settings.'; return }
-      const id = ports.requestId(); requestId = id; pendingOutcome = undefined; pendingId.value = id
+      const id = ports.requestId()
+      if (!validId(id) || settled.has(id)) throw new Error('Invalid Home request ID')
+      requestId = id; pendingOutcome = undefined; pendingId.value = id
       const value = await bounded(ports.request(id), 5000)
       if (disposed || current !== generation || pendingId.value !== id) return
       if (!value || typeof value !== 'object') throw new Error('Invalid Home role response')
       const reply = value as HomeRoleRequestStart
-      if (!['held', 'pending', 'unavailable', 'failed'].includes(reply.state) || reply.requestId !== undefined && reply.requestId !== id) throw new Error('Mismatched Home role response')
-      if (reply.state === 'pending') notice.value = 'Finish choosing a Home in Android. Waiting to check the actual default when you return…'
+      if (!['held', 'pending', 'unavailable', 'failed'].includes(reply.state) || reply.requestId !== undefined && reply.requestId !== id || reply.state === 'pending' && reply.requestId !== id) throw new Error('Mismatched Home role response')
+      if (reply.state === 'pending') notice.value = waitingNotice
       else await reconcile({ requestId: id, state: reply.state })
     } catch {
       if (reconcilePromise) await reconcilePromise
       if (disposed || current !== generation || requestId && pendingId.value !== requestId) return
-      // An ambiguous invoke is never repeated automatically; only a passive status check resolves it.
+      // Ambiguous invokes retain correlation and are never automatically repeated.
       state.value = 'unavailable'; notice.value = 'Default Home request could not be confirmed. Return to the app or use Check status; no request was retried.'
     } finally { if (!disposed) { requesting.value = false; if (returnedDuringRequest && pendingId.value) await reconcile() } }
   }
-  async function returned() { if (!pendingId.value) return; if (requesting.value) { returnedDuringRequest = true; return } await reconcile() }
-  async function check() { if (requesting.value) return; if (!connected.value) { await start(); return } if (pendingId.value) await reconcile(); else await refresh() }
-  function dispose() { disposed = true; generation++; stop?.(); stop = undefined }
+  async function returned() { if (requesting.value) { returnedDuringRequest = true; return } if (connected.value) await reconcile() }
+  async function check() { if (requesting.value) return; if (!connected.value) { await start(); return } await reconcile() }
+  function dispose() { disposed = true; generation++; stop?.(); stop = undefined; earlyOutcomes.clear() }
   return { supported: ports.supported, state, apiLevel, pendingId, attempt, checking, requesting, notice, canRequest, start, request, returned, check, dispose }
 }
 export function useHomeRoleAction(beforeRequest: () => Promise<boolean>) {
@@ -147,7 +171,11 @@ export function useHomeRoleAction(beforeRequest: () => Promise<boolean>) {
     supported: isTauri() && isAndroidApp(),
     status: () => invoke('android_home_role_status'),
     request: requestId => invoke('android_home_role_request', { requestId }),
-    subscribe: handler => listen<unknown>('cybermanju:home-role-result', event => handler(event.payload)),
+    subscribe: async handler => {
+      const listener = (event: Event) => handler((event as CustomEvent<HomeRoleRequestOutcome>).detail)
+      window.addEventListener('cybermanju:home-role-result', listener)
+      return () => window.removeEventListener('cybermanju:home-role-result', listener)
+    },
     beforeRequest, now: () => performance.now(), visible: () => document.visibilityState === 'visible' && document.hasFocus(),
     requestId: () => crypto.randomUUID(),
   })
