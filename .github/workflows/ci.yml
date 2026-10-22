@@ -71,6 +71,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # ort-sys build outputs reference binaries outside target/. Keep that
+      # directory stable before any Cargo invocation, including metadata.
+      - name: Pin ONNX Runtime download cache
+        run: echo "ORT_CACHE_DIR=$HOME/.cache/ort" >> "$GITHUB_ENV"
+
       # apt cache: the WebKit/GTK stack is ~400 MB of .debs, identical on
       # every run — restore instead of re-downloading (key bump = v2, v3…).
       # libglib2.0-dev is explicit (not just transitive via libgtk-3-dev):
@@ -110,6 +115,20 @@ jobs:
           # write per-PR duplicates (save-if) — kills the eviction churn.
           shared-key: "linux-workspace"
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
+
+      - name: Cache ONNX Runtime prebuilt binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ort
+          key: ort-dfbin-rust-check-${{ runner.os }}-${{ runner.arch }}-v1
+
+      # Shared Rust caches can carry absolute native link paths from another
+      # job. Always regenerate ort-sys metadata against this job's pinned
+      # cache; keep the downloaded archives, tests and ONNX feature intact.
+      - name: Regenerate ort-sys native link metadata
+        run: |
+          rm -rf target/release/build/ort-sys-* target/release/.fingerprint/ort-sys-*
+          rm -rf target/debug/build/ort-sys-* target/debug/.fingerprint/ort-sys-*
 
       # Lockfile integrity gate: fails loudly when Cargo.lock no longer
       # matches the manifest resolution (hand-maintained advisory bumps —
