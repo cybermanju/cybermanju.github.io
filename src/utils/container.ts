@@ -39,6 +39,14 @@ export const MAX_CONTAINER_IMAGE_BYTES = 256 * 1024 * 1024
 /** Refuse hostile headers that turn verification into an excessive PBKDF2 loop. */
 export const MAX_CONTAINER_ITERATIONS = 1_000_000
 
+/** Resolve an export key without silently stripping encryption from a vault. */
+export function exportPassphrase(requested: string | undefined, vaultPassphrase: string): string {
+  if (requested === '' && vaultPassphrase) {
+    throw new Error('security: refusing to export an encrypted vault without a passphrase')
+  }
+  return requested ?? vaultPassphrase
+}
+
 /** Password-derivation cost. 100k HMAC-SHA512 rounds ≈ 100–300 ms in wasm. */
 export const DEFAULT_ITERATIONS = 100_000
 

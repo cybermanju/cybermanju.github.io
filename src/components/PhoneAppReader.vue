@@ -5,6 +5,8 @@
 // Integrates: vue, @/….
 // Contracts: none special (pure logic; errors bubble to caller).
 // CyberManju OS — explicit Other App screen selection. No voice coupling.
+// Role: present installed apps, permission guidance and visible screen-sharing controls.
+// Integrates: useAndroidApps and the authoritative native session via useAppScreenReader.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useAndroidApps } from '@/composables/useAndroidApps'
 import { useAppScreenReader } from '@/composables/useAppScreenReader'
@@ -28,6 +30,13 @@ const filteredApps = computed(() => {
 const canStart = computed(() => installed.supported && reader.checked.value && reader.status.value.overlayGranted
   && reader.status.value.notificationGranted !== false && reader.status.value.notificationsEnabled !== false
   && !reader.busy.value && !reader.active.value && !reader.uncertain.value && consent.value)
+const startGuidance = computed(() => {
+  if (!reader.checked.value) return 'Refresh status to verify Android permissions.'
+  if (!reader.status.value.overlayGranted) return 'Allow the selection overlay before choosing an app.'
+  if (reader.status.value.notificationGranted === false || reader.status.value.notificationsEnabled === false) return 'Enable screen-sharing notifications before choosing an app.'
+  if (!consent.value) return 'Review the disclosure and check the consent box to enable app selection.'
+  return mode.value === 'batch' ? 'Select 2–20 apps in the order you want to share them.' : 'Choose an app below. Android will ask separately what to share.'
+})
 const sessionApps = computed(() => reader.status.value.packages.map(packageName => ({
   packageName, label: installed.apps.value.find(app => app.packageName === packageName)?.label || packageName,
   locked: reader.status.value.captures.some(capture => capture.packageName === packageName),
@@ -96,17 +105,21 @@ onBeforeUnmount(() => {
 <template>
   <section class="phone-reader" aria-label="Other App screen reader">
     <h3>Other App</h3>
+    <p class="reader-subtitle">Choose apps, review permissions, then select the screen to share.</p>
     <p v-if="!installed.supported" class="reader-disclosure" role="status">Installed apps and the screen-selection overlay are available only in the Android app. This browser cannot list or open your installed apps.</p>
     <template v-else>
       <div class="reader-disclosure">
         <strong>Visible, permission-based screen sharing</strong>
         <p>Screen reading may expose sensitive content. Only choose apps and screens you want to read. Android asks for screen-capture permission for each session. The shared visible screen may include other apps you show during the session. A visible overlay and persistent notification let you stop at any time.</p>
         <p><strong>Two separate approvals:</strong> overlay permission only allows floating selection controls; it does not allow screen capture. After you choose an app, Android asks separately what to share. There is no screen-capture toggle in Settings.</p>
+        <details class="reader-settings-help">
+          <summary>Sharing limits and Android version details</summary>
         <p>On Android 14+, the system may offer a single app or the entire screen. Sharing one app does not automatically share the other apps in a batch. Review the system choice before continuing. On Android 15 QPR1+, you can also stop sharing from the system status-bar indicator; locking the device stops projection.</p>
         <p>“Lock” selects a local snapshot; it does not freeze the other app. Hidden apps cannot be monitored. Secure screens may be blank. Every new session requires fresh Android permission.</p>
         <p><strong>Text recognition (OCR) can miss content. Selecting a screen does not confirm that its text has been read. Review the native session result before relying on it.</strong></p>
+        </details>
       </div>
-      <div class="reader-actions">
+      <div class="reader-actions" role="group" aria-label="Number of apps to share">
         <UiButton :active="mode === 'one'" :disabled="reader.busy.value || reader.active.value || reader.uncertain.value" @click="chooseMode('one')">1 app</UiButton>
         <UiButton :active="mode === 'batch'" :disabled="reader.busy.value || reader.active.value || reader.uncertain.value" @click="chooseMode('batch')">2+ apps</UiButton>
         <UiButton size="sm" :loading="reader.busy.value" @click="refreshStatus">Refresh status</UiButton>
@@ -151,6 +164,7 @@ onBeforeUnmount(() => {
       <template v-if="mode && !reader.active.value && !reader.uncertain.value">
         <p>{{ mode === 'one' ? 'Tap an app once to open it with the screen-selection overlay.' : 'Select 2–20 apps, then tap Batch. Each app opens in the order you select it.' }}</p>
         <label class="reader-consent"><input v-model="consent" type="checkbox" :disabled="reader.busy.value" /> I want to start a visible screen-reading session for the apps I choose.</label>
+        <p id="reader-start-guidance" class="reader-guidance" role="status">{{ startGuidance }}</p>
         <label class="reader-search"><span>Search installed apps</span><input v-model="query" type="search" placeholder="App name or package" aria-label="Search installed apps" /></label>
         <div class="reader-actions">
           <span role="status">{{ installed.apps.value.length }} installed apps{{ mode === 'batch' ? ` · ${selected.length} selected` : '' }}</span>
@@ -161,7 +175,7 @@ onBeforeUnmount(() => {
         <p v-if="installed.status.value === 'loading'" role="status">Loading installed apps…</p>
         <p v-else-if="!filteredApps.length" role="status">{{ installed.apps.value.length ? 'No apps match your search.' : 'Android returned no launchable apps. Refresh the list to try again.' }}</p>
         <p v-if="appsError" role="alert" class="reader-error">{{ appsError }}</p>
-        <div class="reader-apps" :aria-busy="installed.status.value === 'loading'" aria-label="Installed apps">
+        <div class="reader-apps" :aria-busy="installed.status.value === 'loading'" aria-label="Installed apps" aria-describedby="reader-start-guidance">
           <template v-for="app in filteredApps" :key="app.packageName">
             <button v-if="mode === 'one'" type="button" class="reader-app" :disabled="!canStart" :aria-label="`Open ${app.label} for screen selection`" @click="start([app.packageName])">
               <img v-if="validIcon(app)" :src="app.iconBase64" alt="" width="36" height="36" @error="failIcon(app.packageName)" />
@@ -182,26 +196,33 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.phone-reader { min-width: 0; }
+.phone-reader { min-width: 0; color: var(--ui-text); }
 .phone-reader h3 { margin: 0 0 10px; }
 .phone-reader p { line-height: 1.5; margin: 8px 0; }
+.reader-subtitle { color: var(--ui-text-2); }
 .reader-disclosure, .reader-session { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface); padding: 12px; margin: 10px 0; overflow-wrap: anywhere; }
+.reader-session { border-inline-start: 3px solid var(--ui-info); }
 .reader-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
 .reader-search { display: grid; gap: 6px; margin: 12px 0; }
 .reader-search input { width: 100%; min-width: 0; box-sizing: border-box; min-height: 44px; padding: 8px; background: var(--ui-surface); color: var(--ui-text); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); }
-.reader-consent { display: flex; align-items: flex-start; gap: 9px; line-height: 1.5; }
+.reader-search input::placeholder { color: var(--ui-text-2); opacity: 1; }
+.reader-consent { display: flex; align-items: flex-start; gap: 9px; line-height: 1.5; min-height: 44px; box-sizing: border-box; padding: 12px; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); background: var(--ui-surface-2); cursor: pointer; }
 .reader-consent input, .reader-app input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--ui-accent); }
-.reader-apps { display: grid; gap: 6px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; }
+.reader-consent input { margin: 2px 0 0; }
+.reader-guidance { color: var(--ui-text-2); font-size: var(--ui-fs-sm); overflow-wrap: anywhere; }
+.reader-apps { display: grid; gap: 6px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; padding: 3px; }
 .reader-app { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; box-sizing: border-box; padding: 9px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface); color: var(--ui-text); text-align: left; font: inherit; cursor: pointer; }
-.reader-app:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
+.reader-app:not(:disabled):hover { background: var(--ui-surface-2); border-color: var(--ui-border-hover); }
+.reader-app:focus-within, .reader-consent:focus-within { border-color: var(--ui-focus-color); }
+.reader-app:focus-visible, .reader-search input:focus-visible, .reader-app input:focus-visible, .reader-consent input:focus-visible { outline: 2px solid var(--ui-focus-color); outline-offset: 2px; }
 .reader-app:disabled { opacity: .55; cursor: not-allowed; }
-.reader-app.is-selected { border-color: var(--ui-accent); background: var(--ui-accent-softer); }
+.reader-app.is-selected { border-color: var(--ui-focus-color); background: var(--ui-surface-2); }
 .reader-app img, .reader-app-fallback { flex-shrink: 0; object-fit: contain; width: 36px; height: 36px; }
-.reader-app-fallback { display: grid; place-items: center; border-radius: 8px; background: var(--ui-accent-softer); color: var(--ui-accent); }
+.reader-app-fallback { display: grid; place-items: center; border-radius: 8px; background: var(--ui-surface-2); color: var(--ui-accent-text); }
 .reader-app-name { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
-.reader-app-name small { color: var(--ui-text-muted); }
+.reader-app-name small { color: var(--ui-text-2); }
 .reader-progress { padding-left: 22px; overflow-wrap: anywhere; }
-.reader-error { color: var(--ui-danger); overflow-wrap: anywhere; }
+.reader-error { color: var(--ui-danger-text); overflow-wrap: anywhere; }
 .reader-settings-help summary { min-height: 44px; display: list-item; align-content: center; cursor: pointer; }
-.reader-settings-help summary:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.reader-settings-help summary:focus-visible { outline: 2px solid var(--ui-focus-color); outline-offset: 2px; }
 </style>

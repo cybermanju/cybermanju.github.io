@@ -2260,7 +2260,8 @@ fn exec_tool(
         // Vault metadata — never values. `secret_get` (below) is the only
         // path that reveals plaintext, and the permission gate asks first.
         "secret_list" => {
-            let metas = crate::api::secrets::list(db)?;
+            let owner = (!mem.owner.is_empty() && mem.owner != "local").then_some(mem.owner);
+            let metas = crate::api::secrets::list_scoped(db, owner)?;
             serde_json::to_string(&metas).map_err(|e| format!("integrity: serialize secrets: {e}"))
         }
         "secret_get" => {
@@ -2271,7 +2272,8 @@ fn exec_tool(
             // Plaintext goes to the model (permission gate already asked);
             // the transcript redactor scrubs provider keys, and the tool
             // description warns the model to use it sparingly.
-            crate::api::secrets::reveal(db, id.trim())
+            let owner = (!mem.owner.is_empty() && mem.owner != "local").then_some(mem.owner);
+            crate::api::secrets::reveal_scoped(db, id.trim(), owner)
         }
         other => Err(format!("unsupported: unknown tool '{other}'")),
     }

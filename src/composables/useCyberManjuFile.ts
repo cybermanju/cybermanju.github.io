@@ -163,6 +163,10 @@ async function attach(
   }
   try {
     const status = await wasmAttachDisk({ handle, name, bytes, passphrase })
+    if (bytes?.byteLength) {
+      const { replayVolumeFromVault } = await import('./useVolumeMirror')
+      await replayVolumeFromVault(true)
+    }
     pending = null
     disk.needsPassphrase = false
     disk.needsPermission = false

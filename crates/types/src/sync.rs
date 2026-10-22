@@ -116,7 +116,7 @@ pub struct CloudAccount {
 // whole-object `SyncConfig`/`CloudAccount` responses). `default` keeps the
 // struct literal round-trip working when the key is absent. >>>
 /// OAuth token set; secrets individually `skip_serializing`, never leave the server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthCredentials {
     #[serde(skip_serializing, default)]
@@ -127,6 +127,24 @@ pub struct OAuthCredentials {
     pub client_id: String,
     #[serde(skip_serializing)]
     pub client_secret: Option<String>,
+}
+
+impl std::fmt::Debug for OAuthCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OAuthCredentials")
+            .field("access_token", &"[REDACTED]")
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("expires_at", &self.expires_at)
+            .field("client_id", &self.client_id)
+            .field(
+                "client_secret",
+                &self.client_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 impl OAuthCredentials {
@@ -414,5 +432,33 @@ pub trait StorageBackend: Send + Sync {
     /// override this.
     fn list_dirs(&self, _prefix: &str) -> Result<Vec<RemoteFile>, String> {
         Ok(Vec::new())
+    }
+}
+
+#[cfg(test)]
+mod oauth_security_tests {
+    use super::OAuthCredentials;
+
+    #[test]
+    fn oauth_credentials_redact_secrets_in_debug_and_json() {
+        let credentials = OAuthCredentials {
+            access_token: "private-access-token".into(),
+            refresh_token: Some("private-refresh-token".into()),
+            expires_at: Some(123),
+            client_id: "public-client-id".into(),
+            client_secret: Some("private-client-secret".into()),
+        };
+        let debug = format!("{credentials:?}");
+        let json = serde_json::to_string(&credentials).unwrap();
+        for secret in [
+            "private-access-token",
+            "private-refresh-token",
+            "private-client-secret",
+        ] {
+            assert!(!debug.contains(secret));
+            assert!(!json.contains(secret));
+        }
+        assert!(debug.contains("[REDACTED]"));
+        assert!(debug.contains("public-client-id"));
     }
 }

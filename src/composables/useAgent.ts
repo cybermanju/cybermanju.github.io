@@ -1204,6 +1204,8 @@ async function execLocalTool(
 // ─── loop state ─────────────────────────────────────────────────
 
 export interface LocalRunOpts {
+  /** Exact provider endpoint, including route-specific query auth; memory only. */
+  requestUrl?: string
   baseUrl: string
   dialect: 'openAi' | 'anthropic'
   model: string
@@ -1285,12 +1287,26 @@ type ProviderTurnRequest = Parameters<typeof wasmAgentPrompt>[0]
 /** One fallback hop: label for the activity line plus a full endpoint. */
 export interface LocalFailoverRoute {
   label: string
+  /** Exact endpoint for this fallback only; never inherit primary credentials. */
+  requestUrl?: string
   baseUrl: string
   dialect: 'openAi' | 'anthropic'
   model: string
   headers: Array<[string, string]>
 }
-
+/** Keep URL query auth attached to its own route on every turn/retry. Never
+ *  transfer credentials from the primary route to a different fallback. */
+export function localProviderEndpoint(
+  baseUrl: string, dialect: 'openAi' | 'anthropic', queryAuth?: { name: string; value: string },
+): string {
+  const queryAt = baseUrl.indexOf('?')
+  const pathBase = (queryAt < 0 ? baseUrl : baseUrl.slice(0, queryAt)).replace(/\/$/, '')
+  const query = queryAt < 0 ? '' : baseUrl.slice(queryAt)
+  const params = new URLSearchParams(query.slice(1))
+  if (queryAuth) params.set(queryAuth.name, queryAuth.value)
+  const search = queryAuth ? `?${params.toString()}` : query
+  return `${pathBase}${dialect === 'anthropic' ? '/v1/messages' : '/chat/completions'}${search}`
+}
 /** Terminal provider errors worth trying the next route on (native
  *  `is_failover_worthy` parity): dead keys, throttling, transport failures
  *  and empty credits fail over; malformed requests and overflows stop. */
@@ -1299,10 +1315,30 @@ export function isFailoverWorthy(error: string): boolean {
   return prefix === 'auth' || prefix === 'rate_limited' || prefix === 'network' || prefix === 'limit'
 }
 
+/** Provider errors may echo request URLs. Remove this route's query values
+ * before an error reaches activity/transcripts; arbitrary auth parameter names
+ * must be protected too, not only well-known `key`/`token` names. */
+function safeProviderError(error: string, req: ProviderTurnRequest): string {
+  const prefix = error.match(/^[a-z_]+:/)?.[0] ?? ''
+  let safe = error.slice(prefix.length)
+  try {
+    const url = new URL(req.url)
+    const values = [...url.searchParams.values()]
+    // URLSearchParams emits '+' for spaces; preserve and redact the actual
+    // wire spelling as well as decoded/percent-encoded provider echoes.
+    const wireValues = url.search.slice(1).split('&').map(pair => pair.slice(pair.indexOf('=') + 1))
+    for (const value of [...wireValues, ...values.map(value => encodeURIComponent(value)), ...values]
+      .filter(Boolean).sort((a, b) => b.length - a.length)) {
+      safe = safe.split(value).join('***')
+    }
+  } catch { /* Relative/custom endpoint: normal marker redaction still applies. */ }
+  return prefix + cleanToolOutput(safe)
+}
 /** One provider turn with transport-throw mapping (never throws itself). */
 async function providerTurn(req: ProviderTurnRequest): Promise<WasmAgentTurn> {
   try {
-    return await wasmAgentPrompt(req)
+    const result = await wasmAgentPrompt(req)
+    return result.error ? { ...result, error: safeProviderError(result.error, req) } : result
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e)
     // The vite stub (no wasm-pack pkg) throws `not bundled` — translate to
@@ -1310,7 +1346,7 @@ async function providerTurn(req: ProviderTurnRequest): Promise<WasmAgentTurn> {
     if (detail.includes('not bundled') || detail.includes('wasm backend unavailable')) {
       return { ok: false, error: 'network: browser engine not bundled — use desktop/Docker, or rebuild the Pages pack with wasm-pack' }
     }
-    return { ok: false, error: `network: provider call failed — ${detail}` }
+    return { ok: false, error: safeProviderError(`network: provider call failed — ${detail}`, req) }
   }
 }
 
@@ -1442,6 +1478,7 @@ async function runLoopInternal(
   // errors. The transcript is provider-neutral, so the same thread
   // continues on the next route.
   let routeBase = opts.baseUrl
+  let routeUrl = opts.requestUrl
   let routeDialect = opts.dialect
   let routeModel = opts.model
   let routeHeaders = opts.headers
@@ -1473,7 +1510,7 @@ async function runLoopInternal(
         localActivity.value = `compacting · pruned ${wire.pruned} tool result(s)`
       }
       const buildReq = (): ProviderTurnRequest => ({
-        url: routeDialect === 'anthropic' ? `${routeBase.replace(/\/$/, '')}/v1/messages` : `${routeBase.replace(/\/$/, '')}/chat/completions`,
+        url: routeUrl || localProviderEndpoint(routeBase, routeDialect),
         dialect: routeDialect,
         model: routeModel,
         headers: routeHeaders,
@@ -1488,6 +1525,7 @@ async function runLoopInternal(
       while (!res.ok && !abortRequested && isFailoverWorthy(res.error ?? '') && pendingFallbacks.length) {
         const next = pendingFallbacks.shift()!
         routeBase = next.baseUrl
+        routeUrl = next.requestUrl
         routeDialect = next.dialect
         routeModel = next.model
         routeHeaders = next.headers

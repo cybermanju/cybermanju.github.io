@@ -1,8 +1,6 @@
-// CyberManju OS — Ui appearance.test (tests/frontend/ui-appearance.test.ts).
-// Role: Vitest frontend suite.
-// Exports: module root (see items below).
-// Integrates: vitest, ../….
-// Contracts: none special (pure logic; errors bubble to caller).
+// CyberManju OS — UI appearance tests.
+// Role: Guard validation and persistence boundaries for per-item customization.
+// Integrates: Vitest and uiAppearance.
 import { describe, expect, it } from 'vitest'
 import { UI_APPEARANCE_STORAGE_KEY, validateUiAppearance } from '../../src/utils/uiAppearance'
 

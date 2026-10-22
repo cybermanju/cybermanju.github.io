@@ -1,5 +1,6 @@
-// CyberManju OS — UiIconCatalog (src/utils/uiIconCatalog.ts).
-// Full offline Solar catalog is loaded only when a user customizes an icon.
+// CyberManju OS — on-demand UI icon catalog and local image decoding.
+// Role: load the full offline Solar catalog only during icon customization.
+// Exports: ensureUiIconCatalog and readUiIconImage.
 // Default app artwork and the small startup icon registry remain unchanged.
 import { addCollection } from '@iconify/vue/offline'
 let pending: Promise<string[]> | undefined

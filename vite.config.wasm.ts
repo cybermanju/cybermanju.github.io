@@ -56,6 +56,11 @@ export default defineConfig({
   },
   // Ensure Tauri APIs are stubbed out for web/WASM builds
   define: {
+    // Docker serves this bundle behind the authenticated dashboard; Pages and
+    // standalone WASM builds explicitly select the local browser backend.
+    "import.meta.env.VITE_TRANSPORT": JSON.stringify(
+      process.env.VITE_TRANSPORT || (process.env.DOCKER_BUILD === 'true' ? 'rest' : 'wasm'),
+    ),
     __TAURI__: "false",
     "window.__TAURI__": "false",
     "import.meta.env.TAURI": "false",

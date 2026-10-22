@@ -1,8 +1,6 @@
-// CyberManju OS — Phone app reader layout.test (tests/frontend/phone-app-reader-layout.test.ts).
-// Role: Vitest frontend suite.
-// Exports: module root (see items below).
-// Integrates: node:fs, vitest.
-// Contracts: none special (pure logic; errors bubble to caller).
+// CyberManju OS — Phone reader UI tests.
+// Role: Guard explicit consent, app selection and safe permission-return markup.
+// Integrates: Vitest and the AgentPanel / PhoneAppReader source contracts.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 const panel = readFileSync('src/components/AgentPanel.vue', 'utf8')

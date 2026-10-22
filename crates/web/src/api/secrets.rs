@@ -15,9 +15,9 @@
 //
 // `route()` returns `Some(response)` for `/api/secrets/*` and `None` for
 // anything else. Wired in `lib.rs` beside the cron family and registered in
-// `security::ROUTED_SEGMENTS` ("secrets"). Roles: `required_role` leaves
-// the family at the default `Authenticated` — the vault is per-user, and
-// the sealed blob is useless without the master passphrase.
+// `security::ROUTED_SEGMENTS` ("secrets"). Metadata requires authentication;
+// mutations/reveal retain the Admin gate. Neither role bypasses ownership.
+// Legacy/local rows remain local-only; no REST user may claim them.
 
 use cybermanju_crypto::keystore;
 use cybermanju_db::Database;
@@ -82,7 +82,9 @@ fn respond<T: serde::Serialize>(result: Result<T, String>, origin: Option<&str>)
     match result {
         Ok(value) => crate::json_ok(&value, origin),
         Err(message) => {
-            let status = if message.starts_with("not_found:") {
+            let status = if message.starts_with("auth:") {
+                401
+            } else if message.starts_with("not_found:") {
                 404
             } else if message.starts_with("unsupported:") {
                 501
@@ -137,20 +139,53 @@ fn db_err(e: impl std::fmt::Display) -> String {
     format!("network: database error: {e}")
 }
 
+/// `None` is the trusted local vault, not an all-owner bypass. REST must
+/// pass the verified JWT owner; blank authenticated identities fail closed.
+fn validate_owner(owner: Option<&str>) -> Result<(), String> {
+    if owner.is_some_and(|id| id.trim().is_empty()) {
+        return Err("auth: authenticated vault owner is required".to_string());
+    }
+    Ok(())
+}
+
+fn owned_row(db: &Database, id: &str, owner: Option<&str>) -> Result<SecretRow, String> {
+    validate_owner(owner)?;
+    db.get_secret(id)
+        .map_err(db_err)?
+        .filter(|row| row.owner_id.as_deref() == owner)
+        .ok_or_else(|| format!("not_found: no secret `{id}`"))
+}
+
 /// Upsert (create or update-by-id). A present `value` re-seals; an omitted
 /// `value` on update leaves the existing sealed blob untouched.
 pub fn upsert(db: &Database, req: &CreateRequest) -> Result<SecretMeta, String> {
+    upsert_scoped(db, req, None)
+}
+
+/// Upsert only in the caller's vault; ownership is never taken from JSON.
+pub fn upsert_scoped(
+    db: &Database,
+    req: &CreateRequest,
+    owner: Option<&str>,
+) -> Result<SecretMeta, String> {
+    validate_owner(owner)?;
     let title = req.title.trim();
     if title.is_empty() {
         return Err("invalid: secret title is required".to_string());
     }
-    let passphrase = require_passphrase()?;
     let ts = now();
     let id = match req.id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(id) => id.to_string(),
         None => uuid::Uuid::new_v4().to_string(),
     };
     let existing = db.get_secret(&id).map_err(db_err)?;
+    if existing
+        .as_ref()
+        .is_some_and(|row| row.owner_id.as_deref() != owner)
+    {
+        return Err(format!("not_found: no secret `{id}`"));
+    }
+    let passphrase = require_passphrase()?;
     let created_at = existing
         .as_ref()
         .map(|e| e.created_at.clone())
@@ -167,6 +202,7 @@ pub fn upsert(db: &Database, req: &CreateRequest) -> Result<SecretMeta, String> 
     };
     let row = SecretRow {
         id: id.clone(),
+        owner_id: owner.map(str::to_string),
         kind: parse_kind(req.kind.as_deref())?,
         title: title.to_string(),
         username: blank(req.username.clone()),
@@ -200,10 +236,17 @@ pub fn upsert(db: &Database, req: &CreateRequest) -> Result<SecretMeta, String> 
 }
 
 pub fn update(db: &Database, id: &str, req: &UpdateRequest) -> Result<SecretMeta, String> {
-    let mut row = db
-        .get_secret(id)
-        .map_err(db_err)?
-        .ok_or_else(|| format!("not_found: no secret `{id}`"))?;
+    update_scoped(db, id, req, None)
+}
+
+/// Foreign and legacy IDs are indistinguishable from missing IDs.
+pub fn update_scoped(
+    db: &Database,
+    id: &str,
+    req: &UpdateRequest,
+    owner: Option<&str>,
+) -> Result<SecretMeta, String> {
+    let mut row = owned_row(db, id, owner)?;
     if let Some(kind) = &req.kind {
         row.kind = SecretKind::parse(kind)?;
     }
@@ -256,26 +299,37 @@ pub fn update(db: &Database, id: &str, req: &UpdateRequest) -> Result<SecretMeta
 
 /// Metadata list — never carries sealed values.
 pub fn list(db: &Database) -> Result<Vec<SecretMeta>, String> {
+    list_scoped(db, None)
+}
+
+/// Metadata is private even though it contains no sealed values.
+pub fn list_scoped(db: &Database, owner: Option<&str>) -> Result<Vec<SecretMeta>, String> {
+    validate_owner(owner)?;
     let rows = db.list_secrets().map_err(db_err)?;
-    Ok(rows.iter().map(SecretMeta::from).collect())
+    Ok(rows
+        .iter()
+        .filter(|row| row.owner_id.as_deref() == owner)
+        .map(SecretMeta::from)
+        .collect())
 }
 
 /// Single metadata row.
 pub fn get_meta(db: &Database, id: &str) -> Result<SecretMeta, String> {
-    let row = db
-        .get_secret(id)
-        .map_err(db_err)?
-        .ok_or_else(|| format!("not_found: no secret `{id}`"))?;
-    Ok(row.meta())
+    get_meta_scoped(db, id, None)
+}
+
+pub fn get_meta_scoped(db: &Database, id: &str, owner: Option<&str>) -> Result<SecretMeta, String> {
+    Ok(owned_row(db, id, owner)?.meta())
 }
 
 /// Reveal the plaintext value — audited, `not_found` on missing, `integrity:`
 /// when the sealed blob fails to open (tamper / wrong passphrase).
 pub fn reveal(db: &Database, id: &str) -> Result<String, String> {
-    let row = db
-        .get_secret(id)
-        .map_err(db_err)?
-        .ok_or_else(|| format!("not_found: no secret `{id}`"))?;
+    reveal_scoped(db, id, None)
+}
+
+pub fn reveal_scoped(db: &Database, id: &str, owner: Option<&str>) -> Result<String, String> {
+    let row = owned_row(db, id, owner)?;
     if !row.has_value || row.value_sealed.is_empty() {
         return Err(format!("not_found: secret `{id}` has no stored value"));
     }
@@ -294,6 +348,11 @@ pub fn reveal(db: &Database, id: &str) -> Result<String, String> {
 }
 
 pub fn remove(db: &Database, id: &str) -> Result<bool, String> {
+    remove_scoped(db, id, None)
+}
+
+pub fn remove_scoped(db: &Database, id: &str, owner: Option<&str>) -> Result<bool, String> {
+    owned_row(db, id, owner)?;
     let removed = db.remove_secret(id).map_err(db_err)?;
     if removed {
         db.log_audit("secret.delete", "secret", id, None, None)
@@ -308,29 +367,33 @@ pub fn route(
     method: &str,
     path_segments: &[&str],
     body: &str,
+    owner_id: &str,
     origin: Option<&str>,
 ) -> Option<String> {
+    let owner = Some(owner_id);
     let response = match path_segments {
-        ["api", "secrets"] if method == "GET" => respond(list(db), origin),
+        ["api", "secrets"] if method == "GET" => respond(list_scoped(db, owner), origin),
 
         ["api", "secrets"] if method == "POST" => match parse::<CreateRequest>(body) {
-            Ok(req) => respond(upsert(db, &req), origin),
+            Ok(req) => respond(upsert_scoped(db, &req, owner), origin),
             Err(e) => respond::<serde_json::Value>(Err(e), origin),
         },
 
         ["api", "secrets", id, "reveal"] if method == "GET" => respond(
-            reveal(db, id).map(|v| serde_json::json!({ "value": v })),
+            reveal_scoped(db, id, owner).map(|v| serde_json::json!({ "value": v })),
             origin,
         ),
 
-        ["api", "secrets", id] if method == "GET" => respond(get_meta(db, id), origin),
+        ["api", "secrets", id] if method == "GET" => {
+            respond(get_meta_scoped(db, id, owner), origin)
+        }
 
         ["api", "secrets", id] if method == "PUT" => match parse::<UpdateRequest>(body) {
-            Ok(req) => respond(update(db, id, &req), origin),
+            Ok(req) => respond(update_scoped(db, id, &req, owner), origin),
             Err(e) => respond::<serde_json::Value>(Err(e), origin),
         },
 
-        ["api", "secrets", id] if method == "DELETE" => match remove(db, id) {
+        ["api", "secrets", id] if method == "DELETE" => match remove_scoped(db, id, owner) {
             Ok(true) => respond(Ok(serde_json::json!({ "removed": true })), origin),
             Ok(false) => {
                 respond::<serde_json::Value>(Err(format!("not_found: no secret `{id}`")), origin)

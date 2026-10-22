@@ -880,6 +880,7 @@ import { isStaticHost, isTauri, isAndroidApp } from '@/composables/useTauri'
 import {
   useAgent,
   runLocalAgent,
+  localProviderEndpoint,
   listLocalConfigs,
   saveLocalConfig,
   deleteLocalConfig,
@@ -2337,7 +2338,9 @@ async function sendPromptLocal() {
       const fheaders: Array<[string, string]> = [...(fp?.extraHeaders ?? [])]
       if (fauth === 'bearer' && fkey) fheaders.push(['Authorization', `Bearer ${fkey}`])
       else if (fauth === 'header') fheaders.push([fc.authNameOverride || fp?.authName || 'x-api-key', fkey])
-      fallbackRoutes.push({ label: `${fc.name} · ${fc.model}`, baseUrl: fbase, dialect: fdialect, model: fc.model, headers: fheaders })
+      const requestUrl = localProviderEndpoint(fbase, fdialect, fauth === 'query'
+        ? { name: fc.authNameOverride || fp?.authName || 'key', value: fkey } : undefined)
+      fallbackRoutes.push({ label: `${fc.name} · ${fc.model}`, baseUrl: fbase, requestUrl, dialect: fdialect, model: fc.model, headers: fheaders })
     }
   }
   if (!key && !isKeyless(cfg) && !fallbackRoutes.length) {
@@ -2349,12 +2352,8 @@ async function sendPromptLocal() {
   const headers: Array<[string, string]> = [...(preset?.extraHeaders ?? [])]
   if (auth === 'bearer' && key) headers.push(['Authorization', `Bearer ${key}`])
   else if (auth === 'header') headers.push([cfg.authNameOverride || preset?.authName || 'x-api-key', key])
-  const url =
-    auth === 'query'
-      ? `${base}${dialect === 'anthropic' ? '/v1/messages' : '/chat/completions'}?${encodeURIComponent(cfg.authNameOverride || preset?.authName || 'key')}=${encodeURIComponent(key)}`
-      : dialect === 'anthropic'
-        ? `${base}/v1/messages`
-        : `${base}/chat/completions`
+  const url = localProviderEndpoint(base, dialect, auth === 'query'
+    ? { name: cfg.authNameOverride || preset?.authName || 'key', value: key } : undefined)
 
   let session = viewing.value && viewing.value.configId === cfg.id ? viewing.value : null
   if (!session) {
@@ -2398,6 +2397,7 @@ async function sendPromptLocal() {
     outcome = await runLocalAgent(
       {
         baseUrl: base,
+        requestUrl: url,
         dialect,
         model: cfg.model,
         headers,
@@ -2683,11 +2683,22 @@ onMounted(async () => {
 .agent-phone-options .agent-note { grid-column: 1 / -1; }
 @media (max-width: 360px) { .agent-phone-options { grid-template-columns: 1fr; } }
 .agent-reader-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--ui-border); overflow-wrap: anywhere; }
-.agent-phone-shortcut.is-active { color: var(--ui-accent); background: var(--ui-accent-softer); }
+.agent-phone-shortcut.is-active { color: var(--ui-accent-text); background: var(--ui-accent-softer); }
 .agent-call-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-shrink: 0; padding: 6px 12px; border-top: 1px solid var(--ui-border); }
 .agent-call-status > span { flex: 1; min-width: 100px; font-size: 12px; color: var(--ui-text-2); }
 .agent-call-error { flex-shrink: 0; margin: 0; padding: 6px 12px; font-size: 12px; overflow-wrap: anywhere; }
-.agent-nav-toggle:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+/* Keep keyboard focus visible across native controls and shared UI components. */
+.agent :deep(button:focus-visible),
+.agent :deep(a:focus-visible),
+.agent :deep(input:focus-visible),
+.agent :deep(select:focus-visible),
+.agent :deep(textarea:focus-visible),
+.agent :deep([tabindex]:focus-visible),
+.agent-nav-toggle:focus-visible { outline: 2px solid var(--ui-focus-color); outline-offset: 2px; }
+.agent-tabs button { min-height: 40px; }
+.agent-mobile-nav button { min-height: 56px; }
+.voice-call-actions :deep(button),
+.agent-phone-options :deep(button) { min-height: 44px; }
 /* CyberManju agent — modern chat UX.
    Layout: header / (sidebar + main). Sidebar collapses under 760px.
    Tone: sentence case, breathing room, sticky composer, avatars, meters. */
@@ -2725,10 +2736,10 @@ onMounted(async () => {
   border-radius: var(--ui-radius-sm);
   border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent);
   background: transparent;
-  color: var(--ui-text-3);
+  color: var(--ui-text-2);
   cursor: pointer;
 }
-.agent-nav-toggle:hover { background: var(--ui-accent-softer); color: var(--ui-accent); }
+.agent-nav-toggle:hover { background: var(--ui-accent-softer); color: var(--ui-accent-text); }
 
 .agent-avatar {
   position: relative;
@@ -2739,7 +2750,7 @@ onMounted(async () => {
   height: 32px;
   border-radius: 50%;
   background: var(--ui-accent-softer);
-  color: var(--ui-accent);
+  color: var(--ui-accent-text);
   border: 1px solid color-mix(in srgb, var(--ui-accent) 35%, transparent);
   flex-shrink: 0;
 }
@@ -2753,7 +2764,7 @@ onMounted(async () => {
 @keyframes agent-pulse { 0%,100% { opacity: .2; transform: scale(.94);} 50% { opacity: 1; transform: scale(1.04);} }
 .agent-title { min-width: 0; flex: 1; }
 .agent-title h2 { margin: 0; font-size: 13px; font-weight: 600; }
-.agent-subtitle { margin: 0; font-size: 11px; color: var(--ui-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agent-subtitle { margin: 0; font-size: 11px; color: var(--ui-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .agent-subtitle-sep { margin: 0 4px; opacity: .5; }
 .agent-header-meta { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .agent-sidebar-backdrop,
@@ -2766,7 +2777,7 @@ onMounted(async () => {
   padding: 5px 9px; border-radius: var(--ui-radius-sm); cursor: pointer;
 }
 .agent-tabs button:hover { color: var(--ui-text); background: color-mix(in srgb, var(--ui-text) 7%, transparent); }
-.agent-tabs button.on { color: var(--ui-accent); background: var(--ui-accent-softer); }
+.agent-tabs button.on { color: var(--ui-accent-text); background: var(--ui-accent-softer); }
 
 /* ── body ── */
 .agent-body { flex: 1; display: flex; min-height: 0; min-width: 0; overflow: hidden; }
@@ -2829,7 +2840,7 @@ onMounted(async () => {
   border: 1px solid color-mix(in srgb, var(--ui-text) 12%, transparent); border-radius: var(--ui-radius-xl);  padding: 3px 9px; background: color-mix(in srgb, var(--ui-glass) 60%, transparent);
 }
 .agent-cap.warn { border-color: color-mix(in srgb, var(--ui-warning) 55%, transparent); color: var(--ui-warning); }
-.agent-cap-link { border: 0; background: none; color: var(--ui-accent); font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; padding: 2px 4px; }
+.agent-cap-link { border: 0; background: none; color: var(--ui-accent-text); font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; padding: 2px 4px; }
 .agent-cap-tools { display: flex; flex-wrap: wrap; gap: 4px; flex-basis: 100%; }
 .agent-cap-tool {
   display: inline-flex; align-items: center; gap: 4px;
@@ -2853,7 +2864,7 @@ onMounted(async () => {
   font: inherit; font-size: 12px; font-weight: 600;
   padding: 2px 0; cursor: pointer; text-align: left;
 }
-.agent-card-toggle:hover { color: var(--ui-accent); }
+.agent-card-toggle:hover { color: var(--ui-accent-text); }
 .agent-card-toggle > :last-child { margin-left: auto; color: var(--ui-text-3); }
 .agent-card-fold { padding-top: 8px; }
 .preset-search { margin-bottom: 8px; }
@@ -2880,9 +2891,9 @@ onMounted(async () => {
   scrollbar-gutter: stable;
   padding-bottom: 12px;
 }
-.agent-note { font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent);  margin: 8px 0 0; }
+.agent-note { font-size: 12px; color: var(--ui-text-2); margin: 8px 0 0; line-height: 1.5; }
 
-  .agent-link { border: 0; background: none; padding: 0; color: var(--ui-accent); font: inherit; font-weight: 650; cursor: pointer; }
+  .agent-link { border: 0; background: none; padding: 0; color: var(--ui-accent-text); font: inherit; font-weight: 650; cursor: pointer; }
 .mono { font-family: var(--ui-font-mono);  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); padding: 0 4px; border-radius: var(--ui-radius-sm); font-size: .95em; }
 .dim { color: color-mix(in srgb, var(--ui-text) 50%, transparent); }
 
@@ -2898,7 +2909,7 @@ onMounted(async () => {
 .preset-card.on { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); background: var(--ui-accent-softer); }
 .preset-name { font-size: 12px; font-weight: 700; }
 .preset-meta { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
-.preset-free { font-size: 10px; color: var(--ui-accent); font-weight: 700; }
+.preset-free { font-size: 10px; color: var(--ui-accent-text); font-weight: 700; }
 .w-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; min-width: 0; flex: 1; }
 .w-field.grow { flex: 1; min-width: 140px; }
 .w-field-narrow { flex: 0 0 110px; }
@@ -2907,7 +2918,7 @@ onMounted(async () => {
 .w-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; align-items: flex-end; }
 .w-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .w-msg { font-size: 11px; margin-top: 6px; color: color-mix(in srgb, var(--ui-text) 70%, transparent); }
-.w-msg.err { color: var(--ui-danger); }
+.w-msg.err { color: var(--ui-danger-text); }
 .model-row { display: flex; gap: 6px; }
 .config-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 .config-card {  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-xl); padding: 8px 10px; background: color-mix(in srgb, var(--ui-glass) 68%, transparent); }
@@ -2928,7 +2939,7 @@ onMounted(async () => {
 .agent-welcome-avatar {
   display: inline-flex; align-items: center; justify-content: center;
   width: 52px; height: 52px; border-radius: 50%;
-  background: var(--ui-accent-softer); color: var(--ui-accent);
+  background: var(--ui-accent-softer); color: var(--ui-accent-text);
   border: 1px solid color-mix(in srgb, var(--ui-accent) 35%, transparent);
   margin-bottom: 10px;
 }
@@ -2965,8 +2976,8 @@ onMounted(async () => {
   width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; margin-top: 2px;
   border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent);
 }
-.avatar-user { background: color-mix(in srgb, var(--ui-accent) 14%, transparent); color: var(--ui-accent); }
-.avatar-assistant { background: var(--ui-accent-softer); color: var(--ui-accent); }
+.avatar-user { background: color-mix(in srgb, var(--ui-accent) 14%, transparent); color: var(--ui-accent-text); }
+.avatar-assistant { background: var(--ui-accent-softer); color: var(--ui-accent-text); }
 .avatar-tool, .avatar-assistant_tool { background: color-mix(in srgb, var(--ui-text) 8%, transparent); color: color-mix(in srgb, var(--ui-text) 65%, transparent); }
 .msg-main {
   flex: 1; min-width: 0;
@@ -3003,7 +3014,7 @@ onMounted(async () => {
 .msg-body.md :deep(code) { font-family: var(--ui-font-mono); font-size: .92em; }
 .msg-body.md :deep(ul), .msg-body.md :deep(ol) { margin: 4px 0; padding-left: 16px; }
 .msg-body.md :deep(blockquote) { margin: 4px 0; padding-left: 8px; border-left: 2px solid var(--ui-border); color: color-mix(in srgb, var(--ui-text) 65%, transparent); }
-.msg-body.md :deep(a) { color: var(--ui-accent); }
+.msg-body.md :deep(a) { color: var(--ui-accent-text); }
 .turn-footer { font-size: 10px; color: color-mix(in srgb, var(--ui-text) 50%, transparent); margin-top: 6px; padding-top: 5px; border-top: 1px dashed var(--ui-hairline); }
 .tool-block { margin-top: 4px; }
 .tool-name { font-size: 11px; font-weight: 700; }
@@ -3023,7 +3034,7 @@ onMounted(async () => {
 .tool-row.open .tool-chev { transform: rotate(-90deg); }
 .tool-detail { border-top: 1px solid var(--ui-hairline); padding: 6px 8px; }
 .tool-result { font-size: 10px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; margin: 6px 0 0; color: color-mix(in srgb, var(--ui-text) 75%, transparent); font-family: var(--ui-font-mono); max-height: 240px; overflow: auto; }
-.tool-result.bad { color: var(--ui-danger); }
+.tool-result.bad { color: var(--ui-danger-text); }
 .tool-wait { font-size: 10px; margin-top: 6px; }
 
 /* approval */
@@ -3042,7 +3053,7 @@ onMounted(async () => {
 .diff-head { font-size: 10px; font-weight: 700; margin-bottom: 4px; }
 .diff-body { font-size: 10px; white-space: pre-wrap; word-break: break-word; margin: 0; max-height: 220px; overflow: auto; border: 1px solid color-mix(in srgb, var(--ui-text) 9%, transparent); border-radius: var(--ui-radius-lg); padding: 6px 8px; background: color-mix(in srgb, var(--ui-glass) 72%, transparent); }
 .diff-line { display: block; }
-.diff-del { color: var(--ui-danger); background: color-mix(in srgb, var(--ui-danger) 8%, transparent); }
+.diff-del { color: var(--ui-danger-text); background: color-mix(in srgb, var(--ui-danger) 8%, transparent); }
 .diff-add { color: var(--ui-success); background: color-mix(in srgb, var(--ui-success) 8%, transparent); }
 .diff-ctx { opacity: .75; }
 .approval.attention { box-shadow: var(--ui-shadow-2); }
@@ -3071,8 +3082,8 @@ onMounted(async () => {
 .composer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 8px 8px; }
 /* The picker has an explicit trigger: touch and keyboard never need hover. */
 .voice-group { position: relative; display: inline-flex; flex-shrink: 0; }
-.voice-language-toggle { min-height: 44px; min-width: 44px; padding: 4px; border: 0; border-radius: 8px; background: transparent; color: var(--ui-accent); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
-.voice-language-toggle:focus-visible, .voice-opt:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.voice-language-toggle { min-height: 44px; min-width: 44px; padding: 4px; border: 0; border-radius: 8px; background: transparent; color: var(--ui-accent-text); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.voice-language-toggle:focus-visible, .voice-opt:focus-visible { outline: 2px solid var(--ui-focus-color); outline-offset: 2px; }
 .voice-pop {
   position: absolute; bottom: calc(100% + 6px); right: 0;
   display: flex; gap: 4px; padding: 4px;
@@ -3086,7 +3097,7 @@ onMounted(async () => {
   cursor: pointer; white-space: nowrap;
 }
 .voice-opt:hover { color: var(--ui-text); background: color-mix(in srgb, var(--ui-text) 7%, transparent); }
-.voice-opt.on { color: var(--ui-accent); background: var(--ui-accent-softer); border-color: color-mix(in srgb, var(--ui-accent) 40%, transparent); }
+.voice-opt.on { color: var(--ui-accent-text); background: var(--ui-accent-softer); border-color: color-mix(in srgb, var(--ui-accent) 40%, transparent); }
 .composer-hint { font-size: 10px; }
 .composer-spacer { flex: 1; }
 .composer-slash {
@@ -3102,8 +3113,8 @@ onMounted(async () => {
 
 /* Settings stays reachable even when the desktop tab bar is hidden. */
 .agent-settings-shortcut { color: var(--ui-text-2); flex-shrink: 0; }
-.agent-settings-shortcut[aria-pressed="true"] { color: var(--ui-accent); background: var(--ui-accent-softer); }
-.agent-stop-shortcut { color: var(--ui-danger); flex-shrink: 0; }
+.agent-settings-shortcut[aria-pressed="true"] { color: var(--ui-accent-text); background: var(--ui-accent-softer); }
+.agent-stop-shortcut { color: var(--ui-danger-text); flex-shrink: 0; }
 .agent-provider-notice { flex-shrink: 0; padding: 10px 12px; margin: 8px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); font-size: 12px; overflow-wrap: anywhere; }
 .agent-provider-notice p { margin: 0 0 8px; }
 .agent-provider-notice :deep(button) { min-height: 44px; margin: 0 6px 4px 0; }
@@ -3141,7 +3152,7 @@ onMounted(async () => {
   .agent-sidebar-backdrop { display: block; position: absolute; inset: 0; z-index: 8; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: rgb(8 12 20 / 42%); }
   .agent-mobile-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--ui-border); }
   .agent-mobile-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; min-height: 56px; padding: 6px 4px; border: 1px solid var(--ui-border); border-radius: 12px; background: transparent; color: var(--ui-text-2); font: inherit; font-size: 10px; font-weight: 650; text-align: center; }
-  .agent-mobile-nav button.on { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); background: var(--ui-accent-softer); color: var(--ui-accent); }
+  .agent-mobile-nav button.on { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); background: var(--ui-accent-softer); color: var(--ui-accent-text); }
   .tool-group { margin-left: 0; }
   .agent-side-item-btns { opacity: 1; }
 }
@@ -3179,7 +3190,7 @@ onMounted(async () => {
   .agent-sidebar-backdrop { display: block; position: absolute; inset: 0; z-index: 8; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: rgb(8 12 20 / 42%); }
   .agent-mobile-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--ui-border); }
   .agent-mobile-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; min-height: 56px; padding: 6px 4px; border: 1px solid var(--ui-border); border-radius: 12px; background: transparent; color: var(--ui-text-2); font: inherit; font-size: 10px; font-weight: 650; text-align: center; }
-  .agent-mobile-nav button.on { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); background: var(--ui-accent-softer); color: var(--ui-accent); }
+  .agent-mobile-nav button.on { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); background: var(--ui-accent-softer); color: var(--ui-accent-text); }
 }
 
 @media (prefers-reduced-motion: reduce) {

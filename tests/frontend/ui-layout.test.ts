@@ -30,8 +30,8 @@ describe('global UI layout persistence', () => {
   })
 
   it('limits entries and safely handles malformed or unavailable storage', () => {
-    const tooMany = Object.fromEntries(Array.from({ length: 520 }, (_, i) => [`id-${i}`, { x: 0, y: 0 }]))
-    expect(Object.keys(validateUiLayout(tooMany))).toHaveLength(500)
+    const tooMany = Object.fromEntries(Array.from({ length: 5020 }, (_, i) => [`id-${i}`, { x: 0, y: 0 }]))
+    expect(Object.keys(validateUiLayout(tooMany))).toHaveLength(5000)
     expect(readUiLayout({ getItem: () => '{broken' })).toEqual(Object.create(null))
     expect(readUiLayout(null)).toEqual(Object.create(null))
   })

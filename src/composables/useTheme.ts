@@ -150,6 +150,7 @@ watch(
   () => [
     state.theme,
     state.accent,
+    state.accents,
     state.density,
     state.glass,
     state.motion,

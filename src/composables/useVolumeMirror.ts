@@ -27,6 +27,7 @@ let lastJson = ''
 let timer = 0
 let started = false
 let kvBroken = false
+let replaying = false
 
 function readVolume(): Record<string, string> {
   try {
@@ -78,7 +79,9 @@ async function flushMobileMirror(): Promise<void> {
 
 /** Diff localStorage against the last pushed snapshot and write the delta. */
 async function pushVolume(): Promise<boolean> {
+  if (replaying) return false
   return withVolumeWriteQueue(0, async () => {
+    if (replaying) return false
     // Read only after reaching the queue head. Otherwise a queued older
     // snapshot could overwrite a newer localStorage image in the vault.
     const current = readVolume()
@@ -129,30 +132,73 @@ export function startVolumeMirror(): void {
  * file wins — it is the thing they just asked to load.
  */
 export async function replayVolumeFromVault(overwrite = false): Promise<number> {
-  const listed = await kv('kv.list', { prefix: PREFIX })
-  if (!listed.ok || !Array.isArray(listed.value)) return 0
-  const local = readVolume()
-  let restored = 0
-  for (const row of listed.value as Array<{ key?: string }>) {
-    const key = String(row?.key ?? '')
-    const path = key.slice(PREFIX.length)
-    if (!path) continue
-    if (!overwrite && local[path] !== undefined) continue
-    const got = await kv('kv.get', { key })
-    if (!got.ok) break
-    const value = (got.value as { value?: unknown } | null)?.value
-    if (typeof value !== 'string') continue
-    try {
-      await withVolumeWriteQueue(new TextEncoder().encode(value).length, () =>
-        wasmOsDispatch('write', { path, content: value })
-      )
-      restored++
-    } catch {
-      // One bad path must not abort the rest of the replay.
+  if (overwrite && timer) {
+    window.clearTimeout(timer)
+    timer = 0
+  }
+  if (overwrite) replaying = true
+  try {
+    const listed = await kv('kv.list', { prefix: PREFIX })
+    if (!listed.ok || !Array.isArray(listed.value)) {
+      if (overwrite) throw new Error('integrity: replacement vault shell files could not be read')
+      return 0
+    }
+    const local = readVolume()
+    const vaultPaths = new Set<string>()
+    for (const row of listed.value as Array<{ key?: string }>) {
+      const path = String(row?.key ?? '').slice(PREFIX.length)
+      if (path) vaultPaths.add(path)
+    }
+    // A replacement vault is authoritative for the shell mirror. Remove only
+    // shell-volume paths absent from that vault; unrelated database/user data
+    // is never touched.
+    if (overwrite) {
+      const stale = Object.keys(local).filter((path) => !vaultPaths.has(path))
+      if (stale.length) {
+        try {
+          const result = await withVolumeWriteQueue(0, () => wasmOsDispatch('rm', { paths: stale }))
+          if (result && typeof result === 'object' && 'ok' in result && !result.ok) {
+            throw new Error('integrity: stale shell files could not be removed')
+          }
+        } catch (error) {
+          throw error
+        }
+      }
+    }
+    let restored = 0
+    for (const row of listed.value as Array<{ key?: string }>) {
+      const key = String(row?.key ?? '')
+      const path = key.slice(PREFIX.length)
+      if (!path) continue
+      if (!overwrite && local[path] !== undefined) continue
+      const got = await kv('kv.get', { key })
+      if (!got.ok) {
+        if (overwrite) throw new Error('integrity: replacement vault shell file could not be read')
+        break
+      }
+      const value = (got.value as { value?: unknown } | null)?.value
+      if (typeof value !== 'string') continue
+      try {
+        const result = await withVolumeWriteQueue(new TextEncoder().encode(value).length, () =>
+          wasmOsDispatch('write', { path, content: value })
+        )
+        if (result && typeof result === 'object' && 'ok' in result && !result.ok) {
+          throw new Error('integrity: replacement vault shell file could not be restored')
+        }
+        restored++
+      } catch (error) {
+        if (overwrite) throw error
+        // Boot remains best-effort; explicit replacement must report failure.
+      }
+    }
+    if (overwrite || restored) lastJson = JSON.stringify(readVolume())
+    return restored
+  } finally {
+    if (overwrite) {
+      lastJson = JSON.stringify(readVolume())
+      replaying = false
     }
   }
-  if (restored) lastJson = JSON.stringify(readVolume())
-  return restored
 }
 
 /** Flush a pending push immediately (file save / page hide). */

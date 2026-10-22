@@ -51,6 +51,12 @@ jobs:
       - name: Android package verifier regressions
         run: python3 scripts/verify-android-package.test.py
 
+      - name: Android clipboard gate tests
+        run: python3 tests/python/test_android_clipboard.py
+
+      - name: Android widget host installer regressions
+        run: python3 tests/python/test_android_widgets.py
+
       - name: Top-file headers present
         run: bash scripts/check-file-headers.sh
 
@@ -1107,12 +1113,30 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
+      - name: Test Android HOME callback ordering on JVM
+        run: python3 tests/python/test_android_home_lifecycle.py
+        env:
+          REQUIRE_KOTLIN_COMPILER: '1'
+
+      - name: Test Android widget host state and lifecycle on JVM
+        run: python3 tests/python/test_android_widgets_runtime.py
+        env:
+          REQUIRE_KOTLIN_COMPILER: '1'
+
       - name: Verify Android voice bridge in APK DEX
         run: |
           mapfile -d '' apks < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' -print0)
           test "${#apks[@]}" -gt 0
           for apk in "${apks[@]}"; do
             python3 scripts/check-android-voice-apk.py "$apk"
+          done
+
+      - name: Verify Android clipboard bridge in APK DEX
+        run: |
+          mapfile -d '' apks < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' -print0)
+          test "${#apks[@]}" -gt 0
+          for apk in "${apks[@]}"; do
+            python3 scripts/check-android-clipboard-apk.py "$apk"
           done
 
       - name: Verify Android broker configuration

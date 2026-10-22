@@ -1,10 +1,8 @@
 <script setup lang="ts">
-// CyberManju OS — UiLayoutEditor (src/components/UiLayoutEditor.vue).
-// Role: Vue desktop UI: windows, panels, overlays.
-// Exports: module root (see items below).
-// Integrates: vue, @iconify, @/….
-// Contracts: none special (pure logic; errors bubble to caller).
-// Global customization remains accessible only through an icon long-press.
+// CyberManju OS — global UI layout and appearance editor.
+// Role: expose per-item customization through a long-press on any entity.
+// Integrates: persisted UI appearance, local raster images and the offline icon catalog.
+import UiTextContextMenu from './UiTextContextMenu.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Icon } from '@iconify/vue/offline'
 import { ensureUiIconCatalog, readUiIconImage } from '@/utils/uiIconCatalog'
@@ -94,6 +92,7 @@ onUnmounted(() => {
 })
 </script>
 <template>
+  <UiTextContextMenu />
   <Teleport to="body">
     <section v-if="editing" class="ui-layout-editor" data-ui-layout-ignore role="region" aria-label="Customize UI components">
       <div class="ui-layout-editor__actions">
@@ -138,7 +137,7 @@ onUnmounted(() => {
 .ui-layout-editor button, .ui-layout-editor__upload { min-height: 44px; box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--ui-border, #555); border-radius: 8px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
 .ui-layout-editor button:disabled, .disabled { opacity: .45; cursor: default; }
 .ui-layout-editor button:focus-visible, .ui-layout-editor__upload:focus-within { outline: 2px solid var(--ui-accent, #8b7bff); outline-offset: 2px; }
-.ui-layout-editor button[aria-pressed="true"], .ui-layout-editor__done { background: var(--ui-accent, #8b7bff) !important; color: #fff !important; }
+.ui-layout-editor button[aria-pressed="true"], .ui-layout-editor__done { background: var(--ui-accent, #8b7bff) !important; color: var(--ui-on-accent, #000000) !important; }
 .ui-layout-editor p { max-width: 540px; margin: 7px 0; opacity: .85; }
 .ui-layout-editor [role="status"] { display: block; margin-top: 4px; }
 .ui-layout-editor__appearance { max-width: 540px; }

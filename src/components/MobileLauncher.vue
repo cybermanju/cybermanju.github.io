@@ -15,14 +15,14 @@
     @pointerdown.capture="homeLayout.onPointerDown"
     @keydown.capture="homeLayout.onKeydown"
     @touchstart.passive="onTouchStart"
-    @touchmove.passive="onTouchMove"
+    @touchmove="onTouchMove"
     @touchend.passive="onTouchEnd"
     @touchcancel.passive="resetDrawerGesture"
   >
     <div v-if="homeLayout.editing.value" class="mla-layout-toolbar" role="group" aria-label="Home layout controls">
       <button type="button" class="mla-mini-btn" @click="homeLayout.toggle">Done</button>
       <button v-if="homeLayout.customized.value" type="button" class="mla-mini-btn" @click="homeLayout.reset">Reset layout</button>
-      <span class="mla-layout-hint">Drag and release to toss; gravity settles items. Arrow keys move; Shift moves faster. Esc cancels.</span>
+      <span class="mla-layout-hint">Drag to place; items stay where you release them. Arrow keys move; Shift moves faster. Esc cancels.</span>
     </div>
     <p class="mla-layout-status" role="status" aria-live="polite">{{ homeLayout.status.value }}</p>
     <!-- The single mobile header (TopMenuBar) owns connectivity, vault
@@ -78,6 +78,9 @@
     <OmniSearchPanel ref="searchRef" home class="mla-unified-search" data-home-item="search" tabindex="0" :style="homeLayout.style('search')" />
     <HomeCommandBar v-if="!query.trim()" data-home-item="commands" tabindex="0" :style="homeLayout.style('commands')" />
 
+    <div v-if="!query.trim()" class="mla-workspace-mode"><button type="button" class="mla-mini-btn" :aria-pressed="workspaceMode" @click="toggleWorkspaceMode">{{ workspaceMode ? 'Classic home layout' : 'Personal workspaces + widgets' }}</button></div>
+    <HomeWorkspaceStudio v-if="workspaceMode && !query.trim()" ref="workspaceStudio" :apps="workspaceApps" :initial-ids="orderedApps.map(app => app.panel)" :blocked="hasOpenWindows || launcher.drawerOpen || launcher.messagesOpen || !!customHome || homeLayout.editing.value" @open="open($event as PanelType)" @customize="customizeWorkspaceApp" />
+    <template v-if="!workspaceMode">
     <!-- Flat AMOLED home deliberately has no tiles, widget cards, wallpaper,
       or duplicate dock: just monochrome app glyphs and names on black. -->
     <div
@@ -133,7 +136,7 @@
     </div>
 
     <!-- iOS springboard pager (cf. iOS4Android PageView + IconGrid):
-      8 icons per page (2 rows × 4), horizontal snap scroll with dots. -->
+      complete rows sized to the available viewport, with horizontal snap. -->
     <div
       v-if="!isFlatAmoled && !query.trim() && filtered.length"
       ref="pagerRef"
@@ -190,7 +193,7 @@
 
 
     <!-- iOS page dots (cf. iOS4Android DotsIndicator): 7.5px dots, white vs dim. -->
-    <div v-if="!query.trim() && pages.length > 1 && !homeLayout.free.value" class="mla-dots" role="group" aria-label="Home app pages">
+    <div v-if="!query.trim() && filtered.length && !homeLayout.free.value" class="mla-dots" :class="{ 'mla-dots-hidden': pages.length < 2 }" :aria-hidden="pages.length < 2" :inert="pages.length < 2" role="group" aria-label="Home app pages">
       <button
         v-for="(_, dotIndex) in pages"
         :key="dotIndex"
@@ -205,6 +208,7 @@
       </button>
     </div>
 
+    </template>
     <button data-home-item="drawer" data-home-fixed :style="homeLayout.style('drawer')" class="mla-allapps" type="button" @click="openDrawer" aria-label="Open all apps">
       <span class="mla-allapps-pill" aria-hidden="true" />
       <strong>All apps</strong>
@@ -314,13 +318,17 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
+import HomeWorkspaceStudio from '@/components/HomeWorkspaceStudio.vue'
 import OmniSearchPanel from '@/components/OmniSearchPanel.vue'
 import AppDrawer from '@/components/AppDrawer.vue'
 import MessagesHub from '@/components/MessagesHub.vue'
 import HomeCommandBar from '@/components/HomeCommandBar.vue'
 import { useHomeLayout } from '@/composables/useHomeLayout'
 import { moveHomeOrder } from '@/utils/homeLayout'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useResizeObserver } from '@vueuse/core'
+import { homePageCapacity } from '@/utils/homePageCapacity'
+import { drawerGestureProgress, shouldCommitDrawerGesture } from '@/utils/drawerGesture'
 import { useTheme } from '@/composables/useTheme'
 import { useAppStore } from '@/stores/app'
 import { useLauncherStore } from '@/stores/launcher'
@@ -334,9 +342,6 @@ import {
 } from '@/utils/launcher'
 import type { PanelType } from '@/types'
 
-/** Icons per springboard page — mirrors iOS4Android IconGrid (2 rows × 4). */
-const MLA_PAGE_SIZE = 8
-
 const store = useAppStore()
 const theme = useTheme()
 const themeId = computed(() => String(theme.themeId.value))
@@ -349,12 +354,17 @@ const msgHub = useMessages()
 // computed would re-run it on every recompute.
 const sys = useNotifications()
 const sysUnread = computed(() => sys.unreadCount.value)
+const workspaceStudio = ref<{ removeApp: (id: string) => void; reorderApp: (id: string, direction: -1 | 1) => void; hideNative: () => Promise<boolean> } | null>(null)
+const workspaceMode = ref((() => { try { return localStorage.getItem('cybermanju.home.workspaceMode.v1') !== 'false' } catch { return true } })())
+watch(workspaceMode, value => { try { localStorage.setItem('cybermanju.home.workspaceMode.v1', String(value)) } catch { /* session-only mode */ } })
+async function toggleWorkspaceMode() { if (workspaceStudio.value && !await workspaceStudio.value.hideNative()) return; if (homeLayout.editing.value) homeLayout.toggle(); workspaceMode.value = !workspaceMode.value }
 const query = computed({ get: () => store.searchQuery, set: (value: string) => { store.searchQuery = value } })
 const dateStr = ref('')
 const greeting = ref('')
 const rootRef = ref<HTMLElement | null>(null)
 const homeLayout = useHomeLayout(rootRef)
 function toggleHomeLayout() {
+  workspaceMode.value = false
   onHomePressEnd()
   longPressedHome = false
   contextMenuFired = false
@@ -364,6 +374,24 @@ function toggleHomeLayout() {
 }
 const searchRef = ref<{ focus: () => void } | null>(null)
 const pagerRef = ref<HTMLElement | null>(null)
+const pageSize = ref(8)
+/** Measure the flex slot (already above the dock/nav/insets), not window height.
+ * Grid and cell CSS are authoritative across AMOLED, glass and tablet widths. */
+function measurePageCapacity() {
+  const pager = pagerRef.value
+  const grid = pager?.querySelector<HTMLElement>('.mla-grid')
+  const app = grid?.querySelector<HTMLElement>('.mla-app')
+  if (!pager || !grid || !app || !pager.clientHeight) return
+  const css = getComputedStyle(grid)
+  const pagerCss = getComputedStyle(pager)
+  const height = pager.clientHeight - (parseFloat(pagerCss.paddingTop) || 0) - (parseFloat(pagerCss.paddingBottom) || 0)
+  pageSize.value = homePageCapacity(height, app.offsetHeight, parseFloat(css.rowGap), css.gridTemplateColumns.split(' ').length)
+}
+useResizeObserver(pagerRef, measurePageCapacity)
+watch([themeId, () => homeLayout.free.value], async () => {
+  await nextTick()
+  measurePageCapacity()
+})
 const activePage = ref(0)
 let pagerRaf = 0
 const hasOpenWindows = computed(() => wm.windows.value.some(window => !window.minimized))
@@ -390,8 +418,10 @@ let touchX: number | null = null
  *  reusing it for the end-check made the drawer gesture dead code. */
 let drawerStartY: number | null = null
 let drawerStartX: number | null = null
+let drawerStartTime = 0
 let suppressHomeClickUntil = 0
 function onLauncherClickCapture(event: MouseEvent) {
+  if ((event.target as HTMLElement | null)?.closest('.home-studio')) return
   homeLayout.onClickCapture(event)
   if (homeLayout.editing.value) return
   if (Date.now() < suppressHomeClickUntil) {
@@ -401,14 +431,25 @@ function onLauncherClickCapture(event: MouseEvent) {
 }
 const drawerProgress = ref(0)
 let swipeUpArmed = false
+let drawerFrame = 0
+let pendingDrawerProgress = 0
+function queueDrawerProgress(progress: number) {
+  pendingDrawerProgress = progress
+  if (drawerFrame) return
+  drawerFrame = requestAnimationFrame(() => { drawerFrame = 0; drawerProgress.value = pendingDrawerProgress })
+}
 function resetDrawerGesture() {
+  if (drawerFrame) cancelAnimationFrame(drawerFrame)
+  drawerFrame = 0
   drawerProgress.value = 0
   swipeUpArmed = false
   touchY = touchX = drawerStartY = drawerStartX = null
 }
+onUnmounted(resetDrawerGesture)
 function onTouchStart(event: TouchEvent) {
+  resetDrawerGesture()
   if (launcher.drawerOpen || homeLayout.editing.value) return
-  drawerProgress.value = 0
+  drawerStartTime = Date.now()
   touchY = event.touches[0]?.clientY ?? null
   touchX = event.touches[0]?.clientX ?? null
   drawerStartY = touchY
@@ -421,7 +462,7 @@ function onTouchStart(event: TouchEvent) {
       touchY != null &&
       touchY > window.innerHeight * 0.55 &&
       (event.touches.length ?? 0) === 1 &&
-      !(event.target as HTMLElement | null)?.closest('input, textarea, .mla-pages, .mla-custom-veil')
+      !(event.target as HTMLElement | null)?.closest('input, textarea, [contenteditable], .mla-pages, .mla-custom-veil')
   } catch {
     swipeUpArmed = false
   }
@@ -433,7 +474,7 @@ function onTouchEnd(event: TouchEvent) {
     const vertical = drawerStartY - endY
     const horizontal = Math.abs(endX - drawerStartX)
     const tag = (event.target as HTMLElement | null)?.tagName ?? ''
-    if (vertical >= 96 && horizontal < 60 && tag !== 'INPUT' && tag !== 'TEXTAREA') {
+    if (shouldCommitDrawerGesture(vertical, horizontal, Date.now() - drawerStartTime) && tag !== 'INPUT' && tag !== 'TEXTAREA') {
       suppressHomeClickUntil = Date.now() + 450
       launcher.setDrawer(true)
       try {
@@ -452,8 +493,14 @@ function onTouchMove(event: TouchEvent) {
     const point = event.touches[0]
     const travel = drawerStartY - (point?.clientY ?? drawerStartY)
     const sideways = Math.abs((point?.clientX ?? drawerStartX) - drawerStartX)
-    if (event.touches.length !== 1 || sideways > 60) resetDrawerGesture()
-    else drawerProgress.value = Math.max(0, Math.min(1, travel / 240))
+    if (event.touches.length !== 1 || sideways >= 60) resetDrawerGesture()
+    else if (travel > 10 && travel > sideways) {
+      if (!event.cancelable) { resetDrawerGesture(); return }
+      event.preventDefault()
+      suppressHomeClickUntil = Date.now() + 450
+      // One visual update per paint; the sheet travels with the finger, not at 3× its speed.
+      queueDrawerProgress(drawerGestureProgress(travel, Math.min(window.visualViewport?.height ?? window.innerHeight, 800)))
+    } else if (travel <= 0) queueDrawerProgress(0)
   }
   if (touchY == null) return
   const y = event.touches[0]?.clientY ?? touchY
@@ -546,6 +593,9 @@ const orderedApps = computed<LauncherApp[]>(() => {
   return rows.map((r) => r.app)
 })
 
+const workspaceApps = computed(() => apps.value.map(app => ({ id: app.panel, label: homeName(app), icon: app.icon, image: homeTile(app).kind === 'image' ? homeTile(app).src : undefined })))
+function customizeWorkspaceApp(id: string) { const app = apps.value.find(app => app.panel === id); if (app) openHomeCustom(app) }
+
 /** Display name honoring the rename override. */
 function homeName(app: LauncherApp): string {
   const alias = (launcher.overrides[launcherKeyForPanel(app.panel)]?.alias ?? '').trim()
@@ -570,12 +620,12 @@ const filtered = computed(() => {
     ? list.filter(app => homeName(app).toLowerCase().includes(term) || app.label.toLowerCase().includes(term))
     : list
 })
-/** Chunk the springboard into swipeable pages of MLA_PAGE_SIZE. */
+/** Fill every complete visible row, then continue on the next swipeable page. */
 const pages = computed<LauncherApp[][]>(() => {
   if (homeLayout.free.value) return filtered.value.length ? [filtered.value] : []
   const out: LauncherApp[][] = []
-  for (let i = 0; i < filtered.value.length; i += MLA_PAGE_SIZE) {
-    out.push(filtered.value.slice(i, i + MLA_PAGE_SIZE))
+  for (let i = 0; i < filtered.value.length; i += pageSize.value) {
+    out.push(filtered.value.slice(i, i + pageSize.value))
   }
   return out.length ? out : []
 })
@@ -605,7 +655,7 @@ function goToPage(index: number) {
 }
 
 /* A new search always restarts on the first springboard page. */
-watch(filtered, () => {
+watch([filtered, pageSize], () => {
   activePage.value = 0
   pagerRef.value?.scrollTo({ left: 0 })
 })
@@ -672,6 +722,7 @@ function openHomeCustom(app: LauncherApp) {
 
 let homePressStart: { x: number; y: number } | null = null
 function onHomePressStart(app: LauncherApp, e: PointerEvent) {
+  if (document.body.hasAttribute('data-ui-layout-runtime')) return // Global entity hold owns entry; taps/swipes remain native.
   if (homeLayout.editing.value) return
   if (e.pointerType === 'mouse' && e.button !== 0) return
   homePressStart = { x: e.clientX, y: e.clientY }
@@ -758,6 +809,7 @@ function moveHomeCustom(dir: -1 | 1) {
   if (!app) return
   const keys = orderedApps.value.map(homeKey)
   moveHomeOrder(keys, homeKey(app), dir).forEach((key, order) => launcher.patch(key, { order }))
+  workspaceStudio.value?.reorderApp(app.panel, dir)
   homeMsg.value = dir < 0 ? 'Moved earlier.' : 'Moved later.'
 }
 
@@ -771,7 +823,8 @@ function hideHomeCustom() {
   const app = customHome.value
   if (!app) return
   launcher.hide(homeKey(app), true)
-  store.notifySuccess(`${homeName(app)} hidden — Reset home brings it back`)
+  workspaceStudio.value?.removeApp(app.panel)
+  store.notifySuccess(`${homeName(app)} hidden — use + to add it again`)
   customHome.value = null
 }
 
@@ -796,6 +849,7 @@ function resetAllHome() {
 </script>
 
 <style scoped>
+.mla-workspace-mode { display: flex; justify-content: flex-end; }
 .mla {
   --mla-nav-height: 66px;
   --home-drag-safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -901,6 +955,10 @@ function resetAllHome() {
 /* Springboard pager: horizontal PageView with iOS bounce
    (cf. iOS4Android PageView.builder, scrollDirection horizontal). */
 .mla-pages {
+  /* A definite flex basis avoids content/pagination feedback. Small screens
+     keep two rows and scroll the home; tall screens gain complete extra rows. */
+  flex: 1 0 196px;
+  min-height: 196px;
   display: flex;
   margin: 0 -20px;
   padding: 0 0 4px;
@@ -925,8 +983,7 @@ function resetAllHome() {
   gap: 16px 7px;
   align-content: start;
   min-height: 188px;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 400px;
+  /* Offscreen pages must use the same real row metrics as the visible page. */
 }
 .mla-app {
   min-width: 0;
@@ -969,8 +1026,10 @@ function resetAllHome() {
 .mla-badge { position: absolute; z-index: 2; top: -6px; right: -7px; min-width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; padding: 0 5px; border: 1.5px solid var(--ui-bg); border-radius: 11px; background: #f2475e; color: #fff; font-size: 10px; font-weight: 800; box-shadow: 0 2px 5px rgba(0,0,0,.14); }
 .mla-live { position: absolute; z-index: 2; bottom: -4px; left: 50%; width: 9px; height: 9px; transform: translateX(-50%); border: 2px solid var(--ui-bg); border-radius: 50%; background: #35c980; }
 /* Page dots (cf. DotsIndicator: 7.5px dots, 16px spacing, white vs 47% white). */
+.mla-dots-hidden { visibility: hidden; }
 .mla-dots { display: flex; align-items: center; justify-content: center; gap: 8.5px; min-height: 12px; margin-top: -10px; }
-.mla-dot-btn { width: 16px; height: 16px; display: grid; place-items: center; border: 0; background: none; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.mla-dot-btn { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 12px; background: none; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.mla-dot-btn:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
 .mla-page-dot { width: 7.5px; height: 7.5px; border-radius: 50%; background: color-mix(in srgb, var(--ui-text-2) 38%, transparent); transition: transform 180ms cubic-bezier(.34,1.4,.4,1), background 180ms ease; }
 .mla-dot-btn.on .mla-page-dot { transform: scale(1.15); background: var(--ui-text-2); }
 .mla-empty { margin: 4px 0; color: var(--ui-text-3); text-align: center; font-size: 13px; }
@@ -1217,12 +1276,11 @@ function resetAllHome() {
 
 @media (min-width: 600px) and (max-width: 768px) {
   .mla { padding-left: 32px; padding-right: 32px; gap: 22px; }
-  .mla-pages { margin: 0 -32px; padding-left: 32px; padding-right: 32px; }
-  .mla-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 23px 12px; }
+  .mla-pages { margin: 0 -32px; flex-basis: 203px; min-height: 203px; }
+  .mla-grid { padding-inline: 32px; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 23px 12px; }
   .mla-widgets { max-width: 540px; }
-  .mla-dock { max-width: 520px; align-self: center; width: 100%; }
+  .mla-dock { max-width: 520px; left: 50%; right: auto; transform: translateX(-50%); width: calc(100% - 32px); }
 }
-
 /* A calm, more legible glass treatment for the selectable glass theme. */
 .mla.theme-modern-glass {
   background: var(--ui-ambient-background, var(--ui-bg));
@@ -1263,6 +1321,17 @@ function resetAllHome() {
   background: #000;
   color: #fff;
 }
+/* No dock in AMOLED: keep the same visible bounds in and out of editing,
+   so toggling customization cannot clamp a drop against a shorter home. */
+.mla.theme-flat-amoled,
+.mla.theme-flat-amoled.mla-layout-free {
+  bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  clip-path: inset(0 0 calc(-76px - env(safe-area-inset-bottom, 0px)) 0);
+}
+.mla.theme-flat-amoled.with-app-nav,
+.mla.theme-flat-amoled.mla-layout-free.with-app-nav {
+  bottom: calc(76px + var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px));
+}
 .mla.theme-flat-amoled::before { display: block; background: #000; opacity: 1; }
 .mla.theme-flat-amoled .mla-search {
   min-height: 44px;
@@ -1281,7 +1350,7 @@ function resetAllHome() {
 .mla.theme-flat-amoled .mla-search-clear,
 .mla.theme-flat-amoled .mla-search-hint { color: #fff; }
 .mla.theme-flat-amoled .mla-search-clear { background: transparent; }
-.mla.theme-flat-amoled .mla-flat-pages { margin: 0 -18px; padding-bottom: 0; }
+.mla.theme-flat-amoled .mla-flat-pages { flex-basis: 174px; min-height: 174px; margin: 0 -18px; padding-bottom: 0; }
 .mla.theme-flat-amoled .mla-flat-grid { gap: 20px 8px; min-height: 174px; }
 .mla.theme-flat-amoled .mla-flat-app {
   min-height: 76px;
@@ -1357,13 +1426,13 @@ function resetAllHome() {
 .mla.with-app-nav { clip-path: inset(0 0 calc(-156px - var(--mobile-nav-h) - env(safe-area-inset-bottom, 0px)) 0); }
 /* Edit mode deliberately frees the springboard from paging/paint containment.
    Normal mode retains tapping, horizontal pages, long-press tile options and search. */
-.mla-layout-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; position: relative; z-index: 30; }
+.mla-layout-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; position: absolute; inset: auto 12px 12px; z-index: 30; padding: 8px; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface); }
 .mla-layout-toolbar .mla-mini-btn { min-height: 40px; padding-inline: 12px; font-size: 12px; }
 .mla-layout-hint { flex-basis: 100%; color: var(--ui-text-2); font-size: 12px; }
 .mla-layout-status { margin: 0; height: 1px; width: 1px; overflow: hidden; position: absolute; clip-path: inset(50%); }
 .mla.mla-layout-free { bottom: calc(156px + env(safe-area-inset-bottom, 0px)); padding-bottom: 20px; }
 .mla.mla-layout-free.with-app-nav { bottom: calc(156px + var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px)); }
-.mla-layout-free .mla-pages { overflow: visible; scroll-snap-type: none; }
+.mla-layout-free .mla-pages { flex: 0 0 auto; overflow: visible; scroll-snap-type: none; }
 .mla-layout-free .mla-grid { content-visibility: visible; contain: none; }
 .mla-layout-editing { overflow-anchor: none; }
 .mla-layout-editing [data-home-item] { outline: 1px dashed var(--ui-accent); outline-offset: -1px; cursor: grab; touch-action: none; user-select: none; transition: none; clip-path: inset(0 round var(--home-item-radius, 18px)); }

@@ -168,19 +168,25 @@ onBeforeUnmount(() => { alive = false; generation++ })
 </template>
 
 <style scoped>
-.android-voice { padding: 12px 0; border-top: 1px solid var(--ui-border); }
+.android-voice { min-width: 0; padding: 12px 0; border-top: 1px solid var(--ui-border); color: var(--ui-text); }
 .android-voice h3, .android-voice h4 { margin: 0 0 7px; }
+.android-voice .agent-note { color: var(--ui-text-2); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.android-voice .w-msg[role='alert'] { color: var(--ui-danger-text); overflow-wrap: anywhere; }
 .android-voice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.android-voice-actions :deep(button) { min-height: 44px; }
 .android-voice .w-field { display: grid; gap: 5px; margin: 8px 0; }
-.android-voice textarea, .android-voice input, .android-voice select { width: 100%; box-sizing: border-box; padding: 8px; color: var(--ui-text); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 6px; }
+.android-voice textarea, .android-voice input, .android-voice select { width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; padding: 8px; color: var(--ui-text); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); font: inherit; }
+.android-voice input::placeholder, .android-voice textarea::placeholder { color: var(--ui-text-2); opacity: 1; }
+.android-voice :is(input, textarea, select, summary):focus-visible { outline: 2px solid var(--ui-focus-color); outline-offset: 2px; }
 .android-voice-notifications { display: grid; gap: 10px; padding: 0; list-style: none; }
-.android-voice-notifications li { padding: 10px; border: 1px solid var(--ui-border); border-radius: 8px; overflow-wrap: anywhere; }
+.android-voice-notifications li { padding: 10px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface); overflow-wrap: anywhere; }
 .android-voice-notifications p { margin: 6px 0; }
 .android-voice-fill { margin-top: 12px; }
 .android-installed-apps { max-height: 220px; overflow-y: auto; display: grid; gap: 8px; margin-top: 8px; }
-.android-installed-apps label { min-height: 44px; cursor: pointer; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.android-installed-apps input { width: 20px; height: 20px; flex-shrink: 0; }
+.android-installed-apps label { min-height: 44px; cursor: pointer; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); overflow-wrap: anywhere; }
+.android-installed-apps label:focus-within { border-color: var(--ui-focus-color); }
+.android-installed-apps input { width: 20px; height: 20px; min-height: 20px; flex-shrink: 0; accent-color: var(--ui-accent); }
 .android-package-details { margin: 10px 0; }
-.android-package-details summary { cursor: pointer; padding: 10px 0; }
-.android-installed-apps small { opacity: .7; overflow-wrap: anywhere; }
+.android-package-details summary { min-height: 44px; box-sizing: border-box; cursor: pointer; padding: 10px 0; }
+.android-installed-apps small { color: var(--ui-text-2); overflow-wrap: anywhere; }
 </style>

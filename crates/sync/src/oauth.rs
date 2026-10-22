@@ -189,36 +189,55 @@ pub fn exchange_code(
         .header("Accept", "application/json")
         .form(&params)
         .send()
-        .map_err(|e| format!("Token exchange request failed: {}", e))?;
+        .map_err(|_| "Token exchange request failed".to_string())?;
 
     let status = response.status().as_u16();
     let body = response
         .text()
-        .map_err(|e| format!("Failed to read token exchange response: {}", e))?;
+        .map_err(|_| "Failed to read token exchange response".to_string())?;
     if !(200..300).contains(&status) {
-        return Err(format!("Token exchange failed ({}): {}", status, body));
+        return Err(format!("Token exchange failed ({})", status));
     }
 
     let token: TokenResponse = serde_json::from_str(&body)
-        .map_err(|e| format!("Failed to parse token exchange response: {}", e))?;
+        .map_err(|_| "Failed to parse token exchange response".to_string())?;
 
-    Ok(credentials_from_token(client_id, token))
+    Ok(credentials_from_token(client_id, client_secret, token))
 }
 
 /// Build the stored credential set from a token endpoint response.
-fn credentials_from_token(client_id: &str, token: TokenResponse) -> OAuthCredentials {
+fn credentials_from_token(
+    client_id: &str,
+    client_secret: Option<&str>,
+    token: TokenResponse,
+) -> OAuthCredentials {
     let expires_at = token.expires_in.map(|secs| unix_now() + secs);
     OAuthCredentials {
         access_token: token.access_token,
         refresh_token: token.refresh_token,
         expires_at,
         client_id: client_id.to_string(),
-        client_secret: None,
+        client_secret: client_secret.map(str::to_string),
     }
 }
 
+fn refresh_params<'a>(
+    credentials: &'a OAuthCredentials,
+    refresh_token: &'a str,
+) -> Vec<(&'static str, &'a str)> {
+    let mut params = vec![
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+        ("client_id", credentials.client_id.as_str()),
+    ];
+    if let Some(secret) = credentials.client_secret.as_deref() {
+        params.push(("client_secret", secret));
+    }
+    params
+}
+
 /// OAuth2 token response from providers.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TokenResponse {
     pub access_token: String,
     #[serde(default)]
@@ -243,27 +262,25 @@ pub fn refresh(credentials: &mut OAuthCredentials, token_url: &str) -> Result<()
         .as_deref()
         .ok_or("No refresh token available")?;
 
+    let params = refresh_params(credentials, refresh_token);
+
     let response = http_client()?
         .post(token_url)
         .header("Accept", "application/json")
-        .form(&[
-            ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token),
-            ("client_id", credentials.client_id.as_str()),
-        ])
+        .form(&params)
         .send()
-        .map_err(|e| format!("Token refresh request failed: {}", e))?;
+        .map_err(|_| "Token refresh request failed".to_string())?;
 
     let status = response.status().as_u16();
     let body = response
         .text()
-        .map_err(|e| format!("Failed to read token refresh response: {}", e))?;
+        .map_err(|_| "Failed to read token refresh response".to_string())?;
     if !(200..300).contains(&status) {
-        return Err(format!("Token refresh failed ({}): {}", status, body));
+        return Err(format!("Token refresh failed ({})", status));
     }
 
     let token: TokenResponse = serde_json::from_str(&body)
-        .map_err(|e| format!("Failed to parse token refresh response: {}", e))?;
+        .map_err(|_| "Failed to parse token refresh response".to_string())?;
 
     credentials.access_token = token.access_token;
     if let Some(refresh_token) = token.refresh_token {
@@ -319,7 +336,7 @@ struct StoreEnvelope {
 
 /// Wire shape of one stored credential set (the public type redacts its
 /// secrets on serialize, so the store uses its own representation).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct StoredCredentials {
     access_token: String,
     refresh_token: Option<String>,
@@ -548,6 +565,164 @@ fn unix_now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    fn mock_token_server(
+        response: &'static str,
+        status: &'static str,
+    ) -> (String, thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 1024];
+            let header_end;
+            loop {
+                let n = stream.read(&mut chunk).unwrap();
+                assert!(n > 0, "client closed before sending request");
+                request.extend_from_slice(&chunk[..n]);
+                if let Some(pos) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    header_end = pos + 4;
+                    break;
+                }
+            }
+            let headers = String::from_utf8_lossy(&request[..header_end]);
+            let length = headers
+                .lines()
+                .find_map(|line| {
+                    let (key, value) = line.split_once(':')?;
+                    key.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().unwrap())
+                })
+                .unwrap();
+            while request.len() < header_end + length {
+                let n = stream.read(&mut chunk).unwrap();
+                assert!(n > 0, "client closed before sending complete body");
+                request.extend_from_slice(&chunk[..n]);
+            }
+            let body =
+                String::from_utf8_lossy(&request[header_end..header_end + length]).into_owned();
+            write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len()).unwrap();
+            body
+        });
+        (format!("http://{address}/token"), handle)
+    }
+
+    fn confidential_credentials() -> OAuthCredentials {
+        OAuthCredentials {
+            access_token: "old-access".into(),
+            refresh_token: Some("old-refresh".into()),
+            expires_at: Some(123),
+            client_id: "client id".into(),
+            client_secret: Some("secret +&/=?".into()),
+        }
+    }
+
+    #[test]
+    fn refresh_sends_escaped_secret_and_rotates_tokens_without_losing_client_credentials() {
+        let (url, server) = mock_token_server(
+            r#"{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600,"token_type":"Bearer"}"#,
+            "200 OK",
+        );
+        let mut credentials = confidential_credentials();
+        refresh(&mut credentials, &url).unwrap();
+        let body = server.join().unwrap();
+        assert!(
+            body.contains("client_secret=secret+%2B%26%2F%3D%3F"),
+            "unexpected form body: {body}"
+        );
+        assert!(body.contains("client_id=client+id"));
+        assert_eq!(credentials.access_token, "new-access");
+        assert_eq!(credentials.refresh_token.as_deref(), Some("new-refresh"));
+        assert_eq!(credentials.client_id, "client id");
+        assert_eq!(credentials.client_secret.as_deref(), Some("secret +&/=?"));
+    }
+
+    #[test]
+    fn refresh_errors_do_not_leak_response_or_secret_or_mutate_credentials() {
+        for (response, status, expected) in [
+            (
+                r#"{"error":"denied","echo":"secret +&/=?"}"#,
+                "400 Bad Request",
+                "Token refresh failed (400)",
+            ),
+            (
+                "{ malformed secret +&/= ?",
+                "200 OK",
+                "Failed to parse token refresh response",
+            ),
+        ] {
+            let (url, server) = mock_token_server(response, status);
+            let mut credentials = confidential_credentials();
+            let original = credentials.clone();
+            let error = refresh(&mut credentials, &url).unwrap_err();
+            server.join().unwrap();
+            assert_eq!(error, expected);
+            assert!(!error.contains("secret"));
+            assert!(!error.contains(response));
+            assert_eq!(credentials.access_token, original.access_token);
+            assert_eq!(credentials.refresh_token, original.refresh_token);
+            assert_eq!(credentials.expires_at, original.expires_at);
+            assert_eq!(credentials.client_id, original.client_id);
+            assert_eq!(credentials.client_secret, original.client_secret);
+        }
+    }
+
+    #[test]
+    fn confidential_exchange_credentials_keep_secret_for_encrypted_store() {
+        let token = TokenResponse {
+            access_token: "access".into(),
+            token_type: "Bearer".into(),
+            expires_in: Some(3600),
+            refresh_token: Some("refresh".into()),
+            scope: None,
+        };
+        let credentials = credentials_from_token("client", Some("confidential-secret"), token);
+        let stored = StoredCredentials::from(credentials);
+        assert_eq!(stored.client_secret.as_deref(), Some("confidential-secret"));
+        // Exercise the same private serialization and seal/open primitives
+        // as write_store/read_store, without global env or filesystem state.
+        let plain = serde_json::to_string(&stored).unwrap();
+        let payload = keystore::seal_str("test-only-passphrase", plain.as_bytes()).unwrap();
+        let envelope = serde_json::to_string(&StoreEnvelope {
+            version: 1,
+            payload,
+        })
+        .unwrap();
+        assert!(!envelope.contains("confidential-secret"));
+        let envelope: StoreEnvelope = serde_json::from_str(&envelope).unwrap();
+        let opened = keystore::open_sealed_str("test-only-passphrase", &envelope.payload).unwrap();
+        let restored =
+            OAuthCredentials::from(serde_json::from_str::<StoredCredentials>(&opened).unwrap());
+        assert_eq!(
+            restored.client_secret.as_deref(),
+            Some("confidential-secret")
+        );
+        assert!(!serde_json::to_string(&restored)
+            .unwrap()
+            .contains("confidential-secret"));
+    }
+
+    #[test]
+    fn refresh_form_includes_secret_only_for_confidential_credentials() {
+        let mut credentials = OAuthCredentials {
+            access_token: "access".into(),
+            refresh_token: Some("refresh".into()),
+            expires_at: None,
+            client_id: "client".into(),
+            client_secret: Some("confidential-secret".into()),
+        };
+        let params = refresh_params(&credentials, credentials.refresh_token.as_deref().unwrap());
+        assert!(params.contains(&("client_secret", "confidential-secret")));
+        assert!(params.contains(&("grant_type", "refresh_token")));
+
+        credentials.client_secret = None;
+        let params = refresh_params(&credentials, credentials.refresh_token.as_deref().unwrap());
+        assert!(!params.iter().any(|(key, _)| *key == "client_secret"));
+    }
 
     #[test]
     fn test_is_expired() {

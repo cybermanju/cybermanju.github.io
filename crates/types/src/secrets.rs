@@ -56,6 +56,10 @@ impl SecretKind {
 #[serde(rename_all = "camelCase")]
 pub struct SecretRow {
     pub id: String,
+    /// Authenticated owner; legacy/local rows stay unowned and are never
+    /// exposed to REST users. Not included in the public metadata projection.
+    #[serde(default)]
+    pub owner_id: Option<String>,
     pub kind: SecretKind,
     pub title: String,
     #[serde(default)]
@@ -139,6 +143,7 @@ mod tests {
     fn meta_never_carries_the_sealed_value() {
         let row = SecretRow {
             id: "s1".into(),
+            owner_id: Some("owner-a".into()),
             kind: SecretKind::Login,
             title: "GitHub".into(),
             username: Some("user".into()),
@@ -156,6 +161,7 @@ mod tests {
         let json = serde_json::to_string(&meta).expect("serialize meta");
         assert!(!json.contains("value_sealed"), "meta leaked value_sealed");
         assert!(!json.contains("seal:v1"), "meta leaked sealed bytes");
+        assert!(!json.contains("owner-a"), "meta leaked owner identity");
         assert!(json.contains("\"hasValue\":true"));
         assert_eq!(meta.kind, SecretKind::Login);
     }

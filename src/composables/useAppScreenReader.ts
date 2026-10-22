@@ -1,8 +1,6 @@
 // CyberManju OS — UI cache only; Android remains the authoritative session owner.
-// Role: Vue shared state: transports, wasm backend, vault.
-// Exports: useAppScreenReader.
-// Integrates: vue, @/….
-// Contracts: none special (pure logic; errors bubble to caller).
+// Role: reconcile visible screen-reader state without assuming permission or session success.
+// Exports: useAppScreenReader; integrates AndroidScreenReader with bounded requests.
 import { computed, readonly, ref } from 'vue'
 import { AndroidScreenReader, type ReaderMode, type ReaderStatus } from '@/utils/androidScreenReader'
 import { boundedReaderRequest, emptyScreenReaderStatus, parseScreenReaderStatus, screenReaderActive, SCREEN_READER_TIMEOUT_MS } from '@/utils/appScreenReader'

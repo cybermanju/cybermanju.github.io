@@ -32,10 +32,10 @@ export function isFiniteNum(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n)
 }
 
-/** `'12.3%'`, or `'n/a'` when the runtime reports no CPU reading (wasm). */
+/** `'12.3%'`, or `'n/a'` for absent/invalid readings; multicore values may exceed 100. */
 export function formatCpuPercent(top: TopSnapshot | null | undefined): string {
   const cpu = (top as TopSnapshot | null | undefined)?.cpuPercent
-  return isFiniteNum(cpu) ? `${cpu.toFixed(1)}%` : 'n/a'
+  return isFiniteNum(cpu) && cpu >= 0 ? `${cpu.toFixed(1)}%` : 'n/a'
 }
 
 /** `'0.42 0.37 0.31'`, or `'n/a'` unless all three load averages are numeric. */

@@ -6,3 +6,5 @@
 export { enterUiLayout, exitUiLayout, getUiLayoutEntities, installUiLayout, readUiLayout, requestUiLayoutSwap, resetUiLayout, UI_LAYOUT_EVENT, UI_LAYOUT_MODE_EVENT, UI_LAYOUT_RESET_EVENT, UI_LAYOUT_STORAGE_KEY, UI_LAYOUT_SWAP_EVENT, validateUiLayout } from '../utils/uiLayout'
 export { UI_LAYOUT_MODE_RESIZE, UI_LAYOUT_SIZE_STORAGE_KEY, readUiLayoutSizes, validateUiLayoutSizes } from '../utils/uiLayout'
 export type { UiLayoutEntity, UiLayoutMap, UiLayoutOffset, UiLayoutSwapRequest, UiLayoutSize, UiLayoutSizeMap } from '../utils/uiLayout'
+
+export { getUiEntityRegistry, getUiEntitiesSnapshot } from '../utils/uiEntities'

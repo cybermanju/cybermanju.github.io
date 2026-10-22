@@ -1,8 +1,6 @@
-// CyberManju OS — Ui icon catalog.test (tests/frontend/ui-icon-catalog.test.ts).
-// Role: Vitest frontend suite.
-// Exports: module root (see items below).
-// Integrates: vitest, ../….
-// Contracts: none special (pure logic; errors bubble to caller).
+// CyberManju OS — UI icon catalog tests.
+// Role: Verify offline icon loading and safe local raster-image uploads.
+// Integrates: Vitest and uiIconCatalog.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ensureUiIconCatalog, readUiIconImage } from '../../src/utils/uiIconCatalog'
 

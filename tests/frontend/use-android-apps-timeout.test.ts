@@ -1,8 +1,6 @@
-// CyberManju OS — Use android apps timeout.test (tests/frontend/use-android-apps-timeout.test.ts).
-// Role: Vitest frontend suite.
-// Exports: module root (see items below).
-// Integrates: vitest, ../….
-// Contracts: none special (pure logic; errors bubble to caller).
+// CyberManju OS — Android app discovery tests.
+// Role: Verify bounded discovery, refresh retries and safe late responses.
+// Integrates: Vitest and useAndroidApps.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AndroidApp } from '../../src/types'
 

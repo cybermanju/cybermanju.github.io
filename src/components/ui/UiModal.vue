@@ -214,7 +214,8 @@ watch(
   min-height: 0;
   overflow: auto;
   padding: calc(16px * var(--ui-unit, 1));
-  color: var(--ui-text-2);
+  background: var(--ui-surface);
+  color: var(--ui-text);
   font-family: var(--ui-font);
   font-size: var(--ui-fs-md);
 }

@@ -22,7 +22,7 @@ describe('restFetch never hangs, retries transients once (P0-22)', () => {
   })
 
   it('retries network:/rate_limited: once with backoff, then throws prefixed', () => {
-    expect(tauri).toContain('MAX_ATTEMPTS = 2')
+    expect(tauri).toContain("MAX_ATTEMPTS = method === 'GET' || method === 'HEAD' ? 2 : 1")
     expect(tauri).toContain("msg.startsWith('network:')")
     expect(tauri).toContain("msg.startsWith('rate_limited:')")
     expect(tauri).toContain('network: request timed out after')

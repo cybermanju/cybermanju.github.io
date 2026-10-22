@@ -1,8 +1,6 @@
-// CyberManju OS — App screen reader state.test (tests/frontend/app-screen-reader-state.test.ts).
-// Role: Vitest frontend suite.
-// Exports: module root (see items below).
-// Integrates: vitest, ../….
-// Contracts: none special (pure logic; errors bubble to caller).
+// CyberManju OS — Screen-reader state tests.
+// Role: Verify permission reconciliation, bounded requests and session ownership.
+// Integrates: Vitest and the mocked Android screen-reader bridge.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReaderStatus } from '../../src/utils/androidScreenReader'
 

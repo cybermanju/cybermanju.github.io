@@ -1,8 +1,6 @@
-// CyberManju OS — App screen reader.test (tests/frontend/app-screen-reader.test.ts).
-// Role: Vitest frontend suite.
-// Exports: module root (see items below).
-// Integrates: vitest.
-// Contracts: none special (pure logic; errors bubble to caller).
+// CyberManju OS — Screen-reader contract tests.
+// Role: Validate native status parsing, timeouts and visible-session invariants.
+// Integrates: Vitest and appScreenReader utilities.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   boundedReaderRequest,

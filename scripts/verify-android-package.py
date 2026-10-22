@@ -3,8 +3,8 @@
 # Role: validate built APK/AAB contents and Android arm64 native-library packaging.
 # Exports: command-line verification of Android build output archives.
 # Integrates: Python standard library only; reads APK and AAB ZIP containers.
-# Contracts: requires installable APK plus Play-upload AAB, arm64-v8a ELF64
-#   ET_DYN libraries, 16 KiB ELF loads, and byte-identical APK/AAB native libs.
+# Contracts: requires nonempty APK/AAB install payloads, arm64-v8a ELF64
+#   ET_DYN libraries with 16 KiB ELF loads, and exact APK/AAB native parity.
 
 import argparse
 import struct
@@ -15,6 +15,8 @@ from pathlib import Path
 ALIGNMENT = 16_384
 EXPECTED_ABI = "arm64-v8a"
 EXPECTED_LIBRARY = "libcybermanju_os_lib.so"
+APK_REQUIRED = ("AndroidManifest.xml", "classes.dex")
+AAB_REQUIRED = ("BundleConfig.pb", "base/manifest/AndroidManifest.xml", "base/dex/classes.dex")
 
 
 class VerificationError(Exception):
@@ -37,19 +39,42 @@ def archive(path):
         fail(f"{path}: invalid ZIP container: {exc}")
 
 
-def native_entries(zf, path):
+def required_entries(zf, path, required):
+    names = [info.filename for info in zf.infolist()]
+    for name in required:
+        count = names.count(name)
+        if count == 0:
+            fail(f"{path}: missing {name}")
+        if count != 1:
+            fail(f"{path}: duplicate required entry {name}")
+        if zf.getinfo(name).file_size == 0:
+            fail(f"{path}: empty {name}")
+
+
+def native_entries(zf, path, *, bundle):
     result = {}
-    for name in zf.namelist():
-        library_path = name[5:] if name.startswith("base/lib/") else name
-        if library_path.startswith("lib/"):
-            parts = library_path.split("/")
-            if len(parts) >= 2 and parts[1] and parts[1] != EXPECTED_ABI:
-                fail(f"{path}: unexpected native ABI/path {name}")
-            if len(parts) != 3 or not parts[2].endswith(".so"):
-                continue
-            if parts[2] in result:
-                fail(f"{path}: duplicate native library {name}")
-            result[parts[2]] = zf.getinfo(name)
+    forbidden = "lib/" if bundle else "base/lib/"
+    expected_prefix = "base/lib/" if bundle else "lib/"
+    for info in zf.infolist():
+        name = info.filename
+        if name.startswith(forbidden):
+            fail(f"{path}: native library has wrong package prefix {name}")
+        if not name.startswith(expected_prefix):
+            continue
+        parts = name[len(expected_prefix):].split("/")
+        if name == expected_prefix:
+            continue  # Explicit ZIP directory record, not a native payload.
+        if len(parts) < 2 or not parts[0] or parts[0] != EXPECTED_ABI:
+            fail(f"{path}: unexpected native ABI/path {name}")
+        if len(parts) != 2 or not parts[1].endswith(".so"):
+            # Ignore directories, but reject malformed file entries in ABI directories.
+            if not name.endswith("/"):
+                fail(f"{path}: malformed native library path {name}")
+            continue
+        library = parts[1]
+        if library in result:
+            fail(f"{path}: duplicate native library {name}")
+        result[library] = info
     return result
 
 
@@ -72,7 +97,7 @@ def verify_elf(data, label):
     for i in range(phnum):
         off = phoff + i * phentsize
         p_type, = struct.unpack_from("<I", data, off)
-        if p_type != 1:  # PT_LOAD
+        if p_type != 1:
             continue
         loads += 1
         p_offset, p_vaddr = struct.unpack_from("<QQ", data, off + 8)
@@ -101,27 +126,33 @@ def stored_data_offset(zf, info, label):
         fail(f"{label}: cannot inspect ZIP local-file header: {exc}")
 
 
-def verify_apk(path, zf):
-    for required in ("AndroidManifest.xml", "classes.dex"):
-        try:
-            data = zf.read(required)
-        except KeyError:
-            fail(f"{path}: missing {required}")
-        if not data:
-            fail(f"{path}: empty {required}")
-    libs = native_entries(zf, path)
+def verify_package_libraries(path, zf, *, bundle):
+    libs = native_entries(zf, path, bundle=bundle)
     if EXPECTED_LIBRARY not in libs:
-        fail(f"{path}: missing lib/{EXPECTED_ABI}/{EXPECTED_LIBRARY}")
+        prefix = "base/lib/" if bundle else "lib/"
+        fail(f"{path}: missing {prefix}{EXPECTED_ABI}/{EXPECTED_LIBRARY}")
+    contents = {}
     for name, info in libs.items():
         if info.file_size <= 0:
             fail(f"{path}: empty native library {name}")
         data = zf.read(info)
         verify_elf(data, f"{path}: {name}")
-        if info.compress_type == zipfile.ZIP_STORED:
+        if not bundle and info.compress_type == zipfile.ZIP_STORED:
             offset = stored_data_offset(zf, info, f"{path}: {name}")
             if offset % ALIGNMENT:
                 fail(f"{path}: stored native library {name} data offset {offset} is not {ALIGNMENT}-byte aligned")
-    return {name: zf.read(info) for name, info in libs.items()}
+        contents[name] = data
+    return contents
+
+
+def verify_apk(path, zf):
+    required_entries(zf, path, APK_REQUIRED)
+    return verify_package_libraries(path, zf, bundle=False)
+
+
+def verify_aab(path, zf):
+    required_entries(zf, path, AAB_REQUIRED)
+    return verify_package_libraries(path, zf, bundle=True)
 
 
 def verify(outputs):
@@ -142,12 +173,13 @@ def verify(outputs):
         for path in aabs:
             zf = archive(path)
             opened.append(zf)
-            libs = native_entries(zf, path)
-            bundle_data.append((path, {name: zf.read(info) for name, info in libs.items()}))
+            bundle_data.append((path, verify_aab(path, zf)))
         for apk_path, apk_libs in apk_contents:
-            matched = [path for path, libs in bundle_data if all(libs.get(name) == data for name, data in apk_libs.items())]
-            if not matched:
-                fail(f"{apk_path}: native library bytes do not match any AAB base/lib entry")
+            if not any(libs == apk_libs for _, libs in bundle_data):
+                fail(f"{apk_path}: native library set/bytes do not exactly match any AAB")
+        for aab_path, aab_libs in bundle_data:
+            if not any(libs == aab_libs for _, libs in apk_contents):
+                fail(f"{aab_path}: native library set/bytes do not exactly match any APK")
         for path in apks + aabs:
             print(f"{path}: {path.stat().st_size} bytes")
         print("Install the .apk; .aab is a Play upload bundle, not directly installable.")

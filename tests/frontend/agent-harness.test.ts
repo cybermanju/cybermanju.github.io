@@ -8,6 +8,7 @@ import {
   quickPrompts,
   slashCommands,
 } from '../../src/composables/useAgentHarness'
+import { localProviderEndpoint } from '../../src/composables/useAgent'
 import { agentPermissionPreset, type AgentConfig } from '../../src/types'
 
 function cfg(over: Partial<AgentConfig> = {}): AgentConfig {
@@ -28,6 +29,20 @@ function cfg(over: Partial<AgentConfig> = {}): AgentConfig {
     ...over,
   }
 }
+
+describe('browser provider endpoint auth routing', () => {
+  it('retains route query authentication on rebuilt OpenAI and Anthropic endpoints', () => {
+    expect(localProviderEndpoint('https://api.example/v1?api_key=a%2Bb&tenant=x', 'openAi'))
+      .toBe('https://api.example/v1/chat/completions?api_key=a%2Bb&tenant=x')
+    expect(localProviderEndpoint('https://api.example/?key=secret', 'anthropic'))
+      .toBe('https://api.example/v1/messages?key=secret')
+  })
+
+  it('does not add query credentials to a separate fallback route', () => {
+    expect(localProviderEndpoint('https://fallback.example/v1', 'openAi'))
+      .toBe('https://fallback.example/v1/chat/completions')
+  })
+})
 
 describe('formatTokens', () => {
   it('formats compactly', () => {

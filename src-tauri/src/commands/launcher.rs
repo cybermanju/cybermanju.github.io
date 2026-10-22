@@ -110,3 +110,87 @@ pub fn android_voice_command(
 ) -> Result<serde_json::Value, String> {
     cybermanju_launcher::voice_command(&action, payload.unwrap_or_else(|| serde_json::json!({})))
 }
+
+/// Clipboard access only for an explicit, recent action in the bundled Android UI.
+/// Cut writes text only; the UI must preserve its selection until written=true.
+/// Never expose through REST/agent tools or call during startup, polling or timers.
+#[tauri::command(async)]
+pub fn android_clipboard_command<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    action: String,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use tauri::Manager;
+    let url = window
+        .url()
+        .map_err(|_| "auth: clipboard origin unavailable".to_string())?;
+    let bundled = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || (matches!(url.scheme(), "http" | "https") && url.host_str() == Some("tauri.localhost"));
+    let development = cfg!(debug_assertions)
+        && window
+            .app_handle()
+            .config()
+            .build
+            .dev_url
+            .as_ref()
+            .is_some_and(|dev| url.origin() == dev.origin());
+    if window.label() != "main" || !(bundled || development) {
+        return Err("auth: clipboard requires the bundled main UI".into());
+    }
+    cybermanju_launcher::clipboard::command(&action, payload)
+}
+
+/// Native widget host actions, restricted to the bundled main UI (never REST/tools).
+#[tauri::command(async)]
+pub fn android_widget_command<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    action: String,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use tauri::Manager;
+    let url = window
+        .url()
+        .map_err(|_| "auth: widget origin unavailable".to_string())?;
+    let bundled = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || (matches!(url.scheme(), "http" | "https") && url.host_str() == Some("tauri.localhost"));
+    let development = cfg!(debug_assertions)
+        && window
+            .app_handle()
+            .config()
+            .build
+            .dev_url
+            .as_ref()
+            .is_some_and(|dev| url.origin() == dev.origin());
+    if window.label() != "main" || !(bundled || development) {
+        return Err("auth: widgets require the bundled main UI".into());
+    }
+    cybermanju_launcher::widgets::command(&action, payload)
+}
+
+/// Run one allowlisted native action from the bundled automation UI only.
+/// This command is intentionally unavailable to REST, secondary webviews and
+/// arbitrary remote content.
+#[tauri::command(async)]
+pub fn automation_native_dispatch<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    request: cybermanju_launcher::automation::NativeActionRequest,
+) -> cybermanju_launcher::automation::NativeActionResult {
+    use tauri::Manager;
+    let Ok(url) = window.url() else {
+        return cybermanju_launcher::automation::deny_request(request, "untrusted_ui");
+    };
+    let bundled = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || (matches!(url.scheme(), "http" | "https") && url.host_str() == Some("tauri.localhost"));
+    let development = cfg!(debug_assertions)
+        && window
+            .app_handle()
+            .config()
+            .build
+            .dev_url
+            .as_ref()
+            .is_some_and(|dev| url.origin() == dev.origin());
+    if window.label() != "main" || !(bundled || development) {
+        return cybermanju_launcher::automation::deny_request(request, "untrusted_ui");
+    }
+    cybermanju_launcher::automation::dispatch_native_action(request)
+}

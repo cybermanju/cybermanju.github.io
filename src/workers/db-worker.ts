@@ -12,7 +12,7 @@
 // everywhere, so no Atomics/spinlock ferry is needed (those only exist for
 // callers that insist on *synchronous* calls from the main thread).
 import init, { db_dispatch, db_open, db_restore, db_snapshot } from 'cybermanju-os-wasm'
-import { decodeContainer, encodeContainer } from '../utils/container'
+import { decodeContainer, encodeContainer, exportPassphrase } from '../utils/container'
 import { IS_DEVELOP_PREVIEW } from '../utils/deploymentScope'
 
 interface DbRequest {
@@ -253,7 +253,10 @@ self.onmessage = async (ev: MessageEvent<DbRequest>) => {
     if (op === '_export') {
       // Same bytes a save would write, handed back for a download — this is
       // the fallback path where the browser has no File System Access API.
-      const passphrase = String(args?.passphrase ?? disk?.passphrase ?? '')
+      const requestedPassphrase = args?.passphrase === undefined
+        ? undefined
+        : String(args.passphrase)
+      const passphrase = exportPassphrase(requestedPassphrase, disk?.passphrase ?? '')
       const image = db_snapshot() as unknown as Uint8Array
       const payload = await encodeContainer(image, passphrase)
       post({ ok: true, data: { bytes: payload, name: disk?.name ?? 'cybermanju.cybermanju' } })
@@ -271,6 +274,18 @@ self.onmessage = async (ev: MessageEvent<DbRequest>) => {
     if (op === '_snapshot') {
       const n = await snapshotNow()
       post({ ok: true, data: { bytes: n, file: BACKUP_FILE } })
+      return
+    }
+    if (op === '_restore_image') {
+      const image = args?.image as Uint8Array
+      if (!(image instanceof Uint8Array) || !image.byteLength) throw new Error('invalid: restore image is empty')
+      const env = JSON.parse(db_restore(image) as string) as { ok: boolean; data?: unknown; error?: string }
+      if (!env.ok) throw new Error(String(env.error ?? 'restore failed'))
+      dirty = true
+      // The backup caller reloads shortly after success; do not leave the
+      // restored bound file waiting on a debounce that reload will cancel.
+      if (disk) await flushToDisk()
+      post({ ok: true, data: env.data ?? null })
       return
     }
     if (op === '_restore') {

@@ -11,9 +11,9 @@ const nav = fs.readFileSync('src/components/MobileNav.vue', 'utf8')
 const topbar = fs.readFileSync('src/components/TopMenuBar.vue', 'utf8')
 
 describe('iOS springboard pager (PageView + IconGrid homage)', () => {
-  it('chunks apps into pages of 8 (2 rows x 4)', () => {
-    expect(launcher).toContain('MLA_PAGE_SIZE = 8')
-    expect(launcher).toMatch(/filtered\.value\.slice\(i, i \+ MLA_PAGE_SIZE\)/)
+  it('chunks apps into complete rows measured from the available height', () => {
+    expect(launcher).toContain('useResizeObserver(pagerRef, measurePageCapacity)')
+    expect(launcher).toMatch(/filtered\.value\.slice\(i, i \+ pageSize\.value\)/)
   })
 
   it('renders a horizontal snap pager with dots', () => {
@@ -25,8 +25,8 @@ describe('iOS springboard pager (PageView + IconGrid homage)', () => {
     expect(launcher).toContain('goToPage')
   })
 
-  it('resets to the first page on a new search', () => {
-    expect(launcher).toMatch(/watch\(filtered/)
+  it('resets to the first page on a new search or capacity change', () => {
+    expect(launcher).toContain('watch([filtered, pageSize]')
   })
 })
 

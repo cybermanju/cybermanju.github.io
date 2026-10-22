@@ -41,6 +41,19 @@ describe('formatCpuPercent', () => {
   it('formats a real reading', () => {
     expect(formatCpuPercent(FULL_TOP)).toBe('12.3%')
   })
+  it.each([-1, -0.01, -Number.MAX_VALUE])('keeps impossible CPU reading %s unavailable', (cpuPercent) => {
+    expect(formatCpuPercent({ cpuPercent })).toBe('n/a')
+    expect(formatTopLine({ cpuPercent })).toContain('app CPU n/a')
+  })
+  it.each([
+    { cpuPercent: 0, expected: '0.0%' },
+    { cpuPercent: -0, expected: '0.0%' },
+    { cpuPercent: 12.3, expected: '12.3%' },
+    { cpuPercent: 100, expected: '100.0%' },
+    { cpuPercent: 250.5, expected: '250.5%' },
+  ])('preserves valid CPU reading $cpuPercent', ({ cpuPercent, expected }) => {
+    expect(formatCpuPercent({ cpuPercent })).toBe(expected)
+  })
   it('answers n/a for the wasm partial payload instead of throwing', () => {
     expect(() => formatCpuPercent(WASM_TOP)).not.toThrow()
     expect(formatCpuPercent(WASM_TOP)).toBe('n/a')

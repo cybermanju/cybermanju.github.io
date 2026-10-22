@@ -16,6 +16,8 @@ block = '''    // BEGIN CyberManju HOME lifecycle
     private var homePending = false
     private var homeAttempts = 0
     private var homeResumed = false
+    private var homeGeneration = 0L
+    private var homeDeliveryInFlight = false
     private val homeHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val homeDelivery = Runnable { deliverHome() }
 
@@ -25,6 +27,7 @@ block = '''    // BEGIN CyberManju HOME lifecycle
 
     override fun onWebViewCreate(webView: android.webkit.WebView) {
         super.onWebViewCreate(webView)
+        invalidateHomeDelivery()
         homeWebView = webView
         homePending = homePending || isHomeIntent(intent)
         recoverHomeSurface()
@@ -37,6 +40,7 @@ block = '''    // BEGIN CyberManju HOME lifecycle
         super.onNewIntent(intent)
         if (isHomeIntent(intent)) {
             homePending = true
+            invalidateHomeDelivery()
             homeAttempts = 0
             recoverHomeSurface()
         }
@@ -54,41 +58,65 @@ block = '''    // BEGIN CyberManju HOME lifecycle
         if (hasFocus) recoverHomeSurface()
     }
 
+    private fun invalidateHomeDelivery() {
+        // evaluateJavascript callbacks can arrive after pause, a newer HOME,
+        // or a replacement WebView. They must not acknowledge newer work.
+        homeGeneration++
+        homeDeliveryInFlight = false
+        homeHandler.removeCallbacks(homeDelivery)
+    }
+
     private fun recoverHomeSurface() {
+        if (!homeResumed || isFinishing || isDestroyed) return
         homeWebView?.let { view ->
             view.requestLayout()
             view.invalidate()
         }
         homeHandler.removeCallbacks(homeDelivery)
-        if (homePending) homeHandler.post(homeDelivery)
+        if (homePending && !homeDeliveryInFlight) homeHandler.post(homeDelivery)
     }
 
     private fun deliverHome() {
         val view = homeWebView ?: return
         if (!homePending || !homeResumed || isFinishing || isDestroyed) return
+        if (homeDeliveryInFlight) return
+        val generation = homeGeneration
+        homeDeliveryInFlight = true
         // Wait for Vue's listener, not an arbitrary page-load delay. Cold
         // HOME may arrive before navigation/JS starts; delivery is acknowledged.
         view.evaluateJavascript(
             "(function(){if(window.__CYBERMANJU_HOME_READY__!==true)return false;" +
                 "window.dispatchEvent(new Event('cybermanju:android-home'));return true;})()"
         ) { delivered ->
+            if (generation != homeGeneration || view !== homeWebView ||
+                !homeResumed || isFinishing || isDestroyed) return@evaluateJavascript
+            homeDeliveryInFlight = false
             if (delivered == "true") {
                 homePending = false
-            } else if (homePending && homeResumed && homeAttempts++ < 100) {
-                homeHandler.postDelayed(homeDelivery, 100L)
+            } else if (homePending) {
+                // Never discard HOME merely because a cold start takes >10s.
+                // Back off to 1Hz while foregrounded; pause/destroy cancels it.
+                homeAttempts = (homeAttempts + 1).coerceAtMost(30)
+                val delay = when {
+                    homeAttempts < 10 -> 100L
+                    homeAttempts < 30 -> 250L
+                    else -> 1000L
+                }
+                homeHandler.removeCallbacks(homeDelivery)
+                homeHandler.postDelayed(homeDelivery, delay)
             }
         }
     }
 
     override fun onPause() {
         homeResumed = false
-        homeHandler.removeCallbacks(homeDelivery)
+        invalidateHomeDelivery()
         super.onPause()
     }
 
     override fun onDestroy() {
         homeResumed = false
-        homeHandler.removeCallbacks(homeDelivery)
+        invalidateHomeDelivery()
         homeWebView = null
         super.onDestroy()
     }

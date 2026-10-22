@@ -19,6 +19,7 @@ import {
   concat,
   decodeContainer,
   encodeContainer,
+  exportPassphrase,
   isContainer,
   setContainerPrimitives,
   type ContainerPrimitives,
@@ -83,6 +84,12 @@ function fakeImage(bytes = 4096): Uint8Array {
 beforeAll(() => setContainerPrimitives(nodePrimitives))
 
 describe('container codec', () => {
+  it('never treats an omitted export key as an empty key for an encrypted vault', () => {
+    expect(exportPassphrase(undefined, 'vault-key')).toBe('vault-key')
+    expect(() => exportPassphrase('', 'vault-key')).toThrow(/refusing to export an encrypted vault/)
+    expect(exportPassphrase('', '')).toBe('')
+  })
+
   it('round-trips an encrypted + compressed container', async () => {
     const image = fakeImage()
     const bytes = await encodeContainer(image, 'correct horse', nodePrimitives)

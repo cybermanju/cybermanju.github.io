@@ -285,6 +285,16 @@
             <!-- add-provider wizard -->
             <div v-if="wizOpen" class="am-card am-wiz">
               <h3 class="am-card-title">Add provider</h3>
+              <div class="am-login-grid" role="group" aria-label="Authenticate a provider">
+                <button v-for="p in LOGIN_CARDS" :key="p.id" class="am-login" type="button" :disabled="!!signInBusy || !sbConfigured" :title="sbConfigured ? `Continue with ${p.label}` : 'OAuth broker not set — add it in Settings → OAuth broker'" @click="signIn(p.id)">
+                  <ProviderLogo :provider="p.logo" :size="36" />
+                  <span class="am-login-label">{{ signInBusy === p.id ? 'Opening…' : `Continue with ${p.label}` }}</span>
+                </button>
+              </div>
+              <p v-if="signInMsg" class="am-note" role="status">{{ signInMsg }}</p>
+              <p v-if="!sbConfigured" class="am-hint">OAuth broker is not set. Configure it in Settings → OAuth broker, or use Add custom.</p>
+              <button class="am-btn sm" type="button" aria-controls="am-custom-provider-fields" :aria-expanded="manualEntryOpen" @click="manualEntryOpen = !manualEntryOpen">{{ manualEntryOpen ? 'Hide custom' : 'Add custom' }}</button>
+              <div v-if="manualEntryOpen" id="am-custom-provider-fields">
               <div class="am-logo-picker" role="radiogroup" aria-label="Provider type">
                 <button
                   v-for="b in BACKEND_ORDER"
@@ -302,8 +312,7 @@
                 </button>
               </div>
               <p class="am-hint">{{ backendBlurb(wiz.backendType) }}</p>
-              <button class="am-btn sm" type="button" :aria-expanded="manualEntryOpen" @click="manualEntryOpen = !manualEntryOpen">{{ manualEntryOpen ? 'Hide manual credentials' : 'Enter token manually' }}</button>
-              <div v-if="manualEntryOpen" class="am-fields">
+              <div class="am-fields">
                 <label class="am-field">
                   <span class="am-field-label">Display name</span>
                   <input v-model="wiz.name" class="am-input" placeholder="e.g. Work GitHub" aria-label="Display name" />
@@ -311,7 +320,7 @@
                 <label v-for="f in fieldsFor(wiz.backendType).filter((field) => field.secret)" :key="f.key" class="am-field" :class="{ grow: f.grow }">
                   <span class="am-field-label">{{ f.label }}</span>
                   <span class="am-input-wrap">
-                    <input v-model="(wiz as any)[f.key]" class="am-input" :type="showWizToken ? 'text' : 'password'" :placeholder="f.placeholder" autocomplete="off" />
+                    <input v-model="(wiz as any)[f.key]" data-secret class="am-input" :type="showWizToken ? 'text' : 'password'" :placeholder="f.placeholder" autocomplete="off" />
                     <button class="am-icon-btn" type="button" @click="showWizToken = !showWizToken" :title="showWizToken ? 'Hide' : 'Show'" :aria-label="showWizToken ? 'Hide token' : 'Show token'"><AppIcon :name="showWizToken ? 'solar:eye-closed-bold' : 'solar:eye-bold'" :size="14" /></button>
                   </span>
                 </label>
@@ -341,6 +350,7 @@
                 <span v-if="wizMsg" class="am-note" :class="wizOk === false ? 'err' : wizOk === true ? 'ok' : ''" style="margin:0;" role="status">{{ wizMsg }}
                   <button v-if="isNoPickerNote(wizMsg)" class="am-btn xs" type="button" @click="openInstall">Install options</button>
                 </span>
+              </div>
               </div>
             </div>
           </div>
@@ -416,7 +426,7 @@
                   <label v-for="f in fieldsFor(selectedCfg.backendType)" :key="f.key" class="am-field" :class="{ grow: f.grow }">
                     <span class="am-field-label">{{ f.label }}</span>
                     <span class="am-input-wrap" v-if="f.secret">
-                      <input v-model="(draft(selectedCfg!) as any)[f.key]" class="am-input" :type="showTokens[selectedCfg.id] ? 'text' : 'password'" :placeholder="f.placeholder" autocomplete="off" />
+                      <input v-model="(draft(selectedCfg!) as any)[f.key]" data-secret class="am-input" :type="showTokens[selectedCfg.id] ? 'text' : 'password'" :placeholder="f.placeholder" autocomplete="off" />
                       <button class="am-icon-btn" type="button" @click="showTokens[selectedCfg.id] = !showTokens[selectedCfg.id]" :title="showTokens[selectedCfg.id] ? 'Hide' : 'Show'"><AppIcon :name="showTokens[selectedCfg.id] ? 'solar:eye-closed-bold' : 'solar:eye-bold'" :size="14" /></button>
                     </span>
                     <span class="am-input-wrap" v-else-if="f.key === 'basePath' && selectedCfg.backendType === 'local'">

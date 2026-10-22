@@ -13,6 +13,13 @@ const wm = useWindowManager()
 const input = ref('')
 const status = ref('')
 
+function onEnter(event: KeyboardEvent) {
+  // Enter confirms an IME candidate before it can hand off a draft.
+  if (event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  stage('agent')
+}
+
 function stage(target: HomeCommandTarget) {
   const text = input.value.trim()
   if (!text) return
@@ -33,7 +40,8 @@ function stage(target: HomeCommandTarget) {
         autocomplete="off"
         aria-label="Ask AI or enter a cybsh command"
         placeholder="Ask AI or enter a cybsh command…"
-        @keydown.enter.prevent="stage('agent')"
+        @input="status = ''"
+        @keydown.enter="onEnter"
       />
     </label>
     <div class="home-command-actions">
@@ -63,6 +71,10 @@ function stage(target: HomeCommandTarget) {
   background: var(--ui-surface, rgb(20 24 34 / 88%));
   box-shadow: 0 12px 32px rgb(0 0 0 / 18%);
 }
+.home-command:focus-within {
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-accent) 24%, transparent);
+}
 .home-command-input-wrap {
   display: flex;
   min-width: 0;
@@ -85,7 +97,7 @@ function stage(target: HomeCommandTarget) {
 .home-command-actions { display: flex; gap: 6px; }
 .home-command-actions button {
   display: inline-flex;
-  min-height: 38px;
+  min-height: 44px;
   align-items: center;
   justify-content: center;
   gap: 6px;
@@ -101,6 +113,7 @@ function stage(target: HomeCommandTarget) {
 }
 .home-command-actions button:hover:not(:disabled) { border-color: var(--ui-accent, #7c8cff); }
 .home-command-actions button:disabled { opacity: .45; cursor: default; }
+.home-command-actions button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .home-command-status {
   grid-column: 1 / -1;
   min-height: 12px;
@@ -110,7 +123,7 @@ function stage(target: HomeCommandTarget) {
 }
 @media (max-width: 520px) {
   .home-command { grid-template-columns: 1fr; }
-  .home-command-actions button { flex: 1; min-height: 42px; }
+  .home-command-actions button { flex: 1; }
   .home-command-status { grid-column: 1; }
 }
 </style>
