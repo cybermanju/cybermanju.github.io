@@ -13,11 +13,19 @@ export type HomeRoleRequestOutcomeState = HomeRoleState | 'failed'
 export interface HomeRoleStatus { state: HomeRoleState; apiLevel: number; pendingRequestId?: string }
 export interface HomeRoleRequestStart { state: HomeRoleRequestStartState; requestId?: string }
 export interface HomeRoleRequestOutcome { requestId: string; state: HomeRoleRequestOutcomeState }
+declare global {
+  interface Window {
+    __CYBERMANJU_HOME_ROLE_READY__?: boolean
+    __CYBERMANJU_HOME_ROLE_ACKED__?: string | null
+  }
+}
 interface RolePorts {
   supported: boolean
   status: () => Promise<unknown>
   request: (requestId: string) => Promise<unknown>
   subscribe: (handler: (value: unknown) => void) => Promise<() => void>
+  setReady: (ready: boolean) => void
+  acknowledge: (requestId: string) => void
   beforeRequest: () => Promise<boolean>
   now: () => number
   visible: () => boolean
@@ -44,13 +52,12 @@ export function createHomeRoleAction(ports: RolePorts) {
   const checking = ref(false), requesting = ref(false), connected = ref(false)
   const notice = ref('Checking native default Home support…')
   let returnedDuringRequest = false
-  let disposed = false, starting = false, initializing = false, stop: (() => void) | undefined, generation = 0
+  let disposed = false, starting = false, stop: (() => void) | undefined, generation = 0
   let refreshPromise: Promise<void> | null = null
   let reconcilePromise: Promise<void> | null = null
   let reconcileRevision = 0
   let pendingOutcome: HomeRoleRequestOutcome | undefined
   const settled = new Set<string>()
-  const earlyOutcomes = new Map<string, HomeRoleRequestOutcome>()
   const waitingNotice = 'Finish choosing a Home in Android. Waiting to check the actual default when you return…'
   const canRequest = computed(() => ports.supported && connected.value && state.value === 'not_held' && !checking.value && !requesting.value && !pendingId.value)
   async function refresh() {
@@ -105,30 +112,26 @@ export function createHomeRoleAction(ports: RolePorts) {
   function receive(value: unknown) {
     if (disposed || !value || typeof value !== 'object') return
     const outcome = value as HomeRoleRequestOutcome
-    if (!validId(outcome.requestId) || !outcomeStates.includes(outcome.state) || settled.has(outcome.requestId)) return
-    if (initializing) {
-      // A listener-ready native event can precede the first persisted-status response.
-      if (earlyOutcomes.size < 16 && !earlyOutcomes.has(outcome.requestId)) earlyOutcomes.set(outcome.requestId, outcome)
-      return
-    }
+    if (!validId(outcome.requestId) || outcome.requestId !== pendingId.value || !outcomeStates.includes(outcome.state) || settled.has(outcome.requestId)) return
+    // Synchronous global ACK precedes every await/status read. Native retries until
+    // the passive startup query restores pendingId; uncorrelated events are never ACKed.
+    ports.acknowledge(outcome.requestId)
     void reconcile(outcome)
   }
   async function start() {
     if (disposed || starting || connected.value || !ports.supported) return
-    starting = true; initializing = true
+    starting = true
     let acceptingSubscription = true
     try {
       const unlisten = await bounded(ports.subscribe(receive).then(unlisten => { if (!acceptingSubscription || disposed) { unlisten(); return () => {} } return unlisten }), 2000)
       if (disposed) { unlisten(); return }
       stop = unlisten; connected.value = true
+      // Native retries onResume delivery until this listener can ACK a restored pending ID.
+      ports.setReady(true)
       await refresh() // Listener first; this query is passive, including after process recreation.
-      initializing = false
-      const recovered = pendingId.value ? earlyOutcomes.get(pendingId.value) : undefined
-      earlyOutcomes.clear()
-      if (recovered || pendingOutcome) await reconcile(recovered)
     } catch {
       if (!disposed) { state.value = 'unavailable'; notice.value = 'Default Home setup is unavailable in this native build.' }
-    } finally { acceptingSubscription = false; initializing = false; starting = false; earlyOutcomes.clear() }
+    } finally { acceptingSubscription = false; starting = false }
   }
   async function request(event: MouseEvent) {
     const startedAt = ports.now(), eventAge = startedAt - event.timeStamp
@@ -163,7 +166,11 @@ export function createHomeRoleAction(ports: RolePorts) {
   }
   async function returned() { if (requesting.value) { returnedDuringRequest = true; return } if (connected.value) await reconcile() }
   async function check() { if (requesting.value) return; if (!connected.value) { await start(); return } await reconcile() }
-  function dispose() { disposed = true; generation++; stop?.(); stop = undefined; earlyOutcomes.clear() }
+  function dispose() {
+    disposed = true; generation++
+    if (connected.value) ports.setReady(false)
+    connected.value = false; stop?.(); stop = undefined
+  }
   return { supported: ports.supported, state, apiLevel, pendingId, attempt, checking, requesting, notice, canRequest, start, request, returned, check, dispose }
 }
 export function useHomeRoleAction(beforeRequest: () => Promise<boolean>) {
@@ -176,6 +183,8 @@ export function useHomeRoleAction(beforeRequest: () => Promise<boolean>) {
       window.addEventListener('cybermanju:home-role-result', listener)
       return () => window.removeEventListener('cybermanju:home-role-result', listener)
     },
+    setReady: ready => { window.__CYBERMANJU_HOME_ROLE_READY__ = ready },
+    acknowledge: requestId => { window.__CYBERMANJU_HOME_ROLE_ACKED__ = requestId },
     beforeRequest, now: () => performance.now(), visible: () => document.visibilityState === 'visible' && document.hasFocus(),
     requestId: () => crypto.randomUUID(),
   })
