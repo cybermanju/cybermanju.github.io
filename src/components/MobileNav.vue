@@ -57,7 +57,7 @@ interface Tab {
 const tabs: Tab[] = [
   { id: 'files', label: 'Files', icon: 'solar:folder-bold', panel: 'files' },
   { id: 'search', label: 'Search', icon: 'solar:magnifier-bold', panel: 'search' },
-  { id: 'agent', label: 'Agent', icon: 'solar:bot-bold', panel: 'agent' },
+  { id: 'agent', label: 'Agents', icon: 'solar:bot-bold', panel: 'agent' },
   { id: 'disks', label: 'Vaults', icon: 'solar:diskette-bold', panel: 'storage' },
   { id: 'settings', label: 'Settings', icon: 'solar:settings-bold', panel: 'settings' },
 ]

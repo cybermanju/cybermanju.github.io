@@ -1,0 +1,123 @@
+/* CyberManju OS — Agent workspace mobile presentation (src/styles/agentWorkspace.css).
+ * Role: Responsive, theme-token-only styling for the real multiagent screens.
+ * Contracts: 44px touch targets, 16px form inputs, reduced motion and no viewport-height assumptions.
+ */
+.agent-workspace { container-type: inline-size; display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; color: var(--ui-text); background: var(--ui-surface); font-family: var(--ui-font); font-size: 14px; }
+.agent-workspace *, .agent-workspace *::before, .agent-workspace *::after { box-sizing: border-box; }
+.agent-workspace button, .agent-workspace input, .agent-workspace textarea, .agent-workspace select { font: inherit; }
+.agent-workspace button { cursor: pointer; }
+.agent-workspace button:disabled { opacity: .5; cursor: not-allowed; }
+.agent-workspace :is(button, input, textarea, select, summary):focus-visible { outline: 2px solid var(--ui-focus-color); outline-offset: 3px; }
+.agent-workspace h1, .agent-workspace h2, .agent-workspace p { margin: 0; }
+.agent-workspace h1 { font-size: 22px; line-height: 1.2; letter-spacing: -.025em; }
+.agent-workspace h2 { font-size: 17px; }
+.agent-workspace code { font-size: 12px; overflow-wrap: anywhere; }
+.aw-inbox, .aw-detail, .aw-chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; width: 100%; height: 100%; }
+.aw-inbox-host { width: 340px; flex: 0 0 340px; min-width: 0; min-height: 0; border-right: 1px solid var(--ui-border); }
+.aw-content-host { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.aw-header { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; padding: 18px 18px 12px; min-height: 68px; }
+.aw-header > div:first-child { flex: 1; min-width: 0; }
+.aw-header h1 { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.aw-header p { color: var(--ui-text-2); font-size: 12px; line-height: 1.5; margin-top: 5px; }
+.aw-button, .aw-icon-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 10px 14px; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface-2); color: var(--ui-text); font-size: 13px; line-height: 1.3; text-align: center; }
+.aw-icon-button { width: 44px; min-width: 44px; padding: 9px; background: transparent; border-color: transparent; }
+.aw-primary { background: var(--ui-accent); color: var(--ui-on-accent); border-color: transparent; font-weight: 650; }
+.aw-create-actions { display: flex; gap: 8px; padding: 0 18px 14px; }
+.aw-create-actions > button { flex: 1; }
+.aw-search { display: flex; align-items: center; gap: 8px; margin: 0 18px 12px; padding: 0 12px; min-height: 44px; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface-2); color: var(--ui-text-2); }
+.aw-search input { width: 100%; min-width: 0; height: 44px; border: 0; outline: none; background: transparent; color: var(--ui-text); font-size: 16px; }
+.aw-search:focus-within { outline: 2px solid var(--ui-focus-color); outline-offset: 2px; }
+.aw-filters { display: flex; gap: 4px; padding: 0 18px 10px; overflow-x: auto; flex-shrink: 0; }
+.aw-filters button { flex: 0 0 auto; min-height: 44px; padding: 8px 12px; border: 0; border-radius: 12px; background: transparent; color: var(--ui-text-2); font-size: 12px; }
+.aw-filters button[aria-pressed="true"] { background: var(--ui-accent-softer); color: var(--ui-accent-text); font-weight: 700; }
+.aw-inbox-scroll, .aw-form, .aw-group-info { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.aw-inbox-scroll { padding: 0 10px 18px; }
+.aw-list-section { margin: 10px 0 18px; }
+.aw-list-section > h2 { display: flex; gap: 8px; align-items: center; padding: 8px; font-size: 10px; font-weight: 700; letter-spacing: .09em; color: var(--ui-text-2); }
+.aw-list-section > h2 span { opacity: .8; font-size: 11px; }
+.aw-row { display: flex; width: 100%; align-items: center; gap: 12px; min-height: 76px; padding: 12px 8px; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--ui-border); color: var(--ui-text); border-radius: 8px; }
+.aw-row:hover, .aw-member-chip:hover { background: var(--ui-surface-2); }
+.aw-avatar { display: inline-flex; flex: 0 0 44px; width: 44px; height: 44px; align-items: center; justify-content: center; border-radius: 16px; background: var(--ui-accent-softer); color: var(--ui-accent-text); font-size: 20px; font-weight: 650; }
+.aw-avatar-chat { background: var(--ui-surface-2); color: var(--ui-text-2); }
+.aw-avatar-large { width: 64px; height: 64px; flex-basis: 64px; font-size: 28px; border-radius: 22px; }
+.aw-avatar-small { width: 24px; height: 24px; flex-basis: 24px; font-size: 12px; border-radius: 8px; }
+.aw-row-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 5px; }
+.aw-row-copy strong { font-size: 14px; overflow-wrap: anywhere; }
+.aw-row-copy > span { color: var(--ui-text-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aw-row-tag { flex-shrink: 0; font-size: 10px; border: 1px solid var(--ui-border); border-radius: 7px; padding: 4px 6px; color: var(--ui-text-2); }
+.aw-empty { padding: 18px 8px; color: var(--ui-text-2); font-size: 13px; line-height: 1.6; }
+.aw-state { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; padding: 24px 18px; overflow-y: auto; line-height: 1.6; }
+.aw-state h2 { font-size: 18px; }
+.aw-state p { color: var(--ui-text-2); }
+.aw-error { color: var(--ui-danger-text); overflow-wrap: anywhere; line-height: 1.5; }
+.aw-success { color: var(--ui-text); line-height: 1.5; }
+.aw-privacy { display: flex; gap: 8px; padding: 12px 8px; color: var(--ui-text-2); font-size: 11px; line-height: 1.6; }
+.aw-privacy > svg { flex-shrink: 0; margin-top: 2px; }
+.aw-link { display: inline-flex; align-items: center; text-align: left; min-height: 44px; padding: 8px; background: transparent; border: none; color: var(--ui-accent-text); text-decoration: underline; font-size: 12px; }
+.aw-form { display: flex; flex-direction: column; gap: 20px; padding: 6px 20px 24px; }
+.aw-form fieldset { display: flex; flex-direction: column; gap: 16px; margin: 0; padding: 18px 0 0; border: 0; border-top: 1px solid var(--ui-border); min-width: 0; }
+.aw-form legend { padding-right: 10px; font-size: 13px; font-weight: 700; }
+.aw-field { display: flex; flex-direction: column; gap: 8px; color: var(--ui-text); font-size: 13px; font-weight: 600; }
+.aw-field > span { font-size: 12px; font-weight: 400; line-height: 1.5; color: var(--ui-text-2); }
+.aw-field :is(input, textarea, select), .aw-composer > textarea { display: block; width: 100%; min-width: 0; min-height: 44px; padding: 11px 12px; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface-2); color: var(--ui-text); font-size: 16px; font-weight: 400; line-height: 1.5; }
+.aw-field textarea { resize: vertical; }
+.aw-profile-identity { display: flex; gap: 14px; align-items: center; }
+.aw-profile-identity > div { min-width: 0; }
+.aw-profile-identity p { margin-top: 7px; color: var(--ui-text-2); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.aw-notice { padding: 12px; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface-2); color: var(--ui-text-2); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.aw-form-footer { display: flex; gap: 8px; justify-content: flex-end; padding-top: 8px; }
+.aw-member-choice, .aw-context-choice { display: flex; align-items: center; gap: 12px; min-height: 52px; font-size: 14px; }
+.aw-member-choice input, .aw-context-choice input, .aw-recipient-picker input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--ui-accent); }
+.aw-member-choice small, .aw-context-choice small { display: block; margin-top: 4px; font-size: 11px; color: var(--ui-text-2); overflow-wrap: anywhere; }
+.aw-context-choice { align-items: flex-start; border-bottom: 1px solid var(--ui-border); padding: 8px 0 12px; }
+.aw-context-choice > span { min-width: 0; }
+.aw-context-choice small { white-space: pre-wrap; max-height: 100px; overflow: auto; }
+.aw-chat-header { padding: 10px 12px; border-bottom: 1px solid var(--ui-border); }
+.aw-chat-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; min-height: 44px; padding: 4px 0; background: transparent; border: none; color: var(--ui-text); text-align: left; }
+.aw-chat-title strong { overflow-wrap: anywhere; font-size: 16px; }
+.aw-chat-title > span { font-size: 11px; color: var(--ui-text-2); }
+.aw-member-strip { display: flex; flex: 0 0 auto; gap: 6px; padding: 8px 14px; overflow-x: auto; border-bottom: 1px solid var(--ui-border); }
+.aw-member-chip { flex-shrink: 0; display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 5px 8px; border: 1px solid var(--ui-border); border-radius: 12px; background: transparent; color: var(--ui-text); font-size: 12px; }
+.aw-member-chip small { color: var(--ui-text-2); font-size: 10px; }
+.aw-chat-scope { flex-shrink: 0; padding: 9px 18px; font-size: 10px; line-height: 1.5; color: var(--ui-text-2); border-bottom: 1px solid var(--ui-border); }
+.aw-event-log { flex: 1; min-height: 80px; overflow-y: auto; overscroll-behavior: contain; padding: 14px 18px; display: flex; flex-direction: column; gap: 14px; }
+.aw-event { max-width: 92%; width: fit-content; border: 1px solid var(--ui-border); border-radius: 16px 16px 16px 4px; padding: 12px 14px; background: var(--ui-surface-2); }
+.aw-event-user { align-self: flex-end; border-radius: 16px 16px 4px 16px; background: var(--ui-accent-softer); }
+.aw-event-system { max-width: 100%; background: transparent; border-style: dashed; }
+.aw-event header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
+.aw-event time { color: var(--ui-text-2); font-size: 10px; }
+.aw-event-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin-top: 8px !important; }
+.aw-event-route, .aw-event-run { font-size: 10px; color: var(--ui-text-2); overflow-wrap: anywhere; margin-top: 6px !important; line-height: 1.5; }
+.aw-event footer { margin-top: 10px; color: var(--ui-text-2); font-size: 9px; line-height: 1.5; }
+.aw-event .aw-notice { margin-top: 8px; }
+.aw-composer { flex-shrink: 0; border-top: 1px solid var(--ui-border); padding: 8px 14px max(12px, env(safe-area-inset-bottom, 0px)); background: var(--ui-surface); }
+.aw-composer > textarea { max-height: 140px; resize: vertical; }
+.aw-recipient-picker { margin-bottom: 8px; font-size: 12px; color: var(--ui-text-2); }
+.aw-recipient-picker summary { min-height: 32px; padding: 7px 0; cursor: pointer; }
+.aw-recipient-picker label { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin-right: 16px; color: var(--ui-text); }
+.aw-composer-actions { display: flex; align-items: center; gap: 8px; padding-top: 8px; }
+.aw-composer-note { flex: 1; color: var(--ui-text-2); font-size: 10px; line-height: 1.5; }
+.aw-chat-error { padding: 8px 14px; max-height: 90px; overflow: auto; font-size: 12px; }
+.aw-review { padding: 16px; border: 2px solid var(--ui-accent); border-radius: 12px; display: flex; flex-direction: column; gap: 12px; }
+.aw-group-info { padding: 12px 20px 24px; }
+.aw-advanced { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; }
+.aw-advanced > .agent { flex: 1; min-height: 0; }
+.aw-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@container (max-width: 760px) {
+  .aw-inbox-host { flex: 1; width: 100%; border-right: 0; }
+  .agent-workspace[data-detail="true"] .aw-inbox-host { display: none; }
+  .agent-workspace[data-detail="false"] .aw-content-host { display: none; }
+  .aw-header { padding: 12px 14px; }
+  .aw-header h1 { font-size: 20px; }
+  .aw-form { padding: 6px 14px 20px; }
+  .aw-event-log { padding: 12px; }
+  .aw-event { max-width: 96%; }
+  .aw-chat-scope { padding: 8px 14px; }
+  .aw-composer { padding-inline: 12px; }
+}
+@media (max-width: 760px) {
+  .aw-inbox-host { flex: 1; width: 100%; border-right: 0; }
+  .agent-workspace[data-detail="true"] .aw-inbox-host { display: none; }
+  .agent-workspace[data-detail="false"] .aw-content-host { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .agent-workspace *, .agent-workspace *::before, .agent-workspace *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }

@@ -84,6 +84,12 @@ impl Fixture {
         tx.commit().unwrap();
         let state = AppState {
             db: Arc::new(RwLock::new(db)),
+            agent_hub: Arc::new(
+                cybermanju_web::api::agent_hub_store::AgentHubStore::open(
+                    root.join("agent-hub.redb"),
+                )
+                .unwrap(),
+            ),
             tantivy_index: Arc::new(RwLock::new(
                 crate::search::SearchIndex::new(root.join("index").to_str().unwrap()).unwrap(),
             )),

@@ -82,7 +82,7 @@ const TerminalPanel = asyncPanel(() => import('@/components/TerminalPanel.vue'))
 
 // The agent panel is as heavy as the terminal (thread + approvals), so it
 // is code-split the same way — fetched on first open, not on boot.
-const AgentPanel = asyncPanel(() => import('@/components/AgentPanel.vue'))
+const AgentPanel = asyncPanel(() => import('@/components/AgentsWorkspace.vue'))
 
 // The code studio (editor + AI sidecar) is as heavy as the terminal, so it
 // is code-split like the terminal — fetched on first open, not on boot.
@@ -114,6 +114,7 @@ const AccountManagerPanel = asyncPanel(() => import('@/components/AccountManager
 const TransferGraph = asyncPanel(() => import('@/components/TransferGraph.vue'))
 const InstallPanel = asyncPanel(() => import('@/components/InstallPanel.vue'))
 const ArchivePanel = asyncPanel(() => import('@/components/ArchivePanel.vue'))
+const ShortcutsPanel = asyncPanel(() => import('@/components/ShortcutsHostPanel.vue'))
 
 export interface WindowState {
   id: string
@@ -181,6 +182,7 @@ const defaultSizes: SizeMap = {
   secrets: { width: 860, height: 600 },
   install: { width: 880, height: 620 },
   archive: { width: 720, height: 580 },
+  shortcuts: { width: 1040, height: 740 },
 }
 
 const inlinePanels: PanelType[] = [
@@ -223,6 +225,7 @@ const panelComponentMap: Record<string, Component> = {
   secrets: SecretsPanel,
   install: InstallPanel,
   archive: ArchivePanel,
+  shortcuts: ShortcutsPanel,
 }
 
 function getComponent(panelType: PanelType): Component | null {

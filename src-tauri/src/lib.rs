@@ -22,11 +22,12 @@ use commands::{
 use db::Database;
 use std::sync::{Arc, Mutex, RwLock};
 use tauri::{ipc::Invoke, Manager, Runtime};
-
-/// Shared desktop state: one redb handle + one Tantivy index for IPC and REST.
+/// Native state: original vault DB/index plus an isolated local Agent Hub DB.
 pub struct AppState {
     /// Shared with the web dashboard so the redb file is only opened once.
     pub db: Arc<RwLock<Database>>,
+    /// Separate persistent store for local agent profiles and conversations.
+    pub agent_hub: Arc<cybermanju_web::api::agent_hub_store::AgentHubStore>,
     /// Shared with the web dashboard so REST search sees live index updates.
     pub tantivy_index: Arc<RwLock<search::SearchIndex>>,
     pub compression: compression::TripleCompressor,
@@ -321,6 +322,22 @@ pub fn run() {
             let db = Arc::new(RwLock::new(open_database(&db_path)));
             tracing::info!("redb database initialized");
 
+            // Keep hub data in a separate redb file; it has its own exclusive
+            // lock and can be backed up independently of the existing vault.
+            let hub_path = db_path
+                .parent()
+                .map(|p| p.join("agent-hub.redb"))
+                .unwrap_or_else(|| std::path::PathBuf::from("agent-hub.redb"));
+            let agent_hub = Arc::new(
+                cybermanju_web::api::agent_hub_store::AgentHubStore::open(&hub_path)
+                    .unwrap_or_else(|e| {
+                        fatal(&format!(
+                            "Failed to initialize agent hub at {}: {e}",
+                            hub_path.display()
+                        ))
+                    }),
+            );
+
             // Tantivy full-text search index.
             // Mobile note: the index is mmap'd next to the database and grows
             // with the corpus — on Android this lives in the app-private files
@@ -387,6 +404,7 @@ pub fn run() {
 
             let state = AppState {
                 db: Arc::clone(&db),
+                agent_hub,
                 tantivy_index: Arc::new(RwLock::new(tantivy_index)),
                 compression: compressor,
                 hmac_secret,
@@ -670,6 +688,13 @@ fn native_command_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + S
         commands::agent::approve_agent_job,
         commands::agent::init_agent_run,
         commands::agent::compact_agent_session,
+        commands::agent_hub::hub_list_profiles,
+        commands::agent_hub::hub_save_profile,
+        commands::agent_hub::hub_create_conversation,
+        commands::agent_hub::hub_list_conversations,
+        commands::agent_hub::hub_list_events,
+        commands::agent_hub::hub_send_message,
+        commands::agent_hub::hub_get_run,
         commands::agent::mcp_add_server,
         commands::agent::mcp_remove_server,
         commands::agent::mcp_list_tools,

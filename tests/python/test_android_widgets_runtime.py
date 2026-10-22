@@ -227,11 +227,23 @@ fun main(args:Array<String>) {
 '''
 
 
+def find_kotlin_lib():
+    """Locate the compiler jars without invoking Java or downloading dependencies."""
+    gradle_home = Path(os.environ.get("GRADLE_USER_HOME", str(Path.home() / ".gradle")))
+    candidates = [os.environ.get("KOTLIN_LIB", "")]
+    candidates.extend(
+        glob.glob(
+            str(gradle_home / "wrapper" / "dists" / "**" / "gradle-*" / "lib"),
+            recursive=True,
+        )
+    )
+    return next((Path(p) for p in candidates if p and list(Path(p).glob("kotlin-compiler-embeddable-*.jar"))), None)
+
+
 class WidgetRuntimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        candidates = [os.environ.get("KOTLIN_LIB", "")] + glob.glob(str(Path.home() / ".gradle/wrapper/dists/gradle-*-all/*/gradle-*/lib"))
-        lib = next((Path(p) for p in candidates if p and list(Path(p).glob("kotlin-compiler-embeddable-*.jar"))), None)
+        lib = find_kotlin_lib()
         if lib is None or not shutil.which("java"):
             if os.environ.get("REQUIRE_KOTLIN_COMPILER") == "1":
                 raise AssertionError("Java and Kotlin compiler required; set KOTLIN_LIB")

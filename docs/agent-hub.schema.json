@@ -1,0 +1,743 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cybermanju:agent-hub:v1:r2",
+  "title": "CyberManju Agent Hub native v1 DTOs",
+  "description": "Recipient-targeted, tool-less, one recipient per run. No group fan-out, multi-agent collaboration or autonomy. Wire shapes only; Rust validates UTF-8 byte budgets, routing and unique fact keys. Internal text is a strict CoordinationEnvelope JSON string. PromptProjection is ephemeral and never a durable event.",
+  "$defs": {
+    "ConversationKind": {
+      "type": "string",
+      "enum": [
+        "direct",
+        "group"
+      ]
+    },
+    "HubEventKind": {
+      "type": "string",
+      "enum": [
+        "message",
+        "delegation",
+        "assistant",
+        "runFailed"
+      ]
+    },
+    "RunStatus": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "running",
+        "completed",
+        "failed"
+      ]
+    },
+    "AgentProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "ownerId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "personality": {
+          "type": "string"
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interests": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "knowledge": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "providerConfigId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "name",
+        "personality",
+        "goals",
+        "interests",
+        "knowledge",
+        "providerConfigId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ProfileInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "personality": {
+          "type": "string"
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interests": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "knowledge": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "providerConfigId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "personality",
+        "goals",
+        "interests",
+        "knowledge",
+        "providerConfigId"
+      ]
+    },
+    "CreateConversation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ConversationKind"
+        },
+        "title": {
+          "type": "string"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "members"
+      ]
+    },
+    "Conversation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "ownerId": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ConversationKind"
+        },
+        "title": {
+          "type": "string"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "lastSeq": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "kind",
+        "title",
+        "members",
+        "createdAt",
+        "lastSeq"
+      ]
+    },
+    "SendMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "conversationId": {
+          "type": "string"
+        },
+        "idempotencyKey": {
+          "type": "string"
+        },
+        "senderId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recipientId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "selectedContext": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "toolGrants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "conversationId",
+        "idempotencyKey",
+        "text",
+        "selectedContext",
+        "toolGrants"
+      ]
+    },
+    "HubEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "$ref": "#/$defs/HubEventKind"
+        },
+        "senderId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recipientId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "runId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "visibility": {
+          "$ref": "#/$defs/EventVisibility"
+        }
+      },
+      "required": [
+        "id",
+        "conversationId",
+        "seq",
+        "kind",
+        "senderId",
+        "recipientId",
+        "text",
+        "createdAt",
+        "runId",
+        "visibility"
+      ]
+    },
+    "DelegatedRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "ownerId": {
+          "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "senderId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recipientId": {
+          "type": "string"
+        },
+        "providerConfigId": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/RunStatus"
+        },
+        "selectedContext": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "toolGrants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "input": {
+          "type": "string"
+        },
+        "result": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "visibility": {
+          "$ref": "#/$defs/EventVisibility"
+        },
+        "profileSnapshot": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentProfile"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "conversationId",
+        "senderId",
+        "recipientId",
+        "providerConfigId",
+        "status",
+        "selectedContext",
+        "toolGrants",
+        "input",
+        "result",
+        "error",
+        "createdAt",
+        "updatedAt",
+        "visibility",
+        "profileSnapshot"
+      ]
+    },
+    "SendReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event": {
+          "$ref": "#/$defs/HubEvent"
+        },
+        "run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DelegatedRun"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "event",
+        "run"
+      ]
+    },
+    "EventVisibility": {
+      "type": "string",
+      "enum": [
+        "user",
+        "internal"
+      ]
+    },
+    "CoordinationOp": {
+      "type": "string",
+      "enum": [
+        "task",
+        "result",
+        "blocked"
+      ]
+    },
+    "Fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "k": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "v": {
+          "type": "string",
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "k",
+        "v"
+      ]
+    },
+    "EventReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "e": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.-]+$"
+        },
+        "s": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "f": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_.-]+$"
+        },
+        "b": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32768
+        },
+        "h": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "e",
+        "s",
+        "f",
+        "b",
+        "h"
+      ]
+    },
+    "CoordinationEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "op": {
+          "$ref": "#/$defs/CoordinationOp"
+        },
+        "data": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/Fact"
+          },
+          "minItems": 1
+        },
+        "refs": {
+          "type": "array",
+          "maxItems": 0,
+          "items": {
+            "$ref": "#/$defs/EventReference"
+          }
+        }
+      },
+      "required": [
+        "v",
+        "op",
+        "data",
+        "refs"
+      ],
+      "description": "Bare JSON only. Runtime also rejects duplicate keys and enforces 16384 aggregate key/value UTF-8 bytes and 65536 raw JSON bytes. Input op must be task; output result or blocked. refs must be empty; only the host creates projection references.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "task"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "contains": {
+                  "properties": {
+                    "k": {
+                      "const": "goal"
+                    },
+                    "v": {
+                      "type": "string",
+                      "pattern": "\\S"
+                    }
+                  },
+                  "required": [
+                    "k",
+                    "v"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "result"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "contains": {
+                  "properties": {
+                    "k": {
+                      "const": "answer"
+                    },
+                    "v": {
+                      "type": "string",
+                      "pattern": "\\S"
+                    }
+                  },
+                  "required": [
+                    "k",
+                    "v"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "blocked"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "contains": {
+                  "properties": {
+                    "k": {
+                      "const": "reason"
+                    },
+                    "v": {
+                      "type": "string",
+                      "pattern": "\\S"
+                    }
+                  },
+                  "required": [
+                    "k",
+                    "v"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ProjectionItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/EventReference"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/CoordinationEnvelope"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "personality": {
+                  "type": "string"
+                },
+                "goals": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "interests": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "knowledge": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "personality",
+                "goals",
+                "interests",
+                "knowledge"
+              ]
+            }
+          ]
+        }
+      },
+      "required": [
+        "ref"
+      ]
+    },
+    "PromptProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "recipientId": {
+          "type": "string"
+        },
+        "sourceEventId": {
+          "type": "string"
+        },
+        "sourceSeq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 24,
+          "items": {
+            "$ref": "#/$defs/ProjectionItem"
+          }
+        }
+      },
+      "required": [
+        "v",
+        "recipientId",
+        "sourceEventId",
+        "sourceSeq",
+        "items"
+      ],
+      "description": "Ephemeral deterministic bounded prompt view, not a durable event or public chat. Current maximum serialized UTF-8 size 32768 bytes; NOT a token budget. A missing value is reference-only, never a summary or invented content."
+    },
+    "QuarantinedLegacyEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Owner-only metadata from a separate quarantine listing, never transcript content. No recovery or provider dispatch.",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "missingVisibility",
+            "legacyProvenanceUnavailable"
+          ]
+        }
+      },
+      "required": [
+        "seq",
+        "reason"
+      ]
+    }
+  }
+}

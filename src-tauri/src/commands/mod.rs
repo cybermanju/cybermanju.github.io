@@ -5,6 +5,7 @@
 // Contracts: none special (pure logic; errors bubble to caller).
 pub mod accounts;
 pub mod agent;
+pub mod agent_hub;
 pub mod audit;
 pub mod batch;
 pub mod collections;

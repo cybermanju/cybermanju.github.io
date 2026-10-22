@@ -25,9 +25,6 @@ const MARKERS: &[&str] = &[
     "github_pat_",
     "xox",
     "glpat-",
-    "-----BEGIN PRIVATE KEY-----",
-    "-----BEGIN RSA PRIVATE KEY-----",
-    "-----BEGIN OPENSSH PRIVATE KEY-----",
     "Bearer ",
     "api_key=",
     "apiKey=",
@@ -52,7 +49,7 @@ pub fn redact(text: &str) -> (String, usize) {
     // Cheap path first: no marker, no JWT shape, no work.
     let mut hits: Vec<(usize, usize)> = Vec::new();
 
-    // All markers in ONE pass over the original bytes (ASCII
+    // All ordinary markers are matched in ONE pass over the original bytes (ASCII
     // case-insensitive): byte offsets always stay in `text` coordinates,
     // which keeps every later slice on a char boundary.
     // Longest marker first, so `sk-ant-…` wins over its prefix `sk-` and
@@ -77,23 +74,10 @@ pub fn redact(text: &str) -> (String, usize) {
             let start = from;
             let secret_start = start + needle.len();
             let mut end = secret_start;
-            if marker.starts_with("-----BEGIN") {
-                // A PEM header has no token run after it — the secret is the
-                // whole following line. Skip the newline, redact that line.
-                let mut probe = secret_start;
-                if probe < bytes.len() && bytes[probe] == b'\n' {
-                    probe += 1;
-                }
-                end = probe;
-                while end < bytes.len() && bytes[end] != b'\n' {
-                    end += 1;
-                }
-            } else {
-                let mut run = 0;
-                while end < bytes.len() && run < 512 && is_token_char(bytes[end] as char) {
-                    end += 1;
-                    run += 1;
-                }
+            let mut run = 0;
+            while end < bytes.len() && run < 512 && is_token_char(bytes[end] as char) {
+                end += 1;
+                run += 1;
             }
             if end > secret_start && claimed.insert(start) {
                 // Redact only the secret run — the marker itself stays so the
@@ -105,6 +89,7 @@ pub fn redact(text: &str) -> (String, usize) {
             }
         }
     }
+    scan_pem(text, &mut hits);
     scan_jwt(text, &mut hits);
 
     if hits.is_empty() {
@@ -115,6 +100,15 @@ pub fn redact(text: &str) -> (String, usize) {
     // Merge overlaps so one secret yields one `***`.
     let mut merged: Vec<(usize, usize)> = Vec::with_capacity(hits.len());
     for (start, end) in hits {
+        // Defense in depth for every scanner: a future byte-cap or matcher
+        // regression must discard the input, never panic or expose a suffix.
+        if start > end
+            || end > text.len()
+            || !text.is_char_boundary(start)
+            || !text.is_char_boundary(end)
+        {
+            return ("***".to_string(), 1);
+        }
         if let Some(last) = merged.last_mut() {
             if start <= last.1 {
                 last.1 = last.1.max(end);
@@ -133,6 +127,221 @@ pub fn redact(text: &str) -> (String, usize) {
     out.push_str(&text[cursor..]);
     let count = merged.len();
     (out, count)
+}
+
+/// Scan PEM-style private-key blocks. ANSI CSI sequences are skipped while
+/// identifying structural lines, so color-wrapped/split headers still match.
+/// A missing terminator fails closed to EOF; each block is bounded to 1 MiB.
+/// Ambiguous BEGIN spacing/labels after five dashes discard the suffix, even
+/// for non-private labels: guessing whether malformed PEM is public is unsafe.
+fn scan_pem(text: &str, hits: &mut Vec<(usize, usize)>) {
+    const MAX_BLOCK: usize = 1_048_576;
+    const MAX_HEADER: usize = 256;
+    let b = text.as_bytes();
+    let mut line_start = 0;
+    while line_start < b.len() {
+        let line_end = b[line_start..]
+            .iter()
+            .position(|&x| x == b'\n')
+            .map(|n| line_start + n)
+            .unwrap_or(b.len());
+        let mut clean = Vec::new();
+        let mut offsets = Vec::new();
+        let mut i = line_start;
+        // Memory is linear in this input line (Hub fields are byte-capped at
+        // ingress). Do not silently stop before a header in a long log prefix.
+        while i < line_end {
+            if b[i] == 0x1b && i + 1 < line_end && b[i + 1] == b'[' {
+                i += 2;
+                while i < line_end && !(0x40..=0x7e).contains(&b[i]) {
+                    i += 1;
+                }
+                if i < line_end {
+                    i += 1;
+                }
+            } else {
+                clean.push(b[i]);
+                offsets.push(i);
+                i += 1;
+            }
+        }
+        if clean.ends_with(b"\r") {
+            clean.pop();
+            offsets.pop();
+        }
+
+        // Headers may be embedded in log prefixes, and CSI controls may split
+        // any header byte. Keep the original offset of every normalized byte.
+        let mut pos = 0;
+        while pos + 5 <= clean.len() {
+            if &clean[pos..pos + 5] != b"-----" {
+                pos += 1;
+                continue;
+            }
+            let mut begin = pos + 5;
+            // Decode only the next scalar, never cast UTF-8 bytes to chars.
+            // Noncanonical Unicode separators must reach the fail-closed
+            // spacing check below instead of hiding a private-key candidate.
+            while let Some(width) = pem_whitespace_len(&clean[begin..]) {
+                begin += width;
+            }
+            if begin + 5 > clean.len() || !ascii_eq_ignore_case(&clean[begin..begin + 5], b"BEGIN")
+            {
+                pos += 1;
+                continue;
+            }
+            if begin != pos + 5 || pos + 11 > clean.len() || clean[pos + 10] != b' ' {
+                hits.push((offsets[pos], b.len()));
+                return;
+            }
+            let label_start = pos + 11;
+            let header_limit = label_start.saturating_add(MAX_HEADER + 5).min(clean.len());
+            let label_end = match clean[label_start..header_limit]
+                .windows(5)
+                .position(|w| w == b"-----")
+            {
+                Some(n) => label_start + n,
+                None => {
+                    // A malformed or oversized PEM candidate is not safe prose.
+                    // Avoid repeated suffix scans and discard its trailing data.
+                    hits.push((offsets[pos], b.len()));
+                    return;
+                }
+            };
+            let label = &clean[label_start..label_end];
+            let private_suffix = b"PRIVATE KEY";
+            let candidate = label.len() >= private_suffix.len()
+                && ascii_eq_ignore_case(
+                    &label[label.len() - private_suffix.len()..],
+                    private_suffix,
+                );
+            let valid_label = !label.is_empty()
+                && label.len() <= MAX_HEADER
+                && !label.starts_with(b" ")
+                && !label.ends_with(b" ")
+                && !label.windows(2).any(|pair| pair == b"  ")
+                && label
+                    .iter()
+                    .all(|x| x.is_ascii_alphanumeric() || *x == b' ' || *x == b'-');
+            if !valid_label {
+                hits.push((offsets[pos], b.len()));
+                return;
+            }
+            if candidate {
+                let start = offsets[pos];
+                let search_start = if line_end < b.len() {
+                    line_end + 1
+                } else {
+                    line_end
+                };
+                let mut limit = search_start.saturating_add(MAX_BLOCK).min(b.len());
+                // The byte cap may land inside a multibyte scalar. Never make
+                // that index a cursor or an emitted string-slice boundary.
+                while !text.is_char_boundary(limit) {
+                    limit -= 1;
+                }
+                let mut cursor = search_start;
+                let mut found = None;
+                while cursor < limit {
+                    let row_end = b[cursor..limit]
+                        .iter()
+                        .position(|&x| x == b'\n')
+                        .map(|n| cursor + n)
+                        .unwrap_or(limit);
+                    let mut row = Vec::new();
+                    let mut row_offsets = Vec::new();
+                    let mut j = cursor;
+                    while j < row_end {
+                        if b[j] == 0x1b && j + 1 < row_end && b[j + 1] == b'[' {
+                            j += 2;
+                            while j < row_end && !(0x40..=0x7e).contains(&b[j]) {
+                                j += 1;
+                            }
+                            if j < row_end {
+                                j += 1;
+                            }
+                        } else {
+                            row.push(b[j]);
+                            row_offsets.push(j);
+                            j += 1;
+                        }
+                    }
+                    if row.ends_with(b"\r") {
+                        row.pop();
+                        row_offsets.pop();
+                    }
+                    let end_prefix = b"-----END ";
+                    let mut k = 0;
+                    while k + end_prefix.len() <= row.len() {
+                        if ascii_eq_ignore_case(&row[k..k + end_prefix.len()], end_prefix) {
+                            let label_end = k + end_prefix.len() + label.len();
+                            let matches_end = label_end + 5 <= row.len()
+                                && ascii_eq_ignore_case(
+                                    &row[k + end_prefix.len()..label_end],
+                                    label,
+                                )
+                                && &row[label_end..label_end + 5] == b"-----";
+                            if matches_end {
+                                // Stop after the final ASCII dash, not the whole
+                                // line: a second BEGIN may follow trailing log
+                                // text here. Map through stripped CSI controls
+                                // so this remains an original UTF-8 boundary.
+                                found = Some(row_offsets[label_end + 4] + 1);
+                                break;
+                            }
+                        }
+                        k += 1;
+                    }
+                    if found.is_some() {
+                        break;
+                    }
+                    if row_end == limit {
+                        // The block scan cap must never expose trailing material.
+                        break;
+                    }
+                    cursor = row_end + 1;
+                }
+                let end = found.unwrap_or(b.len());
+                hits.push((start, end));
+                if end == b.len() {
+                    return;
+                }
+                // Resume after a consumed block: nested BEGIN text belongs to
+                // the outer block, but the rest of its END line is unscanned.
+                line_start = end;
+                break;
+            }
+            pos = label_end + 5;
+        }
+        if line_start > line_end {
+            continue;
+        }
+        if line_end == b.len() {
+            break;
+        }
+        line_start = line_end + 1;
+    }
+}
+
+/// Recognize Unicode White_Space while retaining normalized byte offsets.
+/// CSI stripping can leave malformed UTF-8; never slice a str at that offset.
+fn pem_whitespace_len(bytes: &[u8]) -> Option<usize> {
+    let width = match *bytes.first()? {
+        0x00..=0x7f => 1,
+        0xc2..=0xdf => 2,
+        0xe0..=0xef => 3,
+        0xf0..=0xf4 => 4,
+        _ => return None,
+    };
+    let scalar = std::str::from_utf8(bytes.get(..width)?)
+        .ok()?
+        .chars()
+        .next()?;
+    scalar.is_whitespace().then_some(width)
+}
+
+fn ascii_eq_ignore_case(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.eq_ignore_ascii_case(y))
 }
 
 /// JWT shapes (`eyJ…​.…​.…`) with no marker at all.
@@ -233,6 +442,205 @@ mod tests {
         let (out, n) = redact("sk-ant-abc123");
         assert_eq!(n, 1, "{out}");
         assert_eq!(out.matches("***").count(), 1);
+    }
+
+    #[test]
+    fn pem_private_key_variants_and_crlf_redact_whole_blocks() {
+        for label in [
+            "RSA PRIVATE KEY",
+            "OPENSSH PRIVATE KEY",
+            "EC PRIVATE KEY",
+            "ENCRYPTED PRIVATE KEY",
+            "FUTURE PRIVATE KEY",
+        ] {
+            let input = format!("before\r\n-----BEGIN {label}-----\r\nline one\r\nline two\r\n-----END {label}-----\r\nafter");
+            let (out, n) = redact(&input);
+            assert_eq!(n, 1, "{label}: {out}");
+            assert!(
+                !out.contains("line one") && !out.contains("line two"),
+                "{out}"
+            );
+            assert!(
+                out.starts_with("before\r\n") && out.ends_with("after"),
+                "{out}"
+            );
+        }
+    }
+
+    #[test]
+    fn pem_unterminated_and_nested_begin_fail_closed_without_fragments() {
+        let input = "safe\n-----BEGIN RSA PRIVATE KEY-----\nsecret\n-----BEGIN EC PRIVATE KEY-----\nstill secret";
+        let (out, n) = redact(input);
+        assert_eq!(n, 1, "{out}");
+        assert_eq!(out, "safe\n***");
+    }
+
+    #[test]
+    fn ansi_wrapped_pem_header_and_body_are_redacted() {
+        let input = "\x1b[31m-----BEGIN RSA PRIVATE KEY-----\x1b[0m\n\x1b[32msecret-body\x1b[0m\n\x1b[31m-----END RSA PRIVATE KEY-----\x1b[0m\nvisible";
+        let (out, n) = redact(input);
+        assert_eq!(n, 1, "{out}");
+        assert!(!out.contains("secret-body"));
+        assert!(out.ends_with("visible"));
+    }
+
+    #[test]
+    fn pem_inline_lowercase_multiple_and_ansi_split_headers_redact() {
+        let input = concat!(
+            "key: -----begin private key-----  \r\nfirst-secret\r\n",
+            "-----end private key----- trailing text\r\n",
+            "next: -----BEGIN RSA PRIVATE KEY-----\nsecond-secret\n",
+            "-----END RSA PRIVATE KEY-----\n",
+            "\x1b[31m-----BE\x1b[0mGIN EC PRIVATE KEY-----\nthird-secret\n",
+            "-----END EC PRIVATE KEY-----\nvisible",
+        );
+        let (out, n) = redact(input);
+        assert_eq!(n, 3, "{out}");
+        assert!(!out.contains("first-secret"));
+        assert!(!out.contains("second-secret"));
+        assert!(!out.contains("third-secret"));
+        assert!(out.ends_with("visible"));
+    }
+
+    #[test]
+    fn pem_long_prefix_and_closed_outer_block_leave_no_nested_material() {
+        let prefix = "ç".repeat(4097);
+        let input = format!("{prefix}-----BEGIN PRIVATE KEY-----\nouter-secret\n-----BEGIN EC PRIVATE KEY-----\ninner-secret\n-----END PRIVATE KEY-----\nvisible");
+        let (out, n) = redact(&input);
+        assert_eq!(n, 1);
+        assert!(out.starts_with(&prefix));
+        assert!(out.ends_with("visible"));
+        assert!(!out.contains("secret"));
+        assert!(!out.contains("PRIVATE KEY"));
+    }
+
+    #[test]
+    fn pem_scan_and_header_caps_fail_closed_to_eof() {
+        let input = format!(
+            "safe\n-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\ntrailing-secret",
+            "x".repeat(1_048_577)
+        );
+        assert_eq!(redact(&input).0, "safe\n***");
+        let oversized = format!(
+            "safe\n-----BEGIN {} PRIVATE KEY-----\nsecret\n",
+            "X".repeat(257)
+        );
+        assert_eq!(redact(&oversized).0, "safe\n***");
+        assert_eq!(
+            redact("safe\n-----BEGIN PRIVATE KEY\nsecret").0,
+            "safe\n***"
+        );
+    }
+
+    #[test]
+    fn pem_second_begin_on_first_end_line_redacts_both_bodies() {
+        let exact = "-----BEGIN PRIVATE KEY-----\nFIRSTMATERIAL\n-----END PRIVATE KEY----- -----BEGIN PRIVATE KEY-----\nSECONDMATERIAL\n-----END PRIVATE KEY-----\nvisible";
+        assert_eq!(redact(exact), ("*** ***\nvisible".into(), 2));
+        for newline in ["\n", "\r\n"] {
+            for ansi in [false, true] {
+                let first_end = if ansi {
+                    "-----EN\x1b[0mD PRIVATE KEY-----"
+                } else {
+                    "-----END PRIVATE KEY-----"
+                };
+                let second_begin = if ansi {
+                    "-----BE\x1b[31mGIN RSA PRIVATE KEY-----"
+                } else {
+                    "-----BEGIN RSA PRIVATE KEY-----"
+                };
+                let input = format!("préfix{newline}-----BEGIN PRIVATE KEY-----{newline}FIRST_BODY_MATERIAL{newline}{first_end} trailing ç log {second_begin}{newline}SECOND_BODY_LINE_ONE{newline}SECOND_BODY_LINE_TWO{newline}-----END RSA PRIVATE KEY-----{newline}visible");
+                let (out, count) = redact(&input);
+                assert_eq!(count, 2, "{out:?}");
+                assert_eq!(
+                    out,
+                    format!("préfix{newline}*** trailing ç log ***{newline}visible")
+                );
+                for residue in [
+                    "FIRST_BODY_MATERIAL",
+                    "SECOND_BODY_LINE_ONE",
+                    "SECOND_BODY_LINE_TWO",
+                    "PRIVATE KEY",
+                ] {
+                    assert!(!out.contains(residue), "{out:?}");
+                }
+                // A later pass must not be needed to discover the second key.
+                assert_eq!(redact(&out), (out, 0));
+            }
+        }
+    }
+
+    #[test]
+    fn pem_multibyte_scan_cap_never_panics_or_leaks_suffix() {
+        // Every possible cap position within a four-byte emoji is exercised.
+        for padding in 0..4 {
+            let input = format!(
+                "préfix\n-----BEGIN PRIVATE KEY-----\n{}{}\n-----END PRIVATE KEY-----\nSECRETMATERIAL",
+                "x".repeat(padding), "😀".repeat(262_145)
+            );
+            assert!(input.len() > 1_048_576);
+            let result = std::panic::catch_unwind(|| redact(&input));
+            assert!(result.is_ok(), "redaction panicked at padding {padding}");
+            assert_eq!(result.unwrap(), ("préfix\n***".into(), 1));
+        }
+    }
+
+    #[test]
+    fn malformed_pem_header_spacing_fails_closed_to_eof() {
+        for header in [
+            "----- BEGIN PRIVATE KEY-----",
+            "-----\tBEGIN PRIVATE KEY-----",
+            "-----BEGIN\tPRIVATE KEY-----",
+            "-----BEGINPRIVATE KEY-----",
+            "-----BEGIN  PRIVATE KEY-----",
+            "-----BEGIN PRIVATE KEY -----",
+            "-----BEGIN PRIVATE  KEY-----",
+            "-----BEGIN PRIVATE\tKEY-----",
+            "-----BEGIN PRIVATE KEY\t-----",
+            "-----BEGIN PRIVATE\u{a0}KEY-----",
+            "-----BE\x1b[31mGIN PRIVATE KEY -----",
+        ] {
+            let input = format!(
+                "safe\n{header}\nHIDDENMATERIAL\n-----END PRIVATE KEY-----\nambiguous suffix"
+            );
+            assert_eq!(redact(&input), ("safe\n***".into(), 1), "{header:?}");
+        }
+        // Canonical public PEM stays useful; ambiguous END cannot terminate a
+        // private block, and therefore discards the complete remaining suffix.
+        let public = "-----BEGIN CERTIFICATE-----\npublic\n-----END CERTIFICATE-----";
+        assert_eq!(redact(public), (public.into(), 0));
+        let end = "safe\n-----BEGIN PRIVATE KEY-----\nHIDDENMATERIAL\n-----END PRIVATE KEY -----\nambiguous suffix";
+        assert_eq!(redact(end), ("safe\n***".into(), 1));
+    }
+
+    #[test]
+    fn pem_unicode_separator_whitespace_fails_closed_without_slicing_utf8() {
+        for separator in [
+            '\u{85}', '\u{a0}', '\u{1680}', '\u{2000}', '\u{2001}', '\u{2002}', '\u{2003}',
+            '\u{2004}', '\u{2005}', '\u{2006}', '\u{2007}', '\u{2008}', '\u{2009}', '\u{200a}',
+            '\u{2028}', '\u{2029}', '\u{202f}', '\u{205f}', '\u{3000}',
+        ] {
+            for gap in [separator.to_string(), format!("\t{separator}\x1b[31m ")] {
+                let input = format!("préfix😀\n-----{gap}BEGIN PRIVATE KEY-----\nUNICODEMATERIAL\n-----END PRIVATE KEY-----\nuncertain suffix");
+                let result = std::panic::catch_unwind(|| redact(&input));
+                assert_eq!(
+                    result.unwrap(),
+                    ("préfix😀\n***".into(), 1),
+                    "{separator:?}"
+                );
+            }
+            // Whitespace before a canonical header is ordinary visible context.
+            let input = format!("{separator}-----BEGIN PRIVATE KEY-----\nUNICODEMATERIAL\n-----END PRIVATE KEY-----\nvisible");
+            assert_eq!(redact(&input), (format!("{separator}***\nvisible"), 1));
+        }
+        let input = format!(
+            "safe\n-----\u{a0}\u{2003}BEGIN PRIVATE KEY-----\n{}\nUNCERTAINMATERIAL",
+            "😀".repeat(262_145)
+        );
+        assert!(input.len() > 1_048_576);
+        assert_eq!(
+            std::panic::catch_unwind(|| redact(&input)).unwrap(),
+            ("safe\n***".into(), 1)
+        );
     }
 
     #[test]

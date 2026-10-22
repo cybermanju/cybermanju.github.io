@@ -1,7 +1,9 @@
 """CyberManju widget installer contracts: generated sources, manifest and callbacks."""
+import importlib.util
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -78,6 +80,64 @@ class WidgetInstallerTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("android-widgets:", result.stderr)
                 self.assertEqual(before, {p: p.read_bytes() for p in base.rglob("*") if p.is_file()})
+
+
+class KotlinCompilerDiscoveryTests(unittest.TestCase):
+    """Filesystem-only discovery regressions; never invoke a native compiler."""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location(
+            "widget_runtime_discovery", Path(__file__).with_name("test_android_widgets_runtime.py"))
+        self.runtime = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.runtime)
+        temporary = tempfile.TemporaryDirectory(prefix="widget-compiler-discovery-")
+        self.addCleanup(temporary.cleanup)
+        self.home = Path(temporary.name)
+        for patcher in (
+            mock.patch.dict(self.runtime.os.environ, {}, clear=True),
+            mock.patch.object(self.runtime.Path, "home", return_value=self.home),
+            mock.patch.object(self.runtime.subprocess, "run", side_effect=AssertionError("No compiler execution allowed")),
+            mock.patch.object(self.runtime.urllib.request, "urlretrieve", side_effect=AssertionError("No downloads allowed")),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def library(self, distribution="bin", compiler=True):
+        lib = self.home / f".gradle/wrapper/dists/gradle-9.0-{distribution}/fixture/gradle-9.0/lib"
+        lib.mkdir(parents=True, exist_ok=True)
+        (lib / "kotlin-stdlib-2.0.0.jar").touch()
+        if compiler:
+            (lib / "kotlin-compiler-embeddable-2.0.0.jar").touch()
+        return lib
+
+    def test_finds_gradle_bin_compiler(self):
+        self.assertEqual(self.runtime.find_kotlin_lib(), None)
+        lib = self.library("bin")
+        self.assertEqual(self.runtime.find_kotlin_lib(), lib)
+
+    def test_preserves_gradle_all_support(self):
+        lib = self.library("all")
+        self.assertEqual(self.runtime.find_kotlin_lib(), lib)
+
+    def test_explicit_library_takes_precedence(self):
+        self.library("all")
+        explicit = self.home / "explicit"
+        explicit.mkdir()
+        (explicit / "kotlin-compiler-embeddable-2.0.0.jar").touch()
+        self.runtime.os.environ["KOTLIN_LIB"] = str(explicit)
+        self.assertEqual(self.runtime.find_kotlin_lib(), explicit)
+
+    def test_invalid_override_falls_back_to_gradle_bin(self):
+        self.runtime.os.environ["KOTLIN_LIB"] = str(self.home / "missing")
+        lib = self.library("bin")
+        self.assertEqual(self.runtime.find_kotlin_lib(), lib)
+
+    def test_rejects_library_without_compiler_jar(self):
+        self.library("all", compiler=False)
+        self.assertIsNone(self.runtime.find_kotlin_lib())
+
+    def test_absent_compiler_remains_unavailable(self):
+        self.assertIsNone(self.runtime.find_kotlin_lib())
 
 
 if __name__ == "__main__":

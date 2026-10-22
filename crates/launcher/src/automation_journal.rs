@@ -50,6 +50,7 @@ pub(crate) fn claim_and_dispatch_at(
     let lock_path = directory.join(LOCK_FILE);
     let lock_file = OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(lock_path)
@@ -222,6 +223,21 @@ mod tests {
         assert!(!content.contains("PRIVATE PAYLOAD MUST NOT BE WRITTEN"));
         assert!(!content.contains("random-key-01"));
         assert!(!content.contains("external:req-1"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn opening_lock_file_does_not_truncate_existing_contents() {
+        let dir = temp_dir("lock-preserve");
+        fs::create_dir_all(&dir).unwrap();
+        let lock_path = dir.join(LOCK_FILE);
+        fs::write(&lock_path, b"preserve lock marker").unwrap();
+        let result = claim_and_dispatch_at(&dir, &request(), || NativeActionOutcome::Succeeded {
+            output: serde_json::Value::Null,
+        })
+        .unwrap();
+        assert!(matches!(result, NativeActionOutcome::Succeeded { .. }));
+        assert_eq!(fs::read(&lock_path).unwrap(), b"preserve lock marker");
         fs::remove_dir_all(dir).unwrap();
     }
 

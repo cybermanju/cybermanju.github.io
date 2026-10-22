@@ -15,6 +15,8 @@
 pub mod agent_loop;
 pub mod config;
 pub mod edit;
+pub mod hub_prompt;
+pub mod hub_protocol;
 pub mod mcp;
 pub mod memory;
 pub mod protocol;

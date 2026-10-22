@@ -162,6 +162,7 @@ const commands = computed<CommandGroup[]>(() => [
       { id: 'panel-compression', label: 'Open Compression Engine', icon: 'solar:archive-bold', shortcut: 'Ctrl+Shift+C', action: () => { wm.open('encryption', { tab: 'compress' }) } },
       { id: 'panel-permissions', label: 'Open Permissions Panel', icon: 'solar:key-bold', action: () => { wm.open('permissions' as PanelType) } },
       { id: 'panel-archive', label: 'Open Life Archive (notes, timeline, people, tasks)', icon: 'solar:notebook-bold', action: () => { wm.open('archive') } },
+      { id: 'panel-shortcuts', label: 'Open Shortcuts — visual action editor', icon: 'solar:code-bold', action: () => { wm.open('shortcuts') } },
     ],
   },
 ])

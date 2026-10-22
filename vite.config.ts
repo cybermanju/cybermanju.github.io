@@ -6,10 +6,12 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { resolve } from "path";
+import { fileURLToPath } from "node:url";
 import wasmStub from "./vite-plugin-wasm-stub";
 import { wasmPkgEntry } from "./wasm-pkg";
 
 const host = process.env.TAURI_DEV_HOST;
+const configDir = fileURLToPath(new URL(".", import.meta.url));
 
 // Real wasm-pack output, when present AND still newer than crates/ (a stale
 // pkg is ignored — see wasm-pkg.ts). Otherwise the stub file below stands in
@@ -18,7 +20,7 @@ const host = process.env.TAURI_DEV_HOST;
 // pipelines don't apply package.json directory resolution the same way the
 // main bundle does.
 const wasmTarget =
-  wasmPkgEntry(__dirname) ?? resolve(__dirname, "src/wasm-stub.js");
+  wasmPkgEntry(configDir) ?? resolve(configDir, "src/wasm-stub.js");
 
 export default defineConfig(async () => ({
   plugins: [vue(), wasmStub()],
@@ -30,7 +32,7 @@ export default defineConfig(async () => ({
   },
   resolve: {
     alias: {
-      "@": resolve(__dirname, "src"),
+      "@": resolve(configDir, "src"),
       "cybermanju-os-wasm": wasmTarget,
     },
   },

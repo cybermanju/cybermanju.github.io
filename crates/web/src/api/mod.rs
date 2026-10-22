@@ -7,6 +7,8 @@
 
 pub mod accounts;
 pub mod agent_api;
+pub mod agent_hub_api;
+pub mod agent_hub_store;
 pub mod audit;
 pub mod backup;
 pub mod batch;

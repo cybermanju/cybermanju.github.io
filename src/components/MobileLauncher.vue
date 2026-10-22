@@ -563,7 +563,8 @@ function count(value: number): string {
 const apps = computed<LauncherApp[]>(() => [
   { panel: 'files', label: 'Files', icon: 'solar:folder-bold', tint: '#3984e8', badge: count(store.files.length), hint: 'Browse and manage files' },
   { panel: 'search', label: 'Search', icon: 'solar:magnifier-bold', tint: '#727be8', hint: 'Full-text search' },
-  { panel: 'agent', label: 'Agent', icon: 'solar:bot-bold', tint: '#8b5ad8', dot: store.activeAgentJob?.status === 'running', hint: 'AI assistant' },
+  { panel: 'agent', label: 'Agents', icon: 'solar:bot-bold', tint: '#8b5ad8', dot: store.activeAgentJob?.status === 'running', hint: 'Agents, profiles and conversations' },
+  { panel: 'shortcuts', label: 'Shortcuts', icon: 'solar:code-bold', tint: '#697ad8', hint: 'Editor visual de ações e condições' },
   { panel: 'storage', label: 'Vaults', icon: 'solar:diskette-bold', tint: '#2198c3', badge: count(store.disks.length), hint: 'Private vaults and disks' },
   { panel: 'accounts', label: 'Accounts', icon: 'solar:user-circle-bold', tint: '#38a87b', hint: 'Providers and users' },
   { panel: 'terminal', label: 'Terminal', icon: 'solar:file-terminal-bold', tint: '#4c596b', hint: 'cybsh shell' },

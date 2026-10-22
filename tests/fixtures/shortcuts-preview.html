@@ -1,0 +1,56 @@
+<!doctype html>
+<!-- CyberManju OS — Shortcuts UI fixture (tests/fixtures/shortcuts-preview.html).
+Role: Reproducible manual responsive and host-event checks, not a production runtime.
+Exports: Browser-only fixture; Vite does not include it in the app entry build.
+Integrates: Real ShortcutsPanel, real schema, mock host state explicitly labelled below.
+Contracts: No runner, network, native effects, persistence or permission approval. -->
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Shortcuts · fixture de UI</title></head>
+<body>
+<div id="fixture"></div>
+<script type="module">
+import { createApp, h, shallowRef, ref } from 'vue'
+import ShortcutsPanel from '/src/components/ShortcutsPanel.vue'
+import { buildCssVars, DEFAULT_SETTINGS } from '/src/ui/tokens.ts'
+import '/src/assets/main.css'
+const params = new URLSearchParams(location.search)
+const width = Math.max(320, Math.min(1200, Number(params.get('width')) || 390))
+const theme = params.get('theme') === 'light' ? 'os-light' : 'os-dark'
+for (const [key, value] of Object.entries(buildCssVars({ ...DEFAULT_SETTINGS, theme }))) document.documentElement.style.setProperty(key, value)
+document.body.style.cssText = 'margin:0;background:var(--ui-bg);font-family:var(--ui-font);'
+const sample = { schemaVersion: 1, id: 'fixture-branch', revision: 1, entryNodeId: 'text', nodes: [
+ { id: 'end', type: 'end' },
+ { id: 'text', type: 'action', actionId: 'core.script', input: { steps: [{ id: 'value', op: 'value', args: ['Olá'] }] }, next: 'gate' },
+ { id: 'gate', type: 'condition', predicate: { op: 'eq', left: { $output: { nodeId: 'text', path: ['last'] } }, right: 'Olá' }, trueNext: 'upper', falseNext: 'lower' },
+ { id: 'upper', type: 'action', actionId: 'core.script', input: { steps: [{ id: 'upper', op: 'text.upper', args: ['Olá'] }] }, next: 'end' },
+ { id: 'lower', type: 'action', actionId: 'core.script', input: { steps: [{ id: 'lower', op: 'text.lower', args: ['Olá'] }] }, next: 'end' },
+] }
+createApp({ setup() {
+ const model = shallowRef(params.has('sample') ? sample : undefined)
+ const result = shallowRef(null)
+ const requests = ref(0)
+ const saves = ref(0)
+ const host = params.has('mockHost')
+ const status = ref('idle')
+ const chooseStatus = event => {
+  status.value = event.target.value
+  const state = status.value
+  result.value = state === 'idle' ? null : state === 'completed' ? { status: 'completed', outputs: { text: { last: 'SAÍDA PRIVADA DE TESTE' } }, steps: 5 } : { status: 'halted', nodeId: 'upper', steps: 3, result: state === 'accepted' ? { status: state, jobId: 'fixture-job' } : state === 'unknown' ? { status: state, idempotencyKey: 'fixture-only' } : { status: 'needs_confirmation', confirmationId: 'fixture-confirmation', summary: 'Resumo fictício: abrir um aplicativo.', expiresAt: '2030-01-01T12:00:00Z' } }
+ }
+ return () => h('div', { id: 'fixture-frame', style: `width:${width}px;max-width:100%;margin:0 auto;` }, [
+  h('aside', { style: 'padding:12px;border-bottom:1px solid var(--ui-border);font-size:12px;color:var(--ui-text);' }, [
+   h('strong', 'FIXTURE DE UI · nenhum efeito real'), h('p', `Contêiner: ${width}px · ${theme} · host ${host ? 'simulado' : 'desconectado'}`),
+   h('label', { for: 'fixture-state' }, 'Estado de teste '), h('select', { id: 'fixture-state', onChange: chooseStatus, style: 'background:var(--ui-surface);color:var(--ui-text);border:1px solid var(--ui-border);padding:6px' }, ['idle','accepted','needs_confirmation','unknown','completed'].map(value => h('option', { value }, value))),
+   h('p', { id: 'fixture-events' }, `Pedidos de execução: ${requests.value} · pedidos de salvamento: ${saves.value}`),
+   h('button', { type: 'button', onClick: () => { model.value = { ...sample, revision: (model.value?.revision ?? 1) + 1 } }, style: 'padding:10px;border:1px solid var(--ui-border);color:var(--ui-text)' }, 'Receber revisão externa de teste'),
+  ]),
+  h(ShortcutsPanel, { modelValue: model.value, canSave: host, canRun: host, result: result.value,
+   'onUpdate:modelValue': value => { model.value = value },
+   'onRequest-save': () => { saves.value++ },
+   'onRequest-run': () => { requests.value++; result.value = { status: 'halted', nodeId: 'upper', steps: 1, result: { status: 'accepted', jobId: 'fixture-only' } } },
+  }),
+ ])
+} }).mount('#fixture')
+</script>
+</body>
+</html>

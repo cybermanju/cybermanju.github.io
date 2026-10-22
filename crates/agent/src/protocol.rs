@@ -763,6 +763,65 @@ pub fn classify_provider_error(status: Option<u16>, message: &str, code: &str) -
 
 // ─── blocking transport (feature `native`) ────────────────────────────────
 
+/// POST JSON with a strict response-body limit. Unlike the legacy transport,
+/// failures deliberately omit provider/reqwest text because it can echo URLs,
+/// credentials, or request data into persisted job errors.
+#[cfg(feature = "native")]
+pub fn post_json_bounded(
+    url: &str,
+    headers: &[(String, String)],
+    body: &serde_json::Value,
+    max_response_bytes: usize,
+) -> Result<serde_json::Value, String> {
+    use std::io::Read;
+
+    let client = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|_| "network: cannot build HTTP client".to_string())?;
+    let mut req = client.post(url).json(body);
+    for (name, value) in headers {
+        req = req.header(name.as_str(), value.as_str());
+    }
+    let resp = req
+        .send()
+        .map_err(|_| "network: request failed".to_string())?;
+    let status = resp.status().as_u16();
+    // Read only one byte beyond the configured limit, so a huge/chunked reply
+    // cannot be allocated in full before the cap is enforced.
+    let limit = (max_response_bytes as u64).saturating_add(1);
+    let mut bytes = Vec::new();
+    resp.take(limit)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "network: provider reply could not be read".to_string())?;
+    if bytes.len() > max_response_bytes {
+        return Err("too_large: provider reply exceeds response size limit".to_string());
+    }
+    let value: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|_| "network: unreadable provider reply".to_string())?;
+    if !(200..300).contains(&status) {
+        let msg = provider_error_message(&value, status);
+        let classified = classify_provider_error(Some(status), &msg, "");
+        let safe = if classified.starts_with("auth:") {
+            "auth: provider rejected credentials"
+        } else if classified.starts_with("rate_limited:") {
+            "rate_limited: provider throttled the request"
+        } else if classified.starts_with("limit:") {
+            "limit: provider credits exhausted"
+        } else if classified.starts_with("context:") {
+            "context: provider context limit exceeded"
+        } else if classified.starts_with("invalid:") {
+            "invalid: provider rejected the request"
+        } else {
+            "network: provider request failed"
+        };
+        return Err(safe.to_string());
+    }
+    Ok(value)
+}
+
 /// POST JSON and parse the reply. Timeouts are generous — agentic turns
 /// think for a while — but always finite.
 #[cfg(feature = "native")]
@@ -1095,6 +1154,136 @@ mod tests {
         assert_eq!(
             with_query_key("https://h.test/v", "key", "k"),
             "https://h.test/v?key=k"
+        );
+    }
+}
+
+#[cfg(all(test, feature = "native"))]
+mod bounded_transport_tests {
+    use super::post_json_bounded;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+
+    fn serve_once(response: String) -> (String, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock provider");
+        listener
+            .set_nonblocking(true)
+            .expect("nonblocking mock listener");
+        let address = listener.local_addr().expect("mock address");
+        let handle = std::thread::spawn(move || {
+            let start = Instant::now();
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(
+                            start.elapsed() < Duration::from_secs(5),
+                            "request not received"
+                        );
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("mock accept failed: {error}"),
+                }
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .expect("read timeout");
+            stream
+                .set_write_timeout(Some(Duration::from_secs(2)))
+                .expect("write timeout");
+            // Drain the request before closing: unread incoming bytes can
+            // otherwise reset the socket and make a valid response flaky.
+            let mut request = Vec::new();
+            let header_end = loop {
+                let mut byte = [0_u8; 1];
+                stream.read_exact(&mut byte).expect("request header");
+                request.push(byte[0]);
+                assert!(request.len() < 4096, "bounded mock request");
+                if request.ends_with(b"\r\n\r\n") {
+                    break request.len();
+                }
+            };
+            let headers = std::str::from_utf8(&request[..header_end]).unwrap();
+            let length: usize = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse().unwrap())
+                })
+                .expect("request content length");
+            assert!(length < 4096);
+            let mut body = vec![0_u8; length];
+            stream.read_exact(&mut body).expect("request body");
+            write!(stream, "{response}").expect("write mock response");
+        });
+        (format!("http://{address}/secret-path"), handle)
+    }
+
+    fn response(status: &str, body: &[u8]) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            String::from_utf8_lossy(body)
+        )
+    }
+
+    fn request(url: &str, cap: usize) -> Result<serde_json::Value, String> {
+        post_json_bounded(
+            url,
+            &[("Authorization".into(), "Bearer local-test-secret".into())],
+            &serde_json::json!({"ping": true}),
+            cap,
+        )
+    }
+
+    #[test]
+    fn body_limit_accepts_exact_cap_and_rejects_one_extra_byte() {
+        let exact = br#"{"ok":true}"#;
+        let (url, server) = serve_once(response("200 OK", exact));
+        assert_eq!(
+            request(&url, exact.len()).expect("exact cap accepted"),
+            serde_json::json!({"ok": true})
+        );
+        server.join().expect("mock server");
+
+        let over = br#"{"ok":true} "#;
+        let (url, server) = serve_once(response("200 OK", over));
+        let error = request(&url, exact.len()).expect_err("cap plus one rejected");
+        assert!(error.starts_with("too_large:"));
+        server.join().expect("mock server");
+    }
+
+    #[test]
+    fn redirect_is_not_followed_and_errors_do_not_echo_sensitive_data() {
+        let destination = TcpListener::bind("127.0.0.1:0").expect("bind redirect destination");
+        destination
+            .set_nonblocking(true)
+            .expect("nonblocking destination");
+        let destination_url = format!(
+            "http://{}/must-not-reach",
+            destination.local_addr().unwrap()
+        );
+        let header = format!(
+            "HTTP/1.1 302 Found\r\nLocation: {destination_url}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        let (url, server) = serve_once(header);
+        let error = request(&url, 128).expect_err("redirect response must fail");
+        server.join().expect("mock redirect server");
+        assert!(error.starts_with("network:"));
+        for sensitive in [
+            url.as_str(),
+            "secret-path",
+            "local-test-secret",
+            destination_url.as_str(),
+        ] {
+            assert!(!error.contains(sensitive), "error leaked {sensitive}");
+        }
+
+        assert!(
+            matches!(destination.accept(), Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock),
+            "redirect destination was contacted"
         );
     }
 }

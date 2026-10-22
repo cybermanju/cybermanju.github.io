@@ -4,7 +4,7 @@
 // Integrates: standalone (no imports).
 // Contracts: signals: AGENT-, integrity, conflict.
 export type ViewMode = 'grid' | 'list' | 'masonry' | 'columns' | 'details'
-export type PanelType = 'landing' | 'files' | 'preview' | 'encryption' | 'compression' | 'collections' | 'faces' | 'map' | 'code' | 'editor' | 'agent' | 'search' | 'style' | 'accounts' | 'loose-groups' | 'sync' | 'transfer' | 'webdash' | 'users' | 'dashboard' | 'settings' | 'trash' | 'activity' | 'favorites' | 'recent' | 'storage' | 'terminal' | 'processes' | 'disks' | 'devices' | 'permissions' | 'cron' | 'automation' | 'schedules' | 'secrets' | 'passwords' | 'credentials' | 'install' | 'archive'
+export type PanelType = 'landing' | 'files' | 'preview' | 'encryption' | 'compression' | 'collections' | 'faces' | 'map' | 'code' | 'editor' | 'agent' | 'search' | 'style' | 'accounts' | 'loose-groups' | 'sync' | 'transfer' | 'webdash' | 'users' | 'dashboard' | 'settings' | 'trash' | 'activity' | 'favorites' | 'recent' | 'storage' | 'terminal' | 'processes' | 'disks' | 'devices' | 'permissions' | 'cron' | 'automation' | 'schedules' | 'secrets' | 'passwords' | 'credentials' | 'install' | 'archive' | 'shortcuts'
 export type SidebarSection = 'tree' | 'locations' | 'collections' | 'people' | 'styles' | 'loose' | 'users' | 'sync' | 'dashboard' | 'landing' | 'tools'
 
 export interface ModuleInfo {
@@ -678,7 +678,7 @@ export const MODULE_METADATA: Record<PanelType, ModuleInfo> = {
   recent: { id: 'recent', label: 'RECENT', icon: 'solar:history-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #080808 50%, #000000 100%)', description: 'Recently modified files', requiresAuth: true },
   storage: { id: 'storage', label: 'DISKS', icon: 'solar:database-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000a00 50%, #000000 100%)', description: 'Storage overview (alias of disks)', requiresAuth: true },
   terminal: { id: 'terminal', label: 'CYBSH', icon: 'solar:file-terminal-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'System terminal — cybsh', requiresAuth: true },
-  agent: { id: 'agent', label: 'AGENT', icon: 'solar:bot-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'Native AI coding agent', requiresAuth: true },
+  agent: { id: 'agent', label: 'AGENTS', icon: 'solar:bot-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'Agent profiles, conversations and assistant tools', requiresAuth: true },
   processes: { id: 'processes', label: 'TASKS', icon: 'solar:cpu-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d0d 50%, #000000 100%)', description: 'Process table, top and task control', requiresAuth: true },
   cron: { id: 'cron', label: 'SCHEDULES', icon: 'solar:alarm-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d0d 50%, #000000 100%)', description: 'Scheduled scripts (alias of tasks)', requiresAuth: true },
   secrets: { id: 'secrets', label: 'VAULT', icon: 'solar:wallet-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d0d 50%, #000000 100%)', description: 'Passwords, cards, notes and API keys — sealed at rest', requiresAuth: true },
@@ -691,6 +691,7 @@ export const MODULE_METADATA: Record<PanelType, ModuleInfo> = {
   permissions: { id: 'permissions', label: 'PERMS', icon: 'solar:key-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #0d0000 50%, #000000 100%)', description: 'Per-file access control', requiresAuth: true },
   install: { id: 'install', label: 'INSTALL', icon: 'solar:download-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'Native app + CLI downloads for every platform', requiresAuth: false },
   archive: { id: 'archive', label: 'ARCHIVE', icon: 'solar:notebook-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'Life archive: notes, timeline, people, tasks, bookmarks, datasets', requiresAuth: false },
+  shortcuts: { id: 'shortcuts', label: 'SHORTCUTS', icon: 'solar:code-bold', color: '#8c9fff', gradient: 'linear-gradient(180deg, #11162b 0%, #050611 100%)', description: 'Editor visual de ações e condições; execução depende do host', requiresAuth: false },
 }
 
 // ── OS layer (AGENT-8): cybsh, task table, compute fan-out ───────────────

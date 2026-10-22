@@ -122,3 +122,91 @@ npx vue-tsc --noEmit
 ```
 
 No package/dependency changes are required. No files outside `src/automation/` and the new `tests/frontend/automation-*.test.ts` files are part of this module's implementation.
+
+## Canonical editor repository/service contract v1
+
+The editor and native host share the exports from `src/automation/index.ts`; do not create a second workflow schema, mock repository, parallel execution adapter or UI-owned execution journal. `AUTOMATION_REPOSITORY_VERSION` is `1`, independent of the unchanged workflow `schemaVersion: 1` and native `protocolVersion: 1`.
+
+```ts
+import {
+  IndexedDBAutomationStorage, WorkflowRepository, WorkflowService,
+  createAutomationRegistry, registerNativeActions,
+} from './automation'
+
+// Host supplies a stable authenticated owner/environment namespace. Never use the
+// existing handles database. A separate name prevents development/owner mixing.
+const storage = new IndexedDBAutomationStorage({
+  databaseName: hostAutomationDatabaseName,
+})
+const repository = new WorkflowRepository(storage)
+const registry = createAutomationRegistry(hostOptionalAdapters)
+registerNativeActions(registry, implementedNativeSpecs, nativeBridge)
+const service = new WorkflowService({
+  repository, registry, authorize: hostPolicy,
+  // journal: nativeDurableJournal, // optional stronger native implementation
+})
+
+const validation = service.validate(editorWorkflow)
+if (!validation.valid) showValidationIssues(validation.issues)
+else {
+  const saved = await repository.save(validation.workflow, {
+    name: 'My shortcut', expectedRevision: null, // creation must be revision 1
+  })
+  const result = await service.run(saved.workflow.id, {
+    runId: userAuthorizedLogicalRunId,
+    expectedWorkflowRevision: saved.workflow.revision,
+    signal,
+  })
+}
+```
+
+Concrete repository signatures:
+
+```ts
+interface WorkflowRecord {
+  recordVersion: 1
+  workflow: Workflow
+  name: string // trimmed, 1–160 code units; no control characters
+  updatedAt: string // informational ISO timestamp, not the CAS token
+}
+interface SaveWorkflowOptions { expectedRevision: number | null; name: string }
+
+new WorkflowRepository(storage: AutomationStorage)
+repository.durability: 'persistent' | 'session'
+repository.executionJournal: ExecutionJournal
+repository.get(id: string): Promise<WorkflowRecord | null>
+repository.list(): Promise<WorkflowRecord[]>
+repository.save(workflow: unknown, options: SaveWorkflowOptions): Promise<WorkflowRecord>
+repository.delete(id: string, expectedRevision: number): Promise<void>
+repository.importWorkflow(json: string, options: SaveWorkflowOptions): Promise<WorkflowRecord>
+repository.exportWorkflow(id: string): Promise<string>
+repository.bindRun(workflow: unknown, runId: string): Promise<void> // called by service
+```
+
+Creation requires `expectedRevision: null` and workflow revision `1`. An update requires the stored revision as `expectedRevision` and a workflow revision exactly one greater, even for a name-only update. CAS happens inside one IndexedDB read/write transaction, not via `vault_kv_get/set`. Concurrent creators/updaters cannot both win. On `AutomationRepositoryError`, use its fixed `code`; do not expose raw storage errors. A stale revision is `revision_conflict`. Deleted IDs remain tombstoned and cannot be recreated: copy to a **new workflow ID**, starting at revision 1. This prevents reusing prior revision/idempotency identities. Lists omit tombstones and fail closed on malformed records rather than silently hiding corruption. Imports are bounded workflow JSON only; exports contain the workflow schema, not metadata, credentials or execution output. Saving/importing enforces structural schema/secrets, while the service additionally checks the active action registry.
+
+Concrete service signatures:
+
+```ts
+new WorkflowService(options: WorkflowServiceOptions)
+// Options: repository, registry, mandatory authorize, optional journal and runner limits.
+service.listActions(): ReadonlyArray<{ id: string; effect: 'read' | 'write' }>
+service.validate(value: unknown): WorkflowValidation
+// { valid: true, workflow: Workflow, issues: WorkflowValidationIssue[] }
+// | { valid: false, issues: WorkflowValidationIssue[] }
+// issue: { code, severity: 'error' | 'info', nodeId?: string }
+service.run(id: string, options: {
+  runId: string; expectedWorkflowRevision: number; signal?: AbortSignal
+}): Promise<WorkflowServiceRunResult>
+// Existing RunResult, OR { status: 'rejected', code, issues? }
+// rejection codes: not_found, revision_conflict, invalid_run, validation_failed,
+// run_conflict, storage_unavailable.
+```
+
+Validation does not authorize, dispatch, resolve vault references or claim execution keys. It checks every registered action, validates literal inputs with the same registered validators, and conservatively rejects action bindings whose source is not definitely available on **every** incoming path (`binding_not_available`). It does not infer branch predicate implications. Dynamic inputs carry informational `input_deferred`; resolved values and their exact paths/types remain checked by the existing runner immediately before authorization. Predicate missing-output/`exists` behavior is unchanged. Registered input validators must be pure host functions; a valid preflight is not permission or a guarantee that a later dynamic/native operation succeeds.
+
+`run` loads and captures a **saved** revision; it cannot execute an unsaved editor object. The required expected revision is checked against that snapshot. Later edits/deletion do not cancel already captured or dispatched executions; cancellation requires the supplied signal and cannot undo effects. Before passing the snapshot to the unchanged runner, the repository atomically binds `[workflowId, runId]` to its complete immutable workflow. Reusing that logical ID with another revision/content returns `run_conflict`, including after service recreation. Repeating it with identical content is still subject to the original per-node claim journal and returns `unknown` for previously claimed effects, not replay or resume. No automatic retry, approval submission or checkpoint continuation has been added. `accepted`, `needs_confirmation`, `denied`, `failed`, `unknown` retain exactly the existing runner/native meanings. The host must not regenerate a run ID to bypass an ambiguous result.
+
+Storage exports: `AutomationStorage` (`get`, prefix `list`, atomic synchronous-callback `update`, `durability`), `MemoryAutomationStorage`, `IndexedDBAutomationStorage`, `IndexedDBAutomationStorageOptions`, and `StorageExecutionJournal`. The memory store is explicitly **session-only**, suitable for tests/previews, and is never selected as a silent fallback. IndexedDB uses a dedicated version-1 database/store `automation`, requests strict-durability write transactions, and resolves writes/claims only on transaction completion. A runtime that rejects those transactions fails closed. Storage failures are `storage_unavailable`/`storage_failure`; repository callback errors retain their typed codes. Database namespace selection, owner authentication, account switching and database lifecycle belong to the host; use one stable owner-specific name per environment, and discard the old service on logout. This namespace is not an access-control or encryption boundary.
+
+Persistent claims and bindings are never automatically purged. Storage quota/eviction, database clearing, profile loss or a different namespace can erase browser-side history; IndexedDB is **not** a substitute for native idempotency enforcement or a native crash-proof journal. Production Android must keep Sys's native duplicate/permission safeguards and supply a stronger journal when required. Only workflows/secret references, bounded metadata, immutable run bindings and claims are stored; action inputs after secret resolution, results, prompts generated at runtime, approval tokens and raw errors are not persisted. Arbitrary text can still conceal credentials beyond schema detection: service-specific adapters/editors must enforce their credential policies. No plaintext credential store or non-atomic vault fallback is introduced.

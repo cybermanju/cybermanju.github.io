@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- CyberManju OS — Agent workspace UI fixture (tests/fixtures/agents-workspace-preview.html).
+Role: Exercise actual Vue presentation at narrow widths without pretending to be a runtime.
+Exports: Browser-only fixture, excluded from production entry.
+Integrates: AgentsWorkspace, canonical theme tokens, labelled test-only props.
+Contracts: No repository, provider, network effects, saved state or tool approval. -->
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agents · UI test fixture</title></head>
+<body><div id="fixture"></div>
+<script type="module">
+import { createApp, h, ref } from 'vue'
+import AgentsWorkspace from '/src/components/AgentsWorkspace.vue'
+import { buildCssVars, DEFAULT_SETTINGS } from '/src/ui/tokens.ts'
+const params = new URLSearchParams(location.search)
+const width = Math.max(320, Math.min(1200, Number(params.get('width')) || 390))
+const theme = params.get('theme') === 'dark' ? 'os-dark' : 'os-light'
+for (const [key, value] of Object.entries(buildCssVars({ ...DEFAULT_SETTINGS, theme }))) document.documentElement.style.setProperty(key, value)
+document.body.style.cssText = 'margin:0;background:var(--ui-bg);font-family:var(--ui-font);color:var(--ui-text)'
+const sample = params.has('sample')
+const stamp = '2026-10-21T20:00:00Z'
+const profiles = ['Atlas test Agent', 'Nova test Agent'].map((name, i) => ({ id: `fixture-agent-${i}`, ownerId: 'local', name, providerConfigId: 'fixture-config', personality: i ? 'Research specialist · UI fixture only' : 'Thoughtful coordinator · UI fixture only', goals: ['Fixture goal'], interests: ['Fixture interest'], knowledge: ['Fixture profile note'], createdAt: stamp, updatedAt: stamp }))
+const conversations = [{ id: 'fixture-chat', kind: 'direct', title: 'Direct test conversation', ownerId: 'local', members: profiles.map(p => p.id), lastSeq: 3, createdAt: stamp }, { id: 'fixture-group', kind: 'group', title: 'Test group', ownerId: 'local', members: profiles.map(p => p.id), lastSeq: 0, createdAt: stamp }]
+const events = [{ id: 'fixture-event', conversationId: 'fixture-chat', seq: 1, kind: 'assistant', senderId: profiles[0].id, recipientId: null, text: 'Fixture public output, not a real provider response.\nLong URLs wrap: https://example.invalid/long-fixture-url-without-credentials-or-network-effects', createdAt: stamp, runId: 'fixture-run-not-real', visibility: 'user' }, { id: 'fixture-hidden', conversationId: 'fixture-chat', seq: 2, kind: 'delegation', senderId: profiles[0].id, recipientId: profiles[1].id, text: 'INTERNAL_FIXTURE_PAYLOAD_DO_NOT_RENDER', createdAt: stamp, runId: 'fixture-run-not-real', visibility: 'internal' }, { id: 'fixture-no-visibility', conversationId: 'fixture-chat', seq: 3, kind: 'message', senderId: null, recipientId: null, text: 'MISSING_VISIBILITY_MUST_NOT_RENDER', createdAt: stamp, runId: null }]
+createApp({ setup() {
+  const note = ref('No request emitted.')
+  return () => h('div', { id: 'fixture-frame', style: `width:${width}px;max-width:100%;margin:0 auto;` }, [
+    h('aside', { style: 'padding:10px;border-bottom:1px solid var(--ui-border);font-size:12px;line-height:1.5' }, [h('strong', 'UI TEST FIXTURE · NO PERSISTENCE OR REAL EFFECTS'), h('p', `${width}px · ${theme} · ${sample ? 'labelled sample props' : 'runtime unavailable'}`), h('p', { id: 'fixture-note' }, note.value)]),
+    h('div', { style: 'height:740px;min-height:0;border:1px solid var(--ui-border)' }, [h(AgentsWorkspace, {
+      available: sample, profiles: sample ? profiles : [], conversations: sample ? conversations : [], events: sample ? events : [],
+      configs: sample ? [{ id: 'fixture-config', name: 'Fixture config (not connected)', model: 'fixture-model', providerId: 'fixture-provider', hasKey: false }] : [],
+      userVisibleEventIds: sample ? ['fixture-event', 'fixture-hidden', 'fixture-no-visibility'] : [], supportedConfigIds: sample ? ['fixture-config'] : [], canDelegate: sample, ownerScope: 'fixture-owner',
+      onSaveProfile: (_fields, _id, done) => { note.value = 'Save request emitted only. Nothing was saved.'; done() },
+      onCreateConversation: (_fields, done) => { note.value = 'Create request emitted only. Nothing was created.'; done() },
+      onSend: (_id, _text, _recipients, done) => { note.value = 'Send request emitted only. No message was persisted or sent.'; done() },
+      onDelegate: (_id, _fields, done) => { note.value = 'Delegate request emitted only. No run was started.'; done() },
+      onRefresh: () => { note.value = 'Refresh requested. This fixture has no runtime.' },
+    })]),
+  ])
+} }).mount('#fixture')
+</script>
+</body></html>
