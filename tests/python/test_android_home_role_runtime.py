@@ -35,6 +35,7 @@ class Intent(val action:String) {
  fun hasCategory(value:String)=cats.contains(value)
  companion object { const val ACTION_MAIN="android.intent.action.MAIN"; const val CATEGORY_HOME="android.intent.category.HOME" }
 }
+class ActivityNotFoundException(message:String="not found"):RuntimeException(message)
 class SharedPreferences {
  private val values=mutableMapOf<String,Any>()
  fun getString(k:String,d:String?):String?=values[k] as? String ?: d
@@ -64,10 +65,13 @@ class ResolveInfo(var activityInfo:ActivityInfo?=null)
 class PackageManager {
  companion object { const val MATCH_DEFAULT_ONLY=0x00010000 }
  var homePackage:String?="android"; var homeClass="com.android.internal.app.ResolverActivity"
+ var homeSettingsAvailable=true; var defaultAppsAvailable=true; var failResolveAction:String?=null
  fun resolveActivity(intent:Intent,flags:Int):ResolveInfo? {
+  if(intent.action==failResolveAction) throw SecurityException("resolution blocked")
   if(intent.action=="android.intent.action.MAIN" && intent.hasCategory("android.intent.category.HOME"))
    return homePackage?.let { ResolveInfo(ActivityInfo(it,homeClass)) }
-  if(intent.action=="android.settings.HOME_SETTINGS" || intent.action=="android.settings.MANAGE_DEFAULT_APPS_SETTINGS") return ResolveInfo(ActivityInfo("com.android.settings","SettingsActivity"))
+  if(intent.action=="android.settings.HOME_SETTINGS" && homeSettingsAvailable) return ResolveInfo(ActivityInfo("com.android.settings","SettingsActivity"))
+  if(intent.action=="android.settings.MANAGE_DEFAULT_APPS_SETTINGS" && defaultAppsAvailable) return ResolveInfo(ActivityInfo("com.android.settings","SettingsActivity"))
   return null
  }
 }
@@ -92,11 +96,12 @@ class KeyguardManager { var isKeyguardLocked=false }
 open class Activity:Context() {
  var isFinishing=false; var isDestroyed=false; var focused=true
  var launched:Intent?=null; var forResult:Pair<Intent,Int>?=null
+ var failAction:String?=null; var launchFailure:RuntimeException?=null; var onLaunchFailure:(()->Unit)?=null
  val roleManager=RoleManager()
  fun hasWindowFocus()=focused
  override fun getSystemService(name:String):Any?=if(name==KEYGUARD_SERVICE) KeyguardManager() else null
  @Suppress("UNCHECKED_CAST") override fun <T> getSystemService(type:Class<T>):T?=if(type==RoleManager::class.java) roleManager as T else null
- fun startActivity(intent:Intent) { launched=intent }
+ fun startActivity(intent:Intent) { if(intent.action==failAction) { onLaunchFailure?.invoke(); throw (launchFailure ?: SecurityException("blocked")) }; launched=intent }
  fun startActivityForResult(intent:Intent,requestCode:Int) { forResult=intent to requestCode }
 }
 ''',
@@ -105,18 +110,21 @@ import android.util.Base64
 import org.json.JSONObject
 class WebView {
  var ready=false; var ackMode="match"; var evaluations=0; var events=0
+ var delayCallback=false; val pendingCallbacks=mutableListOf<()->Unit>()
  private val detail=Regex("JSON\\\\.parse\\\\(atob\\\\('([^']+)'\\\\)\\\\)")
  private val expected=Regex("window\\\\.__CYBERMANJU_HOME_ROLE_ACKED__===atob\\\\('([^']+)'\\\\)")
  fun evaluateJavascript(script:String,callback:(String)->Unit) {
   evaluations++
-  if(!ready) { callback("false"); return }
+  if(!ready) { respond(callback,"false"); return }
   val encoded=detail.find(script)?.groupValues?.get(1) ?: error("missing encoded event detail")
   val value=JSONObject(String(Base64.decode(encoded,Base64.NO_WRAP),Charsets.UTF_8))
   events++
   val expectedId=String(Base64.decode(expected.find(script)?.groupValues?.get(1) ?: error("missing ACK correlation"),Base64.NO_WRAP),Charsets.UTF_8)
   val acknowledged=ackMode=="match" && value.getString("requestId")==expectedId
-  callback(if(acknowledged) "true" else "false")
+  respond(callback,if(acknowledged) "true" else "false")
  }
+ private fun respond(callback:(String)->Unit,value:String) { if(delayCallback) pendingCallbacks.add { callback(value) } else callback(value) }
+ fun completeCallback() { check(pendingCallbacks.isNotEmpty()); pendingCallbacks.removeAt(0).invoke() }
 }
 ''',
     "Json.kt": '''package org.json
@@ -141,6 +149,7 @@ class JSONObject {
 HARNESS = '''package regression
 import android.app.Activity
 import android.app.role.RoleManager
+import android.content.ActivityNotFoundException
 import android.os.Build
 import android.os.Handler
 import android.webkit.WebView
@@ -174,11 +183,51 @@ fun main(args:Array<String>) {
   }
   "api24-fallback" -> {
    Build.VERSION.SDK_INT=24; val a=Activity(); val web=WebView(); a.packageManager.homePackage="other.launcher"; a.packageManager.homeClass="other.launcher.HomeActivity"
+   a.packageManager.homeSettingsAvailable=false
    CybermanjuHomeRole.onWebViewCreated(a,web); CybermanjuHomeRole.onResume(a,web)
    check(status(a).getString("state")=="not_held")
-   check(start(a).getString("state")=="pending"); check(a.launched?.action=="android.settings.HOME_SETTINGS")
+   check(start(a).getString("state")=="pending"); check(a.launched?.action=="android.settings.MANAGE_DEFAULT_APPS_SETTINGS")
    web.ready=true; CybermanjuHomeRole.onPause(a); CybermanjuHomeRole.onResume(a,web); Handler.step()
    check(web.events==1); check(status(a).getString("state")=="not_held")
+  }
+  "webview-replaced-async" -> {
+   val a=Activity(); val old=WebView(); old.ready=true; old.delayCallback=true
+   CybermanjuHomeRole.onWebViewCreated(a,old); CybermanjuHomeRole.onResume(a,old)
+   check(start(a).getString("state")=="pending"); CybermanjuHomeRole.onPause(a); CybermanjuHomeRole.onResume(a,old)
+   Handler.step(); check(old.pendingCallbacks.size==1)
+   val replacement=WebView(); replacement.ready=true; CybermanjuHomeRole.onWebViewCreated(a,replacement)
+   Handler.step(); check(replacement.events==1); check(!status(a).has("pendingRequestId"))
+   old.completeCallback(); check(!status(a).has("pendingRequestId"))
+  }
+  "settings-security-failure" -> {
+   Build.VERSION.SDK_INT=24; val a=Activity(); val web=WebView(); a.packageManager.homePackage="other.launcher"; a.packageManager.homeClass="other.launcher.HomeActivity"
+   CybermanjuHomeRole.onWebViewCreated(a,web); CybermanjuHomeRole.onResume(a,web)
+   a.failAction="android.settings.HOME_SETTINGS"; a.launchFailure=SecurityException("denied")
+   check(start(a).getString("state")=="failed"); check(a.launched==null)
+   check(!status(a).has("pendingRequestId"))
+  }
+  "settings-activity-not-found" -> {
+   Build.VERSION.SDK_INT=24
+   val disappeared=Activity(); disappeared.packageManager.homePackage="other.launcher"; disappeared.packageManager.homeClass="other.launcher.HomeActivity"
+   CybermanjuHomeRole.onResume(disappeared,null)
+   disappeared.failAction="android.settings.HOME_SETTINGS"; disappeared.launchFailure=ActivityNotFoundException()
+   disappeared.onLaunchFailure={ disappeared.packageManager.homeSettingsAvailable=false }
+   check(start(disappeared).getString("state")=="pending")
+   check(disappeared.launched?.action=="android.settings.MANAGE_DEFAULT_APPS_SETTINGS")
+
+   val stillResolvable=Activity(); stillResolvable.packageManager.homePackage="other.launcher"; stillResolvable.packageManager.homeClass="other.launcher.HomeActivity"
+   stillResolvable.getSharedPreferences("cybermanju.home.role.v1",0).edit().remove("pendingRequestId").remove("leftForSystem").commit()
+   CybermanjuHomeRole.onResume(stillResolvable,null)
+   stillResolvable.failAction="android.settings.HOME_SETTINGS"; stillResolvable.launchFailure=ActivityNotFoundException()
+   check(start(stillResolvable).getString("state")=="failed"); check(stillResolvable.launched==null)
+   check(!status(stillResolvable).has("pendingRequestId"))
+  }
+  "settings-resolution-failure" -> {
+   Build.VERSION.SDK_INT=24; val a=Activity(); a.packageManager.failResolveAction="android.settings.HOME_SETTINGS"
+   a.packageManager.homePackage="other.launcher"; a.packageManager.homeClass="other.launcher.HomeActivity"
+   CybermanjuHomeRole.onResume(a,null)
+   check(start(a).getString("state")=="failed"); check(a.launched==null)
+   check(!status(a).has("pendingRequestId"))
   }
   "api29-role" -> {
    Build.VERSION.SDK_INT=29; val a=Activity(); a.roleManager.available=false
@@ -242,6 +291,10 @@ class HomeRoleRuntimeTests(unittest.TestCase):
     def test_api24_uses_observed_settings_state(self): self.run_case("api24-fallback")
     def test_api29_checks_role_availability_and_held(self): self.run_case("api29-role")
     def test_request_requires_foreground_focus(self): self.run_case("foreground-gate")
+    def test_old_async_webview_callback_does_not_strand_pending_result(self): self.run_case("webview-replaced-async")
+    def test_settings_security_failure_does_not_fallback_or_retain_pending(self): self.run_case("settings-security-failure")
+    def test_activity_not_found_falls_back_only_after_primary_stops_resolving(self): self.run_case("settings-activity-not-found")
+    def test_settings_resolution_errors_fail_closed(self): self.run_case("settings-resolution-failure")
 
 
 if __name__ == "__main__":

@@ -182,12 +182,18 @@ class CybermanjuHomeRole private constructor() {
         private fun openLegacyHomeSettings(activity: Activity) {
             val primary = Intent(android.provider.Settings.ACTION_HOME_SETTINGS)
             val fallback = Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
-            try {
-                // Try the HOME-specific action even when OEM package visibility gave a false negative.
-                activity.startActivity(primary)
-                return
-            } catch (_: Exception) {
-                // Some Android/OEM Settings apps omit the HOME-specific handler.
+            if (resolves(activity, primary)) {
+                try {
+                    activity.startActivity(primary)
+                    return
+                } catch (_: android.content.ActivityNotFoundException) {
+                    // The handler may disappear between resolution and launch; re-check before fallback.
+                    if (resolves(activity, primary)) {
+                        homeFail("failed: Android Home selection settings could not open")
+                    }
+                } catch (_: Exception) {
+                    homeFail("failed: Android Home selection settings could not open")
+                }
             }
             if (!resolves(activity, fallback)) {
                 homeFail("unavailable: Android Home selection settings are unavailable")
@@ -202,7 +208,7 @@ class CybermanjuHomeRole private constructor() {
         private fun resolves(activity: Activity, intent: Intent): Boolean = try {
             activity.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY) != null
         } catch (_: Exception) {
-            false
+            homeFail("failed: Android Home selection settings could not be checked")
         }
 
         private fun requireForegroundUnlocked(activity: Activity) {
@@ -225,16 +231,27 @@ class CybermanjuHomeRole private constructor() {
 
         @JvmStatic fun onWebViewCreated(activity: Activity, webView: WebView) {
             val current = session(activity)
-            current.webView = WeakReference(webView)
-            current.attempts = 0
-            scheduleDelivery(current)
+            attachWebView(current, webView)
         }
 
         @JvmStatic fun onResume(activity: Activity, webView: WebView?) {
             val current = session(activity)
             current.resumed = true
+            if (webView != null) attachWebView(current, webView)
             current.attempts = 0
-            if (webView != null) current.webView = WeakReference(webView)
+            scheduleDelivery(current)
+        }
+
+        private fun attachWebView(current: Session, webView: WebView) {
+            if (current.webView?.get() !== webView) {
+                // A callback from the old WebView may arrive later. Invalidate it and
+                // make the replacement eligible to deliver the same durable request.
+                current.generation++
+                current.inFlight = false
+                current.attempts = 0
+                current.handler.removeCallbacks(current.delivery)
+                current.webView = WeakReference(webView)
+            }
             scheduleDelivery(current)
         }
 
