@@ -267,10 +267,16 @@ export function signedProviderCards(
   configs: ProviderConfigRef[],
 ): SignedProviderCard[] {
   const out: SignedProviderCard[] = []
+  const seenAccounts = new Set<string>()
   for (const acc of accounts) {
     const meta = OAUTH_BACKENDS.find(item => item.slug === acc.provider)
     const accountId = acc.id || acc.accountId
     if (!meta || !accountId) continue
+    const accountKey = JSON.stringify([meta.backend, accountId])
+    if (seenAccounts.has(accountKey)) continue
+    // The wizard prepends its active identity to the remembered list. Keep
+    // that freshest label once, rather than rendering duplicate Vue keys.
+    seenAccounts.add(accountKey)
     out.push({
       accountId,
       backend: meta.backend,

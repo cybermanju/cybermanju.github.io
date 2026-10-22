@@ -146,6 +146,23 @@ describe('setup wizard state', () => {
     expect(cards[2].hasConfig).toBe(true)
   })
 
+  it.each(['google', 'github', 'gitlab'])('renders the active %s account once with unique card keys while keeping other accounts', provider => {
+    const active = { provider, id: `${provider}:work`, name: 'Current work profile' }
+    const remembered = [
+      { ...active, name: 'Stale remembered profile' },
+      { provider, id: `${provider}:personal`, name: 'Personal' },
+      { provider: 'github', id: 'github:linked-broker-user', name: 'Linked GitHub' },
+      { provider: 'google', id: 'google:linked-broker-user', name: 'Linked Google' },
+    ]
+    // Mirrors SetupWizard's active-identity prepend before calling the helper.
+    const cards = signedProviderCards([active, ...remembered], [])
+    expect(cards).toHaveLength(4)
+    expect(cards.filter(card => card.accountId === active.id)).toHaveLength(1)
+    expect(cards[0].accountName).toBe('Current work profile')
+    expect(cards.some(card => card.accountId === `${provider}:personal`)).toBe(true)
+    expect(new Set(cards.map(card => card.accountId)).size).toBe(cards.length)
+  })
+
   it('selects the matching account config rather than another row for that backend', () => {
     const first = { backendType: 'googleDrive', accountId: 'google:first', id: 'first' }
     const second = { backendType: 'googleDrive', accountId: 'google:second', id: 'second' }
