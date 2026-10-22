@@ -25,13 +25,13 @@ describe('mobile viewport geometry', () => {
   })
 })
 describe('mobile shell interaction contracts', () => {
-  it('pins the favorite dock independently from home scroll content', () => {
+  it('pins the favorite dock in the flex viewport without fixed positioning', () => {
     const launcher = read('src/components/MobileLauncher.vue')
-    expect(launcher).toMatch(/\.mla-dock\s*\{\s*position:\s*fixed/)
-    expect(launcher).toContain('Swipe up to see all apps')
-    expect(launcher).toContain('@touchcancel.passive="resetDrawerGesture"')
-    expect(launcher).toContain(':reveal-progress="drawerProgress"')
-    expect(launcher).toContain('.mla > * { flex-shrink: 0; }')
+    expect(launcher).toContain('<HomeWorkspaceStudio')
+    expect(launcher).toContain('class="mla-dock"')
+    expect(launcher).toMatch(/\.mla-dock\s*\{[^}]*flex-shrink:\s*0/)
+    expect(launcher).not.toMatch(/\.mla-dock\s*\{[^}]*position:\s*fixed/)
+    expect(launcher).toContain('min-height: 0')
   })
   it('provides a real app grid on non-Android builds and reduced-motion support', () => {
     const drawer = read('src/components/AppDrawer.vue')

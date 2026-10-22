@@ -1,32 +1,40 @@
 // CyberManju OS — Mobile ios.test (tests/frontend/mobile-ios.test.ts).
-// iOS-aesthetic mobile contract, derived from the iOS4Android reference
-// (cloned to /tmp, never into the repo): paged springboard with dots,
-// three-zone status bar, squircle icons, dock + home indicator, and an
-// iOS-style tab bar with haptics. Pins structure, not pixels.
+// Role: preserve mobile chrome and iOS native scaffold around the canonical Orbit Home.
+// Exports: Vitest suite. Integrates: shell, launcher, workspace and iOS configuration.
+// Contracts: user pages replace the retired springboard; native iOS contracts stay unchanged.
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 
 const launcher = fs.readFileSync('src/components/MobileLauncher.vue', 'utf8')
 const nav = fs.readFileSync('src/components/MobileNav.vue', 'utf8')
 const topbar = fs.readFileSync('src/components/TopMenuBar.vue', 'utf8')
+const studio = fs.readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
 
-describe('iOS springboard pager (PageView + IconGrid homage)', () => {
-  it('chunks apps into complete rows measured from the available height', () => {
-    expect(launcher).toContain('useResizeObserver(pagerRef, measurePageCapacity)')
-    expect(launcher).toMatch(/filtered\.value\.slice\(i, i \+ pageSize\.value\)/)
+describe('canonical HomeWorkspaceStudio navigation', () => {
+  it('mounts one workspace surface and avoids the retired launcher grid', () => {
+    expect(launcher).toContain('<HomeWorkspaceStudio')
+    expect(launcher).not.toContain('mla-grid')
+    expect(launcher).not.toContain('workspaceMode')
+    expect(studio).toContain('aria-label="Personal home workspaces"')
   })
 
-  it('renders a horizontal snap pager with dots', () => {
-    expect(launcher).toContain('mla-pages')
-    expect(launcher).toContain('mla-grid')
-    expect(launcher).toMatch(/scroll-snap-type:\s*x mandatory/)
-    expect(launcher).toContain('mla-dots')
-    expect(launcher).toContain('mla-page-dot')
-    expect(launcher).toContain('goToPage')
+  it('provides accessible screen navigation and keyboard shortcuts', () => {
+    expect(studio).toContain('Home screen navigation')
+    expect(studio).toContain(':aria-current="index === activeIndex ?')
+    expect(studio).toContain('ArrowLeft')
+    expect(studio).toContain('ArrowRight')
+    expect(studio).toContain("event.key === 'Home'")
+    expect(studio).toContain("event.key === 'End'")
+    expect(studio).toContain("event.altKey && event.key.toLowerCase() === 'o'")
+    expect(studio).toContain("event.shiftKey && event.key === 'F10'")
   })
 
-  it('resets to the first page on a new search or capacity change', () => {
-    expect(launcher).toContain('watch([filtered, pageSize]')
+  it('uses responsive flex workspace and keeps motion preferences', () => {
+    expect(studio).toContain('display: flex')
+    expect(studio).toContain('min-height: 0')
+    expect(studio).toContain('prefers-reduced-motion:reduce')
+    expect(studio).toContain('useMotion()')
+    expect(studio).toContain('editing')
   })
 })
 
@@ -58,27 +66,26 @@ describe('iOS status bar + icons + dock', () => {
     )
   })
 
-  it('uses squircle icon corners with a top-light gloss', () => {
-    expect(launcher).toMatch(/\.mla-tile\s*\{[\s\S]*?border-radius:\s*16px/)
-    expect(launcher).toContain('.mla-tile::before')
-    expect(launcher).toMatch(/\.mla-dock-icon\s*\{[\s\S]*?border-radius:\s*15px/)
-  })
-
-  it('keeps springboard density tight (page 1 + dock fit a phone viewport)', () => {
-    expect(launcher).toMatch(/\.mla\s*\{[\s\S]*?gap:\s*16px/)
-    expect(launcher).toMatch(/\.mla-title\s*\{[^}]*clamp\(24px/)
-    expect(launcher).toMatch(/\.mla-grid\s*\{[\s\S]*?gap:\s*16px 7px/)
+  it('keeps one unified home search and workspace entry point', () => {
+    expect(launcher).toContain('<HomeCommandBar')
+    expect(launcher.match(/<OmniSearchPanel\b/g)).toHaveLength(1)
+    expect(launcher).toContain('v-if="searchToolsOpen"')
+    expect(studio).toContain('openPicker')
+    expect(studio).toContain('aria-label="Add apps or widgets to home"')
   })
 
   it('uses native press-dim feedback and clear app-search wording', () => {
-    expect(launcher).toMatch(/\.mla-app:active\s*\{[^}]*brightness\(0\.92\)/)
+    expect(launcher).toContain('if (longPressedHome)')
+    expect(launcher).toContain('if (contextMenuFired)')
+    expect(studio).toContain('emptyPress.newPointer')
     expect(launcher).toContain('<OmniSearchPanel ref="searchRef" home')
-    expect(launcher).toMatch(/\.mla-dock-icon\s*\{[\s\S]*?width:\s*52px/)
+    expect(launcher).toContain('HomeWorkspaceStudio')
   })
 
-  it('shows a dock and a home-indicator pill', () => {
-    expect(launcher).toContain('mla-dock')
-    expect(launcher).toContain('mla-home')
+  it('shows a flex-pinned favorites dock without fixed positioning', () => {
+    expect(launcher).toContain('class="mla-dock"')
+    expect(launcher).toMatch(/\.mla-dock\s*\{[^}]*flex-shrink:\s*0/)
+    expect(launcher).not.toMatch(/\.mla-dock\s*\{[^}]*position:\s*fixed/)
   })
 })
 

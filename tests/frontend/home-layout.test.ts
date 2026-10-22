@@ -151,12 +151,12 @@ describe('explicit home editing', () => {
     expect(layout.editing.value).toBe(false)
     expect(readHomeLayout(memory.get(HOME_LAYOUT_KEY)!)).toEqual({ free: false, offsets: {} })
   })
-  it('keeps the lower dock safe-area-aware and exposes all major movable surfaces', () => {
+  it('retains legacy geometry utilities without mounting a competing Home layout engine', () => {
     const source = readFileSync('src/components/MobileLauncher.vue', 'utf8')
-    for (const id of ['greeting', 'widget:vault', 'widget:sync', 'search', 'commands', 'dock', 'drawer']) expect(source).toContain(`data-home-item="${id}"`)
-    expect(source).toContain(':data-home-item="`app:${app.panel}`"')
-    expect(source).toContain('bottom: calc(8px + env(safe-area-inset-bottom, 0px))')
-    expect(source).toContain('homeLayout.onPointerDown')
+    expect(source).not.toMatch(/useHomeLayout|homeLayout\./)
+    expect(source).toContain('<HomeWorkspaceStudio')
+    expect(source).toContain('env(safe-area-inset-bottom, 0px)')
+    expect(source).toContain('aria-label="Favorite apps"')
     expect(source).toContain('<HomeCommandBar')
   })
 })
@@ -210,11 +210,12 @@ describe('component-space clipping and release lifecycle', () => {
     expect(layout.style('app:agent').translate).toBe('80px 70px')
     expect(readHomeLayout(memory.get(HOME_LAYOUT_KEY)!).offsets['app:agent']).toEqual({ x: 0.2, y: 0.0875 })
   })
-  it('clips edit highlights inside rounded component silhouettes', () => {
-    const source = readFileSync('src/components/MobileLauncher.vue', 'utf8')
-    expect(source).toContain('outline-offset: -1px')
-    expect(source).toContain('clip-path: inset(0 round var(--home-item-radius, 18px))')
-    expect(source).toContain('data-home-item="commands" tabindex="0"')
+  it('keeps workspace editing scoped and supplies visible keyboard focus', () => {
+    const source = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
+    expect(source).toContain('data-ui-layout-ignore')
+    expect(source).toContain('@keydown="workspaceKeys"')
+    expect(source).toContain('.workspace-content:focus-visible')
+    expect(source).toContain('outline-offset: -2px')
   })
 })
 
@@ -224,7 +225,8 @@ describe('visible surface alignment', () => {
     expect(Object.keys(state.offsets)).toEqual(['widgets', 'widget:vault', 'widget:sync'])
     const source = readFileSync('src/components/MobileLauncher.vue', 'utf8')
     expect(source).not.toContain('data-home-item="widgets"')
-    expect(source).toContain(":style=\"homeLayout.style('widgets')\"")
+    expect(source).not.toContain('homeLayout.style(')
+    expect(source).toContain('<HomeWorkspaceStudio')
   })
   it('does not add window-only mobile padding around the home search bar', () => {
     const source = readFileSync('src/components/OmniSearchPanel.vue', 'utf8')

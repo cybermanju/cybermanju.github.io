@@ -23,6 +23,6 @@ describe('Home widget library', () => {
   })
   it('keeps accessible alternatives and reduced-motion support', () => {
     const ui = fs.readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
-    for (const marker of ['aria-modal="true"','dialogKeys','Previous home screen','Next home screen','prefers-reduced-motion','Eagle view of home workspaces']) expect(ui).toContain(marker)
+    for (const marker of ['aria-modal="true"','dialogKeys','Previous home screen','Next home screen','prefers-reduced-motion','Overview of home screens']) expect(ui).toContain(marker)
   })
 })

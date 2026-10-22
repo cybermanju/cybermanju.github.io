@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 const read = (name: string) => readFileSync(`src/components/${name}.vue`, 'utf8')
 const home = read('MobileLauncher')
+const studio = read('HomeWorkspaceStudio')
 const settings = read('SettingsPage')
 const bar = read('HomeCommandBar')
 
@@ -34,28 +35,25 @@ describe('home and Settings UX regressions', () => {
     }
   })
 
-  it('keeps the same AMOLED drawer reservation before, during and after editing', () => {
-    expect(home).toContain('.mla.theme-flat-amoled,\n.mla.theme-flat-amoled.mla-layout-free {')
-    expect(home).toContain('bottom: calc(76px + env(safe-area-inset-bottom, 0px));')
-    expect(home).toContain('.mla.theme-flat-amoled.mla-layout-free.with-app-nav {')
-    expect(home).not.toContain('.mla.theme-flat-amoled:not(.mla-layout-free)')
-    expect(home).toMatch(/\.mla-layout-toolbar \{[^}]*position: absolute;/)
-    expect(home).toContain('.mla:has(.omni--home .omni-drop) { bottom: 0; padding-bottom: 0; }')
+  it('uses the full Home viewport with a separately reserved app navigation inset', () => {
+    expect(home).toMatch(/\.mla \{[^}]*inset: 0;[^}]*min-height: 0;[^}]*overflow: hidden;/)
+    expect(home).toContain('padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px))')
+    expect(home).not.toContain('mla-layout-free')
+    expect(studio).toContain('.is-editing .workspace-content { flex: 1 0 180px; }')
+    expect(studio).toMatch(/\.studio-surface \{[^}]*overflow-y: auto/)
   })
 
-  it('keeps tablet pages full-width with unchanged column count and centers the dock in both modes', () => {
-    const tablet = home.slice(home.indexOf('@media (min-width: 600px) and (max-width: 768px)'))
-      .split('/* A calm')[0]
-    expect(tablet).toContain('.mla-pages { margin: 0 -32px; flex-basis: 203px; min-height: 203px; }')
-    expect(tablet).toContain('.mla-grid { padding-inline: 32px; grid-template-columns: repeat(5, minmax(0, 1fr))')
-    expect(tablet).not.toContain(':not(.mla-layout-free)')
-    expect(tablet).toContain('left: 50%; right: auto; transform: translateX(-50%)')
-    expect(home).toMatch(/\.mla-dot-btn \{ width: 44px; height: 44px;/)
-    expect(home).toContain('.mla-dot-btn:focus-visible')
+  it('uses a responsive canonical grid and centers the independently pinned dock', () => {
+    expect(studio).toContain('grid-template-columns: repeat(4,minmax(0,1fr))')
+    expect(studio).toMatch(/@media\(min-width:600px\)[\s\S]*grid-template-columns: repeat\(5,minmax\(0,1fr\)\)/)
+    expect(home).toMatch(/\.mla-dock \{[^}]*flex-shrink: 0;[^}]*align-self: center;[^}]*max-width: 100%/)
+    expect(studio).toContain('.screen-dots button[aria-current=page]')
+    expect(studio).toContain(':focus-visible')
   })
 
-  it('describes exact placement rather than promising post-release gravity', () => {
-    expect(home).toContain('Drag to place; items stay where you release them.')
+  it('describes app-local screens and explicit move controls without promising OS gestures', () => {
+    expect(studio).toContain('Home screens only, not Android Recents.')
+    expect(studio).toContain('Move tiles using the screen selector or Eagle view.')
     expect(home).not.toContain('gravity settles items')
     expect(read('DesktopShell')).not.toContain('gravity settles them')
   })
@@ -88,7 +86,7 @@ describe('home and Settings UX regressions', () => {
   })
 
   it('compiles every changed component style', () => {
-    for (const [name, source] of Object.entries({ MobileLauncher: home, SettingsPage: settings, HomeCommandBar: bar })) {
+    for (const [name, source] of Object.entries({ MobileLauncher: home, HomeWorkspaceStudio: studio, SettingsPage: settings, HomeCommandBar: bar })) {
       const { descriptor, errors } = parse(source)
       expect(errors).toEqual([])
       for (const style of descriptor.styles) {

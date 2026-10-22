@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { homePageCapacity } from '../../src/utils/homePageCapacity'
 const home = readFileSync(new URL('../../src/components/MobileLauncher.vue', import.meta.url), 'utf8')
+const studio = readFileSync(new URL('../../src/components/HomeWorkspaceStudio.vue', import.meta.url), 'utf8')
 const drawer = readFileSync(new URL('../../src/components/AppDrawer.vue', import.meta.url), 'utf8')
 
 describe('responsive home rows', () => {
@@ -36,15 +37,13 @@ describe('responsive home rows', () => {
     expect(homePageCapacity(400, 0, 20, 5)).toBe(5)
     expect(homePageCapacity(0, 76, 20, 0)).toBe(1)
   })
-  it('measures the real flex slot, reacts to resize and resets stale page offsets', () => {
-    expect(home).toContain('useResizeObserver(pagerRef, measurePageCapacity)')
-    expect(home).toContain('watch([filtered, pageSize]')
-    expect(home).not.toContain('MLA_PAGE_SIZE')
-    expect(home).toContain('flex: 1 0 196px')
-    expect(home).toContain('pageSize.value = homePageCapacity(')
-    expect(home).toContain('if (homeLayout.free.value) return filtered.value.length ? [filtered.value] : []')
-    // Stable dots slot avoids an oscillation when adding a row removes the last page.
-    expect(home).toContain('.mla-dots-hidden { visibility: hidden; }')
+  it('lets canonical user pages survive resize and search while their content scrolls', () => {
+    expect(home).not.toMatch(/measurePageCapacity|pageSize|pagerRef/)
+    expect(studio).toContain('normalizeHomeState(load(), props.initialIds)')
+    expect(studio).toContain('state.pages')
+    expect(studio).toMatch(/\.workspace-content \{[^}]*flex: 1;[^}]*min-height: 0;[^}]*overflow-y: auto/)
+    expect(studio).toContain('grid-template-columns: repeat(5,minmax(0,1fr))')
+    expect(studio).toContain('.screen-dots { display: flex; overflow-x: auto;')
     expect(home).not.toContain('contain-intrinsic-size: auto 400px')
   })
   it('keeps drawer controls fixed and the app tail inside its own shrinking scrollport', () => {
