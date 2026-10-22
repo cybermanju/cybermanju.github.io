@@ -23,6 +23,7 @@
     </template>
     <template v-else>
       <div v-if="editing" class="screen-tools"><button type="button" :disabled="state.pages.length >= MAX_WORKSPACES" @click="newScreen">+ New screen</button><button type="button" :aria-pressed="editing" @click="toggleEditing">{{ editing ? 'Done editing' : 'Edit screen' }}</button><button type="button" @click="openPicker('widgets')">Widget library</button></div>
+      <HomeDefaultRoleAction v-if="editing" :before-request="nativeHome.suspend" />
       <label v-if="editing" class="screen-name">Screen name<input v-model="activePage.title" maxlength="40" aria-label="Screen name" /></label>
         <div :key="activePage.id" class="workspace-content" tabindex="0" aria-label="Home screen canvas"
           @pointerdown="emptyPress.down" @pointermove="emptyPress.move" @pointerleave="emptyPress.cancel" @pointerup="emptyPress.cancel" @pointercancel="emptyPress.cancel"
@@ -54,6 +55,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import HomeLocalWidget from '@/components/HomeLocalWidget.vue'
+import HomeDefaultRoleAction from '@/components/HomeDefaultRoleAction.vue'
 import { useMotion } from '@/composables/useMotion'
 import { useHomeEmptyPress } from '@/composables/useHomeEmptyPress'
 import { useAndroidApps } from '@/composables/useAndroidApps'
