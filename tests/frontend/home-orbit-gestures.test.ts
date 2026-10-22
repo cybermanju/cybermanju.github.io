@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 import { classifyHomeGesture } from '@/utils/homeWorkspaces'
+import { useHomeTouchSafety } from '@/composables/useHomeTouchSafety'
 
 const source = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
 function setup(hidden: Promise<boolean>) {
@@ -20,10 +21,10 @@ function setup(hidden: Promise<boolean>) {
   const nativeHome = { suspend: vi.fn(() => hidden), schedule: vi.fn() }, toggleOverview = vi.fn(), closeOverview = vi.fn()
   const window = new EventTarget(), unmounts: Array<() => void> = []
   const addListener = vi.spyOn(window, 'addEventListener'), removeListener = vi.spyOn(window, 'removeEventListener')
-  const handlers = new Function('nativeHome', 'props', 'picker', 'dragging', 'editing', 'overview', 'zoom', 'panX', 'panY', 'innerWidth', 'innerHeight', 'classifyHomeGesture', 'activeIndex', 'state', 'message', 'toggleOverview', 'closeOverview', 'window', 'onMounted', 'onUnmounted', 'watch', 'androidApps', `${compiled};return {touchStart,touchMove,touchEnd,resetTouch,cancelTouch,workspaceKeys};`)(nativeHome, props, picker, dragging, editing, overview, zoom, panX, panY, 390, 760, classifyHomeGesture, activeIndex, state, message, toggleOverview, closeOverview, window, (fn: () => void) => fn(), (fn: () => void) => unmounts.push(fn), vi.fn(), { supported: false })
+  const handlers = new Function('nativeHome', 'props', 'picker', 'dragging', 'editing', 'overview', 'zoom', 'panX', 'panY', 'innerWidth', 'innerHeight', 'classifyHomeGesture', 'activeIndex', 'state', 'message', 'toggleOverview', 'closeOverview', 'window', 'onMounted', 'onUnmounted', 'watch', 'androidApps', 'document', 'useHomeTouchSafety', 'emptyPress', `${compiled};return {touchStart,touchMove,touchEnd,resetTouch,cancelTouch,workspaceKeys};`)(nativeHome, props, picker, dragging, editing, overview, zoom, panX, panY, 390, 760, classifyHomeGesture, activeIndex, state, message, toggleOverview, closeOverview, window, (fn: () => void) => fn(), (fn: () => void) => unmounts.push(fn), vi.fn(), { supported: false }, new EventTarget(), useHomeTouchSafety, { click: vi.fn() })
   const target = (selector = '') => ({ closest: (s: string) => selector && selector.split(',').some(part => s.split(',').map(x => x.trim()).includes(part.trim())) ? {} : null })
   const point = (x: number, y = 300, selector = '') => ({ clientX: x, clientY: y, target: target(selector) })
-  const event = (points: ReturnType<typeof point>[], selector = '') => ({ touches: points, target: target(selector), cancelable: true, preventDefault: vi.fn(), stopPropagation: vi.fn() })
+  const event = (points: ReturnType<typeof point>[], selector = '') => ({ touches: points.map((p, identifier) => ({ ...p, identifier })), target: target(selector), cancelable: true, preventDefault: vi.fn(), stopPropagation: vi.fn() })
   return { ...handlers, props, overview, zoom, panX, panY, picker, editing, dragging, activeIndex, state, nativeHome, toggleOverview, closeOverview, point, event,
     blur: () => window.dispatchEvent(new Event('blur')), unmount: () => unmounts.forEach(fn => fn()), addListener, removeListener }
 }
@@ -202,4 +203,58 @@ describe('Orbit native-hide gesture barrier', () => {
     expect(f.nativeHome.suspend).toHaveBeenCalledTimes(2)
     expect(f.nativeHome.schedule).not.toHaveBeenCalled()
   })
+  it('accepts a staggered parallel horizontal swipe and separate finger releases', async () => {
+    const f = setup(Promise.resolve(true))
+    f.touchStart(f.event([f.point(240), f.point(270)])); await settle()
+    // Browser delivers the leading finger before the other; this is not a pinch.
+    f.touchMove(f.event([f.point(210), f.point(270)]))
+    f.touchMove(f.event([f.point(120), f.point(150)]))
+    await f.touchEnd(f.event([f.point(120)]))
+    expect(f.state.value.activeId).toBe('second')
+    await f.touchEnd(f.event([])); expect(f.state.value.activeId).toBe('third')
+    expect(f.state.value.pages).toHaveLength(3)
+  })
+  it.each(['cancel', 'move', 'readd', 'blur'])('aborts a qualified swipe on %s during separate release', async reason => {
+    const f = setup(Promise.resolve(true))
+    f.touchStart(f.event([f.point(240), f.point(270)])); await settle()
+    f.touchMove(f.event([f.point(120), f.point(150)]))
+    await f.touchEnd(f.event([f.point(120)]))
+    if (reason === 'cancel') f.cancelTouch(f.event([f.point(120)]))
+    if (reason === 'move') f.touchMove(f.event([f.point(100)]))
+    if (reason === 'readd') f.touchStart(f.event([f.point(120), f.point(150)]))
+    if (reason === 'blur') f.blur()
+    await f.touchEnd(f.event([])); expect(f.state.value.activeId).toBe('second')
+    expect(f.state.value.pages).toHaveLength(3)
+  })
+  it.each(['button', 'a', '[role="button"]', '.workspace-app'])('never enrolls a multi-contact gesture over %s', async selector => {
+    const f = setup(Promise.resolve(true))
+    f.touchStart(f.event([f.point(240, 300, selector), f.point(270)]))
+    f.touchMove(f.event([f.point(120), f.point(150)])); await f.touchEnd(f.event([]))
+    expect(f.nativeHome.suspend).not.toHaveBeenCalled(); expect(f.state.value.activeId).toBe('second')
+  })
+  it('claims a safe multi-contact move before a slow native hide, without navigating early', async () => {
+    let resolve!: (ok: boolean) => void
+    const f = setup(new Promise<boolean>(done => { resolve = done }))
+    f.touchStart(f.event([f.point(240), f.point(270)]))
+    const move = f.event([f.point(220), f.point(270)])
+    f.touchMove(move); expect(move.preventDefault).toHaveBeenCalled()
+    f.touchMove(f.event([f.point(120), f.point(150)]))
+    const ended = f.touchEnd(f.event([])); expect(f.state.value.activeId).toBe('second')
+    resolve(true); await ended; expect(f.state.value.activeId).toBe('third')
+  })
+
+  it('rejects a replaced contact even when the finger count is unchanged', async () => {
+    const f = setup(Promise.resolve(true))
+    f.touchStart(f.event([f.point(240), f.point(270)])); await settle()
+    const move = f.event([f.point(120), f.point(150)]); move.touches[1]!.identifier = 99
+    f.touchMove(move); await f.touchEnd(f.event([])); expect(f.state.value.activeId).toBe('second')
+  })
+  it('rejects movement coalesced into the last lift during frozen release', async () => {
+    const f = setup(Promise.resolve(true))
+    f.touchStart(f.event([f.point(240), f.point(270)])); await settle()
+    f.touchMove(f.event([f.point(120), f.point(150)])); await f.touchEnd(f.event([f.point(120)]))
+    await f.touchEnd({ ...f.event([]), changedTouches: [{ ...f.point(190), identifier: 0 }] })
+    expect(f.state.value.activeId).toBe('second')
+  })
+
 })

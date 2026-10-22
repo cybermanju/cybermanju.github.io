@@ -1,7 +1,7 @@
 <!-- CyberManju OS — Persistent, app-local Home workspaces. Not Android Recents. -->
 <!-- Role: app-local Home UI only. Integrates: Vue and bounded persisted workspace state. -->
 <template>
-  <section ref="root" class="home-studio" :class="{ 'motion-reduced': motion.reduced.value, 'is-editing': editing, 'is-overview': overview }" data-ui-layout-ignore data-shell-gesture-exclude @pointerdown.capture="emptyPress.newPointer" @click.capture="emptyPress.click" :inert="props.blocked" tabindex="0" @keydown="workspaceKeys" aria-label="Personal home workspaces" @touchstart.stop.passive="touchStart" @touchmove.stop="touchMove" @touchend.stop="touchEnd" @touchcancel.stop="cancelTouch">
+  <section ref="root" class="home-studio" :class="{ 'motion-reduced': motion.reduced.value, 'is-editing': editing, 'is-overview': overview }" data-ui-layout-ignore data-shell-gesture-exclude @pointerdown.capture="emptyPress.newPointer" @click.capture="homeClick" :inert="props.blocked" tabindex="0" @keydown="workspaceKeys" aria-label="Personal home workspaces" @touchstart.stop.passive="touchStart" @touchmove.stop="touchMove" @touchend.stop="touchEnd" @touchcancel.stop="cancelTouch">
     <div class="studio-surface" :inert="!!picker">
     <div class="studio-heading">
       <div><span class="studio-kicker">SCREEN {{ activeIndex + 1 }} / {{ state.pages.length }}</span><h2>{{ activePage.title }}</h2></div>
@@ -60,6 +60,7 @@ import HomeDefaultRoleAction from '@/components/HomeDefaultRoleAction.vue'
 import HomeWorkspacePreview from '@/components/HomeWorkspacePreview.vue'
 import { useMotion } from '@/composables/useMotion'
 import { useHomeEmptyPress } from '@/composables/useHomeEmptyPress'
+import { useHomeTouchSafety } from '@/composables/useHomeTouchSafety'
 import { useAndroidApps } from '@/composables/useAndroidApps'
 import { useHomeNativeWidgets } from '@/composables/useHomeNativeWidgets'
 import { widgetConfirmation, type NativeWidgetProvider, type NativeWidgetRecord } from '@/composables/useAndroidWidgets'
@@ -90,7 +91,7 @@ function itemTitle(item: HomeItem) { if (isNative(item)) return String(item.data
 function itemIcon(item: HomeItem) { if (isNative(item)) return 'solar:widget-bold'; return (item.kind === 'app' ? appFor(item.ref)?.icon : widgetFor(item.ref)?.icon) || 'solar:widget-bold' }
 watch(state, value => { try { localStorage.setItem(HOME_WORKSPACE_KEY, JSON.stringify(value)) } catch { message.value = 'Storage unavailable — changes last only for this session.' } }, { deep: true, immediate: true })
 async function navigate(index: number, epoch = gestureEpoch) { if (props.blocked || epoch !== gestureEpoch || !await nativeHome.suspend() || props.blocked || epoch !== gestureEpoch) return; if (state.value.pages[index]) { state.value.activeId = state.value.pages[index]!.id; message.value = '' } }
-async function launch(id: string) { if (props.blocked || !await nativeHome.suspend()) return; if (id.startsWith('android:')) { try { await androidApps.openApp(id.slice(8)) } catch { message.value = 'This Android app is unavailable. Try refreshing All apps.' } } else if (props.apps.some(app => app.id === id)) emit('open', id); else message.value = 'This app is unavailable. Open All apps to choose another.' }
+async function launch(id: string) { const epoch = gestureEpoch; if (props.blocked || !await nativeHome.suspend() || props.blocked || epoch !== gestureEpoch) return; if (id.startsWith('android:')) { try { await androidApps.openApp(id.slice(8)) } catch { message.value = 'This Android app is unavailable. Try refreshing All apps.' } } else if (props.apps.some(app => app.id === id)) emit('open', id); else message.value = 'This app is unavailable. Open All apps to choose another.' }
 async function customize(id: string) { if (props.blocked || !await nativeHome.suspend()) return; if (!id.startsWith('android:')) emit('customize', id); else message.value = 'Customize Android apps in All apps.' }
 function hasItem(kind: HomeItem['kind'], id: string) { return activePage.value.items.some(i => i.kind === kind && i.ref === id) }
 function add(kind: HomeItem['kind'], id: string) { const item = { id: globalThis.crypto?.randomUUID?.() || `item-${Date.now()}-${Math.random().toString(36).slice(2)}`, kind, ref: id }; if (hasItem(kind, id)) return; message.value = addHomeItem(state.value, activePage.value.id, item) ? 'Added to this screen.' : `This screen is full (${MAX_ITEMS_PER_WORKSPACE} items). Choose another screen.` }
@@ -126,12 +127,15 @@ async function selectScreen(index: number) { if (props.blocked || !await nativeH
 const dragging = ref<{ id: string; from: string; x: number; y: number } | null>(null)
 function beginDrag(event: PointerEvent, item: HomeItem, from: string) { if (event.button !== 0 || !overview.value) return; event.stopPropagation(); dragging.value = { id: item.id, from, x: event.clientX, y: event.clientY }; (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId) }
 function finishDrag(event: PointerEvent) { if (!dragging.value) return; const drag = dragging.value; dragging.value = null; if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 12) return; const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-workspace-id]')?.dataset.workspaceId; if (target && target !== drag.from) message.value = moveHomeItem(state.value, drag.id, drag.from, target) ? 'Tile moved.' : 'Destination is full or already contains this item.' }
-let gesture: { x: number; y: number; fingers: number; lastX: number; lastY: number; distance: number; zoom: number; panX: number; panY: number; hidden: Promise<boolean>; ready: boolean; epoch: number; inOverview: boolean; moved: boolean } | null = null
+let gesture: { x: number; y: number; fingers: number; lastX: number; lastY: number; distance: number; zoom: number; panX: number; panY: number; hidden: Promise<boolean>; ready: boolean; epoch: number; inOverview: boolean; moved: boolean; releasing: boolean; contacts: { id: number; x: number; y: number }[] } | null = null
+const touchSafety = useHomeTouchSafety()
+function homeClick(event: MouseEvent) { touchSafety.click(event); if (!event.defaultPrevented) emptyPress.click(event) }
 let gestureEpoch = 0, touchCount = 0, touchBlocked = false
 function center(touches: TouchList) { const points = Array.from(touches); return { x: points.reduce((a, p) => a + p.clientX, 0) / points.length, y: points.reduce((a, p) => a + p.clientY, 0) / points.length } }
 function distance(touches: TouchList) { return touches.length >= 2 ? Math.hypot(touches[0]!.clientX - touches[1]!.clientX, touches[0]!.clientY - touches[1]!.clientY) : 0 }
-function excludedTouchTarget(target: EventTarget | null) { return (target as HTMLElement | null)?.closest?.('input,textarea,select,[contenteditable],.workspace-widget,[data-native-placement],.studio-picker') }
+function excludedTouchTarget(target: EventTarget | null) { return (target as HTMLElement | null)?.closest?.('button,a,input,textarea,select,[contenteditable],[role="button"],.workspace-app,.workspace-widget,[data-native-placement],.studio-picker') }
 function touchStart(event: TouchEvent) {
+  touchSafety.start(event)
   // A sequence ends only after all contacts lift; never re-enroll an invalid sequence.
   const starting = touchCount === 0
   touchCount = event.touches.length
@@ -142,22 +146,26 @@ function touchStart(event: TouchEvent) {
   // Every contact must start inside the safe area, not merely its centroid.
   if (Array.from(event.touches).some(p => p.clientX < 24 || p.clientX > innerWidth - 24 || p.clientY < 24 || p.clientY > innerHeight - 32)) { resetTouch(); return }
   // Allow 1 -> 2 -> 3 initial formation, but a count change after movement cancels everything.
-  if (gesture && (gesture.moved || touchCount <= gesture.fingers)) { resetTouch(); return }
+  if (gesture && (gesture.releasing || gesture.moved || touchCount <= gesture.fingers)) { resetTouch(); return }
   if (touchCount === 1 && ((event.target as HTMLElement).closest('button,a') || overview.value)) return
   const point = center(event.touches)
-  const current = { ...point, fingers: touchCount, lastX: point.x, lastY: point.y, distance: distance(event.touches), zoom: zoom.value, panX: panX.value, panY: panY.value, hidden: gesture?.hidden ?? nativeHome.suspend(), ready: false, epoch: gestureEpoch, inOverview: overview.value, moved: false }
+  const current = { ...point, fingers: touchCount, lastX: point.x, lastY: point.y, distance: distance(event.touches), zoom: zoom.value, panX: panX.value, panY: panY.value, hidden: gesture?.hidden ?? nativeHome.suspend(), ready: false, epoch: gestureEpoch, inOverview: overview.value, moved: false, releasing: false, contacts: Array.from(event.touches, p => ({ id: p.identifier, x: p.clientX, y: p.clientY })) }
   gesture = current
   void current.hidden.then(ok => { if (gesture !== current || current.epoch !== gestureEpoch) return; current.ready = ok; if (!ok) resetTouch() })
 }
 function touchMove(event: TouchEvent) {
+  touchSafety.move(event)
   touchCount = event.touches.length
   if (touchBlocked) return
   if (props.blocked || !gesture || picker.value || editing.value) { resetTouch(); return }
-  if (touchCount !== gesture.fingers) { resetTouch(); return }
-  gesture.moved = true
+  if (gesture.releasing || dragging.value || touchCount !== gesture.fingers || Array.from(event.touches).some(p => !gesture!.contacts.some(c => c.id === p.identifier))) { resetTouch(); return }
   const point = center(event.touches)
   gesture.lastX = point.x; gesture.lastY = point.y
-  if (gesture.fingers === 2 && !overview.value && Math.abs(distance(event.touches) / Math.max(1, gesture.distance) - 1) > .15) { resetTouch(); return }
+  gesture.moved ||= Math.hypot(point.x - gesture.x, point.y - gesture.y) > 10
+  gesture.contacts = Array.from(event.touches, p => ({ id: p.identifier, x: p.clientX, y: p.clientY }))
+  // Claim only safe multi-contact sequences, even while native hide is pending.
+  // Do not mistake the leading finger of a parallel swipe for a transient pinch.
+  if (gesture.fingers >= 2 && event.cancelable) event.preventDefault()
   if (gesture.fingers === 2 && overview.value && gesture.ready) {
     if (event.cancelable) event.preventDefault()
     zoom.value = Math.max(.65, Math.min(1.4, gesture.zoom * distance(event.touches) / Math.max(1, gesture.distance)))
@@ -165,10 +173,33 @@ function touchMove(event: TouchEvent) {
     panY.value = Math.max(-300, Math.min(300, gesture.panY + point.y - gesture.y))
   } else if (gesture.ready && classifyHomeGesture(point.x - gesture.x, point.y - gesture.y, gesture.fingers) && event.cancelable) event.preventDefault()
 }
-function currentGesture(current: NonNullable<typeof gesture>) { return current.epoch === gestureEpoch && !props.blocked && !picker.value && !editing.value }
+function currentGesture(current: NonNullable<typeof gesture>) { return current.epoch === gestureEpoch && !props.blocked && !picker.value && !editing.value && !dragging.value }
 async function touchEnd(event: TouchEvent) {
+  touchSafety.end(event)
   touchCount = event.touches.length
-  if (touchCount) { resetTouch(); return }
+  if (gesture?.releasing && [...Array.from(event.touches), ...Array.from(event.changedTouches || [])].some(point => {
+    const contact = gesture!.contacts.find(c => c.id === point.identifier)
+    return !contact || Math.hypot(point.clientX - contact.x, point.clientY - contact.y) > 10
+  })) { resetTouch(); return }
+  if (gesture && !gesture.releasing) {
+    // Include a coalesced final move, using stable contact identities.
+    for (const point of Array.from(event.changedTouches || [])) {
+      const contact = gesture.contacts.find(c => c.id === point.identifier)
+      if (!contact) { resetTouch(); return }
+      contact.x = point.clientX; contact.y = point.clientY
+    }
+    gesture.lastX = gesture.contacts.reduce((sum, c) => sum + c.x, 0) / gesture.fingers
+    gesture.lastY = gesture.contacts.reduce((sum, c) => sum + c.y, 0) / gesture.fingers
+    const [a, b] = gesture.contacts
+    if (gesture.fingers === 2 && !gesture.inOverview && Math.abs(Math.hypot(a!.x - b!.x, a!.y - b!.y) - gesture.distance) > Math.max(24, gesture.distance * .15)) { resetTouch(); return }
+  }
+  if (touchCount) {
+    // Real fingers lift separately. Freeze an already-qualified swipe until all
+    // contacts lift; movement, re-addition or cancel during this phase aborts it.
+    if (!gesture || !classifyHomeGesture(gesture.lastX - gesture.x, gesture.lastY - gesture.y, gesture.fingers) || Array.from(event.touches).some(p => !gesture!.contacts.some(c => c.id === p.identifier))) { resetTouch(); return }
+    gesture.releasing = true
+    return
+  }
   touchBlocked = false
   const current = gesture
   gesture = null
@@ -186,9 +217,10 @@ async function touchEnd(event: TouchEvent) {
   dragging.value = null
   nativeHome.schedule()
 }
-function cancelTouch(event: TouchEvent) { touchCount = event.touches.length; resetTouch() }
+function cancelTouch(event: TouchEvent) { touchSafety.cancel(event); touchCount = event.touches.length; resetTouch() }
 function resetTouch() { gestureEpoch++; gesture = null; dragging.value = null; touchBlocked = touchCount > 0 }
-onMounted(() => { window.addEventListener('blur', resetTouch); if (androidApps.supported) void androidApps.refresh().catch(() => {}) })
+function invalidateTouch() { touchSafety.cancel(); resetTouch() }
+onMounted(() => { window.addEventListener('blur', invalidateTouch); document.addEventListener('visibilitychange', invalidateTouch); if (androidApps.supported) void androidApps.refresh().catch(() => {}) })
 function removeApp(id: string) { for (const page of state.value.pages) { const item = page.items.find(i => i.kind === 'app' && i.ref === id); if (item) removeHomeItem(state.value, page.id, item.id) } }
 function reorderApp(id: string, direction: -1 | 1) { const items = activePage.value.items; const from = items.findIndex(i => i.kind === 'app' && i.ref === id); const target = from + direction; if (from < 0 || target < 0 || target >= items.length) return; const [item] = items.splice(from, 1); items.splice(target, 0, item!) }
 async function newScreen() { if (!await nativeHome.suspend()) return; message.value = createHomeWorkspace(state.value) ? 'New screen saved on this device.' : '24-screen limit reached.'; overview.value = false }
@@ -227,8 +259,8 @@ async function removeNativeRecord(record: NativeWidgetRecord) { const confirmati
 function restoreNative(record: NativeWidgetRecord) { const item: HomeItem = { id: record.placementId, kind: 'widget', ref: `native:${record.placementId}`, data: { provider: record.provider, label: nativeLabel(record.provider).slice(0, 200), heightDp: Math.max(1, record.heightDp || 180), widthDp: Math.max(1, record.widthDp || 280) } }; message.value = addHomeItem(state.value, activePage.value.id, item) ? 'Saved placement restored to this screen.' : 'Cannot restore: this screen is full or placement already exists.' }
 async function editScreen() { if (await nativeHome.suspend()) editing.value = true }
 defineExpose({ removeApp, reorderApp, hideNative: nativeHome.suspend, editScreen })
-watch(() => [props.blocked, picker.value, editing.value], () => resetTouch(), { flush: 'sync' })
-onUnmounted(() => { window.removeEventListener('blur', resetTouch); resetTouch() })
+watch(() => [props.blocked, picker.value, editing.value], () => invalidateTouch(), { flush: 'sync' })
+onUnmounted(() => { window.removeEventListener('blur', invalidateTouch); document.removeEventListener('visibilitychange', invalidateTouch); invalidateTouch() })
 </script>
 <style scoped>
 .home-studio { --hw-bg: var(--ui-bg); --hw-surface: var(--ui-surface); --hw-text: var(--ui-text); --hw-muted: var(--ui-text-3); --hw-accent: var(--ui-accent); --hw-line: var(--ui-border); color: var(--hw-text); background: transparent; border: 0; border-radius: 0; padding: 8px 0 0; min-width: 0; min-height: 0; position: relative; flex: 1 1 0; display: flex; flex-direction: column; }

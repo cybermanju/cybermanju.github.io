@@ -995,13 +995,12 @@ onUnmounted(() => {
 .mobile-only-launcher { display: none !important; }
 @media (max-width: 768px) {
   .mobile-only-launcher { display: flex !important; }
-  /* The empty workspace stacks above the launcher. Let taps pass through it,
-     while keeping the fullscreen app sheets themselves interactive. */
-  .desktop-workspace { pointer-events: none; }
-  .desktop-workspace :deep(.app-window) { pointer-events: auto; }
+  /* Both window hosts stack above Home, including an empty strip. Only real
+     app sheets own hit regions; transparent host space must pass through. */
+  .desktop-workspace, .desktop-strip { pointer-events: none; }
+  .desktop-workspace :deep(.app-window), .desktop-strip :deep(.app-window) { pointer-events: auto; }
   .desktop-icons { display: none; }
 }
-
 /* Shared, static ambient light: custom wallpaper images remain visible above
    the fallback gradient. Only this soft wash sits over a custom image. */
 .desktop-shell--modern-glass .desktop-wallpaper {
