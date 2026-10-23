@@ -6,19 +6,38 @@ import { computed, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useAndroidWidgets } from '@/composables/useAndroidWidgets'
 import { nativeWidgetBounds } from '@/utils/nativeWidgetGeometry'
 import type { HomeWorkspaceState } from '@/utils/homeWorkspaces'
+// The host starts hidden and only this coordinator issues visible layouts.
+// Keep visibility debt and command ordering across Home remounts: a timed-out
+// layout or failed unmount hide can leave a native view owned by the Activity.
+// The session marker also survives a WebView reload without Activity recreation.
+const visibilityKey = 'cybermanju.home.native-widget-visible.v1'
+function savedVisibilityDebt() { try { return sessionStorage.getItem(visibilityKey) !== null } catch { return true } }
+let chain = Promise.resolve(), hideInFlight: Promise<boolean> | null = null, mayBeVisible = savedVisibilityDebt()
+function enqueue<T>(action: () => Promise<T>): Promise<T> { const job = chain.then(action); chain = job.then(() => {}, () => {}); return job }
 export function useHomeNativeWidgets(root: Ref<HTMLElement | undefined>, state: Ref<HomeWorkspaceState>, blocked: () => boolean) {
   const bridge = useAndroidWidgets()
   const placementMessages = ref<Record<string, string>>({})
   const activeNative = computed(() => state.value.pages.find(p => p.id === state.value.activeId)?.items.filter(i => i.kind === 'widget' && i.ref.startsWith('native:')) || [])
   let generation = 0, timer: ReturnType<typeof setTimeout> | undefined
-  let chain = Promise.resolve(), hideInFlight: Promise<boolean> | null = null, mayBeVisible = true, destroyed = false
-  function enqueue<T>(action: () => Promise<T>): Promise<T> { const job = chain.then(action); chain = job.then(() => {}, () => {}); return job }
+  let destroyed = false
   function requestHide(force = false): Promise<boolean> {
     if (!bridge.supported) return Promise.resolve(true)
-    if (hideInFlight) return hideInFlight
+    // A best-effort lifecycle hide must not gate apps when no layout was sent.
+    // suspend invalidates queued layouts before taking this fast path.
     if (!force && !mayBeVisible) return Promise.resolve(true)
-    mayBeVisible = false
-    hideInFlight = enqueue(() => bridge.hide()).then(ok => { if (!ok) mayBeVisible = true; return ok }).finally(() => { hideInFlight = null })
+    if (hideInFlight) return hideInFlight
+    hideInFlight = enqueue(async () => {
+      try {
+        // The bridge treats unsupported hide as a no-op success, not a host
+        // acknowledgment. That is insufficient once a view may be attached.
+        if (mayBeVisible && bridge.status.value === 'unsupported') return false
+        if (await bridge.hide()) {
+          mayBeVisible = false
+          try { sessionStorage.removeItem(visibilityKey) } catch { /* A stale marker stays conservative on reload. */ }
+        }
+      } catch { /* Unknown hide outcome cannot discharge existing visibility debt. */ }
+      return !mayBeVisible
+    }).finally(() => { hideInFlight = null })
     return hideInFlight
   }
   function suspend(force = false): Promise<boolean> { generation++; clearTimeout(timer); return requestHide(force) }
@@ -58,6 +77,13 @@ export function useHomeNativeWidgets(root: Ref<HTMLElement | undefined>, state: 
       if (!bounds) { messages[item.id] = 'Native bounds are not aligned or the provider minimum does not fit. Reset page zoom, resize or rotate; no widget was overlaid.'; continue }
       await enqueue(async () => {
         if (token !== generation || !canRender()) return
+        // No await between the stale-generation check, debt and dispatch. A
+        // queued layout is canceled by suspend; a sent one needs confirmed hide,
+        // even if its response fails or times out after the host attached it.
+        try { sessionStorage.setItem(visibilityKey, '1') } catch {
+          messages[item.id] = 'Native widget stays hidden because safe visibility recovery could not be saved. Restore session storage and check status.'
+          return
+        }
         mayBeVisible = true
         const ok = await bridge.layout({ appWidgetId: record.appWidgetId, visible: true, workspaceId: state.value.activeId, ...bounds })
         if (!ok) messages[item.id] = 'The provider refused this placement. Edit the widget size and check status.'
