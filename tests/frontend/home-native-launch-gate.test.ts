@@ -227,11 +227,17 @@ describe('Home native-widget launch gate', () => {
     expect(document.body.querySelector('[role="alert"]')?.textContent).toBe('')
   })
 
-  it('orders a remounted owner hide after the previous owner in-flight layout', async () => {
+  it.each(['ok', 'failure'] as const)('orders a remounted owner hide after the previous owner in-flight layout and requires a fresh %s acknowledgment', async recoveryMode => {
     let finish!: (value: unknown) => void
+    let acknowledgeHide!: (value: unknown) => void
+    let rejectHide!: (reason: Error) => void
+    let holdRecovery = false
     const transport = native.invoke.getMockImplementation()!
-    native.invoke.mockImplementation((command, args) => args.action === 'layout'
-      ? new Promise(resolve => { finish = resolve }) : transport(command, args))
+    native.invoke.mockImplementation((command, args) => {
+      if (args.action === 'layout') return new Promise(resolve => { finish = resolve })
+      if (args.action === 'hide' && holdRecovery) return new Promise((resolve, reject) => { acknowledgeHide = resolve; rejectHide = reject })
+      return transport(command, args)
+    })
     const previous = mountStudio({ widget: true })
     await settleWidget()
     const hidesBefore = actions('hide').length
@@ -245,11 +251,35 @@ describe('Home native-widget launch gate', () => {
     await flushPromises()
     expect(actions('hide').length).toBeGreaterThan(hidesBefore)
     expect(wrapper.emitted('open')).toBeUndefined()
-    hideMode = 'ok'
-    await vi.advanceTimersByTimeAsync(1); await flushPromises()
-    expect(await (wrapper.vm as unknown as { hideNative: () => Promise<boolean> }).hideNative()).toBe(true)
+    expect(sessionStorage.getItem(visibilityKey)).toBe('1')
+    // Mount refresh can schedule another hide through a dynamic IPC import.
+    // Drain that failed lifecycle attempt before requesting a distinct retry;
+    // a 1 ms timer tick cannot prove the old hide has actually completed.
+    await vi.waitFor(() => expect(actions('providers')).toHaveLength(2))
+    await vi.dynamicImportSettled(); await flushPromises()
+    expect(await (wrapper.vm as unknown as { hideNative: () => Promise<boolean> }).hideNative()).toBe(false)
+    await vi.dynamicImportSettled(); await flushPromises()
+    const hidesAfterFailure = actions('hide').length
+    holdRecovery = true
+    const recovery = (wrapper.vm as unknown as { hideNative: () => Promise<boolean> }).hideNative()
+    await vi.dynamicImportSettled(); await flushPromises()
+    expect(actions('hide')).toHaveLength(hidesAfterFailure + 1)
+    // A launch while the retry is pending must join it, not bypass it.
     await click(wrapper)
-    expect(wrapper.emitted('open')).toEqual([['files']])
+    expect(wrapper.emitted('open')).toBeUndefined()
+    expect(native.openApp).not.toHaveBeenCalled()
+    expect(sessionStorage.getItem(visibilityKey)).toBe('1')
+    expect(actions('hide')).toHaveLength(hidesAfterFailure + 1)
+    if (recoveryMode === 'ok') acknowledgeHide(reply('hide'))
+    else rejectHide(new Error('auth: widget actions require the unlocked foreground app'))
+    expect(await recovery).toBe(recoveryMode === 'ok')
+    await flushPromises()
+    expect(sessionStorage.getItem(visibilityKey)).toBe(recoveryMode === 'ok' ? null : '1')
+    expect(wrapper.emitted('open')).toEqual(recoveryMode === 'ok' ? [['files']] : undefined)
+    if (recoveryMode === 'failure') expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('No app was opened.')
+    holdRecovery = false; hideMode = 'ok'
+    await click(wrapper)
+    expect(wrapper.emitted('open')).toEqual(recoveryMode === 'ok' ? [['files'], ['files']] : [['files']])
   })
 
   it('does not open again when an unnecessary startup hide eventually acknowledges', async () => {
