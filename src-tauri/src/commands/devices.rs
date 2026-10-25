@@ -7,6 +7,7 @@
 // sync lan scanner; State<AppState> locks mirror the cron module.
 // Contracts: trusted-local transport (same posture as the rest of IPC);
 // revocation is still admin-gated on the REST path.
+use redb::ReadableTable;
 use tauri::State;
 
 use crate::AppState;
