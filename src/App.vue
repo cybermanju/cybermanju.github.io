@@ -113,21 +113,26 @@ const drag = useDrag()
 const { toggle: toggleFullscreen } = useFullscreen()
 
 const touchConfig = useTouchConfig({ autoDetect: true })
+function dispatchFileManagerAction(action: 'sidebar' | 'select' | 'context-menu' | 'zoom-in' | 'zoom-out' | 'scroll-up' | 'scroll-down' | 'paste' | 'sort' | 'view', value?: string) {
+  const windowId = wm.activeWindow.value?.id
+  if (!windowId) return
+  window.dispatchEvent(new CustomEvent('cybermanju:file-manager-action', { detail: { action, value, windowId } }))
+}
 touchConfig.onAction((action: TouchAction) => {
   const actionMap: Record<string, () => void> = {
-    toggle_sidebar: () => {},
+    toggle_sidebar: () => dispatchFileManagerAction('sidebar'),
     toggle_palette: () => { store.commandPaletteOpen = !store.commandPaletteOpen },
     toggle_help: () => { store.showShortcutsHelp = !store.showShortcutsHelp },
     focus_search: () => { wm.open('search') },
     go_back: () => navigateInHistory(-1),
     go_forward: () => navigateInHistory(1),
     go_home: () => { store.currentPanel = 'landing' },
-    prev_panel: () => {},
-    next_panel: () => {},
+    prev_panel: () => { wm.focusPrev() },
+    next_panel: () => { wm.focusNext() },
     open_trash: () => { wm.open('trash'); store.fetchTrashItems() },
     open_activity: () => { wm.open('activity'); store.fetchAuditLog() },
-    open_collections: () => { wm.open('search') },
-    open_faces: () => { wm.open('search') },
+    open_collections: () => { wm.open('collections') },
+    open_faces: () => { wm.open('faces') },
     open_map: () => { wm.open('map') },
     open_code: () => { wm.open('editor') },
     open_settings: () => { wm.open('settings') },
@@ -141,13 +146,13 @@ touchConfig.onAction((action: TouchAction) => {
     toggle_fullscreen: () => {
       toggleFullscreen().catch(() => {})
     },
-    context_menu: () => {},
-    select_item: () => {},
-    zoom_in: () => {},
-    zoom_out: () => {},
+    context_menu: () => dispatchFileManagerAction('context-menu'),
+    select_item: () => dispatchFileManagerAction('select'),
+    zoom_in: () => dispatchFileManagerAction('zoom-in'),
+    zoom_out: () => dispatchFileManagerAction('zoom-out'),
     none: () => {},
-    scroll_up: () => window.scrollBy(0, -100),
-    scroll_down: () => window.scrollBy(0, 100),
+    scroll_up: () => dispatchFileManagerAction('scroll-up'),
+    scroll_down: () => dispatchFileManagerAction('scroll-down'),
     // ── Niri strip + overview gestures ──────────────────────────
     // Three fingers up zooms out to every screen; two fingers travel the
     // strip (left/right along the columns, up/down between lines). Outside
@@ -242,7 +247,7 @@ watch(shortcutOverrides, (v) => {
   localStorage.setItem('cybermanju_keybindings', JSON.stringify(v))
 }, { deep: true })
 
-shortcuts.on('toggle_sidebar', () => {})
+shortcuts.on('toggle_sidebar', () => dispatchFileManagerAction('sidebar'))
 shortcuts.on('toggle_palette', () => { store.commandPaletteOpen = !store.commandPaletteOpen })
 shortcuts.on('toggle_help', () => { store.showShortcutsHelp = !store.showShortcutsHelp })
 shortcuts.on('focus_search', () => { wm.open('search') })
@@ -319,8 +324,8 @@ shortcuts.on('snap_up', () => { snapFocused('up') })
 shortcuts.on('snap_down', () => { snapFocused('down') })
 shortcuts.on('open_trash', () => { wm.open('trash'); store.fetchTrashItems() })
 shortcuts.on('open_activity', () => { wm.open('activity'); store.fetchAuditLog() })
-shortcuts.on('open_collections', () => { wm.open('search') })
-shortcuts.on('open_faces', () => { wm.open('search') })
+shortcuts.on('open_collections', () => { wm.open('collections') })
+shortcuts.on('open_faces', () => { wm.open('faces') })
 shortcuts.on('open_map', () => { wm.open('map') })
 shortcuts.on('open_code', () => { wm.open('code') })
 shortcuts.on('open_settings', () => { wm.open('settings') })
@@ -415,21 +420,21 @@ ctx.registerContext('file_grid_item', [
 
 ctx.registerContext('file_grid_bg', [
   { id: 'new_folder', label: 'NEW FOLDER', icon: 'solar:add-folder-bold', shortcut: shortcuts.getShortcut('new_folder'), action: () => { store.createFolderPromptOpen = true } },
-  { id: 'paste', label: 'PASTE', icon: 'solar:clipboard-paste-bold', shortcut: shortcuts.getShortcut('paste'), action: () => {} },
+  { id: 'paste', label: 'PASTE', icon: 'solar:clipboard-paste-bold', shortcut: shortcuts.getShortcut('paste'), action: () => dispatchFileManagerAction('paste') },
   { id: 'div1', label: '', divider: true },
   {
     id: 'sort', label: 'SORT BY', icon: 'solar:sort-bold', submenu: [
-      { id: 'sort_name', label: 'NAME', icon: 'solar:sort-alphabetically-bold', action: () => { (store as any).sortBy = 'name' } },
-      { id: 'sort_date', label: 'DATE', icon: 'solar:calendar-bold', action: () => { (store as any).sortBy = 'date' } },
-      { id: 'sort_size', label: 'SIZE', icon: 'solar:sort-from-top-to-bottom-bold', action: () => { (store as any).sortBy = 'size' } },
-      { id: 'sort_type', label: 'TYPE', icon: 'solar:file-type-bold', action: () => { (store as any).sortBy = 'type' } },
+      { id: 'sort_name', label: 'NAME', icon: 'solar:sort-alphabetically-bold', action: () => dispatchFileManagerAction('sort', 'name') },
+      { id: 'sort_date', label: 'DATE', icon: 'solar:calendar-bold', action: () => dispatchFileManagerAction('sort', 'date') },
+      { id: 'sort_size', label: 'SIZE', icon: 'solar:sort-from-top-to-bottom-bold', action: () => dispatchFileManagerAction('sort', 'size') },
+      { id: 'sort_type', label: 'TYPE', icon: 'solar:file-type-bold', action: () => dispatchFileManagerAction('sort', 'type') },
     ]
   },
   {
     id: 'view', label: 'VIEW MODE', icon: 'solar:grid-2x2-bold', submenu: [
-      { id: 'view_grid', label: 'GRID', icon: 'solar:grid-3x3-bold', action: () => { wm.open('files'); store.viewMode = 'grid' } },
-      { id: 'view_list', label: 'LIST', icon: 'solar:list-bold', action: () => { wm.open('files'); store.viewMode = 'list' } },
-      { id: 'view_masonry', label: 'MASONRY', icon: 'solar:columns-3-bold', action: () => { wm.open('files'); store.viewMode = 'masonry' } },
+      { id: 'view_grid', label: 'GRID', icon: 'solar:grid-3x3-bold', action: () => { wm.open('files'); store.viewMode = 'grid'; dispatchFileManagerAction('view', 'grid') } },
+      { id: 'view_list', label: 'LIST', icon: 'solar:list-bold', action: () => { wm.open('files'); store.viewMode = 'list'; dispatchFileManagerAction('view', 'list') } },
+      { id: 'view_masonry', label: 'MASONRY', icon: 'solar:columns-3-bold', action: () => { wm.open('files'); store.viewMode = 'masonry'; dispatchFileManagerAction('view', 'masonry') } },
     ]
   },
   { id: 'div2', label: '', divider: true },
@@ -458,9 +463,6 @@ ctx.registerContext('sidebar_node', [
   { id: 'div2', label: '', divider: true },
   { id: 'paste_into', label: 'PASTE INTO', icon: 'solar:clipboard-paste-bold', action: (d) => d?.pasteInto?.() },
   { id: 'div3', label: '', divider: true },
-  { id: 'expand', label: 'EXPAND ALL', icon: 'solar:chevrons-up-down-bold', action: (d) => d?.expandAll?.() },
-  { id: 'collapse', label: 'COLLAPSE ALL', icon: 'solar:chevrons-down-up-bold', action: (d) => d?.collapseAll?.() },
-  { id: 'div4', label: '', divider: true },
   { id: 'delete', label: 'DELETE', icon: 'solar:trash-bin-trash-bold', action: (d) => d?.delete?.() },
 ])
 
@@ -468,9 +470,6 @@ ctx.registerContext('sidebar_bg', [
   { id: 'new_folder', label: 'NEW FOLDER', icon: 'solar:add-folder-bold', shortcut: shortcuts.getShortcut('new_folder'), action: () => { store.createFolderPromptOpen = true } },
   { id: 'refresh', label: 'REFRESH', icon: 'solar:refresh-bold', shortcut: shortcuts.getShortcut('refresh'), action: () => store.fetchFiles() },
   { id: 'div1', label: '', divider: true },
-  { id: 'expand', label: 'EXPAND ALL', icon: 'solar:chevrons-up-down-bold', action: () => {} },
-  { id: 'collapse', label: 'COLLAPSE ALL', icon: 'solar:chevrons-down-up-bold', action: () => {} },
-  { id: 'div2', label: '', divider: true },
   { id: 'show_trash', label: 'SHOW TRASH', icon: 'solar:trash-bin-trash-bold', action: () => { wm.open('trash'); store.fetchTrashItems() } },
   { id: 'show_storage', label: 'STORAGE DASHBOARD', icon: 'solar:database-bold', action: () => { wm.open('storage') } },
 ])
@@ -742,6 +741,10 @@ function closePopupNow() {
   closeOAuthPopup()
 }
 
+function flushOnBackground() {
+  if (document.hidden) void flushVolumeMirror()
+}
+
 onMounted(() => {
   if (isPopupMode) {
     document.title = 'Completing sign-in — CyberManju OS'
@@ -825,6 +828,7 @@ onMounted(() => {
   window.addEventListener('keydown', openEditor)
   window.addEventListener('keydown', openAgent)
   window.addEventListener('pagehide', () => void flushVolumeMirror())
+  if (isAndroidApp()) document.addEventListener('visibilitychange', flushOnBackground)
   // ── Android: system back button + offline state ────────────────
   // The WebView has no Esc key: map the platform back gesture to the same
   // history action as the desktop `go_back` shortcut (dialogs first, then
@@ -863,6 +867,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('popstate', handleAndroidBack)
   window.removeEventListener('online', handleOnlineStatus)
   window.removeEventListener('offline', handleOnlineStatus)
+  document.removeEventListener('visibilitychange', flushOnBackground)
   window.removeEventListener('cybermanju:android-home', handleAndroidHome)
   delete (window as unknown as Record<string, unknown>).__CYBERMANJU_HOME_READY__
 })

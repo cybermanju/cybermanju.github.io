@@ -18,9 +18,13 @@
         <span v-if="dbBackend" class="am-chip" :class="dbBackend === 'memory' ? 'is-warn' : 'is-ok'">
           <AppIcon name="solar:database-bold" :size="12" /> {{ dbBackend === 'memory' ? 'Session database' : dbBackend + ' database' }}
         </span>
-        <button class="am-btn" type="button" :disabled="refreshing" @click="refresh">
-          <AppIcon name="solar:restart-bold" :size="13" /> {{ refreshing ? 'Refreshing…' : 'Refresh' }}
+        <button class="am-btn am-mobile-refresh" type="button" aria-label="Refresh accounts" :disabled="refreshing" @click="refresh">
+          <AppIcon name="solar:restart-bold" :size="15" /> <span>Refresh</span>
         </button>
+        <div class="mobile-panel-actions">
+          <button type="button" aria-label="Minimize accounts" @click="emit('minimize')"><AppIcon name="solar:minus-bold" :size="18" /></button>
+          <button type="button" aria-label="Close accounts" @click="emit('close')"><AppIcon name="solar:close-bold" :size="18" /></button>
+        </div>
       </div>
     </header>
 
@@ -790,6 +794,7 @@ import { openExternalUrl } from '@/utils/openExternal'
 
 const store = useAppStore()
 const wm = useWindowManager()
+const emit = defineEmits<{ close: []; minimize: [] }>()
 
 /** Roving-tabindex arrow-key navigation for the tab bar. */
 function onTabsKey(e: KeyboardEvent) {
@@ -3316,5 +3321,47 @@ label.small:has(input[type='checkbox']) {
   .am-login-label, .am-login-sub { overflow-wrap: anywhere; }
   .am-flyout { overflow: hidden; }
   .am-flyout-scroll { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  .am-top {
+    min-height: 76px;
+    padding: 12px 16px;
+    background: var(--ui-surface);
+    border-bottom-color: var(--ui-hairline);
+  }
+  .am-brand-mark { display: none; }
+  .am-title { font-size: 24px; line-height: 1.15; font-weight: 750; letter-spacing: -0.03em; }
+  .am-subtitle { font-size: 12px; }
+  .am-top-actions { gap: 6px; }
+  .am-top-actions > .am-btn { min-height: 40px; }
+  .am-mobile-refresh { width: 40px; min-width: 40px; padding: 0; justify-content: center; }
+  .am-mobile-refresh span { display: none; }
+  .am-hero { margin: 10px 12px 0; padding: 12px; border-radius: 16px; }
+  .am-hero-value { font-size: 17px; }
+  .am-hero-legend { font-size: 12px; }
+  .am-tabs {
+    gap: 6px;
+    padding: 12px 12px 2px;
+    background: var(--ui-surface);
+    scrollbar-width: none;
+  }
+  .am-tabs::-webkit-scrollbar { display: none; }
+  .am-tab {
+    min-height: 44px;
+    justify-content: center;
+    padding: 0 14px;
+    border-radius: 999px;
+    background: var(--ui-surface-2);
+    color: var(--ui-text-2);
+    font-size: 13px;
+  }
+  .am-tab.active { color: var(--ui-on-accent); background: var(--ui-accent); }
+  .am-body { padding: 12px; background: color-mix(in srgb, var(--ui-text) 4%, var(--ui-surface)); }
+  .am-card { border-radius: 16px; background: var(--ui-surface); padding: 14px; }
+  .am-card-title { font-size: 15px; }
+  .am-hint { font-size: 13px; line-height: 1.5; }
+  .am-prov { min-height: 60px; padding: 12px; border-radius: 14px; background: var(--ui-surface); }
+  .am-prov-name { font-size: 14px; font-weight: 600; }
+  .am-prov-del { width: 44px; height: 44px; }
+  .am-login { min-height: 56px; border-radius: 14px; }
 }
+:global(.app-window--mobile-native) .am .mobile-panel-actions { display: flex; }
 </style>

@@ -3,10 +3,12 @@
 // Exports: WindowState, ShellLayoutMode, StripDirection, shellLayoutMode, shellStripDirection, shellAutoTile, stripOffset, stripLine.
 // Integrates: vue, @vueuse, @/….
 // Contracts: signals: AGENT-.
-import { ref, computed, markRaw, defineAsyncComponent, defineComponent, h, type Component } from 'vue'
+import { ref, computed, markRaw, defineAsyncComponent, defineComponent, h, watch, type Component } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 import type { PanelType } from '@/types'
 import { MODULE_METADATA } from '@/types'
+import { isAndroidApp } from '@/composables/useTauri'
+import { parseWindowSession, serializeWindowSession, type WindowSessionSnapshot } from '@/utils/windowSession'
 import {
   computeTileRects,
   clampStripOffset,
@@ -80,9 +82,10 @@ function asyncPanel(loader: () => Promise<Component>) {
 // fetched the first time someone opens it, not on boot.
 const TerminalPanel = asyncPanel(() => import('@/components/TerminalPanel.vue'))
 
-// The agent panel is as heavy as the terminal (thread + approvals), so it
-// is code-split the same way — fetched on first open, not on boot.
-const AgentPanel = asyncPanel(() => import('@/components/AgentsWorkspace.vue'))
+// The Agent app opens the configured assistant directly. The separate
+// persistent multi-agent workspace stays gated until its runtime adapter is
+// wired; it must not replace the working chat with an unavailable landing screen.
+const AgentPanel = asyncPanel(() => import('@/components/AgentPanel.vue'))
 
 // The code studio (editor + AI sidecar) is as heavy as the terminal, so it
 // is code-split like the terminal — fetched on first open, not on boot.
@@ -234,11 +237,42 @@ function getComponent(panelType: PanelType): Component | null {
   return null
 }
 
-let windowCounter = 0
+const ANDROID_WINDOW_SESSION_KEY = 'cybermanju.android.window-session.v1'
+const androidSessionEnabled = isAndroidApp()
 
-const windows = ref<WindowState[]>([])
-const nextZIndex = ref(10)
-const windowFocusHistory = ref<string[]>([])
+function readAndroidWindowSession(): WindowSessionSnapshot | null {
+  if (!androidSessionEnabled || typeof localStorage === 'undefined') return null
+  try { return parseWindowSession(localStorage.getItem(ANDROID_WINDOW_SESSION_KEY)) } catch { return null }
+}
+
+const startupSession = readAndroidWindowSession()
+const restoredWindows: WindowState[] = []
+if (startupSession) {
+  const restoredPanels = new Set<PanelType>()
+  for (const row of startupSession.windows) {
+    if (!Object.prototype.hasOwnProperty.call(MODULE_METADATA, row.panelType)) continue
+    const panelType = resolvePanel(row.panelType as PanelType)
+    if (restoredPanels.has(panelType) || !Object.prototype.hasOwnProperty.call(MODULE_METADATA, panelType)) continue
+    const component = getComponent(panelType)
+    if (!component) continue
+    restoredPanels.add(panelType)
+    const props = { ...(row.props || {}) } as Record<string, unknown>
+    if (inlinePanels.includes(panelType)) props.panelType = panelType
+    restoredWindows.push({ ...row, panelType, title: MODULE_METADATA[panelType].label, icon: MODULE_METADATA[panelType].icon, component, props })
+  }
+}
+
+let windowCounter = restoredWindows.reduce((max, win) => Math.max(max, Number(win.id.slice(4)) || 0), 0)
+
+const windows = ref<WindowState[]>(restoredWindows)
+const nextZIndex = ref(Math.max(10, ...restoredWindows.map(win => win.zIndex + 1)))
+const restoredWindowIds = new Set(restoredWindows.map(win => win.id))
+const restoredFocus = startupSession?.focusHistory.filter(id => restoredWindowIds.has(id)) ?? []
+if (!restoredFocus.some(id => restoredWindows.some(win => win.id === id && !win.minimized))) {
+  const lastVisible = [...restoredWindows].reverse().find(win => !win.minimized)
+  if (lastVisible) restoredFocus.push(lastVisible.id)
+}
+const windowFocusHistory = ref<string[]>(restoredFocus)
 
 // ── Shell layout (VueUse-persisted) ────────────────────────────
 // `floating`: classic free windows. `tiled`: auto-grid. `strip`: niri-like
@@ -261,9 +295,41 @@ export const shellAutoTile = useLocalStorage<boolean>(
 let overviewReturnMode: Exclude<ShellLayoutMode, 'overview'> = shellAutoTile.value ? 'tiled' : 'floating'
 const overviewExitRevision = ref(0)
 /** Niri-style viewport: first visible column (horizontal) or line (vertical). */
-export const stripOffset = ref(0)
+export const stripOffset = ref(startupSession?.stripOffset ?? 0)
 /** Niri-style vertical line selector (which "row" of the strip is live). */
-export const stripLine = ref(0)
+export const stripLine = ref(startupSession?.stripLine ?? 0)
+
+let androidSessionSaveTimer: ReturnType<typeof setTimeout> | null = null
+function persistAndroidWindowSession() {
+  if (!androidSessionEnabled || typeof localStorage === 'undefined') return
+  if (androidSessionSaveTimer) clearTimeout(androidSessionSaveTimer)
+  androidSessionSaveTimer = null
+  try {
+    localStorage.setItem(ANDROID_WINDOW_SESSION_KEY, serializeWindowSession({
+      windows: windows.value.map(({ id, panelType, x, y, width, height, minimized, zIndex, column, line, props }) => ({
+        id, panelType, x, y, width, height, minimized, zIndex, column, line,
+        props: props as Record<string, string | boolean> | undefined,
+      })),
+      focusHistory: windowFocusHistory.value,
+      stripOffset: stripOffset.value,
+      stripLine: stripLine.value,
+    }))
+  } catch {
+    // Session recovery is best-effort; it must never interrupt normal window use.
+  }
+}
+
+function scheduleAndroidWindowSessionSave() {
+  if (!androidSessionEnabled) return
+  if (androidSessionSaveTimer) clearTimeout(androidSessionSaveTimer)
+  androidSessionSaveTimer = setTimeout(persistAndroidWindowSession, 180)
+}
+
+if (androidSessionEnabled && typeof window !== 'undefined' && typeof document !== 'undefined') {
+  watch([windows, windowFocusHistory, stripOffset, stripLine], scheduleAndroidWindowSessionSave, { deep: true, flush: 'post' })
+  document.addEventListener('visibilitychange', () => { if (document.hidden) persistAndroidWindowSession() })
+  window.addEventListener('pagehide', persistAndroidWindowSession)
+}
 
 function cascadePosition(index: number): { x: number; y: number } {
   const offset = 30 + (index % 10) * 28

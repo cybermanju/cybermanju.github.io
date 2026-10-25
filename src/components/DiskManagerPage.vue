@@ -30,6 +30,7 @@ const wm = useWindowManager()
 // `wm.open('disks', { tab: 'backup' })` lands on snapshot exports + restore.
 // `wm.open('disks', { tab: 'diet' })` lands on the dedup report (ANALYSIS §4.5).
 const props = defineProps<{ tab?: string; diskId?: string; highlightId?: string }>()
+const emit = defineEmits<{ close: []; minimize: [] }>()
 type DiskView = 'overview' | 'disks' | 'backup' | 'diet'
 const view = ref<DiskView>(props.tab === 'backup' ? 'backup' : props.tab === 'overview' ? 'overview' : props.tab === 'diet' ? 'diet' : 'disks')
 watch(() => props.tab, (t) => { if (t === 'overview' || t === 'disks' || t === 'backup' || t === 'diet') view.value = t })
@@ -296,25 +297,29 @@ onMounted(async () => {
     <div class="panel-header">
       <div class="header-left">
         <span class="icon-disks"><AppIcon name="solar:ssd-square-bold" /></span>
-        <h2 class="panel-title">DISKS &amp; VOLUME</h2>
+        <h2 class="panel-title"><span class="desktop-title">DISKS &amp; VOLUME</span><span class="mobile-title">Storage</span></h2>
         <span class="text-muted">{{ df ? `${df.diskCount} DISKS` : '…' }}</span>
       </div>
       <div class="header-right">
-        <button class="ghost-btn" type="button" @click="refresh">REFRESH</button>
+        <button class="ghost-btn mobile-refresh" type="button" aria-label="Refresh storage" @click="refresh"><AppIcon name="solar:restart-bold" :size="17" /><span>Refresh</span></button>
+        <div class="mobile-panel-actions">
+          <button type="button" aria-label="Minimize storage" @click="emit('minimize')"><AppIcon name="solar:minus-bold" :size="18" /></button>
+          <button type="button" aria-label="Close storage" @click="emit('close')"><AppIcon name="solar:close-bold" :size="18" /></button>
+        </div>
       </div>
     </div>
 
-    <div class="dm-tabs" role="tablist" aria-label="Disks views">
-      <button role="tab" :aria-selected="view === 'overview'" :class="{ on: view === 'overview' }" type="button" @click="view = 'overview'">OVERVIEW</button>
-      <button role="tab" :aria-selected="view === 'disks'" :class="{ on: view === 'disks' }" type="button" @click="view = 'disks'">DISKS</button>
-      <button role="tab" :aria-selected="view === 'backup'" :class="{ on: view === 'backup' }" type="button" @click="view = 'backup'">BACKUP</button>
-      <button role="tab" :aria-selected="view === 'diet'" :class="{ on: view === 'diet' }" type="button" @click="view = 'diet'">DIET</button>
+    <div class="dm-tabs" role="group" aria-label="Storage sections">
+      <button :aria-pressed="view === 'overview'" :class="{ on: view === 'overview' }" type="button" @click="view = 'overview'">Overview</button>
+      <button :aria-pressed="view === 'disks'" :class="{ on: view === 'disks' }" type="button" @click="view = 'disks'">Vaults</button>
+      <button :aria-pressed="view === 'backup'" :class="{ on: view === 'backup' }" type="button" @click="view = 'backup'">Backups</button>
+      <button :aria-pressed="view === 'diet'" :class="{ on: view === 'diet' }" type="button" @click="view = 'diet'">Storage diet</button>
     </div>
 
     <!-- ══ OVERVIEW (merged storage dashboard) ══ -->
     <template v-if="view === 'overview'">
     <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:checklist-bold" :size="13" /> FILE COUNTS</h3>
+      <h3 class="section-title"><AppIcon name="solar:checklist-bold" :size="13" /> File counts</h3>
       <div class="stats-grid">
         <div class="stat-card">
           <span class="stat-value">{{ store.files.length }}</span>
@@ -344,7 +349,7 @@ onMounted(async () => {
     </div>
 
     <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:ruler-bold" :size="13" /> TOTAL BY TYPE</h3>
+      <h3 class="section-title"><AppIcon name="solar:ruler-bold" :size="13" /> Storage by file type</h3>
       <div class="type-breakdown">
         <div v-for="entry in byType" :key="entry.label" class="type-row">
           <span class="type-label">{{ entry.label }}</span>
@@ -355,7 +360,7 @@ onMounted(async () => {
     </div>
 
     <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:database-bold" :size="13" /> STORAGE FOOTPRINT</h3>
+      <h3 class="section-title"><AppIcon name="solar:database-bold" :size="13" /> Storage footprint</h3>
       <div class="info-card">
         <div class="info-row"><span class="info-key text-muted">TOTAL SIZE</span><span class="info-value">{{ totalSizeFormatted }}</span></div>
         <div class="info-row"><span class="info-key text-muted">LARGEST FILE</span><span class="info-value">{{ largestFile }}</span></div>
@@ -366,7 +371,7 @@ onMounted(async () => {
     </div>
 
     <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:ssd-square-bold" :size="13" /> MERGED DISKS ({{ df ? df.diskCount : 0 }})</h3>
+      <h3 class="section-title"><AppIcon name="solar:ssd-square-bold" :size="13" /> Combined storage ({{ df ? df.diskCount : 0 }})</h3>
       <div class="df-bar" role="img" :aria-label="`Volume ${usedPct.toFixed(1)} percent used`">
         <div class="df-used" :style="{ width: usedPct + '%' }"></div>
       </div>
@@ -376,13 +381,13 @@ onMounted(async () => {
         <span>TOTAL {{ df ? humanBytes(df.totalBytes) : '—' }}</span>
         <span class="text-muted">ROOT {{ df ? df.root : '—' }}</span>
       </div>
-      <button class="open-disks" type="button" @click="view = 'disks'">MANAGE DISKS</button>
+      <button class="open-disks" type="button" @click="view = 'disks'">Manage vaults</button>
     </div>
     </template>
 
     <template v-if="view === 'disks'">
     <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:layers-bold" :size="13" /> MERGED VOLUME</h3>
+      <h3 class="section-title"><AppIcon name="solar:layers-bold" :size="13" /> Storage pool</h3>
       <div class="df-bar" role="img" :aria-label="`Volume ${usedPct.toFixed(1)} percent used`">
         <div class="df-used" :style="{ width: `${usedPct}%` }"></div>
       </div>
@@ -399,7 +404,7 @@ onMounted(async () => {
       <div class="external-storage-heading">
         <h3 class="section-title"><AppIcon name="solar:ssd-square-bold" :size="13" /> EXTERNAL SD CARD ({{ externalStorageEntries.length }})</h3>
         <button class="ghost-btn" type="button" :disabled="externalStorageBusyId === 'picker'" @click="chooseExternalStorage">
-          {{ externalStorageBusyId === 'picker' ? 'OPENING…' : 'SELECT SD CARD' }}
+          {{ externalStorageBusyId === 'picker' ? 'Opening…' : 'Choose SD card' }}
         </button>
       </div>
       <p class="note text-muted">Android hides removable storage from ordinary filesystem scans. Select the SD card in the system folder picker; its SAF grant is shown here and can be added as a Files/Transfer provider.</p>
@@ -432,7 +437,7 @@ onMounted(async () => {
               type="button"
               :disabled="!!externalStorageBusyId"
               @click="addExternalStorageProvider(entry.folder)"
-            >{{ externalStorageBusyId === entry.folder.id ? 'ADDING…' : 'ADD TO TRANSFERS' }}</button>
+            >{{ externalStorageBusyId === entry.folder.id ? 'Adding…' : 'Add to transfers' }}</button>
           </div>
         </article>
       </div>
@@ -441,7 +446,7 @@ onMounted(async () => {
     </section>
 
     <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:add-bold" :size="13" /> CREATE DISK</h3>
+      <h3 class="section-title"><AppIcon name="solar:add-bold" :size="13" /> Create a vault</h3>
       <div class="create-row">
         <label class="field">
           <span class="text-muted">PROVIDER</span>
@@ -469,7 +474,7 @@ onMounted(async () => {
           <input v-model="passphrase" class="input" type="password" autocomplete="off" aria-label="Passphrase" />
         </label>
         <button class="ghost-btn primary" type="button" :disabled="creating" @click="create">
-          {{ creating ? 'CREATING…' : 'CREATE' }}
+          {{ creating ? 'Creating…' : 'Create vault' }}
         </button>
       </div>
       <p class="note disk-allocation-note">Capacity is a logical limit, not preallocated cloud space. Actual storage grows when content is successfully written or synced. The small seed or snapshot file does not have to grow with separate content blocks.</p>
@@ -477,7 +482,7 @@ onMounted(async () => {
     </div>
 
     <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:ssd-square-bold" :size="13" /> PER-PROVIDER DISKS ({{ store.disks.length }})</h3>
+      <h3 class="section-title"><AppIcon name="solar:ssd-square-bold" :size="13" /> Vaults by provider ({{ store.disks.length }})</h3>
 
       <div v-if="store.disks.length" class="cards">
         <article v-for="disk in store.disks" :key="disk.id" :id="`disk-card-${disk.id}`" class="card" :class="{ flash: focusDiskId === disk.id }">
@@ -519,16 +524,16 @@ onMounted(async () => {
               type="button"
               :disabled="busyId === disk.id"
               @click="attach(disk.id)"
-            >ATTACH</button>
+            >Attach</button>
             <button
               v-else
               class="ghost-btn"
               type="button"
               :disabled="busyId === disk.id"
               @click="detach(disk.id)"
-            >DETACH</button>
-            <button class="ghost-btn" type="button" @click="beginResize(disk.id, disk.capacityBytes)">RESIZE</button>
-            <button class="ghost-btn" type="button" :disabled="busyId === disk.id" @click="check(disk.id)">CHECK</button>
+            >Detach</button>
+            <button class="ghost-btn" type="button" @click="beginResize(disk.id, disk.capacityBytes)">Resize</button>
+            <button class="ghost-btn" type="button" :disabled="busyId === disk.id" @click="check(disk.id)">Check</button>
             <button
               v-if="!disk.holdsKeys"
               class="ghost-btn primary"
@@ -536,7 +541,7 @@ onMounted(async () => {
               :disabled="busyId === disk.id"
               title="This disk's passphrase unwraps the other disks"
               @click="makeKeyHolder(disk.id)"
-            >KEY HOLDER</button>
+            >Make key holder</button>
           </div>
 
           <div v-if="resizeTarget === disk.id" class="resize-row">
@@ -570,7 +575,7 @@ onMounted(async () => {
     <!-- ══ DIET (storage-diet / dedup report, ANALYSIS.md §4.5) ══ -->
     <template v-if="view === 'diet'">
     <div class="section">
-      <h3 class="section-title"><AppIcon name="solar:layers-bold" :size="13" /> DUPLICATES</h3>
+      <h3 class="section-title"><AppIcon name="solar:layers-bold" :size="13" /> Duplicate files</h3>
       <div class="stats-grid">
         <div class="stat-card">
           <span class="stat-value">{{ dupGroups.length }}</span>
@@ -617,7 +622,7 @@ onMounted(async () => {
         type="button"
         :disabled="reclaiming"
         @click="reclaimGroup(group.hash, group.keepId, group.files.map(f => f.id))"
-      >{{ reclaimArmed === group.hash ? 'CONFIRM RECLAIM' : 'RECLAIM' }}</button>
+      >{{ reclaimArmed === group.hash ? 'Confirm reclaim' : 'Reclaim space' }}</button>
     </div>
     </template>
   </div>
@@ -669,6 +674,7 @@ onMounted(async () => {
   letter-spacing: 2px;
   white-space: nowrap;
 }
+.mobile-title { display: none; }
 
 .ghost-btn {
   background: transparent;
@@ -1117,23 +1123,122 @@ onMounted(async () => {
   color: color-mix(in srgb, var(--ui-text) 50%, transparent) !important;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .disk-panel {
     font-size: 14px;
+    padding-bottom: 12px;
   }
 
   .panel-header {
-    align-items: stretch;
-    padding: max(10px, env(safe-area-inset-top)) 12px 10px;
+    position: sticky;
+    top: 0;
+    z-index: 12;
+    align-items: center;
+    min-height: 78px;
+    padding: 12px 18px 10px;
+    background: var(--ui-surface);
+    border-bottom-color: var(--ui-hairline);
+    box-shadow: 0 5px 18px color-mix(in srgb, var(--ui-text) 5%, transparent);
   }
 
-  .header-left,
+  .header-left {
+    flex: 1;
+    width: auto;
+    gap: 10px;
+  }
+
   .header-right {
-    width: 100%;
+    width: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
-  .header-right .ghost-btn {
-    width: 100%;
+  .header-right > .ghost-btn {
+    width: auto;
+    min-width: 44px;
+    padding-inline: 12px;
+  }
+
+  .icon-disks { display: none; }
+  .desktop-title { display: none; }
+  .mobile-title { display: inline; }
+  .header-left { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .panel-title {
+    font-size: 24px;
+    line-height: 1.15;
+    font-weight: 750;
+    letter-spacing: -0.03em;
+    text-transform: none;
+  }
+  .header-left > .text-muted {
+    align-self: flex-start;
+    margin: 0;
+    font-size: 12px;
+  }
+
+  .dm-tabs {
+    position: sticky;
+    top: 78px;
+    z-index: 11;
+    gap: 5px;
+    margin: 0;
+    padding: 10px 14px;
+    background: var(--ui-surface);
+    border-bottom: 1px solid var(--ui-hairline);
+  }
+  .dm-tabs button {
+    min-width: max-content;
+    padding: 0 13px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--ui-surface-2);
+    color: var(--ui-text-2);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: capitalize;
+  }
+  .dm-tabs button.on {
+    color: var(--ui-on-accent);
+    background: var(--ui-accent);
+  }
+
+  .section-title {
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    text-transform: none;
+  }
+  .section { padding: 18px 16px; }
+  .section + .section { border-top: 6px solid color-mix(in srgb, var(--ui-text) 4%, var(--ui-surface)); }
+  .card, .external-storage-card, .info-card {
+    border-radius: 16px;
+    background: var(--ui-surface-2);
+    border-color: var(--ui-border);
+  }
+  .card-name { font-size: 16px; font-weight: 650; }
+  .card-provider { font-size: 12px; }
+  .card-figures { line-height: 1.5; }
+  .card-meta { gap: 8px; }
+  .card-meta dt { font-size: 10px; }
+  .card-meta dd { font-size: 13px; }
+  .card-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .create-row { padding: 14px; border-radius: 16px; background: var(--ui-surface-2); }
+  .field > span { font-size: 12px; }
+  .note, .external-storage-status, .external-storage-empty { font-size: 13px; line-height: 1.5; }
+  .mobile-panel-actions { display: flex; }
+  .panel-header .header-right > .ghost-btn { display: inline-flex; align-items: center; justify-content: center; }
+
+  .mobile-panel-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--ui-border);
+    border-radius: 50%;
+    color: var(--ui-text-2);
+    background: var(--ui-surface-2);
   }
 
   .ghost-btn,

@@ -367,29 +367,30 @@
         </div>
 
         <div v-if="ai.queue.value.length" class="cs-queue">
-          <span v-for="(q, qi) in ai.queue.value" :key="qi" class="cs-qitem" :title="q">
-            <span class="truncate">{{ q.slice(0, 90) }}</span>
+          <span v-for="(q, qi) in ai.queue.value" :key="qi" class="cs-qitem" :title="`${q.configId}: ${q.prompt}`">
+            <span class="truncate">{{ q.prompt.slice(0, 90) }} <small v-if="q.configId !== ai.chatConfigId.value">· queued for another assistant</small></span>
             <button class="cs-ibtn" title="Drop queued prompt" @click="ai.dropQueued(qi)"><AppIcon name="solar:close-bold" :size="10" /></button>
           </span>
+          <button class="cs-btn xs" :disabled="studioSending || !ai.queueCanResume.value" @click="resumeQueued">Send next queued message</button>
         </div>
         <div class="cs-quick">
           <button :class="{ on: attachFile }" title="Attach active file to next prompt" @click="attachFile = !attachFile">@file{{ focusTab ? ':' + shortName(focusTab.label) : '' }}</button>
           <button :class="{ on: attachSel }" :disabled="!selection" title="Attach current selection" @click="attachSel = !attachSel">@sel{{ selection ? ` (${selection.length}B)` : '' }}</button>
-          <button title="Explain this file" @click="quick('explain')">Explain</button>
-          <button title="Review for bugs" @click="quick('review')">Review</button>
+          <button title="Explain this file" :disabled="studioSending" @click="quick('explain')">Explain</button>
+          <button title="Review for bugs" :disabled="studioSending" @click="quick('review')">Review</button>
           <button title="Apply last code block to file" @click="applyLastBlock">Apply ⤵</button>
         </div>
         <form class="cs-prompt" @submit.prevent="sendPrompt">
-          <textarea ref="promptEl" v-model="promptInput" rows="2" :placeholder="ai.jobActive.value ? 'Running — Ctrl+Enter queues next…' : 'Ask the AI… (Ctrl+Enter sends)'" @keydown.ctrl.enter.exact.prevent="sendPrompt" @keydown.meta.enter.exact.prevent="sendPrompt" />
+          <textarea ref="promptEl" v-model="promptInput" :disabled="studioSending" rows="2" :placeholder="studioSending ? 'Starting agent…' : ai.jobActive.value ? 'Running — Ctrl+Enter queues next…' : 'Ask the AI… (Ctrl+Enter sends)'" @keydown.ctrl.enter.exact.prevent="sendPrompt" @keydown.meta.enter.exact.prevent="sendPrompt" />
           <div v-if="voice.isSupported.value" class="cs-voice-group">
             <div class="cs-voice-pop" role="group" aria-label="Dictation language">
               <button type="button" class="cs-voice-opt" :class="{ on: voice.langPref.value === 'auto' }" :aria-pressed="voice.langPref.value === 'auto'" title="Auto-detect from your browser language" @click="voice.setLang('auto')">Auto · {{ voice.lang.value === 'pt-BR' ? 'PT' : 'EN' }}</button>
               <button type="button" class="cs-voice-opt" :class="{ on: voice.langPref.value === 'en-US' }" :aria-pressed="voice.langPref.value === 'en-US'" title="Dictate in English" @click="voice.setLang('en-US')">EN</button>
               <button type="button" class="cs-voice-opt" :class="{ on: voice.langPref.value === 'pt-BR' }" :aria-pressed="voice.langPref.value === 'pt-BR'" title="Dictate in Portuguese (PT-BR)" @click="voice.setLang('pt-BR')">PT</button>
             </div>
-            <button class="cs-btn xs" :class="{ on: voice.listening.value }" type="button" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : voice.langPref.value === 'auto' ? `Dictate — auto (${voice.lang.value === 'pt-BR' ? 'Portuguese' : 'English'}), hover to pick EN/PT` : 'Dictate (code mode: say “open paren”, “dot”, “camel case …” — hover to change language)'" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Mic' }}</button>
+            <button class="cs-btn xs" :class="{ on: voice.listening.value }" :disabled="studioSending" type="button" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : voice.langPref.value === 'auto' ? `Dictate — auto (${voice.lang.value === 'pt-BR' ? 'Portuguese' : 'English'}), hover to pick EN/PT` : 'Dictate (code mode: say “open paren”, “dot”, “camel case …” — hover to change language)'" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Mic' }}</button>
           </div>
-          <button class="cs-btn xs primary" type="submit" :disabled="!canSend">{{ ai.jobActive.value ? 'Queue' : 'Send' }}</button>
+          <button class="cs-btn xs primary" type="submit" :disabled="!canSend">{{ studioSending ? 'Starting…' : ai.jobActive.value ? 'Queue' : 'Send' }}</button>
           <button v-if="ai.jobActive.value" class="cs-btn xs danger" type="button" @click="ai.abort()">Stop</button>
         </form>
         <div v-if="ai.jobLine.value" class="mono dim cs-jobline">{{ ai.jobLine.value }}</div>
@@ -1124,6 +1125,7 @@ function toggleMobileTerminal() {
   if (bottomOpen.value) aiOpen.value = false
 }
 const promptInput = ref('')
+const studioSending = ref(false)
 const promptEl = ref<HTMLTextAreaElement | null>(null)
 const threadRef = ref<HTMLElement | null>(null)
 const openRows = ref<Set<string>>(new Set())
@@ -1165,7 +1167,7 @@ watch(() => ai.configs.value.length, n => {
   if (n && !ai.chatConfigId.value) ai.chatConfigId.value = ai.configs.value[0].id
 })
 
-const canSend = computed(() => promptInput.value.trim() !== '' && ai.chatConfigId.value !== '')
+const canSend = computed(() => promptInput.value.trim() !== '' && ai.chatConfigId.value !== '' && !studioSending.value)
 
 /* ── voice dictation (code mode: symbols + camel/snake phrases) ── */
 const voice = useVoiceInput('code')
@@ -1237,16 +1239,44 @@ function activeFileCtx(): FileCtx[] {
 async function sendPrompt() {
   if (!canSend.value) return
   const v = promptInput.value
+  stopVoiceAll()
   promptInput.value = ''
   scrollThreadToBottom()
-  await ai.send(v, activeFileCtx())
+  studioSending.value = true
+  try {
+    const sent = await ai.send(v, activeFileCtx())
+    if (!sent) {
+      promptInput.value = v
+      store.notifyError('Message not sent', 'Your prompt is back in the composer. Check the selected assistant and try again.')
+    }
+  } catch (error) {
+    promptInput.value = v
+    store.notifyError('Could not start the AI request', error)
+  } finally {
+    studioSending.value = false
+  }
 }
 function quick(kind: 'explain' | 'review') {
   if (!focusTab.value) return
   const p = kind === 'explain'
     ? `Explain what this file does, section by section. Reference file:line. Be concise.`
     : `Review this code for bugs, edge cases and security issues. List findings with file:line, then propose minimal fixes.`
+  if (studioSending.value) return
+  stopVoiceAll()
+  studioSending.value = true
   void ai.send(p, activeFileCtx())
+    .then(sent => { if (!sent) store.notifyError('AI request not sent', 'Check the selected assistant and try again.') })
+    .catch(error => store.notifyError('Could not start the AI request', error))
+    .finally(() => { studioSending.value = false })
+}
+async function resumeQueued() {
+  if (studioSending.value || !ai.queueCanResume.value) return
+  studioSending.value = true
+  try {
+    await ai.sendNextQueued()
+  } finally {
+    studioSending.value = false
+  }
 }
 function lastCodeBlock(): string | null {
   const msgs = ai.viewing.value?.messages ?? []

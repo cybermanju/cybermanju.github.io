@@ -2926,8 +2926,10 @@ export const useAppStore = defineStore('cybermanju', () => {
       await invoke('delete_agent_config', { configId })
       await fetchAgentConfigs()
       notifySuccess('Agent config deleted')
+      return true
     } catch (e) {
       notifyError('Failed to delete agent config', e)
+      return false
     }
   }
 
@@ -2973,8 +2975,10 @@ export const useAppStore = defineStore('cybermanju', () => {
     try {
       await invoke('delete_agent_session', { sessionId })
       await fetchAgentSessions()
+      return true
     } catch (e) {
       notifyError('Failed to delete agent session', e)
+      return false
     }
   }
 

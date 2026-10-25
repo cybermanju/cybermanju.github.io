@@ -129,6 +129,37 @@
       <PhoneAppReader v-if="phoneMode === 'other'" />
     </UiModal>
 
+    <UiModal v-model:visible="yoloConfirmOpen" title="Enable YOLO mode?" subtitle="This changes the selected assistant’s saved permissions." icon="solar:fire-bold" size="sm">
+      <div class="agent-yolo-confirm">
+        <p>YOLO mode lets the assistant run allowed tools without asking first. It also turns on all MCP servers configured for this assistant and changes Plan mode to Build.</p>
+        <p>Explicit denials and protected standing-order file writes still require approval. You can switch back to Balanced from the Agent header at any time.</p>
+        <div class="agent-yolo-confirm-actions">
+          <UiButton size="sm" variant="secondary" @click="yoloConfirmOpen = false">Cancel</UiButton>
+          <UiButton size="sm" variant="danger" icon="solar:fire-bold" :loading="yoloBusy" :disabled="yoloBusy" @click="confirmYolo">Enable YOLO</UiButton>
+        </div>
+      </div>
+    </UiModal>
+
+    <UiModal :visible="!!pendingDeleteConfig" title="Delete assistant?" subtitle="This removes its saved configuration and sealed provider key. Existing conversations are kept." icon="solar:trash-bin-trash-bold" size="sm" :danger="true" :closable="!deleteConfigBusy" :dismissable="!deleteConfigBusy" @update:visible="visible => { if (!visible) pendingDeleteConfig = null }">
+      <div class="agent-yolo-confirm">
+        <p>Delete <strong>{{ pendingDeleteConfig?.name }}</strong>? This cannot be undone. Existing transcripts remain available, but this assistant can no longer run tasks.</p>
+        <div class="agent-yolo-confirm-actions">
+          <UiButton size="sm" variant="secondary" @click="pendingDeleteConfig = null">Cancel</UiButton>
+          <UiButton size="sm" variant="danger" icon="solar:trash-bin-trash-bold" :loading="deleteConfigBusy" :disabled="deleteConfigBusy" @click="confirmRemoveCfg">Delete assistant</UiButton>
+        </div>
+      </div>
+    </UiModal>
+
+    <UiModal :visible="!!pendingDeleteSession" title="Delete conversation?" subtitle="This permanently removes the saved transcript." icon="solar:trash-bin-trash-bold" size="sm" :danger="true" :closable="!deleteSessionBusy" :dismissable="!deleteSessionBusy" @update:visible="visible => { if (!visible) pendingDeleteSession = null }">
+      <div class="agent-yolo-confirm">
+        <p>Delete <strong>{{ pendingDeleteSession?.title }}</strong>? Export it first if you want to keep a copy.</p>
+        <div class="agent-yolo-confirm-actions">
+          <UiButton size="sm" variant="secondary" @click="pendingDeleteSession = null">Cancel</UiButton>
+          <UiButton size="sm" variant="danger" icon="solar:trash-bin-trash-bold" :loading="deleteSessionBusy" :disabled="deleteSessionBusy" @click="confirmRemoveSession">Delete conversation</UiButton>
+        </div>
+      </div>
+    </UiModal>
+
     <div v-if="screenReader.active.value || screenReader.uncertain.value" class="agent-reader-status" role="status">
       <span>Other App · {{ screenReader.uncertain.value ? 'Check session status' : screenReader.status.value.state }}</span>
       <UiButton size="xs" @click="phoneControlsOpen = true; phoneMode = 'other'">Manage screen reading</UiButton>
@@ -161,24 +192,23 @@
           </div>
           <UiInput v-model="sessionSearch" placeholder="Search conversations…" aria-label="Search conversations" />
           <div class="agent-side-list">
-            <button
+            <div
               v-for="s in filteredSessions"
               :key="s.id"
-              type="button"
               class="agent-side-item"
               :class="{ on: viewing?.id === s.id }"
-              :title="`${s.title} · ${s.messages.length} msgs`"
-              @click="loadSession(s.id); sidebarOpen = false"
             >
-              <span class="agent-side-item-text">
-                <span class="agent-side-item-title">{{ s.title }}</span>
-                <span class="agent-side-item-meta">{{ s.messages.length }} msgs</span>
-              </span>
-              <span class="agent-side-item-btns" @click.stop>
+              <button type="button" class="agent-side-item-select" :title="`${s.title} · ${s.messages.length} msgs`" @click="loadSession(s.id); sidebarOpen = false">
+                <span class="agent-side-item-text">
+                  <span class="agent-side-item-title">{{ s.title }}</span>
+                  <span class="agent-side-item-meta">{{ s.messages.length }} msgs</span>
+                </span>
+              </button>
+              <span class="agent-side-item-btns">
                 <UiButton size="xs" icon="solar:download-bold" icon-only title="Export conversation" aria-label="Export conversation" @click="exportSession(s.id)" />
-                <UiButton size="xs" variant="danger" icon="solar:close-bold" icon-only title="Close conversation" aria-label="Close conversation" @click="removeSession(s.id)" />
+                <UiButton size="xs" variant="danger" icon="solar:trash-bin-trash-bold" icon-only title="Delete conversation" aria-label="Delete conversation" :disabled="jobActive && activeJob?.sessionId === s.id" @click="removeSession(s.id)" />
               </span>
-            </button>
+            </div>
             <UiEmpty
               v-if="!filteredSessions.length"
               size="sm"
@@ -206,27 +236,26 @@
             <UiButton size="xs" icon="solar:add-bold" @click="newSetup">New</UiButton>
           </div>
           <div class="agent-side-list">
-            <button
+            <div
               v-for="cfg in configs"
               :key="cfg.id"
-              type="button"
               class="agent-side-item"
               :class="{ on: chatConfigId === cfg.id }"
-              :title="`${cfg.name} · ${cfg.providerId} · ${cfg.model}`"
-              @click="chatConfigId = cfg.id; sidebarOpen = false"
             >
-              <span class="agent-side-item-text">
-                <span class="agent-side-item-title">{{ cfg.name }}</span>
-                <span class="agent-side-item-meta">{{ cfg.providerId }} · {{ cfg.model }}</span>
-              </span>
-              <UiBadge :tone="cfg.hasKey || isKeyless(cfg) ? 'accent' : 'neutral'" size="sm" class="agent-side-item-badge">
-                {{ cfg.hasKey || isKeyless(cfg) ? 'Ready' : 'No key' }}
-              </UiBadge>
-              <span class="agent-side-item-btns" @click.stop>
+              <button type="button" class="agent-side-item-select" :title="`${cfg.name} · ${cfg.providerId} · ${cfg.model}`" @click="chatConfigId = cfg.id; sidebarOpen = false">
+                <span class="agent-side-item-text">
+                  <span class="agent-side-item-title">{{ cfg.name }}</span>
+                  <span class="agent-side-item-meta">{{ cfg.providerId }} · {{ cfg.model }}</span>
+                </span>
+                <UiBadge :tone="cfg.hasKey || isKeyless(cfg) ? 'accent' : 'neutral'" size="sm" class="agent-side-item-badge">
+                  {{ cfg.hasKey || isKeyless(cfg) ? 'Ready' : 'No key' }}
+                </UiBadge>
+              </button>
+              <span class="agent-side-item-btns">
                 <UiButton size="xs" icon="solar:settings-bold" icon-only title="Edit assistant" aria-label="Edit assistant" @click="editSetup(cfg)" />
-                <UiButton size="xs" variant="danger" icon="solar:trash-bin-trash-bold" icon-only title="Delete assistant" aria-label="Delete assistant" @click="removeCfg(cfg.id)" />
+                <UiButton size="xs" variant="danger" icon="solar:trash-bin-trash-bold" icon-only title="Delete assistant" aria-label="Delete assistant" :disabled="jobActive && activeJob?.configId === cfg.id" @click="removeCfg(cfg.id)" />
               </span>
-            </button>
+            </div>
             <UiEmpty
               v-if="!configs.length"
               size="sm"
@@ -240,6 +269,18 @@
 
       <!-- ── Main column ── -->
       <main class="agent-main">
+        <section
+          v-if="activeJobNeedsAttention"
+          class="agent-live-task-notice"
+          :class="{ approval: activeJobNeedsApproval }"
+          :role="activeJobNeedsApproval ? 'alert' : 'status'"
+          aria-live="polite"
+        >
+          <AppIcon :name="activeJobNeedsApproval ? 'solar:shield-warning-bold' : 'solar:clock-circle-bold'" :size="16" />
+          <span>{{ activeJobNeedsApproval ? `The task in ${activeJobSessionTitle} needs your approval.` : `A task is still running in ${activeJobSessionTitle}.` }}</span>
+          <UiButton size="xs" :variant="activeJobNeedsApproval ? 'primary' : 'secondary'" @click="returnToActiveJob">{{ activeJobNeedsApproval ? 'Review task' : 'Return to task' }}</UiButton>
+          <UiButton v-if="jobActive" size="xs" variant="danger" @click="abortJob">Stop</UiButton>
+        </section>
         <!-- Context line: one quiet summary row, details expand on demand -->
         <section v-if="capVisible && activeTab === 'chat'" class="agent-caps" :class="{ open: capsOpen }" aria-label="What this assistant can do">
           <button type="button" class="agent-caps-summary" :aria-expanded="capsOpen" @click="capsOpen = !capsOpen">
@@ -931,6 +972,7 @@ import { useWindowUi } from '@/composables/useWindowUi'
 import { diffBlocks, editBlocksOf } from '@/utils/agentDiff'
 import { mergeAgentDraft, sameAgentConnection, persistAgentSetup } from '@/utils/agentSetup'
 import { subscribeHomeCommand } from '@/composables/useHomeCommandHandoff'
+import { parseImportedAgentSession } from '@/utils/agentSessionImport'
 import type { AgentConfig, AgentJob, AgentSession, ProviderPreset } from '@/types'
 
 const store = useAppStore()
@@ -967,6 +1009,10 @@ const activeJob = computed(() => (wasmMode.value ? localJob.value : store.active
 
 const busy = ref(false)
 const modelBusy = ref(false)
+const deleteConfigBusy = ref(false)
+const pendingDeleteConfig = ref<AgentConfig | null>(null)
+const deleteSessionBusy = ref(false)
+const pendingDeleteSession = ref<AgentSession | null>(null)
 const setupMsg = ref('')
 const keyInput = ref('')
 const savedConfigId = ref('')
@@ -1216,6 +1262,7 @@ function toolHelp(t: { tool: string; action: string; unsupported?: boolean }): s
 
 // ─── YOLO toggle: one tap to allow everything on the current config ───
 const yoloBusy = ref(false)
+const yoloConfirmOpen = ref(false)
 const yoloOn = computed(() => isYoloConfig(chatConfig.value))
 const yoloTitle = computed(() =>
   yoloOn.value
@@ -1227,6 +1274,21 @@ async function toggleYolo() {
   const cfg = chatConfig.value
   if (!cfg || yoloBusy.value) return
   const enabling = !yoloOn.value
+  if (enabling) {
+    yoloConfirmOpen.value = true
+    return
+  }
+  await saveYoloState(false)
+}
+
+async function confirmYolo() {
+  if (yoloBusy.value || !chatConfig.value) return
+  await saveYoloState(true)
+}
+
+async function saveYoloState(enabling: boolean) {
+  const cfg = chatConfig.value
+  if (!cfg || yoloBusy.value) return
   const updated = enabling ? applyYoloToConfig(cfg) : applyBalancedToConfig(cfg)
   yoloBusy.value = true
   try {
@@ -1248,6 +1310,7 @@ async function toggleYolo() {
         ? `YOLO ON — all tools allowed, auto-approve, ${mcpCount} MCP server(s) enabled${planNote}`
         : 'YOLO OFF — back to balanced ask-by-default',
     )
+    if (enabling) yoloConfirmOpen.value = false
   } finally {
     yoloBusy.value = false
   }
@@ -1829,18 +1892,34 @@ async function saveConfig(): Promise<AgentConfig | null> {
   }
 }
 
-async function removeCfg(id: string) {
-  if (wasmMode.value) {
-    deleteLocalConfig(id)
-    delete localKeys.value[id]
-    forgetLocalKey(id)
-    refreshLocal()
-  } else {
-    await store.deleteAgentConfig(id)
+function removeCfg(id: string) {
+  if (jobActive.value && activeJob.value?.configId === id) return
+  pendingDeleteConfig.value = configs.value.find(config => config.id === id) ?? null
+}
+
+async function confirmRemoveCfg() {
+  const config = pendingDeleteConfig.value
+  if (!config || deleteConfigBusy.value || (jobActive.value && activeJob.value?.configId === config.id)) return
+  deleteConfigBusy.value = true
+  let removed = false
+  try {
+    if (wasmMode.value) {
+      deleteLocalConfig(config.id)
+      delete localKeys.value[config.id]
+      forgetLocalKey(config.id)
+      refreshLocal()
+      removed = true
+    } else {
+      removed = await store.deleteAgentConfig(config.id)
+    }
+    if (!removed) return
+    if (chatConfigId.value === config.id) chatConfigId.value = ''
+    if (readChatConfigId() === config.id) writeChatConfigId('')
+    if (savedConfigId.value === config.id) newSetup()
+    pendingDeleteConfig.value = null
+  } finally {
+    deleteConfigBusy.value = false
   }
-  if (chatConfigId.value === id) chatConfigId.value = ''
-  if (readChatConfigId() === id) writeChatConfigId('')
-  if (savedConfigId.value === id) newSetup()
 }
 
 async function refreshModels() {
@@ -1947,14 +2026,30 @@ async function loadSession(id: string) {
   activeTab.value = 'chat'
 }
 
-async function removeSession(id: string) {
-  if (wasmMode.value) {
-    deleteLocalSession(id)
-    refreshLocal()
-  } else {
-    await store.deleteAgentSession(id)
+function removeSession(id: string) {
+  if (jobActive.value && activeJob.value?.sessionId === id) return
+  pendingDeleteSession.value = sessions.value.find(session => session.id === id) ?? null
+}
+
+async function confirmRemoveSession() {
+  const session = pendingDeleteSession.value
+  if (!session || deleteSessionBusy.value || (jobActive.value && activeJob.value?.sessionId === session.id)) return
+  deleteSessionBusy.value = true
+  let removed = false
+  try {
+    if (wasmMode.value) {
+      deleteLocalSession(session.id)
+      refreshLocal()
+      removed = true
+    } else {
+      removed = await store.deleteAgentSession(session.id)
+    }
+    if (!removed) return
+    if (viewing.value?.id === session.id) setViewing(null)
+    pendingDeleteSession.value = null
+  } finally {
+    deleteSessionBusy.value = false
   }
-  if (viewing.value?.id === id) setViewing(null)
 }
 
 async function exportSession(id: string) {
@@ -1979,17 +2074,10 @@ async function importFile(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   try {
-    const text = await file.text()
-    const parsed = JSON.parse(text) as AgentSession
-    if (!Array.isArray(parsed.messages)) throw new Error('not an agent session transcript')
+    if (file.size > 16 * 1024 * 1024) throw new Error('invalid: session file exceeds the 16 MiB import limit')
+    const parsed = parseImportedAgentSession(await file.text(), newLocalId('ses'))
     if (wasmMode.value) {
-      const now = localNow()
-      saveLocalSession({
-        ...parsed,
-        id: newLocalId('ses'),
-        createdAt: parsed.createdAt || now,
-        updatedAt: now,
-      })
+      saveLocalSession(parsed)
       refreshLocal()
     } else {
       const { invoke } = await import('@/composables/useTauri')
@@ -2007,11 +2095,12 @@ const pendingApproval = computed(() => {
   if (wasmMode.value) {
     const p = agent.pendingApproval.value
     if (!p) return null
+    if (activeJob.value && viewing.value?.id !== activeJob.value.sessionId) return null
     return { tool: p.tool, input: p.input, summary: p.summary, question: p.question ?? null }
   }
   const job = activeJob.value
   if (!job || job.status !== 'waiting_approval' || !job.pending) return null
-  if (viewing.value && job.sessionId !== viewing.value.id) return null
+  if (viewing.value?.id !== job.sessionId) return null
   return job.pending
 })
 
@@ -2020,6 +2109,24 @@ const jobActive = computed(() => {
   const s = activeJob.value?.status
   return s === 'running' || s === 'waiting_approval'
 })
+
+const activeJobSessionTitle = computed(() => {
+  const id = activeJob.value?.sessionId
+  return sessions.value.find(session => session.id === id)?.title || 'your conversation'
+})
+const activeJobNeedsApproval = computed(() => {
+  if (wasmMode.value) return !!agent.pendingApproval.value
+  return activeJob.value?.status === 'waiting_approval' && !!activeJob.value.pending
+})
+const activeJobNeedsAttention = computed(() => {
+  if (!jobActive.value || !activeJob.value) return false
+  return viewing.value?.id !== activeJob.value.sessionId || (activeJobNeedsApproval.value && activeTab.value !== 'chat')
+})
+function returnToActiveJob() {
+  const sessionId = activeJob.value?.sessionId
+  if (sessionId) void loadSession(sessionId)
+  else activeTab.value = 'chat'
+}
 
 const jobLine = computed(() => {
   const job = activeJob.value
@@ -2681,6 +2788,9 @@ onMounted(async () => {
 .agent-phone-shortcut { flex-shrink: 0; }
 .agent-phone-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .agent-phone-options .agent-note { grid-column: 1 / -1; }
+.agent-yolo-confirm { display: flex; flex-direction: column; gap: 10px; color: var(--ui-text); line-height: 1.55; }
+.agent-yolo-confirm p { margin: 0; }
+.agent-yolo-confirm-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 6px; }
 @media (max-width: 360px) { .agent-phone-options { grid-template-columns: 1fr; } }
 .agent-reader-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--ui-border); overflow-wrap: anywhere; }
 .agent-phone-shortcut.is-active { color: var(--ui-accent-text); background: var(--ui-accent-softer); }
@@ -2801,6 +2911,8 @@ onMounted(async () => {
   color: var(--ui-text); font: inherit; text-align: left; width: 100%;
   min-width: 0; overflow: hidden;
 }
+.agent-side-item-select { display: flex; align-items: flex-start; gap: 8px; flex: 1 1 auto; min-width: 0; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.agent-side-item-select:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .agent-side-item:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
 .agent-side-item:hover .agent-side-item-btns { opacity: 1; }
 .agent-side-item.on { background: var(--ui-accent-soft); }
@@ -2815,6 +2927,9 @@ onMounted(async () => {
 .agent-side-row > * { flex: 1; min-width: 0; }
 
 .agent-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.agent-live-task-notice { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; padding: 8px 12px; border-bottom: 1px solid var(--ui-border); background: color-mix(in srgb, var(--ui-info, #4a9eff) 10%, var(--ui-surface)); color: var(--ui-text); font-size: 12px; }
+.agent-live-task-notice > span { flex: 1; min-width: 0; }
+.agent-live-task-notice.approval { border-color: color-mix(in srgb, var(--ui-warning, #f5a623) 42%, var(--ui-border)); background: color-mix(in srgb, var(--ui-warning, #f5a623) 12%, var(--ui-surface)); }
 
 /* context line: one quiet row, details expand below */
 .agent-caps {
@@ -3155,6 +3270,10 @@ onMounted(async () => {
   .agent-mobile-nav button.on { border-color: color-mix(in srgb, var(--ui-accent) 55%, transparent); background: var(--ui-accent-softer); color: var(--ui-accent-text); }
   .tool-group { margin-left: 0; }
   .agent-side-item-btns { opacity: 1; }
+  .agent-side-item-btns :deep(button) { min-width: 44px; min-height: 44px; }
+  .agent-live-task-notice { flex-wrap: wrap; }
+  .agent-live-task-notice > span { flex-basis: calc(100% - 28px); }
+  .agent-live-task-notice :deep(button) { min-height: 44px; }
 }
 
 /* narrow phones: tighter chrome, wrapping thread head, full-width composer */

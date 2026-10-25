@@ -183,6 +183,14 @@
         <button class="appearance-more" type="button" @click="appearanceOpen = false; wm.open('settings')">More personalization settings <AppIcon name="solar:arrow-right-bold" :size="16" /></button>
       </section>
     </div>
+    <div v-if="aboutOpen" class="appearance-veil" @click.self="aboutOpen = false" @keydown.esc="aboutOpen = false">
+      <section ref="aboutRef" class="appearance-sheet" role="dialog" aria-modal="true" aria-labelledby="about-title">
+        <header class="appearance-heading"><div><h2 id="about-title">CyberManju OS</h2><p>Encrypted file management and a personal workspace.</p></div><button type="button" aria-label="Close About" @click="aboutOpen = false"><AppIcon name="solar:close-bold" :size="20" /></button></header>
+        <p class="appearance-description">Version {{ appPackage.version }}</p>
+        <p class="appearance-description">Licensed under MIT. Project documentation and source code are available on GitHub.</p>
+        <button class="appearance-more" type="button" @click="aboutOpen = false; void openExternalUrl('https://github.com/cybermanju/cybermanju.github.io').catch((e) => store.notifyError('Cannot open the project page', e))">Open project page <AppIcon name="solar:arrow-right-bold" :size="16" /></button>
+      </section>
+    </div>
   </Teleport>
 </template>
 
@@ -198,6 +206,8 @@ import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
 import { useFocusTrap } from '@/composables/useFocusTrap'
 import { openExternalUrl } from '@/utils/openExternal'
+import { isTauri } from '@/composables/useTauri'
+import appPackage from '../../package.json'
 
 const store = useAppStore()
 const launcher = useLauncherStore()
@@ -208,7 +218,10 @@ const wm = useWindowManager()
 const theme = useTheme()
 const appearanceOpen = ref(false)
 const appearanceRef = ref<HTMLElement | null>(null)
+const aboutOpen = ref(false)
+const aboutRef = ref<HTMLElement | null>(null)
 useFocusTrap(appearanceRef, appearanceOpen)
+useFocusTrap(aboutRef, aboutOpen)
 
 
 // Mobile single-header status: connectivity + vault count live here so the
@@ -280,7 +293,7 @@ const menuStructure = computed<MenuGroup[]>(() => [
       { id: 'open-disks', label: 'Disks & Volume', icon: 'solar:flash-drive-bold', action: () => { wm.open('disks') } },
       { id: 'div2', divider: true },
       { id: 'settings', label: 'Settings', icon: 'solar:settings-bold', shortcut: 'Ctrl+,', action: () => { wm.open('settings') } },
-      { id: 'quit', label: 'Quit', icon: 'solar:power-bold', action: () => {} },
+      ...(isTauri() ? [{ id: 'quit', label: 'Quit', icon: 'solar:power-bold', action: () => { void import('@tauri-apps/plugin-process').then(({ exit }) => exit(0)).catch((e) => store.notifyError('Unable to quit CyberManju OS', e)) } }] : []),
     ],
   },
   {
@@ -339,7 +352,7 @@ const menuStructure = computed<MenuGroup[]>(() => [
     id: 'help',
     label: 'Help',
     children: [
-      { id: 'about', label: 'About CyberManju OS', icon: 'solar:info-circle-bold', action: () => {} },
+      { id: 'about', label: 'About CyberManju OS', icon: 'solar:info-circle-bold', action: () => { aboutOpen.value = true } },
       { id: 'docs', label: 'Documentation', icon: 'solar:book-bookmark-bold', action: () => { void openExternalUrl('https://github.com/cybermanju/cybermanju.github.io').catch((e) => store.notifyError('Cannot open the documentation', e)) } },
       { id: 'setup', label: 'Setup wizard', icon: 'solar:magic-wand-bold', action: () => { window.dispatchEvent(new CustomEvent('cybermanju:open-setup')) } },
       { id: 'div1', divider: true },

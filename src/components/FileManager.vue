@@ -983,7 +983,8 @@ import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
 import { useContextMenu } from '@/composables/useContextMenu'
 import { useWindowUi } from '@/composables/useWindowUi'
-import { invoke, isTauri } from '@/composables/useTauri'
+import { invoke, isAndroidApp, isTauri } from '@/composables/useTauri'
+import { parseFileManagerSession, serializeFileManagerSession } from '@/utils/fileManagerSession'
 import { destFromVmPath, hostAbsFromVm, isHostId, isHostPath, sourceFromNode } from '@/utils/hostBrowse'
 import { hostWasmSupported } from '@/utils/hostWasm'
 import { requestInstallWindow } from '@/utils/installLinks'
@@ -1001,6 +1002,15 @@ const store = useAppStore()
 const wm = useWindowManager()
 const ctx = useContextMenu()
 const isPlasma = computed(() => useTheme().shellStyle.value === 'plasma')
+const ANDROID_FILE_MANAGER_SESSION_KEY = 'cybermanju.android.file-manager-session.v1'
+const restoredFileManagerSession = (() => {
+  if (!isAndroidApp()) return null
+  try { return parseFileManagerSession(localStorage.getItem(ANDROID_FILE_MANAGER_SESSION_KEY)) } catch { return null }
+})()
+if (restoredFileManagerSession) {
+  store.currentPath = restoredFileManagerSession.path
+  store.viewMode = restoredFileManagerSession.view
+}
 
 /* Dolphin extras: editable location bar (Alt+L), icon zoom, Places. */
 const crumbEdit = ref(false)
@@ -1031,6 +1041,14 @@ const viewModes: { id: ViewId; icon: string; hint: string }[] = [
   { id: 'masonry', icon: 'solar:widget-2-bold', hint: 'Masonry' },
 ]
 const view = ref<ViewId>((['grid', 'list', 'masonry'].includes(store.viewMode) ? store.viewMode : 'grid') as ViewId)
+if (isAndroidApp()) {
+  watch([() => store.currentPath, view], ([path, currentView]) => {
+    const persistentView = currentView === 'masonry' ? 'masonry' : currentView === 'details' ? 'list' : currentView === 'columns' ? 'grid' : currentView
+    try {
+      localStorage.setItem(ANDROID_FILE_MANAGER_SESSION_KEY, serializeFileManagerSession({ path, view: persistentView }))
+    } catch { /* File browsing remains usable when WebView storage is unavailable. */ }
+  }, { flush: 'sync' })
+}
 function setView(v: ViewId) {
   view.value = v
   if (v === 'grid' || v === 'list' || v === 'masonry') store.viewMode = v
@@ -2042,6 +2060,40 @@ function fileMenu(e: MouseEvent, f: FileNode) {
 }
 function bgMenu(e: MouseEvent) { ctx.open(e, 'file_grid_bg') }
 
+function onShellAction(event: Event) {
+  const detail = (event as CustomEvent<{ action?: string; value?: string; windowId?: string }>).detail
+  const host = rootRef.value?.closest<HTMLElement>('[data-shell-window-id]')
+  if (!detail || detail.windowId !== host?.dataset.shellWindowId) return
+  if (detail.action === 'sidebar') {
+    toggleSidePanel()
+  } else if (detail.action === 'select') {
+    if (active.value) store.selectFile(active.value.id)
+    else if (sortedFiles.value[0]) store.selectFile(sortedFiles.value[0].id)
+  } else if (detail.action === 'context-menu') {
+    const file = active.value
+    if (file) {
+      const rect = rootRef.value?.getBoundingClientRect()
+      const x = rect ? rect.left + rect.width / 2 : 0
+      const y = rect ? rect.top + rect.height / 2 : 0
+      fileMenu(new MouseEvent('contextmenu', { clientX: x, clientY: y, bubbles: true, cancelable: true }), file)
+    } else {
+      const rect = rootRef.value?.getBoundingClientRect()
+      bgMenu(new MouseEvent('contextmenu', { clientX: rect ? rect.left + rect.width / 2 : 0, clientY: rect ? rect.top + rect.height / 2 : 0, bubbles: true, cancelable: true }))
+    }
+  } else if (detail.action === 'zoom-in' || detail.action === 'zoom-out') {
+    zoom.value = Math.min(1.5, Math.max(0.75, Math.round((zoom.value + (detail.action === 'zoom-in' ? 0.05 : -0.05)) * 100) / 100))
+  } else if (detail.action === 'scroll-up' || detail.action === 'scroll-down') {
+    const scroller = rootRef.value?.querySelector<HTMLElement>('.fm-grid, .fm-lbody, .fm-col')
+    scroller?.scrollBy({ top: detail.action === 'scroll-up' ? -160 : 160, behavior: 'smooth' })
+  } else if (detail.action === 'paste') {
+    void pasteHere()
+  } else if (detail.action === 'sort' && ['name', 'size', 'date', 'type'].includes(detail.value || '')) {
+    sortField.value = detail.value as typeof sortField.value
+  } else if (detail.action === 'view' && ['grid', 'list', 'masonry'].includes(detail.value || '')) {
+    setView(detail.value as ViewId)
+  }
+}
+
 // ── clipboard copy/cut/paste (any namespace → any folder) ──
 // Snapshots are FileNodes, not ids: pasting into another namespace must
 // still know each source's kind (vault id, provider locator, host path)
@@ -2965,6 +3017,7 @@ onMounted(() => {
     mobileViewport.addEventListener?.('change', onMobileViewportChange)
   }
   window.addEventListener('cybermanju:mobile-back', handleMobileBack)
+  window.addEventListener('cybermanju:file-manager-action', onShellAction)
   void Promise.all([store.fetchOsDf(), store.fetchSyncConfigs(), store.fetchDisks(), store.fetchCollections()])
     .then(async () => {
       // Every connected Google Drive / GitHub / GitLab repo is browsable
@@ -2985,6 +3038,7 @@ onBeforeUnmount(() => {
   clearLocalEditorTimer()
   mobileViewport?.removeEventListener?.('change', onMobileViewportChange)
   window.removeEventListener('cybermanju:mobile-back', handleMobileBack)
+  window.removeEventListener('cybermanju:file-manager-action', onShellAction)
 })
 </script>
 

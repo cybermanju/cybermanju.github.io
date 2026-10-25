@@ -14,6 +14,7 @@
       maximized: isMaximized,
       'app-window--narrow': isNarrow,
       'app-window--managed-content': win.panelType === 'terminal' || win.panelType === 'editor',
+      'app-window--mobile-native': isMobileApp && ['settings', 'storage', 'disks', 'accounts', 'providers'].includes(String(win.panelType)),
       'app-window--modern-glass': isModernGlass,
       'app-window--flat-amoled': isFlatAmoled,
     }"
@@ -78,7 +79,7 @@
         <p class="panel-async-hint">Close and reopen the window — if it persists, hard-refresh (Ctrl+Shift+R) to load the current build.</p>
         <button class="panel-async-retry" type="button" @click="onClose">Close window</button>
       </div>
-      <component v-else :is="win.component" v-bind="win.props" @close="onClose" />
+      <component v-else :is="win.component" v-bind="win.props" @close="onClose" @minimize="onMinimize" />
     </div>
 
     <!-- Pointer Events (not mouse): one code path for mouse, touch and pen,
@@ -685,6 +686,7 @@ onUnmounted(() => {
 
 /* Mobile sheets: use a clean centered title and no draggable desktop chrome. */
 @media (max-width: 768px) {
+  .app-window--mobile-native .window-titlebar { display: none; }
   .window-titlebar {
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr) 44px;

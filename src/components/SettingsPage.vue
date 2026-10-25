@@ -17,7 +17,11 @@
         <span>Settings</span>
       </button>
       <h2 class="st-detail-title">{{ mobileSection.title }}</h2>
-      <UiButton size="sm" icon="solar:restart-bold" aria-label="Refresh all data" @click="handleRefresh" />
+      <div class="mobile-panel-actions st-mobile-window-actions">
+        <button type="button" aria-label="Refresh settings data" @click="handleRefresh"><AppIcon name="solar:restart-bold" :size="17" /></button>
+        <button type="button" aria-label="Minimize settings" @click="emit('minimize')"><AppIcon name="solar:minus-bold" :size="18" /></button>
+        <button type="button" aria-label="Close settings" @click="emit('close')"><AppIcon name="solar:close-bold" :size="18" /></button>
+      </div>
     </header>
 
     <!-- ── header (same visual language as Accounts) ─────────── -->
@@ -30,8 +34,13 @@
         </div>
       </div>
       <div class="st-top-actions">
-        <UiBadge :label="transportShort" :tone="transportTone" icon="solar:server-bold" />
-        <UiButton size="sm" icon="solar:restart-bold" @click="handleRefresh">Refresh</UiButton>
+        <UiBadge class="st-mobile-transport" :label="transportShort" :tone="transportTone" icon="solar:server-bold" />
+        <UiButton class="st-desktop-refresh" size="sm" icon="solar:restart-bold" @click="handleRefresh">Refresh</UiButton>
+        <div class="mobile-panel-actions st-mobile-window-actions">
+          <button type="button" aria-label="Refresh settings data" @click="handleRefresh"><AppIcon name="solar:restart-bold" :size="17" /></button>
+          <button type="button" aria-label="Minimize settings" @click="emit('minimize')"><AppIcon name="solar:minus-bold" :size="18" /></button>
+          <button type="button" aria-label="Close settings" @click="emit('close')"><AppIcon name="solar:close-bold" :size="18" /></button>
+        </div>
       </div>
     </header>
 
@@ -131,17 +140,16 @@
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Appearance</UiText>
           <UiSegmented
+            v-if="!isMobile"
             :model-value="theme.settings.followSystem ? 'auto' : theme.settings.theme"
-            :options="[
-              { label: 'Light', value: 'os-light' },
-              { label: 'Dark', value: 'os-dark' },
-              { label: 'Graphite', value: 'os-graphite' },
-              { label: 'Modern Glass', value: 'modern-glass' },
-              { label: 'Flat AMOLED', value: 'flat-amoled' },
-              { label: 'Plasma light', value: 'plasma-light' },
-              { label: 'Plasma dark', value: 'plasma-dark' },
-              { label: 'Auto', value: 'auto' },
-            ]"
+            :options="APPEARANCE_OPTIONS"
+            aria-label="Appearance"
+            @update:model-value="theme.setAppearance($event as 'auto' | ThemeId)"
+          />
+          <UiSelect
+            v-else
+            :model-value="theme.settings.followSystem ? 'auto' : theme.settings.theme"
+            :options="APPEARANCE_OPTIONS"
             aria-label="Appearance"
             @update:model-value="theme.setAppearance($event as 'auto' | ThemeId)"
           />
@@ -616,9 +624,21 @@ import { lockMobileVaultMirror, mobileVaultMirrorState, supportsNativeScopedStor
 import { LOCALES, getLocale, t, useLocale, type Locale } from '@/utils/i18n'
 import pkg from '../../package.json'
 
+const emit = defineEmits<{ close: []; minimize: [] }>()
+
 /** package.json is the single source of truth for the version (AGENTS §0) —
   About, the phone root footer and the list cell all read it from there. */
 const APP_VERSION = pkg.version
+const APPEARANCE_OPTIONS = [
+  { label: 'Light', value: 'os-light' },
+  { label: 'Dark', value: 'os-dark' },
+  { label: 'Graphite', value: 'os-graphite' },
+  { label: 'Modern Glass', value: 'modern-glass' },
+  { label: 'Flat AMOLED', value: 'flat-amoled' },
+  { label: 'Plasma light', value: 'plasma-light' },
+  { label: 'Plasma dark', value: 'plasma-dark' },
+  { label: 'Auto', value: 'auto' },
+]
 
 /**
  * Active transport: tauri IPC, REST dashboard, or local WASM (GitHub Pages).
@@ -1580,6 +1600,12 @@ async function handleRefresh() {
    so a narrow DESKTOP window keeps the jump rail + one scroll page above.
    The ≤560px block below layers the iOS voice (SF stack, 44px rhythm) on top. */
 .st--mobile .st-top--mobile { padding: 12px 14px 10px; gap: 10px; }
+.st--mobile .st-top--mobile:not(.is-detail) {
+  min-height: 82px;
+  padding: 14px 16px 12px;
+  background: var(--ui-surface);
+  border-bottom-color: var(--ui-hairline);
+}
 
 /* Large title on the root; the pushed detail is a compact 44px nav bar. */
 .st--mobile .st-top--mobile:not(.is-detail) .st-title {
@@ -1856,6 +1882,9 @@ async function handleRefresh() {
 @media (max-width: 768px) {
   .st { min-width: 0; }
   .st--mobile .st-top-actions { gap: 6px; }
+.st--mobile .st-top-actions > :deep(.st-desktop-refresh),
+.st--mobile .st-top-actions > :deep(.st-mobile-transport) { display: none; }
+.st--mobile .st-mobile-window-actions { display: flex; }
   .st--mobile .st-body { min-width: 0; overflow-x: hidden; }
   .st--mobile .st-body > :deep(.ui-card) { min-width: 0; }
   .st--mobile .st-row { min-width: 0; flex-wrap: wrap; }

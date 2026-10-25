@@ -41,6 +41,7 @@ import AppIcon from '@/components/AppIcon.vue'
 import { computed } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
+import { resolvePanel } from '@/utils/panels'
 import type { PanelType } from '@/types'
 
 const wm = useWindowManager()
@@ -65,15 +66,14 @@ const tabs: Tab[] = [
 const hasOpenWindows = computed(() => wm.windows.value.some(w => !w.minimized))
 
 const activePanel = computed(() => {
-  const focused = wm.activeWindow.value?.panelType as string | undefined
-  if (focused) return focused
+  const focused = wm.activeWindow.value?.panelType
+  if (focused) return resolvePanel(focused)
   if (store.currentPanel === 'landing') return 'files'
-  return store.currentPanel
+  return resolvePanel(store.currentPanel)
 })
 
 function isActive(t: Tab): boolean {
-  if (t.panel === 'storage') return activePanel.value === 'storage'
-  return activePanel.value === t.panel
+  return activePanel.value === resolvePanel(t.panel)
 }
 
 function goHome() {

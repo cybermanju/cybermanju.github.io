@@ -8,7 +8,7 @@
 // The code editor (CodeStudio) and any other panel consume this instead of
 // re-implementing AgentPanel's run/approval/queue logic.
 
-import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { isStaticHost } from '@/composables/useTauri'
 import { deploymentStorageEventKey } from '@/utils/deploymentScope'
@@ -145,7 +145,7 @@ function createDriver() {
   const localKeys = ref<Record<string, string>>({})
   const localJob = ref<AgentJob | null>(null)
   const answerInput = ref('')
-  const queue = ref<string[]>([])
+  const queue = ref<Array<{ prompt: string; configId: string; sessionId?: string }>>([])
   const startedAt = ref(0)
 
   const configs = computed(() => (wasmMode.value ? localConfigs.value : store.agentConfigs))
@@ -251,6 +251,12 @@ function createDriver() {
     return s === 'running' || s === 'waiting_approval'
   })
 
+  const queueCanResume = computed(() => {
+    const next = queue.value[0]
+    return !!next && !jobActive.value && next.configId === chatConfigId.value &&
+      (!next.sessionId || next.sessionId === viewing.value?.id)
+  })
+
   const jobLine = computed(() => {
     const job = activeJob.value
     if (!job) return ''
@@ -351,7 +357,7 @@ function createDriver() {
       deleteLocalSession(id)
       refreshLocal()
     } else {
-      await store.deleteAgentSession(id)
+      if (!await store.deleteAgentSession(id)) return
     }
     if (viewing.value?.id === id) setViewing(null)
   }
@@ -360,7 +366,11 @@ function createDriver() {
     const prompt = withFileCtx(rawPrompt.trim(), files)
     if (!prompt || !chatConfigId.value) return false
     if (jobActive.value) {
-      queue.value.push(prompt)
+      queue.value.push({
+        prompt,
+        configId: chatConfigId.value,
+        sessionId: viewing.value?.configId === chatConfigId.value ? viewing.value.id : undefined,
+      })
       return true
     }
     if (wasmMode.value) return sendLocal(prompt)
@@ -371,8 +381,7 @@ function createDriver() {
       if (!created) return false
       sessionId = created.id
     }
-    await store.startAgentRun(chatConfigId.value, prompt, sessionId)
-    return true
+    return !!await store.startAgentRun(chatConfigId.value, prompt, sessionId)
   }
 
   async function sendLocal(prompt: string): Promise<boolean> {
@@ -527,7 +536,21 @@ function createDriver() {
     if (index >= 0 && index < queue.value.length) queue.value.splice(index, 1)
   }
 
-  /** Terminal status: pull the final transcript, then drain the prompt queue. */
+  async function sendNextQueued(): Promise<boolean> {
+    if (!queueCanResume.value) return false
+    const next = queue.value.shift()!
+    try {
+      const sent = await send(next.prompt)
+      if (!sent) queue.value.unshift(next)
+      return sent
+    } catch (error) {
+      queue.value.unshift(next)
+      store.notifyError('Queued message not sent', error)
+      return false
+    }
+  }
+
+  /** Terminal status refreshes the transcript. Queued prompts require explicit resume. */
   watch(
     () => activeJob.value?.status,
     status => {
@@ -538,11 +561,6 @@ function createDriver() {
         })
         void store.fetchAgentSessions()
       }
-      if (!terminal || jobActive.value || !queue.value.length) return
-      const next = queue.value.shift()!
-      void nextTick(() => {
-        void send(next)
-      })
     },
   )
 
@@ -577,10 +595,10 @@ function createDriver() {
   return {
     wasmMode, configs, sessions, chatConfigId, chatConfig, viewing,
     activeJob, jobActive, jobLine, jobError, jobHint,
-    pendingApproval, answerInput, queue,
+    pendingApproval, answerInput, queue, queueCanResume,
     threadRows, contextTokens, contextWindow, contextPct, costUsd,
     localPresets, localKeys,
-    send, abort, answer, newSession, loadSession, removeSession,
+    send, abort, answer, newSession, loadSession, removeSession, sendNextQueued,
     refreshLocal, sealLocalKey, ensureCatalog, setViewing, dropQueued,
     store, agent,
   }
