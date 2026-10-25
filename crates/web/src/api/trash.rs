@@ -13,9 +13,13 @@ pub fn list(db: &Database) -> Result<Vec<TrashItem>, String> {
 
 /// Restore a file or folder from trash to its original location.
 pub fn restore(db: &Database, file_id: &str) -> Result<TrashItem, String> {
-    db.restore_from_trash(file_id)
+    let item = db.restore_from_trash_with_mutation(file_id, Some((
+        "restore",
+        serde_json::json!({ "schemaVersion": 1, "fileId": file_id }),
+    )))
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Item not found in trash: {}", file_id))
+        .ok_or_else(|| format!("Item not found in trash: {}", file_id))?;
+    Ok(item)
 }
 
 /// Permanently delete all items from the trash.

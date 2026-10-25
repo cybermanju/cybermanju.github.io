@@ -16,6 +16,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ackRelayMessages,
+  answerDataChannelViaRelay,
   buildAnnounceBody,
   buildSignedSyncBody,
   canonicalOpsEnvelope,
@@ -64,7 +65,7 @@ describe('canonical envelope (byte-identical to Rust)', () => {
     expect(body.signature).toBe('sig-b64')
     expect(body.ops[0]).toMatchObject({ kind: 'tag', fileId: null })
     expect(() => buildSignedSyncBody([], '', '')).toThrow(/^auth:/)
-    expect(() => buildSignedSyncBody(new Array(10_001).fill({}), '', '')).toThrow(/^too_large:/)
+    expect(() => buildSignedSyncBody(new Array(501).fill({}), 'signature', 'ml-dsa-65')).toThrow(/^too_large:/)
   })
 })
 
@@ -130,11 +131,16 @@ describe('WebRTC handshake helper', () => {
         fetchJson: async () => ({}),
       }),
     ).rejects.toThrow(/^unsupported:/)
+    await expect(
+      answerDataChannelViaRelay('https://relay.example.com', 'a', 'b', {
+        fetchJson: async () => ({}),
+      }),
+    ).rejects.toThrow(/^unsupported:/)
   })
 })
 
 describe('attested op-log exchange', () => {
-  const deps = (seen: { posts: unknown[][] }) => ({
+  const deps = (seen: { posts: unknown[][]; cursors: number[]; merged: unknown[] }) => ({
     localDeviceId: 'laptop-1',
     peerToken: 'token-for-phone-7',
     signer: async (deviceId: string, normalized: Record<string, unknown>[]) => {
@@ -144,14 +150,28 @@ describe('attested op-log exchange', () => {
     },
     fetchJson: async (method: string, url: string, body?: unknown, peerToken?: string) => {
       seen.posts.push([method, url, body, peerToken])
-      if (url.includes('/api/oplog/since')) return { head: 1, ops: [] }
+      if (url.endsWith('/api/readyz')) return { ready: true }
+      if (url.includes('/api/oplog/batches')) return {
+        head: 1,
+        hasMore: false,
+        batches: [{
+          batchSeq: 0,
+          batch: {
+            version: 1, batchId: 'batch-phone-0', ownerId: 'local', deviceId: 'phone-7',
+            createdAt: '2026-10-25T00:00:00Z', algorithm: 'ml-dsa-65', signature: 'peer-sig',
+            ops: [{ seq: 0, opId: 'phone-7-0', deviceId: 'phone-7', kind: 'tag' }],
+          },
+        }],
+      }
       return { appended: 1, verified: true }
     },
-    pushOps: async (ops: unknown[]) => ({ appended: ops.length }),
+    publishLocalBatch: async () => ({ verified: true as const }),
+    mergeBatch: async (batch: unknown) => { seen.merged.push(batch); return { appended: 1, verified: true as const } },
+    saveCursor: async (cursor: number) => { seen.cursors.push(cursor) },
   })
 
   it('refuses ops not owned by the local signing device before network access', async () => {
-    const seen = { posts: [] } as { posts: unknown[][] }
+    const seen = { posts: [], cursors: [], merged: [] } as { posts: unknown[][]; cursors: number[]; merged: unknown[] }
     await expect(syncExchangeWithPeer(
       { deviceId: 'phone-7', baseUrl: 'http://192.168.1.60:3456', transport: 'lan-http' },
       0,
@@ -162,7 +182,7 @@ describe('attested op-log exchange', () => {
   })
 
   it('pushes signed envelopes under the local sender device id', async () => {
-    const seen = { posts: [] } as { posts: unknown[][] }
+    const seen = { posts: [], cursors: [], merged: [] } as { posts: unknown[][]; cursors: number[]; merged: unknown[] }
     const out = await syncExchangeWithPeer(
       { deviceId: 'phone-7', baseUrl: 'http://192.168.1.60:3456', transport: 'lan-http' },
       0,
@@ -173,7 +193,49 @@ describe('attested op-log exchange', () => {
     expect(push).toBeTruthy()
     expect((push![2] as Record<string, unknown>).signature).toBe('sig-b64')
     expect(seen.posts.every(([, , , token]) => token === 'token-for-phone-7')).toBe(true)
-    expect(out.steps.join('\n')).toContain('verified: true')
+    expect(seen.posts.some(([, url]) => String(url).includes('/api/oplog/batches?since=0&limit=100'))).toBe(true)
+    expect(seen.merged).toHaveLength(1)
+    expect(seen.cursors).toEqual([1])
+    expect(out.cursor).toBe(1)
+    expect(out.pulled).toBe(1)
+  })
+
+  it('does not advance the cursor when local proof verification rejects a page', async () => {
+    const seen = { posts: [], cursors: [], merged: [] } as { posts: unknown[][]; cursors: number[]; merged: unknown[] }
+    const failing = {
+      ...deps(seen),
+      mergeBatch: async () => { throw new Error('auth: untrusted signing key') },
+    }
+    await expect(syncExchangeWithPeer(
+      { deviceId: 'phone-7', baseUrl: 'http://192.168.1.60:3456', transport: 'lan-http' },
+      0,
+      [],
+      failing,
+    )).rejects.toThrow(/^auth:/)
+    expect(seen.cursors).toEqual([])
+  })
+
+  it('refuses malformed signed batches before merge or cursor advancement', async () => {
+    const seen = { posts: [], cursors: [], merged: [] } as { posts: unknown[][]; cursors: number[]; merged: unknown[] }
+    const malformed = {
+      ...deps(seen),
+      fetchJson: async (_method: string, url: string) => url.endsWith('/api/readyz') ? { ready: true } : ({
+        head: 1, hasMore: false,
+        batches: [{ batchSeq: 0, batch: {
+          version: 1, batchId: 'batch-a', ownerId: 'local', deviceId: 'phone-7',
+          algorithm: 'ml-dsa-65', signature: 'sig',
+          ops: [{ seq: 0, opId: 'phone-7-0', deviceId: 'attacker', kind: 'tag' }],
+        } }],
+      }),
+    }
+    await expect(syncExchangeWithPeer(
+      { deviceId: 'phone-7', baseUrl: 'http://192.168.1.60:3456', transport: 'lan-http' },
+      0,
+      [],
+      malformed,
+    )).rejects.toThrow(/^integrity:/)
+    expect(seen.merged).toEqual([])
+    expect(seen.cursors).toEqual([])
   })
 })
 

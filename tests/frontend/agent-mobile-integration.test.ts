@@ -178,7 +178,7 @@ describe('conversation routing', () => {
     const activeTab = { value: 'setup' }
     const setViewing = vi.fn()
     const store = { loadAgentSession: vi.fn() }
-    const api = compile('let sessionLoadRevision = 0', 'async function removeSession', {
+    const api = compile('let sessionLoadRevision = 0', 'function removeSession', {
       chatConfigId, activeTab, setViewing, store,
       configs: { value: [{ id: 'a' }, { id: 'b' }] }, wasmMode: { value: false },
     }, 'loadSession')

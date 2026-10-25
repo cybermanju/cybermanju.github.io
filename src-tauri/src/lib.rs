@@ -639,6 +639,7 @@ fn native_command_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + S
         commands::cron::cron_ensure_started,
         // Device identity (§2B.1) + LAN peers (§2B.2).
         devices::list_devices,
+        devices::list_signing_devices,
         devices::register_device,
         devices::register_this_device,
         devices::revoke_device,
@@ -649,7 +650,9 @@ fn native_command_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + S
         devices::sign_peer_ops_for_device,
         // Local-first conflict exchange also works without the REST dashboard.
         commands::oplog::oplog_since,
+        commands::oplog::oplog_batches,
         commands::oplog::oplog_push,
+        commands::oplog::oplog_merge_batch,
         commands::oplog::oplog_conflicts,
         commands::oplog::oplog_resolve,
         // P2P compute twins (§2B swarming + pairing + fountain codes —

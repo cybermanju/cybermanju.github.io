@@ -1,9 +1,10 @@
 // CyberManju OS — Oplog (src-tauri/src/commands/oplog.rs).
 // Role: Native IPC entry points for local oplog pull, push, conflict view and resolution.
-// Exports: oplog_since, oplog_conflicts, oplog_push, oplog_resolve.
+// Exports: oplog_since, oplog_batches, oplog_conflicts, oplog_push, oplog_merge_batch, oplog_resolve.
 // Integrates: shared web oplog validation and owner-scoped queries; AppState DB.
 // Contracts: local owner only; pushes require verified signatures; no foreign or revoked rows.
 use crate::AppState;
+use cybermanju_types::schema::SignedOpBatch;
 use cybermanju_web::api::oplog::{PushRequest, ResolveRequest};
 use tauri::State;
 
@@ -19,6 +20,23 @@ pub fn oplog_since(
         &db,
         since.unwrap_or(0),
         limit.unwrap_or(500),
+        "local",
+    )
+}
+
+/// Pull one local-owner page of preserved signed batches, cursoring by the
+/// receiver's batch sequence rather than rewriting sender operation rows.
+#[tauri::command(async)]
+pub fn oplog_batches(
+    since: Option<u64>,
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let db = state.db.read().map_err(|e| e.to_string())?;
+    cybermanju_web::api::oplog::signed_batches_for_owner(
+        &db,
+        since.unwrap_or(0),
+        limit.unwrap_or(100),
         "local",
     )
 }
@@ -50,6 +68,17 @@ pub fn oplog_push(
         },
         "local",
     )
+}
+
+/// Verify a forwarded sender batch while retaining its original envelope and
+/// storing it under this local vault's owner scope.
+#[tauri::command(async)]
+pub fn oplog_merge_batch(
+    batch: SignedOpBatch,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let db = state.db.write().map_err(|e| e.to_string())?;
+    cybermanju_web::api::oplog::merge_preserved_batch(&db, &batch, "local")
 }
 
 /// Append an owner-checked resolution op; existing op history is preserved.

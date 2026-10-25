@@ -126,9 +126,9 @@
         <UiCard title="This device" icon="solar:key-bold" meta="ML-DSA identity">
           <div class="dv-pair">
             <UiInput v-model="deviceName" placeholder="My laptop" aria-label="Device name" />
-            <UiButton size="sm" :disabled="!deviceName.trim()" @click="enrollThis">Enroll this device</UiButton>
+            <UiButton size="sm" :disabled="!peerSyncAvailable || !deviceName.trim()" :title="peerSyncAvailable ? 'Create and seal a native ML-DSA device identity' : 'Browser device-key enrollment is not wired yet'" @click="enrollThis">{{ peerSyncAvailable ? 'Enroll this device' : 'Native enrollment only' }}</UiButton>
           </div>
-          <p class="dv-muted">Enrollment generates a fresh ML-DSA-65 keypair; the private half stays sealed on this device, the public half registers here.</p>
+          <p class="dv-muted">Native enrollment generates a fresh ML-DSA-65 keypair; the private half stays sealed on this device. Browser/WASM device-key enrollment and signed journal creation are not wired yet.</p>
         </UiCard>
         <UiCard title="Registry" icon="solar:users-group-rounded-bold" :meta="`${store.devices.length} known`">
           <div v-if="!store.devices.length" class="dv-muted">No devices enrolled yet.</div>
@@ -148,10 +148,56 @@
           <div v-if="!store.lanPeers.length" class="dv-muted">No peers answering `_cybermanju._tcp.local` right now — same Wi-Fi, no server needed.</div>
           <div v-for="p in store.lanPeers" :key="p.deviceId" class="dv-pair dv-row">
             <span class="dv-line">{{ p.name || p.deviceId }} <span class="dv-muted">{{ p.host }}:{{ p.port }}</span></span>
-            <UiButton size="sm" :disabled="!canSyncPeer(p)" :title="peerSyncTitle(p)" @click="store.syncWithPeer(p.deviceId)">Sync</UiButton>
+            <UiButton size="sm" variant="ghost" :disabled="!peerSyncAvailable || !peerConfigured(p.deviceId) || peerSyncBusy" :title="!peerSyncAvailable ? 'Browser ML-DSA signing is not available yet' : peerConfigured(p.deviceId) ? 'Exchange signed batches with this configured peer' : 'Configure this peer URL, sealed token and key pin below'" @click="store.syncWithPeer(p.deviceId)">{{ peerSyncAvailable ? (peerConfigured(p.deviceId) ? 'Sync' : 'Configure below') : 'Native sync only' }}</UiButton>
           </div>
           <p v-if="store.lanSyncMsg" class="dv-line">{{ store.lanSyncMsg }}</p>
-          <p class="dv-muted">Direct sync accepts only a signed ML-DSA envelope from an enrolled, non-revoked device. Unsigned, revoked, unknown, or wrong-owner peers fail closed and never merge.</p>
+          <p class="dv-muted">Peer sync uses preserved ML-DSA signed batches. HTTP is allowed only on loopback or trusted LAN; remote hosts require HTTPS. The peer token is stored in the sealed secrets vault. Browser/WASM sync stays disabled until browser device-key enrollment and signing are implemented.</p>
+          <p class="dv-muted">QUIC/iroh is not shipped. The relay mailbox carries HTTPS signaling envelopes; it is not a QUIC transport or bulk-file channel.</p>
+        </UiCard>
+        <UiCard title="Peer connection setup" icon="solar:link-bold" meta="sealed credential · pinned identity">
+          <div class="dv-stack">
+            <div class="dv-pair">
+              <select v-model="invitationDeviceId" class="dv-select" aria-label="Identity to share with peer">
+                <option value="">Choose this device to share</option>
+                <option v-for="d in store.devices.filter((row) => !row.revoked && row.publicKey && store.signingDeviceIds.includes(row.id))" :key="d.id" :value="d.id">{{ d.name }} · {{ d.id }}</option>
+              </select>
+              <UiButton size="sm" variant="ghost" :disabled="!invitationDeviceId" @click="copyDeviceInvitation">Copy identity invitation</UiButton>
+            </div>
+            <div class="dv-pair">
+              <UiInput v-model="peerInvitationInput" placeholder="Paste the other device’s identity invitation JSON" aria-label="Peer identity invitation" autocomplete="off" />
+              <UiButton size="sm" variant="ghost" :disabled="!peerInvitationInput.trim()" @click="importPeerInvitation">Import peer identity</UiButton>
+            </div>
+            <div class="dv-pair">
+              <select v-model="peerDeviceId" class="dv-select" aria-label="Registered peer device">
+                <option value="">Choose registered peer</option>
+                <option v-for="d in store.devices.filter((row) => !row.revoked && store.signingDeviceIds.includes(row.id))" :key="d.id" :value="d.id">{{ d.name }} · {{ d.id }}</option>
+              </select>
+              <select v-model="localDeviceId" class="dv-select" aria-label="Local signing device">
+                <option value="">Choose this device identity</option>
+                <option v-for="d in store.devices.filter((row) => !row.revoked)" :key="d.id" :value="d.id">{{ d.name }} · {{ d.id }}</option>
+              </select>
+            </div>
+            <div class="dv-pair">
+              <UiInput v-model="peerBaseUrlInput" placeholder="https://peer.example.com or http://192.168.1.20:3456" aria-label="Peer base URL" autocomplete="url" />
+              <UiInput v-model="peerTokenInput" type="password" placeholder="Peer-specific bearer token" aria-label="Peer-specific bearer token" autocomplete="new-password" />
+            </div>
+            <div v-if="peerFingerprint" class="dv-stack">
+              <p class="dv-line">Registered peer key SHA-256 fingerprint</p>
+              <code class="dv-fingerprint">{{ peerFingerprint }}</code>
+              <UiInput v-model="peerFingerprintConfirm" placeholder="Type the independently compared fingerprint" aria-label="Confirm peer key fingerprint" autocomplete="off" />
+            </div>
+            <div class="dv-pair">
+              <UiButton size="sm" :disabled="!canSavePeer" @click="savePeerSetup">Save sealed peer connection</UiButton>
+              <UiButton size="sm" variant="ghost" @click="store.fetchDevices()">Refresh identities</UiButton>
+            </div>
+            <p v-if="peerSetupMessage" class="dv-line">{{ peerSetupMessage }}</p>
+            <div v-for="connection in store.peerConnections" :key="connection.peerDeviceId" class="dv-pair dv-row">
+              <span class="dv-line">{{ connection.peerDeviceId }} · {{ connection.baseUrl }} · {{ peerConnectionStatus(connection) }}<span class="dv-muted"> · cursor {{ connection.cursor }} · {{ store.peerPendingOperationCounts[connection.peerDeviceId] < 0 ? 'pending unavailable' : store.peerPendingOperationCounts[connection.peerDeviceId] === 500 ? '500+ unsigned ops' : `${store.peerPendingOperationCounts[connection.peerDeviceId] ?? '…'} unsigned ops` }} · {{ store.opConflicts.length }} conflicts{{ connection.lastSuccessfulSyncAt ? ` · synced ${connection.lastSuccessfulSyncAt}` : ' · never synced' }}</span></span>
+              <UiButton size="sm" :disabled="peerSyncBusy" @click="runPeerSync(connection.peerDeviceId)">Retry sync</UiButton>
+              <UiButton size="sm" variant="ghost" :disabled="peerSyncBusy" @click="store.removePeerConnection(connection.peerDeviceId)">Remove</UiButton>
+            </div>
+            <p class="dv-muted">Compare the complete fingerprint with the other device through a trusted channel before saving. Tokens are never put in this profile’s settings or sent to another peer.</p>
+          </div>
         </UiCard>
         <UiCard title="Presence (no-mDNS peers)" icon="solar:radar-bold" meta="announce · known">
           <div class="dv-pair">
@@ -161,7 +207,7 @@
           <div v-if="!store.knownPeers.length" class="dv-muted">No heartbeats yet — peers `POST /api/peers/announce` once per launch (5 min TTL); this is what mobile/docker read where multicast cannot go.</div>
           <div v-for="p in store.knownPeers" :key="p.deviceId" class="dv-pair dv-row">
             <span class="dv-line">{{ p.deviceId }} <span class="dv-muted">{{ p.host }}:{{ p.port }}</span></span>
-            <UiButton size="sm" @click="store.syncWithPeer(p.deviceId)">Sync</UiButton>
+            <UiButton size="sm" variant="ghost" :disabled="!peerSyncAvailable || !peerConfigured(p.deviceId) || peerSyncBusy" :title="!peerSyncAvailable ? 'Browser ML-DSA signing is not available yet' : peerConfigured(p.deviceId) ? 'Exchange signed batches with this configured peer' : 'Configure the peer URL, sealed token and key pin below'" @click="store.syncWithPeer(p.deviceId)">{{ peerSyncAvailable ? (peerConfigured(p.deviceId) ? 'Sync' : 'Configure below') : 'Native sync only' }}</UiButton>
           </div>
           <p v-if="store.presenceMsg" class="dv-line">{{ store.presenceMsg }}</p>
         </UiCard>
@@ -311,6 +357,7 @@ import AppIcon from '@/components/AppIcon.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useSystemHardware, getStorageEstimate, persistStorage } from '@/composables/useSystemHardware'
 import { useAppStore } from '@/stores/app'
+import { isTauri } from '@/composables/useTauri'
 import {
   formatBytesDec,
   formatCoord,
@@ -320,9 +367,8 @@ import {
   isFiniteNum,
 } from '@/utils/deviceStats'
 import type { TopSnapshot } from '@/utils/deviceStats'
-import type { LanPeer } from '@/types'
-import { isPeerSyncable, peerBlockReason } from '@/utils/lanSync'
 import { isRelayAddr, parseWanEndpoint, relayDialSteps, wanDialPlan, wanDialSteps, wanHttpBase, wanHttpProbe, wanWayOut } from '@/utils/wanDial'
+import { fingerprintDeviceKey, peerCredentialId } from '@/utils/peerConnections'
 
 const hw = useSystemHardware()
 const store = useAppStore()
@@ -333,28 +379,116 @@ const storageStat = ref<{ usage: number | null; quota: number | null; percent: n
 const picked = ref('')
 const identityMsg = ref('')
 const deviceName = ref('')
+const peerDeviceId = ref('')
+const localDeviceId = ref('')
+const peerBaseUrlInput = ref('')
+const peerTokenInput = ref('')
+const peerFingerprint = ref('')
+const peerFingerprintConfirm = ref('')
+const peerSetupMessage = ref('')
+const peerSyncBusy = ref(false)
+const peerSyncAvailable = isTauri()
+const invitationDeviceId = ref('')
+const peerInvitationInput = ref('')
+
+const canSavePeer = computed(() => Boolean(
+  peerSyncAvailable && peerDeviceId.value && localDeviceId.value && peerBaseUrlInput.value.trim() &&
+  peerTokenInput.value.trim() && peerFingerprint.value &&
+  peerFingerprintConfirm.value.trim().toLowerCase() === peerFingerprint.value,
+))
+
+function peerConfigured(id: string): boolean {
+  return store.peerConnections.some((connection) => connection.peerDeviceId === id)
+}
+
+function peerConnectionStatus(connection: { peerDeviceId: string; baseUrl: string }): string {
+  const peer = store.devices.find((device) => device.id === connection.peerDeviceId)
+  const transport = connection.baseUrl.startsWith('https:') ? 'HTTPS' : 'LAN HTTP'
+  if (!peer?.lastSeenAt) return `${transport} · not seen`
+  const timestamp = Date.parse(peer.lastSeenAt)
+  return `${transport} · last seen ${Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : 'unknown'}`
+}
+
+async function runPeerSync(id: string) {
+  peerSyncBusy.value = true
+  try { await store.syncWithPeer(id) } finally { peerSyncBusy.value = false }
+}
+
+watch(peerDeviceId, async (id) => {
+  peerFingerprint.value = ''
+  peerFingerprintConfirm.value = ''
+  if (!id) return
+  const row = store.devices.find((device) => device.id === id && !device.revoked)
+  if (!row?.publicKey) {
+    peerSetupMessage.value = 'This peer has no active registered public key.'
+    return
+  }
+  try {
+    const fingerprint = await fingerprintDeviceKey(row.publicKey)
+    if (peerDeviceId.value === id) peerFingerprint.value = fingerprint
+  } catch (error) {
+    peerSetupMessage.value = error instanceof Error ? error.message : String(error)
+  }
+  const discovered = store.lanPeers.find((peer) => peer.deviceId === id)
+  if (discovered && !peerBaseUrlInput.value.trim()) {
+    const host = discovered.host.includes(':') && !discovered.host.startsWith('[') ? `[${discovered.host}]` : discovered.host
+    peerBaseUrlInput.value = `http://${host}:${discovered.port}`
+  }
+})
+
+async function savePeerSetup() {
+  if (!canSavePeer.value) return
+  peerSetupMessage.value = 'Sealing peer credential…'
+  const previous = store.peerConnections.find((row) => row.peerDeviceId === peerDeviceId.value)
+  const id = `${peerCredentialId(peerDeviceId.value)}-${Date.now()}`
+  const saved = await store.savePeerCredential(peerDeviceId.value, peerTokenInput.value, id)
+  if (!saved) {
+    peerSetupMessage.value = 'Peer connection was not changed because its token could not be sealed.'
+    return
+  }
+  const config = await store.configurePeerConnection({
+    peerDeviceId: peerDeviceId.value,
+    baseUrl: peerBaseUrlInput.value,
+    localDeviceId: localDeviceId.value,
+    credentialId: id,
+    keyFingerprint: peerFingerprintConfirm.value,
+  })
+  if (!config) {
+    await store.deleteSecret(id)
+    peerSetupMessage.value = 'Peer connection was not changed; the unused sealed token was removed.'
+    return
+  }
+  if (previous && previous.credentialId !== id) await store.deleteSecret(previous.credentialId)
+  peerTokenInput.value = ''
+  peerFingerprintConfirm.value = ''
+  peerSetupMessage.value = 'Connection saved. The token is sealed in the secrets vault.'
+}
+
+async function copyDeviceInvitation() {
+  const invitation = store.deviceInvitation(invitationDeviceId.value)
+  if (!invitation) { peerSetupMessage.value = 'Choose an active identity with a public key first.'; return }
+  try {
+    await navigator.clipboard.writeText(invitation)
+    peerSetupMessage.value = 'Public identity invitation copied. Send it through a trusted channel.'
+  } catch {
+    peerInvitationInput.value = invitation
+    peerSetupMessage.value = 'Clipboard access is unavailable; invitation JSON is shown in the field below.'
+  }
+}
+
+async function importPeerInvitation() {
+  const row = await store.importPeerDevice(peerInvitationInput.value)
+  if (!row) return
+  peerInvitationInput.value = ''
+  peerDeviceId.value = row.id
+  peerSetupMessage.value = 'Identity imported. Compare the full fingerprint with the other device before configuring sync.'
+}
 
 async function enrollThis() {
   const name = deviceName.value.trim()
   if (!name) return
   const row = await store.registerThisDevice(name)
   if (row) deviceName.value = ''
-}
-
-/** Direct-sync gate: enrolled + non-revoked registry rows only (fail-closed). */
-function canSyncPeer(p: LanPeer): boolean {
-  return isPeerSyncable(
-    { deviceId: p.deviceId, name: p.name, host: p.host, port: p.port },
-    store.devices.filter((d) => !d.revoked).map((d) => d.id),
-  )
-}
-
-function peerSyncTitle(p: LanPeer): string {
-  const reason = peerBlockReason(
-    { deviceId: p.deviceId, name: p.name, host: p.host, port: p.port },
-    store.devices.filter((d) => !d.revoked).map((d) => d.id),
-  )
-  return reason || 'Sync op-log with this peer now'
 }
 
 const wanInput = ref('')
@@ -695,6 +829,7 @@ onMounted(() => {
   void loadStorage()
   void store.fetchOsTop()
   void store.fetchDevices()
+  void store.refreshPeerPendingOperationCounts()
   statsPoll = window.setInterval(() => {
     if (document.hidden) return
     void store.fetchOsTop()

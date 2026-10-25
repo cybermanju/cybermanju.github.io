@@ -21,6 +21,8 @@ const SPINE_ROUTES = [
   'list_lan_peers',
   'peer_sync',
   'oplog_since',
+  'oplog_batches',
+  'oplog_merge_batch',
   'oplog_push',
   'oplog_conflicts',
   'oplog_resolve',
@@ -84,10 +86,9 @@ describe('Rust twins for the spine (static reads, no cargo)', () => {
 
   it('registers the Tauri twins in src-tauri', () => {
     const runtime = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
-    // Device identity + todos have native twins; op-log / peer-sync / bundle
-    // are REST-first by design (the dashboard owns peer auth + merge), so
-    // `invoke()` routes them over restFetch with no Tauri twin.
-    for (const cmd of ['register_this_device', 'list_lan_peers', 'list_todos']) {
+    // Local device-key inspection, identity + todos have native twins; REST-
+    // first op-log calls also have Tauri fallbacks for local/mobile databases.
+    for (const cmd of ['register_this_device', 'list_signing_devices', 'list_lan_peers', 'list_todos', 'oplog_merge_batch']) {
       expect(runtime.includes(cmd), cmd).toBe(true)
     }
     for (const cmd of ['oplog_resolve', 'peer_sync', 'bundle_export']) {

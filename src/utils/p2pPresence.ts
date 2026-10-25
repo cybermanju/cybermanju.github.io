@@ -7,7 +7,8 @@
 // Exports: PresenceEntry, RelayMessage, SignedSyncBody, ENVELOPE_DOMAIN,
 // stableStringify, normalizeOpsForEnvelope, canonicalOpsEnvelope,
 // buildSignedSyncBody, buildAnnounceBody, knownPeersUrl, relayDropBody,
-// webrtcAvailable, openDataChannelViaRelay, dropRelayMessage, pollRelayMailbox.
+// webrtcAvailable, openDataChannelViaRelay, answerDataChannelViaRelay,
+// dropRelayMessage, pollRelayMailbox.
 // Integrates: DevicesPanel presence card + signed SYNC button; `pex`/`relay`
 // cybsh verbs; `syncExchangeWithPeer` signer hook; Rust twins are
 // crates/sync/src/peers.rs + auth.rs (same JSON shapes, same caps, pinned by
@@ -105,8 +106,8 @@ export function buildSignedSyncBody(
   signature: string,
   algorithm: string,
 ): SignedSyncBody {
-  if (ops.length > 10_000) {
-    throw new Error(`too_large: sync holds ${ops.length} ops (cap 10000 per call — page it)`)
+  if (ops.length > 500) {
+    throw new Error(`too_large: signed sync batch holds ${ops.length} ops (cap 500 — page it)`)
   }
   if (!signature.trim() || !algorithm.trim()) {
     throw new Error('auth: signed peer sync requires a signature and algorithm')
@@ -242,16 +243,27 @@ export async function openDataChannelViaRelay(
   const label = deps.label?.trim() || 'cybermanju-p2p'
   const pc = new RTC()
   const channel = pc.createDataChannel(label)
+  const deadline = Date.now() + timeoutMs
   try {
+    // Install trickle ICE before creating the local description. Browsers may
+    // emit candidates as soon as setLocalDescription starts gathering.
+    pc.onicecandidate = (event: { candidate?: unknown }) => {
+      if (event.candidate) {
+        dropRelayMessage(relayBase, localId, remoteId, 'ice', { candidate: event.candidate }, deps).catch(
+          () => undefined,
+        )
+      }
+    }
     const offer = await pc.createOffer()
     await pc.setLocalDescription(offer)
     await dropRelayMessage(relayBase, localId, remoteId, 'offer', { sdp: offer.sdp }, deps)
-    const deadline = Date.now() + timeoutMs
     let answer: RelayMessage | null = null
     while (Date.now() < deadline) {
       const messages = await pollRelayMailbox(relayBase, localId, deps).catch(() => [])
+      const consumed: string[] = []
       for (const m of messages) {
-        if (m.from !== remoteId) continue
+        if (m.from !== remoteId || m.to !== localId) continue
+        if (m.kind === 'answer' || m.kind === 'ice') consumed.push(m.id)
         if (m.kind === 'answer' && !answer) {
           answer = m
           const sdp = (m.payload as { sdp?: string } | null)?.sdp
@@ -263,16 +275,9 @@ export async function openDataChannelViaRelay(
           if (candidate) await pc.addIceCandidate(candidate).catch(() => undefined)
         }
       }
+      if (consumed.length) await ackRelayMessages(relayBase, localId, consumed, deps).catch(() => 0)
       if (answer && channel.readyState === 'open') break
       await new Promise((r) => setTimeout(r, 750))
-    }
-    // Trickle our own candidates while waiting (best-effort, never fatal).
-    pc.onicecandidate = (event: { candidate?: unknown }) => {
-      if (event.candidate) {
-        dropRelayMessage(relayBase, localId, remoteId, 'ice', { candidate: event.candidate }, deps).catch(
-          () => undefined,
-        )
-      }
     }
     if (channel.readyState !== 'open') {
       const opened = await new Promise<boolean>((resolve) => {
@@ -298,5 +303,74 @@ export async function openDataChannelViaRelay(
       // Close is best-effort on the failure path.
     }
     throw err
+  }
+}
+
+/** Answer one sender-checked relay offer and resolve when its data channel opens. */
+export async function answerDataChannelViaRelay(
+  relayBase: string,
+  localId: string,
+  remoteId: string,
+  deps: DataChannelDeps,
+  // oxlint-disable-next-line no-explicit-any
+): Promise<any> {
+  const RTC = (globalThis as { RTCPeerConnection?: new (...args: never[]) => any }).RTCPeerConnection
+  if (typeof RTC !== 'function') throw new Error('unsupported: WebRTC datachannels are unavailable on this platform')
+  if (!localId.trim() || !remoteId.trim()) throw new Error('invalid: datachannel needs local and remote device ids')
+  const timeoutMs = Math.max(2000, Math.min(deps.timeoutMs ?? 30000, 120000))
+  const deadline = Date.now() + timeoutMs
+  const pc = new RTC()
+  let channel: any
+  const pendingCandidates: unknown[] = []
+  let remoteDescriptionReady = false
+  try {
+    pc.ondatachannel = (event: { channel: any }) => { channel = event.channel }
+    pc.onicecandidate = (event: { candidate?: unknown }) => {
+      if (event.candidate) {
+        dropRelayMessage(relayBase, localId, remoteId, 'ice', { candidate: event.candidate }, deps).catch(() => undefined)
+      }
+    }
+    let answered = false
+    while (Date.now() < deadline) {
+      const messages = await pollRelayMailbox(relayBase, localId, deps)
+      const consumed: string[] = []
+      for (const message of messages) {
+        if (message.from !== remoteId || message.to !== localId) continue
+        if (message.kind === 'offer' && !answered) {
+          const sdp = (message.payload as { sdp?: unknown } | null)?.sdp
+          if (typeof sdp !== 'string' || !sdp) throw new Error('integrity: relay offer has no SDP')
+          await pc.setRemoteDescription({ type: 'offer', sdp })
+          remoteDescriptionReady = true
+          for (const candidate of pendingCandidates.splice(0)) {
+            await pc.addIceCandidate(candidate)
+          }
+          const answer = await pc.createAnswer()
+          await pc.setLocalDescription(answer)
+          await dropRelayMessage(relayBase, localId, remoteId, 'answer', { sdp: answer.sdp }, deps)
+          answered = true
+          consumed.push(message.id)
+        } else if (message.kind === 'ice') {
+          const candidate = (message.payload as { candidate?: unknown } | null)?.candidate
+          if (candidate) {
+            if (remoteDescriptionReady) await pc.addIceCandidate(candidate)
+            else pendingCandidates.push(candidate)
+          }
+          consumed.push(message.id)
+        }
+      }
+      if (consumed.length) await ackRelayMessages(relayBase, localId, consumed, deps)
+      if (answered && channel?.readyState === 'open') return channel
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    throw new Error(`network: datachannel from ${remoteId} did not open within ${timeoutMs}ms`)
+  } catch (error) {
+    try { channel?.close() } catch { /* best-effort cleanup */ }
+    throw error
+  } finally {
+    if (!channel || channel.readyState !== 'open') {
+      try { pc.close() } catch { /* best-effort cleanup */ }
+    } else {
+      channel.addEventListener?.('close', () => pc.close(), { once: true })
+    }
   }
 }

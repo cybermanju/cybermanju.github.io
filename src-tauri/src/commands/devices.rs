@@ -1,6 +1,6 @@
 // CyberManju OS — Devices (src-tauri/src/commands/devices.rs).
 // Role: Tauri IPC commands for device identity (§2B.1) + LAN peers (§2B.2).
-// Exports: list_devices, register_device, register_this_device,
+// Exports: list_devices, list_signing_devices, register_device, register_this_device,
 // revoke_device, remove_device, list_lan_peers, sign_peer_ops_for_device,
 // device_seed_key_id.
 // Integrates: shared web API (devices), PQC engine (ML-DSA attestation),
@@ -23,9 +23,48 @@ pub fn list_devices(state: State<'_, AppState>) -> Result<Vec<DeviceRow>, String
     db.list_devices().map_err(|e| e.to_string())
 }
 
+/// Return active local identities whose registered public key matches a
+/// locally sealed signing seed. Imported peer identities never appear here.
+#[tauri::command(async)]
+pub fn list_signing_devices(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let db = state.db.read().map_err(|e| e.to_string())?;
+    let active: std::collections::HashMap<String, DeviceRow> = db
+        .list_devices()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|device| {
+            !device.revoked && device.owner_id == "local" && !device.public_key.is_empty()
+        })
+        .map(|device| (device.id.clone(), device))
+        .collect();
+    let tx = db.begin_read().map_err(|e| e.to_string())?;
+    let table = tx
+        .open_table(crate::db::Database::get_encryption_keys_table())
+        .map_err(|e| e.to_string())?;
+    let mut ids = Vec::new();
+    for entry in table.iter().map_err(|e| e.to_string())? {
+        let (_, value) = entry.map_err(|e| e.to_string())?;
+        let key: crate::db::schema::EncryptionKey =
+            serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+        let Some(id) = key.id.strip_prefix("device:") else { continue };
+        if active
+            .get(id)
+            .map(|device| {
+                device.public_key == key.public_key && device.key_algorithm == key.algorithm
+            })
+            .unwrap_or(false)
+        {
+            ids.push(id.to_string());
+        }
+    }
+    ids.sort();
+    Ok(ids)
+}
+
 /// Register (or re-attest) a device row.
 #[tauri::command(async)]
 pub fn register_device(
+    id: Option<String>,
     name: String,
     public_key: Option<String>,
     key_algorithm: Option<String>,
@@ -35,7 +74,7 @@ pub fn register_device(
     cybermanju_web::api::devices::register(
         &db,
         &cybermanju_web::api::devices::RegisterRequest {
-            id: None,
+            id,
             name,
             public_key,
             key_algorithm,

@@ -4,7 +4,7 @@
 // keystore, never transmitted); the receiver verifies against the sender's
 // `public_key` + `key_algorithm` in the device registry, so a valid JWT alone
 // is no longer enough to impersonate a device.
-// Exports: ENVELOPE_DOMAIN, canonical_envelope_bytes, sign_envelope,
+// Exports: ENVELOPE_DOMAIN, canonical_envelope_bytes, signed_batch_id, sign_envelope,
 // verify_envelope, SignedSyncBody.
 // Integrates: sync crate (cybermanju-crypto + types already deps);
 // `POST /api/peers/{id}/sync` requires `signature`+`algorithm` and reports
@@ -52,6 +52,14 @@ pub fn canonical_envelope_bytes(ops: &[OpRow]) -> Result<Vec<u8>, String> {
     out.extend_from_slice(ENVELOPE_DOMAIN.as_bytes());
     out.extend_from_slice(json.as_bytes());
     Ok(out)
+}
+
+/// Stable batch identifier for retries: BLAKE3 over the exact domain-separated
+/// canonical operation bytes. The signature is stored alongside the id but
+/// excluded so a caller can detect content identity independently.
+pub fn signed_batch_id(ops: &[OpRow]) -> Result<String, String> {
+    let bytes = canonical_envelope_bytes(ops)?;
+    Ok(blake3::hash(&bytes).to_hex().to_string())
 }
 
 /// Sign `ops` with a device seed (base64 ML-DSA seed, the `private_key` half

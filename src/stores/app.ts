@@ -6,7 +6,7 @@
 // CyberManju OS — Pinia Store
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import { invoke } from '@/composables/useTauri'
+import { getAuthToken, invoke, isStaticHost, isTauri, isWebMode, setAuthToken } from '@/composables/useTauri'
 import { useNotifications } from '@/composables/useNotifications'
 import type {
   FileNode, Account, Collection, FaceGroup, LooseGroup,
@@ -33,11 +33,21 @@ import { isSyncSuccess, isSyncTerminal, firstSyncError, refreshAfterSync as fanO
 import { parseStarIds, serializeStarIds } from '@/utils/stars'
 import { parseSchedule, scheduleNextAfter } from '@/utils/schedule'
 import { MANAGED_SCRIPT_PATH } from '@/utils/backup'
-import { setAuthToken, getAuthToken, isWebMode, isStaticHost } from '@/composables/useTauri'
 import { isInstallNeededError, installReasonFor, requestInstallWindow } from '@/utils/installLinks'
 import { createUiRequestDedupe } from '@/utils/uiRequests'
 import { normalizeConflicts, type OpEntry } from '@/utils/oplog'
 import type { RelayMessage } from '@/utils/p2pPresence'
+import { fetchPeerJson, syncExchangeWithPeer, type PeerEndpoint } from '@/utils/peerSearch'
+import {
+  advancePeerCursor,
+  fingerprintDeviceKey,
+  loadPeerConnections,
+  normalizePeerBaseUrl,
+  peerCredentialId,
+  removePeerConnection as removeSavedPeerConnection,
+  savePeerConnection,
+  type PeerConnectionConfig,
+} from '@/utils/peerConnections'
 import { useWindowManager } from '@/composables/useWindowManager'
 
 export const useAppStore = defineStore('cybermanju', () => {
@@ -2353,11 +2363,18 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   // ── Actions: Device identity (§2B.1) + LAN peers (§2B.2) ──
   const devices = ref<DeviceInfo[]>([])
+  const signingDeviceIds = ref<string[]>([])
   const lanPeers = ref<LanPeer[]>([])
+  const peerConnections = ref<PeerConnectionConfig[]>(loadPeerConnections())
+  // Unsigned local rows are the measurable sync backlog; this is not a remote
+  // acknowledgement count because received metadata is not yet replayed.
+  const peerPendingOperationCounts = ref<Record<string, number>>({})
 
   async function fetchDevices() {
     try {
       devices.value = await invoke<DeviceInfo[]>('list_devices')
+      if (isTauri()) signingDeviceIds.value = await invoke<string[]>('list_signing_devices')
+      else signingDeviceIds.value = []
     } catch (e) {
       notifyError('Failed to fetch devices', e)
     }
@@ -2365,7 +2382,7 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function registerDevice(name: string) {
     try {
-      const row = await invoke<DeviceInfo>('register_device', { name })
+      const row = await invoke<DeviceInfo>('register_device', { id: null, name })
       await fetchDevices()
       notifySuccess(`Device '${row.name}' enrolled`)
       return row
@@ -2377,6 +2394,7 @@ export const useAppStore = defineStore('cybermanju', () => {
 
   async function registerThisDevice(name: string) {
     try {
+      if (!isTauri()) throw new Error('unsupported: browser device enrollment needs a sealed ML-DSA signing key and signed operation journal, which are not wired yet')
       const row = await invoke<DeviceInfo>('register_this_device', { name })
       await fetchDevices()
       notifySuccess(`This device enrolled with a fresh ML-DSA key`)
@@ -2385,6 +2403,38 @@ export const useAppStore = defineStore('cybermanju', () => {
       notifyError('Failed to enroll this device', e)
       return null
     }
+  }
+
+  /** Import an out-of-band public device invitation into this account's registry.
+   * The private key is never imported; this only enables verification of that peer. */
+  async function importPeerDevice(invitation: unknown) {
+    try {
+      const row = typeof invitation === 'string' ? JSON.parse(invitation) as Record<string, unknown> : invitation as Record<string, unknown>
+      if (!row || typeof row.id !== 'string' || typeof row.name !== 'string' ||
+          typeof row.publicKey !== 'string' || !row.publicKey || row.keyAlgorithm !== 'ml-dsa-65') {
+        throw new Error('invalid: invitation must contain id, name, publicKey and keyAlgorithm=ml-dsa-65')
+      }
+      const existing = devices.value.find((device) => device.id === row.id)
+      if (existing && existing.publicKey && existing.publicKey !== row.publicKey) {
+        throw new Error('integrity: invitation key differs from the registered identity; revoke/remove it through the device administration flow before replacing it')
+      }
+      const saved = await invoke<DeviceInfo>('register_device', {
+        id: row.id, name: row.name, publicKey: row.publicKey, keyAlgorithm: row.keyAlgorithm,
+      })
+      await fetchDevices()
+      notifySuccess(`Peer identity ${saved.name || saved.id} imported; compare its fingerprint out of band`)
+      return saved
+    } catch (error) {
+      notifyError('Peer identity import failed', error)
+      return null
+    }
+  }
+
+  function deviceInvitation(deviceId: string): string | null {
+    if (!signingDeviceIds.value.includes(deviceId)) return null
+    const row = devices.value.find((device) => device.id === deviceId && !device.revoked)
+    if (!row?.publicKey) return null
+    return JSON.stringify({ version: 1, id: row.id, name: row.name, publicKey: row.publicKey, keyAlgorithm: row.keyAlgorithm })
   }
 
   async function revokeDevice(id: string) {
@@ -2414,6 +2464,113 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
+  async function savePeerCredential(peerDeviceId: string, token: string, credentialId = peerCredentialId(peerDeviceId)): Promise<string | null> {
+    if (!token.trim()) {
+      notifyError('Peer credential was not saved', 'auth: enter a peer-specific token')
+      return null
+    }
+    const id = credentialId.trim()
+    if (!id.startsWith(`${peerCredentialId(peerDeviceId)}-`) && id !== peerCredentialId(peerDeviceId)) {
+      notifyError('Peer credential was not saved', 'invalid: credential id is not scoped to this peer')
+      return null
+    }
+    const saved = await createSecret({
+      id,
+      kind: 'apiKey',
+      title: `Cross-device peer ${peerDeviceId}`,
+      category: 'peer-sync-credential',
+      notes: 'Peer bearer credential. Used only for the configured peer URL; never sent to another peer.',
+      value: token,
+    })
+    return saved?.id ?? null
+  }
+
+  async function configurePeerConnection(input: {
+    peerDeviceId: string
+    baseUrl: string
+    localDeviceId: string
+    credentialId?: string
+    keyFingerprint: string
+  }): Promise<PeerConnectionConfig | null> {
+    try {
+      const peer = devices.value.find((row) => row.id === input.peerDeviceId && !row.revoked)
+      if (!peer?.publicKey) throw new Error('auth: peer must be enrolled with an active ML-DSA public key')
+      const local = devices.value.find((row) => row.id === input.localDeviceId && !row.revoked)
+      if (!local) throw new Error('auth: choose an active local device identity')
+      const expected = await fingerprintDeviceKey(peer.publicKey)
+      if (expected !== input.keyFingerprint.trim().toLowerCase()) {
+        throw new Error('integrity: peer key fingerprint changed; compare the displayed fingerprint before pairing')
+      }
+      const config = savePeerConnection({
+        peerDeviceId: peer.id,
+        baseUrl: input.baseUrl,
+        localDeviceId: local.id,
+        keyFingerprint: expected,
+        credentialId: input.credentialId?.trim() || peerCredentialId(peer.id),
+        cursor: 0,
+        updatedAt: new Date().toISOString(),
+      })
+      peerConnections.value = loadPeerConnections()
+      await refreshPeerPendingOperationCounts()
+      notifySuccess(`Peer ${peer.name || peer.id} connection saved (${expected.slice(0, 16)}…)`)
+      return config
+    } catch (error) {
+      notifyError('Peer connection could not be saved', error)
+      return null
+    }
+  }
+
+  async function removePeerConnection(peerDeviceId: string) {
+    const config = peerConnections.value.find((row) => row.peerDeviceId === peerDeviceId)
+    removeSavedPeerConnection(peerDeviceId)
+    peerConnections.value = loadPeerConnections()
+    if (config) await invoke('secret_delete', { id: config.credentialId }).catch(() => null)
+  }
+
+  async function pendingLocalOps(deviceId: string): Promise<unknown[]> {
+    const signedOpIds = new Set<string>()
+    let batchCursor = 0
+    for (let pageNumber = 0; pageNumber < 20; pageNumber += 1) {
+      const page = await invoke<{ head?: number; hasMore?: boolean; batches?: Array<{ batch?: { deviceId?: string; ops?: Array<{ opId?: string }> } }> }>(
+        'oplog_batches', { since: batchCursor, limit: 100 },
+      )
+      for (const record of page.batches ?? []) {
+        if (record.batch?.deviceId !== deviceId) continue
+        for (const op of record.batch.ops ?? []) if (op.opId) signedOpIds.add(op.opId)
+      }
+      const next = Number(page.head ?? batchCursor)
+      if (!Number.isSafeInteger(next) || next < batchCursor) throw new Error('integrity: local signed-batch cursor is invalid')
+      batchCursor = next
+      if (page.hasMore !== true) break
+      if (pageNumber === 19) throw new Error('too_large: local signed-batch history exceeds the paging safety cap')
+    }
+
+    const pending: OpEntry[] = []
+    let opCursor = 0
+    for (let pageNumber = 0; pageNumber < 20; pageNumber += 1) {
+      const page = await invoke<{ head?: number; ops?: OpEntry[] }>('oplog_since', { since: opCursor, limit: 500 })
+      const rows = Array.isArray(page.ops) ? page.ops : []
+      for (const op of rows) {
+        if (op.deviceId === deviceId && !signedOpIds.has(op.opId)) pending.push(op)
+      }
+      const next = Number(page.head ?? opCursor)
+      if (!Number.isSafeInteger(next) || next < opCursor) throw new Error('integrity: local operation cursor is invalid')
+      if (!rows.length || next === opCursor) break
+      opCursor = next
+      if (pageNumber === 19) throw new Error('too_large: local op-log exceeds the paging safety cap')
+    }
+    return pending.sort((a, b) => a.seq - b.seq).slice(0, 500)
+  }
+
+  async function refreshPeerPendingOperationCounts() {
+    const next: Record<string, number> = {}
+    for (const connection of peerConnections.value) {
+      try { next[connection.peerDeviceId] = (await pendingLocalOps(connection.localDeviceId)).length }
+      catch { next[connection.peerDeviceId] = -1 }
+    }
+    peerPendingOperationCounts.value = next
+  }
+
   // ── Actions: Op-log conflicts + direct LAN sync (§2B.2/§2C close-out) ──
   const opConflicts = ref<{ a: OpEntry; b: OpEntry }[]>([])
   const lanSyncMsg = ref('')
@@ -2438,26 +2595,70 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
-  async function syncWithPeer(deviceId: string, ops: unknown[] = [], attestation?: { signature: string; algorithm: string }) {
+  async function syncWithPeer(deviceId: string) {
     try {
-      if (
-        typeof attestation?.signature !== 'string' ||
-        !attestation.signature.trim() ||
-        typeof attestation.algorithm !== 'string' ||
-        !attestation.algorithm.trim()
-      ) {
-        throw new Error('auth: peer sync requires an ML-DSA attestation from an enrolled device; unsigned sync is disabled')
+      if (!isTauri()) throw new Error('unsupported: browser peer sync needs local ML-DSA device-key enrollment and sealed signing, which are not wired yet')
+      const config = peerConnections.value.find((row) => row.peerDeviceId === deviceId)
+      if (!config) throw new Error('not_found: configure this peer URL, credential, local identity and key pin first')
+      const peerBaseUrl = normalizePeerBaseUrl(config.baseUrl)
+      const peer = devices.value.find((row) => row.id === deviceId && !row.revoked)
+      if (!peer?.publicKey) throw new Error('auth: peer is missing an active registered public key')
+      if (await fingerprintDeviceKey(peer.publicKey) !== config.keyFingerprint) {
+        throw new Error('integrity: peer public key no longer matches the saved fingerprint')
       }
-      lanSyncMsg.value = `Syncing with ${deviceId}… (pull → push → merge)`
-      const res = await invoke<{ appended?: number; skipped?: number; head?: number; verified?: boolean }>(
-        'peer_sync',
-        { id: deviceId, ops, ...attestation },
-      )
-      if (res.verified !== true) throw new Error('auth: peer did not verify the signed sync envelope')
-      await fetchOpConflicts()
-      const seal = ' · attested ✓'
-      lanSyncMsg.value = `Synced with ${deviceId} (appended ${res.appended ?? 0}, skipped ${res.skipped ?? 0}${seal})`
-      return res
+      const local = devices.value.find((row) => row.id === config.localDeviceId && !row.revoked)
+      if (!local) throw new Error('auth: configured local signing device is missing or revoked')
+      const peerToken = await revealSecret(config.credentialId)
+      if (!peerToken?.trim()) throw new Error('auth: the sealed peer credential is unavailable; save it again')
+      const pending = await pendingLocalOps(local.id)
+      peerPendingOperationCounts.value[deviceId] = pending.length
+      lanSyncMsg.value = `Syncing with ${peer.name || peer.id}… signing and verifying peer batches`
+      const baseUrl = new URL(peerBaseUrl)
+      const endpoint: PeerEndpoint = {
+        deviceId: peer.id,
+        baseUrl: peerBaseUrl,
+        transport: baseUrl.protocol === 'http:' ? 'lan-http' : 'wan-http',
+      }
+      const result = await syncExchangeWithPeer(endpoint, config.cursor, pending, {
+        localDeviceId: local.id,
+        peerToken,
+        fetchJson: fetchPeerJson,
+        signer: async (signingDeviceId, normalizedOps) => invoke<{ signature: string; algorithm: string }>('sign_peer_ops_for_device', {
+          deviceId: signingDeviceId,
+          opsJson: JSON.stringify(normalizedOps),
+        }),
+        publishLocalBatch: async (signingDeviceId, signedOps, signature, algorithm) => {
+          const saved = await invoke<{ verified?: boolean }>('oplog_push', {
+            deviceId: signingDeviceId, ops: signedOps, signature, algorithm,
+          })
+          if (saved.verified !== true) throw new Error('auth: local database did not verify this signed batch')
+          return { verified: true as const }
+        },
+        mergeBatch: async (batch) => {
+          const saved = await invoke<{ appended?: number; verified?: boolean }>('oplog_merge_batch', {
+            batch,
+          })
+          if (saved.verified !== true) throw new Error('auth: local database did not verify the peer batch')
+          return { appended: Number(saved.appended ?? 0), verified: true as const }
+        },
+        saveCursor: async (cursor) => {
+          const latest = peerConnections.value.find((row) => row.peerDeviceId === deviceId)
+          if (!latest) throw new Error('not_found: peer config removed during sync')
+          advancePeerCursor(deviceId, cursor)
+          peerConnections.value = loadPeerConnections()
+        },
+        fetchConflicts: fetchOpConflicts,
+      })
+      const latest = peerConnections.value.find((row) => row.peerDeviceId === deviceId)
+      if (latest) {
+        peerConnections.value = [
+          ...peerConnections.value.filter((row) => row.peerDeviceId !== deviceId),
+          savePeerConnection({ ...latest, lastSuccessfulSyncAt: new Date().toISOString() }),
+        ]
+      }
+      lanSyncMsg.value = `Synced with ${peer.name || peer.id}: ${result.pushed} sent, ${result.pulled} verified, cursor ${result.cursor}`
+      await refreshPeerPendingOperationCounts()
+      return result
     } catch (e) {
       notifyError('LAN sync failed', e)
       lanSyncMsg.value = ''
@@ -3365,8 +3566,9 @@ export const useAppStore = defineStore('cybermanju', () => {
     // Scheduler (cron)
     fetchSchedules, cronSave, cronDelete, cronRun, cronSetEnabled, cronHistory,
     fetchSecrets, createSecret, updateSecret, deleteSecret, revealSecret,
-    devices, lanPeers, fetchDevices, registerDevice, registerThisDevice,
-    revokeDevice, removeDevice, fetchLanPeers,
+    devices, signingDeviceIds, lanPeers, peerConnections, peerPendingOperationCounts, refreshPeerPendingOperationCounts, fetchDevices, registerDevice, registerThisDevice,
+    revokeDevice, removeDevice, fetchLanPeers, importPeerDevice, deviceInvitation, savePeerCredential, configurePeerConnection,
+    removePeerConnection,
     knownPeers, presenceMsg, fetchKnownPeers, announcePresence,
     relayMsg, pairingMsg, relayDropMsg, relayPollMsg, relayAckMsg,
     makePairingCode, claimPairingCode,

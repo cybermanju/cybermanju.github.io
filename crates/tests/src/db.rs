@@ -79,6 +79,84 @@ fn test_insert_file_with_index() {
 }
 
 #[test]
+fn mutation_insert_commits_file_index_and_journal_as_one_transaction() {
+    let (db, _dir) = temp_db();
+    let file = file_node("f_atomic", Some("root"));
+    let serialized = serde_json::to_string(&file).unwrap();
+    let failed = db.insert_file_with_index_and_op(
+        &file.id,
+        &serialized,
+        Some("root"),
+        Some(("", serde_json::json!({ "schemaVersion": 1 }))),
+    );
+    assert!(failed.is_err());
+    assert!(db.get_file_node(&file.id).unwrap().is_none());
+    assert!(db.list_by_parent("root").unwrap().is_empty());
+    assert!(db.list_ops_since(0, 0).unwrap().is_empty());
+
+    db.insert_file_with_index_and_op(
+        &file.id,
+        &serialized,
+        Some("root"),
+        Some(("create", serde_json::json!({
+            "schemaVersion": 1,
+            "hashBlake3": file.hash_blake3,
+        }))),
+    )
+    .unwrap();
+    assert!(db.get_file_node(&file.id).unwrap().is_some());
+    assert_eq!(db.list_by_parent("root").unwrap(), vec![file.id.clone()]);
+    let rows = db.list_ops_since(0, 0).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].file_id.as_deref(), Some(file.id.as_str()));
+    assert_eq!(rows[0].payload["schemaVersion"], 1);
+}
+
+#[test]
+fn trash_restore_commit_state_index_and_journal_together() {
+    let (db, _dir) = temp_db();
+    let file = file_node("f_trash_atomic", Some("root"));
+    let serialized = serde_json::to_string(&file).unwrap();
+    db.insert_file_with_index(&file.id, &serialized, Some("root")).unwrap();
+
+    assert!(db.trash_file_with_mutation(
+        &file.id,
+        &file,
+        None,
+        Some(("", serde_json::json!({ "schemaVersion": 1 }))),
+    ).is_err());
+    assert!(db.get_file_node(&file.id).unwrap().is_some());
+    assert!(db.list_trash().unwrap().is_empty());
+    assert_eq!(db.list_by_parent("root").unwrap(), vec![file.id.clone()]);
+
+    db.trash_file_with_mutation(
+        &file.id,
+        &file,
+        None,
+        Some(("delete", serde_json::json!({ "schemaVersion": 1 }))),
+    ).unwrap();
+    assert!(db.get_file_node(&file.id).unwrap().is_none());
+    assert_eq!(db.list_trash().unwrap().len(), 1);
+    assert!(db.list_by_parent("root").unwrap().is_empty());
+
+    assert!(db.restore_from_trash_with_mutation(
+        &file.id,
+        Some(("", serde_json::json!({ "schemaVersion": 1 }))),
+    ).is_err());
+    assert!(db.get_file_node(&file.id).unwrap().is_none());
+    assert_eq!(db.list_trash().unwrap().len(), 1);
+
+    db.restore_from_trash_with_mutation(
+        &file.id,
+        Some(("restore", serde_json::json!({ "schemaVersion": 1 }))),
+    ).unwrap().unwrap();
+    assert!(db.get_file_node(&file.id).unwrap().is_some());
+    assert!(db.list_trash().unwrap().is_empty());
+    assert_eq!(db.list_by_parent("root").unwrap(), vec![file.id.clone()]);
+    assert_eq!(db.list_ops_since(0, 0).unwrap().len(), 2);
+}
+
+#[test]
 fn test_insert_multiple_files_same_parent() {
     let (db, _dir) = temp_db();
     db.insert_file_with_index("f1", "j1", Some("root")).unwrap();

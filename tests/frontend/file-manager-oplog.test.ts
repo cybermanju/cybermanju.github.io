@@ -12,7 +12,7 @@ describe('native file-manager oplog IPC', () => {
     const modules = fs.readFileSync('src-tauri/src/commands/mod.rs', 'utf8')
     const routes = fs.readFileSync('src/composables/useTauri.ts', 'utf8')
     const registry = fs.readFileSync('src-tauri/src/lib.rs', 'utf8')
-    for (const cmd of ['oplog_since', 'oplog_conflicts', 'oplog_push', 'oplog_resolve']) {
+    for (const cmd of ['oplog_since', 'oplog_batches', 'oplog_merge_batch', 'oplog_conflicts', 'oplog_push', 'oplog_resolve']) {
       expect(native).toContain(`fn ${cmd}`)
       expect(routes).toContain(`${cmd}: {`)
       expect(registry).toContain(`commands::oplog::${cmd},`)
@@ -29,5 +29,7 @@ describe('native file-manager oplog IPC', () => {
     expect(native).toContain('oplog::resolve_op')
     expect(shared).toContain('filter(|d| !d.revoked && d.owner_id == owner_id)')
     expect(shared).toContain('verify_envelope')
+    expect(shared).toContain('merge_verified_op_batch')
+    expect(shared).toContain('signed_batches_for_owner')
   })
 })

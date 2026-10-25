@@ -243,8 +243,10 @@ export async function wanSyncExchange(
     /** Explicit credential for this target peer; never fall back to caller auth. */
     peerToken: string
     fetchJson: (method: string, url: string, body: unknown, peerToken: string) => Promise<unknown>
-    pushOps: (ops: unknown[]) => Promise<{ appended: number }>
-    fetchConflicts?: (peerToken: string) => Promise<unknown>
+    publishLocalBatch: (deviceId: string, ops: Record<string, unknown>[], signature: string, algorithm: string) => Promise<{ verified: true }>
+    mergeBatch: (batch: import('./peerSearch').ReceivedSignedOpBatch) => Promise<{ appended: number; verified: true }>
+    saveCursor: (cursor: number) => Promise<void>
+    fetchConflicts?: () => Promise<unknown>
     signer: (deviceId: string, normalizedOps: Record<string, unknown>[]) => Promise<{
       signature: string
       algorithm: string

@@ -1305,6 +1305,24 @@ export const REST_ROUTES: Record<string, RestMapping> = {
     transformResponse: (raw) => transformResponseKeys(raw),
   },
 
+  oplog_batches: {
+    method: 'GET',
+    buildPath: (args) => {
+      const params = new URLSearchParams()
+      params.set('since', String(args.since ?? 0))
+      params.set('limit', String(args.limit ?? 100))
+      return `/api/oplog/batches?${params.toString()}`
+    },
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
+  oplog_merge_batch: {
+    method: 'POST',
+    buildPath: () => '/api/oplog/batches',
+    transformRequest: (args) => args.batch ?? {},
+    transformResponse: (raw) => transformResponseKeys(raw),
+  },
+
   oplog_push: {
     method: 'POST',
     buildPath: () => '/api/oplog/push',
@@ -1757,7 +1775,7 @@ export const REST_FIRST = new Set([
   'list_devices', 'register_device', 'register_this_device',
   'revoke_device', 'remove_device', 'list_lan_peers',
   'list_todos', 'create_todo', 'toggle_todo', 'delete_todo',
-  'oplog_since', 'oplog_push', 'oplog_conflicts', 'oplog_resolve',
+  'oplog_since', 'oplog_batches', 'oplog_merge_batch', 'oplog_push', 'oplog_conflicts', 'oplog_resolve',
   'peer_sync',
   'peers_known', 'peers_announce',
   'relay_drop', 'relay_poll', 'relay_ack',
@@ -1779,7 +1797,7 @@ export const MOBILE_NATIVE_OS_COMMANDS = new Set([
   'backup_export',
   'secret_list', 'secret_save', 'secret_update', 'secret_get',
   'secret_reveal', 'secret_delete',
-  'list_devices', 'register_device', 'register_this_device',
+  'list_devices', 'list_signing_devices', 'register_device', 'register_this_device',
   'revoke_device', 'remove_device', 'list_lan_peers',
   'probe_peer', 'peer_platform_notes', 'sign_peer_ops_for_device',
   'swarm_encode', 'swarm_decode', 'fountain_encode', 'fountain_decode',

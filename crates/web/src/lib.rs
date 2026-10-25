@@ -3288,7 +3288,7 @@ fn peer_sync(
     owner_id: &str,
     origin: Option<&str>,
 ) -> String {
-    let peer = match require_owned_device(db, device_id, owner_id) {
+    let _peer = match require_owned_device(db, device_id, owner_id) {
         Ok(row) => row,
         Err(e) if e.starts_with("not_found:") => return json_error(404, &e, origin),
         Err(e) if e.starts_with("internal:") => return json_error(500, &e, origin),
@@ -3298,11 +3298,11 @@ fn peer_sync(
         Ok(req) => req,
         Err(e) => return json_error(400, &format!("invalid: bad JSON body: {e}"), origin),
     };
-    if req.ops.len() > 10_000 {
+    if req.ops.len() > 500 {
         return json_error(
             413,
             &format!(
-                "too_large: sync holds {} ops (cap 10000 per call — page it)",
+                "too_large: signed sync batch holds {} ops (cap 500 per call — page it)",
                 req.ops.len()
             ),
             origin,
@@ -3323,25 +3323,22 @@ fn peer_sync(
             );
         }
     }
-    let verified = match cybermanju_sync::auth::verify_envelope(
-        &req.ops,
-        &req.signature,
-        &req.algorithm,
-        &peer.public_key,
-        &peer.key_algorithm,
-    ) {
-        Ok(v) => v,
-        Err(e) => return json_error(403, &e, origin),
-    };
-    match db
-        .merge_ops(&req.ops)
-        .and_then(|(appended, skipped)| Ok((appended, skipped, db.oplog_head()?)))
-    {
-        Ok((appended, skipped, head)) => json_ok(
-            &serde_json::json!({ "appended": appended, "skipped": skipped, "head": head, "verified": verified }),
-            origin,
-        ),
-        Err(e) => json_error(500, &format!("internal: sync merge failed: {e}"), origin),
+    let result = api::oplog::push(
+        db,
+        &api::oplog::PushRequest {
+            device_id: device_id.to_string(),
+            ops: req.ops,
+            signature: req.signature,
+            algorithm: req.algorithm,
+        },
+        owner_id,
+    );
+    match result {
+        Ok(value) => json_ok(&value, origin),
+        Err(error) => {
+            let status = if error.starts_with("not_found:") { 404 } else if error.starts_with("auth:") { 403 } else if error.starts_with("too_large:") { 413 } else { 400 };
+            json_error(status, &error, origin)
+        }
     }
 }
 

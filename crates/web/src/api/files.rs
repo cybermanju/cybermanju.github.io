@@ -38,13 +38,16 @@ pub fn create_folder(db: &Database, name: String, parent_id: String) -> Result<F
     };
 
     let serialized = serde_json::to_string(&folder).map_err(|e| e.to_string())?;
-    db.insert_file_with_index(&folder_id, serialized.as_str(), Some(&parent_id))
+    db.insert_file_with_index_and_op(
+        &folder_id,
+        serialized.as_str(),
+        Some(&parent_id),
+        Some(("create", serde_json::json!({
+            "schemaVersion": 1, "name": folder.name, "parentId": folder.parent_id,
+            "fileType": folder.file_type, "hashBlake3": folder.hash_blake3,
+        }))),
+    )
         .map_err(|e| e.to_string())?;
-    let _ = db.record_mutation_op(
-        "create",
-        Some(&folder_id),
-        serde_json::json!({ "name": folder.name }),
-    );
 
     Ok(folder)
 }
@@ -53,17 +56,14 @@ pub fn create_folder(db: &Database, name: String, parent_id: String) -> Result<F
 pub fn delete(db: &Database, file_id: &str) -> Result<bool, String> {
     let node = read_file(db, file_id)?;
 
-    db.trash_file(file_id, &node, None)
+    db.trash_file_with_mutation(file_id, &node, None, Some((
+        "delete",
+        serde_json::json!({ "schemaVersion": 1, "name": node.name, "parentId": node.parent_id, "hashBlake3": node.hash_blake3 }),
+    )))
         .map_err(|e| e.to_string())?;
 
     db.log_audit("delete", "file", file_id, None, None)
         .map_err(|e| e.to_string())?;
-    let _ = db.record_mutation_op(
-        "delete",
-        Some(file_id),
-        serde_json::json!({ "name": node.name }),
-    );
-
     Ok(true)
 }
 
@@ -74,12 +74,10 @@ pub fn rename(db: &Database, file_id: &str, new_name: String) -> Result<FileNode
     file_node.name = new_name;
     file_node.modified_at = chrono::Utc::now().to_rfc3339();
 
-    write_file(db, file_id, &file_node)?;
-    let _ = db.record_mutation_op(
-        "rename",
-        Some(file_id),
-        serde_json::json!({ "from": old_name, "to": file_node.name }),
-    );
+    write_file_with_mutation(
+        db, file_id, &file_node, "rename",
+        serde_json::json!({ "schemaVersion": 1, "from": old_name, "to": file_node.name, "parentId": file_node.parent_id, "hashBlake3": file_node.hash_blake3 }),
+    )?;
     Ok(file_node)
 }
 
@@ -123,17 +121,13 @@ pub fn duplicate(db: &Database, file_id: &str) -> Result<FileNode, String> {
     duplicated.collection_ids = Vec::new();
 
     let serialized = serde_json::to_string(&duplicated).map_err(|e| e.to_string())?;
-    db.insert_file_with_index(
+    db.insert_file_with_index_and_op(
         &new_id,
         serialized.as_str(),
         duplicated.parent_id.as_deref(),
+        Some(("create", serde_json::json!({ "schemaVersion": 1, "name": duplicated.name, "from": file_id, "parentId": duplicated.parent_id, "hashBlake3": duplicated.hash_blake3 }))),
     )
     .map_err(|e| e.to_string())?;
-    let _ = db.record_mutation_op(
-        "create",
-        Some(&new_id),
-        serde_json::json!({ "name": duplicated.name, "from": file_id }),
-    );
 
     Ok(duplicated)
 }
@@ -147,18 +141,14 @@ pub fn move_to(db: &Database, file_id: &str, new_parent_id: String) -> Result<Fi
     file_node.modified_at = chrono::Utc::now().to_rfc3339();
 
     let serialized = serde_json::to_string(&file_node).map_err(|e| e.to_string())?;
-    db.move_file_with_index(
+    db.move_file_with_index_and_op(
         file_id,
         serialized.as_str(),
         old_parent.as_deref(),
         &new_parent_id,
+        Some(("move", serde_json::json!({ "schemaVersion": 1, "from": old_parent, "to": new_parent_id, "name": file_node.name, "hashBlake3": file_node.hash_blake3 }))),
     )
     .map_err(|e| e.to_string())?;
-    let _ = db.record_mutation_op(
-        "move",
-        Some(file_id),
-        serde_json::json!({ "from": old_parent, "to": new_parent_id }),
-    );
 
     Ok(file_node)
 }
@@ -286,7 +276,7 @@ pub fn add_to_loose_group(
     let _ = db.record_mutation_op(
         "group",
         Some(file_id),
-        serde_json::json!({ "group": group_id }),
+        serde_json::json!({ "schemaVersion": 1, "group": group_id, "hashBlake3": file_node.hash_blake3 }),
     );
     Ok(group)
 }
@@ -313,12 +303,10 @@ pub fn set_tags(db: &Database, file_id: &str, tags: Vec<String>) -> Result<FileN
     let mut file_node = read_file(db, file_id)?;
     file_node.tags = clean;
     file_node.modified_at = chrono::Utc::now().to_rfc3339();
-    write_file(db, file_id, &file_node)?;
-    let _ = db.record_mutation_op(
-        "tag",
-        Some(file_id),
-        serde_json::json!({ "tags": file_node.tags }),
-    );
+    write_file_with_mutation(
+        db, file_id, &file_node, "tag",
+        serde_json::json!({ "schemaVersion": 1, "tags": file_node.tags, "hashBlake3": file_node.hash_blake3 }),
+    )?;
     Ok(file_node)
 }
 
@@ -479,6 +467,7 @@ fn read_file(db: &Database, file_id: &str) -> Result<FileNode, String> {
         .ok_or_else(|| format!("File not found: {}", file_id))
 }
 
+#[cfg(test)]
 fn write_file(db: &Database, file_id: &str, node: &FileNode) -> Result<(), String> {
     let serialized = serde_json::to_string(node).map_err(|e| e.to_string())?;
     let tx = db.begin_write().map_err(|e| e.to_string())?;
@@ -492,6 +481,19 @@ fn write_file(db: &Database, file_id: &str, node: &FileNode) -> Result<(), Strin
     }
     tx.commit().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn write_file_with_mutation(
+    db: &Database,
+    file_id: &str,
+    node: &FileNode,
+    kind: &str,
+    payload: serde_json::Value,
+) -> Result<(), String> {
+    let serialized = serde_json::to_string(node).map_err(|e| e.to_string())?;
+    db.write_file_with_mutation_op(file_id, &serialized, kind, payload)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 // ─── Text content (code editor) ────────────────────────────────────────────
@@ -593,12 +595,10 @@ pub fn write_content(
     node.size_bytes = content.len() as u64;
     node.hash_blake3 = Some(blake3::hash(content.as_bytes()).to_hex().to_string());
     node.modified_at = chrono::Utc::now().to_rfc3339();
-    write_file(db, file_id, &node)?;
-    let _ = db.record_mutation_op(
-        "edit",
-        Some(file_id),
-        serde_json::json!({ "sizeBytes": node.size_bytes, "hashBlake3": node.hash_blake3 }),
-    );
+    write_file_with_mutation(
+        db, file_id, &node, "edit",
+        serde_json::json!({ "schemaVersion": 1, "sizeBytes": node.size_bytes, "hashBlake3": node.hash_blake3 }),
+    )?;
 
     Ok(serde_json::json!({
         "fileId": node.id,
@@ -661,6 +661,11 @@ mod tests {
 
         let saved = write_content(&db, "f1", "fn b() {}").expect("write");
         assert_eq!(saved["sizeBytes"], 9);
+        let ops = db.list_ops_since(0, 0).expect("mutation journal");
+        let edit = ops.iter().find(|op| op.kind == "edit").expect("edit op");
+        assert_eq!(edit.file_id.as_deref(), Some("f1"));
+        assert_eq!(edit.payload["schemaVersion"], 1);
+        assert_eq!(edit.payload["hashBlake3"], saved["hashBlake3"]);
         let out = read_content(&db, "f1").expect("re-read");
         assert_eq!(out["content"], "fn b() {}");
 

@@ -131,10 +131,15 @@ pub fn import_file(
     // Store in database atomically with parent index
     let db = state.db.write().map_err(|e| e.to_string())?;
     let serialized = serde_json::to_string(&file_node).map_err(|e| e.to_string())?;
-    db.insert_file_with_index(
+    db.insert_file_with_index_and_op(
         &file_id,
         serialized.as_str(),
         file_node.parent_id.as_deref(),
+        Some(("create", serde_json::json!({
+            "schemaVersion": 1, "name": file_node.name, "parentId": file_node.parent_id,
+            "fileType": file_node.file_type, "sizeBytes": file_node.size_bytes,
+            "hashBlake3": file_node.hash_blake3,
+        }))),
     )
     .map_err(|e| e.to_string())?;
 
@@ -348,10 +353,15 @@ pub fn scan_directory(
 
         // Store in database atomically with parent index
         let serialized = serde_json::to_string(&file_node).map_err(|e| e.to_string())?;
-        db.insert_file_with_index(
+        db.insert_file_with_index_and_op(
             &file_id,
             serialized.as_str(),
             Some(&parent_path_for_children),
+            Some(("create", serde_json::json!({
+                "schemaVersion": 1, "name": file_node.name, "parentId": file_node.parent_id,
+                "fileType": file_node.file_type, "sizeBytes": file_node.size_bytes,
+                "hashBlake3": file_node.hash_blake3,
+            }))),
         )
         .map_err(|e| e.to_string())?;
 
@@ -636,10 +646,15 @@ pub fn import_from_url(
     // Store in database
     let db = state.db.write().map_err(|e| e.to_string())?;
     let serialized = serde_json::to_string(&file_node).map_err(|e| e.to_string())?;
-    db.insert_file_with_index(
+    db.insert_file_with_index_and_op(
         &file_id,
         serialized.as_str(),
         file_node.parent_id.as_deref(),
+        Some(("create", serde_json::json!({
+            "schemaVersion": 1, "name": file_node.name, "parentId": file_node.parent_id,
+            "fileType": file_node.file_type, "sizeBytes": file_node.size_bytes,
+            "hashBlake3": file_node.hash_blake3,
+        }))),
     )
     .map_err(|e| e.to_string())?;
 

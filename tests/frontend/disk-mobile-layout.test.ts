@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 
 const source = readFileSync('src/components/DiskManagerPage.vue', 'utf8')
 const scopedCss = source.match(/<style scoped>([\s\S]*?)<\/style>/)?.[1] ?? ''
-const mobileCss = scopedCss.match(/@media \(max-width: 600px\)\s*\{([\s\S]*?)(?=\n\})/)?.[1] ?? ''
+const mobileCss = scopedCss.slice(scopedCss.indexOf('@media (max-width: 768px)'))
 
 describe('DiskManagerPage mobile per-drive layout', () => {
   it('keeps each drive self-contained with accessible usage and capacity stats', () => {
@@ -37,7 +37,7 @@ describe('DiskManagerPage mobile per-drive layout', () => {
   it('retains the Android SD-card section while disk styles change', () => {
     expect(source).toContain('aria-label="Android external storage"')
     expect(source).toContain('SELECT SD CARD')
-    expect(source).toContain('ADD TO TRANSFERS')
+    expect(source).toContain('Add to transfers')
   })
 
   it('provisions cloud disks remotely and reports incomplete cloud setup without recreating the disk', () => {

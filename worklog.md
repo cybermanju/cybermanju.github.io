@@ -2536,3 +2536,59 @@ Only normalized position offsets are saved to device-local `cybermanju.ui.layout
 - Clarify draft-only behavior with keyboard guidance, action tooltips, 16px input and Shift+Enter for cybsh. Enter still prepares an Assistant draft; blank disabling and IME protection remain. No automatic provider submission or shell execution.
 - Verification: 254 frontend files / 2510 tests pass; TypeScript, production build, version/header/whitespace gates pass. Added eight rendered/source restoration cases and extended the viewport regression. Browser checks at 320/390/520px confirm aligned bars, reachable commands, bounded overlays and unchanged workspace height. Preview uses the WASM stub, not native Android.
 - Based on e64c85a; no separate touch-hotfix changes, native code, gesture-engine edits, dependencies or versions included.
+## 2026-10-25 — Cross-device gap audit
+
+- Added `crossdevices-gaps.md` as the implementation control with transport scope, acceptance gates, and prioritized tasks for signed peer sync, mutation journaling, content transfer, selected app state, relay/WebRTC, reachability, and validation.
+- Confirmed the Devices Sync buttons are not wired to the signed exchange, ordinary file mutations do not append op-log entries, and remote op-log pages cannot be merged safely because their signed batch proof is not retained or returned. Kept the sync path fail-closed; implementation must add a verifiable signed-pull representation before connecting the UI.
+
+## 2026-10-25 — Cross-device safety closeout
+
+- Hid the Devices panel Sync actions behind an explicit unavailable state. The current peer exchange still cannot authenticate pulled rows or isolate peer credentials, so the UI no longer offers a misleading action that fails or risks accepting unverified data.
+- Fixed relay WebRTC offerer ICE ordering by installing the candidate handler before local description creation; consumed answer/ICE messages are acknowledged. Added an answerer helper with sender/recipient checks, timeout bounds, acknowledgements, and cleanup on failure.
+- Added a frontend regression assertion for unsupported WebRTC environments. The answerer remains a library helper and is not yet connected to a product workflow; signed pull proofs, peer enrollment/credentials/cursors, file mutation journal/content transfer, selected app-state portability, and transport/device validation remain open.
+
+## 2026-10-25 — Cross-device research and journal expansion
+
+- Reviewed Automerge's per-peer transport-agnostic sync protocol, iroh-blobs' BLAKE3 range protocol (current docs warn latest is not production-ready), tus resumable HTTP offsets/checksums, WebRTC perfect negotiation, W3C AEAD guidance, and RFC 9162 Merkle consistency proofs. Recorded source links and an adoption/design path in `crossdevices-gaps.md`; no new dependency added.
+- Corrected the audit: shared REST/Tauri file operations and text edits already append best-effort op rows, though the writes are not atomic, payloads were not consistently versioned, imports can bypass the helpers, and no received op is applied to file state.
+- Added schemaVersion 1 and file metadata/hash fields to shared file mutation payloads, and journaled trash restore. Added a Rust regression assertion that a text edit row binds the stable file ID and resulting BLAKE3 hash.
+- Rust checks were not run (CI-only by repo policy). Local frontend validation remains unavailable in this checkout: cached `vue-tsc` is incompatible with its TypeScript package and Vitest is absent.
+
+## 2026-10-25 — Cross-device signed exchange and pairing UX
+
+- Added immutable signed operation batches in redb, preserving sender rows and signature while atomically merging verified rows into the legacy conflict index. Added BLAKE3 batch IDs, owner/device-filtered batch paging, idempotent replay handling, and batch access over REST/Tauri transport.
+- Connected Devices Sync to a bounded probe/publish/pull/verify/merge/cursor flow with explicit peer credentials, peer URL policy, key fingerprint pinning, monotonic persisted cursors, and redacted peer transport errors. Added public-only device invitation copy/import for manual reciprocal enrollment; private keys never leave their origin device.
+- Added frontend regressions for peer URL policy, metadata/token separation, monotonic cursor behavior and key fingerprint display. Updated `crossdevices-gaps.md` with completed paths and honest remaining gates.
+- Repository version/header/whitespace checks pass. Frontend tests/typecheck were not run in this pass because the checkout's cached TypeScript is incompatible and Vitest is absent; Rust fmt/clippy/tests remain CI-only. Browser/WASM signing, deterministic file-state replay, encrypted resumable content chunks, selected-state portability, relay UI/authentication, and real-device validation remain incomplete.
+- Follow-up review added out-of-band public identity import to both REST and native registration, with an existing-key replacement refusal. The local signer/invitation pickers now include only native identities backed by matching sealed seeds. Hardened batch replay against operation-id content collisions and aligned signed batch caps at 500. Direct native imports and batch trash now also append versioned metadata rows.
+- Forwarded proof batches now use a distinct local storage-owner scope so their origin owner/timestamp/signature/source rows survive relay unchanged. Added a dedicated verified `oplog_merge_batch` REST/Tauri command, preserved-batch regression coverage, and documented that `ownerId` is provenance rather than a signed authorization field.
+- Added the connection card's last-seen time, HTTPS/LAN transport, last successful sync, cursor, conflict count, and retry action. The per-peer pending-operation count remains open and is listed separately in the gap tracker.
+# 2026-10-25 — Cross-device sync status and capability boundary
+
+- Added a per-peer unsigned operation backlog indicator to Devices. It is
+  explicitly not presented as an acknowledgement count because verified
+  metadata is not yet replayed into file state. Failed bounded scans display
+  “pending unavailable”.
+- Expanded `crossdevices-gaps.md` with desktop, Android/iOS, REST, and WASM
+  capability rows and the exact current shared-data boundary. Signed batch
+  exchange still carries proof history only; file state, file bytes, settings,
+  layouts, and agent transcripts are not claimed as replicated.
+- Research: redb documents ACID transactions and crash-safe commits; WebRTC
+  data-channel guidance requires respecting the negotiated maximum message
+  size and chunking large payloads. References: https://docs.rs/redb/latest/redb/
+  and https://developer.mozilla.org/en-US/docs/Web/API/RTCSctpTransport/maxMessageSize
+- Added an atomic redb helper for file metadata plus its journal row and moved
+  shared rename, tag, and text-editor metadata commits onto it. The editor still
+  writes host bytes before the database transaction; create/move/trash/import,
+  other native writers, and content replay remain open and are kept unchecked.
+- Extended the atomic transaction to shared create/duplicate/move/delete,
+  trash restore, and all three direct native import paths, including parent
+  indexes. Added integration cases for rollback on rejected mutation kinds and
+  successful create/trash/restore journal commits. Stars remain browser-profile
+  data; group/todo mutations remain best-effort.
+- Audited residual best-effort journal callers: todos, loose groups,
+  collections, and face operations still append separately. Browser stars stay
+  in localStorage/WASM profile KV and have no remote journal/replay path. The
+  focused Rust regression cases are added but not run because this repository
+  forbids local Cargo validation; `node_modules/.bin/vitest` is absent, so
+  frontend tests cannot run without installing dependencies.

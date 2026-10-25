@@ -9,6 +9,7 @@
 // parsePeerEndpoint, normalizeBaseUrl, classifyAddr, isLanBase, mergeFederatedHits,
 // peerCapabilityMatrix, loadCachedPeers, saveCachedPeers, federatedSearch,
 // syncExchangeWithPeer, peerReadyzUrl, peerSearchUrl, peerOplogSinceUrl,
+// peerOplogBatchesUrl, fetchPeerJson,
 // peerOplogPushUrl, deduplicatePeers, wasmPeerWarning, buildFederatedBody,
 // MAX_FEDERATED_PEERS, FEDERATED_MARKER_HEADER.
 // Integrates: DevicesPanel P2P card + OmniSearch federated mode; `useTauri`
@@ -18,6 +19,7 @@
 // Contracts: pure builders throw only `invalid:`/`unsupported:` (AGENT-1);
 // network failures normalize to `network:`/`auth:`; nothing here guesses an
 // address and nothing hangs (AbortController on every fetch).
+import { normalizePeerBaseUrl } from './peerConnections'
 
 export type PeerTransportName = 'lan-http' | 'wan-http' | 'bundle' | 'relay-future'
 
@@ -66,6 +68,64 @@ export function peerOplogSinceUrl(baseUrl: string, since: number, limit = 500): 
   const s = Math.max(0, Math.floor(since) || 0)
   const capped = Math.max(1, Math.min(Math.floor(limit) || 500, 500))
   return `${base}/api/oplog/since?since=${s}&limit=${capped}`
+}
+
+/** Signed-batch pull page; cursor is receiver-local and inclusive-next. */
+export function peerOplogBatchesUrl(baseUrl: string, since: number, limit = 100): string {
+  const base = normalizeBaseUrl(baseUrl).replace(/\/+$/, '')
+  const s = Math.max(0, Math.floor(since) || 0)
+  const capped = Math.max(1, Math.min(Math.floor(limit) || 100, 500))
+  return `${base}/api/oplog/batches?since=${s}&limit=${capped}`
+}
+
+/** Direct peer fetch: uses only the explicit peer token, never app auth state. */
+export async function fetchPeerJson(
+  method: string,
+  url: string,
+  body: unknown,
+  peerToken: string,
+  timeoutMs = 15_000,
+): Promise<unknown> {
+  if (!peerToken.trim()) throw new Error('auth: peer-specific credential is required')
+  let target: URL
+  try { target = new URL(url) } catch { throw new Error('invalid: peer request URL must be absolute') }
+  if (normalizePeerBaseUrl(target.origin) !== target.origin.replace(/\/$/, '')) {
+    throw new Error('invalid: peer request origin failed transport policy')
+  }
+  if (typeof fetch !== 'function' || typeof AbortController === 'undefined') {
+    throw new Error('unsupported: direct peer HTTP is unavailable in this runtime')
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), Math.max(1000, Math.min(timeoutMs, 60_000)))
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${peerToken}`,
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      credentials: 'omit',
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    const raw = await response.text()
+    let parsed: unknown = null
+    try { parsed = raw ? JSON.parse(raw) : null } catch { throw new Error('integrity: peer returned malformed JSON') }
+    if (!response.ok) {
+      const detail = String((parsed as { error?: unknown } | null)?.error ?? '').replaceAll(peerToken, '[credential]').slice(0, 240)
+      if (response.status === 401 || response.status === 403) throw new Error(`auth: peer rejected its configured credential${detail ? ` (${detail})` : ''}`)
+      throw new Error(`network: peer returned HTTP ${response.status}${detail ? ` (${detail})` : ''}`)
+    }
+    return parsed
+  } catch (error) {
+    if (error instanceof Error && /^(auth|integrity|network|unsupported|invalid|too_large):/.test(error.message)) throw error
+    if (controller.signal.aborted) throw new Error(`network: peer request timed out after ${timeoutMs}ms`)
+    throw new Error('network: peer request failed (check HTTPS/TLS, LAN reachability, CORS, and browser mixed-content rules)')
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /** `POST <base>/api/oplog/push` — only a device-signed envelope is accepted. */
@@ -499,16 +559,52 @@ export async function federatedSearch(
 export interface SyncExchangeResult {
   pulled: number
   pushed: number
+  cursor: number
   steps: string[]
 }
 
+export interface ReceivedSignedOpBatch {
+  version: number
+  batchId: string
+  ownerId: string
+  deviceId: string
+  createdAt: string
+  algorithm: string
+  signature: string
+  ops: Record<string, unknown>[]
+}
+
+const SIGNED_BATCH_PAGE_SIZE = 100
+const MAX_SIGNED_BATCH_PAGES = 20
+
+function checkedSignedBatch(value: unknown): ReceivedSignedOpBatch {
+  const batch = (value ?? {}) as Record<string, unknown>
+  const ops = Array.isArray(batch.ops) ? batch.ops as Record<string, unknown>[] : []
+  if (
+    batch.version !== 1 || typeof batch.batchId !== 'string' || !batch.batchId ||
+    typeof batch.ownerId !== 'string' || !batch.ownerId ||
+    typeof batch.deviceId !== 'string' || !batch.deviceId ||
+    typeof batch.signature !== 'string' || !batch.signature ||
+    typeof batch.algorithm !== 'string' || !batch.algorithm ||
+    ops.length < 1 || ops.length > 500
+  ) throw new Error('integrity: peer returned a malformed signed operation batch')
+  let previous = -1
+  for (const op of ops) {
+    const seq = Number(op?.seq)
+    if (
+      !op || typeof op !== 'object' || op.deviceId !== batch.deviceId ||
+      typeof op.opId !== 'string' || !op.opId || typeof op.kind !== 'string' || !op.kind ||
+      !Number.isSafeInteger(seq) || seq < 0 || seq <= previous
+    ) throw new Error('integrity: peer batch has invalid identity or source sequence order')
+    previous = seq
+  }
+  return batch as unknown as ReceivedSignedOpBatch
+}
+
 /**
- * Execute the direct device↔device op-log exchange against a peer base URL:
- * pull their ops since `since`, push ours, merge their ops locally via
- * `pushOps`, render conflicts via `fetchConflicts`. Relay tickets refuse
- * with `unsupported:` (they rendezvous via the relay mailbox); HTTP sync is
- * fail-closed and requires a signature from the explicitly named local device.
- * `since` is an inclusive next-sequence cursor; start at 0 and continue at `head`.
+ * Exchange immutable sender-signed batches. The local merge callback must
+ * verify and persist each batch before saveCursor is called; foreign rows are
+ * never stripped from their proof or re-signed by this device.
  */
 export async function syncExchangeWithPeer(
   peer: PeerEndpoint,
@@ -519,8 +615,10 @@ export async function syncExchangeWithPeer(
     /** Token configured for this peer only; never reuse the caller's bearer. */
     peerToken: string
     fetchJson: (method: string, url: string, body: unknown, peerToken: string) => Promise<unknown>
-    pushOps: (ops: unknown[]) => Promise<{ appended: number }>
-    fetchConflicts?: (peerToken: string) => Promise<unknown>
+    publishLocalBatch: (deviceId: string, ops: Record<string, unknown>[], signature: string, algorithm: string) => Promise<{ verified: true }>
+    mergeBatch: (batch: ReceivedSignedOpBatch) => Promise<{ appended: number; verified: true }>
+    saveCursor: (cursor: number) => Promise<void>
+    fetchConflicts?: () => Promise<unknown>
     /** Signs normalized operations using the sealed key for this device. */
     signer: (deviceId: string, normalizedOps: Record<string, unknown>[]) => Promise<{
       signature: string
@@ -533,8 +631,8 @@ export async function syncExchangeWithPeer(
       `unsupported: relay dial to '${peer.deviceId}' rendezvouses via POST /api/relay/drop|poll (configure a relay_url) — direct HTTP dial, LAN sync and sneakernet bundles stay live`,
     )
   }
-  if (localOps.length > 10_000) {
-    throw new Error(`too_large: sync holds ${localOps.length} ops (cap 10000 per call — page it)`)
+  if (localOps.length > 500) {
+    throw new Error(`too_large: one signed sync batch holds ${localOps.length} ops (cap 500)`)
   }
   const base = normalizeBaseUrl(peer.baseUrl)
   const localDeviceId = typeof deps.localDeviceId === 'string' ? deps.localDeviceId.trim() : ''
@@ -547,36 +645,72 @@ export async function syncExchangeWithPeer(
     throw new Error('auth: every outgoing op must belong to the local signing device')
   }
   const s = Math.max(0, Math.floor(since) || 0)
-  const pulled = (await deps.fetchJson(
-    'GET',
-    `${base}/api/oplog/since?since=${s}&limit=500`,
-    undefined,
-    peerToken,
-  )) as { ops?: unknown[] }
-  const theirOps = Array.isArray(pulled?.ops) ? pulled.ops : []
+  await deps.fetchJson('GET', peerReadyzUrl(base), undefined, peerToken)
   // Attested flow only: the receiving server binds this path id to its
   // registered public key and the authenticated account.
   const { signature, algorithm } = await deps.signer(localDeviceId, normalized)
   const body = buildSignedSyncBody(localOps, signature, algorithm)
-  const res = (await deps.fetchJson(
-    'POST',
-    `${base}/api/peers/${encodeURIComponent(localDeviceId)}/sync`,
-    body,
-    peerToken,
-  )) as { verified?: boolean }
-  const pushLine = `push: POST ${base}/api/peers/${localDeviceId}/sync { ops: ${localOps.length}, verified: ${res.verified === true} }`
-  let appended = 0
-  if (theirOps.length > 0) {
-    appended = (await deps.pushOps(theirOps)).appended
+  let pushed = 0
+  if (localOps.length) {
+    const localPublish = await deps.publishLocalBatch(localDeviceId, normalized, signature, algorithm)
+    if (localPublish?.verified !== true) throw new Error('auth: local database did not verify its signed batch')
+    const res = (await deps.fetchJson(
+      'POST', `${base}/api/peers/${encodeURIComponent(localDeviceId)}/sync`, body, peerToken,
+    )) as { verified?: boolean }
+    if (res?.verified !== true) throw new Error('auth: peer did not verify the signed local batch')
+    pushed = localOps.length
   }
-  if (deps.fetchConflicts) await deps.fetchConflicts(peerToken).catch(() => undefined)
+  let cursor = s
+  let pulled = 0
+  let appended = 0
+  for (let pageNo = 0; pageNo < MAX_SIGNED_BATCH_PAGES; pageNo += 1) {
+    const page = (await deps.fetchJson(
+      'GET', peerOplogBatchesUrl(base, cursor, SIGNED_BATCH_PAGE_SIZE), undefined, peerToken,
+    )) as { head?: unknown; hasMore?: unknown; batches?: unknown[] }
+    if (!Array.isArray(page?.batches) || !Number.isSafeInteger(Number(page.head))) {
+      throw new Error('integrity: peer returned a malformed signed-batch page')
+    }
+    const next = Number(page.head)
+    if (next < cursor) throw new Error('integrity: peer signed-batch cursor moved backwards')
+    let lastBatchSeq = cursor - 1
+    for (const raw of page.batches) {
+      const record = (raw ?? {}) as Record<string, unknown>
+      const batchSeq = Number(record.batchSeq)
+      if (!Number.isSafeInteger(batchSeq) || batchSeq < cursor || batchSeq <= lastBatchSeq || batchSeq >= next) {
+        throw new Error('integrity: peer batch page has an invalid receiver cursor')
+      }
+      const batch = checkedSignedBatch(record.batch)
+      const merged = await deps.mergeBatch(batch)
+      if (merged?.verified !== true || !Number.isFinite(merged.appended) || merged.appended < 0) {
+        throw new Error('auth: local receiver did not verify the peer batch')
+      }
+      pulled += batch.ops.length
+      appended += merged.appended
+      lastBatchSeq = batchSeq
+    }
+    if (page.batches.length && next <= lastBatchSeq) {
+      throw new Error('integrity: peer page cursor does not advance beyond its last batch')
+    }
+    if (page.hasMore !== true && page.hasMore !== false) {
+      throw new Error('integrity: peer page omitted its continuation flag')
+    }
+    // Cursor moves only after every proof in this page was verified and merged.
+    await deps.saveCursor(next)
+    cursor = next
+    if (page.hasMore === false) break
+    if (pageNo === MAX_SIGNED_BATCH_PAGES - 1) {
+      throw new Error('too_large: peer has more than 2000 signed batches pending; retry to continue')
+    }
+  }
+  await deps.fetchConflicts?.().catch(() => undefined)
   return {
-    pulled: theirOps.length,
-    pushed: localOps.length,
+    pulled,
+    pushed,
+    cursor,
     steps: [
-      `probe: GET ${base}/api/readyz (15 s abort, fail-closed)`,
-      `pull: GET ${base}/api/oplog/since?since=${s} → ${theirOps.length} ops`,
-      pushLine,
+      `probe: GET ${peerReadyzUrl(base)} (peer-specific credential)`,
+      `push: POST ${base}/api/peers/${localDeviceId}/sync → ${pushed} signed ops`,
+      `pull: ${pulled} ops in verified batches → cursor ${cursor}`,
       `merge: merged ${appended} new ops locally`,
       'render: GET /api/oplog/conflicts',
     ],

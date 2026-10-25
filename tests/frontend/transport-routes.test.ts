@@ -149,10 +149,12 @@ describe('REST route coverage', () => {
     expect(sync.transformRequest!({ id: 'phone-7', ops: [] })).toMatchObject({ ops: [] })
     expect(REST_FIRST.has('peer_sync')).toBe(true)
     // Op-log reads stay REST-first alongside the new write arms.
-    for (const cmd of ['oplog_since', 'oplog_push', 'oplog_conflicts']) {
+    for (const cmd of ['oplog_since', 'oplog_batches', 'oplog_merge_batch', 'oplog_push', 'oplog_conflicts']) {
       expect(REST_ROUTES[cmd], cmd).toBeTruthy()
       expect(REST_FIRST.has(cmd), cmd).toBe(true)
     }
+    expect(REST_ROUTES.oplog_batches.buildPath({ since: 12, limit: 25 })).toBe('/api/oplog/batches?since=12&limit=25')
+    expect(REST_ROUTES.oplog_merge_batch.buildPath({})).toBe('/api/oplog/batches')
   })
   it('routes the scheduler family over REST + native IPC (Phase 1)', () => {
     const cmds = [

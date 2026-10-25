@@ -1,6 +1,6 @@
 // CyberManju OS — Schema (crates/types/src/schema.rs).
 // Role: shared schemas: files, sync, agent, schedules.
-// Exports: FileNode, Account, Collection, CollectionItem, FaceGroup, EncryptionKey, LooseGroup, User.
+// Exports: FileNode, Account, Collection, CollectionItem, FaceGroup, EncryptionKey, LooseGroup, OpRow, SignedOpBatch, StoredSignedOpBatch, User.
 // Integrates: serde.
 // Contracts: signals: engine.
 use serde::{Deserialize, Serialize};
@@ -291,4 +291,32 @@ pub struct OpRow {
     /// Writer's version vector (`{device: counter}`) at append time.
     #[serde(default)]
     pub bases: std::collections::BTreeMap<String, u64>,
+}
+
+/// Immutable proof envelope for one sender-signed operation page. The batch
+/// id is BLAKE3 over the canonical signed operation bytes; `ops` are never
+/// rewritten to use the receiver's local `seq` values.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SignedOpBatch {
+    pub version: u32,
+    pub batch_id: String,
+    pub owner_id: String,
+    pub device_id: String,
+    pub created_at: String,
+    pub algorithm: String,
+    pub signature: String,
+    pub ops: Vec<OpRow>,
+}
+
+/// Receiver-local paging sequence plus the immutable sender batch.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredSignedOpBatch {
+    pub batch_seq: u64,
+    /// Owner scope of this database copy, distinct from the batch's claimed
+    /// origin owner and used for local authorization/paging.
+    #[serde(default)]
+    pub storage_owner_id: String,
+    pub batch: SignedOpBatch,
 }

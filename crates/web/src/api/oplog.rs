@@ -10,13 +10,15 @@
 //   - GET /api/oplog/since?since=N&limit=M → `{ head, ops }`; `since` is an
 //     inclusive next-sequence cursor and `head` is the next cursor for paging.
 //   - POST /api/oplog/push { deviceId, ops, signature, algorithm } → verified merge
+//   - GET /api/oplog/batches?since=N&limit=M → preserved verified envelopes
+//   - POST /api/oplog/batches { SignedOpBatch } → verify and retain forwarded proof
 //   - GET /api/oplog/conflicts → `{ conflicts: [{a, b}] }`
 //   - POST /api/oplog/resolve { opA, opB, choice, deviceId? } → `{ resolved, op }`
 // Every operation is owner-scoped; pushes require a signature from the
 // registered device key, and unsigned legacy pushes fail closed.
 
 use cybermanju_db::Database;
-use cybermanju_types::schema::OpRow;
+use cybermanju_types::schema::{OpRow, SignedOpBatch};
 
 fn respond<T: serde::Serialize>(result: Result<T, String>, origin: Option<&str>) -> String {
     match result {
@@ -55,9 +57,9 @@ pub struct PushRequest {
 
 /// Merge foreign ops idempotently; absurd pages refused before they merge.
 pub fn push(db: &Database, req: &PushRequest, owner_id: &str) -> Result<serde_json::Value, String> {
-    if req.ops.len() > 10_000 {
+    if req.ops.len() > 500 {
         return Err(format!(
-            "too_large: push holds {} ops (cap 10000 per call — page it)",
+            "too_large: signed batch holds {} ops (cap 500 per call — page it)",
             req.ops.len()
         ));
     }
@@ -84,6 +86,9 @@ pub fn push(db: &Database, req: &PushRequest, owner_id: &str) -> Result<serde_js
             return Err("auth: every pushed op must belong to the attested device".to_string());
         }
     }
+    if req.ops.is_empty() || req.ops.windows(2).any(|pair| pair[0].seq >= pair[1].seq) {
+        return Err("integrity: signed batch must contain ops with strictly increasing source sequences".to_string());
+    }
     let verified = cybermanju_sync::auth::verify_envelope(
         &req.ops,
         &req.signature,
@@ -91,11 +96,99 @@ pub fn push(db: &Database, req: &PushRequest, owner_id: &str) -> Result<serde_js
         &device.public_key,
         &device.key_algorithm,
     )?;
-    let (appended, skipped) = db.merge_ops(&req.ops).map_err(|e| e.to_string())?;
+    let batch_id = cybermanju_sync::auth::signed_batch_id(&req.ops)?;
+    let batch = SignedOpBatch {
+        version: 1,
+        batch_id: batch_id.clone(),
+        owner_id: owner_id.to_string(),
+        device_id: req.device_id.clone(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        algorithm: req.algorithm.clone(),
+        signature: req.signature.clone(),
+        ops: req.ops.clone(),
+    };
+    let (appended, skipped, batch_seq) = db
+        .merge_verified_op_batch(&batch)
+        .map_err(|e| e.to_string())?;
     let head = db.oplog_head().map_err(|e| e.to_string())?;
     Ok(
-        serde_json::json!({ "appended": appended, "skipped": skipped, "head": head, "verified": verified }),
+        serde_json::json!({ "appended": appended, "skipped": skipped, "head": head, "batchId": batch_id, "batchSeq": batch_seq, "verified": verified }),
     )
+}
+
+/// Verify and preserve a forwarded proof batch without replacing its origin
+/// metadata. The authenticated owner is stored separately as the local scope.
+pub fn merge_preserved_batch(
+    db: &Database,
+    batch: &SignedOpBatch,
+    storage_owner_id: &str,
+) -> Result<serde_json::Value, String> {
+    if batch.version != 1 || batch.ops.is_empty() || batch.ops.len() > 500 {
+        return Err("too_large: signed batch version or operation count is invalid".to_string());
+    }
+    if storage_owner_id.trim().is_empty() || batch.owner_id.trim().is_empty() {
+        return Err("auth: batch origin and authenticated storage owner are required".to_string());
+    }
+    let expected_id = cybermanju_sync::auth::signed_batch_id(&batch.ops)?;
+    if expected_id != batch.batch_id {
+        return Err("integrity: signed batch id does not match its operation rows".to_string());
+    }
+    let device = db
+        .get_device(&batch.device_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("not_found: no device '{}'", batch.device_id))?;
+    if device.revoked || device.owner_id != storage_owner_id {
+        return Err("auth: batch device is not active and enrolled for this owner".to_string());
+    }
+    let verified = cybermanju_sync::auth::verify_envelope(
+        &batch.ops,
+        &batch.signature,
+        &batch.algorithm,
+        &device.public_key,
+        &device.key_algorithm,
+    )?;
+    let (appended, skipped, batch_seq) = db
+        .merge_verified_op_batch_for_owner(storage_owner_id, batch)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "appended": appended,
+        "skipped": skipped,
+        "batchId": batch.batch_id,
+        "batchSeq": batch_seq,
+        "verified": verified,
+    }))
+}
+
+/// Owner-scoped page of immutable sender-signed batches. `head` is a local
+/// receiver cursor; batch operations and signatures remain byte-for-byte
+/// unchanged while forwarded to another peer.
+pub fn signed_batches_for_owner(
+    db: &Database,
+    since: u64,
+    limit: usize,
+    owner_id: &str,
+) -> Result<serde_json::Value, String> {
+    if owner_id.trim().is_empty() {
+        return Err("auth: authenticated owner is required".to_string());
+    }
+    let limit = limit.clamp(1, 500);
+    let active_devices: std::collections::HashSet<String> = db
+        .list_devices()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|device| !device.revoked && device.owner_id == owner_id)
+        .map(|device| device.id)
+        .collect();
+    let mut batches = db
+        .list_signed_op_batches_since_for_devices(owner_id, since, limit + 1, Some(&active_devices))
+        .map_err(|e| e.to_string())?;
+    let has_more = batches.len() > limit;
+    batches.truncate(limit);
+    let next = batches
+        .last()
+        .map(|row| row.batch_seq.saturating_add(1))
+        .unwrap_or(db.signed_op_batch_head_for_owner(owner_id).map_err(|e| e.to_string())?);
+    Ok(serde_json::json!({ "head": next, "batches": batches, "hasMore": has_more }))
 }
 
 /// Resolution request — `choice` is `keep-a` | `keep-b` | `merge`.
@@ -271,6 +364,24 @@ pub fn route(
             }
         }
 
+        ["api", "oplog", "batches"] if method == "GET" => {
+            let since = crate::parse_query_param(query, "since")
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0);
+            let limit = crate::parse_query_param(query, "limit")
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(100);
+            respond(
+                signed_batches_for_owner(db, since, limit, auth.owner_id),
+                origin,
+            )
+        }
+
+        ["api", "oplog", "batches"] if method == "POST" => match parse::<SignedOpBatch>(body) {
+            Ok(batch) => respond(merge_preserved_batch(db, &batch, auth.owner_id), origin),
+            Err(e) => respond::<serde_json::Value>(Err(e), origin),
+        },
+
         ["api", "oplog", "push"] if method == "POST" => match parse::<PushRequest>(body) {
             Ok(req) => respond(push(db, &req, auth.owner_id), origin),
             Err(e) => respond::<serde_json::Value>(Err(e), origin),
@@ -378,6 +489,99 @@ mod tests {
         )
         .unwrap();
         assert!(!conflicts.contains("private-b"));
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn verified_push_preserves_signed_batch_for_owner_scoped_pull() {
+        use base64::Engine;
+        let (db, path) = test_db();
+        let mut engine = cybermanju_crypto::pqc::PqcEngine::new();
+        let keys = engine
+            .generate_keypair(cybermanju_crypto::pqc::EncryptionAlgo::MlDsa65)
+            .unwrap();
+        let seed = base64::engine::general_purpose::STANDARD.encode(&keys.private_key);
+        let public = base64::engine::general_purpose::STANDARD.encode(&keys.public_key);
+        let mut sender = device("device-a", "owner-a");
+        sender.public_key = public;
+        db.save_device(&sender).unwrap();
+        let mut first = op("device-a", "first");
+        first.seq = 10;
+        first.op_id = "device-a-10".to_string();
+        let mut second = op("device-a", "second");
+        second.seq = 11;
+        second.op_id = "device-a-11".to_string();
+        let ops = vec![first.clone(), second.clone()];
+        let signature = cybermanju_sync::auth::sign_envelope(&seed, "ml-dsa-65", &ops).unwrap();
+        let response = push(
+            &db,
+            &PushRequest {
+                device_id: "device-a".to_string(),
+                ops,
+                signature: signature.clone(),
+                algorithm: "ml-dsa-65".to_string(),
+            },
+            "owner-a",
+        )
+        .unwrap();
+        assert_eq!(response["verified"], true);
+        let pull = signed_batches_for_owner(&db, 0, 10, "owner-a").unwrap();
+        let rows = db.list_signed_op_batches_since("owner-a", 0, 10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].batch.signature, signature);
+        assert_eq!(rows[0].batch.ops, vec![first, second]);
+        assert_eq!(pull["batches"][0]["batch"]["signature"], signature);
+        assert_eq!(
+            signed_batches_for_owner(&db, 0, 10, "owner-b").unwrap()["batches"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+        sender.revoked = true;
+        db.save_device(&sender).unwrap();
+        let after_revoke = signed_batches_for_owner(&db, 1, 10, "owner-a").unwrap();
+        assert_eq!(after_revoke["head"], 1);
+        assert_eq!(after_revoke["batches"].as_array().unwrap().len(), 0);
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn forwarded_batch_keeps_origin_owner_but_uses_local_storage_scope() {
+        use base64::Engine;
+        let (db, path) = test_db();
+        let mut engine = cybermanju_crypto::pqc::PqcEngine::new();
+        let keys = engine
+            .generate_keypair(cybermanju_crypto::pqc::EncryptionAlgo::MlDsa65)
+            .unwrap();
+        let seed = base64::engine::general_purpose::STANDARD.encode(&keys.private_key);
+        let mut sender = device("peer-device", "owner-local");
+        sender.public_key = base64::engine::general_purpose::STANDARD.encode(&keys.public_key);
+        db.save_device(&sender).unwrap();
+        let mut row = op("peer-device", "forwarded");
+        row.seq = 9;
+        row.op_id = "peer-device-9".to_string();
+        let ops = vec![row.clone()];
+        let batch = SignedOpBatch {
+            version: 1,
+            batch_id: cybermanju_sync::auth::signed_batch_id(&ops).unwrap(),
+            owner_id: "origin-owner".to_string(),
+            device_id: "peer-device".to_string(),
+            created_at: "2026-10-12T00:00:00Z".to_string(),
+            algorithm: "ml-dsa-65".to_string(),
+            signature: cybermanju_sync::auth::sign_envelope(&seed, "ml-dsa-65", &ops).unwrap(),
+            ops,
+        };
+        merge_preserved_batch(&db, &batch, "owner-local").unwrap();
+        let stored = db.list_signed_op_batches_since("owner-local", 0, 10).unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].storage_owner_id, "owner-local");
+        assert_eq!(stored[0].batch.owner_id, "origin-owner");
+        assert_eq!(stored[0].batch.ops, vec![row]);
+        assert_eq!(stored[0].batch.signature, batch.signature);
+        assert!(db.list_signed_op_batches_since("origin-owner", 0, 10).unwrap().is_empty());
         drop(db);
         let _ = std::fs::remove_file(path);
     }
