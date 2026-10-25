@@ -36,8 +36,8 @@ afterEach(() => {
 describe('peer connection persistence', () => {
   it('allows HTTP only for local/LAN hosts and normalizes origin URLs', () => {
     expect(normalizePeerBaseUrl('http://192.168.1.20:3456/')).toBe('http://192.168.1.20:3456')
-    expect(normalizePeerBaseUrl('https://peer.example.test/path')).toThrow(/without path/)
-    expect(normalizePeerBaseUrl('http://peer.example.test:3456')).toThrow(/require HTTPS/)
+    expect(() => normalizePeerBaseUrl('https://peer.example.test/path')).toThrow(/without path/)
+    expect(() => normalizePeerBaseUrl('http://peer.example.test:3456')).toThrow(/require HTTPS/)
     expect(normalizePeerBaseUrl('https://peer.example.test:3456')).toBe('https://peer.example.test:3456')
   })
 
