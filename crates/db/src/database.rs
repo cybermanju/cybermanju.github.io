@@ -1067,7 +1067,6 @@ impl Database {
                 anyhow::bail!("integrity: signed batch id collides with different proof data");
             }
             let seq = stored.batch_seq;
-            drop(value);
             drop(batches);
             drop(tx);
             return Ok((0, batch.ops.len(), seq));
