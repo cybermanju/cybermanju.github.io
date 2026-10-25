@@ -925,26 +925,29 @@ impl Database {
         }
         let stored_next = {
             let kv = tx.open_table(KV_TABLE)?;
-            kv.get("oplog:next_seq")?.map(|v| v.value().to_string())
+            let value = kv.get("oplog:next_seq")?;
+            value.map(|v| v.value().to_string())
         };
         let seq = match stored_next {
-            Some(value) => value.parse::<u64>().map_err(|e| {
-                anyhow::anyhow!("integrity: invalid op-log sequence counter: {e}")
-            })?,
+            Some(value) => value
+                .parse::<u64>()
+                .map_err(|e| anyhow::anyhow!("integrity: invalid op-log sequence counter: {e}"))?,
             None => {
                 let table = tx.open_table(OPLOG_TABLE)?;
                 let mut next = 0u64;
                 for entry in table.iter()? {
                     let (_, value) = entry?;
                     let previous: OpRow = serde_json::from_str(value.value())?;
-                    next = next.max(previous.seq.checked_add(1).ok_or_else(|| {
-                        anyhow::anyhow!("too_large: op-log sequence exhausted")
-                    })?);
+                    next =
+                        next.max(previous.seq.checked_add(1).ok_or_else(|| {
+                            anyhow::anyhow!("too_large: op-log sequence exhausted")
+                        })?);
                 }
                 next
             }
         };
-        let following = seq.checked_add(1)
+        let following = seq
+            .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("too_large: op-log sequence exhausted"))?;
         row.seq = seq;
         if row.op_id.trim().is_empty() {
@@ -976,10 +979,7 @@ impl Database {
     /// stable digest of the canonical signed bytes, so retrying a page is
     /// idempotent. The database layer stores proofs but deliberately does not
     /// perform public-key verification; callers must verify before entry.
-    pub fn merge_verified_op_batch(
-        &self,
-        batch: &SignedOpBatch,
-    ) -> Result<(usize, usize, u64)> {
+    pub fn merge_verified_op_batch(&self, batch: &SignedOpBatch) -> Result<(usize, usize, u64)> {
         self.merge_verified_op_batch_for_owner(&batch.owner_id, batch)
     }
 
@@ -1016,7 +1016,9 @@ impl Database {
                 || op.op_id.trim().is_empty()
                 || op.kind.trim().is_empty()
             {
-                anyhow::bail!("auth: signed batch rows need the attested device, stable op ids, and kinds");
+                anyhow::bail!(
+                    "auth: signed batch rows need the attested device, stable op ids, and kinds"
+                );
             }
             if last_seq.map(|last| op.seq <= last).unwrap_or(false)
                 || !op_ids.insert(op.op_id.clone())
@@ -1034,15 +1036,24 @@ impl Database {
             let (_, value) = entry?;
             let stored: StoredSignedOpBatch = serde_json::from_str(value.value())?;
             for source in stored.batch.ops {
-                if let Some(previous) = known_source_rows.insert(source.op_id.clone(), source.clone()) {
+                if let Some(previous) =
+                    known_source_rows.insert(source.op_id.clone(), source.clone())
+                {
                     if previous != source {
-                        anyhow::bail!("integrity: stored signed batches contain an operation id collision");
+                        anyhow::bail!(
+                            "integrity: stored signed batches contain an operation id collision"
+                        );
                     }
                 }
             }
         }
-        if let Some(value) = batches.get(batch.batch_id.as_str())? {
-            let stored: StoredSignedOpBatch = serde_json::from_str(value.value())?;
+        let existing_batch = {
+            let value = batches.get(batch.batch_id.as_str())?;
+            value
+                .map(|value| serde_json::from_str::<StoredSignedOpBatch>(value.value()))
+                .transpose()?
+        };
+        if let Some(stored) = existing_batch {
             // A retry may be freshly timestamped or re-signed while carrying
             // the exact same signed rows. The stable id is derived from those
             // rows, so preserve the first immutable proof and accept the retry.
@@ -1065,24 +1076,25 @@ impl Database {
         let mut kv = tx.open_table(KV_TABLE)?;
         let mut oplog = tx.open_table(OPLOG_TABLE)?;
         let mut known = std::collections::HashMap::<String, OpRow>::new();
-        let mut next_op_seq = match kv.get("oplog:next_seq")? {
-            Some(value) => value
-                .value()
-                .parse::<u64>()
-                .map_err(|e| anyhow::anyhow!("integrity: invalid op-log sequence counter: {e}"))?,
-            None => {
-                let mut next = 0u64;
-                for entry in oplog.iter()? {
-                    let (_, value) = entry?;
-                    let row: OpRow = serde_json::from_str(value.value())?;
-                    known.insert(row.op_id.clone(), row);
-                    next = next.max(row.seq.checked_add(1).ok_or_else(|| {
-                        anyhow::anyhow!("too_large: op-log sequence exhausted")
-                    })?);
+        let mut next_op_seq =
+            match kv.get("oplog:next_seq")? {
+                Some(value) => value.value().parse::<u64>().map_err(|e| {
+                    anyhow::anyhow!("integrity: invalid op-log sequence counter: {e}")
+                })?,
+                None => {
+                    let mut next = 0u64;
+                    for entry in oplog.iter()? {
+                        let (_, value) = entry?;
+                        let row: OpRow = serde_json::from_str(value.value())?;
+                        let next_seq = row.seq.checked_add(1).ok_or_else(|| {
+                            anyhow::anyhow!("too_large: op-log sequence exhausted")
+                        })?;
+                        known.insert(row.op_id.clone(), row);
+                        next = next.max(next_seq);
+                    }
+                    next
                 }
-                next
-            }
-        };
+            };
         // Existing rows still need indexing when the counter already exists.
         for entry in oplog.iter()? {
             let (_, value) = entry?;
@@ -1098,7 +1110,9 @@ impl Database {
                 .map(|previous| previous != source)
                 .unwrap_or(false)
             {
-                anyhow::bail!("integrity: operation id collides with different sender sequence or content");
+                anyhow::bail!(
+                    "integrity: operation id collides with different sender sequence or content"
+                );
             }
             if let Some(existing) = known.get(&source.op_id) {
                 let mut existing_content = existing.clone();
@@ -1238,7 +1252,8 @@ impl Database {
         owner_id: &str,
         device_ids: &std::collections::HashSet<String>,
     ) -> Result<u64> {
-        let rows = self.list_signed_op_batches_since_for_devices(owner_id, 0, 0, Some(device_ids))?;
+        let rows =
+            self.list_signed_op_batches_since_for_devices(owner_id, 0, 0, Some(device_ids))?;
         Ok(rows
             .last()
             .map(|row| row.batch_seq.saturating_add(1))
@@ -1684,16 +1699,19 @@ impl Database {
         }
         if let Some((kind, payload)) = mutation {
             let device_id = Self::local_device_id();
-            Self::append_op_in_tx(&tx, OpRow {
-                seq: 0,
-                op_id: String::new(),
-                device_id,
-                created_at: chrono::Utc::now().to_rfc3339(),
-                kind: kind.to_string(),
-                file_id: Some(file_id.to_string()),
-                payload,
-                bases: Default::default(),
-            })?;
+            Self::append_op_in_tx(
+                &tx,
+                OpRow {
+                    seq: 0,
+                    op_id: String::new(),
+                    device_id,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    kind: kind.to_string(),
+                    file_id: Some(file_id.to_string()),
+                    payload,
+                    bases: Default::default(),
+                },
+            )?;
         }
         tx.commit()?;
         Ok(())
@@ -1737,21 +1755,33 @@ impl Database {
         }
         if let (Some(item), Some((kind, mut payload))) = (&result, mutation) {
             if let Some(fields) = payload.as_object_mut() {
-                fields.insert("name".to_string(), serde_json::json!(item.original_file.name));
-                fields.insert("parentId".to_string(), serde_json::json!(item.original_file.parent_id));
-                fields.insert("hashBlake3".to_string(), serde_json::json!(item.original_file.hash_blake3));
+                fields.insert(
+                    "name".to_string(),
+                    serde_json::json!(item.original_file.name),
+                );
+                fields.insert(
+                    "parentId".to_string(),
+                    serde_json::json!(item.original_file.parent_id),
+                );
+                fields.insert(
+                    "hashBlake3".to_string(),
+                    serde_json::json!(item.original_file.hash_blake3),
+                );
             }
             let device_id = Self::local_device_id();
-            Self::append_op_in_tx(&tx, OpRow {
-                seq: 0,
-                op_id: String::new(),
-                device_id,
-                created_at: chrono::Utc::now().to_rfc3339(),
-                kind: kind.to_string(),
-                file_id: Some(file_id.to_string()),
-                payload,
-                bases: Default::default(),
-            })?;
+            Self::append_op_in_tx(
+                &tx,
+                OpRow {
+                    seq: 0,
+                    op_id: String::new(),
+                    device_id,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    kind: kind.to_string(),
+                    file_id: Some(file_id.to_string()),
+                    payload,
+                    bases: Default::default(),
+                },
+            )?;
         }
         tx.commit()?;
         Ok(result)
@@ -2013,16 +2043,19 @@ impl Database {
         }
         if let Some((kind, payload)) = mutation {
             let device_id = Self::local_device_id();
-            Self::append_op_in_tx(&tx, OpRow {
-                seq: 0,
-                op_id: String::new(),
-                device_id,
-                created_at: chrono::Utc::now().to_rfc3339(),
-                kind: kind.to_string(),
-                file_id: Some(file_id.to_string()),
-                payload,
-                bases: Default::default(),
-            })?;
+            Self::append_op_in_tx(
+                &tx,
+                OpRow {
+                    seq: 0,
+                    op_id: String::new(),
+                    device_id,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    kind: kind.to_string(),
+                    file_id: Some(file_id.to_string()),
+                    payload,
+                    bases: Default::default(),
+                },
+            )?;
         }
         tx.commit()?;
         Ok(())
@@ -2062,13 +2095,7 @@ impl Database {
         old_parent_id: Option<&str>,
         new_parent_id: &str,
     ) -> Result<()> {
-        self.move_file_with_index_and_op(
-            file_id,
-            serialized,
-            old_parent_id,
-            new_parent_id,
-            None,
-        )
+        self.move_file_with_index_and_op(file_id, serialized, old_parent_id, new_parent_id, None)
     }
 
     pub fn move_file_with_index_and_op(
@@ -2116,16 +2143,19 @@ impl Database {
         }
         if let Some((kind, payload)) = mutation {
             let device_id = Self::local_device_id();
-            Self::append_op_in_tx(&tx, OpRow {
-                seq: 0,
-                op_id: String::new(),
-                device_id,
-                created_at: chrono::Utc::now().to_rfc3339(),
-                kind: kind.to_string(),
-                file_id: Some(file_id.to_string()),
-                payload,
-                bases: Default::default(),
-            })?;
+            Self::append_op_in_tx(
+                &tx,
+                OpRow {
+                    seq: 0,
+                    op_id: String::new(),
+                    device_id,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    kind: kind.to_string(),
+                    file_id: Some(file_id.to_string()),
+                    payload,
+                    bases: Default::default(),
+                },
+            )?;
         }
         tx.commit()?;
         Ok(())
@@ -2490,10 +2520,16 @@ mod registry_oplog_tests {
         };
         assert_eq!(db.merge_verified_op_batch(&batch).unwrap(), (2, 0, 0));
         assert_eq!(
-            db.list_ops_since(0, 0).unwrap().iter().map(|op| op.seq).collect::<Vec<_>>(),
+            db.list_ops_since(0, 0)
+                .unwrap()
+                .iter()
+                .map(|op| op.seq)
+                .collect::<Vec<_>>(),
             vec![0, 1]
         );
-        let page = db.list_signed_op_batches_since("test-owner", 0, 10).unwrap();
+        let page = db
+            .list_signed_op_batches_since("test-owner", 0, 10)
+            .unwrap();
         assert_eq!(page[0].batch.ops, vec![first, second]);
         assert_eq!(db.merge_verified_op_batch(&batch).unwrap(), (0, 2, 0));
         let mut retried = batch.clone();
@@ -2504,7 +2540,10 @@ mod registry_oplog_tests {
         collision.batch_id = "b".repeat(64);
         collision.ops[0].payload = serde_json::json!({ "different": true });
         assert!(db.merge_verified_op_batch(&collision).is_err());
-        assert!(db.list_signed_op_batches_since("other-owner", 0, 10).unwrap().is_empty());
+        assert!(db
+            .list_signed_op_batches_since("other-owner", 0, 10)
+            .unwrap()
+            .is_empty());
         drop(db);
         let _ = std::fs::remove_file(path);
     }

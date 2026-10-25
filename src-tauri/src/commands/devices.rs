@@ -46,7 +46,9 @@ pub fn list_signing_devices(state: State<'_, AppState>) -> Result<Vec<String>, S
         let (_, value) = entry.map_err(|e| e.to_string())?;
         let key: crate::db::schema::EncryptionKey =
             serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
-        let Some(id) = key.id.strip_prefix("device:") else { continue };
+        let Some(id) = key.id.strip_prefix("device:") else {
+            continue;
+        };
         if active
             .get(id)
             .map(|device| {

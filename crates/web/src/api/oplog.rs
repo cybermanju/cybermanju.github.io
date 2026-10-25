@@ -87,7 +87,10 @@ pub fn push(db: &Database, req: &PushRequest, owner_id: &str) -> Result<serde_js
         }
     }
     if req.ops.is_empty() || req.ops.windows(2).any(|pair| pair[0].seq >= pair[1].seq) {
-        return Err("integrity: signed batch must contain ops with strictly increasing source sequences".to_string());
+        return Err(
+            "integrity: signed batch must contain ops with strictly increasing source sequences"
+                .to_string(),
+        );
     }
     let verified = cybermanju_sync::auth::verify_envelope(
         &req.ops,
@@ -187,7 +190,10 @@ pub fn signed_batches_for_owner(
     let next = batches
         .last()
         .map(|row| row.batch_seq.saturating_add(1))
-        .unwrap_or(db.signed_op_batch_head_for_owner(owner_id).map_err(|e| e.to_string())?);
+        .unwrap_or(
+            db.signed_op_batch_head_for_owner(owner_id)
+                .map_err(|e| e.to_string())?,
+        );
     Ok(serde_json::json!({ "head": next, "batches": batches, "hasMore": has_more }))
 }
 
@@ -575,13 +581,18 @@ mod tests {
             ops,
         };
         merge_preserved_batch(&db, &batch, "owner-local").unwrap();
-        let stored = db.list_signed_op_batches_since("owner-local", 0, 10).unwrap();
+        let stored = db
+            .list_signed_op_batches_since("owner-local", 0, 10)
+            .unwrap();
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0].storage_owner_id, "owner-local");
         assert_eq!(stored[0].batch.owner_id, "origin-owner");
         assert_eq!(stored[0].batch.ops, vec![row]);
         assert_eq!(stored[0].batch.signature, batch.signature);
-        assert!(db.list_signed_op_batches_since("origin-owner", 0, 10).unwrap().is_empty());
+        assert!(db
+            .list_signed_op_batches_since("origin-owner", 0, 10)
+            .unwrap()
+            .is_empty());
         drop(db);
         let _ = std::fs::remove_file(path);
     }

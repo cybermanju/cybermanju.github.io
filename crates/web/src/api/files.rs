@@ -42,12 +42,15 @@ pub fn create_folder(db: &Database, name: String, parent_id: String) -> Result<F
         &folder_id,
         serialized.as_str(),
         Some(&parent_id),
-        Some(("create", serde_json::json!({
-            "schemaVersion": 1, "name": folder.name, "parentId": folder.parent_id,
-            "fileType": folder.file_type, "hashBlake3": folder.hash_blake3,
-        }))),
+        Some((
+            "create",
+            serde_json::json!({
+                "schemaVersion": 1, "name": folder.name, "parentId": folder.parent_id,
+                "fileType": folder.file_type, "hashBlake3": folder.hash_blake3,
+            }),
+        )),
     )
-        .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())?;
 
     Ok(folder)
 }
@@ -75,7 +78,10 @@ pub fn rename(db: &Database, file_id: &str, new_name: String) -> Result<FileNode
     file_node.modified_at = chrono::Utc::now().to_rfc3339();
 
     write_file_with_mutation(
-        db, file_id, &file_node, "rename",
+        db,
+        file_id,
+        &file_node,
+        "rename",
         serde_json::json!({ "schemaVersion": 1, "from": old_name, "to": file_node.name, "parentId": file_node.parent_id, "hashBlake3": file_node.hash_blake3 }),
     )?;
     Ok(file_node)
@@ -304,7 +310,10 @@ pub fn set_tags(db: &Database, file_id: &str, tags: Vec<String>) -> Result<FileN
     file_node.tags = clean;
     file_node.modified_at = chrono::Utc::now().to_rfc3339();
     write_file_with_mutation(
-        db, file_id, &file_node, "tag",
+        db,
+        file_id,
+        &file_node,
+        "tag",
         serde_json::json!({ "schemaVersion": 1, "tags": file_node.tags, "hashBlake3": file_node.hash_blake3 }),
     )?;
     Ok(file_node)
@@ -596,7 +605,10 @@ pub fn write_content(
     node.hash_blake3 = Some(blake3::hash(content.as_bytes()).to_hex().to_string());
     node.modified_at = chrono::Utc::now().to_rfc3339();
     write_file_with_mutation(
-        db, file_id, &node, "edit",
+        db,
+        file_id,
+        &node,
+        "edit",
         serde_json::json!({ "schemaVersion": 1, "sizeBytes": node.size_bytes, "hashBlake3": node.hash_blake3 }),
     )?;
 

@@ -3336,7 +3336,15 @@ fn peer_sync(
     match result {
         Ok(value) => json_ok(&value, origin),
         Err(error) => {
-            let status = if error.starts_with("not_found:") { 404 } else if error.starts_with("auth:") { 403 } else if error.starts_with("too_large:") { 413 } else { 400 };
+            let status = if error.starts_with("not_found:") {
+                404
+            } else if error.starts_with("auth:") {
+                403
+            } else if error.starts_with("too_large:") {
+                413
+            } else {
+                400
+            };
             json_error(status, &error, origin)
         }
     }

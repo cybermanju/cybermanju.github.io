@@ -76,15 +76,20 @@ pub fn delete(db: &Database, file_ids: &[String]) -> Result<u32, String> {
         if let Some(node) = file_node {
             db.log_audit("batch_delete", "file", file_id, None, None)
                 .map_err(|e| e.to_string())?;
-            db.trash_file_with_mutation(file_id, &node, None, Some((
-                "delete",
-                serde_json::json!({
-                    "schemaVersion": 1,
-                    "name": node.name,
-                    "parentId": node.parent_id,
-                    "hashBlake3": node.hash_blake3,
-                }),
-            )))
+            db.trash_file_with_mutation(
+                file_id,
+                &node,
+                None,
+                Some((
+                    "delete",
+                    serde_json::json!({
+                        "schemaVersion": 1,
+                        "name": node.name,
+                        "parentId": node.parent_id,
+                        "hashBlake3": node.hash_blake3,
+                    }),
+                )),
+            )
             .map_err(|e| e.to_string())?;
             count += 1;
         }

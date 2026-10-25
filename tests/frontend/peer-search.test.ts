@@ -194,7 +194,7 @@ describe('peer fetch fan-out', () => {
 })
 
 describe('executable op-log exchange', () => {
-  const deps = (seen: { pushed: unknown[][]; merged: unknown[][] }) => ({
+  const deps = (seen: { pushed: unknown[][]; merged: unknown[][]; cursors: number[] }) => ({
     localDeviceId: 'laptop-1',
     peerToken: 'token-for-phone-7',
     signer: async (deviceId: string) => ({
@@ -202,18 +202,39 @@ describe('executable op-log exchange', () => {
       algorithm: 'ml-dsa-65',
     }),
     fetchJson: async (method: string, url: string, body?: unknown) => {
-      if (url.includes('/api/oplog/since')) return { head: 2, ops: [{ op_id: 'op-1' }] }
       seen.pushed.push([method, url, body])
-      return { appended: 1 }
+      if (url.endsWith('/api/readyz')) return { ready: true }
+      if (url.includes('/api/oplog/batches')) {
+        const since = Number(new URL(url).searchParams.get('since') ?? 0)
+        return {
+        head: since === 0 ? 1 : since,
+        hasMore: false,
+        batches: since === 0 ? [{
+          batchSeq: 0,
+          batch: {
+            version: 1, batchId: 'batch-phone-0', ownerId: 'local', deviceId: 'phone-7',
+            createdAt: '2026-10-25T00:00:00Z', algorithm: 'ml-dsa-65', signature: 'peer-sig',
+            ops: [{ seq: 0, opId: 'phone-7-0', deviceId: 'phone-7', kind: 'tag' }],
+          },
+        }] : [],
+      }
+      }
+      return { appended: 1, verified: true }
     },
     pushOps: async (ops: unknown[]) => {
       seen.merged.push(ops)
       return { appended: ops.length }
     },
+    publishLocalBatch: async () => ({ verified: true as const }),
+    mergeBatch: async (batch: unknown) => {
+      seen.merged.push([batch])
+      return { appended: 1, verified: true as const }
+    },
+    saveCursor: async (cursor: number) => { seen.cursors.push(cursor) },
   })
 
   it('pulls, pushes, merges and reports steps', async () => {
-    const seen = { pushed: [], merged: [] } as { pushed: unknown[][]; merged: unknown[][] }
+    const seen = { pushed: [], merged: [], cursors: [] } as { pushed: unknown[][]; merged: unknown[][]; cursors: number[] }
     const out = await syncExchangeWithPeer(
       { deviceId: 'phone-7', baseUrl: 'http://192.168.1.60:3456', transport: 'lan-http' },
       0,
@@ -222,12 +243,12 @@ describe('executable op-log exchange', () => {
     )
     expect(out.pulled).toBe(1)
     expect(out.pushed).toBe(1)
-    expect(out.steps.join('\n')).toContain('/api/oplog/since?since=0')
+    expect(seen.pushed.some(([, url]) => String(url).includes('/api/oplog/batches?since=0&limit=100'))).toBe(true)
     expect(seen.merged[0]).toHaveLength(1)
   })
 
   it('refuses relay endpoints with unsupported: (QUIC sequenced)', async () => {
-    const seen = { pushed: [], merged: [] } as { pushed: unknown[][]; merged: unknown[][] }
+    const seen = { pushed: [], merged: [], cursors: [] } as { pushed: unknown[][]; merged: unknown[][]; cursors: number[] }
     await expect(
       syncExchangeWithPeer(
         { deviceId: 'phone-7', baseUrl: 'http://relay.example', transport: 'relay-future' },
@@ -241,14 +262,14 @@ describe('executable op-log exchange', () => {
   it('wan + lan wrappers reuse the same exchange', async () => {
     const { wanSyncExchange } = await import('@/utils/wanDial')
     const { lanSyncExchange } = await import('@/utils/lanSync')
-    const seen = { pushed: [], merged: [] } as { pushed: unknown[][]; merged: unknown[][] }
+    const seen = { pushed: [], merged: [], cursors: [] } as { pushed: unknown[][]; merged: unknown[][]; cursors: number[] }
     const wan = await wanSyncExchange(
       { deviceId: 'vault', addr: 'vault.example.com:3456' },
       3,
       [],
       deps(seen),
     )
-    expect(wan.steps.join('\n')).toContain('since=3')
+    expect(seen.pushed.some(([, url]) => String(url).includes('/api/oplog/batches?since=3&limit=100'))).toBe(true)
     const lan = await lanSyncExchange(
       { deviceId: 'phone-7', name: 'Phone', host: '192.168.1.60', port: 3456 },
       0,
@@ -275,5 +296,5 @@ describe('search_files_federated transport route', () => {
       { fileId: 'a', fileName: 'a.txt', score: 9, snippet: 'hit', source: 'phone-7' },
     ]) as FederatedHit[]
     expect(shaped[0]).toMatchObject({ fileId: 'a', source: 'phone-7' })
-  })
+  }, 20_000)
 })

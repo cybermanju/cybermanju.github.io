@@ -98,10 +98,13 @@ fn mutation_insert_commits_file_index_and_journal_as_one_transaction() {
         &file.id,
         &serialized,
         Some("root"),
-        Some(("create", serde_json::json!({
-            "schemaVersion": 1,
-            "hashBlake3": file.hash_blake3,
-        }))),
+        Some((
+            "create",
+            serde_json::json!({
+                "schemaVersion": 1,
+                "hashBlake3": file.hash_blake3,
+            }),
+        )),
     )
     .unwrap();
     assert!(db.get_file_node(&file.id).unwrap().is_some());
@@ -117,14 +120,17 @@ fn trash_restore_commit_state_index_and_journal_together() {
     let (db, _dir) = temp_db();
     let file = file_node("f_trash_atomic", Some("root"));
     let serialized = serde_json::to_string(&file).unwrap();
-    db.insert_file_with_index(&file.id, &serialized, Some("root")).unwrap();
+    db.insert_file_with_index(&file.id, &serialized, Some("root"))
+        .unwrap();
 
-    assert!(db.trash_file_with_mutation(
-        &file.id,
-        &file,
-        None,
-        Some(("", serde_json::json!({ "schemaVersion": 1 }))),
-    ).is_err());
+    assert!(db
+        .trash_file_with_mutation(
+            &file.id,
+            &file,
+            None,
+            Some(("", serde_json::json!({ "schemaVersion": 1 }))),
+        )
+        .is_err());
     assert!(db.get_file_node(&file.id).unwrap().is_some());
     assert!(db.list_trash().unwrap().is_empty());
     assert_eq!(db.list_by_parent("root").unwrap(), vec![file.id.clone()]);
@@ -134,22 +140,27 @@ fn trash_restore_commit_state_index_and_journal_together() {
         &file,
         None,
         Some(("delete", serde_json::json!({ "schemaVersion": 1 }))),
-    ).unwrap();
+    )
+    .unwrap();
     assert!(db.get_file_node(&file.id).unwrap().is_none());
     assert_eq!(db.list_trash().unwrap().len(), 1);
     assert!(db.list_by_parent("root").unwrap().is_empty());
 
-    assert!(db.restore_from_trash_with_mutation(
-        &file.id,
-        Some(("", serde_json::json!({ "schemaVersion": 1 }))),
-    ).is_err());
+    assert!(db
+        .restore_from_trash_with_mutation(
+            &file.id,
+            Some(("", serde_json::json!({ "schemaVersion": 1 }))),
+        )
+        .is_err());
     assert!(db.get_file_node(&file.id).unwrap().is_none());
     assert_eq!(db.list_trash().unwrap().len(), 1);
 
     db.restore_from_trash_with_mutation(
         &file.id,
         Some(("restore", serde_json::json!({ "schemaVersion": 1 }))),
-    ).unwrap().unwrap();
+    )
+    .unwrap()
+    .unwrap();
     assert!(db.get_file_node(&file.id).unwrap().is_some());
     assert!(db.list_trash().unwrap().is_empty());
     assert_eq!(db.list_by_parent("root").unwrap(), vec![file.id.clone()]);
