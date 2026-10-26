@@ -108,6 +108,13 @@ async function importProfile(event: Event) {
   catch (error) { status.value = error instanceof Error ? error.message : 'Could not import this theme profile.' }
   finally { busy.value = false }
 }
+async function exportProfile() {
+  if (busy.value) return
+  busy.value = true
+  try { await downloadUiCustomizationToml(); status.value = 'Theme profile exported as cybermanju-theme.toml.' }
+  catch (error) { status.value = error instanceof Error ? error.message : 'Could not export this theme profile.' }
+  finally { busy.value = false }
+}
 onMounted(() => {
   window.addEventListener('cybermanju:ui-layout-edit', onEditing)
   window.addEventListener('cybermanju:ui-layout-status', onStatus)
@@ -129,7 +136,7 @@ onUnmounted(() => {
           <button v-for="item in (['move', 'swap', 'resize', 'appearance'] as const)" :key="item" type="button" :aria-pressed="mode === item" @click="setMode(item)">{{ item === 'appearance' ? 'Icons / image' : item[0].toUpperCase() + item.slice(1) }}</button>
         </div>
         <button type="button" @click="reset">Reset all</button>
-        <button type="button" :disabled="busy" @click="downloadUiCustomizationToml">Export TOML</button>
+        <button type="button" :disabled="busy" @click="exportProfile">Export TOML</button>
         <button type="button" :disabled="busy" @click="profileInput?.click()">Import TOML</button>
         <input ref="profileInput" type="file" accept=".toml,application/toml,text/plain" hidden aria-label="Import CyberManju theme profile" @change="importProfile" />
         <button type="button" class="ui-layout-editor__done" @click="done">Done</button>
@@ -148,7 +155,7 @@ onUnmounted(() => {
           </label>
           <label class="ui-layout-editor__color">Text <input v-model="textColor" type="color" :disabled="!selected" @change="applyColors" /></label>
           <label class="ui-layout-editor__color">Background <input v-model="backgroundColor" type="color" :disabled="!selected" @change="applyColors" /></label>
-          <button type="button" :disabled="!selected || busy" @click="restoreIcon">Original icon</button>
+          <button type="button" :disabled="!selected || busy" @click="restoreIcon">Original appearance</button>
           <input v-model="search" type="search" placeholder="Search icons, e.g. camera" aria-label="Search offline icons" @input="page = 0" />
         </div>
         <p v-if="loading" role="status">Loading offline icon library…</p>

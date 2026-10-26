@@ -268,7 +268,8 @@ async function touchEnd(event: TouchEvent) {
 function cancelTouch(event: TouchEvent) { touchSafety.cancel(event); touchCount = event.touches.length; resetTouch() }
 function resetTouch(cancelDrag = true) { gestureEpoch++; gesture = null; if (cancelDrag) dragging.value = null; touchBlocked = touchCount > 0 }
 function invalidateTouch() { touchSafety.cancel(); resetTouch() }
-onMounted(() => { window.addEventListener('blur', invalidateTouch); document.addEventListener('visibilitychange', invalidateTouch); if (androidApps.supported) void androidApps.refresh().catch(() => {}) })
+function importHomeState() { state.value = normalizeHomeState(load(), props.initialIds); overview.value = false; editing.value = false }
+onMounted(() => { window.addEventListener('blur', invalidateTouch); document.addEventListener('visibilitychange', invalidateTouch); window.addEventListener('cybermanju:home-workspaces-import', importHomeState); if (androidApps.supported) void androidApps.refresh().catch(() => {}) })
 function removeApp(id: string) { for (const page of state.value.pages) { const item = page.items.find(i => i.kind === 'app' && i.ref === id); if (item) removeHomeItem(state.value, page.id, item.id) } }
 function reorderApp(id: string, direction: -1 | 1) { const items = activePage.value.items; const from = items.findIndex(i => i.kind === 'app' && i.ref === id); const target = from + direction; if (from < 0 || target < 0 || target >= items.length) return; const [item] = items.splice(from, 1); items.splice(target, 0, item!) }
 async function newScreen() { if (!await suspendHome()) return; const hadEmptyExtension = state.value.pages[state.value.pages.length - 1]?.items.length === 0; message.value = createHomeWorkspace(state.value) ? (hadEmptyExtension ? 'Opened the empty screen.' : 'New screen saved on this device.') : '24-screen limit reached.'; overview.value = false }
@@ -308,7 +309,7 @@ function restoreNative(record: NativeWidgetRecord) { const item: HomeItem = { id
 async function editScreen() { if (await suspendHome()) editing.value = true }
 defineExpose({ removeApp, reorderApp, hideNative: suspendHome, editScreen })
 watch(() => [props.blocked, picker.value, editing.value], () => invalidateTouch(), { flush: 'sync' })
-onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); window.removeEventListener('blur', invalidateTouch); document.removeEventListener('visibilitychange', invalidateTouch); invalidateTouch() })
+onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); window.removeEventListener('blur', invalidateTouch); document.removeEventListener('visibilitychange', invalidateTouch); window.removeEventListener('cybermanju:home-workspaces-import', importHomeState); invalidateTouch() })
 </script>
 <style scoped>
 .home-studio { --hw-bg: var(--ui-bg); --hw-surface: var(--ui-surface); --hw-text: var(--ui-text); --hw-muted: var(--ui-text-3); --hw-accent: var(--ui-accent); --hw-line: var(--ui-border); color: var(--hw-text); background: transparent; border: 0; border-radius: 0; padding: 8px 0 0; min-width: 0; min-height: 0; position: relative; flex: 1 1 0; display: flex; flex-direction: column; }

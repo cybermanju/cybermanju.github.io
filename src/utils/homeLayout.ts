@@ -7,6 +7,7 @@ export interface HomeOffset { x: number; y: number }
 export interface HomeLayoutState { free: boolean; offsets: Record<string, HomeOffset> }
 export interface HomeRect { left: number; top: number; width: number; height: number }
 export const HOME_LAYOUT_KEY = 'cybermanju.home.layout.v1'
+export const DESKTOP_HOME_LAYOUT_KEY = 'cybermanju.desktop.home.layout.v1'
 
 export function readHomeLayout(raw: string | null): HomeLayoutState {
   const empty = (): HomeLayoutState => ({ free: false, offsets: {} })

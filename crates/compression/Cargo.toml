@@ -9,6 +9,6 @@ anyhow = "1"
 blake3 = "1"
 lz4_flex = "0.11"
 serde = { version = "1", features = ["derive"] }
-zstd = "0.13"
+zstd = "0.14"
 brotli = "7"
 log = "0.4"

@@ -252,6 +252,7 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
     }
   }
   function onBlur() { finish(true) }
+  function onImport() { try { state.value = readHomeLayout(localStorage.getItem(storageKey)) } catch { state.value = readHomeLayout(null) } }
   onMounted(() => {
     window.addEventListener('pointermove', onPointerMove, { passive: false })
     window.addEventListener('pointerup', onPointerUp)
@@ -261,6 +262,7 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
     window.addEventListener('cybermanju:ui-layout-reset', onGlobalReset)
     window.addEventListener('cybermanju:ui-layout-mode', onLayoutMode)
     window.addEventListener(UI_LAYOUT_SWAP_EVENT, onExternalSwap)
+    window.addEventListener('cybermanju:home-layout-import', onImport)
     root.value?.addEventListener?.('scroll', onBlur, { passive: true })
     window.addEventListener('resize', resize)
     void resize()
@@ -275,6 +277,7 @@ export function useHomeLayout(root: Ref<HTMLElement | null>, storageKey = HOME_L
     window.removeEventListener('cybermanju:ui-layout-reset', onGlobalReset)
     window.removeEventListener('cybermanju:ui-layout-mode', onLayoutMode)
     window.removeEventListener(UI_LAYOUT_SWAP_EVENT, onExternalSwap)
+    window.removeEventListener('cybermanju:home-layout-import', onImport)
     root.value?.removeEventListener?.('scroll', onBlur)
     window.removeEventListener('resize', resize)
   })

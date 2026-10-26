@@ -55,9 +55,9 @@ function loadSettings(): ThemeSettings {
     // Migrate any pre-remake id (17 themes) onto os-dark / os-light by mode.
     // Unknown ids fall back to the OS preference, not a fixed theme.
     let theme: ThemeId
-    if (rawTheme && rawTheme in THEMES) {
+    if (rawTheme && Object.prototype.hasOwnProperty.call(THEMES, rawTheme)) {
       theme = rawTheme as ThemeId
-    } else if (rawTheme && LEGACY_THEME_ALIASES[rawTheme]) {
+    } else if (rawTheme && Object.prototype.hasOwnProperty.call(LEGACY_THEME_ALIASES, rawTheme) && LEGACY_THEME_ALIASES[rawTheme]) {
       theme = LEGACY_THEME_ALIASES[rawTheme]
     } else {
       theme = systemTheme()
@@ -198,6 +198,7 @@ export function useTheme() {
   const shellStyle = computed(() => shellState.value)
 
   function setTheme(id: ThemeId) {
+    if (!Object.prototype.hasOwnProperty.call(THEMES, id)) return
     state.theme = id
     state.followSystem = false
   }
@@ -232,7 +233,7 @@ export function useTheme() {
    * the theme's built-in accent.
    */
   function setAccentFor(themeId: string, value: string | null) {
-    if (!(themeId in THEMES)) return
+    if (!Object.prototype.hasOwnProperty.call(THEMES, themeId)) return
     if (value && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) {
       state.accents = { ...state.accents, [themeId]: value }
     } else {
@@ -265,8 +266,9 @@ export function useTheme() {
     Object.assign(state, DEFAULT_SETTINGS)
   }
   function importSettings(value: Partial<ThemeSettings>) {
-    if (value.theme && value.theme in THEMES) setTheme(value.theme)
-    if (typeof value.followSystem === 'boolean') setAppearance(value.followSystem ? 'auto' : (value.theme && value.theme in THEMES ? value.theme : state.theme))
+    const validTheme = value.theme && Object.prototype.hasOwnProperty.call(THEMES, value.theme) ? value.theme : undefined
+    if (validTheme) setTheme(validTheme)
+    if (typeof value.followSystem === 'boolean') setAppearance(value.followSystem ? 'auto' : (validTheme ?? state.theme))
     if (value.accent === null || typeof value.accent === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(value.accent)) setAccent(value.accent)
     if (value.accents && typeof value.accents === 'object') for (const [id, color] of Object.entries(value.accents)) setAccentFor(id, color)
     if (value.density === 'compact' || value.density === 'comfortable') setDensity(value.density)

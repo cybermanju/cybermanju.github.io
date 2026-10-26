@@ -87,6 +87,7 @@ interface Rect { left: number; top: number; width: number; height: number }
 interface Drag {
   element: HTMLElement; id: string; pointerId: number; x: number; y: number; sizeOriginal?: UiLayoutSize
   original?: UiLayoutOffset; start: UiLayoutOffset; base: Rect; moved: boolean; kind: 'move' | 'resize'; pendingX?: number; pendingY?: number
+  lastX: number; lastY: number; lastAt: number; velocityX: number; velocityY: number
 }
 interface Runtime { root: HTMLElement; cleanup: () => void; setEditing: (value: boolean) => void; reset: () => void; entities: () => UiLayoutEntity[] }
 let activeRuntime: Runtime | null = null
@@ -358,7 +359,7 @@ export function installUiLayout(root: HTMLElement): () => void {
     textHoldTarget = null
     const original = offsets[idOf(el)]
     const rect = el.getBoundingClientRect()
-    drag = { element: el, id: idOf(el), pointerId: event.pointerId, x: event.clientX, y: event.clientY, start: { ...(original ?? { x: 0, y: 0 }) }, original: original ? { ...original } : undefined, base: baseRect(el), moved: false, kind: mode === 'resize' ? 'resize' : 'move', sizeOriginal: dimensions[idOf(el)] ? { ...dimensions[idOf(el)] } : undefined, pendingX: rect.width, pendingY: rect.height }
+    drag = { element: el, id: idOf(el), pointerId: event.pointerId, x: event.clientX, y: event.clientY, start: { ...(original ?? { x: 0, y: 0 }) }, original: original ? { ...original } : undefined, base: baseRect(el), moved: false, kind: mode === 'resize' ? 'resize' : 'move', sizeOriginal: dimensions[idOf(el)] ? { ...dimensions[idOf(el)] } : undefined, pendingX: rect.width, pendingY: rect.height, lastX: event.clientX, lastY: event.clientY, lastAt: event.timeStamp, velocityX: 0, velocityY: 0 }
     snapshot(el)
     el.setAttribute('data-ui-layout-dragging', '')
     el.focus?.({ preventScroll: true })
@@ -399,6 +400,10 @@ export function installUiLayout(root: HTMLElement): () => void {
     const dx = event.clientX - drag.x; const dy = event.clientY - drag.y
     if (!drag.moved && Math.hypot(dx, dy) < 3) return
     drag.moved = true
+    const elapsed = Math.max(1, event.timeStamp - drag.lastAt)
+    drag.velocityX = (event.clientX - drag.lastX) / elapsed
+    drag.velocityY = (event.clientY - drag.lastY) / elapsed
+    drag.lastX = event.clientX; drag.lastY = event.clientY; drag.lastAt = event.timeStamp
     if (drag.kind === 'resize') { drag.pendingX = drag.base.width + dx; drag.pendingY = drag.base.height + dy }
     else { drag.pendingX = event.clientX; drag.pendingY = event.clientY }
     if (!frame) { if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(applyPending); else { applyPending(); frame = 0 } }
@@ -417,6 +422,18 @@ export function installUiLayout(root: HTMLElement): () => void {
       current.moved ||= Math.hypot(event.clientX - current.x, event.clientY - current.y) >= 3
     }
     flushPending()
+    if (current.moved && current.kind === 'move' && mode !== 'swap' && document.documentElement.dataset.uiMotion !== 'reduced') {
+      const { width, height } = size()
+      const momentumMs = 90
+      const travelX = Math.max(-96, Math.min(96, current.velocityX * momentumMs))
+      const travelY = Math.max(-96, Math.min(96, current.velocityY * momentumMs))
+      if (Math.hypot(travelX, travelY) > 8) {
+        const position = offsets[current.id] ?? current.start
+        current.element.removeAttribute('data-ui-layout-dragging')
+        offsets[current.id] = clamp(current.base, { x: position.x + travelX / width, y: position.y + travelY / height })
+        apply(current.element)
+      }
+    }
     if (current.moved && current.kind === 'move' && mode === 'swap') {
       const other = candidate(event.clientX, event.clientY)
       const { width, height } = size()

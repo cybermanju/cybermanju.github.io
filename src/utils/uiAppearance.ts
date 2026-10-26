@@ -21,7 +21,9 @@ const MAX_ICON = 160
 const MAX_IMAGE = 360 * 1024
 const MAX_TOTAL = 3 * 1024 * 1024
 const HOST = 'data-ui-appearance-host'
-export type UiAppearance = { kind: 'icon' | 'image'; value: string } | { kind: 'style'; color?: string; backgroundColor?: string; backgroundImage?: string }
+export type UiIconAppearance = { kind: 'icon' | 'image'; value: string }
+export type UiStyleAppearance = { kind: 'style'; color?: string; backgroundColor?: string; backgroundImage?: string; icon?: UiIconAppearance }
+export type UiAppearance = UiIconAppearance & { style?: Omit<UiStyleAppearance, 'kind' | 'icon'> } | UiStyleAppearance
 export type UiAppearanceMap = Record<string, UiAppearance>
 
 function safeId(id: unknown): id is string {
@@ -30,18 +32,31 @@ function safeId(id: unknown): id is string {
 function validAppearance(raw: unknown): UiAppearance | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const item = raw as Record<string, unknown>
-  if (item.kind === 'icon' && typeof item.value === 'string' && item.value.length <= MAX_ICON && /^[a-z0-9_-]+:[a-z0-9_-]+$/i.test(item.value)) return { kind: 'icon', value: item.value }
-  if (item.kind === 'image' && typeof item.value === 'string' && item.value.length <= MAX_IMAGE && /^data:image\/(?:png|jpeg|webp|gif|avif);base64,[a-z0-9+/]+=*$/i.test(item.value)) return { kind: 'image', value: item.value }
-  if (item.kind === 'style') {
-    const color = item.color
-    const backgroundColor = item.backgroundColor
-    const backgroundImage = item.backgroundImage
+  const validIcon = (kind: unknown, value: unknown): UiIconAppearance | null => {
+    if (kind === 'icon' && typeof value === 'string' && value.length <= MAX_ICON && /^[a-z0-9_-]+:[a-z0-9_-]+$/i.test(value)) return { kind, value }
+    if (kind === 'image' && typeof value === 'string' && value.length <= MAX_IMAGE && /^data:image\/(?:png|jpeg|webp|gif|avif);base64,[a-z0-9+/]+=*$/i.test(value)) return { kind, value }
+    return null
+  }
+  const validStyle = (rawStyle: Record<string, unknown>, withIcon = false): Omit<UiStyleAppearance, 'kind'> | null => {
+    const color = rawStyle.color, backgroundColor = rawStyle.backgroundColor, backgroundImage = rawStyle.backgroundImage
     const validColor = (value: unknown) => typeof value === 'string' && /^#[\da-f]{3}(?:[\da-f]{3})?$/i.test(value)
-    if ((color === undefined || validColor(color)) && (backgroundColor === undefined || validColor(backgroundColor)) &&
+    const icon = withIcon && rawStyle.icon && typeof rawStyle.icon === 'object' ? validIcon((rawStyle.icon as Record<string, unknown>).kind, (rawStyle.icon as Record<string, unknown>).value) : null
+    if ((rawStyle.icon !== undefined && !icon) || (color === undefined || validColor(color)) && (backgroundColor === undefined || validColor(backgroundColor)) &&
       (backgroundImage === undefined || typeof backgroundImage === 'string' && backgroundImage.length <= MAX_IMAGE && /^data:image\/(?:png|jpeg|webp|gif|avif);base64,[a-z0-9+/]+=*$/i.test(backgroundImage)) &&
-      (color !== undefined || backgroundColor !== undefined || backgroundImage !== undefined)) {
-      return { kind: 'style', ...(color ? { color } : {}), ...(backgroundColor ? { backgroundColor } : {}), ...(backgroundImage ? { backgroundImage } : {}) }
+      (color !== undefined || backgroundColor !== undefined || backgroundImage !== undefined || !!icon)) {
+      return { ...(color ? { color: color as string } : {}), ...(backgroundColor ? { backgroundColor: backgroundColor as string } : {}), ...(backgroundImage ? { backgroundImage: backgroundImage as string } : {}), ...(icon ? { icon } : {}) }
     }
+    return null
+  }
+  const icon = validIcon(item.kind, item.value)
+  if (icon) {
+    const style = item.style && typeof item.style === 'object' && !Array.isArray(item.style) ? validStyle(item.style as Record<string, unknown>) : null
+    if (item.style !== undefined && !style) return null
+    return { ...icon, ...(style ? { style } : {}) }
+  }
+  if (item.kind === 'style') {
+    const style = validStyle(item, true)
+    if (style) return { kind: 'style', ...style }
   }
   return null
 }
@@ -103,7 +118,7 @@ function originalIcon(target: HTMLElement): HTMLElement[] {
   const icon = Array.from(found).filter(el => !el.closest(`[${HOST}]`)).slice(0, 1)
   return icon
 }
-function draw(target: HTMLElement, appearance: UiAppearance): void {
+function draw(target: HTMLElement, appearance: UiIconAppearance): void {
   remove(target)
   const host = document.createElement('span')
   host.setAttribute(HOST, '')
@@ -135,13 +150,20 @@ function remove(target: HTMLElement): void {
   old.hidden.forEach(el => { el.style.display = old.hiddenDisplay.get(el) || '' })
   savedNodes.delete(target)
 }
-function applyStyle(target: HTMLElement, style: Extract<UiAppearance, { kind: 'style' }>): void {
+function applyStyle(target: HTMLElement, style: Omit<UiStyleAppearance, 'kind' | 'icon'>): void {
   if (!styledNodes.has(target)) styledNodes.set(target, { color: target.style.color, backgroundColor: target.style.backgroundColor, backgroundImage: target.style.backgroundImage, backgroundSize: target.style.backgroundSize })
   const original = styledNodes.get(target)!
   target.style.color = style.color ?? original.color
   target.style.backgroundColor = style.backgroundColor ?? original.backgroundColor
   target.style.backgroundImage = style.backgroundImage ? `url("${style.backgroundImage}")` : original.backgroundImage
   target.style.backgroundSize = style.backgroundImage ? 'cover' : original.backgroundSize
+}
+function styleFor(appearance: UiAppearance): Omit<UiStyleAppearance, 'kind' | 'icon'> | undefined {
+  if (appearance.kind !== 'style') return appearance.style
+  return { ...(appearance.color ? { color: appearance.color } : {}), ...(appearance.backgroundColor ? { backgroundColor: appearance.backgroundColor } : {}), ...(appearance.backgroundImage ? { backgroundImage: appearance.backgroundImage } : {}) }
+}
+function iconFor(appearance: UiAppearance): UiIconAppearance | undefined {
+  return appearance.kind === 'style' ? appearance.icon : appearance
 }
 function removeStyle(target: HTMLElement): void {
   const old = styledNodes.get(target)
@@ -153,18 +175,19 @@ function removeStyle(target: HTMLElement): void {
   styledNodes.delete(target)
 }
 function applyAll(root: HTMLElement): void {
-  for (const [target, saved] of savedNodes) if (!target.isConnected || !saved.host.isConnected || !current[targetId(target) || ''] || current[targetId(target) || '']?.kind === 'style') remove(target)
-  for (const [target] of styledNodes) if (!target.isConnected || current[targetId(target) || '']?.kind !== 'style') removeStyle(target)
+  for (const [target, saved] of savedNodes) { const item = current[targetId(target) || '']; if (!target.isConnected || !saved.host.isConnected || !item || !iconFor(item)) remove(target) }
+  for (const [target] of styledNodes) { const item = current[targetId(target) || '']; if (!target.isConnected || !item || !styleFor(item)) removeStyle(target) }
   for (const [id, appearance] of Object.entries(current)) {
     syncAppearance(id)
-    if (appearance.kind === 'style') { const target = findTarget(id); if (target && root.contains(target)) applyStyle(target, appearance); continue }
-    if (appearance.kind === 'icon' && !hasLocalIcon(appearance.value) && !expandedCatalogReady) continue
     const target = findTarget(id)
-    if (target && root.contains(target) && !savedNodes.has(target)) draw(target, appearance)
+    if (!target || !root.contains(target)) continue
+    const style = styleFor(appearance), icon = iconFor(appearance)
+    if (style) applyStyle(target, style)
+    if (icon && !(icon.kind === 'icon' && !hasLocalIcon(icon.value) && !expandedCatalogReady) && !savedNodes.has(target)) draw(target, icon)
   }
 }
 async function prepareNonlocalIcons(): Promise<void> {
-  if (!Object.values(current).some(value => value.kind === 'icon' && !hasLocalIcon(value.value))) return
+  if (!Object.values(current).some(value => { const icon = iconFor(value); return icon?.kind === 'icon' && !hasLocalIcon(icon.value) })) return
   try { await ensureUiIconCatalog(); expandedCatalogReady = true } catch { /* Retain the persisted override for a later retry. */ }
 }
 function syncAppearance(id: string): void {
@@ -179,7 +202,15 @@ export function setUiAppearance(id: string, appearance: UiAppearance | null): bo
   const valid = appearance === null ? null : validAppearance(appearance)
   if (appearance !== null && !valid) return false
   const next = validateUiAppearance(current)
-  if (valid) next[id] = valid
+  const previousAppearance = next[id]
+  if (valid?.kind === 'style' && previousAppearance) {
+    const oldStyle = styleFor(previousAppearance)
+    const oldIcon = iconFor(previousAppearance)
+    next[id] = { kind: 'style', color: valid.color ?? oldStyle?.color, backgroundColor: valid.backgroundColor ?? oldStyle?.backgroundColor, backgroundImage: valid.backgroundImage ?? oldStyle?.backgroundImage, ...(valid.icon || oldIcon ? { icon: valid.icon || oldIcon } : {}) }
+  } else if (valid && valid.kind !== 'style' && previousAppearance) {
+    const oldStyle = styleFor(previousAppearance)
+    next[id] = oldStyle ? { ...valid, style: oldStyle } : valid
+  } else if (valid) next[id] = valid
   else delete next[id]
   if (Object.keys(next).length > MAX_ENTRIES) return false
   const before = current
@@ -188,12 +219,15 @@ export function setUiAppearance(id: string, appearance: UiAppearance | null): bo
   if (Object.values(next).reduce((sum, item) => sum + JSON.stringify(item).length, 0) > MAX_TOTAL) { current = before; syncAppearance(id); status('Image storage is full. Restore unused icons or choose a smaller image.'); return false }
   if (!save()) { current = before; syncAppearance(id); status('Could not save this icon: device storage is unavailable or full.'); return false }
   const target = findTarget(id)
-  if (target && valid?.kind === 'style') { remove(target); applyStyle(target, valid) }
-  else if (target) removeStyle(target)
-  if (target && valid?.kind === 'icon' && !hasLocalIcon(valid.value)) {
-    void ensureUiIconCatalog().then(() => { expandedCatalogReady = true; if (target.isConnected && current[id]) draw(target, current[id]) }).catch(() => status('Could not load this icon. Your choice is saved; reopen the icon library to retry.'))
-  } else if (target && valid && valid.kind !== 'style') draw(target, valid)
-  else if (target && !valid) remove(target)
+  const applied = current[id]
+  if (target && applied) {
+    const style = styleFor(applied), icon = iconFor(applied)
+    if (style) applyStyle(target, style); else removeStyle(target)
+    if (icon && icon.kind === 'icon' && !hasLocalIcon(icon.value)) {
+      void ensureUiIconCatalog().then(() => { expandedCatalogReady = true; if (target.isConnected && current[id]) draw(target, icon) }).catch(() => status('Could not load this icon. Your choice is saved; reopen the icon library to retry.'))
+    } else if (icon) draw(target, icon)
+    else remove(target)
+  } else if (target) { removeStyle(target); remove(target) }
   status(valid ? 'Component appearance saved on this device.' : 'Original appearance restored on this device.')
   return true
 }
