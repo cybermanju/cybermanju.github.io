@@ -746,13 +746,14 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-titlebar-h': plasma ? '30px' : '28px',
     '--ui-panel-h': plasma ? '44px' : '0px',
     '--ui-menubar-h': plasma ? '0px' : '24px',
-    // motion — macOS 120/200, plasma 100/150, ease-out, no spring
+    // Motion stays short and compositor-friendly; spring is a restrained
+    // bezier deceleration for direct manipulation and touch feedback.
     '--ui-dur-fast': plasma ? '100ms' : '120ms',
     '--ui-dur': plasma ? '150ms' : '200ms',
     '--ui-dur-slow': plasma ? '220ms' : '280ms',
     '--ui-ease': 'ease-out',
     '--ui-ease-out': 'ease-out',
-    '--ui-ease-spring': 'ease-out',
+    '--ui-ease-spring': 'cubic-bezier(0.22, 1, 0.36, 1)',
     // legacy aliases (older markup still reads these)
     '--bg-deep': p.bg,
     '--bg-surface': p.surface,

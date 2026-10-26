@@ -27,11 +27,13 @@
         <button class="mla-mini-btn" type="button" @click="openDrawer" aria-label="Open all apps">All apps</button>
       </div>
     </header>
-    <section id="home-search-tools" class="mla-search-tools" aria-label="Search and commands" @focusin="activateSearchTools" @focusout="onSearchToolsBlur">
-      <OmniSearchPanel ref="searchRef" home :before-open="hideNative" class="mla-unified-search" />
-      <HomeCommandBar :before-open="hideNative" />
-    </section>
-    <HomeWorkspaceStudio ref="workspaceStudio" :apps="workspaceApps" :initial-ids="orderedApps.map(app => app.panel)" :blocked="hasOpenWindows || launcher.drawerOpen || launcher.messagesOpen || !!customHome || searchToolsOpen || !!query.trim()" @open="open($event as PanelType)" @customize="customizeWorkspaceApp" />
+    <HomeWorkspaceStudio ref="workspaceStudio" :apps="workspaceApps" :initial-ids="orderedApps.map(app => app.panel)" :blocked="hasOpenWindows || launcher.drawerOpen || launcher.messagesOpen || !!customHome || searchToolsOpen || !!query.trim()" @open="open($event as PanelType)" @customize="customizeWorkspaceApp">
+      <template #home-tools>
+        <section id="home-search-tools" class="mla-search-tools" aria-label="Search and commands" @focusin="activateSearchTools" @focusout="onSearchToolsBlur">
+          <OmniSearchPanel ref="searchRef" home :before-open="hideNative" class="mla-unified-search" />
+        </section>
+      </template>
+    </HomeWorkspaceStudio>
     <nav data-ui-layout-ignore v-if="dock.length" class="mla-dock" aria-label="Favorite apps">
       <button v-for="app in dock" :key="app.panel" class="mla-dock-btn" type="button"
         @pointerdown="onHomePressStart(app, $event)" @pointermove="onHomePressMove" @pointerup="onHomePressEnd" @pointerleave="onHomePressEnd" @pointercancel="onHomePressEnd"
@@ -113,7 +115,6 @@ import HomeWorkspaceStudio from '@/components/HomeWorkspaceStudio.vue'
 import OmniSearchPanel from '@/components/OmniSearchPanel.vue'
 import AppDrawer from '@/components/AppDrawer.vue'
 import MessagesHub from '@/components/MessagesHub.vue'
-import HomeCommandBar from '@/components/HomeCommandBar.vue'
 import { moveHomeOrder } from '@/utils/homeLayout'
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useHomeTapActivation } from '@/composables/useHomeTapActivation'
@@ -487,13 +488,13 @@ function resetHomeCustom() {
 </script>
 
 <style scoped>
-.mla { position: absolute; inset: 0; z-index: 0; isolation: isolate; display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden; padding: 8px 16px max(12px, env(safe-area-inset-bottom, 0px)); background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font); }
+.mla { position: absolute; inset: 0; z-index: 0; isolation: isolate; display: flex; flex-direction: column; gap: 8px; width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden; padding: 8px 16px max(12px, env(safe-area-inset-bottom, 0px)); background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font); }
 .mla.with-app-nav { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px)); }
 .mla-home-toolbar, .mla-toolbar-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .mla-home-toolbar { flex-shrink: 0; }
 .mla-mini-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 44px; padding: 8px 12px; color: var(--ui-text); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 12px; cursor: pointer; font: inherit; font-size: 12px; }
 .mla button:focus-visible, .mla input:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
-.mla-search-tools { position: relative; z-index: 2; flex-shrink: 0; align-self: center; width: min(1360px, 100%); min-width: 0; display: grid; gap: 10px; }
+.mla-search-tools { position: relative; z-index: 2; flex: 0 0 auto; align-self: stretch; width: 100%; min-width: 0; display: grid; gap: 10px; }
 .mla-search-tools .mla-unified-search { min-width: 0; width: 100%; padding: 0; box-sizing: border-box; }
 .mla-unified-search :deep(.omni-col) { position: static; width: 100%; min-width: 0; }
 /* Results float over the workspace without squeezing its app grid. */
@@ -511,6 +512,12 @@ function resetHomeCustom() {
 .mla-dock-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; overflow: hidden; }
 .mla-photo { width: 100%; height: 100%; object-fit: cover; }
 .mla-dock-indicator { position: absolute; bottom: 0; width: 4px; height: 4px; background: var(--ui-accent); border-radius: 50%; }
+@media (max-width: 768px) {
+  .mla { height: 100%; }
+  .mla-search-tools, .mla-search-tools :deep(.home-command), .mla-search-tools :deep(.omni-bar) { max-width: none; }
+  .mla-dock-icon { width: 42px; height: 42px; }
+  .mla-dock-btn :deep(svg) { width: 28px; height: 28px; }
+}
 .mla.theme-flat-amoled { background: #000; }
 .mla.theme-flat-amoled .mla-dock { background: transparent; }
 .mla.theme-modern-glass { background: var(--ui-ambient-background, var(--ui-glass)); }

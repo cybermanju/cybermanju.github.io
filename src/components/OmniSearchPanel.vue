@@ -15,6 +15,11 @@
         <button v-if="query" class="omni-bar__clear" type="button" aria-label="Clear search" title="Clear search (Esc)" @click="clearQuery()"><AppIcon name="solar:close-bold" :size="13" /></button>
         <span v-else class="omni-bar__hint">TYPE TO SEARCH</span>
       </div>
+      <div v-if="props.home" class="omni-home-actions" aria-label="Search actions">
+        <button type="button" :disabled="!q || homeActionBusy" title="Prepare this query as an Assistant draft" @click="stageHomeQuery('agent')"><AppIcon name="solar:chat-round-dots-bold" :size="16" /> Ask AI</button>
+        <button type="button" :disabled="!q || homeActionBusy" title="Prepare this query as a cybsh draft" @click="stageHomeQuery('terminal')"><AppIcon name="solar:file-terminal-bold" :size="16" /> cybsh</button>
+        <span v-if="homeActionStatus" role="status" aria-live="polite">{{ homeActionStatus }}</span>
+      </div>
       <Transition name="omni-drop">
         <div v-if="dropdownOpen" ref="dropRef" class="omni-drop" :style="resultsViewportStyle" role="region" aria-label="Search results">
           <div v-if="store.isSearching" class="omni-loading" role="status" aria-live="polite"><UiSpinner size="sm" show-label label="Searching" /></div>
@@ -59,7 +64,7 @@
             </button>
           </div>
           <section v-if="q && unified.localReadyQuery.value === q && (category === 'all' || category === 'web')" class="omni-web" aria-label="DuckDuckGo web results">
-            <div class="omni-sec__head"><span class="omni-tag">DUCKDUCKGO INSTANT ANSWERS</span><span class="omni-div" aria-hidden="true" /></div>
+            <div class="omni-sec__head"><span class="omni-tag">DUCKDUCKGO WEB SEARCH</span><span class="omni-div" aria-hidden="true" /></div>
             <p v-if="unified.webLoading.value" class="omni-web__status" role="status" aria-live="polite">Searching DuckDuckGo Instant Answers…</p>
             <template v-else-if="unified.webError.value">
               <p class="omni-web__status" role="status">DuckDuckGo is unavailable: {{ unified.webError.value }}</p>
@@ -89,11 +94,10 @@
               <p class="omni-web__disclaimer">Instant answers and related topics only; not a full search-engine results page.</p>
               <button class="omni-web__action" type="button" @click="retryWeb">Refresh DuckDuckGo results</button>
             </template>
-            <p v-else-if="localCount === 0" class="omni-web__status" role="status" aria-live="polite">Checking DuckDuckGo Instant Answers. This public API provides instant answers and related topics, not a full search-results page.</p>
-            <p v-else class="omni-web__status">Web results are not fetched automatically when local matches exist.</p>
+            <p v-else class="omni-web__status" role="status" aria-live="polite">Loading DuckDuckGo web results…</p>
             <button v-if="!unified.webLoading.value && !unified.webResponse.value && !unified.webError.value && unified.webQuery.value !== q" class="omni-web__action" type="button" @click="retryWeb">Search web with DuckDuckGo</button>
             <p v-if="linkError" class="omni-web__status" role="alert">{{ linkError }}</p>
-            <a class="omni-web__all" :href="duckDuckGoSearchUrl(q)" target="_blank" rel="noopener noreferrer" @click="handleWebLink($event, duckDuckGoSearchUrl(q))" @auxclick.middle="handleWebLink($event, duckDuckGoSearchUrl(q))">Open full DuckDuckGo results for “{{ q }}” ↗</a>
+            <a class="omni-web__all" :href="duckDuckGoSearchUrl(q)" target="_blank" rel="noopener noreferrer" @click="handleWebLink($event, duckDuckGoSearchUrl(q))" @auxclick.middle="handleWebLink($event, duckDuckGoSearchUrl(q))">Open full DuckDuckGo search for “{{ q }}” ↗</a>
           </section>
           <p v-if="q && unified.localReadyQuery.value === q && category !== 'web' && sections.length === 0" class="omni-empty-state" role="status">{{ emptyCategoryMessage }}</p>
           <p v-if="q && empty && unified.localReadyQuery.value !== q" class="omni-web__status" role="status" aria-live="polite">{{ q.length < 2 ? 'Type at least 2 characters to search.' : 'Searching your apps, files, and file contents…' }}</p>
@@ -126,6 +130,7 @@ import { useUnifiedSearch } from '@/composables/useUnifiedSearch'
 import { useSearchViewport } from '@/composables/useSearchViewport'
 import { duckDuckGoSearchUrl } from '@/utils/duckDuckGoSearch'
 import { handleSearchLink, openSearchLink } from '@/utils/searchExternal'
+import { stageHomeCommand, type HomeCommandTarget } from '@/composables/useHomeCommandHandoff'
 import { SEARCH_CATEGORIES, INITIAL_ROWS_PER_SECTION, MAX_VISIBLE_ROWS_PER_SECTION, countSearchCategories, countSectionRows, filterSearchSections, nextVisibleRowCount, sharedSearchCategory, sharedSearchVisibleRows, resetSearchVisibleRows, type SearchCategory } from '@/utils/searchPresentation'
 
 const props = withDefaults(defineProps<{ home?: boolean; beforeOpen?: () => Promise<boolean> }>(), { home: false })
@@ -134,6 +139,8 @@ const theme = useTheme()
 const isFlatAmoled = computed(() => theme.themeId.value === 'flat-amoled')
 const isModernGlass = computed(() => theme.themeId.value === 'modern-glass')
 const wm = useWindowManager()
+const homeActionBusy = ref(false)
+const homeActionStatus = ref('')
 const ctx = useContextMenu()
 
 interface OmniRow {
@@ -273,6 +280,20 @@ const empty = computed(() => localCount.value === 0)
 const emptyCategoryMessage = computed(() => category.value === 'all'
   ? 'No local matches. Try a different query or switch to Web.'
   : `No ${SEARCH_CATEGORIES.find((item) => item.id === category.value)?.label.toLowerCase() ?? 'matching'} results for this query.`)
+
+async function stageHomeQuery(target: HomeCommandTarget) {
+  if (!props.home || !q.value || homeActionBusy.value) return
+  const text = q.value
+  homeActionBusy.value = true
+  try {
+    if (props.beforeOpen && !await props.beforeOpen()) return
+    stageHomeCommand(target, text)
+    wm.open(target)
+    homeActionStatus.value = target === 'agent' ? 'Added to Assistant draft' : 'Added to cybsh draft'
+  } catch {
+    homeActionStatus.value = 'Could not safely open this draft. Try again.'
+  } finally { homeActionBusy.value = false }
+}
 
 /** BM25 page behind the visible content rows — offer the next page inline. */
 const canLoadMoreContent = computed(() =>
@@ -622,6 +643,10 @@ defineExpose({ focus: () => inputRef.value?.focus() })
 .omni-bar__clear { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--ui-border); background: color-mix(in srgb, var(--ui-text) 7%, transparent); color: var(--ui-text-2); cursor: pointer; flex-shrink: 0; }
 .omni-bar__clear:hover { color: var(--omni-accent); border-color: var(--omni-accent); }
 .omni-bar__hint { font: 700 9px var(--ui-font-mono); letter-spacing: .12em; color: var(--ui-text-faint); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-xs); padding: 3px 7px; flex-shrink: 0; }
+.omni-home-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 2px 0; }
+.omni-home-actions button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 7px 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); color: var(--ui-text); background: var(--ui-surface); font: 600 12px var(--ui-font); cursor: pointer; }
+.omni-home-actions button:disabled { opacity: .5; cursor: default; }
+.omni-home-actions span { color: var(--ui-text-2); font-size: 11px; }
 .omni-drop {
   margin-top: 12px; border-radius: var(--ui-radius-lg); background: color-mix(in srgb, var(--ui-glass-2) 92%, var(--ui-surface));
   border: 1px solid var(--ui-border-strong); backdrop-filter: blur(calc(var(--ui-blur-strong) * 1.2)) saturate(var(--ui-saturate));

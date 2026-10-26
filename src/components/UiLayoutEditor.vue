@@ -7,6 +7,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Icon } from '@iconify/vue/offline'
 import { ensureUiIconCatalog, readUiIconImage } from '@/utils/uiIconCatalog'
 import { setUiAppearance, UI_APPEARANCE_SELECTION_EVENT } from '@/utils/uiAppearance'
+import { downloadUiCustomizationToml, importUiCustomizationToml } from '@/utils/uiCustomization'
 type Mode = 'move' | 'swap' | 'resize' | 'appearance'
 const editing = ref(false)
 const mode = ref<Mode>('move')
@@ -17,6 +18,9 @@ const search = ref('')
 const page = ref(0)
 const busy = ref(false)
 const loading = ref(false)
+const textColor = ref('#ffffff')
+const backgroundColor = ref('#20232b')
+const profileInput = ref<HTMLInputElement | null>(null)
 const filtered = computed(() => {
   const query = search.value.toLowerCase().trim().replace(/\s+/g, '-')
   return icons.value.filter(name => !query || name.includes(query))
@@ -27,7 +31,7 @@ const instructions = computed(() => ({
   move: 'Drag any highlighted element. Arrow keys move; Shift moves faster. Esc cancels.',
   swap: 'Drop one component onto another to exchange their positions. Esc cancels.',
   resize: 'Drag a highlighted element to resize it. Arrow keys resize; Shift resizes faster. Esc cancels.',
-  appearance: 'Tap any button or icon, then choose an icon or upload your own image. Labels and actions stay unchanged.',
+  appearance: 'Tap any component, then change its icon, text color, background color, or background image. Labels and actions stay unchanged.',
 })[mode.value])
 function onEditing(event: Event) {
   const enabled = (event as CustomEvent<{ editing?: boolean }>).detail?.editing
@@ -80,6 +84,30 @@ async function upload(event: Event) {
   catch (error) { status.value = error instanceof Error ? error.message : 'Could not read this image.' }
   finally { busy.value = false }
 }
+function applyColors() {
+  if (selected.value) setUiAppearance(selected.value.id, { kind: 'style', color: textColor.value, backgroundColor: backgroundColor.value })
+}
+async function uploadBackground(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  const id = selected.value?.id
+  input.value = ''
+  if (!file || !id) return
+  busy.value = true
+  try { setUiAppearance(id, { kind: 'style', color: textColor.value, backgroundColor: backgroundColor.value, backgroundImage: await readUiIconImage(file) }) }
+  catch (error) { status.value = error instanceof Error ? error.message : 'Could not read this image.' }
+  finally { busy.value = false }
+}
+async function importProfile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  busy.value = true
+  try { await importUiCustomizationToml(await file.text()); status.value = 'Theme, positions and component customizations imported.' }
+  catch (error) { status.value = error instanceof Error ? error.message : 'Could not import this theme profile.' }
+  finally { busy.value = false }
+}
 onMounted(() => {
   window.addEventListener('cybermanju:ui-layout-edit', onEditing)
   window.addEventListener('cybermanju:ui-layout-status', onStatus)
@@ -101,6 +129,9 @@ onUnmounted(() => {
           <button v-for="item in (['move', 'swap', 'resize', 'appearance'] as const)" :key="item" type="button" :aria-pressed="mode === item" @click="setMode(item)">{{ item === 'appearance' ? 'Icons / image' : item[0].toUpperCase() + item.slice(1) }}</button>
         </div>
         <button type="button" @click="reset">Reset all</button>
+        <button type="button" :disabled="busy" @click="downloadUiCustomizationToml">Export TOML</button>
+        <button type="button" :disabled="busy" @click="profileInput?.click()">Import TOML</button>
+        <input ref="profileInput" type="file" accept=".toml,application/toml,text/plain" hidden aria-label="Import CyberManju theme profile" @change="importProfile" />
         <button type="button" class="ui-layout-editor__done" @click="done">Done</button>
       </div>
       <p>{{ instructions }}</p>
@@ -108,9 +139,15 @@ onUnmounted(() => {
         <p class="ui-layout-editor__selection">{{ selected ? `Selected: ${selected.label}` : 'No element selected — tap a button or icon outside this panel.' }}</p>
         <div class="ui-layout-editor__actions">
           <label class="ui-layout-editor__upload" :class="{ disabled: !selected || busy }">
-            {{ busy ? 'Reading image…' : 'Upload image' }}
+            {{ busy ? 'Reading image…' : 'Upload icon' }}
             <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" :disabled="!selected || busy" aria-label="Upload custom button image" @change="upload" />
           </label>
+          <label class="ui-layout-editor__upload" :class="{ disabled: !selected || busy }">
+            Upload background image
+            <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" :disabled="!selected || busy" aria-label="Upload component background image" @change="uploadBackground" />
+          </label>
+          <label class="ui-layout-editor__color">Text <input v-model="textColor" type="color" :disabled="!selected" @change="applyColors" /></label>
+          <label class="ui-layout-editor__color">Background <input v-model="backgroundColor" type="color" :disabled="!selected" @change="applyColors" /></label>
           <button type="button" :disabled="!selected || busy" @click="restoreIcon">Original icon</button>
           <input v-model="search" type="search" placeholder="Search icons, e.g. camera" aria-label="Search offline icons" @input="page = 0" />
         </div>
@@ -145,6 +182,8 @@ onUnmounted(() => {
 .ui-layout-editor__upload { position: relative; display: inline-flex; align-items: center; overflow: hidden; }
 .ui-layout-editor__upload input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: inherit; }
 .ui-layout-editor input[type="search"] { flex: 1 1 180px; min-width: 0; min-height: 44px; box-sizing: border-box; border: 1px solid var(--ui-border, #555); border-radius: 8px; padding: 8px; background: transparent; color: inherit; font: inherit; }
+.ui-layout-editor__color { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--ui-border, #555); border-radius: 8px; }
+.ui-layout-editor__color input { width: 32px; height: 32px; padding: 0; border: 0; background: transparent; }
 .ui-layout-editor__icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; margin-block: 8px; }
 .ui-layout-editor__icons button { display: grid; place-items: center; padding: 6px; }
 .ui-layout-editor__pagination { justify-content: space-between; }

@@ -36,6 +36,14 @@
   border-radius: var(--ui-radius-md);
 }
 
+/* Keep native momentum scrolling on touch devices while preventing scroll
+   chaining from pulling an underlying window or shell surface. */
+.ui-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+}
+
 .ui-raised {
   box-shadow: var(--ui-shadow-2);
 }
@@ -53,13 +61,14 @@
 
 .ui-press {
   transition:
+    transform var(--ui-dur-fast) var(--ui-ease-spring),
     background-color var(--ui-dur-fast) var(--ui-ease-out),
     border-color var(--ui-dur-fast) var(--ui-ease-out),
     box-shadow var(--ui-dur-fast) var(--ui-ease-out);
 }
 
 .ui-press:active {
-  transform: scale(0.99);
+  transform: scale(0.975);
 }
 
 .ui-focus-ring:focus-visible {
@@ -456,7 +465,7 @@ body.cybermanju-offline .server-only {
   /* Sheets snap instead of blur-fading: transform + opacity only. */
   .win-enter-active,
   .win-leave-active {
-    transition: opacity 140ms ease-out, transform 160ms ease-out !important;
+    transition: opacity 180ms var(--ui-ease-out), transform 240ms var(--ui-ease-spring) !important;
   }
   .win-enter-from {
     opacity: 0;

@@ -260,6 +260,13 @@
         <p v-if="mswCustomWallpaper.kind.value" class="msw-note">Custom image active — picking a preset above switches back to it.</p>
         <p v-else class="msw-hint">A custom image (URL or file) stays in Settings → Appearance.</p>
         <div class="msw-substep">
+          <h4 class="msw-substep-title">Do you have a customized theme?</h4>
+          <p class="msw-hint">Import a TOML profile to restore its theme, screen positions, colors and component backgrounds.</p>
+          <button class="msw-btn big" type="button" :disabled="mswProfileBusy" @click="mswProfileInput?.click()">{{ mswProfileBusy ? 'Importing…' : 'Import customized theme' }}</button>
+          <input ref="mswProfileInput" type="file" accept=".toml,application/toml,text/plain" hidden aria-label="Import customized theme from TOML" @change="mswImportProfile" />
+          <p v-if="mswProfileMsg" class="msw-note" :class="mswProfileError ? 'err' : 'ok'" role="status">{{ mswProfileMsg }}</p>
+        </div>
+        <div class="msw-substep">
           <h4 class="msw-substep-title">Agent AI <em class="muted">(optional)</em></h4>
           <p class="msw-hint">{{ isStatic ? 'Saved locally in this browser — key held in memory only (re-enter after reload).' : 'Pick a provider and seal a key — or skip and do it later in Agent.' }}</p>
           <label v-if="agentProviderOptions.length" class="msw-field"><span>Provider</span>
@@ -335,6 +342,7 @@ import { useCustomWallpaper } from '@/composables/useCustomWallpaper'
 import { THEMES, WALLPAPERS, type ThemeId } from '@/ui/tokens'
 import { agentPermissionPreset, defaultMcpServers } from '@/types'
 import type { AgentConfig, SyncBackendType, SyncConfig } from '@/types'
+import { importUiCustomizationToml } from '@/utils/uiCustomization'
 
 const emit = defineEmits<{ close: [] }>()
 const store = useAppStore()
@@ -898,6 +906,20 @@ async function saveAgent() {
 // ── personalize step · theme + wallpaper (same store as Settings, live preview) ──
 const mswTheme = useTheme()
 const mswCustomWallpaper = useCustomWallpaper()
+const mswProfileInput = ref<HTMLInputElement | null>(null)
+const mswProfileBusy = ref(false)
+const mswProfileError = ref(false)
+const mswProfileMsg = ref('')
+async function mswImportProfile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  mswProfileBusy.value = true; mswProfileError.value = false
+  try { await importUiCustomizationToml(await file.text()); mswProfileMsg.value = 'Customized theme, positions and component styles imported.' }
+  catch (error) { mswProfileError.value = true; mswProfileMsg.value = error instanceof Error ? error.message : 'Could not import this theme.' }
+  finally { mswProfileBusy.value = false }
+}
 
 const mswAppearanceChoices = computed(() => [
   { id: 'auto', label: 'Auto', blurb: 'Follows the OS light / dark scheme', swatch: 'background: linear-gradient(90deg, #000000 50%, #ECECEC 50%)' },

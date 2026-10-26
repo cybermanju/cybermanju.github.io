@@ -264,6 +264,18 @@ export function useTheme() {
   function reset() {
     Object.assign(state, DEFAULT_SETTINGS)
   }
+  function importSettings(value: Partial<ThemeSettings>) {
+    if (value.theme && value.theme in THEMES) setTheme(value.theme)
+    if (typeof value.followSystem === 'boolean') setAppearance(value.followSystem ? 'auto' : (value.theme && value.theme in THEMES ? value.theme : state.theme))
+    if (value.accent === null || typeof value.accent === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(value.accent)) setAccent(value.accent)
+    if (value.accents && typeof value.accents === 'object') for (const [id, color] of Object.entries(value.accents)) setAccentFor(id, color)
+    if (value.density === 'compact' || value.density === 'comfortable') setDensity(value.density)
+    if (value.glass === 0 || value.glass === 2) setGlass(value.glass)
+    if (value.motion === 'auto' || value.motion === 'full' || value.motion === 'reduced') setMotion(value.motion)
+    if (typeof value.glow === 'boolean') setGlow(value.glow)
+    if (typeof value.wallpaper === 'string') setWallpaper(value.wallpaper)
+    if (value.shell === 'macos' || value.shell === 'plasma') setShellStyle(value.shell)
+  }
 
   /** Inline style carrying the chrome glass — teleported overlays only. */
   const glassStyle = computed(() => ({
@@ -297,6 +309,7 @@ export function useTheme() {
     setWallpaper,
     cycleTheme,
     reset,
+    importSettings,
     themes: THEMES,
   }
 }

@@ -361,6 +361,12 @@
           </div>
           <p v-if="customWallpaper.kind.value" class="sw-note">Custom image active — picking a preset above switches back to it.</p>
           <p v-else class="sw-hint">A custom image (URL or file) stays in Settings → Appearance.</p>
+          <div class="sw-substep">
+            <span class="sw-label">Do you have a customized theme? Import a TOML profile</span>
+            <button class="sw-btn" type="button" :disabled="profileBusy" @click="profileInput?.click()">{{ profileBusy ? 'Importing…' : 'Import customized theme' }}</button>
+            <input ref="profileInput" type="file" accept=".toml,application/toml,text/plain" hidden aria-label="Import customized theme from TOML" @change="importProfile" />
+            <p v-if="profileMsg" class="sw-note" :class="profileError ? 'err' : ''" role="status">{{ profileMsg }}</p>
+          </div>
           <div class="sw-actions">
             <button class="sw-btn" type="button" @click="go('agent')">Back</button>
             <button class="sw-btn primary" type="button" @click="go('done')">Next</button>
@@ -410,6 +416,7 @@
 import AppIcon from '@/components/AppIcon.vue'
 import ProviderLogo from '@/components/ProviderLogo.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { importUiCustomizationToml } from '@/utils/uiCustomization'
 import { useAppStore } from '@/stores/app'
 import { isStaticHost, isTauri } from '@/composables/useTauri'
 import {
@@ -1097,6 +1104,20 @@ async function saveAssistant() {
 // ── appearance step: theme + wallpaper (same store as Settings) ──
 const theme = useTheme()
 const customWallpaper = useCustomWallpaper()
+const profileInput = ref<HTMLInputElement | null>(null)
+const profileBusy = ref(false)
+const profileError = ref(false)
+const profileMsg = ref('')
+async function importProfile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  profileBusy.value = true; profileError.value = false
+  try { await importUiCustomizationToml(await file.text()); profileMsg.value = 'Customized theme, positions and component styles imported.' }
+  catch (error) { profileError.value = true; profileMsg.value = error instanceof Error ? error.message : 'Could not import this theme.' }
+  finally { profileBusy.value = false }
+}
 
 const appearanceChoices = computed(() => [
   { id: 'auto', label: 'Auto', blurb: 'Follows the OS light / dark scheme', swatch: 'background: linear-gradient(90deg, #000000 50%, #ECECEC 50%)' },

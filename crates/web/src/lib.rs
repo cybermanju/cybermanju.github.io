@@ -3308,6 +3308,15 @@ fn peer_sync(
             origin,
         );
     }
+    // An empty or unsigned envelope is an authentication failure even when
+    // its op list would also fail the signed-batch integrity checks.
+    if req.signature.trim().is_empty() || req.algorithm.trim().is_empty() {
+        return json_error(
+            403,
+            "auth: signed sync batch signature and algorithm are required",
+            origin,
+        );
+    }
     for op in &req.ops {
         if op.kind.trim().is_empty() {
             return json_error(400, "invalid: every synced op needs a kind", origin);

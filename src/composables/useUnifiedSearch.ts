@@ -101,14 +101,15 @@ export function createUnifiedSearchController(deps: PipelineDependencies): Unifi
       await deps.searchLocal(query)
       if (!disposed && requestEpoch === epoch && deps.query.value.trim() === query) {
         localReadyQuery.value = query
-        const count = [...subscribers.values()][0]?.() ?? 0
-        if (count === 0) scheduleWeb(query, requestEpoch)
+        // Always pair local matches with web results. The home search is a
+        // unified search surface, so a local hit must not suppress web context.
+        scheduleWeb(query, requestEpoch)
       }
     } catch {
       // Local search owns its error reporting; failed local work still permits fallback.
       if (!disposed && requestEpoch === epoch && deps.query.value.trim() === query) {
         localReadyQuery.value = query
-        if (([...subscribers.values()][0]?.() ?? 0) === 0) scheduleWeb(query, requestEpoch)
+        scheduleWeb(query, requestEpoch)
       }
     }
   }

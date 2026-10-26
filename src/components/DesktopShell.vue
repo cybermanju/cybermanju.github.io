@@ -811,20 +811,17 @@ onUnmounted(() => {
 .win-leave-active {
   transition:
     opacity var(--ui-dur) var(--ui-ease-out),
-    transform var(--ui-dur-slow) var(--ui-ease-out),
-    filter var(--ui-dur) var(--ui-ease-out);
+    transform var(--ui-dur-slow) var(--ui-ease-spring);
 }
 
 .win-enter-from {
   opacity: 0;
-  transform: translateY(16px) scale(0.96);
-  filter: blur(6px);
+  transform: translate3d(0, 12px, 0) scale(0.98);
 }
 
 .win-leave-to {
   opacity: 0;
-  transform: translateY(8px) scale(0.97);
-  filter: blur(4px);
+  transform: translate3d(0, 8px, 0) scale(0.985);
 }
 
 .win-leave-active {

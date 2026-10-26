@@ -11,6 +11,7 @@ export const UI_LAYOUT_EVENT = 'cybermanju:ui-layout-edit'
 export const UI_LAYOUT_RESET_EVENT = 'cybermanju:ui-layout-reset'
 export const UI_LAYOUT_MODE_EVENT = 'cybermanju:ui-layout-mode'
 export const UI_LAYOUT_SWAP_EVENT = 'cybermanju:ui-layout-swap'
+export const UI_LAYOUT_IMPORT_EVENT = 'cybermanju:ui-layout-import'
 export const UI_LAYOUT_STORAGE_KEY = 'cybermanju.ui.layout.v1'
 export const UI_LAYOUT_SIZE_STORAGE_KEY = 'cybermanju.ui.sizes.v1'
 export const UI_LAYOUT_MODE_RESIZE = 'resize' as const
@@ -506,6 +507,16 @@ export function installUiLayout(root: HTMLElement): () => void {
     catch { status('Positions and sizes reset for this session; device storage is unavailable.') }
     reconcile()
   }
+  function importState() {
+    finish(true)
+    const importedOffsets = readUiLayout()
+    const importedSizes = readUiLayoutSizes()
+    for (const key of Object.keys(offsets)) delete offsets[key]
+    for (const [key, value] of Object.entries(importedOffsets)) offsets[key] = value
+    for (const key of Object.keys(dimensions)) delete dimensions[key]
+    for (const [key, value] of Object.entries(importedSizes)) dimensions[key] = value
+    reconcile(true)
+  }
   function onEdit(event: Event) {
     const next = (event as CustomEvent<{ editing?: boolean }>).detail?.editing
     if (typeof next === 'boolean') setEditing(next)
@@ -560,6 +571,7 @@ export function installUiLayout(root: HTMLElement): () => void {
   window.addEventListener(UI_LAYOUT_RESET_EVENT, reset)
   window.addEventListener(UI_LAYOUT_MODE_EVENT, onMode)
   window.addEventListener(UI_LAYOUT_SWAP_EVENT, onExternalSwap)
+  window.addEventListener(UI_LAYOUT_IMPORT_EVENT, importState)
   reconcile(true)
   function cleanup() {
     clearEntry(); heldPointer = null; finish(true); disposed = true
@@ -578,6 +590,7 @@ export function installUiLayout(root: HTMLElement): () => void {
     window.removeEventListener(UI_LAYOUT_RESET_EVENT, reset)
     window.removeEventListener(UI_LAYOUT_MODE_EVENT, onMode)
     window.removeEventListener(UI_LAYOUT_SWAP_EVENT, onExternalSwap)
+    window.removeEventListener(UI_LAYOUT_IMPORT_EVENT, importState)
     root.removeAttribute('data-ui-layout-runtime')
     root.classList.remove(EDIT_CLASS, 'ui-layout-resize-mode')
     for (const el of focusOriginals.keys()) restoreFocusability(el)
@@ -597,3 +610,13 @@ export function enterUiLayout(): void { if (activeRuntime) emit(UI_LAYOUT_EVENT,
 export function exitUiLayout(): void { if (activeRuntime) emit(UI_LAYOUT_EVENT, { editing: false }) }
 export function resetUiLayout(): void { if (activeRuntime) emit(UI_LAYOUT_RESET_EVENT) }
 export function getUiLayoutEntities(): UiLayoutEntity[] { return activeRuntime?.entities() ?? [] }
+export function exportUiLayoutState() { return { positions: readUiLayout(), sizes: readUiLayoutSizes() } }
+export function importUiLayoutState(value: { positions?: unknown; sizes?: unknown }): void {
+  const positions = validateUiLayout(value.positions)
+  const sizes = validateUiLayoutSizes(value.sizes)
+  try {
+    localStorage.setItem(UI_LAYOUT_STORAGE_KEY, JSON.stringify(positions))
+    localStorage.setItem(UI_LAYOUT_SIZE_STORAGE_KEY, JSON.stringify(sizes))
+    emit(UI_LAYOUT_IMPORT_EVENT)
+  } catch { throw new Error('Could not save imported positions and sizes: device storage is unavailable or full.') }
+}

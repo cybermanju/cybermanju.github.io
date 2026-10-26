@@ -101,6 +101,11 @@ export function normalizeHomeState(input: unknown, appIds: string[]): HomeWorksp
 }
 
 export function createHomeWorkspace(state: HomeWorkspaceState): string | null {
+  const trailing = state.pages[state.pages.length - 1]
+  if (trailing?.items.length === 0) {
+    state.activeId = trailing.id
+    return trailing.id
+  }
   if (state.pages.length >= MAX_WORKSPACES) return null
   const page = makePage(`Screen ${state.pages.length + 1}`)
   state.pages.push(page)
@@ -146,7 +151,13 @@ export function removeHomeItem(state: HomeWorkspaceState, pageId: string, itemId
 export function classifyHomeGesture(dx: number, dy: number, fingers: number): 'overview-open' | 'overview-close' | 'previous' | 'next' | null {
   if (![dx, dy].every(Number.isFinite)) return null
   if (fingers === 3 && Math.abs(dy) >= 72 && Math.abs(dy) > Math.abs(dx)) return dy < 0 ? 'overview-open' : 'overview-close'
-  if (fingers === 1 && Math.abs(dx) >= 64 && Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'previous' : 'next'
+  if (fingers === 1) {
+    const absX = Math.abs(dx)
+    const absY = Math.abs(dy)
+    if (Math.max(absX, absY) < 64 || Math.max(absX, absY) < Math.min(absX, absY) * 1.25) return null
+    if (absX > absY) return dx > 0 ? 'previous' : 'next'
+    return dy > 0 ? 'previous' : 'next'
+  }
   if (fingers === 2) {
     const absX = Math.abs(dx)
     const absY = Math.abs(dy)

@@ -112,6 +112,7 @@ function onClick(event: MouseEvent) {
   white-space: nowrap;
   cursor: pointer;
   transition:
+    transform var(--ui-dur-fast) var(--ui-ease-spring),
     background-color var(--ui-dur-fast) var(--ui-ease-out),
     border-color var(--ui-dur-fast) var(--ui-ease-out),
     color var(--ui-dur-fast) var(--ui-ease-out),
