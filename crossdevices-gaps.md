@@ -104,9 +104,13 @@ remote acknowledgement count.
 
 ### P1 — Replicate actual user data
 
-- [ ] Define a versioned mutation journal for file create/edit/rename/tag/star,
-  trash/restore, and relevant metadata changes. Bind entries to stable file IDs,
-  device IDs, and BLAKE3 content hashes.
+- [ ] Finish the versioned mutation journal for file create/edit/rename/tag/star,
+  trash/restore, and relevant metadata changes. Shared native/REST DB-backed
+  create/duplicate/move/rename/tag/delete/restore/editor-metadata and import
+  paths now write versioned rows atomically with file/index/trash rows. Close
+  direct-writer gaps (including browser stars and best-effort group/todo/face
+  paths), define byte-edit crash recovery, and bind every operation to stable
+  file/device IDs, causal base, and BLAKE3 content identity.
 - [ ] Apply verified operations atomically, preserve conflicts, and expose
   explicit conflict resolution in the UI. Do not infer operation success from
   transport acceptance.
@@ -175,20 +179,72 @@ remote acknowledgement count.
   portable encrypted export/import; (8) status/transport capability matrix and
   device/platform validation. Each stage updates this file and worklog before
   moving to the next stage.
-- Current research points: Automerge's sync state/message loop is per peer and
-  transport agnostic; iroh-blobs demonstrates hash-verified range streaming
-  but current docs flag its latest release as not production-ready; tus offers
-  resumable HTTP offsets and optional chunk checksums for a server-assisted
-  alternative; WebRTC's recommended perfect-negotiation pattern handles offer
-  collisions beyond the current one-off helper. Sources are recorded in the
-  implementation report for this audit.
+- Current research points: Automerge's sync state/message loop is per document
+  and peer, and assumes a reliable in-order transport; persist separate sync
+  state per peer/document if adopted. It can merge concurrent document edits,
+  but does not supply device enrollment, authorization, or ownership policy.
+  iroh-blobs demonstrates BLAKE3-verified range streaming with 1 KiB hash
+  chunks and batched blob requests, but current docs warn that the latest
+  release is not production quality (they point production users to 0.35);
+  treat it as a protocol reference until version/API maturity and endpoint
+  identity are re-audited. tus is resumable HTTP: HEAD/PATCH offsets detect
+  mismatches, and its optional checksum extension detects bad chunks. It leaves
+  authentication/authorization to the server and does not provide peer
+  discovery, end-to-end encryption, or a content-addressed whole-object proof.
+  Any tus-style path still needs sealed-content semantics, authorization,
+  final BLAKE3 verification, quotas/expiry, and idempotent finalize. WebRTC
+  perfect negotiation handles simultaneous offers with polite/impolite roles;
+  it improves signaling correctness but does not authenticate signaling claims
+  or make the relay a data transport.
+- Research-driven next design decision: specify a transport-neutral encrypted
+  chunk manifest (file/version ID, ciphertext hash and size, chunk size/index,
+  whole-ciphertext BLAKE3, and key-envelope reference), then evaluate HTTP
+  resumable transfer against hash-addressed P2P ranges. The journal remains the
+  authority for metadata causality and may reference a manifest only after the
+  receiver verifies the complete ciphertext. Before adopting Automerge,
+  prototype mapping one bounded file metadata document to existing redb rows
+  and test concurrent rename/tag/trash edits, tombstones, ownership changes,
+  and migration; do not add a second write authority without a materialization
+  transaction and rollback plan. Browser signing should reuse the versioned
+  WASM crypto path where possible, but enrollment must explain that browser
+  origin compromise can access key material available to the page; capability
+  support is not native key isolation.
 - Primary references: [Automerge Rust sync protocol](https://docs.rs/automerge/latest/automerge/sync/),
   [Automerge concepts and pluggable network/storage](https://automerge.org/docs/reference/concepts/),
   [iroh-blobs protocol](https://docs.rs/iroh-blobs/latest/iroh_blobs/protocol/),
   [tus protocol](https://github.com/tus/tus-resumable-upload-protocol/blob/main/protocol.md),
   [WebRTC perfect negotiation](https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Perfect_negotiation),
-  [Web Crypto AES-GCM guidance](https://www.w3.org/TR/security-guidelines-cryptography/),
+  [W3C cryptography usage draft](https://www.w3.org/TR/security-guidelines-cryptography/),
   [Certificate Transparency Merkle consistency proofs](https://datatracker.ietf.org/doc/html/rfc9162).
+
+### Research update (2026-10-25)
+
+- Automerge Rust docs explicitly require reliable, in-order delivery and one
+  `State` per peer; its JS docs describe transport-agnostic per-document sync.
+  This supports using it behind an adapter with persisted peer/document state,
+  not as a replacement for signed batch provenance or authorization.
+- Current iroh-blobs docs describe BLAKE3-verified streaming, ranges, and blob
+  collections, but the crate page flags the latest version as not production
+  quality and points production users to 0.35. Recheck before selecting a
+  dependency; verified range transfer is a stronger design insight than the
+  current API choice.
+- tus 1.0.x provides HTTP `HEAD` offset probes and offset-checked `PATCH`, with
+  optional per-request checksums and upload expiry. The protocol leaves
+  authentication/authorization to the server, so use requires application
+  authorization, encrypted content, and final-object verification.
+- MDN recommends WebRTC perfect negotiation to handle simultaneous offers
+  using polite/impolite collision roles. This resolves offer glare only; relay
+  device identity still needs cryptographic proof bound to the session.
+- The W3C cryptography document currently surfaced by search is a 2026 Group
+  Note Draft and explicitly not W3C-endorsed. Treat it as informative, not a
+  normative product requirement; keep algorithm choices anchored to adopted
+  standards and the existing versioned crypto design.
+- References: [Automerge Rust sync](https://automerge.org/automerge/automerge/sync/index.html),
+  [Automerge concepts](https://automerge.org/docs/reference/concepts/),
+  [iroh-blobs crate status and protocol](https://docs.rs/iroh-blobs/latest/iroh_blobs/),
+  [tus 1.0.x protocol](https://tus.io/protocols/resumable-upload),
+  [WebRTC perfect negotiation](https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Perfect_negotiation),
+  [W3C cryptography guidance draft](https://www.w3.org/TR/security-guidelines-cryptography/).
 
 ### P2 — Replicate selected app state safely
 
@@ -201,9 +257,11 @@ remote acknowledgement count.
 
 ### P3 — Complete reachability and UX
 
-- [ ] Add the WebRTC answerer, install ICE handlers before local description,
-  authenticate/validate relay messages, ack consumed messages, and clean up
-  data channels on timeout/cancel.
+- [x] Add library-level WebRTC answerer, install ICE handlers before local
+  description, acknowledge consumed messages, and bound session cleanup.
+- [ ] Wire offerer/answerer negotiation into product UI, authenticate relay
+  messages with device proofs (mailbox account ownership alone is not sender
+  proof), and clean up data channels on timeout/cancel.
 - [x] Show a per-peer unsigned-operation backlog count (capped at 500+) with
   an unavailable state if the bounded history scan fails. The count is local
   unsigned work, not a remote acknowledgement.
@@ -228,6 +286,15 @@ remote acknowledgement count.
   UI disabled/error states.
 - [ ] Add Rust tests for journal creation/application, signature/owner checks,
   idempotent replay, bounded chunk resume, and conflict preservation.
+- [ ] Lock the recovery invariants with fault-injection cases: a failed page
+  leaves the peer cursor unchanged; retrying an already merged batch is a
+  no-op; reusing an operation ID with different content fails closed; an
+  interrupted chunk upload resumes only at a verified offset/hash; and a
+  mutation transaction failure leaves both file state and journal unchanged.
+- [ ] Exercise the credential boundary: outbound peer requests use only that
+  peer's sealed token, never the dashboard bearer; relay messages with a
+  mismatched device/session proof are rejected before acknowledgement; browser
+  CORS/mixed-content failures remain visible and do not advance cursors.
 - [ ] Run repository-approved local checks; Rust checks remain CI-only per
   `AGENTS.md`. Validate Android/iOS behavior on real devices before claiming
   native parity.
@@ -287,3 +354,10 @@ remote acknowledgement count.
   remaining best-effort paths are todos, loose groups, collections, and face
   operations. Browser stars remain in localStorage/WASM profile KV and have no
   remote journal or replay path.
+- 2026-10-25: Continued protocol research against current primary docs. Tightened
+  the journal task to reflect completed atomic DB-backed paths and explicit
+  remaining writers/byte recovery; corrected relay task status for the existing
+  library answerer; added transport selection criteria distinguishing Automerge
+  sync state, iroh verified ranges, tus server-side resumability, and WebRTC
+  signaling from product authentication/encryption guarantees. No dependency
+  adoption or capability claim changed.

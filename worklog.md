@@ -2592,3 +2592,31 @@ Only normalized position offsets are saved to device-local `cybermanju.ui.layout
   focused Rust regression cases are added but not run because this repository
   forbids local Cargo validation; `node_modules/.bin/vitest` is absent, so
   frontend tests cannot run without installing dependencies.
+
+## 2026-10-25 — Cross-device protocol research update
+
+- Rechecked primary Automerge, iroh-blobs, tus, WebRTC, and W3C references.
+  Clarified that Automerge needs per-peer/document sync state over reliable
+  in-order delivery and does not replace auth/ownership; current iroh-blobs docs
+  mark the latest version non-production-ready; tus supplies HTTP resume and
+  optional checksums but leaves auth to the server; perfect negotiation handles
+  offer collisions but does not authenticate relay claims. The surfaced W3C
+  cryptography document is a non-endorsed Group Note Draft.
+- Updated `crossdevices-gaps.md` to reflect current journal coverage and
+  remaining writers/byte recovery, transport-neutral encrypted chunk manifest
+  requirements, browser key-isolation caveat, and remaining product wiring for
+  WebRTC. No code/dependency changes or tests.
+
+## 2026-10-26 — Reject unsigned peer batches before payload validation
+
+- CI run `40233182976` had one Rust test failure:
+  `spine::peer_sync_is_peer_authenticated` expected an unsigned empty batch to
+  return `403 auth:`, but the shared op-log validator returned `400 integrity:`
+  for its empty operation sequence first.
+- `crates/web/src/api/oplog.rs::push` now requires a nonempty signature and
+  algorithm after confirming the enrolled device belongs to the authenticated
+  owner, before checking operation rows. This preserves unknown-device and
+  cross-owner handling while making missing proof fail as authentication.
+- `git diff --check` passes. Cargo validation was not run locally per
+  `AGENTS.md`; the existing failing CI regression covers this path and needs a
+  new CI run to confirm the fix.

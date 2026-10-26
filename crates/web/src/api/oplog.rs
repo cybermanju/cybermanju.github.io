@@ -75,6 +75,9 @@ pub fn push(db: &Database, req: &PushRequest, owner_id: &str) -> Result<serde_js
             "auth: device is not active and owned by the authenticated account".to_string(),
         );
     }
+    if req.signature.trim().is_empty() || req.algorithm.trim().is_empty() {
+        return Err("auth: signed batch signature and algorithm are required".to_string());
+    }
     for op in &req.ops {
         if op.kind.trim().is_empty() {
             return Err("invalid: every pushed op needs a kind".to_string());
