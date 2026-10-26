@@ -8,4 +8,4 @@ description = "Tantivy full-text search index"
 anyhow = "1"
 chrono = "0.4"
 serde = { version = "1", features = ["derive"] }
-tantivy = "0.22"
+tantivy = "0.27"
