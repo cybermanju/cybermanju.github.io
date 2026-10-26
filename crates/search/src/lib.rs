@@ -360,7 +360,12 @@ impl SearchIndex {
 
         let limit = request.limit.unwrap_or(50);
         let offset = request.offset.unwrap_or(0);
-        let top_docs = searcher.search(&query, &TopDocs::with_limit(limit).and_offset(offset))?;
+        let top_docs = searcher.search(
+            &query,
+            &TopDocs::with_limit(limit)
+                .and_offset(offset)
+                .order_by_score(),
+        )?;
 
         let results = top_docs
             .iter()
