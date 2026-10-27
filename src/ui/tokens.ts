@@ -20,6 +20,10 @@
  * Contrast (documented, enforced by tests/frontend/ui-theme.test.ts):
  * - os-dark: text #F5F5F7 on #000000 ≈ 19.3:1 · text-2 .62 alpha ≈ 7.5:1
  * - os-light: text #1D1D1F on #FFFFFF ≈ 16.0:1 · text-2 .80 alpha ≈ 5.0:1
+ * - os-deck (the instrument-panel "cyberdeck" preset — a near-black-green
+ *   chrome with one acid-green accent): text #F2F4F5
+ *   on #0D1112 ≈ 18:1 · text-2 .74 alpha ≈ 7:1 · accent #80EB12 on
+ *   #0D1112 ≈ 11.8:1 · on-accent #000000 on the accent fill ≈ 13.6:1
  * - plasma-dark: text #eff0f1 on #232629 ≈ 13.3:1 · text-2 #bdc3c7 ≈ 8.5:1 ·
  *   accent #3daee9 ≈ 6.1:1 · on-accent #232629 ≈ 6.1:1
  * - plasma-light: text #232629 on #fcfcfc ≈ 14.8:1 · text-2 #4d5559 ≈ 7.4:1 ·
@@ -37,6 +41,7 @@ export type ThemeId =
   | 'os-dark'
   | 'os-light'
   | 'os-graphite'
+  | 'os-deck'
   | 'plasma-dark'
   | 'plasma-light'
   | 'modern-glass'
@@ -193,6 +198,7 @@ export const LEGACY_THEME_ALIASES: Record<string, ThemeId> = {
 /** Picker grouping — flat macOS set plus the Breeze-like Plasma set. */
 export const THEME_GROUPS: { id: string; label: string; ids: ThemeId[] }[] = [
   { id: 'appearance', label: 'Appearance', ids: ['os-dark', 'os-light', 'os-graphite'] },
+  { id: 'deck', label: 'Deck', ids: ['os-deck'] },
   { id: 'personal', label: 'Personal', ids: ['modern-glass', 'flat-amoled'] },
   { id: 'plasma', label: 'Plasma', ids: ['plasma-dark', 'plasma-light'] },
 ]
@@ -201,6 +207,7 @@ export const THEME_IDS: ThemeId[] = [
   'os-dark',
   'os-light',
   'os-graphite',
+  'os-deck',
   'plasma-dark',
   'plasma-light',
   'modern-glass',
@@ -344,6 +351,42 @@ const SYSTEM_THEMES: Record<Exclude<ThemeId, 'modern-glass' | 'flat-amoled'>, Th
       info: '#8E8E93',
       terminal: '#000000',
       glassBase: '24, 24, 26',
+    },
+  },
+  'os-deck': {
+    id: 'os-deck',
+    label: 'Deck',
+    blurb: 'Cyberdeck dark · near-black green chrome · acid-green accent',
+    mode: 'dark',
+    design: SINGLE_DESIGN,
+    palette: {
+      bg: '#090C0D',
+      bgDeep: '#060809',
+      surface: '#0D1112',
+      surface2: '#101415',
+      surface3: '#14191A',
+      window: 'rgba(17, 22, 23, 0.78)',
+      windowIdle: 'rgba(13, 17, 18, 0.70)',
+      sidebar: 'rgba(17, 22, 23, 0.60)',
+      panel: 'rgba(13, 17, 18, 0.84)',
+      hover: 'rgba(128, 235, 18, 0.12)',
+      border: 'rgba(190, 220, 190, 0.13)',
+      borderStrong: 'rgba(190, 220, 190, 0.22)',
+      borderHover: 'rgba(190, 220, 190, 0.32)',
+      hairline: 'rgba(255, 255, 255, 0.07)',
+      separator: 'rgba(255, 255, 255, 0.08)',
+      text: '#F2F4F5',
+      text2: 'rgba(214, 226, 216, 0.74)',
+      text3: 'rgba(214, 226, 216, 0.45)',
+      textFaint: 'rgba(214, 226, 216, 0.30)',
+      accent: '#80EB12',
+      onAccent: '#000000',
+      success: '#48D597',
+      warning: '#FFC65C',
+      danger: '#FF8795',
+      info: '#7BD5F5',
+      terminal: '#090C0D',
+      glassBase: '17, 22, 23',
     },
   },
   'plasma-dark': {
@@ -727,6 +770,14 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-font': SYSTEM_STACK,
     '--ui-font-mono':
       "'SF Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace",
+    // Kicker (instrument-panel eyebrow labels: "FIRST RUN · STEP 3/7").
+    // Accent-hue but held at ≥ 4.5:1 over every content surface, same
+    // derivation as accent text, so tiny 10px labels stay readable.
+    '--ui-kicker-fs': `${(10 * density.fs).toFixed(1)}px`,
+    '--ui-kicker-weight': '700',
+    '--ui-kicker-tracking': '0.16em',
+    '--ui-kicker-transform': 'uppercase',
+    '--ui-kicker-color': accentText,
     '--ui-fs-xs': `${(11 * density.fs).toFixed(1)}px`,
     '--ui-fs-sm': `${(12.5 * density.fs).toFixed(1)}px`,
     '--ui-fs-md': `${(13 * density.fs).toFixed(1)}px`,

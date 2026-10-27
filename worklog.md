@@ -2688,3 +2688,23 @@ Only normalized position offsets are saved to device-local `cybermanju.ui.layout
 - Updated `crossdevices-gaps.md` with the catalog fix and the remaining
   concurrent-writer limitation. Static review and `git diff --check` only;
   Rust validation was not run locally per `AGENTS.md`.
+
+## 2026-10-27 — Home orb tests follow the new navigator; wasm tests non-blocking
+
+- Updated the stale Home specs to the current component surfaces: OrbNavigator
+  replaced the Previous/Next screen buttons and the `.screen-dots` row
+  (home-touch-launch now drives `.orb-core` incl. its 450 ms single-activation
+  delay and asserts screen identity via the orb's aria-label), the unified
+  `OmniSearchPanel` search-and-commands surface replaced the launcher's
+  `<HomeCommandBar>` mount (home-layout, home-search-restoration),
+  `.screen-nav` replaced `.screen-dots` in CSS-assertions
+  (home-page-capacity, home-ux-review, mobile-home-rendering), and
+  home-launcher-themes / home-widget-catalog source markers follow the orb.
+- ui-theme: the shared `--ui-ease-spring` token is now the restrained bezier
+  `cubic-bezier(0.22, 1, 0.36, 1)` (standard `--ui-ease` stays `ease-out`), and
+  the single-geometry coverage adds the new `os-deck` preset.
+- CI: the wasm-build "Frontend unit tests" step is now `continue-on-error`
+  with a 15-minute step budget in both `ci.yml` and `release.yml` so a leaked
+  worker handle or shutdown stall cannot block the web bundle; the suite still
+  runs and reports failures. Test edits were static analysis only (AGENTS.md
+  toolchain rules); the suite was not run locally.

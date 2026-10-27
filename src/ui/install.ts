@@ -14,6 +14,7 @@ import UiEmpty from '@/components/ui/UiEmpty.vue'
 import UiError from '@/components/ui/UiError.vue'
 import UiGrid from '@/components/ui/UiGrid.vue'
 import UiInput from '@/components/ui/UiInput.vue'
+import UiKicker from '@/components/ui/UiKicker.vue'
 import UiListRow from '@/components/ui/UiListRow.vue'
 import UiMenu from '@/components/ui/UiMenu.vue'
 import UiModal from '@/components/ui/UiModal.vue'
@@ -47,6 +48,7 @@ export const uiComponents = {
   UiError,
   UiGrid,
   UiInput,
+  UiKicker,
   UiListRow,
   UiMenu,
   UiModal,

@@ -34,7 +34,7 @@ describe('unified Home themes', () => {
     expect(launcher).toContain('aria-label="Open all apps"')
     expect(launcher).toContain('@click="openDrawer"')
     expect(drawer).toContain('@click="onTap(row)"')
-    for (const marker of ['@keydown="workspaceKeys"', 'Previous home screen', 'Next home screen', 'Overview of home screens', 'aria-current', 'tabindex="0"']) expect(studio).toContain(marker)
+    for (const marker of ['@keydown="workspaceKeys"', '<OrbNavigator :screen-index="activeIndex"', 'Overview of home screens', 'aria-current', 'tabindex="0"']) expect(studio).toContain(marker)
     expect(studio).toContain('await nativeHome.suspend()')
   })
   it('compiles every unified Home template and scoped style', () => {

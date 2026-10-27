@@ -4,29 +4,24 @@
 <!-- Integrates: HomeWorkspaceStudio via navigation and all-apps events. -->
 <!-- Contracts: A delayed single activation advances; a double activation opens the app drawer; drag steps are immediate. -->
 <template>
-  <div class="orb-navigator" :class="{ 'orb-active': active, 'orb-clicked': clicked, 'motion-reduced': motionReduced }">
-    <button ref="coreRef" class="orb-core" type="button" :disabled="disabled" :aria-label="`Orb navigator. Home screen ${screenIndex + 1} of ${screenCount}. Click to move to the next screen, double-click to open all apps, or drag to navigate.`" @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerEnd" @pointercancel="pointerCancel" @pointerleave="pointerLeave" @click="activate">
-      <pre class="orb-ascii" aria-hidden="true">       .-========-.
-    .-'  :::::::::: '-.
-  .'   .::::::::::::.   '.
- /   .:::::--------:::::. \\
-|  .:::::/  .----.  \\:::::.|
-| .:::::|  / .--. \\  |:::::.|
-| ::::::| |        | |::::::|
-| .:::::|  \\ '--' /  |:::::.|
-|  ':::::\\  '----'  /:::::' |
- \\   ':::::--------:::::'  /
-  '.   '::::::::::::'   .'
-    '-.  .::::::::.  .-'
-       '-========-'</pre>
-      <span class="orb-wave orb-wave-one" aria-hidden="true" />
-      <span class="orb-wave orb-wave-two" aria-hidden="true" />
-      <span class="orb-gaze" aria-hidden="true">(@@@)</span>
-      <span class="orb-blink" aria-hidden="true" />
-      <span class="orb-screen-count">{{ screenIndex + 1 }}<i>/{{ screenCount }}</i></span>
-      <span class="orb-field" aria-hidden="true" />
-      <span class="orb-wet" aria-hidden="true" />
-      <span class="orb-sheen" aria-hidden="true" />
+  <div class="orb-navigator" :class="{ 'orb-navigator--static': staticMotion }">
+    <button
+      ref="coreRef"
+      class="orb-core"
+      type="button"
+      :disabled="disabled"
+      :aria-label="`Orb navigator. Home screen ${screenIndex + 1} of ${screenCount}. Click to move to the next screen, double-click to open all apps, or drag to navigate.`"
+      :data-state="dynamicState"
+      @pointerdown="pointerDown"
+      @pointermove="pointerMove"
+      @pointerup="pointerEnd"
+      @pointercancel="pointerCancel"
+      @pointerleave="pointerLeave"
+      @click="activate"
+    >
+      <!-- Live ASCII sphere: one canvas replaces the old pre/wet/sheen/blink layer stack. -->
+      <canvas ref="canvasRef" class="orb-canvas" aria-hidden="true" />
+      <span class="orb-screen-count" aria-hidden="true">{{ screenIndex + 1 }}<i>/{{ screenCount }}</i></span>
     </button>
     <span class="orb-caption" aria-hidden="true">TAP NEXT · DOUBLE-TAP ALL APPS · DRAG TO NAVIGATE</span>
   </div>
@@ -38,19 +33,36 @@
 // Exports: OrbNavigator component.
 // Integrates: HomeWorkspaceStudio via navigation and all-apps events.
 // Contracts: A delayed single activation advances; a double activation opens the app drawer; drag steps are immediate.
-import { onUnmounted, ref } from 'vue'
+// Rendering: canvas 2D ASCII sphere (dense char ramp, spherical lighting + spin,
+// eased state weights for idle/pressed/drag, ripple + scanline one-shots, DPR glow).
+// Interactions are unchanged: gaze follows the pointer, drag >14px emits navigate(),
+// single click advances after 450ms, double click opens the app drawer.
+import { computed, onUnmounted, ref, watch } from 'vue'
 
 const props = defineProps<{ screenIndex: number; screenCount: number; disabled?: boolean; motionReduced?: boolean }>()
 const emit = defineEmits<{ navigate: [direction: -1 | 1]; openApps: [] }>()
+
 const active = ref(false)
 const clicked = ref(false)
+const dynamicState = computed(() => (clicked.value ? 'clicked' : active.value ? 'pressed' : 'idle'))
 const coreRef = ref<HTMLButtonElement | null>(null)
-let gesture: { x: number; y: number; pointerId: number; navigated: boolean } | null = null
+const canvasRef = ref<HTMLCanvasElement | null>(null)
+
+// ---------- gesture state (contract unchanged) ----------
+let gesture: { x: number; y: number; lx: number; ly: number; pointerId: number; navigated: boolean } | null = null
 let clickTimer: ReturnType<typeof setTimeout> | null = null
 let navigationTimer: ReturnType<typeof setTimeout> | null = null
 let gazeTimer: ReturnType<typeof setTimeout> | null = null
 let suppressClick = false
 let lastClickAt = 0
+
+// Visual one-shots the render loop reads (updated by handlers below).
+let dragVel = 0 // pointer speed → organic "voice" energy
+let pressLevel = 0 // 1 while held
+let clickPulse = 0 // click flash + expanding ring
+let navPing = 0 // screen changed → outward ripple
+let scanBoost = 0 // drag navigation → decode scanline
+let gazeX = 0, gazeY = 0 // -1..1 pointer aim, eases back to center
 
 function direction(dx: number, dy: number): -1 | 1 {
   return Math.abs(dx) >= Math.abs(dy) && dx !== 0 ? (dx < 0 ? 1 : -1) : dy < 0 ? 1 : -1
@@ -58,129 +70,370 @@ function direction(dx: number, dy: number): -1 | 1 {
 function aim(event: PointerEvent) {
   const core = event.currentTarget as HTMLElement
   const rect = core.getBoundingClientRect()
-  core.style.setProperty('--gaze-x', `${Math.max(-1, Math.min(1, (event.clientX - rect.left - rect.width / 2) / (rect.width / 2))) * 5}px`)
-  core.style.setProperty('--gaze-y', `${Math.max(-1, Math.min(1, (event.clientY - rect.top - rect.height / 2) / (rect.height / 2))) * 4}px`)
-  if (gazeTimer) clearTimeout(gazeTimer)
-  gazeTimer = null
+  const nx = Math.max(-1, Math.min(1, (event.clientX - rect.left - rect.width / 2) / (rect.width / 2)))
+  const ny = Math.max(-1, Math.min(1, (event.clientY - rect.top - rect.height / 2) / (rect.height / 2)))
+  gazeX += (nx - gazeX) * 0.5
+  gazeY += (ny - gazeY) * 0.5
 }
 function settleGaze() {
   if (gazeTimer) clearTimeout(gazeTimer)
   gazeTimer = setTimeout(() => {
-    const core = coreRef.value
-    core?.style.setProperty('--gaze-x', '0px')
-    core?.style.setProperty('--gaze-y', '0px')
-    gazeTimer = null
+    gazeTimer = null // loop eases axes back to 0 on its own
   }, 1100)
 }
 function pointerDown(event: PointerEvent) {
   if (props.disabled || !event.isPrimary || event.button !== 0) return
   if (navigationTimer) { clearTimeout(navigationTimer); navigationTimer = null }
+  pressLevel = 1
+  gazeX = 0; gazeY = 0
   aim(event)
-  gesture = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, navigated: false }
+  gesture = { x: event.clientX, y: event.clientY, lx: event.clientX, ly: event.clientY, pointerId: event.pointerId, navigated: false }
   active.value = true
   try { (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId) } catch { /* Window-level pointer events are not required for taps. */ }
 }
 function pointerMove(event: PointerEvent) {
   aim(event)
   if (!gesture || event.pointerId !== gesture.pointerId) return
-  const core = event.currentTarget as HTMLElement
-  core.style.setProperty('--orb-x', `${Math.max(-18, Math.min(18, event.clientX - gesture.x) * .35).toFixed(1)}px`)
-  core.style.setProperty('--orb-y', `${Math.max(-18, Math.min(18, event.clientY - gesture.y) * .35).toFixed(1)}px`)
+  // pointer speed feeds the orb's organic energy level (fast attack handled in the loop)
+  dragVel = Math.min(1, dragVel * 0.7 + (Math.hypot(event.clientX - gesture.lx, event.clientY - gesture.ly) / 9) * 0.35)
+  gesture.lx = event.clientX
+  gesture.ly = event.clientY
   const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y
   if (!gesture.navigated && Math.hypot(dx, dy) >= 14) {
     gesture.navigated = true
     suppressClick = true
     lastClickAt = 0
+    scanBoost = 1
     if (!props.disabled) emit('navigate', direction(dx, dy))
+    if (staticMotion) drawStatic()
   }
 }
 function pointerEnd(event: PointerEvent) {
   if (!gesture || event.pointerId !== gesture.pointerId) return
   gesture = null
+  pressLevel = 0
+  dragVel = 0
   active.value = false
-  const core = event.currentTarget as HTMLElement
-  core.style.removeProperty('--orb-x')
-  core.style.removeProperty('--orb-y')
   settleGaze()
   if (suppressClick) setTimeout(() => { suppressClick = false }, 0)
 }
-function pointerCancel(event: PointerEvent) { pointerEnd(event) }
+function pointerCancel(event: PointerEvent) { pointerEnd(event); pressLevel = 0; dragVel = 0 }
 function pointerLeave(event: PointerEvent) {
-  if (!gesture) {
-    const core = event.currentTarget as HTMLElement
-    core.style.removeProperty('--orb-x')
-    core.style.removeProperty('--orb-y')
-    settleGaze()
-  }
+  if (!gesture) { pressLevel = 0; dragVel = 0; active.value = false; settleGaze() }
 }
-function activate(event: MouseEvent) {
-  if (suppressClick) { suppressClick = false; return }
-  if (props.disabled) return
-  const now = Date.now()
-  const doubleActivation = event.detail >= 2 || (lastClickAt > 0 && now - lastClickAt <= 500)
-  lastClickAt = doubleActivation ? 0 : now
+function flashClicked(durationMs = 520) {
   clicked.value = false
   requestAnimationFrame(() => {
     clicked.value = true
     if (clickTimer) clearTimeout(clickTimer)
-    clickTimer = setTimeout(() => { clicked.value = false; clickTimer = null }, 1050)
+    clickTimer = setTimeout(() => { clicked.value = false; clickTimer = null }, durationMs)
   })
+}
+function activate(event: MouseEvent) {
+  if (suppressClick) { suppressClick = false; return }
+  if (props.disabled) return
+  aim(event as unknown as PointerEvent)
+  clickPulse = 1
+  flashClicked()
+  if (staticMotion) drawStatic()
+  const now = Date.now()
+  const doubleActivation = event.detail >= 2 || (lastClickAt > 0 && now - lastClickAt <= 500)
+  lastClickAt = doubleActivation ? 0 : now
   if (doubleActivation) {
     if (navigationTimer) clearTimeout(navigationTimer)
     navigationTimer = null
+    clickPulse = 1.4 // stronger flash for the drawer
     emit('openApps')
     return
   }
-  navigationTimer = setTimeout(() => { navigationTimer = null; emit('navigate', 1) }, 450)
+  navigationTimer = setTimeout(() => { navigationTimer = null; emit('navigate', 1); navPing = 1 }, 450)
 }
+
+// ---------- ASCII sphere renderer ----------
+// Dense ramp (first char = empty): detail survives at 112px unlike the old fixed <pre>.
+const RAMP = " .'`^,:;Il!i~+_-?][}{1)(|tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+// eased channel weights: breath gain | energy | ripple-in | ripple-out | scan | spin
+const TARGETS = {
+  idle:    [1.0, 0.0, 0.0, 0.0, 0.0, 0.1],
+  pressed: [0.5, 1.0, 1.0, 0.0, 0.0, 0.35],
+  drag:    [0.45, 1.0, 0.0, 1.0, 1.0, 0.5],
+} as const
+type StateKey = keyof typeof TARGETS
+
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
+const ease = (cur: number, tgt: number, k: number) => cur + (tgt - cur) * k
+function hash(i: number, j: number, k: number) {
+  let x = (i * 73856093) ^ (j * 19349663) ^ (k * 83492791)
+  x = Math.imul(x ^ (x >>> 13), 1274126177)
+  return (x ^ (x >>> 16)) >>> 0
+}
+
+let raf = 0
+let running = false
+let visible = true
+let staticMotion = false
+let last = 0
+let reducedQuery: MediaQueryList | null = null
+let ro: ResizeObserver | null = null
+let io: IntersectionObserver | null = null
+let dpr: number = 1, w = 112, h = 112, cw = 6, ch = 7
+
+// Integrated phases: speed/weight changes never cause visual jumps.
+const W: number[] = TARGETS.idle.slice()
+let lvl = 0, spin = 0.6, breath = 0, wob = 0, phOut = 0, phIn = 0, scan = 0, light = 0.4, clock = 0
+
+function setupCanvas(cv: HTMLCanvasElement) {
+  const ctx = cv.getContext('2d')
+  if (!ctx) return null
+  dpr = Math.min(window.devicePixelRatio || 1, 2)
+  const rect = cv.getBoundingClientRect()
+  w = Math.max(1, Math.round(rect.width))
+  h = Math.max(1, Math.round(rect.height))
+  cv.width = Math.round(w * dpr)
+  cv.height = Math.round(h * dpr)
+  ctx.font = `${6.4 * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`
+  cw = ctx.measureText('M').width / dpr || 6.4
+  ch = 6.4 * 1.16
+  return ctx
+}
+
+function render(ctx: CanvasRenderingContext2D, cv: HTMLCanvasElement, dt: number) {
+  const ts = (staticMotion ? 0 : 1) * 1
+  const d = Math.min(0.05, dt || 0.016) * ts
+  clock += d
+
+  // blend state weights so every interaction is a smooth morph, not a class swap
+  const state: StateKey = gesture && gesture.navigated ? 'drag' : pressLevel > 0 ? 'pressed' : 'idle'
+  const T = TARGETS[state]
+  const k = 1 - Math.exp(-(d * 3.4) / 1)
+  for (let i = 0; i < W.length; i++) W[i] = ease(W[i], T[i], k)
+  const [bW, eW, inW, outW, scW, spW] = W
+
+  // organic energy: fast attack while dragging, slow release like a dying voice level
+  const raw = clamp01(dragVel + pressLevel * 0.25)
+  lvl = ease(lvl, raw, raw > lvl ? 1 - Math.exp(-d * 20) : 1 - Math.exp(-d * 5))
+  clickPulse = Math.max(0, clickPulse - d * 2.2)
+  navPing = Math.max(0, navPing - d * 1.6)
+  scanBoost = Math.max(0, scanBoost - d * 0.9)
+  if (pressLevel === 0) {
+    gazeX = ease(gazeX, 0, 1 - Math.exp(-d * 2.4))
+    gazeY = ease(gazeY, 0, 1 - Math.exp(-d * 2.4))
+  }
+
+  const L = lvl * eW
+  spin += d * (spW + eW * 0.2)
+  breath += d * (1.15 + eW * 1.5)
+  wob += d * (1.2 + L * 2.6)
+  phOut += d * (2.4 + L * 5)
+  phIn += d * (2.0 + L * 4)
+  scan += d * 0.55
+  light += d * 0.12
+
+  const chars = RAMP
+  const nC = chars.length - 1
+  const scale = (1 + 0.032 * bW * Math.sin(breath)) * (1 + 0.09 * L)
+  const R = Math.min(w, h) * 0.44 * scale
+
+  // slow-orbiting key light + fixed rim fill
+  let lx = Math.cos(light) * 0.45 - 0.15, ly = -0.52 + Math.sin(light) * 0.1, lz = 0.78
+  const ll = Math.hypot(lx, ly, lz)
+  lx /= ll; ly /= ll; lz /= ll
+  const cs = Math.cos(spin * 2.2), sn = Math.sin(spin * 2.2)
+  const scanY = -1.25 + ((scan * (scW + scanBoost)) % 2.5)
+  const tick = Math.floor(clock * 12)
+  // periodic "blink" band sweeping the eye line (old CSS blink, now per-character)
+  const bt = clock % 6.4
+  const blinkOn = bt > 5.9 && bt < 6.16
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.clearRect(0, 0, cv.width, cv.height)
+  ctx.font = `${6.4 * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = '#f4f4f4'
+
+  const cols = Math.floor(w / cw), rows = Math.floor(h / ch)
+  const camX = gazeX * 0.34, camY = gazeY * 0.2 // gaze shifts apparent lighting = "eyes" following pointer
+  const maxR = R * 1.06
+
+  for (let j = 0; j < rows; j++) {
+    const py = (j + 0.5) * ch - h / 2
+    for (let i = 0; i < cols; i++) {
+      const px = (i + 0.5) * cw - w / 2
+      let x = px / R, y = py / R
+      const dist = Math.hypot(x, y)
+      if (dist > 1.06) continue
+      const a = Math.atan2(y, x)
+      // edge wobble while energized — surface reads as liquid
+      const edge = 1 + L * (0.03 * Math.sin(3 * a + wob) + 0.016 * Math.sin(5 * a - wob * 1.3)) + clickPulse * .05 * Math.sin(6 * a + clock * 14)
+      if (dist >= edge) continue
+      x /= edge; y /= edge
+      const nz = Math.sqrt(Math.max(0, 1 - x * x - y * y))
+      const nx = x - camX * 0.4, ny2 = y - camY
+
+      // diffuse lighting on the sphere
+      let b = 0.06 + 0.86 * Math.max(0, nx * lx + ny2 * ly + nz * lz)
+      // surface texture that reads as rotation
+      const rx = x * cs + nz * sn, rz = -x * sn + nz * cs
+      const lon = Math.atan2(rx, rz), lat = Math.asin(Math.max(-1, Math.min(1, y)))
+      b += 0.06 * Math.sin(lon * 2 + Math.sin(lat * 2) * 1.2) * Math.cos(lat)
+      const dd = Math.acos(Math.min(1, nz))
+      // ripples: press shivers inward, drag pushes waves outward
+      b += outW * (0.08 + 0.34 * L) * Math.sin(dd * 9 - phOut) * nz
+      b += inW * (0.06 + 0.26 * L) * Math.sin(dd * 9 + phIn) * nz
+      // click: bright ring expanding from center
+      if (clickPulse > 0.02) b += clickPulse * 1.1 * Math.sin(dd * 7 - (1 - clickPulse) * 9) * nz
+      // screen change: shorter outward ping
+      if (navPing > 0.02) b += navPing * 0.7 * Math.sin(dd * 6 - (1 - navPing) * 8) * nz
+      // decode scanline while navigating
+      let scramble = false
+      if (scanBoost > 0.03 || scW > 0.04) {
+        const near = Math.exp(-Math.pow((y - scanY) / 0.15, 2)) * Math.max(scanBoost, scW * 0.5)
+        b += near * 0.42
+        scramble = near > 0.3
+      }
+      // gaze highlight: chars brighten near where the pointer "looks"
+      const gd = Math.exp(-((x - gazeX * 0.42) ** 2 + (y - gazeY * 0.42) ** 2) / 0.14)
+      b += gd * 0.28 * (0.35 + eW * 0.65)
+      // blink band + limb fade for a clean circle edge
+      let limb = clamp01(b) * Math.min(1, nz * 2.2 + 0.15)
+      if (blinkOn && y > -0.42 && y < -0.2) limb *= 0.08
+      const idx = Math.round(limb * nC)
+      if (idx <= 0) continue
+      let chr = chars[idx]
+      if (scramble && hash(i, j, tick) % 100 < 55) chr = chars[1 + (hash(j, i, tick) % nC)]
+      ctx.globalAlpha = 0.26 + 0.74 * limb
+      ctx.fillText(chr, (px + w / 2) * dpr, (py + h / 2) * dpr)
+    }
+  }
+  ctx.globalAlpha = 1
+}
+
+function frame(now: number) {
+  raf = 0
+  const core = coreRef.value, cv = canvasRef.value
+  if (!core || !cv || !visible) return
+  const ctx = cv.getContext('2d')
+  if (!ctx) return
+  render(ctx, cv, (now - last) / 1000)
+  last = now
+  raf = requestAnimationFrame(frame)
+}
+
+// Reduced motion renders a single static frame; interactions redraw it once.
+function drawStatic() {
+  const cv = canvasRef.value
+  if (!cv) return
+  const ctx = cv.getContext('2d')
+  if (!ctx) return
+  setupCanvas(cv)
+  W.forEach((_, i) => { W[i] = TARGETS.idle[i] })
+  lvl = 0; clickPulse = clickPulse > 0 ? Math.max(0.2, clickPulse) : 0
+  staticMotion = true
+  render(ctx, cv, 0)
+}
+
+function checkStatic() {
+  const reduce = props.motionReduced || (reducedQuery?.matches ?? false)
+  if (reduce && !staticMotion) {
+    staticMotion = true
+    cancelAnimationFrame(raf)
+    raf = 0
+    drawStatic()
+  } else if (!reduce && staticMotion) {
+    staticMotion = false
+    start()
+  }
+  return reduce
+}
+
+function start() {
+  const core = coreRef.value
+  const cv = canvasRef.value
+  if (!core || !cv || running || staticMotion || props.disabled) return
+  const ctx = setupCanvas(cv)
+  if (!ctx) return
+  running = true
+  last = performance.now()
+  raf = requestAnimationFrame(frame)
+}
+function stop() {
+  running = false
+  cancelAnimationFrame(raf)
+  raf = 0
+}
+
+watch(
+  () => [coreRef.value, canvasRef.value] as const,
+  ([, cv]) => {
+    // reset any previous observers before re-attaching
+    ro?.disconnect(); io?.disconnect(); stop()
+    if (!cv) return
+    const core = coreRef.value
+    if (!core) return
+    reducedQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+
+    setupCanvas(cv)
+    ro = new ResizeObserver(() => {
+      setupCanvas(cv)
+      if (staticMotion) drawStatic()
+    })
+    ro.observe(core)
+    io = new IntersectionObserver((entries) => {
+      visible = entries[0]?.isIntersecting ?? true
+      if (visible && !running && !staticMotion) start()
+    }, { threshold: 0 })
+    io.observe(core)
+    checkStatic()
+    start()
+  },
+  { immediate: true, flush: 'post' },
+)
+
+watch(
+  () => [props.screenIndex, props.disabled, props.motionReduced],
+  () => {
+    checkStatic()
+    if (staticMotion) drawStatic()
+    else if (visible && !running) start()
+    else if (!props.disabled && running) { /* keep looping */ }
+  },
+)
 
 onUnmounted(() => {
   if (clickTimer) clearTimeout(clickTimer)
   if (navigationTimer) clearTimeout(navigationTimer)
   if (gazeTimer) clearTimeout(gazeTimer)
+  stop()
+  ro?.disconnect()
+  io?.disconnect()
+  reducedQuery = null
+  ro = null
+  io = null
 })
 </script>
 
 <style scoped>
-.orb-navigator { --orb-x: 0px; --orb-y: 0px; display: grid; justify-items: center; gap: 4px; touch-action: none; user-select: none; }
-.orb-core { --gaze-x: 0px; --gaze-y: 0px; position: relative; width: 112px; height: 112px; min-width: 112px !important; min-height: 112px !important; padding: 0 !important; display: grid; place-items: center; overflow: hidden; isolation: isolate; color: #fff; background: radial-gradient(ellipse at 48% 46%, #383838 0, #151515 42%, #030303 78%) !important; border: 2px solid #e4e4e4 !important; border-radius: 50% !important; outline: 2px solid #111; box-shadow: 0 0 0 3px #777, 0 0 24px #fff5, inset 0 0 18px #fff7, inset 0 -9px 18px #fff3; image-rendering: pixelated; touch-action: none; animation: orb-rest 5.4s ease-in-out infinite; transition: box-shadow .18s ease, filter .18s ease; }
+.orb-navigator { display: grid; justify-items: center; gap: 4px; user-select: none; }
+.orb-core {
+  position: relative; width: 112px; height: 112px; min-width: 112px !important; min-height: 112px !important;
+  padding: 0 !important; display: grid; place-items: center; overflow: hidden; isolation: isolate;
+  color: #fff; background: radial-gradient(ellipse at 48% 46%, #383838 0, #151515 42%, #030303 78%) !important;
+  border: 2px solid #e4e4e4 !important; border-radius: 50% !important; outline: 2px solid #111;
+  box-shadow: 0 0 0 3px #777, 0 0 24px #fff5, inset 0 0 18px #fff7, inset 0 -9px 18px #fff3;
+  image-rendering: pixelated; touch-action: none; transition: box-shadow .18s ease, filter .18s ease;
+}
 .orb-core:disabled { opacity: 1; cursor: default; }
 .orb-core:focus-visible { outline: 3px solid #fff; outline-offset: 5px; }
-.orb-core::before,.orb-core::after { content: ''; position: absolute; inset: 5px; border: 1px dashed #fff8; border-radius: 50%; pointer-events: none; animation: orb-ring-spin 14s linear infinite; }
-.orb-core::after { inset: 11px; border-style: solid; border-color: #fff4; animation-duration: 9s; animation-direction: reverse; box-shadow: inset 0 0 14px #fff2, 0 0 12px #fff2; }
-.orb-ascii,.orb-sheen { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.orb-ascii { z-index: 0; display: grid; place-content: center; margin: 0; overflow: hidden; color: #f4f4f4; font: 700 5.9px/7.05px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .015em; white-space: pre; text-shadow: 0 0 5px #fff, 0 0 12px #fff8; animation: orb-ascii-breathe 4.8s ease-in-out infinite; }
-.orb-field,.orb-wet,.orb-sheen { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.orb-field { z-index: 1; opacity: .3; background: repeating-linear-gradient(0deg, transparent 0 2px, #fff3 2px 3px, transparent 3px 6px), repeating-linear-gradient(90deg, transparent 0 19px, #fff1 19px 20px); mix-blend-mode: screen; }
-.orb-wet { z-index: 2; background: radial-gradient(ellipse at 31% 18%, #fff9 0 1.5%, #fff5 4%, transparent 24%), radial-gradient(ellipse at 72% 78%, #fff4, transparent 28%), linear-gradient(120deg, transparent 36%, #fff2 48%, #fff9 50%, #fff2 53%, transparent 64%); opacity: .72; mix-blend-mode: screen; animation: orb-liquid 8s ease-in-out infinite alternate; }
-.orb-wave { position: absolute; z-index: 3; inset: 25%; border: 1px solid #fff; border-radius: 50%; opacity: 0; pointer-events: none; box-shadow: 0 0 8px #fff, inset 0 0 7px #fff8; transform: scale(.18); }
-.orb-wave-two { border-color: #aaa; box-shadow: 0 0 9px #ddd, inset 0 0 7px #fff8; }
-.orb-gaze { position: absolute; z-index: 2; top: 50%; left: 50%; color: #fff; font: 900 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -.08em; text-shadow: 0 0 7px #fff, 0 0 13px #fff; transform: translate(calc(-50% + var(--gaze-x)), calc(-50% + var(--gaze-y))); transition: transform .12s ease-out; pointer-events: none; }
-.orb-blink { position: absolute; z-index: 6; inset: 7px; border-radius: 50%; background: linear-gradient(180deg, #050505 0 48%, #f4f4f4 49% 51%, #050505 52%); opacity: 0; clip-path: inset(0 0 100%); pointer-events: none; animation: orb-blink 6.4s steps(1,end) infinite; }
-.orb-sheen { z-index: 3; background: radial-gradient(ellipse at 50% 30%, #fff6, #fff0 28%), repeating-linear-gradient(0deg, #fff0 0 3px, #fff2 3px 4px); mix-blend-mode: screen; opacity: .76; transform: translate(var(--orb-x), var(--orb-y)); transition: transform 90ms linear, opacity 150ms ease; }
-.orb-sheen::after { content: ''; position: absolute; inset: -35% -80%; background: linear-gradient(105deg, transparent 44%, #fff0 47%, #fffa 50%, #fff2 52%, transparent 57%); opacity: .45; transform: translateX(-18%); animation: orb-wet-glint 7s cubic-bezier(.4,0,.2,1) infinite; }
-.orb-screen-count { position: absolute; z-index: 7; top: 16px; right: 15px; display: flex; align-items: baseline; padding: 2px 4px; color: #fff; background: #050505d9; border: 1px solid #fff9; border-radius: 8px; box-shadow: 1px 2px 5px #0009; font: 800 12px/1 ui-monospace, monospace; text-shadow: 1px 1px #000; }
+.orb-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; filter: drop-shadow(0 0 4px #fff8); pointer-events: none; }
+/* pressed / click feedback stays CSS so it works even with animations frozen */
+.orb-core:active { box-shadow: 0 0 0 3px #fff, 0 0 32px #ffffffbd, inset 0 0 25px #fff9; filter: brightness(1.28) contrast(1.12); }
+.orb-screen-count {
+  position: absolute; z-index: 7; top: 16px; right: 15px; display: flex; align-items: baseline; padding: 2px 4px;
+  color: #fff; background: #050505d9; border: 1px solid #fff9; border-radius: 8px; box-shadow: 1px 2px 5px #0009;
+  font: 800 12px/1 ui-monospace, monospace; text-shadow: 1px 1px #000;
+}
 .orb-screen-count i { margin-left: 2px; font-size: 9px; font-style: normal; }
-.orb-active .orb-core { box-shadow: 0 0 0 3px #fff, 0 0 32px #ffffffbd, inset 0 0 25px #fff9; filter: brightness(1.32) contrast(1.16); }
-.orb-active .orb-ascii { animation-duration: .7s; filter: brightness(1.7) contrast(1.2); }
-.orb-active .orb-sheen { opacity: 1; }.orb-active .orb-sheen::after { animation-duration: 1.4s; opacity: .85; }
-.orb-active .orb-field { opacity: .62; }
-.orb-clicked .orb-core { animation: orb-click-flash .52s ease-out both; }
-.orb-clicked .orb-core::before { animation-duration: .65s; border-color: #fff; }.orb-clicked .orb-core::after { animation-duration: .42s; border-color: #ddd; }
-.orb-clicked .orb-blink { animation: orb-click-blink .28s steps(1,end) both; }
-.orb-clicked .orb-ascii { animation-duration: .22s; filter: brightness(2.25) contrast(1.45); text-shadow: 0 0 8px #fff, 0 0 18px #fff; }
-.orb-clicked .orb-field { opacity: .85; }.orb-clicked .orb-wet { opacity: 1; }
-.orb-clicked .orb-wave-one { animation: orb-ripple .78s cubic-bezier(.12,.58,.32,1) both; }.orb-clicked .orb-wave-two { animation: orb-ripple .78s .16s cubic-bezier(.12,.58,.32,1) both; }
-.orb-caption { color: var(--ui-text-3); font: 600 8px/1.2 ui-monospace, monospace; letter-spacing: .14em; text-align: center; }
-@keyframes orb-rest { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-2px) scale(1.025); } }
-@keyframes orb-ascii-breathe { 0%,100% { opacity: .78; } 50% { opacity: 1; } }
-@keyframes orb-ring-spin { to { transform: rotate(360deg); } }
-@keyframes orb-wet-glint { 0%,18% { transform: translateX(-18%); opacity: .2; } 55% { opacity: .72; } 82%,100% { transform: translateX(18%); opacity: .25; } }
-@keyframes orb-liquid { from { transform: scale(1) rotate(-3deg); } to { transform: scale(1.1) rotate(3deg); } }
-@keyframes orb-blink { 0%,94%,100% { opacity: 0; clip-path: inset(0 0 100%); } 95%,97% { opacity: .96; clip-path: inset(0); } 98% { opacity: .75; clip-path: inset(100% 0 0); } }
-@keyframes orb-click-blink { 0%,20% { opacity: 0; clip-path: inset(0 0 100%); } 45%,75% { opacity: .96; clip-path: inset(0); } 100% { opacity: 0; clip-path: inset(0 0 100%); } }
-@keyframes orb-ripple { 0% { opacity: .95; transform: scale(.18); } 75% { opacity: .45; } 100% { opacity: 0; transform: scale(1.62); } }
-@keyframes orb-click-flash { 0% { transform: scale(.88); filter: brightness(2.2) contrast(1.4); } 45% { transform: scale(1.12); filter: brightness(1.6); } 100% { transform: scale(1); filter: brightness(1); } }
-.motion-reduced .orb-core,.motion-reduced .orb-core::before,.motion-reduced .orb-core::after,.motion-reduced .orb-ascii,.motion-reduced .orb-field,.motion-reduced .orb-wet,.motion-reduced .orb-blink,.motion-reduced .orb-sheen::after { animation: none !important; }
-@media(prefers-reduced-motion:reduce) { .orb-core,.orb-core::before,.orb-core::after,.orb-ascii,.orb-field,.orb-wet,.orb-blink,.orb-sheen::after { animation: none !important; transition: none !important; } }
+.orb-caption { color: var(--ui-text-3, #9a9a9a); font: 600 8px/1.2 ui-monospace, monospace; letter-spacing: .14em; text-align: center; }
+@media (prefers-reduced-motion: reduce) { .orb-canvas { filter: drop-shadow(0 0 3px #fff6); } }
 </style>

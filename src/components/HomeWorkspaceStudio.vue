@@ -27,7 +27,7 @@
       <HomeDefaultRoleAction v-if="editing" :before-request="suspendHome" />
       <label v-if="editing" class="screen-name">Screen name<input v-model="activePage.title" maxlength="40" aria-label="Screen name" /></label>
       <nav class="screen-nav" aria-label="Home screen navigation">
-        <OrbNavigator :screen-index="activeIndex" :screen-count="state.pages.length" :disabled="!!props.blocked || editing || !!picker || overview" :motion-reduced="motion.reduced.value" @navigate="navigateOrb" @open-apps="emit('openApps')" />
+        <OrbNavigator v-if="!orbHiddenOnDesktop" :screen-index="activeIndex" :screen-count="state.pages.length" :disabled="!!props.blocked || editing || !!picker || overview" :motion-reduced="motion.reduced.value" @navigate="navigateOrb" @open-apps="emit('openApps')" />
       </nav>
         <div v-for="page in visitedPages" v-show="page.id === state.activeId" :key="page.id" class="workspace-content" tabindex="0" aria-label="Home screen canvas" :inert="page.id !== state.activeId"
           @pointerdown="emptyPress.down" @pointermove="emptyPress.move" @pointerleave="emptyPress.cancel" @pointerup="emptyPress.cancel" @pointercancel="emptyPress.cancel"
@@ -65,6 +65,7 @@ import HomeLocalWidget from '@/components/HomeLocalWidget.vue'
 import HomeDefaultRoleAction from '@/components/HomeDefaultRoleAction.vue'
 import HomeWorkspacePreview from '@/components/HomeWorkspacePreview.vue'
 import OrbNavigator from '@/components/OrbNavigator.vue'
+import { isTauri, isTauriMobile } from '@/composables/useTauri'
 import { useMotion } from '@/composables/useMotion'
 import { useHomeEmptyPress } from '@/composables/useHomeEmptyPress'
 import { useHomeTouchSafety } from '@/composables/useHomeTouchSafety'
@@ -76,6 +77,8 @@ import { HOME_WORKSPACE_KEY, MAX_ITEMS_PER_WORKSPACE, MAX_WORKSPACES, normalizeH
 type HomeApp = { id: string; label: string; icon: string; image?: string }
 const props = defineProps<{ apps: HomeApp[]; initialIds: string[]; blocked?: boolean }>()
 const emit = defineEmits<{ open: [id: string]; openApps: []; customize: [id: string] }>()
+// Orb navigator is a touch-first control: it renders on mobile and web, never the desktop shell.
+const orbHiddenOnDesktop = isTauri() && !isTauriMobile()
 const androidApps = useAndroidApps()
 const motion = useMotion()
 const message = ref('')

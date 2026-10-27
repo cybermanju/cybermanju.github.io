@@ -16,7 +16,7 @@ describe('mobile home rendering', () => {
     expect(studio).toContain('overflow-y: auto; overscroll-behavior: contain;')
     expect(studio).toContain('.screen-nav { position: relative; flex: 0 0 auto;')
     expect(studio).toContain('.workspace-apps { display: grid;')
-    expect(studio).toContain('.orb-art { z-index: 0; }')
+    expect(studio).toContain('<OrbNavigator :screen-index="activeIndex"')
     expect(studio).not.toContain('feTurbulence')
   })
 

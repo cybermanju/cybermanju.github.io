@@ -29,7 +29,7 @@
 
     <main class="msw-body">
       <!-- welcome -->
-      <section v-if="step === 'welcome'" class="msw-section">
+      <section v-if="step === 'welcome'" class="msw-section" data-testid="setup-mobile-step-welcome">
         <div class="msw-welcome">
           <p class="msw-eyebrow">WELCOME TO CYBERMANJU</p>
           <h3 class="msw-welcome-title">Your private workspace, ready on this phone.</h3>
@@ -45,7 +45,7 @@
       </section>
 
       <!-- connect: OAuth sign-in + provider rows (one place for both) -->
-      <section v-if="step === 'connect'" class="msw-section">
+      <section v-if="step === 'connect'" class="msw-section" data-testid="setup-mobile-step-connect">
         <h3 class="msw-h">Accounts &amp; providers <span v-if="providerCount" class="msw-count">{{ providerCount }} connected</span></h3>
         <p v-if="identity" class="msw-hint">Signed in as <strong>{{ identity.name || identity.email }}</strong> via {{ identity.provider }} — its vault row is waiting in the next step.</p>
         <p v-else class="msw-hint">One tap per provider — no Account Manager detour needed.</p>
@@ -137,7 +137,7 @@
       </section>
 
       <!-- storage: every disk creation path, one list -->
-      <section v-if="step === 'storage'" class="msw-section">
+      <section v-if="step === 'storage'" class="msw-section" data-testid="setup-mobile-step-storage">
         <h3 class="msw-h">Vaults &amp; storage <span v-if="partitions.length" class="msw-count">{{ createdCount }} / {{ partitions.length }} created</span></h3>
         <p class="msw-hint">One list, one job: every row is a <code>.cybermanju</code> disk — local on this phone, or on a connected provider (Drive folder / private repo are created when missing). Tap a provider to prefill a row.</p>
         <div class="msw-chips" role="group" aria-label="Quick-add a vault">
@@ -222,7 +222,7 @@
       </section>
 
       <!-- personalize: appearance + the optional agent, in one place -->
-      <section v-if="step === 'personalize'" class="msw-section">
+      <section v-if="step === 'personalize'" class="msw-section" data-testid="setup-mobile-step-personalize">
         <h3 class="msw-h">Personalize</h3>
         <p class="msw-hint">Pick a look — it applies instantly, and Settings → Appearance can change it later. The agent below is optional.</p>
         <span class="msw-sub-label">Theme</span>
@@ -296,7 +296,7 @@
       </section>
 
       <!-- done -->
-      <section v-if="step === 'done'" class="msw-section">
+      <section v-if="step === 'done'" class="msw-section" data-testid="setup-mobile-step-done">
         <ul class="msw-summary">
           <li>Account: <strong>{{ identity ? (identity.email || identity.name) : 'skipped' }}</strong></li>
           <li>Providers: <strong>{{ providerCount ? `${providerCount} connected` : 'skipped' }}</strong></li>
@@ -306,7 +306,7 @@
           <li>Appearance: <strong>{{ mswAppearanceSummary }}</strong></li>
         </ul>
         <p class="msw-hint">Everything skipped stays one tap away in Accounts, Disks and Agent.</p>
-        <button class="msw-btn primary big" type="button" @click="finish">Enter CyberManju →</button>
+        <button class="msw-btn primary big" type="button" data-testid="setup-mobile-finish" @click="finish">Enter CyberManju →</button>
         <button class="msw-link" type="button" @click="go('personalize')">Back</button>
       </section>
     </main>

@@ -5,6 +5,7 @@
 // Integrates: @/…, vue, ./….
 // Contracts: none special (pure logic; errors bubble to caller).
 import AppIcon from '@/components/AppIcon.vue'
+import WelcomeDemo from '@/components/WelcomeDemo.vue'
 import { ref, onMounted, onUnmounted } from 'vue'
 import TopMenuBar from './TopMenuBar.vue'
 import Dock from './Dock.vue'
@@ -269,6 +270,7 @@ onUnmounted(() => {
       </div>
 
       <div v-else class="desktop-landing">
+        <WelcomeDemo class="desktop-welcome-demo" data-testid="landing-welcome-demo" />
         <div class="ascii-background">
           <div class="ascii-buddha">
             <div v-for="(line, i) in frameLines" :key="i" class="buddha-line">{{ line }}</div>
@@ -435,6 +437,12 @@ onUnmounted(() => {
   justify-content: center;
   gap: 16px;
   padding: 24px 20px 34px;
+}
+
+/* The mock cybsh cameo rides above the ASCII art, under the report card. */
+.desktop-welcome-demo {
+  position: relative;
+  z-index: 1;
 }
 
 .ascii-background {
@@ -733,6 +741,7 @@ onUnmounted(() => {
 @media (max-height: 700px) {
   .boot-report { max-height: 45vh; padding-block: 14px; }
   .report-brand { display: none; }
+  .desktop-welcome-demo { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

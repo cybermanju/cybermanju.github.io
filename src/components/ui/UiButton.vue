@@ -20,6 +20,7 @@
     :disabled="disabled || loading"
     :aria-busy="loading || undefined"
     :aria-pressed="active"
+    @pointerdown="press"
     @click="onClick"
   >
     <span v-if="showRipple" class="ui-btn__ripple" :style="rippleStyle" aria-hidden="true" />
@@ -35,6 +36,7 @@
 <script setup lang="ts">
 import { computed, ref, useSlots } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
+import { vibratePress } from '@/utils/pressFeedback'
 
 const props = withDefaults(
   defineProps<{
@@ -76,6 +78,15 @@ const iconOnly = computed(() => Boolean(props.icon) && !slots.default)
 
 const rippleStyle = ref<Record<string, string> | null>(null)
 const showRipple = ref(false)
+
+/**
+ * Press micro-feedback (the small-craft layer): pointerdown fires the
+ * shared 8 ms haptic tick — one answered press for every control, even
+ * ones without a ripple. CSS owns the 0.96 spring scale on :active.
+ */
+function press() {
+  vibratePress()
+}
 
 function onClick(event: MouseEvent) {
   if (props.ripple && !props.loading) {
@@ -126,7 +137,7 @@ function onClick(event: MouseEvent) {
 }
 
 .ui-btn:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(0.96);
 }
 
 .ui-btn:disabled {

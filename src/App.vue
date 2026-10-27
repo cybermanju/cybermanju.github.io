@@ -37,8 +37,10 @@ import FileUploadDialog from '@/components/FileUploadDialog.vue'
 import ServerAuthPanel from '@/components/ServerAuthPanel.vue'
 import SetupWizard from '@/components/SetupWizard.vue'
 import MobileSetupWizard from '@/components/MobileSetupWizard.vue'
+import FirstRunCoach from '@/components/FirstRunCoach.vue'
 import { isAndroidApp, isTauri, isTauriMobile } from '@/composables/useTauri'
 import { setupSeen } from '@/utils/setupWizard'
+import { coachSeen, markCoachSeen } from '@/utils/coachMarks'
 import { INSTALL_EVENT } from '@/utils/installLinks'
 import MobileNav from '@/components/MobileNav.vue'
 import ContextMenu from '@/components/ContextMenu.vue'
@@ -229,6 +231,35 @@ const showUploadDialog = ref(false)
 const setupOpen = ref(false)
 const mobileSetupOpen = ref(false)
 const resumeSetupAfterAccounts = ref(false)
+
+// ── First-run coach tour (desktop; cutout-ring coach marks) ──
+// Started only by the setup wizard's Finish (`cybermanju:coach-start`,
+// SetupWizard.finish). The tour rings REAL desktop UI (the dock), so it
+// never overlays the landing screen or the mobile launcher — those get
+// their onboarding differently. Once-only via coachMarks. Finishing the
+// wizard while still on the landing screen ARMS the tour (requested
+// flag): it starts at the first entry into the app (watch below) so the
+// dock exists to ring.
+const coachActive = ref(false)
+const coachOpenRequested = ref(false)
+function startCoachTour() {
+  try {
+    if (coachSeen()) return
+    if (prefersMobileExperience()) return
+    if (isPopupMode) return
+    if (store.currentPanel === 'landing') {
+      coachOpenRequested.value = true
+      return
+    }
+    coachActive.value = true
+  } catch {
+    // Storage unavailable — skip the coach silently, never block entry.
+  }
+}
+function finishCoachTour() {
+  coachActive.value = false
+  markCoachSeen()
+}
 function prefersMobileExperience() {
   const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent
   const ipadOs = typeof navigator !== 'undefined' && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
@@ -244,6 +275,14 @@ watch(accountsWindowOpen, (opened, wasOpened) => {
   if (opened || !wasOpened || !resumeSetupAfterAccounts.value) return
   resumeSetupAfterAccounts.value = false
   void nextTick(() => openSetupFromApp())
+})
+
+// Armed coach + first entry into the app → run the tour once.
+watch(() => store.currentPanel, (panel, before) => {
+  if (before === 'landing' && panel !== 'landing' && coachOpenRequested.value && !coachActive.value) {
+    startCoachTour()
+    coachOpenRequested.value = false
+  }
 })
 
 const mainAreaRef = ref<HTMLElement | null>(null)
@@ -824,6 +863,7 @@ onMounted(() => {
   window.addEventListener('cybermanju:upload', handleUpload)
   window.addEventListener('cybermanju:open-accounts', openAccountsWindow)
   window.addEventListener('cybermanju:open-setup', openSetupFromApp)
+  window.addEventListener('cybermanju:coach-start', startCoachTour)
   window.addEventListener(INSTALL_EVENT, openInstallWindow)
   // Fresh instance (first run, e.g. a new WASM/Pages deploy with empty
   // site data): offer the OAuth + `.cybermanju` onboarding immediately,
@@ -875,6 +915,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', openAgent)
   window.removeEventListener('cybermanju:open-accounts', openAccountsWindow)
   window.removeEventListener('cybermanju:open-setup', openSetupFromApp)
+  window.removeEventListener('cybermanju:coach-start', startCoachTour)
   window.removeEventListener(INSTALL_EVENT, openInstallWindow)
   window.removeEventListener('cybermanju:oauth-return', handleMobileOAuthReturn)
   window.removeEventListener('cybermanju:open-login', refreshAuthGate)
@@ -961,6 +1002,8 @@ onBeforeUnmount(() => {
          works over landing and is never duplicated inside DesktopShell. -->
     <SetupWizard v-if="setupOpen && !isPopupMode" @close="setupOpen = false" />
     <MobileSetupWizard v-if="mobileSetupOpen && !isPopupMode" @close="mobileSetupOpen = false" />
+    <!-- First-run coach tour (desktop, once, after the wizard's Finish). -->
+    <FirstRunCoach v-if="coachActive" @done="finishCoachTour" />
     <UiLayoutEditor v-if="!isPopupMode" />
     </div>
 </template>

@@ -108,9 +108,13 @@ describe('Home app icon launch on touch/click', () => {
     await wrapper.get('button[aria-label="Add apps or widgets to home"]').trigger('click')
     await flushPromises()
     expect(document.body.querySelector('.studio-picker')).toBeNull()
-    await wrapper.get('[aria-label="Next home screen"]').trigger('click')
+    // The orb navigator is the only paging surface now; navigation is
+    // suspend-gated, so the screen keeps its place on a failed suspend
+    // (its single activation advances after its deliberate 450 ms delay).
+    await wrapper.get('.orb-core').trigger('click')
+    await new Promise(resolve => setTimeout(resolve, 460))
     await flushPromises()
-    expect(wrapper.get('[aria-label="Go to Home, screen 1"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('.orb-core').attributes('aria-label')).toContain('Home screen 1 of 2')
     wrapper.unmount()
   })
 
@@ -183,10 +187,9 @@ describe('Home app icon launch on touch/click', () => {
     dispatchTouch(zone, 'touchend', [], [right1])
     await flushPromises()
 
-    const active = wrapper.get('[aria-current="page"][aria-label^="Go to"]')
-    expect(active.attributes('aria-label')).toMatch(/Screen 2/)
-    const pageCount = wrapper.findAll('.screen-dots button')
-    expect(pageCount).toHaveLength(2)
+    // The orb announces the new active screen and the overview is still
+    // closed, so screen identity itself (plus persisted state) is the truth.
+    expect(wrapper.get('.orb-core').attributes('aria-label')).toContain('Home screen 2 of 2')
     expect(wrapper.findAll('.workspace-app')).toHaveLength(1)
     const saved = JSON.parse(localStorage.getItem('cybermanju.home.workspaces.v1') || 'null')
     expect(saved.pages).toHaveLength(2)
@@ -197,21 +200,22 @@ describe('Home app icon launch on touch/click', () => {
 
     const reloaded = mountStudio()
     await flushPromises()
-    expect(reloaded.get('[aria-current="page"][aria-label^="Go to"]').attributes('aria-label')).toMatch(/Screen 2/)
+    expect(reloaded.get('.orb-core').attributes('aria-label')).toContain('Home screen 2 of 2')
     expect(JSON.parse(localStorage.getItem('cybermanju.home.workspaces.v1') || 'null').activeId).toBe(activeId)
     reloaded.unmount()
   })
 
-  it('keeps button and keyboard navigation as non-gesture alternatives', async () => {
+  it('keeps orb and keyboard navigation as non-gesture alternatives', async () => {
     const wrapper = mountStudio()
-    const next = wrapper.get('[aria-label="Next home screen"]')
-    await next.trigger('click')
+    const orb = wrapper.get('.orb-core')
+    await orb.trigger('click')
+    await new Promise(resolve => setTimeout(resolve, 460))
     await flushPromises()
-    expect(wrapper.get('[aria-label="Go to Screen 2, screen 2"]').attributes('aria-current')).toBe('page')
+    expect(orb.attributes('aria-label')).toContain('Home screen 2 of 2')
     const root = wrapper.get('.home-studio')
     await root.trigger('keydown', { key: 'ArrowLeft' })
     await flushPromises()
-    expect(wrapper.get('[aria-label="Go to Home, screen 1"]').attributes('aria-current')).toBe('page')
+    expect(orb.attributes('aria-label')).toContain('Home screen 1 of 2')
     wrapper.unmount()
   })
 

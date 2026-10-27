@@ -41,9 +41,9 @@ describe('responsive home rows', () => {
     expect(home).not.toMatch(/measurePageCapacity|pageSize|pagerRef/)
     expect(studio).toContain('normalizeHomeState(load(), props.initialIds)')
     expect(studio).toContain('state.pages')
-    expect(studio).toMatch(/\.workspace-content \{[^}]*flex: 1;[^}]*min-height: 0;[^}]*overflow-y: auto/)
+    expect(studio).toMatch(/\.workspace-content \{[^}]*flex: 1 1 0;[^}]*min-height: 0;[^}]*overflow-y: auto/)
     expect(studio).toContain('grid-template-columns: repeat(5,minmax(0,1fr))')
-    expect(studio).toContain('.screen-dots { display: flex; overflow-x: auto;')
+    expect(studio).toContain('.screen-nav { position: relative; flex: 0 0 auto;')
     expect(home).not.toContain('contain-intrinsic-size: auto 400px')
   })
   it('keeps drawer controls fixed and the app tail inside its own shrinking scrollport', () => {

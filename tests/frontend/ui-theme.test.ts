@@ -1,7 +1,7 @@
 // CyberManju OS — Ui theme.test (tests/frontend/ui-theme.test.ts).
 // Theme registries + accent resolution + WCAG contrast guards.
-// Flat AMOLED remake: 2 themes (os-dark, os-light) + optional os-graphite,
-// one fixed geometry, no neon/glow/aurora. Legacy ids resolve via aliases.
+// Flat AMOLED remake: deck/glass/AMOLED/graphite/plasma presets, one fixed
+// geometry, no neon/glow/aurora. Legacy ids resolve via aliases.
 import { describe, it, expect, vi } from 'vitest'
 import { useTheme } from '@/composables/useTheme'
 import {
@@ -21,11 +21,12 @@ import {
 } from '@/ui/tokens'
 
 describe('theme registries', () => {
-  it('ships system, glass, AMOLED and plasma presets', () => {
+  it('ships system, deck, glass, AMOLED and plasma presets', () => {
     expect([...THEME_IDS].sort()).toEqual([
       'flat-amoled',
       'modern-glass',
       'os-dark',
+      'os-deck',
       'os-graphite',
       'os-light',
       'plasma-dark',
@@ -73,6 +74,17 @@ describe('theme registries', () => {
     expect(THEMES['os-dark'].palette.surface).toBe('#0B0B0D')
     expect(THEMES['os-light'].palette.bg).toBe('#ECECEC')
     expect(THEMES['os-light'].palette.surface).toBe('#FFFFFF')
+  })
+
+  it('os-deck is the near-black-green instrument panel with the acid-green accent', () => {
+    const p = THEMES['os-deck'].palette
+    expect(p.bg).toBe('#090C0D')
+    expect(p.surface).toBe('#0D1112')
+    expect(p.accent).toBe('#80EB12')
+    expect(p.onAccent).toBe('#000000')
+    expect(THEMES['os-deck'].mode).toBe('dark')
+    // Grouped in the Picker's Deck group.
+    expect(THEME_GROUPS.find(g => g.id === 'deck')?.ids).toEqual(['os-deck'])
   })
 
   it('plasma themes carry panel + hover surfaces', () => {
@@ -267,14 +279,18 @@ describe('effective accent resolution', () => {
     const dark = buildCssVars({ ...base, theme: 'os-dark' })
     const light = buildCssVars({ ...base, theme: 'os-light' })
     const graphite = buildCssVars({ ...base, theme: 'os-graphite' })
-    for (const v of [dark, light, graphite]) {
+    const deck = buildCssVars({ ...base, theme: 'os-deck' })
+    for (const v of [dark, light, graphite, deck]) {
       expect(v['--ui-radius-xl']).toBe('12px')
       expect(v['--ui-radius-lg']).toBe('10px')
       expect(v['--ui-radius-sm']).toBe('6px')
       expect(v['--ui-radius-xs']).toBe('4px')
       expect(v['--ui-dur-fast']).toBe('120ms')
       expect(v['--ui-dur']).toBe('200ms')
-      expect(v['--ui-ease-spring']).toBe('ease-out')
+      // Standard ease stays plain; the spring ease is the shared restrained
+      // bezier deceleration for direct manipulation and touch feedback.
+      expect(v['--ui-ease']).toBe('ease-out')
+      expect(v['--ui-ease-spring']).toBe('cubic-bezier(0.22, 1, 0.36, 1)')
       // No neon leftovers.
       expect(v['--ui-aurora-a']).toBe('transparent')
       expect(v['--ui-aurora-b']).toBe('transparent')

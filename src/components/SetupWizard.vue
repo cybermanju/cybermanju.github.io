@@ -23,8 +23,9 @@
         <div class="sw-brand">
           <span class="sw-mark"><img src="/bhumisparsha.png" alt="Bhumisparsha" width="36" height="36" /></span>
           <div>
+            <span class="sw-kicker ui-kicker-token">First run · Step {{ setupStepIndex(step) }} of {{ SETUP_STEPS.length }}</span>
             <h2 id="sw-title" class="sw-title">Set up CyberManju OS</h2>
-            <p class="sw-sub">{{ SETUP_STEP_LABELS[step] }} · {{ setupStepIndex(step) }} / {{ SETUP_STEPS.length }}</p>
+            <p class="sw-sub">{{ SETUP_STEP_LABELS[step] }}</p>
           </div>
         </div>
         <button class="sw-icon-btn" type="button" title="Close (returns next launch)" aria-label="Close setup wizard" @click="close">
@@ -41,13 +42,14 @@
           :class="{ on: s === step, past: setupStepIndex(s) < setupStepIndex(step) }"
           :title="SETUP_STEP_LABELS[s]"
           :aria-label="SETUP_STEP_LABELS[s]"
+          :data-testid="`setup-dot-${s}`"
           @click="go(s)"
         />
       </nav>
 
-      <main class="sw-body">
+      <main class="sw-body" data-testid="setup-wizard-body">
         <!-- ── 1 · welcome ── -->
-        <section v-if="step === 'welcome'" class="sw-section">
+        <section v-if="step === 'welcome'" class="sw-section" data-testid="setup-step-welcome">
           <p class="sw-lead">A few quick things. Skip anything.</p>
           <ul class="sw-list">
             <li><AppIcon name="solar:folder-bold" :size="16" /><span><strong>Vault folder</strong> — one folder holds the vault + its files.</span></li>
@@ -56,13 +58,13 @@
             <li><AppIcon name="solar:monitor-bold" :size="16" /><span><strong>Appearance</strong> — theme + wallpaper, previewed live.</span></li>
           </ul>
           <div class="sw-actions">
-            <button class="sw-btn primary" type="button" @click="go('vault')">Get started</button>
-            <button class="sw-link" type="button" @click="skipAll">Skip all</button>
+            <button class="sw-btn primary" type="button" data-testid="setup-get-started" @click="go('vault')">Get started</button>
+            <button class="sw-link" type="button" data-testid="setup-skip-all" @click="skipAll">Skip all</button>
           </div>
         </section>
 
         <!-- ── 2 · vault folder (merged: one folder pick does it all) ── -->
-        <section v-if="step === 'vault'" class="sw-section">
+        <section v-if="step === 'vault'" class="sw-section" data-testid="setup-step-vault">
           <div class="sw-status" :class="disk.bound ? 'ok' : 'idle'">
             <AppIcon :name="disk.bound ? 'solar:check-circle-bold' : 'solar:folder-bold'" :size="16" />
             <span>{{ disk.bound ? `${disk.name} · ${humanBytes(disk.savedBytes)}` : 'No vault folder yet — session only' }}</span>
@@ -93,6 +95,7 @@
           <p class="sw-hint">Pick one folder: if it already holds a <code>.cybermanju</code> file it opens; otherwise a new one is created with the name + size above, plus a <code>files/</code> subfolder for local copies (never synced itself). The size becomes the default for the Disks step.</p>
           <p v-if="oneFolderMsg" class="sw-note" :class="oneFolderOk === false ? 'err' : oneFolderOk ? 'ok' : ''">{{ oneFolderMsg }}
             <button v-if="oneFolderNoPicker" class="sw-link" type="button" @click="openInstall">Install options</button>
+            <button v-if="oneFolderOk === false" class="sw-link" type="button" data-testid="setup-vault-retry" @click="setupVaultFolder">Retry</button>
           </p>
           <p v-if="wizardDirNote && !isTauri()" class="sw-note" :class="wizardDirOk === false ? 'err' : wizardDirOk ? 'ok' : ''">
             {{ wizardDirNote }}
@@ -139,7 +142,7 @@
         </section>
 
         <!-- ── 3 · accounts (inline OAuth, no detour needed) ── -->
-        <section v-if="step === 'cloud'" class="sw-section">
+        <section v-if="step === 'cloud'" class="sw-section" data-testid="setup-step-cloud">
           <div v-if="oauthIdentity" class="sw-status ok">
             <AppIcon name="solar:check-circle-bold" :size="16" />
             <span>{{ oauthIdentity.name || oauthIdentity.email }} · {{ oauthIdentity.provider }}</span>
@@ -219,7 +222,7 @@
         </section>
 
         <!-- ── 4 · disks (substep: one system disk per provider) ── -->
-        <section v-if="step === 'disks'" class="sw-section">
+        <section v-if="step === 'disks'" class="sw-section" data-testid="setup-step-disks">
           <div v-if="store.disks.length" class="sw-status ok">
             <AppIcon name="solar:check-circle-bold" :size="16" />
             <span>{{ store.disks.length }} disk{{ store.disks.length === 1 ? '' : 's' }} attached</span>
@@ -250,7 +253,9 @@
               {{ diskBusy ? 'Creating…' : 'Create & attach disk' }}
             </button>
           </div>
-          <p v-if="diskMsg" class="sw-note" :class="diskOk === false ? 'err' : diskOk ? 'ok' : ''">{{ diskMsg }}</p>
+          <p v-if="diskMsg" class="sw-note" :class="diskOk === false ? 'err' : diskOk ? 'ok' : ''">{{ diskMsg }}
+            <button v-if="diskOk === false && diskConfigId" class="sw-link" type="button" data-testid="setup-disk-retry" @click="createDiskStep">Retry</button>
+          </p>
 
           <details class="sw-details" :open="store.syncConfigs.length > 1">
             <summary>Unified disk — single copy home, mirrors opt-in, key holder</summary>
@@ -271,7 +276,7 @@
         </section>
 
         <!-- ── 5 · agent (optional) ── -->
-        <section v-if="step === 'agent'" class="sw-section">
+        <section v-if="step === 'agent'" class="sw-section" data-testid="setup-step-agent">
           <div v-if="isStatic" class="sw-banner info">
             <AppIcon name="solar:info-circle-bold" :size="15" />
             <span>Browser build — saved locally in this browser, key held in memory only (re-enter after reload).</span>
@@ -322,7 +327,7 @@
         </section>
 
         <!-- ── 6 · appearance (theme + wallpaper, live preview) ── -->
-        <section v-if="step === 'appearance'" class="sw-section">
+        <section v-if="step === 'appearance'" class="sw-section" data-testid="setup-step-appearance">
           <p class="sw-hint">Pick a look — it applies instantly, and Settings → Appearance can change it later.</p>
           <span class="sw-label">Theme</span>
           <div class="sw-presets" role="radiogroup" aria-label="Theme">
@@ -375,7 +380,7 @@
         </section>
 
         <!-- ── 7 · done ── -->
-        <section v-if="step === 'done'" class="sw-section">
+        <section v-if="step === 'done'" class="sw-section" data-testid="setup-step-done">
           <ul class="sw-summary">
             <li>
               <AppIcon :name="disk.bound ? 'solar:check-circle-bold' : 'solar:minus-circle-bold'" :size="15" />
@@ -403,8 +408,8 @@
             </li>
           </ul>
           <div class="sw-actions">
-            <button class="sw-btn" type="button" @click="go('appearance')">Back</button>
-            <button class="sw-btn primary" type="button" @click="finish">Finish</button>
+            <button class="sw-btn" type="button" data-testid="setup-back-done" @click="go('appearance')">Back</button>
+            <button class="sw-btn primary" type="button" data-testid="setup-finish" @click="finish">Finish</button>
           </div>
         </section>
       </main>
@@ -464,6 +469,8 @@ import {
   takeSetupResumeStep,
   type SetupStep,
 } from '@/utils/setupWizard'
+import { detectStagedInstall } from '@/utils/stagedInstall'
+import { vibratePress } from '@/utils/pressFeedback'
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -621,14 +628,18 @@ async function setupVaultFolder() {
     folderLabel.value = dirName
     const layout = oneFolderLayout(dirName)
     // Auto-detect: an existing `*.cybermanju` in the folder opens, otherwise
-    // the custom name is created fresh.
+    // the custom name is created fresh. Staged leftovers (`*.staging-*`)
+    // from an interrupted first install are surfaced honestly, then the
+    // promote discipline recreates the vault over the frozen copy.
     let target = sanitizedVaultName()
     let detected = ''
+    const seenNames: string[] = []
     try {
       const values = (dir as FileSystemDirectoryHandle & { values?: () => AsyncIterableIterator<FileSystemHandle> }).values?.()
       if (values) {
         for await (const entry of values) {
           const n = String((entry as { name?: string }).name ?? '')
+          seenNames.push(n)
           if (n.toLowerCase().endsWith('.cybermanju')) {
             detected = n
             break
@@ -637,6 +648,11 @@ async function setupVaultFolder() {
       }
     } catch {
       // Listing is best-effort — fall through to create the custom name.
+    }
+    const scan = detectStagedInstall(seenNames)
+    if (scan.staging.length) {
+      oneFolderMsg.value = `Found ${scan.staging.length} staged install file${scan.staging.length === 1 ? '' : 's'} (${scan.staging[0]}…) — finishing it now, nothing was lost.`
+      oneFolderOk.value = null
     }
     if (detected) {
       target = detected
@@ -1150,19 +1166,30 @@ function pickWallpaper(id: string) {
 }
 
 // ── navigation ──
+// Every nav tap answers with the shared 8 ms haptic tick (small-craft
+// onboarding press language) — next/skip/back feel identical.
 function go(s: SetupStep) {
+  vibratePress()
   step.value = s
 }
 
 function skipAll() {
+  vibratePress()
   clearSetupResumeStep()
   markSetupSeen()
+  // A first-run user who skipped everything still meets the desktop: arm
+  // the once-only coach so the dock tour runs on entry (same as Finish —
+  // App.vue de-dupes via coachSeen()).
+  window.dispatchEvent(new CustomEvent('cybermanju:coach-start'))
   emit('close')
 }
 
 function finish() {
+  vibratePress()
   clearSetupResumeStep()
   markSetupSeen()
+  // Kick the first-run coach (App listens; desktop-only, shown once).
+  window.dispatchEvent(new CustomEvent('cybermanju:coach-start'))
   emit('close')
 }
 
@@ -1171,11 +1198,18 @@ function close() {
   emit('close')
 }
 
-onMounted(async () => {
+async function mountPrologue() {
   cardRef.value?.focus()
   await nextTick()
-  await refreshIdentity().catch(() => {})
-  await Promise.allSettled([store.fetchSyncConfigs(), store.fetchDisks(), store.fetchAgentConfigs()])
+  // Start the real work while the user reads the welcome step: identity
+  // resolution and every store pull race in parallel, so the accounts,
+  // disks and agent steps are already warm when the user reaches them.
+  await Promise.allSettled([
+    refreshIdentity(),
+    store.fetchSyncConfigs(),
+    store.fetchDisks(),
+    store.fetchAgentConfigs(),
+  ])
   if (isStatic) {
     try {
       const { wasmAgentCatalog } = await import('@/composables/useWasmBackend')
@@ -1214,6 +1248,9 @@ onMounted(async () => {
     if (s === 'vault') void refreshWizardDir()
   })
   void refreshWizardDir()
+}
+onMounted(() => {
+  void mountPrologue()
 })
 </script>
 
@@ -1276,6 +1313,16 @@ onMounted(async () => {
   border-radius: var(--ui-radius-md);
 }
 .sw-title { margin: 0; font-size: 15px; letter-spacing: 0.4px; }
+/* Instrument-panel eyebrow above the title (tokens: --ui-kicker-*). */
+.sw-kicker.ui-kicker-token {
+  display: block;
+  margin: 0 0 3px;
+  color: var(--ui-kicker-color, var(--ui-accent));
+  font-size: var(--ui-kicker-fs, 10px);
+  font-weight: var(--ui-kicker-weight, 700);
+  letter-spacing: var(--ui-kicker-tracking, 0.16em);
+  text-transform: var(--ui-kicker-transform, uppercase);
+}
 .sw-sub { margin: 1px 0 0; font-size: 11px; color: color-mix(in srgb, var(--ui-text) 55%, transparent); }
 .sw-icon-btn { background: none; border: none; color: color-mix(in srgb, var(--ui-text) 55%, transparent); cursor: pointer; padding: 4px; border-radius: var(--ui-radius-sm); display: inline-flex; }
 .sw-icon-btn:hover { color: var(--ui-text); }

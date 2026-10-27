@@ -11,14 +11,33 @@
 // sign-in. Provider OAuth (Google/GitHub/GitLab, Connections tab) is a
 // SEPARATE system for sync tokens — it never authenticates /api calls, so
 // the old "reconnect with OAuth" hint is gone on purpose.
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { useAppStore } from '@/stores/app'
 import { useTheme } from '@/composables/useTheme'
 import { getServerUrl } from '@/composables/useTauri'
+import { vibratePress } from '@/utils/pressFeedback'
 
 const store = useAppStore()
 const isPlasma = computed(() => useTheme().shellStyle.value === 'plasma')
+
+// ── Rejected-credential shake (the Mac-login move): a failed auth
+// shakes the card sideways — like the Mac login window — instead of
+// relying on the error text alone. One-shot: the flag resets when the
+// next attempt starts (authError cleared by the store on submit).
+const shaking = ref(false)
+let shakeTimer: ReturnType<typeof setTimeout> | null = null
+watch(() => store.authError, (err) => {
+  if (!err) return
+  shaking.value = false
+  vibratePress([10, 30, 10])
+  // Restart the animation even when the previous error text is identical.
+  requestAnimationFrame(() => {
+    shaking.value = true
+    if (shakeTimer) clearTimeout(shakeTimer)
+    shakeTimer = setTimeout(() => { shaking.value = false }, 460)
+  })
+}, { flush: 'post' })
 
 function powerRestart() {
   window.location.reload()
@@ -93,7 +112,7 @@ const serverLabel = computed(() => {
 
 <template>
   <div class="auth-gate" role="dialog" aria-modal="true" aria-labelledby="auth-gate-title">
-    <div class="auth-card">
+    <div class="auth-card" :class="{ shake: shaking }" data-testid="auth-card">
       <div class="auth-brand">
         <img class="auth-logo" src="/bhumisparsha.png" alt="Bhumisparsha" width="64" height="64" />
         <h1 id="auth-gate-title" class="auth-title">{{ heading }}</h1>
@@ -229,6 +248,22 @@ const serverLabel = computed(() => {
   box-shadow: var(--ui-shadow-menu);
   color: var(--ui-text);
   padding: 28px 24px 18px;
+}
+/* Rejected credentials: translateX 10 → -10 → 7 → -7 → 0 (460 ms). */
+.auth-card.shake {
+  animation: auth-shake 0.46s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+@keyframes auth-shake {
+  0% { transform: translateX(0); }
+  12% { transform: translateX(10px); }
+  30% { transform: translateX(-10px); }
+  50% { transform: translateX(7px); }
+  70% { transform: translateX(-7px); }
+  90% { transform: translateX(2px); }
+  100% { transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-card.shake { animation: none; }
 }
 .auth-brand {
   display: flex;

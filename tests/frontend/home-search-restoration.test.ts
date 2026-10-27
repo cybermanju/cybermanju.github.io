@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // CyberManju OS — Home search restoration regression tests.
-// Role: Keep both wide Home inputs visible and exercise explicit draft routing.
+// Role: Keep the single unified Home search-and-commands surface visible and exercise explicit draft routing.
 // Exports: Vitest suite.
 // Integrates: Vue Test Utils, HomeCommandBar and MobileLauncher source contracts.
 // Contracts: Inputs never submit a provider request or execute a shell command.
@@ -18,21 +18,21 @@ const render = () => mount(HomeCommandBar, { global: { stubs: { AppIcon: true } 
 beforeEach(() => vi.clearAllMocks())
 
 describe('restored double-width Home search and commands', () => {
-  it('renders both controls permanently, without duplicate search or query-gated commands', () => {
+  it('renders one unified search-and-commands surface, without a second search or command bar', () => {
     expect(launcher.match(/<OmniSearchPanel\b/g)).toHaveLength(1)
-    expect(launcher).toContain('<HomeCommandBar :before-open="hideNative" />')
-    expect(launcher).not.toContain('<section v-if="searchToolsOpen"')
-    expect(launcher).not.toContain('<HomeCommandBar v-if=')
-    expect(launcher).toContain('width: min(1360px, 100%)')
+    expect(launcher).toContain('<OmniSearchPanel ref="searchRef" home :before-open="hideNative" class="mla-unified-search" />')
+    // The launcher no longer mounts HomeCommandBar: the unified search surface
+    // owns draft routing, so no competing command row is allowed.
+    expect(launcher).not.toContain('<HomeCommandBar')
+    expect(launcher).toContain('aria-label="Search and commands"')
     expect(launcher).toContain(':deep(.omni-col) { position: static; width: 100%; min-width: 0; }')
     expect(barSource).not.toContain('width: min(680px, 100%)')
   })
 
   it('floats bounded results without clipping focus rings or consuming workspace height', () => {
-    expect(launcher).toContain('position: absolute; inset: 100% 0 auto;')
+    expect(launcher).toContain('position: absolute; inset: calc(100% + 6px) 0 auto;')
     expect(launcher).not.toContain('max-height: 45%; overflow: auto;')
-    expect(launcher).toContain('@focusin="activateSearchTools" @focusout="onSearchToolsBlur"')
-    expect(launcher).toContain('searchToolsOpen || !!query.trim()')
+    expect(launcher).toContain('@focusin="searchToolsOpen = true" @focusout="onSearchToolsBlur"')
     expect(launcher).not.toContain('searchToolsOpen.value = !searchToolsOpen.value')
   })
 

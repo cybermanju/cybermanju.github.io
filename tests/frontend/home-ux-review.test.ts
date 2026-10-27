@@ -40,14 +40,19 @@ describe('home and Settings UX regressions', () => {
     expect(home).toContain('padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px))')
     expect(home).not.toContain('mla-layout-free')
     expect(studio).toContain('.is-editing .workspace-content { flex: 1 0 180px; }')
-    expect(studio).toMatch(/\.studio-surface \{[^}]*overflow-y: auto/)
+    // The surface clips; the canvas inside is what scrolls.
+    expect(studio).toMatch(/\.studio-surface \{[^}]*overflow: hidden;/)
+    expect(studio).toMatch(/\.workspace-content \{[^}]*flex: 1 1 0;[^}]*overflow-y: auto/)
   })
 
   it('uses a responsive canonical grid and centers the independently pinned dock', () => {
-    expect(studio).toContain('grid-template-columns: repeat(4,minmax(0,1fr))')
+    expect(studio).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))')
     expect(studio).toMatch(/@media\(min-width:600px\)[\s\S]*grid-template-columns: repeat\(5,minmax\(0,1fr\)\)/)
     expect(home).toMatch(/\.mla-dock \{[^}]*flex-shrink: 0;[^}]*align-self: center;[^}]*max-width: 100%/)
-    expect(studio).toContain('.screen-dots button[aria-current=page]')
+    // The orb navigator owns the active-screen surface the old screen-dots
+    // row represented; the overview's eagle cards still carry aria-current.
+    expect(studio).toContain('<OrbNavigator :screen-index="activeIndex"')
+    expect(studio).toContain('aria-current')
     expect(studio).toContain(':focus-visible')
   })
 

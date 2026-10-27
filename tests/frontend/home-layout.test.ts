@@ -157,7 +157,11 @@ describe('explicit home editing', () => {
     expect(source).toContain('<HomeWorkspaceStudio')
     expect(source).toContain('env(safe-area-inset-bottom, 0px)')
     expect(source).toContain('aria-label="Favorite apps"')
-    expect(source).toContain('<HomeCommandBar')
+    // The command bar is gone from the launcher: one unified search-and-commands
+    // surface (OmniSearchPanel) owns that slot, and no competing command row.
+    expect(source).not.toContain('<HomeCommandBar')
+    expect(source).toContain('aria-label="Search and commands"')
+    expect(source.match(/<OmniSearchPanel\b/g)).toHaveLength(1)
   })
 })
 

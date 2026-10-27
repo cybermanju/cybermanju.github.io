@@ -83,6 +83,12 @@ func Failure(format string, args ...any) {
 	fmt.Fprintln(os.Stderr, Downsample(Err.Render("✗ ")+fmt.Sprintf(format, args...)))
 }
 
+// Warning prints a caution line in deep pink (stderr, so stdout stays
+// pipe-clean).
+func Warning(format string, args ...any) {
+	fmt.Fprintln(os.Stderr, Downsample(Warn.Render("⚠ ")+fmt.Sprintf(format, args...)))
+}
+
 // Info prints a dim informational line.
 func Info(format string, args ...any) {
 	fmt.Fprintln(os.Stdout, Downsample(Dim.Render("• ")+fmt.Sprintf(format, args...)))
