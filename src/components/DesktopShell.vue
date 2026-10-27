@@ -36,8 +36,7 @@
            rows stay mounted but do not paint or accept focus/input. -->
       <div
         ref="stripScrollRef"
-        v-show="!isOverview"
-        :class="{ 'desktop-strip ui-scroll': isStrip, 'desktop-workspace': !isStrip, vertical: isStrip && isVerticalStrip, 'desktop-home-editing': desktopHomeLayout.editing.value }"
+        :class="{ 'desktop-strip ui-scroll': isStrip, 'desktop-workspace': !isStrip, 'desktop-workspace--overview': isOverview, vertical: isStrip && isVerticalStrip, 'desktop-home-editing': desktopHomeLayout.editing.value }"
         @wheel="onStripWheel"
         @pointerdown.capture="desktopHomeLayout.onPointerDown"
         @click.capture="desktopHomeLayout.onClickCapture"
@@ -78,44 +77,37 @@
         <TransitionGroup name="win">
           <AppWindow
             v-for="win in wm.windows.value"
-            v-show="visibleWindowIds.has(win.id)"
+            v-show="visibleWindowIds.has(win.id) || isOverview"
             :key="win.id"
             :win="win"
             :data-shell-window-id="win.id"
-            :inert="!visibleWindowIds.has(win.id) || isOverview"
-            :aria-hidden="!visibleWindowIds.has(win.id) || isOverview ? true : undefined"
+            :inert="!visibleWindowIds.has(win.id) && !isOverview"
+            :aria-hidden="!visibleWindowIds.has(win.id) && !isOverview ? true : undefined"
             :focused="win.id === focusedWindowId"
             @close="wm.close"
             @minimize="wm.minimize"
-            @focus="wm.focus"
+            @focus="isOverview ? pickFromOverview(win.id) : wm.focus(win.id)"
             @move="wm.updatePosition"
             @resize="wm.updateSize"
           />
         </TransitionGroup>
       </div>
 
-      <!-- Overview is a separate lightweight surface, not another panel tree. -->
+      <!-- The overview keeps the real windows mounted and zooms them into a
+           selectable screen map. This layer only provides its title and exit. -->
       <section v-if="isOverview" ref="overviewRef" class="desktop-overview" role="region" aria-label="Window overview" tabindex="-1" @keydown.esc.stop.prevent="leaveOverview">
+        <svg class="overview-filter-defs" aria-hidden="true" focusable="false">
+          <filter id="overview-glass-warp" x="-8%" y="-16%" width="116%" height="132%" color-interpolation-filters="sRGB">
+            <feTurbulence type="fractalNoise" baseFrequency=".018 .032" numOctaves="2" seed="8" result="warpNoise" />
+            <feDisplacementMap in="SourceGraphic" in2="warpNoise" scale="4" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+        </svg>
         <header class="overview-toolbar">
-          <div><h2>Window overview</h2><p>{{ overviewWindows.length }} open · Select a window to resume</p></div>
+          <span class="overview-toolbar__glass" aria-hidden="true" />
+          <div><h2>All screens</h2><p>{{ overviewWindows.length }} open · Select a screen, swipe down with three fingers, or press Esc</p></div>
           <button type="button" @click="leaveOverview">Done <kbd>Esc</kbd></button>
         </header>
-        <div class="overview-grid">
-          <button
-            v-for="win in overviewWindows"
-            :key="win.id"
-            class="overview-card"
-            :class="{ minimized: win.minimized }"
-            type="button"
-            :aria-label="`${win.minimized ? 'Restore' : 'Focus'} ${win.title}, line ${win.line ?? 0}, column ${(win.column ?? 0) + 1}`"
-            @click.stop="pickFromOverview(win.id)"
-          >
-            <span class="overview-card-icon"><AppIcon :name="win.icon" :size="24" /></span>
-            <span class="overview-card-title">{{ win.title }}</span>
-            <span class="overview-card-meta">COL {{ (win.column ?? 0) + 1 }} · LINE {{ win.line ?? 0 }}{{ win.minimized ? ' · MINIMIZED' : '' }}</span>
-          </button>
-          <div v-if="overviewWindows.length === 0" class="overview-empty">No windows open. Open an app from the dock or desktop.</div>
-        </div>
+        <div v-if="overviewWindows.length === 0" class="overview-empty">No windows open. Open an app from the dock or desktop.</div>
       </section>
 
       <!-- Floating dock: absolute overlay at the bottom of the desktop
@@ -905,24 +897,67 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   bottom: var(--dock-inset, 0px);
-  z-index: 1;
+  z-index: 2147483000;
   padding: clamp(16px, 3vw, 40px);
-  overflow-y: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: hidden;
   overscroll-behavior: contain;
-  touch-action: pan-x pan-y;
-  scrollbar-gutter: stable;
-  /* A single bounded blur pass, not a live shader per app. Static ambient
-     gradients provide depth without a canvas, render loop or GPU timers. */
-  background: radial-gradient(ellipse at 10% 0%, color-mix(in srgb, var(--ui-accent) 14%, transparent), transparent 60%),
-    color-mix(in srgb, var(--ui-bg-deep) 82%, transparent);
-  backdrop-filter: blur(16px) saturate(115%);
-  -webkit-backdrop-filter: blur(16px) saturate(115%);
+  touch-action: none;
+  pointer-events: none;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
-.overview-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+.desktop-workspace--overview { overflow: hidden; }
+.overview-filter-defs { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
+.overview-toolbar {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  width: min(720px, calc(100% - 32px));
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: 16px;
+  background: transparent;
+  box-shadow: var(--ui-shadow-2);
+  pointer-events: auto;
+  animation: overview-toolbar-in 520ms cubic-bezier(.16, 1, .3, 1) both;
+}
+.overview-toolbar__glass {
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--ui-surface) 68%, transparent), color-mix(in srgb, var(--ui-accent) 14%, transparent) 42%, color-mix(in srgb, white 7%, transparent));
+  backdrop-filter: blur(18px) saturate(145%);
+  filter: url(#overview-glass-warp);
+  pointer-events: none;
+}
+.overview-toolbar > div, .overview-toolbar > button { position: relative; z-index: 1; }
 .overview-toolbar h2 { margin: 0; color: var(--ui-text); font-size: clamp(18px, 2vw, 26px); }
-.overview-toolbar p { margin: 6px 0 0; color: var(--ui-text-2); font-size: 13px; }
+.overview-toolbar p { margin: 4px 0 0; color: var(--ui-text-2); font-size: 13px; }
 .overview-toolbar button { min-height: 44px; padding: 8px 16px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-full); background: var(--ui-surface); color: var(--ui-text); cursor: pointer; }
 .overview-toolbar kbd { margin-left: 8px; font-size: 11px; color: var(--ui-text-2); }
+.overview-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--ui-text-2);
+  font-size: 14px;
+  text-align: center;
+  padding: 24px;
+}
+@keyframes overview-toolbar-in {
+  from { opacity: 0; transform: translateY(-12px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .overview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); align-items: start; gap: 16px; }
 .overview-card:focus-visible, .overview-toolbar button:focus-visible { outline: 3px solid var(--ui-accent); outline-offset: 4px; }
 .desktop-overview::-webkit-scrollbar {
@@ -971,17 +1006,19 @@ onUnmounted(() => {
 .overview-empty { grid-column: 1 / -1; text-align: center; color: color-mix(in srgb, var(--ui-text) 50%, transparent); font-size: 12px; padding: 40px; }
 @media (prefers-reduced-motion: reduce) {
   .desktop-strip { scroll-behavior: auto; }
+  .desktop-overview .overview-toolbar { animation: none; }
+  .overview-toolbar__glass { filter: none; }
   .overview-card { animation: none; transition: none; }
   .overview-card:hover { transform: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .desktop-overview { background: var(--ui-bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .desktop-overview { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 @supports not (backdrop-filter: blur(1px)) {
-  .desktop-overview { background: var(--ui-bg); }
+  .desktop-overview { background: transparent; }
 }
 @media (forced-colors: active) {
-  .desktop-overview { background: Canvas; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .desktop-overview { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
   .overview-card { background: Canvas; color: CanvasText; border: 1px solid ButtonText; box-shadow: none; }
   .overview-card.minimized { opacity: 1; }
 }

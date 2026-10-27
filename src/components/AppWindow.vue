@@ -12,6 +12,7 @@
       focused: isFocused,
       blurred: !isFocused,
       maximized: isMaximized,
+      'app-window--overview': isOverview,
       'app-window--narrow': isNarrow,
       'app-window--managed-content': win.panelType === 'terminal' || win.panelType === 'editor',
       'app-window--mobile-native': isMobileApp && ['settings', 'storage', 'disks', 'accounts', 'providers'].includes(String(win.panelType)),
@@ -19,7 +20,12 @@
       'app-window--flat-amoled': isFlatAmoled,
     }"
     :style="windowStyle"
+    :role="isOverview ? 'button' : undefined"
+    :tabindex="isOverview ? 0 : undefined"
+    :aria-label="isOverview ? `${win.title}${win.minimized ? ', minimized' : ''} screen` : undefined"
     @pointerdown="onFocus"
+    @keydown.enter.stop.prevent="isOverview && onFocus()"
+    @keydown.space.stop.prevent="isOverview && onFocus()"
   >
     <div
       class="window-titlebar"
@@ -72,7 +78,7 @@
       </template>
     </div>
 
-    <div class="window-content" ref="contentRef">
+    <div class="window-content" ref="contentRef" :inert="isOverview" :aria-hidden="isOverview ? 'true' : undefined">
       <div v-if="panelError" class="panel-async-state is-error">
         <p class="panel-async-title">This window crashed</p>
         <p class="panel-async-msg">{{ panelError }}</p>
@@ -129,6 +135,7 @@ const isPlasma = computed(() => !isMobileApp.value && theme.shellStyle.value ===
 const isModernGlass = computed(() => theme.themeId.value === 'modern-glass')
 const isFlatAmoled = computed(() => theme.themeId.value === 'flat-amoled')
 const wmShell = useWindowManager()
+const isOverview = computed(() => wmShell.shellLayoutMode.value === 'overview')
 const ctx = useContextMenu()
 const isMaximized = ref(false)
 /** Plasma "always on top" pin — renders above tiled siblings. */
@@ -183,6 +190,41 @@ onErrorCaptured((err) => {
 const windowStyle = computed(() => {
   // Plasma pin: stay above tiled siblings without touching manager order.
   const z = pinned.value ? 9999 : props.win.zIndex
+  if (isOverview.value) {
+    const windows = wmShell.windows.value
+    const index = Math.max(0, windows.findIndex((window) => window.id === props.win.id))
+    const workspace = document.querySelector('.desktop-workspace') as HTMLElement | null
+    const width = workspace?.clientWidth || window.innerWidth
+    const height = workspace?.clientHeight || window.innerHeight
+    const count = Math.max(windows.length, 1)
+    const columns = Math.max(1, Math.ceil(Math.sqrt(count * (width / Math.max(height, 1)))))
+    const rows = Math.ceil(count / columns)
+    const margin = 24
+    const topInset = 76
+    const bottomInset = 24
+    const usableWidth = Math.max(width - margin * 2, 1)
+    const usableHeight = Math.max(height - topInset - bottomInset, 1)
+    const cellWidth = usableWidth / columns
+    const cellHeight = usableHeight / rows
+    const windowWidth = Math.max(props.win.width, 1)
+    const windowHeight = Math.max(props.win.height, 1)
+    const scale = Math.min((cellWidth - 24) / windowWidth, (cellHeight - 28) / windowHeight, 0.72)
+    const col = index % columns
+    const row = Math.floor(index / columns)
+    const targetX = margin + col * cellWidth + (cellWidth - windowWidth * scale) / 2
+    const targetY = topInset + row * cellHeight + (cellHeight - windowHeight * scale) / 2
+    return {
+      left: `${props.win.x}px`,
+      top: `${props.win.y}px`,
+      width: `${windowWidth}px`,
+      height: `${windowHeight}px`,
+      zIndex: index + 1,
+      // Keep geometry fixed and animate only transform. This gives each
+      // window one compositor-friendly FLIP transition instead of relaying
+      // out the entire workspace on every animation frame.
+      transform: `translate3d(${targetX - props.win.x}px, ${targetY - props.win.y}px, 0) scale(${Math.max(scale, 0.08)})`,
+    }
+  }
   if (props.win.minimized) {
     return { display: 'none' }
   }
@@ -260,7 +302,7 @@ function stageResize(w: number, h: number) {
 }
 
 function startDrag(e: PointerEvent) {
-  if (isMaximized.value || isMobileApp.value) return
+  if (isMaximized.value || isMobileApp.value || isOverview.value) return
   dragging = true
   dragPointerId = e.pointerId
   dragStartX = e.clientX
@@ -503,12 +545,54 @@ onUnmounted(() => {
      The titlebar strip is the only translucent part, so it does the blur. */
   box-shadow: var(--ui-shadow-window);
   transition:
+    transform 720ms cubic-bezier(.16, 1.12, .3, 1),
     box-shadow var(--ui-dur) ease-out,
     border-color var(--ui-dur) ease-out,
     background-color var(--ui-dur) ease-out;
   min-width: 320px;
   min-height: 240px;
   will-change: left, top, width, height;
+}
+
+.app-window--overview {
+  border-radius: 12px;
+  pointer-events: auto !important;
+  cursor: pointer;
+  transform-origin: top left;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transition:
+    transform 720ms cubic-bezier(.16, 1.12, .3, 1),
+    box-shadow 300ms ease,
+    border-color 300ms ease;
+  will-change: transform;
+}
+
+.app-window--overview .window-content,
+.app-window--overview .resize-handle {
+  pointer-events: none !important;
+}
+
+.app-window--overview .window-titlebar {
+  pointer-events: none;
+}
+
+.app-window--overview:hover {
+  border-color: var(--ui-accent);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .32), 0 0 0 2px color-mix(in srgb, var(--ui-accent) 60%, transparent);
+}
+
+.app-window--overview.minimized {
+  pointer-events: auto !important;
+  opacity: .66;
+  border-style: dashed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-window, .app-window--overview {
+    transition-duration: 1ms !important;
+    will-change: auto;
+  }
 }
 
 .app-window.focused {

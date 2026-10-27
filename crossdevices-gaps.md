@@ -41,12 +41,22 @@ not replicate `FileNode` state, file contents, settings, layouts, or agent
 transcripts. A visible unsigned-op count is a local backlog estimate, not a
 remote acknowledgement count.
 
+Provider storage is a separate path: configured backend sync moves file
+artifacts and provider catalogs can rebuild sync manifests after local DB loss.
+Catalog snapshots are not a merge protocol for concurrent devices. Recovery
+now follows `catalog/latest.json` to the immutable catalog object and checks
+that its BLAKE3-derived object path matches the downloaded document. If the
+pointer is missing or invalid, listing old immutable objects is a best-effort
+fallback and may return an older snapshot.
+
 ## Audit findings
 
 - [x] Transport foundation exists: Tauri IPC, REST, and WASM have separate
   dispatch paths and platform-specific `unsupported:` behavior.
 - [x] Provider-backed file sync exists; secrets are stored separately and
   files are encrypted before remote upload.
+- [x] Provider catalog fetch follows the stable latest pointer and validates
+  the fetched object's content-addressed path before rebuilding manifests.
 - [x] Device identity, ML-DSA signing, owner-bound peer endpoints, LAN discovery,
   presence, relay mailbox, federated search, and bounded sneakernet bundles
   exist as infrastructure.
@@ -122,6 +132,10 @@ remote acknowledgement count.
   file paths and imports now atomically journal the DB state; browser stars are
   profile-local, grouping/todo rows remain best-effort, and WASM has no signed
   peer journal. Additional direct mutation paths and cross-target parity are open.
+- [ ] Make provider catalogs concurrency-safe across devices. The current
+  immutable snapshots plus mutable `latest.json` pointer support recovery, but
+  last-writer-wins pointer updates can hide another device's metadata snapshot.
+  Use generation/CAS or append-only device snapshots with an explicit merge.
 
 ## Research and design direction
 

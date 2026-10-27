@@ -261,7 +261,10 @@ export function createSwipeMachine(options: SwipeOptions = {}) {
   }
 
   function emitDirection(count: number, direction: SwipeDirection, distance: number) {
-    if (edgeAtStart !== 'none') {
+    // Edge navigation is a one-finger gesture. Let three fingers starting
+    // at the bottom edge reach the overview action without also firing the
+    // single-finger edge action (for example, toggling the sidebar).
+    if (count === 1 && edgeAtStart !== 'none') {
       options.onEdgeSwipe?.({ direction, edge: edgeAtStart, distance })
     }
     switch (count) {

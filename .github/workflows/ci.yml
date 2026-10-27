@@ -340,7 +340,10 @@ jobs:
         run: npx vue-tsc --noEmit
 
       - name: Frontend unit tests
-        run: npm test
+        # Bound this suite on hosted runners: a stuck test/hook must fail the
+        # check promptly instead of consuming the runner's multi-hour limit.
+        timeout-minutes: 20
+        run: npm test -- --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000
 
       # Keep the freshly built pkg in place so the vite step's alias to
       # crates/os-wasm/pkg resolves to the wasm backend (integrated

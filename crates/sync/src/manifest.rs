@@ -35,6 +35,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use cybermanju_compression::TripleCompressor;
 use cybermanju_crypto::keystore;
@@ -472,6 +473,8 @@ pub const CHUNKS_DIR: &str = "cybermanju_sync/chunks";
 /// Catalog document format version.
 pub const CATALOG_VERSION: u32 = 1;
 
+static CATALOG_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
 /// The self-describing catalog: every `sync_files` row (which carries its
 /// chunk manifest), written to providers so the pool survives losing the
 /// local redb file — or the whole laptop.
@@ -620,11 +623,11 @@ pub struct CatalogFetch {
     pub failures: Vec<String>,
 }
 
-/// Pull the newest catalog from the first provider that answers: the stable
-/// pointer first, then any content-addressed object in the directory.
+/// Pull the catalog from the first provider that answers. The stable pointer
+/// names the immutable content-addressed document; directory listing is a
+/// last-resort fallback and cannot guarantee the newest snapshot.
 pub fn fetch_catalog(configs: &[SyncConfig]) -> Result<CatalogFetch, String> {
     let mut failures = Vec::new();
-    let mut tmp_counter = 0u64;
 
     for config in configs.iter().filter(|c| c.enabled) {
         let backend = match create_backend(config) {
@@ -635,7 +638,39 @@ pub fn fetch_catalog(configs: &[SyncConfig]) -> Result<CatalogFetch, String> {
             }
         };
 
-        let mut candidates: Vec<String> = vec![CATALOG_POINTER.to_string()];
+        let mut candidates = Vec::new();
+        let pointer_sequence = CATALOG_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let pointer_tmp = std::env::temp_dir().join(format!(
+            "cybermanju-catalog-pointer-{}-{}",
+            std::process::id(),
+            pointer_sequence
+        ));
+        let pointer_path = pointer_tmp.to_string_lossy().to_string();
+        match backend.download_file(CATALOG_POINTER, &pointer_path) {
+            Ok(()) => match fs::read_to_string(&pointer_tmp) {
+                Ok(pointer) => {
+                    let path = pointer.trim();
+                    if valid_catalog_object_path(path) {
+                        candidates.push(path.to_string());
+                    } else {
+                        failures.push(format!(
+                            "{}: catalog pointer contains an invalid object path",
+                            config.id
+                        ));
+                    }
+                }
+                Err(e) => failures.push(format!(
+                    "{}: cannot read catalog pointer: {}",
+                    config.id, e
+                )),
+            },
+            Err(e) => failures.push(format!(
+                "{}: could not read catalog pointer: {}",
+                config.id, e
+            )),
+        }
+        let _ = fs::remove_file(&pointer_tmp);
+
         match backend.list_files(CATALOG_DIR) {
             Ok(files) => {
                 let mut paths: Vec<String> = files
@@ -644,7 +679,11 @@ pub fn fetch_catalog(configs: &[SyncConfig]) -> Result<CatalogFetch, String> {
                     .filter(|p| p.ends_with(".json"))
                     .collect();
                 paths.sort();
-                candidates.extend(paths);
+                for path in paths.into_iter().rev() {
+                    if valid_catalog_object_path(&path) && !candidates.contains(&path) {
+                        candidates.push(path);
+                    }
+                }
             }
             Err(e) => failures.push(format!(
                 "{}: could not list {}: {}",
@@ -653,12 +692,11 @@ pub fn fetch_catalog(configs: &[SyncConfig]) -> Result<CatalogFetch, String> {
         }
 
         for remote in candidates {
-            tmp_counter += 1;
+            let fetch_sequence = CATALOG_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
             let tmp = std::env::temp_dir().join(format!(
-                "cybermanju-catalog-fetch-{}-{}-{}.part",
+                "cybermanju-catalog-fetch-{}-{}.part",
                 std::process::id(),
-                config.id,
-                tmp_counter
+                fetch_sequence
             ));
             let tmp_str = tmp.to_string_lossy().to_string();
             let attempt = backend
@@ -667,7 +705,12 @@ pub fn fetch_catalog(configs: &[SyncConfig]) -> Result<CatalogFetch, String> {
             let _ = fs::remove_file(&tmp);
             match attempt {
                 Ok(bytes) => match CatalogDoc::from_bytes(&bytes) {
-                    Ok(doc) => {
+                    Ok(doc)
+                        if doc
+                            .object_path()
+                            .map(|path| path == remote)
+                            .unwrap_or(false) =>
+                    {
                         return Ok(CatalogFetch {
                             doc,
                             provider: config.id.clone(),
@@ -675,6 +718,10 @@ pub fn fetch_catalog(configs: &[SyncConfig]) -> Result<CatalogFetch, String> {
                             failures,
                         })
                     }
+                    Ok(_) => failures.push(format!(
+                        "{}: {}: catalog content hash does not match its object path",
+                        config.id, remote
+                    )),
                     Err(e) => failures.push(format!("{}: {}: {}", config.id, remote, e)),
                 },
                 Err(e) => failures.push(format!("{}: {}: {}", config.id, remote, e)),
@@ -690,6 +737,18 @@ pub fn fetch_catalog(configs: &[SyncConfig]) -> Result<CatalogFetch, String> {
             failures.join("; ")
         }
     ))
+}
+
+/// Accept only immutable catalog objects in our namespace. Never let a
+/// provider-controlled pointer turn recovery into an arbitrary-path read.
+fn valid_catalog_object_path(path: &str) -> bool {
+    let Some(name) = path.strip_prefix(CATALOG_DIR) else {
+        return false;
+    };
+    let Some(hash) = name.strip_suffix(".json") else {
+        return false;
+    };
+    hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 /// The catalog rebuilt from providers: documents fetched, manifests

@@ -2649,3 +2649,16 @@ Only normalized position offsets are saved to device-local `cybermanju.ui.layout
 - Search and home animations now follow the app's motion setting on Android;
   a system reduced-motion preference no longer overrides a user's full-motion
   choice. Search and drawer edge swipes no longer also page the home workspace.
+## 2026-10-27 — Provider recovery pointer and replication status
+
+- Fixed provider catalog recovery: `catalog/latest.json` is now read as a
+  pointer, validated to stay in the immutable catalog namespace, followed to
+  its object, and checked against the object's BLAKE3-derived path. Directory
+  listing remains a best-effort fallback and is documented as unable to
+  guarantee the newest snapshot.
+- Refreshed `ANALYSIS.md` to distinguish provider file sync, catalog recovery,
+  and signed peer operation exchange. Corrected historical completion wording
+  that implied operation proof was equivalent to file-state/content replication.
+- Updated `crossdevices-gaps.md` with the catalog fix and the remaining
+  concurrent-writer limitation. Static review and `git diff --check` only;
+  Rust validation was not run locally per `AGENTS.md`.

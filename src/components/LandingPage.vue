@@ -133,7 +133,7 @@ function runPost() {
   moduleLines.value = []
   postDone.value = false
   const postLines = [
-    'CyberManju Systems POST v0.0.1',
+    'CyberManju Systems POST v0.1.0',
     'CPU: Quantum Co-Processor @ 2.4 GHz [PASS]',
     'CRYPTO: ML-KEM-1024 Accelerator [PASS]',
     'MEM: 16 GUARD ChaCha20 Zones [PASS]',
@@ -281,7 +281,7 @@ onUnmounted(() => {
         <div class="boot-report" role="status" aria-label="Module load report">
           <div class="report-brand"><img src="/bhumisparsha.png" alt="Bhumisparsha School" width="72" height="72" /></div>
           <div class="report-head">
-            <span class="report-title">CYBERMANJU OS v0.0.1 — ALL MODULES LOADED</span>
+            <span class="report-title">CyberManju OS is ready</span>
             <span class="report-counts">{{ moduleLines.filter(m => m.ok).length }}/{{ moduleLines.length }} OK</span>
           </div>
           <div class="report-quote">{{ currentQuote }}</div>
@@ -292,7 +292,7 @@ onUnmounted(() => {
               <span class="report-flag"><AppIcon :name="m.ok ? 'solar:check-circle-bold' : 'solar:danger-triangle-bold'" :size="13" /></span>
             </div>
           </div>
-          <div class="report-hint">INTERACTIVE SHELL LIVES IN CYBSH — DOCK &gt; TERMINAL, OR CTRL+`</div>
+          <div class="report-hint">Open Terminal from the dock, or press Ctrl+` to start using the shell.</div>
         </div>
 
         <div class="launch-hint">
@@ -433,7 +433,8 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 24px;
+  gap: 16px;
+  padding: 24px 20px 34px;
 }
 
 .ascii-background {
@@ -450,7 +451,7 @@ onUnmounted(() => {
   text-align: center;
   font-size: 11px;
   line-height: 1.15;
-  color: var(--ui-text-3);
+  color: color-mix(in srgb, var(--ui-accent) 17%, transparent);
   letter-spacing: 0;
   user-select: none;
   /* Same pulse the old 50 ms JS timer wrote by hand (sin(t/800)*0.3+0.6,
@@ -493,15 +494,15 @@ onUnmounted(() => {
 .boot-report {
   position: relative;
   z-index: 2;
-  width: 92vw;
-  max-width: 560px;
-  max-height: 46vh;
+  width: min(92vw, 620px);
+  max-height: min(56vh, 560px);
   overflow-y: auto;
   background: var(--ui-surface);
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-lg);
-  padding: 20px 22px;
+  border-radius: 18px;
+  padding: 22px 24px;
   box-shadow: var(--ui-shadow-menu);
+  backdrop-filter: blur(18px);
 }
 
 .report-brand {
@@ -529,12 +530,8 @@ onUnmounted(() => {
   color: var(--ui-text);
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0;
-  text-transform: lowercase;
-}
-
-.report-title::first-letter {
-  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  font-size: 15px;
 }
 
 .report-counts {
@@ -554,7 +551,9 @@ onUnmounted(() => {
 .report-grid {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 3px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ui-separator);
 }
 
 .report-row {
@@ -562,18 +561,21 @@ onUnmounted(() => {
   gap: 10px;
   align-items: baseline;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.5;
+  min-height: 25px;
+  padding: 3px 7px;
+  border-radius: 6px;
+}
+
+.report-row:nth-child(even) {
+  background: color-mix(in srgb, var(--ui-text) 3%, transparent);
 }
 
 .report-name {
   color: var(--ui-text);
   font-weight: 600;
   min-width: 92px;
-  text-transform: lowercase;
-}
-
-.report-name::first-letter {
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .report-detail {
@@ -602,11 +604,9 @@ onUnmounted(() => {
   margin-top: 10px;
   color: var(--ui-text-3);
   font-size: 11px;
-  text-transform: lowercase;
-}
-
-.report-hint::first-letter {
-  text-transform: uppercase;
+  line-height: 1.45;
+  padding-top: 10px;
+  border-top: 1px solid var(--ui-separator);
 }
 
 /* ── Launch Buttons ── */
@@ -620,13 +620,14 @@ onUnmounted(() => {
 .launch-button {
   background: var(--ui-accent);
   border: 1px solid transparent;
-  border-radius: var(--ui-radius-sm);
+  border-radius: 9px;
   color: var(--ui-on-accent);
   font-family: var(--ui-font);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   min-height: var(--ui-control-h);
-  padding: 0 20px;
+  padding: 0 22px;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-accent) 24%, transparent);
   cursor: pointer;
   transition: background-color var(--ui-dur-fast) ease-out;
 }
@@ -638,7 +639,7 @@ onUnmounted(() => {
 .reboot-button {
   background: var(--ui-surface-2);
   border: 1px solid var(--ui-border-strong);
-  border-radius: var(--ui-radius-sm);
+  border-radius: 9px;
   color: var(--ui-text);
   font-family: var(--ui-font);
   font-size: 13px;
@@ -657,7 +658,7 @@ onUnmounted(() => {
 .legal-hint {
   position: relative;
   z-index: 2;
-  margin-top: 14px;
+  margin-top: 2px;
   display: flex;
   gap: 10px;
   justify-content: center;
@@ -675,6 +676,13 @@ onUnmounted(() => {
   text-decoration: underline;
 }
 
+.launch-button:focus-visible,
+.reboot-button:focus-visible,
+.legal-hint a:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 3px;
+}
+
 @media (max-width: 768px) {
   .boot-terminal {
     padding: 16px;
@@ -684,18 +692,51 @@ onUnmounted(() => {
     font-size: 11px;
   }
   .boot-report {
-    padding: 12px 14px;
-    width: 96vw;
+    padding: 16px;
+    width: min(94vw, 620px);
+    max-height: 52vh;
   }
   .report-row {
-    font-size: 10px;
+    font-size: 12px;
   }
   .ascii-buddha {
     font-size: 8px;
   }
   .launch-button, .reboot-button {
-    font-size: 10px;
-    padding: 8px 16px;
+    font-size: 13px;
+    min-height: 44px;
+    padding: 8px 18px;
   }
+  .desktop-landing {
+    gap: 12px;
+    padding: 16px 12px 26px;
+  }
+  .report-head {
+    align-items: flex-start;
+  }
+  .report-title {
+    font-size: 14px;
+  }
+  .report-name {
+    min-width: 72px;
+  }
+  .report-detail {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .legal-hint {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-height: 700px) {
+  .boot-report { max-height: 45vh; padding-block: 14px; }
+  .report-brand { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ascii-buddha, .particle { animation: none; }
+  .launch-button, .reboot-button { transition: none; }
 }
 </style>

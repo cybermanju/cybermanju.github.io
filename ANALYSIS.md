@@ -1,6 +1,6 @@
 # ANALYSIS.md — CyberManju OS: what could be different, improved, new
 
-> **Current status (2026-10-20; supersedes all dated status snapshots and
+> **Current status (2026-10-27; supersedes all dated status snapshots and
 > checkmarks below):** code-tree inspection only, not CI or security sign-off.
 > The old blanket “100% resolved” / all-P0-closed wording is withdrawn; the
 > P0 aggregate closure is reopened while security fixes are in progress, and
@@ -15,6 +15,13 @@
 > are implemented, but the remaining gaps are listed in `TASKS.md`. Treat the
 > historical dates and status claims that follow as archive, not current
 > completion evidence. See `PLAN.md` for outstanding product decisions.
+
+> Storage follow-up (2026-10-27): provider catalogs are the recovery source
+> for sync manifests, not a general cross-device database. Catalog fetch now
+> follows the stable pointer to its content-addressed object and verifies the
+> object's BLAKE3-derived path. Cross-device signed batches still prove and
+> retain operation history; they do not apply file state or transfer ordinary
+> file contents. See `crossdevices-gaps.md` for the implementation boundary.
 
 > Thought-piece / ideation doc — not a commitment or a task tracker (that's
 > `TASKS.md`). Written from a full pass over the tree on 2026-10-09 (v0.1.1):
@@ -279,46 +286,36 @@ chunk manifests, ML-DSA for signatures). Incremental path, cheapest first:
    `iroh-webrtc-transport` (iroh QUIC over WebRTC datachannel, droppable)
    is the direct browser↔native path once `iroh` lands.
 
-### C. Ship the op-log (P3-2) — ✅ landed 2026-10-11 (foundation + wiring + resolver)
+### C. Storage and replication — implementation boundary (refreshed 2026-10-27)
 
-Every mutation appends an op (`OpRow`: seq/op_id/device/kind/file/payload/
-bases); `oplog` table with atomic seq (`oplog:next_seq` advances in the same
-txn), `since`-paged pull, idempotent push (`merge_ops`), fork-pair conflict
-scan (`op_conflicts` via vector dominance) + `GET/POST /api/oplog/*` +
-`spine.rs` + `database.rs` unit tests. Mutation-site wiring landed with it:
-`Database::record_mutation_op` (best-effort, never breaks the mutation)
-called from every file op (`create`/`delete`/`rename`/`create`/`move`/`tag`/
-`group`/`edit` in `api/files.rs`, shared by Tauri IPC + REST),
-`collection` (`api/collections.rs`), `todo` (`db.save_todo/remove_todo` —
-the chokepoint Tauri twins + agent tools share), `face-rename` (Tauri
-face commands); resolution appends a `resolve` verdict via
-`POST /api/oplog/resolve` (history never deleted) + Sync → CONFLICTS
-resolver UI (`src/utils/oplog.ts`, keep-first/keep-second/merge, tested) +
-`oplog plan|conflicts|resolve` cybsh verb. It fixes, today: offline
-queue-and-replay (push buffered rows on reconnect), conflict UI data (pairs
-render in the resolver), cross-device deltas (pull `since`, don't rescan).
-The triple-writer volume race (`P1-16`) — frontend half ✅ landed 2026-10-12
-(`src/utils/volumeCaps.ts`: shared 1 MiB cap, `STATIC_WRITE_LIMIT` re-export,
-Rust `MAX_WRITE_BYTES` pinned by static read; `src/utils/volumeWriteQueue.ts`:
-FIFO single-writer queue with generations, `too_large:` gate, chain survival;
-`volume-caps` + `volume-queue` tests): the browser-side racer is serialized
-today; the Rust single-opener design stays sequenced (not more log call sites).
+The repository has three distinct storage/sync mechanisms. They solve
+different problems and must not be described as one complete replication
+system:
 
-Every mutation appends an op (create/edit/move/tag/star/face-rename/…);
-devices exchange ops using the vectors you already model. One change fixes:
+1. **Provider sync** (`crates/sync/src/pipeline.rs`) uploads encrypted or
+   plaintext file artifacts through configured Local, GitHub, GitLab, and
+   Google Drive backends. Multi-provider placement can stripe/replicate chunks.
+   Its manifest rows live in local redb; the remote catalog is a rebuild
+   snapshot for recovery, not a concurrent metadata merge protocol.
+2. **Provider catalog recovery** (`crates/sync/src/manifest.rs` and
+   `crates/sync/src/repair.rs`) writes immutable content-addressed snapshots
+   plus `catalog/latest.json` to enabled providers. Fetch now follows that
+   pointer, restricts it to the catalog object namespace, and verifies the
+   object path against the document hash. Concurrent writers can still replace
+   the pointer with different snapshots; catalog merge/CAS is open work.
+3. **Peer operation exchange** (`crossdevices-gaps.md`) authenticates and
+   retains signed operation batches with per-peer cursors. It does not yet
+   deterministically apply remote operations to file rows, transfer normal
+   file bytes, or make all frontend/profile state portable. The bounded bundle
+   route is a separate offline path.
 
-- offline queue-and-replay (P3-3) ✅ (push buffered rows on reconnect),
-- the triple-writer volume race (`P1-16` — whole-blob JSON vs Rust vs mirror) ✅ frontend half (single-writer queue + shared cap; Rust single-opener sequenced),
-- conflict UI ✅ (Sync → CONFLICTS resolver + `POST /api/oplog/resolve`; data via `GET /api/oplog/conflicts`),
-- cross-device latency ✅ (pull `since`, don't rescan files).
-
-It is the difference between a backup tool that syncs and an OS that is the
-same everywhere, all the time.
-The single-opener half ✅ landed 2026-10-12 (`OpenerLock` in `crates/db`:
-`<db>.lock` create_new guard, second opener fails closed with `conflict:`,
-stale-PID reap on Linux, release-on-drop, `opener_lock_path` accessor +
-regression test) — desktop XOR Docker on the same `/data` can no longer
-split-brain silently; cross-opener sync rides op-log/LAN/bundle.
+Consequently, an op-log row is not proof that a mutation has reached another
+device, and a provider upload is not proof that another device can reconstruct
+the local database. Keep each layer's completion and failure status visible.
+The next storage work is deterministic, conflict-preserving metadata replay;
+verified resumable encrypted content transfer with provider fallback; then
+catalog concurrency control and explicit selected-state portability. Browser
+OPFS remains origin/profile-local, and browser signing is not enabled.
 
 ---
 
@@ -492,42 +489,46 @@ stays a CI-side follow-up (needs both toolchains in one job) | ~~One test bootin
 
 ## 6. Suggested sequencing
 
-**Five phases (each independently shippable) — status 2026-10-12 (close-out part 2):**
+**Five phases (historical plan; not a completion report):**
 
-1. **Stop the silent drift** ✅ — parity guard (AGENT-1 matrix + REST
+1. **Stop the silent drift** — parity guard (AGENT-1 matrix + REST
    invariants + transport-routes pins + spine shape sweep + exhaustive
    frontend pins + full static sweep 2026-10-12 with the `faces` drift fix +
    CI meta-check gate; only live-boot shape equality stays a CI follow-up) +
-   the P0 auth cluster (all landed: `P0-1`–`P0-24` incl. `P0-22` single-opener
-   + body cap + frontend pins) + stale-count/doc fixes ✅.
-2. **Make everything compound** ✅ — scheduler ✅ + notification center ✅
-   + scheduled backup ✅ + watchers ✅ + skills (+panels) ✅.
-3. **Make "decentralized" honest** ✅ — device identity ✅ →
+   the P0 auth cluster (prior implementation claims; aggregate review remains
+   open in `TASKS.md`) + stale-count/doc fixes.
+2. **Make everything compound** — scheduler, notification center, scheduled
+   backup, watchers, and skills are substantially implemented; this is not a
+   lifecycle or security verification claim.
+3. **Make "decentralized" honest** — device identity →
    LAN discovery ✅ → direct-sync protocol ✅ → CAS leases ✅ →
    sneakernet ✅ (+ TLS ✅); relay-over-HTTPS ✅ (dial plans, mailbox,
    presence, attested sync, payloads) + RS-coded swarming ✅ + pairing
-   codes ✅ + relay rooms ✅; sequenced with named owners: QUIC datagrams
-   (`iroh` selected, item 6), GB-scale fountain codes (`raptorq`, item 7),
-   PAKE codes (item 8), Trystero strategy (item 9).
-4. **Daily-driver depth** ✅ — secrets (+CSV) ✅ + notes (+auto-index) ✅
-   + timeline/contacts/tasks/bookmarks/datasets ✅ + i18n foundation ✅
-   + rotation checklist ✅.
-5. **The architecture leap** ✅ — op-log + mutation wiring +
-   queue-and-replay + conflict data + resolver UI ✅; volume single-writer
-   frontend half ✅ (`volumeCaps` + `volumeWriteQueue`) + Rust single-opener
-   ✅ (`OpenerLock`); iOS build path ✅ (simulator CI + signing scripts);
-   remaining sequences need Apple secrets, a QUIC dependency + networked CI,
-   or both toolchains in one CI job — none is implementable blind per repo rules.
+   sneakernet + HTTPS relay and presence are infrastructure; QUIC data
+   transport is not shipped. Signed peer exchange retains proof but does not
+   replicate file state or ordinary file contents. Provider catalog snapshots
+   aid recovery but do not merge concurrent writers.
+4. **Daily-driver depth** — secrets, notes, timeline/contacts/tasks/bookmarks,
+   datasets, i18n foundation, and rotation guidance have implementation in the
+   tree; their presence is not a verification claim.
+5. **The architecture leap** — operation history, conflict display, browser
+   volume serialization, and single-database opener protection exist in
+   different scopes. Full local-first replication remains open: complete
+   mutation coverage, deterministic replay, content transfer, catalog
+   concurrency, and selected-state policy.
 
 **Smallest high-value "next 5 PRs" cut (if you want immediate motion):**
 
-1. Parity test booting real `crates/web` (every `REST_ROUTES` path + shape +
-   AGENT-1 matrix).
-2. Scheduler (`jobs` table + tick + `cron` verbs) — unblocks backup, digests,
-   watchers.
-3. Secrets panel (keystore reuse + CSV import).
-4. LAN device discovery + direct sync (or, smaller: real CAS leases).
-5. Dead-code removal + README/AGENTS count fixes (prose-only push, skips CI).
+1. Deterministic, owner-scoped reducers for verified signed metadata, with
+   conflict preservation and atomic file/index updates.
+2. Content-addressed encrypted chunks with resume, integrity verification,
+   and provider fallback for enrolled peers.
+3. Merge-safe provider catalogs so concurrent devices cannot silently replace
+   recovery metadata.
+4. Complete mutation coverage across Tauri, REST, and WASM, or expose a clear
+   local-only capability for each unsupported operation.
+5. Validate cross-device behavior across supported platforms; keep browser
+   profile state and device-only secrets outside implicit replication.
 
 ---
 

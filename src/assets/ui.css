@@ -766,3 +766,43 @@ body.cybermanju-offline .server-only {
     --ui-border-strong: var(--ui-text) !important;
   }
 }
+
+/* Shared interaction refinements used across every hosted panel. */
+:root { --ui-focus-ring: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 30%, transparent); }
+.app-window {
+  border-radius: var(--ui-radius-xl, 12px);
+  border-color: color-mix(in srgb, var(--ui-border) 88%, var(--ui-text) 12%);
+  box-shadow: 0 18px 56px rgba(0, 0, 0, .22), 0 2px 8px rgba(0, 0, 0, .12);
+  overflow: hidden;
+}
+.window-titlebar { min-height: 42px; border-bottom: 1px solid var(--ui-separator); }
+.window-content { scrollbar-gutter: stable; }
+.ui-btn.ui-btn--primary, .bw-btn.bw-btn-inverse {
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .14), inset 0 1px 0 rgba(255, 255, 255, .14);
+}
+.ui-btn.ui-btn--primary:hover:not(:disabled), .bw-btn.bw-btn-inverse:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+.ui-btn.ui-btn--secondary, .ui-btn.ui-btn--outline, .bw-btn { border-color: var(--ui-border-strong); }
+.ui-btn:focus-visible, .bw-btn:focus-visible, .bw-input:focus-visible,
+input:focus-visible, textarea:focus-visible, select:focus-visible,
+[role='button']:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+.ui-card { background: color-mix(in srgb, var(--ui-surface) 92%, var(--ui-surface-2)); border-color: var(--ui-border); }
+.ui-card.ui-card--interactive:hover { transform: translateY(-1px); background: var(--ui-surface-2); }
+.ui-card__header, .ui-section__header { min-height: 44px; }
+.ui-scroll, .window-content, .ui-modal__body {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ui-text-3) 48%, transparent) transparent;
+}
+@media (max-width: 768px) {
+  .ui-btn.ui-btn--md, .bw-btn { min-height: 42px; }
+  .ui-btn.ui-btn--sm { min-height: 36px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ui-btn, .bw-btn, .ui-card--interactive, .ui-list-row { transition-duration: 160ms; }
+}
