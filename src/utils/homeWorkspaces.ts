@@ -154,7 +154,9 @@ export function classifyHomeGesture(dx: number, dy: number, fingers: number): 'o
   if (fingers === 1) {
     const absX = Math.abs(dx)
     const absY = Math.abs(dy)
-    if (Math.max(absX, absY) < 64 || Math.max(absX, absY) < Math.min(absX, absY) * 1.25) return null
+    // Every cardinal or diagonal one-finger swipe can page Home; choose its
+    // nearest axis after the distance threshold instead of dropping diagonals.
+    if (Math.max(absX, absY) < 64) return null
     if (absX > absY) return dx > 0 ? 'previous' : 'next'
     return dy > 0 ? 'previous' : 'next'
   }

@@ -47,12 +47,12 @@ export function useLauncherWorkspaceGestures(options: Options) {
     const scrollTop = scroller?.scrollTop ?? 0
     const maxScroll = scroller ? Math.max(0, scroller.scrollHeight - scroller.clientHeight) : 0
     const height = window.visualViewport?.height ?? window.innerHeight
-    // Permanent search/command bars can put the entire workspace below 45vh.
-    // Keep both zones reachable within the visible Home, not behind those bars.
+    // Reserve only the outer fifths for the launcher shortcuts. The broad
+    // center remains available for all four Home page directions.
     const rect = studio.getBoundingClientRect()
     const top = Math.max(0, rect.top), bottom = Math.min(height, rect.bottom)
     const zoneTop = bottom > top ? top : 0, zoneHeight = bottom > top ? bottom - top : height
-    const direction = point.clientY > zoneTop + zoneHeight * .55 ? 'drawer' : point.clientY < zoneTop + zoneHeight * .45 ? 'search' : null
+    const direction = point.clientY > zoneTop + zoneHeight * .8 ? 'drawer' : point.clientY < zoneTop + zoneHeight * .2 ? 'search' : null
     if (!direction || (direction === 'drawer' ? scrollTop < maxScroll - 1 : scrollTop > 0)) return
     gesture = { id: point.identifier, x: point.clientX, y: point.clientY, startedAt: clock(), target, scroller, scrollTop, direction, claimed: false }
   }
@@ -60,16 +60,18 @@ export function useLauncherWorkspaceGestures(options: Options) {
     const current = gesture
     if (!current || !stillValid(current)) { reset(); return }
     const dx = Math.abs(point.clientX - current.x), dy = point.clientY - current.y
-    // Vertical swipes belong to Home screen navigation. Keep this observer
-    // from claiming them for drawer/search before the workspace sees them;
-    // those surfaces remain available from the Home toolbar buttons.
-    if (dy >= 10 && dy >= dx) { reset(); return }
+    // At the top/bottom edge, the shell owns vertical shortcut swipes. Swipes
+    // begun through the broad center never enroll here and reach the workspace.
     const distance = current.direction === 'drawer' ? -dy : dy
     if (dx >= 60 || (dx > 10 && dx >= Math.abs(dy)) || distance < -10 || (current.claimed && distance <= 10)) { reset(); return }
     if (distance <= 10) return
     if (!event.cancelable) { reset(); return }
     current.claimed = true
     event.preventDefault()
+    // The shell owns a recognized top/bottom shortcut drag; keep the same move
+    // from also advancing the nested workspace. Let touchend reach both owners
+    // so the workspace can retire its pending sequence cleanly.
+    if (event.type === 'touchmove') event.stopPropagation()
     options.suppressClick()
     if (current.direction === 'drawer') options.progress(drawerGestureProgress(distance, Math.min(window.visualViewport?.height ?? window.innerHeight, 800)))
   }
