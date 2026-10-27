@@ -4,7 +4,7 @@
 // Contracts: controls/widgets never arm; movement, multitouch, blur and teardown cancel.
 import { onMounted, onUnmounted } from 'vue'
 
-const occupied = 'button,input,textarea,select,a,[contenteditable],[role="button"],.workspace-app,.workspace-widget,.eagle-card'
+const occupied = 'button,input,textarea,select,a,[contenteditable],[role="button"],.workspace-app,.workspace-widget,.eagle-card,.orb-navigator'
 export function useHomeEmptyPress(open: () => void, enabled: () => boolean) {
   let timer: ReturnType<typeof setTimeout> | undefined
   let start: { x: number; y: number; pointerId: number } | undefined

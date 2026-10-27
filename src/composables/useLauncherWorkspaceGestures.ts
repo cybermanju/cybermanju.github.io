@@ -16,7 +16,7 @@ type Gesture = {
   target: Element; scroller: HTMLElement | null; scrollTop: number
   direction: 'drawer' | 'search'; claimed: boolean
 }
-const EXCLUDED = 'button,a,input,select,textarea,[contenteditable],[role="button"],.workspace-app,.workspace-widget,[data-native-placement],.studio-picker,.is-editing,.is-overview,.app-drawer-veil,.msg-veil,.mla-custom-veil,details,summary,[inert]'
+const EXCLUDED = 'button,a,input,select,textarea,[contenteditable],[role="button"],.workspace-app,.workspace-widget,[data-native-placement],.studio-picker,.orb-navigator,.is-editing,.is-overview,.app-drawer-veil,.msg-veil,.mla-custom-veil,details,summary,[inert]'
 const clock = () => performance.now()
 
 export function useLauncherWorkspaceGestures(options: Options) {
@@ -60,6 +60,10 @@ export function useLauncherWorkspaceGestures(options: Options) {
     const current = gesture
     if (!current || !stillValid(current)) { reset(); return }
     const dx = Math.abs(point.clientX - current.x), dy = point.clientY - current.y
+    // Vertical swipes belong to Home screen navigation. Keep this observer
+    // from claiming them for drawer/search before the workspace sees them;
+    // those surfaces remain available from the Home toolbar buttons.
+    if (dy >= 10 && dy >= dx) { reset(); return }
     const distance = current.direction === 'drawer' ? -dy : dy
     if (dx >= 60 || (dx > 10 && dx >= Math.abs(dy)) || distance < -10 || (current.claimed && distance <= 10)) { reset(); return }
     if (distance <= 10) return
