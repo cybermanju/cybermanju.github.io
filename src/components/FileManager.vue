@@ -1309,7 +1309,7 @@ function openVaultTab() { gdriveOnly.value = false; goHomeVault() }
 // here (not only in Sync/Transfer). Mounts are the canal's VFS rows
 // (`providers/<mountId>/…`, carried inside `.cybermanju`); one mount
 // per sync config is ensured on demand so all repos/files/folders show.
-interface ProvMount { id: string; configId: string; name: string; backendType: string; basePath?: string }
+interface ProvMount { id: string; configId: string; name: string; backendType: string; basePath?: string; repoName?: string }
 const vfsMounts = ref<ProvMount[]>([])
 interface LocalProviderEditorState {
   mountId: string
