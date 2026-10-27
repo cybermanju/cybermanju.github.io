@@ -133,7 +133,14 @@ touch "$GRADLE_PROPS"
 if [ -s "$GRADLE_PROPS" ] && [ -n "$(tail -c 1 "$GRADLE_PROPS")" ]; then
   printf '\n' >> "$GRADLE_PROPS"
 fi
-for prop in "org.gradle.internal.network.retry.maxAttempts=5" "org.gradle.internal.repository.max.tentatives=5"; do
+# Parallel project work uses available runner cores. The local Gradle build
+# cache lets cacheable Android/Kotlin tasks reuse outputs restored from
+# ~/.gradle by CI; non-cacheable Gradle tasks remain unaffected.
+for prop in \
+  "org.gradle.internal.network.retry.maxAttempts=5" \
+  "org.gradle.internal.repository.max.tentatives=5" \
+  "org.gradle.parallel=true" \
+  "org.gradle.caching=true"; do
   key="${prop%%=*}"
   # Dots escaped in the BRE anchor: a bare `^org.gradle...=` would also
   # match e.g. `orgxgradle...=`.
@@ -141,5 +148,5 @@ for prop in "org.gradle.internal.network.retry.maxAttempts=5" "org.gradle.intern
     echo "$prop" >> "$GRADLE_PROPS"
   fi
 done
-echo "hardened $GRADLE_PROPS with retry props"
+echo "hardened $GRADLE_PROPS with network retries and build caching"
 echo "gradle repositories hardened"

@@ -1951,9 +1951,13 @@ function toggleBulk(id: string) {
 function selectAll() { store.selectedFileIds = sortedFiles.value.map(f => f.id); store.isMultiSelect = true }
 function clearSel() { store.selectedFileIds = []; store.isMultiSelect = false }
 function openFolder(f: FileNode) {
+  const provider = splitProviderPath(f.path || f.id || '')
+  if (provider?.remotePath === 'Vault') {
+    goHomeVault()
+    return
+  }
   // A placeholder or provider root can outlive its KV mount row. Resolve only
   // an exact current config/mount mapping, then repair before navigating.
-  const provider = splitProviderPath(f.path || f.id || '')
   if (provider) {
     const configId = resolveProviderConfigId(provider.mountId, store.syncConfigs, vfsMounts.value)
     const atProviderRoot = store.currentPath.replace(/\/+$/, '') === '/providers'

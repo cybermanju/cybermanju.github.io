@@ -87,7 +87,7 @@ class MockElement extends EventTarget {
   focus(_options?: unknown) { if (this.tabIndex >= 0 || this.hasAttribute('tabindex')) Object.assign(document, { activeElement: this }) }
 }
 class Pointer extends Event {
-  constructor(type: string, public pointerId = 1, public clientX = 100, public clientY = 100, public button = 0) { super(type, { bubbles: true, cancelable: true }) }
+  constructor(type: string, public pointerId = 1, public clientX = 100, public clientY = 100, public button = 0, public pointerType = 'mouse', public isPrimary = true) { super(type, { bubbles: true, cancelable: true }) }
 }
 class Click extends Event { constructor() { super('click', { bubbles: true, cancelable: true }) } }
 const storage = new Map<string, string>()
@@ -106,7 +106,7 @@ beforeEach(() => {
   class Store extends Event { key: string | null; newValue: string | null; constructor(type: string, init: { key: string; newValue: string }) { super(type); this.key = init.key; this.newValue = init.newValue } }
   const win = new MockWindow()
   Object.assign(globalThis, { window: win, Element: MockElement, HTMLElement: MockElement, KeyboardEvent: Key, StorageEvent: Store,
-    document: { documentElement: { clientWidth: 1000, clientHeight: 800 }, elementsFromPoint: () => [] },
+    document: { documentElement: { clientWidth: 1000, clientHeight: 800, dataset: { uiMotion: 'reduced' } }, elementsFromPoint: () => [] },
     localStorage: { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => storage.set(k, v), removeItem: (k: string) => storage.delete(k) },
   })
   root = new MockElement(); a = new MockElement(); a.setAttribute('data-ui-layout-id', 'a'); root.append(a)
@@ -122,6 +122,7 @@ describe('UI layout pointer gestures', () => {
     dispatch(window, new Pointer('pointerup', 92, 100, 100))
     const click = new Click(); dispatch(a, click)
     expect(click.defaultPrevented).toBe(true)
+    setEditing(true)
     dispatch(a, new Pointer('pointerdown', 93, 100, 100))
     dispatch(window, new Pointer('pointermove', 93, 200, 180))
     expect(getUiLayoutEntities().find(entity => entity.id === 'a')?.components.position).toEqual({ x: 0.1, y: 0.1 })
@@ -266,13 +267,15 @@ describe('UI layout pointer gestures', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     expect(root.classList.contains('ui-layout-editing')).toBe(false)
   })
-  it('enters edit mode on a 550ms entry hold and cancels the hold after movement', () => {
+  it('requires two-finger hold to enter edit mode and cancels after movement', () => {
     const entry = new MockElement(); entry.setAttribute('data-ui-layout-entry', ''); root.append(entry)
-    dispatch(entry, new Pointer('pointerdown', 5, 20, 20)); vi.advanceTimersByTime(549)
+    dispatch(entry, new Pointer('pointerdown', 5, 20, 20, 0, 'touch', true))
+    dispatch(entry, new Pointer('pointerdown', 7, 22, 20, 0, 'touch', false)); vi.advanceTimersByTime(549)
     expect(root.classList.contains('ui-layout-editing')).toBe(false); vi.advanceTimersByTime(1)
     expect(root.classList.contains('ui-layout-editing')).toBe(true)
-    setEditing(false); dispatch(entry, new Pointer('pointerdown', 6, 20, 20))
-    dispatch(window, new Pointer('pointermove', 6, 40, 20)); vi.advanceTimersByTime(600)
+    setEditing(false); dispatch(entry, new Pointer('pointerdown', 6, 20, 20, 0, 'touch', true))
+    dispatch(entry, new Pointer('pointerdown', 8, 21, 20, 0, 'touch', false))
+    dispatch(window, new Pointer('pointermove', 8, 40, 20, 0, 'touch', false)); vi.advanceTimersByTime(600)
     expect(root.classList.contains('ui-layout-editing')).toBe(false)
   })
 
@@ -286,9 +289,17 @@ describe('UI layout pointer gestures', () => {
     expect(received[0].detail).toMatchObject({ id: 'paragraph', text: 'Texto copiado', x: 130, y: 145, target: paragraph })
     const click = new Click(); dispatch(paragraph, click); expect(click.defaultPrevented).toBe(true)
   })
-  it('starts customization after a 550ms hold on a non-text entity', () => {
+  it('opens the entity context menu after a one-finger hold', () => {
+    let menus = 0; a.addEventListener('contextmenu', () => menus++)
     const started: unknown[] = []; window.addEventListener(UI_LAYOUT_EVENT, e => started.push((e as CustomEvent).detail))
     dispatch(a, new Pointer('pointerdown', 42)); vi.advanceTimersByTime(550)
+    expect(menus).toBe(1); expect(started).toHaveLength(0)
+  })
+  it('enables customization after a two-finger touch hold', () => {
+    const started: unknown[] = []; window.addEventListener(UI_LAYOUT_EVENT, e => started.push((e as CustomEvent).detail))
+    dispatch(a, new Pointer('pointerdown', 43, 100, 100, 0, 'touch', true))
+    dispatch(a, new Pointer('pointerdown', 44, 102, 101, 0, 'touch', false))
+    vi.advanceTimersByTime(550)
     expect(started).toContainEqual({ editing: true })
   })
   it('focuses customizable text and moves/resizes it using arrows after entering editing', () => {
@@ -364,7 +375,7 @@ describe('UI layout pointer gestures', () => {
     const received: CustomEvent[] = []; window.addEventListener(UI_LAYOUT_TEXT_EVENT, e => received.push(e as CustomEvent))
     dispatch(text, new Pointer('pointerdown', 61, 80, 90)); vi.advanceTimersByTime(500)
     const context = new Event('contextmenu', { bubbles: true, cancelable: true }); dispatch(text, context)
-    expect(context.defaultPrevented).toBe(true); expect(received).toHaveLength(1)
+    expect(context.defaultPrevented).toBe(false); expect(received).toHaveLength(1)
     vi.advanceTimersByTime(100); expect(received).toHaveLength(1)
   })
   it('does not start holds from dynamically added entities until registered and handles their removal', () => {

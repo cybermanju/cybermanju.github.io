@@ -120,6 +120,8 @@ export function installUiLayout(root: HTMLElement): () => void {
   let textHoldTarget: HTMLElement | null = null
   let heldPointer: number | null = null
   let entry: { pointer: number; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null
+  let touchPointer: { pointer: number; x: number; y: number } | null = null
+  let twoFinger: { pointers: Set<number>; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null
   let swapTarget: HTMLElement | null = null
   let disposed = false
   const idOf = (el: HTMLElement) => el.getAttribute('data-ui-layout-id') || (el.hasAttribute('data-home-item') ? `home:${el.getAttribute('data-home-item')}` : '')
@@ -254,6 +256,7 @@ export function installUiLayout(root: HTMLElement): () => void {
   }
   function clearSwap() { swapTarget?.removeAttribute('data-ui-layout-swap-target'); swapTarget = null }
   function clearEntry() { if (entry) clearTimeout(entry.timer); entry = null }
+  function clearTwoFinger() { if (twoFinger) clearTimeout(twoFinger.timer); twoFinger = null }
   function finish(cancel: boolean) {
     if (frame) { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame as number); else clearTimeout(frame as ReturnType<typeof setTimeout>); frame = 0 }
     const current = drag
@@ -320,7 +323,7 @@ export function installUiLayout(root: HTMLElement): () => void {
     const direct = Array.from(target.childNodes ?? []).filter(node => node.nodeType === 3).map(node => node.textContent || '').join('').trim()
     return direct || (target.matches('p, span, label, h1, h2, h3, h4, h5, h6, li, code, pre, blockquote') ? (target.textContent || '').trim() : '')
   }
-  function activateHold(event: Event, el: HTMLElement, x: number, y: number, pointer?: number) {
+  function activateHold(event: Event, el: HTMLElement, x: number, y: number, pointer?: number, fromContext = false) {
     if (!el.isConnected) return
     const editable = event.target instanceof Element ? event.target.closest<HTMLElement>('input, textarea, [contenteditable]:not([contenteditable="false"])') : null
     if (editable) return
@@ -331,12 +334,34 @@ export function installUiLayout(root: HTMLElement): () => void {
     if (text) emit(UI_LAYOUT_TEXT_EVENT, { id: idOf(el), text, x, y, target: el })
     else {
       const target = event.target instanceof Element ? event.target : el
-      // A protected/editor field is not text content and must not turn a hold into edit mode.
       if (target.closest('input, textarea, [contenteditable]:not([contenteditable="false"])')) return
-      emit(UI_LAYOUT_EVENT, { editing: true })
+      // A one-finger hold opens the element's existing context menu. Layout
+      // customization is deliberately reserved for the two-finger gesture.
+      const menu = typeof MouseEvent !== 'undefined'
+        ? new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y })
+        : new Event('contextmenu', { bubbles: true, cancelable: true })
+      if (!fromContext) target.dispatchEvent(menu)
     }
   }
   function onDown(event: PointerEvent) {
+    if (event.pointerType === 'touch') {
+      if (!touchPointer) touchPointer = { pointer: event.pointerId, x: event.clientX, y: event.clientY }
+      else if (touchPointer.pointer !== event.pointerId && !editing && !ignored(event)) {
+        clearEntry()
+        clearTwoFinger()
+        const pointers = new Set([touchPointer.pointer, event.pointerId])
+        const target = closest(event) || (event.target instanceof Element ? event.target.closest<HTMLElement>('[data-ui-layout-entry]') : null)
+        if (target) {
+          twoFinger = { pointers, x: event.clientX, y: event.clientY, timer: setTimeout(() => {
+            if (!twoFinger) return
+            twoFinger = null
+            suppressClickUntil = Date.now() + 800
+            emit(UI_LAYOUT_EVENT, { editing: true })
+          }, 550) }
+        }
+        return
+      }
+    }
     if (event.isPrimary === false) { clearEntry(); return }
     if (event.button !== 0 || ignored(event)) return
     if (editing && homeOwned(event) && mode !== 'resize') return
@@ -395,6 +420,8 @@ export function installUiLayout(root: HTMLElement): () => void {
     suppressClickUntil = Date.now() + 500
   }
   function onMove(event: PointerEvent) {
+    if (twoFinger?.pointers.has(event.pointerId) && Math.hypot(event.clientX - twoFinger.x, event.clientY - twoFinger.y) > 12) clearTwoFinger()
+    if (touchPointer?.pointer === event.pointerId && Math.hypot(event.clientX - touchPointer.x, event.clientY - touchPointer.y) > 12) touchPointer = null
     if (entry && event.pointerId === entry.pointer && Math.hypot(event.clientX - entry.x, event.clientY - entry.y) > 10) clearEntry()
     if (!drag || drag.pointerId !== event.pointerId) return
     const dx = event.clientX - drag.x; const dy = event.clientY - drag.y
@@ -410,6 +437,8 @@ export function installUiLayout(root: HTMLElement): () => void {
     event.preventDefault(); event.stopImmediatePropagation()
   }
   function onUp(event: PointerEvent) {
+    if (twoFinger?.pointers.has(event.pointerId)) clearTwoFinger()
+    if (touchPointer?.pointer === event.pointerId) touchPointer = null
     if (heldPointer === event.pointerId) { heldPointer = null; suppressClickUntil = Date.now() + 800 }
     if (entry?.pointer === event.pointerId) clearEntry()
     if (!drag || drag.pointerId !== event.pointerId) return
@@ -422,7 +451,7 @@ export function installUiLayout(root: HTMLElement): () => void {
       current.moved ||= Math.hypot(event.clientX - current.x, event.clientY - current.y) >= 3
     }
     flushPending()
-    if (current.moved && current.kind === 'move' && mode !== 'swap' && document.documentElement.dataset.uiMotion !== 'reduced') {
+    if (current.moved && current.kind === 'move' && mode !== 'swap' && document.documentElement?.dataset?.uiMotion !== 'reduced') {
       const { width, height } = size()
       const momentumMs = 90
       const travelX = Math.max(-96, Math.min(96, current.velocityX * momentumMs))
@@ -481,9 +510,9 @@ export function installUiLayout(root: HTMLElement): () => void {
     // only for non-editable labels; editors keep their native text actions.
     if (!editing && entry) {
       const { x, y, pointer } = entry
-      clearEntry(); activateHold(event, el, x, y, pointer)
+      clearEntry(); activateHold(event, el, x, y, pointer, true)
     }
-    if (editing || Date.now() < suppressClickUntil) { event.preventDefault(); event.stopImmediatePropagation() }
+    if (editing) { event.preventDefault(); event.stopImmediatePropagation() }
   }
   function onKey(event: KeyboardEvent) {
     if (event.key === 'Escape' && entry) clearEntry()
@@ -591,7 +620,7 @@ export function installUiLayout(root: HTMLElement): () => void {
   window.addEventListener(UI_LAYOUT_IMPORT_EVENT, importState)
   reconcile(true)
   function cleanup() {
-    clearEntry(); heldPointer = null; finish(true); disposed = true
+    clearEntry(); clearTwoFinger(); touchPointer = null; heldPointer = null; finish(true); disposed = true
     observer?.disconnect()
     root.removeEventListener('pointerdown', onDown, true)
     root.removeEventListener('click', onClick, true)

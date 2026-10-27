@@ -622,16 +622,6 @@ jobs:
           path: ${{ env.ANDROID_HOME }}
           key: android-sdk-36-ndk-${{ env.NDK_VERSION }}-v1
 
-      - name: Cache Gradle
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-v1
-          restore-keys: |
-            gradle-${{ runner.os }}-
-
       - name: Install Android SDK components
         run: |
           yes | sdkmanager --licenses > /dev/null || true
@@ -736,6 +726,14 @@ jobs:
       # mavenCentral()/google() + retries. (Same as ci.yml.)
       - name: Harden Gradle repositories
         run: bash scripts/android-gradle-harden.sh
+
+      # Install caching after Tauri generates Gradle files, so the basic
+      # provider hashes the real wrapper/buildSrc inputs and reuses cacheable
+      # task outputs without the enhanced-cache service terms.
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-provider: basic
 
       # A release APK must be installable, so a missing keystore is a hard
       # failure here (REQUIRE_SIGNING) rather than a warning.

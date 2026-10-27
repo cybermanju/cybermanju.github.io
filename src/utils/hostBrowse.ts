@@ -593,32 +593,41 @@ export async function moveAnywhere(
   if (srcIsDir(src)) {
     const name = srcName(src)
     const next = await ensureDestDir(dest, name, deps)
-    const kids = await listSourceDir(src, deps)
-    let files = 0
-    let bytes = 0
-    for (const k of kids) {
-      if (srcIsDir(k.child)) {
-        const sub = await moveAnywhere(k.child, next, op, deps)
-        const m = /(\d+) files? · /.exec(sub)
-        files += m ? Number(m[1]) : 0
-      } else {
-        bytes += await moveFileAcross(k.child, next, op, deps)
-        files++
-      }
-    }
-    if (op === 'move') {
-      // The tree copied over verified: drop the (now empty) source dir.
-      try {
-        await deleteSourceDir(src, deps)
-      } catch {
-        // A straggler raced us — the bytes already landed verified.
-      }
-    }
+    // Copy and verify the complete tree before removing any source entry.
+    // A failed download/upload therefore leaves the original tree intact.
+    const { files, bytes } = await copyTreeVerified(src, next, deps)
+    if (op === 'move') await deleteTreeAfterVerifiedCopy(src, deps)
     return `${op === 'move' ? 'Moved' : 'Copied'} '${name}' (${files} files · ${humanSize(bytes)})`
   }
 
   const bytes = await moveFileAcross(src, dest, op, deps)
   return `${op === 'move' ? 'Moved' : 'Copied'} '${srcName(src)}' (${humanSize(bytes)}, verified)`
+}
+
+async function copyTreeVerified(src: MoveSource, dest: MoveDest, deps: MoveDeps): Promise<{ files: number; bytes: number }> {
+  let files = 0
+  let bytes = 0
+  for (const { child } of await listSourceDir(src, deps)) {
+    if (srcIsDir(child)) {
+      const next = await ensureDestDir(dest, srcName(child), deps)
+      const nested = await copyTreeVerified(child, next, deps)
+      files += nested.files
+      bytes += nested.bytes
+    } else {
+      bytes += await moveFileAcross(child, dest, 'copy', deps)
+      files++
+    }
+  }
+  return { files, bytes }
+}
+
+/** Remove a source tree only after every destination file passed byte verification. */
+async function deleteTreeAfterVerifiedCopy(src: MoveSource, deps: MoveDeps): Promise<void> {
+  for (const { child } of await listSourceDir(src, deps)) {
+    if (srcIsDir(child)) await deleteTreeAfterVerifiedCopy(child, deps)
+    else await deleteSource(child, deps)
+  }
+  if (src.kind !== 'provider') await deleteSourceDir(src, deps)
 }
 
 /** Vault folder → vault folder: re-parent every row by id, recursively. */

@@ -297,6 +297,24 @@ describe('moveAnywhere matrix', () => {
     expect(calls.some((c) => c.kind === 'canal:delete')).toBe(false)
   })
 
+  it('provider folder move keeps the full source tree when any destination write fails', async () => {
+    const { deps, calls } = fakeDeps()
+    let writes = 0
+    deps.canal.writeProviderFile = async () => {
+      writes++
+      if (writes === 2) throw new Error('network: destination write failed')
+    }
+    deps.canal.listProviderDir = async (_mount, path) => path === 'repo'
+      ? [
+          { name: 'a.txt', path: 'repo/a.txt', locator: 'repo/a.txt', isDir: false, sizeBytes: 1 },
+          { name: 'sub', path: 'repo/sub', locator: 'repo/sub', isDir: true, sizeBytes: 0 },
+        ]
+      : [{ name: 'b.txt', path: 'repo/sub/b.txt', locator: 'repo/sub/b.txt', isDir: false, sizeBytes: 1 }]
+    const source: MoveSource = { kind: 'provider', mountId: 'source', remotePath: 'repo', locator: 'repo', name: 'repo', isDir: true }
+    await expect(moveAnywhere(source, { kind: 'provider', mountId: 'dest', remoteDir: '' }, 'move', deps)).rejects.toThrow(/destination write failed/)
+    expect(calls.some((c) => c.kind === 'canal:delete')).toBe(false)
+  })
+
   it('host → provider move verifies then deletes the host source', async () => {
     const { deps, calls } = fakeDeps()
     const src: MoveSource = { kind: 'host', absPath: '/sdcard/a.txt', name: 'a.txt', isDir: false }

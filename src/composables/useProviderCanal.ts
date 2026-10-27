@@ -299,14 +299,20 @@ async function canalConfigFor(mount: ProviderMount): Promise<Record<string, unkn
 }
 
 /** List one provider directory — cache first (`vfs:cache:*`, TTL), canal second. */
-export async function listVfsDir(mountId: string, remotePath = ''): Promise<VfsEntry[]> {
+export async function listVfsDir(mountId: string, remotePath = '', opts: { driveRoot?: boolean } = {}): Promise<VfsEntry[]> {
   const mounts = await listVfsMounts()
   const mount = mounts.find(m => m.id === mountId)
   if (!mount) throw new Error(`not_found: provider mount ${mountId}`)
   const rel = String(remotePath ?? '').replace(/^\/+/, '')
   if (/(^|\/)\.\.(\/|$)/.test(rel)) throw new Error(`unsupported: provider path '${rel}' escapes the mount`)
-  const key = cacheKey(mountId, rel)
+  const key = cacheKey(mountId, `${opts.driveRoot ? '@drive-root/' : ''}${rel}`)
   const config = await canalConfigFor(mount)
+  // External on Drive means the account's actual My Drive root, regardless
+  // of a narrower folder selected for the sync mount.
+  if (opts.driveRoot && config.backendType === 'googleDrive') {
+    config.folderId = null
+    config.basePath = ''
+  }
   const cacheable = shouldCacheVfsListing(String(config.backendType ?? ''))
   if (cacheable) {
     const cachedRaw = await kvGet(key)

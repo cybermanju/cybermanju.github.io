@@ -633,8 +633,11 @@ export const useAppStore = defineStore('cybermanju', () => {
           try {
             const { pendingMountId } = await import('@/utils/providerBrowse')
             const mounted = new Set(mounts.map(m => m.configId))
-            for (const c of syncConfigs.value.filter(c => c.enabled && !mounted.has(c.id))) {
-              const label = `${c.backendType} · ${(c.repoName || c.basePath || c.name || c.id).slice(0, 32)} (mount…)`
+            // Keep every saved connection visible, including disabled
+            // accounts and multiple accounts on the same provider. Opening
+            // one creates its own mount on demand; credentials stay sealed.
+            for (const c of syncConfigs.value.filter(c => !mounted.has(c.id))) {
+              const label = `${c.backendType} · ${(c.name || c.accountId || c.repoName || c.basePath || c.id).slice(0, 32)}${c.enabled ? ' (mount…)' : ' (off)'}`
               const pend = pendingMountId(c.id)
               rows.push({
                 id: `providers/${pend}`,
@@ -657,12 +660,37 @@ export const useAppStore = defineStore('cybermanju', () => {
           // Placeholder row: no bytes to list until the mount exists.
           files.value = []
         } else {
+          // Every provider mount has the same stable entry points. External
+          // is the connected provider's root; Vault returns to the local
+          // encrypted volume (handled by FileManager navigation).
+          if (!parsed.remotePath) {
+            const now = new Date().toISOString()
+            files.value = ['External', 'Vault'].map(name => ({
+              id: `providers/${parsed.mountId}/${name}`,
+              name,
+              fileType: 'folder',
+              parentId: String(path),
+              path: canal.providerPathFor(parsed.mountId, name),
+              sizeBytes: 0,
+              encrypted: false,
+              compressionLayers: [],
+              createdAt: now,
+              modifiedAt: now,
+            }) as FileNode)
+            applyStars()
+            return
+          }
+          const remotePath = parsed.remotePath === 'External' ? '' : parsed.remotePath.startsWith('External/') ? parsed.remotePath.slice('External/'.length) : parsed.remotePath
+          if (parsed.remotePath === 'Vault' || parsed.remotePath.startsWith('Vault/')) {
+            files.value = []
+            return
+          }
           // Canal first (folders + files, one level); REST fallback when
           // the wasm bundle is unavailable (desktop without wasm build).
           // The fallback synthesizes folder rows from recursive paths so
           // GitHub/GitLab/Drive folders stay navigable on every transport.
           try {
-            const entries = await canal.listVfsDir(parsed.mountId, parsed.remotePath)
+            const entries = await canal.listVfsDir(parsed.mountId, remotePath, { driveRoot: parsed.remotePath === 'External' })
             files.value = entries.map(e => ({
               id: `providers/${parsed.mountId}/${e.locator || e.path}`,
               name: e.name,
@@ -680,7 +708,7 @@ export const useAppStore = defineStore('cybermanju', () => {
             const mount = mounts.find(m => m.id === parsed.mountId)
             const cfg = mount && syncConfigs.value.find(c => c.id === mount.configId)
             if (!cfg) throw canalErr
-            const remote = await invoke<RemoteFile[]>('list_remote_files', { config: await withLiveToken(cfg), prefix: parsed.remotePath })
+            const remote = await invoke<RemoteFile[]>('list_remote_files', { config: await withLiveToken(cfg), prefix: remotePath })
             const { remoteFilesToProviderNodes } = await import('@/utils/providerBrowse')
             files.value = remoteFilesToProviderNodes(remote, parsed.mountId, String(path), canal.providerPathFor)
           }
