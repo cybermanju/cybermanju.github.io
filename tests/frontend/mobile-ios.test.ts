@@ -20,7 +20,7 @@ describe('canonical HomeWorkspaceStudio navigation', () => {
 
   it('provides accessible screen navigation and keyboard shortcuts', () => {
     expect(studio).toContain('Home screen navigation')
-    expect(studio).toContain(':aria-current="index === activeIndex ?')
+    expect(studio).toContain(":aria-current=\"page.id === state.activeId ? 'page' : undefined\"")
     expect(studio).toContain('ArrowLeft')
     expect(studio).toContain('ArrowRight')
     expect(studio).toContain("event.key === 'Home'")
@@ -67,7 +67,7 @@ describe('iOS status bar + icons + dock', () => {
   })
 
   it('keeps one unified home search and workspace entry point', () => {
-    expect(launcher).toContain('<HomeCommandBar')
+    expect(launcher).toContain('<OmniSearchPanel ref="searchRef" home')
     expect(launcher.match(/<OmniSearchPanel\b/g)).toHaveLength(1)
     expect(launcher).toContain('<section id="home-search-tools"')
     expect(launcher).not.toContain('v-if="searchToolsOpen"')

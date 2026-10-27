@@ -421,6 +421,7 @@
           <span class="fm-spacer" />
           <button v-if="providerExternalLink" class="fm-pill xs ghost fm-provider-external" type="button" :title="`Open configured ${providerExternalLabel} location in your browser`" @click="openProviderExternal">↗ {{ providerExternalLabel }}</button>
           <button class="fm-pill xs" title="Save selected provider files into the vault (.cybermanju)" :disabled="!selCount && !active" @click="saveProviderSelToVault">↓ Vault</button>
+          <button v-if="activeGitRepoRoot" class="fm-pill xs" title="Download this repository's files into the vault, then encrypt every file" :disabled="provMoving" @click="downloadGitRepoEncrypted">↓ Download + Encrypt</button>
           <button class="fm-pill xs ghost" title="Move/copy a provider file to another provider" :disabled="!active && !selCount" @click="openProviderMove(active)">⇄ Move</button>
           <button class="fm-pill xs ghost" title="Back to vault root (.cybermanju home)" @click="goHomeVault">Vault ⌂</button>
         </div>
@@ -1399,6 +1400,11 @@ function splitProviderPath(path: string): { mountId: string; remotePath: string 
   return splitProviderId(path)
 }
 const isProviderPath = computed(() => store.currentPath.replace(/\\/g, '/').startsWith('/providers'))
+const activeGitRepoRoot = computed(() => {
+  const split = splitProviderPath(store.currentPath)
+  const mount = split && vfsMounts.value.find(m => m.id === split.mountId)
+  return split?.remotePath === 'External/__repository__' && (mount?.backendType === 'github' || mount?.backendType === 'gitlab')
+})
 /** Vault rows are the only ones with crypto/versions/shares/tags/sync state. */
 function isVaultRow(f: FileNode | null | undefined): boolean {
   if (!f || !f.id) return false
@@ -1952,6 +1958,10 @@ function selectAll() { store.selectedFileIds = sortedFiles.value.map(f => f.id);
 function clearSel() { store.selectedFileIds = []; store.isMultiSelect = false }
 function openFolder(f: FileNode) {
   const provider = splitProviderPath(f.path || f.id || '')
+  if (provider?.mountId.includes('-repo-') && !vfsMounts.value.some(m => m.id === provider.mountId)) {
+    void refreshVfsMounts().then(() => navTo(f.path || `/providers/${provider.mountId}/${provider.remotePath}`))
+    return
+  }
   if (provider?.remotePath === 'Vault') {
     goHomeVault()
     return
@@ -2554,15 +2564,17 @@ async function ensureVaultDirs(rel: string): Promise<string> {
 async function saveProviderFileToVault(f: FileNode) {
   const split = splitProviderId(f.id) ?? splitProviderPath(store.currentPath + '/' + f.name)
   if (!split || !split.remotePath) { store.notifyError('Nothing to save', 'open a provider file first'); return }
+  const gitRepoRoot = split.remotePath === 'External/__repository__'
+  const remoteRoot = gitRepoRoot ? '' : split.remotePath
   if (f.fileType === 'folder') {
     // Folders are prefixes on blob stores — import the whole tree,
     // preserving its shape under `/<folder>/…` instead of flattening every
     // basename into the root (which collided and overwrote same-named files
     // from different subfolders).
-    const top = split.remotePath.split('/').filter(Boolean).pop() || f.name
+    const top = gitRepoRoot ? f.name : split.remotePath.split('/').filter(Boolean).pop() || f.name
     const { listVfsDir, readVfsFile } = await import('@/composables/useProviderCanal')
     await ensureVaultDirs(top)
-    const stack = [split.remotePath]
+    const stack = [remoteRoot]
     let n = 0
     while (stack.length) {
       const dir = stack.pop() as string
@@ -2571,7 +2583,7 @@ async function saveProviderFileToVault(f: FileNode) {
         const src = [dir, k.name].filter(Boolean).join('/').replace(/^\/+/, '')
         if (k.isDir) { stack.push(src); continue }
         // Relative path under the saved top folder → same shape in vault.
-        const rel = src.slice(split.remotePath.length).replace(/^\/+/, '')
+        const rel = src.slice(remoteRoot.length).replace(/^\/+/, '')
         const relDir = rel.split('/').slice(0, -1).join('/')
         const parent = relDir ? await ensureVaultDirs(`${top}/${relDir}`) : `/${top}`
         const got = await readVfsFile(split.mountId, src, { locator: k.locator || src })
@@ -2589,6 +2601,39 @@ async function saveProviderFileToVault(f: FileNode) {
   await store.fetchFiles(isProviderPath.value ? store.currentPath : '/')
   store.notifySuccess(`Saved '${f.name}' to vault (.cybermanju)`)
 }
+async function downloadGitRepoEncrypted() {
+  const split = splitProviderPath(store.currentPath)
+  const mount = split && vfsMounts.value.find(m => m.id === split.mountId)
+  const config = mount && store.syncConfigs.find(c => c.id === mount.configId)
+  const configuredRepo = mount?.repoName || config?.repoName || ''
+  if (!split || !mount || !configuredRepo || !activeGitRepoRoot.value) return
+  const repoName = configuredRepo.split('/').filter(Boolean).pop() || configuredRepo
+  const repo: FileNode = { id: `providers/${split.mountId}/External/__repository__`, name: repoName, fileType: 'folder', parentId: store.currentPath, path: `${store.currentPath}/__repository__`, sizeBytes: 0, encrypted: false, compressionLayers: [], createdAt: new Date().toISOString(), modifiedAt: new Date().toISOString() } as FileNode
+  provMoving.value = true
+  try {
+    await saveProviderFileToVault(repo)
+    const stack = [`/${repo.name}`]
+    let encrypted = 0
+    let failed = 0
+    while (stack.length) {
+      const parentPath = stack.pop() as string
+      const rows = await invoke<FileNode[]>('list_files', { parentPath })
+      for (const row of rows) {
+        if (row.fileType === 'folder') stack.push(row.path || `${parentPath.replace(/\/$/, '')}/${row.name}`)
+        else if (await store.encryptFile(row.id, 'hybrid')) encrypted++
+        else failed++
+      }
+    }
+    await store.fetchFiles('/')
+    if (failed) store.notifyError('Repository downloaded with encryption failures', `${encrypted} files encrypted; ${failed} files need retry.`)
+    else store.notifySuccess(`Downloaded and encrypted ${encrypted} file(s) in vault /${repo.name}`)
+    await navTo('/')
+  } catch (e) {
+    store.notifyError('Git repository download failed', e)
+  } finally {
+    provMoving.value = false
+  }
+}
 async function saveProviderSelToVault() {
   const ids = store.selectedFileIds.length ? [...store.selectedFileIds] : (active.value ? [active.value.id] : [])
   if (!ids.length) { store.notifyError('Nothing to save', 'select a provider file first'); return }
@@ -2605,11 +2650,12 @@ function openProviderMove(f: FileNode | null) {
   const file = f ?? active.value
   if (!file) { store.notifyError('Nothing to move', 'select a provider file first'); return }
   const split = splitProviderId(file.id)
-  if (!split || !split.remotePath) { store.notifyError('Vault files move differently', 'use Sync to provider, or open a provider file to move it'); return }
+  const repoRoot = split?.remotePath === 'External/__repository__'
+  if (!split || (!split.remotePath && !repoRoot)) { store.notifyError('Vault files move differently', 'use Sync to provider, or open a provider file to move it'); return }
   dlgProvOp.value = 'move'
   dlgProvDestDir.value = ''
   dlgProvDestMount.value = vfsMounts.value.find(m => m.id !== split.mountId)?.id ?? ''
-  dlgProvMove.value = { mountId: split.mountId, remotePath: split.remotePath, locator: locatorOf(file), name: file.name, op: 'move', isDir: file.fileType === 'folder' }
+  dlgProvMove.value = { mountId: split.mountId, remotePath: repoRoot ? '' : split.remotePath, locator: repoRoot ? '' : locatorOf(file), name: file.name, op: 'move', isDir: file.fileType === 'folder' }
 }
 async function doProviderMove() {
   const src = dlgProvMove.value
@@ -2618,7 +2664,8 @@ async function doProviderMove() {
   // Same-object guard (files and folders alike): the destination object
   // path must differ from the source locator.
   const destObj = destDir ? `${destDir}/${src.name}` : src.name
-  if (dlgProvDestMount.value === src.mountId && destObj === src.remotePath) {
+  const sourcePath = src.remotePath.replace(/^\/+|\/+$/g, '')
+  if (dlgProvDestMount.value === src.mountId && (!sourcePath || destObj === sourcePath || (src.isDir && destObj.startsWith(`${sourcePath}/`)))) {
     store.notifyError('Same place', 'pick another provider or a different folder')
     return
   }

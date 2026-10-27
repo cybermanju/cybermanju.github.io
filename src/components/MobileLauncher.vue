@@ -7,7 +7,7 @@
   <div
     ref="rootRef"
     class="mla"
-    :class="[{ 'with-app-nav': hasOpenWindows }, `theme-${themeId}`]"
+    :class="[{ 'with-app-nav': hasOpenWindows, 'motion-reduced': motion.reduced.value }, `theme-${themeId}`]"
     role="main"
     aria-label="CyberManju home"
     @click.stop
@@ -128,6 +128,7 @@ import { useAndroidApps } from '@/composables/useAndroidApps'
 import { useMessages } from '@/composables/useMessages'
 import { useNotifications } from '@/composables/useNotifications'
 import { useWindowManager } from '@/composables/useWindowManager'
+import { useMotion } from '@/composables/useMotion'
 import {
   fileToLauncherIcon,
   launcherKeyForPanel,
@@ -140,6 +141,7 @@ const themeId = computed(() => String(theme.themeId.value))
 const tapActivation = useHomeTapActivation()
 function cancelHomeTap() { tapActivation.cancel(); workspaceGestures.cancel(); resetDrawerGesture() }
 const wm = useWindowManager()
+const motion = useMotion()
 const launcher = useLauncherStore()
 const androidApps = useAndroidApps()
 const msgHub = useMessages()
@@ -663,5 +665,5 @@ function resetHomeCustom() {
 }
 
 @media (max-width: 380px) { .mla { padding-inline: 8px; }.mla-dock { gap: 2px; padding-inline: 4px; } }
-@media (prefers-reduced-motion: reduce) { .mla *, .mla *::before { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
+.mla.motion-reduced :deep(*), .mla.motion-reduced :deep(*::before), .mla.motion-reduced :deep(*::after) { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 </style>

@@ -152,7 +152,7 @@ export async function importUiCustomizationToml(source: string): Promise<void> {
   const launcher = useLauncherStore()
   launcher.overrides = launcherOverrides
   if (Array.isArray(rawLauncher.favorites)) launcher.setFavorites(rawLauncher.favorites.filter((panel): panel is string => typeof panel === 'string'))
-  if (rawLauncher.drawerDisplay === 'names' || rawLauncher.drawerDisplay === 'icons' || rawLauncher.drawerDisplay === 'both') launcher.setDrawerDisplay(rawLauncher.drawerDisplay)
+  if (rawLauncher.drawerDisplay === 'names' || rawLauncher.drawerDisplay === 'list' || rawLauncher.drawerDisplay === 'icons' || rawLauncher.drawerDisplay === 'both') launcher.setDrawerDisplay(rawLauncher.drawerDisplay)
 }
 
 export async function downloadUiCustomizationToml(): Promise<void> {

@@ -282,11 +282,11 @@ onUnmounted(() => {
   if (leaveFrame) cancelAnimationFrame(leaveFrame)
 })
 const displayModes = [
-  { value: 'names', label: 'Names only' },
+  { value: 'list', label: 'List' },
   { value: 'icons', label: 'Icons only' },
   { value: 'both', label: 'Names & icons' },
 ]
-const showIcons = computed(() => launcher.drawerDisplay !== 'names')
+const showIcons = computed(() => true)
 const showNames = computed(() => launcher.drawerDisplay !== 'icons')
 
 /** Open the Install window (native builds per platform, App × CLI). */
@@ -746,10 +746,12 @@ function resetActive() {
   outline-offset: -2px;
 }
 .drawer-search:focus-within { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
-.drawer-display-names .drawer-grid { grid-template-columns: minmax(0, 1fr); gap: 2px; }
-.drawer-display-names .drawer-app { min-height: 48px; align-items: flex-start; justify-content: center; padding: 10px 12px; }
-.drawer-display-names .drawer-name { font-size: 15px; line-height: 1.4; text-align: start; }
-.drawer-display-names .drawer-sys { top: 4px; }
+.drawer-display-list .drawer-grid { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.drawer-display-list .drawer-cell { min-height: 56px; }
+.drawer-display-list .drawer-app { min-height: 56px; flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; padding: 7px 10px; text-align: left; }
+.drawer-display-list .drawer-tile { width: 42px; height: 42px; flex: 0 0 42px; border-radius: 12px; }
+.drawer-display-list .drawer-name { min-width: 0; flex: 1; font-size: 15px; line-height: 1.35; text-align: start; white-space: normal; overflow-wrap: anywhere; }
+.drawer-display-list .drawer-sys { top: 50%; right: 8px; transform: translateY(-50%); }
 .drawer-display-icons .drawer-app { min-height: 72px; justify-content: center; }
 .drawer-state {
   display: flex;

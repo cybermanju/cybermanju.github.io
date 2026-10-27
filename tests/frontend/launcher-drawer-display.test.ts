@@ -27,7 +27,7 @@ describe('persistent drawer display', () => {
     expect(useLauncherStore().drawerDisplay).toBe('both')
   })
 
-  it.each(['names', 'icons', 'both'] as const)('restores %s immediately without affecting app overrides', async mode => {
+  it.each(['list', 'icons', 'both'] as const)('restores %s immediately without affecting app overrides', async mode => {
     const store = useLauncherStore()
     store.rename('android:example.app', 'My app')
     await nextTick()
@@ -41,6 +41,11 @@ describe('persistent drawer display', () => {
     expect(restored.get('android:example.app').alias).toBe('My app')
   })
 
+  it('migrates the old names-only preference to the icon-and-name list', () => {
+    entries.set(key, 'names')
+    expect(useLauncherStore().drawerDisplay).toBe('list')
+  })
+
   it.each(['', 'grid', 'null', '{broken'])('falls back safely for invalid stored value %s', value => {
     entries.set(key, value)
     expect(useLauncherStore().drawerDisplay).toBe('both')
@@ -51,8 +56,8 @@ describe('persistent drawer display', () => {
     store.setDrawerDisplay('names')
     store.setDrawerDisplay('unsupported')
     store.setDrawerDisplay(1)
-    expect(store.drawerDisplay).toBe('names')
-    expect(entries.get(key)).toBe('names')
+    expect(store.drawerDisplay).toBe('list')
+    expect(entries.get(key)).toBe('list')
   })
 
   it('remains usable when local storage is blocked or full', () => {
@@ -69,14 +74,16 @@ describe('persistent drawer display', () => {
 
 describe('drawer presentation and smooth interaction contracts', () => {
   it('exposes all layouts and labels both built-in and Android icon-only buttons', () => {
-    for (const label of ['Names only', 'Icons only', 'Names & icons']) expect(drawer).toContain(label)
+    for (const label of ['List', 'Icons only', 'Names & icons']) expect(drawer).toContain(label)
     expect(drawer).toContain('aria-label="App drawer display"')
     expect(drawer).toContain(':aria-pressed="launcher.drawerDisplay === mode.value"')
     expect(drawer).toContain(':aria-label="`Open ${app.label}`"')
     expect(drawer).toContain(':aria-label="`Open ${row.name}`"')
     expect(drawer.match(/v-if="showIcons"/g)).toHaveLength(2)
     expect(drawer.match(/v-if="showNames"/g)).toHaveLength(2)
-    expect(drawer).toContain('.drawer-display-names .drawer-grid { grid-template-columns: minmax(0, 1fr)')
+    expect(drawer).toContain('.drawer-display-list .drawer-grid { grid-template-columns: minmax(0, 1fr)')
+    expect(drawer).toContain('.drawer-display-list .drawer-app { min-height: 56px; flex-direction: row;')
+    expect(drawer).toContain('const showIcons = computed(() => true)')
   })
 
   it('avoids repeat icon resolution and search-triggered entrance animations', () => {

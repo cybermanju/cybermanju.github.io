@@ -13,7 +13,7 @@ import type { OverrideMap } from '@/utils/launcher'
 const LS_KEY = 'cybermanju.launcher.overrides.v1'
 const LS_SEEN_KEY = 'cybermanju.launcher.messagesSeen.v1'
 const LS_DRAWER_KEY = 'cybermanju.launcher.drawerDisplay.v1'
-export type DrawerDisplayMode = 'names' | 'icons' | 'both'
+export type DrawerDisplayMode = 'list' | 'icons' | 'both'
 const LS_FAVORITES_KEY = 'cybermanju.launcher.favorites.v1'
 const DEFAULT_FAVORITES = ['files', 'agent', 'terminal', 'settings']
 const FAVORITE_PANELS = new Set(['files', 'search', 'agent', 'storage', 'accounts', 'terminal', 'editor', 'sync', 'map', 'collections', 'settings', 'trash'])
@@ -31,7 +31,9 @@ function readFavorites(): string[] {
 function readDrawerDisplay(): DrawerDisplayMode {
   try {
     const mode = localStorage.getItem(LS_DRAWER_KEY)
-    return mode === 'names' || mode === 'icons' ? mode : 'both'
+    // Older builds called the one-column mode "names" and hid its icons.
+    // Keep that saved preference, but migrate it to the usable icon list.
+    return mode === 'names' || mode === 'list' ? 'list' : mode === 'icons' ? 'icons' : 'both'
   } catch {
     return 'both'
   }
@@ -74,9 +76,10 @@ export const useLauncherStore = defineStore('launcher', () => {
   /** Separate from per-app overrides: changing layout never resets custom icons. */
   const drawerDisplay = ref<DrawerDisplayMode>(readDrawerDisplay())
   function setDrawerDisplay(mode: string | number) {
-    if (mode !== 'names' && mode !== 'icons' && mode !== 'both') return
-    drawerDisplay.value = mode
-    try { localStorage.setItem(LS_DRAWER_KEY, mode) } catch { /* Session-only when storage is unavailable. */ }
+    const normalized = mode === 'names' ? 'list' : mode
+    if (normalized !== 'list' && normalized !== 'icons' && normalized !== 'both') return
+    drawerDisplay.value = normalized
+    try { localStorage.setItem(LS_DRAWER_KEY, normalized) } catch { /* Session-only when storage is unavailable. */ }
   }
   /** Drawer open state — home swipe-up and the handle button share it. */
   const drawerOpen = ref(false)

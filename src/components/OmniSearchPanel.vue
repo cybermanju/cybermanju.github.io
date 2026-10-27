@@ -4,7 +4,7 @@
 <!-- Integrates: unified search, presentation helpers, and platform external opener. -->
 <!-- Contracts: safe external links, shared filters/paging, accessible bounded results. -->
 <template>
-  <div class="omni" :class="{ 'omni--home': props.home, 'omni--flat': isFlatAmoled, 'omni--glass': isModernGlass, 'omni--solid': theme.glass.value === 0 }" @keydown="handleKeydown">
+  <div class="omni" :class="{ 'omni--home': props.home, 'omni--flat': isFlatAmoled, 'omni--glass': isModernGlass, 'omni--solid': theme.glass.value === 0, 'motion-reduced': motion.reduced.value }" @keydown="handleKeydown">
     <div class="omni-col">
       <div ref="barRef" class="omni-bar" :class="{ focused: focused || query }">
         <AppIcon name="solar:magnifier-bold" :size="18" class="omni-bar__icon" />
@@ -120,6 +120,7 @@ import UiSpinner from '@/components/ui/UiSpinner.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useTheme } from '@/composables/useTheme'
+import { useMotion } from '@/composables/useMotion'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useContextMenu, type ContextMenuEntry } from '@/composables/useContextMenu'
 import { MODULE_METADATA, type PanelType } from '@/types'
@@ -136,6 +137,7 @@ import { SEARCH_CATEGORIES, INITIAL_ROWS_PER_SECTION, MAX_VISIBLE_ROWS_PER_SECTI
 const props = withDefaults(defineProps<{ home?: boolean; beforeOpen?: () => Promise<boolean> }>(), { home: false })
 const store = useAppStore()
 const theme = useTheme()
+const motion = useMotion()
 const isFlatAmoled = computed(() => theme.themeId.value === 'flat-amoled')
 const isModernGlass = computed(() => theme.themeId.value === 'modern-glass')
 const wm = useWindowManager()
@@ -656,6 +658,7 @@ defineExpose({ focus: () => inputRef.value?.focus() })
 .omni--glass .omni-drop { background-color: var(--ui-glass); background-image: var(--ui-glass-sheen); border-color: var(--ui-border-strong); box-shadow: var(--ui-glass-shadow), var(--ui-glass-edge); }
 .omni-drop-enter-active { animation: omni-in var(--ui-dur) var(--ui-ease-spring) both; }
 .omni-drop-leave-active { animation: omni-out 120ms ease-in both; }
+.omni.motion-reduced .omni-drop-enter-active,.omni.motion-reduced .omni-drop-leave-active { animation: none !important; }
 @keyframes omni-in { from { opacity: 0; transform: translateY(-8px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes omni-out { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(-4px) scale(.995); } }
 .omni-loading { display: flex; justify-content: center; padding: 8px 0; }
@@ -746,5 +749,5 @@ defineExpose({ focus: () => inputRef.value?.focus() })
   .omni-foot__keys { display: none; }
 }
 @media (max-width: 380px) { .omni { padding-inline: 8px; } .omni-drop { padding: 8px; } .omni-row { gap: 8px; padding: 10px; } .omni-row__actions { padding-left: 0; } }
-@media (prefers-reduced-motion: reduce) { .omni-drop-enter-active, .omni-drop-leave-active { animation: none; } *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+.omni.motion-reduced *, .omni.motion-reduced *::before, .omni.motion-reduced *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 </style>

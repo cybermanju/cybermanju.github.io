@@ -137,6 +137,7 @@
           </button>
         </div>
         <p v-if="theme.themeId.value === 'flat-amoled'" class="st-theme-note">Slim launcher · no wallpaper, coloured tiles or blur. Your wallpaper and accent stay saved for other themes.</p>
+        <div class="st-row st-home-grid-settings"><UiText as="span" variant="label" tone="muted">Home screen grid</UiText><label>Screen <UiSelect :model-value="homeGridScreen" :options="homeGridOptions" aria-label="Home screen grid to customize" @update:model-value="homeGridScreen = String($event)" /></label><label>Columns <UiSelect :model-value="String(homeGridPage?.columns || 4)" :options="homeGridDimensionOptions" aria-label="Columns on selected home screen" @update:model-value="saveHomeGrid('columns', Number($event))" /></label><label>Rows <UiSelect :model-value="String(homeGridPage?.rows || 4)" :options="homeGridDimensionOptions" aria-label="Rows on selected home screen" @update:model-value="saveHomeGrid('rows', Number($event))" /></label><span class="st-muted">Grid settings are saved separately for each screen.</span></div>
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Appearance</UiText>
           <UiSegmented
@@ -661,6 +662,14 @@ const transportTone = computed<'neutral' | 'accent' | 'success' | 'warning' | 'd
 
 const store = useAppStore()
 const theme = useTheme()
+type HomeGridPage = { id: string; title: string; columns?: number; rows?: number }
+const homeGridPages = ref<HomeGridPage[]>([])
+const homeGridScreen = ref('')
+const homeGridPage = computed(() => homeGridPages.value.find(page => page.id === homeGridScreen.value))
+const homeGridOptions = computed(() => homeGridPages.value.map((page, index) => ({ label: page.title || `Screen ${index + 1}`, value: page.id })))
+const homeGridDimensionOptions = [2, 3, 4, 5, 6, 7, 8].map(value => ({ label: String(value), value: String(value) }))
+function loadHomeGridSettings() { try { const raw = JSON.parse(localStorage.getItem('cybermanju.home.workspaces.v1') || 'null'); homeGridPages.value = Array.isArray(raw?.pages) ? raw.pages.filter((page: unknown): page is HomeGridPage => !!page && typeof page === 'object' && typeof (page as HomeGridPage).id === 'string').map((page: HomeGridPage, index: number) => ({ ...page, title: page.title || `Screen ${index + 1}`, columns: Number.isInteger(page.columns) ? Math.max(2, Math.min(8, page.columns!)) : 4, rows: Number.isInteger(page.rows) ? Math.max(2, Math.min(8, page.rows!)) : 4 })) : []; if (!homeGridPages.value.some(page => page.id === homeGridScreen.value)) homeGridScreen.value = homeGridPages.value[0]?.id || '' } catch { homeGridPages.value = []; homeGridScreen.value = '' } }
+function saveHomeGrid(dimension: 'columns' | 'rows', value: number) { const page = homeGridPage.value; if (!page || !Number.isInteger(value) || value < 2 || value > 8) return; page[dimension] = value; try { const raw = JSON.parse(localStorage.getItem('cybermanju.home.workspaces.v1') || 'null'); if (!raw || !Array.isArray(raw.pages)) return; const stored = raw.pages.find((candidate: HomeGridPage) => candidate.id === page.id); if (!stored) return; stored[dimension] = value; localStorage.setItem('cybermanju.home.workspaces.v1', JSON.stringify(raw)); window.dispatchEvent(new Event('cybermanju:home-workspaces-import')) } catch { /* settings remain session-local */ } }
 const personalThemeIds: ThemeId[] = ['modern-glass', 'flat-amoled']
 // Interface language (i18n foundation, ANALYSIS.md §3) — new surfaces read
 // it via t(); older panels migrate as they are touched.
@@ -999,13 +1008,16 @@ function handleStackEscape(e: KeyboardEvent) {
 }
 
 onMounted(() => {
+  loadHomeGridSettings()
   mobileShellQuery?.addEventListener?.('change', onMobileShellChange)
   window.addEventListener('cybermanju:mobile-back', handleMobileBack)
+  window.addEventListener('cybermanju:home-workspaces-import', loadHomeGridSettings)
   document.addEventListener('keydown', handleStackEscape)
 })
 onBeforeUnmount(() => {
   mobileShellQuery?.removeEventListener?.('change', onMobileShellChange)
   window.removeEventListener('cybermanju:mobile-back', handleMobileBack)
+  window.removeEventListener('cybermanju:home-workspaces-import', loadHomeGridSettings)
   document.removeEventListener('keydown', handleStackEscape)
 })
 
@@ -1418,6 +1430,7 @@ async function handleRefresh() {
   justify-content: space-between;
   gap: 10px;
 }
+.st-home-grid-settings { flex-wrap: wrap; padding: 12px 0; }.st-home-grid-settings > label { display: flex; align-items: center; gap: 7px; font-size: 12px; }.st-home-grid-settings > label :deep(select) { min-width: 110px; }
 .st-row + .st-row { border-top: 1px dashed var(--ui-hairline); }
 .st-stack { display: flex; flex-direction: column; gap: 10px; }
 

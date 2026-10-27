@@ -12,6 +12,8 @@ export interface HomeWorkspace {
   id: string
   title: string
   items: HomeItem[]
+  columns?: number
+  rows?: number
 }
 
 export interface HomeWorkspaceState {
@@ -42,7 +44,7 @@ function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 function makePage(title: string): HomeWorkspace {
-  return { id: uniqueId(), title, items: [] }
+  return { id: uniqueId(), title, items: [], columns: 4, rows: 4 }
 }
 
 export function createHomeState(appIds: string[]): HomeWorkspaceState {
@@ -90,7 +92,8 @@ export function normalizeHomeState(input: unknown, appIds: string[]): HomeWorksp
       itemIds.add(item.id)
       items.push(item)
     }
-    pages.push({ id: raw.id, title: typeof raw.title === 'string' ? raw.title.slice(0, 40) : 'Screen', items })
+    const boundedGrid = (value: unknown, fallback: number) => Number.isInteger(value) ? Math.max(2, Math.min(8, value as number)) : fallback
+    pages.push({ id: raw.id, title: typeof raw.title === 'string' ? raw.title.slice(0, 40) : 'Screen', items, columns: boundedGrid(raw.columns, 4), rows: boundedGrid(raw.rows, 4) })
   }
   if (pages.length === 0) return createHomeState(appIds)
   const theme = input.theme === 'pixel' || input.theme === 'mono' ? input.theme : 'aurora'

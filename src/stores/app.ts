@@ -680,7 +680,68 @@ export const useAppStore = defineStore('cybermanju', () => {
             applyStars()
             return
           }
-          const remotePath = parsed.remotePath === 'External' ? '' : parsed.remotePath.startsWith('External/') ? parsed.remotePath.slice('External/'.length) : parsed.remotePath
+          const mounts = await canal.listVfsMounts().catch(() => [])
+          const mount = mounts.find(m => m.id === parsed.mountId)
+          const cfg = mount && syncConfigs.value.find(c => c.id === mount.configId)
+          const isGit = cfg?.backendType === 'github' || cfg?.backendType === 'gitlab'
+          const configuredRepo = mount?.repoName || cfg?.repoName || ''
+          if (parsed.remotePath === 'External' && isGit && configuredRepo) {
+            const now = new Date().toISOString()
+            const repoName = configuredRepo.split('/').filter(Boolean).pop() || configuredRepo
+            files.value = [{
+              id: `providers/${parsed.mountId}/External/__repository__`,
+              name: repoName,
+              fileType: 'folder',
+              parentId: String(path),
+              path: canal.providerPathFor(parsed.mountId, 'External/__repository__'),
+              sizeBytes: 0,
+              encrypted: false,
+              compressionLayers: [],
+              createdAt: now,
+              modifiedAt: now,
+            } as FileNode]
+            applyStars()
+            return
+          }
+          if (parsed.remotePath === 'External' && isGit && cfg && !configuredRepo) {
+            try {
+              const repos = await canal.listVfsRepositories(parsed.mountId)
+              const now = new Date().toISOString()
+              const rows: FileNode[] = []
+              for (const repo of repos) {
+                const repoMount = await canal.saveVfsMount({
+                  id: canal.vfsRepoMountId(parsed.mountId, repo.repoName),
+                  configId: mount!.configId,
+                  name: `${cfg.backendType} · ${repo.name}`,
+                  backendType: cfg.backendType,
+                  repoName: repo.repoName,
+                })
+                rows.push({
+                  id: `providers/${repoMount.id}/External/__repository__`,
+                  name: repo.name,
+                  fileType: 'folder',
+                  parentId: String(path),
+                  path: canal.providerPathFor(repoMount.id, 'External/__repository__'),
+                  sizeBytes: 0,
+                  encrypted: false,
+                  compressionLayers: [],
+                  createdAt: now,
+                  modifiedAt: now,
+                } as FileNode)
+              }
+              files.value = rows
+            } catch (e) {
+              files.value = []
+              notifyError('Git repositories unavailable', e)
+            }
+            applyStars()
+            return
+          }
+          const gitRepoPrefix = 'External/__repository__'
+          const inGitRepo = isGit && (parsed.remotePath === gitRepoPrefix || parsed.remotePath.startsWith(`${gitRepoPrefix}/`))
+          const remotePath = inGitRepo
+            ? parsed.remotePath.slice(gitRepoPrefix.length).replace(/^\/+/, '')
+            : parsed.remotePath === 'External' ? '' : parsed.remotePath.startsWith('External/') ? parsed.remotePath.slice('External/'.length) : parsed.remotePath
           if (parsed.remotePath === 'Vault' || parsed.remotePath.startsWith('Vault/')) {
             files.value = []
             return
@@ -690,7 +751,7 @@ export const useAppStore = defineStore('cybermanju', () => {
           // The fallback synthesizes folder rows from recursive paths so
           // GitHub/GitLab/Drive folders stay navigable on every transport.
           try {
-            const entries = await canal.listVfsDir(parsed.mountId, remotePath, { driveRoot: parsed.remotePath === 'External' })
+            const entries = await canal.listVfsDir(parsed.mountId, remotePath, { driveRoot: parsed.remotePath === 'External' || parsed.remotePath.startsWith('External/') })
             files.value = entries.map(e => ({
               id: `providers/${parsed.mountId}/${e.locator || e.path}`,
               name: e.name,

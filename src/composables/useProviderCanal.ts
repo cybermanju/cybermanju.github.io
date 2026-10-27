@@ -27,6 +27,8 @@ export interface ProviderMount {
   backendType: string
   basePath?: string
   folderId?: string
+  /** Optional account-level Git repository override for a browsable repo child. */
+  repoName?: string
   createdAt: string
   updatedAt: string
 }
@@ -54,6 +56,10 @@ export const VFS_CACHE_PREFIX = 'vfs:cache:'
 export const VFS_SECRET_MASTER_KEY = 'vfs:secret:master'
 
 export const mountKey = (id: string): string => `vfs:mount:${id}`
+export function vfsRepoMountId(accountMountId: string, repoName: string): string {
+  const suffix = Array.from(new TextEncoder().encode(repoName), byte => byte.toString(16).padStart(2, '0')).join('')
+  return `${accountMountId}-repo-${suffix}`
+}
 export const cacheKey = (mountId: string, remotePath: string): string =>
   `${VFS_CACHE_PREFIX}${mountId}:${remotePath.replace(/^\/+/, '')}`
 
@@ -204,6 +210,7 @@ export async function listVfsMounts(): Promise<ProviderMount[]> {
           backendType: typeof m.backendType === 'string' ? m.backendType : 'github',
           basePath: typeof m.basePath === 'string' ? m.basePath : '',
           folderId: typeof m.folderId === 'string' ? m.folderId : undefined,
+          repoName: typeof m.repoName === 'string' ? m.repoName : undefined,
           createdAt: typeof m.createdAt === 'string' ? m.createdAt : new Date().toISOString(),
           updatedAt: typeof m.updatedAt === 'string' ? m.updatedAt : new Date().toISOString(),
         })
@@ -222,6 +229,7 @@ export async function saveVfsMount(input: {
   backendType: string
   basePath?: string
   folderId?: string
+  repoName?: string
 }): Promise<ProviderMount> {
   const configId = String(input.configId ?? '').trim()
   if (!configId) throw new Error('invalid: configId is required')
@@ -234,6 +242,7 @@ export async function saveVfsMount(input: {
     backendType: String(input.backendType || 'github'),
     basePath: String(input.basePath || ''),
     folderId: input.folderId ? String(input.folderId) : undefined,
+    repoName: input.repoName ? String(input.repoName) : undefined,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   }
@@ -295,7 +304,25 @@ async function canalConfigFor(mount: ProviderMount): Promise<Record<string, unkn
   } catch {
     secret = ''
   }
-  return { ...(row as object), token: secret || (row as { token?: string }).token || '' }
+  return { ...(row as object), ...(mount.repoName ? { repoName: mount.repoName } : {}), token: secret || (row as { token?: string }).token || '' }
+}
+
+/** List repositories available to an account-level GitHub/GitLab mount. */
+export async function listVfsRepositories(mountId: string): Promise<Array<{ name: string; repoName: string }>> {
+  const mounts = await listVfsMounts()
+  const mount = mounts.find(m => m.id === mountId)
+  if (!mount) throw new Error(`not_found: provider mount ${mountId}`)
+  const config = await canalConfigFor(mount)
+  const token = String(config.token ?? '').trim()
+  if (!token) throw new Error('auth: Git account has no saved token')
+  const git = await import('@/utils/gitProvision')
+  const backend = String(config.backendType ?? '')
+  const repos = backend === 'github'
+    ? await git.listGithubRepos(token)
+    : backend === 'gitlab'
+      ? await git.listGitlabProjects(token, typeof config.instanceUrl === 'string' ? config.instanceUrl : undefined)
+      : []
+  return repos.map(repo => ({ name: repo.label, repoName: repo.value })).filter(repo => !!repo.repoName)
 }
 
 /** List one provider directory — cache first (`vfs:cache:*`, TTL), canal second. */

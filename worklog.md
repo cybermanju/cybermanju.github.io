@@ -2620,3 +2620,32 @@ Only normalized position offsets are saved to device-local `cybermanju.ui.layout
 - `git diff --check` passes. Cargo validation was not run locally per
   `AGENTS.md`; the existing failing CI regression covers this path and needs a
   new CI run to confirm the fix.
+
+## 2026-10-26 — Provider roots, Git downloads, and UI gestures
+
+- File Manager provider roots now expose `External` and `Vault`; every saved
+  provider connection remains visible, including disabled or unmounted rows.
+  Google Drive `External` lists that account's root. Account-level Git
+  connections list their repositories as folders and mount the selected repo
+  under its own account-bound VFS ID. Git `External` has a download-to-vault +
+  encrypt action.
+- Cross-provider folder moves now copy and verify the complete tree before
+  deleting source entries. One-finger holds dispatch the existing context menu;
+  a stationary two-finger touch hold enters UI layout customization.
+- Focused frontend regressions pass (59 tests); `vue-tsc`, `git diff --check`,
+  and the file-header check pass. Git browsing/download transfers the current
+  configured repository working tree through provider APIs; it does not carry
+  `.git` history or clone metadata.
+
+## 2026-10-26 — Repair mobile home rendering and search motion
+
+- Mobile launcher list mode now renders each app icon beside its name, while
+  preserving icon-only and combined modes. Legacy `names` preferences migrate
+  to the icon-and-name list.
+- Restored the home workspace flex/scroll layout and orb layering so the home
+  surface stays inside the mobile viewport and its navigation remains visible.
+  The decorative orb SVG no longer depends on `feTurbulence`, which is missing
+  or expensive in some Android WebViews.
+- Search and home animations now follow the app's motion setting on Android;
+  a system reduced-motion preference no longer overrides a user's full-motion
+  choice. Search and drawer edge swipes no longer also page the home workspace.

@@ -54,7 +54,7 @@ function stroke(target: Element, id: number, x: number, y1: number, y2: number) 
 }
 function screen(wrapper: ReturnType<typeof mount>) { return wrapper.get('.studio-kicker').text() }
 
-beforeEach(() => { Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 }) })
+beforeEach(() => { localStorage.clear(); Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 }) })
 afterEach(() => { vi.clearAllMocks(); localStorage.clear(); document.body.innerHTML = '' })
 
 describe('HomeWorkspaceStudio inside launcher capture routing (simulated touch events)', () => {
