@@ -47,8 +47,8 @@ func detectDockerInstallPlan(goos, osRelease string, lookPath func(string) (stri
 		return dockerInstallPlan{}, fmt.Errorf("Termux uses the PRoot-Distro OCI runtime instead of installing Docker Engine")
 	}
 	for _, candidate := range []struct {
-		bin string
-		args []string
+		bin     string
+		args    []string
 		service []string
 	}{
 		{"apt-get", []string{"install", "-y", "docker.io"}, []string{"systemctl", "enable", "--now", "docker"}},
@@ -252,4 +252,3 @@ func runCommand(program string, args ...string) error {
 	}
 	return nil
 }
-

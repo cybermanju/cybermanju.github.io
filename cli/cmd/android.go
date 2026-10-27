@@ -128,8 +128,8 @@ func downloadLatestAndroidAPK() (string, string, error) {
 }
 
 type androidArtifactDownload struct {
-	runID int64
-	url   string
+	runID  int64
+	url    string
 	digest string
 }
 

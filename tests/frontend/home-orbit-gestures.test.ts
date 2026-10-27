@@ -5,7 +5,8 @@
 import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
-import { classifyHomeGesture } from '@/utils/homeWorkspaces'
+import { nextTick } from 'vue'
+import { classifyHomeGesture, createHomeWorkspace } from '@/utils/homeWorkspaces'
 import { useHomeTouchSafety } from '@/composables/useHomeTouchSafety'
 
 const source = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
@@ -19,11 +20,16 @@ function setup(hidden: Promise<boolean>) {
   const picker = { value: null as string | null }, editing = { value: false }, dragging = { value: null as unknown }, activeIndex = { value: 1 }
   const state = { value: { pages: [{ id: 'first' }, { id: 'second' }, { id: 'third' }], activeId: 'second' } }, message = { value: '' }
   const nativeHome = { suspend: vi.fn(() => hidden), schedule: vi.fn() }, toggleOverview = vi.fn(), closeOverview = vi.fn()
-  const window = new EventTarget(), unmounts: Array<() => void> = []
+  const window = Object.assign(new EventTarget(), { innerWidth: 390, innerHeight: 760 }), unmounts: Array<() => void> = []
   const addListener = vi.spyOn(window, 'addEventListener'), removeListener = vi.spyOn(window, 'removeEventListener')
   // UI announcement behavior is covered by mounted Home tests; this adapter
   // preserves the native barrier/deferred Promise for the extracted gesture handlers.
-  const handlers = new Function('nativeHome', 'suspendHome', 'props', 'picker', 'dragging', 'editing', 'overview', 'zoom', 'panX', 'panY', 'innerWidth', 'innerHeight', 'classifyHomeGesture', 'activeIndex', 'state', 'message', 'toggleOverview', 'closeOverview', 'window', 'onMounted', 'onUnmounted', 'watch', 'androidApps', 'document', 'useHomeTouchSafety', 'emptyPress', `${compiled};return {touchStart,touchMove,touchEnd,resetTouch,cancelTouch,workspaceKeys};`)(nativeHome, () => nativeHome.suspend(), props, picker, dragging, editing, overview, zoom, panX, panY, 390, 760, classifyHomeGesture, activeIndex, state, message, toggleOverview, closeOverview, window, (fn: () => void) => fn(), (fn: () => void) => unmounts.push(fn), vi.fn(), { supported: false }, new EventTarget(), useHomeTouchSafety, { click: vi.fn() })
+  // The extracted handlers reference presentation-only bindings defined
+  // elsewhere in the SFC: reduced motion keeps `navigate` free of the
+  // screen-transition timers, `screenMotionTimer` stays null so unmount has
+  // nothing to clear, and `arrangeOverflow`/`createHomeWorkspace` are stubs
+  // (layout) plus the real `nextTick`.
+  const handlers = new Function('nativeHome', 'suspendHome', 'props', 'picker', 'dragging', 'editing', 'overview', 'zoom', 'panX', 'panY', 'innerWidth', 'innerHeight', 'classifyHomeGesture', 'activeIndex', 'state', 'message', 'toggleOverview', 'closeOverview', 'window', 'onMounted', 'onUnmounted', 'watch', 'androidApps', 'document', 'useHomeTouchSafety', 'motion', 'screenMotionTimer', 'nextTick', 'createHomeWorkspace', 'arrangeOverflow', 'emptyPress', `${compiled};return {touchStart,touchMove,touchEnd,resetTouch,cancelTouch,workspaceKeys};`)(nativeHome, () => nativeHome.suspend(), props, picker, dragging, editing, overview, zoom, panX, panY, 390, 760, classifyHomeGesture, activeIndex, state, message, toggleOverview, closeOverview, window, (fn: () => void) => fn(), (fn: () => void) => unmounts.push(fn), vi.fn(), { supported: false }, new EventTarget(), useHomeTouchSafety, { reduced: { value: true } }, null, nextTick, createHomeWorkspace, vi.fn(), { click: vi.fn() })
   const target = (selector = '') => ({ closest: (s: string) => selector && selector.split(',').some(part => s.split(',').map(x => x.trim()).includes(part.trim())) ? {} : null })
   const point = (x: number, y = 300, selector = '') => ({ clientX: x, clientY: y, target: target(selector) })
   const event = (points: ReturnType<typeof point>[], selector = '') => ({ touches: points.map((p, identifier) => ({ ...p, identifier })), target: target(selector), cancelable: true, preventDefault: vi.fn(), stopPropagation: vi.fn() })
@@ -65,8 +71,12 @@ describe('Orbit native-hide gesture barrier', () => {
   it.each(['input','textarea','select','[contenteditable]','.workspace-widget','[data-native-placement]','.studio-picker'])('protects touch target matching %s for all contact counts', async selector => {
     for (const n of [1,2,3]) { const f = setup(Promise.resolve(true)); const pts = Array.from({length:n}, (_,i) => f.point(100+i*30)); f.touchStart(f.event(pts, selector)); await settle(); f.touchMove(f.event(pts.map(p => f.point(p.clientX-100,p.clientY-100)), selector)); await f.touchEnd(f.event([])); expect(f.nativeHome.suspend).not.toHaveBeenCalled(); expect(f.state.value.activeId).toBe('second'); expect(f.overview.value).toBe(false) }
   })
-  it('requires every touch to be inside all safe edges, even when centroid is valid', () => {
-    for (const pts of [[{x:4,y:300},{x:200,y:300}], [{x:200,y:2},{x:220,y:300}], [{x:200,y:400},{x:220,y:758}]]) { const f=setup(Promise.resolve(true)); f.touchStart(f.event(pts.map(p=>f.point(p.x,p.y)))); expect(f.nativeHome.suspend).not.toHaveBeenCalled() }
+  it('reserves single-contact top and bottom system bands and keeps multi-contact enrollment everywhere else', () => {
+    // Home owns the full canvas for swipes (see the edge-band comment in
+    // HomeWorkspaceStudio): a lone finger in the search/app-drawer bands is
+    // ignored, while multifinger starts near any edge still enroll.
+    for (const y of [2, 140, 300, 620, 758]) { const f = setup(Promise.resolve(true)); f.touchStart(f.event([f.point(200, y)])); if (y <= 140 || y >= 620) expect(f.nativeHome.suspend).not.toHaveBeenCalled(); else expect(f.nativeHome.suspend).toHaveBeenCalledTimes(1) }
+    for (const pts of [[{ x: 4, y: 300 }, { x: 220, y: 300 }], [{ x: 200, y: 2 }, { x: 220, y: 300 }], [{ x: 200, y: 400 }, { x: 220, y: 758 }]]) { const f = setup(Promise.resolve(true)); f.touchStart(f.event(pts.map(p => f.point(p.x, p.y)))); expect(f.nativeHome.suspend).toHaveBeenCalledTimes(1) }
   })
   it('ignores blocked and picker states; reset/cancel invalidates pending hide after touchEnd', async () => {
     const blocked=setup(Promise.resolve(true)); blocked.props.blocked=true; blocked.touchStart(blocked.event([blocked.point(200)])); expect(blocked.nativeHome.suspend).not.toHaveBeenCalled()

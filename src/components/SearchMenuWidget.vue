@@ -1,3 +1,8 @@
+<!-- CyberManju OS — SearchMenuWidget (src/components/SearchMenuWidget.vue). -->
+<!-- Role: Reusable, click-open search menu that keeps keyboard focus explicit. -->
+<!-- Exports: SearchMenuWidget component. -->
+<!-- Integrates: OmniSearchPanel, home tools, and any screen menu or toolbar. -->
+<!-- Contracts: Opening the trigger never focuses the query field; outside pointer closes the menu. -->
 <template>
   <div ref="root" class="search-menu-widget" :class="{ 'is-open': open, 'is-block': props.block }">
     <button class="search-menu-trigger" type="button" aria-haspopup="dialog" :aria-expanded="open" :aria-controls="panelId" @click="toggle">

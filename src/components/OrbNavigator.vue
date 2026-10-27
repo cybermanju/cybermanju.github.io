@@ -1,3 +1,8 @@
+<!-- CyberManju OS — OrbNavigator (src/components/OrbNavigator.vue). -->
+<!-- Role: Animated, accessible home-screen navigator with direct manipulation. -->
+<!-- Exports: OrbNavigator component. -->
+<!-- Integrates: HomeWorkspaceStudio via navigation and all-apps events. -->
+<!-- Contracts: A delayed single activation advances; a double activation opens the app drawer; drag steps are immediate. -->
 <template>
   <div class="orb-navigator" :class="{ 'orb-active': active, 'orb-clicked': clicked, 'motion-reduced': motionReduced }">
     <button ref="coreRef" class="orb-core" type="button" :disabled="disabled" :aria-label="`Orb navigator. Home screen ${screenIndex + 1} of ${screenCount}. Click to move to the next screen, double-click to open all apps, or drag to navigate.`" @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerEnd" @pointercancel="pointerCancel" @pointerleave="pointerLeave" @click="activate">

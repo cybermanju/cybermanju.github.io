@@ -168,6 +168,33 @@ describe('pickGraphSymbols', () => {
     expect(picked.get('agent')).toHaveLength(1);
     expect(picked.get('agent')![0].name).toBe('run_agent');
   });
+
+  it('dedupes same-named gods/symbols per subject — duplicate ids crash vis DataSet', () => {
+    // The graph can carry the same symbol name twice for one subject (the
+    // identifier is defined in two subject files). Duplicate
+    // `y:<subjectId>:<name>` ids make vis-network throw
+    // "Cannot add item: item with id … already exists" and blank the 2D page.
+    const kg = makeKg();
+    kg.subjectGods = new Map([
+      ['agent', [
+        { name: 'run_agent', degree: 42, file: 'crates/agent/src/loop.rs', line: 10, community: 3 },
+        { name: 'run_agent', degree: 99, file: 'crates/agent/src/other.rs', line: 2, community: 3 },
+      ]],
+      ['crypto', kg.subjectGods.get('crypto')!],
+    ]);
+    const picked = pickGraphSymbols(makeCollected(), kg, 14);
+    // run_agent survives once + AgentConfig from subjectSymbols (which also
+    // carries a run_agent entry that must be filtered against the god name).
+    expect(picked.get('agent')!.map((s) => s.name)).toEqual(['run_agent', 'AgentConfig']);
+    const html = buildGraphHtml({
+      subjects: SUBJECTS,
+      collected: makeCollected(),
+      kg,
+      version: '0.0.0-test',
+      commit: null,
+    });
+    expect(html.match(/"id":"y:agent:run_agent"/g) ?? []).toHaveLength(1);
+  });
 });
 
 describe('buildGraphHtml', () => {
@@ -287,6 +314,12 @@ describe('buildGraphHtml', () => {
     expect(html).toContain('id="graph-status" role="status" aria-live="polite"');
     expect(html).toContain('function showGraphLoadError()');
     expect(html).toContain('Check the connection and reload this page.');
+    // Runtime guards: payload dupes are dropped before DataSet construction,
+    // and init failures surface through the status overlay instead of a
+    // silently blank canvas.
+    expect(html).toContain('const UNIQUE_NODES = RAW_NODES.filter(');
+    expect(html).toContain('function initGraphBody()');
+    expect(html).toContain("console.error('knowledge-graph init failed:', e)");
   });
 
   it('supports mobile pan and pinch while using network tap events instead of click-on-hover selection', () => {

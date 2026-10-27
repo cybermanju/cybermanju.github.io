@@ -59,18 +59,34 @@ function locLine(loc) {
 export function pickGraphSymbols(collected, kg, perSubject = PER_SUBJECT) {
   const bySub = new Map();
   for (const c of collected) {
-    const gods = (kg?.subjectGods?.get(c.sub.id) ?? []).map((g) => ({
-      name: g.name,
-      file: g.file,
-      line: g.line,
-      degree: g.degree ?? 0,
-      community: g.community ?? -1,
-      god: true,
-      docs: lookupDocs(c, g.name),
-    }));
-    const seen = new Set(gods.map((g) => g.name));
+    // Dedupe by name before anything else: the knowledge graph can carry the
+    // same symbol name twice for one subject (same identifier defined in two
+    // subject files, re-exports, …). Duplicate names duplicate the
+    // `y:<subjectId>:<name>` node id and vis-network's DataSet throws
+    // "Cannot add item: item with id … already exists" — which killed the
+    // whole 2D page before it could render.
+    const seen = new Set();
+    const gods = (kg?.subjectGods?.get(c.sub.id) ?? [])
+      .filter((g) => {
+        if (seen.has(g.name)) return false;
+        seen.add(g.name);
+        return true;
+      })
+      .map((g) => ({
+        name: g.name,
+        file: g.file,
+        line: g.line,
+        degree: g.degree ?? 0,
+        community: g.community ?? -1,
+        god: true,
+        docs: lookupDocs(c, g.name),
+      }));
     const rest = (kg?.subjectSymbols?.get(c.sub.id) ?? [])
-      .filter((s) => !seen.has(s.name))
+      .filter((s) => {
+        if (seen.has(s.name)) return false;
+        seen.add(s.name);
+        return true;
+      })
       .map((s) => ({
         name: s.name,
         file: s.file,
@@ -117,11 +133,13 @@ export function buildGraphHtml({ subjects, collected, kg, version, commit }) {
   const nodeIndex = new Map(); // symbol id → node id
 
   // 1. Subject module hubs (big shape nodes at the center of each cluster).
+  const nodeIds = new Set();
   for (const s of subjects) {
     const c = collectedById.get(s.id);
     if (!c) continue;
     const gods = kg?.subjectGods?.get(s.id) ?? [];
     const topDeg = gods[0]?.degree ?? 0;
+    nodeIds.add(`s:${s.id}`);
     nodes.push({
       id: `s:${s.id}`,
       label: s.title,
@@ -142,11 +160,16 @@ export function buildGraphHtml({ subjects, collected, kg, version, commit }) {
   }
 
   // 2. Symbol satellites (real code identifiers with docs).
+  // Id guard: skip any symbol whose `y:<subjectId>:<name>` id was already
+  // emitted — duplicate ids make vis-network's DataSet throw and blank the
+  // whole graph page.
   for (const s of subjects) {
     const c = collectedById.get(s.id);
     if (!c) continue;
     for (const sym of picked.get(s.id) ?? []) {
       const nid = `y:${s.id}:${sym.name}`;
+      if (nodeIds.has(nid)) continue;
+      nodeIds.add(nid);
       nodeIndex.set(`${s.id}|${sym.name}`, nid);
       nodes.push({
         id: nid,
@@ -473,9 +496,8 @@ function showGraphLoadError() {
   graphStatus.dataset.state = 'error';
   graphStatus.textContent = 'Interactive graph could not load. Check the connection and reload this page.';
 }
-function initializeGraph() {
+function initGraphBody() {
   if (!window.vis || !window.vis.Network || !window.vis.DataSet) { showGraphLoadError(); return; }
-  graphStatus.hidden = true;
 const RAW_NODES = ${payloadNodes};
 const RAW_EDGES = ${payloadEdges};
 const LEGEND = ${payloadLegend};
@@ -490,7 +512,16 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
-const nodesDS = new vis.DataSet(RAW_NODES.map((n, i) => ({
+// Defensive id dedupe before DataSet construction: vis-network throws
+// "Cannot add item: … already exists" on duplicate ids and the whole
+// graph would stay blank — drop dupes instead of dying.
+const seenIds = new Set();
+const UNIQUE_NODES = RAW_NODES.filter((n) => {
+  if (seenIds.has(n.id)) return false;
+  seenIds.add(n.id);
+  return true;
+});
+const nodesDS = new vis.DataSet(UNIQUE_NODES.map((n, i) => ({
   id: n.id, label: n.label, shape: n.shape, color: n.color, size: n.size,
   font: n.font, title: n.title,
   x: 80 * Math.sqrt(i) * Math.cos(i * 2.4),
@@ -773,6 +804,18 @@ LEGEND.forEach(c => {
   legendEl.appendChild(item);
 });
 window.toggleAllSubjects = toggleAllSubjects;
+}
+function initializeGraph() {
+  // Init is synchronous — any payload/runtime error here used to leave the
+  // page silently blank. Surface it through the status overlay instead.
+  try {
+    initGraphBody();
+  } catch (e) {
+    console.error('knowledge-graph init failed:', e);
+    showGraphLoadError();
+    return;
+  }
+  graphStatus.hidden = true;
 }
 if (window.vis && window.vis.Network && window.vis.DataSet) initializeGraph();
 else if (visScript.dataset.failed === 'true') showGraphLoadError();

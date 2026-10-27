@@ -364,8 +364,7 @@ fn main() {
     // runs against the host network instead, so Termux sets BIND_ADDR to
     // localhost to keep the dashboard private to the device.
     let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let mut dashboard =
-        WebDashboard::new_shared_with_bind_addr(port, Arc::clone(&db), &bind_addr);
+    let mut dashboard = WebDashboard::new_shared_with_bind_addr(port, Arc::clone(&db), &bind_addr);
     dashboard.set_search_index(Arc::new(RwLock::new(search_index)));
     // The dashboard now owns the only remaining database handle.
     drop(db);
