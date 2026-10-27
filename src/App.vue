@@ -688,9 +688,14 @@ function handleAndroidBack() {
   } else if (setupOpen.value) {
     setupOpen.value = false
   } else if (launcher.drawerOpen) {
-    // Gaveta (app drawer) sits above the shell — back closes it first
-    // instead of acting on the window hidden behind the veil.
-    launcher.setDrawer(false)
+    // The drawer can host a transient app-customization sheet. Give that
+    // surface first refusal so Android Back unwinds one layer at a time.
+    const drawerBack = new CustomEvent('cybermanju:mobile-back', {
+      cancelable: true,
+      detail: { panel: 'launcher' },
+    })
+    window.dispatchEvent(drawerBack)
+    if (!drawerBack.defaultPrevented) launcher.setDrawer(false)
   } else if (launcher.messagesOpen) {
     launcher.setMessagesOpen(false)
   } else {

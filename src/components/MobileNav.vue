@@ -8,7 +8,7 @@
     is the only bottom control, like a native phone home screen. The Home
     tab always coexists with the open sheets, so only app tabs can be
     `active` here (there is no "no-window" state to mark). -->
-  <nav v-if="hasOpenWindows" class="mobile-nav" role="navigation" aria-label="Mobile navigation">
+  <nav v-if="hasOpenWindows" class="mobile-nav" :class="{ 'motion-reduced': motion.reduced.value }" role="navigation" aria-label="Mobile navigation">
     <button
       class="mn-btn"
       type="button"
@@ -39,6 +39,7 @@
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
 import { computed } from 'vue'
+import { useMotion } from '@/composables/useMotion'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { resolvePanel } from '@/utils/panels'
@@ -46,6 +47,7 @@ import type { PanelType } from '@/types'
 
 const wm = useWindowManager()
 const store = useAppStore()
+const motion = useMotion()
 
 interface Tab {
   id: string
@@ -160,6 +162,8 @@ function go(t: Tab) {
   color: var(--ui-accent);
   background: color-mix(in srgb, var(--ui-accent) 12%, transparent);
 }
+
+.motion-reduced .mn-btn { transition: none !important; }
 
 @media (max-width: 768px) {
   .mobile-nav {

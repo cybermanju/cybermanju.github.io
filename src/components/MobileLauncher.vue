@@ -23,9 +23,10 @@
       <template #home-tools>
         <div class="mla-screen-tools">
           <header data-ui-layout-ignore class="mla-home-toolbar" aria-label="Home tools">
+            <button class="mla-apps-shortcut" type="button" aria-label="Open all apps" @click="openDrawer"><AppIcon name="solar:widget-bold" :size="17" /><span>Apps</span></button>
             <div class="mla-toolbar-actions">
-              <button class="mla-mini-btn" type="button" aria-label="Notifications" @click="openMessages('system')"><AppIcon name="solar:bell-bold" :size="19" /><span v-if="sysUnread" class="mla-count">{{ sysUnread > 99 ? '99+' : sysUnread }}</span></button>
-              <button v-if="msgHub.supported" class="mla-mini-btn" type="button" aria-label="Messages" @click="openMessages('messages')"><AppIcon name="solar:chat-round-dots-bold" :size="19" /><span v-if="msgHub.unread.value" class="mla-count">{{ msgHub.unread.value }}</span></button>
+              <button class="mla-mini-btn" type="button" :aria-label="sysUnread ? `Notifications, ${sysUnread} unread` : 'Notifications'" @click="openMessages('system')"><AppIcon name="solar:bell-bold" :size="19" /><span v-if="sysUnread" class="mla-count">{{ sysUnread > 99 ? '99+' : sysUnread }}</span></button>
+              <button v-if="msgHub.supported" class="mla-mini-btn" type="button" :aria-label="msgHub.unread.value ? `Messages, ${msgHub.unread.value} unread` : 'Messages'" @click="openMessages('messages')"><AppIcon name="solar:chat-round-dots-bold" :size="19" /><span v-if="msgHub.unread.value" class="mla-count">{{ msgHub.unread.value > 99 ? '99+' : msgHub.unread.value }}</span></button>
             </div>
           </header>
           <section id="home-search-tools" class="mla-search-tools" aria-label="Search and commands" @focusin="searchToolsOpen = true" @focusout="onSearchToolsBlur">
@@ -485,12 +486,15 @@ function resetHomeCustom() {
 .mla :deep(.mla-screen-tools) { display: flex; flex-direction: column; flex: 0 0 auto; gap: 8px; }
 .mla :deep(.mla-home-toolbar), .mla :deep(.mla-toolbar-actions) { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .mla :deep(.mla-home-toolbar) { flex-shrink: 0; }
+.mla :deep(.mla-apps-shortcut) { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 72px; min-height: 44px; padding: 0 12px; border: 1px solid color-mix(in srgb, var(--ui-accent) 32%, var(--ui-border)); border-radius: 14px; background: color-mix(in srgb, var(--ui-accent) 10%, var(--ui-surface)); color: var(--ui-text); font: 650 12px/1 var(--ui-font); cursor: pointer; transition: transform .16s ease, background-color .16s ease, border-color .16s ease; }
+.mla :deep(.mla-apps-shortcut:active) { transform: scale(.95); background: color-mix(in srgb, var(--ui-accent) 18%, var(--ui-surface)); border-color: var(--ui-accent); }
 .mla :deep(.mla-mini-btn) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 44px; padding: 8px 12px; color: var(--ui-text); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 12px; cursor: pointer; font: inherit; font-size: 12px; }
 .mla :deep(.mla-search-tools) { position: relative; z-index: 2; flex: 0 0 auto; align-self: stretch; width: 100%; min-width: 0; display: grid; gap: 10px; }
 .mla :deep(.mla-dock) { display: flex; flex-shrink: 0; justify-content: center; align-self: center; gap: clamp(4px, 2vw, 14px); max-width: 100%; margin-top: auto; padding: 6px 10px; box-sizing: border-box; border-radius: 20px; background: var(--ui-surface); border: 1px solid var(--ui-border); }
 .mla :deep(.mla-dock-btn) { position: relative; width: 44px; min-height: 44px; padding: 0; display: grid; place-items: center; border: 0; background: transparent; color: var(--ui-text); cursor: pointer; }
-.mla :deep(.mla-dock-icon) { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; overflow: hidden; }
-.mla :deep(.mla-dock-indicator) { position: absolute; bottom: 0; width: 4px; height: 4px; background: var(--ui-accent); border-radius: 50%; }
+.mla :deep(.mla-dock-icon) { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 13px; overflow: hidden; transition: transform .18s cubic-bezier(.2,.8,.2,1), background-color .18s ease; }
+.mla :deep(.mla-dock-btn:active .mla-dock-icon) { transform: translateY(-3px) scale(1.08); background: color-mix(in srgb, var(--ui-accent) 12%, transparent); }
+.mla :deep(.mla-dock-indicator) { position: absolute; bottom: 0; width: 5px; height: 4px; background: var(--ui-accent); border-radius: 99px; box-shadow: 0 0 8px color-mix(in srgb, var(--ui-accent) 55%, transparent); }
 .mla-home-toolbar, .mla-toolbar-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .mla-home-toolbar { flex-shrink: 0; }
 .mla-mini-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 44px; padding: 8px 12px; color: var(--ui-text); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 12px; cursor: pointer; font: inherit; font-size: 12px; }
@@ -646,5 +650,13 @@ function resetHomeCustom() {
 }
 
 @media (max-width: 380px) { .mla { padding-inline: 8px; }.mla-dock { gap: 2px; padding-inline: 4px; } }
+@media (max-height: 560px) and (max-width: 768px) {
+  .mla { gap: 4px; padding-top: 4px; }
+  .mla :deep(.mla-screen-tools) { gap: 4px; }
+  .mla :deep(.mla-dock) { padding-block: 3px; }
+}
+.mla :deep(.mla-mini-btn) { transition: transform .16s ease, border-color .16s ease, background-color .16s ease; }
+.mla :deep(.mla-mini-btn:active) { transform: scale(.94); border-color: var(--ui-accent); }
+.mla :deep(.mla-apps-shortcut:focus-visible), .mla :deep(.mla-mini-btn:focus-visible), .mla :deep(.mla-dock-btn:focus-visible) { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
 .mla.motion-reduced :deep(*), .mla.motion-reduced :deep(*::before), .mla.motion-reduced :deep(*::after) { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 </style>

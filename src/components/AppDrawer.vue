@@ -9,7 +9,7 @@
       <div
         v-if="launcher.drawerOpen || revealProgress > 0 || previewSettling"
           class="app-drawer-veil"
-          :class="[`theme-${themeId}`, `drawer-display-${launcher.drawerDisplay}`, { 'is-preview': !launcher.drawerOpen, 'is-dragging': revealProgress > 0 || sheetDragging }]"
+          :class="[`theme-${themeId}`, `drawer-display-${launcher.drawerDisplay}`, { 'is-preview': !launcher.drawerOpen, 'is-dragging': revealProgress > 0 || sheetDragging, 'motion-reduced': motion.reduced.value }]"
         :style="!launcher.drawerOpen ? { background: `rgba(0, 0, 0, ${revealProgress * .4})` } : undefined"
         :aria-hidden="!launcher.drawerOpen"
         :inert="!launcher.drawerOpen"
@@ -280,6 +280,7 @@ watch(() => props.revealProgress, (progress, previous) => {
 onUnmounted(() => {
   if (previewTimer) clearTimeout(previewTimer)
   if (leaveFrame) cancelAnimationFrame(leaveFrame)
+  window.removeEventListener('cybermanju:mobile-back', handleLauncherBack)
 })
 const displayModes = [
   { value: 'list', label: 'List' },
@@ -297,7 +298,7 @@ function openInstall() {
 const query = ref('')
 const sheetRef = ref<HTMLElement | null>(null)
 const drawerActive = computed(() => launcher.drawerOpen)
-useFocusTrap(sheetRef, drawerActive, { onEscape: close })
+useFocusTrap(sheetRef, drawerActive, { onEscape: handleDrawerEscape })
 const visibleBuiltIns = computed(() => props.builtInApps.filter(app => app.label.toLowerCase().includes(query.value.trim().toLowerCase())))
 function openBuiltIn(panel: PanelType) { close(); wm.open(panel) }
 const active = ref<OrderedApp | null>(null)
@@ -383,6 +384,23 @@ function close() {
   launcher.setDrawer(false)
 }
 
+function handleDrawerEscape() {
+  if (active.value) {
+    active.value = null
+    onPressEnd()
+    return
+  }
+  close()
+}
+
+function handleLauncherBack(event: Event) {
+  const panel = (event as CustomEvent<{ panel?: string }>).detail?.panel
+  if (panel !== 'launcher' || !launcher.drawerOpen || !active.value) return
+  event.preventDefault()
+  active.value = null
+  onPressEnd()
+}
+
 async function retry() {
   try {
     await browser.refresh(true)
@@ -392,6 +410,7 @@ async function retry() {
 }
 
 onMounted(() => {
+  window.addEventListener('cybermanju:mobile-back', handleLauncherBack)
   if (!browser.supported) return
   void browser.refresh().catch(() => {})
   void browser.refreshIconPacks().then((rows) => { packs.value = rows }).catch(() => {})
@@ -813,6 +832,8 @@ function resetActive() {
 .drawer-app:active {
   transform: scale(0.92);
 }
+.drawer-app:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.drawer-app:active .drawer-tile { border-color: var(--ui-accent); }
 .drawer-tile {
   width: 56px;
   height: 56px;
@@ -983,6 +1004,12 @@ function resetActive() {
 .drawer-enter-active .drawer-cell { animation: drawer-reveal 260ms cubic-bezier(.22, 1, .36, 1) both; animation-delay: var(--reveal-delay, 0ms); }
 .is-preview.drawer-enter-active .drawer-cell { animation: none; }
 @keyframes drawer-reveal { from { opacity: 0; transform: translateY(22px) scale(.94); } to { opacity: 1; transform: none; } }
+.motion-reduced.app-drawer-veil,
+.motion-reduced .app-drawer,
+.motion-reduced .drawer-app,
+.motion-reduced .drawer-cell { animation: none !important; transition: none !important; }
+.motion-reduced.drawer-enter-active,
+.motion-reduced.drawer-leave-active { transition: none !important; }
 
 /* Modern glass follows the effective token blur/saturation, including the
    user's solid-glass and reduced-transparency preferences. */
