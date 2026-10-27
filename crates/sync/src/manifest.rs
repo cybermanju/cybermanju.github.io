@@ -659,10 +659,9 @@ pub fn fetch_catalog(configs: &[SyncConfig]) -> Result<CatalogFetch, String> {
                         ));
                     }
                 }
-                Err(e) => failures.push(format!(
-                    "{}: cannot read catalog pointer: {}",
-                    config.id, e
-                )),
+                Err(e) => {
+                    failures.push(format!("{}: cannot read catalog pointer: {}", config.id, e))
+                }
             },
             Err(e) => failures.push(format!(
                 "{}: could not read catalog pointer: {}",
