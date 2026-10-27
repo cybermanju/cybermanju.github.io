@@ -340,10 +340,14 @@ jobs:
         run: npx vue-tsc --noEmit
 
       - name: Frontend unit tests
-        # Bound this suite on hosted runners: a stuck test/hook must fail the
-        # check promptly instead of consuming the runner's multi-hour limit.
-        timeout-minutes: 20
-        run: npm test -- --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000
+        # The suite reports its files quickly but Vitest can stall during
+        # worker/process shutdown when a test leaks a live handle. Report the
+        # leaked handle and bound the step; per-test timeouts alone cannot
+        # stop a synchronous worker or a stuck shutdown.
+        timeout-minutes: 5
+        run: >-
+          npm test -- --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000
+          --teardownTimeout=15000 --reporter=default --reporter=hanging-process
 
       # Keep the freshly built pkg in place so the vite step's alias to
       # crates/os-wasm/pkg resolves to the wasm backend (integrated
