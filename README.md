@@ -74,7 +74,7 @@ irm https://cybermanju.github.io/install.ps1 | iex
 Open `http://localhost:3456` from any device on your LAN — same vault, new screen. ✨
 Checksum-verified against the release `SHA256SUMS`; pin a release with `CYB_VERSION=v0.1.1`.
 
-**Android / Termux:** run the same command in Termux to install the Go CLI only (not the Android app). ARM64 is the supported Termux target. It updates an existing writable `cyb` on `PATH`, otherwise installs to `$PREFIX/bin`; re-running replaces it with the latest CLI. `cyb setup` first asks whether to connect to a Remote Dashboard (full CLI) or use CLI Limited (Supabase direct, read-only), then requests only the details for that setup type. No root access is needed; install missing prerequisites with `pkg install curl tar coreutils`. The Android tarball starts shipping with the next tagged release; `v0.1.1` predates this support and has no Android asset.
+**Android / Termux:** run the same command in Termux to install the Go CLI only (not the Android app). ARM64 is the supported Termux target. It updates an existing writable `cyb` on `PATH`, otherwise installs to `$PREFIX/bin`; re-running replaces it with the latest CLI. `cyb setup` asks for a backend each time: Remote Dashboard, CLI Limited (Supabase direct, read-only), or a local server image through PRoot-Distro. The local image route asks permission to install PRoot-Distro, needs no Docker daemon or root, and binds the server to device loopback. PRoot-Distro provides a Linux userland, not Docker's kernel isolation. Install CLI prerequisites with `pkg install curl tar coreutils`; PRoot-Distro is installed only if you choose the local server. The Android tarball starts shipping with the next tagged release; `v0.1.1` predates this support and has no Android asset.
 
 <details>
 <summary>⚙️ Preselect / automate the installer (click to expand)</summary>
@@ -410,6 +410,7 @@ irm https://cybermanju.github.io/install.ps1 | iex
 ```bash
 cyb setup                 # server → account → saved profile (0600)
 cyb serve up              # dashboard via Docker (or point at one: cyb config set-server URL)
+cyb android install       # latest signed CI APK (or release fallback); Termux opens it, desktop tries adb
 cyb oauth launch google --config <id>   # browser approval, verified after
 cyb disk create <config> 10G            # encrypted vault disk (passphrase-sealed)
 cyb sync move <file> <from> <to>        # single-copy move between providers
@@ -426,6 +427,12 @@ self-updates (`cyb update`). Releases ship seven `cyb-<os>-<arch>.tar.gz`
 archives (six desktop targets plus Android/Termux arm64),
 `cyb_<ver>_<arch>.deb` × 2, plus `SHA256SUMS` alongside the desktop
 families (`install.sh` uses tarballs; Windows zips carry `cyb.exe`).
+
+`cyb android install` prefers the newest successful signed `main` CI APK,
+verifies its Actions artifact digest, and falls back to the latest signed
+release APK with `SHA256SUMS.txt` verification. Termux runs `termux-open` on
+the saved APK; other systems try `adb install -r` when adb is available.
+Pass `--download-only` to keep the APK without opening or installing it.
 
 Backends (`cyb backend use …`) — one CLI, four ways to reach a vault:
 `remote` (any dashboard URL) · `docker` (`cyb serve up` under the hood) ·

@@ -31,7 +31,7 @@ var helpSections = []struct {
 	{"intelligence", []string{"ai", "search", "suggest", "geo"}},
 	{"people & secrets", []string{"users", "perms", "collections", "accounts", "groups", "loose", "faces", "secrets", "oauth"}},
 	{"machine", []string{"backend", "supa", "serve", "config"}},
-	{"self care", []string{"setup", "login", "logout", "doctor", "update", "version", "completion"}},
+	{"self care", []string{"setup", "login", "logout", "doctor", "update", "android", "version", "completion"}},
 }
 
 // installHelp swaps the root help renderer for the neon atlas.

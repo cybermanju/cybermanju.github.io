@@ -1,7 +1,7 @@
 // CyberManju OS — Serve (cli/cmd/serve.go).
 // Role: cybsh CLI command.
 // Exports: module root (see items below).
-// Integrates: fmt, os, os/exec, filepath, runtime, strings, github.com, --name.
+// Integrates: fmt, os, os/exec, filepath, runtime, strings, Docker, Termux PRoot-Distro, client, ui.
 // Contracts: none special (pure logic; errors bubble to caller).
 package cmd
 
@@ -32,12 +32,12 @@ var (
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
-	Short: "Run the dashboard in Docker (up/status/stop)",
+	Short: "Run the local dashboard image (Docker or Termux PRoot-Distro)",
 }
 
 var serveUpCmd = &cobra.Command{
 	Use:   "up",
-	Short: "Start the dashboard container",
+	Short: "Start the local dashboard image",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := ensureDockerUp(servePort, serveData, serveImageF); err != nil {
 			return err
@@ -52,10 +52,15 @@ var serveUpCmd = &cobra.Command{
 // `serve up` and `backend use docker`.
 func ensureDockerUp(port int, dataDir, image string) error {
 	if runtime.GOOS == "android" {
-		return fmt.Errorf("unsupported: Docker is unavailable in Android/Termux; use remote or CLI Limited")
+		return ensureTermuxImageUp(port, dataDir, image)
 	}
 	if _, err := exec.LookPath("docker"); err != nil {
-		return fmt.Errorf("docker not found — install Docker or point cyb at a dashboard with --server")
+		if err := installDockerWithConsent(); err != nil {
+			return err
+		}
+		if _, err := exec.LookPath("docker"); err != nil {
+			return fmt.Errorf("Docker installation finished but the docker command is still unavailable; restart your shell or install Docker manually")
+		}
 	}
 	data := dataDir
 	if data == "" {
@@ -104,7 +109,18 @@ var serveStatusCmd = &cobra.Command{
 		ui.KV(
 			[2]string{"registration", map[bool]string{true: "open (first run)", false: "closed"}[st.RegistrationOpen]},
 		)
-		if runtime.GOOS != "android" {
+		if runtime.GOOS == "android" {
+			if runtimeCmd, err := findProotDistro(); err == nil {
+				if out, psErr := exec.Command(runtimeCmd, "ps").Output(); psErr == nil {
+					for _, line := range strings.Split(string(out), "\n") {
+						if strings.Contains(line, serveName) {
+							ui.Info("PRoot session: %s", strings.TrimSpace(line))
+							break
+						}
+					}
+				}
+			}
+		} else {
 			if out, err := exec.Command("docker", "ps", "--filter", "name="+serveName, "--format", "{{.Status}}").Output(); err == nil {
 				if s := strings.TrimSpace(string(out)); s != "" {
 					ui.Info("container: %s", s)
@@ -120,7 +136,15 @@ var serveStopCmd = &cobra.Command{
 	Short: "Stop and remove the dashboard container",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS == "android" {
-			return fmt.Errorf("unsupported: Docker is unavailable in Android/Termux; use remote or CLI Limited")
+			runtimeCmd, err := findProotDistro()
+			if err != nil {
+				return fmt.Errorf("PRoot-Distro is not installed; run `cyb serve up` and approve installation first")
+			}
+			if out, err := exec.Command(runtimeCmd, "kill", serveName).CombinedOutput(); err != nil {
+				return fmt.Errorf("could not stop the PRoot-Distro dashboard: %v\n%s", err, out)
+			}
+			ui.Success("Termux dashboard session stopped")
+			return nil
 		}
 		if out, err := exec.Command("docker", "rm", "-f", serveName).CombinedOutput(); err != nil {
 			return fmt.Errorf("docker rm failed: %v\n%s", err, out)

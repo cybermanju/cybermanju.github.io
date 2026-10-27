@@ -2649,6 +2649,32 @@ Only normalized position offsets are saved to device-local `cybermanju.ui.layout
 - Search and home animations now follow the app's motion setting on Android;
   a system reduced-motion preference no longer overrides a user's full-motion
   choice. Search and drawer edge swipes no longer also page the home workspace.
+## 2026-10-27 — Install the Android app from CI or release
+
+- Added `cyb android install`: it finds the newest successful signed `main`
+  `dist-android` artifact, verifies GitHub's archive digest, extracts the
+  arm64 APK, and falls back to the latest signed release with SHA-256
+  verification when CI artifacts have expired. It saves under
+  `~/Downloads/CyberManju-OS`, opens the APK with Termux `termux-open`, or
+  tries `adb install -r` on other systems when adb is available. Added a
+  `--download-only` option and documented the flow.
+- `git diff --check` and the file-header check pass. Go is unavailable here,
+  so Go formatting/build/tests were not run.
+
+## 2026-10-27 — Repeatable backend selection and Termux local server
+
+- `cyb setup` now asks for a backend on every interactive run, and `cyb backend`
+  shows the active choice with `cyb backend select` as the change path. Setup
+  prints a completion summary after credentials are saved.
+- The local OCI server option now runs on Termux through PRoot-Distro. The CLI
+  asks before installing/upgrading that prerequisite, refreshes its named OCI
+  rootfs while keeping `/data` persistent, and probes the loopback listener.
+  The server accepts `BIND_ADDR`; Termux launches it on `127.0.0.1` because
+  PRoot-Distro shares the Android host network. Updated Termux installer and
+  README guidance to describe this path and its weaker isolation model.
+- Header check and `git diff --check` pass. Go and Rust formatters/toolchains
+  are unavailable here; Go and Rust tests were not run.
+
 ## 2026-10-27 — Provider recovery pointer and replication status
 
 - Fixed provider catalog recovery: `catalog/latest.json` is now read as a

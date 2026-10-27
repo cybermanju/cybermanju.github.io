@@ -6,6 +6,7 @@
 //
 // Environment variables:
 //   PORT               — listening port (default: 3456)
+//   BIND_ADDR          — listener address (default: 0.0.0.0; Termux PRoot uses 127.0.0.1)
 //   DB_PATH            — path to redb database (default: /data/cybermanju.db)
 //   SEARCH_INDEX_PATH  — Tantivy index directory (default: <dir of DB_PATH>/tantivy_index)
 //   STATIC_DIR         — path to frontend dist files (default: ./static)
@@ -359,7 +360,12 @@ fn main() {
         }
     };
 
-    let mut dashboard = WebDashboard::new_shared_with_bind_addr(port, Arc::clone(&db), "0.0.0.0");
+    // Docker publishes the listener through its configured port mapping. PRoot
+    // runs against the host network instead, so Termux sets BIND_ADDR to
+    // localhost to keep the dashboard private to the device.
+    let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let mut dashboard =
+        WebDashboard::new_shared_with_bind_addr(port, Arc::clone(&db), &bind_addr);
     dashboard.set_search_index(Arc::new(RwLock::new(search_index)));
     // The dashboard now owns the only remaining database handle.
     drop(db);
@@ -378,7 +384,7 @@ fn main() {
     // first tick.
     state.dashboard.running.store(true, Ordering::SeqCst);
 
-    let addr = format!("0.0.0.0:{}", port);
+    let addr = format!("{}:{}", bind_addr, port);
     let listener = match TcpListener::bind(&addr) {
         Ok(l) => l,
         Err(e) => {

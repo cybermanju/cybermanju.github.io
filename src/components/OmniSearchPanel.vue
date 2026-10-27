@@ -134,7 +134,7 @@ import { handleSearchLink, openSearchLink } from '@/utils/searchExternal'
 import { stageHomeCommand, type HomeCommandTarget } from '@/composables/useHomeCommandHandoff'
 import { SEARCH_CATEGORIES, INITIAL_ROWS_PER_SECTION, MAX_VISIBLE_ROWS_PER_SECTION, countSearchCategories, countSectionRows, filterSearchSections, nextVisibleRowCount, sharedSearchCategory, sharedSearchVisibleRows, resetSearchVisibleRows, type SearchCategory } from '@/utils/searchPresentation'
 
-const props = withDefaults(defineProps<{ home?: boolean; beforeOpen?: () => Promise<boolean> }>(), { home: false })
+const props = withDefaults(defineProps<{ home?: boolean; menuOpen?: boolean; autoFocus?: boolean; beforeOpen?: () => Promise<boolean> }>(), { home: false, menuOpen: false, autoFocus: true })
 const store = useAppStore()
 const theme = useTheme()
 const motion = useMotion()
@@ -171,7 +171,7 @@ const renameDraft = ref('')
 const tagTarget = ref<{ key: string; fileId: string } | null>(null)
 const tagDraft = ref('')
 const q = computed(() => query.value.trim())
-const dropdownOpen = computed(() => props.home ? q.value.length > 0 : focused.value || q.value.length > 0 || totalRows.value > 0)
+const dropdownOpen = computed(() => props.home ? q.value.length > 0 || props.menuOpen : focused.value || q.value.length > 0 || totalRows.value > 0)
 
 const recentSearches = ref<string[]>((() => {
   try { return JSON.parse(localStorage.getItem('cybermanju_recent_searches') || '[]') as string[] } catch { return [] }
@@ -608,7 +608,7 @@ onMounted(() => {
   void Promise.allSettled([store.fetchFiles(), store.fetchCollections(), store.fetchFaceGroups(), store.fetchSyncConfigs()])
   // Handoff from another surface (e.g. Code Studio search) may leave a
   // query with stale results — re-fire so content rows match the line.
-  if (!props.home) void nextTick(() => inputRef.value?.focus())
+  if (!props.home && props.autoFocus) void nextTick(() => inputRef.value?.focus())
 })
 
 onUnmounted(() => {

@@ -1,12 +1,14 @@
 // CyberManju OS — Backend (cli/cmd/backend.go).
 // Role: cybsh CLI command.
 // Exports: module root (see items below).
-// Integrates: fmt, github.com, signed, expired, Allowlist, http:.
-// Contracts: none special (pure logic; errors bubble to caller).
+// Integrates: fmt, runtime, huh, cobra, client, config, Supabase, Docker/PRoot runtime, ui.
+// Contracts: show the active backend and provide an interactive way to change it.
 package cmd
 
 import (
 	"fmt"
+	"runtime"
+	"strings"
 
 	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
@@ -26,10 +28,10 @@ var (
 
 var backendCmd = &cobra.Command{
 	Use:   "backend",
-	Short: "Choose how cyb reaches a vault (remote|docker|native|supabase)",
+	Short: "Show or select the active backend",
 	Long: `Backends:
   remote    dashboard URL (server flag / CYBERMANJU_SERVER / saved)
-  docker    container managed by cyb (cyb serve up under the hood)
+  docker    local OCI image (Docker Engine, or PRoot-Distro on Termux)
   native    installed CyberManju OS app (its localhost dashboard)
   CLI Limited (supabase)  broker-direct: read-only, no decrypt/encrypt`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -43,7 +45,8 @@ var backendStatusCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		f := profile()
 		t := f.Backend.TypeOrDefault()
-		ui.Header("◈ backend: %s", t)
+		ui.Header("◈ active backend: %s", backendLabel(t))
+		ui.Hint("change backend: %s", ui.Chip("cyb backend select"))
 		switch t {
 		case config.BackendSupabase:
 			if f.Supa == nil || f.Supa.URL == "" {
@@ -66,6 +69,84 @@ var backendStatusCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+var backendSelectCmd = &cobra.Command{
+	Use:   "select",
+	Short: "Interactively choose a backend",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		f := profile()
+		selected := setupTargetForBackend(f.Backend.Type)
+		targets := setupTargetChoices(runtime.GOOS)
+		supported := false
+		for _, target := range targets {
+			if target == selected {
+				supported = true
+				break
+			}
+		}
+		if !supported && len(targets) > 0 {
+			selected = targets[0]
+		}
+		options := make([]huh.Option[setupTarget], 0, len(targets))
+		for _, target := range targets {
+			label := ""
+			switch target {
+			case setupTargetDashboard:
+				label = "Remote dashboard"
+			case setupTargetDocker:
+				label = "Docker local image"
+				if runtime.GOOS == "android" {
+					label = "Docker image via Termux PRoot-Distro"
+				}
+			case setupTargetNative:
+				label = "Native CyberManju OS app"
+			case setupTargetLimited:
+				label = "CLI Limited (Supabase, read-only)"
+			}
+			options = append(options, huh.NewOption(label, target))
+		}
+		form := ui.NewForm(huh.NewGroup(huh.NewSelect[setupTarget]().Title("Select backend").Options(options...).Value(&selected)))
+		if err := form.Run(); err != nil {
+			return err
+		}
+		if selected == setupTargetDashboard {
+			server := f.Server
+			if flagServer != "" {
+				server = flagServer
+			}
+			serverForm := ui.NewForm(huh.NewGroup(huh.NewInput().Title("Remote dashboard URL").Value(&server).Validate(func(value string) error {
+				if strings.TrimSpace(value) == "" {
+					return fmt.Errorf("a dashboard URL is required")
+				}
+				return nil
+			})))
+			if err := serverForm.Run(); err != nil {
+				return err
+			}
+			backendServer = strings.TrimSpace(server)
+		}
+		if err := backendUseCmd.RunE(cmd, []string{string(selected)}); err != nil {
+			return err
+		}
+		return nil
+	},
+}
+
+func backendLabel(backend string) string {
+	if runtime.GOOS == "android" && backend == config.BackendDocker {
+		return "Docker image (Termux PRoot-Distro)"
+	}
+	switch backend {
+	case config.BackendDocker:
+		return "Docker"
+	case config.BackendNative:
+		return "Native app"
+	case config.BackendSupabase:
+		return "CLI Limited (Supabase)"
+	default:
+		return "Remote dashboard"
+	}
 }
 
 func supaSessionState(f config.File) string {
@@ -164,6 +245,7 @@ var backendUseCmd = &cobra.Command{
 		default:
 			return fmt.Errorf("unsupported: backend must be remote|docker|native|supabase (got %q)", args[0])
 		}
+		ui.Header("Backend selected: %s", backendLabel(args[0]))
 		return nil
 	},
 }
@@ -173,6 +255,6 @@ func init() {
 	backendUseCmd.Flags().IntVar(&backendPort, "port", 0, "loopback port (docker/native, default 3456)")
 	backendUseCmd.Flags().StringVar(&backendURL, "url", "", "Supabase project URL")
 	backendUseCmd.Flags().StringVar(&backendKey, "key", "", "Supabase anon key")
-	backendCmd.AddCommand(backendStatusCmd, backendUseCmd)
+	backendCmd.AddCommand(backendStatusCmd, backendSelectCmd, backendUseCmd)
 	rootCmd.AddCommand(backendCmd)
 }

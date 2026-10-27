@@ -1,8 +1,8 @@
 // CyberManju OS — Setup test (cli/cmd/setup_test.go).
-// Role: protect platform-specific first-run setup routing.
-// Exports: TestSetupTargetChoices, TestShouldAskSetupTarget, TestWithSupabaseBackend.
+// Role: protect repeated setup backend selection and profile preservation.
+// Exports: TestSetupTargetChoices, TestSetupTargetForBackend, TestWithSupabaseBackend.
 // Integrates: testing, internal/config.
-// Contracts: Termux exposes only supported backend choices; saved profile state is preserved.
+// Contracts: Termux exposes remote, PRoot-Distro and Supabase choices; saved profile state is preserved.
 package cmd
 
 import (
@@ -13,30 +13,26 @@ import (
 )
 
 func TestSetupTargetChoices(t *testing.T) {
-	want := []setupTarget{setupTargetDashboard, setupTargetLimited}
+	want := []setupTarget{setupTargetDashboard, setupTargetDocker, setupTargetLimited}
 	if got := setupTargetChoices("android"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("android setup choices = %v, want %v", got, want)
 	}
-	if got := setupTargetChoices("linux"); len(got) != 0 {
-		t.Fatalf("linux should keep the installer's existing backend menu; got %v", got)
+	want = []setupTarget{setupTargetDashboard, setupTargetDocker, setupTargetNative, setupTargetLimited}
+	if got := setupTargetChoices("linux"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("linux setup choices = %v, want %v", got, want)
 	}
 }
 
-func TestShouldAskSetupTarget(t *testing.T) {
-	if !shouldAskSetupTarget("android", config.File{}, false, "") {
-		t.Fatal("fresh interactive Termux setup must ask for a setup type")
-	}
-	if shouldAskSetupTarget("linux", config.File{}, false, "") {
-		t.Fatal("desktop setup must not duplicate the installer's backend menu")
-	}
-	if shouldAskSetupTarget("android", config.File{Backend: config.Backend{Type: config.BackendRemote}}, false, "") {
-		t.Fatal("an already selected backend must not prompt again")
-	}
-	if shouldAskSetupTarget("android", config.File{}, true, "") {
-		t.Fatal("non-interactive setup must not open a selector")
-	}
-	if shouldAskSetupTarget("android", config.File{}, false, "https://dashboard.example") {
-		t.Fatal("an explicit dashboard URL must imply the dashboard setup path")
+func TestSetupTargetForBackend(t *testing.T) {
+	for backend, want := range map[string]setupTarget{
+		config.BackendRemote:   setupTargetDashboard,
+		config.BackendDocker:   setupTargetDocker,
+		config.BackendNative:   setupTargetNative,
+		config.BackendSupabase: setupTargetLimited,
+	} {
+		if got := setupTargetForBackend(backend); got != want {
+			t.Errorf("setupTargetForBackend(%q) = %q, want %q", backend, got, want)
+		}
 	}
 }
 

@@ -1,8 +1,8 @@
 // CyberManju OS — Setup (cli/cmd/setup.go).
-// Role: cybsh command for first-run backend and account setup.
+// Role: cybsh command for repeatable backend selection and account setup.
 // Exports: module root (see items below).
-// Integrates: fmt, os, runtime, strings, huh, client, config, supa, ui.
-// Contracts: preserve saved backend/session fields when updating the profile.
+// Integrates: fmt, os, runtime, strings, huh, client, config, supa, ui, Docker/PRoot runtime.
+// Contracts: persist the selected backend with its matching server and account session.
 package cmd
 
 import (
@@ -24,6 +24,8 @@ type setupTarget string
 
 const (
 	setupTargetDashboard setupTarget = "remote"
+	setupTargetDocker    setupTarget = "docker"
+	setupTargetNative    setupTarget = "native"
 	setupTargetLimited   setupTarget = "supabase"
 )
 
@@ -37,9 +39,10 @@ var (
 var setupCmd = &cobra.Command{
 	Use:   "setup",
 	Short: "Choose a backend, connect a dashboard, and save your profile",
-	Long: `On Termux, choose a remote dashboard or CLI Limited (Supabase) before
-entering connection details. Dashboard setup probes the API, then creates or
-signs into an account and saves the profile (~/.config/cybermanju/cyb.json, 0600).
+	Long: `Choose a backend each time setup runs: remote dashboard, Docker, native
+app, or CLI Limited (Supabase; platform-dependent). Dashboard setup probes the
+API, then creates or signs into an account and saves the profile
+(~/.config/cybermanju/cyb.json, 0600).
 
 No local server yet? On a desktop, run:  cyb serve up`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -50,28 +53,56 @@ No local server yet? On a desktop, run:  cyb serve up`,
 			fmt.Println()
 		}
 
-		// A previously selected CLI Limited backend is already the setup type;
-		// do not send its Supabase project URL to the dashboard auth endpoint.
-		if f.Backend.Type == config.BackendSupabase {
-			return setupLimitedBackend(f)
-		}
-
 		target := setupTargetDashboard
-		if shouldAskSetupTarget(runtime.GOOS, f, nonInteractive, flagServer) {
+		if !nonInteractive {
 			var err error
-			target, err = chooseTermuxSetupTarget()
+			target, err = chooseSetupTarget(runtime.GOOS, f, strings.TrimSpace(flagServer) != "")
 			if err != nil {
 				return err
+			}
+		} else {
+			target = setupTargetForBackend(f.Backend.Type)
+			if strings.TrimSpace(flagServer) != "" {
+				target = setupTargetDashboard
 			}
 		}
 		if target == setupTargetLimited {
 			return setupLimitedBackend(f)
 		}
-		if runtime.GOOS == "android" && f.Backend.Type == "" {
+		switch target {
+		case setupTargetDocker:
+			f.Backend.Type = config.BackendDocker
+		case setupTargetNative:
+			f.Backend.Type = config.BackendNative
+		default:
 			f.Backend.Type = config.BackendRemote
 		}
-
-		server := config.ResolveServer(flagServer, f)
+		server := ""
+		if target == setupTargetDocker {
+			port := f.Backend.DockerPort
+			if port == 0 {
+				port = 3456
+			}
+			if err := ensureDockerUp(port, "", ""); err != nil {
+				return err
+			}
+			server = fmt.Sprintf("http://127.0.0.1:%d", port)
+			f.Backend.DockerPort = port
+		} else if target == setupTargetNative {
+			port := f.Backend.NativePort
+			if port == 0 {
+				port = 3456
+			}
+			server = fmt.Sprintf("http://127.0.0.1:%d", port)
+			probe := client.New(server, "", flagTimeout)
+			if _, err := probe.AuthStatus(); err != nil {
+				return fmt.Errorf("no CyberManju dashboard on 127.0.0.1:%d — is the native app running? (%v)", port, err)
+			}
+			f.Backend.NativePort = port
+		}
+		if target != setupTargetDocker && target != setupTargetNative {
+			server = config.ResolveServer(flagServer, f)
+		}
 		// A Termux remote dashboard must be supplied explicitly; localhost is
 		// not a useful default when Docker and the native app are unavailable.
 		if runtime.GOOS == "android" && strings.TrimSpace(flagServer) == "" &&
@@ -86,21 +117,22 @@ No local server yet? On a desktop, run:  cyb serve up`,
 				return fmt.Errorf("non-interactive setup needs --username and --password")
 			}
 		} else {
+			fields := make([]huh.Field, 0, 4)
+			if target != setupTargetDocker && target != setupTargetNative {
+				fields = append(fields, huh.NewInput().Title("Dashboard URL").Value(&server).Validate(func(s string) error {
+					if strings.TrimSpace(s) == "" {
+						return fmt.Errorf("a dashboard URL is required")
+					}
+					return nil
+				}))
+			}
+			fields = append(fields,
+				huh.NewInput().Title("Username").Value(&username),
+				huh.NewInput().Title("Password").EchoMode(huh.EchoModePassword).Value(&password),
+				huh.NewInput().Title("Display name (register only, optional)").Value(&display),
+			)
 			form := ui.NewForm(
-				huh.NewGroup(
-					huh.NewInput().
-						Title("Dashboard URL").
-						Value(&server).
-						Validate(func(s string) error {
-							if strings.TrimSpace(s) == "" {
-								return fmt.Errorf("a dashboard URL is required")
-							}
-							return nil
-						}),
-					huh.NewInput().Title("Username").Value(&username),
-					huh.NewInput().Title("Password").EchoMode(huh.EchoModePassword).Value(&password),
-					huh.NewInput().Title("Display name (register only, optional)").Value(&display),
-				),
+				huh.NewGroup(fields...),
 			)
 			if err := form.Run(); err != nil {
 				return err
@@ -144,11 +176,28 @@ No local server yet? On a desktop, run:  cyb serve up`,
 		}
 		f.Server = server
 		f.Token = login.Token
+		switch target {
+		case setupTargetDocker:
+			f.Backend.Type = config.BackendDocker
+		case setupTargetNative:
+			f.Backend.Type = config.BackendNative
+		default:
+			f.Backend.Type = config.BackendRemote
+		}
 		f = f.WithExpiry(login.ExpiresIn)
 		if err := config.Save(f); err != nil {
 			return err
 		}
 		ui.Success("signed in as %s (%s) — profile saved", login.Username, login.Role)
+		fmt.Println()
+		ui.Header("Backend selected: %s", backendLabel(string(target)))
+		ui.Header("Setup complete")
+		ui.KV(
+			[2]string{"backend", backendLabel(string(target))},
+			[2]string{"dashboard", server},
+			[2]string{"account", login.Username},
+			[2]string{"role", login.Role},
+		)
 		fmt.Println()
 		ui.Emit(ui.NextSteps("next",
 			[2]string{"cyb oauth launch google --config <id>", "connect a provider"},
@@ -161,29 +210,49 @@ No local server yet? On a desktop, run:  cyb serve up`,
 
 func setupTargetChoices(goos string) []setupTarget {
 	if goos != "android" {
-		return nil
+		return []setupTarget{setupTargetDashboard, setupTargetDocker, setupTargetNative, setupTargetLimited}
 	}
-	return []setupTarget{setupTargetDashboard, setupTargetLimited}
+	return []setupTarget{setupTargetDashboard, setupTargetDocker, setupTargetLimited}
 }
 
-func shouldAskSetupTarget(goos string, f config.File, nonInteractive bool, explicitServer string) bool {
-	return goos == "android" && f.Backend.Type == "" && !nonInteractive && strings.TrimSpace(explicitServer) == ""
+func setupTargetForBackend(backend string) setupTarget {
+	switch backend {
+	case config.BackendDocker:
+		return setupTargetDocker
+	case config.BackendNative:
+		return setupTargetNative
+	case config.BackendSupabase:
+		return setupTargetLimited
+	default:
+		return setupTargetDashboard
+	}
 }
 
-func chooseTermuxSetupTarget() (setupTarget, error) {
-	target := setupTargetDashboard
+func chooseSetupTarget(goos string, f config.File, explicitServer bool) (setupTarget, error) {
+	target := setupTargetForBackend(f.Backend.Type)
+	if explicitServer {
+		target = setupTargetDashboard
+	}
 	options := make([]huh.Option[setupTarget], 0, 2)
-	for _, choice := range setupTargetChoices(runtime.GOOS) {
+	for _, choice := range setupTargetChoices(goos) {
 		switch choice {
 		case setupTargetDashboard:
 			options = append(options, huh.NewOption("Remote dashboard — full CLI", choice))
+		case setupTargetDocker:
+			label := "Docker — local dashboard container"
+			if goos == "android" {
+				label = "Docker image — Termux PRoot-Distro (no Docker daemon)"
+			}
+			options = append(options, huh.NewOption(label, choice))
+		case setupTargetNative:
+			options = append(options, huh.NewOption("Native app — local dashboard", choice))
 		case setupTargetLimited:
 			options = append(options, huh.NewOption("CLI Limited — Supabase direct, read-only", choice))
 		}
 	}
 	form := ui.NewForm(huh.NewGroup(
 		huh.NewSelect[setupTarget]().
-			Title("Setup type").
+			Title("Choose a backend").
 			Options(options...).
 			Value(&target),
 	))
@@ -222,6 +291,7 @@ func setupLimitedBackend(f config.File) error {
 		return err
 	}
 	ui.Success("setup complete — CLI Limited (Supabase direct, read-only; broker %s)", source)
+	ui.Header("Backend selected: %s", backendLabel(string(setupTargetLimited)))
 	ui.Emit(ui.NextSteps("Supabase allowlist",
 		[2]string{"http://127.0.0.1:54329/callback", "allow under Authentication → URL Configuration → Redirect URLs"},
 		[2]string{"cyb supa login", "sign in through the broker"},

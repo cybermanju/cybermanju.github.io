@@ -19,18 +19,16 @@
     @contextmenu.capture="tapActivation.context"
     @click.capture="onLauncherClickCapture"
   >
-    <HomeWorkspaceStudio ref="workspaceStudio" :apps="workspaceApps" :initial-ids="orderedApps.map(app => app.panel)" :blocked="hasOpenWindows || launcher.drawerOpen || launcher.messagesOpen || !!customHome || searchToolsOpen || !!query.trim()" @open="open($event as PanelType)" @customize="customizeWorkspaceApp">
+    <HomeWorkspaceStudio ref="workspaceStudio" :apps="workspaceApps" :initial-ids="orderedApps.map(app => app.panel)" :blocked="hasOpenWindows || launcher.drawerOpen || launcher.messagesOpen || !!customHome" @open="open($event as PanelType)" @open-apps="openDrawer" @customize="customizeWorkspaceApp">
       <template #home-tools>
         <div class="mla-screen-tools">
           <header data-ui-layout-ignore class="mla-home-toolbar" aria-label="Home tools">
-            <button class="mla-mini-btn" type="button" aria-controls="home-search-tools" title="Focus search" @click="toggleSearchTools"><AppIcon name="solar:magnifier-bold" :size="19" /><span>Search</span></button>
             <div class="mla-toolbar-actions">
               <button class="mla-mini-btn" type="button" aria-label="Notifications" @click="openMessages('system')"><AppIcon name="solar:bell-bold" :size="19" /><span v-if="sysUnread" class="mla-count">{{ sysUnread > 99 ? '99+' : sysUnread }}</span></button>
               <button v-if="msgHub.supported" class="mla-mini-btn" type="button" aria-label="Messages" @click="openMessages('messages')"><AppIcon name="solar:chat-round-dots-bold" :size="19" /><span v-if="msgHub.unread.value" class="mla-count">{{ msgHub.unread.value }}</span></button>
-              <button class="mla-mini-btn" type="button" @click="openDrawer" aria-label="Open all apps">All apps</button>
             </div>
           </header>
-          <section id="home-search-tools" class="mla-search-tools" aria-label="Search and commands" @focusin="activateSearchTools" @focusout="onSearchToolsBlur">
+          <section id="home-search-tools" class="mla-search-tools" aria-label="Search and commands" @focusin="searchToolsOpen = true" @focusout="onSearchToolsBlur">
             <OmniSearchPanel ref="searchRef" home :before-open="hideNative" class="mla-unified-search" />
           </section>
           <nav data-ui-layout-ignore v-if="dock.length" class="mla-dock" aria-label="Favorite apps">
@@ -45,7 +43,7 @@
       </template>
     </HomeWorkspaceStudio>
 
-    <!-- The app drawer is an overlay opened from the screen-one All apps tile. -->
+    <!-- The app drawer is an overlay opened by double-activating the orb navigator. -->
     <AppDrawer :reveal-progress="drawerProgress" :built-in-apps="apps" />
 
     <!-- Messages hub: top-right icon (header tray on open apps, floating
@@ -118,7 +116,7 @@ import OmniSearchPanel from '@/components/OmniSearchPanel.vue'
 import AppDrawer from '@/components/AppDrawer.vue'
 import MessagesHub from '@/components/MessagesHub.vue'
 import { moveHomeOrder } from '@/utils/homeLayout'
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useHomeTapActivation } from '@/composables/useHomeTapActivation'
 import { useLauncherWorkspaceGestures } from '@/composables/useLauncherWorkspaceGestures'
 import { useTheme } from '@/composables/useTheme'
@@ -150,23 +148,13 @@ const msgHub = useMessages()
 const sys = useNotifications()
 const sysUnread = computed(() => sys.unreadCount.value)
 const workspaceStudio = ref<{ removeApp: (id: string) => void; reorderApp: (id: string, direction: -1 | 1) => void; hideNative: () => Promise<boolean>; editScreen: () => Promise<void> } | null>(null)
-const query = computed({ get: () => store.searchQuery, set: (value: string) => { store.searchQuery = value } })
-const rootRef = ref<HTMLElement | null>(null)
 const searchRef = ref<{ focus: () => void } | null>(null)
+const rootRef = ref<HTMLElement | null>(null)
 const searchToolsOpen = ref(false)
 async function toggleSearchTools() {
-  if (!await hideNative()) return
-  await nextTick()
-  searchRef.value?.focus()
+  if (await hideNative()) { searchToolsOpen.value = true; searchRef.value?.focus() }
 }
-function activateSearchTools() {
-  searchToolsOpen.value = true
-  void hideNative()
-}
-function onSearchToolsBlur(event: FocusEvent) {
-  const section = event.currentTarget as HTMLElement
-  if (!section.contains(event.relatedTarget as Node | null)) searchToolsOpen.value = false
-}
+function onSearchToolsBlur(event: FocusEvent) { const section = event.currentTarget as HTMLElement; if (!section.contains(event.relatedTarget as Node | null)) searchToolsOpen.value = false }
 async function hideNative() { return await workspaceStudio.value?.hideNative() ?? true }
 async function openMessages(tab: 'system' | 'messages') { if (await hideNative()) launcher.setMessagesOpen(true, tab) }
 async function editWorkspace() { customHome.value = null; await workspaceStudio.value?.editScreen() }
@@ -203,7 +191,7 @@ function resetDrawerGesture() {
 // bubbling. Multitouch, controls, widgets, edit/overview and content scroll stay
 // with their original owners; the app-wide Pointer recognizer remains excluded.
 const workspaceGestures = useLauncherWorkspaceGestures({
-  blocked: () => hasOpenWindows.value || launcher.drawerOpen || searchToolsOpen.value || !!query.value.trim() || !!customHome.value || launcher.messagesOpen,
+  blocked: () => hasOpenWindows.value || launcher.drawerOpen || searchToolsOpen.value || !!customHome.value || launcher.messagesOpen,
   openDrawer: () => { void openDrawer() },
   openSearch: () => { void toggleSearchTools() },
   progress: value => { if (value === 0) resetDrawerGesture(); else queueDrawerProgress(value) },
@@ -499,9 +487,6 @@ function resetHomeCustom() {
 .mla :deep(.mla-home-toolbar) { flex-shrink: 0; }
 .mla :deep(.mla-mini-btn) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 44px; padding: 8px 12px; color: var(--ui-text); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 12px; cursor: pointer; font: inherit; font-size: 12px; }
 .mla :deep(.mla-search-tools) { position: relative; z-index: 2; flex: 0 0 auto; align-self: stretch; width: 100%; min-width: 0; display: grid; gap: 10px; }
-.mla :deep(.mla-search-tools .omni-col) { position: static; width: 100%; min-width: 0; }
-.mla :deep(.mla-search-tools .omni-drop) { position: absolute; inset: 100% 0 auto; z-index: 3; box-sizing: border-box; }
-.mla :deep(.mla-search-tools .home-command) { width: 100%; box-sizing: border-box; }
 .mla :deep(.mla-dock) { display: flex; flex-shrink: 0; justify-content: center; align-self: center; gap: clamp(4px, 2vw, 14px); max-width: 100%; margin-top: auto; padding: 6px 10px; box-sizing: border-box; border-radius: 20px; background: var(--ui-surface); border: 1px solid var(--ui-border); }
 .mla :deep(.mla-dock-btn) { position: relative; width: 44px; min-height: 44px; padding: 0; display: grid; place-items: center; border: 0; background: transparent; color: var(--ui-text); cursor: pointer; }
 .mla :deep(.mla-dock-icon) { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; overflow: hidden; }
@@ -511,20 +496,16 @@ function resetHomeCustom() {
 .mla-mini-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 44px; padding: 8px 12px; color: var(--ui-text); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 12px; cursor: pointer; font: inherit; font-size: 12px; }
 .mla button:focus-visible, .mla input:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
 .mla-search-tools { position: relative; z-index: 2; flex: 0 0 auto; align-self: stretch; width: 100%; min-width: 0; display: grid; gap: 10px; }
-.mla-search-tools .mla-unified-search { min-width: 0; width: 100%; padding: 0; box-sizing: border-box; }
+.mla-unified-search { width: 100%; min-width: 0; padding: 0; box-sizing: border-box; }
 .mla-unified-search :deep(.omni-col) { position: static; width: 100%; min-width: 0; }
-/* Results float over the workspace without squeezing its app grid. */
-.mla-unified-search :deep(.omni-drop) { position: absolute; inset: 100% 0 auto; z-index: 3; box-sizing: border-box; }
-.mla-search-tools :deep(.home-command) { width: 100%; box-sizing: border-box; }
+.mla-unified-search :deep(.omni-drop) { position: absolute; inset: calc(100% + 6px) 0 auto; z-index: 3; box-sizing: border-box; }
 @media (max-width: 520px) {
   .mla-home-toolbar { flex-wrap: wrap; }
   .mla-toolbar-actions { margin-left: auto; }
   .mla-search-tools { gap: 8px; }
-  .mla-unified-search :deep(.omni-bar__hint) { display: none; }
   .mla :deep(.mla-home-toolbar) { flex-wrap: wrap; }
   .mla :deep(.mla-toolbar-actions) { margin-left: auto; }
   .mla :deep(.mla-search-tools) { gap: 8px; }
-  .mla :deep(.mla-unified-search .omni-bar__hint) { display: none; }
 }
 .mla-count { color: var(--ui-accent); font-size: 11px; }
 .mla-dock { display: flex; flex-shrink: 0; justify-content: center; align-self: center; gap: clamp(4px, 2vw, 14px); max-width: 100%; padding: 6px 10px; box-sizing: border-box; border-radius: 20px; background: var(--ui-surface); border: 1px solid var(--ui-border); }
@@ -534,7 +515,7 @@ function resetHomeCustom() {
 .mla-dock-indicator { position: absolute; bottom: 0; width: 4px; height: 4px; background: var(--ui-accent); border-radius: 50%; }
 @media (max-width: 768px) {
   .mla { height: 100%; }
-  .mla-search-tools, .mla-search-tools :deep(.home-command), .mla-search-tools :deep(.omni-bar) { max-width: none; }
+  .mla-search-tools { max-width: none; }
   .mla-dock-icon { width: 42px; height: 42px; }
   .mla-dock-btn :deep(svg) { width: 28px; height: 28px; }
 }

@@ -316,8 +316,8 @@ MENU
 run_backend() {
   if [ "$IS_TERMUX" = "1" ]; then
     case "$BACKEND" in
-      docker|native)
-        say "$BACKEND is not part of the Termux CLI-only install; configure a remote or CLI Limited backend with cyb"
+      native)
+        say "the native-app backend is unavailable in Termux; choose a local OCI image, remote dashboard, or CLI Limited backend with cyb"
         return 1
         ;;
     esac
@@ -395,7 +395,7 @@ if [ -n "$BACKEND" ]; then
 elif [ "$WANT_SETUP" = "1" ] && [ "$ASSUME_YES" != "1" ] && [ "$IS_TERMUX" != "1" ]; then
   if _pick="$(choose_backend)"; then BACKEND="$_pick"; run_backend || true; fi
 elif [ "$WANT_SETUP" = "1" ] && [ "$IS_TERMUX" = "1" ]; then
-  say "Termux installs the Go CLI only; choose Remote dashboard or CLI Limited in cyb setup"
+  say "Termux installs the Go CLI only; cyb setup can also run its local OCI image through PRoot-Distro"
 fi
 
 if [ "$WANT_SETUP" = "1" ]; then

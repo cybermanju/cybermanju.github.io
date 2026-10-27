@@ -193,8 +193,14 @@ intents still work. Generation/unit tests are not a substitute for this check.
 
 ## 7. Update channel
 
-* Direct APK: manual download + install (unknown sources); `versionCode`
-  increments every release so upgrades apply cleanly.
+* Direct APK: `cyb android install` prefers the latest successful signed main CI
+  artifact (seven-day retention), then falls back to the latest signed release
+  asset. It verifies the CI artifact digest or release SHA-256 before saving
+  under `~/Downloads/CyberManju-OS/`. Termux opens it with `termux-open`; other
+  systems try `adb install -r` when adb is available. `--download-only` skips
+  the install attempt. Android still requires the user to approve installation
+  from the package installer; `versionCode` increments every release so
+  upgrades apply cleanly.
 * Play: upload the `.aab`; staged rollout via internal → production tracks.
 
 ## 8. Verification

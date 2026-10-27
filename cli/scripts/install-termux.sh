@@ -79,4 +79,4 @@ install -m 0755 "$BIN" "$STAGED" || die 'could not stage binary; existing cyb pr
 mv -fT -- "$STAGED" "$DEST" || die 'could not replace binary; existing cyb preserved'
 STAGED=''
 printf 'Installed %s\n' "$DEST"
-printf 'Next: cyb setup --server https://YOUR-DASHBOARD (or choose CLI Limited in cyb setup).\n'
+printf 'Next: run cyb setup and choose Remote, CLI Limited, or the local PRoot-Distro image.\n'

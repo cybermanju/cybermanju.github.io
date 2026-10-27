@@ -26,35 +26,20 @@
       <div v-if="editing" class="screen-tools"><button type="button" :disabled="state.pages.length >= MAX_WORKSPACES" @click="newScreen">+ New screen</button><label class="grid-control">Columns<select v-model.number="activePage.columns"><option v-for="n in 8" :key="n" :value="n" :disabled="n < 2">{{ n }}</option></select></label><label class="grid-control">Rows<select v-model.number="activePage.rows"><option v-for="n in 8" :key="n" :value="n" :disabled="n < 2">{{ n }}</option></select></label><button type="button" :aria-pressed="editing" @click="toggleEditing">Done</button><button type="button" @click="openPicker('widgets')">Widget library</button></div>
       <HomeDefaultRoleAction v-if="editing" :before-request="suspendHome" />
       <label v-if="editing" class="screen-name">Screen name<input v-model="activePage.title" maxlength="40" aria-label="Screen name" /></label>
+      <nav class="screen-nav" aria-label="Home screen navigation">
+        <OrbNavigator :screen-index="activeIndex" :screen-count="state.pages.length" :disabled="!!props.blocked || editing || !!picker || overview" :motion-reduced="motion.reduced.value" @navigate="navigateOrb" @open-apps="emit('openApps')" />
+      </nav>
         <div v-for="page in visitedPages" v-show="page.id === state.activeId" :key="page.id" class="workspace-content" tabindex="0" aria-label="Home screen canvas" :inert="page.id !== state.activeId"
           @pointerdown="emptyPress.down" @pointermove="emptyPress.move" @pointerleave="emptyPress.cancel" @pointerup="emptyPress.cancel" @pointercancel="emptyPress.cancel"
           @touchstart.passive="emptyPress.touch" @contextmenu="emptyPress.context" @click.capture="emptyPress.click">
           <slot v-if="page.id === state.pages[0]?.id" name="home-tools" />
           <div v-if="!page.items.length" class="empty-orbit"><h3>Your space</h3><p>Hold empty space to add an app or widget.</p><button type="button" @click="openPicker('apps')">+ Add an item</button></div>
-          <div class="workspace-apps" v-if="page.items.some(i => i.kind === 'app')" :style="{ gridTemplateColumns: `repeat(${page.columns || 4}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${page.rows || 4}, minmax(84px, auto))` }"><article v-for="item in page.items.filter(i => i.kind === 'app')" :key="item.id" class="workspace-app" :class="{ 'app-pressed': pressItem?.item.id === item.id, 'app-dragging': appDrag?.id === item.id }"><button class="workspace-launch" :data-item-id="item.id" type="button" :aria-label="`Open ${itemTitle(item)}; hold for options`" @pointerdown="appPointerDown($event, item, page.id)" @pointermove="appPointerMove" @pointerup="appPointerUp($event, item, page.id)" @pointercancel="cancelAppGesture" @contextmenu.prevent="openAppMenu(item, page.id, $event.clientX, $event.clientY)" @click="appClick(item)"><span class="workspace-app-icon"><img v-if="appFor(item.ref)?.image" :src="appFor(item.ref)?.image" alt="" /><AppIcon v-else :name="itemIcon(item)" :size="32" /></span><span>{{ itemTitle(item) }}</span></button><div v-if="editing" class="item-edit"><button type="button" :aria-label="`Customize ${itemTitle(item)}`" @click="customize(item.ref)">Style</button><button type="button" :aria-label="`Remove ${itemTitle(item)} from screen`" @click="removeItem(item)">×</button><label :aria-label="`Move ${itemTitle(item)} to screen`"><select :value="activePage.id" :aria-label="`Move ${itemTitle(item)} to screen`" @change="moveItem(item, ($event.target as HTMLSelectElement).value)"><option v-for="p in state.pages" :key="p.id" :value="p.id">{{ p.title }}</option></select></label></div></article></div>
+          <div class="workspace-apps" v-if="page.items.some(i => i.kind === 'app')" :style="{ gridTemplateColumns: `repeat(${page.columns || 4}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${page.rows || 4}, minmax(84px, auto))` }"><article v-for="item in page.items.filter(i => i.kind === 'app')" :key="item.id" class="workspace-app" :class="{ 'app-pressed': pressItem?.item.id === item.id, 'app-dragging': appDrag?.id === item.id, 'app-shaking': shakeAppId === item.id }"><button class="workspace-launch" :data-item-id="item.id" type="button" :aria-label="`Open ${itemTitle(item)}; hold for options`" @pointerdown="appPointerDown($event, item, page.id)" @pointermove="appPointerMove" @pointerup="appPointerUp($event, item, page.id)" @pointercancel="cancelAppGesture" @contextmenu.prevent="openAppMenu(item, page.id, $event.clientX, $event.clientY)" @click="appClick(item)"><span class="workspace-app-icon"><img v-if="appFor(item.ref)?.image" :src="appFor(item.ref)?.image" alt="" /><AppIcon v-else :name="itemIcon(item)" :size="32" /></span><span>{{ itemTitle(item) }}</span></button><div v-if="editing" class="item-edit"><button type="button" :aria-label="`Customize ${itemTitle(item)}`" @click="customize(item.ref)">Style</button><button type="button" :aria-label="`Remove ${itemTitle(item)} from screen`" @click="removeItem(item)">×</button><label :aria-label="`Move ${itemTitle(item)} to screen`"><select :value="activePage.id" :aria-label="`Move ${itemTitle(item)} to screen`" @change="moveItem(item, ($event.target as HTMLSelectElement).value)"><option v-for="p in state.pages" :key="p.id" :value="p.id">{{ p.title }}</option></select></label></div></article></div>
           <div class="workspace-widgets" :style="{ gridTemplateColumns: `repeat(${page.columns || 4}, minmax(0, 1fr))` }"><article v-for="item in page.items.filter(i => i.kind === 'widget')" :key="item.id" class="workspace-widget" :class="{ 'native-home-card': isNative(item) }"><header><span><AppIcon :name="itemIcon(item)" :size="16" />{{ itemTitle(item) }}</span><button v-if="editing" type="button" :aria-label="`Remove ${itemTitle(item)}`" @click="removeItem(item)">×</button></header><template v-if="isNative(item)"><p class="native-state" role="status">{{ nativeState(item) }}</p><div :data-native-placement="item.id" class="native-widget-slot" :style="{ height: nativeHeight(item) + 'px', width: nativeWidth(item) }"><AppIcon name="solar:widget-bold" :size="28" /><span>Android widget · native view</span><small>No live DOM preview. Hidden during scrolling, menus and Eagle view.</small></div><p v-if="nativeHome.placementMessages.value[item.id]" class="studio-hint" role="status">{{ nativeHome.placementMessages.value[item.id] }}</p><div class="native-actions"><button type="button" @click="checkNative">Check status</button><button v-if="nativeRecord(item)?.state === 'ready'" type="button" :disabled="native.busy.value || !nativeRecord(item)?.providerAvailable" @click="configureNative(item)">Configure</button><button v-else-if="nativeRecord(item)" type="button" :disabled="native.busy.value" @click="removeNative(item, true)">Cancel setup</button></div><label v-if="editing" class="widget-move">Width (dp)<input type="number" :min="nativeMinWidth(item)" max="640" step="20" :value="Number(item.data?.widthDp || 280)" @change="resizeNativeWidth(item, ($event.target as HTMLInputElement).value)" /></label><label v-if="editing" class="widget-move">Height (dp)<input type="number" :min="nativeMinimum(item)" max="640" step="20" :value="Number(item.data?.heightDp || 180)" @change="resizeNative(item, ($event.target as HTMLInputElement).value)" /></label></template><HomeLocalWidget v-else :item="item" :app-id="widgetFor(item.ref)?.appId" @update="item.data = $event" @open="launch" /><label v-if="editing" class="widget-move">Move to<select :value="activePage.id" :aria-label="`Move ${itemTitle(item)} to screen`" @change="moveItem(item, ($event.target as HTMLSelectElement).value)"><option v-for="p in state.pages" :key="p.id" :value="p.id">{{ p.title }}</option></select></label></article></div>
           <p v-if="editing" class="studio-hint">Removing an app only unpins it. Removing an Android widget also deletes its host placement, not the app. Move tiles using the screen selector or Eagle view.</p>
         </div>
-      <nav class="screen-nav" aria-label="Home screen navigation">
-        <div class="orb-navigator" :class="{ 'orb-active': orbActive }" @pointerdown="orbPointerDown" @pointermove="orbPointerMove" @pointerup="orbPointerEnd" @pointercancel="orbPointerCancel" @pointerleave="orbPointerLeave">
-          <button v-for="direction in orbDirections" :key="direction.id" class="orb-direction" :class="`orb-direction-${direction.id}`" type="button" :disabled="!orbCanNavigate(direction.dx, direction.dy)" :aria-label="direction.id === 'n' ? 'Next home screen' : direction.id === 's' ? 'Previous home screen' : `${orbStep(direction.dx, direction.dy) > 0 ? 'Next' : 'Previous'} home screen, swipe ${direction.label}`" @click="navigateOrb(direction.dx, direction.dy)">{{ direction.arrow }}</button>
-          <button class="orb-core" type="button" :aria-label="`Orb navigator. Home screen ${activeIndex + 1} of ${state.pages.length}. Activate to move to the next screen; swipe in any direction to navigate.`" @click="orbCoreClick">
-            <pre class="orb-ascii" aria-hidden="true">     .-==-.
-   .'######'.
-  /##..@@..##\
- |##.@@@@@@.##|
- |##.@@##@@.##|
- |##..@@@@..##|
-  \##......##/
-   '.######.'
-     '-==-'</pre>
-            <span class="orb-screen-count">{{ activeIndex + 1 }}<i>/{{ state.pages.length }}</i></span>
-            <span class="orb-sheen" aria-hidden="true" />
-          </button>
-        </div>
-        <span class="orb-caption" aria-hidden="true">ORBITAL SCREEN SELECTOR · 8 DIRECTIONS</span>
-      </nav>
-      <p class="studio-hint gesture-hint">Swipe any direction between screens · Three fingers up: Home overview · Alt+O · Hold empty space to add</p>
+
+      <p class="studio-hint gesture-hint">Orb: drag or tap to change screens · Three fingers up: Home overview · Alt+O</p>
     </div>
     </div>
     </div>
@@ -63,10 +48,10 @@
       <section ref="dialog" class="studio-picker" role="dialog" aria-modal="true" aria-labelledby="home-picker-title" tabindex="-1">
         <header class="picker-title"><div><h2 id="home-picker-title">Add to {{ activePage.title }}</h2></div><button type="button" aria-label="Close add to home" @click="closePicker">×</button></header>
         <div class="picker-tabs" role="group" aria-label="Personalization categories"><button v-for="tab in (['apps', 'widgets'] as const)" :key="tab" type="button" :aria-pressed="picker === tab" @click="picker = tab">{{ tab === 'apps' ? 'Apps' : 'Widgets' }}</button></div>
-        <label class="picker-search"><AppIcon name="solar:magnifier-bold" :size="18" /><input v-model="pickerQuery" type="search" :placeholder="picker === 'apps' ? 'Find an app to pin…' : 'Find your next widget…'" aria-label="Search add to home library" /></label><p class="studio-hint">Adding to {{ activePage.title }} · {{ activePage.items.length }} / {{ MAX_ITEMS_PER_WORKSPACE }} items</p>
+        <label class="picker-search"><AppIcon name="solar:magnifier-bold" :size="18" /><input v-model="pickerQuery" type="search" :placeholder="picker === 'apps' ? 'Find an app to pin…' : 'Find your next widget…'" aria-label="Search add to home library" /></label><p class="studio-hint">Starting on {{ activePage.title }} · full screens continue automatically onto the next screen</p>
         <div v-if="picker === 'apps'" class="picker-list"><button v-for="app in pickerApps" :key="app.id" type="button" :disabled="hasItem('app', app.id)" @click="add('app', app.id)"><img v-if="app.id.startsWith('android:') && app.image" class="picker-app-icon" :src="app.image" :alt="''" decoding="async" /><AppIcon v-else :name="app.icon" :size="23" /><span><strong>{{ app.label }}</strong><small>{{ app.id.startsWith('android:') ? 'Android app shortcut' : 'CyberManju app' }}</small></span><span>{{ hasItem('app', app.id) ? 'Added' : '+' }}</span></button><p v-if="!pickerApps.length">No matching apps.</p><p v-if="androidApps.status.value === 'error'" role="status">Android apps could not be loaded. Open All apps to retry.</p></div>
         <template v-else-if="picker === 'widgets'"><div class="widget-filters" role="group" aria-label="Widget integration types"><button v-for="type in (['All types', 'CyberManju', 'Android widgets', 'Service concepts'] as const)" :key="type" type="button" :aria-pressed="widgetType === type" @click="widgetType = type">{{ type }}</button></div><div class="widget-filters"><button v-for="category in categories" :key="category" type="button" :aria-pressed="widgetCategory === category" @click="widgetCategory = category">{{ category }}</button></div><p class="studio-hint">Local tools work now. App cards open apps. Android providers use the native host with Android approval; connected service concepts remain separate.</p>
-          <section v-if="widgetType === 'Android widgets' || widgetType === 'All types'" class="native-library" aria-label="Installed Android widget providers"><div class="native-library-heading"><strong>Installed Android widgets</strong><button type="button" :disabled="native.busy.value || native.status.value === 'loading' || !native.supported" @click="checkNative(true)">Refresh providers</button></div><p v-if="!native.supported" class="studio-hint">Available only in the native Android app, not in this browser or desktop build.</p><p v-else-if="native.status.value === 'unsupported'" class="studio-hint">This Android build does not expose the widget host.</p><p v-else-if="native.status.value === 'loading'" role="status">Checking Android providers…</p><p v-else-if="native.status.value === 'ready' && !native.providers.value.length" class="studio-hint">No installed widget providers were found. Install a widget-capable app, then refresh.</p><p v-if="native.error.value" class="studio-hint" role="status">{{ native.error.value }}</p><p class="studio-hint">Android RemoteViews keep their provider theme, not the Home theme. Layout and Android bindings are saved separately; use Check status and Saved Android placements to reconcile interrupted setup. RemoteViews interactions belong to each provider. Android may ask you to allow or configure a widget. One setup at a time; no automatic retry after a timeout.</p><div class="picker-list"><article v-for="provider in filteredNativeProviders" :key="provider.provider"><AppIcon name="solar:widget-bold" :size="23" /><span><strong>{{ provider.label }}</strong><small>Minimum {{ Math.ceil(provider.minWidthDp) }} × {{ Math.ceil(provider.minHeightDp) }} dp · {{ provider.configurable ? 'configuration supported' : 'provider-managed' }}</small></span><button type="button" :aria-label="`Add Android widget ${provider.label}`" :disabled="native.busy.value || native.status.value !== 'ready' || nativePending || activePage.items.length >= MAX_ITEMS_PER_WORKSPACE" @click="addNative(provider)">+</button></article></div><div v-if="native.records.value.length" class="native-saved"><h3>Saved Android placements</h3><article v-for="record in native.records.value" :key="record.appWidgetId"><span><strong>{{ nativeLabel(record.provider) }}</strong><small>{{ record.state }}{{ record.state === 'ready' && !record.providerAvailable ? ' · provider unavailable' : '' }}</small></span><button v-if="!placementExists(record.placementId)" type="button" :disabled="native.busy.value" @click="restoreNative(record)">Restore here</button><button type="button" :disabled="native.busy.value" @click="removeNativeRecord(record)">{{ record.state === 'ready' ? 'Remove' : 'Cancel setup' }}</button></article></div></section><div class="picker-list widget-library"><article v-for="widget in pickerWidgets" :key="widget.id"><AppIcon :name="widget.icon" :size="23" /><span><strong>{{ widget.title }}</strong><small>{{ widget.description }}</small><em>{{ widget.kind === 'local' ? 'On-device · ready' : widget.kind === 'app-link' ? 'App shortcut · ready' : widget.kind === 'native' ? 'Reference · find installed providers above' : 'Concept · not connected' }}</em><a v-if="widget.sourceUrl" :href="widget.sourceUrl" target="_blank" rel="noopener noreferrer">Inspiration ↗</a></span><button type="button" :aria-label="`Add ${widget.title} widget`" :disabled="!widgetReady(widget) || hasItem('widget', widget.id)" @click="add('widget', widget.id)">{{ hasItem('widget', widget.id) ? 'Added' : widgetReady(widget) ? '+' : 'Later' }}</button></article><p v-if="!pickerWidgets.length">No matching widgets.</p></div></template>
+          <section v-if="widgetType === 'Android widgets' || widgetType === 'All types'" class="native-library" aria-label="Installed Android widget providers"><div class="native-library-heading"><strong>Installed Android widgets</strong><button type="button" :disabled="native.busy.value || native.status.value === 'loading' || !native.supported" @click="checkNative(true)">Refresh providers</button></div><p v-if="!native.supported" class="studio-hint">Available only in the native Android app, not in this browser or desktop build.</p><p v-else-if="native.status.value === 'unsupported'" class="studio-hint">This Android build does not expose the widget host.</p><p v-else-if="native.status.value === 'loading'" role="status">Checking Android providers…</p><p v-else-if="native.status.value === 'ready' && !native.providers.value.length" class="studio-hint">No installed widget providers were found. Install a widget-capable app, then refresh.</p><p v-if="native.error.value" class="studio-hint" role="status">{{ native.error.value }}</p><p class="studio-hint">Android RemoteViews keep their provider theme, not the Home theme. Layout and Android bindings are saved separately; use Check status and Saved Android placements to reconcile interrupted setup. RemoteViews interactions belong to each provider. Android may ask you to allow or configure a widget. One setup at a time; no automatic retry after a timeout.</p><div class="picker-list"><article v-for="provider in filteredNativeProviders" :key="provider.provider"><AppIcon name="solar:widget-bold" :size="23" /><span><strong>{{ provider.label }}</strong><small>Minimum {{ Math.ceil(provider.minWidthDp) }} × {{ Math.ceil(provider.minHeightDp) }} dp · {{ provider.configurable ? 'configuration supported' : 'provider-managed' }}</small></span><button type="button" :aria-label="`Add Android widget ${provider.label}`" :disabled="native.busy.value || native.status.value !== 'ready' || nativePending" @click="addNative(provider)">+</button></article></div><div v-if="native.records.value.length" class="native-saved"><h3>Saved Android placements</h3><article v-for="record in native.records.value" :key="record.appWidgetId"><span><strong>{{ nativeLabel(record.provider) }}</strong><small>{{ record.state }}{{ record.state === 'ready' && !record.providerAvailable ? ' · provider unavailable' : '' }}</small></span><button v-if="!placementExists(record.placementId)" type="button" :disabled="native.busy.value" @click="restoreNative(record)">Restore here</button><button type="button" :disabled="native.busy.value" @click="removeNativeRecord(record)">{{ record.state === 'ready' ? 'Remove' : 'Cancel setup' }}</button></article></div></section><div class="picker-list widget-library"><article v-for="widget in pickerWidgets" :key="widget.id"><AppIcon :name="widget.icon" :size="23" /><span><strong>{{ widget.title }}</strong><small>{{ widget.description }}</small><em>{{ widget.kind === 'local' ? 'On-device · ready' : widget.kind === 'app-link' ? 'App shortcut · ready' : widget.kind === 'native' ? 'Reference · find installed providers above' : 'Concept · not connected' }}</em><a v-if="widget.sourceUrl" :href="widget.sourceUrl" target="_blank" rel="noopener noreferrer">Inspiration ↗</a></span><button type="button" :aria-label="`Add ${widget.title} widget`" :disabled="!widgetReady(widget) || hasItem('widget', widget.id)" @click="add('widget', widget.id)">{{ hasItem('widget', widget.id) ? 'Added' : widgetReady(widget) ? '+' : 'Later' }}</button></article><p v-if="!pickerWidgets.length">No matching widgets.</p></div></template>
 
         <p class="picker-feedback" role="status">{{ message }}</p>
       </section>
@@ -79,6 +64,7 @@ import AppIcon from '@/components/AppIcon.vue'
 import HomeLocalWidget from '@/components/HomeLocalWidget.vue'
 import HomeDefaultRoleAction from '@/components/HomeDefaultRoleAction.vue'
 import HomeWorkspacePreview from '@/components/HomeWorkspacePreview.vue'
+import OrbNavigator from '@/components/OrbNavigator.vue'
 import { useMotion } from '@/composables/useMotion'
 import { useHomeEmptyPress } from '@/composables/useHomeEmptyPress'
 import { useHomeTouchSafety } from '@/composables/useHomeTouchSafety'
@@ -86,10 +72,10 @@ import { useAndroidApps } from '@/composables/useAndroidApps'
 import { useHomeNativeWidgets } from '@/composables/useHomeNativeWidgets'
 import { widgetConfirmation, type NativeWidgetProvider, type NativeWidgetRecord } from '@/composables/useAndroidWidgets'
 import { homeWidgetCatalog } from '@/data/homeWidgetCatalog'
-import { HOME_WORKSPACE_KEY, MAX_ITEMS_PER_WORKSPACE, MAX_WORKSPACES, normalizeHomeState, createHomeWorkspace, addHomeItem, moveHomeItem, removeHomeItem, classifyHomeGesture, type HomeItem } from '@/utils/homeWorkspaces'
+import { HOME_WORKSPACE_KEY, MAX_ITEMS_PER_WORKSPACE, MAX_WORKSPACES, normalizeHomeState, createHomeWorkspace, addHomeItem, moveHomeItem, removeHomeItem, classifyHomeGesture, type HomeItem, type HomeWorkspace } from '@/utils/homeWorkspaces'
 type HomeApp = { id: string; label: string; icon: string; image?: string }
 const props = defineProps<{ apps: HomeApp[]; initialIds: string[]; blocked?: boolean }>()
-const emit = defineEmits<{ open: [id: string]; customize: [id: string] }>()
+const emit = defineEmits<{ open: [id: string]; openApps: []; customize: [id: string] }>()
 const androidApps = useAndroidApps()
 const motion = useMotion()
 const message = ref('')
@@ -102,13 +88,37 @@ let screenMotionTimer: ReturnType<typeof setTimeout> | null = null
 const root = ref<HTMLElement>(), dialog = ref<HTMLElement>(), addButton = ref<HTMLButtonElement>(), overviewButton = ref<HTMLButtonElement>()
 const activeIndex = computed(() => Math.max(0, state.value.pages.findIndex(p => p.id === state.value.activeId)))
 const activePage = computed(() => state.value.pages[activeIndex.value]!)
-const orbDirections = [
-  { id: 'nw', label: 'northwest', arrow: '↖', dx: -1, dy: -1 }, { id: 'n', label: 'up', arrow: '↑', dx: 0, dy: -1 }, { id: 'ne', label: 'northeast', arrow: '↗', dx: 1, dy: -1 },
-  { id: 'w', label: 'left', arrow: '←', dx: -1, dy: 0 }, { id: 'e', label: 'right', arrow: '→', dx: 1, dy: 0 },
-  { id: 'sw', label: 'southwest', arrow: '↙', dx: -1, dy: 1 }, { id: 's', label: 'down', arrow: '↓', dx: 0, dy: 1 }, { id: 'se', label: 'southeast', arrow: '↘', dx: 1, dy: 1 },
-] as const
-const orbActive = ref(false)
-let orbStart: { x: number; y: number; pointerId: number } | null = null
+function pageCapacity(page: HomeWorkspace) { return Math.min(MAX_ITEMS_PER_WORKSPACE, Math.max(4, (page.columns || 4) * (page.rows || 4))) }
+function arrangeOverflow(pageId: string) {
+  const source = state.value.pages.find(page => page.id === pageId)
+  if (!source) return
+  const activeId = state.value.activeId
+  const capacity = pageCapacity(source)
+  while (source.items.length > capacity) {
+    const item = source.items[capacity]
+    if (!item) break
+    const sourceIndex = state.value.pages.indexOf(source)
+    let destination = state.value.pages.slice(sourceIndex + 1).find(page => page.items.length < pageCapacity(page) && (item.kind !== 'app' || !page.items.some(existing => existing.kind === 'app' && existing.ref === item.ref)))
+    if (!destination) {
+      const id = createHomeWorkspace(state.value)
+      destination = id ? state.value.pages.find(page => page.id === id) : undefined
+    }
+    if (!destination || !moveHomeItem(state.value, item.id, source.id, destination.id)) break
+  }
+  if (state.value.pages.some(page => page.id === activeId)) state.value.activeId = activeId
+}
+function addToHome(item: HomeItem): HomeWorkspace | null {
+  const origin = Math.max(0, state.value.pages.findIndex(page => page.id === state.value.activeId))
+  let destination = state.value.pages.slice(origin).find(page => page.items.length < pageCapacity(page) && page.items.length < MAX_ITEMS_PER_WORKSPACE)
+  if (!destination) {
+    const id = createHomeWorkspace(state.value)
+    destination = id ? state.value.pages.find(page => page.id === id) : undefined
+  }
+  if (!destination || !addHomeItem(state.value, destination.id, item)) return null
+  state.value.activeId = destination.id
+  return destination
+}
+watch(() => [activePage.value.id, activePage.value.columns, activePage.value.rows], ([pageId]) => arrangeOverflow(String(pageId)))
 // Lazily retain visited canvases: local widgets, focus timers and scroll positions survive navigation.
 const visitedIds = ref(new Set([state.value.activeId]))
 watch(() => state.value.activeId, id => { visitedIds.value = new Set([...visitedIds.value, id]) }, { flush: 'sync' })
@@ -143,56 +153,29 @@ async function navigate(index: number, epoch = gestureEpoch) {
     message.value = ''
   }
 }
-function orbStep(dx: number, dy: number) { return Math.abs(dx) >= Math.abs(dy) && dx !== 0 ? (dx < 0 ? 1 : -1) : dy < 0 ? 1 : -1 }
-function orbCanNavigate(dx: number, dy: number) { const step = orbStep(dx, dy); return !props.blocked && !editing.value && !picker.value && !overview.value && activeIndex.value + step >= 0 && activeIndex.value + step < state.value.pages.length }
-function navigateOrb(dx: number, dy: number) { if (!orbCanNavigate(dx, dy)) return; void navigate(activeIndex.value + orbStep(dx, dy)) }
-function orbPointerDown(event: PointerEvent) {
-  if (!(event.target as HTMLElement).closest('.orb-core') || !event.isPrimary || event.button !== 0) return
-  orbStart = { x: event.clientX, y: event.clientY, pointerId: event.pointerId }
-  orbActive.value = true
-  clearOrbLight(event.currentTarget as HTMLElement)
-  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-}
-function orbPointerMove(event: PointerEvent) {
-  if (!orbStart || event.pointerId !== orbStart.pointerId) return
-  const light = event.currentTarget as HTMLElement
-  const x = Math.max(-18, Math.min(18, event.clientX - orbStart.x)) * .35
-  const y = Math.max(-18, Math.min(18, event.clientY - orbStart.y)) * .35
-  light.style.setProperty('--orb-x', `${x.toFixed(1)}px`)
-  light.style.setProperty('--orb-y', `${y.toFixed(1)}px`)
-}
-function orbPointerEnd(event: PointerEvent) {
-  if (!orbStart || event.pointerId !== orbStart.pointerId) return
-  const dx = event.clientX - orbStart.x, dy = event.clientY - orbStart.y
-  const moved = Math.hypot(dx, dy) >= 14
-  orbStart = null; orbActive.value = false; clearOrbLight(event.currentTarget as HTMLElement)
-  if (moved && Math.max(Math.abs(dx), Math.abs(dy)) >= 14) { suppressOrbClick = true; navigateOrb(dx, dy); setTimeout(() => { suppressOrbClick = false }, 0) }
-}
-let suppressOrbClick = false
-function orbCoreClick() { if (suppressOrbClick) { suppressOrbClick = false; return }; navigateOrb(0, -1) }
-function clearOrbLight(element: HTMLElement) { element.style.removeProperty('--orb-x'); element.style.removeProperty('--orb-y') }
-function orbPointerCancel(event: PointerEvent) { orbStart = null; orbActive.value = false; clearOrbLight(event.currentTarget as HTMLElement) }
-function orbPointerLeave(event: PointerEvent) { if (!orbStart) clearOrbLight(event.currentTarget as HTMLElement) }
+function navigateOrb(direction: -1 | 1) { void navigate(activeIndex.value + direction) }
 async function launch(id: string) { const epoch = gestureEpoch; if (props.blocked || !await suspendHome('Could not safely hide native widgets. Unlock and return to this app, then try again. No app was opened.') || props.blocked || epoch !== gestureEpoch) return; if (id.startsWith('android:')) { try { await androidApps.openApp(id.slice(8)) } catch { message.value = 'This Android app is unavailable. Try refreshing All apps.' } } else if (props.apps.some(app => app.id === id)) emit('open', id); else message.value = 'This app is unavailable. Open All apps to choose another.' }
 async function customize(id: string) { if (props.blocked || !await suspendHome()) return; if (!id.startsWith('android:')) emit('customize', id); else message.value = 'Customize Android apps in All apps.' }
 function hasItem(kind: HomeItem['kind'], id: string) { return activePage.value.items.some(i => i.kind === kind && i.ref === id) }
-function add(kind: HomeItem['kind'], id: string) { const item = { id: globalThis.crypto?.randomUUID?.() || `item-${Date.now()}-${Math.random().toString(36).slice(2)}`, kind, ref: id }; if (hasItem(kind, id)) return; message.value = addHomeItem(state.value, activePage.value.id, item) ? 'Added to this screen.' : `This screen is full (${MAX_ITEMS_PER_WORKSPACE} items). Choose another screen.` }
+function add(kind: HomeItem['kind'], id: string) { const item = { id: globalThis.crypto?.randomUUID?.() || `item-${Date.now()}-${Math.random().toString(36).slice(2)}`, kind, ref: id }; if (hasItem(kind, id)) return; const destination = addToHome(item); message.value = destination ? `Added to ${destination.title}.` : 'No room left. The home screen limit has been reached.' }
 async function removeItem(item: HomeItem) { if (isNative(item)) { await removeNative(item); return } removeHomeItem(state.value, activePage.value.id, item.id); message.value = 'Removed from this screen.' }
-async function moveItem(item: HomeItem, target: string) { if (!await suspendHome()) return; message.value = moveHomeItem(state.value, item.id, activePage.value.id, target) ? 'Moved to screen.' : 'Could not move: destination is full or already contains this item.' }
+async function moveItem(item: HomeItem, target: string) { if (!await suspendHome()) return; const moved = moveHomeItem(state.value, item.id, activePage.value.id, target); if (moved) arrangeOverflow(target); message.value = moved ? 'Moved to screen; any overflow was arranged automatically.' : 'Could not move: destination is full or already contains this item.' }
 const appMenu = ref<{ item: HomeItem; pageId: string; x: number; y: number } | null>(null)
 const pressItem = ref<{ item: HomeItem; pageId: string; x: number; y: number; pointerId: number } | null>(null)
+const shakeAppId = ref('')
+let armedAppDragId = ''
 const appDrag = ref<{ id: string; pageId: string; x: number; y: number } | null>(null)
 let appPressTimer: ReturnType<typeof setTimeout> | null = null, suppressAppClick = false
-function appPointerDown(event: PointerEvent, item: HomeItem, pageId: string) { if (!event.isPrimary || event.button !== 0 || editing.value || props.blocked) return; cancelAppGesture(); pressItem.value = { item, pageId, x: event.clientX, y: event.clientY, pointerId: event.pointerId }; (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId); appPressTimer = setTimeout(() => { if (!pressItem.value) return; suppressAppClick = true; openAppMenu(item, pageId, event.clientX, event.clientY); pressItem.value = null }, 520) }
-function appPointerMove(event: PointerEvent) { if (pressItem.value && event.pointerId === pressItem.value.pointerId && Math.hypot(event.clientX - pressItem.value.x, event.clientY - pressItem.value.y) > 12) { const press = pressItem.value; if (appPressTimer) clearTimeout(appPressTimer); appPressTimer = null; pressItem.value = null; suppressAppClick = true; appDrag.value = { id: press.item.id, pageId: press.pageId, x: press.x, y: press.y }; return } if (appMenu.value && appMenu.value.item.id === (event.currentTarget as HTMLElement).dataset.itemId && Math.hypot(event.movementX, event.movementY) > 12) { const menu = appMenu.value; closeAppMenu(); appDrag.value = { id: menu.item.id, pageId: menu.pageId, x: event.clientX, y: event.clientY } } }
+function appPointerDown(event: PointerEvent, item: HomeItem, pageId: string) { if (!event.isPrimary || event.button !== 0 || editing.value || props.blocked) return; cancelAppGesture(); pressItem.value = { item, pageId, x: event.clientX, y: event.clientY, pointerId: event.pointerId }; shakeAppId.value = ''; armedAppDragId = ''; (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId); appPressTimer = setTimeout(() => { appPressTimer = null; if (pressItem.value?.item.id === item.id) { armedAppDragId = item.id; shakeAppId.value = item.id } }, 300) }
+function appPointerMove(event: PointerEvent) { if (pressItem.value && event.pointerId === pressItem.value.pointerId && Math.hypot(event.clientX - pressItem.value.x, event.clientY - pressItem.value.y) > 12) { const press = pressItem.value; if (appPressTimer) clearTimeout(appPressTimer); appPressTimer = null; shakeAppId.value = ''; pressItem.value = null; suppressAppClick = true; if (armedAppDragId === press.item.id) appDrag.value = { id: press.item.id, pageId: press.pageId, x: press.x, y: press.y }; armedAppDragId = ''; return } if (appMenu.value && appMenu.value.item.id === (event.currentTarget as HTMLElement).dataset.itemId && Math.hypot(event.movementX, event.movementY) > 12) { const menu = appMenu.value; closeAppMenu(); appDrag.value = { id: menu.item.id, pageId: menu.pageId, x: event.clientX, y: event.clientY } } }
 function appPointerUp(event: PointerEvent, item: HomeItem, pageId: string) { if (appPressTimer) clearTimeout(appPressTimer); appPressTimer = null; if (pressItem.value?.pointerId === event.pointerId) { pressItem.value = null; return } if (!appDrag.value || appDrag.value.id !== item.id) return; const drag = appDrag.value; appDrag.value = null; const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('.workspace-app')?.querySelector<HTMLElement>('.workspace-launch'); const targetId = target?.dataset.itemId; const targetItem = activePage.value.items.find(candidate => candidate.id === targetId); const from = state.value.pages.find(p => p.id === drag.pageId); if (from && targetItem && targetItem.id !== item.id) { const sourceIndex = from.items.findIndex(candidate => candidate.id === item.id), targetIndex = from.items.findIndex(candidate => candidate.id === targetItem.id); if (sourceIndex >= 0 && targetIndex >= 0) { const [moving] = from.items.splice(sourceIndex, 1); from.items.splice(targetIndex, 0, moving!) } } setTimeout(() => { suppressAppClick = false }, 0) }
-function cancelAppGesture() { if (appPressTimer) clearTimeout(appPressTimer); appPressTimer = null; pressItem.value = null; appDrag.value = null }
+function cancelAppGesture() { if (appPressTimer) clearTimeout(appPressTimer); appPressTimer = null; pressItem.value = null; appDrag.value = null; shakeAppId.value = ''; armedAppDragId = '' }
 function appClick(item: HomeItem) { if (suppressAppClick) { suppressAppClick = false; return } if (editing.value) void customize(item.ref); else void launch(item.ref) }
 function openAppMenu(item: HomeItem, pageId: string, x: number, y: number) { const width = 240, height = 330; appMenu.value = { item, pageId, x: Math.max(12, Math.min(x, window.innerWidth - width - 12)), y: Math.max(12, Math.min(y, window.innerHeight - height - 12)) }; if (!item.data) item.data = {} }
 function closeAppMenu() { appMenu.value = null }
 function runMenuAction(action: 'open' | 'customize') { const id = appMenu.value?.item.ref; closeAppMenu(); if (id) { if (action === 'open') void launch(id); else void customize(id) } }
 function saveAppRename() { message.value = 'App name updated.' }
-function moveFromMenu(target: string) { const menu = appMenu.value; if (!menu) return; const from = state.value.pages.find(p => p.id === menu.pageId); if (from && moveHomeItem(state.value, menu.item.id, menu.pageId, target)) message.value = 'App moved to screen.'; else message.value = 'Could not move app to that screen.'; closeAppMenu() }
+function moveFromMenu(target: string) { const menu = appMenu.value; if (!menu) return; const from = state.value.pages.find(p => p.id === menu.pageId); if (from && moveHomeItem(state.value, menu.item.id, menu.pageId, target)) { arrangeOverflow(target); message.value = 'App moved to screen; overflow was arranged automatically.' } else message.value = 'Could not move app to that screen.'; closeAppMenu() }
 function removeFromMenu() { const menu = appMenu.value; if (!menu) return; removeHomeItem(state.value, menu.pageId, menu.item.id); message.value = 'App removed from this screen.'; closeAppMenu() }
 const picker = ref<'apps' | 'widgets' | null>(null), pickerQuery = ref(''), widgetCategory = ref('All'), widgetType = ref('All types')
 const nativeHome = useHomeNativeWidgets(root, state, () => overview.value || editing.value || !!picker.value || !!props.blocked)
@@ -343,8 +326,8 @@ async function touchEnd(event: TouchEvent) {
 function cancelTouch(event: TouchEvent) { touchSafety.cancel(event); touchCount = event.touches.length; resetTouch() }
 function resetTouch(cancelDrag = true) { gestureEpoch++; gesture = null; if (cancelDrag) dragging.value = null; touchBlocked = touchCount > 0 }
 function invalidateTouch() { touchSafety.cancel(); resetTouch() }
-function importHomeState() { state.value = normalizeHomeState(load(), props.initialIds); overview.value = false; editing.value = false }
-onMounted(() => { window.addEventListener('blur', invalidateTouch); document.addEventListener('visibilitychange', invalidateTouch); window.addEventListener('cybermanju:home-workspaces-import', importHomeState); if (androidApps.supported) void androidApps.refresh().catch(() => {}) })
+function importHomeState() { state.value = normalizeHomeState(load(), props.initialIds); for (const page of [...state.value.pages]) arrangeOverflow(page.id); overview.value = false; editing.value = false }
+onMounted(() => { for (const page of [...state.value.pages]) arrangeOverflow(page.id); window.addEventListener('blur', invalidateTouch); document.addEventListener('visibilitychange', invalidateTouch); window.addEventListener('cybermanju:home-workspaces-import', importHomeState); if (androidApps.supported) void androidApps.refresh().catch(() => {}) })
 function removeApp(id: string) { for (const page of state.value.pages) { const item = page.items.find(i => i.kind === 'app' && i.ref === id); if (item) removeHomeItem(state.value, page.id, item.id) } }
 function reorderApp(id: string, direction: -1 | 1) { const items = activePage.value.items; const from = items.findIndex(i => i.kind === 'app' && i.ref === id); const target = from + direction; if (from < 0 || target < 0 || target >= items.length) return; const [item] = items.splice(from, 1); items.splice(target, 0, item!) }
 async function newScreen() { if (!await suspendHome()) return; const hadEmptyExtension = state.value.pages[state.value.pages.length - 1]?.items.length === 0; message.value = createHomeWorkspace(state.value) ? (hadEmptyExtension ? 'Opened the empty screen.' : 'New screen saved on this device.') : '24-screen limit reached.'; overview.value = false }
@@ -366,9 +349,10 @@ async function addNative(provider: NativeWidgetProvider) {
   if (native.busy.value || nativePending.value || native.status.value !== 'ready') return
   const id = globalThis.crypto?.randomUUID?.() || `native-${Date.now()}-${Math.random().toString(36).slice(2)}`
   const item: HomeItem = { id, kind: 'widget', ref: `native:${id}`, data: { provider: provider.provider, label: provider.label.slice(0, 200), heightDp: Math.max(1, Math.ceil(provider.minHeightDp)), widthDp: Math.max(1, Math.ceil(provider.minWidthDp)) } }
-  if (!addHomeItem(state.value, activePage.value.id, item)) { message.value = 'This screen is full.'; return }
+  const destination = addToHome(item)
+  if (!destination) { message.value = 'No room left. The home screen limit has been reached.'; return }
   const ok = await native.mutate('add', { provider: provider.provider, placementId: id }, confirmation)
-  message.value = ok ? 'Android setup started. Complete approval/configuration, then check status.' : 'Setup result needs review. Check saved placements; no add was repeated.'
+  message.value = ok ? `Android setup started on ${destination.title}. Complete approval/configuration, then check status.` : 'Setup result needs review. Check saved placements; no add was repeated.'
 }
 async function configureNative(item: HomeItem) { const confirmation = widgetConfirmation(), record = nativeRecord(item); if (!record || !await suspendHome()) return; await native.mutate('configure', { appWidgetId: record.appWidgetId }, confirmation); nativeHome.schedule(true) }
 async function removeNative(item: HomeItem, cancel = false) {
@@ -380,7 +364,7 @@ async function removeNative(item: HomeItem, cancel = false) {
   message.value = 'Android placement removed.'
 }
 async function removeNativeRecord(record: NativeWidgetRecord) { const confirmation = widgetConfirmation(); if (!await suspendHome()) return; await native.mutate(record.state === 'ready' ? 'remove' : 'cancel', { appWidgetId: record.appWidgetId }, confirmation); if (!native.records.value.some(r => r.placementId === record.placementId)) for (const page of state.value.pages) removeHomeItem(state.value, page.id, record.placementId) }
-function restoreNative(record: NativeWidgetRecord) { const item: HomeItem = { id: record.placementId, kind: 'widget', ref: `native:${record.placementId}`, data: { provider: record.provider, label: nativeLabel(record.provider).slice(0, 200), heightDp: Math.max(1, record.heightDp || 180), widthDp: Math.max(1, record.widthDp || 280) } }; message.value = addHomeItem(state.value, activePage.value.id, item) ? 'Saved placement restored to this screen.' : 'Cannot restore: this screen is full or placement already exists.' }
+function restoreNative(record: NativeWidgetRecord) { const item: HomeItem = { id: record.placementId, kind: 'widget', ref: `native:${record.placementId}`, data: { provider: record.provider, label: nativeLabel(record.provider).slice(0, 200), heightDp: Math.max(1, record.heightDp || 180), widthDp: Math.max(1, record.widthDp || 280) } }; const destination = addToHome(item); message.value = destination ? `Saved placement restored to ${destination.title}.` : 'No room left. The home screen limit has been reached.' }
 async function editScreen() { if (await suspendHome()) editing.value = true }
 defineExpose({ removeApp, reorderApp, hideNative: suspendHome, editScreen })
 watch(() => [props.blocked, picker.value, editing.value], () => invalidateTouch(), { flush: 'sync' })
@@ -392,12 +376,14 @@ onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); wind
 .is-editing .workspace-content { flex: 1 0 180px; }
 .studio-heading, .screen-tools, .screen-nav, .studio-status, .gesture-hint, .screen-name, .overview-bar { flex-shrink: 0; }
 .studio-status:empty { display: none; }
-.workspace-content { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
-.workspace-apps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-content: start; gap: 10px 4px; }
+.workspace-content { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.workspace-apps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: minmax(84px, auto); align-content: start; gap: 10px 4px; }
 .grid-control { display: inline-flex; align-items: center; gap: 5px; color: var(--hw-muted); font-size: 11px; }.grid-control select { min-height: 38px; border: 1px solid var(--hw-line); border-radius: 9px; color: var(--hw-text); background: var(--hw-surface); }
 .workspace-app { min-width: 0; position: relative; }
 .workspace-launch { width: 100%; min-width: 0; min-height: 84px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 6px; padding: 5px 3px; border: 0; border-radius: 14px; color: var(--hw-text); background: transparent; text-align: center; overflow: hidden; -webkit-tap-highlight-color: transparent; }
 .workspace-launch { touch-action: none; transition: transform .18s cubic-bezier(.2,.8,.2,1), filter .18s ease; }.app-pressed .workspace-launch { transform: scale(.92); filter: brightness(1.18); }.app-dragging .workspace-launch { transform: scale(1.12) rotate(-3deg); filter: drop-shadow(0 14px 18px #0008); z-index: 3; }
+.app-shaking .workspace-launch { animation: app-icon-shake .12s ease-in-out infinite alternate; }
+@keyframes app-icon-shake { from { transform: rotate(-4deg) scale(1.04); } to { transform: rotate(4deg) scale(1.04); } }
 .workspace-app-icon { width: 52px; height: 52px; flex: 0 0 auto; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--hw-line); border-radius: 16px; color: var(--hw-accent); background: var(--hw-surface); }
 .workspace-app-icon img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .workspace-launch>span:last-child { display: block; width: 100%; overflow: hidden; color: var(--hw-text); font-size: 11px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
@@ -421,31 +407,6 @@ onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); wind
 .studio-heading,.studio-tools,.screen-tools,.overview-bar,.screen-nav,.picker-title,.picker-tabs { display: flex; align-items: center; gap: 8px; }.studio-heading,.picker-title { justify-content: space-between; }.studio-heading h2,.picker-title h2 { font-size: 20px; margin: 5px 0 0; letter-spacing: -.04em; overflow-wrap: anywhere; }.studio-kicker { color: var(--hw-accent); font-size: 10px; letter-spacing: .16em; font-weight: 700; }.studio-status,.studio-hint { color: var(--hw-muted); font-size: 11px; line-height: 1.6; margin: 10px 0; }
 .studio-tools button,.screen-tools button,.overview-bar button,.screen-nav button,.picker-title>button,.picker-tabs button,.widget-filters button { color: var(--hw-text); background: var(--hw-surface); border: 1px solid var(--hw-line); border-radius: 12px; min-width: 44px; min-height: 44px; padding: 8px 12px; }.studio-tools .studio-add { background: var(--hw-accent); color: var(--ui-on-accent); font-size: 30px; line-height: 1; border-color: transparent; }.screen-tools { justify-content: space-between; margin-bottom: 14px; }.screen-tools button { font-size: 12px; }.screen-name { display: grid; gap: 6px; margin: 10px 0; font-size: 12px; }.screen-name input { color: inherit; border: 1px solid var(--hw-line); background: var(--hw-surface); padding: 10px; border-radius: 8px; }
 .screen-nav { position: relative; flex: 0 0 auto; flex-direction: column; justify-content: center; gap: 4px; margin-top: 4px; padding-bottom: 2px; }
-.orb-navigator { --orb-x: 0px; --orb-y: 0px; display: grid; grid-template-columns: 42px 86px 42px; grid-template-rows: 42px 86px 42px; align-items: center; justify-items: center; touch-action: none; user-select: none; }
-.orb-direction { z-index: 2; display: grid; place-items: center; min-width: 42px !important; min-height: 42px !important; padding: 0 !important; color: #f4f4f4 !important; background: #080808 !important; border: 1px solid #777 !important; border-radius: 3px !important; font: 700 17px/1 ui-monospace, monospace !important; box-shadow: inset 1px 1px #fff4, inset -2px -2px #000; }
-.orb-direction:disabled { opacity: .28; }
-.orb-direction:not(:disabled):active { color: #000 !important; background: #fff !important; transform: translateY(1px); }
-.orb-direction:focus-visible { outline: 2px solid #fff !important; outline-offset: 2px; }
-.orb-direction-nw { grid-area: 1 / 1; }.orb-direction-n { grid-area: 1 / 2; }.orb-direction-ne { grid-area: 1 / 3; }.orb-direction-w { grid-area: 2 / 1; }.orb-direction-e { grid-area: 2 / 3; }.orb-direction-sw { grid-area: 3 / 1; }.orb-direction-s { grid-area: 3 / 2; }.orb-direction-se { grid-area: 3 / 3; }
-.orb-core { grid-area: 2 / 2; position: relative; width: 82px; height: 82px; min-width: 82px !important; min-height: 82px !important; padding: 0 !important; display: grid; place-items: center; overflow: hidden; isolation: isolate; color: #fff; background: #050505 !important; border: 2px solid #eee !important; border-radius: 50% !important; outline: 2px solid #111; box-shadow: 0 0 0 3px #777, 0 0 22px #fff3, inset 0 0 16px #fff5; image-rendering: pixelated; touch-action: none; animation: orb-rest 5.4s ease-in-out infinite; }
-.orb-core::before,.orb-core::after { content: ''; position: absolute; inset: 5px; border: 1px dashed #fff8; border-radius: 50%; pointer-events: none; animation: orb-ring-spin 14s linear infinite; }
-.orb-core::after { inset: 11px; border-style: solid; border-color: #fff4; animation-duration: 9s; animation-direction: reverse; }
-.orb-ascii,.orb-sheen { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.orb-ascii { z-index: 0; display: grid; place-content: center; margin: 0; overflow: hidden; color: #fff; font: 700 6.4px/7.1px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .05em; text-shadow: 0 0 5px #fff9; animation: orb-ascii-breathe 3.8s ease-in-out infinite; }
-.orb-sheen { z-index: 1; background: radial-gradient(ellipse at 50% 30%, #fff9, #fff0 28%), repeating-linear-gradient(0deg, #fff0 0 3px, #fff2 3px 4px); mix-blend-mode: screen; opacity: .76; transform: translate(var(--orb-x), var(--orb-y)); transition: transform 90ms linear, opacity 150ms ease; }
-.orb-sheen::after { content: ''; position: absolute; inset: -35% -80%; background: linear-gradient(105deg, transparent 44%, #fff0 47%, #fffa 50%, #fff2 52%, transparent 57%); opacity: .55; transform: translateX(-18%); animation: orb-wet-glint 6.2s cubic-bezier(.4,0,.2,1) infinite; }
-.orb-screen-count { position: relative; z-index: 2; display: flex; align-items: baseline; padding: 3px 5px; color: #fff; background: #050505df; border: 1px solid #fff9; box-shadow: 2px 2px #000; font: 800 20px/1 ui-monospace, monospace; text-shadow: 1px 1px #000; }
-.orb-screen-count i { margin-left: 2px; font-size: 9px; font-style: normal; }
-.orb-active .orb-core { animation-play-state: paused; box-shadow: 0 0 0 3px #fff, 0 0 25px #fff8, inset 0 0 18px #fff9; transform: scale(1.08); }
-.orb-active .orb-ascii { animation-duration: .7s; filter: brightness(1.5); }
-.orb-active .orb-sheen { opacity: 1; }
-.orb-active .orb-sheen::after { animation-duration: 1.4s; opacity: .85; }
-.orb-caption { color: var(--hw-muted); font: 600 8px/1.2 ui-monospace, monospace; letter-spacing: .14em; text-align: center; }
-@keyframes orb-rest { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-2px) scale(1.025); } }
-@keyframes orb-ascii-breathe { 0%,100% { opacity: .78; transform: scale(.97); } 50% { opacity: 1; transform: scale(1.04); } }
-@keyframes orb-ring-spin { to { transform: rotate(360deg); } }
-@keyframes orb-wet-glint { 0%,18% { transform: translateX(-18%); opacity: .2; } 55% { opacity: .72; } 82%,100% { transform: translateX(18%); opacity: .25; } }
-.motion-reduced .orb-core,.motion-reduced .orb-core::before,.motion-reduced .orb-core::after,.motion-reduced .orb-ascii,.motion-reduced .orb-sheen::after { animation: none !important; }
 .gesture-hint { text-align: center; margin-bottom: 0; }
 .empty-orbit { text-align: center; padding: 25px 6px; }.empty-orbit h3 { font-size: 17px; margin: 18px 0 8px; }.empty-orbit p { font-size: 12px; line-height: 1.7; color: var(--hw-muted); }.empty-orbit button { color: var(--ui-on-accent); background: var(--hw-accent); min-height: 44px; padding: 12px 18px; border: 0; border-radius: 12px; }
 .studio-stage,.studio-home { display: flex; flex-direction: column; flex: 1; min-height: 0; }.studio-stage { position: relative; }.studio-heading>div:first-child { min-width: 0; }.studio-tools { flex-shrink: 0; }
@@ -480,7 +441,7 @@ onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); wind
 @keyframes home-screen-previous { from { opacity: .65; transform: translate3d(-18px, 0, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
 .motion-reduced .eagle-canvas,.motion-reduced .eagle-card { transition: none; } .motion-reduced .eagle-card:hover { transform: none; }.motion-reduced .eagle-viewport,.motion-reduced .studio-home { animation: none !important; }
 @media(prefers-reduced-motion:reduce) { .eagle-canvas,.eagle-card { transition: none; }.eagle-viewport { animation: none; }.eagle-card:hover { transform: none; } }
-@media(prefers-reduced-motion:reduce) { .orb-core,.orb-core::before,.orb-core::after,.orb-ascii,.orb-sheen::after { animation: none !important; transition: none !important; } }
+@media(prefers-reduced-motion:reduce) { .app-shaking .workspace-launch { animation: none !important; } }
 @media(prefers-reduced-transparency:reduce), (prefers-contrast:more) { .overview-surface { background: var(--hw-bg); backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }.overview-surface::before { display: none; } }
 @media(forced-colors:active) { .overview-surface { background: Canvas; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }.overview-surface::before { display: none; }.eagle-card.current { border: 2px solid Highlight; }.eagle-card:focus-within { outline-color: Highlight; }.is-overview .studio-home { opacity: 0; } }
 </style>
