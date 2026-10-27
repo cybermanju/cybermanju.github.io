@@ -38,14 +38,19 @@
       <nav class="screen-nav" aria-label="Home screen navigation">
         <div class="orb-navigator" :class="{ 'orb-active': orbActive }" @pointerdown="orbPointerDown" @pointermove="orbPointerMove" @pointerup="orbPointerEnd" @pointercancel="orbPointerCancel" @pointerleave="orbPointerLeave">
           <button v-for="direction in orbDirections" :key="direction.id" class="orb-direction" :class="`orb-direction-${direction.id}`" type="button" :disabled="!orbCanNavigate(direction.dx, direction.dy)" :aria-label="direction.id === 'n' ? 'Next home screen' : direction.id === 's' ? 'Previous home screen' : `${orbStep(direction.dx, direction.dy) > 0 ? 'Next' : 'Previous'} home screen, swipe ${direction.label}`" @click="navigateOrb(direction.dx, direction.dy)">{{ direction.arrow }}</button>
-          <div class="orb-core" role="img" :aria-label="`Home screen ${activeIndex + 1} of ${state.pages.length}. Swipe in any direction to switch screens.`">
-            <svg class="orb-art" viewBox="0 0 64 64" aria-hidden="true" shape-rendering="crispEdges">
-              <defs><clipPath id="orb-mask"><path d="M20 4h24v4h8v8h4v32h-4v8h-8v4H20v-4h-8v-8H8V16h4V8h8z"/></clipPath></defs>
-              <g clip-path="url(#orb-mask)"><rect width="64" height="64" fill="#080808"/><path d="M20 6h22v4h8v8h4v12H40v-6h-8v-6h-8v-6h-6z" fill="#fff"/><path d="M10 32h10v-8h8v8h8v8h8v8h10v8H42v4H20v-4h-8v-8h-2z" fill="#bdbdbd"/><path d="M14 18h8v8h-8zm28 20h8v8h-8zM26 10h6v6h-6zm-8 28h6v6h-6z" fill="#050505"/><path d="M20 4h24v4h8v8h4v32h-4v8h-8v4H20v-4h-8v-8H8V16h4V8h8z" fill="none" stroke="#fff" stroke-opacity=".82" stroke-width="2"/></g>
-            </svg>
+          <button class="orb-core" type="button" :aria-label="`Orb navigator. Home screen ${activeIndex + 1} of ${state.pages.length}. Activate to move to the next screen; swipe in any direction to navigate.`" @click="orbCoreClick">
+            <pre class="orb-ascii" aria-hidden="true">     .-==-.
+   .'######'.
+  /##..@@..##\
+ |##.@@@@@@.##|
+ |##.@@##@@.##|
+ |##..@@@@..##|
+  \##......##/
+   '.######.'
+     '-==-'</pre>
             <span class="orb-screen-count">{{ activeIndex + 1 }}<i>/{{ state.pages.length }}</i></span>
             <span class="orb-sheen" aria-hidden="true" />
-          </div>
+          </button>
         </div>
         <span class="orb-caption" aria-hidden="true">ORBITAL SCREEN SELECTOR · 8 DIRECTIONS</span>
       </nav>
@@ -161,8 +166,10 @@ function orbPointerEnd(event: PointerEvent) {
   const dx = event.clientX - orbStart.x, dy = event.clientY - orbStart.y
   const moved = Math.hypot(dx, dy) >= 14
   orbStart = null; orbActive.value = false; clearOrbLight(event.currentTarget as HTMLElement)
-  if (moved && Math.max(Math.abs(dx), Math.abs(dy)) >= 14) navigateOrb(dx, dy)
+  if (moved && Math.max(Math.abs(dx), Math.abs(dy)) >= 14) { suppressOrbClick = true; navigateOrb(dx, dy); setTimeout(() => { suppressOrbClick = false }, 0) }
 }
+let suppressOrbClick = false
+function orbCoreClick() { if (suppressOrbClick) { suppressOrbClick = false; return }; navigateOrb(0, -1) }
 function clearOrbLight(element: HTMLElement) { element.style.removeProperty('--orb-x'); element.style.removeProperty('--orb-y') }
 function orbPointerCancel(event: PointerEvent) { orbStart = null; orbActive.value = false; clearOrbLight(event.currentTarget as HTMLElement) }
 function orbPointerLeave(event: PointerEvent) { if (!orbStart) clearOrbLight(event.currentTarget as HTMLElement) }
@@ -420,20 +427,25 @@ onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); wind
 .orb-direction:not(:disabled):active { color: #000 !important; background: #fff !important; transform: translateY(1px); }
 .orb-direction:focus-visible { outline: 2px solid #fff !important; outline-offset: 2px; }
 .orb-direction-nw { grid-area: 1 / 1; }.orb-direction-n { grid-area: 1 / 2; }.orb-direction-ne { grid-area: 1 / 3; }.orb-direction-w { grid-area: 2 / 1; }.orb-direction-e { grid-area: 2 / 3; }.orb-direction-sw { grid-area: 3 / 1; }.orb-direction-s { grid-area: 3 / 2; }.orb-direction-se { grid-area: 3 / 3; }
-.orb-core { grid-area: 2 / 2; position: relative; width: 82px; height: 82px; display: grid; place-items: center; overflow: hidden; isolation: isolate; color: #fff; background: #050505; border: 2px solid #eee; outline: 2px solid #111; box-shadow: 0 0 0 3px #777, 0 0 22px #fff3, inset 0 0 16px #fff5; image-rendering: pixelated; touch-action: none; animation: orb-rest 5.4s ease-in-out infinite; }
-.orb-art,.orb-sheen { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.orb-art { z-index: 0; }
+.orb-core { grid-area: 2 / 2; position: relative; width: 82px; height: 82px; min-width: 82px !important; min-height: 82px !important; padding: 0 !important; display: grid; place-items: center; overflow: hidden; isolation: isolate; color: #fff; background: #050505 !important; border: 2px solid #eee !important; border-radius: 50% !important; outline: 2px solid #111; box-shadow: 0 0 0 3px #777, 0 0 22px #fff3, inset 0 0 16px #fff5; image-rendering: pixelated; touch-action: none; animation: orb-rest 5.4s ease-in-out infinite; }
+.orb-core::before,.orb-core::after { content: ''; position: absolute; inset: 5px; border: 1px dashed #fff8; border-radius: 50%; pointer-events: none; animation: orb-ring-spin 14s linear infinite; }
+.orb-core::after { inset: 11px; border-style: solid; border-color: #fff4; animation-duration: 9s; animation-direction: reverse; }
+.orb-ascii,.orb-sheen { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.orb-ascii { z-index: 0; display: grid; place-content: center; margin: 0; overflow: hidden; color: #fff; font: 700 6.4px/7.1px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .05em; text-shadow: 0 0 5px #fff9; animation: orb-ascii-breathe 3.8s ease-in-out infinite; }
 .orb-sheen { z-index: 1; background: radial-gradient(ellipse at 50% 30%, #fff9, #fff0 28%), repeating-linear-gradient(0deg, #fff0 0 3px, #fff2 3px 4px); mix-blend-mode: screen; opacity: .76; transform: translate(var(--orb-x), var(--orb-y)); transition: transform 90ms linear, opacity 150ms ease; }
 .orb-sheen::after { content: ''; position: absolute; inset: -35% -80%; background: linear-gradient(105deg, transparent 44%, #fff0 47%, #fffa 50%, #fff2 52%, transparent 57%); opacity: .55; transform: translateX(-18%); animation: orb-wet-glint 6.2s cubic-bezier(.4,0,.2,1) infinite; }
 .orb-screen-count { position: relative; z-index: 2; display: flex; align-items: baseline; padding: 3px 5px; color: #fff; background: #050505df; border: 1px solid #fff9; box-shadow: 2px 2px #000; font: 800 20px/1 ui-monospace, monospace; text-shadow: 1px 1px #000; }
 .orb-screen-count i { margin-left: 2px; font-size: 9px; font-style: normal; }
-.orb-active .orb-core { animation-play-state: paused; box-shadow: 0 0 0 3px #fff, 0 0 25px #fff8, inset 0 0 18px #fff9; }
+.orb-active .orb-core { animation-play-state: paused; box-shadow: 0 0 0 3px #fff, 0 0 25px #fff8, inset 0 0 18px #fff9; transform: scale(1.08); }
+.orb-active .orb-ascii { animation-duration: .7s; filter: brightness(1.5); }
 .orb-active .orb-sheen { opacity: 1; }
 .orb-active .orb-sheen::after { animation-duration: 1.4s; opacity: .85; }
 .orb-caption { color: var(--hw-muted); font: 600 8px/1.2 ui-monospace, monospace; letter-spacing: .14em; text-align: center; }
-@keyframes orb-rest { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-1px) scale(1.012); } }
+@keyframes orb-rest { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-2px) scale(1.025); } }
+@keyframes orb-ascii-breathe { 0%,100% { opacity: .78; transform: scale(.97); } 50% { opacity: 1; transform: scale(1.04); } }
+@keyframes orb-ring-spin { to { transform: rotate(360deg); } }
 @keyframes orb-wet-glint { 0%,18% { transform: translateX(-18%); opacity: .2; } 55% { opacity: .72; } 82%,100% { transform: translateX(18%); opacity: .25; } }
-.motion-reduced .orb-core,.motion-reduced .orb-sheen::after { animation: none !important; }
+.motion-reduced .orb-core,.motion-reduced .orb-core::before,.motion-reduced .orb-core::after,.motion-reduced .orb-ascii,.motion-reduced .orb-sheen::after { animation: none !important; }
 .gesture-hint { text-align: center; margin-bottom: 0; }
 .empty-orbit { text-align: center; padding: 25px 6px; }.empty-orbit h3 { font-size: 17px; margin: 18px 0 8px; }.empty-orbit p { font-size: 12px; line-height: 1.7; color: var(--hw-muted); }.empty-orbit button { color: var(--ui-on-accent); background: var(--hw-accent); min-height: 44px; padding: 12px 18px; border: 0; border-radius: 12px; }
 .studio-stage,.studio-home { display: flex; flex-direction: column; flex: 1; min-height: 0; }.studio-stage { position: relative; }.studio-heading>div:first-child { min-width: 0; }.studio-tools { flex-shrink: 0; }
@@ -468,7 +480,7 @@ onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); wind
 @keyframes home-screen-previous { from { opacity: .65; transform: translate3d(-18px, 0, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
 .motion-reduced .eagle-canvas,.motion-reduced .eagle-card { transition: none; } .motion-reduced .eagle-card:hover { transform: none; }.motion-reduced .eagle-viewport,.motion-reduced .studio-home { animation: none !important; }
 @media(prefers-reduced-motion:reduce) { .eagle-canvas,.eagle-card { transition: none; }.eagle-viewport { animation: none; }.eagle-card:hover { transform: none; } }
-@media(prefers-reduced-motion:reduce) { .orb-core,.orb-sheen::after { animation: none !important; transition: none !important; } }
+@media(prefers-reduced-motion:reduce) { .orb-core,.orb-core::before,.orb-core::after,.orb-ascii,.orb-sheen::after { animation: none !important; transition: none !important; } }
 @media(prefers-reduced-transparency:reduce), (prefers-contrast:more) { .overview-surface { background: var(--hw-bg); backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }.overview-surface::before { display: none; } }
 @media(forced-colors:active) { .overview-surface { background: Canvas; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }.overview-surface::before { display: none; }.eagle-card.current { border: 2px solid Highlight; }.eagle-card:focus-within { outline-color: Highlight; }.is-overview .studio-home { opacity: 0; } }
 </style>
