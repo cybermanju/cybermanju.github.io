@@ -1,7 +1,7 @@
 // CyberManju OS — UI customization profiles (src/utils/uiCustomization.ts).
 // Role: export and restore portable TOML profiles for theme, positions, sizes and component appearances.
 // Exports: exportUiCustomizationToml, importUiCustomizationToml, downloadUiCustomizationToml.
-// Integrates: useTheme, uiLayout and uiAppearance persistence.
+// Integrates: useTheme, uiLayout, uiAppearance, home, launcher, dock, wallpaper and transfer-layout persistence.
 // Contracts: versioned bounded profiles; remote images are fetched as images and embedded before saving/export.
 import { useTheme } from '@/composables/useTheme'
 import type { ThemeSettings } from '@/ui/tokens'
@@ -11,14 +11,17 @@ import { HOME_LAYOUT_KEY, DESKTOP_HOME_LAYOUT_KEY, readHomeLayout } from '@/util
 import { HOME_WORKSPACE_KEY, normalizeHomeState } from '@/utils/homeWorkspaces'
 import { useLauncherStore } from '@/stores/launcher'
 import type { OverrideMap } from '@/utils/launcher'
+import { useDock, type DockLayout, type DockVisibility } from '@/composables/useDock'
+import { useCustomWallpaper } from '@/composables/useCustomWallpaper'
+import { TRANSFER_LAYOUT_KEY } from '@/utils/transferPlan'
 
-const MAX_PROFILE_BYTES = 8 * 1024 * 1024
+const MAX_PROFILE_BYTES = 32 * 1024 * 1024
 const MAX_IMAGE_BYTES = 256 * 1024
 
 function tomlString(value: unknown): string { return JSON.stringify(JSON.stringify(value)) }
 
 function parseTomlProfile(source: string): Record<string, unknown> {
-  if (new TextEncoder().encode(source).byteLength > MAX_PROFILE_BYTES) throw new Error('Theme profile is larger than 8 MiB.')
+  if (new TextEncoder().encode(source).byteLength > MAX_PROFILE_BYTES) throw new Error('Theme profile is larger than 32 MiB.')
   const result: Record<string, unknown> = Object.create(null)
   for (const rawLine of source.split(/\r?\n/)) {
     const line = rawLine.trim()
@@ -81,6 +84,7 @@ async function embedAppearanceImages(input: unknown): Promise<UiAppearanceMap> {
 function readJson(key: string): unknown {
   try { return JSON.parse(localStorage.getItem(key) || 'null') } catch { return null }
 }
+function readString(key: string, fallback = ''): string { try { return localStorage.getItem(key) ?? fallback } catch { return fallback } }
 function readHomeLayoutSafe(key: string) {
   try { return readHomeLayout(localStorage.getItem(key)) } catch { return readHomeLayout(null) }
 }
@@ -101,6 +105,63 @@ function normalizeLauncher(input: unknown): OverrideMap {
   return output
 }
 
+function boundedPoint(input: unknown, keys: ['x', 'y'] | ['left', 'top']): Record<string, number> | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const point = input as Record<string, unknown>
+  if (!keys.every(key => typeof point[key] === 'number' && Number.isFinite(point[key]))) return null
+  return { [keys[0]]: Math.max(-10000, Math.min(10000, point[keys[0]] as number)), [keys[1]]: Math.max(-10000, Math.min(10000, point[keys[1]] as number)) }
+}
+
+function normalizePersonalization(input: unknown) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
+  const dock = source.dock && typeof source.dock === 'object' ? source.dock as Record<string, unknown> : {}
+  const keybindings: Record<string, string> = Object.create(null)
+  if (source.keybindings && typeof source.keybindings === 'object' && !Array.isArray(source.keybindings)) {
+    for (const [key, value] of Object.entries(source.keybindings as Record<string, unknown>).slice(0, 500)) if (key.length <= 256 && typeof value === 'string' && value.length <= 128) keybindings[key] = value
+  }
+  const transfer: Record<string, { x: number; y: number }> = Object.create(null)
+  if (source.transferLayout && typeof source.transferLayout === 'object' && !Array.isArray(source.transferLayout)) {
+    for (const [key, value] of Object.entries(source.transferLayout as Record<string, unknown>).slice(0, 500)) {
+      const point = boundedPoint(value, ['x', 'y'])
+      if (point && key.length <= 256) transfer[key] = point as { x: number; y: number }
+    }
+  }
+  return {
+    dock: { layout: dock.layout === 'full' ? 'full' : 'centered', visibility: dock.visibility === 'autohide' ? 'autohide' : 'fixed' },
+    desktopDockPosition: boundedPoint(source.desktopDockPosition, ['x', 'y']),
+    shortcutDockPosition: boundedPoint(source.shortcutDockPosition, ['left', 'top']),
+    panelDocked: source.panelDocked === '1' ? '1' : '0',
+    terminalFontSize: typeof source.terminalFontSize === 'number' && Number.isFinite(source.terminalFontSize) ? Math.max(10, Math.min(22, Math.round(source.terminalFontSize))) : 14,
+    transferLayout: transfer,
+    keybindings,
+  }
+}
+
+async function exportWallpaper() {
+  const record = await useCustomWallpaper().exportRecord()
+  if (!record) return null
+  if (record.kind === 'url') return { kind: 'url', url: record.url }
+  const data = `data:${record.mimeType};base64,${encodeBase64(new Uint8Array(await record.blob.arrayBuffer()))}`
+  return { kind: 'file', name: record.name.slice(0, 256), mimeType: record.mimeType, data }
+}
+
+function decodeWallpaper(input: unknown): { kind: 'url'; url: string } | { kind: 'file'; blob: Blob; name: string; mimeType: string } | null {
+  if (input === null || input === undefined) return null
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Theme profile wallpaper data is invalid.')
+  const value = input as Record<string, unknown>
+  if (value.kind === 'url' && typeof value.url === 'string') {
+    return { kind: 'url', url: value.url }
+  }
+  if (value.kind !== 'file' || typeof value.name !== 'string' || typeof value.mimeType !== 'string' || typeof value.data !== 'string') throw new Error('Theme profile wallpaper data is invalid.')
+  const match = value.data.match(/^data:(image\/(?:avif|gif|jpe?g|png|webp));base64,([a-z0-9+/]+=*)$/i)
+  if (!match || match[1]!.toLowerCase() !== value.mimeType.toLowerCase()) throw new Error('Theme profile wallpaper image is invalid.')
+  let binary: string
+  try { binary = atob(match[2]!) } catch { throw new Error('Theme profile wallpaper image is invalid.') }
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0))
+  const blob = new Blob([bytes], { type: match[1]!.toLowerCase() })
+  return { kind: 'file', blob, name: value.name.slice(0, 256), mimeType: match[1]!.toLowerCase() }
+}
+
 export async function exportUiCustomizationToml(): Promise<string> {
   const theme = useTheme()
   const settings = { ...theme.settings, shell: theme.shellStyle.value }
@@ -112,6 +173,16 @@ export async function exportUiCustomizationToml(): Promise<string> {
   const homeScreens = normalizeHomeState(readJson(HOME_WORKSPACE_KEY), [])
   const homeLayout = readHomeLayoutSafe(HOME_LAYOUT_KEY)
   const desktopHomeLayout = readHomeLayoutSafe(DESKTOP_HOME_LAYOUT_KEY)
+  const personalization = normalizePersonalization({
+    dock: readJson('cybermanju_dock_v1'),
+    desktopDockPosition: readJson('cybermanju_desktop_dock_position_v1'),
+    shortcutDockPosition: readJson('cybermanju_shell_shortcut_dock_position_v1'),
+    panelDocked: readString('cybermanju_panel_docked', '0'),
+    terminalFontSize: Number(readString('cybermanju.term.fontSize', '14')),
+    transferLayout: readJson(TRANSFER_LAYOUT_KEY),
+    keybindings: readJson('cybermanju_keybindings'),
+  })
+  const wallpaper = await exportWallpaper()
   const content = [
     '# CyberManju OS theme and layout profile. Image values are base64 data URLs.',
     'format = 1',
@@ -122,10 +193,12 @@ export async function exportUiCustomizationToml(): Promise<string> {
     `home_screens_json = ${tomlString(homeScreens)}`,
     `home_layout_json = ${tomlString(homeLayout)}`,
     `desktop_home_layout_json = ${tomlString(desktopHomeLayout)}`,
+    `ui_personalization_json = ${tomlString(personalization)}`,
+    `wallpaper_json = ${tomlString(wallpaper)}`,
     `launcher_json = ${tomlString({ overrides: launcherOverrides, favorites: launcher.favorites, drawerDisplay: launcher.drawerDisplay })}`,
     '',
   ].join('\n')
-  if (new TextEncoder().encode(content).byteLength > MAX_PROFILE_BYTES) throw new Error('Customized theme is larger than the 8 MiB TOML export limit. Remove a few large custom images and try again.')
+  if (new TextEncoder().encode(content).byteLength > MAX_PROFILE_BYTES) throw new Error('Customized profile is larger than the 32 MiB TOML export limit. Remove or resize custom images and wallpapers, then try again.')
   return content
 }
 
@@ -140,6 +213,9 @@ export async function importUiCustomizationToml(source: string): Promise<void> {
   const homeScreens = normalizeHomeState(profile.home_screens_json, [])
   const homeLayout = readHomeLayout(JSON.stringify(profile.home_layout_json))
   const desktopHomeLayout = readHomeLayout(JSON.stringify(profile.desktop_home_layout_json))
+  const hasExtraPersonalization = Object.prototype.hasOwnProperty.call(profile, 'ui_personalization_json')
+  const personalization = hasExtraPersonalization ? normalizePersonalization(profile.ui_personalization_json) : null
+  const wallpaper = Object.prototype.hasOwnProperty.call(profile, 'wallpaper_json') ? decodeWallpaper(profile.wallpaper_json) : undefined
   // All untrusted data is normalized before any persisted state changes.
   useTheme().importSettings(profile.theme_json as Partial<ThemeSettings>)
   importUiLayoutState(layout)
@@ -147,6 +223,21 @@ export async function importUiCustomizationToml(source: string): Promise<void> {
   localStorage.setItem(HOME_WORKSPACE_KEY, JSON.stringify(homeScreens))
   localStorage.setItem(HOME_LAYOUT_KEY, JSON.stringify(homeLayout))
   localStorage.setItem(DESKTOP_HOME_LAYOUT_KEY, JSON.stringify(desktopHomeLayout))
+  if (personalization) {
+    localStorage.setItem('cybermanju_dock_v1', JSON.stringify(personalization.dock))
+    localStorage.setItem('cybermanju_desktop_dock_position_v1', JSON.stringify(personalization.desktopDockPosition || { x: 0, y: 0 }))
+    if (personalization.shortcutDockPosition) localStorage.setItem('cybermanju_shell_shortcut_dock_position_v1', JSON.stringify(personalization.shortcutDockPosition))
+    else localStorage.removeItem('cybermanju_shell_shortcut_dock_position_v1')
+    localStorage.setItem('cybermanju_panel_docked', personalization.panelDocked)
+    localStorage.setItem('cybermanju.term.fontSize', String(personalization.terminalFontSize))
+    localStorage.setItem(TRANSFER_LAYOUT_KEY, JSON.stringify(personalization.transferLayout))
+    localStorage.setItem('cybermanju_keybindings', JSON.stringify(personalization.keybindings))
+    const dock = useDock()
+    dock.setLayout(personalization.dock.layout as DockLayout)
+    dock.setVisibility(personalization.dock.visibility as DockVisibility)
+  }
+  if (wallpaper !== undefined && !await useCustomWallpaper().restoreRecord(wallpaper)) throw new Error('The wallpaper from this profile could not be restored.')
+  window.dispatchEvent(new Event('cybermanju:ui-personalization-import'))
   window.dispatchEvent(new Event('cybermanju:home-workspaces-import'))
   window.dispatchEvent(new Event('cybermanju:home-layout-import'))
   const launcher = useLauncherStore()

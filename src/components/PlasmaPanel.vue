@@ -201,6 +201,7 @@ try {
 } catch {
   docked.value = '0'
 }
+function restoreProfilePanelDocked() { try { docked.value = localStorage.getItem('cybermanju_panel_docked') === '1' ? '1' : '0' } catch { docked.value = '0' } }
 
 const transportLabel = computed(() => useTransport().label)
 const endpointLabel = computed(() => {
@@ -284,10 +285,12 @@ const calBlanks = computed(() => {
 })
 
 onMounted(() => {
+  window.addEventListener('cybermanju:ui-personalization-import', restoreProfilePanelDocked)
   updateClock()
   clockTimer = setInterval(() => { if (!document.hidden) updateClock() }, 1000)
 })
 onUnmounted(() => {
+  window.removeEventListener('cybermanju:ui-personalization-import', restoreProfilePanelDocked)
   if (clockTimer) clearInterval(clockTimer)
 })
 </script>

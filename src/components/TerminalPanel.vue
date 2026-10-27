@@ -1073,6 +1073,13 @@ function applyFontSize(delta: number) {
   }
 }
 
+function restoreProfileFontSize() {
+  try {
+    const saved = Number(localStorage.getItem(FONT_KEY))
+    if (Number.isFinite(saved) && saved >= 10 && saved <= 22) fontSize.value = saved
+  } catch { /* keep current size when storage is unavailable */ }
+}
+
 function touchDistance(touches: TouchList): number {
   const dx = touches[0].clientX - touches[1].clientX
   const dy = touches[0].clientY - touches[1].clientY
@@ -1125,6 +1132,7 @@ function syncFullscreen() {
 }
 
 onBeforeUnmount(() => {
+  window.removeEventListener('cybermanju:ui-personalization-import', restoreProfileFontSize)
   stopHomeCommand()
   stopVoice?.()
   resumeGlobals()
@@ -1136,6 +1144,7 @@ onBeforeUnmount(() => {
 })
 
 onMounted(async () => {
+  window.addEventListener('cybermanju:ui-personalization-import', restoreProfileFontSize)
   try {
     const saved = localStorage.getItem(FONT_KEY)
     if (saved && Number(saved) >= 10 && Number(saved) <= 22) fontSize.value = Number(saved)

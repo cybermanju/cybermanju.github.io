@@ -155,13 +155,44 @@ export function createCustomWallpaperController(
     }
   }
 
+  async function exportRecord(): Promise<CustomWallpaperRecord | null> {
+    await load()
+    return storage.read()
+  }
+
+  async function restoreRecord(record: CustomWallpaperRecord | null): Promise<boolean> {
+    await load()
+    busy.value = true
+    let nextObjectUrl: string | null = null
+    try {
+      if (record?.kind === 'url') {
+        const safeUrl = normalizeCustomWallpaperUrl(record.url)
+        await storage.write({ kind: 'url', url: safeUrl })
+        releaseObjectUrl(); source.value = safeUrl; url.value = safeUrl; fileName.value = ''; kind.value = 'url'
+      } else if (record?.kind === 'file') {
+        validateCustomWallpaperFile(record.blob)
+        nextObjectUrl = objectUrls.createObjectURL(record.blob)
+        await storage.write(record)
+        releaseObjectUrl(); activeObjectUrl = nextObjectUrl; source.value = nextObjectUrl; url.value = ''; fileName.value = record.name; kind.value = 'file'
+      } else {
+        await storage.remove(); releaseObjectUrl(); source.value = null; url.value = ''; fileName.value = ''; kind.value = null
+      }
+      error.value = ''
+      return true
+    } catch {
+      if (nextObjectUrl) objectUrls.revokeObjectURL(nextObjectUrl)
+      error.value = 'The wallpaper from this profile could not be restored.'
+      return false
+    } finally { busy.value = false }
+  }
+
   function imageFailed() {
     releaseObjectUrl()
     source.value = null
     error.value = 'The wallpaper image could not be loaded. Check its URL or choose another image.'
   }
 
-  return { source, kind, url, fileName, error, busy, load, setUrl, setFile, clear, imageFailed }
+  return { source, kind, url, fileName, error, busy, load, setUrl, setFile, clear, exportRecord, restoreRecord, imageFailed }
 }
 
 const customWallpaper = createCustomWallpaperController(

@@ -190,6 +190,14 @@ function persistDockPosition() {
   catch { /* private mode / quota — retain the position for this session */ }
 }
 
+function restoreProfileShortcutDockPosition() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(POSITION_KEY) || 'null') as { left?: unknown; top?: unknown } | null
+    dockPosition.value = saved && Number.isFinite(saved.left) && Number.isFinite(saved.top) ? { left: Number(saved.left), top: Number(saved.top) } : null
+    requestAnimationFrame(clampDockPosition)
+  } catch { dockPosition.value = null }
+}
+
 function finishDockDrag(commit: boolean) {
   if (!dragOrigin) return
   const origin = dragOrigin
@@ -308,9 +316,11 @@ function moveDockByKey(e: KeyboardEvent) {
 
 onMounted(() => {
   clampDockPosition()
+  window.addEventListener('cybermanju:ui-personalization-import', restoreProfileShortcutDockPosition)
   window.addEventListener('resize', onDockResize)
 })
 onUnmounted(() => {
+  window.removeEventListener('cybermanju:ui-personalization-import', restoreProfileShortcutDockPosition)
   window.removeEventListener('resize', onDockResize)
   window.removeEventListener('pointermove', moveDock)
   window.removeEventListener('pointerup', endDockDrag)

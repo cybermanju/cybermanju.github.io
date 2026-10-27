@@ -105,6 +105,13 @@ try {
   if (saved) shortcutOverrides.value = JSON.parse(saved)
 } catch {}
 
+function restoreProfileKeybindings() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('cybermanju_keybindings') || '{}')
+    shortcutOverrides.value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+  } catch { shortcutOverrides.value = {} }
+}
+
 const shortcuts = useShortcuts(defaultKpl, defaultKpd, undefined, shortcutOverrides)
 provide(ShortcutsKey, shortcuts)
 
@@ -763,6 +770,7 @@ onMounted(() => {
     return
   }
   window.addEventListener('cybermanju:oauth-return', handleMobileOAuthReturn)
+  window.addEventListener('cybermanju:ui-personalization-import', restoreProfileKeybindings)
   if (isTauri()) {
     void installMobileOAuthDeepLinks().catch((error) => store.notifyError('OAuth callback unavailable', error))
   }
@@ -856,6 +864,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('cybermanju:ui-personalization-import', restoreProfileKeybindings)
   window.removeEventListener('keydown', toggleTerminal)
   window.removeEventListener('keydown', openEditor)
   window.removeEventListener('keydown', openAgent)

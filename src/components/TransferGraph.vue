@@ -205,7 +205,7 @@
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
 import ProviderLogo from '@/components/ProviderLogo.vue'
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import {
@@ -478,6 +478,12 @@ function persistLayout() {
   for (const f of fileNodes.value) layout[f.id] = { x: f.x, y: f.y }
   for (const p of providerNodes.value) layout[`prov:${p.configId}`] = { x: p.x, y: p.y }
   saveNodeLayout(layout)
+}
+
+function restoreProfileGraphLayout() {
+  const layout = loadNodeLayout()
+  providerNodes.value = providerNodes.value.map(node => ({ ...node, ...(layout[`prov:${node.configId}`] || {}) }))
+  fileNodes.value = fileNodes.value.map(node => ({ ...node, ...(layout[node.id] || {}) }))
 }
 
 // ── drag + drop (rAF-batched: pointermove only schedules work, one frame
@@ -803,11 +809,13 @@ function cancelApply() {
 }
 
 onMounted(async () => {
+  window.addEventListener('cybermanju:ui-personalization-import', restoreProfileGraphLayout)
   await Promise.allSettled([store.fetchSyncConfigs(), refreshMounts()])
   await nextTick()
   if (!browseMountId.value && mounts.value.length) browseMountId.value = mounts.value[0].id
   await refreshEntries()
 })
+onUnmounted(() => window.removeEventListener('cybermanju:ui-personalization-import', restoreProfileGraphLayout))
 </script>
 
 <style scoped>

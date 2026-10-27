@@ -176,6 +176,14 @@ function persistDockPosition() {
   catch { /* private mode / quota — retain the position for this session */ }
 }
 
+function restoreProfileDockPosition() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DOCK_POSITION_KEY) || 'null') as { x?: unknown; y?: unknown } | null
+    dockPosition.value = saved && Number.isFinite(saved.x) && Number.isFinite(saved.y) ? { x: Number(saved.x), y: Number(saved.y) } : { x: 0, y: 0 }
+    requestAnimationFrame(clampDockPosition)
+  } catch { dockPosition.value = { x: 0, y: 0 } }
+}
+
 function moveDock(e: PointerEvent) {
   if (!dragOrigin || dragOrigin.settling || e.pointerId !== dragOrigin.pointerId) return
   const delta = { x: e.clientX - dragOrigin.x, y: e.clientY - dragOrigin.y }
@@ -513,6 +521,7 @@ watch([() => dock.layout.value, () => dock.visibility.value, isFlatAmoled], () =
 
 onMounted(() => {
   clampDockPosition()
+  window.addEventListener('cybermanju:ui-personalization-import', restoreProfileDockPosition)
   window.addEventListener('resize', onDockResize)
   window.addEventListener('mousemove', onAutohideMove, { passive: true })
   document.addEventListener('click', onMenuClosed)
@@ -520,6 +529,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('cybermanju:ui-personalization-import', restoreProfileDockPosition)
   window.removeEventListener('resize', onDockResize)
   window.removeEventListener('pointermove', moveDock)
   window.removeEventListener('pointerup', endDockDrag)
