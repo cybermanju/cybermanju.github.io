@@ -1,7 +1,13 @@
 // CyberManju OS — Setup (cli/cmd/setup.go).
 // Role: cybsh command for repeatable backend selection and account setup.
 // Exports: module root (see items below).
-// Integrates: fmt, os, runtime, strings, huh, client, config, supa, ui, Docker/PRoot runtime.
+// Integrates: fmt, os, runtime, strings, huh, client, config, supa, ui, Docker/PRoot runtime, term.
+// Contracts: persist the selected backend with its matching server and account session.
+//   - interactive forms require a terminal on stdin; non-TTY runs must fail
+//     fast (huh would hang and leak terminal capability queries as text).
+//   - `cyb setup --server URL` skips the backend menu: a loopback URL matching
+//     the saved docker/native backend stays on that backend, others go remote.
+//
 // Contracts: persist the selected backend with its matching server and account session.
 package cmd
 
@@ -13,6 +19,7 @@ import (
 
 	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/client"
 	"github.com/cybermanju/cybermanju.github.io/cli/internal/config"
@@ -55,15 +62,22 @@ No local server yet? On a desktop, run:  cyb serve up`,
 
 		target := setupTargetDashboard
 		if !nonInteractive {
+			if !canInteract() {
+				return fmt.Errorf("cyb setup needs an interactive terminal; use --username/--password for non-interactive setup, or run `cyb backend use <backend>` outside a terminal")
+			}
 			var err error
-			target, err = chooseSetupTarget(runtime.GOOS, f, strings.TrimSpace(flagServer) != "")
+			if srv := strings.TrimSpace(flagServer); srv != "" {
+				target = setupTargetForExplicitServer(srv, f)
+			} else {
+				target, err = chooseSetupTarget(runtime.GOOS, f)
+			}
 			if err != nil {
 				return err
 			}
 		} else {
 			target = setupTargetForBackend(f.Backend.Type)
-			if strings.TrimSpace(flagServer) != "" {
-				target = setupTargetDashboard
+			if srv := strings.TrimSpace(flagServer); srv != "" {
+				target = setupTargetForExplicitServer(srv, f)
 			}
 		}
 		if target == setupTargetLimited {
@@ -83,10 +97,15 @@ No local server yet? On a desktop, run:  cyb serve up`,
 			if port == 0 {
 				port = 3456
 			}
-			if err := ensureDockerUp(port, "", ""); err != nil {
-				return err
-			}
 			server = fmt.Sprintf("http://127.0.0.1:%d", port)
+			// A dashboard already answering is left running; restart only
+			// when the loopback API is down (idempotent, no rm -f of a
+			// container that was just brought up by `cyb serve up`).
+			if !localDashboardUp(port) {
+				if err := ensureDockerUp(port, "", ""); err != nil {
+					return err
+				}
+			}
 			f.Backend.DockerPort = port
 		} else if target == setupTargetNative {
 			port := f.Backend.NativePort
@@ -228,11 +247,8 @@ func setupTargetForBackend(backend string) setupTarget {
 	}
 }
 
-func chooseSetupTarget(goos string, f config.File, explicitServer bool) (setupTarget, error) {
+func chooseSetupTarget(goos string, f config.File) (setupTarget, error) {
 	target := setupTargetForBackend(f.Backend.Type)
-	if explicitServer {
-		target = setupTargetDashboard
-	}
 	options := make([]huh.Option[setupTarget], 0, 2)
 	for _, choice := range setupTargetChoices(goos) {
 		switch choice {
@@ -260,6 +276,29 @@ func chooseSetupTarget(goos string, f config.File, explicitServer bool) (setupTa
 		return "", err
 	}
 	return target, nil
+}
+
+// canInteract reports whether stdin is a terminal. Without one, huh forms
+// hang and bubbletea's terminal capability query responses arrive as
+// literal escape text (e.g. `^[[?2026;2$y^[[?2027;0$y`) instead of UI.
+func canInteract() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
+// setupTargetForExplicitServer maps an explicit `--server` URL onto the
+// right target without re-showing the backend menu: a loopback URL that
+// matches the saved docker/native backend's dashboard port keeps that
+// backend (so `cyb serve up` + `cyb setup --server …` stays docker),
+// anything else is the remote-dashboard flow.
+func setupTargetForExplicitServer(server string, f config.File) setupTarget {
+	local := f.Backend.TypeOrDefault()
+	if local == config.BackendDocker || local == config.BackendNative {
+		localURL := fmt.Sprintf("http://127.0.0.1:%d", f.Backend.DashboardPort())
+		if server == localURL {
+			return setupTargetForBackend(local)
+		}
+	}
+	return setupTargetDashboard
 }
 
 func setupLimitedBackend(f config.File) error {

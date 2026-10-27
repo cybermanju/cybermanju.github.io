@@ -26,16 +26,32 @@ describe('staged installs (stage → gate → promote)', () => {
     expect(stagedName('x.staging-3', 9)).toBe('x.staging-3')
   })
 
-  it('promotes the newest validated stage and never a rejected one', () => {
+  it('promotes the newest non-empty stage; rejects never win (fail-safe)', () => {
+    // With no size expectation, the default gate is "non-empty bytes ⇒
+    // complete": the newest such stage wins even when a newer one crashed
+    // mid-write with partial bytes (its completeness is unknowable here —
+    // pass a validator when the expected size is known, below).
     const plan = buildPromotionPlan('v.cybermanju', [
       { path: 'v.cybermanju.staging-100', bytes: 0 }, // incomplete tail
       { path: 'v.cybermanju.staging-200', bytes: 512 },
       { path: 'v.cybermanju.staging-300', bytes: 48 }, // crash mid-write
     ])
-    expect(plan.promote).toBe('v.cybermanju.staging-200')
+    expect(plan.promote).toBe('v.cybermanju.staging-300')
     expect(plan.final).toBe('v.cybermanju')
-    expect(plan.cleanup).toContain('v.cybermanju.staging-300')
+    expect(plan.cleanup).toContain('v.cybermanju.staging-200')
     expect(plan.cleanup).toContain('v.cybermanju.staging-100')
+    // Caller VALIDATES against the known complete size: the promote
+    // falls back one stage and the corrupt tail is never selected.
+    const sized = buildPromotionPlan(
+      'v.cybermanju',
+      [
+        { path: 'v.cybermanju.staging-300', bytes: 48 },
+        { path: 'v.cybermanju.staging-200', bytes: 512 },
+      ],
+      e => (e.bytes ?? 0) === 512,
+    )
+    expect(sized.promote).toBe('v.cybermanju.staging-200')
+    expect(sized.rejected).toEqual(['v.cybermanju.staging-300'])
   })
 
   it('gates completeness by the validator (non-empty ⇒ effective)', () => {

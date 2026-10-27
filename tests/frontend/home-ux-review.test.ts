@@ -51,7 +51,9 @@ describe('home and Settings UX regressions', () => {
     expect(home).toMatch(/\.mla-dock \{[^}]*flex-shrink: 0;[^}]*align-self: center;[^}]*max-width: 100%/)
     // The orb navigator owns the active-screen surface the old screen-dots
     // row represented; the overview's eagle cards still carry aria-current.
+    // It is a touch-first control: `orbHiddenOnDesktop` unmounts it in the desktop shell.
     expect(studio).toContain('<OrbNavigator :screen-index="activeIndex"')
+    expect(studio).toContain('v-if="!orbHiddenOnDesktop"')
     expect(studio).toContain('aria-current')
     expect(studio).toContain(':focus-visible')
   })

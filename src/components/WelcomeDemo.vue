@@ -84,7 +84,14 @@ onMounted(() => {
     reduced = false
   }
   if (reduced) {
-    state.value = { chars: 0, lineIndex: WELCOME_DEMO_LINES.length - 1, complete: true }
+    // Parked reveal: chars must cover the LAST line or the template's
+    // current-line branch would never render it (it is non-typed).
+    const last = WELCOME_DEMO_LINES[WELCOME_DEMO_LINES.length - 1]
+    state.value = {
+      chars: WELCOME_DEMO_LINES.length ? last.text.length : 0,
+      lineIndex: Math.max(0, WELCOME_DEMO_LINES.length - 1),
+      complete: true,
+    }
     running.value = false
     return
   }

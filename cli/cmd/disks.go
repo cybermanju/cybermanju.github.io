@@ -22,11 +22,15 @@ var (
 	diskContainerPath  string
 )
 
-// passphrase resolves the disk passphrase: flag > file > interactive prompt.
-// It is never logged.
+// passphrase resolves the disk passphrase: flag > CYB_PASSPHRASE env >
+// file > interactive prompt. It is never logged. (Review P1-CLI-3: the
+// flag help previously advertised an env var no code read.)
 func passphrase(cmd *cobra.Command) (string, error) {
 	if diskPassphrase != "" {
 		return diskPassphrase, nil
+	}
+	if env := os.Getenv("CYB_PASSPHRASE"); env != "" {
+		return env, nil
 	}
 	if diskPassphraseFile != "" {
 		raw, err := os.ReadFile(diskPassphraseFile)

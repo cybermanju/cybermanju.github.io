@@ -33,7 +33,7 @@ if ($WantVersion -eq 'latest') {
 $Arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }
 $Asset = "cyb-windows-$Arch.tar.gz"
 $Base = "https://github.com/$Repo/releases/download/$Tag"
-$Tmp = Join-Path ([IO.Path]::GetTempPath()) ("cyb-install-" + [Guid]::NewGuid().ToString('N')))
+$Tmp = Join-Path ([IO.Path]::GetTempPath()) ("cyb-install-" + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Tmp | Out-Null
 try {
   Write-Host "◈ installing cyb $Tag (windows/$Arch)…"

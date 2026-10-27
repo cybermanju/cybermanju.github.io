@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 // CyberManju OS — Onboarding UX layer.test (tests/frontend/onboarding-ux.test.ts).
 // Role: press/haptics micro-feedback, coach-mark step math, welcome-demo
 //       script cadence + reduced-motion jump, os-deck tokens presence.
@@ -18,6 +19,7 @@ import {
 } from '@/utils/coachMarks'
 import {
   WELCOME_DEMO_LINES,
+  WELCOME_HOLD_MS,
   WELCOME_TYPE_MS,
   advanceWelcomeDemo,
   initialWelcomeDemo,
@@ -125,10 +127,11 @@ describe('welcome demo script (pure typewriter)', () => {
       ms += next
     }
     expect(st.chars).toBe(first.text.length)
-    // One more tick lands on the first non-typed output line.
+    // One more tick completes the typed line and moves to line 2 with a
+    // clean cursor — the output line whole-reveals on ITS next tick.
     const advanced = advanceWelcomeDemo(st)
     expect(advanced.state.lineIndex).toBe(1)
-    expect(advanced.state.chars).toBeGreaterThan(0)
+    expect(advanced.state.chars).toBe(0)
   })
 
   it('completes, holds, and admits a clean restart (the loop contract)', () => {

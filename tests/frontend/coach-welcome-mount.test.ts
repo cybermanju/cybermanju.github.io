@@ -1,11 +1,13 @@
+// @vitest-environment happy-dom
 // CyberManju OS — Coach + WelcomeDemo mount.test (tests/frontend/coach-welcome-mount.test.ts).
 // Role: DOM-level lives of the two new onboarding components: coach
 //       resolves targets/steps/Next/finish; welcome demo types under the
 //       clock and shows the finished transcript under reduced motion.
 // Exports: Vitest suite.
 // Integrates: FirstRunCoach.vue, WelcomeDemo.vue, @vue/test-utils.
-// Contracts: coach emits `done` when no target resolves (never floats a
-//            tour of nothing); welcome demo is aria-hidden (decorative).
+// Contracts: coach falls back to centered cards when targets resolve to
+//            nothing (never floats a tour of nothing); welcome demo is
+//            aria-hidden (decorative).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, enableAutoUnmount } from '@vue/test-utils'
 import FirstRunCoach from '@/components/FirstRunCoach.vue'
@@ -52,12 +54,14 @@ describe('FirstRunCoach', () => {
     expect(markCoachSeen).toBeDefined() // App.vue persists on @done
   })
 
-  it('emits done immediately when no step target exists (fail-soft)', () => {
-    markCoachSeen() // seen ⇒ app gates; direct mount still fails soft
+  it('renders no hole when the dock never resolves, tour continues as cards', () => {
+    markCoachSeen() // seen ⇒ app gates anyway; direct mount must still behave
     const wrapper = mount(FirstRunCoach, { attachTo: document.body })
     roots.push(wrapper)
-    expect(wrapper.emitted('done')).toHaveLength(1)
+    // No ring target in the document — but the targetless steps keep the
+    // tour usable (centered cards), so it fails soft, never to nothing.
     expect(wrapper.find('[data-testid="coach-hole"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="coach-next-terminal"]').exists()).toBe(true)
   })
 })
 

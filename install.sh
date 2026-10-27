@@ -329,13 +329,23 @@ run_backend() {
       [ -n "$PORT_WANT" ] && _cmd+=(--port "$PORT_WANT")
       [ -n "$DATA_WANT" ] && _cmd+=(--data "$DATA_WANT")
       [ -n "$IMAGE_WANT" ] && _cmd+=(--image "$IMAGE_WANT")
-      "${_cmd[@]}" || say "serve up failed — retry with: cyb serve up"
+      if "${_cmd[@]}"; then
+        # Hand the dashboard URL to the setup walkthrough so it goes
+        # straight to account creation instead of re-asking the backend.
+        SERVER_WANT="http://127.0.0.1:${PORT_WANT:-3456}"
+      else
+        say "serve up failed — retry with: cyb serve up"
+      fi
       ;;
     native)
       say "selecting native-app backend…"
       _cmd=("$CYB_BIN" backend use native)
       [ -n "$PORT_WANT" ] && _cmd+=(--port "$PORT_WANT")
-      "${_cmd[@]}" || say "native backend needs the app running — retry with: cyb backend use native"
+      if "${_cmd[@]}"; then
+        SERVER_WANT="http://127.0.0.1:${PORT_WANT:-3456}"
+      else
+        say "native backend needs the app running — retry with: cyb backend use native"
+      fi
       ;;
     remote)
       _srv="$SERVER_WANT"

@@ -1,8 +1,8 @@
 // CyberManju OS — Backend (cli/cmd/backend.go).
-// Role: cybsh CLI command.
-// Exports: module root (see items below).
-// Integrates: fmt, runtime, huh, cobra, client, config, Supabase, Docker/PRoot runtime, ui.
-// Contracts: show the active backend and provide an interactive way to change it.
+// Role: `cyb backend` command — show the active backend and switch on command.
+// Exports: backendCmd (status, select, use subcommands).
+// Integrates: cobra, huh forms, client probes, profile config, Docker/PRoot runtime, ui.
+// Contracts: status survives an unreachable dashboard (warning + switch hint, exit 0); every saved backend is reachable or the probe explains why.
 package cmd
 
 import (
@@ -45,8 +45,8 @@ var backendStatusCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		f := profile()
 		t := f.Backend.TypeOrDefault()
-		ui.Header("◈ active backend: %s", backendLabel(t))
-		ui.Hint("change backend: %s", ui.Chip("cyb backend select"))
+		ui.Header("active backend: %s", backendLabel(t))
+		ui.Hint("change backend: %s", ui.Chip("cyb backend use <remote|docker|native|supabase>"))
 		switch t {
 		case config.BackendSupabase:
 			if f.Supa == nil || f.Supa.URL == "" {
@@ -62,8 +62,11 @@ var backendStatusCmd = &cobra.Command{
 			ui.KV([2]string{"server", server})
 			c := client.New(server, "", flagTimeout)
 			if _, err := c.AuthStatus(); err != nil {
-				ui.Failure("unreachable: %v", err)
-				return fmt.Errorf("backend probe failed")
+				// A down dashboard must not break status: report it, keep the
+				// exit code clean and hand the user the escape hatch.
+				ui.Warning("unreachable: %v", err)
+				ui.Hint("stuck here? switch: %s — or start the dashboard: %s", ui.Chip("cyb backend use docker"), ui.Chip("cyb serve"))
+				return nil
 			}
 			ui.Success("dashboard answers")
 		}
@@ -76,6 +79,9 @@ var backendSelectCmd = &cobra.Command{
 	Short: "Interactively choose a backend",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		f := profile()
+		if !canInteract() {
+			return fmt.Errorf("cyb backend select needs an interactive terminal; use `cyb backend use <backend>` instead")
+		}
 		selected := setupTargetForBackend(f.Backend.Type)
 		targets := setupTargetChoices(runtime.GOOS)
 		supported := false
@@ -184,8 +190,12 @@ var backendUseCmd = &cobra.Command{
 			if port == 0 {
 				port = 3456
 			}
-			if err := ensureDockerUp(port, "", ""); err != nil {
-				return err
+			// Only bring the container up when its dashboard isn't already
+			// answering; never rm -f a running dashboard on re-select.
+			if !localDashboardUp(port) {
+				if err := ensureDockerUp(port, "", ""); err != nil {
+					return err
+				}
 			}
 			f.Backend.Type = config.BackendDocker
 			f.Backend.DockerPort = port

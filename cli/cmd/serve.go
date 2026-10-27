@@ -91,6 +91,22 @@ func ensureDockerUp(port int, dataDir, image string) error {
 	return nil
 }
 
+// localDashboardUp reports whether a dashboard already answers on the given
+// port (HTTP probe first, then a docker inspect fallback for a container
+// whose HTTP API is briefly unavailable). It avoids `docker rm -f` +
+// recreation when the container is running.
+func localDashboardUp(port int) bool {
+	c := client.New(fmt.Sprintf("http://127.0.0.1:%d", port), "", flagTimeout)
+	if _, err := c.AuthStatus(); err == nil {
+		return true
+	}
+	if runtime.GOOS == "android" {
+		return false
+	}
+	out, dialErr := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", serveName).Output()
+	return dialErr == nil && strings.TrimSpace(string(out)) == "true"
+}
+
 var serveStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Check whether a dashboard answers",

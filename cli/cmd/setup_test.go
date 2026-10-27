@@ -36,6 +36,27 @@ func TestSetupTargetForBackend(t *testing.T) {
 	}
 }
 
+func TestSetupTargetForExplicitServer(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		server string
+		file   config.File
+		want   setupTarget
+	}{
+		// A loopback URL matching the saved backend's port stays local.
+		{"docker saved, same port", "http://127.0.0.1:3456", config.File{Backend: config.Backend{Type: config.BackendDocker}}, setupTargetDocker},
+		{"docker saved, custom port", "http://127.0.0.1:7777", config.File{Backend: config.Backend{Type: config.BackendDocker, DockerPort: 7777}}, setupTargetDocker},
+		{"native saved, same port", "http://127.0.0.1:8888", config.File{Backend: config.Backend{Type: config.BackendNative, NativePort: 8888}}, setupTargetNative},
+		// Mismatched or other servers go remote.
+		{"docker saved, port mismatch", "http://127.0.0.1:9999", config.File{Backend: config.Backend{Type: config.BackendDocker}}, setupTargetDashboard},
+		{"remote saved", "https://dashboard.example", config.File{Backend: config.Backend{Type: config.BackendRemote}}, setupTargetDashboard},
+	} {
+		if got := setupTargetForExplicitServer(tc.server, tc.file); got != tc.want {
+			t.Errorf("%s: setupTargetForExplicitServer(%q) = %q, want %q", tc.name, tc.server, got, tc.want)
+		}
+	}
+}
+
 func TestWithSupabaseBackendPreservesProfile(t *testing.T) {
 	original := config.File{
 		Server: "https://dashboard.example",

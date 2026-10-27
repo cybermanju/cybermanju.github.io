@@ -1286,7 +1286,12 @@ fn write_rebuild_records(db: &Database, records: &[SyncFile]) -> Result<usize, S
                 id: record.id.clone(),
                 name,
                 file_type: "file".to_string(),
-                parent_id: None,
+                // REVIEW-2026-10-27 P1-RUST-3 (P0-24 repetition): the rebuilt
+                // file goes into the parent folder reconstructed from
+                // `original_path`, not at root. Feeding parent_id only into
+                // the index left every recovered file parent-less in
+                // listings, because the index is never read for listing.
+                parent_id: parent_id.clone(),
                 size_bytes: record.size_bytes,
                 mime_type: None,
                 hash_blake3: record.hash_blake3.clone(),
@@ -1857,9 +1862,27 @@ mod tests {
         let report = rebuild_from_remote(&fresh).expect("rebuild");
         assert_eq!(report.files, 1, "{:?}", report);
         assert_eq!(report.chunks_seen, 2, "{:?}", report);
-        assert!(
-            fresh.get_file_node(&env.record.id).expect("node").is_some(),
-            "file nodes are restored too"
+        // REVIEW-2026-10-27 P1-RUST-3 (P0-24 repetition): the file node must
+        // sit inside the rebuilt folder chain, not at root — the index write
+        // alone never protected listings.
+        let node = fresh
+            .get_file_node(&env.record.id)
+            .expect("node read")
+            .expect("file nodes are restored too");
+        let pool_volume_dir = format!("rebuild-dir-{}", &crate::blake3_hex(b"/pool/volume")[..16]);
+        assert_eq!(
+            node.parent_id.as_deref(),
+            Some(pool_volume_dir.as_str()),
+            "rebuilt file lives in its rebuilt parent folder"
+        );
+        let dir_node = fresh
+            .get_file_node(&pool_volume_dir)
+            .expect("dir read")
+            .expect("rebuild-dir-* folder exists");
+        assert_eq!(dir_node.file_type, "folder");
+        assert_eq!(
+            dir_node.parent_id, None,
+            "/pool is the top rebuilt folder"
         );
 
         let snap = snapshot(&fresh).expect("snapshot");

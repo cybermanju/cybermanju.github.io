@@ -2708,3 +2708,53 @@ Only normalized position offsets are saved to device-local `cybermanju.ui.layout
   worker handle or shutdown stall cannot block the web bundle; the suite still
   runs and reports failures. Test edits were static analysis only (AGENTS.md
   toolchain rules); the suite was not run locally.
+## 2026-10-27 — Orb navigator: canvas ASCII sphere with directional screen tints
+- OrbNavigator.vue rebuilt around one canvas 2D loop (dense char ramp, spherical
+  lighting, eased idle/pressed/drag weights, DPR handling, IntersectionObserver
+  pause, static single frame under prefers-reduced-motion/motionReduced).
+  Pointer gaze, blink band, ripple/scan one-shots preserved as render inputs —
+  gestures and timing contracts unchanged (450ms single activation, double opens
+  the drawer, drag ≥16px steps immediately; vue-tsc passes).
+- Navigation is now directional: `navigate` emits `{dx,dy}` — left/right page
+  the linear list exactly as before, up/down jump `homeGridCols()` grid rows
+  (the page list read as a square-ish row-major grid). An impossible vertical
+  step never emits; the orb bumps instead. One horizontal step past the last
+  screen still reaches the studio's single-empty-extension-screen contract.
+- New shared model in src/utils/homeWorkspaces.ts: `HomeGridDelta`,
+  `homeGridCols`, `homeGridNeighbors`, `homeHueForScreen` (deterministic hue
+  per screen; fixed a negative-modulo bug caught by the new test). Locked by
+  three new cases in tests/frontend/home-orbit-model.test.ts; home-ux-review
+  updated for the new `<OrbNavigator v-if="!orbHiddenOnDesktop" …>` mount.
+- Neighbor tints on the orb: each existing left/right/up/down screen shows as
+  a quadrant wedge of low-opacity hue (~0.10 resting, ~0.26 focused while
+  dragging toward it), white→hue char ramps cached per neighbor; the orb goes
+  unmounted entirely in the desktop shell (`isTauri() && !isTauriMobile()`).
+- Verified locally: check-version.sh, check-file-headers.sh (880 files), the
+  home-orbit-model suite, and for the first time in this repo's frontend
+  flow, the home-ux-review file-contract suite.
+## 2026-10-27 — Local orb showcase page
+- Dev-only appreciation page: `orb-showcase.html` + `src/orb-showcase/` mount the
+  real OrbNavigator (scaled up 2.75×) on a dark centered stage with 7 fake
+  screens; neighbor tints, drag/keyboard navigation and the wall bump are all
+  live. Not part of production builds (only `index.html` is a Vite input).
+## 2026-10-27 — CLI: no hang/escape garbage after the Docker backend pick
+- Reported on Ubuntu via install.sh: picking Docker then the walkthrough
+  (`cyb setup`) hung, printing `^[[?2026;2$y^[[?2027;0$y` literal terminal
+  capability responses, and never returned to the CLI.
+- `cyb setup --server URL` no longer re-shows the backend menu; a loopback URL
+  matching the saved docker/native backend's dashboard port keeps that backend
+  (`setupTargetForExplicitServer`), so `cyb serve up` + `setup --server …`
+  stays docker and goes straight to account creation. Same mapping applies to
+  non-interactive (`--username/--password`) runs, which previously demoted a
+  saved docker backend to remote when `--server` was passed.
+- Interactive forms now fail fast with a clear error when stdin is not a
+  terminal (`canInteract`; same guard as docker_requirements/repl), instead of
+  hanging and leaking huh/bubbletea terminal query responses as text.
+  `cyb backend select` got the same guard.
+- Docker dashboards are probed (`localDashboardUp`: HTTP, then docker inspect
+  fallback) before `ensureDockerUp`, both in setup and `backend use docker` —
+  no more `docker rm -f` of a running container during re-setup.
+- install.sh: after `serve up`/`backend use native` succeeds, `SERVER_WANT` is
+  set so the walkthrough runs `cyb setup --server http://127.0.0.1:<port>` —
+  the "redirect to CLI after ok" the picker was missing.
+- Verified: gofmt, go vet, go build, go test ./... (cli), check-file-headers.

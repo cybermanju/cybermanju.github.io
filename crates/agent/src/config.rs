@@ -8,14 +8,56 @@
 
 use cybermanju_types::agent::{AgentKind, PermissionAction, PermissionRuleset};
 
-/// Record an "allow always" decision: the tool becomes unconditionally
-/// allowed. Explicit and reversible — the row shows exactly what "always"
-/// meant, unlike an invisible always-list.
+/// Record an "allow always" decision. Explicit and reversible — the row
+/// shows exactly what "always" meant, unlike an invisible always-list.
 pub fn remember_allow(rules: &mut PermissionRuleset, tool: &str) {
-    rules.rules.insert(
-        tool.to_string(),
-        cybermanju_types::agent::PermissionRule::Simple(PermissionAction::Allow),
-    );
+    remember_allow_for(rules, tool, None);
+}
+
+/// Granular-aware widen for "allow always" (review P1-RUST-5). Returns
+/// `false` when the widening was refused — the caller must surface that,
+/// never silently widen.
+///
+/// - Absent or `Simple` tool rule → unconditional `Allow` (legacy behavior).
+/// - `Granular` ruleset → NEVER replace it wholesale: one approved `ask`
+///   must not erase a standing `("git push *", Deny)` (that contradicts
+///   "deny always beats auto_approve"). If the tool's granular list contains
+///   ANY `Deny`, refuse outright. Otherwise pin exactly the command that
+///   was approved (`salient`, a literal — no wildcards), appended after the
+///   catch-alls so last-match-wins lets that precise command run next time.
+pub fn remember_allow_for(
+    rules: &mut PermissionRuleset,
+    tool: &str,
+    salient: Option<&str>,
+) -> bool {
+    match rules.rules.get(tool) {
+        Some(PermissionRule::Granular(pairs)) => {
+            let denies = pairs.iter().any(|(_, a)| *a == PermissionAction::Deny);
+            let salient = salient.map(str::trim).filter(|s| !s.is_empty());
+            if denies || salient.is_none() || salient.unwrap().contains(['*', '?']) {
+                return false;
+            }
+            let salient = salient.unwrap();
+            if let Some(PermissionRule::Granular(pairs)) = rules.rules.get_mut(tool) {
+                // Idempotent: remembering the same exact command twice is a no-op.
+                if pairs
+                    .iter()
+                    .any(|(p, a)| p == salient && *a == PermissionAction::Allow)
+                {
+                    return true;
+                }
+                pairs.push((salient.to_string(), PermissionAction::Allow));
+            }
+            true
+        }
+        _ => {
+            rules.rules.insert(
+                tool.to_string(),
+                PermissionRule::Simple(PermissionAction::Allow),
+            );
+            true
+        }
+    }
 }
 
 /// Standing orders: files folded into the system prompt by
@@ -488,6 +530,87 @@ mod remember_tests {
             decide(&rules, AgentKind::Build, "bash", &serde_json::json!({})),
             PermissionDecision::Allow
         );
+    }
+
+    // REVIEW-2026-10-27 P1-RUST-5: a granular ruleset with a standing Deny
+    // must survive "allow always" — remembering must refuse, not erase.
+    #[test]
+    fn remember_allow_never_erases_a_standing_deny() {
+        let mut rules = PermissionRuleset::default();
+        rules.rules.insert(
+            "bash".to_string(),
+            PermissionRule::Granular(vec![
+                ("*".to_string(), PermissionAction::Ask),
+                ("git push *".to_string(), PermissionAction::Deny),
+            ]),
+        );
+        assert!(
+            !remember_allow_for(&mut rules, "bash", Some("git push origin main")),
+            "remember must refuse on any standing Deny"
+        );
+        match rules.rules.get("bash") {
+            Some(PermissionRule::Granular(pairs)) => {
+                assert_eq!(pairs.len(), 2, "no pairs may be added or removed");
+                assert!(pairs.iter().any(|(p, a)| p == "git push *" && *a == PermissionAction::Deny));
+            }
+            other => panic!("ruleset replaced: {:?}", other),
+        }
+    }
+
+    // Granular without denies: the EXACT approved command becomes allowed,
+    // everything else keeps its evaluation. Denial of other commands stays.
+    #[test]
+    fn remember_allow_pins_the_exact_command_on_granular() {
+        let mut rules = PermissionRuleset::default();
+        rules.rules.insert(
+            "bash".to_string(),
+            PermissionRule::Granular(vec![("*".to_string(), PermissionAction::Ask)]),
+        );
+        assert!(remember_allow_for(&mut rules, "bash", Some("git status")));
+        match rules.rules.get("bash") {
+            Some(PermissionRule::Granular(pairs)) => {
+                assert_eq!(pairs.len(), 2);
+                assert_eq!(pairs[1].0, "git status");
+                assert_eq!(pairs[1].1, PermissionAction::Allow);
+            }
+            other => panic!("ruleset replaced: {:?}", other),
+        }
+        assert_eq!(
+            decide(
+                &rules,
+                AgentKind::Build,
+                "bash",
+                &serde_json::json!({ "command": "git status" })
+            ),
+            PermissionDecision::Allow
+        );
+        assert!(matches!(
+            decide(
+                &rules,
+                AgentKind::Build,
+                "bash",
+                &serde_json::json!({ "command": "git push --force" })
+            ),
+            PermissionDecision::Ask { .. }
+        ));
+    }
+
+    // Wildcard-bearing salients are refused: they would silently widen past
+    // the exact command the user saw.
+    #[test]
+    fn remember_allow_refuses_wildcard_salient() {
+        let mut rules = PermissionRuleset::default();
+        rules.rules.insert(
+            "bash".to_string(),
+            PermissionRule::Granular(vec![("*".to_string(), PermissionAction::Ask)]),
+        );
+        assert!(!remember_allow_for(&mut rules, "bash", Some("git *")));
+        assert!(!remember_allow_for(&mut rules, "bash", Some("")));
+        assert!(!remember_allow_for(&mut rules, "bash", None));
+        match rules.rules.get("bash") {
+            Some(PermissionRule::Granular(pairs)) => assert_eq!(pairs.len(), 1),
+            other => panic!("ruleset replaced: {:?}", other),
+        }
     }
 }
 

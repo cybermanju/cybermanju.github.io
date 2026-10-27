@@ -311,46 +311,6 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-# Release tag (full mode only — reuse mode pushes no tag). Lightweight, like
-# the existing v* tags. Never moved silently: a tag that already points
-# elsewhere aborts unless --move-tag was passed explicitly.
-TAG_ACTION="none"   # created|exists-head|moved
-if [ "$DO_RELEASE" -eq 1 ] && [ "$REUSE_LAST" -eq 0 ]; then
-  if git rev-parse "$RELEASE_TAG" >/dev/null 2>&1; then
-    tag_at="$(git rev-parse "$RELEASE_TAG")"
-    head_now="$(git rev-parse HEAD)"
-    if [ "$tag_at" = "$head_now" ]; then
-      echo "push.sh: tag $RELEASE_TAG already points at HEAD"
-      TAG_ACTION="exists-head"
-    elif [ "$MOVE_TAG" -eq 1 ]; then
-      if command -v gh >/dev/null 2>&1 && gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-        echo "push.sh: refusing --move-tag: a published GitHub release sits on $RELEASE_TAG" >&2
-        echo "push.sh: delete it explicitly first (gh release delete $RELEASE_TAG), then re-run" >&2
-        exit 2
-      fi
-      echo "push.sh: --move-tag: recreating $RELEASE_TAG at HEAD (was $tag_at)"
-      if [ "$DRY_RUN" -eq 1 ]; then
-        echo "  (dry-run) git tag -f $RELEASE_TAG HEAD + force-push tag to origin+gitlab"
-      else
-        git tag -f "$RELEASE_TAG" HEAD || { echo "push.sh: tag move failed" >&2; exit 1; }
-      fi
-      TAG_ACTION="moved"
-    else
-      echo "push.sh: tag $RELEASE_TAG exists at $tag_at, HEAD is $head_now" >&2
-      echo "push.sh: refusing to move it — re-run with --move-tag to delete/recreate it explicitly" >&2
-      exit 2
-    fi
-  else
-    echo "push.sh: creating tag $RELEASE_TAG at HEAD"
-    if [ "$DRY_RUN" -eq 1 ]; then
-      echo "  (dry-run) git tag $RELEASE_TAG HEAD"
-    else
-      git tag "$RELEASE_TAG" HEAD || { echo "push.sh: tag create failed" >&2; exit 1; }
-    fi
-    TAG_ACTION="created"
-  fi
-fi
-
 # Push only tags the remote lacks. A tag that exists remotely with a
 # different object is NEVER moved (releases move by explicit command only) —
 # a blanket `git push --tags` turns that harmless skew into a FAILED remote.
@@ -430,6 +390,46 @@ if [ "${behind_origin:-0}" -gt 0 ]; then
   else
     echo "push.sh: rebase onto origin/main FAILED — resolve conflicts, then re-run (no -f)" >&2
     exit 1
+  fi
+fi
+
+# Release tag (full mode only — reuse mode pushes no tag). Lightweight, like
+# the existing v* tags. Never moved silently: a tag that already points
+# elsewhere aborts unless --move-tag was passed explicitly.
+TAG_ACTION="none"   # created|exists-head|moved
+if [ "$DO_RELEASE" -eq 1 ] && [ "$REUSE_LAST" -eq 0 ]; then
+  if git rev-parse "$RELEASE_TAG" >/dev/null 2>&1; then
+    tag_at="$(git rev-parse "$RELEASE_TAG")"
+    head_now="$(git rev-parse HEAD)"
+    if [ "$tag_at" = "$head_now" ]; then
+      echo "push.sh: tag $RELEASE_TAG already points at HEAD"
+      TAG_ACTION="exists-head"
+    elif [ "$MOVE_TAG" -eq 1 ]; then
+      if command -v gh >/dev/null 2>&1 && gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+        echo "push.sh: refusing --move-tag: a published GitHub release sits on $RELEASE_TAG" >&2
+        echo "push.sh: delete it explicitly first (gh release delete $RELEASE_TAG), then re-run" >&2
+        exit 2
+      fi
+      echo "push.sh: --move-tag: recreating $RELEASE_TAG at HEAD (was $tag_at)"
+      if [ "$DRY_RUN" -eq 1 ]; then
+        echo "  (dry-run) git tag -f $RELEASE_TAG HEAD + force-push tag to origin+gitlab"
+      else
+        git tag -f "$RELEASE_TAG" HEAD || { echo "push.sh: tag move failed" >&2; exit 1; }
+      fi
+      TAG_ACTION="moved"
+    else
+      echo "push.sh: tag $RELEASE_TAG exists at $tag_at, HEAD is $head_now" >&2
+      echo "push.sh: refusing to move it — re-run with --move-tag to delete/recreate it explicitly" >&2
+      exit 2
+    fi
+  else
+    echo "push.sh: creating tag $RELEASE_TAG at HEAD"
+    if [ "$DRY_RUN" -eq 1 ]; then
+      echo "  (dry-run) git tag $RELEASE_TAG HEAD"
+    else
+      git tag "$RELEASE_TAG" HEAD || { echo "push.sh: tag create failed" >&2; exit 1; }
+    fi
+    TAG_ACTION="created"
   fi
 fi
 
@@ -553,7 +553,7 @@ for r in json.load(sys.stdin).get("workflow_runs", []):
   missing="$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts?per_page=50" \
     | python3 -c '
 import json,sys
-want = ["dist-windows","dist-linux","dist-linux-deb","dist-linux-rpm","dist-rpm","dist-flatpak","dist-arch","dist-macos","dist-android","dist-wasm","dist-cli"]
+want = ["dist-windows","dist-linux","dist-linux-deb","dist-linux-rpm","dist-rpm","dist-flatpak","dist-arch","dist-macos","dist-android","dist-wasm","dist-cli","dist-ios-device-unsigned"]
 have = {a["name"] for a in json.load(sys.stdin).get("artifacts", []) if not a.get("expired")}
 print(" ".join(w for w in want if w not in have))')"
   if [ -n "$missing" ]; then

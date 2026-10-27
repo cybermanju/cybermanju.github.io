@@ -66,7 +66,7 @@ func HintFor(message string, status int) string {
 	case strings.HasPrefix(message, "integrity:"):
 		return "hash mismatch — re-fetch and retry"
 	case strings.HasPrefix(message, "network:"):
-		return "provider network issue — retry, then check the provider status"
+		return "the server is unreachable — check it is running and retry, or switch backend (`cyb backend use docker` / `supabase`)"
 	case strings.HasPrefix(message, "disk_full:"):
 		return "add capacity (`cyb disk create`) or resize a disk"
 	case strings.HasPrefix(message, "conflict:"):

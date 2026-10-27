@@ -10,6 +10,9 @@ import {
   classifyHomeGesture,
   createHomeState,
   createHomeWorkspace,
+  homeGridCols,
+  homeGridNeighbors,
+  homeHueForScreen,
   moveHomeItem,
   normalizeHomeState,
   removeHomeItem,
@@ -59,15 +62,26 @@ describe('home workspace model', () => {
     expect(removed.pages.find(page => page.id === 'remove-source')?.items).toEqual([])
   })
 
-  it('creates at most one trailing empty page and never exceeds MAX_WORKSPACES', () => {
+  it('reuses one trailing empty page, fills to the cap and never exceeds MAX_WORKSPACES', () => {
     const state = createHomeState([])
     expect(state.pages).toHaveLength(2)
     expect(state.pages.at(-1)?.items).toEqual([])
-    for (let index = state.pages.length; index < MAX_WORKSPACES; index += 1) {
-      expect(createHomeWorkspace(state)).not.toBeNull()
+    // The isolated trailing empty page is reused, not extended.
+    const reused = createHomeWorkspace(state)
+    expect(reused).not.toBeNull()
+    expect(state.pages).toHaveLength(2)
+    expect(state.pages.at(-1)?.id).toBe(reused)
+    // Content on the trailing page grows the trunk: create → fill in lockstep.
+    let page: string | null = createHomeWorkspace(state)
+    while (page) {
+      expect(addHomeItem(state, page, app(`app-${page}`, 'browser'))).toBe(true)
+      if (state.pages.length >= MAX_WORKSPACES) break
+      page = createHomeWorkspace(state)
     }
     expect(state.pages).toHaveLength(MAX_WORKSPACES)
-    expect(createHomeWorkspace(state)).toBeNull()
+    // Even at the cap, a trailing empty page is reusable — null only means
+    // the trunk is full with every page populated.
+    expect(createHomeWorkspace(state)).toBe(state.pages.at(-1)?.id)
     expect(state.pages).toHaveLength(MAX_WORKSPACES)
 
     const fullWithPopulatedTail = stateWith(...Array.from({ length: MAX_WORKSPACES }, (_, index) => ({
@@ -75,6 +89,7 @@ describe('home workspace model', () => {
       title: `Page ${index}`,
       items: index === MAX_WORKSPACES - 1 ? [app('tail-item', 'tail')] : [],
     })))
+    expect(createHomeWorkspace(fullWithPopulatedTail)).toBeNull()
     expect(addHomeItem(fullWithPopulatedTail, `page-${MAX_WORKSPACES - 1}`, app('another', 'another'))).toBe(true)
     expect(fullWithPopulatedTail.pages).toHaveLength(MAX_WORKSPACES)
   })
@@ -115,6 +130,9 @@ describe('home workspace model', () => {
     expect(classifyHomeGesture(0, 72, 3)).toBe('overview-close')
     expect(classifyHomeGesture(64, 0, 1)).toBe('previous')
     expect(classifyHomeGesture(-64, 0, 1)).toBe('next')
+    // Diagonal one-finger swipes also page: the sweep is classified on the nearest axis.
+    expect(classifyHomeGesture(100, 100, 1)).toBe('previous')
+    expect(classifyHomeGesture(-100, -100, 1)).toBe('next')
     expect(classifyHomeGesture(-64, 0, 2)).toBe('next')
     expect(classifyHomeGesture(64, 0, 2)).toBe('previous')
     expect(classifyHomeGesture(0, -64, 2)).toBe('next')
@@ -126,12 +144,46 @@ describe('home workspace model', () => {
     expect(classifyHomeGesture(63, 0, 2)).toBeNull()
     expect(classifyHomeGesture(0, -71, 3)).toBeNull()
     expect(classifyHomeGesture(63, 0, 1)).toBeNull()
-    expect(classifyHomeGesture(100, 100, 1)).toBeNull()
     expect(classifyHomeGesture(100, 0, 3)).toBeNull()
     expect(classifyHomeGesture(Number.NaN, 100, 1)).toBeNull()
     expect(classifyHomeGesture(Number.POSITIVE_INFINITY, 0, 2)).toBeNull()
     expect(classifyHomeGesture(0, Number.NEGATIVE_INFINITY, 2)).toBeNull()
     expect(classifyHomeGesture(-100, 0, 0)).toBeNull()
     expect(classifyHomeGesture(-100, 0, 4)).toBeNull()
+  })
+
+  describe('orb grid map (homeGridCols / homeGridNeighbors / homeHueForScreen)', () => {
+    it('builds a square-ish row-major grid both the orb and the studio can agree on', () => {
+      expect(homeGridCols(0)).toBe(1)
+      expect(homeGridCols(1)).toBe(1)
+      expect(homeGridCols(2)).toBe(2)
+      expect(homeGridCols(5)).toBe(3)
+      expect(homeGridCols(9)).toBe(3)
+      expect(homeGridCols(24)).toBe(5) // capped at MAX_WORKSPACES
+      expect(homeGridCols(Number.NaN)).toBe(1)
+    })
+
+    it('gives linear left/right neighbors and row-jump up/down neighbors', () => {
+      // 7 pages → cols 3 → rows of 3, 3, 1
+      const neighborsOf = (index: number) => {
+        const n = homeGridNeighbors(index, 7)
+        return [n.left, n.right, n.up, n.down]
+      }
+      expect(neighborsOf(0)).toEqual([-1, 1, -1, 3])
+      expect(neighborsOf(2)).toEqual([1, 3, -1, 5]) // right crosses into the next row (linear paging)
+      expect(neighborsOf(3)).toEqual([2, 4, 0, 6])
+      expect(neighborsOf(6)).toEqual([5, -1, 3, -1]) // last page: left wall and floor
+      expect(homeGridNeighbors(-1, 3).left).toBe(-1) // out-of-range reads as all walls
+    })
+
+    it('assigns stable per-screen hues on the color wheel', () => {
+      expect(homeHueForScreen(0)).toBe(homeHueForScreen(0))
+      expect(homeHueForScreen(0)).not.toBe(homeHueForScreen(1))
+      for (let i = 0; i < 24; i++) {
+        const hue = homeHueForScreen(i)
+        expect(hue).toBeGreaterThanOrEqual(0)
+        expect(hue).toBeLessThan(360)
+      }
+    })
   })
 })

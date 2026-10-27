@@ -35,6 +35,7 @@ jobs:
   meta-check:
     name: Version & Metadata
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # REVIEW-2026-10-27 P2-OPS-4
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -63,10 +64,50 @@ jobs:
       - name: License file exists
         run: test -f LICENSE
 
+      # REVIEW-2026-10-27 P1-OPS-1 follow-up: the Windows installer once
+      # shipped with an unbalanced paren that killed every `irm | iex`.
+      # Parse it the way PowerShell would, without executing any scriptbody.
+      # pwsh is preinstalled on GitHub-hosted runners.
+      - name: Windows installer parses
+        run: pwsh -NoProfile -Command "[scriptblock]::Create((Get-Content install.ps1 -Raw)) > $null; Write-Host 'install.ps1 parses'"
+
+  # ─── Frontend unit tests (gating) ─────────────────────────────────
+  # REVIEW-2026-10-27 P1-OPS-2: `npm test` used to run only inside
+  # wasm-build, whose vitest step carries `continue-on-error` (a leaked
+  # worker handle must not block the bundle). That meant no failure of the
+  # 267-file suite could ever turn the pipeline red. This standalone job is
+  # the real gate: same flags, no continue-on-error, cached Node, 20-minute
+  # ceiling. wasm-build keeps its soft-gate step for the bundle only.
+  frontend-tests:
+    name: Frontend Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx vue-tsc --noEmit
+
+      - name: Unit tests (hard gate)
+        run: >-
+          npm test -- --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000
+          --teardownTimeout=15000 --reporter=default --reporter=hanging-process
+
   # ─── Rust: Lint & Test ─────────────────────────────────────────────
   rust-check:
     name: Rust Lint & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 40  # REVIEW-2026-10-27 P2-OPS-4
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -168,6 +209,7 @@ jobs:
   docker-build:
     name: Docker Build
     runs-on: ubuntu-latest
+    timeout-minutes: 45  # REVIEW-2026-10-27 P2-OPS-4
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -256,6 +298,7 @@ jobs:
   audit:
     name: Audit Dependencies
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # REVIEW-2026-10-27 P2-OPS-4
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -292,6 +335,7 @@ jobs:
   wasm-build:
     name: Build WASM (crate + web bundle)
     runs-on: ubuntu-latest
+    timeout-minutes: 45  # REVIEW-2026-10-27 P2-OPS-4
     concurrency:
       group: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && 'cybermanju-pages-content-build' || format('wasm-build-{0}', github.ref) }}
       cancel-in-progress: false
@@ -340,12 +384,10 @@ jobs:
         run: npx vue-tsc --noEmit
 
       - name: Frontend unit tests
-        # The suite reports its files quickly but Vitest can stall during
-        # worker/process shutdown when a test leaks a live handle. Report the
-        # leaked handle and bound the step; per-test timeouts alone cannot
-        # stop a synchronous worker or a stuck shutdown. It must not block
-        # the wasm bundle either: this job exists to ship the web bundle, and
-        # the same suite runs in its own right via the audit/type gates.
+        # REVIEW-2026-10-27 P1-OPS-2: soft gate only. The suite that CAN fail
+        # the pipeline is the standalone `frontend-tests` job; this copy keeps
+        # a leaked worker handle / shutdown stall from blocking the wasm
+        # bundle while still reporting failures with the same flags.
         continue-on-error: true
         timeout-minutes: 15
         run: >-
@@ -525,6 +567,7 @@ jobs:
   windows-build:
     name: Build Windows
     runs-on: windows-latest
+    timeout-minutes: 60  # REVIEW-2026-10-27 P2-OPS-4
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -584,6 +627,7 @@ jobs:
   linux-build:
     name: Build Linux (deb+AppImage+rpm)
     runs-on: ubuntu-latest
+    timeout-minutes: 50  # REVIEW-2026-10-27 P2-OPS-4
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -690,6 +734,7 @@ jobs:
   flatpak-build:
     name: Build Linux (Flatpak)
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # REVIEW-2026-10-27 P2-OPS-4
     # Only waits for `dist-linux-deb`, not for lint.
     needs: linux-build
     steps:
@@ -733,6 +778,7 @@ jobs:
   arch-build:
     name: Build Linux (Arch/CachyOS)
     runs-on: ubuntu-latest
+    timeout-minutes: 50  # REVIEW-2026-10-27 P2-OPS-4
     # Deliberately waits on nothing: this job runs its own rustup + full
     # build inside an Arch container and downloads no artifacts from any
     # other job, so `needs` here was pure latency (11 minutes of it).
@@ -935,6 +981,7 @@ jobs:
     # APK before the combined native/UI fixes are ready for delivery.
     if: ${{ !contains(github.event.head_commit.message, '[skip android]') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 60  # REVIEW-2026-10-27 P2-OPS-4
     env:
       # Pinned to the AGP default (AGP 9.x release notes). The Tauri template
       # sets compileSdk/targetSdk 36 with no ndkVersion, so Gradle demands
@@ -1216,6 +1263,7 @@ jobs:
   ios-build:
     name: Build iOS (unsigned device IPA)
     runs-on: macos-latest
+    timeout-minutes: 50  # REVIEW-2026-10-27 P2-OPS-4
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1342,6 +1390,7 @@ jobs:
   macos-build:
     name: Build macOS
     runs-on: macos-latest
+    timeout-minutes: 55  # REVIEW-2026-10-27 P2-OPS-4
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1400,6 +1449,7 @@ jobs:
   cli-build:
     name: Build CLI (cyb)
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # REVIEW-2026-10-27 P2-OPS-4
     # Pure Go (no cgo): one runner cross-compiles desktop and Termux targets.
     steps:
       - name: Checkout repository
@@ -1465,6 +1515,7 @@ jobs:
   deploy-pages:
     name: Deploy to GitHub Pages
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # REVIEW-2026-10-27 P2-OPS-4
     needs: [wasm-build, rust-check]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     concurrency:

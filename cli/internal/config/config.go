@@ -135,7 +135,10 @@ func Load() (File, error) {
 	return f, nil
 }
 
-// Save writes the profile with 0600 permissions.
+// Save writes the profile with 0600 permissions. os.WriteFile applies
+// the mode piece only at create time (review P1-CLI-3): a profile that
+// already exists keeps whatever perms it had, so Save Chmods after every
+// write instead of claiming 0600 it does not enforce.
 func Save(f File) error {
 	path, err := Path()
 	if err != nil {
@@ -144,12 +147,22 @@ func Save(f File) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
+	// MkdirAll leaves an existing directory's perms alone; repair it every
+	// save so a copied/looser dir cannot leak the profile location.
+	_ = os.Chmod(filepath.Dir(path), 0o700)
 	f.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	raw, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(raw, '\n'), 0o600)
+	if err := os.WriteFile(path, append(raw, '\n'), 0o600); err != nil {
+		return err
+	}
+	// And repair existing-file perms the same way.
+	if err := os.Chmod(path, 0o600); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ResolveServer picks the dashboard URL: flag > env > file > default.

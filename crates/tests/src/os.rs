@@ -26,7 +26,11 @@ fn scratch_volume() -> &'static std::path::Path {
 }
 
 fn auth(d: &cybermanju_web::WebDashboard) -> String {
-    bearer(&mint(d, "user", now_secs() + 3_600, JTI))
+    // REVIEW-2026-10-27 P1-RUST-1: cybsh exec and the volume writer are
+    // admin-gated on the REST transport now, so the happy-path tests mint an
+    // admin principal. The user-role denial is pinned by
+    // `os_exec_and_write_are_admin_gated` below.
+    bearer(&mint(d, "admin", now_secs() + 3_600, JTI))
 }
 
 fn json_of(response: &str) -> serde_json::Value {
@@ -229,4 +233,62 @@ fn file_commands_act_on_a_real_volume() {
         !volume.join("volume/os-suite").exists(),
         "the suite cleaned up after itself"
     );
+}
+
+/// REVIEW-2026-10-27 P1-RUST-1: cybsh exec and the volume writer reach the
+/// kernel outside the `/api/files/*` per-file ACL (`check_access`/
+/// `deny_file`). On the REST transport they are admin-gated — a plain
+/// `user` (or viewer) gets 403 before any byte moves; reads stay
+/// Authenticated.
+#[test]
+fn os_exec_and_write_are_admin_gated() {
+    let (_dir, d) = mk_dashboard(3456);
+
+    for role in ["user", "viewer"] {
+        let token = bearer(&mint(d, role, now_secs() + 3_600, JTI));
+        let resp = call(
+            &d,
+            "POST",
+            "/api/os/exec",
+            r#"{"line":"echo hi"}"#,
+            Some(&token),
+        );
+        assert_eq!(
+            status_of(&resp),
+            403,
+            "{role} must not exec cybsh over REST: {resp}"
+        );
+        let body = json_of(&resp);
+        assert!(
+            body["message"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("auth:"),
+            "denials speak the AGENT-1 prefix: {body}"
+        );
+
+        let resp = call(
+            &d,
+            "PUT",
+            "/api/os/write",
+            r#"{"path":"/pwned.txt","content":"nope"}"#,
+            Some(&token),
+        );
+        assert_eq!(
+            status_of(&resp),
+            403,
+            "{role} must not write the volume over REST: {resp}"
+        );
+    }
+
+    // Admin retains full cybsh and volume writes.
+    let admin = bearer(&mint(d, "admin", now_secs() + 3_600, JTI));
+    let resp = call(
+        &d,
+        "POST",
+        "/api/os/exec",
+        r#"{"line":"echo admin-runs"}"#,
+        Some(&admin),
+    );
+    assert_eq!(status_of(&resp), 200, "admin exec: {resp}");
 }

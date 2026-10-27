@@ -44,24 +44,27 @@ describe('scrubbed device environment', () => {
     expect(hermetic.PWD).toBe('/home/u/vault')
   })
 
-  it('prepends app paths and dedupes PATH entries', () => {
+  it('prepends app paths and dedupes PATH entries (first occurrence wins)', () => {
     const env = buildDeviceShellEnv(
       { PATH: '/system/bin:/bin:/system/bin' },
       { pathPrefix: ['/data/local/tmp/cyb/bin', '/bin'] },
     )
-    expect(env.PATH).toBe('/data/local/tmp/cyb/bin:/system/bin:/bin')
+    expect(env.PATH).toBe('/data/local/tmp/cyb/bin:/bin:/system/bin')
   })
 
-  it('defaults HOME to a harmless path when the host hides it', () => {
+  it('defaults HOME to a harmless path and never inherits the host HOME', () => {
     const env = buildDeviceShellEnv({ PATH: '/bin' })
     expect(env.HOME).toBe('/tmp')
-    expect(buildDeviceShellEnv({ PATH: '/bin', HOME: '/root' }).HOME).toBe('/root')
+    // PATH/locale-only contract: the host HOME is scrubbed, not forwarded.
+    expect(buildDeviceShellEnv({ PATH: '/bin', HOME: '/root' }).HOME).toBe('/tmp')
+    // The caller hands an explicit session HOME instead (per-session TMP/HOME).
+    expect(buildDeviceShellEnv({ PATH: '/bin' }, { home: '/home/u/vault' }).HOME).toBe('/home/u/vault')
   })
 
   it('strips newlines from PWD/HOME overrides (injection hygiene)', () => {
     const env = buildDeviceShellEnv({ PATH: '/bin' }, { workingDirectory: '/home/u\nEVIL=1', home: '/x\r\nc' })
     expect(env.PWD).toBe('/home/uEVIL=1')
-    expect(env.HOME).toBe('/xrc')
+    expect(env.HOME).toBe('/xc')
   })
 
   it('quotes shell-dangerous dotenv values and round-trips', () => {

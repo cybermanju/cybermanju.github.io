@@ -27,6 +27,38 @@ export const HOME_WORKSPACE_KEY = 'cybermanju.home.workspaces.v1'
 export const MAX_WORKSPACES = 24
 export const MAX_ITEMS_PER_WORKSPACE = 32
 
+/** One-finger orb/home drag step: horizontal pages linearly, vertical pages by grid row. */
+export type HomeGridDelta = { dx: -1 | 0 | 1; dy: -1 | 0 | 1 }
+
+/**
+ * The orb navigator reads the linear page list as a square-ish row-major grid so
+ * drags can also step up/down between rows. Both the orb and the studio call
+ * this, so both sides always agree on the same layout.
+ */
+export function homeGridCols(count: number): number {
+  if (!Number.isFinite(count) || count <= 1) return 1
+  return Math.min(MAX_WORKSPACES, Math.ceil(Math.sqrt(count)))
+}
+
+/** Neighbor page indexes (-1 = wall) in the row-major grid; up/down jump ±cols. */
+export function homeGridNeighbors(index: number, count: number): { left: number; right: number; up: number; down: number } {
+  const cols = homeGridCols(count)
+  return {
+    left: index > 0 ? index - 1 : -1,
+    right: index >= 0 && index + 1 < count ? index + 1 : -1,
+    up: index - cols >= 0 ? index - cols : -1,
+    down: index + cols < count ? index + cols : -1,
+  }
+}
+
+/** Deterministic tint hue per screen index (0-359), stable across sessions. */
+export function homeHueForScreen(index: number): number {
+  let x = Math.imul(Math.max(0, index) ^ 0x9e3779b9, 2654435761)
+  x = Math.imul(x ^ (x >>> 13), 1274126177)
+  return (((x ^ (x >>> 16)) % 360) + 360) % 360
+}
+
+
 let fallbackCounter = 0
 function uniqueId(): string {
   try {

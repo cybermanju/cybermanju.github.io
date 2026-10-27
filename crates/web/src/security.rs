@@ -257,6 +257,17 @@ pub fn required_role(method: &str, segments: &[&str]) -> RequiredRole {
         // Sneakernet bundles (§2B.4): export walks the whole op-log and
         // import merges foreign rows — Admin, like backup export.
         ["api", "sync", "bundle", _] => RequiredRole::Admin,
+        // REVIEW-2026-10-27 P1-RUST-1 (P0-1 residual): cybsh and the volume
+        // writer hit the kernel directly, outside the per-file ACL that
+        // `check_access`/`deny_file` enforces on `/api/files/*` arms. On a
+        // multi-user REST transport any `user` could `cat` or overwrite
+        // another user's volume-backed file rows. Desktop Tauri keeps its
+        // own IPC surface (unchanged); the REST write surface is Admin like
+        // `secrets`/`cron`. Residual (documented, needs the kernel's
+        // resolve→file-id gate): `GET /api/os/stat|ls|du` listing stays
+        // Authenticated — path-level read ACLs are the follow-up task.
+        ["api", "os", "exec"] if method == "POST" => RequiredRole::Admin,
+        ["api", "os", "write"] if method == "PUT" => RequiredRole::Admin,
 
         // ── Everything else: any authenticated session ───────────
         _ => RequiredRole::Authenticated,
@@ -960,6 +971,11 @@ mod tests {
             ("GET", segs(&["api", "share-links"])),
             ("DELETE", segs(&["api", "share-links", "id"])),
             ("DELETE", segs(&["api", "sync", "configs", "id"])),
+            // REVIEW-2026-10-27 P1-RUST-1: volume mutation surfaces — cybsh
+            // exec and the raw volume writer run outside the per-file ACL,
+            // so they are admin-gated on the REST transport.
+            ("POST", segs(&["api", "os", "exec"])),
+            ("PUT", segs(&["api", "os", "write"])),
         ] {
             assert_eq!(required_role(m, &s), RequiredRole::Admin, "{m} {:?}", s);
         }

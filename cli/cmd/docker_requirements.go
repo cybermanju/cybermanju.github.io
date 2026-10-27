@@ -78,7 +78,7 @@ func installDockerWithConsent() error {
 		return fmt.Errorf("docker not found; interactive permission is required to install it. Rerun cyb serve up in a terminal, or install Docker manually")
 	}
 	confirmed := false
-	form := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("Docker is required for the local dashboard").Description("Install Docker using " + plan.manager + "? This requires administrator permission.").Affirmative("Install Docker").Negative("Cancel").Value(&confirmed)))
+	form := ui.NewForm(huh.NewGroup(huh.NewConfirm().Title("Docker is required for the local dashboard").Description("Install Docker using " + plan.manager + "? This requires administrator permission.").Affirmative("Install Docker").Negative("Cancel").Value(&confirmed)))
 	if err := form.Run(); err != nil {
 		return err
 	}

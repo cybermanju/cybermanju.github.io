@@ -134,3 +134,31 @@ func TestBackendResolution(t *testing.T) {
 		t.Fatal("empty supa must not be expired")
 	}
 }
+
+// TestSaveRepairsPermissions: os.WriteFile applies mode only at create
+// time, so a profile that exists with looser perms must be Chmod'd back
+// to 0600 on every save (review P1-CLI-3).
+func TestSaveRepairsPermissions(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	path, err := Path()
+	if err != nil {
+		t.Fatalf("Path: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := Save(File{}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("profile perm = %v, want 0600", fi.Mode().Perm())
+	}
+}

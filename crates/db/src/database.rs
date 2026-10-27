@@ -1556,12 +1556,64 @@ impl Database {
     // `SyncConfig.token` is `skip_serializing`, so the JSON row never holds
     // it. The side table does — written by `save_config`, merged back by
     // `get_config`/`list_configs`, removed by `delete_config`.
+    //
+    // REVIEW-2026-10-27 P1-RUST-2: values are SEALED at rest (keystore
+    // master passphrase → ChaCha-Poly AEAD, base64 in a versioned JSON
+    // envelope) — in clear text a copied `cybermanju.db` used to carry live
+    // provider API keys and OAuth tokens. Legacy plain rows keep working
+    // (passthrough on read, re-sealed on next write). No master passphrase
+    // → writes refuse with `unsupported:` (fail-closed: never store what
+    // cannot be sealed); reads warn loudly and answer `None`, so a listing
+    // stays alive and the provider honestly reports `auth:` downstream.
+
+    /// Seal a side-secret into the storage envelope. Serial to the legacy
+    /// plaintext rows below: any value that does not parse as the envelope
+    /// is treated as legacy plaintext.
+    fn seal_sync_secret(secret: &str) -> Result<String> {
+        let passphrase = cybermanju_crypto::keystore::master_passphrase().ok_or_else(|| {
+            anyhow::anyhow!("unsupported: no master passphrase available to seal a provider credential")
+        })?;
+        let payload = cybermanju_crypto::keystore::seal_str(&passphrase, secret.as_bytes())
+            .map_err(|e| anyhow::anyhow!("integrity: could not seal a provider credential: {e}"))?;
+        Ok(serde_json::json!({ "v": 1, "payload": payload }).to_string())
+    }
+
+    /// Unseal a stored secret. Legacy plaintext (never envelope-shaped)
+    /// passes through unchanged so old databases keep working; re-sealing
+    /// happens on the next write through [`Self::put_sync_secret`].
+    fn unseal_sync_secret(raw: &str) -> Result<Option<String>> {
+        let envelope: serde_json::Value = match serde_json::from_str(raw) {
+            Ok(v) => v,
+            Err(_) => return Ok(Some(raw.to_string())), // legacy plaintext
+        };
+        if envelope.get("v") != Some(&serde_json::json!(1)) {
+            return Ok(Some(raw.to_string()));
+        }
+        let payload = envelope
+            .get("payload")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                anyhow::anyhow!("integrity: sealed credential envelope has no payload")
+            })?;
+        let Some(passphrase) = cybermanju_crypto::keystore::master_passphrase() else {
+            // Degraded env (no HOME, no env var): keep listings/services
+            // alive, lose the credential loudly — never half-decrypt.
+            log::warn!("sealed provider credential present but no master passphrase: answering None");
+            return Ok(None);
+        };
+        match cybermanju_crypto::keystore::open_sealed_str(&passphrase, payload) {
+            Ok(plain) => Ok(Some(plain)),
+            // Wrong passphrase or corrupted blob: refuse, never guess.
+            Err(e) => Err(anyhow::anyhow!("integrity: could not unseal a stored credential: {e}")),
+        }
+    }
 
     pub fn put_sync_secret(&self, config_id: &str, secret: &str) -> Result<()> {
+        let sealed = Self::seal_sync_secret(secret)?;
         let tx = self.db.begin_write()?;
         {
             let mut table = tx.open_table(SYNC_SECRETS_TABLE)?;
-            table.insert(config_id, secret)?;
+            table.insert(config_id, sealed.as_str())?;
         }
         tx.commit()?;
         Ok(())
@@ -1570,7 +1622,10 @@ impl Database {
     pub fn get_sync_secret(&self, config_id: &str) -> Result<Option<String>> {
         let tx = self.db.begin_read()?;
         let table = tx.open_table(SYNC_SECRETS_TABLE)?;
-        Ok(table.get(config_id)?.map(|v| v.value().to_string()))
+        match table.get(config_id)?.map(|v| v.value().to_string()) {
+            None => Ok(None),
+            Some(raw) => Self::unseal_sync_secret(&raw),
+        }
     }
 
     pub fn remove_sync_secret(&self, config_id: &str) -> Result<bool> {

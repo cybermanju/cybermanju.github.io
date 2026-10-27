@@ -35,8 +35,8 @@ describe('home workspaces', () => {
 
   it('roundtrips valid state and does not drop unknown Android app references', () => {
     const input: HomeWorkspaceState = { version: 1, activeId: 'page', theme: 'pixel', pages: [
-      { id: 'page', title: 'Apps', items: [{ id: 'a', kind: 'app', ref: 'com.vendor.android.special' }] },
-      { id: 'empty', title: '', items: [] },
+      { id: 'page', title: 'Apps', items: [{ id: 'a', kind: 'app', ref: 'com.vendor.android.special' }], columns: 4, rows: 4 },
+      { id: 'empty', title: '', items: [], columns: 4, rows: 4 },
     ] }
     expect(normalizeHomeState(JSON.parse(JSON.stringify(input)), [])).toEqual(input)
   })
@@ -94,8 +94,10 @@ describe('home workspaces', () => {
     expect(classifyHomeGesture(0, 72, 3)).toBe('overview-close')
     expect(classifyHomeGesture(64, 0, 1)).toBe('previous')
     expect(classifyHomeGesture(-64, 0, 1)).toBe('next')
-    expect(classifyHomeGesture(64, 64, 1)).toBeNull()
+    // Diagonal one-finger swipes also page along the nearest axis.
+    expect(classifyHomeGesture(64, 64, 1)).toBe('previous')
+    expect(classifyHomeGesture(-100, -100, 1)).toBe('next')
     expect(classifyHomeGesture(200, 0, 2)).toBe('previous')
-    expect(classifyHomeGesture(0, 100, 1)).toBeNull()
+    expect(classifyHomeGesture(0, 100, 1)).toBe('previous')
   })
 })

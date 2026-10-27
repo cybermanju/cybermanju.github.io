@@ -44,6 +44,7 @@ jobs:
   resolve:
     name: Resolve tag & mode
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # REVIEW-2026-10-27 P2-OPS-4
     outputs:
       tag: ${{ steps.t.outputs.tag }}
       reuse_run_id: ${{ steps.t.outputs.reuse_run_id }}
@@ -85,6 +86,7 @@ jobs:
   rust-check:
     name: Rust Lint & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 40  # REVIEW-2026-10-27 P2-OPS-4
     needs: resolve
     # Skipped in reuse mode: the reused CI run already passed these gates
     # on the same tree, and this job compiles the workspace (a rebuild).
@@ -140,6 +142,7 @@ jobs:
   wasm-build:
     name: Build WASM (Web)
     runs-on: ubuntu-latest
+    timeout-minutes: 45  # REVIEW-2026-10-27 P2-OPS-4
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Checkout repository
@@ -207,6 +210,7 @@ jobs:
   windows-build:
     name: Build Windows
     runs-on: windows-latest
+    timeout-minutes: 60  # REVIEW-2026-10-27 P2-OPS-4
     # No `needs: rust-check`: the build compiles independently and
     # create-release still gates on rust-check — waiting here was pure
     # latency on the release critical path. Same for linux/macos/android
@@ -257,6 +261,7 @@ jobs:
   linux-build:
     name: Build Linux (deb+AppImage+rpm)
     runs-on: ubuntu-latest
+    timeout-minutes: 50  # REVIEW-2026-10-27 P2-OPS-4
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Checkout repository
@@ -354,6 +359,7 @@ jobs:
   flatpak-build:
     name: Build Linux (Flatpak)
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # REVIEW-2026-10-27 P2-OPS-4
     # Only waits for `release-linux-deb`, not for lint. Matches ci.yml.
     needs: linux-build
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
@@ -397,6 +403,7 @@ jobs:
   arch-build:
     name: Build Linux (Arch/CachyOS)
     runs-on: ubuntu-latest
+    timeout-minutes: 50  # REVIEW-2026-10-27 P2-OPS-4
     # Deliberately waits on nothing: this job runs its own rustup + full
     # build inside an Arch container and downloads no artifacts from any
     # other job, so `needs` here was pure latency. Matches ci.yml
@@ -544,6 +551,7 @@ jobs:
   macos-build:
     name: Build macOS
     runs-on: macos-latest
+    timeout-minutes: 55  # REVIEW-2026-10-27 P2-OPS-4
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Checkout repository
@@ -589,6 +597,7 @@ jobs:
   android-build:
     name: Build Android
     runs-on: ubuntu-latest
+    timeout-minutes: 60  # REVIEW-2026-10-27 P2-OPS-4
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     env:
       # Pinned to the AGP default (AGP 9.x release notes). The Tauri template
@@ -827,6 +836,7 @@ jobs:
   ios-build:
     name: Build iOS (unsigned device IPA)
     runs-on: macos-latest
+    timeout-minutes: 50  # REVIEW-2026-10-27 P2-OPS-4
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Checkout repository
@@ -947,6 +957,7 @@ jobs:
   cli-build:
     name: Build CLI (cyb)
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # REVIEW-2026-10-27 P2-OPS-4
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.reuse_run_id == ''
     steps:
       - name: Checkout repository
@@ -1012,6 +1023,7 @@ jobs:
   docker-build:
     name: Docker Build & Publish
     runs-on: ubuntu-latest
+    timeout-minutes: 45  # REVIEW-2026-10-27 P2-OPS-4
     # Independent of the lint gate (create-release still requires
     # rust-check) — builds in parallel with everything else.
     needs: resolve
@@ -1070,6 +1082,7 @@ jobs:
   fetch-last-build:
     name: Fetch last CI build (no rebuild)
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # REVIEW-2026-10-27 P2-OPS-4
     needs: resolve
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.reuse_run_id != ''
     permissions:
@@ -1219,6 +1232,7 @@ jobs:
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # REVIEW-2026-10-27 P2-OPS-4
     # Fan-in over two mutually exclusive modes: in each mode half the needs
     # above are skipped, and a skipped need skips its dependents by default.
     # Run unless something actually failed or was cancelled instead.
@@ -1292,6 +1306,8 @@ jobs:
         id: notes
         env:
           CUSTOM_NOTES: ${{ inputs.notes }}
+          # 1 = reuse mode (dist-* re-shipped, docker-build skipped).
+          REUSE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.reuse_run_id != '' && '1' || '0' }}
         run: |
           CURRENT_TAG="${{ needs.resolve.outputs.tag }}"
           # Previous tag = newest tag other than the one being released.
@@ -1327,14 +1343,21 @@ jobs:
           echo "| iOS | unsigned arm64 device \`.ipa\` (sign before installation) |" >> release_notes.md
           echo "| Terminal | \`cyb-*.tar.gz\` universal CLI (\`curl -fsSL https://cybermanju.github.io/install.sh \| bash\`) |" >> release_notes.md
           echo "| Web (WASM) | \`dist-wasm.zip\` (static files for any web server) |" >> release_notes.md
-          echo "| Docker | \`docker pull ${IMAGE}:latest\` |" >> release_notes.md
-          echo "" >> release_notes.md
-          echo "### Docker" >> release_notes.md
-          echo "" >> release_notes.md
-          echo '```bash' >> release_notes.md
-          echo "# LAN-only by default; publish on your NAS address with -p 192.168.x.x:3456:3456" >> release_notes.md
-          echo "docker run -d -p 127.0.0.1:3456:3456 -v /DATA/AppData/cybermanju-os/config:/data ${IMAGE}:latest" >> release_notes.md
-          echo '```' >> release_notes.md
+          # REUSE mode ships one green CI run's dist-* artifacts unchanged and
+          # skips docker-build (review P2-OPS-3): never advertise a GHCR image
+          # that this run did not build or tag.
+          if [ "${REUSE_MODE:-0}" = "1" ]; then
+            echo "| Docker | reuse-run mode did not rebuild GHCR — pull \`ghcr.io/${OWNER}/cybermanju-os:latest\` for the previous build, or \`cyb serve up\` |" >> release_notes.md
+          else
+            echo "| Docker | \`docker pull ${IMAGE}:latest\` |" >> release_notes.md
+            echo "" >> release_notes.md
+            echo "### Docker" >> release_notes.md
+            echo "" >> release_notes.md
+            echo '```bash' >> release_notes.md
+            echo "# LAN-only by default; publish on your NAS address with -p 192.168.x.x:3456:3456" >> release_notes.md
+            echo "docker run -d -p 127.0.0.1:3456:3456 -v /DATA/AppData/cybermanju-os/config:/data ${IMAGE}:latest" >> release_notes.md
+            echo '```' >> release_notes.md
+          fi
           echo "" >> release_notes.md
           echo "## Installation" >> release_notes.md
           echo "" >> release_notes.md

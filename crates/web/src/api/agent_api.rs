@@ -3046,20 +3046,32 @@ pub fn approve_job_for(
     is_admin: bool,
 ) -> Result<bool, String> {
     crate::security::validate_id(job_id)?;
-    let (tool, owner_ok): (Option<String>, Result<(), String>) = {
+    let (tool, salient, owner_ok): (Option<String>, Option<String>, Result<(), String>) = {
         let registry = jobs().lock().unwrap_or_else(|p| p.into_inner());
         let job = registry
             .get(job_id)
             .ok_or_else(|| format!("not_found: agent job '{job_id}' not found"))?;
         let owner_ok = check_job_owner(job, requester, is_admin);
-        let tool = job
+        let (tool, salient) = job
             .state
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .pending
             .as_ref()
-            .map(|pending| pending.tool.clone());
-        (tool, owner_ok)
+            .map(|pending| {
+                (
+                    pending.tool.clone(),
+                    // The exact command the user saw (bash-like tools —
+                    // review P1-RUST-5: "allow always" pins only that).
+                    pending
+                        .input
+                        .get("command")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_owned),
+                )
+            })
+            .unwrap_or((None, None));
+        (tool, salient, owner_ok)
     };
     // Fail closed before recording anything: a stranger's answer must never
     // land in another user's approval slot.
@@ -3101,7 +3113,30 @@ pub fn approve_job_for(
                         let owner = job.owner_id.clone();
                         drop(registry);
                         if let Ok(mut config) = get_config(&guard, &config_id) {
-                            cybermanju_agent::config::remember_allow(&mut config.permission, &tool);
+                            let widened = cybermanju_agent::config::remember_allow_for(
+                                &mut config.permission,
+                                &tool,
+                                salient.as_deref(),
+                            );
+                            if !widened {
+                                // REVIEW-2026-10-27 P1-RUST-5: a granular
+                                // ruleset (or one holding a Deny) must not be
+                                // silently erased or widened — say so.
+                                log::info!(
+                                    "remember-allow refused: tool '{tool}' has a granular \
+                                     ruleset; standing rules preserved"
+                                );
+                                let _ = guard.log_audit(
+                                    "remember_allow_refused",
+                                    "agent_config",
+                                    &config_id,
+                                    if owner.is_empty() { None } else { Some(owner.as_str()) },
+                                    Some(
+                                        serde_json::json!({ "tool": tool, "reason": "granular-ruleset" }),
+                                    ),
+                                );
+                                return Ok(true);
+                            }
                             drop(guard);
                             if let Ok(guard) = db.read() {
                                 match save_config(&guard, config) {

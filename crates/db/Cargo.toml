@@ -8,7 +8,9 @@ description = "redb database layer with parent index"
 anyhow = "1"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+cybermanju-crypto = { path = "../crypto" }
 cybermanju-types = { path = "../types" }
+log = "0.4"
 rand_core = { version = "0.6", features = ["getrandom"] }
 redb = "2"
 serde = { version = "1", features = ["derive"] }

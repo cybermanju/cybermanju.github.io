@@ -1,0 +1,35 @@
+// CyberManju OS — Orb showcase styles (src/orb-showcase/main.ts inline classes are styled globally here).
+// Role: dark showcase stage sizing the orb up for appreciation/feedback.
+// Exports: nothing (demo-only styles; file header kept per repo convention).
+// Integrates: src/orb-showcase/main.ts markup.
+/* Centered stage, big orb (component is fixed 112px → scaled for display), readable readout. */
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body { overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.stage {
+  --stage-bg: radial-gradient(120% 100% at 50% 0%, #10131c 0%, #0b0d11 55%, #05060a 100%);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  place-items: center;
+  gap: 8px;
+  height: 100%;
+  min-height: 600px;
+  padding: 24px;
+  color: #dfe7f5;
+  background: var(--stage-bg);
+}
+.orb-wrap { display: grid; place-items: center; }
+/* The real component is 112×112; enlarge for appreciation without touching the component. */
+.orb-wrap > .orb-navigator { transform: scale(2.75); transform-origin: center; margin: 84px 0 96px; }
+.readout { text-align: center; display: grid; gap: 4px; }
+.readout h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: .04em; color: #f2f6ff; }
+.neighbors { margin: 0; font-size: 12.5px; font-weight: 700; letter-spacing: .12em; white-space: pre; }
+.feedback { margin: 0; min-height: 16px; font-size: 11px; letter-spacing: .08em; color: #8f9bb3; }
+.screens { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 6px 0 2px; }
+.screen-chip {
+  display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  color: #cdd7ea; background: #141a26; border: 1px solid #2a3444; font: 600 11.5px/1 ui-monospace, monospace; letter-spacing: .06em;
+}
+.screen-chip.active { color: #fff; background: #1b2434; border-color: #3d4c66; }
+.screen-chip .dot { width: 9px; height: 9px; border-radius: 50%; }
+@media (max-width: 720px) { .orb-wrap > .orb-navigator { transform: scale(1.6); margin: 40px 0 52px; } .stage { min-height: 520px; } }

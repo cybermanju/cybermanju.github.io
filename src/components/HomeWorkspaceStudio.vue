@@ -27,7 +27,7 @@
       <HomeDefaultRoleAction v-if="editing" :before-request="suspendHome" />
       <label v-if="editing" class="screen-name">Screen name<input v-model="activePage.title" maxlength="40" aria-label="Screen name" /></label>
       <nav class="screen-nav" aria-label="Home screen navigation">
-        <OrbNavigator v-if="!orbHiddenOnDesktop" :screen-index="activeIndex" :screen-count="state.pages.length" :disabled="!!props.blocked || editing || !!picker || overview" :motion-reduced="motion.reduced.value" @navigate="navigateOrb" @open-apps="emit('openApps')" />
+        <OrbNavigator :screen-index="activeIndex" :screen-count="state.pages.length" :disabled="!!props.blocked || editing || !!picker || overview" :motion-reduced="motion.reduced.value" v-if="!orbHiddenOnDesktop" @navigate="navigateOrb" @open-apps="emit('openApps')" />
       </nav>
         <div v-for="page in visitedPages" v-show="page.id === state.activeId" :key="page.id" class="workspace-content" tabindex="0" aria-label="Home screen canvas" :inert="page.id !== state.activeId"
           @pointerdown="emptyPress.down" @pointermove="emptyPress.move" @pointerleave="emptyPress.cancel" @pointerup="emptyPress.cancel" @pointercancel="emptyPress.cancel"
@@ -73,7 +73,7 @@ import { useAndroidApps } from '@/composables/useAndroidApps'
 import { useHomeNativeWidgets } from '@/composables/useHomeNativeWidgets'
 import { widgetConfirmation, type NativeWidgetProvider, type NativeWidgetRecord } from '@/composables/useAndroidWidgets'
 import { homeWidgetCatalog } from '@/data/homeWidgetCatalog'
-import { HOME_WORKSPACE_KEY, MAX_ITEMS_PER_WORKSPACE, MAX_WORKSPACES, normalizeHomeState, createHomeWorkspace, addHomeItem, moveHomeItem, removeHomeItem, classifyHomeGesture, type HomeItem, type HomeWorkspace } from '@/utils/homeWorkspaces'
+import { HOME_WORKSPACE_KEY, MAX_ITEMS_PER_WORKSPACE, MAX_WORKSPACES, homeGridCols, normalizeHomeState, createHomeWorkspace, addHomeItem, moveHomeItem, removeHomeItem, classifyHomeGesture, type HomeItem, type HomeGridDelta, type HomeWorkspace } from '@/utils/homeWorkspaces'
 type HomeApp = { id: string; label: string; icon: string; image?: string }
 const props = defineProps<{ apps: HomeApp[]; initialIds: string[]; blocked?: boolean }>()
 const emit = defineEmits<{ open: [id: string]; openApps: []; customize: [id: string] }>()
@@ -156,7 +156,14 @@ async function navigate(index: number, epoch = gestureEpoch) {
     message.value = ''
   }
 }
-function navigateOrb(direction: -1 | 1) { void navigate(activeIndex.value + direction) }
+/**
+ * Directional orb step. Horizontal deltas page the linear list exactly like before;
+ * vertical deltas jump by homeGridCols rows (the shared square-ish grid the orb also uses).
+ */
+function navigateOrb(delta: HomeGridDelta) {
+  if (delta.dx) void navigate(activeIndex.value + delta.dx)
+  else void navigate(activeIndex.value + delta.dy * homeGridCols(state.value.pages.length))
+}
 async function launch(id: string) { const epoch = gestureEpoch; if (props.blocked || !await suspendHome('Could not safely hide native widgets. Unlock and return to this app, then try again. No app was opened.') || props.blocked || epoch !== gestureEpoch) return; if (id.startsWith('android:')) { try { await androidApps.openApp(id.slice(8)) } catch { message.value = 'This Android app is unavailable. Try refreshing All apps.' } } else if (props.apps.some(app => app.id === id)) emit('open', id); else message.value = 'This app is unavailable. Open All apps to choose another.' }
 async function customize(id: string) { if (props.blocked || !await suspendHome()) return; if (!id.startsWith('android:')) emit('customize', id); else message.value = 'Customize Android apps in All apps.' }
 function hasItem(kind: HomeItem['kind'], id: string) { return activePage.value.items.some(i => i.kind === kind && i.ref === id) }
